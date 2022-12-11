@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,6 +31,11 @@ BLINK_COMMON_EXPORT bool IsTrialEnabledForInsecureContext(
 BLINK_COMMON_EXPORT bool IsTrialEnabledForThirdPartyOrigins(
     base::StringPiece trial_name);
 
+// Returns true if |trial_name| should be enabled until the next response
+// from the same origin is received.
+BLINK_COMMON_EXPORT bool IsTrialPersistentToNextResponse(
+    base::StringPiece trial_name);
+
 // Returns the trial type of the given |feature|.
 OriginTrialType GetTrialType(OriginTrialFeature feature);
 
@@ -50,6 +55,10 @@ BLINK_COMMON_EXPORT bool FeatureEnabledForOS(OriginTrialFeature feature);
 
 // Returns true if |feature| can be enabled across navigations.
 BLINK_COMMON_EXPORT bool FeatureEnabledForNavigation(
+    OriginTrialFeature feature);
+
+// Returns true if |feature| has an expiry grace period.
+BLINK_COMMON_EXPORT bool FeatureHasExpiryGracePeriod(
     OriginTrialFeature feature);
 
 }  // namespace origin_trials

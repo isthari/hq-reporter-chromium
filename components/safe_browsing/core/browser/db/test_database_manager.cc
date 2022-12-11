@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,22 +67,15 @@ bool TestSafeBrowsingDatabaseManager::CheckResourceUrl(const GURL& url,
   return true;
 }
 
-AsyncMatch TestSafeBrowsingDatabaseManager::CheckUrlForHighConfidenceAllowlist(
-    const GURL& url,
-    Client* client) {
+bool TestSafeBrowsingDatabaseManager::CheckUrlForHighConfidenceAllowlist(
+    const GURL& url) {
   NOTIMPLEMENTED();
-  return AsyncMatch::NO_MATCH;
+  return false;
 }
 
 bool TestSafeBrowsingDatabaseManager::CheckUrlForSubresourceFilter(
     const GURL& url,
     Client* client) {
-  NOTIMPLEMENTED();
-  return true;
-}
-
-bool TestSafeBrowsingDatabaseManager::CheckUrlForAccuracyTips(const GURL& url,
-                                                              Client* client) {
   NOTIMPLEMENTED();
   return true;
 }
@@ -113,11 +106,6 @@ safe_browsing::ThreatSource TestSafeBrowsingDatabaseManager::GetThreatSource()
 }
 
 bool TestSafeBrowsingDatabaseManager::IsDownloadProtectionEnabled() const {
-  NOTIMPLEMENTED();
-  return false;
-}
-
-bool TestSafeBrowsingDatabaseManager::IsSupported() const {
   NOTIMPLEMENTED();
   return false;
 }

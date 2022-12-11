@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,8 @@
 #include "base/logging.h"
 #include "base/notreached.h"
 #include "base/sequence_checker.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/scoped_blocking_call.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "net/dns/dns_hosts.h"
 #include "net/dns/serial_worker.h"
@@ -30,12 +30,7 @@ const base::TimeDelta DnsConfigService::kInvalidationTimeout =
 DnsConfigService::DnsConfigService(
     base::FilePath::StringPieceType hosts_file_path,
     absl::optional<base::TimeDelta> config_change_delay)
-    : watch_failed_(false),
-      have_config_(false),
-      have_hosts_(false),
-      need_update_(false),
-      last_sent_empty_(true),
-      config_change_delay_(config_change_delay),
+    : config_change_delay_(config_change_delay),
       hosts_file_path_(hosts_file_path) {
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
@@ -137,15 +132,17 @@ DnsConfigService::HostsReader::CreateWorkItem() {
       std::make_unique<DnsHostsFileParser>(hosts_file_path_));
 }
 
-void DnsConfigService::HostsReader::OnWorkFinished(
+bool DnsConfigService::HostsReader::OnWorkFinished(
     std::unique_ptr<SerialWorker::WorkItem> serial_worker_work_item) {
   DCHECK(serial_worker_work_item);
 
   WorkItem* work_item = static_cast<WorkItem*>(serial_worker_work_item.get());
   if (work_item->hosts_.has_value()) {
     service_->OnHostsRead(std::move(work_item->hosts_).value());
+    return true;
   } else {
     LOG(WARNING) << "Failed to read DnsHosts.";
+    return false;
   }
 }
 
@@ -248,7 +245,7 @@ void DnsConfigService::OnCompleteConfig() {
 void DnsConfigService::OnConfigChanged(bool succeeded) {
   if (config_change_delay_) {
     // Ignore transient flutter of config source by delaying the signal a bit.
-    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&DnsConfigService::OnConfigChangedDelayed,
                        weak_factory_.GetWeakPtr(), succeeded),

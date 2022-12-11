@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.device.bluetooth;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -46,7 +45,6 @@ import java.util.UUID;
  * pass through to the Android object and instead provide fake implementations.
  */
 @JNINamespace("device")
-@TargetApi(Build.VERSION_CODES.M)
 class Wrappers {
     private static final String TAG = "Bluetooth";
 
@@ -136,9 +134,8 @@ class Wrappers {
 
             // Only Low Energy currently supported, see BluetoothAdapterAndroid class note.
             final boolean hasLowEnergyFeature =
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2
-                    && ContextUtils.getApplicationContext().getPackageManager().hasSystemFeature(
-                               PackageManager.FEATURE_BLUETOOTH_LE);
+                    ContextUtils.getApplicationContext().getPackageManager().hasSystemFeature(
+                            PackageManager.FEATURE_BLUETOOTH_LE);
             if (!hasLowEnergyFeature) {
                 Log.i(TAG, "BluetoothAdapterWrapper.create failed: No Low Energy support.");
                 return null;

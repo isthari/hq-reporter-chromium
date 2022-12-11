@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,11 +27,11 @@
 #include "components/signin/internal/identity_manager/accounts_mutator_impl.h"
 #include "components/signin/internal/identity_manager/device_accounts_synchronizer_impl.h"
 #include "components/signin/internal/identity_manager/diagnostics_provider_impl.h"
+#include "components/signin/internal/identity_manager/fake_account_capabilities_fetcher_factory.h"
 #include "components/signin/internal/identity_manager/fake_profile_oauth2_token_service.h"
 #include "components/signin/internal/identity_manager/gaia_cookie_manager_service.h"
 #include "components/signin/internal/identity_manager/primary_account_manager.h"
 #include "components/signin/internal/identity_manager/primary_account_mutator_impl.h"
-#include "components/signin/internal/identity_manager/primary_account_policy_manager_impl.h"
 #include "components/signin/internal/identity_manager/profile_oauth2_token_service_delegate.h"
 #include "components/signin/public/base/account_consistency_method.h"
 #include "components/signin/public/base/consent_level.h"
@@ -60,8 +60,12 @@
 #include "components/signin/internal/identity_manager/child_account_info_fetcher_android.h"
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#endif
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/components/account_manager/account_manager_factory.h"
+#include "chromeos/ash/components/account_manager/account_manager_factory.h"
 #include "components/account_manager_core/account.h"
 #include "components/account_manager_core/account_manager_facade_impl.h"
 #include "components/account_manager_core/chromeos/account_manager.h"
@@ -378,7 +382,8 @@ class IdentityManagerTest : public testing::Test {
     auto token_service = std::make_unique<CustomFakeProfileOAuth2TokenService>(
         &pref_service_,
         std::make_unique<TestProfileOAuth2TokenServiceDelegateChromeOS>(
-            account_tracker_service.get(), ash_account_manager_mojo_service,
+            &signin_client_, account_tracker_service.get(),
+            ash_account_manager_mojo_service,
             /*is_regular_profile=*/true));
 #else
     auto token_service =
@@ -386,24 +391,20 @@ class IdentityManagerTest : public testing::Test {
 #endif
 
     auto gaia_cookie_manager_service =
-        std::make_unique<GaiaCookieManagerService>(token_service.get(),
-                                                   &signin_client_);
+        std::make_unique<GaiaCookieManagerService>(
+            account_tracker_service.get(), token_service.get(),
+            &signin_client_);
 
     auto account_fetcher_service = std::make_unique<AccountFetcherService>();
     account_fetcher_service->Initialize(
         &signin_client_, token_service.get(), account_tracker_service.get(),
-        std::make_unique<image_fetcher::FakeImageDecoder>());
+        std::make_unique<image_fetcher::FakeImageDecoder>(),
+        std::make_unique<FakeAccountCapabilitiesFetcherFactory>());
 
     DCHECK_EQ(account_consistency, AccountConsistencyMethod::kDisabled)
         << "AccountConsistency is not used by PrimaryAccountManager";
-    std::unique_ptr<PrimaryAccountPolicyManager> policy_manager;
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
-    policy_manager =
-        std::make_unique<PrimaryAccountPolicyManagerImpl>(&signin_client_);
-#endif
     auto primary_account_manager = std::make_unique<PrimaryAccountManager>(
-        &signin_client_, token_service.get(), account_tracker_service.get(),
-        std::move(policy_manager));
+        &signin_client_, token_service.get(), account_tracker_service.get());
 
     // Passing this switch ensures that the new PrimaryAccountManager starts
     // with a clean slate. Otherwise PrimaryAccountManager::Initialize will use
@@ -1725,7 +1726,7 @@ TEST_F(IdentityManagerTest, IdentityManagerGetsTokensLoadedEvent) {
   // we fake the credentials loaded state and force another load in
   // order to be able to capture the TokensLoaded event.
   token_service()->set_all_credentials_loaded_for_testing(false);
-  token_service()->LoadCredentials(CoreAccountId());
+  token_service()->LoadCredentials(CoreAccountId(), /*is_syncing=*/false);
   run_loop.Run();
 }
 
@@ -2118,8 +2119,8 @@ TEST_F(IdentityManagerTest, CallbackSentOnAccountsCookieDeletedByUserAction) {
       run_loop.QuitClosure());
   auto cookie = net::CanonicalCookie::CreateUnsafeCookieForTesting(
       "SAPISID", std::string(), ".google.com", "/", base::Time(), base::Time(),
-      base::Time(), /*secure=*/true, false, net::CookieSameSite::NO_RESTRICTION,
-      net::COOKIE_PRIORITY_DEFAULT, false);
+      base::Time(), base::Time(), /*secure=*/true, false,
+      net::CookieSameSite::NO_RESTRICTION, net::COOKIE_PRIORITY_DEFAULT, false);
   SimulateCookieDeletedByUser(identity_manager()->GetGaiaCookieManagerService(),
                               *cookie);
   run_loop.Run();
@@ -2150,8 +2151,8 @@ TEST_F(IdentityManagerTest, OnNetworkInitialized) {
   // through any mojo pipe.
   auto cookie = net::CanonicalCookie::CreateUnsafeCookieForTesting(
       "SAPISID", std::string(), ".google.com", "/", base::Time(), base::Time(),
-      base::Time(), /*secure=*/true, false, net::CookieSameSite::NO_RESTRICTION,
-      net::COOKIE_PRIORITY_DEFAULT, false);
+      base::Time(), base::Time(), /*secure=*/true, false,
+      net::CookieSameSite::NO_RESTRICTION, net::COOKIE_PRIORITY_DEFAULT, false);
   test_cookie_manager_ptr->DispatchCookieChange(net::CookieChangeInfo(
       *cookie, net::CookieAccessResult(), net::CookieChangeCause::EXPLICIT));
   run_loop.Run();
@@ -2352,34 +2353,39 @@ TEST_F(IdentityManagerTest, AreRefreshTokensLoaded) {
   // order to test AreRefreshTokensLoaded.
   token_service()->set_all_credentials_loaded_for_testing(false);
   EXPECT_FALSE(identity_manager()->AreRefreshTokensLoaded());
-  token_service()->LoadCredentials(CoreAccountId());
+  token_service()->LoadCredentials(CoreAccountId(), /*is_syncing=*/false);
   run_loop.Run();
   EXPECT_TRUE(identity_manager()->AreRefreshTokensLoaded());
 }
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
 TEST_F(IdentityManagerTest, SetPrimaryAccount) {
-  signin_client()->SetInitialPrimaryAccountForTests(account_manager::Account{
-      account_manager::AccountKey{kTestGaiaId,
-                                  account_manager::AccountType::kGaia},
-      kTestEmail});
+  signin_client()->SetInitialPrimaryAccountForTests(
+      account_manager::Account{
+          account_manager::AccountKey{kTestGaiaId,
+                                      account_manager::AccountType::kGaia},
+          kTestEmail},
+      /*is_child=*/false);
   // Do not sign into a primary account as part of the test setup.
   RecreateIdentityManager(AccountConsistencyMethod::kDisabled,
                           PrimaryAccountManagerSetup::kNoAuthenticatedAccount);
 
-  // We should have a Primary Account set up automatically.
-  ASSERT_TRUE(identity_manager()->HasPrimaryAccount(ConsentLevel::kSync));
+  // We should have a non-syncing Primary Account set up automatically.
+  ASSERT_TRUE(identity_manager()->HasPrimaryAccount(ConsentLevel::kSignin));
+  ASSERT_FALSE(identity_manager()->HasPrimaryAccount(ConsentLevel::kSync));
   EXPECT_EQ(
       kTestGaiaId,
-      identity_manager()->GetPrimaryAccountInfo(ConsentLevel::kSync).gaia);
+      identity_manager()->GetPrimaryAccountInfo(ConsentLevel::kSignin).gaia);
 }
 
 // TODO(https://crbug.com/1223364): Remove this when all the users are migrated.
 TEST_F(IdentityManagerTest, SetPrimaryAccountClearsExistingPrimaryAccount) {
-  signin_client()->SetInitialPrimaryAccountForTests(account_manager::Account{
-      account_manager::AccountKey{kTestGaiaId2,
-                                  account_manager::AccountType::kGaia},
-      kTestEmail2});
+  signin_client()->SetInitialPrimaryAccountForTests(
+      account_manager::Account{
+          account_manager::AccountKey{kTestGaiaId2,
+                                      account_manager::AccountType::kGaia},
+          kTestEmail2},
+      /*is_child=*/false);
 
   // RecreateIdentityManager will create PrimaryAccountManager with the primary
   // account set to kTestGaiaId. After that, IdentityManager ctor should clear
@@ -2387,18 +2393,20 @@ TEST_F(IdentityManagerTest, SetPrimaryAccountClearsExistingPrimaryAccount) {
   // provided by the SigninClient.
   RecreateIdentityManager(AccountConsistencyMethod::kDisabled,
                           PrimaryAccountManagerSetup::kWithAuthenticatedAccout);
-
-  ASSERT_TRUE(identity_manager()->HasPrimaryAccount(ConsentLevel::kSync));
+  ASSERT_TRUE(identity_manager()->HasPrimaryAccount(ConsentLevel::kSignin));
+  ASSERT_FALSE(identity_manager()->HasPrimaryAccount(ConsentLevel::kSync));
   EXPECT_EQ(
       kTestGaiaId2,
-      identity_manager()->GetPrimaryAccountInfo(ConsentLevel::kSync).gaia);
+      identity_manager()->GetPrimaryAccountInfo(ConsentLevel::kSignin).gaia);
 }
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(IdentityManagerTest, AccountIdMigration_DoneOnInitialization) {
   EXPECT_EQ(IdentityManager::AccountIdMigrationState::MIGRATION_DONE,
             identity_manager()->GetAccountIdMigrationState());
 }
+#endif
 
 // Checks that IdentityManager::Observer gets OnAccountUpdated when account info
 // is updated.
@@ -2445,6 +2453,7 @@ TEST_F(IdentityManagerTest, TestOnAccountRemovedWithInfoCallback) {
 TEST_F(IdentityManagerTest, TestPickAccountIdForAccount) {
   const CoreAccountId account_id =
       identity_manager()->PickAccountIdForAccount(kTestGaiaId, kTestEmail);
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   const bool account_id_migration_done =
       identity_manager()->GetAccountIdMigrationState() ==
       IdentityManager::AccountIdMigrationState::MIGRATION_DONE;
@@ -2453,6 +2462,9 @@ TEST_F(IdentityManagerTest, TestPickAccountIdForAccount) {
   } else {
     EXPECT_TRUE(gaia::AreEmailsSame(kTestEmail, account_id.ToString()));
   }
+#else
+  EXPECT_TRUE(gaia::AreEmailsSame(kTestGaiaId, account_id.ToString()));
+#endif
 }
 
 #if BUILDFLAG(IS_ANDROID)

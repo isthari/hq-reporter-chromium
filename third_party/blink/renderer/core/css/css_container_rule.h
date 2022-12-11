@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@ namespace blink {
 
 class StyleRuleContainer;
 class ContainerQuery;
+class ContainerSelector;
 
 class CSSContainerRule final : public CSSConditionRule {
   DEFINE_WRAPPERTYPEINFO();
@@ -23,6 +24,7 @@ class CSSContainerRule final : public CSSConditionRule {
   String cssText() const override;
 
   const AtomicString& Name() const;
+  const ContainerSelector& Selector() const;
   void SetConditionText(const ExecutionContext*, String);
 
  private:

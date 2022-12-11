@@ -1,8 +1,6 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
 
 /**
  * @fileoverview
@@ -10,6 +8,7 @@ import {addSingletonGetter} from 'chrome://resources/js/cr.m.js';
  * TODO(crbug/1109431): Remove these metrics when languages settings migration
  * is completed and data analysed.
  */
+
 /**
  * Keeps in sync with SettingsLanguagesPageInteraction
  * in tools/metrics/histograms/enums.xml.
@@ -88,8 +87,21 @@ export class LanguagesMetricsProxy {
   recordShortcutReminderDismissed(value) {}
 }
 
+/** @type {?LanguagesMetricsProxy} */
+let instance = null;
+
 /** @implements {LanguagesMetricsProxy} */
 export class LanguagesMetricsProxyImpl {
+  /** @return {!LanguagesMetricsProxy} */
+  static getInstance() {
+    return instance || (instance = new LanguagesMetricsProxyImpl());
+  }
+
+  /** @param {!LanguagesMetricsProxy} obj */
+  static setInstanceForTesting(obj) {
+    instance = obj;
+  }
+
   /** @override */
   recordInteraction(interaction) {
     chrome.metricsPrivate.recordEnumerationValue(
@@ -146,5 +158,3 @@ export class LanguagesMetricsProxyImpl {
         Object.keys(InputsShortcutReminderState).length);
   }
 }
-
-addSingletonGetter(LanguagesMetricsProxyImpl);

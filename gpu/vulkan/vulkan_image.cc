@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -356,7 +356,7 @@ bool VulkanImage::InitializeWithExternalMemory(
       external_image_format_properties.externalMemoryProperties;
   if (!(external_format_properties.externalMemoryFeatures &
         VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT)) {
-    DLOG(ERROR) << "External memroy cannot be exported."
+    DLOG(ERROR) << "External memory cannot be exported."
                 << " format:" << format << " image_tiling:" << image_tiling
                 << " usage:" << usage << " flags:" << flags;
     return false;

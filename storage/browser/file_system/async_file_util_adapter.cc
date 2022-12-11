@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/task/task_runner_util.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/services/filesystem/public/mojom/types.mojom.h"
 #include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/file_system/file_system_context.h"
@@ -176,11 +176,11 @@ AsyncFileUtilAdapter::~AsyncFileUtilAdapter() = default;
 void AsyncFileUtilAdapter::CreateOrOpen(
     std::unique_ptr<FileSystemOperationContext> context,
     const FileSystemURL& url,
-    int file_flags,
+    uint32_t file_flags,
     CreateOrOpenCallback callback) {
   FileSystemOperationContext* context_ptr = context.release();
-  base::PostTaskAndReplyWithResult(
-      context_ptr->task_runner(), FROM_HERE,
+  context_ptr->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       BindOnce(&FileSystemFileUtil::CreateOrOpen,
                Unretained(sync_file_util_.get()), context_ptr, url, file_flags),
       BindOnce(&RunCreateOrOpenCallback, base::Owned(context_ptr),
@@ -209,8 +209,8 @@ void AsyncFileUtilAdapter::CreateDirectory(
     bool recursive,
     StatusCallback callback) {
   FileSystemOperationContext* context_ptr = context.release();
-  const bool success = base::PostTaskAndReplyWithResult(
-      context_ptr->task_runner(), FROM_HERE,
+  const bool success = context_ptr->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&FileSystemFileUtil::CreateDirectory,
                      Unretained(sync_file_util_.get()),
                      base::Owned(context_ptr), url, exclusive, recursive),
@@ -244,10 +244,11 @@ void AsyncFileUtilAdapter::ReadDirectory(
   FileSystemOperationContext* context_ptr = context.release();
   const bool success = context_ptr->task_runner()->PostTask(
       FROM_HERE,
-      BindOnce(&ReadDirectoryHelper, sync_file_util_.get(),
-               base::Owned(context_ptr), url,
-               base::RetainedRef(base::ThreadTaskRunnerHandle::Get()),
-               callback));
+      BindOnce(
+          &ReadDirectoryHelper, sync_file_util_.get(), base::Owned(context_ptr),
+          url,
+          base::RetainedRef(base::SingleThreadTaskRunner::GetCurrentDefault()),
+          callback));
   DCHECK(success);
 }
 
@@ -258,8 +259,8 @@ void AsyncFileUtilAdapter::Touch(
     const base::Time& last_modified_time,
     StatusCallback callback) {
   FileSystemOperationContext* context_ptr = context.release();
-  const bool success = base::PostTaskAndReplyWithResult(
-      context_ptr->task_runner(), FROM_HERE,
+  const bool success = context_ptr->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(
           &FileSystemFileUtil::Touch, Unretained(sync_file_util_.get()),
           base::Owned(context_ptr), url, last_access_time, last_modified_time),
@@ -273,8 +274,8 @@ void AsyncFileUtilAdapter::Truncate(
     int64_t length,
     StatusCallback callback) {
   FileSystemOperationContext* context_ptr = context.release();
-  const bool success = base::PostTaskAndReplyWithResult(
-      context_ptr->task_runner(), FROM_HERE,
+  const bool success = context_ptr->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&FileSystemFileUtil::Truncate,
                      Unretained(sync_file_util_.get()),
                      base::Owned(context_ptr), url, length),
@@ -291,8 +292,8 @@ void AsyncFileUtilAdapter::CopyFileLocal(
     StatusCallback callback) {
   // TODO(hidehiko): Support progress_callback.
   FileSystemOperationContext* context_ptr = context.release();
-  const bool success = base::PostTaskAndReplyWithResult(
-      context_ptr->task_runner(), FROM_HERE,
+  const bool success = context_ptr->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&FileSystemFileUtil::CopyOrMoveFile,
                      Unretained(sync_file_util_.get()),
                      base::Owned(context_ptr), src_url, dest_url, options,
@@ -308,8 +309,8 @@ void AsyncFileUtilAdapter::MoveFileLocal(
     CopyOrMoveOptionSet options,
     StatusCallback callback) {
   FileSystemOperationContext* context_ptr = context.release();
-  const bool success = base::PostTaskAndReplyWithResult(
-      context_ptr->task_runner(), FROM_HERE,
+  const bool success = context_ptr->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&FileSystemFileUtil::CopyOrMoveFile,
                      Unretained(sync_file_util_.get()),
                      base::Owned(context_ptr), src_url, dest_url, options,
@@ -324,8 +325,8 @@ void AsyncFileUtilAdapter::CopyInForeignFile(
     const FileSystemURL& dest_url,
     StatusCallback callback) {
   FileSystemOperationContext* context_ptr = context.release();
-  const bool success = base::PostTaskAndReplyWithResult(
-      context_ptr->task_runner(), FROM_HERE,
+  const bool success = context_ptr->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&FileSystemFileUtil::CopyInForeignFile,
                      Unretained(sync_file_util_.get()),
                      base::Owned(context_ptr), src_file_path, dest_url),
@@ -338,8 +339,8 @@ void AsyncFileUtilAdapter::DeleteFile(
     const FileSystemURL& url,
     StatusCallback callback) {
   FileSystemOperationContext* context_ptr = context.release();
-  const bool success = base::PostTaskAndReplyWithResult(
-      context_ptr->task_runner(), FROM_HERE,
+  const bool success = context_ptr->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&FileSystemFileUtil::DeleteFile,
                      Unretained(sync_file_util_.get()),
                      base::Owned(context_ptr), url),
@@ -352,8 +353,8 @@ void AsyncFileUtilAdapter::DeleteDirectory(
     const FileSystemURL& url,
     StatusCallback callback) {
   FileSystemOperationContext* context_ptr = context.release();
-  const bool success = base::PostTaskAndReplyWithResult(
-      context_ptr->task_runner(), FROM_HERE,
+  const bool success = context_ptr->task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&FileSystemFileUtil::DeleteDirectory,
                      Unretained(sync_file_util_.get()),
                      base::Owned(context_ptr), url),

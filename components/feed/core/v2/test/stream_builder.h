@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,6 +60,7 @@ feedstore::Record MakeRecord(feedstore::StreamData stream_data);
 // refresh response payloads.
 struct StreamModelUpdateRequestGenerator {
   base::Time last_added_time = kTestTimeEpoch;
+  base::Time last_server_response_time = kTestTimeEpoch;
   bool signed_in = true;
   AccountInfo account_info = TestAccountInfo();
   bool logging_enabled = true;
@@ -72,6 +73,8 @@ struct StreamModelUpdateRequestGenerator {
   std::unique_ptr<StreamModelUpdateRequest> MakeFirstPage(
       int first_cluster_id = 0,
       int num_cards = 2) const;
+  std::unique_ptr<StreamModelUpdateRequest> MakeFirstPageWithSpecificContents(
+      const std::vector<int>& id_numbers) const;
 
   std::unique_ptr<StreamModelUpdateRequest> MakeNextPage(
       int page_number = 2,

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,14 +42,6 @@ class InProcessContextProvider
       public viz::ContextProvider,
       public viz::RasterContextProvider {
  public:
-  static scoped_refptr<InProcessContextProvider> Create(
-      const gpu::ContextCreationAttribs& attribs,
-      gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
-      gpu::ImageFactory* image_factory,
-      gpu::SurfaceHandle window,
-      const std::string& debug_name,
-      bool support_locking);
-
   // Uses default attributes for creating an offscreen context. If `is_worker`
   // is true then the context will support locking and OOP-R (through
   // RasterInterface) and won't support GLES2 or GrContext.
@@ -64,7 +56,7 @@ class InProcessContextProvider
   // viz::ContextProvider / viz::RasterContextProvider implementation.
   void AddRef() const override;
   void Release() const override;
-  gpu::ContextResult BindToCurrentThread() override;
+  gpu::ContextResult BindToCurrentSequence() override;
   const gpu::Capabilities& ContextCapabilities() const override;
   const gpu::GpuFeatureInfo& GetGpuFeatureInfo() const override;
   gpu::gles2::GLES2Interface* ContextGL() override;
@@ -91,8 +83,6 @@ class InProcessContextProvider
       const gpu::ContextCreationAttribs& attribs,
       gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
       gpu::ImageFactory* image_factory,
-      gpu::SurfaceHandle window,
-      const std::string& debug_name,
       bool support_locking);
   ~InProcessContextProvider() override;
 
@@ -116,10 +106,7 @@ class InProcessContextProvider
   gpu::ContextResult bind_result_;
 
   gpu::ContextCreationAttribs attribs_;
-  raw_ptr<gpu::GpuMemoryBufferManager> gpu_memory_buffer_manager_;
   raw_ptr<gpu::ImageFactory> image_factory_;
-  gpu::SurfaceHandle window_;
-  std::string debug_name_;
 
   base::Lock context_lock_;
 

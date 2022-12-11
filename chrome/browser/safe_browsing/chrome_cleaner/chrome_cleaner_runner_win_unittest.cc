@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,13 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/multiprocess_test.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/chrome_prompt_actions_win.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/mock_chrome_cleaner_process_win.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/srt_field_trial_win.h"
@@ -107,7 +108,7 @@ class ChromeCleanerRunnerSimpleTest
                        base::Unretained(this)),
         base::BindOnce(&ChromeCleanerRunnerSimpleTest::OnProcessDone,
                        base::Unretained(this)),
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 
   // ChromeCleanerRunnerTestDelegate overrides.
@@ -251,7 +252,7 @@ class ChromeCleanerRunnerTest
                        base::Unretained(this)),
         base::BindOnce(&ChromeCleanerRunnerTest::OnProcessDone,
                        base::Unretained(this)),
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 
   // ChromeCleanerRunnerTestDelegate overrides.

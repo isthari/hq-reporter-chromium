@@ -1,29 +1,40 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/shell/browser/shell_content_browser_client.h"
 
 #include <stddef.h>
+
+#include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
+#include "base/containers/flat_set.h"
 #include "base/feature_list.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece_forward.h"
+#include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/sequence_local_storage_slot.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "cc/base/switches.h"
+#include "components/custom_handlers/protocol_handler_registry.h"
+#include "components/custom_handlers/protocol_handler_throttle.h"
+#include "components/custom_handlers/simple_protocol_handler_registry_factory.h"
 #include "components/metrics/client_info.h"
 #include "components/metrics/metrics_service.h"
 #include "components/metrics/metrics_state_manager.h"
 #include "components/metrics/test/test_enabled_state_provider.h"
+#include "components/network_hints/browser/simple_network_hints_handler_impl.h"
 #include "components/performance_manager/embedder/performance_manager_registry.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -35,6 +46,7 @@
 #include "components/variations/service/variations_field_trial_creator.h"
 #include "components/variations/service/variations_service.h"
 #include "components/variations/service/variations_service_client.h"
+#include "components/variations/variations_switches.h"
 #include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/browser/login_delegate.h"
 #include "content/public/browser/navigation_throttle.h"
@@ -42,6 +54,7 @@
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
+#include "content/public/browser/web_contents_view_delegate.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switch_dependent_feature_overrides.h"
 #include "content/public/common/content_switches.h"
@@ -52,7 +65,6 @@
 #include "content/shell/browser/shell_browser_main_parts.h"
 #include "content/shell/browser/shell_devtools_manager_delegate.h"
 #include "content/shell/browser/shell_paths.h"
-#include "content/shell/browser/shell_quota_permission_context.h"
 #include "content/shell/browser/shell_web_contents_view_delegate_creator.h"
 #include "content/shell/common/shell_controller.test-mojom.h"
 #include "content/shell/common/shell_switches.h"
@@ -66,8 +78,10 @@
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/permissions_policy/origin_with_possible_wildcards.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
+#include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-shared.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches.h"
 #include "url/gurl.h"
@@ -104,8 +118,6 @@ namespace {
 
 ShellContentBrowserClient* g_browser_client = nullptr;
 
-bool g_enable_expect_ct_for_testing = false;
-
 #if BUILDFLAG(IS_ANDROID)
 int GetCrashSignalFD(const base::CommandLine& command_line) {
   return crashpad::CrashHandlerHost::Get()->GetDeathSignalSocket();
@@ -137,8 +149,8 @@ class ShellControllerImpl : public mojom::ShellController {
                          ExecuteJavaScriptCallback callback) override {
     CHECK(!Shell::windows().empty());
     WebContents* contents = Shell::windows()[0]->web_contents();
-    contents->GetMainFrame()->ExecuteJavaScriptForTests(script,
-                                                        std::move(callback));
+    contents->GetPrimaryMainFrame()->ExecuteJavaScriptForTests(
+        script, std::move(callback));
   }
 
   void ShutDown() override { Shell::Shutdown(); }
@@ -170,6 +182,15 @@ class ShellVariationsServiceClient
   bool IsEnterprise() override { return false; }
 };
 
+// Returns the full user agent string for the content shell.
+std::string GetShellFullUserAgent() {
+  std::string product = "Chrome/" CONTENT_SHELL_VERSION;
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kUseMobileUserAgent))
+    product += " Mobile";
+  return BuildUserAgentFromProduct(product);
+}
+
 // Returns the reduced user agent string for the content shell.
 std::string GetShellReducedUserAgent() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -178,31 +199,44 @@ std::string GetShellReducedUserAgent() {
       CONTENT_SHELL_MAJOR_VERSION);
 }
 
+void BindNetworkHintsHandler(
+    content::RenderFrameHost* frame_host,
+    mojo::PendingReceiver<network_hints::mojom::NetworkHintsHandler> receiver) {
+  DCHECK(frame_host);
+  network_hints::SimpleNetworkHintsHandlerImpl::Create(frame_host,
+                                                       std::move(receiver));
+}
+
+base::flat_set<url::Origin> GetIsolatedContextOriginSetFromFlag() {
+  std::string cmdline_origins(
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kIsolatedContextOrigins));
+
+  std::vector<base::StringPiece> origin_strings = base::SplitStringPiece(
+      cmdline_origins, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+
+  base::flat_set<url::Origin> origin_set;
+  for (const base::StringPiece& origin_string : origin_strings) {
+    url::Origin allowed_origin = url::Origin::Create(GURL(origin_string));
+    if (!allowed_origin.opaque()) {
+      origin_set.insert(allowed_origin);
+    } else {
+      LOG(ERROR) << "Error parsing IsolatedContext origin: " << origin_string;
+    }
+  }
+  return origin_set;
+}
+
 }  // namespace
 
-class ShellContentBrowserClient::ShellFieldTrials
-    : public variations::PlatformFieldTrials {
- public:
-  ShellFieldTrials() = default;
-  ~ShellFieldTrials() override = default;
-
-  // variations::PlatformFieldTrials:
-  void SetUpFieldTrials() override {}
-  void SetUpFeatureControllingFieldTrials(
-      bool has_seed,
-      const base::FieldTrial::EntropyProvider* low_entropy_provider,
-      base::FeatureList* feature_list) override {}
-};
-
 std::string GetShellUserAgent() {
+  if (base::FeatureList::IsEnabled(blink::features::kFullUserAgent))
+    return GetShellFullUserAgent();
+
   if (base::FeatureList::IsEnabled(blink::features::kReduceUserAgent))
     return GetShellReducedUserAgent();
 
-  std::string product = "Chrome/" CONTENT_SHELL_VERSION;
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kUseMobileUserAgent))
-    product += " Mobile";
-  return BuildUserAgentFromProduct(product);
+  return GetShellFullUserAgent();
 }
 
 std::string GetShellLanguage() {
@@ -218,10 +252,10 @@ blink::UserAgentMetadata GetShellUserAgentMetadata() {
                                                 CONTENT_SHELL_VERSION);
   metadata.full_version = CONTENT_SHELL_VERSION;
   metadata.platform = "Unknown";
-  metadata.architecture = BuildCpuInfo();
+  metadata.architecture = GetCpuArchitecture();
   metadata.model = BuildModelInfo();
 
-  metadata.bitness = GetLowEntropyCpuBitness();
+  metadata.bitness = GetCpuBitness();
   metadata.wow64 = content::IsWoW64();
 
   return metadata;
@@ -251,13 +285,41 @@ ShellContentBrowserClient::~ShellContentBrowserClient() {
 
 std::unique_ptr<BrowserMainParts>
 ShellContentBrowserClient::CreateBrowserMainParts(
-    MainFunctionParams parameters) {
-  auto browser_main_parts =
-      std::make_unique<ShellBrowserMainParts>(std::move(parameters));
-
+    bool /* is_integration_test */) {
+  auto browser_main_parts = std::make_unique<ShellBrowserMainParts>();
   shell_browser_main_parts_ = browser_main_parts.get();
-
   return browser_main_parts;
+}
+
+bool ShellContentBrowserClient::HasCustomSchemeHandler(
+    content::BrowserContext* browser_context,
+    const std::string& scheme) {
+  if (custom_handlers::ProtocolHandlerRegistry* protocol_handler_registry =
+          custom_handlers::SimpleProtocolHandlerRegistryFactory::
+              GetForBrowserContext(browser_context)) {
+    return protocol_handler_registry->IsHandledProtocol(scheme);
+  }
+  return false;
+}
+
+std::vector<std::unique_ptr<blink::URLLoaderThrottle>>
+ShellContentBrowserClient::CreateURLLoaderThrottles(
+    const network::ResourceRequest& request,
+    BrowserContext* browser_context,
+    const base::RepeatingCallback<WebContents*()>& wc_getter,
+    NavigationUIData* navigation_ui_data,
+    int frame_tree_node_id) {
+  std::vector<std::unique_ptr<blink::URLLoaderThrottle>> result;
+
+  auto* factory = custom_handlers::SimpleProtocolHandlerRegistryFactory::
+      GetForBrowserContext(browser_context);
+  // null in unit tests.
+  if (factory) {
+    result.push_back(
+        std::make_unique<custom_handlers::ProtocolHandlerThrottle>(*factory));
+  }
+
+  return result;
 }
 
 bool ShellContentBrowserClient::IsHandledURL(const GURL& url) {
@@ -293,8 +355,7 @@ void ShellContentBrowserClient::AppendExtraCommandLineSwitches(
   };
 
   command_line->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
-                                 kForwardSwitches,
-                                 base::size(kForwardSwitches));
+                                 kForwardSwitches, std::size(kForwardSwitches));
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -326,16 +387,20 @@ std::string ShellContentBrowserClient::GetDefaultDownloadName() {
   return "download";
 }
 
-WebContentsViewDelegate* ShellContentBrowserClient::GetWebContentsViewDelegate(
+std::unique_ptr<WebContentsViewDelegate>
+ShellContentBrowserClient::GetWebContentsViewDelegate(
     WebContents* web_contents) {
   performance_manager::PerformanceManagerRegistry::GetInstance()
       ->MaybeCreatePageNodeForWebContents(web_contents);
   return CreateShellWebContentsViewDelegate(web_contents);
 }
 
-scoped_refptr<content::QuotaPermissionContext>
-ShellContentBrowserClient::CreateQuotaPermissionContext() {
-  return new ShellQuotaPermissionContext();
+bool ShellContentBrowserClient::IsIsolatedContextAllowedForUrl(
+    BrowserContext* browser_context,
+    const GURL& lock_url) {
+  static base::flat_set<url::Origin> isolated_context_origins =
+      GetIsolatedContextOriginSetFromFlag();
+  return isolated_context_origins.contains(url::Origin::Create(lock_url));
 }
 
 GeneratedCodeCacheSettings
@@ -421,6 +486,8 @@ void ShellContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
     mojo::BinderMapWithContext<RenderFrameHost*>* map) {
   performance_manager::PerformanceManagerRegistry::GetInstance()
       ->ExposeInterfacesToRenderFrame(map);
+  map->Add<network_hints::mojom::NetworkHintsHandler>(
+      base::BindRepeating(&BindNetworkHintsHandler));
 }
 
 void ShellContentBrowserClient::OpenURL(
@@ -457,18 +524,18 @@ std::unique_ptr<LoginDelegate> ShellContentBrowserClient::CreateLoginDelegate(
   return nullptr;
 }
 
-base::DictionaryValue ShellContentBrowserClient::GetNetLogConstants() {
-  base::DictionaryValue client_constants;
-  client_constants.SetString("name", "content_shell");
+base::Value::Dict ShellContentBrowserClient::GetNetLogConstants() {
+  base::Value::Dict client_constants;
+  client_constants.Set("name", "content_shell");
   base::CommandLine::StringType command_line =
       base::CommandLine::ForCurrentProcess()->GetCommandLineString();
 #if BUILDFLAG(IS_WIN)
-  client_constants.SetString("command_line", base::WideToUTF8(command_line));
+  client_constants.Set("command_line", base::WideToUTF8(command_line));
 #else
-  client_constants.SetString("command_line", command_line);
+  client_constants.Set("command_line", command_line);
 #endif
-  base::DictionaryValue constants;
-  constants.SetKey("clientInfo", std::move(client_constants));
+  base::Value::Dict constants;
+  constants.Set("clientInfo", std::move(client_constants));
   return constants;
 }
 
@@ -477,8 +544,16 @@ ShellContentBrowserClient::GetSandboxedStorageServiceDataDirectory() {
   return browser_context()->GetPath();
 }
 
+base::FilePath ShellContentBrowserClient::GetFirstPartySetsDirectory() {
+  return browser_context()->GetPath();
+}
+
 std::string ShellContentBrowserClient::GetUserAgent() {
   return GetShellUserAgent();
+}
+
+std::string ShellContentBrowserClient::GetFullUserAgent() {
+  return GetShellFullUserAgent();
 }
 
 std::string ShellContentBrowserClient::GetReducedUserAgent() {
@@ -553,11 +628,6 @@ ShellContentBrowserClient::off_the_record_browser_context() {
   return shell_browser_main_parts_->off_the_record_browser_context();
 }
 
-void ShellContentBrowserClient::set_enable_expect_ct_for_testing(
-    bool enable_expect_ct_for_testing) {
-  g_enable_expect_ct_for_testing = enable_expect_ct_for_testing;
-}
-
 void ShellContentBrowserClient::ConfigureNetworkContextParamsForShell(
     BrowserContext* context,
     network::mojom::NetworkContextParams* context_params,
@@ -572,11 +642,6 @@ void ShellContentBrowserClient::ConfigureNetworkContextParamsForShell(
           "cors_exempt_header_list");
   if (!exempt_header.empty())
     context_params->cors_exempt_header_list.push_back(exempt_header);
-
-  if (g_enable_expect_ct_for_testing) {
-    context_params->enforce_chrome_ct_policy = true;
-    context_params->enable_expect_ct_reporting = true;
-  }
 }
 
 void ShellContentBrowserClient::GetHyphenationDictionary(
@@ -629,14 +694,16 @@ void ShellContentBrowserClient::SetUpFieldTrials() {
   std::unique_ptr<metrics::MetricsStateManager> metrics_state_manager =
       metrics::MetricsStateManager::Create(
           local_state_.get(), &enabled_state_provider, std::wstring(),
-          path.AppendASCII("Local State"));
-  metrics_state_manager->InstantiateFieldTrialList(
-      cc::switches::kEnableGpuBenchmarking);
+          path.AppendASCII("Local State"), metrics::StartupVisibility::kUnknown,
+          {
+              .force_benchmarking_mode =
+                  base::CommandLine::ForCurrentProcess()->HasSwitch(
+                      cc::switches::kEnableGpuBenchmarking),
+          });
+  metrics_state_manager->InstantiateFieldTrialList();
 
   std::vector<std::string> variation_ids;
   auto feature_list = std::make_unique<base::FeatureList>();
-
-  field_trials_ = std::make_unique<ShellFieldTrials>();
 
   std::unique_ptr<variations::SeedResponse> initial_seed;
 #if BUILDFLAG(IS_ANDROID)
@@ -656,31 +723,32 @@ void ShellContentBrowserClient::SetUpFieldTrials() {
 
   variations::SafeSeedManager safe_seed_manager(local_state_.get());
 
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
   // Since this is a test-only code path, some arguments to SetUpFieldTrials are
   // null.
-  // TODO(crbug/1248066): Consider passing a low entropy provider and source.
+  // TODO(crbug/1248066): Consider passing a low entropy source.
+  variations::PlatformFieldTrials platform_field_trials;
   field_trial_creator.SetUpFieldTrials(
       variation_ids,
-      content::GetSwitchDependentFeatureOverrides(
-          *base::CommandLine::ForCurrentProcess()),
-      /*low_entropy_provider=*/nullptr, std::move(feature_list),
-      metrics_state_manager.get(), field_trials_.get(), &safe_seed_manager,
+      command_line->GetSwitchValueASCII(
+          variations::switches::kForceVariationIds),
+      content::GetSwitchDependentFeatureOverrides(*command_line),
+      std::move(feature_list), metrics_state_manager.get(),
+      &platform_field_trials, &safe_seed_manager,
       /*low_entropy_source_value=*/absl::nullopt);
 }
 
-void ShellContentBrowserClient::OnNetworkServiceCreated(
-    network::mojom::NetworkService* network_service) {
-  // Explicitly configure Certificate Transparency with no logs, but with
-  // a fresh enough log update time that policy enforcement will still be
-  // run. This does not use base::GetBuildTime(), as that may cause certain
-  // checks to be disabled if too far in the past. Callers that set
-  // `g_enable_expect_ct_reporting` are expected to simulate CT verification
-  // using `MockCertVerifier` (otherwise CT validation would fail due to the
-  // empty log list).
-  if (g_enable_expect_ct_for_testing) {
-    network_service->UpdateCtLogList(
-        std::vector<network::mojom::CTLogInfoPtr>(), base::Time::Now());
-  }
+absl::optional<blink::ParsedPermissionsPolicy>
+ShellContentBrowserClient::GetPermissionsPolicyForIsolatedWebApp(
+    content::BrowserContext* browser_context,
+    const url::Origin& app_origin) {
+  blink::ParsedPermissionsPolicyDeclaration decl(
+      blink::mojom::PermissionsPolicyFeature::kDirectSockets,
+      {blink::OriginWithPossibleWildcards(app_origin,
+                                          /*has_subdomain_wildcard=*/false)},
+      /*matches_all_origins=*/false, /*matches_opaque_src=*/false);
+  return {{decl}};
 }
 
 }  // namespace content

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,14 +12,14 @@
 #include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ash/login/screens/base_screen.h"
-// TODO(https://crbug.com/1164001): move to forward declaration.
-#include "chrome/browser/ui/webui/chromeos/login/terms_of_service_screen_handler.h"
 
 namespace network {
 class SimpleURLLoader;
 }
 
 namespace ash {
+
+class TermsOfServiceScreenView;
 
 // A screen that shows Terms of Service which have been configured through
 // policy. The screen is shown during login and requires the user to accept the
@@ -36,7 +36,7 @@ class TermsOfServiceScreen : public BaseScreen {
   enum class ScreenState : int { LOADING = 0, LOADED = 1, ERROR = 2 };
 
   using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
-  TermsOfServiceScreen(TermsOfServiceScreenView* view,
+  TermsOfServiceScreen(base::WeakPtr<TermsOfServiceScreenView> view,
                        const ScreenExitCallback& exit_callback);
 
   TermsOfServiceScreen(const TermsOfServiceScreen&) = delete;
@@ -53,9 +53,6 @@ class TermsOfServiceScreen : public BaseScreen {
   // Called when the user retries to obtain the Terms of Service.
   void OnRetry();
 
-  // Called when view is destroyed so there is no dead reference to it.
-  void OnViewDestroyed(TermsOfServiceScreenView* view);
-
   // Set callback to wait for file saving in tests.
   static void SetTosSavedCallbackForTesting(base::OnceClosure callback);
 
@@ -71,10 +68,10 @@ class TermsOfServiceScreen : public BaseScreen {
   static base::FilePath GetTosFilePath();
  private:
   // BaseScreen:
-  bool MaybeSkip(WizardContext* context) override;
+  bool MaybeSkip(WizardContext& context) override;
   void ShowImpl() override;
   void HideImpl() override;
-  void OnUserAction(const std::string& action_id) override;
+  void OnUserAction(const base::Value::List& args) override;
 
   // Start downloading the Terms of Service.
   void StartDownload();
@@ -94,7 +91,7 @@ class TermsOfServiceScreen : public BaseScreen {
   // Runs callback for tests.
   void OnTosSavedForTesting();
 
-  TermsOfServiceScreenView* view_;
+  base::WeakPtr<TermsOfServiceScreenView> view_;
   ScreenExitCallback exit_callback_;
 
   std::unique_ptr<network::SimpleURLLoader> terms_of_service_loader_;
@@ -107,11 +104,5 @@ class TermsOfServiceScreen : public BaseScreen {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::TermsOfServiceScreen;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_SCREENS_TERMS_OF_SERVICE_SCREEN_H_

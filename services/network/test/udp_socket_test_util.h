@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,7 +45,7 @@ class UDPSocketTestHelper {
   int LeaveGroupSync(const net::IPAddress& group_address);
 
  private:
-  raw_ptr<mojo::Remote<mojom::UDPSocket>> socket_;
+  raw_ptr<mojo::Remote<mojom::UDPSocket>, DanglingUntriaged> socket_;
 };
 
 // An implementation of mojom::UDPSocketListener that records received results.

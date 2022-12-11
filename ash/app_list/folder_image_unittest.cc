@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/skia_util.h"
 
 namespace ash {
@@ -99,9 +100,11 @@ class FolderImageTest : public testing::Test,
  protected:
   void AddAppWithColoredIcon(const std::string& id, SkColor icon_color) {
     std::unique_ptr<AppListItem> item(new AppListItem(id));
-    item->SetDefaultIcon(CreateSquareBitmapWithColor(
-        SharedAppListConfig::instance().default_grid_icon_dimension(),
-        icon_color));
+    item->SetDefaultIconAndColor(
+        CreateSquareBitmapWithColor(
+            SharedAppListConfig::instance().default_grid_icon_dimension(),
+            icon_color),
+        IconColor());
     static_cast<AppListModel*>(app_list_model_.get())->AddItem(std::move(item));
   }
 
@@ -116,9 +119,8 @@ class FolderImageTest : public testing::Test,
 INSTANTIATE_TEST_SUITE_P(
     All,
     FolderImageTest,
-    ::testing::Combine(::testing::Values(AppListConfigType::kLarge,
-                                         AppListConfigType::kMedium,
-                                         AppListConfigType::kSmall),
+    ::testing::Combine(::testing::Values(AppListConfigType::kRegular,
+                                         AppListConfigType::kDense),
                        ::testing::Bool()));
 
 TEST_P(FolderImageTest, UpdateListTest) {
@@ -170,9 +172,11 @@ TEST_P(FolderImageTest, UpdateItemTest) {
   gfx::ImageSkia icon1 = folder_image_->icon();
 
   // Change an item's icon. Ensure that the observer fired and the icon changed.
-  app_list_model_->FindItem("app2")->SetDefaultIcon(CreateSquareBitmapWithColor(
-      SharedAppListConfig::instance().default_grid_icon_dimension(),
-      SK_ColorMAGENTA));
+  app_list_model_->FindItem("app2")->SetDefaultIconAndColor(
+      CreateSquareBitmapWithColor(
+          SharedAppListConfig::instance().default_grid_icon_dimension(),
+          SK_ColorMAGENTA),
+      IconColor());
   EXPECT_TRUE(observer_.updated());
   observer_.Reset();
   EXPECT_FALSE(ImagesAreEqual(icon1, folder_image_->icon()));

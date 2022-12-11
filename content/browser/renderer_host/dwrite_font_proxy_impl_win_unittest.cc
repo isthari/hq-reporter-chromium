@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,13 @@
 
 #include <memory>
 
+#include "base/containers/contains.h"
 #include "base/file_version_info.h"
 #include "base/files/file.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/scoped_feature_list.h"
@@ -40,10 +42,10 @@ struct FontExpectation {
   uint16_t ttc_index;
 };
 
-constexpr FontExpectation kExpectedTestFonts[] = {{u8"CambriaMath", 1},
-                                                  {u8"Ming-Lt-HKSCS-ExtB", 2},
-                                                  {u8"NSimSun", 1},
-                                                  {u8"calibri-bolditalic", 0}};
+constexpr FontExpectation kExpectedTestFonts[] = {{"CambriaMath", 1},
+                                                  {"Ming-Lt-HKSCS-ExtB", 2},
+                                                  {"NSimSun", 1},
+                                                  {"calibri-bolditalic", 0}};
 
 // DirectWrite on Windows supports IDWriteFontSet API which allows for querying
 // by PostScript name and full font name directly. In the implementation of
@@ -280,12 +282,8 @@ TEST_F(DWriteFontProxyImplUnitTest, FallbackFamily) {
         "Times New Roman", fallback_request.language_tag, codepoint,
         &fallback_family_and_style);
 
-    auto find_result_it =
-        std::find(fallback_request.fallback_fonts.begin(),
-                  fallback_request.fallback_fonts.end(),
-                  fallback_family_and_style->fallback_family_name);
-
-    EXPECT_TRUE(find_result_it != fallback_request.fallback_fonts.end())
+    EXPECT_TRUE(base::Contains(fallback_request.fallback_fonts,
+                               fallback_family_and_style->fallback_family_name))
         << "Did not find expected fallback font for language: "
         << fallback_request.language_tag << ", codepoint U+" << std::hex
         << codepoint << " DWrite returned font name: \""
@@ -334,16 +332,13 @@ TEST_F(DWriteFontProxyLocalMatchingTest, TestSingleLookup) {
   if (!SupportsSingleLookups())
     return;
   for (auto& test_font_name_index : kExpectedTestFonts) {
-    base::FilePath result_path;
+    base::File result_handle;
     uint32_t ttc_index;
     dwrite_font_proxy().MatchUniqueFont(
-        base::UTF8ToUTF16(test_font_name_index.font_name), &result_path,
+        base::UTF8ToUTF16(test_font_name_index.font_name), &result_handle,
         &ttc_index);
-    ASSERT_GT(result_path.value().size(), 0u);
-    base::File unique_font_file(result_path,
-                                base::File::FLAG_OPEN | base::File::FLAG_READ);
-    ASSERT_TRUE(unique_font_file.IsValid());
-    ASSERT_GT(unique_font_file.GetLength(), 0);
+    ASSERT_TRUE(result_handle.IsValid());
+    ASSERT_GT(result_handle.GetLength(), 0);
     ASSERT_EQ(test_font_name_index.ttc_index, ttc_index);
   }
 }
@@ -352,13 +347,13 @@ TEST_F(DWriteFontProxyLocalMatchingTest, TestSingleLookupUnavailable) {
   // Do not run this test on unsupported Windows versions.
   if (!SupportsSingleLookups())
     return;
-  base::FilePath result_path;
+  base::File result_handle;
   uint32_t ttc_index;
   std::u16string unavailable_font_name =
       u"Unavailable_Font_Name_56E7EA7E-2C69-4E23-99DC-750BC19B250E";
-  dwrite_font_proxy().MatchUniqueFont(unavailable_font_name, &result_path,
+  dwrite_font_proxy().MatchUniqueFont(unavailable_font_name, &result_handle,
                                       &ttc_index);
-  ASSERT_EQ(result_path.value().size(), 0u);
+  ASSERT_FALSE(result_handle.IsValid());
   ASSERT_EQ(ttc_index, 0u);
 }
 
@@ -370,8 +365,10 @@ TEST_F(DWriteFontProxyLocalMatchingTest, TestLookupMode) {
   std::string dwrite_version =
       base::UTF16ToUTF8(dwrite_version_info->product_version());
 
-  int dwrite_major_version_number =
-      std::stoi(dwrite_version.substr(0, dwrite_version.find(".")));
+  int dwrite_major_version_number = 0;
+  ASSERT_TRUE(
+      base::StringToInt(dwrite_version.substr(0, dwrite_version.find(".")),
+                        &dwrite_major_version_number));
 
   blink::mojom::UniqueFontLookupMode expected_lookup_mode;
   if (dwrite_major_version_number >=

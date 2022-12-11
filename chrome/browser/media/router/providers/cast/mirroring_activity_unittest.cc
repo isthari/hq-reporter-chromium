@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,7 @@
 #include "chrome/browser/media/router/providers/cast/cast_activity_test_base.h"
 #include "chrome/browser/media/router/providers/cast/test_util.h"
 #include "chrome/browser/media/router/test/mock_mojo_media_router.h"
-#include "components/cast_channel/cast_test_util.h"
+#include "components/media_router/common/providers/cast/channel/cast_test_util.h"
 #include "components/mirroring/mojom/session_parameters.mojom.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -31,38 +31,62 @@ using testing::WithArg;
 namespace media_router {
 namespace {
 
-constexpr int kTabId = 123;
+constexpr int kFrameTreeNodeId = 123;
+constexpr int kTabId = 234;
 constexpr char kDescription[] = "";
 constexpr char kDesktopMediaId[] = "theDesktopMediaId";
 constexpr char kPresentationId[] = "thePresentationId";
+constexpr char kDestinationId[] = "theTransportId";
 
 // Metrics constants.
 constexpr char kHistogramSessionLength[] =
     "MediaRouter.CastStreaming.Session.Length";
+constexpr char kHistogramSessionLengthAccessCode[] =
+    "MediaRouter.CastStreaming.Session.Length.AccessCode";
 constexpr char kHistogramSessionLengthDesktop[] =
     "MediaRouter.CastStreaming.Session.Length.Screen";
-constexpr char kHistogramSessionLengthFile[] =
-    "MediaRouter.CastStreaming.Session.Length.File";
 constexpr char kHistogramSessionLengthOffscreenTab[] =
     "MediaRouter.CastStreaming.Session.Length.OffscreenTab";
 constexpr char kHistogramSessionLengthTab[] =
     "MediaRouter.CastStreaming.Session.Length.Tab";
 
+class MockCastSessionTrackerObserver : public CastSessionTracker::Observer {
+ public:
+  MockCastSessionTrackerObserver() = default;
+  ~MockCastSessionTrackerObserver() override = default;
+
+  MOCK_METHOD(void,
+              OnSessionAddedOrUpdated,
+              (const MediaSinkInternal& sink, const CastSession& session));
+  MOCK_METHOD(void, OnSessionRemoved, (const MediaSinkInternal& sink));
+  MOCK_METHOD(void,
+              OnMediaStatusUpdated,
+              (const MediaSinkInternal& sink,
+               const base::Value::Dict& media_status,
+               absl::optional<int> request_id));
+  MOCK_METHOD(void,
+              OnSourceChanged,
+              (const std::string& media_route_id,
+               int old_frame_tree_node_id,
+               int frame_tree_node_id));
+};
+
 class MockMirroringServiceHost : public mirroring::mojom::MirroringServiceHost {
  public:
-  MOCK_METHOD4(
-      Start,
-      void(mirroring::mojom::SessionParametersPtr params,
-           mojo::PendingRemote<mirroring::mojom::SessionObserver> observer,
-           mojo::PendingRemote<mirroring::mojom::CastMessageChannel>
-               outbound_channel,
-           mojo::PendingReceiver<mirroring::mojom::CastMessageChannel>
-               inbound_channel));
+  MOCK_METHOD(void,
+              Start,
+              (mirroring::mojom::SessionParametersPtr params,
+               mojo::PendingRemote<mirroring::mojom::SessionObserver> observer,
+               mojo::PendingRemote<mirroring::mojom::CastMessageChannel>
+                   outbound_channel,
+               mojo::PendingReceiver<mirroring::mojom::CastMessageChannel>
+                   inbound_channel));
+  MOCK_METHOD(void, GetTabSourceId, (GetTabSourceIdCallback callback));
 };
 
 class MockCastMessageChannel : public mirroring::mojom::CastMessageChannel {
  public:
-  MOCK_METHOD1(Send, void(mirroring::mojom::CastMessagePtr message));
+  MOCK_METHOD(void, OnMessage, (mirroring::mojom::CastMessagePtr message));
 };
 
 }  // namespace
@@ -84,24 +108,28 @@ class MirroringActivityTest
                                       std::move(receiver));
         };
     ON_CALL(media_router_, GetMirroringServiceHostForDesktop)
-        .WillByDefault(WithArg<2>(make_mirroring_service));
+        .WillByDefault(WithArg<1>(make_mirroring_service));
     ON_CALL(media_router_, GetMirroringServiceHostForTab)
         .WillByDefault(WithArg<1>(make_mirroring_service));
     ON_CALL(media_router_, GetMirroringServiceHostForOffscreenTab)
         .WillByDefault(WithArg<2>(make_mirroring_service));
   }
 
-  void MakeActivity() { MakeActivity(MediaSource::ForTab(kTabId), kTabId); }
+  void MakeActivity() { MakeActivity(MediaSource::ForTab(kTabId)); }
 
-  void MakeActivity(const MediaSource& source, int tab_id = -1) {
+  void MakeActivity(
+      const MediaSource& source,
+      int frame_tree_node_id = kFrameTreeNodeId,
+      CastDiscoveryType discovery_type = CastDiscoveryType::kMdns) {
     CastSinkExtraData cast_data;
     cast_data.cast_channel_id = kChannelId;
     cast_data.capabilities = cast_channel::AUDIO_OUT | cast_channel::VIDEO_OUT;
+    cast_data.discovery_type = discovery_type;
     MediaRoute route(kRouteId, source, kSinkId, kDescription, route_is_local_);
     route.set_presentation_id(kPresentationId);
     activity_ = std::make_unique<MirroringActivity>(
-        route, kAppId, &message_handler_, &session_tracker_, kTabId, cast_data,
-        on_stop_.Get());
+        route, kAppId, &message_handler_, &session_tracker_, frame_tree_node_id,
+        cast_data, on_stop_.Get());
 
     activity_->CreateMojoBindings(&media_router_);
 
@@ -122,6 +150,10 @@ class MirroringActivityTest
     RunUntilIdle();
   }
 
+  const std::string& MessageSourceId() const {
+    return message_handler_.source_id();
+  }
+
   bool route_is_local_ = true;
   raw_ptr<MockCastMessageChannel> channel_to_service_ = nullptr;
   raw_ptr<MockMirroringServiceHost> mirroring_service_ = nullptr;
@@ -138,7 +170,7 @@ INSTANTIATE_TEST_SUITE_P(Namespaces,
 TEST_F(MirroringActivityTest, MirrorDesktop) {
   base::HistogramTester uma_recorder;
   EXPECT_CALL(media_router_,
-              GetMirroringServiceHostForDesktop(_, kDesktopMediaId, _));
+              GetMirroringServiceHostForDesktop(kDesktopMediaId, _));
   MediaSource source = MediaSource::ForDesktop(kDesktopMediaId, true);
   ASSERT_TRUE(source.IsDesktopMirroringSource());
   MakeActivity(source);
@@ -148,45 +180,47 @@ TEST_F(MirroringActivityTest, MirrorDesktop) {
 
   uma_recorder.ExpectTotalCount(kHistogramSessionLength, 1);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthDesktop, 1);
-  uma_recorder.ExpectTotalCount(kHistogramSessionLengthFile, 0);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthTab, 0);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthOffscreenTab, 0);
+  uma_recorder.ExpectTotalCount(kHistogramSessionLengthAccessCode, 0);
 }
 
 TEST_F(MirroringActivityTest, MirrorTab) {
   base::HistogramTester uma_recorder;
-  EXPECT_CALL(media_router_, GetMirroringServiceHostForTab(kTabId, _));
+  EXPECT_CALL(media_router_,
+              GetMirroringServiceHostForTab(kFrameTreeNodeId, _));
   MediaSource source = MediaSource::ForTab(kTabId);
   ASSERT_TRUE(source.IsTabMirroringSource());
-  MakeActivity(source, kTabId);
+  MakeActivity(source);
 
   activity_->DidStart();
   activity_.reset();
 
   uma_recorder.ExpectTotalCount(kHistogramSessionLength, 1);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthDesktop, 0);
-  uma_recorder.ExpectTotalCount(kHistogramSessionLengthFile, 0);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthTab, 1);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthOffscreenTab, 0);
+  uma_recorder.ExpectTotalCount(kHistogramSessionLengthAccessCode, 0);
 }
 
 TEST_F(MirroringActivityTest, CreateMojoBindingsForTabWithCastAppUrl) {
   base::HistogramTester uma_recorder;
-  EXPECT_CALL(media_router_, GetMirroringServiceHostForTab(kTabId, _));
+  EXPECT_CALL(media_router_,
+              GetMirroringServiceHostForTab(kFrameTreeNodeId, _));
   auto site_initiated_mirroring_source =
       CastMediaSource::ForSiteInitiatedMirroring();
   MediaSource source(site_initiated_mirroring_source->source_id());
   ASSERT_TRUE(source.IsCastPresentationUrl());
-  MakeActivity(source, kTabId);
+  MakeActivity(source);
 
   activity_->DidStart();
   activity_.reset();
 
   uma_recorder.ExpectTotalCount(kHistogramSessionLength, 1);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthDesktop, 0);
-  uma_recorder.ExpectTotalCount(kHistogramSessionLengthFile, 0);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthTab, 1);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthOffscreenTab, 0);
+  uma_recorder.ExpectTotalCount(kHistogramSessionLengthAccessCode, 0);
 }
 
 TEST_F(MirroringActivityTest, MirrorOffscreenTab) {
@@ -204,26 +238,28 @@ TEST_F(MirroringActivityTest, MirrorOffscreenTab) {
 
   uma_recorder.ExpectTotalCount(kHistogramSessionLength, 1);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthDesktop, 0);
-  uma_recorder.ExpectTotalCount(kHistogramSessionLengthFile, 0);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthTab, 0);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthOffscreenTab, 1);
+  uma_recorder.ExpectTotalCount(kHistogramSessionLengthAccessCode, 0);
 }
 
-TEST_F(MirroringActivityTest, MirrorFile) {
+TEST_F(MirroringActivityTest, MirrorAccessCode) {
   base::HistogramTester uma_recorder;
-  EXPECT_CALL(media_router_, GetMirroringServiceHostForTab(kTabId, _));
-  MediaSource source = MediaSource::ForLocalFile();
-  ASSERT_TRUE(source.IsLocalFileSource());
-  MakeActivity(source);
+  EXPECT_CALL(media_router_,
+              GetMirroringServiceHostForTab(kFrameTreeNodeId, _));
+  MediaSource source = MediaSource::ForTab(kTabId);
+  ASSERT_TRUE(source.IsTabMirroringSource());
+  MakeActivity(source, kFrameTreeNodeId,
+               CastDiscoveryType::kAccessCodeManualEntry);
 
   activity_->DidStart();
   activity_.reset();
 
   uma_recorder.ExpectTotalCount(kHistogramSessionLength, 1);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthDesktop, 0);
-  uma_recorder.ExpectTotalCount(kHistogramSessionLengthFile, 1);
-  uma_recorder.ExpectTotalCount(kHistogramSessionLengthTab, 0);
+  uma_recorder.ExpectTotalCount(kHistogramSessionLengthTab, 1);
   uma_recorder.ExpectTotalCount(kHistogramSessionLengthOffscreenTab, 0);
+  uma_recorder.ExpectTotalCount(kHistogramSessionLengthAccessCode, 1);
 }
 
 TEST_F(MirroringActivityTest, OnError) {
@@ -246,8 +282,8 @@ TEST_F(MirroringActivityTest, SendWebRtc) {
   EXPECT_CALL(message_handler_, SendCastMessage(kChannelId, _))
       .WillOnce(
           WithArg<1>([this](const cast::channel::CastMessage& cast_message) {
-            EXPECT_EQ(message_handler_.sender_id(), cast_message.source_id());
-            EXPECT_EQ("theTransportId", cast_message.destination_id());
+            EXPECT_EQ(message_handler_.source_id(), cast_message.source_id());
+            EXPECT_EQ(kDestinationId, cast_message.destination_id());
             EXPECT_EQ(mirroring::mojom::kWebRtcNamespace,
                       cast_message.namespace_());
             EXPECT_TRUE(cast_message.has_payload_utf8());
@@ -256,7 +292,7 @@ TEST_F(MirroringActivityTest, SendWebRtc) {
             return cast_channel::Result::kOk;
           }));
 
-  activity_->Send(
+  activity_->OnMessage(
       mirroring::mojom::CastMessage::New("the_namespace", kPayload));
   RunUntilIdle();
 }
@@ -271,16 +307,38 @@ TEST_F(MirroringActivityTest, SendRemoting) {
         return cast_channel::Result::kOk;
       }));
 
-  activity_->Send(
+  activity_->OnMessage(
       mirroring::mojom::CastMessage::New("the_namespace", kPayload));
   RunUntilIdle();
 }
 
 TEST_F(MirroringActivityTest, OnAppMessageWrongNamespace) {
   MakeActivity();
-  EXPECT_CALL(*channel_to_service_, Send).Times(0);
+  EXPECT_CALL(*channel_to_service_, OnMessage).Times(0);
   cast::channel::CastMessage message;
   message.set_namespace_("wrong_namespace");
+  message.set_destination_id(kDestinationId);
+  message.set_source_id(MessageSourceId());
+  activity_->OnAppMessage(message);
+}
+
+TEST_P(MirroringActivityTest, OnAppMessageWrongDestination) {
+  MakeActivity();
+  EXPECT_CALL(*channel_to_service_, OnMessage).Times(0);
+  cast::channel::CastMessage message;
+  message.set_namespace_(GetParam());
+  message.set_destination_id("someOtherDestination");
+  message.set_source_id(MessageSourceId());
+  activity_->OnAppMessage(message);
+}
+
+TEST_P(MirroringActivityTest, OnAppMessageWrongSource) {
+  MakeActivity();
+  EXPECT_CALL(*channel_to_service_, OnMessage).Times(0);
+  cast::channel::CastMessage message;
+  message.set_namespace_(GetParam());
+  message.set_destination_id(kDestinationId);
+  message.set_source_id("someRandomStranger");
   activity_->OnAppMessage(message);
 }
 
@@ -290,6 +348,8 @@ TEST_P(MirroringActivityTest, OnAppMessageWrongNonlocal) {
   ASSERT_FALSE(channel_to_service_);
   cast::channel::CastMessage message;
   message.set_namespace_(GetParam());
+  message.set_destination_id(kDestinationId);
+  message.set_source_id(MessageSourceId());
   activity_->OnAppMessage(message);
 }
 
@@ -298,7 +358,7 @@ TEST_P(MirroringActivityTest, OnAppMessage) {
 
   static constexpr char kPayload[] = R"({"foo": "bar"})";
 
-  EXPECT_CALL(*channel_to_service_, Send)
+  EXPECT_CALL(*channel_to_service_, OnMessage)
       .WillOnce([](mirroring::mojom::CastMessagePtr message) {
         EXPECT_EQ(GetParam(), message->message_namespace);
         EXPECT_EQ(kPayload, message->json_format_data);
@@ -306,6 +366,8 @@ TEST_P(MirroringActivityTest, OnAppMessage) {
 
   cast::channel::CastMessage message;
   message.set_namespace_(GetParam());
+  message.set_destination_id(kDestinationId);
+  message.set_source_id(MessageSourceId());
   message.set_protocol_version(
       cast::channel::CastMessage_ProtocolVersion_CASTV2_1_0);
   message.set_payload_utf8(kPayload);
@@ -316,8 +378,9 @@ TEST_F(MirroringActivityTest, OnInternalMessageNonlocal) {
   route_is_local_ = false;
   MakeActivity();
   ASSERT_FALSE(channel_to_service_);
-  activity_->OnInternalMessage(cast_channel::InternalMessage(
-      cast_channel::CastMessageType::kPing, "the_namespace", base::Value()));
+  activity_->OnInternalMessage(
+      cast_channel::InternalMessage(cast_channel::CastMessageType::kPing,
+                                    "the_namespace", base::Value::Dict()));
 }
 
 TEST_F(MirroringActivityTest, OnInternalMessage) {
@@ -326,7 +389,7 @@ TEST_F(MirroringActivityTest, OnInternalMessage) {
   static constexpr char kPayload[] = R"({"foo": "bar"})";
   static constexpr char kNamespace[] = "the_namespace";
 
-  EXPECT_CALL(*channel_to_service_, Send)
+  EXPECT_CALL(*channel_to_service_, OnMessage)
       .WillOnce([](mirroring::mojom::CastMessagePtr message) {
         EXPECT_EQ(kNamespace, message->message_namespace);
         EXPECT_THAT(message->json_format_data, IsJson(kPayload));
@@ -334,7 +397,7 @@ TEST_F(MirroringActivityTest, OnInternalMessage) {
 
   activity_->OnInternalMessage(cast_channel::InternalMessage(
       cast_channel::CastMessageType::kPing, kNamespace,
-      base::test::ParseJson(kPayload)));
+      base::test::ParseJsonDict(kPayload)));
 }
 
 TEST_F(MirroringActivityTest, GetScrubbedLogMessage) {
@@ -373,9 +436,10 @@ TEST_F(MirroringActivityTest, GetScrubbedLogMessage) {
 
   absl::optional<base::Value> message_json = base::JSONReader::Read(message);
   EXPECT_TRUE(message_json);
+  EXPECT_TRUE(message_json.value().is_dict());
   EXPECT_THAT(scrubbed_message,
               base::test::IsJson(MirroringActivity::GetScrubbedLogMessage(
-                  message_json.value())));
+                  message_json.value().GetDict())));
 }
 
 // Site-initiated mirroring activities must be able to send messages to the
@@ -393,6 +457,34 @@ TEST_F(MirroringActivityTest, SendMessageToClient) {
     EXPECT_EQ(message_ptr, arg.get());
   });
   activity_->SendMessageToClient(kClientId, std::move(message));
+}
+
+TEST_F(MirroringActivityTest, OnSourceChanged) {
+  MakeActivity();
+  MockCastSessionTrackerObserver session_tracker_observer_;
+  session_tracker_.AddObserver(&session_tracker_observer_);
+
+  // A random int indicating the new tab source.
+  const int new_tab_source = 3;
+
+  EXPECT_CALL(*mirroring_service_, GetTabSourceId(_))
+      .WillOnce([](MockMirroringServiceHost::GetTabSourceIdCallback callback) {
+        std::move(callback).Run(new_tab_source);
+      });
+
+  EXPECT_CALL(session_tracker_observer_,
+              OnSourceChanged(kRouteId, kFrameTreeNodeId, new_tab_source));
+
+  EXPECT_EQ(activity_->frame_tree_node_id_, kFrameTreeNodeId);
+  activity_->OnSourceChanged();
+  RunUntilIdle();
+  EXPECT_EQ(activity_->frame_tree_node_id_, new_tab_source);
+  testing::Mock::VerifyAndClearExpectations(mirroring_service_);
+  testing::Mock::VerifyAndClearExpectations(&session_tracker_observer_);
+
+  // Nothing should happen as -1 is invalid value for tab source.
+  activity_->UpdateSourceTab(-1);
+  EXPECT_EQ(activity_->frame_tree_node_id_, new_tab_source);
 }
 
 }  // namespace media_router

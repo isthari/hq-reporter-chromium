@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -74,7 +74,9 @@ class FakeScreenControls : public ScreenControls {
   ~FakeScreenControls() override;
 
   // ScreenControls implementation.
-  void SetScreenResolution(const ScreenResolution& resolution) override;
+  void SetScreenResolution(const ScreenResolution& resolution,
+                           absl::optional<webrtc::ScreenId> screen_id) override;
+  void SetVideoLayout(const protocol::VideoLayout& video_layout) override;
 };
 
 class FakeDesktopEnvironment : public DesktopEnvironment {
@@ -106,7 +108,8 @@ class FakeDesktopEnvironment : public DesktopEnvironment {
   std::unique_ptr<AudioCapturer> CreateAudioCapturer() override;
   std::unique_ptr<InputInjector> CreateInputInjector() override;
   std::unique_ptr<ScreenControls> CreateScreenControls() override;
-  std::unique_ptr<webrtc::DesktopCapturer> CreateVideoCapturer() override;
+  std::unique_ptr<DesktopCapturer> CreateVideoCapturer() override;
+  DesktopDisplayInfoMonitor* GetDisplayInfoMonitor() override;
   std::unique_ptr<webrtc::MouseCursorMonitor> CreateMouseCursorMonitor()
       override;
   std::unique_ptr<KeyboardLayoutMonitor> CreateKeyboardLayoutMonitor(
@@ -118,8 +121,8 @@ class FakeDesktopEnvironment : public DesktopEnvironment {
   std::string GetCapabilities() const override;
   void SetCapabilities(const std::string& capabilities) override;
   uint32_t GetDesktopSessionId() const override;
-  std::unique_ptr<DesktopAndCursorConditionalComposer>
-  CreateComposingVideoCapturer() override;
+  std::unique_ptr<RemoteWebAuthnStateChangeNotifier>
+  CreateRemoteWebAuthnStateChangeNotifier() override;
 
   base::WeakPtr<FakeInputInjector> last_input_injector() {
     return last_input_injector_;

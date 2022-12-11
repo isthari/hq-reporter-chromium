@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "base/cxx17_backports.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -159,7 +158,7 @@ TEST_F(CoreAudioUtilWinTest, CreateDefaultDevice) {
 
   // Create default devices for all flow/role combinations above.
   ComPtr<IMMDevice> audio_device;
-  for (size_t i = 0; i < base::size(data); ++i) {
+  for (size_t i = 0; i < std::size(data); ++i) {
     audio_device = CoreAudioUtil::CreateDevice(
         AudioDeviceDescription::kDefaultDeviceId, data[i].flow, data[i].role);
     EXPECT_TRUE(audio_device.Get());
@@ -212,7 +211,7 @@ TEST_F(CoreAudioUtilWinTest, GetDefaultDeviceName) {
   // Get name and ID of default devices for all flow/role combinations above.
   ComPtr<IMMDevice> audio_device;
   AudioDeviceName device_name;
-  for (size_t i = 0; i < base::size(data); ++i) {
+  for (size_t i = 0; i < std::size(data); ++i) {
     audio_device = CoreAudioUtil::CreateDevice(
         AudioDeviceDescription::kDefaultDeviceId, data[i].flow, data[i].role);
     EXPECT_TRUE(SUCCEEDED(
@@ -232,7 +231,7 @@ TEST_F(CoreAudioUtilWinTest, GetAudioControllerID) {
   // Enumerate all active input and output devices and fetch the ID of
   // the associated device.
   EDataFlow flows[] = { eRender , eCapture };
-  for (size_t i = 0; i < base::size(flows); ++i) {
+  for (size_t i = 0; i < std::size(flows); ++i) {
     ComPtr<IMMDeviceCollection> collection;
     ASSERT_TRUE(SUCCEEDED(enumerator->EnumAudioEndpoints(
         flows[i], DEVICE_STATE_ACTIVE, &collection)));
@@ -279,7 +278,7 @@ TEST_F(CoreAudioUtilWinTest, CreateClient) {
 
   EDataFlow data[] = {eRender, eCapture};
 
-  for (size_t i = 0; i < base::size(data); ++i) {
+  for (size_t i = 0; i < std::size(data); ++i) {
     ComPtr<IAudioClient> client = CoreAudioUtil::CreateClient(
         AudioDeviceDescription::kDefaultDeviceId, data[i], eConsole);
     EXPECT_TRUE(client.Get());
@@ -292,7 +291,7 @@ TEST_F(CoreAudioUtilWinTest, CreateClient3) {
 
   EDataFlow data[] = {eRender, eCapture};
 
-  for (size_t i = 0; i < base::size(data); ++i) {
+  for (size_t i = 0; i < std::size(data); ++i) {
     ComPtr<IAudioClient3> client3 = CoreAudioUtil::CreateClient3(
         AudioDeviceDescription::kDefaultDeviceId, data[i], eConsole);
     EXPECT_TRUE(client3.Get());
@@ -301,7 +300,7 @@ TEST_F(CoreAudioUtilWinTest, CreateClient3) {
   // Use ComPtr notation to achieve the same thing as above. ComPtr::As wraps
   // QueryInterface calls on existing COM objects. In this case we use an
   // existing IAudioClient to obtain the IAudioClient3 interface.
-  for (size_t i = 0; i < base::size(data); ++i) {
+  for (size_t i = 0; i < std::size(data); ++i) {
     ComPtr<IAudioClient> client = CoreAudioUtil::CreateClient(
         AudioDeviceDescription::kDefaultDeviceId, data[i], eConsole);
     EXPECT_TRUE(client.Get());
@@ -368,7 +367,7 @@ TEST_F(CoreAudioUtilWinTest, GetDevicePeriod) {
 
   // Verify that the device periods are valid for the default render and
   // capture devices.
-  for (size_t i = 0; i < base::size(data); ++i) {
+  for (size_t i = 0; i < std::size(data); ++i) {
     ComPtr<IAudioClient> client;
     REFERENCE_TIME shared_time_period = 0;
     REFERENCE_TIME exclusive_time_period = 0;
@@ -392,7 +391,7 @@ TEST_F(CoreAudioUtilWinTest, GetPreferredAudioParameters) {
 
   // Verify that the preferred audio parameters are OK for the default render
   // and capture devices.
-  for (size_t i = 0; i < base::size(data); ++i) {
+  for (size_t i = 0; i < std::size(data); ++i) {
     AudioParameters params;
     const bool is_output_device = (data[i] == eRender);
     EXPECT_TRUE(SUCCEEDED(CoreAudioUtil::GetPreferredAudioParameters(
@@ -508,7 +507,7 @@ TEST_F(CoreAudioUtilWinTest, CreateRenderAndCaptureClients) {
   WAVEFORMATEXTENSIBLE format;
   uint32_t endpoint_buffer_size = 0;
 
-  for (size_t i = 0; i < base::size(data); ++i) {
+  for (size_t i = 0; i < std::size(data); ++i) {
     ComPtr<IAudioClient> client;
     ComPtr<IAudioRenderClient> render_client;
     ComPtr<IAudioCaptureClient> capture_client;
@@ -611,76 +610,6 @@ TEST_F(CoreAudioUtilWinTest, GetMatchingOutputDeviceID) {
   }
 
   EXPECT_TRUE(found_a_pair);
-}
-
-TEST_F(CoreAudioUtilWinTest, CheckGetPreferredAudioParametersUMAStats) {
-  base::HistogramTester tester;
-  ABORT_AUDIO_TEST_IF_NOT(DevicesAvailable());
-
-  // Check that when input stream parameters are created, hr values are not
-  // erroneously tracked in output stream parameters UMA histograms
-  AudioParameters input_params;
-  HRESULT hr = CoreAudioUtil::GetPreferredAudioParameters(
-      AudioDeviceDescription::kDefaultDeviceId, false, &input_params);
-  EXPECT_TRUE(SUCCEEDED(hr));
-  EXPECT_TRUE(input_params.IsValid());
-  tester.ExpectTotalCount(
-      "Media.AudioOutputStreamProxy.GetPreferredOutputStreamParametersWin."
-      "CreateDeviceEnumeratorResult",
-      0);
-  tester.ExpectTotalCount(
-      "Media.AudioOutputStreamProxy.GetPreferredOutputStreamParametersWin."
-      "CreateDeviceResult",
-      0);
-  tester.ExpectTotalCount(
-      "Media.AudioOutputStreamProxy.GetPreferredOutputStreamParametersWin."
-      "CreateClientResult",
-      0);
-  tester.ExpectTotalCount(
-      "Media.AudioOutputStreamProxy.GetPreferredOutputStreamParametersWin."
-      "GetMixFormatResult",
-      0);
-  tester.ExpectTotalCount(
-      "Media.AudioOutputStreamProxy.GetPreferredOutputStreamParametersWin."
-      "GetDevicePeriodResult",
-      0);
-
-  // Check that when output stream parameters are created, hr values for all
-  // expected steps are tracked in UMA histograms
-  AudioParameters output_params;
-  hr = CoreAudioUtil::GetPreferredAudioParameters(
-      AudioDeviceDescription::kDefaultDeviceId, true, &output_params);
-  EXPECT_TRUE(SUCCEEDED(hr));
-  EXPECT_TRUE(output_params.IsValid());
-
-  AudioParameters::HardwareCapabilities output_hardware_capabilities =
-      output_params.hardware_capabilities().value_or(
-          AudioParameters::HardwareCapabilities());
-
-  tester.ExpectTotalCount(
-      "Media.AudioOutputStreamProxy.GetPreferredOutputStreamParametersWin."
-      "CreateDeviceEnumeratorResult",
-      1);
-  tester.ExpectTotalCount(
-      "Media.AudioOutputStreamProxy.GetPreferredOutputStreamParametersWin."
-      "CreateDeviceResult",
-      1);
-  tester.ExpectTotalCount(
-      "Media.AudioOutputStreamProxy.GetPreferredOutputStreamParametersWin."
-      "CreateClientResult",
-      1);
-  tester.ExpectTotalCount(
-      "Media.AudioOutputStreamProxy.GetPreferredOutputStreamParametersWin."
-      "GetMixFormatResult",
-      1);
-
-  // If we have a min_frames_per_buffer then it came from the new API.
-  if (!output_hardware_capabilities.min_frames_per_buffer) {
-    tester.ExpectTotalCount(
-        "Media.AudioOutputStreamProxy.GetPreferredOutputStreamParametersWin."
-        "GetDevicePeriodResult",
-        1);
-  }
 }
 
 TEST_F(CoreAudioUtilWinTest, SharedModeLowerBufferSize) {

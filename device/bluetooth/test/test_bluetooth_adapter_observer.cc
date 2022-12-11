@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -417,6 +417,15 @@ void TestBluetoothAdapterObserver::GattDescriptorValueChanged(
 
   QuitMessageLoop();
 }
+
+#if BUILDFLAG(IS_CHROMEOS)
+void TestBluetoothAdapterObserver::
+    LowEnergyScanSessionHardwareOffloadingStatusChanged(
+        BluetoothAdapter::LowEnergyScanSessionHardwareOffloadingStatus status) {
+  last_low_energy_scan_session_hardware_offloading_status_ = status;
+  QuitMessageLoop();
+}
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 void TestBluetoothAdapterObserver::QuitMessageLoop() {
   if (base::RunLoop::IsRunningOnCurrentThread())

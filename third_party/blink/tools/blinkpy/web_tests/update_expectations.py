@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Updates TestExpectations based on results in builder bots.
@@ -34,7 +34,7 @@ import logging
 import webbrowser
 
 from blinkpy.tool.commands.flaky_tests import FlakyTests
-from blinkpy.web_tests.models.test_expectations import TestExpectations, SPECIAL_PREFIXES
+from blinkpy.web_tests.models.test_expectations import TestExpectations
 from blinkpy.web_tests.models.typ_types import ResultType
 
 _log = logging.getLogger(__name__)

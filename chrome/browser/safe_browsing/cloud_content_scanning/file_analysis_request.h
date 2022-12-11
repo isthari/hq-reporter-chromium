@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,9 @@
 #define CHROME_BROWSER_SAFE_BROWSING_CLOUD_CONTENT_SCANNING_FILE_ANALYSIS_REQUEST_H_
 
 #include "base/feature_list.h"
+#include "base/functional/callback_helpers.h"
 #include "chrome/browser/enterprise/connectors/common.h"
+#include "chrome/browser/enterprise/connectors/service_provider_config.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/binary_upload_service.h"
 #include "chrome/common/safe_browsing/archive_analyzer_results.h"
 
@@ -23,7 +25,9 @@ class FileAnalysisRequest : public BinaryUploadService::Request {
       base::FilePath file_name,
       std::string mime_type,
       bool delay_opening_file,
-      BinaryUploadService::ContentAnalysisCallback callback);
+      BinaryUploadService::ContentAnalysisCallback callback,
+      BinaryUploadService::Request::RequestStartCallback start_callback =
+          base::DoNothing());
   FileAnalysisRequest(const FileAnalysisRequest&) = delete;
   FileAnalysisRequest& operator=(const FileAnalysisRequest&) = delete;
   ~FileAnalysisRequest() override;
@@ -46,7 +50,6 @@ class FileAnalysisRequest : public BinaryUploadService::Request {
                               const ArchiveAnalyzerResults& analyzer_result);
 
   // Helper functions to access the request proto.
-  bool FileSupportedByDlp(const std::string& mime_type) const;
   bool HasMalwareRequest() const;
 
   void CacheResultAndData(BinaryUploadService::Result result, Data data);
@@ -58,7 +61,9 @@ class FileAnalysisRequest : public BinaryUploadService::Request {
   BinaryUploadService::Result cached_result_;
   Data cached_data_;
 
-  bool block_unsupported_types_;
+  // Analysis settings relevant to file analysis requests, copied from the
+  // overall analysis settings.
+  std::map<std::string, enterprise_connectors::TagSettings> tag_settings_;
 
   // Path to the file on disk.
   base::FilePath path_;

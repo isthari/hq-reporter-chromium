@@ -1,10 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/direct_sockets/direct_udp_socket_impl.h"
 
 #include "content/browser/direct_sockets/direct_sockets_service_impl.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace content {
 
@@ -39,7 +40,9 @@ void DirectUDPSocketImpl::Send(base::span<const uint8_t> data,
     std::move(callback).Run(net::ERR_FAILED);
     return;
   }
-  remote_->Send(std::move(data), DirectSocketsServiceImpl::TrafficAnnotation(),
+  remote_->Send(std::move(data),
+                net::MutableNetworkTrafficAnnotationTag{
+                    DirectSocketsServiceImpl::TrafficAnnotation()},
                 std::move(callback));
 }
 

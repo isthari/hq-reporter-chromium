@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@ export interface MaxTimeOption {
  */
 abstract class RecordTimeBase {
   private readonly recordTime = dom.get('#record-time', HTMLElement);
+
   protected readonly maxTimeOption: MaxTimeOption|null = null;
 
   /**
@@ -65,7 +66,9 @@ abstract class RecordTimeBase {
 
   /**
    * Starts to count and show the elapsed recording time.
-   * @param params If the time count is resumed from paused state.
+   *
+   * @param params Start parameters.
+   * @param params.resume If the time count is resumed from paused state.
    */
   start({resume}: {resume: boolean}): void {
     if (!resume) {
@@ -95,7 +98,9 @@ abstract class RecordTimeBase {
 
   /**
    * Stops counting and showing the elapsed recording time.
-   * @param param If the time count is paused temporarily.
+   *
+   * @param params Stop parameters.
+   * @param params.pause If the time count is paused temporarily.
    */
   stop({pause}: {pause: boolean}): void {
     speak(I18nString.STATUS_MSG_RECORDING_STOPPED);
@@ -134,9 +139,9 @@ export class RecordTime extends RecordTimeBase {
 
   getTimeMessage(ticks: number): string {
     // Format time into HH:MM:SS or MM:SS.
-    const pad = (n: number) => {
+    function pad(n: number) {
       return (n < 10 ? '0' : '') + n;
-    };
+    }
     let hh = '';
     if (ticks >= 3600) {
       hh = pad(Math.floor(ticks / 3600)) + ':';

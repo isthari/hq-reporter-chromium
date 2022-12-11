@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -307,6 +307,12 @@ class EventGenerator {
   // Generates a touch release event with |touch_id|.
   void ReleaseTouchId(int touch_id);
 
+  // Generates a touch cancel event.
+  void CancelTouch();
+
+  // Generates a touch cancel event with |touch_id|.
+  void CancelTouchId(int touch_id);
+
   // Generates press, move and release event to move touch
   // to be the given |point|.
   void PressMoveAndReleaseTouchTo(const gfx::Point& point);
@@ -474,7 +480,7 @@ class EventGenerator {
 
   std::unique_ptr<EventGeneratorDelegate> delegate_;
   gfx::Point current_screen_location_;
-  raw_ptr<EventTarget> current_target_ = nullptr;
+  raw_ptr<EventTarget, DanglingUntriaged> current_target_ = nullptr;
   int flags_ = 0;
   bool grab_ = false;
 

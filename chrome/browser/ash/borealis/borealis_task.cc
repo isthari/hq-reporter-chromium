@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/borealis/borealis_task.h"
 
-#include <optional>
+#include <sstream>
 #include <string>
 
 #include "ash/constants/ash_features.h"
@@ -16,19 +16,24 @@
 #include "base/logging.h"
 #include "base/process/launch.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "chrome/browser/ash/borealis/borealis_context.h"
 #include "chrome/browser/ash/borealis/borealis_disk_manager.h"
+#include "chrome/browser/ash/borealis/borealis_features.h"
 #include "chrome/browser/ash/borealis/borealis_launch_options.h"
 #include "chrome/browser/ash/borealis/borealis_metrics.h"
 #include "chrome/browser/ash/borealis/borealis_service.h"
 #include "chrome/browser/ash/borealis/borealis_util.h"
-#include "chrome/browser/ash/borealis/borealis_wayland_interface.h"
+#include "chrome/browser/ash/guest_os/public/guest_os_service.h"
+#include "chrome/browser/ash/guest_os/public/guest_os_wayland_server.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chromeos/dbus/concierge/concierge_service.pb.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_service.pb.h"
+#include "chromeos/ash/components/dbus/dlcservice/dlcservice.pb.h"
+#include "chromeos/ash/components/dbus/vm_launch/launch.pb.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace borealis {
 
@@ -49,9 +54,47 @@ void BorealisTask::Complete(BorealisStartupResult status, std::string message) {
                << (base::Time::Now() - start_time_);
   // Task completion is self-mutually-exclusive, because tasks are deleted once
   // complete.
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback_), status, std::move(message)));
+}
+
+CheckAllowed::CheckAllowed() : BorealisTask("CheckAllowed") {}
+CheckAllowed::~CheckAllowed() = default;
+
+void CheckAllowed::RunInternal(BorealisContext* context) {
+  BorealisService::GetForProfile(context->profile())
+      ->Features()
+      .IsAllowed(base::BindOnce(&CheckAllowed::OnAllowednessChecked,
+                                weak_factory_.GetWeakPtr(), context));
+}
+
+void CheckAllowed::OnAllowednessChecked(
+    BorealisContext* context,
+    BorealisFeatures::AllowStatus allow_status) {
+  if (allow_status == BorealisFeatures::AllowStatus::kAllowed) {
+    Complete(BorealisStartupResult::kSuccess, "");
+    return;
+  }
+  std::stringstream ss;
+  ss << "Borealis is disallowed: " << allow_status;
+  Complete(BorealisStartupResult::kDisallowed, ss.str());
+}
+
+GetLaunchOptions::GetLaunchOptions() : BorealisTask("GetLaunchOptions") {}
+GetLaunchOptions::~GetLaunchOptions() = default;
+
+void GetLaunchOptions::RunInternal(BorealisContext* context) {
+  BorealisService::GetForProfile(context->profile())
+      ->LaunchOptions()
+      .Build(base::BindOnce(&GetLaunchOptions::HandleOptions,
+                            weak_factory_.GetWeakPtr(), context));
+}
+
+void GetLaunchOptions::HandleOptions(BorealisContext* context,
+                                     BorealisLaunchOptions::Options options) {
+  context->set_launch_options(options);
+  Complete(BorealisStartupResult::kSuccess, "");
 }
 
 MountDlc::MountDlc() : BorealisTask("MountDlc") {}
@@ -60,8 +103,10 @@ MountDlc::~MountDlc() = default;
 void MountDlc::RunInternal(BorealisContext* context) {
   // TODO(b/172279567): Ensure the DLC is present before trying to install,
   // otherwise we will silently download borealis here.
-  chromeos::DlcserviceClient::Get()->Install(
-      kBorealisDlcName,
+  dlcservice::InstallRequest install_request;
+  install_request.set_id(kBorealisDlcName);
+  ash::DlcserviceClient::Get()->Install(
+      install_request,
       base::BindOnce(&MountDlc::OnMountDlc, weak_factory_.GetWeakPtr(),
                      context),
       base::DoNothing());
@@ -69,7 +114,7 @@ void MountDlc::RunInternal(BorealisContext* context) {
 
 void MountDlc::OnMountDlc(
     BorealisContext* context,
-    const chromeos::DlcserviceClient::InstallResult& install_result) {
+    const ash::DlcserviceClient::InstallResult& install_result) {
   if (install_result.error != dlcservice::kErrorNone) {
     Complete(BorealisStartupResult::kMountFailed,
              "Mounting the DLC for Borealis failed: " + install_result.error);
@@ -89,8 +134,12 @@ void CreateDiskImage::RunInternal(BorealisContext* context) {
   request.set_image_type(vm_tools::concierge::DISK_IMAGE_AUTO);
   request.set_storage_location(vm_tools::concierge::STORAGE_CRYPTOHOME_ROOT);
   request.set_disk_size(0);
+  if (base::FeatureList::IsEnabled(ash::features::kBorealisStorageBallooning)) {
+    request.set_filesystem_type(vm_tools::concierge::EXT4);
+    request.set_storage_ballooning(true);
+  }
 
-  chromeos::ConciergeClient::Get()->CreateDiskImage(
+  ash::ConciergeClient::Get()->CreateDiskImage(
       std::move(request), base::BindOnce(&CreateDiskImage::OnCreateDiskImage,
                                          weak_factory_.GetWeakPtr(), context));
 }
@@ -122,41 +171,30 @@ RequestWaylandServer::RequestWaylandServer()
 RequestWaylandServer::~RequestWaylandServer() = default;
 
 void RequestWaylandServer::RunInternal(BorealisContext* context) {
-  borealis::BorealisService::GetForProfile(context->profile())
-      ->WaylandInterface()
-      .GetWaylandServer(base::BindOnce(&RequestWaylandServer::OnServerRequested,
-                                       weak_factory_.GetWeakPtr(), context));
+  guest_os::GuestOsService::GetForProfile(context->profile())
+      ->WaylandServer()
+      ->Get(vm_tools::launch::BOREALIS,
+            base::BindOnce(&RequestWaylandServer::OnServerRequested,
+                           weak_factory_.GetWeakPtr(), context));
 }
 
 void RequestWaylandServer::OnServerRequested(
     BorealisContext* context,
-    BorealisCapabilities* capabilities,
-    const base::FilePath& server_path) {
-  if (!capabilities) {
+    guest_os::GuestOsWaylandServer::Result result) {
+  if (!result) {
     Complete(BorealisStartupResult::kRequestWaylandFailed,
              "Failed to create a wayland server");
     return;
   }
-  context->set_wayland_path(server_path);
+  context->set_wayland_path(result.Value()->server_path());
   Complete(BorealisStartupResult::kSuccess, "");
 }
 
 namespace {
 
-bool GetDeveloperMode() {
-  std::string output;
-  if (!base::GetAppOutput({"/usr/bin/crossystem", "cros_debug"}, &output)) {
-    return false;
-  }
-  return output == "1";
-}
-
-absl::optional<base::File> GetExtraDiskIfInDeveloperMode(
+absl::optional<base::File> MaybeOpenFile(
     absl::optional<base::FilePath> file_path) {
   if (!file_path)
-    return absl::nullopt;
-
-  if (!GetDeveloperMode())
     return absl::nullopt;
 
   base::File file(file_path.value(), base::File::FLAG_OPEN |
@@ -175,13 +213,9 @@ StartBorealisVm::StartBorealisVm() : BorealisTask("StartBorealisVm") {}
 StartBorealisVm::~StartBorealisVm() = default;
 
 void StartBorealisVm::RunInternal(BorealisContext* context) {
-  absl::optional<base::FilePath> external_disk =
-      borealis::BorealisService::GetForProfile(context->profile())
-          ->LaunchOptions()
-          .GetExtraDisk();
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, base::MayBlock(),
-      base::BindOnce(&GetExtraDiskIfInDeveloperMode, std::move(external_disk)),
+      base::BindOnce(&MaybeOpenFile, context->launch_options().extra_disk),
       base::BindOnce(&StartBorealisVm::StartBorealisWithExternalDisk,
                      weak_factory_.GetWeakPtr(), context));
 }
@@ -199,10 +233,13 @@ void StartBorealisVm::StartBorealisWithExternalDisk(
   request.set_software_tpm(false);
   request.set_enable_audio_capture(false);
   request.set_enable_vulkan(true);
-  if (base::FeatureList::IsEnabled(chromeos::features::kBorealisBigGl)) {
+  if (base::FeatureList::IsEnabled(ash::features::kBorealisBigGl)) {
     request.set_enable_big_gl(true);
   }
   request.set_name(context->vm_name());
+  if (base::FeatureList::IsEnabled(ash::features::kBorealisStorageBallooning)) {
+    request.set_storage_ballooning(true);
+  }
 
   vm_tools::concierge::DiskImage* disk_image = request.add_disks();
   disk_image->set_path(context->disk_path().AsUTF8Unsafe());
@@ -210,24 +247,16 @@ void StartBorealisVm::StartBorealisWithExternalDisk(
   disk_image->set_writable(true);
   disk_image->set_do_mount(false);
 
-  // TODO(b/161952658): Remove this logging when the exo-pointer-lock is fixed,
-  // this is only meant to be temporary.
-  LOG(WARNING) << "Starting Borealis with exo-pointer-lock: "
-               << (base::FeatureList::IsEnabled(
-                       chromeos::features::kExoPointerLock)
-                       ? "enabled"
-                       : "disabled");
-
   if (external_disk) {
     base::ScopedFD fd(external_disk->TakePlatformFile());
     request.add_fds(vm_tools::concierge::StartVmRequest::STORAGE);
-    chromeos::ConciergeClient::Get()->StartTerminaVmWithFd(
+    ash::ConciergeClient::Get()->StartVmWithFd(
         std::move(fd), std::move(request),
         base::BindOnce(&StartBorealisVm::OnStartBorealisVm,
                        weak_factory_.GetWeakPtr(), context));
     return;
   }
-  chromeos::ConciergeClient::Get()->StartTerminaVm(
+  ash::ConciergeClient::Get()->StartVm(
       std::move(request), base::BindOnce(&StartBorealisVm::OnStartBorealisVm,
                                          weak_factory_.GetWeakPtr(), context));
 }
@@ -300,8 +329,9 @@ std::string SendFlagsToVm(const std::string& owner_id,
   std::vector<std::string> command{"/usr/bin/vsh", "--owner_id=" + owner_id,
                                    "--vm_name=" + vm_name, "--",
                                    "update_chrome_flags"};
-  PushFlag(chromeos::features::kBorealisLinuxMode, command);
-  PushFlag(chromeos::features::kBorealisForceBetaClient, command);
+  PushFlag(ash::features::kBorealisLinuxMode, command);
+  PushFlag(ash::features::kBorealisForceBetaClient, command);
+  PushFlag(ash::features::kBorealisForceDoubleScale, command);
 
   std::string output;
   if (!base::GetAppOutput(command, &output)) {
@@ -349,10 +379,10 @@ void SyncBorealisDisk::OnSyncBorealisDisk(
     BorealisContext* context,
     Expected<BorealisSyncDiskSizeResult, Described<BorealisSyncDiskSizeResult>>
         result) {
+  // This step should not block startup, so just log the error and declare
+  // success.
   if (!result) {
-    Complete(BorealisStartupResult::kSyncDiskFailed,
-             "Failed to sync disk: " + result.Error().description());
-    return;
+    LOG(ERROR) << "Failed to sync disk: " << result.Error().description();
   }
   Complete(BorealisStartupResult::kSuccess, "");
 }

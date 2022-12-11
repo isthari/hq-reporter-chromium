@@ -1,4 +1,4 @@
-# Copyright 2014 The Chromium Authors. All rights reserved.
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -38,8 +38,6 @@ static_library("browser") {
     "host_content_settings_map.h",
     "private_network_settings.cc",
     "private_network_settings.h",
-    "uma_util.cc",
-    "uma_util.h",
     "user_modifiable_provider.h",
     "website_settings_info.cc",
     "website_settings_info.h",
@@ -62,10 +60,6 @@ static_library("browser") {
     "//services/tracing/public/cpp",
     "//url",
   ]
-
-  if (is_android) {
-    deps += [ "//media" ]
-  }
 
   if (!is_ios) {
     sources += [

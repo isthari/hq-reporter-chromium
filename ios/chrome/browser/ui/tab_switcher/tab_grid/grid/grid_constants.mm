@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,16 +18,19 @@ NSString* const kGridCellCloseButtonIdentifier =
 // Accessibility identifier for the background of the grid.
 NSString* const kGridBackgroundIdentifier = @"GridBackgroundIdentifier";
 
+// Accessibility identifier for the grid section header.
+NSString* const kGridSectionHeaderIdentifier = @"GridSectionHeaderIdentifier";
+
+// Accessibility identifier for the suggested actions cell.
+NSString* const kSuggestedActionsGridCellIdentifier =
+    @"SuggestedActionsGridCellIdentifier";
+
 // Grid styling.
 NSString* const kGridBackgroundColor = @"grid_background_color";
 
 // PlusSignCell styling
 NSString* const kPlusSignCellBackgroundColor =
     @"plus_sign_grid_cell_background_color";
-
-// The height of the BVC that remains visible after transitioning from thumb
-// strip to tab grid.
-const CGFloat kBVCHeightTabGrid = 108.0f;
 
 // Definition of limited width for applicable size classes. The first refers to
 // the horizontal size class; the second to the vertical.
@@ -59,21 +62,20 @@ const CGFloat kGridLayoutLineSpacingRegularRegular = 14.0f;
 const CGFloat kReorderingInactiveCellOpacity = 0.80;
 const CGFloat kReorderingActiveCellScale = 1.15;
 
-// GridCell styling.
-// Dark theme colors.
-// Extra dark theme colors until iOS 12 gets removed.
-const int kGridDarkThemeCellTitleColor = 0xFFFFFF;
-const int kGridDarkThemeCellDetailColor = 0xEBEBF5;
-const CGFloat kGridDarkThemeCellDetailAlpha = 0.6;
-const int kGridDarkThemeCellTintColor = 0x8AB4F9;
-extern const int kGridDarkThemeCellSolidButtonTextColor = 0x202124;
+// GridHeader styling.
+const CGFloat kGridHeaderHeight = 32.0f;
+const CGFloat kGridHeaderAccessibilityHeight = 58.0f;
+const int kGridHeaderTitleColor = 0xFFFFFF;
+const int kGridHeaderValueColor = 0xEBEBF5;
+const CGFloat kGridHeaderContentSpacing = 4.0f;
 
 // GridCell dimensions.
 const CGSize kGridCellSizeSmall = CGSize{144.0f, 168.0f};
 const CGSize kGridCellSizeMedium = CGSize{168.0f, 202.0f};
 const CGSize kGridCellSizeLarge = CGSize{228.0f, 256.0f};
 const CGSize kGridCellSizeAccessibility = CGSize{288.0f, 336.0f};
-const CGFloat kGridCellCornerRadius = 13.0f;
+const CGFloat kLegacyGridCellCornerRadius = 13.0f;
+const CGFloat kGridCellCornerRadius = 16.0f;
 const CGFloat kGridCellIconCornerRadius = 3.0f;
 // The cell header contains the icon, title, and close button.
 const CGFloat kGridCellHeaderHeight = 32.0f;
@@ -81,9 +83,11 @@ const CGFloat kGridCellHeaderAccessibilityHeight = 108.0f;
 const CGFloat kGridCellHeaderLeadingInset = 9.0f;
 const CGFloat kGridCellCloseTapTargetWidthHeight = 44.0f;
 const CGFloat kGridCellCloseButtonContentInset = 8.5f;
+const CGFloat kGridCellCloseButtonTopSpacing = 16.0f;
 const CGFloat kGridCellTitleLabelContentInset = 4.0f;
 const CGFloat kGridCellIconDiameter = 16.0f;
 const CGFloat kGridCellSelectIconContentInset = 4.0f;
+const CGFloat kGridCellSelectIconTopSpacing = 3.5f;
 const CGFloat kGridCellSelectIconSize = 25.0f;
 const CGFloat kGridCellSelectionRingGapWidth = 2.0f;
 const CGFloat kGridCellSelectionRingTintWidth = 5.0f;
@@ -107,3 +111,7 @@ const CGFloat kPlusSignImageYCenterConstant =
 const CGFloat kPlusSignButtonWidth = 156;
 
 const CGFloat kGridExpectedTopContentInset = 20.0f;
+
+const CGFloat kThumbStripHeight =
+    kGridCellSizeSmall.height +
+    2 * kGridLayoutLineSpacingCompactCompactLimitedWidth;

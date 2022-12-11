@@ -1,13 +1,13 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/native_theme/common_theme.h"
 
-#include "base/containers/fixed_flat_map.h"
 #include "base/logging.h"
 #include "base/notreached.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/color/color_provider.h"
 #include "ui/color/color_provider_utils.h"
@@ -20,18 +20,6 @@
 
 namespace ui {
 
-SkColor GetAlertSeverityColor(ColorId color_id, bool dark) {
-  constexpr auto kColorIdMap =
-      base::MakeFixedFlatMap<ColorId, std::array<SkColor, 2>>({
-          {kColorAlertHighSeverity, {{gfx::kGoogleRed600, gfx::kGoogleRed300}}},
-          {kColorAlertLowSeverity,
-           {{gfx::kGoogleGreen700, gfx::kGoogleGreen300}}},
-          {kColorAlertMediumSeverity,
-           {{gfx::kGoogleYellow700, gfx::kGoogleYellow300}}},
-      });
-  return kColorIdMap.at(color_id)[dark];
-}
-
 void CommonThemePaintMenuItemBackground(
     const NativeTheme* theme,
     const ColorProvider* color_provider,
@@ -43,13 +31,22 @@ void CommonThemePaintMenuItemBackground(
   cc::PaintFlags flags;
   switch (state) {
     case NativeTheme::kNormal:
-    case NativeTheme::kDisabled:
-      flags.setColor(color_provider->GetColor(kColorMenuBackground));
+    case NativeTheme::kDisabled: {
+      ui::ColorId id = kColorMenuBackground;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      id = kColorAshSystemUIMenuBackground;
+#endif
+      flags.setColor(color_provider->GetColor(id));
       break;
-    case NativeTheme::kHovered:
-      flags.setColor(
-          color_provider->GetColor(kColorMenuItemBackgroundSelected));
+    }
+    case NativeTheme::kHovered: {
+      ui::ColorId id = kColorMenuItemBackgroundSelected;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      id = kColorAshSystemUIMenuItemBackgroundSelected;
+#endif
+      flags.setColor(color_provider->GetColor(id));
       break;
+    }
     default:
       NOTREACHED() << "Invalid state " << state;
       break;

@@ -1,25 +1,26 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/bookmarks/bookmark_edit_view_controller.h"
 
-#include <memory>
-#include <set>
+#import <memory>
+#import <set>
 
-#include "base/auto_reset.h"
-#include "base/check_op.h"
-#include "base/ios/block_types.h"
+#import "base/auto_reset.h"
+#import "base/check_op.h"
+#import "base/ios/block_types.h"
 #import "base/mac/foundation_util.h"
-
-#include "base/mac/scoped_cftyperef.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/bookmarks/browser/bookmark_model.h"
-#include "components/url_formatter/url_fixer.h"
-#include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "base/mac/scoped_cftyperef.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/bookmarks/browser/bookmark_model.h"
+#import "components/url_formatter/url_fixer.h"
+#import "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/flags/system_flags.h"
 #import "ios/chrome/browser/main/browser.h"
-#import "ios/chrome/browser/system_flags.h"
 #import "ios/chrome/browser/ui/alert_coordinator/action_sheet_coordinator.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_folder_view_controller.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_mediator.h"
@@ -28,22 +29,21 @@
 #import "ios/chrome/browser/ui/bookmarks/bookmark_utils_ios.h"
 #import "ios/chrome/browser/ui/bookmarks/cells/bookmark_parent_folder_item.h"
 #import "ios/chrome/browser/ui/bookmarks/cells/bookmark_text_field_item.h"
-#import "ios/chrome/browser/ui/commands/browser_commands.h"
+#import "ios/chrome/browser/ui/commands/snackbar_commands.h"
 #import "ios/chrome/browser/ui/icons/chrome_icon.h"
 #import "ios/chrome/browser/ui/image_util/image_util.h"
 #import "ios/chrome/browser/ui/keyboard/UIKeyCommand+Chrome.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 #import "ios/chrome/browser/ui/table_view/table_view_utils.h"
-#include "ios/chrome/browser/ui/util/rtl_geometry.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
+#import "ios/chrome/browser/ui/util/rtl_geometry.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util_mac.h"
-#include "ui/gfx/image/image.h"
-#include "url/gurl.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util_mac.h"
+#import "ui/gfx/image/image.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -96,9 +96,9 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
 // Reference to the bookmark model.
 @property(nonatomic, assign) BookmarkModel* bookmarkModel;
 
-// The parent of the bookmark. This may be different from |bookmark->parent()|
-// if the changes have not been saved yet. |folder| then represents the
-// candidate for the new parent of |bookmark|.  This property is always a
+// The parent of the bookmark. This may be different from `bookmark->parent()`
+// if the changes have not been saved yet. `folder` then represents the
+// candidate for the new parent of `bookmark`.  This property is always a
 // non-NULL, valid folder.
 @property(nonatomic, assign) const BookmarkNode* folder;
 
@@ -109,9 +109,6 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
 @property(nonatomic, assign) Browser* browser;
 
 @property(nonatomic, assign) ChromeBrowserState* browserState;
-
-// Dispatcher for sending commands.
-@property(nonatomic, readonly, weak) id<BrowserCommands> dispatcher;
 
 // Cancel button item in navigation bar.
 @property(nonatomic, strong) UIBarButtonItem* cancelItem;
@@ -134,7 +131,7 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
 // bookmark.
 - (void)commitBookmarkChanges;
 
-// Changes |self.folder| and updates the UI accordingly.
+// Changes `self.folder` and updates the UI accordingly.
 // The change is not committed until the user taps the Save button.
 - (void)changeFolder:(const BookmarkNode*)folder;
 
@@ -205,11 +202,6 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
     // Set up the bookmark model oberver.
     _modelBridge.reset(
         new bookmarks::BookmarkModelBridge(self, _bookmarkModel));
-
-    // TODO(crbug.com/1045047): Use HandlerForProtocol after commands protocol
-    // clean up.
-    _dispatcher =
-        static_cast<id<BrowserCommands>>(_browser->GetCommandDispatcher());
   }
   return self;
 }
@@ -321,7 +313,7 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
   base::AutoReset<BOOL> autoReset(&_ignoresBookmarkModelChanges, YES);
 
   GURL url = ConvertUserDataToGURL([self inputURLString]);
-  // If the URL was not valid, the |save| message shouldn't have been sent.
+  // If the URL was not valid, the `save` message shouldn't have been sent.
   DCHECK([self inputURLIsValid]);
 
   // Tell delegate if bookmark name or title has been changed.
@@ -332,10 +324,11 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
     [self.delegate bookmarkEditorWillCommitTitleOrUrlChange:self];
   }
 
-  [self.dispatcher showSnackbarMessage:
-                       bookmark_utils_ios::CreateOrUpdateBookmarkWithUndoToast(
-                           self.bookmark, [self inputBookmarkName], url,
-                           self.folder, self.bookmarkModel, self.browserState)];
+  [self.snackbarCommandsHandler
+      showSnackbarMessage:
+          bookmark_utils_ios::CreateOrUpdateBookmarkWithUndoToast(
+              self.bookmark, [self inputBookmarkName], url, self.folder,
+              self.bookmarkModel, self.browserState)];
 }
 
 - (void)changeFolder:(const BookmarkNode*)folder {
@@ -346,7 +339,7 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
   [self updateFolderLabel];
 }
 
-- (void)dismiss {
+- (void)dismissBookmarkEditView {
   [self.view endEditing:YES];
 
   // Dismiss this controller.
@@ -439,7 +432,8 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
       // removes the current node.
       nodes.insert(self.bookmark);
     }
-    [self.dispatcher
+
+    [self.snackbarCommandsHandler
         showSnackbarMessage:bookmark_utils_ios::DeleteBookmarksWithUndoToast(
                                 nodes, self.bookmarkModel, self.browserState)];
     self.bookmark = nil;
@@ -462,6 +456,7 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
                  selectedFolder:self.folder
                         browser:_browser];
   folderViewController.delegate = self;
+  folderViewController.snackbarCommandsHandler = self.snackbarCommandsHandler;
   self.folderViewController = folderViewController;
   self.folderViewController.navigationItem.largeTitleDisplayMode =
       UINavigationItemLargeTitleDisplayModeNever;
@@ -470,12 +465,12 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
 }
 
 - (void)cancel {
-  [self dismiss];
+  [self dismissBookmarkEditView];
 }
 
 - (void)save {
   [self commitBookmarkChanges];
-  [self dismiss];
+  [self dismissBookmarkEditView];
 }
 
 #pragma mark - BookmarkTextFieldItemDelegate
@@ -564,10 +559,10 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
   // - the user selected a folder in the folder picker. In that case, the folder
   // picker should be popped;
   // - the user created a new folder, in which case the navigation stack
-  // contains this bookmark editor (|self|), a folder picker and a folder
+  // contains this bookmark editor (`self`), a folder picker and a folder
   // creator. In such a case, both the folder picker and creator shoud be popped
   // to reveal this bookmark editor. Thus the call to
-  // |popToViewController:animated:|.
+  // `popToViewController:animated:`.
   [self.navigationController popToViewController:self animated:YES];
   self.folderViewController.delegate = nil;
   self.folderViewController = nil;
@@ -575,8 +570,8 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
 
 - (void)folderPickerDidCancel:(BookmarkFolderViewController*)folderPicker {
   // This delegate method can only be called from the folder picker, which is
-  // the only view controller on top of this bookmark editor (|self|). Thus the
-  // call to |popViewControllerAnimated:|.
+  // the only view controller on top of this bookmark editor (`self`). Thus the
+  // call to `popViewControllerAnimated:`.
   [self.navigationController popViewControllerAnimated:YES];
   self.folderViewController.delegate = nil;
   self.folderViewController = nil;
@@ -585,7 +580,7 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
 - (void)folderPickerDidDismiss:(BookmarkFolderViewController*)folderPicker {
   self.folderViewController.delegate = nil;
   self.folderViewController = nil;
-  [self dismiss];
+  [self dismissBookmarkEditView];
 }
 
 #pragma mark - BookmarkModelBridgeObserver
@@ -693,19 +688,24 @@ const CGFloat kEstimatedTableSectionFooterHeight = 40;
 
 - (void)presentationControllerDidDismiss:
     (UIPresentationController*)presentationController {
-  [self dismiss];
+  [self dismissBookmarkEditView];
 }
 
 #pragma mark - UIResponder
 
-- (NSArray*)keyCommands {
-  __weak BookmarkEditViewController* weakSelf = self;
-  return @[ [UIKeyCommand cr_keyCommandWithInput:UIKeyInputEscape
-                                   modifierFlags:Cr_UIKeyModifierNone
-                                           title:nil
-                                          action:^{
-                                            [weakSelf dismiss];
-                                          }] ];
+// To always be able to register key commands via -keyCommands, the VC must be
+// able to become first responder.
+- (BOOL)canBecomeFirstResponder {
+  return YES;
+}
+
+- (NSArray<UIKeyCommand*>*)keyCommands {
+  return @[ UIKeyCommand.cr_close ];
+}
+
+- (void)keyCommand_close {
+  base::RecordAction(base::UserMetricsAction("MobileKeyCommandClose"));
+  [self dismissBookmarkEditView];
 }
 
 @end

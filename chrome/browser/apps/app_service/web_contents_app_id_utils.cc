@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_util.h"
+#include "chrome/browser/web_applications/user_display_mode.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_id.h"
@@ -23,6 +24,8 @@
 #include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/browser/web_applications/web_app_tab_helper.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
+#include "components/services/app_service/public/cpp/app_types.h"
+#include "components/services/app_service/public/cpp/app_update.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
@@ -40,7 +43,7 @@ bool IsAppReady(Profile* profile, const std::string& app_id) {
   bool app_installed = false;
   proxy->AppRegistryCache().ForOneApp(
       app_id, [&app_installed](const apps::AppUpdate& update) {
-        app_installed = update.Readiness() == apps::mojom::Readiness::kReady;
+        app_installed = update.Readiness() == apps::Readiness::kReady;
       });
   return app_installed;
 }
@@ -89,12 +92,13 @@ absl::optional<std::string> GetInstanceAppIdForWebContents(
     }
 
     absl::optional<web_app::AppId> app_id =
-        provider->registrar().FindAppWithUrlInScope(tab->GetVisibleURL());
+        provider->registrar_unsafe().FindAppWithUrlInScope(
+            tab->GetVisibleURL());
     if (app_id) {
       const web_app::WebApp* web_app =
-          provider->registrar().GetAppById(*app_id);
+          provider->registrar_unsafe().GetAppById(*app_id);
       DCHECK(web_app);
-      if (web_app->user_display_mode() == web_app::DisplayMode::kBrowser &&
+      if (web_app->user_display_mode() == web_app::UserDisplayMode::kBrowser &&
           !web_app->is_uninstalling()) {
         return app_id;
       }
@@ -116,25 +120,16 @@ absl::optional<std::string> GetInstanceAppIdForWebContents(
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
 std::string GetAppIdForWebContents(content::WebContents* web_contents) {
-  std::string app_id;
+  const web_app::AppId* app_id =
+      web_app::WebAppTabHelper::GetAppId(web_contents);
+  if (app_id)
+    return *app_id;
 
-  web_app::WebAppTabHelper* web_app_tab_helper =
-      web_app::WebAppTabHelper::FromWebContents(web_contents);
-  // web_app_tab_helper is nullptr in some unit tests.
-  if (web_app_tab_helper) {
-    app_id = web_app_tab_helper->GetAppId();
-  }
-
-  if (app_id.empty()) {
-    extensions::TabHelper* extensions_tab_helper =
-        extensions::TabHelper::FromWebContents(web_contents);
-    // extensions_tab_helper is nullptr in some tests.
-    if (extensions_tab_helper) {
-      app_id = extensions_tab_helper->GetExtensionAppId();
-    }
-  }
-
-  return app_id;
+  extensions::TabHelper* extensions_tab_helper =
+      extensions::TabHelper::FromWebContents(web_contents);
+  // extensions_tab_helper is nullptr in some tests.
+  return extensions_tab_helper ? extensions_tab_helper->GetExtensionAppId()
+                               : std::string();
 }
 
 void SetAppIdForWebContents(Profile* profile,
@@ -151,13 +146,14 @@ void SetAppIdForWebContents(Profile* profile,
   if (extension) {
     DCHECK(extension->is_app());
     web_app::WebAppTabHelper::FromWebContents(web_contents)
-        ->SetAppId(std::string());
+        ->SetAppId(absl::nullopt);
     extensions::TabHelper::FromWebContents(web_contents)
         ->SetExtensionAppById(app_id);
   } else {
     bool app_installed = IsAppReady(profile, app_id);
     web_app::WebAppTabHelper::FromWebContents(web_contents)
-        ->SetAppId(app_installed ? app_id : std::string());
+        ->SetAppId(app_installed ? absl::optional<web_app::AppId>(app_id)
+                                 : absl::nullopt);
     extensions::TabHelper::FromWebContents(web_contents)
         ->SetExtensionAppById(std::string());
   }
@@ -168,7 +164,6 @@ bool IsInstalledApp(Profile* profile, const std::string& app_id) {
       extensions::ExtensionRegistry::Get(profile)->GetInstalledExtension(
           app_id);
   if (extension) {
-    DCHECK(extension->is_app());
     return true;
   }
   return IsAppReady(profile, app_id);

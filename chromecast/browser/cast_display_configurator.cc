@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "build/build_config.h"
 #include "chromecast/base/cast_features.h"
 #include "chromecast/browser/cast_touch_device_manager.h"
 #include "chromecast/chromecast_buildflags.h"
@@ -95,7 +96,7 @@ gfx::Rect GetScreenBounds(const gfx::Size& size_in_pixels,
 
 CastDisplayConfigurator::CastDisplayConfigurator(CastScreen* screen)
     : delegate_(
-#if defined(USE_OZONE) && !BUILDFLAG(IS_CAST_AUDIO_ONLY)
+#if BUILDFLAG(IS_OZONE) && !BUILDFLAG(IS_CAST_AUDIO_ONLY)
           ui::OzonePlatform::GetInstance()->CreateNativeDisplayDelegate()
 #else
           nullptr
@@ -141,7 +142,8 @@ void CastDisplayConfigurator::EnableDisplay(
   std::vector<display::DisplayConfigurationParams> config_request;
   config_request.push_back(std::move(display_config_params));
 
-  delegate_->Configure(config_request, std::move(callback));
+  delegate_->Configure(config_request, std::move(callback),
+                       display::kTestModeset | display::kCommitModeset);
   NotifyObservers();
 }
 
@@ -155,7 +157,8 @@ void CastDisplayConfigurator::DisableDisplay(
   std::vector<display::DisplayConfigurationParams> config_request;
   config_request.push_back(std::move(display_config_params));
 
-  delegate_->Configure(config_request, std::move(callback));
+  delegate_->Configure(config_request, std::move(callback),
+                       display::kTestModeset | display::kCommitModeset);
 }
 
 void CastDisplayConfigurator::ConfigureDisplayFromCommandLine() {
@@ -236,7 +239,8 @@ void CastDisplayConfigurator::OnDisplaysAcquired(
       config_request,
       base::BindRepeating(&CastDisplayConfigurator::OnDisplayConfigured,
                           weak_factory_.GetWeakPtr(), display_,
-                          display_->native_mode(), origin));
+                          display_->native_mode(), origin),
+      display::kTestModeset | display::kCommitModeset);
 }
 
 void CastDisplayConfigurator::OnDisplayConfigured(

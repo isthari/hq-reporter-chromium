@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,17 +8,18 @@
 #include <memory>
 #include <vector>
 
-#include "ash/components/login/auth/user_context.h"
 #include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/ash/login/test/local_state_mixin.h"
 #include "chrome/browser/ash/login/test/session_flags_manager.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_type.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ash {
+
 namespace test {
 
 constexpr char kTestEmail[] = "test_user@gmail.com";
@@ -126,6 +127,11 @@ class LoginManagerMixin : public InProcessBrowserTestMixin,
       const UserContext& user_context,
       std::unique_ptr<StubAuthenticatorBuilder> authenticator_builder);
 
+  // Starts login attempt for a user, using actual authenticator backed by
+  // FakeUserDataAuthClient.
+  // Note that this will not wait for the login attempt to finish.
+  void AttemptLoginUsingFakeDataAuthClient(const UserContext& user_context);
+
   // Waits for the session state to change to ACTIVE. Returns immediately if the
   // session is already active.
   void WaitForActiveSession();
@@ -153,6 +159,9 @@ class LoginManagerMixin : public InProcessBrowserTestMixin,
   // proceeding into the session from the login screen.
   void LoginAsNewChildUser();
 
+  // Forces skipping post login screens.
+  void SkipPostLoginScreens();
+
  private:
   UserList initial_users_;
 
@@ -169,21 +178,14 @@ class LoginManagerMixin : public InProcessBrowserTestMixin,
   // Whether the user session manager should try to obtain token handles.
   bool should_obtain_handles_ = false;
 
+  // Whether the user will skip post login screens.
+  bool skip_post_login_screens_ = false;
+
   LocalStateMixin local_state_mixin_;
   FakeGaiaMixin* fake_gaia_mixin_;
   CryptohomeMixin* cryptohome_mixin_;
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-namespace test {
-using ::ash::test::kTestEmail;
-using ::ash::test::kTestGaiaId;
-}  // namespace test
-using ::ash::LoginManagerMixin;
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_TEST_LOGIN_MANAGER_MIXIN_H_

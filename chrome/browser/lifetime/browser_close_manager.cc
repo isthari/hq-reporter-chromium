@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/ranges/algorithm.h"
 #include "build/build_config.h"
 #include "chrome/browser/background/background_mode_manager.h"
 #include "chrome/browser/browser_process.h"
@@ -37,7 +38,8 @@ namespace {
 void ShowInProgressDownloads(Profile* profile) {
   DownloadCoreService* download_core_service =
       DownloadCoreServiceFactory::GetForBrowserContext(profile);
-  if (download_core_service->NonMaliciousDownloadCount() > 0) {
+  if (download_core_service &&
+      download_core_service->NonMaliciousDownloadCount() > 0) {
     chrome::ScopedTabbedBrowserDisplayer displayer(profile);
     chrome::ShowDownloads(displayer.browser());
   }
@@ -120,7 +122,12 @@ void BrowserCloseManager::ConfirmCloseWithPendingDownloads(
     int download_count,
     base::OnceCallback<void(bool)> callback) {
   Browser* browser = BrowserList::GetInstance()->GetLastActive();
-  DCHECK(browser);
+  if (browser == nullptr) {
+    // Background may call CloseAllBrowsers() with no Browsers. In this
+    // case immediately continue with shutting down.
+    std::move(callback).Run(/* proceed= */ true);
+    return;
+  }
   browser->window()->ConfirmBrowserCloseWithPendingDownloads(
       download_count, Browser::DownloadCloseType::kBrowserShutdown,
       std::move(callback));
@@ -161,9 +168,8 @@ void BrowserCloseManager::CloseBrowsers() {
   // Make a copy of the BrowserList to simplify the case where we need to
   // destroy a Browser during the loop.
   std::vector<Browser*> browser_list_copy;
-  std::copy(BrowserList::GetInstance()->begin(),
-            BrowserList::GetInstance()->end(),
-            std::back_inserter(browser_list_copy));
+  base::ranges::copy(*BrowserList::GetInstance(),
+                     std::back_inserter(browser_list_copy));
 
   bool ignore_unload_handlers = browser_shutdown::ShouldIgnoreUnloadHandlers();
 

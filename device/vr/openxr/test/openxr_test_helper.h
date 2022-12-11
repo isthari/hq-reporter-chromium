@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,13 @@
 #include <d3d11.h>
 #include <unknwn.h>
 #include <wrl.h>
+
 #include <array>
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
-#include "base/cxx17_backports.h"
 #include "base/synchronization/lock.h"
 #include "device/vr/openxr/openxr_defs.h"
 #include "device/vr/openxr/openxr_view_configuration.h"
@@ -170,7 +170,7 @@ class OpenXrTestHelper : public device::ServiceTestHook {
       XR_TYPE_SYSTEM_PROPERTIES, nullptr,           0, 0xBADFACE, "Test System",
       {2048, 2048, 1},           {XR_TRUE, XR_TRUE}};
 
-  static constexpr uint32_t kNumExtensionsSupported = base::size(kExtensions);
+  static constexpr uint32_t kNumExtensionsSupported = std::size(kExtensions);
 
  private:
   struct ActionProperties {
@@ -200,6 +200,7 @@ class OpenXrTestHelper : public device::ServiceTestHook {
       const XrCompositionLayerProjectionView& projection_view,
       uint32_t view_count,
       uint32_t index);
+  bool GetCanCreateSession();
 
   // Properties of the mock OpenXR runtime that doesn't change throughout the
   // lifetime of the instance. However, these aren't static because they are

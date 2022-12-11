@@ -1,4 +1,4 @@
-# Copyright 2022 The Chromium Authors. All rights reserved.
+# Copyright 2022 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Functions for creating APK symbols."""
@@ -10,6 +10,7 @@ import re
 import zipfile
 
 import archive_util
+import file_format
 import models
 import zip_util
 
@@ -54,7 +55,10 @@ class _ResourcePathDeobfuscator:
 class _ResourceSourceMapper:
   def __init__(self, size_info_prefix, path_defaults):
     self._path_defaults = path_defaults or {}
-    self._res_info = self._LoadResInfo(size_info_prefix)
+    if size_info_prefix:
+      self._res_info = self._LoadResInfo(size_info_prefix)
+    else:
+      self._res_info = dict()
     self._pattern_dollar_underscore = re.compile(r'\$+(.*?)(?:__\d)+')
     self._pattern_version_suffix = re.compile(r'-v\d+/')
 
@@ -88,19 +92,13 @@ class _ResourceSourceMapper:
     return ''
 
 
-def CreateApkOtherSymbols(*, metadata, apk_spec, native_spec):
-  """Creates a Container (with sections sizes) and symbols for a SizeInfo.
-
-  Args:
-    metadata: Metadata dict from CreateMetadata().
-    apk_spec: Instance of ApkSpec or None.
-    native_spec: Instance of NativeSpec or None.
+def CreateApkOtherSymbols(apk_spec):
+  """Creates symbols for resources / assets within the apk.
 
   Returns:
-    A tuple of (section_ranges, raw_symbols).
+    A tuple of (section_ranges, raw_symbols, apk_metadata).
   """
   logging.info('Creating symbols for other APK entries')
-  apk_so_path = native_spec and native_spec.apk_so_path
   res_source_mapper = _ResourceSourceMapper(apk_spec.size_info_prefix,
                                             apk_spec.path_defaults)
   resource_deobfuscator = _ResourcePathDeobfuscator(
@@ -119,11 +117,7 @@ def CreateApkOtherSymbols(*, metadata, apk_spec, native_spec):
       # exist when using Android's zipalign. E.g. for bundle .apks files.
       zipalign_total += len(zip_info.extra)
       # Skip files that we explicitly analyze: .so, .dex, and .pak.
-      if zip_info.filename == apk_so_path:
-        continue
-      if apk_spec.analyze_dex and zip_info.filename.endswith('.dex'):
-        continue
-      if zip_info.filename.endswith('.pak'):
+      if zip_info.filename in apk_spec.ignore_apk_paths:
         continue
 
       resource_filename = resource_deobfuscator.MaybeRemapPath(
@@ -143,8 +137,10 @@ def CreateApkOtherSymbols(*, metadata, apk_spec, native_spec):
   # noise in symbol diffs if included as symbols (http://crbug.com/1130754).
   # Might be even better if we had an option in Tiger Viewer to ignore certain
   # symbols, but taking this as a short-cut for now.
-  metadata[models.METADATA_ZIPALIGN_OVERHEAD] = zipalign_total
-  metadata[models.METADATA_SIGNING_BLOCK_SIZE] = signing_block_size
+  apk_metadata = {
+      models.METADATA_ZIPALIGN_OVERHEAD: zipalign_total,
+      models.METADATA_SIGNING_BLOCK_SIZE: signing_block_size,
+  }
 
   # Overhead includes:
   #  * Size of all local zip headers (minus zipalign padding).
@@ -160,4 +156,5 @@ def CreateApkOtherSymbols(*, metadata, apk_spec, native_spec):
   section_ranges = {}
   archive_util.ExtendSectionRange(section_ranges, models.SECTION_OTHER,
                                   sum(s.size for s in raw_symbols))
-  return section_ranges, raw_symbols
+  file_format.SortSymbols(raw_symbols)
+  return section_ranges, raw_symbols, apk_metadata

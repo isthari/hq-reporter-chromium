@@ -1,10 +1,11 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_SERVICES_FILE_UTIL_PUBLIC_MOJOM_SAFE_DOCUMENT_ANALYZER_MOJOM_TRAITS_H_
 #define CHROME_SERVICES_FILE_UTIL_PUBLIC_MOJOM_SAFE_DOCUMENT_ANALYZER_MOJOM_TRAITS_H_
 
+#include "base/notreached.h"
 #include "base/strings/string_piece.h"
 #include "build/build_config.h"
 #include "chrome/common/safe_browsing/document_analyzer_results.h"

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -76,7 +76,7 @@ SafetyTipPageInfoBubbleView::SafetyTipPageInfoBubbleView(
   new_title->SetText(title_text);
   new_title->AddStyleRange(gfx::Range(0, title_text.length()), name_style);
   GetBubbleFrameView()->SetTitleView(std::move(new_title));
-  set_margins(gfx::Insets(0, 0, margins().bottom(), 0));
+  set_margins(gfx::Insets::TLBR(0, 0, margins().bottom(), 0));
 
   // Configure layout.
   ChromeLayoutProvider* layout_provider = ChromeLayoutProvider::Get();
@@ -84,7 +84,7 @@ SafetyTipPageInfoBubbleView::SafetyTipPageInfoBubbleView(
       views::DialogContentType::kText, views::DialogContentType::kText);
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical,
-      gfx::Insets(insets.top(), insets.left(), 0, insets.right()),
+      gfx::Insets::TLBR(insets.top(), insets.left(), 0, insets.right()),
       insets.bottom()));
 
   // Configure header view.
@@ -189,7 +189,7 @@ void SafetyTipPageInfoBubbleView::OpenHelpCenter() {
 
 void SafetyTipPageInfoBubbleView::RenderFrameDeleted(
     content::RenderFrameHost* render_frame_host) {
-  if (render_frame_host != web_contents()->GetMainFrame()) {
+  if (!render_frame_host->IsInPrimaryMainFrame()) {
     return;
   }
 

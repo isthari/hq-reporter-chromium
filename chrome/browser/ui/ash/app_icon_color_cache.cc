@@ -1,10 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/ash/app_icon_color_cache.h"
 
+#include "base/callback.h"
 #include "base/no_destructor.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/color_analysis.h"
 #include "ui/gfx/image/image_skia.h"
 

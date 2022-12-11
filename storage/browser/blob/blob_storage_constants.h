@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -102,6 +102,17 @@ enum class IPCBlobItemRequestStrategy {
   SHARED_MEMORY,
   FILE,
   LAST = FILE
+};
+
+// Used by BlobURLStoreImpl when determining how to validate Blob URLs received
+// from the renderer over Mojo.
+// TODO(https://crbug.com/1058759): Once fixed, remove this.
+enum class BlobURLValidityCheckBehavior {
+  DEFAULT,
+  // In cases where we know that the storage key may not be opaque when it
+  // should be, allow Blob URLs with opaque origins to be registered and
+  // revoked.
+  ALLOW_OPAQUE_ORIGIN_STORAGE_KEY_MISMATCH
 };
 
 // This is the enum to rule them all in the blob system.

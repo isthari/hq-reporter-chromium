@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "base/callback_helpers.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "gpu/command_buffer/common/mailbox_holder.h"
 #include "media/base/format_utils.h"
 #include "media/base/video_util.h"
@@ -25,12 +25,12 @@ namespace {
 
 template <uint64_t modifier>
 CroStatus::Or<scoped_refptr<VideoFrame>> CreateGpuMemoryBufferVideoFrame(
-    gpu::GpuMemoryBufferFactory* factory,
     VideoPixelFormat format,
     const gfx::Size& coded_size,
     const gfx::Rect& visible_rect,
     const gfx::Size& natural_size,
     bool use_protected,
+    bool use_linear_buffers,
     base::TimeDelta timestamp) {
   absl::optional<gfx::BufferFormat> gfx_format =
       VideoPixelFormatToGfxBufferFormat(format);
@@ -49,11 +49,12 @@ class PlatformVideoFramePoolTest
  public:
   PlatformVideoFramePoolTest()
       : task_environment_(base::test::TaskEnvironment::TimeSource::MOCK_TIME),
-        pool_(new PlatformVideoFramePool(nullptr)) {
+        pool_(new PlatformVideoFramePool()) {
     SetCreateFrameCB(
         base::BindRepeating(&CreateGpuMemoryBufferVideoFrame<
                             gfx::NativePixmapHandle::kNoModifier>));
-    pool_->set_parent_task_runner(base::ThreadTaskRunnerHandle::Get());
+    pool_->set_parent_task_runner(
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 
   bool Initialize(const Fourcc& fourcc) {
@@ -70,8 +71,9 @@ class PlatformVideoFramePoolTest
     natural_size_ = visible_rect.size();
     auto status_or_layout = pool_->Initialize(fourcc, coded_size, visible_rect_,
                                               natural_size_, kNumFrames,
-                                              /*use_protected=*/false);
-    if (status_or_layout.has_error()) {
+                                              /*use_protected=*/false,
+                                              /*use_linear_buffers=*/false);
+    if (!status_or_layout.has_value()) {
       return false;
     }
     layout_ = std::move(status_or_layout).value();
@@ -110,7 +112,6 @@ INSTANTIATE_TEST_SUITE_P(All,
                          PlatformVideoFramePoolTest,
                          testing::Values(PIXEL_FORMAT_YV12,
                                          PIXEL_FORMAT_NV12,
-                                         PIXEL_FORMAT_ARGB,
                                          PIXEL_FORMAT_P016LE));
 
 TEST_P(PlatformVideoFramePoolTest, SingleFrameReuse) {
@@ -174,8 +175,8 @@ TEST_P(PlatformVideoFramePoolTest, InitializeWithDifferentFourcc) {
 
   // Verify that requesting a frame with a different format causes the pool
   // to get drained.
-  const Fourcc different_fourcc(Fourcc::XR24);
-  ASSERT_NE(fourcc, different_fourcc);
+  const Fourcc different_fourcc(*fourcc != Fourcc(Fourcc::NV12) ? Fourcc::NV12
+                                                                : Fourcc::P010);
   ASSERT_TRUE(Initialize(different_fourcc));
   scoped_refptr<VideoFrame> new_frame = GetFrame(10);
   EXPECT_EQ(0u, pool_->GetPoolSizeForTesting());
@@ -293,9 +294,9 @@ TEST_P(PlatformVideoFramePoolTest, InitializeFail) {
   const auto fourcc = Fourcc::FromVideoPixelFormat(GetParam());
   ASSERT_TRUE(fourcc.has_value());
   SetCreateFrameCB(base::BindRepeating(
-      [](gpu::GpuMemoryBufferFactory* factory, VideoPixelFormat format,
-         const gfx::Size& coded_size, const gfx::Rect& visible_rect,
-         const gfx::Size& natural_size, bool use_protected,
+      [](VideoPixelFormat format, const gfx::Size& coded_size,
+         const gfx::Rect& visible_rect, const gfx::Size& natural_size,
+         bool use_protected, bool use_linear_buffers,
          base::TimeDelta timestamp) {
         return CroStatus::Or<scoped_refptr<VideoFrame>>(
             CroStatus::Codes::kFailedToCreateVideoFrame);

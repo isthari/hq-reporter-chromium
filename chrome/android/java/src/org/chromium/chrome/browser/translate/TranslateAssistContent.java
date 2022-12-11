@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@ import androidx.annotation.Nullable;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import org.chromium.base.FeatureList;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.MutableFlagWithSafeDefault;
 import org.chromium.chrome.browser.tab.Tab;
 
 import java.lang.annotation.Retention;
@@ -30,6 +30,8 @@ public class TranslateAssistContent {
     public static final String IN_LANGUAGE_KEY = "inLanguage";
     public static final String WORK_TRANSLATION_KEY = "workTranslation";
     public static final String TRANSLATION_OF_WORK_KEY = "translationOfWork";
+    private static final MutableFlagWithSafeDefault sTranslateAssistContentFlag =
+            new MutableFlagWithSafeDefault(ChromeFeatureList.TRANSLATE_ASSIST_CONTENT, false);
 
     /**
      * Represents the result of attempting to attach translate data to AssistContent.
@@ -79,8 +81,7 @@ public class TranslateAssistContent {
      */
     public static @Nullable String getTranslateDataForTab(
             @Nullable Tab tab, boolean isInOverviewMode) {
-        if (!FeatureList.isInitialized()
-                || !ChromeFeatureList.isEnabled(ChromeFeatureList.TRANSLATE_ASSIST_CONTENT)) {
+        if (!sTranslateAssistContentFlag.isEnabled()) {
             recordTranslateAssistContentResultUMA(TranslateAssistContentResult.FEATURE_DISABLED);
             return null;
         } else if (isInOverviewMode) {

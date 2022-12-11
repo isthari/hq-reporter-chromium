@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,9 +40,14 @@ import androidx.appcompat.widget.Toolbar.OnMenuItemClickListener;
 import androidx.core.view.MarginLayoutParamsCompat;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.autofill.AutofillUiUtils;
 import org.chromium.chrome.browser.autofill.settings.CreditCardNumberFormattingTextWatcher;
+import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
+import org.chromium.components.autofill.prefeditor.EditorFieldModel;
+import org.chromium.components.autofill.prefeditor.EditorFieldView;
+import org.chromium.components.autofill.prefeditor.EditorObserverForTest;
+import org.chromium.components.autofill.prefeditor.EditorTextField;
 import org.chromium.components.browser_ui.settings.SettingsUtils;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.components.browser_ui.widget.AlwaysDismissedDialog;
@@ -210,7 +215,8 @@ public class EditorDialog
                     mDeleteRunnable.run();
                     animateOutDialog();
                 } else if (item.getItemId() == R.id.help_menu_id) {
-                    AutofillUiUtils.launchAutofillHelpPage(mActivity, mProfile);
+                    HelpAndFeedbackLauncherImpl.getInstance().show(mActivity,
+                            mActivity.getString(R.string.help_context_autofill), mProfile, null);
                 }
                 return true;
             }
@@ -535,8 +541,8 @@ public class EditorDialog
                 formatter = mPhoneFormatter;
             }
 
-            EditorTextField inputLayout = new EditorTextField(
-                    mActivity, fieldModel, mEditorActionListener, filter, formatter);
+            EditorTextField inputLayout = new EditorTextField(mActivity, fieldModel,
+                    mEditorActionListener, filter, formatter, /* focusAndShowKeyboard= */ false);
             mFieldViews.add(inputLayout);
 
             EditText input = inputLayout.getEditText();
@@ -634,13 +640,18 @@ public class EditorDialog
 
     private void initFocus() {
         mHandler.post(() -> {
-            List<EditorFieldView> invalidViews = getViewsWithInvalidInformation(false);
-            if (!invalidViews.isEmpty()) {
-                // Immediately focus the first invalid field to make it faster to edit.
-                invalidViews.get(0).scrollToAndFocus();
-            } else {
-                // Trigger default focus as it is not triggered automatically on Android P+.
-                mLayout.requestFocus();
+            // If TalkBack is enabled, we want to keep the focus at the top
+            // because the user would not learn about the elements that are
+            // above the focused field.
+            if (!ChromeAccessibilityUtil.get().isAccessibilityEnabled()) {
+                List<EditorFieldView> invalidViews = getViewsWithInvalidInformation(false);
+                if (!invalidViews.isEmpty()) {
+                    // Immediately focus the first invalid field to make it faster to edit.
+                    invalidViews.get(0).scrollToAndFocus();
+                } else {
+                    // Trigger default focus as it is not triggered automatically on Android P+.
+                    mLayout.requestFocus();
+                }
             }
             // Note that keyboard will not be shown for dropdown field since it's not necessary.
             if (getCurrentFocus() != null) {

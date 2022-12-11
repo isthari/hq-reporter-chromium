@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,7 +49,7 @@ class PlatformNotificationContextTriggerTest : public ::testing::Test {
         base::MakeRefCounted<PlatformNotificationContextImpl>(
             base::FilePath(), &browser_context_, nullptr);
     platform_notification_context_->SetTaskRunnerForTesting(
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
     platform_notification_context_->Initialize();
     base::RunLoop().RunUntilIdle();
   }

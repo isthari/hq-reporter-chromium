@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -82,8 +82,9 @@ public interface ContextMenuItemDelegate {
      * Called when the {@code url} should be opened in a new tab with the same incognito state as
      * the current {@link Tab}.
      * @param url The URL to open.
+     * @param navigateToTab Whether or not to navigate to the new tab.
      */
-    void onOpenInNewTab(GURL url, Referrer referrer);
+    void onOpenInNewTab(GURL url, Referrer referrer, boolean navigateToTab);
 
     /**
      * Called when {@code url} should be opened in a new tab in the same group as the current

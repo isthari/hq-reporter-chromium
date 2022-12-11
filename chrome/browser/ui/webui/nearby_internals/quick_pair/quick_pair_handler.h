@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,20 +44,24 @@ class QuickPairHandler : public content::WebUIMessageHandler,
   void OnLogBufferCleared() override;
 
   // Message handler callback that returns the Log Buffer in dictionary form.
-  void HandleGetLogMessages(const base::ListValue* args);
+  void HandleGetLogMessages(const base::Value::List& args);
 
   // Message handler callback that clears the Log Buffer.
-  void ClearLogBuffer(const base::ListValue* args);
+  void ClearLogBuffer(const base::Value::List& args);
 
   // Fast Pair UI Triggers.
-  void NotifyFastPairError(const base::ListValue* args);
-  void NotifyFastPairDiscovery(const base::ListValue* args);
-  void NotifyFastPairPairing(const base::ListValue* args);
-  void NotifyFastPairAssociateAccountKey(const base::ListValue* args);
+  void NotifyFastPairError(const base::Value::List& args);
+  void NotifyFastPairDiscovery(const base::Value::List& args);
+  void NotifyFastPairPairing(const base::Value::List& args);
+  void NotifyFastPairApplicationAvailable(const base::Value::List& args);
+  void NotifyFastPairApplicationInstalled(const base::Value::List& args);
+  void NotifyFastPairAssociateAccountKey(const base::Value::List& args);
 
   void OnImageDecodedFastPairError(gfx::Image image);
   void OnImageDecodedFastPairDiscovery(gfx::Image image);
   void OnImageDecodedFastPairPairing(gfx::Image image);
+  void OnImageDecodedFastPairApplicationAvailable(gfx::Image image);
+  void OnImageDecodedFastPairApplicationInstalled(gfx::Image image);
   void OnImageDecodedFastPairAssociateAccountKey(gfx::Image image);
 
   std::unique_ptr<ash::quick_pair::FastPairNotificationController>

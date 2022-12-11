@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,6 @@
 #include "components/invalidation/public/invalidation.h"
 #include "components/invalidation/public/invalidation_export.h"
 #include "components/invalidation/public/invalidation_util.h"
-
-namespace base {
-class ListValue;
-}  // namespace base
 
 namespace invalidation {
 
@@ -56,8 +52,6 @@ class INVALIDATION_EXPORT SingleTopicInvalidationSet {
   const_reverse_iterator rbegin() const;
   const_reverse_iterator rend() const;
   const Invalidation& back() const;
-
-  std::unique_ptr<base::ListValue> ToValue() const;
 
  private:
   InvalidationsSet invalidations_;

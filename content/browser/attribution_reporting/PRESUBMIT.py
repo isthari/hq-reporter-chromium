@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -34,7 +34,7 @@ def CheckAttributionStorageSchemaModification(input_api, output_api):
 
     if basename == 'attribution_storage_sql.cc':
       for (_, line) in affected_file.ChangedContents():
-        if 'const int kCurrentVersionNumber' in line:
+        if 'const int AttributionStorageSql::kCurrentVersionNumber' in line:
           database_version_changed = True
           break
 

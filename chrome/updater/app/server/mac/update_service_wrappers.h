@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -95,7 +95,8 @@ using StateChangeCallback =
 
 @property(readonly, nonatomic) updater::UpdateService::AppState state;
 - (instancetype)initWithAppState:
-    (const updater::UpdateService::AppState&)appState;
+                    (const updater::UpdateService::AppState&)appState
+                  restrictedView:(bool)restrictedView;
 @end
 
 @interface CRUAppStatesWrapper : NSObject <NSSecureCoding>
@@ -107,7 +108,9 @@ using StateChangeCallback =
 - (instancetype)initWithAppStateWrappers:
     (NSArray<CRUAppStateWrapper*>*)appStateWrappers;
 - (instancetype)initWithAppStates:
-    (const std::vector<updater::UpdateService::AppState>&)appStates;
+                    (const std::vector<updater::UpdateService::AppState>&)
+                        appStates
+                   restrictedView:(bool)restrictedView;
 
 @end
 

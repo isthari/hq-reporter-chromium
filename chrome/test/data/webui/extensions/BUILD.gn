@@ -1,4 +1,4 @@
-# Copyright 2022 The Chromium Authors. All rights reserved.
+# Copyright 2022 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -29,8 +29,8 @@ non_preprocessed_files = [
   "host_permissions_toggle_list_test.ts",
   "item_list_test.ts",
   "item_test.ts",
-  "keyboard_shortcuts_test.js",
-  "load_error_test.js",
+  "keyboard_shortcuts_test.ts",
+  "load_error_test.ts",
   "manager_test.ts",
   "manager_test_with_activity_log_flag.ts",
   "manager_test_with_id_query_param.ts",
@@ -43,16 +43,22 @@ non_preprocessed_files = [
   "runtime_hosts_dialog_test.ts",
   "shortcut_input_test.ts",
   "sidebar_test.ts",
+  "site_permissions_by_site_test.ts",
+  "site_permissions_edit_permissions_dialog_test.ts",
+  "site_permissions_edit_url_dialog_test.ts",
+  "site_permissions_list_test.ts",
+  "site_permissions_site_group_test.ts",
   "site_permissions_test.ts",
   "test_service.ts",
   "test_util.ts",
   "toggle_row_test.ts",
+  "url_util_test.ts",
 ]
 
 if (is_chromeos_ash) {
   non_preprocessed_files += [
-    "kiosk_mode_manager_unit_test.js",
-    "kiosk_mode_test.js",
+    "kiosk_mode_manager_unit_test.ts",
+    "kiosk_mode_test.ts",
     "test_kiosk_browser_proxy.ts",
   ]
 }
@@ -70,15 +76,6 @@ copy("copy") {
   outputs = [ "$preprocessed_folder/{{source_target_relative}}" ]
 }
 
-generate_grd("build_grdp") {
-  grd_prefix = "webui_extensions"
-  out_grd = "$target_gen_dir/resources.grdp"
-
-  deps = [ ":build_ts" ]
-  manifest_files = [ "$target_gen_dir/tsconfig.manifest" ]
-  resource_path_prefix = "extensions"
-}
-
 ts_library("build_ts") {
   root_dir = preprocessed_folder
   out_dir = "$target_gen_dir/tsc"
@@ -93,7 +90,10 @@ ts_library("build_ts") {
   ]
   in_files = preprocessed_files + non_preprocessed_files
 
-  deps = [ "//chrome/browser/resources/extensions:build_ts" ]
+  deps = [
+    "..:build_ts",
+    "//chrome/browser/resources/extensions:build_ts",
+  ]
   definitions = [
     "//tools/typescript/definitions/activity_log_private.d.ts",
     "//tools/typescript/definitions/developer_private.d.ts",
@@ -102,6 +102,15 @@ ts_library("build_ts") {
   extra_deps = [
     ":copy",
     ":preprocess",
-    "..:generate_definitions",
   ]
+}
+
+generate_grd("build_grdp") {
+  grd_prefix = "webui_extensions"
+  out_grd = "$target_gen_dir/resources.grdp"
+
+  deps = [ ":build_ts" ]
+  manifest_files =
+      filter_include(get_target_outputs(":build_ts"), [ "*.manifest" ])
+  resource_path_prefix = "extensions"
 }

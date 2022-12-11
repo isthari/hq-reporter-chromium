@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,10 @@
 #include "device/vr/android/arcore/arcore_sdk.h"
 
 namespace {
+
+// TODO(https://crbug.com/1394735): Remove this again.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 
 // Run DO macro for every function defined in the API.
 #define FOR_EACH_API_FN(DO)                                        \
@@ -155,6 +159,9 @@ void LoadArCoreApi(void* handle, ArCoreApi* api) {
 }
 
 #undef FOR_EACH_API_FN
+
+// TODO(https://crbug.com/1394735): Remove this again.
+#pragma GCC diagnostic pop
 
 void* g_sdk_handle = nullptr;
 ArCoreApi* g_arcore_api = nullptr;

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,7 +60,8 @@ class DefaultState : public BaseState {
   void ReenterToCurrentState(WindowState* window_state,
                              WindowState::State* state_in_previous_mode);
 
-  // Animates to new window bounds based on the current and previous state type.
+  // Animates to new window bounds, based on the current and previous state
+  // type.
   void UpdateBoundsFromState(WindowState* window_state,
                              chromeos::WindowStateType old_state_type);
 

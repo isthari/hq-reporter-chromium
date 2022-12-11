@@ -1,14 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/ui/app_list/arc/arc_data_removal_dialog.h"
+#include "chrome/browser/ash/app_list/arc/arc_data_removal_dialog.h"
 
+#include "chrome/browser/ash/app_list/app_service/app_service_app_icon_loader.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager_observer.h"
-#include "chrome/browser/ui/app_list/app_service/app_service_app_icon_loader.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
@@ -117,8 +116,6 @@ DataRemovalConfirmationDialog::DataRemovalConfirmationDialog(
   icon_loader_ = std::make_unique<AppServiceAppIconLoader>(
       profile_, kArcAppIconSize, this);
   icon_loader_->FetchImage(kPlayStoreAppId);
-  chrome::RecordDialogCreation(
-      chrome::DialogIdentifier::ARC_DATA_REMOVAL_CONFIRMATION);
 
   ArcSessionManager::Get()->AddObserver(this);
 

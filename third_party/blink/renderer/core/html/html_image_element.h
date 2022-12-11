@@ -100,11 +100,14 @@ class CORE_EXPORT HTMLImageElement final
   ImageResourceContent* CachedImage() const {
     return GetImageLoader().GetContent();
   }
-  void LoadDeferredImage() {
-    GetImageLoader().LoadDeferredImage(referrer_policy_);
+  void LoadDeferredImageFromMicrotask() {
+    GetImageLoader().LoadDeferredImage(referrer_policy_,
+                                       /*force_blocking*/ false,
+                                       /*update_from_microtask*/ true);
   }
   void LoadDeferredImageBlockingLoad() {
-    GetImageLoader().LoadDeferredImage(referrer_policy_, true);
+    GetImageLoader().LoadDeferredImage(referrer_policy_,
+                                       /*force_blocking*/ true);
   }
   void SetImageForTest(ImageResourceContent* content) {
     GetImageLoader().SetImageForTest(content);
@@ -140,6 +143,8 @@ class CORE_EXPORT HTMLImageElement final
   virtual void EnsureFallbackForGeneratedContent();
   virtual void EnsurePrimaryContent();
   bool IsCollapsed() const;
+
+  void SetAutoSizesUsecounter();
 
   // CanvasImageSource interface implementation.
   gfx::SizeF DefaultDestinationSize(
@@ -192,6 +197,8 @@ class CORE_EXPORT HTMLImageElement final
   }
 
   void InvalidateAttributeMapping();
+
+  bool IsRichlyEditableForAccessibility() const override { return false; }
 
   static bool SupportedImageType(const String& type,
                                  const HashSet<String>* disabled_image_types);
@@ -281,6 +288,8 @@ class CORE_EXPORT HTMLImageElement final
   bool is_ad_related_ : 1;
   bool is_lcp_element_ : 1;
   bool is_changed_shortly_after_mouseover_ : 1;
+  bool has_sizes_attribute_in_img_or_sibling_ : 1;
+  bool is_lazy_loaded_ : 1;
 
   network::mojom::ReferrerPolicy referrer_policy_;
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 #define IOS_CHROME_BROWSER_UI_AUTHENTICATION_SIGNIN_SIGNIN_CONSTANTS_H_
 
 #import <Foundation/Foundation.h>
-
-@class ChromeIdentity;
 
 // Sign-in result returned Sign-in result.
 typedef NS_ENUM(NSUInteger, SigninCoordinatorResult) {
@@ -37,8 +35,6 @@ typedef NS_ENUM(NSUInteger, SigninCoordinatorInterruptAction) {
   SigninCoordinatorInterruptActionDismissWithAnimation,
 };
 
-// Name of notification sent when the user has attempted a sign-in.
-extern NSString* const kUserSigninAttemptedNotification;
 // Name of accessibility identifier for the skip sign-in button.
 extern NSString* const kSkipSigninAccessibilityIdentifier;
 // Name of accessibility identifier for the add account button in the sign-in

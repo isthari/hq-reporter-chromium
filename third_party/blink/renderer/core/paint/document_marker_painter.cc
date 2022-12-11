@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,9 +56,8 @@ sk_sp<PaintRecord> RecordMarker(Color blink_color) {
   flags.setStrokeWidth(kMarkerHeight * 1 / 2);
 
   PaintRecorder recorder;
-  recorder.beginRecording(kMarkerWidth, kMarkerHeight);
-  recorder.getRecordingCanvas()->cc::PaintCanvas::drawPath(path.detach(),
-                                                           flags);
+  recorder.beginRecording();
+  recorder.getRecordingCanvas()->drawPath(path.detach(), flags);
 
   return recorder.finishRecordingAsPicture();
 }
@@ -80,7 +79,7 @@ sk_sp<PaintRecord> RecordMarker(Color blink_color) {
   flags.setAntiAlias(true);
   flags.setColor(color);
   PaintRecorder recorder;
-  recorder.beginRecording(kMarkerWidth, kMarkerHeight);
+  recorder.beginRecording();
   recorder.getRecordingCanvas()->drawOval(SkRect::MakeWH(2 * kR, 2 * kR),
                                           flags);
   return recorder.finishRecordingAsPicture();

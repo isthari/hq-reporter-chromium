@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/strings/string_piece.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
+#include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/web/modules/mediastream/encoded_video_frame.h"
 #include "third_party/blink/renderer/modules/mediarecorder/audio_track_recorder.h"
@@ -24,7 +25,7 @@ namespace media {
 class AudioBus;
 class AudioParameters;
 class VideoFrame;
-class WebmMuxer;
+class Muxer;
 }  // namespace media
 
 namespace blink {
@@ -66,8 +67,8 @@ class MODULES_EXPORT MediaRecorderHandler final
                   MediaStreamDescriptor* media_stream,
                   const String& type,
                   const String& codecs,
-                  int32_t audio_bits_per_second,
-                  int32_t video_bits_per_second,
+                  uint32_t audio_bits_per_second,
+                  uint32_t video_bits_per_second,
                   AudioTrackRecorder::BitrateMode audio_bitrate_mode);
 
   AudioTrackRecorder::BitrateMode AudioBitrateMode();
@@ -94,17 +95,17 @@ class MODULES_EXPORT MediaRecorderHandler final
   // Called to indicate there is encoded video data available. |encoded_alpha|
   // represents the encode output of alpha channel when available, can be
   // nullptr otherwise.
-  void OnEncodedVideo(const media::WebmMuxer::VideoParameters& params,
+  void OnEncodedVideo(const media::Muxer::VideoParameters& params,
                       std::string encoded_data,
                       std::string encoded_alpha,
                       base::TimeTicks timestamp,
                       bool is_key_frame);
-  void OnPassthroughVideo(const media::WebmMuxer::VideoParameters& params,
+  void OnPassthroughVideo(const media::Muxer::VideoParameters& params,
                           std::string encoded_data,
                           std::string encoded_alpha,
                           base::TimeTicks timestamp,
                           bool is_key_frame);
-  void HandleEncodedVideo(const media::WebmMuxer::VideoParameters& params,
+  void HandleEncodedVideo(const media::Muxer::VideoParameters& params,
                           std::string encoded_data,
                           std::string encoded_alpha,
                           base::TimeTicks timestamp,
@@ -133,11 +134,11 @@ class MODULES_EXPORT MediaRecorderHandler final
   // Set to true if there is no MIME type configured upon Initialize()
   // and the video track's source supports encoded output, giving
   // this class the freedom to provide whatever it chooses to produce.
-  bool passthrough_enabled_;
+  bool passthrough_enabled_ = false;
 
   // Sanitized video and audio bitrate settings passed on initialize().
-  int32_t video_bits_per_second_;
-  int32_t audio_bits_per_second_;
+  uint32_t video_bits_per_second_{0};
+  uint32_t audio_bits_per_second_{0};
 
   // Video Codec and profile, VP8 is used by default.
   VideoTrackRecorder::CodecProfile video_codec_profile_;
@@ -158,7 +159,7 @@ class MODULES_EXPORT MediaRecorderHandler final
   absl::optional<media::VideoCodec> last_seen_codec_;
 
   bool invalidated_ = false;
-  bool recording_;
+  bool recording_ = false;
   // The MediaStream being recorded.
   Member<MediaStreamDescriptor> media_stream_;
   HeapVector<Member<MediaStreamComponent>> video_tracks_;
@@ -169,8 +170,8 @@ class MODULES_EXPORT MediaRecorderHandler final
   Vector<std::unique_ptr<VideoTrackRecorder>> video_recorders_;
   Vector<std::unique_ptr<AudioTrackRecorder>> audio_recorders_;
 
-  // Worker class doing the actual Webm Muxing work.
-  std::unique_ptr<media::WebmMuxer> webm_muxer_;
+  // Worker class doing the actual muxing work.
+  std::unique_ptr<media::Muxer> muxer_;
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 };

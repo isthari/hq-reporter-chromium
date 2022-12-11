@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,6 +45,7 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.RequiresRestart;
 import org.chromium.base.test.util.Restriction;
@@ -69,7 +70,6 @@ import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogManager.ModalDialogType;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
 import org.chromium.ui.modelutil.PropertyModel;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
 import org.chromium.ui.test.util.UiRestriction;
 
 /**
@@ -101,10 +101,6 @@ public class ChromeTabModalPresenterTest {
             checkDialogDismissalCause(mExpectedDismissalCause, dismissalCause);
         }
     }
-
-    // Disable animations to reduce flakiness.
-    @ClassRule
-    public static DisableAnimationsTestRule sNoAnimationsRule = new DisableAnimationsTestRule();
 
     @ClassRule
     public static ChromeTabbedActivityTestRule sActivityTestRule =
@@ -304,6 +300,7 @@ public class ChromeTabModalPresenterTest {
     @Test
     @SmallTest
     @Feature({"ModalDialog"})
+    @DisabledTest(message = "https://crbug.com/1382221")
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
     public void testSuspend_TabClosed() throws Exception {
         PropertyModel dialog1 = createDialog(mActivity, mManager, "1", null);
@@ -342,7 +339,7 @@ public class ChromeTabModalPresenterTest {
         checkCurrentPresenter(mManager, null);
 
         // Show a new tab modal dialog, and it should be suspended in tab switcher.
-        showDialog(mManager, dialog2, ModalDialogType.TAB);
+        showDialog(mManager, dialog2, ModalDialogType.TAB, false);
         checkPendingSize(mManager, ModalDialogType.APP, 0);
         checkPendingSize(mManager, ModalDialogType.TAB, 1);
         ChromeModalDialogTestUtils.checkBrowserControls(mActivity, false);

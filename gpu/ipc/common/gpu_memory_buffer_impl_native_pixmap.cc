@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,8 +67,8 @@ base::OnceClosure GpuMemoryBufferImplNativePixmap::AllocateForTesting(
   scoped_refptr<gfx::NativePixmap> pixmap;
   pixmap = ui::OzonePlatform::GetInstance()
                ->GetSurfaceFactoryOzone()
-               ->CreateNativePixmap(gfx::kNullAcceleratedWidget, VK_NULL_HANDLE,
-                                    size, format, usage);
+               ->CreateNativePixmap(gfx::kNullAcceleratedWidget, nullptr, size,
+                                    format, usage);
   if (!pixmap) {
     // TODO(j.isorce): use gbm_bo_create / gbm_bo_get_fd from system libgbm.
     NOTIMPLEMENTED();

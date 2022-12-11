@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,10 @@
 #include "ash/quick_pair/proto/fastpair.pb.h"
 #include "ash/quick_pair/repository/fast_pair/device_metadata.h"
 #include "ash/quick_pair/repository/fast_pair_repository.h"
-#include "ash/services/quick_pair/quick_pair_process.h"
 #include "base/check.h"
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
+#include "chromeos/ash/services/quick_pair/quick_pair_process.h"
 
 namespace ash {
 namespace quick_pair {
@@ -78,6 +78,8 @@ void FastPairDataEncryptorImpl::Factory::CreateAsyncWithKeyExchange(
     scoped_refptr<Device> device,
     base::OnceCallback<void(std::unique_ptr<FastPairDataEncryptor>)>
         on_get_instance_callback) {
+  QP_LOG(INFO) << __func__;
+
   // We first have to get the metadata in order to get the public key to use
   // to generate the new secret key pair.
   auto metadata_id = device->metadata_id;
@@ -93,10 +95,9 @@ void FastPairDataEncryptorImpl::Factory::CreateAsyncWithAccountKey(
     scoped_refptr<Device> device,
     base::OnceCallback<void(std::unique_ptr<FastPairDataEncryptor>)>
         on_get_instance_callback) {
-  QP_LOG(VERBOSE) << __func__;
+  QP_LOG(INFO) << __func__;
 
-  absl::optional<std::vector<uint8_t>> account_key =
-      device->GetAdditionalData(Device::AdditionalDataType::kAccountKey);
+  absl::optional<std::vector<uint8_t>> account_key = device->account_key();
   DCHECK(account_key);
   DCHECK_EQ(account_key->size(), static_cast<size_t>(kPrivateKeyByteSize));
 
@@ -116,7 +117,7 @@ void FastPairDataEncryptorImpl::Factory::DeviceMetadataRetrieved(
     DeviceMetadata* device_metadata,
     bool has_retryable_error) {
   if (!device_metadata) {
-    QP_LOG(WARNING) << "No device metadata retrieved.";
+    QP_LOG(WARNING) << __func__ << ": No device metadata retrieved.";
     std::move(on_get_instance_callback).Run(nullptr);
     return;
   }
@@ -197,14 +198,14 @@ void FastPairDataEncryptorImpl::ParseDecryptedPasskey(
 void FastPairDataEncryptorImpl::QuickPairProcessStoppedOnResponse(
     QuickPairProcessManager::ShutdownReason shutdown_reason) {
   QP_LOG(WARNING)
-      << "Quick Pair process stopped while decrypting response due to error: "
+      << ": Quick Pair process stopped while decrypting response due to error: "
       << shutdown_reason;
 }
 
 void FastPairDataEncryptorImpl::QuickPairProcessStoppedOnPasskey(
     QuickPairProcessManager::ShutdownReason shutdown_reason) {
   QP_LOG(WARNING)
-      << "Quick Pair process stopped while decrypting passkey due to error: "
+      << ": Quick Pair process stopped while decrypting passkey due to error: "
       << shutdown_reason;
 }
 

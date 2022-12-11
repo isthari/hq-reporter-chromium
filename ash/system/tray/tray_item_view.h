@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,6 +64,12 @@ class ASH_EXPORT TrayItemView : public views::View,
   void CreateLabel();
   void CreateImageView();
 
+  // Methods for destroying a child label or ImageView, which a user of
+  // `TrayItemView` should do if they know a child view is no longer visible and
+  // is expected to remain as such for longer than ~0.1 seconds.
+  void DestroyLabel();
+  void DestroyImageView();
+
   // Called when locale change is detected (which should not happen after the
   // user session starts). It should reload any strings the view is using.
   virtual void HandleLocaleChange() = 0;
@@ -84,6 +90,10 @@ class ASH_EXPORT TrayItemView : public views::View,
  protected:
   // Returns whether the shelf is horizontal.
   bool IsHorizontalAlignment() const;
+
+  // Perform visibility animation for this view. This function can be overridden
+  // so that the visibility animation can be customized.
+  virtual void PerformVisibilityAnimation(bool visible);
 
  private:
   // views::View.

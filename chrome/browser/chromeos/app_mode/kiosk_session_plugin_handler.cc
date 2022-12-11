@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <algorithm>
 
 #include "base/bind.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_session_plugin_handler_delegate.h"
@@ -108,7 +108,8 @@ void KioskSessionPluginHandler::OnWebContentsDestroyed(Observer* observer) {
 
       // Schedule the delete later after |observer|'s WebContentsDestroyed
       // finishes.
-      base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, observer);
+      base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                    observer);
 
       return;
     }

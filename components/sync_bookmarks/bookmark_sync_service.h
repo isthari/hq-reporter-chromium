@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
+#include "base/callback_forward.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -59,6 +59,9 @@ class BookmarkSyncService : public KeyedService {
   // before the processor starts receiving updates.
   virtual base::WeakPtr<syncer::ModelTypeControllerDelegate>
   GetBookmarkSyncControllerDelegate(favicon::FaviconService* favicon_service);
+
+  // For integration tests.
+  void SetBookmarksLimitForTesting(size_t limit);
 
  private:
   // BookmarkModelTypeProcessor handles communications between sync engine and

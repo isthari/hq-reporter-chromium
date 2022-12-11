@@ -1,28 +1,31 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/profiler/stack_sampler.h"
 
+#include "base/memory/ptr_util.h"
+#include "base/profiler/profiler_buildflags.h"
 #include "build/build_config.h"
 
-#if defined(ARCH_CPU_ARM64) || defined(ARCH_CPU_X86_64)
+#if BUILDFLAG(IOS_STACK_PROFILER_ENABLED)
 #include "base/bind.h"
 #include "base/check.h"
-#include "base/profiler/native_unwinder_ios.h"
+#include "base/profiler/frame_pointer_unwinder.h"
 #include "base/profiler/stack_copier_suspend.h"
-#include "base/profiler/stack_sampler_impl.h"
 #include "base/profiler/suspendable_thread_delegate_mac.h"
 #endif
 
 namespace base {
 
-#if defined(ARCH_CPU_ARM64) || defined(ARCH_CPU_X86_64)
+#if BUILDFLAG(IOS_STACK_PROFILER_ENABLED)
 namespace {
 
 std::vector<std::unique_ptr<Unwinder>> CreateUnwinders() {
   std::vector<std::unique_ptr<Unwinder>> unwinders;
-  unwinders.push_back(std::make_unique<NativeUnwinderIOS>());
+  if (__builtin_available(iOS 12.0, *)) {
+    unwinders.push_back(std::make_unique<FramePointerUnwinder>());
+  }
   return unwinders;
 }
 
@@ -37,12 +40,12 @@ std::unique_ptr<StackSampler> StackSampler::Create(
     RepeatingClosure record_sample_callback,
     StackSamplerTestDelegate* test_delegate) {
   DCHECK(!core_unwinders_factory);
-#if defined(ARCH_CPU_ARM64) || defined(ARCH_CPU_X86_64)
-  return std::make_unique<StackSamplerImpl>(
+#if BUILDFLAG(IOS_STACK_PROFILER_ENABLED)
+  return base::WrapUnique(new StackSampler(
       std::make_unique<StackCopierSuspend>(
           std::make_unique<SuspendableThreadDelegateMac>(thread_token)),
       BindOnce(&CreateUnwinders), module_cache,
-      std::move(record_sample_callback), test_delegate);
+      std::move(record_sample_callback), test_delegate));
 #else
   return nullptr;
 #endif
@@ -50,7 +53,7 @@ std::unique_ptr<StackSampler> StackSampler::Create(
 
 // static
 size_t StackSampler::GetStackBufferSize() {
-#if defined(ARCH_CPU_ARM64) || defined(ARCH_CPU_X86_64)
+#if BUILDFLAG(IOS_STACK_PROFILER_ENABLED)
   size_t stack_size = PlatformThread::GetDefaultThreadStackSize();
 
   // If getrlimit somehow fails, return the default iOS main thread stack size

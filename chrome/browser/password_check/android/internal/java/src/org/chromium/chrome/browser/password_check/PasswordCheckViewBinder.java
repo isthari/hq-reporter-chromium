@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -111,10 +111,6 @@ class PasswordCheckViewBinder {
                 return new PasswordCheckViewHolder(parent,
                         R.layout.password_check_compromised_credential_item,
                         PasswordCheckViewBinder::bindCredentialView);
-            case ItemType.COMPROMISED_CREDENTIAL_WITH_SCRIPT:
-                return new PasswordCheckViewHolder(parent,
-                        R.layout.password_check_compromised_credential_with_script_item,
-                        PasswordCheckViewBinder::bindCredentialView);
         }
         assert false : "Cannot create view for ItemType: " + itemType;
         return null;
@@ -164,14 +160,7 @@ class PasswordCheckViewBinder {
                 model.get(CREDENTIAL_HANDLER).onChangePasswordButtonClick(credential);
             });
             setTintListForCompoundDrawables(button.getCompoundDrawablesRelative(),
-                    view.getContext(), org.chromium.ui.R.color.default_text_color_inverse);
-            if (credential.hasAutoChangeButton()) {
-                ButtonCompat button_with_script =
-                        view.findViewById(R.id.credential_change_button_with_script);
-                button_with_script.setOnClickListener(unusedView -> {
-                    model.get(CREDENTIAL_HANDLER).onChangePasswordWithScriptButtonClick(credential);
-                });
-            }
+                    view.getContext(), R.color.default_text_color_on_accent1_list);
         } else if (propertyKey == CREDENTIAL_HANDLER) {
             assert model.get(CREDENTIAL_HANDLER) != null;
             // Is read-only and must therefore be bound initially, so no action required.
@@ -180,18 +169,16 @@ class PasswordCheckViewBinder {
             button.setVisibility(model.get(HAS_MANUAL_CHANGE_BUTTON) ? View.VISIBLE : View.GONE);
             TextView changeHint = view.findViewById(R.id.credential_change_hint);
             changeHint.setVisibility(
-                    model.get(HAS_MANUAL_CHANGE_BUTTON) || credential.hasAutoChangeButton()
-                            ? View.GONE
-                            : View.VISIBLE);
+                    model.get(HAS_MANUAL_CHANGE_BUTTON) ? View.GONE : View.VISIBLE);
         } else if (propertyKey == FAVICON_OR_FALLBACK) {
             ImageView imageView = view.findViewById(R.id.credential_favicon);
             PasswordCheckIconHelper.FaviconOrFallback data = model.get(FAVICON_OR_FALLBACK);
+            Resources resources = view.getResources();
+            Context context = view.getContext();
             imageView.setImageDrawable(FaviconUtils.getIconDrawableWithoutFilter(data.mIcon,
-                    data.mUrlOrAppName,
-                    PasswordCheckIconHelper.getIconColor(data, view.getResources()),
-                    FaviconUtils.createCircularIconGenerator(view.getResources()),
-                    view.getResources(),
-                    view.getResources().getDimensionPixelSize(
+                    data.mUrlOrAppName, PasswordCheckIconHelper.getIconColor(data, context),
+                    FaviconUtils.createCircularIconGenerator(context), resources,
+                    resources.getDimensionPixelSize(
                             org.chromium.chrome.browser.ui.favicon.R.dimen.default_favicon_size)));
         } else {
             assert false : "Unhandled update to property:" + propertyKey;
@@ -199,8 +186,12 @@ class PasswordCheckViewBinder {
     }
 
     private static @StringRes int getReasonForCredential(CompromisedCredential credential) {
-        if (!credential.isPhished()) return R.string.password_check_credential_row_reason_leaked;
-        if (!credential.isLeaked()) return R.string.password_check_credential_row_reason_phished;
+        if (!credential.isOnlyPhished()) {
+            return R.string.password_check_credential_row_reason_leaked;
+        }
+        if (!credential.isOnlyLeaked()) {
+            return R.string.password_check_credential_row_reason_phished;
+        }
         return R.string.password_check_credential_row_reason_leaked_and_phished;
     }
 
@@ -384,7 +375,7 @@ class PasswordCheckViewBinder {
                 return getString(view, R.string.password_check_status_message_error_quota_limit);
             case PasswordCheckUIStatus.ERROR_QUOTA_LIMIT_ACCOUNT_CHECK:
                 NoUnderlineClickableSpan linkSpan = new NoUnderlineClickableSpan(
-                        getResources(view), unusedView -> launchCheckupInAccount.run());
+                        view.getContext(), unusedView -> launchCheckupInAccount.run());
                 return SpanApplier.applySpans(
                         getString(view,
                                 R.string.password_check_status_message_error_quota_limit_account_check),

@@ -1,12 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/download/vcard_coordinator.h"
 
-#include <ContactsUI/ContactsUI.h>
+#import <ContactsUI/ContactsUI.h>
 
-#include "base/scoped_observation.h"
+#import "base/scoped_observation.h"
 #import "ios/chrome/browser/download/vcard_tab_helper.h"
 #import "ios/chrome/browser/download/vcard_tab_helper_delegate.h"
 #import "ios/chrome/browser/main/browser.h"
@@ -44,7 +44,7 @@
 
 - (void)stop {
   // Reset this observer manually. We want this to go out of scope now, to
-  // ensure it detaches before |browser| and its WebStateList get destroyed.
+  // ensure it detaches before `browser` and its WebStateList get destroyed.
   _dependencyInstallerBridge.reset();
 
   self.navigationViewController = nil;
@@ -66,12 +66,12 @@
 
 #pragma mark - Private
 
-// Dismisses the the |navigationViewController|.
+// Dismisses the the `navigationViewController`.
 - (void)dismissButtonTapped {
   [self.baseViewController dismissViewControllerAnimated:true completion:nil];
 }
 
-// Retreives contact informations from |data| and presents it.
+// Retreives contact informations from `data` and presents it.
 - (void)presentContactVCardFromData:(NSData*)vcardData {
   // TODO(crbug.com/1278657): Vcard download code only support the first
   // contact.

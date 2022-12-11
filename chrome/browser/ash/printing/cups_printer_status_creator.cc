@@ -1,13 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/printing/cups_printer_status_creator.h"
 
+#include "chrome/browser/ash/printing/printer_info.h"
+#include "chromeos/printing/cups_printer_status.h"
 #include "components/device_event_log/device_event_log.h"
 
-namespace chromeos {
+namespace ash {
 
+using ::chromeos::CupsPrinterStatus;
 using CupsReason = CupsPrinterStatus::CupsPrinterStatusReason::Reason;
 using CupsSeverity = CupsPrinterStatus::CupsPrinterStatusReason::Severity;
 using ReasonFromPrinter = printing::PrinterStatus::PrinterReason::Reason;
@@ -15,7 +18,9 @@ using SeverityFromPrinter = printing::PrinterStatus::PrinterReason::Severity;
 
 CupsPrinterStatus PrinterStatusToCupsPrinterStatus(
     const std::string& printer_id,
-    const printing::PrinterStatus& printer_status) {
+    const printing::PrinterStatus& printer_status,
+    const chromeos::PrinterAuthenticationInfo& auth_info,
+    bool client_info_supported) {
   CupsPrinterStatus cups_printer_status(printer_id);
 
   for (const auto& reason : printer_status.reasons) {
@@ -27,6 +32,9 @@ CupsPrinterStatus PrinterStatusToCupsPrinterStatus(
         PrinterReasonToCupsReason(reason.reason),
         PrinterSeverityToCupsSeverity(reason.severity));
   }
+
+  cups_printer_status.SetAuthenticationInfo(auth_info);
+  cups_printer_status.SetClientInfoSupported(client_info_supported);
 
   return cups_printer_status;
 }
@@ -100,4 +108,4 @@ CupsSeverity PrinterSeverityToCupsSeverity(
   }
 }
 
-}  // namespace chromeos
+}  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <random>
 
 #include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
@@ -56,9 +55,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   for (const auto& input_type : kVideoAudioInputTypes) {
     const auto video_codec =
-        kSupportedVideoCodecs[rng() % base::size(kSupportedVideoCodecs)];
+        kSupportedVideoCodecs[rng() % std::size(kSupportedVideoCodecs)];
     const auto audio_codec =
-        kSupportedAudioCodecs[rng() % base::size(kSupportedAudioCodecs)];
+        kSupportedAudioCodecs[rng() % std::size(kSupportedAudioCodecs)];
     media::WebmMuxer muxer(audio_codec, input_type.has_video,
                            input_type.has_audio,
                            std::make_unique<media::LiveWebmMuxerDelegate>(
@@ -74,7 +73,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
             media::VideoFrame::CreateBlackFrame(visible_rect);
         const auto is_key_frame = rng() % 2;
         const auto has_alpha_frame = rng() % 4;
-        auto parameters = media::WebmMuxer::VideoParameters(video_frame);
+        auto parameters = media::Muxer::VideoParameters(*video_frame);
         parameters.codec = video_codec;
         muxer.OnEncodedVideo(parameters, str,
                              has_alpha_frame ? str : std::string(),
@@ -83,11 +82,11 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       }
 
       if (input_type.has_audio) {
-        const media::ChannelLayout layout = rng() % 2
-                                                ? media::CHANNEL_LAYOUT_STEREO
-                                                : media::CHANNEL_LAYOUT_MONO;
+        const media::ChannelLayoutConfig layout =
+            rng() % 2 ? media::ChannelLayoutConfig::Stereo()
+                      : media::ChannelLayoutConfig::Mono();
         const int sample_rate =
-            kSampleRatesInKHz[rng() % base::size(kSampleRatesInKHz)];
+            kSampleRatesInKHz[rng() % std::size(kSampleRatesInKHz)];
 
         const media::AudioParameters params(
             media::AudioParameters::AUDIO_PCM_LOW_LATENCY, layout, sample_rate,

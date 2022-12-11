@@ -122,8 +122,7 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
         //VLOG(0) << "GPU Frame";        
     //} else 
     if (mediaFrame->HasTextures()){
-        //VLOG(0) << "Has textures";
-        auto mediaFrame = frame->frame();
+        //VLOG(0) << "Has textures";        
         // TODO llevar el primer bloque a una funcion helper para reutilizar con NDO
         auto wrapper = SharedGpuContext::ContextProviderWrapper();
         scoped_refptr<viz::RasterContextProvider> raster_provider = wrapper->ContextProvider()->RasterContextProvider();
@@ -165,9 +164,9 @@ void DecklinkOutputStream::putVideoFrame(VideoFrame* frame) {
         //VLOG(0) << "No GPU Frame";
         // TODO comprobar cuando hay que escalar o no
         if (rotationMode == libyuv::kRotate0) {
-            nextY = mediaFrame->data(0);
-            nextU = mediaFrame->data(1);
-            nextV = mediaFrame->data(2);
+            nextY = (uint8_t*) mediaFrame->data(0);
+            nextU = (uint8_t*) mediaFrame->data(1);
+            nextV = (uint8_t*) mediaFrame->data(2);
             nextStrideY = mediaFrame->stride(0);
             nextStrideU = mediaFrame->stride(1);
             nextStrideV = mediaFrame->stride(2);            

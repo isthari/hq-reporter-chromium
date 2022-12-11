@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@
 #include "chrome/updater/test_scope.h"
 #include "chrome/updater/update_service.h"
 #include "chrome/updater/updater_scope.h"
-#include "chrome/updater/util.h"
+#include "chrome/updater/util/util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
@@ -61,16 +61,26 @@ class IntegrationTestCommandsUser : public IntegrationTestCommands {
     updater::test::EnterTestMode(url);
   }
 
+  void ExitTestMode() const override {
+    updater::test::ExitTestMode(updater_scope_);
+  }
+
   void ExpectSelfUpdateSequence(ScopedServer* test_server) const override {
     updater::test::ExpectSelfUpdateSequence(updater_scope_, test_server);
   }
 
+  void SetGroupPolicies(const base::Value::Dict& values) const override {
+    updater::test::SetGroupPolicies(values);
+  }
+
   void ExpectUpdateSequence(ScopedServer* test_server,
                             const std::string& app_id,
+                            const std::string& install_data_index,
                             const base::Version& from_version,
                             const base::Version& to_version) const override {
     updater::test::ExpectUpdateSequence(updater_scope_, test_server, app_id,
-                                        from_version, to_version);
+                                        install_data_index, from_version,
+                                        to_version);
   }
 
   void ExpectVersionActive(const std::string& version) const override {
@@ -106,10 +116,18 @@ class IntegrationTestCommandsUser : public IntegrationTestCommands {
     updater::test::SetServerStarts(updater_scope_, value);
   }
 
-  void ExpectAppUnregisteredExistenceCheckerPath(
-      const std::string& app_id) const override {
-    updater::test::ExpectAppUnregisteredExistenceCheckerPath(updater_scope_,
-                                                             app_id);
+  void FillLog() const override { updater::test::FillLog(updater_scope_); }
+
+  void ExpectLogRotated() const override {
+    updater::test::ExpectLogRotated(updater_scope_);
+  }
+
+  void ExpectRegistered(const std::string& app_id) const override {
+    updater::test::ExpectRegistered(updater_scope_, app_id);
+  }
+
+  void ExpectNotRegistered(const std::string& app_id) const override {
+    updater::test::ExpectNotRegistered(updater_scope_, app_id);
   }
 
   void ExpectAppVersion(const std::string& app_id,
@@ -133,27 +151,40 @@ class IntegrationTestCommandsUser : public IntegrationTestCommands {
     updater::test::RunWake(updater_scope_, exit_code);
   }
 
+  void RunWakeAll() const override {
+    updater::test::RunWakeAll(updater_scope_);
+  }
+
   void RunWakeActive(int exit_code) const override {
     updater::test::RunWakeActive(updater_scope_, exit_code);
   }
 
-  void Update(const std::string& app_id) const override {
-    updater::test::Update(updater_scope_, app_id);
+  void Update(const std::string& app_id,
+              const std::string& install_data_index) const override {
+    updater::test::Update(updater_scope_, app_id, install_data_index);
   }
 
   void UpdateAll() const override { updater::test::UpdateAll(updater_scope_); }
 
-  void RegisterApp(const std::string& app_id) const override {
-    updater::test::RegisterApp(updater_scope_, app_id);
+  void DeleteUpdaterDirectory() const override {
+    updater::test::DeleteUpdaterDirectory(updater_scope_);
   }
 
-  void WaitForUpdaterExit() const override {
-    updater::test::WaitForUpdaterExit(updater_scope_);
+  void InstallApp(const std::string& app_id) const override {
+    updater::test::InstallApp(updater_scope_, app_id);
+  }
+
+  bool WaitForUpdaterExit() const override {
+    return updater::test::WaitForUpdaterExit(updater_scope_);
   }
 
 #if BUILDFLAG(IS_WIN)
   void ExpectInterfacesRegistered() const override {
     updater::test::ExpectInterfacesRegistered(updater_scope_);
+  }
+
+  void ExpectMarshalInterfaceSucceeds() const override {
+    updater::test::ExpectMarshalInterfaceSucceeds(updater_scope_);
   }
 
   void ExpectLegacyUpdate3WebSucceeds(const std::string& app_id,
@@ -165,6 +196,19 @@ class IntegrationTestCommandsUser : public IntegrationTestCommands {
 
   void ExpectLegacyProcessLauncherSucceeds() const override {
     updater::test::ExpectLegacyProcessLauncherSucceeds(updater_scope_);
+  }
+
+  void ExpectLegacyAppCommandWebSucceeds(
+      const std::string& app_id,
+      const std::string& command_id,
+      const base::Value::List& parameters,
+      int expected_exit_code) const override {
+    updater::test::ExpectLegacyAppCommandWebSucceeds(
+        updater_scope_, app_id, command_id, parameters, expected_exit_code);
+  }
+
+  void ExpectLegacyPolicyStatusSucceeds() const override {
+    updater::test::ExpectLegacyPolicyStatusSucceeds(updater_scope_);
   }
 
   void RunUninstallCmdLine() const override {
@@ -191,10 +235,11 @@ class IntegrationTestCommandsUser : public IntegrationTestCommands {
   }
 
   void CallServiceUpdate(const std::string& app_id,
+                         const std::string& install_data_index,
                          UpdateService::PolicySameVersionUpdate
                              policy_same_version_update) const override {
     updater::test::CallServiceUpdate(
-        updater_scope_, app_id,
+        updater_scope_, app_id, install_data_index,
         policy_same_version_update ==
             UpdateService::PolicySameVersionUpdate::kAllowed);
   }
@@ -207,12 +252,27 @@ class IntegrationTestCommandsUser : public IntegrationTestCommands {
     updater::test::ExpectLegacyUpdaterDataMigrated(updater_scope_);
   }
 
+  void RunRecoveryComponent(const std::string& app_id,
+                            const base::Version& version) const override {
+    updater::test::RunRecoveryComponent(updater_scope_, app_id, version);
+  }
+
   void ExpectLastChecked() const override {
     updater::test::ExpectLastChecked(updater_scope_);
   }
 
   void ExpectLastStarted() const override {
     updater::test::ExpectLastStarted(updater_scope_);
+  }
+
+  void UninstallApp(const std::string& app_id) const override {
+    updater::test::UninstallApp(updater_scope_, app_id);
+  }
+
+  void RunOfflineInstall(bool is_legacy_install,
+                         bool is_silent_install) override {
+    updater::test::RunOfflineInstall(updater_scope_, is_legacy_install,
+                                     is_silent_install);
   }
 
  private:

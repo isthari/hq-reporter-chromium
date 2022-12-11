@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -81,12 +81,10 @@ class PasswordCheckBridge {
     private static void insertCredential(CompromisedCredential[] credentials, int index,
             String signonRealm, GURL associatedUrl, String username, String displayOrigin,
             String displayUsername, String password, String passwordChangeUrl, String associatedApp,
-            long creationTime, long lastUsedTime, boolean leaked, boolean phished,
-            boolean hasStartableScript, boolean hasAutoChangeButton) {
-        credentials[index] =
-                new CompromisedCredential(signonRealm, associatedUrl, username, displayOrigin,
-                        displayUsername, password, passwordChangeUrl, associatedApp, creationTime,
-                        lastUsedTime, leaked, phished, hasStartableScript, hasAutoChangeButton);
+            long creationTime, long lastUsedTime, boolean leaked, boolean phished) {
+        credentials[index] = new CompromisedCredential(signonRealm, associatedUrl, username,
+                displayOrigin, displayUsername, password, passwordChangeUrl, associatedApp,
+                creationTime, lastUsedTime, leaked, phished);
     }
 
     /**

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "build/chromeos_buildflags.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/components/arc/session/arc_session.h"
 #include "base/allocator/buildflags.h"
 #endif
 
@@ -20,38 +21,30 @@ namespace features {
 
 #if BUILDFLAG(IS_WIN)
 // The EmptyWorkingSet feature as used on Windows.
-extern const base::Feature kEmptyWorkingSet;
+BASE_DECLARE_FEATURE(kEmptyWorkingSet);
 #endif  // BUILDFLAG(IS_WIN)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 
 // The trim on Memory Pressure feature will trim a process nodes working set
 // according to the parameters below.
-extern const base::Feature kTrimOnMemoryPressure;
+BASE_DECLARE_FEATURE(kTrimOnMemoryPressure);
 
 // If enabled we will periodically walk procfs looking for ARC++ processes to
 // trim under memory pressure.
-extern const base::Feature kTrimArcOnMemoryPressure;
+BASE_DECLARE_FEATURE(kTrimArcOnMemoryPressure);
 
 // If enabled we will try to trim ARCVM's crosvm under memory pressure.
-extern const base::Feature kTrimArcVmOnMemoryPressure;
+BASE_DECLARE_FEATURE(kTrimArcVmOnMemoryPressure);
 
 // The trim on freeze feature will trim the working set of a process when all
 // frames are frozen.
-extern const base::Feature kTrimOnFreeze;
+BASE_DECLARE_FEATURE(kTrimOnFreeze);
 
 // The graph walk backoff is the _minimum_ backoff time between graph walks
 // under moderate pressure in seconds. By default we will not walk more than
 // once every 2 minutes.
 extern const base::FeatureParam<int> kGraphWalkBackoffTimeSec;
-
-// Specifies the minimum amount of time a parent frame node must be invisible
-// before considering the process node for working set trim.
-extern const base::FeatureParam<int> kNodeInvisibileTimeSec;
-
-// Specifies the minimum amount of time a parent frame node must be invisible
-// before considering the process node for working set trim.
-extern const base::FeatureParam<int> kNodeTrimBackoffTimeSec;
 
 // Specifies the frequency in which we will fetch the arc process list.
 extern const base::FeatureParam<int> kArcProcessListFetchBackoffTimeSec;
@@ -92,11 +85,34 @@ extern const base::FeatureParam<base::TimeDelta> kArcVmTrimBackoffTimeMs;
 // regardless of the user's interactions with ARCVM.
 extern const base::FeatureParam<bool> kTrimArcVmOnCriticalPressure;
 
-// If true then we will trim ARCVM's crosvm once on the first moderate (or
-// critical though unlikely) memory pressure after ARCVM boot. The trimming is
-// done regardless of the user's interactions with ARCVM.
+// If true then we will drop ARCVM guest page caches once on the first moderate
+// (or critical though unlikely) memory pressure after ARCVM boot. The regular
+// trimming (i.e. moving pages to zram) is not performed, and the page cache
+// drop is done regardless of the user's interactions with ARCVM.
 extern const base::FeatureParam<bool>
     kTrimArcVmOnFirstMemoryPressureAfterArcVmBoot;
+
+// Deprecated.
+// TODO(yusukes): Remove this once ChromeOSARCVMReclaimThrottle.gcl Finch
+// experiment is done.
+extern const base::FeatureParam<bool>
+    kOnlyDropCachesOnFirstMemoryPressureAfterArcVmBoot;
+
+// Limits the number of pages to reclaim on each iteration.
+// Zero means "no ceiling limit" - though reclaim is still possibly limited by
+// kTrimArcVmPagesPerMinute, if that is set.
+// When both limits are set, the lesser (stricter, lower limit) is used.
+// This limits jank caused by reclaim, by making
+// each reclaim operation short.
+extern const base::FeatureParam<int> kTrimArcVmMaxPagesPerIteration;
+
+// Works in combination with kTrimArcVmMaxPagesPerIteration. The intent
+// is to limit the rate of pages reclaimed over time, so we specify that
+// explicitly.
+// Zero means "no per-minute page limit", though reclaim is still possibly
+// limited by kTrimArcVmMaxPagesPerIteration.
+// When both limits are set, the lesser (stricter, lower limit) is used.
+extern const base::FeatureParam<int> kTrimArcVmPagesPerMinute;
 
 struct TrimOnMemoryPressureParams {
   TrimOnMemoryPressureParams();
@@ -124,6 +140,9 @@ struct TrimOnMemoryPressureParams {
   base::TimeDelta arcvm_trim_backoff_time;
   bool trim_arcvm_on_critical_pressure = false;
   bool trim_arcvm_on_first_memory_pressure_after_arcvm_boot = false;
+  bool only_drop_caches_on_first_memory_pressure_after_arcvm_boot = false;
+  int trim_arcvm_max_pages_per_iteration = arc::ArcSession::kNoPageLimit;
+  int trim_arcvm_pages_per_minute = arc::ArcSession::kNoPageLimit;
 };
 
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)

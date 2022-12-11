@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,7 +45,7 @@ class WebAppOriginText : public views::View, public ui::LayerAnimationObserver {
 
  private:
   // Owned by the views hierarchy.
-  raw_ptr<views::Label> label_ = nullptr;
+  raw_ptr<views::Label, DanglingUntriaged> label_ = nullptr;
 
   base::WeakPtrFactory<WebAppOriginText> weak_factory_{this};
 };

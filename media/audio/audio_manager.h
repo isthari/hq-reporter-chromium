@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 
 #include "base/callback.h"
 #include "base/gtest_prod_util.h"
-#include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
 #include "build/build_config.h"
 #include "media/audio/audio_device_description.h"
@@ -22,8 +21,13 @@ namespace base {
 class SingleThreadTaskRunner;
 }
 
+namespace audio {
+class AudioManagerPowerUser;
+}  // namespace audio
+
 namespace media {
 
+class AecdumpRecordingManager;
 class AudioDebugRecordingManager;
 class AudioInputStream;
 class AudioManager;
@@ -166,6 +170,11 @@ class MEDIA_EXPORT AudioManager {
   // thread (GetTaskRunner()).
   virtual AudioDebugRecordingManager* GetAudioDebugRecordingManager() = 0;
 
+  // Set aecdump recording manager. This can only be called on AudioManager's
+  // thread (GetTaskRunner()).
+  virtual void SetAecDumpRecordingManager(
+      base::WeakPtr<AecdumpRecordingManager> aecdump_recording_manager) = 0;
+
   // Gets the name of the audio manager (e.g., Windows, Mac, PulseAudio).
   virtual const char* GetName() = 0;
 
@@ -175,7 +184,7 @@ class MEDIA_EXPORT AudioManager {
  protected:
   FRIEND_TEST_ALL_PREFIXES(AudioManagerTest, AudioDebugRecording);
   friend class AudioDeviceInfoAccessorForTests;
-  friend class AudioManagerPowerUser;
+  friend class audio::AudioManagerPowerUser;
 
   explicit AudioManager(std::unique_ptr<AudioThread> audio_thread);
 

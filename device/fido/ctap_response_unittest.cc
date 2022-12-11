@@ -1,11 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <algorithm>
-
 #include "base/containers/contains.h"
-#include "base/cxx17_backports.h"
+#include "base/ranges/algorithm.h"
 #include "components/cbor/reader.h"
 #include "components/cbor/values.h"
 #include "components/cbor/writer.h"
@@ -428,7 +426,7 @@ std::vector<uint8_t> GetTestSignResponse() {
 
 // Get a subset of the response for testing error handling.
 std::vector<uint8_t> GetTestCorruptedSignResponse(size_t length) {
-  DCHECK_LE(length, base::size(test_data::kTestU2fSignResponse));
+  DCHECK_LE(length, std::size(test_data::kTestU2fSignResponse));
   return fido_parsing_utils::Materialize(fido_parsing_utils::ExtractSpan(
       test_data::kTestU2fSignResponse, 0, length));
 }
@@ -501,7 +499,7 @@ TEST(CTAPResponseTest, TestReadMakeCredentialResponse) {
       certificate.GetArray()[0].GetBytestring(),
       ::testing::ElementsAreArray(test_data::kCtap2MakeCredentialCertificate));
   EXPECT_THAT(
-      make_credential_response->attestation_object().GetCredentialId(),
+      make_credential_response->attestation_object.GetCredentialId(),
       ::testing::ElementsAreArray(test_data::kCtap2MakeCredentialCredentialId));
 }
 
@@ -510,7 +508,7 @@ TEST(CTAPResponseTest, TestMakeCredentialNoneAttestationResponse) {
       FidoTransportProtocol::kUsbHumanInterfaceDevice,
       DecodeCBOR(test_data::kTestMakeCredentialResponse));
   ASSERT_TRUE(make_credential_response);
-  make_credential_response->EraseAttestationStatement(
+  make_credential_response->attestation_object.EraseAttestationStatement(
       AttestationObject::AAGUID::kErase);
   EXPECT_THAT(make_credential_response->GetCBOREncodedAttestationObject(),
               ::testing::ElementsAreArray(test_data::kNoneAttestationResponse));
@@ -544,7 +542,7 @@ TEST(CTAPResponseTest, TestParseRegisterResponseData) {
           test_data::kApplicationParameter,
           test_data::kTestU2fRegisterResponse);
   ASSERT_TRUE(response);
-  EXPECT_THAT(response->attestation_object().GetCredentialId(),
+  EXPECT_THAT(response->attestation_object.GetCredentialId(),
               ::testing::ElementsAreArray(test_data::kU2fSignKeyHandle));
   EXPECT_EQ(GetTestAttestationObjectBytes(),
             response->GetCBOREncodedAttestationObject());
@@ -739,9 +737,8 @@ TEST(CTAPResponseTest, TestReadGetInfoResponseWithDuplicateVersion) {
 
   // Find the first of the duplicate versions and change it to a different
   // value. That should be sufficient to make the data parsable.
-  static const char kU2Fv9[] = "U2F_V9";
-  uint8_t* first_version =
-      std::search(get_info, get_info + sizeof(get_info), kU2Fv9, kU2Fv9 + 6);
+  static constexpr base::StringPiece kU2Fv9 = "U2F_V9";
+  uint8_t* first_version = base::ranges::search(get_info, kU2Fv9);
   ASSERT_TRUE(first_version);
   memcpy(first_version, "U2F_V3", 6);
   absl::optional<AuthenticatorGetInfoResponse> response =

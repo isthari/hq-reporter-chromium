@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,13 @@ import android.animation.StateListAnimator;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
+import android.graphics.Color;
 import android.util.AttributeSet;
 import android.view.ContextThemeWrapper;
 
+import androidx.annotation.ColorRes;
 import androidx.annotation.StyleRes;
+import androidx.appcompat.content.res.AppCompatResources;
 import androidx.appcompat.widget.AppCompatButton;
 
 import org.chromium.ui.R;
@@ -63,10 +66,24 @@ public class ButtonCompat extends AppCompatButton {
 
         TypedArray a = getContext().obtainStyledAttributes(
                 attrs, R.styleable.ButtonCompat, android.R.attr.buttonStyle, 0);
-        int buttonColorId =
-                a.getResourceId(R.styleable.ButtonCompat_buttonColor, R.color.blue_when_enabled);
-        int rippleColorId = a.getResourceId(
-                R.styleable.ButtonCompat_rippleColor, R.color.filled_button_ripple_color);
+        int buttonColorId = a.getResourceId(
+                R.styleable.ButtonCompat_buttonColor, R.color.blue_when_enabled_list);
+
+        int rippleColorId = a.getResourceId(R.styleable.ButtonCompat_rippleColor, -1);
+        if (rippleColorId == -1) {
+            // If we can't resolve rippleColor, e.g. we're provided an attr that's not available in
+            // the theme, we'll use a fallback color based on the button color. A transparent color
+            // means a text button, which should have a blue ripple while a filled button should
+            // have a white ripple.
+            boolean isBgTransparent = getContext().getColor(buttonColorId) == Color.TRANSPARENT;
+            rippleColorId = isBgTransparent ? R.color.text_button_ripple_color_list_baseline
+                                            : R.color.filled_button_ripple_color;
+        }
+
+        int borderColorId =
+                a.getResourceId(R.styleable.ButtonCompat_borderColor, android.R.color.transparent);
+        int borderWidthId = a.getResourceId(R.styleable.ButtonCompat_borderWidth,
+                R.dimen.default_ripple_background_border_size);
         boolean buttonRaised = a.getBoolean(R.styleable.ButtonCompat_buttonRaised, true);
         int verticalInset = a.getDimensionPixelSize(R.styleable.ButtonCompat_verticalInset,
                 getResources().getDimensionPixelSize(R.dimen.button_bg_vertical_inset));
@@ -82,6 +99,15 @@ public class ButtonCompat extends AppCompatButton {
         final int bottomEndRippleRadius = a.getDimensionPixelSize(
                 R.styleable.ButtonCompat_rippleCornerRadiusBottomEnd, defaultRadius);
 
+        // If this attribute is not set, the text will keep the color set by android:textAppearance.
+        // This would have been handled in #super().
+        final @ColorRes int textColorRes =
+                a.getResourceId(R.styleable.ButtonCompat_buttonTextColor, -1);
+
+        if (textColorRes != -1) {
+            setTextColor(AppCompatResources.getColorStateList(getContext(), textColorRes));
+        }
+
         float[] radii;
         if (getLayoutDirection() == LAYOUT_DIRECTION_RTL) {
             radii = new float[] {topEndRippleRadius, topEndRippleRadius, topStartRippleRadius,
@@ -94,8 +120,8 @@ public class ButtonCompat extends AppCompatButton {
         }
 
         a.recycle();
-        mRippleBackgroundHelper = new RippleBackgroundHelper(
-                this, buttonColorId, rippleColorId, radii, verticalInset);
+        mRippleBackgroundHelper = new RippleBackgroundHelper(this, buttonColorId, rippleColorId,
+                radii, borderColorId, borderWidthId, verticalInset);
         setRaised(buttonRaised);
     }
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,19 +8,20 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "chromeos/dbus/biod/biod_client.h"
+#include "chromeos/ash/components/dbus/biod/biod_client.h"
 #include "dbus/object_path.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "services/device/fingerprint/fingerprint.h"
 #include "services/device/public/mojom/fingerprint.mojom.h"
+#include "third_party/abseil-cpp/absl/utility/utility.h"
 
 namespace device {
 
 namespace {
 
-chromeos::BiodClient* GetBiodClient() {
-  return chromeos::BiodClient::Get();
+ash::BiodClient* GetBiodClient() {
+  return ash::BiodClient::Get();
 }
 
 // Helper functions to convert between dbus and mojo types. The dbus type comes
@@ -257,7 +258,7 @@ void FingerprintChromeOS::BiodEnrollScanDoneReceived(
 
 void FingerprintChromeOS::BiodAuthScanDoneReceived(
     const biod::FingerprintMessage& msg,
-    const chromeos::AuthScanMatches& matches) {
+    const ash::AuthScanMatches& matches) {
   // Convert ObjectPath to string, since mojom doesn't know definition of
   // dbus ObjectPath.
   std::vector<std::pair<std::string, std::vector<std::string>>> entries;
@@ -289,7 +290,7 @@ void FingerprintChromeOS::BiodAuthScanDoneReceived(
 
   for (auto& observer : observers_) {
     observer->OnAuthScanDone(
-        {base::in_place, converted_msg},
+        {absl::in_place, converted_msg},
         // TODO(patrykd): Construct the map at the beginning of this function.
         base::flat_map<std::string, std::vector<std::string>>(entries));
   }

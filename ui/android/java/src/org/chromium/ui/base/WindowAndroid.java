@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@ package org.chromium.ui.base;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.PendingIntent;
 import android.app.UiModeManager;
@@ -21,12 +20,14 @@ import android.os.IBinder;
 import android.os.Process;
 import android.util.TypedValue;
 import android.view.Display;
+import android.view.Surface;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ActivityState;
@@ -47,7 +48,10 @@ import org.chromium.base.compat.ApiHelperForOMR1;
 import org.chromium.ui.KeyboardVisibilityDelegate;
 import org.chromium.ui.display.DisplayAndroid;
 import org.chromium.ui.display.DisplayAndroid.DisplayAndroidObserver;
+import org.chromium.ui.gfx.OverlayTransform;
 import org.chromium.ui.modaldialog.ModalDialogManager;
+import org.chromium.ui.permissions.AndroidPermissionDelegate;
+import org.chromium.ui.permissions.PermissionCallback;
 import org.chromium.ui.widget.Toast;
 
 import java.lang.ref.WeakReference;
@@ -142,6 +146,10 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
     // WindowAndroid.
     private final UnownedUserDataHost mUnownedUserDataHost = new UnownedUserDataHost();
 
+    private float mRefreshRate;
+    private boolean mHasFocus = true;
+    private OverlayTransformApiHelper mOverlayTransformApiHelper;
+
     /**
      * An interface to notify listeners that a context menu is closed.
      */
@@ -232,7 +240,7 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
         mAllowChangeRefreshRate = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !isTv(context);
 
         // Multiple refresh rate support is only available on M+.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) recomputeSupportedRefreshRates();
+        recomputeSupportedRefreshRates();
 
         // Temporary solution for flaky tests, see https://crbug.com/767624 for context
         try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
@@ -249,6 +257,10 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
             Configuration configuration = context.getResources().getConfiguration();
             boolean isScreenWideColorGamut = ApiHelperForO.isScreenWideColorGamut(configuration);
             display.updateIsDisplayServerWideColorGamut(isScreenWideColorGamut);
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S_V2) {
+            mOverlayTransformApiHelper = OverlayTransformApiHelper.create(this);
         }
     }
 
@@ -478,6 +490,12 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
         return false;
     }
 
+    @Override
+    public boolean shouldShowRequestPermissionRationale(String permission) {
+        return mPermissionDelegate != null
+                && mPermissionDelegate.shouldShowRequestPermissionRationale(permission);
+    }
+
     /**
      * Displays an error message with a provided error message string.
      * @param error The error message string to be displayed.
@@ -636,7 +654,7 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
      *         Context.startActivity will not throw ActivityNotFoundException.
      */
     public boolean canResolveActivity(Intent intent) {
-        return !PackageManagerUtils.queryIntentActivities(intent, 0).isEmpty();
+        return PackageManagerUtils.canResolveActivity(intent);
     }
 
     /**
@@ -650,6 +668,7 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
     /**
      * Destroys the c++ WindowAndroid object if one has been created.
      */
+    @CalledByNative
     public void destroy() {
         LifetimeAssert.setSafeToGc(mLifetimeAssert, true);
         if (mNativeWindowAndroid != 0) {
@@ -662,6 +681,12 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
         if (mTouchExplorationMonitor != null) mTouchExplorationMonitor.destroy();
 
         mApplicationBottomInsetProvider.destroy();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S_V2) {
+            if (mOverlayTransformApiHelper != null) {
+                mOverlayTransformApiHelper.destroy();
+            }
+        }
     }
 
     /**
@@ -700,9 +725,9 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
 
     // Helper to get the android Window. Always null for application context. Need to null check
     // result returning value.
-    private Window getWindow() {
+    Window getWindow() {
         Activity activity = ContextUtils.activityFromContext(mContextRef.get());
-        if (activity == null) return null;
+        if (activity == null || activity.isFinishing()) return null;
         return activity.getWindow();
     }
 
@@ -826,8 +851,7 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
     /**
      * Return the current window token, or null.
      */
-    @CalledByNative
-    protected IBinder getWindowToken() {
+    public IBinder getWindowToken() {
         Window window = getWindow();
         if (window == null) return null;
         View decorView = window.peekDecorView();
@@ -877,19 +901,28 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
         }
     }
 
+    protected void onWindowFocusChanged(boolean hasFocus) {
+        mHasFocus = hasFocus;
+        if (!mHasFocus) {
+            // `preferredDisplayModeId` affects other windows even when this window is not in focus,
+            // so reset to no preference when not in focus.
+            doSetPreferredRefreshRate(0);
+        } else {
+            doSetPreferredRefreshRate(mRefreshRate);
+        }
+    }
+
     @Override
-    @TargetApi(Build.VERSION_CODES.M)
     public void onCurrentModeChanged(Display.Mode currentMode) {
         recomputeSupportedRefreshRates();
     }
 
     @Override
-    @TargetApi(Build.VERSION_CODES.M)
     public void onDisplayModesChanged(List<Display.Mode> supportedModes) {
         recomputeSupportedRefreshRates();
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
+    @RequiresApi(Build.VERSION_CODES.O)
     @CalledByNative
     public void setWideColorEnabled(boolean enabled) {
         // Although this API was added in Android O, it was buggy.
@@ -907,7 +940,6 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
     }
 
     @SuppressLint("NewApi") // This should only be called if Display.Mode is available.
-    @TargetApi(Build.VERSION_CODES.M)
     private void recomputeSupportedRefreshRates() {
         Display.Mode currentMode = mDisplayAndroid.getCurrentMode();
         assert currentMode != null;
@@ -950,7 +982,6 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
 
     @SuppressLint("NewApi")
     // mSupportedRefreshRateModes should only be set if Display.Mode is available.
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     private float[] getSupportedRefreshRates() {
         if (mSupportedRefreshRateModes == null || !mAllowChangeRefreshRate) return null;
@@ -965,6 +996,11 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
     @SuppressLint("NewApi")
     @CalledByNative
     private void setPreferredRefreshRate(float preferredRefreshRate) {
+        mRefreshRate = preferredRefreshRate;
+        if (mHasFocus) doSetPreferredRefreshRate(preferredRefreshRate);
+    }
+
+    private void doSetPreferredRefreshRate(float preferredRefreshRate) {
         if (mSupportedRefreshRateModes == null || !mAllowChangeRefreshRate) return;
 
         int preferredModeId = getPreferredModeId(preferredRefreshRate);
@@ -979,7 +1015,6 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
 
     @SuppressLint("NewApi")
     // mSupportedRefreshRateModes should only be set if Display.Mode is available.
-    @TargetApi(Build.VERSION_CODES.M)
     private int getPreferredModeId(float preferredRefreshRate) {
         if (preferredRefreshRate == 0) return 0;
 
@@ -1010,6 +1045,37 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
         return mUnownedUserDataHost;
     }
 
+    void onOverlayTransformUpdated() {
+        if (mNativeWindowAndroid != 0) {
+            WindowAndroidJni.get().onOverlayTransformUpdated(mNativeWindowAndroid, this);
+        }
+    }
+
+    @CalledByNative
+    private @OverlayTransform int getOverlayTransform() {
+        int overlayTransform = OverlayTransform.INVALID;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S_V2
+                && mOverlayTransformApiHelper != null) {
+            overlayTransform = mOverlayTransformApiHelper.getOverlayTransform();
+        }
+        // Fallback to display rotation
+        if (overlayTransform == OverlayTransform.INVALID) {
+            switch (mDisplayAndroid.getRotation()) {
+                case Surface.ROTATION_0:
+                    return OverlayTransform.NONE;
+                case Surface.ROTATION_90:
+                    return OverlayTransform.ROTATE_90;
+                case Surface.ROTATION_180:
+                    return OverlayTransform.ROTATE_180;
+                case Surface.ROTATION_270:
+                    return OverlayTransform.ROTATE_270;
+                default:
+                    return OverlayTransform.NONE;
+            }
+        }
+        return overlayTransform;
+    }
+
     @NativeMethods
     interface Natives {
         long init(WindowAndroid caller, int displayId, float scrollFactor,
@@ -1022,5 +1088,6 @@ public class WindowAndroid implements AndroidPermissionDelegate, DisplayAndroidO
         void destroy(long nativeWindowAndroid, WindowAndroid caller);
         void onSupportedRefreshRatesUpdated(
                 long nativeWindowAndroid, WindowAndroid caller, float[] supportedRefreshRates);
+        void onOverlayTransformUpdated(long nativeWindowAndroid, WindowAndroid caller);
     }
 }

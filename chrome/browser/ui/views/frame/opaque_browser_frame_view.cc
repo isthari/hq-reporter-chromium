@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "build/buildflag.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/themes/theme_properties.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/frame/browser_frame.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -36,6 +37,7 @@
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/models/image_model.h"
 #include "ui/base/theme_provider.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -135,6 +137,11 @@ OpaqueBrowserFrameView::OpaqueBrowserFrameView(
   if (browser_view->AppUsesWindowControlsOverlay()) {
     layout_->SetWindowControlsOverlayEnabled(
         browser_view->IsWindowControlsOverlayEnabled(), this);
+  }
+
+  if (browser_view->AppUsesBorderlessMode()) {
+    layout_->SetBorderlessModeEnabled(browser_view->IsBorderlessModeEnabled(),
+                                      this);
   }
   SetLayoutManager(std::unique_ptr<views::LayoutManager>(layout_));
 }
@@ -367,8 +374,9 @@ int OpaqueBrowserFrameView::NonClientHitTest(const gfx::Point& point) {
   constexpr int kResizeAreaCornerSize = 16;
   auto resize_border = FrameBorderInsets(false);
   if (base::i18n::IsRTL()) {
-    resize_border = gfx::Insets(resize_border.top(), resize_border.right(),
-                                resize_border.bottom(), resize_border.left());
+    resize_border =
+        gfx::Insets::TLBR(resize_border.top(), resize_border.right(),
+                          resize_border.bottom(), resize_border.left());
   }
   // The top resize border has extra thickness.
   resize_border.set_top(FrameTopBorderThickness(false));
@@ -485,6 +493,14 @@ bool OpaqueBrowserFrameView::IsRegularOrGuestSession() const {
   return browser_view()->GetRegularOrGuestSession();
 }
 
+bool OpaqueBrowserFrameView::CanMaximize() const {
+  return browser_view()->CanMaximize();
+}
+
+bool OpaqueBrowserFrameView::CanMinimize() const {
+  return browser_view()->CanMinimize();
+}
+
 bool OpaqueBrowserFrameView::IsMaximized() const {
   return frame()->IsMaximized();
 }
@@ -563,6 +579,12 @@ bool OpaqueBrowserFrameView::IsTranslucentWindowOpacitySupported() const {
 bool OpaqueBrowserFrameView::ShouldDrawRestoredFrameShadow() const {
   return false;
 }
+
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+ui::WindowTiledEdges OpaqueBrowserFrameView::GetTiledEdges() const {
+  return frame()->tiled_edges();
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // OpaqueBrowserFrameView, protected:
@@ -643,12 +665,15 @@ views::Button* OpaqueBrowserFrameView::CreateImageButton(int normal_image_id,
   views::ImageButton* button =
       new views::ImageButton(views::Button::PressedCallback());
   const ui::ThemeProvider* tp = frame()->GetThemeProvider();
-  button->SetImage(views::Button::STATE_NORMAL,
-                   tp->GetImageSkiaNamed(normal_image_id));
-  button->SetImage(views::Button::STATE_HOVERED,
-                   tp->GetImageSkiaNamed(hot_image_id));
-  button->SetImage(views::Button::STATE_PRESSED,
-                   tp->GetImageSkiaNamed(pushed_image_id));
+  button->SetImageModel(
+      views::Button::STATE_NORMAL,
+      ui::ImageModel::FromImageSkia(*tp->GetImageSkiaNamed(normal_image_id)));
+  button->SetImageModel(
+      views::Button::STATE_HOVERED,
+      ui::ImageModel::FromImageSkia(*tp->GetImageSkiaNamed(hot_image_id)));
+  button->SetImageModel(
+      views::Button::STATE_PRESSED,
+      ui::ImageModel::FromImageSkia(*tp->GetImageSkiaNamed(pushed_image_id)));
   button->SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
   if (browser_view()->GetIsNormalType()) {
     // Get a custom processed version of the theme's background image so
@@ -662,7 +687,7 @@ views::Button* OpaqueBrowserFrameView::CreateImageButton(int normal_image_id,
     // (&processed_bg_image) to create a local copy, so it's safe for this
     // to be locally scoped.
     button->SetBackgroundImage(
-        tp->GetColor(ThemeProperties::COLOR_CONTROL_BUTTON_BACKGROUND),
+        frame()->GetColorProvider()->GetColor(kColorCaptionButtonBackground),
         (processed_bg_image.isNull() ? nullptr : &processed_bg_image),
         tp->GetImageSkiaNamed(mask_image_id));
   }
@@ -823,7 +848,7 @@ void OpaqueBrowserFrameView::PaintClientEdge(gfx::Canvas* canvas) const {
 
   // For popup windows, draw location bar sides.
   const SkColor location_bar_border_color =
-      browser_view()->toolbar()->location_bar()->GetOpaqueBorderColor();
+      GetColorProvider()->GetColor(kColorLocationBarBorderOpaque);
   if (!tabstrip_visible && IsToolbarVisible()) {
     gfx::Rect side(client_bounds.x() - kClientEdgeThickness, y,
                    kClientEdgeThickness, toolbar_bounds.height());

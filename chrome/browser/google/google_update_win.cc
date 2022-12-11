@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,13 +24,11 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/sequenced_task_runner_helpers.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/version.h"
 #include "base/win/atl.h"
@@ -430,7 +428,7 @@ UpdateCheckDriver::UpdateCheckDriver(
               ? g_update_driver_task_runner
               : base::ThreadPool::CreateCOMSTATaskRunner(
                     {base::MayBlock(), base::TaskPriority::USER_VISIBLE})),
-      result_runner_(base::SequencedTaskRunnerHandle::Get()),
+      result_runner_(base::SequencedTaskRunner::GetCurrentDefault()),
       locale_(locale),
       install_update_if_possible_(install_update_if_possible),
       elevation_window_(elevation_window),

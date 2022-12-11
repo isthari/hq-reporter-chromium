@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,10 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -40,6 +40,7 @@
 #include "third_party/blink/public/mojom/notifications/notification.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -200,8 +201,7 @@ TEST_F(PlatformNotificationServiceTest, DisplayPersistentThenClose) {
 TEST_F(PlatformNotificationServiceTest, DisplayNonPersistentPropertiesMatch) {
   std::vector<int> vibration_pattern(
       kNotificationVibrationPattern,
-      kNotificationVibrationPattern +
-          base::size(kNotificationVibrationPattern));
+      kNotificationVibrationPattern + std::size(kNotificationVibrationPattern));
 
   PlatformNotificationData data;
   data.title = u"My notification's title";
@@ -233,8 +233,7 @@ TEST_F(PlatformNotificationServiceTest, DisplayNonPersistentPropertiesMatch) {
 TEST_F(PlatformNotificationServiceTest, DisplayPersistentPropertiesMatch) {
   std::vector<int> vibration_pattern(
       kNotificationVibrationPattern,
-      kNotificationVibrationPattern +
-          base::size(kNotificationVibrationPattern));
+      kNotificationVibrationPattern + std::size(kNotificationVibrationPattern));
   PlatformNotificationData data;
   data.title = u"My notification's title";
   data.body = u"Hello, world!";
@@ -417,16 +416,9 @@ TEST_F(PlatformNotificationServiceTest, CreateNotificationFromData) {
 
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
-#if !BUILDFLAG(IS_ANDROID)
-
-class PlatformNotificationServiceTest_WebAppNotificationIconAndTitle
-    : public PlatformNotificationServiceTest {
- protected:
-  PlatformNotificationServiceTest_WebAppNotificationIconAndTitle() {
-    scoped_feature_list_.InitAndEnableFeature(
-        features::kDesktopPWAsNotificationIconAndTitle);
-  }
-};
+#if BUILDFLAG(IS_CHROMEOS)
+using PlatformNotificationServiceTest_WebAppNotificationIconAndTitle =
+    PlatformNotificationServiceTest;
 
 TEST_F(PlatformNotificationServiceTest_WebAppNotificationIconAndTitle,
        FindWebAppIconAndTitle_NoApp) {
@@ -459,7 +451,13 @@ TEST_F(PlatformNotificationServiceTest_WebAppNotificationIconAndTitle,
   provider->GetRegistrarMutable().registry().emplace(app_id,
                                                      std::move(web_app));
 
-  IconManagerStartAndAwaitFaviconMonochrome(icon_manager, app_id);
+  base::RunLoop run_loop;
+  icon_manager.SetFaviconMonochromeReadCallbackForTesting(
+      base::BindLambdaForTesting(
+          [&](const web_app::AppId& cached_app_id) { run_loop.Quit(); }));
+  icon_manager.Start();
+  run_loop.Run();
+
   provider->Start();
 
   absl::optional<PlatformNotificationServiceImpl::WebAppIconAndTitle>
@@ -472,5 +470,4 @@ TEST_F(PlatformNotificationServiceTest_WebAppNotificationIconAndTitle,
       SK_ColorTRANSPARENT,
       icon_and_title->icon.GetRepresentation(1.0f).GetBitmap().getColor(0, 0));
 }
-
-#endif  // !BUILDFLAG(IS_ANDROID)
+#endif  // BUILDFLAG(IS_CHROMEOS)

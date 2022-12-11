@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,16 @@ void TableManager::ScheduleDBTask(const base::Location& from_here,
   GetTaskRunner()->PostTask(
       from_here, base::BindOnce(&TableManager::ExecuteDBTaskOnDBSequence, this,
                                 std::move(task)));
+}
+
+void TableManager::ScheduleDBTaskWithReply(const base::Location& from_here,
+                                           DBTask task,
+                                           base::OnceClosure reply) {
+  GetTaskRunner()->PostTaskAndReply(
+      from_here,
+      base::BindOnce(&TableManager::ExecuteDBTaskOnDBSequence, this,
+                     std::move(task)),
+      std::move(reply));
 }
 
 void TableManager::ExecuteDBTaskOnDBSequence(DBTask task) {

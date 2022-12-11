@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define ASH_SYSTEM_PCIE_PERIPHERAL_PCIE_PERIPHERAL_NOTIFICATION_CONTROLLER_H_
 
 #include "ash/ash_export.h"
-#include "ash/components/peripheral_notification/peripheral_notification_manager.h"
+#include "chromeos/ash/components/peripheral_notification/peripheral_notification_manager.h"
 
 class PrefRegistrySimple;
 
@@ -63,6 +63,10 @@ class ASH_EXPORT PciePeripheralNotificationController
 
   // Stubs from usb peripheral notification controller
   void OnInvalidDpCableWarning() override {}
+  void OnInvalidUSB4ValidTBTCableWarning() override {}
+  void OnInvalidUSB4CableWarning() override {}
+  void OnInvalidTBTCableWarning() override {}
+  void OnSpeedLimitingCableWarning() override {}
 
  private:
   friend class PciePeripheralNotificationControllerTest;

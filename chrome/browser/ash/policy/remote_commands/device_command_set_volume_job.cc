@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 #include <memory>
 #include <utility>
 
-#include "ash/components/audio/cras_audio_handler.h"
 #include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/syslog_logging.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
+#include "chromeos/ash/components/audio/cras_audio_handler.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -36,13 +36,10 @@ enterprise_management::RemoteCommand_Type DeviceCommandSetVolumeJob::GetType()
 bool DeviceCommandSetVolumeJob::ParseCommandPayload(
     const std::string& command_payload) {
   absl::optional<base::Value> root(base::JSONReader::Read(command_payload));
-  if (!root)
-    return false;
-  base::DictionaryValue* payload = nullptr;
-  if (!root->GetAsDictionary(&payload))
+  if (!root || !root->is_dict())
     return false;
   absl::optional<int> maybe_volume;
-  maybe_volume = payload->FindIntKey(kVolumeFieldName);
+  maybe_volume = root->GetDict().FindInt(kVolumeFieldName);
   if (!maybe_volume)
     return false;
   volume_ = *maybe_volume;
@@ -59,8 +56,8 @@ void DeviceCommandSetVolumeJob::RunImpl(CallbackWithResult succeeded_callback,
   bool mute = audio_handler->IsOutputVolumeBelowDefaultMuteLevel();
   audio_handler->SetOutputMute(mute);
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(succeeded_callback), nullptr));
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(succeeded_callback), absl::nullopt));
 }
 
 }  // namespace policy

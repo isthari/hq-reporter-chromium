@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "chrome/browser/ash/arc/optin/arc_optin_preference_handler_observer.h"
 #include "chrome/browser/ash/login/screens/base_screen.h"
 #include "chrome/browser/ash/settings/device_settings_service.h"
-#include "chrome/browser/ui/webui/chromeos/login/consolidated_consent_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/consolidated_consent_screen_handler.h"
 
 namespace arc {
 class ArcOptInPreferenceHandler;
@@ -33,11 +33,21 @@ class ConsolidatedConsentScreen
     // The user accepted terms of service in online demo mode.
     ACCEPTED_DEMO_ONLINE,
 
-    // The user accepted terms of service in offline demo mode.
-    ACCEPTED_DEMO_OFFLINE,
-
     // Consolidated Consent screen skipped.
     NOT_APPLICABLE,
+  };
+
+  // The result of the cryptohome recovery opt-in.
+  // These values are logged to UMA
+  // ("OOBE.ConsolidatedConsentScreen.RecoveryOptInResult"). Entries should not
+  // be renumbered and numeric values should never be reused.
+  enum class RecoveryOptInResult {
+    kNotSupported = 0,
+    kUserOptIn = 1,
+    kUserOptOut = 2,
+    kPolicyOptIn = 3,
+    kPolicyOptOut = 4,
+    kMaxValue = kPolicyOptOut,
   };
 
   class Observer : public base::CheckedObserver {
@@ -50,7 +60,7 @@ class ConsolidatedConsentScreen
   using TView = ConsolidatedConsentScreenView;
   using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
 
-  ConsolidatedConsentScreen(ConsolidatedConsentScreenView* view,
+  ConsolidatedConsentScreen(base::WeakPtr<ConsolidatedConsentScreenView> view,
                             const ScreenExitCallback& exit_callback);
   ~ConsolidatedConsentScreen() override;
   ConsolidatedConsentScreen(const ConsolidatedConsentScreen&) = delete;
@@ -58,10 +68,6 @@ class ConsolidatedConsentScreen
       delete;
 
   static std::string GetResultString(Result result);
-
-  // Called when the screen is being destroyed. This should call Unbind() on the
-  // associated View if this class is destroyed before that.
-  void OnViewDestroyed(ConsolidatedConsentScreenView* view);
 
   void set_exit_callback_for_testing(const ScreenExitCallback& exit_callback) {
     exit_callback_ = exit_callback;
@@ -77,12 +83,21 @@ class ConsolidatedConsentScreen
   void OnAccept(bool enable_stats_usage,
                 bool enable_backup_restore,
                 bool enable_location_services,
-                const std::string& tos_content);
+                const std::string& tos_content,
+                bool enable_recovery);
 
   // arc::ArcOptInPreferenceHandlerObserver:
   void OnMetricsModeChanged(bool enabled, bool managed) override;
   void OnBackupAndRestoreModeChanged(bool enabled, bool managed) override;
   void OnLocationServicesModeChanged(bool enabled, bool managed) override;
+
+ protected:
+  // BaseScreen:
+  bool MaybeSkip(WizardContext& context) override;
+  void ShowImpl() override;
+  void HideImpl() override;
+  void OnUserAction(const base::Value::List& args) override;
+  ScreenExitCallback* exit_callback() { return &exit_callback_; }
 
  private:
   struct ConsentsParameters {
@@ -94,25 +109,24 @@ class ConsolidatedConsentScreen
     bool location_accepted;
   };
 
-  // BaseScreen:
-  bool MaybeSkip(WizardContext* context) override;
-  void ShowImpl() override;
-  void HideImpl() override;
-  void OnUserAction(const std::string& action_id) override;
-
   void RecordConsents(const ConsentsParameters& params);
 
   void OnOwnershipStatusCheckDone(
       DeviceSettingsService::OwnershipStatus status);
+
+  void ReportUsageOptIn(bool is_enabled);
 
   // Exits the screen with `Result::ACCEPTED` in the normal flow, and
   // `Result::ACCEPTED_DEMO_ONLINE` or `Result::ACCEPTED_DEMO_OFFLINE` in the
   // demo setup flow.
   void ExitScreenWithAcceptedResult();
 
-  bool is_child_account_ = false;
+  // Updates the state of the metrics toggle.
+  void UpdateMetricsMode(bool enabled, bool managed);
 
-  bool is_enterprise_managed_account_ = false;
+  absl::optional<bool> is_owner_;
+
+  bool is_child_account_ = false;
 
   // To track if optional ARC features are managed preferences.
   bool backup_restore_managed_ = false;
@@ -122,7 +136,7 @@ class ConsolidatedConsentScreen
 
   std::unique_ptr<arc::ArcOptInPreferenceHandler> pref_handler_;
 
-  ConsolidatedConsentScreenView* view_ = nullptr;
+  base::WeakPtr<ConsolidatedConsentScreenView> view_;
 
   ScreenExitCallback exit_callback_;
 
@@ -130,11 +144,5 @@ class ConsolidatedConsentScreen
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash ::ConsolidatedConsentScreen;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_SCREENS_CONSOLIDATED_CONSENT_SCREEN_H_

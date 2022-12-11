@@ -1,12 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/ash/shelf/crostini_app_window.h"
 
+#include "chrome/browser/ash/app_list/app_service/app_service_app_icon_loader.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_icon_loader_delegate.h"
-#include "chrome/browser/ui/app_list/app_service/app_service_app_icon_loader.h"
 #include "extensions/common/constants.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/widget/widget.h"
@@ -43,9 +43,10 @@ class CrostiniAppWindow::IconLoader : public AppServiceAppIconLoader,
       return;
 
     if (mode_ == Mode::kWindowIcon) {
-      widget_->widget_delegate()->SetIcon(image);
+      widget_->widget_delegate()->SetIcon(ui::ImageModel::FromImageSkia(image));
     } else {
-      widget_->widget_delegate()->SetAppIcon(image);
+      widget_->widget_delegate()->SetAppIcon(
+          ui::ImageModel::FromImageSkia(image));
     }
   }
 

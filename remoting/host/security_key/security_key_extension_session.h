@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 
 #include "base/callback.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/threading/thread_checker.h"
 #include "base/values.h"
 #include "remoting/host/host_extension_session.h"
@@ -53,10 +53,9 @@ class SecurityKeyExtensionSession : public HostExtensionSession {
 
  private:
   // These methods process specific security key extension message types.
-  void ProcessControlMessage(
-      const base::Value::DictStorage& message_data) const;
-  void ProcessDataMessage(const base::Value::DictStorage& message_data) const;
-  void ProcessErrorMessage(const base::Value::DictStorage& message_data) const;
+  void ProcessControlMessage(const base::Value::Dict& message_data) const;
+  void ProcessDataMessage(const base::Value::Dict& message_data) const;
+  void ProcessErrorMessage(const base::Value::Dict& message_data) const;
 
   void SendMessageToClient(int connection_id, const std::string& data) const;
 

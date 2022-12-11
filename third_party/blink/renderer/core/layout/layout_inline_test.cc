@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -508,7 +508,7 @@ TEST_P(ParameterizedLayoutInlineTest, FocusRingRecursiveContinuations) {
   )HTML");
 
   auto rects = GetLayoutObjectByElementId("target")->OutlineRects(
-      PhysicalOffset(), NGOutlineType::kIncludeBlockVisualOverflow);
+      nullptr, PhysicalOffset(), NGOutlineType::kIncludeBlockVisualOverflow);
 
   EXPECT_THAT(
       rects, UnorderedElementsAre(PhysicalRect(0, 0, 100, 20),   // 'SPAN0'
@@ -545,8 +545,9 @@ TEST_P(ParameterizedLayoutInlineTest, FocusRingRecursiveInlinesVerticalRL) {
   )HTML");
 
   auto* target = GetLayoutObjectByElementId("target");
-  auto rects = target->OutlineRects(target->FirstFragment().PaintOffset(),
-                                    NGOutlineType::kIncludeBlockVisualOverflow);
+  auto rects =
+      target->OutlineRects(nullptr, target->FirstFragment().PaintOffset(),
+                           NGOutlineType::kIncludeBlockVisualOverflow);
   EXPECT_THAT(rects, UnorderedElementsAre(
                          PhysicalRect(180, 0, 20, 120),     // 'INLINE'
                          PhysicalRect(160, 0, 20, 80),      // 'TEXT'
@@ -583,8 +584,9 @@ TEST_P(ParameterizedLayoutInlineTest,
   )HTML");
 
   auto* target = GetLayoutObjectByElementId("target");
-  auto rects = target->OutlineRects(target->FirstFragment().PaintOffset(),
-                                    NGOutlineType::kIncludeBlockVisualOverflow);
+  auto rects =
+      target->OutlineRects(nullptr, target->FirstFragment().PaintOffset(),
+                           NGOutlineType::kIncludeBlockVisualOverflow);
   EXPECT_THAT(rects, UnorderedElementsAre(
                          PhysicalRect(180, 0, 20, 100),   // 'SPAN0'
                          PhysicalRect(140, 0, 40, 400),   // div DIV1
@@ -620,7 +622,7 @@ TEST_P(ParameterizedLayoutInlineTest, FocusRingRecursiveInlines) {
   )HTML");
 
   auto rects = GetLayoutObjectByElementId("target")->OutlineRects(
-      PhysicalOffset(), NGOutlineType::kIncludeBlockVisualOverflow);
+      nullptr, PhysicalOffset(), NGOutlineType::kIncludeBlockVisualOverflow);
 
   EXPECT_THAT(rects, UnorderedElementsAre(
                          PhysicalRect(0, 0, 120, 20),     // 'INLINE'
@@ -757,7 +759,7 @@ TEST_P(ParameterizedLayoutInlineTest, AddAnnotatedRegions) {
 
   Vector<AnnotatedRegionValue> regions3;
   GetLayoutObjectByElementId("target3")->AddAnnotatedRegions(regions3);
-  EXPECT_TRUE(regions3.IsEmpty());
+  EXPECT_TRUE(regions3.empty());
 }
 
 TEST_P(ParameterizedLayoutInlineTest, AddAnnotatedRegionsVerticalRL) {
@@ -791,7 +793,7 @@ TEST_P(ParameterizedLayoutInlineTest, AddAnnotatedRegionsVerticalRL) {
 
   Vector<AnnotatedRegionValue> regions3;
   GetLayoutObjectByElementId("target3")->AddAnnotatedRegions(regions3);
-  EXPECT_TRUE(regions3.IsEmpty());
+  EXPECT_TRUE(regions3.empty());
 }
 
 TEST_P(ParameterizedLayoutInlineTest, VisualOverflowRecalcLegacyLayout) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 
 #include "base/callback.h"
 #include "base/memory/scoped_refptr.h"
-#include "chrome/browser/ash/policy/enrollment/private_membership/private_membership_rlwe_client.h"
 
 class PrefService;
 
@@ -18,29 +17,30 @@ namespace network {
 class SharedURLLoaderFactory;
 }
 
+namespace policy::psm {
+class RlweDmserverClient;
+}
+
 namespace policy {
 
 class DeviceManagementService;
 
-// Indicates the current state of the auto-enrollment check. (Numeric values
-// are just to make reading of log files easier.)
-enum AutoEnrollmentState {
+// Indicates the current state of the auto-enrollment check.
+enum class AutoEnrollmentState {
   // Not yet started.
-  AUTO_ENROLLMENT_STATE_IDLE = 0,
+  kIdle = 0,
   // Working, another event will be fired eventually.
-  AUTO_ENROLLMENT_STATE_PENDING = 1,
-  // Failed to connect to DMServer.
-  AUTO_ENROLLMENT_STATE_CONNECTION_ERROR = 2,
+  kPending = 1,
+  // Failed to connect to DMServer or to synchronize the system clock.
+  kConnectionError = 2,
   // Connection successful, but the server failed to generate a valid reply.
-  AUTO_ENROLLMENT_STATE_SERVER_ERROR = 3,
+  kServerError = 3,
   // Check completed successfully, enrollment should be triggered.
-  AUTO_ENROLLMENT_STATE_TRIGGER_ENROLLMENT = 4,
+  kEnrollment = 4,
   // Check completed successfully, enrollment not applicable.
-  AUTO_ENROLLMENT_STATE_NO_ENROLLMENT = 5,
-  // Check completed successfully, zero-touch enrollment should be triggered.
-  AUTO_ENROLLMENT_STATE_TRIGGER_ZERO_TOUCH = 6,
+  kNoEnrollment = 5,
   // Check completed successfully, device is disabled.
-  AUTO_ENROLLMENT_STATE_DISABLED = 7,
+  kDisabled = 6,
 };
 
 // Interacts with the device management service and determines whether this
@@ -77,9 +77,7 @@ class AutoEnrollmentClient {
 
     // |progress_callback| will be invoked whenever some significant event
     // happens as part of the protocol, after Start() is invoked. The result of
-    // the protocol will be cached in |local_state|. |power_initial| and
-    // |power_limit| are exponents of power-of-2 values which will be the
-    // initial modulus and the maximum modulus used by this client.
+    // the protocol will be cached in |local_state|.
     virtual std::unique_ptr<AutoEnrollmentClient> CreateForInitialEnrollment(
         const ProgressCallback& progress_callback,
         DeviceManagementService* device_management_service,
@@ -87,9 +85,7 @@ class AutoEnrollmentClient {
         scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
         const std::string& device_serial_number,
         const std::string& device_brand_code,
-        int power_initial,
-        int power_limit,
-        PrivateMembershipRlweClient::Factory* psm_rlwe_client_factory) = 0;
+        std::unique_ptr<psm::RlweDmserverClient> psm_rlwe_dmserver_client) = 0;
   };
 
   virtual ~AutoEnrollmentClient() {}
@@ -103,17 +99,6 @@ class AutoEnrollmentClient {
   // called by consumers when they become aware of environment changes (such as
   // captive portal setup being complete).
   virtual void Retry() = 0;
-
-  // Cancels any pending requests. |progress_callback_| will not be invoked.
-  // |this| will delete itself.
-  virtual void CancelAndDeleteSoon() = 0;
-
-  // Returns the device_id randomly generated for the auto-enrollment requests.
-  // It can be reused for subsequent requests to the device management service.
-  virtual std::string device_id() const = 0;
-
-  // Current state.
-  virtual AutoEnrollmentState state() const = 0;
 };
 
 }  // namespace policy

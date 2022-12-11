@@ -1,8 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/capture/video/mac/video_capture_device_avfoundation_mac.h"
+#include "media/capture/video/mac/test/fake_av_capture_device_format.h"
 
 #include <memory>
 
@@ -27,8 +28,9 @@ using testing::_;
 
 namespace media {
 
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
 TEST(VideoCaptureDeviceAVFoundationMacTest,
-     OutputsNv12WithoutScalingByDefault) {
+     DISABLED_OutputsNv12WithoutScalingByDefault) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeature(kInCapturerScaling);
 
@@ -73,8 +75,9 @@ TEST(VideoCaptureDeviceAVFoundationMacTest,
   }));
 }
 
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
 TEST(VideoCaptureDeviceAVFoundationMacTest,
-     SpecifiedScalingIsIgnoredWhenInCapturerScalingIsNotEnabled) {
+     DISABLED_SpecifiedScalingIsIgnoredWhenInCapturerScalingIsNotEnabled) {
   base::test::ScopedFeatureList scoped_feature_list;
   // By default, kInCapturerScaling is false.
   EXPECT_FALSE(base::FeatureList::IsEnabled(kInCapturerScaling));
@@ -124,7 +127,9 @@ TEST(VideoCaptureDeviceAVFoundationMacTest,
   }));
 }
 
-TEST(VideoCaptureDeviceAVFoundationMacTest, SpecifiedScalingOutputsNv12) {
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
+TEST(VideoCaptureDeviceAVFoundationMacTest,
+     DISABLED_SpecifiedScalingOutputsNv12) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeature(kInCapturerScaling);
 
@@ -178,8 +183,9 @@ TEST(VideoCaptureDeviceAVFoundationMacTest, SpecifiedScalingOutputsNv12) {
   }));
 }
 
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
 TEST(VideoCaptureDeviceAVFoundationMacTest,
-     SpecifiedScalingCanChangeDuringCapture) {
+     DISABLED_SpecifiedScalingCanChangeDuringCapture) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeature(kInCapturerScaling);
 
@@ -248,8 +254,9 @@ TEST(VideoCaptureDeviceAVFoundationMacTest,
   }));
 }
 
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
 TEST(VideoCaptureDeviceAVFoundationMacTest,
-     SpecifiedScalingUsesGoodSizesButNotBadSizes) {
+     DISABLED_SpecifiedScalingUsesGoodSizesButNotBadSizes) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeature(kInCapturerScaling);
 
@@ -338,9 +345,11 @@ TEST(VideoCaptureDeviceAVFoundationMacTest,
 
 // This is approximately the same test as the one above except it does not rely
 // on having a camera. Instead we mock-invoke processPixelBufferNV12IOSurface
-// from the test as-if a camera had produced a frame.
+
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.// from the
+// test as-if a camera had produced a frame.
 TEST(VideoCaptureDeviceAVFoundationMacTest,
-     ProcessPixelBufferNV12IOSurfaceWithGoodAndBadScaling) {
+     DISABLED_ProcessPixelBufferNV12IOSurfaceWithGoodAndBadScaling) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeature(kInCapturerScaling);
 
@@ -410,7 +419,8 @@ TEST(VideoCaptureDeviceAVFoundationMacTest,
   }));
 }
 
-TEST(VideoCaptureDeviceAVFoundationMacTest, TakePhoto) {
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
+TEST(VideoCaptureDeviceAVFoundationMacTest, DISABLED_TakePhoto) {
   RunTestCase(base::BindOnce([] {
     NSString* deviceId = GetFirstDeviceId();
     if (!deviceId) {
@@ -437,7 +447,9 @@ TEST(VideoCaptureDeviceAVFoundationMacTest, TakePhoto) {
   }));
 }
 
-TEST(VideoCaptureDeviceAVFoundationMacTest, StopCaptureWhileTakingPhoto) {
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
+TEST(VideoCaptureDeviceAVFoundationMacTest,
+     DISABLED_StopCaptureWhileTakingPhoto) {
   RunTestCase(base::BindOnce([] {
     NSString* deviceId = GetFirstDeviceId();
     if (!deviceId) {
@@ -468,7 +480,9 @@ TEST(VideoCaptureDeviceAVFoundationMacTest, StopCaptureWhileTakingPhoto) {
   }));
 }
 
-TEST(VideoCaptureDeviceAVFoundationMacTest, MultiplePendingTakePhotos) {
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
+TEST(VideoCaptureDeviceAVFoundationMacTest,
+     DISABLED_MultiplePendingTakePhotos) {
   RunTestCase(base::BindOnce([] {
     NSString* deviceId = GetFirstDeviceId();
     if (!deviceId) {
@@ -503,8 +517,9 @@ TEST(VideoCaptureDeviceAVFoundationMacTest, MultiplePendingTakePhotos) {
   }));
 }
 
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
 TEST(VideoCaptureDeviceAVFoundationMacTest,
-     StopCaptureWhileMultiplePendingTakePhotos) {
+     DISABLED_StopCaptureWhileMultiplePendingTakePhotos) {
   RunTestCase(base::BindOnce([] {
     NSString* deviceId = GetFirstDeviceId();
     if (!deviceId) {
@@ -543,8 +558,9 @@ TEST(VideoCaptureDeviceAVFoundationMacTest,
   }));
 }
 
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
 TEST(VideoCaptureDeviceAVFoundationMacTest,
-     StopStillImageOutputWhenNoLongerTakingPhotos) {
+     DISABLED_StopStillImageOutputWhenNoLongerTakingPhotos) {
   RunTestCase(base::BindOnce([] {
     NSString* deviceId = GetFirstDeviceId();
     if (!deviceId) {
@@ -579,9 +595,10 @@ TEST(VideoCaptureDeviceAVFoundationMacTest,
   }));
 }
 
-// This test ensures we don't crash even if we leave operations pending.
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.// This test
+// ensures we don't crash even if we leave operations pending.
 TEST(VideoCaptureDeviceAVFoundationMacTest,
-     TakePhotoAndShutDownWithoutWaiting) {
+     DISABLED_TakePhotoAndShutDownWithoutWaiting) {
   RunTestCase(base::BindOnce([] {
     NSString* deviceId = GetFirstDeviceId();
     if (!deviceId) {
@@ -604,7 +621,9 @@ TEST(VideoCaptureDeviceAVFoundationMacTest,
   }));
 }
 
-TEST(VideoCaptureDeviceAVFoundationMacTest, ForwardsOddPixelBufferResolution) {
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
+TEST(VideoCaptureDeviceAVFoundationMacTest,
+     DISABLED_ForwardsOddPixelBufferResolution) {
   // See crbug/1168112.
   RunTestCase(base::BindOnce([] {
     testing::NiceMock<MockVideoCaptureDeviceAVFoundationFrameReceiver>
@@ -626,6 +645,43 @@ TEST(VideoCaptureDeviceAVFoundationMacTest, ForwardsOddPixelBufferResolution) {
                                        colorSpace:gfx::ColorSpace::CreateSRGB()
                                         timestamp:base::TimeDelta()];
         })];
+  }));
+}
+
+// TODO(https://crbug.com/1383901): Fix and re-enable these tests.
+TEST(VideoCaptureDeviceAVFoundationMacTest,
+     DISABLED_FrameRateFloatInaccuracyIsHandled) {
+  // See crbug/1299812.
+  RunTestCase(base::BindOnce([] {
+    double max_frame_rate = 30.000030;
+    AVCaptureDeviceFormat* format1 =
+        [[FakeAVCaptureDeviceFormat alloc] initWithWidth:100
+                                                  height:100
+                                                  fourCC:'420v'
+                                               frameRate:max_frame_rate];
+    AVCaptureDeviceFormat* format2 =
+        [[FakeAVCaptureDeviceFormat alloc] initWithWidth:100
+                                                  height:100
+                                                  fourCC:'420v'
+                                               frameRate:10];
+
+    NSArray<AVCaptureDeviceFormat*>* formats = @[ format1, format2 ];
+    // Cast the actual max_frame_rate to a float, to match what would be
+    // requested once the true max has been cast when crossing our mojo etc
+    // interfaces which use float rather than double.
+    float desired_frame_rate = (float)max_frame_rate;
+    // For these values, the float version will be higher than the double max,
+    // due to loss of precision.
+    ASSERT_LT(max_frame_rate, desired_frame_rate);
+
+    AVCaptureDeviceFormat* chosen_format =
+        FindBestCaptureFormat(formats, 100, 100, desired_frame_rate);
+
+    ASSERT_EQ(1UL, [[chosen_format videoSupportedFrameRateRanges] count]);
+    // The actual max_frame_rate should be chosen, even though the desired rate
+    // was very slightly larger.
+    EXPECT_EQ(max_frame_rate, [[[chosen_format videoSupportedFrameRateRanges]
+                                  firstObject] minFrameRate]);
   }));
 }
 

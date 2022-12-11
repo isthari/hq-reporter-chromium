@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,7 +44,7 @@ void RecordWidgetUsage(base::span<const HistogramNameCountPair> histograms);
 // Starts or stops the metrics service and crash report recording and/or
 // uploading, based on the current user preferences. Must be
 // called both on initialization and after user triggered preference change.
-// |isUserTriggered| is used to distinguish between those cases.
+// `isUserTriggered` is used to distinguish between those cases.
 - (void)updateMetricsStateBasedOnPrefsUserTriggered:(BOOL)isUserTriggered;
 // Logs the duration of the cold start startup. Does nothing if there isn't a
 // cold start.

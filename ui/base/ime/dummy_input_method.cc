@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,8 @@ DummyInputMethod::DummyInputMethod() {
 DummyInputMethod::~DummyInputMethod() {
 }
 
-void DummyInputMethod::SetDelegate(internal::InputMethodDelegate* delegate) {
-}
+void DummyInputMethod::SetImeKeyEventDispatcher(
+    ImeKeyEventDispatcher* ime_key_event_dispatcher) {}
 
 void DummyInputMethod::OnFocus() {
 }
@@ -53,8 +53,7 @@ ui::EventDispatchDetails DummyInputMethod::DispatchKeyEvent(
   return ui::EventDispatchDetails();
 }
 
-void DummyInputMethod::OnTextInputTypeChanged(const TextInputClient* client) {
-}
+void DummyInputMethod::OnTextInputTypeChanged(TextInputClient* client) {}
 
 void DummyInputMethod::OnCaretBoundsChanged(const TextInputClient* client) {
 }

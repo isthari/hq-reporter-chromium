@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,14 +11,11 @@
 #include "base/containers/flat_map.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
+#include "base/values.h"
 #include "components/account_id/account_id.h"
 #include "google_apis/gaia/gaia_oauth_client.h"
 
 class AccountId;
-
-namespace base {
-class DictionaryValue;
-}
 
 namespace ash {
 
@@ -86,8 +83,7 @@ class TokenHandleUtil {
 
     void OnOAuthError() override;
     void OnNetworkError(int response_code) override;
-    void OnGetTokenInfoResponse(
-        std::unique_ptr<base::DictionaryValue> token_info) override;
+    void OnGetTokenInfoResponse(const base::Value::Dict& token_info) override;
     void NotifyDone();
 
    private:
@@ -109,11 +105,5 @@ class TokenHandleUtil {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::TokenHandleUtil;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_SIGNIN_TOKEN_HANDLE_UTIL_H_

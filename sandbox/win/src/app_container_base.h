@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/files/file_path.h"
-#include "base/memory/ref_counted.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/sid.h"
 #include "base/win/windows_types.h"
@@ -90,7 +89,6 @@ class AppContainerBase final : public AppContainer {
   std::vector<base::win::Sid> capabilities_;
   std::vector<base::win::Sid> impersonation_capabilities_;
   AppContainerType type_;
-  base::win::ScopedHandle lowbox_directory_;
 };
 
 }  // namespace sandbox

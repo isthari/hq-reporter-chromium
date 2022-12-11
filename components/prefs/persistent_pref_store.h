@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -76,9 +76,6 @@ class COMPONENTS_PREFS_EXPORT PersistentPrefStore : public WriteablePrefStore {
   // triggers an eventual write if there is lossy data pending and if there
   // isn't one scheduled already.
   virtual void SchedulePendingLossyWrites() = 0;
-
-  // It should be called only for Incognito pref store.
-  virtual void ClearMutableValues() = 0;
 
   // Cleans preference data that may have been saved outside of the store.
   virtual void OnStoreDeletionFromDisk() = 0;

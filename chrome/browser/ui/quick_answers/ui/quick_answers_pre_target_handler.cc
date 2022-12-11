@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,8 +58,12 @@ void QuickAnswersPreTargetHandler::OnEvent(ui::Event* event) {
   if (!event->IsLocatedEvent())
     return;
 
+  // Filter scroll event due to potential timing issue (b/258750397).
+  if (event->IsScrollEvent() || event->type() == ui::ET_MOUSEWHEEL)
+    return;
+
   // Clone event to forward down the view-hierarchy.
-  auto clone = ui::Event::Clone(*event);
+  auto clone = event->Clone();
   ui::Event::DispatcherApi(clone.get()).set_target(event->target());
   auto* to_dispatch = clone->AsLocatedEvent();
   auto location = to_dispatch->target()->GetScreenLocation(*to_dispatch);

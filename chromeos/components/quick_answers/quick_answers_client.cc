@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "chromeos/components/quick_answers/quick_answers_model.h"
 #include "chromeos/components/quick_answers/utils/quick_answers_metrics.h"
 #include "chromeos/components/quick_answers/utils/quick_answers_utils.h"
+#include "chromeos/components/quick_answers/utils/spell_checker.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace quick_answers {
@@ -37,7 +38,9 @@ void QuickAnswersClient::SetIntentGeneratorFactoryForTesting(
 QuickAnswersClient::QuickAnswersClient(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     QuickAnswersDelegate* delegate)
-    : url_loader_factory_(url_loader_factory), delegate_(delegate) {}
+    : url_loader_factory_(url_loader_factory),
+      delegate_(delegate),
+      spell_checker_(std::make_unique<SpellChecker>(url_loader_factory)) {}
 
 QuickAnswersClient::~QuickAnswersClient() = default;
 
@@ -84,6 +87,7 @@ std::unique_ptr<IntentGenerator> QuickAnswersClient::CreateIntentGenerator(
   if (g_testing_intent_generator_factory_callback)
     return g_testing_intent_generator_factory_callback->Run();
   return std::make_unique<IntentGenerator>(
+      spell_checker_ ? spell_checker_->GetWeakPtr() : nullptr,
       base::BindOnce(&QuickAnswersClient::IntentGeneratorCallback,
                      weak_factory_.GetWeakPtr(), request, skip_fetch));
 }
@@ -91,11 +95,6 @@ std::unique_ptr<IntentGenerator> QuickAnswersClient::CreateIntentGenerator(
 void QuickAnswersClient::OnNetworkError() {
   DCHECK(delegate_);
   delegate_->OnNetworkError();
-}
-
-void QuickAnswersClient::RequestAccessToken(AccessTokenCallback callback) {
-  DCHECK(delegate_);
-  delegate_->RequestAccessToken(std::move(callback));
 }
 
 void QuickAnswersClient::OnQuickAnswerReceived(

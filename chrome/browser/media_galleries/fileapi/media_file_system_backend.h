@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,7 +65,7 @@ class MediaFileSystemBackend : public storage::FileSystemBackend {
   void Initialize(storage::FileSystemContext* context) override;
   void ResolveURL(const storage::FileSystemURL& url,
                   storage::OpenFileSystemMode mode,
-                  OpenFileSystemCallback callback) override;
+                  ResolveURLCallback callback) override;
   storage::AsyncFileUtil* GetAsyncFileUtil(
       storage::FileSystemType type) override;
   storage::WatcherManager* GetWatcherManager(

@@ -1,11 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package com.android.webview.chromium;
 
 import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Configuration;
@@ -56,6 +55,7 @@ import android.webkit.WebViewRenderProcessClient;
 import android.widget.TextView;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.RequiresApi;
 
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwContentsStatics;
@@ -70,6 +70,7 @@ import org.chromium.base.metrics.ScopedSysTraceEvent;
 import org.chromium.components.content_capture.ContentCaptureFeatures;
 import org.chromium.components.content_capture.OnscreenContentProvider;
 import org.chromium.components.embedder_support.application.ClassLoaderContextWrapperFactory;
+import org.chromium.content_public.browser.MessagePayload;
 import org.chromium.content_public.browser.NavigationHistory;
 import org.chromium.content_public.browser.SmartClipProvider;
 import org.chromium.url.GURL;
@@ -155,7 +156,93 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
             ApiCall.SET_INITIAL_SCALE, ApiCall.SET_NETWORK_AVAILABLE, ApiCall.SET_PICTURE_LISTENER,
             ApiCall.SET_SMART_CLIP_RESULT_HANDLER, ApiCall.SET_TEXT_CLASSIFIER,
             ApiCall.SET_VERTICAL_SCROLLBAR_OVERLAY, ApiCall.SET_WEBCHROME_CLIENT,
-            ApiCall.SET_WEBVIEW_CLIENT, ApiCall.SHOW_FIND_DIALOG, ApiCall.STOP_LOADING})
+            ApiCall.SET_WEBVIEW_CLIENT, ApiCall.SHOW_FIND_DIALOG, ApiCall.STOP_LOADING,
+            ApiCall.WEBVIEW_DATABASE_CLEAR_FORM_DATA,
+            ApiCall.WEBVIEW_DATABASE_CLEAR_HTTP_AUTH_USERNAME_PASSWORD,
+            ApiCall.WEBVIEW_DATABASE_CLEAR_USERNAME_PASSWORD,
+            ApiCall.WEBVIEW_DATABASE_GET_HTTP_AUTH_USERNAME_PASSWORD,
+            ApiCall.WEBVIEW_DATABASE_HAS_FORM_DATA,
+            ApiCall.WEBVIEW_DATABASE_HAS_HTTP_AUTH_USERNAME_PASSWORD,
+            ApiCall.WEBVIEW_DATABASE_HAS_USERNAME_PASSWORD,
+            ApiCall.WEBVIEW_DATABASE_SET_HTTP_AUTH_USERNAME_PASSWORD,
+            ApiCall.COOKIE_MANAGER_ACCEPT_COOKIE, ApiCall.COOKIE_MANAGER_ACCEPT_THIRD_PARTY_COOKIES,
+            ApiCall.COOKIE_MANAGER_FLUSH, ApiCall.COOKIE_MANAGER_GET_COOKIE,
+            ApiCall.COOKIE_MANAGER_HAS_COOKIES, ApiCall.COOKIE_MANAGER_REMOVE_ALL_COOKIE,
+            ApiCall.COOKIE_MANAGER_REMOVE_ALL_COOKIES, ApiCall.COOKIE_MANAGER_REMOVE_EXPIRED_COOKIE,
+            ApiCall.COOKIE_MANAGER_REMOVE_SESSION_COOKIE,
+            ApiCall.COOKIE_MANAGER_REMOVE_SESSION_COOKIES, ApiCall.COOKIE_MANAGER_SET_ACCEPT_COOKIE,
+            ApiCall.COOKIE_MANAGER_SET_ACCEPT_FILE_SCHEME_COOKIES,
+            ApiCall.COOKIE_MANAGER_SET_ACCEPT_THIRD_PARTY_COOKIES,
+            ApiCall.COOKIE_MANAGER_SET_COOKIE, ApiCall.WEB_STORAGE_DELETE_ALL_DATA,
+            ApiCall.WEB_STORAGE_DELETE_ORIGIN, ApiCall.WEB_STORAGE_GET_ORIGINS,
+            ApiCall.WEB_STORAGE_GET_QUOTA_FOR_ORIGIN, ApiCall.WEB_STORAGE_GET_USAGE_FOR_ORIGIN,
+            ApiCall.WEB_SETTINGS_GET_ALLOW_CONTENT_ACCESS,
+            ApiCall.WEB_SETTINGS_GET_ALLOW_FILE_ACCESS,
+            ApiCall.WEB_SETTINGS_GET_ALLOW_FILE_ACCESS_FROM_FILE_URLS,
+            ApiCall.WEB_SETTINGS_GET_ALLOW_UNIVERSAL_ACCESS_FROM_FILE_URLS,
+            ApiCall.WEB_SETTINGS_GET_BLOCK_NETWORK_IMAGE,
+            ApiCall.WEB_SETTINGS_GET_BLOCK_NETWORK_LOADS,
+            ApiCall.WEB_SETTINGS_GET_BUILT_IN_ZOOM_CONTROLS, ApiCall.WEB_SETTINGS_GET_CACHE_MODE,
+            ApiCall.WEB_SETTINGS_GET_CURSIVE_FONT_FAMILY, ApiCall.WEB_SETTINGS_GET_DATABASE_ENABLED,
+            ApiCall.WEB_SETTINGS_GET_DEFAULT_FIXED_FONT_SIZE,
+            ApiCall.WEB_SETTINGS_GET_DEFAULT_FONT_SIZE,
+            ApiCall.WEB_SETTINGS_GET_DEFAULT_TEXT_ENCODING_NAME,
+            ApiCall.WEB_SETTINGS_GET_DISABLED_ACTION_MODE_MENU_ITEMS,
+            ApiCall.WEB_SETTINGS_GET_DISPLAY_ZOOM_CONTROLS,
+            ApiCall.WEB_SETTINGS_GET_DOM_STORAGE_ENABLED,
+            ApiCall.WEB_SETTINGS_GET_FANTASY_FONT_FAMILY,
+            ApiCall.WEB_SETTINGS_GET_FIXED_FONT_FAMILY, ApiCall.WEB_SETTINGS_GET_FORCE_DARK,
+            ApiCall.WEB_SETTINGS_GET_JAVA_SCRIPT_CAN_OPEN_WINDOWS_AUTOMATICALLY,
+            ApiCall.WEB_SETTINGS_GET_JAVA_SCRIPT_ENABLED, ApiCall.WEB_SETTINGS_GET_LAYOUT_ALGORITHM,
+            ApiCall.WEB_SETTINGS_GET_LOAD_WITH_OVERVIEW_MODE,
+            ApiCall.WEB_SETTINGS_GET_LOADS_IMAGES_AUTOMATICALLY,
+            ApiCall.WEB_SETTINGS_GET_MEDIA_PLAYBACK_REQUIRES_USER_GESTURE,
+            ApiCall.WEB_SETTINGS_GET_MINIMUM_FONT_SIZE,
+            ApiCall.WEB_SETTINGS_GET_MINIMUM_LOGICAL_FONT_SIZE,
+            ApiCall.WEB_SETTINGS_GET_MIXED_CONTENT_MODE,
+            ApiCall.WEB_SETTINGS_GET_OFFSCREEN_PRE_RASTER, ApiCall.WEB_SETTINGS_GET_PLUGIN_STATE,
+            ApiCall.WEB_SETTINGS_GET_SAFE_BROWSING_ENABLED,
+            ApiCall.WEB_SETTINGS_GET_SANS_SERIF_FONT_FAMILY,
+            ApiCall.WEB_SETTINGS_GET_SAVE_FORM_DATA, ApiCall.WEB_SETTINGS_GET_SERIF_FONT_FAMILY,
+            ApiCall.WEB_SETTINGS_GET_STANDARD_FONT_FAMILY, ApiCall.WEB_SETTINGS_GET_TEXT_ZOOM,
+            ApiCall.WEB_SETTINGS_GET_USE_WIDE_VIEW_PORT, ApiCall.WEB_SETTINGS_GET_USER_AGENT_STRING,
+            ApiCall.WEB_SETTINGS_SET_ALLOW_CONTENT_ACCESS,
+            ApiCall.WEB_SETTINGS_SET_ALLOW_FILE_ACCESS,
+            ApiCall.WEB_SETTINGS_SET_ALLOW_FILE_ACCESS_FROM_FILE_URLS,
+            ApiCall.WEB_SETTINGS_SET_ALLOW_UNIVERSAL_ACCESS_FROM_FILE_URLS,
+            ApiCall.WEB_SETTINGS_SET_BLOCK_NETWORK_IMAGE,
+            ApiCall.WEB_SETTINGS_SET_BLOCK_NETWORK_LOADS,
+            ApiCall.WEB_SETTINGS_SET_BUILT_IN_ZOOM_CONTROLS, ApiCall.WEB_SETTINGS_SET_CACHE_MODE,
+            ApiCall.WEB_SETTINGS_SET_CURSIVE_FONT_FAMILY, ApiCall.WEB_SETTINGS_SET_DATABASE_ENABLED,
+            ApiCall.WEB_SETTINGS_SET_DEFAULT_FIXED_FONT_SIZE,
+            ApiCall.WEB_SETTINGS_SET_DEFAULT_FONT_SIZE,
+            ApiCall.WEB_SETTINGS_SET_DEFAULT_TEXT_ENCODING_NAME,
+            ApiCall.WEB_SETTINGS_SET_DISABLED_ACTION_MODE_MENU_ITEMS,
+            ApiCall.WEB_SETTINGS_SET_DISPLAY_ZOOM_CONTROLS,
+            ApiCall.WEB_SETTINGS_SET_DOM_STORAGE_ENABLED,
+            ApiCall.WEB_SETTINGS_SET_FANTASY_FONT_FAMILY,
+            ApiCall.WEB_SETTINGS_SET_FIXED_FONT_FAMILY,
+            ApiCall.WEB_SETTINGS_SET_GEOLOCATION_ENABLED,
+            ApiCall.WEB_SETTINGS_SET_JAVA_SCRIPT_CAN_OPEN_WINDOWS_AUTOMATICALLY,
+            ApiCall.WEB_SETTINGS_SET_JAVA_SCRIPT_ENABLED, ApiCall.WEB_SETTINGS_SET_LAYOUT_ALGORITHM,
+            ApiCall.WEB_SETTINGS_SET_LOAD_WITH_OVERVIEW_MODE,
+            ApiCall.WEB_SETTINGS_SET_LOADS_IMAGES_AUTOMATICALLY,
+            ApiCall.WEB_SETTINGS_SET_MEDIA_PLAYBACK_REQUIRES_USER_GESTURE,
+            ApiCall.WEB_SETTINGS_SET_MINIMUM_FONT_SIZE,
+            ApiCall.WEB_SETTINGS_SET_MINIMUM_LOGICAL_FONT_SIZE,
+            ApiCall.WEB_SETTINGS_SET_MIXED_CONTENT_MODE,
+            ApiCall.WEB_SETTINGS_SET_NEED_INITIAL_FOCUS,
+            ApiCall.WEB_SETTINGS_SET_OFFSCREEN_PRE_RASTER, ApiCall.WEB_SETTINGS_SET_PLUGIN_STATE,
+            ApiCall.WEB_SETTINGS_SET_SAFE_BROWSING_ENABLED,
+            ApiCall.WEB_SETTINGS_SET_SANS_SERIF_FONT_FAMILY,
+            ApiCall.WEB_SETTINGS_SET_SAVE_FORM_DATA, ApiCall.WEB_SETTINGS_SET_SERIF_FONT_FAMILY,
+            ApiCall.WEB_SETTINGS_SET_STANDARD_FONT_FAMILY,
+            ApiCall.WEB_SETTINGS_SET_SUPPORT_MULTIPLE_WINDOWS,
+            ApiCall.WEB_SETTINGS_SET_SUPPORT_ZOOM, ApiCall.WEB_SETTINGS_SET_TEXT_SIZE,
+            ApiCall.WEB_SETTINGS_SET_TEXT_ZOOM, ApiCall.WEB_SETTINGS_SET_USE_WIDE_VIEW_PORT,
+            ApiCall.WEB_SETTINGS_SET_USER_AGENT_STRING,
+            ApiCall.WEB_SETTINGS_SUPPORT_MULTIPLE_WINDOWS, ApiCall.WEB_SETTINGS_SUPPORT_ZOOM})
+
     @interface ApiCall {
         int ADD_JAVASCRIPT_INTERFACE = 0;
         int AUTOFILL = 1;
@@ -235,10 +322,119 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
         int SET_WEBVIEW_CLIENT = 75;
         int SHOW_FIND_DIALOG = 76;
         int STOP_LOADING = 77;
-        int COUNT = 78;
+        int WEBVIEW_DATABASE_GET_HTTP_AUTH_USERNAME_PASSWORD = 78;
+        int WEBVIEW_DATABASE_CLEAR_FORM_DATA = 79;
+        int WEBVIEW_DATABASE_CLEAR_HTTP_AUTH_USERNAME_PASSWORD = 80;
+        int WEBVIEW_DATABASE_CLEAR_USERNAME_PASSWORD = 81;
+        int WEBVIEW_DATABASE_HAS_FORM_DATA = 82;
+        int WEBVIEW_DATABASE_HAS_HTTP_AUTH_USERNAME_PASSWORD = 83;
+        int WEBVIEW_DATABASE_HAS_USERNAME_PASSWORD = 84;
+        int WEBVIEW_DATABASE_SET_HTTP_AUTH_USERNAME_PASSWORD = 85;
+        int COOKIE_MANAGER_ACCEPT_COOKIE = 86;
+        int COOKIE_MANAGER_ACCEPT_THIRD_PARTY_COOKIES = 87;
+        int COOKIE_MANAGER_FLUSH = 88;
+        int COOKIE_MANAGER_GET_COOKIE = 89;
+        int COOKIE_MANAGER_HAS_COOKIES = 90;
+        int COOKIE_MANAGER_REMOVE_ALL_COOKIE = 91;
+        int COOKIE_MANAGER_REMOVE_ALL_COOKIES = 92;
+        int COOKIE_MANAGER_REMOVE_EXPIRED_COOKIE = 93;
+        int COOKIE_MANAGER_REMOVE_SESSION_COOKIE = 94;
+        int COOKIE_MANAGER_REMOVE_SESSION_COOKIES = 95;
+        int COOKIE_MANAGER_SET_ACCEPT_COOKIE = 96;
+        int COOKIE_MANAGER_SET_ACCEPT_FILE_SCHEME_COOKIES = 97;
+        int COOKIE_MANAGER_SET_ACCEPT_THIRD_PARTY_COOKIES = 98;
+        int COOKIE_MANAGER_SET_COOKIE = 99;
+        int WEB_STORAGE_DELETE_ALL_DATA = 100;
+        int WEB_STORAGE_DELETE_ORIGIN = 101;
+        int WEB_STORAGE_GET_ORIGINS = 102;
+        int WEB_STORAGE_GET_QUOTA_FOR_ORIGIN = 103;
+        int WEB_STORAGE_GET_USAGE_FOR_ORIGIN = 104;
+        int WEB_SETTINGS_GET_ALLOW_CONTENT_ACCESS = 105;
+        int WEB_SETTINGS_GET_ALLOW_FILE_ACCESS = 106;
+        int WEB_SETTINGS_GET_ALLOW_FILE_ACCESS_FROM_FILE_URLS = 107;
+        int WEB_SETTINGS_GET_ALLOW_UNIVERSAL_ACCESS_FROM_FILE_URLS = 108;
+        int WEB_SETTINGS_GET_BLOCK_NETWORK_IMAGE = 109;
+        int WEB_SETTINGS_GET_BLOCK_NETWORK_LOADS = 110;
+        int WEB_SETTINGS_GET_BUILT_IN_ZOOM_CONTROLS = 111;
+        int WEB_SETTINGS_GET_CACHE_MODE = 112;
+        int WEB_SETTINGS_GET_CURSIVE_FONT_FAMILY = 113;
+        int WEB_SETTINGS_GET_DATABASE_ENABLED = 114;
+        int WEB_SETTINGS_GET_DEFAULT_FIXED_FONT_SIZE = 115;
+        int WEB_SETTINGS_GET_DEFAULT_FONT_SIZE = 116;
+        int WEB_SETTINGS_GET_DEFAULT_TEXT_ENCODING_NAME = 117;
+        int WEB_SETTINGS_GET_DISABLED_ACTION_MODE_MENU_ITEMS = 118;
+        int WEB_SETTINGS_GET_DISPLAY_ZOOM_CONTROLS = 119;
+        int WEB_SETTINGS_GET_DOM_STORAGE_ENABLED = 120;
+        int WEB_SETTINGS_GET_FANTASY_FONT_FAMILY = 121;
+        int WEB_SETTINGS_GET_FIXED_FONT_FAMILY = 122;
+        int WEB_SETTINGS_GET_FORCE_DARK = 123;
+        int WEB_SETTINGS_GET_JAVA_SCRIPT_CAN_OPEN_WINDOWS_AUTOMATICALLY = 124;
+        int WEB_SETTINGS_GET_JAVA_SCRIPT_ENABLED = 125;
+        int WEB_SETTINGS_GET_LAYOUT_ALGORITHM = 126;
+        int WEB_SETTINGS_GET_LOAD_WITH_OVERVIEW_MODE = 127;
+        int WEB_SETTINGS_GET_LOADS_IMAGES_AUTOMATICALLY = 128;
+        int WEB_SETTINGS_GET_MEDIA_PLAYBACK_REQUIRES_USER_GESTURE = 129;
+        int WEB_SETTINGS_GET_MINIMUM_FONT_SIZE = 130;
+        int WEB_SETTINGS_GET_MINIMUM_LOGICAL_FONT_SIZE = 131;
+        int WEB_SETTINGS_GET_MIXED_CONTENT_MODE = 132;
+        int WEB_SETTINGS_GET_OFFSCREEN_PRE_RASTER = 133;
+        int WEB_SETTINGS_GET_PLUGIN_STATE = 134;
+        int WEB_SETTINGS_GET_SAFE_BROWSING_ENABLED = 135;
+        int WEB_SETTINGS_GET_SANS_SERIF_FONT_FAMILY = 136;
+        int WEB_SETTINGS_GET_SAVE_FORM_DATA = 137;
+        int WEB_SETTINGS_GET_SERIF_FONT_FAMILY = 138;
+        int WEB_SETTINGS_GET_STANDARD_FONT_FAMILY = 139;
+        int WEB_SETTINGS_GET_TEXT_ZOOM = 140;
+        int WEB_SETTINGS_GET_USE_WIDE_VIEW_PORT = 141;
+        int WEB_SETTINGS_GET_USER_AGENT_STRING = 142;
+        int WEB_SETTINGS_SET_ALLOW_CONTENT_ACCESS = 143;
+        int WEB_SETTINGS_SET_ALLOW_FILE_ACCESS = 144;
+        int WEB_SETTINGS_SET_ALLOW_FILE_ACCESS_FROM_FILE_URLS = 145;
+        int WEB_SETTINGS_SET_ALLOW_UNIVERSAL_ACCESS_FROM_FILE_URLS = 146;
+        int WEB_SETTINGS_SET_BLOCK_NETWORK_IMAGE = 147;
+        int WEB_SETTINGS_SET_BLOCK_NETWORK_LOADS = 148;
+        int WEB_SETTINGS_SET_BUILT_IN_ZOOM_CONTROLS = 149;
+        int WEB_SETTINGS_SET_CACHE_MODE = 150;
+        int WEB_SETTINGS_SET_CURSIVE_FONT_FAMILY = 151;
+        int WEB_SETTINGS_SET_DATABASE_ENABLED = 152;
+        int WEB_SETTINGS_SET_DEFAULT_FIXED_FONT_SIZE = 153;
+        int WEB_SETTINGS_SET_DEFAULT_FONT_SIZE = 154;
+        int WEB_SETTINGS_SET_DEFAULT_TEXT_ENCODING_NAME = 155;
+        int WEB_SETTINGS_SET_DISABLED_ACTION_MODE_MENU_ITEMS = 156;
+        int WEB_SETTINGS_SET_DISPLAY_ZOOM_CONTROLS = 157;
+        int WEB_SETTINGS_SET_DOM_STORAGE_ENABLED = 158;
+        int WEB_SETTINGS_SET_FANTASY_FONT_FAMILY = 159;
+        int WEB_SETTINGS_SET_FIXED_FONT_FAMILY = 160;
+        int WEB_SETTINGS_SET_GEOLOCATION_ENABLED = 161;
+        int WEB_SETTINGS_SET_JAVA_SCRIPT_CAN_OPEN_WINDOWS_AUTOMATICALLY = 162;
+        int WEB_SETTINGS_SET_JAVA_SCRIPT_ENABLED = 163;
+        int WEB_SETTINGS_SET_LAYOUT_ALGORITHM = 164;
+        int WEB_SETTINGS_SET_LOAD_WITH_OVERVIEW_MODE = 165;
+        int WEB_SETTINGS_SET_LOADS_IMAGES_AUTOMATICALLY = 166;
+        int WEB_SETTINGS_SET_MEDIA_PLAYBACK_REQUIRES_USER_GESTURE = 167;
+        int WEB_SETTINGS_SET_MINIMUM_FONT_SIZE = 168;
+        int WEB_SETTINGS_SET_MINIMUM_LOGICAL_FONT_SIZE = 169;
+        int WEB_SETTINGS_SET_MIXED_CONTENT_MODE = 170;
+        int WEB_SETTINGS_SET_NEED_INITIAL_FOCUS = 171;
+        int WEB_SETTINGS_SET_OFFSCREEN_PRE_RASTER = 172;
+        int WEB_SETTINGS_SET_PLUGIN_STATE = 173;
+        int WEB_SETTINGS_SET_SAFE_BROWSING_ENABLED = 174;
+        int WEB_SETTINGS_SET_SANS_SERIF_FONT_FAMILY = 175;
+        int WEB_SETTINGS_SET_SAVE_FORM_DATA = 176;
+        int WEB_SETTINGS_SET_SERIF_FONT_FAMILY = 177;
+        int WEB_SETTINGS_SET_STANDARD_FONT_FAMILY = 178;
+        int WEB_SETTINGS_SET_SUPPORT_MULTIPLE_WINDOWS = 179;
+        int WEB_SETTINGS_SET_SUPPORT_ZOOM = 180;
+        int WEB_SETTINGS_SET_TEXT_SIZE = 181;
+        int WEB_SETTINGS_SET_TEXT_ZOOM = 182;
+        int WEB_SETTINGS_SET_USE_WIDE_VIEW_PORT = 183;
+        int WEB_SETTINGS_SET_USER_AGENT_STRING = 184;
+        int WEB_SETTINGS_SUPPORT_MULTIPLE_WINDOWS = 185;
+        int WEB_SETTINGS_SUPPORT_ZOOM = 186;
+        int COUNT = 187;
     }
 
-    private static void recordWebViewApiCall(@ApiCall int sample) {
+    public static void recordWebViewApiCall(@ApiCall int sample) {
         RecordHistogram.recordEnumeratedHistogram("Android.WebView.ApiCall", sample, ApiCall.COUNT);
     }
 
@@ -392,6 +588,8 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
     // This is a workaround for https://crbug.com/622151.
     // In HTC's email app, InputConnection.setComposingText() will call WebView.evaluateJavaScript,
     // and thread assertion will occur. We turn off WebView thread assertion for this app.
+    // SuppressLint rationale: https://crrev.com/c/3439168/comments/d612ae09_b7bfca2b
+    @SuppressLint("SoonBlockedPrivateApi")
     private void disableThreadChecking() {
         try {
             Class<?> webViewClass = Class.forName("android.webkit.WebView");
@@ -966,7 +1164,6 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
     }
 
     @Override
-    @TargetApi(Build.VERSION_CODES.M)
     public void insertVisualStateCallback(
             final long requestId, final VisualStateCallback callback) {
         recordWebViewApiCall(ApiCall.INSERT_VISUAL_STATE_CALLBACK);
@@ -1479,11 +1676,13 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
         return mSharedWebViewChromium.getWebViewClient();
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     @Override
     public WebViewRenderProcess getWebViewRenderProcess() {
         return GlueApiHelperForQ.getWebViewRenderProcess(mSharedWebViewChromium.getRenderProcess());
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     @Override
     public void setWebViewRenderProcessClient(
             Executor executor, WebViewRenderProcessClient webViewRenderProcessClient) {
@@ -1498,6 +1697,7 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     @Override
     public WebViewRenderProcessClient getWebViewRenderProcessClient() {
         SharedWebViewRendererClientAdapter adapter =
@@ -1622,11 +1822,12 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
     }
 
     @Override
-    @TargetApi(Build.VERSION_CODES.M)
     public void postMessageToMainFrame(final WebMessage message, final Uri targetOrigin) {
         recordWebViewApiCall(ApiCall.POST_MESSAGE_TO_MAIN_FRAME);
-        mSharedWebViewChromium.postMessageToMainFrame(message.getData(), targetOrigin.toString(),
-                WebMessagePortAdapter.toMessagePorts(message.getPorts()));
+        // Create MessagePayload from AOSP WebMessage, MessagePayload is not directly supported by
+        // AOSP.
+        mSharedWebViewChromium.postMessageToMainFrame(new MessagePayload(message.getData()),
+                targetOrigin.toString(), WebMessagePortAdapter.toMessagePorts(message.getPorts()));
     }
 
     @Override
@@ -1879,7 +2080,6 @@ class WebViewChromium implements WebViewProvider, WebViewProvider.ScrollDelegate
         return mAwContents.getAccessibilityNodeProvider();
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @Override
     public void onProvideVirtualStructure(final ViewStructure structure) {
         mFactory.startYourEngines(false);

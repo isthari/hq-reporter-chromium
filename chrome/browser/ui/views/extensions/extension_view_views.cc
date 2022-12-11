@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -130,8 +130,8 @@ void ExtensionViewViews::OnLoaded() {
   ResizeDueToAutoResize(web_contents(), pending_preferred_size_);
 }
 
-gfx::NativeCursor ExtensionViewViews::GetCursor(const ui::MouseEvent& event) {
-  return gfx::kNullCursor;
+ui::Cursor ExtensionViewViews::GetCursor(const ui::MouseEvent& event) {
+  return ui::Cursor();
 }
 
 void ExtensionViewViews::PreferredSizeChanged() {

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -74,41 +74,34 @@ constants.LIST_CONTAINER_METADATA_PREFETCH_PROPERTY_NAMES = [
 ];
 
 /**
- * Path for files_quick_view.html file.  Allow override for testing.
- * @type {string}
+ * Metadata properties used to inform the user about DLP (Data Leak Prevention)
+ * Files restrictions. These metadata is expected to be cached.
+ *
+ * @const {!Array<string>}
  */
-constants.FILES_QUICK_VIEW_HTML = 'foreground/elements/files_quick_view.html';
+constants.DLP_METADATA_PREFETCH_PROPERTY_NAMES = [
+  'isDlpRestricted',
+  'sourceUrl',
+  'isRestrictedForDestination',
+];
 
 /**
- * Path for drive_welcome.css file.  Allow override for testing.
- * @type {string}
- */
-constants.DRIVE_WELCOME_CSS = 'foreground/css/drive_welcome.css';
-
-/**
- * Path for photos_welcome.css file.
- * @type {string}
- */
-constants.PHOTOS_WELCOME_CSS = 'foreground/css/photos_welcome.css';
-
-/**
- * Path for holding_space_welcome.css file. Allow override for testing.
- * @type {string}
- */
-constants.HOLDING_SPACE_WELCOME_CSS =
-    'foreground/css/holding_space_welcome.css';
-
-/**
- * Name of the default crostini VM.
+ * Name of the default crostini VM: crostini::kCrostiniDefaultVmName
  * @const
  */
 constants.DEFAULT_CROSTINI_VM = 'termina';
 
 /**
- * Name of the Plugin VM.
+ * Name of the Plugin VM: plugin_vm::kPluginVmName.
  * @const
  */
 constants.PLUGIN_VM = 'PvmDefault';
+
+/**
+ * Name of the default bruschetta VM: bruschetta::kBruschettaVmName
+ * @const
+ */
+constants.DEFAULT_BRUSCHETTA_VM = 'bru';
 
 /**
  * DOMError type for crostini connection failure.

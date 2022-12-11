@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 
 #include "base/bind.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/extensions/blocklist_state_fetcher.h"
 #include "chrome/browser/extensions/fake_safe_browsing_database_manager.h"
+#include "chrome/browser/extensions/scoped_database_manager_for_test.h"
 #include "chrome/browser/extensions/test_blocklist.h"
 #include "chrome/browser/extensions/test_blocklist_state_fetcher.h"
 #include "chrome/browser/extensions/test_extension_prefs.h"
@@ -21,7 +22,8 @@ namespace {
 
 class BlocklistTest : public testing::Test {
  public:
-  BlocklistTest() : test_prefs_(base::ThreadTaskRunnerHandle::Get()) {}
+  BlocklistTest()
+      : test_prefs_(base::SingleThreadTaskRunner::GetCurrentDefault()) {}
 
  protected:
   ExtensionPrefs* prefs() { return test_prefs_.prefs(); }
@@ -142,7 +144,7 @@ TEST_F(BlocklistTest, FetchBlocklistStates) {
   Blocklist blocklist(prefs());
   scoped_refptr<FakeSafeBrowsingDatabaseManager> blocklist_db(
       new FakeSafeBrowsingDatabaseManager(true));
-  Blocklist::ScopedDatabaseManagerForTest scoped_blocklist_db(blocklist_db);
+  ScopedDatabaseManagerForTest scoped_blocklist_db(blocklist_db);
 
   std::string a = AddExtension("a");
   std::string b = AddExtension("b");

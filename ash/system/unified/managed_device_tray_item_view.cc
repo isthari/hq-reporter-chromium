@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/system/enterprise/enterprise_domain_observer.h"
 #include "ash/system/model/enterprise_domain_model.h"
 #include "ash/system/model/system_tray_model.h"
@@ -16,6 +17,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/image_model.h"
 #include "ui/chromeos/devicetype_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/controls/image_view.h"
@@ -39,7 +41,7 @@ void ManagedDeviceTrayItemView::OnLoginStatusChanged(LoginStatus status) {
   Update();
 }
 
-void ManagedDeviceTrayItemView::OnEnterpriseDomainChanged() {
+void ManagedDeviceTrayItemView::OnDeviceEnterpriseInfoChanged() {
   Update();
 }
 
@@ -49,21 +51,48 @@ const char* ManagedDeviceTrayItemView::GetClassName() const {
   return "ManagedDeviceTrayItemView";
 }
 
+void ManagedDeviceTrayItemView::OnThemeChanged() {
+  TrayItemView::OnThemeChanged();
+  UpdateIcon();
+}
+
 void ManagedDeviceTrayItemView::HandleLocaleChange() {
-  Update();
+  UpdateTooltipText();
 }
 
 void ManagedDeviceTrayItemView::Update() {
   SessionControllerImpl* session = Shell::Get()->session_controller();
+  if (!session->IsUserPublicAccount() && !session->IsUserChild()) {
+    SetVisible(false);
+    return;
+  }
+
+  UpdateIcon();
+  UpdateTooltipText();
+  SetVisible(true);
+}
+
+void ManagedDeviceTrayItemView::UpdateIcon() {
+  const gfx::VectorIcon* icon = nullptr;
+  SessionControllerImpl* session = Shell::Get()->session_controller();
+  if (session->IsUserPublicAccount())
+    icon = &kSystemTrayManagedIcon;
+  else if (session->IsUserChild())
+    icon = &kSystemTraySupervisedUserIcon;
+
+  if (icon) {
+    image_view()->SetImage(
+        ui::ImageModel::FromVectorIcon(*icon, kColorAshIconColorPrimary));
+  }
+}
+
+void ManagedDeviceTrayItemView::UpdateTooltipText() {
+  SessionControllerImpl* session = Shell::Get()->session_controller();
   if (session->IsUserPublicAccount()) {
-    image_view()->SetImage(gfx::CreateVectorIcon(
-        kSystemTrayManagedIcon,
-        TrayIconColor(Shell::Get()->session_controller()->GetSessionState())));
     std::string enterprise_domain_manager = Shell::Get()
                                                 ->system_tray_model()
                                                 ->enterprise_domain()
                                                 ->enterprise_domain_manager();
-    SetVisible(true);
     if (!enterprise_domain_manager.empty()) {
       image_view()->SetTooltipText(l10n_util::GetStringFUTF16(
           IDS_ASH_ENTERPRISE_DEVICE_MANAGED_BY, ui::GetChromeOSDeviceName(),
@@ -73,20 +102,10 @@ void ManagedDeviceTrayItemView::Update() {
       LOG(WARNING)
           << "Public account user, but device not enterprise-enrolled.";
     }
-    return;
-  }
-
-  if (session->IsUserChild()) {
-    image_view()->SetImage(gfx::CreateVectorIcon(
-        kSystemTraySupervisedUserIcon,
-        TrayIconColor(Shell::Get()->session_controller()->GetSessionState())));
+  } else if (session->IsUserChild()) {
     image_view()->SetTooltipText(
         l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_FAMILY_LINK_LABEL));
-    SetVisible(true);
-    return;
   }
-
-  SetVisible(false);
 }
 
 }  // namespace ash

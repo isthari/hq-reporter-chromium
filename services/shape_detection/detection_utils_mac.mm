@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,6 @@
 #include "base/numerics/checked_math.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "third_party/skia/include/utils/mac/SkCGUtils.h"
 
 namespace shape_detection {
@@ -76,7 +75,7 @@ VisionAPIAsyncRequestMac::VisionAPIAsyncRequestMac(
   DCHECK(callback_);
 
   scoped_refptr<base::SequencedTaskRunner> task_runner =
-      base::SequencedTaskRunnerHandle::Get();
+      base::SequencedTaskRunner::GetCurrentDefault();
 
   const auto handler = ^(VNRequest* request, NSError* error) {
     task_runner->PostTask(FROM_HERE, base::BindOnce(callback_, request, error));

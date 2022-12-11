@@ -1,14 +1,12 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /** @fileoverview Suite of tests for extensions-detail-view. */
 
 import {CrCheckboxElement, ExtensionsDetailViewElement, ExtensionsToggleRowElement, navigation, Page} from 'chrome://extensions/extensions.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-
 import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {isChildVisible, isVisible} from 'chrome://webui-test/test_util.js';
 
@@ -25,6 +23,8 @@ const extension_detail_view_tests = {
     Warnings: 'warnings',
     NoSiteAccessWithEnhancedSiteControls:
         'no site access with enhanced site controls',
+    InspectableViewSortOrder: 'inspectable view sort order',
+    ShowAccessRequestsInToolbar: 'show access requests in toolbar',
   },
 };
 
@@ -42,7 +42,7 @@ suite(extension_detail_view_tests.suiteName, function() {
 
   // Initialize an extension item before each test.
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     extensionData = createExtensionInfo({
       incognitoAccess: {isEnabled: true, isActive: false},
       fileAccess: {isEnabled: true, isActive: false},
@@ -59,7 +59,7 @@ suite(extension_detail_view_tests.suiteName, function() {
     document.body.appendChild(item);
   });
 
-  test(assert(extension_detail_view_tests.TestNames.Layout), function() {
+  test(extension_detail_view_tests.TestNames.Layout, function() {
     flush();
 
     const testIsVisible: (selector: string) => boolean =
@@ -80,7 +80,7 @@ suite(extension_detail_view_tests.suiteName, function() {
     ];
     const isChecked = (id: string) =>
         item.shadowRoot!.querySelector<CrCheckboxElement>(id)!.checked;
-    for (let option of accessOptions) {
+    for (const option of accessOptions) {
       assertTrue(isChildVisible(item, option.id));
       assertFalse(isChecked(option.id), option.id);
       item.set('data.' + option.key + '.isEnabled', false);
@@ -227,7 +227,7 @@ suite(extension_detail_view_tests.suiteName, function() {
       runtimeHostPermissions: {
         hosts: [
           {granted: true, host: 'https://chromium.org/*'},
-          {granted: false, host: 'https://example.com/*'}
+          {granted: false, host: 'https://example.com/*'},
         ],
         hasAllHosts: false,
         hostAccess: chrome.developerPrivate.HostAccess.ON_SPECIFIC_SITES,
@@ -240,7 +240,7 @@ suite(extension_detail_view_tests.suiteName, function() {
     assertTrue(testIsVisible('extensions-host-permissions-toggle-list'));
   });
 
-  test(assert(extension_detail_view_tests.TestNames.LayoutSource), function() {
+  test(extension_detail_view_tests.TestNames.LayoutSource, function() {
     item.set('data.location', 'FROM_STORE');
     flush();
     assertEquals('Chrome Web Store', item.$.source.textContent!.trim());
@@ -249,6 +249,11 @@ suite(extension_detail_view_tests.suiteName, function() {
     item.set('data.location', 'THIRD_PARTY');
     flush();
     assertEquals('Added by a third-party', item.$.source.textContent!.trim());
+    assertFalse(isChildVisible(item, '#load-path'));
+
+    item.set('data.location', 'INSTALLED_BY_DEFAULT');
+    flush();
+    assertEquals('Installed by default', item.$.source.textContent!.trim());
     assertFalse(isChildVisible(item, '#load-path'));
 
     item.set('data.location', 'UNPACKED');
@@ -268,8 +273,7 @@ suite(extension_detail_view_tests.suiteName, function() {
   });
 
   test(
-      assert(
-          extension_detail_view_tests.TestNames.SupervisedUserDisableReasons),
+      extension_detail_view_tests.TestNames.SupervisedUserDisableReasons,
       function() {
         flush();
         const toggle = item.$.enableToggle;
@@ -304,8 +308,7 @@ suite(extension_detail_view_tests.suiteName, function() {
       });
 
   test(
-      assert(extension_detail_view_tests.TestNames.ClickableElements),
-      function() {
+      extension_detail_view_tests.TestNames.ClickableElements, function() {
         const optionsUrl =
             'chrome-extension://' + extensionData.id + '/options.html';
         item.set('data.optionsPage', {openInTab: true, url: optionsUrl});
@@ -370,7 +373,7 @@ suite(extension_detail_view_tests.suiteName, function() {
             'reloadItem', [extensionData.id], Promise.resolve());
       });
 
-  test(assert(extension_detail_view_tests.TestNames.Indicator), function() {
+  test(extension_detail_view_tests.TestNames.Indicator, function() {
     const indicator = item.shadowRoot!.querySelector('cr-tooltip-icon')!;
     assertTrue(indicator.hidden);
     item.set('data.controlledInfo', {text: 'policy'});
@@ -378,7 +381,7 @@ suite(extension_detail_view_tests.suiteName, function() {
     assertFalse(indicator.hidden);
   });
 
-  test(assert(extension_detail_view_tests.TestNames.Warnings), function() {
+  test(extension_detail_view_tests.TestNames.Warnings, function() {
     function testWarningVisible(id: string, expectVisible: boolean): void {
       const f: (arg: boolean) => void =
           expectVisible ? assertTrue : assertFalse;
@@ -484,8 +487,8 @@ suite(extension_detail_view_tests.suiteName, function() {
   });
 
   test(
-      assert(extension_detail_view_tests.TestNames
-                 .NoSiteAccessWithEnhancedSiteControls),
+      extension_detail_view_tests.TestNames
+          .NoSiteAccessWithEnhancedSiteControls,
       function() {
         const testIsVisible = isChildVisible.bind(null, item);
 
@@ -519,5 +522,74 @@ suite(extension_detail_view_tests.suiteName, function() {
                 .length);
         assertFalse(testIsVisible('#no-permissions'));
         assertTrue(testIsVisible('#permissions-list li:last-of-type'));
+      });
+
+  test(
+      extension_detail_view_tests.TestNames.InspectableViewSortOrder,
+      function() {
+        function getUrl(path: string) {
+          return `chrome-extension://${extensionData.id}/${path}`;
+        }
+        item.set('data.views', [
+          {
+            type: chrome.developerPrivate.ViewType.EXTENSION_BACKGROUND_PAGE,
+            url: getUrl('_generated_background_page.html'),
+          },
+          {
+            type: chrome.developerPrivate.ViewType
+                      .EXTENSION_SERVICE_WORKER_BACKGROUND,
+            url: getUrl('sw.js'),
+          },
+          {
+            type: chrome.developerPrivate.ViewType.EXTENSION_POPUP,
+            url: getUrl('popup.html'),
+          },
+        ]);
+        item.set('inDevMode', true);
+        flush();
+
+        const orderedListItems =
+            Array
+                .from(item.shadowRoot!.querySelectorAll<HTMLElement>(
+                    '.inspectable-view'))
+                .map(e => e.textContent!.trim());
+
+        assertDeepEquals(
+            ['service worker', 'background page', 'popup.html'],
+            orderedListItems);
+      });
+
+  test(
+      extension_detail_view_tests.TestNames.ShowAccessRequestsInToolbar,
+      function() {
+        const testIsVisible = isChildVisible.bind(null, item);
+
+        const allSitesPermissions = {
+          simplePermissions: [],
+          runtimeHostPermissions: {
+            hosts: [{granted: false, host: '<all_urls>'}],
+            hasAllHosts: true,
+            hostAccess: chrome.developerPrivate.HostAccess.ON_CLICK,
+          },
+        };
+        item.set('data.permissions', allSitesPermissions);
+        item.set('data.showAccessRequestsInToolbar', true);
+        flush();
+
+        assertFalse(testIsVisible('#show-access-requests-toggle'));
+
+        item.enableEnhancedSiteControls = true;
+        flush();
+
+        assertTrue(testIsVisible('#show-access-requests-toggle'));
+        assertTrue(item.shadowRoot!
+                       .querySelector<ExtensionsToggleRowElement>(
+                           '#show-access-requests-toggle')!.checked);
+
+        mockDelegate.testClickingCalls(
+            item.shadowRoot!
+                .querySelector<ExtensionsToggleRowElement>(
+                    '#show-access-requests-toggle')!.getLabel(),
+            'setShowAccessRequestsInToolbar', [extensionData.id, false]);
       });
 });

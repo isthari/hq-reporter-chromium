@@ -1,10 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_LACROS_NET_PROXY_CONFIG_SERVICE_LACROS_H_
 #define CHROME_BROWSER_LACROS_NET_PROXY_CONFIG_SERVICE_LACROS_H_
 
+#include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
 #include "chromeos/crosapi/mojom/network_settings_service.mojom.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -13,7 +14,6 @@
 #include "net/proxy_resolution/proxy_config_with_annotation.h"
 
 class PrefRegistrySimple;
-class PrefService;
 class Profile;
 
 namespace lacros {
@@ -54,9 +54,8 @@ class ProxyConfigServiceLacros
   void OnUseAshProxyPrefChanged();
 
   void NotifyObservers();
-
-  // Owned by the Profile instance.
-  PrefService* profile_prefs_ = nullptr;
+  // The profile associated with this ProxyConfigServiceLacros instance.
+  raw_ptr<Profile> profile_;
 
   PrefChangeRegistrar profile_pref_change_registrar_;
 
@@ -68,6 +67,9 @@ class ProxyConfigServiceLacros
   // enforced in the browser only if the pref kUseAshProxy=true and the
   // kProxy pref, which has precedence, is unset or set to mode=system.
   absl::optional<net::ProxyConfigWithAnnotation> cached_config_;
+  // Indicates if the proxy config comes from an extension active in the main
+  // Lacros profile.
+  bool proxy_controlled_by_extension_ = false;
 
   // Forwards proxy configs set via extensions in the Lacros primary profile
   // to Ash-Chrome.

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,6 +60,7 @@ class FakeFrameWidget : public blink::mojom::FrameWidget {
                          ui::mojom::DragOperation operation,
                          base::OnceClosure callback) override {}
   void DragSourceSystemDragEnded() override {}
+  void OnStartStylusWriting(OnStartStylusWritingCallback callback) override {}
   void SetBackgroundOpaque(bool value) override {}
   void SetTextDirection(base::i18n::TextDirection direction) override;
   void SetActive(bool active) override;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,12 +38,13 @@ void TabSearchButton::FrameColorsChanged() {
   // Icon color needs to be updated here as this is called when the hosting
   // window switches between active and inactive states. In each state the
   // foreground color of the tab controls is expected to change.
-  SetImage(Button::STATE_NORMAL,
-           gfx::CreateVectorIcon(
-               base::FeatureList::IsEnabled(features::kTabSearchChevronIcon)
-                   ? vector_icons::kCaretDownIcon
-                   : kTabSearchIcon,
-               GetForegroundColor()));
+  SetImageModel(
+      Button::STATE_NORMAL,
+      ui::ImageModel::FromVectorIcon(
+          base::FeatureList::IsEnabled(features::kTabSearchChevronIcon)
+              ? vector_icons::kCaretDownIcon
+              : kTabSearchIcon,
+          GetForegroundColor()));
 }
 
 void TabSearchButton::PaintIcon(gfx::Canvas* canvas) {

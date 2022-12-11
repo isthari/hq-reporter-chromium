@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_renderer_data.h"
 #include "chrome/browser/ui/views/tabs/tab_slot_view.h"
@@ -31,7 +30,7 @@
 
 class AlertIndicatorButton;
 class TabCloseButton;
-class TabController;
+class TabSlotController;
 class TabIcon;
 struct TabSizeInfo;
 class TabStyleViews;
@@ -67,7 +66,7 @@ class Tab : public gfx::AnimationDelegate,
   // tests to prevent them from interfering with unrelated tests.
   static void SetShowHoverCardOnMouseHoverForTesting(bool value);
 
-  explicit Tab(TabController* controller);
+  explicit Tab(TabSlotController* controller);
   Tab(const Tab&) = delete;
   Tab& operator=(const Tab&) = delete;
   ~Tab() override;
@@ -103,7 +102,7 @@ class Tab : public gfx::AnimationDelegate,
   TabSlotView::ViewType GetTabSlotViewType() const override;
   TabSizeInfo GetTabSizeInfo() const override;
 
-  TabController* controller() const { return controller_; }
+  TabSlotController* controller() const { return controller_; }
 
   // Used to set/check whether this Tab is being animated closed.
   void SetClosing(bool closing);
@@ -186,6 +185,8 @@ class Tab : public gfx::AnimationDelegate,
     return showing_close_button_;
   }
 
+  raw_ptr<TabCloseButton> close_button() { return close_button_; }
+
  private:
   class TabCloseButtonObserver;
   friend class AlertIndicatorButtonTest;
@@ -193,8 +194,8 @@ class Tab : public gfx::AnimationDelegate,
   friend class TabStripTestBase;
   FRIEND_TEST_ALL_PREFIXES(TabStripTest, TabCloseButtonVisibility);
   FRIEND_TEST_ALL_PREFIXES(TabTest, TitleTextHasSufficientContrast);
-  FRIEND_TEST_ALL_PREFIXES(TabHoverCardBubbleViewBrowserTest,
-                           WidgetVisibleOnTabCloseButtonFocusAfterTabFocus);
+  FRIEND_TEST_ALL_PREFIXES(TabHoverCardInteractiveUiTest,
+                           HoverCardVisibleOnTabCloseButtonFocusAfterTabFocus);
 
   // Invoked from Layout to adjust the position of the favicon or alert
   // indicator for pinned tabs. The visual_width parameter is how wide the
@@ -226,7 +227,7 @@ class Tab : public gfx::AnimationDelegate,
   void CloseButtonPressed(const ui::Event& event);
 
   // The controller, never nullptr.
-  const raw_ptr<TabController> controller_;
+  const raw_ptr<TabSlotController> controller_;
 
   TabRendererData data_;
 
@@ -278,9 +279,6 @@ class Tab : public gfx::AnimationDelegate,
   // When both the close button and alert indicator are visible, we add extra
   // padding between them to space them out visually.
   bool extra_alert_indicator_padding_ = false;
-
-  // The tab foreground color (title, buttons).
-  SkColor foreground_color_ = SK_ColorTRANSPARENT;
 
   // Indicates whether the mouse is currently hovered over the tab. This is
   // different from View::IsMouseHovered() which does a naive intersection with

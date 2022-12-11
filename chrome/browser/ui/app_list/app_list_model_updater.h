@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -61,8 +61,6 @@ class AppListModelUpdater {
   virtual void SetStatus(ash::AppListModelStatus status) {}
   // For SearchModel:
   virtual void SetSearchEngineIsGoogle(bool is_google) {}
-  virtual void UpdateSearchBox(const std::u16string& text,
-                               bool initiated_by_user) {}
   virtual void PublishSearchResults(
       const std::vector<ChromeSearchResult*>& results,
       const std::vector<ash::AppListSearchResultCategory>& categories) {}
@@ -71,19 +69,20 @@ class AppListModelUpdater {
 
   // Item field setters only used by ChromeAppListItem and its derived classes.
   virtual void SetItemIconVersion(const std::string& id, int icon_version) {}
-  virtual void SetItemIcon(const std::string& id, const gfx::ImageSkia& icon) {}
+  virtual void SetItemIconAndColor(const std::string& id,
+                                   const gfx::ImageSkia& icon,
+                                   const ash::IconColor& icon_color) {}
   virtual void SetItemName(const std::string& id, const std::string& name) {}
   virtual void SetAppStatus(const std::string& id, ash::AppStatus app_status) {}
   virtual void SetItemPosition(const std::string& id,
                                const syncer::StringOrdinal& new_position) {}
-  virtual void SetItemIsPersistent(const std::string& id, bool is_persistent) {}
+  virtual void SetItemIsSystemFolder(const std::string& id,
+                                     bool is_system_folder) {}
   virtual void SetIsNewInstall(const std::string& id, bool is_new_install) {}
   virtual void SetItemFolderId(const std::string& id,
                                const std::string& folder_id) = 0;
   virtual void SetNotificationBadgeColor(const std::string& id,
                                          const SkColor color) {}
-  virtual void SetIconColor(const std::string& id,
-                            const ash::IconColor icon_color) {}
 
   virtual void SetSearchResultMetadata(
       const std::string& id,
@@ -121,7 +120,7 @@ class AppListModelUpdater {
   using GetMenuModelCallback =
       base::OnceCallback<void(std::unique_ptr<ui::SimpleMenuModel>)>;
   virtual void GetContextMenuModel(const std::string& id,
-                                   bool add_sort_options,
+                                   ash::AppListItemContext item_context,
                                    GetMenuModelCallback callback) = 0;
   virtual size_t BadgedItemCount() = 0;
   // For SearchModel:
@@ -129,6 +128,9 @@ class AppListModelUpdater {
 
   // Notifies when the app list gets hidden.
   virtual void OnAppListHidden() = 0;
+
+  // Handles the request to commit the app list temporary sort order from ash.
+  virtual void CommitTemporarySortOrder() = 0;
 
   virtual void AddObserver(AppListModelUpdaterObserver* observer) = 0;
   virtual void RemoveObserver(AppListModelUpdaterObserver* observer) = 0;

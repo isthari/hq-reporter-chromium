@@ -1,10 +1,9 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.ui.display;
 
-import android.annotation.TargetApi;
 import android.content.ComponentCallbacks;
 import android.content.Context;
 import android.content.res.Configuration;
@@ -161,13 +160,19 @@ import java.util.List;
         }
     }
 
+    @Override
+    public Context getWindowContext() {
+        return mWindowContext;
+    }
+
     private void updateFromConfiguration() {
         Point size = new Point();
         WindowManager windowManager = mWindowContext.getSystemService(WindowManager.class);
         Rect rect = ApiHelperForR.getMaximumWindowMetricsBounds(windowManager);
         size.set(rect.width(), rect.height());
         DisplayMetrics displayMetrics = mWindowContext.getResources().getDisplayMetrics();
-        updateCommon(size, displayMetrics.density, ApiHelperForR.getDisplay(mWindowContext));
+        updateCommon(size, displayMetrics.density, displayMetrics.xdpi, displayMetrics.ydpi,
+                ApiHelperForR.getDisplay(mWindowContext));
     }
 
     /* package */ void onDisplayRemoved() {
@@ -177,7 +182,6 @@ import java.util.List;
     }
 
     @SuppressWarnings("deprecation")
-    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
     /* package */ void updateFromDisplay(Display display) {
         if (USE_CONFIGURATION) {
             assert display.getDisplayId()
@@ -195,10 +199,11 @@ import java.util.List;
             display.getSize(size);
             display.getMetrics(displayMetrics);
         }
-        updateCommon(size, displayMetrics.density, display);
+        updateCommon(
+                size, displayMetrics.density, displayMetrics.xdpi, displayMetrics.ydpi, display);
     }
 
-    private void updateCommon(Point size, float density, Display display) {
+    private void updateCommon(Point size, float density, float xdpi, float ydpi, Display display) {
         if (hasForcedDIPScale()) density = sForcedDIPScale.floatValue();
         boolean isWideColorGamut = false;
         // Although this API was added in Android O, it was buggy.
@@ -214,16 +219,14 @@ import java.util.List;
 
         Display.Mode currentMode = null;
         List<Display.Mode> supportedModes = null;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            currentMode = ApiHelperForM.getDisplayMode(display);
-            supportedModes = Arrays.asList(ApiHelperForM.getDisplaySupportedModes(display));
-            assert currentMode != null;
-            assert supportedModes != null;
-            assert supportedModes.size() > 0;
-        }
+        currentMode = ApiHelperForM.getDisplayMode(display);
+        supportedModes = Arrays.asList(ApiHelperForM.getDisplaySupportedModes(display));
+        assert currentMode != null;
+        assert supportedModes != null;
+        assert supportedModes.size() > 0;
 
-        super.update(size, density, bitsPerPixel(pixelFormatId), bitsPerComponent(pixelFormatId),
-                display.getRotation(), isWideColorGamut, null, display.getRefreshRate(),
-                currentMode, supportedModes);
+        super.update(size, density, xdpi, ydpi, bitsPerPixel(pixelFormatId),
+                bitsPerComponent(pixelFormatId), display.getRotation(), isWideColorGamut, null,
+                display.getRefreshRate(), currentMode, supportedModes);
     }
 }

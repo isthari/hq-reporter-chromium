@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/webrtc/thread_wrapper.h"
 #include "net/url_request/url_request_context_getter.h"
@@ -31,8 +31,7 @@
 
 using testing::_;
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 namespace {
 
@@ -101,7 +100,7 @@ class IceTransportTest : public testing::Test {
 
   void ProcessTransportInfo(std::unique_ptr<IceTransport>* target_transport,
                             std::unique_ptr<jingle_xmpp::XmlElement> transport_info) {
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&IceTransportTest::DeliverTransportInfo,
                        base::Unretained(this), target_transport,
@@ -119,10 +118,12 @@ class IceTransportTest : public testing::Test {
   void InitializeConnection() {
     webrtc::ThreadWrapper::EnsureForCurrentMessageLoop();
 
+    rtc::SocketFactory* socket_factory =
+        webrtc::ThreadWrapper::current()->SocketServer();
     host_transport_ = std::make_unique<IceTransport>(
         new TransportContext(std::make_unique<ChromiumPortAllocatorFactory>(),
-                             nullptr, nullptr, network_settings_,
-                             TransportRole::SERVER),
+                             socket_factory, nullptr, nullptr,
+                             network_settings_, TransportRole::SERVER),
         &host_event_handler_);
     if (!host_authenticator_) {
       host_authenticator_ =
@@ -131,8 +132,8 @@ class IceTransportTest : public testing::Test {
 
     client_transport_ = std::make_unique<IceTransport>(
         new TransportContext(std::make_unique<ChromiumPortAllocatorFactory>(),
-                             nullptr, nullptr, network_settings_,
-                             TransportRole::CLIENT),
+                             socket_factory, nullptr, nullptr,
+                             network_settings_, TransportRole::CLIENT),
         &client_event_handler_);
     if (!client_authenticator_) {
       client_authenticator_ =
@@ -368,5 +369,4 @@ TEST_F(IceTransportTest, MAYBE_TestDelayedSignaling) {
   tester.RunAndCheckResults();
 }
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

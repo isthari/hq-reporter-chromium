@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -200,6 +200,10 @@ class TestDragDropClient : public aura::client::DragDropClient,
                                  const gfx::Point& screen_location,
                                  int allowed_operations,
                                  ui::mojom::DragEventSource source) override;
+#if BUILDFLAG(IS_LINUX)
+  void UpdateDragImage(const gfx::ImageSkia& image,
+                       const gfx::Vector2d& offset) override {}
+#endif
   void DragCancel() override;
   bool IsDragDropInProgress() override;
   void AddObserver(aura::client::DragDropClientObserver* observer) override {}

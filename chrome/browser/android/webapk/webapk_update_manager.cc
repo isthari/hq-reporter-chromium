@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,15 +14,18 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/android/chrome_jni_headers/WebApkUpdateManager_jni.h"
+#include "chrome/browser/android/webapk/webapk_features.h"
 #include "chrome/browser/android/webapk/webapk_install_service.h"
 #include "chrome/browser/android/webapk/webapk_installer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "components/webapps/browser/android/shortcut_info.h"
+#include "components/webapps/browser/android/webapk/webapk_types.h"
 #include "content/public/browser/browser_thread.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
 #include "ui/android/color_utils_android.h"
@@ -36,7 +39,7 @@ namespace {
 
 // Called after the update either succeeds or fails.
 void OnUpdated(const JavaRef<jobject>& java_callback,
-               WebApkInstallResult result,
+               webapps::WebApkInstallResult result,
                bool relax_updates,
                const std::string& webapk_package) {
   JNIEnv* env = base::android::AttachCurrentThread();
@@ -47,6 +50,13 @@ void OnUpdated(const JavaRef<jobject>& java_callback,
 }  // anonymous namespace
 
 // static JNI method.
+static jint JNI_WebApkUpdateManager_GetWebApkTargetShellVersion(JNIEnv* env) {
+  return base::GetFieldTrialParamByFeatureAsInt(
+      kWebApkShellUpdate, kWebApkTargetShellVersion.name,
+      kWebApkTargetShellVersion.default_value);
+}
+
+// static JNI method.
 static void JNI_WebApkUpdateManager_StoreWebApkUpdateRequestToFile(
     JNIEnv* env,
     const JavaParamRef<jstring>& java_update_request_path,
@@ -54,6 +64,8 @@ static void JNI_WebApkUpdateManager_StoreWebApkUpdateRequestToFile(
     const JavaParamRef<jstring>& java_scope,
     const JavaParamRef<jstring>& java_name,
     const JavaParamRef<jstring>& java_short_name,
+    const JavaParamRef<jstring>& java_manifest_id,
+    const JavaParamRef<jstring>& java_app_key,
     const JavaParamRef<jstring>& java_primary_icon_url,
     const JavaParamRef<jstring>& java_primary_icon_data,
     jboolean java_is_primary_icon_maskable,
@@ -104,6 +116,8 @@ static void JNI_WebApkUpdateManager_StoreWebApkUpdateRequestToFile(
       GURL(ConvertJavaStringToUTF8(env, java_splash_icon_url));
   info.is_splash_image_maskable = java_is_splash_icon_maskable;
   info.manifest_url = GURL(ConvertJavaStringToUTF8(env, java_web_manifest_url));
+  info.manifest_id = GURL(ConvertJavaStringToUTF8(env, java_manifest_id));
+  GURL app_key(ConvertJavaStringToUTF8(env, java_app_key));
 
   GURL share_target_action =
       GURL(ConvertJavaStringToUTF8(env, java_share_target_action));
@@ -207,7 +221,7 @@ static void JNI_WebApkUpdateManager_StoreWebApkUpdateRequestToFile(
         static_cast<webapps::WebApkUpdateReason>(update_reason));
 
   WebApkInstaller::StoreUpdateRequestToFile(
-      base::FilePath(update_request_path), info, primary_icon_data,
+      base::FilePath(update_request_path), info, app_key, primary_icon_data,
       java_is_primary_icon_maskable, splash_icon_data, webapk_package,
       base::NumberToString(java_webapk_version),
       std::move(icon_url_to_murmur2_hash), java_is_manifest_stale,
@@ -227,9 +241,10 @@ static void JNI_WebApkUpdateManager_UpdateWebApkFromFile(
 
   Profile* profile = ProfileManager::GetLastUsedProfile();
   if (profile == nullptr) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
-        base::BindOnce(&OnUpdated, callback_ref, WebApkInstallResult::FAILURE,
+        base::BindOnce(&OnUpdated, callback_ref,
+                       webapps::WebApkInstallResult::FAILURE,
                        false /* relax_updates */, "" /* webapk_package */));
     return;
   }

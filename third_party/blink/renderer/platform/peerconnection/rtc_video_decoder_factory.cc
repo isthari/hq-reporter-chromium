@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/trace_event/base_tracing.h"
 #include "build/build_config.h"
 #include "media/base/decoder_factory.h"
@@ -44,7 +45,7 @@ struct CodecConfig {
   media::VideoCodecProfile profile;
 };
 
-constexpr std::array<CodecConfig, 8> kCodecConfigs = {{
+constexpr std::array<CodecConfig, 9> kCodecConfigs = {{
     {media::VideoCodec::kVP8, media::VP8PROFILE_ANY},
     {media::VideoCodec::kVP9, media::VP9PROFILE_PROFILE0},
     {media::VideoCodec::kVP9, media::VP9PROFILE_PROFILE1},
@@ -52,6 +53,7 @@ constexpr std::array<CodecConfig, 8> kCodecConfigs = {{
     {media::VideoCodec::kH264, media::H264PROFILE_BASELINE},
     {media::VideoCodec::kH264, media::H264PROFILE_MAIN},
     {media::VideoCodec::kH264, media::H264PROFILE_HIGH},
+    {media::VideoCodec::kH264, media::H264PROFILE_HIGH444PREDICTIVEPROFILE},
     {media::VideoCodec::kAV1, media::AV1PROFILE_PROFILE_MAIN},
 }};
 
@@ -95,6 +97,9 @@ absl::optional<webrtc::SdpVideoFormat> VdcToWebRtcFormat(
           break;
         case media::H264PROFILE_HIGH:
           h264_profile = webrtc::H264Profile::kProfileHigh;
+          break;
+        case media::H264PROFILE_HIGH444PREDICTIVEPROFILE:
+          h264_profile = webrtc::H264Profile::kProfilePredictiveHigh444;
           break;
         default:
           // Unsupported H264 profile in WebRTC.
@@ -187,7 +192,7 @@ class ScopedVideoDecoder : public webrtc::VideoDecoder {
 
 RTCVideoDecoderFactory::RTCVideoDecoderFactory(
     media::GpuVideoAcceleratorFactories* gpu_factories,
-    media::DecoderFactory* decoder_factory,
+    base::WeakPtr<media::DecoderFactory> decoder_factory,
     scoped_refptr<base::SequencedTaskRunner> media_task_runner,
     const gfx::ColorSpace& render_color_space)
     : gpu_factories_(gpu_factories),
@@ -305,6 +310,9 @@ RTCVideoDecoderFactory::QueryCodecSupport(const webrtc::SdpVideoFormat& format,
   // See:
   // https://chromium-review.googlesource.com/c/chromium/src/+/3305493
   // For the exact diff.
+  // Please note that `decoder_factory_` may be a null pointer when this
+  // function is called from the MediaCapabilities API, see
+  // https://crbug.com/1349423.
 
   return codec_support;
 }
@@ -330,9 +338,10 @@ RTCVideoDecoderFactory::CreateVideoDecoder(
   }
   // ScopedVideoDecoder uses the task runner to make sure the decoder is
   // destructed on the correct thread.
-  return decoder ? std::make_unique<ScopedVideoDecoder>(media_task_runner_,
-                                                        std::move(decoder))
-                 : nullptr;
+  return decoder
+             ? std::make_unique<ScopedVideoDecoder>(
+                   base::SequencedTaskRunnerHandle::Get(), std::move(decoder))
+             : nullptr;
 }
 
 }  // namespace blink

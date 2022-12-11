@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,6 +27,7 @@ import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.components.browser_ui.widget.chips.ChipProperties;
 import org.chromium.components.browser_ui.widget.chips.ChipsCoordinator;
 import org.chromium.ui.base.LocalizationUtils;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.modelutil.MVCListAdapter.ListItem;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -94,9 +95,6 @@ public class RelatedSearchesControl {
     /** The reference to the host for this part of the panel (callbacks to the Panel). */
     private RelatedSearchesSectionHost mPanelSectionHost;
 
-    /** Whether this control is for a view that appears in the Bar vs the panel's content area. */
-    boolean mIsInBarControl;
-
     /** The number of chips that have been selected so far. */
     private int mChipsSelected;
 
@@ -112,16 +110,12 @@ public class RelatedSearchesControl {
     /**
      * @param panel             The panel.
      * @param panelSectionHost  A reference to the host of this panel section for notifications.
-     * @param isInBarControl    Whether this control is for a control that appears in the Bar as
-     *                          opposed to appearing in the content area of the Panel.
      * @param context           The Android Context used to inflate the View.
      * @param container         The container View used to inflate the View.
      * @param resourceLoader    The resource loader that will handle the snapshot capturing.
      */
     RelatedSearchesControl(OverlayPanel panel, RelatedSearchesSectionHost panelSectionHost,
-            boolean isInBarControl, Context context, ViewGroup container,
-            DynamicResourceLoader resourceLoader) {
-        mIsInBarControl = isInBarControl;
+            Context context, ViewGroup container, DynamicResourceLoader resourceLoader) {
         mContext = context;
         mViewContainer = container;
         mResourceLoader = resourceLoader;
@@ -219,14 +213,10 @@ public class RelatedSearchesControl {
     void setRelatedSearchesSuggestions(@Nullable List<String> relatedSearches,
             boolean displayDefaultQuery, @Px int defaultQueryTextMaxWidthPx) {
         if (mControlView == null) {
-            int layoutId = mIsInBarControl
-                    ? R.layout.contextual_search_related_searches_view
-                    : R.layout.contextual_search_related_searches_in_content_view;
-            int viewId = mIsInBarControl
-                    ? R.id.contextual_search_related_searches_view_id
-                    : R.id.contextual_search_related_searches_in_content_view_id;
-            mControlView = new RelatedSearchesControlView(
-                    mOverlayPanel, mContext, mViewContainer, mResourceLoader, layoutId, viewId);
+            mControlView = new RelatedSearchesControlView(mOverlayPanel, mContext, mViewContainer,
+                    mResourceLoader, R.layout.contextual_search_related_searches_view,
+                    R.id.contextual_search_related_searches_view_id,
+                    R.id.contextual_search_related_searches_view_control_id);
         }
         assert mChipsSelected == 0 || hasReleatedSearchesToShow();
         mRelatedSearchesSuggestions = relatedSearches;
@@ -242,7 +232,7 @@ public class RelatedSearchesControl {
         mSelectedChip = NO_SELECTED_CHIP;
     }
 
-    void onPanelCollapsed() {
+    void onPanelCollapsing() {
         clearSelectedSuggestions();
     }
 
@@ -300,12 +290,7 @@ public class RelatedSearchesControl {
         // The View snapshot should be fully visible here.
         updateAppearance(1.0f);
 
-        // Only the Bar is on screen, so show if this is an in-bar control and hide otherwise.
-        if (mIsInBarControl) {
-            showView(true);
-        } else {
-            hideView();
-        }
+        showView(true);
     }
 
     /**
@@ -406,7 +391,7 @@ public class RelatedSearchesControl {
         if (mControlView == null) return;
 
         float y = mPanelSectionHost.getYPositionPx();
-        View view = mControlView.getControlView();
+        View view = mControlView.getView();
         if (view == null || !mIsVisible || (mIsShowingView && mViewY == y) || mHeightPx == 0.f) {
             return;
         }
@@ -426,7 +411,7 @@ public class RelatedSearchesControl {
         view.setVisibility(View.VISIBLE);
 
         // NOTE: We need to call requestLayout, otherwise the View will not become visible.
-        view.requestLayout();
+        ViewUtils.requestLayout(view, "RelatedSearchesControl.showView");
 
         mIsShowingView = true;
         mViewY = y;
@@ -438,7 +423,7 @@ public class RelatedSearchesControl {
     private void hideView() {
         if (mControlView == null) return;
 
-        View view = mControlView.getControlView();
+        View view = mControlView.getView();
         if (view == null || !mIsVisible || !mIsShowingView) {
             return;
         }
@@ -485,6 +470,8 @@ public class RelatedSearchesControl {
         mChipsSelected++;
         boolean isRelatedSearchesSuggestion = suggestionIndex > 0 || !mDisplayDefaultQuery;
         ContextualSearchUma.logAllSearches(isRelatedSearchesSuggestion);
+
+        mControlView.smoothScrollToPosition(suggestionIndex);
     }
 
     /** The position of the first Related Searches suggestion in the carousel UI. */
@@ -515,6 +502,8 @@ public class RelatedSearchesControl {
     }
 
     private void handleChipTapped(PropertyModel tappedChip) {
+        if (mControlView == null) return;
+
         onSuggestionClicked(tappedChip.get(ChipProperties.ID));
         if (mSelectedChip != NO_SELECTED_CHIP) {
             mChips.get(mSelectedChip).model.set(ChipProperties.SELECTED, false);
@@ -538,6 +527,7 @@ public class RelatedSearchesControl {
         // TODO(donnd): track the offset of the carousel here, so we can use it for snapshotting
         // and log that the user has scrolled it.
         private float mLastOffset;
+        private final int mControlId;
 
         /**
          * Constructs a view that can be shown in the panel.
@@ -547,10 +537,12 @@ public class RelatedSearchesControl {
          * @param resourceLoader    The resource loader that will handle the snapshot capturing.
          * @param layoutId          The XML Layout that declares the View.
          * @param viewId            The id of the root View of the Layout.
+         * @param controlId         The id of the control View.
          */
         RelatedSearchesControlView(OverlayPanel panel, Context context, ViewGroup container,
-                DynamicResourceLoader resourceLoader, int layoutId, int viewId) {
+                DynamicResourceLoader resourceLoader, int layoutId, int viewId, int controlId) {
             super(panel, layoutId, viewId, context, container, resourceLoader);
+            mControlId = controlId;
 
             // Setup Chips handling
             mChipsCoordinator = new ChipsCoordinator(context, mChips);
@@ -565,12 +557,30 @@ public class RelatedSearchesControl {
                 @Override
                 public void onScrollStateChanged(RecyclerView recyclerView, int newState) {
                     if (newState == RecyclerView.SCROLL_STATE_DRAGGING) mScrolled = true;
+                    if (newState == RecyclerView.SCROLL_STATE_IDLE) invalidate(false);
                 }
             });
         }
 
+        /**
+         * Smoothly scroll to the view in the position.
+         * @param position the position of the view to scroll to.
+         */
+        private void smoothScrollToPosition(int position) {
+            RecyclerView recyclerView = (RecyclerView) mChipsCoordinator.getView();
+            recyclerView.smoothScrollToPosition(position);
+        }
+
         /** Returns the view for this control. */
         View getControlView() {
+            View view = getView();
+            if (view == null) return null;
+
+            return view.findViewById(mControlId);
+        }
+
+        @Override
+        public View getView() {
             return super.getView();
         }
 

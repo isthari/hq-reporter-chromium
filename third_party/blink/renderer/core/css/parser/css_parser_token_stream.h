@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_PARSER_CSS_PARSER_TOKEN_STREAM_H_
 
 #include "base/auto_reset.h"
+#include "base/check_op.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_token_range.h"
 #include "third_party/blink/renderer/core/css/parser/css_tokenizer.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -49,13 +51,22 @@ class CORE_EXPORT CSSParserTokenStream {
       DCHECK_EQ(next.GetBlockType(), CSSParserToken::kBlockStart);
     }
 
-    ~BlockGuard() {
+    void SkipToEndOfBlock() {
+      DCHECK(!skipped_to_end_of_block_);
       stream_.EnsureLookAhead();
       stream_.UncheckedSkipToEndOfBlock();
+      skipped_to_end_of_block_ = true;
+    }
+
+    ~BlockGuard() {
+      if (!skipped_to_end_of_block_) {
+        SkipToEndOfBlock();
+      }
     }
 
    private:
     CSSParserTokenStream& stream_;
+    bool skipped_to_end_of_block_ = false;
   };
 
   static constexpr uint64_t FlagForTokenType(CSSParserTokenType token_type) {
@@ -83,12 +94,13 @@ class CORE_EXPORT CSSParserTokenStream {
   // the number of tokens in a declaration.
   // TODO(crbug.com/661854): Can we streamify at rule parsing so that this is
   // only needed for declarations which are easier to think about?
-  static constexpr size_t InitialBufferSize() { return 128; }
+  static constexpr int kInitialBufferSize = 128;
+
+  explicit CSSParserTokenStream(CSSTokenizerWrapper tokenizer)
+      : tokenizer_(std::move(tokenizer)), next_(kEOFToken) {}
 
   explicit CSSParserTokenStream(CSSTokenizer& tokenizer)
-      : tokenizer_(tokenizer), next_(kEOFToken) {
-    buffer_.ReserveInitialCapacity(InitialBufferSize());
-  }
+      : CSSParserTokenStream(CSSTokenizerWrapper(tokenizer)) {}
 
   CSSParserTokenStream(CSSParserTokenStream&&) = default;
   CSSParserTokenStream(const CSSParserTokenStream&) = delete;
@@ -220,8 +232,8 @@ class CORE_EXPORT CSSParserTokenStream {
 
   void UncheckedSkipToEndOfBlock();
 
-  Vector<CSSParserToken, 32> buffer_;
-  CSSTokenizer& tokenizer_;
+  Vector<CSSParserToken, kInitialBufferSize> buffer_;
+  CSSTokenizerWrapper tokenizer_;
   CSSParserToken next_;
   wtf_size_t offset_ = 0;
   bool has_look_ahead_ = false;

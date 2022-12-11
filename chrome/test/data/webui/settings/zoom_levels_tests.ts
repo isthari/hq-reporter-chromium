@@ -1,11 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
 import {SiteSettingsPrefsBrowserProxyImpl, ZoomLevelEntry, ZoomLevelsElement} from 'chrome://settings/lazy_load.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {waitBeforeNextRender} from 'chrome://webui-test/test_util.js';
+import {waitBeforeNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
 import {TestSiteSettingsPrefsBrowserProxy} from './test_site_settings_prefs_browser_proxy.js';
 // clang-format on
@@ -51,14 +51,13 @@ suite('ZoomLevels', function() {
   });
 
   /** @return {!Promise} */
-  function initPage() {
+  async function initPage() {
     browserProxy.reset();
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     testElement = document.createElement('zoom-levels');
     document.body.appendChild(testElement);
-    return browserProxy.whenCalled('fetchZoomLevels').then(() => {
-      return waitBeforeNextRender(testElement);
-    });
+    await browserProxy.whenCalled('fetchZoomLevels');
+    await waitBeforeNextRender(testElement);
   }
 
   /**
@@ -80,25 +79,22 @@ suite('ZoomLevels', function() {
     assertFalse(testElement.$.empty.hidden);
   });
 
-  test('non-empty zoom state', function() {
+  test('non-empty zoom state', async function() {
     browserProxy.setZoomList(zoomList);
 
-    return initPage()
-        .then(function() {
-          const list = testElement.$.list;
-          assertTrue(!!list);
-          assertEquals(2, list.items!.length);
-          assertTrue(testElement.$.empty.hidden);
-          assertEquals(
-              2, testElement.shadowRoot!.querySelectorAll('.list-item').length);
+    await initPage();
 
-          const removeButton = getRemoveButton(testElement.$.listContainer, 0);
-          assertTrue(!!removeButton);
-          removeButton.click();
-          return browserProxy.whenCalled('removeZoomLevel');
-        })
-        .then(function(args) {
-          assertEquals('http://www.google.com', args[0]);
-        });
+    const list = testElement.$.list;
+    assertTrue(!!list);
+    assertEquals(2, list.items!.length);
+    assertTrue(testElement.$.empty.hidden);
+    assertEquals(
+        2, testElement.shadowRoot!.querySelectorAll('.list-item').length);
+
+    const removeButton = getRemoveButton(testElement.$.listContainer, 0);
+    assertTrue(!!removeButton);
+    removeButton.click();
+    const args = await browserProxy.whenCalled('removeZoomLevel');
+    assertEquals('http://www.google.com', args[0]);
   });
 });

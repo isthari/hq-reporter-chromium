@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "chrome/browser/ui/recently_audible_helper.h"
 #include "chrome/browser/ui/tab_ui_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tabs/tab_strip_user_gesture_details.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
@@ -126,7 +127,7 @@ void TabMenuBridge::AddDynamicItemsFromModel() {
     if (recyclable_items.count) {
       item.reset([[recyclable_items firstObject] retain]);
       [recyclable_items removeObjectAtIndex:0];
-      [item setState:NSOffState];
+      [item setState:NSControlStateValueOff];
     } else {
       item.reset([[NSMenuItem alloc] initWithTitle:@""
                                             action:@selector(activateTab:)
@@ -135,7 +136,7 @@ void TabMenuBridge::AddDynamicItemsFromModel() {
     }
 
     if (model_->active_index() == i) {
-      [item setState:NSOnState];
+      [item setState:NSControlStateValueOn];
     }
     UpdateItemForWebContents(item, model_->GetWebContentsAt(i));
 
@@ -153,8 +154,9 @@ void TabMenuBridge::OnDynamicItemChosen(NSMenuItem* item) {
 
   DCHECK_EQ(item.target, menu_listener_.get());
   int index = [menu_item_.submenu indexOfItem:item] - dynamic_items_start_;
-  model_->ActivateTabAt(index, TabStripModel::UserGestureDetails(
-                                   TabStripModel::GestureType::kTabMenu));
+  model_->ActivateTabAt(index,
+                        TabStripUserGestureDetails(
+                            TabStripUserGestureDetails::GestureType::kTabMenu));
 }
 
 void TabMenuBridge::OnTabStripModelChanged(

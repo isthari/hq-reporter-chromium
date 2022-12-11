@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,10 +52,10 @@ class UiHierarchyDataCollectorBrowserTest : public InProcessBrowserTest {
   void ReadExportedUiHierarchyFile(std::string* output_contents) {
     // Allow blocking for testing in this scope for IO operations.
     base::ScopedAllowBlockingForTesting allow_blocking;
-    // `data_collector` will export the output into a file names "ui_hierarchy"
-    // under `output_path`.
+    // `data_collector` will export the output into a file names
+    // "ui_hierarchy.txt" under `output_path`.
     ASSERT_TRUE(base::ReadFileToString(
-        temp_dir_.GetPath().Append(FILE_PATH_LITERAL("ui_hierarchy")),
+        temp_dir_.GetPath().Append(FILE_PATH_LITERAL("ui_hierarchy.txt")),
         output_contents));
   }
 

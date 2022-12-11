@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/waitable_event.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/process_memory_dump.h"
 #include "base/trace_event/trace_event.h"
@@ -31,7 +31,6 @@
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/format_utils.h"
 #include "media/base/media_log.h"
-#include "media/base/unaligned_shared_memory.h"
 #include "media/base/video_util.h"
 #include "media/gpu/accelerated_video_decoder.h"
 #include "media/gpu/h264_decoder.h"
@@ -45,7 +44,6 @@
 #include "media/gpu/vp8_decoder.h"
 #include "media/gpu/vp9_decoder.h"
 #include "media/video/picture.h"
-#include "ui/gl/gl_image.h"
 
 namespace media {
 
@@ -155,7 +153,7 @@ VaapiVideoDecodeAccelerator::VaapiVideoDecodeAccelerator(
       buffer_allocation_mode_(BufferAllocationMode::kNormal),
       surfaces_available_(&lock_),
       va_surface_format_(VA_INVALID_ID),
-      task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
       decoder_thread_("VaapiDecoderThread"),
       finish_flush_pending_(false),
       awaiting_va_surfaces_recycle_(false),
@@ -171,7 +169,7 @@ VaapiVideoDecodeAccelerator::VaapiVideoDecodeAccelerator(
       &VaapiVideoDecodeAccelerator::RecycleVASurface, weak_this_));
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       this, "media::VaapiVideoDecodeAccelerator",
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
 }
 
 VaapiVideoDecodeAccelerator::~VaapiVideoDecodeAccelerator() {
@@ -522,7 +520,7 @@ void VaapiVideoDecodeAccelerator::DecodeTask() {
 
       case AcceleratedVideoDecoder::kNeedContextUpdate:
         // This should not happen as we return false from
-        // IsFrameContextRequired().
+        // NeedsCompressedHeaderParsed().
         NOTREACHED() << "Context updates not supported";
         return;
 
@@ -807,7 +805,7 @@ void VaapiVideoDecodeAccelerator::AssignPictureBuffers(
   }
 }
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 void VaapiVideoDecodeAccelerator::ImportBufferForPicture(
     int32_t picture_buffer_id,
     VideoPixelFormat pixel_format,

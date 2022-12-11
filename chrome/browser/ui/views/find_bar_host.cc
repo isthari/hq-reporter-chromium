@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -160,7 +160,7 @@ bool FindBarHost::MaybeForwardKeyEventToWebpage(
   // input. Otherwise Up and Down arrow key strokes get eaten. "Nom Nom Nom".
   contents->ClearFocusedElement();
   NativeWebKeyboardEvent event(key_event);
-  contents->GetMainFrame()
+  contents->GetPrimaryMainFrame()
       ->GetRenderViewHost()
       ->GetWidget()
       ->ForwardKeyboardEventWithLatencyInfo(event, *key_event.latency());

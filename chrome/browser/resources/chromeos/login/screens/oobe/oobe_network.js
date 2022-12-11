@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,24 @@
  * @fileoverview Polymer element for displaying network selection OOBE dialog.
  */
 
-/* #js_imports_placeholder */
+import '//resources/polymer/v3_0/paper-styles/color.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '//resources/ash/common/network/network_list.js';
+import '../../components/buttons/oobe_back_button.js';
+import '../../components/buttons/oobe_next_button.js';
+import '../../components/common_styles/oobe_common_styles.m.js';
+import '../../components/common_styles/oobe_dialog_host_styles.m.js';
+import '../../components/dialogs/oobe_adaptive_dialog.js';
+
+import {NetworkList} from '//resources/ash/common/network/network_list_types.js';
+import {assert} from '//resources/js/assert.js';
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.m.js';
+import {OobeDialogHostBehavior} from '../../components/behaviors/oobe_dialog_host_behavior.m.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {NetworkSelectLogin} from '../../components/network_select_login.js';
+
 
 /**
  * @constructor
@@ -14,9 +31,9 @@
  * @implements {LoginScreenBehaviorInterface}
  * @implements {OobeI18nBehaviorInterface}
  */
-const NetworkScreenBase = Polymer.mixinBehaviors(
+const NetworkScreenBase = mixinBehaviors(
     [OobeI18nBehavior, OobeDialogHostBehavior, LoginScreenBehavior],
-    Polymer.Element);
+    PolymerElement);
 /**
  * @typedef {{
  *   networkSelectLogin:  NetworkSelectLogin,
@@ -34,7 +51,9 @@ class NetworkScreen extends NetworkScreenBase {
     return 'oobe-network-element';
   }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -45,16 +64,6 @@ class NetworkScreen extends NetworkScreenBase {
        * @type {boolean}
        */
       isDemoModeSetup: {
-        type: Boolean,
-        value: false,
-      },
-
-      /**
-       * Whether offline demo mode is enabled. If it is enabled offline setup
-       * option will be shown in UI.
-       * @type {boolean}
-       */
-      offlineDemoModeEnabled: {
         type: Boolean,
         value: false,
       },
@@ -94,11 +103,11 @@ class NetworkScreen extends NetworkScreenBase {
   }
 
   static get observers() {
-    return ['onDemoModeSetupChanged_(isDemoModeSetup, offlineDemoModeEnabled)'];
+    return [];
   }
 
   get EXTERNAL_API() {
-    return ['setOfflineDemoModeEnabled', 'setError'];
+    return ['setError'];
   }
 
   /** Called when dialog is shown. */
@@ -122,9 +131,7 @@ class NetworkScreen extends NetworkScreenBase {
   /** @override */
   ready() {
     super.ready();
-    this.initializeLoginScreen('NetworkScreen', {
-      resetAllowed: true,
-    });
+    this.initializeLoginScreen('NetworkScreen');
     this.updateLocalizedContent();
   }
 
@@ -151,22 +158,15 @@ class NetworkScreen extends NetworkScreenBase {
   }
 
   /**
-   * Enables or disables the offline Demo Mode option.
-   * @param {boolean} enabled
-   */
-  setOfflineDemoModeEnabled(enabled) {
-    this.offlineDemoModeEnabled = enabled;
-  }
-
-  /**
    * Returns element of the network list selected by the query.
    * Used to simplify testing.
    * @param {string} query
    * @return {NetworkList.NetworkListItemType}
    */
   getNetworkListItemWithQueryForTest(query) {
-    let networkList =
-        this.$.networkSelectLogin.shadowRoot.querySelector('#networkSelect').getNetworkListForTest();
+    const networkList =
+        this.$.networkSelectLogin.shadowRoot.querySelector('#networkSelect')
+            .getNetworkListForTest();
     assert(networkList);
     return networkList.querySelector(query);
   }
@@ -189,10 +189,11 @@ class NetworkScreen extends NetworkScreenBase {
   onShown_() {
     this.$.networkSelectLogin.refresh();
     setTimeout(() => {
-      if (this.isConnected_)
+      if (this.isConnected_) {
         this.$.nextButton.focus();
-      else
+      } else {
         this.$.networkSelectLogin.focus();
+      }
     }, 300);
     // Timeout is a workaround to correctly propagate focus to
     // RendererFrameHostImpl see https://crbug.com/955129 for details.
@@ -212,16 +213,6 @@ class NetworkScreen extends NetworkScreenBase {
    */
   onBackClicked_() {
     chrome.send('login.NetworkScreen.userActed', ['back']);
-  }
-
-  /**
-   * Updates custom elements on network list when demo mode setup properties
-   * changed.
-   * @private
-   */
-  onDemoModeSetupChanged_() {
-    this.$.networkSelectLogin.isOfflineDemoModeSetup =
-        this.isDemoModeSetup && this.offlineDemoModeEnabled;
   }
 
   /**

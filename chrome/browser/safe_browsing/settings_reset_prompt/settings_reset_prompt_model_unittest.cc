@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,11 +53,8 @@ const char kStartupUrl1[] = "http://start1.com";
 const char kStartupUrl2[] = "http://start2.com";
 const char kStartupUrl3[] = "http://start3.com";
 
-bool ListValueContainsUrl(const base::Value* list, const GURL& url) {
-  if (!list || !list->is_list())
-    return false;
-
-  for (const base::Value& i : list->GetList()) {
+bool ListValueContainsUrl(const base::Value::List& list, const GURL& url) {
+  for (const base::Value& i : list) {
     const std::string* url_text = i.GetIfString();
     if (url_text && url == *url_text)
       return true;
@@ -94,7 +91,6 @@ class SettingsResetPromptModelTest
         testing_pref_service()->registry());
 #endif  // !BUILDFLAG(IS_WIN)
 
-    profile_->CreateWebDataService();
     TemplateURLServiceFactory::GetInstance()->SetTestingFactory(
         profile(), base::BindRepeating(&CreateTemplateURLServiceForTesting));
 

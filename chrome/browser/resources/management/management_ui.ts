@@ -1,38 +1,43 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import 'chrome://resources/cr_elements/cr_icons_css.m.js';
-import 'chrome://resources/cr_elements/cr_page_host_style_css.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/cr_icons.css.js';
+import 'chrome://resources/cr_elements/cr_page_host_style.css.js';
 import 'chrome://resources/cr_elements/cr_toolbar/cr_toolbar.js';
-import 'chrome://resources/cr_elements/hidden_style_css.m.js';
-import 'chrome://resources/cr_elements/icons.m.js';
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
-import './icons.js';
+import 'chrome://resources/cr_elements/cr_hidden_style.css.js';
+import 'chrome://resources/cr_elements/icons.html.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
+import './icons.html.js';
 import './strings.m.js';
 
-import {I18nMixin} from 'chrome://resources/js/i18n_mixin.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {sanitizeInnerHtml} from 'chrome://resources/js/parse_html_subset.m.js';
-import {WebUIListenerMixin} from 'chrome://resources/js/web_ui_listener_mixin.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {sanitizeInnerHtml} from 'chrome://resources/js/parse_html_subset.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {getTemplate} from './management_ui.html.js';
 
 import {BrowserReportingResponse, Extension, ManagementBrowserProxy, ManagementBrowserProxyImpl, ReportingType, ThreatProtectionInfo} from './management_browser_proxy.js';
-// <if expr="chromeos">
+// <if expr="is_chromeos">
 import {DeviceReportingResponse, DeviceReportingType} from './management_browser_proxy.js';
 // </if>
 
-type BrowserReportingData = {
-  messageIds: string[],
-  icon: string,
-};
+interface BrowserReportingData {
+  messageIds: string[];
+  icon: string;
+}
 
-const ManagementUiElementBase = WebUIListenerMixin(I18nMixin(PolymerElement));
+const ManagementUiElementBase = WebUiListenerMixin(I18nMixin(PolymerElement));
 
 class ManagementUiElement extends ManagementUiElementBase {
   static get is() {
     return 'management-ui';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -54,7 +59,7 @@ class ManagementUiElement extends ManagementUiElementBase {
 
       managedWebsitesSubtitle_: String,
 
-      // <if expr="chromeos">
+      // <if expr="is_chromeos">
       /**
        * List of messages related to device reporting.
        */
@@ -70,12 +75,12 @@ class ManagementUiElement extends ManagementUiElementBase {
       pluginVmDataCollectionEnabled_: Boolean,
       eolAdminMessage_: String,
       eolMessage_: String,
-      showProxyServerPrivacyDisclosure_: Boolean,
+      showMonitoredNetworkPrivacyDisclosure_: Boolean,
       // </if>
 
       subtitle_: String,
 
-      // <if expr="not chromeos">
+      // <if expr="not chromeos_ash">
       managementNoticeHtml_: String,
       // </if>
 
@@ -85,26 +90,26 @@ class ManagementUiElement extends ManagementUiElementBase {
     };
   }
 
-  private browserReportingInfo_: Array<BrowserReportingData>|null;
-  private extensions_: Array<Extension>|null;
+  private browserReportingInfo_: BrowserReportingData[]|null;
+  private extensions_: Extension[]|null;
   private managedWebsites_: string[]|null;
   private managedWebsitesSubtitle_: string;
 
-  // <if expr="chromeos">
-  private deviceReportingInfo_: Array<DeviceReportingResponse>|null;
+  // <if expr="is_chromeos">
+  private deviceReportingInfo_: DeviceReportingResponse[]|null;
   private localTrustRoots_: string;
   private customerLogo_: string;
   private managementOverview_: string;
   private pluginVmDataCollectionEnabled_: boolean;
   private eolAdminMessage_: string;
   private eolMessage_: string;
-  private showProxyServerPrivacyDisclosure_: boolean;
+  private showMonitoredNetworkPrivacyDisclosure_: boolean;
   // </if>
 
   private subtitle_: string;
 
-  // <if expr="not chromeos">
-  private managementNoticeHtml_: string;
+  // <if expr="not chromeos_ash">
+  private managementNoticeHtml_: TrustedHTML;
   // </if>
 
   private managed_: boolean;
@@ -113,7 +118,7 @@ class ManagementUiElement extends ManagementUiElementBase {
   private browserProxy_: ManagementBrowserProxy|null = null;
 
   /** @override */
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
     document.documentElement.classList.remove('loading');
@@ -122,28 +127,28 @@ class ManagementUiElement extends ManagementUiElementBase {
     this.initBrowserReportingInfo_();
     this.getThreatProtectionInfo_();
 
-    this.addWebUIListener(
+    this.addWebUiListener(
         'browser-reporting-info-updated',
-        (reportingInfo: Array<BrowserReportingResponse>) =>
+        (reportingInfo: BrowserReportingResponse[]) =>
             this.onBrowserReportingInfoReceived_(reportingInfo));
 
-    // <if expr="chromeos">
-    this.addWebUIListener(
+    // <if expr="is_chromeos">
+    this.addWebUiListener(
         'plugin-vm-data-collection-updated',
         (enabled: boolean) => this.pluginVmDataCollectionEnabled_ = enabled);
     // </if>
 
-    this.addWebUIListener('managed_data_changed', () => {
+    this.addWebUiListener('managed_data_changed', () => {
       this.updateManagedFields_();
     });
 
-    this.addWebUIListener(
+    this.addWebUiListener(
         'threat-protection-info-updated',
         (info: ThreatProtectionInfo) => this.threatProtectionInfo_ = info);
 
     this.getExtensions_();
     this.getManagedWebsites_();
-    // <if expr="chromeos">
+    // <if expr="is_chromeos">
     this.getDeviceReportingInfo_();
     this.getPluginVmDataCollectionStatus_();
     this.getLocalTrustRootsInfo_();
@@ -156,23 +161,23 @@ class ManagementUiElement extends ManagementUiElementBase {
   }
 
   private onBrowserReportingInfoReceived_(reportingInfo:
-                                              Array<BrowserReportingResponse>) {
+                                              BrowserReportingResponse[]) {
     const reportingInfoMap = reportingInfo.reduce((info, response) => {
       info[response.reportingType] = info[response.reportingType] || {
         icon: this.getIconForReportingType_(response.reportingType),
-        messageIds: []
+        messageIds: [],
       };
       info[response.reportingType].messageIds.push(response.messageId);
       return info;
     }, {} as {[k: string]: {icon: string, messageIds: string[]}});
 
-    const reportingTypeOrder = {
+    const reportingTypeOrder: {[k: string]: number} = {
       [ReportingType.SECURITY]: 1,
       [ReportingType.EXTENSIONS]: 2,
       [ReportingType.USER]: 3,
       [ReportingType.USER_ACTIVITY]: 4,
       [ReportingType.DEVICE]: 5,
-    } as {[k: string]: number};
+    };
 
     this.browserReportingInfo_ =
         Object.keys(reportingInfoMap)
@@ -206,7 +211,7 @@ class ManagementUiElement extends ManagementUiElementBase {
         this.threatProtectionInfo_.info.length > 0;
   }
 
-  // <if expr="chromeos">
+  // <if expr="is_chromeos">
   private getLocalTrustRootsInfo_() {
     this.browserProxy_!.getLocalTrustRootsInfo().then(trustRootsConfigured => {
       this.localTrustRoots_ = trustRootsConfigured ?
@@ -282,6 +287,8 @@ class ManagementUiElement extends ManagementUiElementBase {
         return 'management:timelapse';
       case DeviceReportingType.CRD_SESSIONS:
         return 'management:timelapse';
+      case DeviceReportingType.PERIPHERALS:
+        return 'management:usb';
       default:
         return 'cr:computer';
     }
@@ -356,28 +363,26 @@ class ManagementUiElement extends ManagementUiElementBase {
       this.extensionReportingSubtitle_ = data.extensionReportingTitle;
       this.managedWebsitesSubtitle_ = data.managedWebsitesSubtitle;
       this.subtitle_ = data.pageSubtitle;
-      // <if expr="chromeos">
+      // <if expr="chromeos_ash">
       this.customerLogo_ = data.customerLogo;
       this.managementOverview_ = data.overview;
       this.eolMessage_ = data.eolMessage;
-      this.showProxyServerPrivacyDisclosure_ =
-          data.showProxyServerPrivacyDisclosure;
+      this.showMonitoredNetworkPrivacyDisclosure_ =
+          data.showMonitoredNetworkPrivacyDisclosure;
       try {
         // Sanitizing the message could throw an error if it contains non
         // supported markup.
-        this.eolAdminMessage_ = sanitizeInnerHtml(data.eolAdminMessage);
+        sanitizeInnerHtml(data.eolAdminMessage);
+        this.eolAdminMessage_ = data.eolAdminMessage;
       } catch (e) {
         this.eolAdminMessage_ = '';
       }
       // </if>
-      // <if expr="not chromeos">
-      this.managementNoticeHtml_ = data.browserManagementNotice;
+      // <if expr="not chromeos_ash">
+      this.managementNoticeHtml_ =
+          sanitizeInnerHtml(data.browserManagementNotice);
       // </if>
     });
-  }
-
-  static get template() {
-    return html`{__html_template__}`;
   }
 }
 

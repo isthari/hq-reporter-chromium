@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,10 @@
 #include <vector>
 
 #include "base/containers/queue.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/scoped_observation_traits.h"
 #include "base/unguessable_token.h"
 #include "components/permissions/object_permission_context_base.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
@@ -121,6 +123,7 @@ class HidChooserContext : public permissions::ObjectPermissionContextBase,
       device::mojom::HidManager::GetDevicesCallback callback,
       std::vector<device::mojom::HidDeviceInfoPtr> devices);
   void OnHidManagerConnectionError();
+  bool CanApplyPolicy();
 
   // HID-specific interface for revoking device permissions.
   void RevokePersistentDevicePermission(
@@ -130,7 +133,11 @@ class HidChooserContext : public permissions::ObjectPermissionContextBase,
       const url::Origin& origin,
       const device::mojom::HidDeviceInfo& device);
 
-  const bool is_incognito_;
+  // This raw pointer is safe because instances of this class are created by
+  // HidChooserContextFactory as KeyedServices that will be destroyed when the
+  // Profile object is destroyed.
+  const raw_ptr<Profile> profile_;
+
   bool is_initialized_ = false;
   base::queue<device::mojom::HidManager::GetDevicesCallback>
       pending_get_devices_requests_;
@@ -148,5 +155,22 @@ class HidChooserContext : public permissions::ObjectPermissionContextBase,
 
   base::WeakPtrFactory<HidChooserContext> weak_factory_{this};
 };
+
+namespace base {
+
+template <>
+struct ScopedObservationTraits<HidChooserContext,
+                               HidChooserContext::DeviceObserver> {
+  static void AddObserver(HidChooserContext* source,
+                          HidChooserContext::DeviceObserver* observer) {
+    source->AddDeviceObserver(observer);
+  }
+  static void RemoveObserver(HidChooserContext* source,
+                             HidChooserContext::DeviceObserver* observer) {
+    source->RemoveDeviceObserver(observer);
+  }
+};
+
+}  // namespace base
 
 #endif  // CHROME_BROWSER_HID_HID_CHOOSER_CONTEXT_H_

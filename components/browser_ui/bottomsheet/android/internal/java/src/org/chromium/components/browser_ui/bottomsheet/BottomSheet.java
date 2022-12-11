@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,6 +34,7 @@ import org.chromium.components.browser_ui.bottomsheet.internal.R;
 import org.chromium.components.browser_ui.widget.animation.CancelAwareAnimatorListener;
 import org.chromium.ui.KeyboardVisibilityDelegate;
 import org.chromium.ui.base.LocalizationUtils;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.util.AccessibilityUtil;
 
 /**
@@ -252,7 +253,7 @@ class BottomSheet extends FrameLayout
     }
 
     /** @param accessibilityUtil A mechanism for testing whether accessibility is enabled. */
-    void setAccssibilityUtil(AccessibilityUtil accessibilityUtil) {
+    void setAccessibilityUtil(AccessibilityUtil accessibilityUtil) {
         mAccessibilityUtil = accessibilityUtil;
     }
 
@@ -335,8 +336,14 @@ class BottomSheet extends FrameLayout
                 mContainerHeight = bottom - top;
 
                 if (previousWidth != mContainerWidth || previousHeight != mContainerHeight) {
-                    if (mCurrentState == SheetState.HALF && !isHalfStateEnabled()) {
-                        setSheetState(SheetState.FULL, false);
+                    if (!isHalfStateEnabled()) {
+                        if (mCurrentState == SheetState.HALF) {
+                            setSheetState(SheetState.FULL, false);
+                        } else if (mCurrentState == SheetState.SCROLLING
+                                && mTargetState == SheetState.HALF) {
+                            // Let the animation resume to the full height.
+                            mTargetState = SheetState.FULL;
+                        }
                     }
                     invalidateContentDesiredHeight();
                     sizeAndPositionSheetInParent();
@@ -424,7 +431,9 @@ class BottomSheet extends FrameLayout
         // Trigger a relayout on window focus to correct any positioning issues when leaving Chrome
         // previously.  This is required as a layout is not triggered when coming back to Chrome
         // with the keyboard previously shown.
-        if (hasWindowFocus) requestLayout();
+        if (hasWindowFocus) {
+            ViewUtils.requestLayout(this, "BottomSheet.onWindowFocusChagned");
+        }
     }
 
     @Override
@@ -454,7 +463,8 @@ class BottomSheet extends FrameLayout
 
     @Override
     public boolean isTouchEventInToolbar(MotionEvent event) {
-        mToolbarHolder.getLocationInWindow(mCachedLocation);
+        mToolbarHolder.getLocationOnScreen(mCachedLocation);
+
         // This check only tests for collision for the Y component since the sheet is the full width
         // of the screen. We only care if the touch event is above the bottom of the toolbar since
         // we won't receive an event if the touch is outside the sheet.
@@ -1069,7 +1079,7 @@ class BottomSheet extends FrameLayout
         getLayoutParams().width = maxSheetWidth;
         setTranslationX((LocalizationUtils.isLayoutRtl() ? -1 : 1)
                 * (mContainerWidth - maxSheetWidth) / 2f);
-        requestLayout();
+        ViewUtils.requestLayout(this, "BottomSheet.sizeAndPositionSheetInParent");
     }
 
     private void ensureContentDesiredHeightIsComputed() {

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -155,7 +155,8 @@ TEST_F(ProfileOAuth2TokenServiceTest, GetAccounts) {
   EXPECT_TRUE(accounts.empty());
 
   // Load tokens from disk.
-  oauth2_service_->GetDelegate()->LoadCredentials(CoreAccountId());
+  oauth2_service_->GetDelegate()->LoadCredentials(CoreAccountId(),
+                                                  /*is_syncing=*/false);
 
   // |account_id_| should now be visible in the accounts.
   accounts = oauth2_service_->GetAccounts();
@@ -446,7 +447,7 @@ TEST_F(ProfileOAuth2TokenServiceTest, StartRequestForMultiloginDesktop) {
     MockOAuth2AccessTokenConsumer& operator=(
         const MockOAuth2AccessTokenConsumer&) = delete;
 
-    ~MockOAuth2AccessTokenConsumer() = default;
+    ~MockOAuth2AccessTokenConsumer() override = default;
 
     MOCK_METHOD2(
         OnGetTokenSuccess,
@@ -701,8 +702,8 @@ TEST_F(ProfileOAuth2TokenServiceTest, RequestParametersOrderTest) {
       OAuth2AccessTokenManager::RequestParameters("1", account_id1, set_1),
   };
 
-  for (size_t i = 0; i < base::size(params); i++) {
-    for (size_t j = 0; j < base::size(params); j++) {
+  for (size_t i = 0; i < std::size(params); i++) {
+    for (size_t j = 0; j < std::size(params); j++) {
       if (i == j) {
         EXPECT_FALSE(params[i] < params[j]) << " i=" << i << ", j=" << j;
         EXPECT_FALSE(params[j] < params[i]) << " i=" << i << ", j=" << j;

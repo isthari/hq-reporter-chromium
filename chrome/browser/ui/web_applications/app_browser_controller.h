@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,11 +20,20 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkRegion.h"
+#include "ui/color/color_provider.h"
+#include "ui/color/color_provider_manager.h"
+#include "url/gurl.h"
 
 class Browser;
 class BrowserThemePack;
 class CustomThemeSupplier;
 class TabMenuModelFactory;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+namespace ash {
+class SystemWebAppDelegate;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace gfx {
 class Rect;
@@ -36,7 +45,6 @@ class ImageModel;
 
 namespace web_app {
 
-class SystemWebAppDelegate;
 class WebAppBrowserController;
 
 // Returns true if |app_url| and |page_url| are the same origin. To avoid
@@ -46,9 +54,11 @@ class WebAppBrowserController;
 bool IsSameHostAndPort(const GURL& app_url, const GURL& page_url);
 
 // Class to encapsulate logic to control the browser UI for web apps.
-class AppBrowserController : public TabStripModelObserver,
-                             public content::WebContentsObserver,
-                             public BrowserThemeProviderDelegate {
+class AppBrowserController
+    : public ui::ColorProviderManager::InitializerSupplier,
+      public TabStripModelObserver,
+      public content::WebContentsObserver,
+      public BrowserThemeProviderDelegate {
  public:
   AppBrowserController(const AppBrowserController&) = delete;
   AppBrowserController& operator=(const AppBrowserController&) = delete;
@@ -58,6 +68,9 @@ class AppBrowserController : public TabStripModelObserver,
   static bool IsWebApp(const Browser* browser);
   // Returns whether |browser| is a web app window/pop-up for |app_id|.
   static bool IsForWebApp(const Browser* browser, const AppId& app_id);
+  // Returns a Browser* that is for |app_id| and |profile| if any, searches in
+  // order of last browser activation. Ignores pop-up Browsers.
+  static Browser* FindForWebApp(const Profile& profile, const AppId& app_id);
 
   // Renders |url|'s origin as Unicode.
   static std::u16string FormatUrlOrigin(
@@ -133,8 +146,17 @@ class AppBrowserController : public TabStripModelObserver,
   // Gets the start_url for the app.
   virtual GURL GetAppStartUrl() const = 0;
 
+  // Gets the new tab URL for tabbed apps.
+  virtual GURL GetAppNewTabUrl() const;
+
   // Determines whether the specified url is 'inside' the app |this| controls.
   virtual bool IsUrlInAppScope(const GURL& url) const = 0;
+
+#if BUILDFLAG(IS_MAC)
+  // Whether the toolbar should always be shown when in fullscreen mode.
+  virtual bool AlwaysShowToolbarInFullscreen() const;
+  virtual void ToggleAlwaysShowToolbarInFullscreen();
+#endif
 
   // Safe downcast:
   virtual WebAppBrowserController* AsWebAppBrowserController();
@@ -155,11 +177,17 @@ class AppBrowserController : public TabStripModelObserver,
   // window-controls-overlay.
   virtual bool AppUsesWindowControlsOverlay() const;
 
+  // Returns true when an app's effective display mode is borderless.
+  virtual bool AppUsesBorderlessMode() const;
+
+  virtual bool IsIsolatedWebApp() const;
+
   // Returns true when the app's effective display mode is
   // window-controls-overlay and the user has toggled WCO on for the app.
   virtual bool IsWindowControlsOverlayEnabled() const;
 
-  virtual void ToggleWindowControlsOverlayEnabled();
+  virtual void ToggleWindowControlsOverlayEnabled(
+      base::OnceClosure on_complete);
 
   // Returns the default bounds for the app or empty for no defaults.
   virtual gfx::Rect GetDefaultBounds() const;
@@ -167,8 +195,10 @@ class AppBrowserController : public TabStripModelObserver,
   // Whether the browser should show the reload button in the toolbar.
   virtual bool HasReloadButton() const;
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Returns the SystemWebAppDelegate if any for this controller.
-  virtual const SystemWebAppDelegate* system_app() const;
+  virtual const ash::SystemWebAppDelegate* system_app() const;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   // Updates the custom tab bar's visibility based on whether it should be
   // currently visible or not. If |animate| is set, the change will be
@@ -199,6 +229,11 @@ class AppBrowserController : public TabStripModelObserver,
 
   // BrowserThemeProviderDelegate:
   CustomThemeSupplier* GetThemeSupplier() const override;
+  bool ShouldUseCustomFrame() const override;
+
+  // ui::ColorProviderManager::InitializerSupplier
+  void AddColorMixers(ui::ColorProvider* provider,
+                      const ui::ColorProviderManager::Key& key) const override;
 
   void UpdateDraggableRegion(const SkRegion& region);
   const absl::optional<SkRegion>& draggable_region() const {

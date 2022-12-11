@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "base/android/scoped_java_ref.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/commerce/subscriptions/commerce_subscription_db_content.pb.h"
+#include "components/commerce/core/proto/commerce_subscription_db_content.pb.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/leveldb_proto/public/proto_database.h"
 
@@ -21,7 +21,7 @@ class CommerceSubscriptionContentProto;
 }  // namespace commerce_subscription_db
 
 template <typename T>
-class ProfileProtoDB;
+class SessionProtoDB;
 
 class CommerceSubscriptionDB {
  public:
@@ -63,7 +63,7 @@ class CommerceSubscriptionDB {
   void Destroy(JNIEnv* env);
 
  private:
-  raw_ptr<ProfileProtoDB<
+  raw_ptr<SessionProtoDB<
       commerce_subscription_db::CommerceSubscriptionContentProto>>
       proto_db_;
   base::WeakPtrFactory<CommerceSubscriptionDB> weak_ptr_factory_{this};

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
@@ -22,8 +23,7 @@
 namespace base {
 class Time;
 class TimeDelta;
-struct Feature;
-}
+}  // namespace base
 
 // The set of parameters customizing the HUP scoring.
 struct HUPScoringParams {
@@ -140,54 +140,8 @@ bool HasDynamicFieldTrialGroupPrefix(const char* group_prefix);
 void GetActiveSuggestFieldTrialHashes(std::vector<uint32_t>* field_trial_hash);
 
 // ---------------------------------------------------------
-// For the AutocompleteController "stop timer" field trial.
-
-// Returns the duration to be used for the AutocompleteController's stop
-// timer.  Returns the default value of 1.5 seconds if the stop timer
-// override experiment isn't active or if parsing the experiment-provided
-// duration fails.
-base::TimeDelta StopTimerFieldTrialDuration();
-
-// ---------------------------------------------------------
-// For the OmniboxLocalZeroSuggestAgeThreshold field trial.
-
-// Returns the age threshold since the last visit in order to consider a
-// normalized keyword search term as a zero-prefix suggestion.
-base::Time GetLocalHistoryZeroSuggestAgeThreshold();
-
-// ---------------------------------------------------------
-// For the ShortcutsScoringMaxRelevance experiment that's part of the
-// bundled omnibox field trial.
-
-// If the user is in an experiment group that, given the provided
-// |current_page_classification| context, changes the maximum relevance
-// ShortcutsProvider::CalculateScore() is supposed to assign, extract
-// that maximum relevance score and put in in |max_relevance|.  Returns
-// true on a successful extraction.  CalculateScore()'s return value is
-// a product of this maximum relevance score and some attenuating factors
-// that are all between 0 and 1.  (Note that Shortcuts results may have
-// their scores reduced later if the assigned score is higher than allowed
-// for non-inlineable results.  Shortcuts results are not allowed to be
-// inlined.)
-bool ShortcutsScoringMaxRelevance(
-    metrics::OmniboxEventProto::PageClassification current_page_classification,
-    int* max_relevance);
-
-// ---------------------------------------------------------
 // For the SearchHistory experiment that's part of the bundled omnibox
 // field trial.
-
-// Returns true if the user is in the experiment group that, given the
-// provided |current_page_classification| context, scores search history
-// query suggestions less aggressively so that they don't inline.
-bool SearchHistoryPreventInlining(
-    metrics::OmniboxEventProto::PageClassification current_page_classification);
-
-// Returns true if the user is in the experiment group that, given the
-// provided |current_page_classification| context, disables all query
-// suggestions from search history.
-bool SearchHistoryDisable(
-    metrics::OmniboxEventProto::PageClassification current_page_classification);
 
 // ---------------------------------------------------------
 // For the DemoteByType experiment that's part of the bundled omnibox field
@@ -353,57 +307,77 @@ int KeywordScoreForSufficientlyCompleteMatch();
 // ---------------------------------------------------------
 // For UI experiments.
 
-// Returns true if the tab switch suggestions flag is enabled.
-bool IsTabSwitchSuggestionsEnabled();
-
 // Returns true if the fuzzy URL suggestions feature is enabled.
 bool IsFuzzyUrlSuggestionsEnabled();
+// Indicates whether fuzzy match behavior is counterfactual.
+extern const base::FeatureParam<bool> kFuzzyUrlSuggestionsCounterfactual;
+// Indicates whether to bypass fuzzy processing when `IsLowEndDevice` is true.
+extern const base::FeatureParam<bool> kFuzzyUrlSuggestionsLowEndBypass;
+// Indicates whether to support transpose edit operations in fuzzy search.
+extern const base::FeatureParam<bool> kFuzzyUrlSuggestionsTranspose;
+// The minimum length of input that will be checked for fuzzy URL
+// suggestions. Note, this is a threshold independent of the fuzzy
+// search tolerance schedule.
+extern const base::FeatureParam<int> kFuzzyUrlSuggestionsMinInputLength;
 
-// Returns true if the first batch of Pedals on Android is enabled.
-bool IsPedalsAndroidBatch1Enabled();
+// The *Penalty* parameters below provide control over how fuzzy matches
+// are penalized according to input length. The relevance from the source
+// match is reduced because the match is inexact (typo-corrected) but
+// when the input is very short, such corrections are more likely and
+// therefore confidence is lower. Hence the high penalty is applied
+// to the shortest inputs and the low is applied to longer inputs, with
+// a linear taper for input length to smooth the effect.
 
-// Returns true if the second batch of Pedals is enabled for non-English
-// locales. This is only meaningful if batch 2 is enabled.
-bool IsPedalsBatch2NonEnglishEnabled();
+// Highest penalty percentage that will be applied to fuzzy URL suggestions.
+extern const base::FeatureParam<int> kFuzzyUrlSuggestionsPenaltyHigh;
+// Lowest penalty percentage that will be applied to fuzzy URL suggestions.
+extern const base::FeatureParam<int> kFuzzyUrlSuggestionsPenaltyLow;
+// The number of input characters between where the high penalty will be
+// applied and where the low penalty will be applied.
+extern const base::FeatureParam<int> kFuzzyUrlSuggestionsPenaltyTaperLength;
 
-// Returns true if the third batch of Pedals is enabled.
-bool IsPedalsBatch3Enabled();
+// Returns true if the default browser pedal feature is enabled.
+bool IsDefaultBrowserPedalEnabled();
 
-// Returns true if the third batch of Pedals is enabled for non-English
-// locales. This is only meaningful if batch 3 is enabled.
-bool IsPedalsBatch3NonEnglishEnabled();
-
-// Returns true if the Pedals synonyms should be loaded from the translation
-// console.
-bool IsPedalsTranslationConsoleEnabled();
+// Indicates whether the default browser pedal can be used when the
+// shell_integration API indicates the system sets default browser
+// interactively, e.g. by bringing up system settings.
+extern const base::FeatureParam<bool> kDefaultBrowserPedalInteractive;
+// Indicates whether the default browser pedal can be used when the
+// shell_integration API indicates the system sets default browser
+// without any further user interaction, i.e. "unattended".
+extern const base::FeatureParam<bool> kDefaultBrowserPedalUnattended;
 
 // Simply a convenient wrapper for testing a flag. Used downstream for an
 // assortment of keyword mode experiments.
 bool IsExperimentalKeywordModeEnabled();
 
-// On Device Head Suggestions feature and its helper functions.
+// On Device Suggestions feature and its helper functions.
+// TODO(crbug.com/1307005): clean up head suggest flags once crbug.com/1307005
+// no longer happens.
 bool IsOnDeviceHeadSuggestEnabledForIncognito();
 bool IsOnDeviceHeadSuggestEnabledForNonIncognito();
 bool IsOnDeviceHeadSuggestEnabledForAnyMode();
+bool IsOnDeviceTailSuggestEnabled();
 // Functions can be used in both non-incognito and incognito.
 std::string OnDeviceHeadModelLocaleConstraint(bool is_incognito);
-int OnDeviceHeadSuggestMaxScoreForNonUrlInput(bool is_incognito);
-int OnDeviceSearchProviderDefaultLoaderTimeoutMs(bool is_incognito);
-int OnDeviceHeadSuggestDelaySuggestRequestMs(bool is_incognito);
-// Function only works in non-incognito when server suggestions are available.
-std::string OnDeviceHeadSuggestDemoteMode();
 
 // Returns true if CGI parameter names should not be considered when scoring
 // suggestions.
 bool ShouldDisableCGIParamMatching();
 
-// If true, enables a third category on the manage search engines page for
-// active search engines.
-bool IsActiveSearchEnginesEnabled();
-
 // If true, enables a "starter pack" of @history, @bookmarks, and @settings
 // scopes for Site Search.
 bool IsSiteSearchStarterPackEnabled();
+
+// Omnibox UI simplification - uniform row heights.
+// Returns true if the feature to enable uniform row height is enabled.
+bool IsUniformRowHeightEnabled();
+// Specifies the row height in pixels for omnibox suggestions.
+extern const base::FeatureParam<int> kSuggestionRowHeight;
+// Specifies the vertical margin to use in one-line rich entity and answer
+// suggestions.
+extern const base::FeatureParam<int> kRichSuggestionVerticalMargin;
 
 // ---------------------------------------------------------
 // Clipboard URL suggestions:
@@ -420,7 +394,6 @@ bool IsSiteSearchStarterPackEnabled();
 extern const char kBundledExperimentFieldTrialName[];
 // Rule names used by the bundled experiment.
 extern const char kDisableProvidersRule[];
-extern const char kShortcutsScoringMaxRelevanceRule[];
 extern const char kSearchHistoryRule[];
 extern const char kDemoteByTypeRule[];
 extern const char kHQPBookmarkValueRule[];
@@ -462,11 +435,6 @@ extern const char kHQPExperimentalScoringTopicalityThresholdParam[];
 extern const char kMaxNumHQPUrlsIndexedAtStartupOnLowEndDevicesParam[];
 extern const char kMaxNumHQPUrlsIndexedAtStartupOnNonLowEndDevicesParam[];
 
-// Parameter name determining the age threshold for local zero-prefix
-// suggestions. The value of this parameter should be parsable as an unsigned
-// integer, which will be used to specify the age threshold in days.
-extern const char kOmniboxLocalZeroSuggestAgeThresholdParam[];
-
 // Parameter names used by num suggestion experiments.
 extern const char kMaxZeroSuggestMatchesParam[];
 extern const char kOmniboxMaxURLMatchesParam[];
@@ -487,12 +455,6 @@ extern const char kDynamicMaxAutocompleteIncreasedLimitParam[];
 // Parameter names used by on device head provider.
 // These four parameters are shared by both non-incognito and incognito.
 extern const char kOnDeviceHeadModelLocaleConstraint[];
-extern const char kOnDeviceHeadSuggestMaxScoreForNonUrlInput[];
-extern const char kOnDeviceHeadSuggestDelaySuggestRequestMs[];
-extern const char kOnDeviceSearchProviderDefaultLoaderTimeoutMs[];
-// This parameter is for non-incognito which are only useful when server
-// suggestions are available.
-extern const char kOnDeviceHeadSuggestDemoteMode[];
 
 // The amount of time to wait before sending a new suggest request after the
 // previous one unless overridden by a field trial parameter.
@@ -505,40 +467,81 @@ extern const char kOmniboxUIUnelideURLOnHoverThresholdMsParam[];
 
 // `FeatureParam`s
 
-// Rich autocompletion.
-bool IsRichAutocompletionEnabled();
-bool RichAutocompletionShowAdditionalText();
-extern const base::FeatureParam<bool> kRichAutocompletionAutocompleteTitles;
+// Autocomplete stability and related features.
+// If enabled and the input is in keyword mode, the default suggestion isn't
+// preserved.
 extern const base::FeatureParam<bool>
-    kRichAutocompletionAutocompleteTitlesShortcutProvider;
+    kAutocompleteStabilityPreserveDefaultExcludeKeywordInputs;
+// When providers update their matches, the aggregated matches for the current
+// input are sorted, then merged with the matches from the previous input
+// (`TransferOldMatches()`), then resorted. If enabled, both sorts preserve the
+// default suggestion. Otherwise, only the first sort of the pre-merged matches
+// preserves the default.
 extern const base::FeatureParam<bool>
-    kRichAutocompletionAutocompleteTitlesNoInputsWithSpaces;
+    kAutocompleteStabilityPreserveDefaultAfterTransfer;
+// The minimum input length for which to preserve the default suggestion during
+// sync updates. If 0, all sync updates preserve the default suggestion,
+// regardless of input length. If <0, no sync updates preserve the default
+// suggestion; i.e. control behavior.
 extern const base::FeatureParam<int>
-    kRichAutocompletionAutocompleteTitlesMinChar;
+    kAutocompleteStabilityPreserveDefaultForSyncUpdatesMinInputLength;
+// Whether to preserve the default suggestion during async updates. It doesn't
+// make too much sense to enable preservation for sync but not async
+// updates. True by default.
 extern const base::FeatureParam<bool>
-    kRichAutocompletionAutocompleteNonPrefixAll;
+    kAutocompleteStabilityPreserveDefaultForAsyncUpdates;
+// If enabled, transferred matches from the previous input are not allowed to
+// be default.
 extern const base::FeatureParam<bool>
-    kRichAutocompletionAutocompleteNonPrefixShortcutProvider;
+    kAutocompleteStabilityPreventDefaultPreviousMatches;
+// Matches from the previous input are temporarily copied to carry over the
+// suggestions until the new input's suggestions are ready. If enabled, only
+// providers whose suggestions are pending have their old matches copied over.
 extern const base::FeatureParam<bool>
-    kRichAutocompletionAutocompleteNonPrefixNoInputsWithSpaces;
+    kAutocompleteStabilityDontCopyDoneProviders;
+// Begin async providers before sync providers so their async requests can
+// happen in parallel. This effects only the search, history_url, document, and
+// on device head providers.
+extern const base::FeatureParam<bool> kAutocompleteStabilityAsyncProvidersFirst;
+// Limit how frequently `AutocompleteController::UpdateResult()` will be
+// invoked. See the comments at `AutocompleteController::update_debouncer_`.
+extern const base::FeatureParam<bool>
+    kAutocompleteStabilityUpdateResultDebounceFromLastRun;
+// See `kAutocompleteStabilityUpdateResultDebounceFromLastRun`. No debouncing
+// if set to 0.
 extern const base::FeatureParam<int>
-    kRichAutocompletionAutocompleteNonPrefixMinChar;
-extern const base::FeatureParam<bool> kRichAutocompletionShowAdditionalText;
-extern const base::FeatureParam<bool> kRichAutocompletionSplitTitleCompletion;
-extern const base::FeatureParam<bool> kRichAutocompletionSplitUrlCompletion;
-extern const base::FeatureParam<int> kRichAutocompletionSplitCompletionMinChar;
-extern const base::FeatureParam<bool> kRichAutocompletionCounterfactual;
-extern const base::FeatureParam<bool>
-    kRichAutocompletionAutocompletePreferUrlsOverPrefixes;
+    kAutocompleteStabilityUpdateResultDebounceDelay;
 
-// Bookmark paths.
-// Parameter names used for bookmark path variations that determine whether
-// bookmark suggestion texts will contain the title, URL, and/or path.
-extern const base::FeatureParam<std::string> kBookmarkPathsCounterfactual;
-extern const base::FeatureParam<bool> kBookmarkPathsUiReplaceTitle;
-extern const base::FeatureParam<bool> kBookmarkPathsUiReplaceUrl;
-extern const base::FeatureParam<bool> kBookmarkPathsUiAppendAfterTitle;
-extern const base::FeatureParam<bool> kBookmarkPathsUiDynamicReplaceUrl;
+// Local history zero-prefix (aka zero-suggest) and prefix suggestions.
+
+// Determines the maximum number of entries stored by the in-memory ZPS cache.
+extern const base::FeatureParam<int> kZeroSuggestCacheMaxSize;
+
+// Determines the relevance score for the local history zero-prefix suggestions.
+extern const base::FeatureParam<int> kLocalHistoryZeroSuggestRelevanceScore;
+
+// Returns true if any of the zero-suggest prefetching features are enabled.
+bool IsZeroSuggestPrefetchingEnabled();
+
+// Returns whether zero-suggest prefetching is enabled in the given context.
+bool IsZeroSuggestPrefetchingEnabledInContext(
+    metrics::OmniboxEventProto::PageClassification page_classification);
+
+// Determines the age threshold in days for local zero-prefix suggestions.
+extern const base::FeatureParam<int> kOmniboxLocalZeroSuggestAgeThresholdParam;
+
+// Returns the age threshold since the last visit in order to consider a
+// normalized keyword search term as a zero-prefix suggestion.
+base::Time GetLocalHistoryZeroSuggestAgeThreshold();
+
+// Whether duplicative visits should be ignored for local history zero-suggest.
+// A duplicative visit is a visit to the same search term in an interval smaller
+// than kAutocompleteDuplicateVisitIntervalThreshold.
+extern const base::FeatureParam<bool> kZeroSuggestIgnoreDuplicateVisits;
+// Whether duplicative visits should be ignored for local history
+// prefix-suggest. A duplicative visit is a visit to the same search term in an
+// interval smaller than kAutocompleteDuplicateVisitIntervalThreshold.
+extern const base::FeatureParam<bool> kPrefixSuggestIgnoreDuplicateVisits;
 
 // Short bookmarks.
 // Determine whether bookmarks should look for exact matches only or prefix
@@ -554,29 +557,74 @@ extern const base::FeatureParam<bool>
 extern const base::FeatureParam<int>
     kShortBookmarkSuggestionsByTotalInputLengthThreshold;
 
-// Zero Suggest
-// Indicates whether the user is in the counterfactual group in the experiment
-// for prefetching zero prefix suggestions on the NTP. Users in the
-// counterfactual group issue a follow-up non-cacheable request if the response
-// is loaded from the HTTP cache in order to determine HTTP cache validity.
-// This param is tied to omnibox::kZeroSuggestPrefetching and is to be used when
-// a valid HTTP cache duration is provided via kZeroSuggestCacheDurationSec.
-extern const base::FeatureParam<bool> kZeroSuggestCacheCounterfactual;
-// Specifies the HTTP cache duration for the zero prefix suggest responses. If
-// the provided value is a positive number, the cache duration will be sent as a
-// query string parameter in the zero suggest requests and relayed back in the
-// response cache control headers.
-// This param is tied to omnibox::kZeroSuggestPrefetching which controls
-// prefetching and theoretically works with any caching mechanism. If no valid
-// HTTP cache duration is provided the existing caching mechanism is used.
-extern const base::FeatureParam<int> kZeroSuggestCacheDurationSec;
-// Indicates whether the zero suggest prefetch requests should bypass the HTTP
-// cache, i.e., not get loaded from the HTTP cache. This helps ensure the HTTP
-// cache duration clock is reset and the subsequent non-prefetch zero suggest
-// requests, depending on the cache duration, are loaded from the HTTP cache.
-extern const base::FeatureParam<bool> kZeroSuggestPrefetchBypassCache;
+// Bookmark paths.
+extern const base::FeatureParam<std::string> kBookmarkPathsCounterfactual;
 
-// New params should be inserted above this comment and formatted as:
+// Shortcut Expanding.
+bool IsShortcutExpandingEnabled();
+
+// Rich autocompletion.
+bool IsRichAutocompletionEnabled();
+bool RichAutocompletionShowAdditionalText();
+extern const base::FeatureParam<bool> kRichAutocompletionAutocompleteTitles;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAutocompleteTitlesShortcutProvider;
+extern const base::FeatureParam<int>
+    kRichAutocompletionAutocompleteTitlesMinChar;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAutocompleteNonPrefixAll;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAutocompleteNonPrefixShortcutProvider;
+extern const base::FeatureParam<int>
+    kRichAutocompletionAutocompleteNonPrefixMinChar;
+extern const base::FeatureParam<bool> kRichAutocompletionShowAdditionalText;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAdditionalTextWithParenthesis;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAutocompleteShortcutText;
+extern const base::FeatureParam<int>
+    kRichAutocompletionAutocompleteShortcutTextMinChar;
+extern const base::FeatureParam<bool> kRichAutocompletionCounterfactual;
+extern const base::FeatureParam<bool>
+    kRichAutocompletionAutocompletePreferUrlsOverPrefixes;
+
+// Specifies the relevance scores for the Site Search Starter Pack ACMatches
+// (e.g. @bookmarks, @history) provided by the Builtin Provider.
+extern const base::FeatureParam<int> kSiteSearchStarterPackRelevanceScore;
+
+// Domain suggestions.
+// The minimum number of unique URLs a domain needs to be considered highly
+// visited.
+extern const base::FeatureParam<int> kDomainSuggestionsTypedUrlsThreshold;
+// The minimum number of typed visits a URL needs to count for
+// `kDomainSuggestionsTypedUrlsThreshold`
+extern const base::FeatureParam<int> kDomainSuggestionsTypedUrlsOffset;
+// The minimum number of typed visits a domain needs to be considered highly
+// visited.
+extern const base::FeatureParam<int> kDomainSuggestionsTypedVisitThreshold;
+// The value to subtract from each URL's typed visits before contributing to
+// `kDomainSuggestionsTypedVisitThreshold`.
+extern const base::FeatureParam<int> kDomainSuggestionsTypedVisitOffset;
+// The max each visit can contribute to `kDomainSuggestionsTypedVisitThreshold`.
+// E.g. if 2, 'google.com/x' is typed-visited 5 times, and 'google.com/y' is
+// typed visited 1 time, then 'google.com' will be scored min(5,2) + min(1,2) =
+// 3, rather than 5+1 = 6.
+extern const base::FeatureParam<int> kDomainSuggestionsTypedVisitCapPerVisit;
+// The input inclusive minimum length to trigger domain suggestions.
+extern const base::FeatureParam<int> kDomainSuggestionsMinInputLength;
+// The maximum number of matches per domain to suggest.
+extern const base::FeatureParam<int> kDomainSuggestionsMaxMatchesPerDomain;
+// The scoring factor used to boost HQP suggestions from highly visited domains.
+// A value of 1 is the control behavior. A value of 2 will boost scores, but not
+// necessarily double them due to how HQP maps the factors to actual scores.
+extern const base::FeatureParam<double> kDomainSuggestionsScoreFactor;
+
+// ---------------------------------------------------------
+// For logging Omnibox scoring signals for training machine learning models.
+bool IsLogUrlScoringSignalsEnabled();
+
+// New params should be inserted above this comment. They should be ordered
+// consistently with `omnibox_features.h`. They should be formatted as:
 // - Short comment categorizing the relevant features & params.
 // - Optional: `bool Is[FeatureName]Enabled();` helpers that check if the
 //   related features in `omnibox_features.h` are enabled.

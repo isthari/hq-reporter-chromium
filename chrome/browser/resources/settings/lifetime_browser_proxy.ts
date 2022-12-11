@@ -1,9 +1,9 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // <if expr="not chromeos_ash">
-import {sendWithPromise} from 'chrome://resources/js/cr.m.js';
+import {sendWithPromise} from 'chrome://resources/js/cr.js';
 // </if>
 
 export interface LifetimeBrowserProxy {
@@ -23,7 +23,7 @@ export interface LifetimeBrowserProxy {
   getRelaunchConfirmationDialogDescription(): Promise<string|null>;
   // </if>
 
-  // <if expr="chromeos">
+  // <if expr="chromeos_ash">
   // First signs out current user and then performs a restart.
   signOutAndRestart(): void;
 
@@ -54,7 +54,7 @@ export class LifetimeBrowserProxyImpl implements LifetimeBrowserProxy {
   }
   // </if>
 
-  // <if expr="chromeos">
+  // <if expr="chromeos_ash">
   signOutAndRestart() {
     chrome.send('signOutAndRestart');
   }

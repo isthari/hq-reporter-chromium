@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,12 +13,12 @@
 #include "ash/components/arc/session/arc_session.h"
 #include "ash/components/arc/session/arc_stop_reason.h"
 #include "ash/components/arc/session/arc_upgrade_params.h"
-#include "ash/components/cryptohome/cryptohome_parameters.h"
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace arc {
@@ -112,18 +112,30 @@ class ArcSessionRunner : public ArcSession::Observer {
   void SetDemoModeDelegate(
       std::unique_ptr<ArcClientAdapter::DemoModeDelegate> delegate);
 
-  // Trims VM's memory by moving it to zram. |callback| is called when the
-  // operation is done.
+  // Trims VM's memory by moving it to zram.
+  // When the operation is done |callback| is called.
+  // If nonzero, |page_limit| defines the max number of pages to reclaim.
   using TrimVmMemoryCallback =
       base::OnceCallback<void(bool success, const std::string& failure_reason)>;
-  void TrimVmMemory(TrimVmMemoryCallback callback);
+  void TrimVmMemory(TrimVmMemoryCallback callback, int page_limit);
 
   void set_default_device_scale_factor(float scale_factor) {
     default_device_scale_factor_ = scale_factor;
   }
 
+  void set_use_virtio_blk_data(bool use_virtio_blk_data) {
+    use_virtio_blk_data_ = use_virtio_blk_data;
+  }
+
   // Returns the current ArcSession instance for testing purpose.
   ArcSession* GetArcSessionForTesting() { return arc_session_.get(); }
+
+  // Makes a test ArcSession (shortcut to bypass full session manager
+  // initialization, just to get to a state where we have a session).
+  void MakeArcSessionForTesting() { arc_session_ = factory_.Run(); }
+
+  // Undoes the action of MakeArcSessionForTesting().
+  void DiscardArcSessionForTesting() { arc_session_.reset(); }
 
   // Normally, automatic restarting happens after a short delay. When testing,
   // however, we'd like it to happen immediately to avoid adding unnecessary
@@ -180,6 +192,9 @@ class ArcSessionRunner : public ArcSession::Observer {
   bool resumed_ = false;
 
   float default_device_scale_factor_ = 1.0f;
+
+  // Whether ARCVM uses virtio-blk for /data.
+  bool use_virtio_blk_data_ = false;
 
   // DemoModeDelegate to be used by ArcSession.
   std::unique_ptr<ArcClientAdapter::DemoModeDelegate> demo_mode_delegate_;

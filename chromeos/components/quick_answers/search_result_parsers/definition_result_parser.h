@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,8 @@ class DefinitionResultParser : public ResultParser {
   const base::Value* ExtractFirstPhonetics(const base::Value* definition_entry);
   const std::string* ExtractDefinition(const base::Value* definition_entry);
   const std::string* ExtractPhoneticsText(const base::Value* definition_entry);
-  GURL ExtractPhoneticsAudio(const base::Value* definition_entry);
+  void ExtractPhoneticsInfo(PhoneticsInfo* phonetics_info,
+                            const base::Value* definition_entry);
 };
 
 }  // namespace quick_answers

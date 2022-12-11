@@ -34,6 +34,7 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/loader/code_cache.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/scheduler/web_scoped_virtual_time_pauser.h"
+#include "third_party/blink/renderer/platform/bindings/parkable_string.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_counted_set.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/instrumentation/memory_pressure_listener.h"
@@ -53,7 +54,6 @@
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_counted_set.h"
-#include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
@@ -89,6 +89,7 @@ enum class ResourceType : uint8_t {
   kAudio,
   kVideo,
   kManifest,
+  kSpeculationRules,
   kMock,  // Only for testing
   kMaxValue = kMock
 };
@@ -140,9 +141,6 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
     // Match fails due to different request methods.
     kRequestMethodDoesNotMatch,
 
-    // Match fails due to different request headers.
-    kRequestHeadersDoNotMatch,
-
     // Match fails due to different script types.
     kScriptTypeDoesNotMatch,
   };
@@ -188,8 +186,14 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
   ResourceLoaderOptions& MutableOptions() { return options_; }
 
   void DidChangePriority(ResourceLoadPriority, int intra_priority_value);
-  virtual ResourcePriority PriorityFromObservers() {
-    return ResourcePriority();
+
+  // Returns two priorities:
+  // - `first` is the priority with the fix of https://crbug.com/1369823.
+  // - `second` is the priority without the fix, ignoring the priority from
+  //   ImageLoader.
+  virtual std::pair<ResourcePriority, ResourcePriority>
+  PriorityFromObservers() {
+    return std::make_pair(ResourcePriority(), ResourcePriority());
   }
 
   // If this Resource is already finished when AddClient is called, the
@@ -267,6 +271,18 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
   virtual void ResponseBodyReceived(
       ResponseBodyLoaderDrainableInterface& body_loader,
       scoped_refptr<base::SingleThreadTaskRunner> loader_task_runner) {}
+
+  // A class Resource subclasses can use to hold ResourceType specific info
+  // related to DidReceiveDecodedData().
+  class DecodedDataInfo {
+   public:
+    virtual ~DecodedDataInfo() = default;
+
+    virtual ResourceType GetType() const = 0;
+  };
+  virtual void DidReceiveDecodedData(const String& data,
+                                     std::unique_ptr<DecodedDataInfo> info) {}
+
   void SetResponse(const ResourceResponse&);
   const ResourceResponse& GetResponse() const { return response_; }
 
@@ -360,7 +376,7 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
   }
 
   // Returns |kOk| when |this| can be resused for the given arguments.
-  virtual MatchStatus CanReuse(const FetchParameters& params) const;
+  MatchStatus CanReuse(const FetchParameters& params) const;
 
   // TODO(yhirano): Remove this once out-of-blink CORS is fully enabled.
   void SetResponseType(network::mojom::FetchResponseType response_type) {
@@ -435,8 +451,8 @@ class PLATFORM_EXPORT Resource : public GarbageCollected<Resource>,
   void MarkClientFinished(ResourceClient*);
 
   virtual bool HasClientsOrObservers() const {
-    return !clients_.IsEmpty() || !clients_awaiting_callback_.IsEmpty() ||
-           !finished_clients_.IsEmpty() || !finish_observers_.IsEmpty();
+    return !clients_.empty() || !clients_awaiting_callback_.empty() ||
+           !finished_clients_.empty() || !finish_observers_.empty();
   }
   virtual void DestroyDecodedDataForFailedRevalidation() {}
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@ class PrefRegistrySyncable;
 }
 
 namespace ash {
+
 class MultiProfileUserControllerDelegate;
 enum class MultiProfileUserBehavior;
 
@@ -105,10 +106,5 @@ class MultiProfileUserController {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove once the migration is finished.
-namespace chromeos {
-using ::ash::MultiProfileUserController;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_USERS_MULTI_PROFILE_USER_CONTROLLER_H_

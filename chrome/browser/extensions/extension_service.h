@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
 #include "base/scoped_observation.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/blocklist.h"
@@ -85,8 +86,7 @@ enum class UnloadedExtensionReason;
 
 // This is an interface class to encapsulate the dependencies that
 // various classes have on ExtensionService. This allows easy mocking.
-class ExtensionServiceInterface
-    : public base::SupportsWeakPtr<ExtensionServiceInterface> {
+class ExtensionServiceInterface {
  public:
   virtual ~ExtensionServiceInterface() {}
 
@@ -96,12 +96,12 @@ class ExtensionServiceInterface
   // Gets the object managing reinstalls of the corrupted extensions.
   virtual CorruptedExtensionReinstaller* corrupted_extension_reinstaller() = 0;
 
-  // Installs an update with the contents from |extension_path|. Returns true if
-  // the install can be started. Sets |out_crx_installer| to the installer if
-  // one was started.
-  virtual bool UpdateExtension(const CRXFileInfo& file,
-                               bool file_ownership_passed,
-                               CrxInstaller** out_crx_installer) = 0;
+  // Creates an CrxInstaller to update an extension.
+  // Returns null if an update is not possible. Eg: system shutdown or extension
+  // doesn't exist.
+  virtual scoped_refptr<CrxInstaller> CreateUpdateInstaller(
+      const CRXFileInfo& file,
+      bool file_ownership_passed) = 0;
 
   // Returns an update for an extension with the specified id, if installation
   // of that update was previously delayed because the extension was in use. If
@@ -161,6 +161,8 @@ class ExtensionServiceInterface
   // This will trigger an update/reinstall of the extensions saved in the
   // provider's prefs.
   virtual void ReinstallProviderExtensions() = 0;
+
+  virtual base::WeakPtr<ExtensionServiceInterface> AsWeakPtr() = 0;
 };
 
 // Manages installed and running Chromium extensions. An instance is shared
@@ -195,9 +197,9 @@ class ExtensionService : public ExtensionServiceInterface,
   //
   PendingExtensionManager* pending_extension_manager() override;
   CorruptedExtensionReinstaller* corrupted_extension_reinstaller() override;
-  bool UpdateExtension(const CRXFileInfo& file,
-                       bool file_ownership_passed,
-                       CrxInstaller** out_crx_installer) override;
+  scoped_refptr<CrxInstaller> CreateUpdateInstaller(
+      const CRXFileInfo& file,
+      bool file_ownership_passed) override;
   bool IsExtensionEnabled(const std::string& extension_id) const override;
   void UnloadExtension(const std::string& extension_id,
                        UnloadedExtensionReason reason) override;
@@ -211,6 +213,7 @@ class ExtensionService : public ExtensionServiceInterface,
   void CheckManagementPolicy() override;
   void CheckForUpdatesSoon() override;
   void ReinstallProviderExtensions() override;
+  base::WeakPtr<ExtensionServiceInterface> AsWeakPtr() override;
 
   // ExternalProvider::VisitorInterface implementation.
   // Exposed for testing.
@@ -218,7 +221,7 @@ class ExtensionService : public ExtensionServiceInterface,
       const ExternalInstallInfoFile& info) override;
   bool OnExternalExtensionUpdateUrlFound(
       const ExternalInstallInfoUpdateUrl& info,
-      bool is_initial_load) override;
+      bool force_update) override;
   void OnExternalProviderReady(
       const ExternalProviderInterface* provider) override;
   void OnExternalProviderUpdateComplete(
@@ -410,7 +413,9 @@ class ExtensionService : public ExtensionServiceInterface,
   // Simple Accessors
 
   // Returns a WeakPtr to the ExtensionService.
-  base::WeakPtr<ExtensionService> AsWeakPtr() { return base::AsWeakPtr(this); }
+  base::WeakPtr<ExtensionService> AsExtensionServiceWeakPtr() {
+    return weak_ptr_factory_.GetWeakPtr();
+  }
 
   // Returns profile_ as a BrowserContext.
   content::BrowserContext* GetBrowserContext() const;
@@ -500,6 +505,8 @@ class ExtensionService : public ExtensionServiceInterface,
   void OnExtensionHostRenderProcessGone(
       content::BrowserContext* browser_context,
       ExtensionHost* extension_host) override;
+
+  void OnAppTerminating();
 
   // content::NotificationObserver implementation:
   void Observe(int type,
@@ -630,19 +637,19 @@ class ExtensionService : public ExtensionServiceInterface,
       const std::string& extension_id,
       const absl::optional<CrxInstallError>& error);
 
-  raw_ptr<const base::CommandLine> command_line_ = nullptr;
+  raw_ptr<const base::CommandLine, DanglingUntriaged> command_line_ = nullptr;
 
   // The normal profile associated with this ExtensionService.
   raw_ptr<Profile> profile_ = nullptr;
 
   // The ExtensionSystem for the profile above.
-  raw_ptr<ExtensionSystem> system_ = nullptr;
+  raw_ptr<ExtensionSystem, DanglingUntriaged> system_ = nullptr;
 
   // Preferences for the owning profile.
-  raw_ptr<ExtensionPrefs> extension_prefs_ = nullptr;
+  raw_ptr<ExtensionPrefs, DanglingUntriaged> extension_prefs_ = nullptr;
 
   // Blocklist for the owning profile.
-  raw_ptr<Blocklist> blocklist_ = nullptr;
+  raw_ptr<Blocklist, DanglingUntriaged> blocklist_ = nullptr;
 
   ExtensionAllowlist allowlist_;
 
@@ -651,7 +658,7 @@ class ExtensionService : public ExtensionServiceInterface,
   OmahaAttributesHandler omaha_attributes_handler_;
 
   // Sets of enabled/disabled/terminated/blocklisted extensions. Not owned.
-  raw_ptr<ExtensionRegistry> registry_ = nullptr;
+  raw_ptr<ExtensionRegistry, DanglingUntriaged> registry_ = nullptr;
 
   // Set of allowlisted enabled extensions loaded from the
   // --disable-extensions-except command line flag.
@@ -677,6 +684,7 @@ class ExtensionService : public ExtensionServiceInterface,
   // Our extension updater, if updates are turned on.
   std::unique_ptr<ExtensionUpdater> updater_;
 
+  base::CallbackListSubscription on_app_terminating_subscription_;
   content::NotificationRegistrar registrar_;
 
   // Keeps track of loading and unloading component extensions.
@@ -755,6 +763,8 @@ class ExtensionService : public ExtensionServiceInterface,
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   AshExtensionKeeplistManager ash_keeplist_manager_;
 #endif
+
+  base::WeakPtrFactory<ExtensionService> weak_ptr_factory_{this};
 
   FRIEND_TEST_ALL_PREFIXES(ExtensionServiceTest,
                            DestroyingProfileClearsExtensions);

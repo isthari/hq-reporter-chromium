@@ -1,23 +1,23 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /** @fileoverview Handles interprocess communication for the privacy page. */
 
 // clang-format off
-import {sendWithPromise} from 'chrome://resources/js/cr.m.js';
+import {sendWithPromise} from 'chrome://resources/js/cr.js';
 // clang-format on
 
-export type MetricsReporting = {
-  enabled: boolean,
-  managed: boolean,
-};
+export interface MetricsReporting {
+  enabled: boolean;
+  managed: boolean;
+}
 
-export type ResolverOption = {
-  name: string,
-  value: string,
-  policy: string,
-};
+export interface ResolverOption {
+  name: string;
+  value: string;
+  policy: string;
+}
 
 /**
  * Contains the possible string values for the secure DNS mode. This must be
@@ -39,14 +39,22 @@ export enum SecureDnsUiManagementMode {
   DISABLED_PARENTAL_CONTROLS = 2,
 }
 
-export type SecureDnsSetting = {
-  mode: SecureDnsMode,
-  templates: Array<string>,
-  managementMode: SecureDnsUiManagementMode,
-};
+export interface SecureDnsSetting {
+  mode: SecureDnsMode;
+  config: string;
+  managementMode: SecureDnsUiManagementMode;
+  // <if expr="chromeos_ash">
+  // Indicates if the templates URI contain user identifiers configured via
+  // policy.
+  dohWithIdentifiersActive: boolean;
+  // The template URI with plain text identifiers. In the effective template
+  // URI `config` the identifiers are hashed and hex encoded.
+  configForDisplay: string;
+  // </if>
+}
 
 export interface PrivacyPageBrowserProxy {
-  // <if expr="_google_chrome and not chromeos">
+  // <if expr="_google_chrome and not chromeos_ash">
   getMetricsReporting(): Promise<MetricsReporting>;
   setMetricsReportingEnabled(enabled: boolean): void;
 
@@ -54,12 +62,12 @@ export interface PrivacyPageBrowserProxy {
 
   // <if expr="is_win or is_macosx">
   /** Invokes the native certificate manager (used by win and mac). */
-  showManageSSLCertificates(): void;
+  showManageSslCertificates(): void;
 
   // </if>
 
   setBlockAutoplayEnabled(enabled: boolean): void;
-  getSecureDnsResolverList(): Promise<Array<ResolverOption>>;
+  getSecureDnsResolverList(): Promise<ResolverOption[]>;
   getSecureDnsSetting(): Promise<SecureDnsSetting>;
 
   /**
@@ -84,7 +92,7 @@ export interface PrivacyPageBrowserProxy {
 }
 
 export class PrivacyPageBrowserProxyImpl implements PrivacyPageBrowserProxy {
-  // <if expr="_google_chrome and not chromeos">
+  // <if expr="_google_chrome and not chromeos_ash">
   getMetricsReporting() {
     return sendWithPromise('getMetricsReporting');
   }
@@ -100,7 +108,7 @@ export class PrivacyPageBrowserProxyImpl implements PrivacyPageBrowserProxy {
   }
 
   // <if expr="is_win or is_macosx">
-  showManageSSLCertificates() {
+  showManageSslCertificates() {
     chrome.send('showManageSSLCertificates');
   }
   // </if>

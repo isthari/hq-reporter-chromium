@@ -1,9 +1,17 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import SwiftUI
 import ios_chrome_common_ui_colors_swift
+
+/// PreferenceKey to listen to visibility changes for a given destination.
+struct DestinationVisibilityPreferenceKey: PreferenceKey {
+  static var defaultValue: Int = 0
+  static func reduce(value: inout Int, nextValue: () -> Int) {
+    value += nextValue()
+  }
+}
 
 /// Style based on state for an OverflowMenuDestinationView.
 @available(iOS 15, *)
@@ -29,12 +37,18 @@ struct OverflowMenuDestinationButton: ButtonStyle {
     /// The image width, which controls the width of the overall view.
     static let imageWidth: CGFloat = 54
 
+    /// The size of the Symbol in the icon.
+    static let iconSymbolSize: CGFloat = 26
+
     /// The width of the icon, used for positioning the unread badge over the
     /// corner.
     static let iconWidth: CGFloat = 30
 
     /// The width of the badge circle.
     static let badgeWidth: CGFloat = 10
+
+    /// The width of the new label badge.
+    static let newLabelBadgeWidth: CGFloat = 20
 
     /// The width of the badge border.
     static let badgeBorderWidth: CGFloat = 2
@@ -45,6 +59,14 @@ struct OverflowMenuDestinationButton: ButtonStyle {
 
   /// The layout parameters for this view.
   var layoutParameters: OverflowMenuDestinationView.LayoutParameters
+
+  /// Tracks if the destination icon is visible in the carousel.
+  @State var isIconVisible = false
+
+  /// Tracks if the destination name is visible in the carousel.
+  @State var isTextVisible = false
+
+  weak var metricsHandler: PopupMenuMetricsHandler?
 
   func makeBody(configuration: Configuration) -> some View {
     Group {
@@ -68,11 +90,15 @@ struct OverflowMenuDestinationButton: ButtonStyle {
       }
     }
     .contentShape(Rectangle())
+    .preference(
+      key: DestinationVisibilityPreferenceKey.self,
+      value: (isIconVisible || isTextVisible) ? 1 : 0
+    )
   }
 
   /// Background color for the icon.
   func backgroundColor(configuration: Configuration) -> Color {
-    return configuration.isPressed ? Color(.systemGray4) : .cr_groupedSecondaryBackground
+    return configuration.isPressed ? Color(.systemGray4) : .groupedSecondaryBackground
   }
 
   /// View representing the background of the icon.
@@ -93,27 +119,93 @@ struct OverflowMenuDestinationButton: ButtonStyle {
       spacing = 0
       interiorPadding = Dimensions.horizontalLayoutIconPadding
     }
-    return destination.image
-      .padding(interiorPadding)
+    let image: Image
+    if !destination.symbolName.isEmpty {
+      image =
+        (destination.systemSymbol
+        ? Image(systemName: destination.symbolName) : Image(destination.symbolName)).renderingMode(
+          .template)
+    } else {
+      image = destination.image
+    }
+    return iconBuilder(
+      configuration: configuration, spacing: spacing, interiorPadding: interiorPadding, image: image
+    )
+  }
+
+  var newBadgeOffsetX: CGFloat {
+    return Dimensions.iconWidth - (Dimensions.newLabelBadgeWidth - 10)
+  }
+
+  var newBadgeOffsetY: CGFloat {
+    return -Dimensions.iconWidth + (Dimensions.newLabelBadgeWidth - 10)
+  }
+
+  var newLabelString: String {
+    if let newString = L10NUtils.string(forMessageId: IDS_IOS_TOOLS_MENU_CELL_NEW_FEATURE_BADGE) {
+      return String(newString.prefix(1))
+    }
+    return ""
+  }
+
+  /// Build the image to be displayed, based on the configuration of the item.
+  /// TODO(crbug.com/1315544): Remove this once only the symbols are present.
+  @ViewBuilder
+  func iconBuilder(
+    configuration: Configuration, spacing: CGFloat, interiorPadding: CGFloat, image: Image
+  ) -> some View {
+    let configuredImage =
+      image
       .overlay {
-        if destination.showBadge {
+        if destination.badge == .blueDot {
           Circle()
             .strokeBorder(
               backgroundColor(configuration: configuration), lineWidth: Dimensions.badgeBorderWidth
             )
             // Pad the color circle by 0.5, otherwise the color shows up faintly
             // around the border.
-            .background(Circle().foregroundColor(.cr_blue500).padding(0.5))
+            .background(Circle().foregroundColor(.blue600).padding(0.5))
             .frame(width: Dimensions.badgeWidth, height: Dimensions.badgeWidth)
             .offset(x: Dimensions.iconWidth / 2, y: -Dimensions.iconWidth / 2)
+        } else if destination.badge == .newLabel {
+          Image(systemName: "seal.fill")
+            .resizable()
+            .foregroundColor(.blue600)
+            .frame(width: Dimensions.newLabelBadgeWidth, height: Dimensions.newLabelBadgeWidth)
+            .offset(x: newBadgeOffsetX, y: newBadgeOffsetY)
+            .overlay {
+              if !newLabelString.isEmpty {
+                Text(newLabelString)
+                  .font(.system(size: 10, weight: .bold, design: .rounded))
+                  .offset(x: newBadgeOffsetX, y: newBadgeOffsetY)
+                  .scaledToFit()
+                  .foregroundColor(.primaryBackground)
+              }
+            }
         }
       }
+      .frame(width: Dimensions.imageWidth, height: Dimensions.imageWidth)
+      .padding(interiorPadding)
       .background(iconBackground(configuration: configuration))
       .padding([.leading, .trailing], spacing)
       // Without explicitly removing the image from accessibility,
       // VoiceOver will occasionally read out icons it thinks it can
       // recognize.
       .accessibilityHidden(true)
+      .onAppear {
+        isIconVisible = true
+      }
+      .onDisappear {
+        isIconVisible = false
+      }
+
+    if !destination.symbolName.isEmpty {
+      configuredImage
+        .foregroundColor(.blue600).imageScale(.medium).font(
+          Font.system(size: Dimensions.iconSymbolSize, weight: .medium))
+    } else {
+      configuredImage
+    }
   }
 
   /// Text view for the destination.
@@ -134,6 +226,12 @@ struct OverflowMenuDestinationButton: ButtonStyle {
       .padding([.leading, .trailing], textSpacing)
       .multilineTextAlignment(.center)
       .lineLimit(maximumLines)
+      .onAppear {
+        isTextVisible = true
+      }
+      .onDisappear {
+        isTextVisible = false
+      }
   }
 }
 
@@ -156,6 +254,10 @@ struct OverflowMenuDestinationView: View {
     /// The addition to the `accessibilityIdentfier` for this element if it
     /// has a badge.
     static let badgeAddition = "badge"
+
+    /// The addition to the `accessibilityIdentfier` for this element if it
+    /// has a "New" badge.
+    static let newBadgeAddition = "newBadge"
   }
 
   /// The destination for this view.
@@ -164,9 +266,14 @@ struct OverflowMenuDestinationView: View {
   /// The layout parameters for this view.
   var layoutParameters: LayoutParameters
 
+  weak var metricsHandler: PopupMenuMetricsHandler?
+
   var body: some View {
     Button(
-      action: destination.handler,
+      action: {
+        metricsHandler?.popupMenuTookAction()
+        destination.handler()
+      },
       label: {
         EmptyView()
       }
@@ -180,7 +287,7 @@ struct OverflowMenuDestinationView: View {
   var accessibilityLabel: String {
     return [
       destination.name,
-      destination.showBadge
+      destination.badge != .none
         ? L10NUtils.stringWithFixup(forMessageId: IDS_IOS_TOOLS_MENU_CELL_NEW_FEATURE_BADGE) : nil,
     ].compactMap { $0 }.joined(separator: ", ")
   }
@@ -188,7 +295,8 @@ struct OverflowMenuDestinationView: View {
   var accessibilityIdentifier: String {
     return [
       destination.accessibilityIdentifier,
-      destination.showBadge ? AccessibilityIdentifier.badgeAddition : nil,
+      destination.badge == .blueDot ? AccessibilityIdentifier.badgeAddition : nil,
+      destination.badge == .newLabel ? AccessibilityIdentifier.newBadgeAddition : nil,
     ].compactMap { $0 }.joined(separator: "-")
   }
 

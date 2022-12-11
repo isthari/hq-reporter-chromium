@@ -99,7 +99,7 @@ class CORE_EXPORT QualifiedName {
           namespace_(namespace_uri)
 
     {
-      DCHECK(!namespace_.IsEmpty() || namespace_.IsNull());
+      DCHECK(!namespace_.empty() || namespace_.IsNull());
     }
   };
 
@@ -113,6 +113,8 @@ class CORE_EXPORT QualifiedName {
     impl_ = other.impl_;
     return *this;
   }
+  QualifiedName(QualifiedName&& other) = default;
+  QualifiedName& operator=(QualifiedName&& other) = default;
 
   bool operator==(const QualifiedName& other) const {
     return impl_ == other.impl_;
@@ -227,9 +229,7 @@ WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(blink::QualifiedName)
 namespace WTF {
 
 template <>
-struct DefaultHash<blink::QualifiedName> {
-  typedef blink::QualifiedNameHash Hash;
-};
+struct DefaultHash<blink::QualifiedName> : blink::QualifiedNameHash {};
 
 template <>
 struct HashTraits<blink::QualifiedName>

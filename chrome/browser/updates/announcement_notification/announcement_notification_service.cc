@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/metrics/field_trial_params.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/clock.h"
+#include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"    // nogncheck
 #include "chrome/browser/profiles/profile_attributes_storage.h"  // nogncheck
@@ -227,8 +228,9 @@ class AnnouncementNotificationServiceImpl
       this};
 };
 
-const base::Feature kAnnouncementNotification{
-    "AnnouncementNotificationService", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kAnnouncementNotification,
+             "AnnouncementNotificationService",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 // static
 void AnnouncementNotificationService::RegisterProfilePrefs(

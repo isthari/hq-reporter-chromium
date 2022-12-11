@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "media/base/demuxer_stream.h"
 #include "media/base/video_decoder_config.h"
 #include "media/mojo/mojom/demuxer_stream.mojom.h"
+#include "media/mojo/services/media_mojo_export.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -24,7 +25,7 @@ class MojoDecoderBufferReader;
 // that is part of a Pipeline in a remote application. Roughly speaking, it
 // takes a mojo::Remote<mojom::DemuxerStream> and exposes it as a DemuxerStream
 // for use by media components.
-class MojoDemuxerStreamAdapter : public DemuxerStream {
+class MEDIA_MOJO_EXPORT MojoDemuxerStreamAdapter : public DemuxerStream {
  public:
   // |demuxer_stream| is connected to the mojom::DemuxerStream that |this|
   // will

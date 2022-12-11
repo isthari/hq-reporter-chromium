@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,7 +63,7 @@ gfx::Point TabScrubberChromeOS::GetStartPoint(
   // opposite edges of the tab, which should be at (overlap / 2).
   gfx::Rect tab_edges = tab_bounds;
   // For odd overlap values, be conservative and inset both edges rounding up.
-  tab_edges.Inset((TabStyle::GetTabOverlap() + 1) / 2, 0);
+  tab_edges.Inset(gfx::Insets::VH(0, (TabStyle::GetTabOverlap() + 1) / 2));
   const int x = (direction == LEFT)
                     ? std::min(tab_bounds.x() + left, tab_edges.right())
                     : std::max(tab_bounds.right() - right, tab_edges.x());
@@ -160,7 +160,7 @@ void TabScrubberChromeOS::OnScrollEvent(ui::ScrollEvent* event) {
   if (!new_tab)
     return;
 
-  int new_index = tab_strip_->GetModelIndexOf(new_tab);
+  int new_index = tab_strip_->GetModelIndexOf(new_tab).value();
   if (highlighted_tab_ == -1 &&
       new_index == browser_->tab_strip_model()->active_index()) {
     return;
@@ -252,8 +252,8 @@ void TabScrubberChromeOS::BeginScrub(BrowserView* browser_view,
   ImmersiveModeController* immersive_controller =
       browser_view->immersive_mode_controller();
   if (immersive_controller->IsEnabled()) {
-    immersive_reveal_lock_.reset(immersive_controller->GetRevealedLock(
-        ImmersiveModeController::ANIMATE_REVEAL_YES));
+    immersive_reveal_lock_ = immersive_controller->GetRevealedLock(
+        ImmersiveModeController::ANIMATE_REVEAL_YES);
   }
 
   tab_strip_->AddObserver(this);
@@ -274,7 +274,9 @@ void TabScrubberChromeOS::FinishScrub(bool activate) {
       UMA_HISTOGRAM_TIMES("Tabs.ScrubDuration",
                           base::TimeTicks::Now() - scrubbing_start_time_);
       browser_->tab_strip_model()->ActivateTabAt(
-          highlighted_tab_, {TabStripModel::GestureType::kOther});
+          highlighted_tab_,
+          TabStripUserGestureDetails(
+              TabStripUserGestureDetails::GestureType::kOther));
     }
     tab_strip->RemoveObserver(this);
   }

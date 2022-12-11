@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,10 +17,10 @@ public class StaticResourcePreloads {
     /** A list of resources to load synchronously once the compositor is initialized. */
     private static int[] sSynchronousResources = new int[] {
             R.drawable.bg_tabstrip_tab,
+            R.drawable.bg_tabstrip_tab_detached,
+            R.drawable.bg_tabstrip_tab_folio,
             R.drawable.btn_tab_close_normal,
-            R.drawable.btn_tabstrip_new_tab_normal,
-            R.drawable.btn_tabstrip_new_incognito_tab_normal,
-            R.drawable.btn_tabstrip_new_tab_pressed,
+            R.drawable.ic_new_tab_button,
             R.drawable.spinner,
             R.drawable.spinner_white,
     };

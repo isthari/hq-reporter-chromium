@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,22 +28,23 @@ void ExternalPolicyLoader::OnExtensionManagementSettingsChanged() {
 }
 
 // static
-void ExternalPolicyLoader::AddExtension(base::DictionaryValue* dict,
+void ExternalPolicyLoader::AddExtension(base::Value::Dict& dict,
                                         const std::string& extension_id,
                                         const std::string& update_url) {
-  dict->SetString(base::StringPrintf("%s.%s", extension_id.c_str(),
-                                     ExternalProviderImpl::kExternalUpdateUrl),
-                  update_url);
+  dict.SetByDottedPath(
+      base::StringPrintf("%s.%s", extension_id.c_str(),
+                         ExternalProviderImpl::kExternalUpdateUrl),
+      update_url);
 }
 
 void ExternalPolicyLoader::StartLoading() {
-  std::unique_ptr<base::DictionaryValue> prefs;
+  base::Value::Dict prefs;
   switch (type_) {
     case FORCED: {
       InstallStageTracker* install_stage_tracker =
           InstallStageTracker::Get(profile_);
       prefs = settings_->GetForceInstallList();
-      for (auto it : prefs->DictItems()) {
+      for (auto it : prefs) {
         install_stage_tracker->ReportInstallCreationStage(
             it.first,
             InstallStageTracker::InstallCreationStage::SEEN_BY_POLICY_LOADER);

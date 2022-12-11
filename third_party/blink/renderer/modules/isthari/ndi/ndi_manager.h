@@ -16,7 +16,7 @@
 
 namespace blink {
 
-class NdiManager : public ScriptWrappable {
+class MODULES_EXPORT NdiManager : public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
 public:
     NdiManager();

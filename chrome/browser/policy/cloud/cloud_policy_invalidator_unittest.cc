@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -305,15 +305,11 @@ void CloudPolicyInvalidatorTestBase::StorePolicy(PolicyObject object,
   data->set_policy_value(policy_value_cur_);
   store_.invalidation_version_ = invalidation_version;
   store_.set_policy_data_for_testing(std::move(data));
-  base::DictionaryValue policies;
-  policies.SetInteger(
-      key::kMaxInvalidationFetchDelay,
-      CloudPolicyInvalidator::kMaxFetchDelayMin);
-  store_.policy_map_.LoadFrom(
-      &policies,
-      POLICY_LEVEL_MANDATORY,
-      POLICY_SCOPE_MACHINE,
-      POLICY_SOURCE_CLOUD);
+  base::Value::Dict policies;
+  policies.Set(key::kMaxInvalidationFetchDelay,
+               CloudPolicyInvalidator::kMaxFetchDelayMin);
+  store_.policy_map_.LoadFrom(policies, POLICY_LEVEL_MANDATORY,
+                              POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD);
   store_.NotifyStoreLoaded();
 }
 
@@ -365,7 +361,7 @@ bool CloudPolicyInvalidatorTestBase::CheckPolicyRefreshed() {
 
 bool CloudPolicyInvalidatorTestBase::IsUnsent(
     const invalidation::Invalidation& invalidation) {
-  return invalidation_service_.GetMockAckHandler()->IsUnsent(invalidation);
+  return invalidation_service_.GetFakeAckHandler()->IsUnsent(invalidation);
 }
 
 bool CloudPolicyInvalidatorTestBase::CheckPolicyRefreshedWithUnknownVersion() {
@@ -385,7 +381,7 @@ bool CloudPolicyInvalidatorTestBase::IsInvalidationAcknowledged(
   base::RunLoop().RunUntilIdle();
 
   EXPECT_FALSE(IsUnsent(invalidation));
-  return !invalidation_service_.GetMockAckHandler()->IsUnacked(invalidation);
+  return !invalidation_service_.GetFakeAckHandler()->IsUnacked(invalidation);
 }
 
 bool CloudPolicyInvalidatorTestBase::IsInvalidatorRegistered() {

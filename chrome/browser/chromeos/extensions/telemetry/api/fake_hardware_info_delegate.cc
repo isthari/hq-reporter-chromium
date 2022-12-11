@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 
 namespace chromeos {
 
@@ -32,7 +32,7 @@ FakeHardwareInfoDelegate::FakeHardwareInfoDelegate(std::string manufacturer)
 FakeHardwareInfoDelegate::~FakeHardwareInfoDelegate() = default;
 
 void FakeHardwareInfoDelegate::GetManufacturer(ManufacturerCallback callback) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), manufacturer_));
 }
 

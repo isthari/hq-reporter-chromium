@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -113,9 +113,6 @@ public class VrInputMethodManagerWrapper implements InputMethodManagerWrapper {
             View view, int token, android.view.inputmethod.ExtractedText text) {
         if (DEBUG_LOGS) Log.i(TAG, "updateExtractedText: [%s]", text.text.toString());
     }
-
-    @Override
-    public void notifyUserAction() {}
 
     @Override
     public void onWindowAndroidChanged(WindowAndroid newWindowAndroid) {}

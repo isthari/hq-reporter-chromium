@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,14 +31,16 @@ AtomicString FromPaintTypeToString(PerformancePaintTiming::PaintType type) {
 }  // namespace
 
 PerformancePaintTiming::PerformancePaintTiming(PaintType type,
-                                               double start_time)
+                                               double start_time,
+                                               uint32_t navigation_id)
     : PerformanceEntry(FromPaintTypeToString(type),
                        start_time,
-                       start_time) {}
+                       start_time,
+                       navigation_id) {}
 
 PerformancePaintTiming::~PerformancePaintTiming() = default;
 
-AtomicString PerformancePaintTiming::entryType() const {
+const AtomicString& PerformancePaintTiming::entryType() const {
   return performance_entry_names::kPaint;
 }
 

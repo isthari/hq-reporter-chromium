@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@
 #include "third_party/blink/renderer/modules/manifest/manifest_change_notifier.h"
 #include "third_party/blink/renderer/modules/manifest/manifest_fetcher.h"
 #include "third_party/blink/renderer/modules/manifest/manifest_parser.h"
-#include "third_party/blink/renderer/modules/manifest/manifest_uma_util.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
 
@@ -63,7 +62,7 @@ ManifestManager::ManifestManager(LocalDOMWindow& window)
 ManifestManager::~ManifestManager() = default;
 
 void ManifestManager::RequestManifest(RequestManifestCallback callback) {
-  RequestManifestImpl(WTF::Bind(
+  RequestManifestImpl(WTF::BindOnce(
       [](RequestManifestCallback callback, const KURL& manifest_url,
          const mojom::blink::ManifestPtr& manifest,
          const mojom::blink::ManifestDebugInfo* debug_info) {
@@ -76,7 +75,7 @@ void ManifestManager::RequestManifest(RequestManifestCallback callback) {
 
 void ManifestManager::RequestManifestDebugInfo(
     RequestManifestDebugInfoCallback callback) {
-  RequestManifestImpl(WTF::Bind(
+  RequestManifestImpl(WTF::BindOnce(
       [](RequestManifestDebugInfoCallback callback, const KURL& manifest_url,
          const mojom::blink::ManifestPtr& manifest,
          const mojom::blink::ManifestDebugInfo* debug_info) {
@@ -91,7 +90,7 @@ void ManifestManager::RequestManifestDebugInfo(
 
 void ManifestManager::RequestManifestForTesting(
     WebManifestManager::Callback callback) {
-  RequestManifestImpl(WTF::Bind(
+  RequestManifestImpl(WTF::BindOnce(
       [](WebManifestManager::Callback callback, const KURL& manifest_url,
          const mojom::blink::ManifestPtr& manifest,
          const mojom::blink::ManifestDebugInfo* debug_info) {
@@ -143,14 +142,12 @@ void ManifestManager::DidChangeManifest() {
 
 void ManifestManager::FetchManifest() {
   if (!CanFetchManifest()) {
-    ManifestUmaUtil::FetchFailed(ManifestUmaUtil::FETCH_FROM_OPAQUE_ORIGIN);
     ResolveCallbacks(ResolveState::kFailure);
     return;
   }
 
   manifest_url_ = ManifestURL();
   if (manifest_url_.IsEmpty()) {
-    ManifestUmaUtil::FetchFailed(ManifestUmaUtil::FETCH_EMPTY_URL);
     ResolveCallbacks(ResolveState::kFailure);
     return;
   }
@@ -159,28 +156,25 @@ void ManifestManager::FetchManifest() {
   ResourceFetcher* document_fetcher = window.document()->Fetcher();
   fetcher_ = MakeGarbageCollected<ManifestFetcher>(manifest_url_);
   fetcher_->Start(window, ManifestUseCredentials(), document_fetcher,
-                  WTF::Bind(&ManifestManager::OnManifestFetchComplete,
-                            WrapWeakPersistent(this), window.Url()));
+                  WTF::BindOnce(&ManifestManager::OnManifestFetchComplete,
+                                WrapWeakPersistent(this), window.Url()));
 }
 
 void ManifestManager::OnManifestFetchComplete(const KURL& document_url,
                                               const ResourceResponse& response,
                                               const String& data) {
   fetcher_ = nullptr;
-  if (response.IsNull() && data.IsEmpty()) {
+  if (response.IsNull() && data.empty()) {
     manifest_debug_info_ = nullptr;
-    ManifestUmaUtil::FetchFailed(ManifestUmaUtil::FETCH_UNSPECIFIED_REASON);
     ResolveCallbacks(ResolveState::kFailure);
     return;
   }
 
-  ManifestUmaUtil::FetchSucceeded();
   // We are using the document as our FeatureContext for checking origin trials.
   // Note that any origin trials delivered in the manifest HTTP headers will be
   // ignored, only ones associated with the page will be used.
-  const FeatureContext* feature_context = GetExecutionContext();
   ManifestParser parser(data, response.CurrentRequestUrl(), document_url,
-                        feature_context);
+                        GetExecutionContext());
 
   // Monitoring whether the manifest has comments is temporary. Once
   // warning/deprecation period is over, we should remove this as it's
@@ -192,12 +186,13 @@ void ManifestManager::OnManifestFetchComplete(const KURL& document_url,
   }
 
   manifest_debug_info_ = mojom::blink::ManifestDebugInfo::New();
-  manifest_debug_info_->raw_manifest = data;
+  manifest_debug_info_->raw_manifest = data.IsNull() ? "" : data;
   parser.TakeErrors(&manifest_debug_info_->errors);
 
   for (const auto& error : manifest_debug_info_->errors) {
-    auto location = std::make_unique<SourceLocation>(
-        ManifestURL().GetString(), error->line, error->column, nullptr, 0);
+    auto location = std::make_unique<SourceLocation>(ManifestURL().GetString(),
+                                                     String(), error->line,
+                                                     error->column, nullptr, 0);
 
     GetSupplementable()->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
         mojom::blink::ConsoleMessageSource::kOther,
@@ -225,22 +220,17 @@ void ManifestManager::RecordMetrics(const mojom::blink::Manifest& manifest) {
                       WebFeature::kWebAppManifestCaptureLinks);
   }
 
-  if (manifest.handle_links != mojom::blink::HandleLinks::kUndefined) {
-    UseCounter::Count(GetSupplementable(),
-                      WebFeature::kWebAppManifestHandleLinks);
-  }
-
   if (!manifest.launch_handler.is_null()) {
     UseCounter::Count(GetSupplementable(),
                       WebFeature::kWebAppManifestLaunchHandler);
   }
 
-  if (!manifest.url_handlers.IsEmpty()) {
+  if (!manifest.url_handlers.empty()) {
     UseCounter::Count(GetSupplementable(),
                       WebFeature::kWebAppManifestUrlHandlers);
   }
 
-  if (!manifest.protocol_handlers.IsEmpty()) {
+  if (!manifest.protocol_handlers.empty()) {
     UseCounter::Count(GetSupplementable(),
                       WebFeature::kWebAppManifestProtocolHandlers);
   }
@@ -250,10 +240,12 @@ void ManifestManager::RecordMetrics(const mojom::blink::Manifest& manifest) {
     if (display_override == mojom::blink::DisplayMode::kWindowControlsOverlay) {
       UseCounter::Count(GetSupplementable(),
                         WebFeature::kWebAppWindowControlsOverlay);
+    } else if (display_override == mojom::blink::DisplayMode::kBorderless) {
+      UseCounter::Count(GetSupplementable(), WebFeature::kWebAppBorderless);
     }
   }
 
-  if (!manifest.user_preferences.is_null()) {
+  if (manifest.has_dark_theme_color || manifest.has_dark_background_color) {
     UseCounter::Count(GetSupplementable(),
                       WebFeature::kWebAppManifestUserPreferences);
   }

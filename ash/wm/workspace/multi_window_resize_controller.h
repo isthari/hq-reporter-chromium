@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_state_observer.h"
 #include "base/scoped_multi_source_observation.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
@@ -40,6 +41,9 @@ class ASH_EXPORT MultiWindowResizeController
       public WindowStateObserver,
       public OverviewObserver {
  public:
+  // Delay before showing the `resize_widget_`.
+  static constexpr base::TimeDelta kShowDelay = base::Milliseconds(400);
+
   MultiWindowResizeController();
 
   MultiWindowResizeController(const MultiWindowResizeController&) = delete;

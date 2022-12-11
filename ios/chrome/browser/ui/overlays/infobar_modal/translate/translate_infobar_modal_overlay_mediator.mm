@@ -1,19 +1,20 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/overlays/infobar_modal/translate/translate_infobar_modal_overlay_mediator.h"
 
-#include "base/metrics/histogram_macros.h"
-#include "base/metrics/sparse_histogram.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/metrics/metrics_log.h"
-#include "components/translate/core/browser/translate_step.h"
-#include "components/translate/core/common/translate_constants.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/metrics/sparse_histogram.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/metrics/metrics_log.h"
+#import "components/translate/core/browser/translate_step.h"
+#import "components/translate/core/common/translate_constants.h"
+#import "components/translate/core/common/translate_util.h"
 #import "ios/chrome/browser/overlays/public/infobar_modal/infobar_modal_overlay_responses.h"
 #import "ios/chrome/browser/overlays/public/infobar_modal/translate_infobar_modal_overlay_request_config.h"
 #import "ios/chrome/browser/overlays/public/infobar_modal/translate_infobar_modal_overlay_responses.h"
-#include "ios/chrome/browser/overlays/public/overlay_response.h"
+#import "ios/chrome/browser/overlays/public/overlay_response.h"
 #import "ios/chrome/browser/translate/translate_constants.h"
 #import "ios/chrome/browser/translate/translate_infobar_metrics_recorder.h"
 #import "ios/chrome/browser/ui/list_model/list_model.h"
@@ -36,10 +37,22 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
 // Holds the new source language selected by the user. kInvalidLanguageIndex if
 // the user has not made any such selection.
 @property(nonatomic, assign) int newSourceLanguageIndex;
+// Whether the source language (initial or selected) is unknown.
+@property(nonatomic, assign) BOOL sourceLanguageIsUnknown;
+// Whether the source language was initially unknown.
+@property(nonatomic, assign) BOOL sourceLanguageIsInitiallyUnknown;
 
 // Holds the new target language selected by the user. kInvalidLanguageIndex if
 // the user has not made any such selection.
 @property(nonatomic, assign) int newTargetLanguageIndex;
+
+// Maps the index from the source language selection view to
+// `config->language_names()`.
+@property(nonatomic, assign) std::vector<int> sourceLanguageMapping;
+
+// Maps the index from the target language selection view to
+// `config->language_names()`.
+@property(nonatomic, assign) std::vector<int> targetLanguageMapping;
 @end
 
 @implementation TranslateInfobarModalOverlayMediator
@@ -65,6 +78,9 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
   // should be reset.
   self.newSourceLanguageIndex = kInvalidLanguageIndex;
   self.newTargetLanguageIndex = kInvalidLanguageIndex;
+  self.sourceLanguageIsUnknown = self.config->unknown_language_name() ==
+                                 self.config->source_language_name();
+  self.sourceLanguageIsInitiallyUnknown = self.sourceLanguageIsUnknown;
 
   // The Translate button should be enabled whenever the page is untranslated,
   // which may be before any translation has been triggered or after an error
@@ -224,9 +240,10 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
 
 #pragma mark - InfobarTranslateLanguageSelectionDelegate
 
-- (void)didSelectSourceLanguageIndex:(int)languageIndex
+- (void)didSelectSourceLanguageIndex:(int)itemIndex
                             withName:(NSString*)languageName {
-  // Sanity check that |languageIndex| matches the languageName selected.
+  int languageIndex = self.sourceLanguageMapping[itemIndex];
+  // Sanity check that `languageIndex` matches the languageName selected.
   DCHECK([languageName
       isEqualToString:base::SysUTF16ToNSString(
                           self.config->language_names().at(languageIndex))]);
@@ -240,6 +257,8 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
     targetLanguage =
         self.config->language_names().at(self.newTargetLanguageIndex);
   }
+  self.sourceLanguageIsUnknown =
+      sourceLanguage == self.config->unknown_language_name();
   [self.consumer
       setupModalViewControllerWithPrefs:
           [self createPrefDictionaryForSourceLanguage:base::SysUTF16ToNSString(
@@ -249,9 +268,10 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
                                translateButtonEnabled:YES]];
 }
 
-- (void)didSelectTargetLanguageIndex:(int)languageIndex
+- (void)didSelectTargetLanguageIndex:(int)itemIndex
                             withName:(NSString*)languageName {
-  // Sanity check that |languageIndex| matches the languageName selected.
+  int languageIndex = self.targetLanguageMapping[itemIndex];
+  // Sanity check that `languageIndex` matches the languageName selected.
   DCHECK([languageName
       isEqualToString:base::SysUTF16ToNSString(
                           self.config->language_names().at(languageIndex))]);
@@ -293,8 +313,20 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
           ? self.config->language_names().at(self.newTargetLanguageIndex)
           : self.config->target_language_name();
 
+  BOOL shouldSkipFirstLanguage =
+      !(sourceLanguage && self.sourceLanguageIsInitiallyUnknown);
   NSMutableArray<TableViewTextItem*>* items = [NSMutableArray array];
+  std::vector<int> languageMapping;
+  languageMapping.reserve(self.config->language_names().size());
+
   for (size_t i = 0; i < self.config->language_names().size(); ++i) {
+    if (translate::IsForceTranslateEnabled() && shouldSkipFirstLanguage &&
+        i == 0) {
+      // "Detected Language" is the first item in the languages list and should
+      // only be added to the source language menu.
+      continue;
+    }
+    languageMapping.push_back(i);
     TableViewTextItem* item =
         [[TableViewTextItem alloc] initWithType:kItemTypeEnumZero];
     item.text =
@@ -327,15 +359,20 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
     }
     [items addObject:item];
   }
+  if (sourceLanguage) {
+    self.sourceLanguageMapping = languageMapping;
+  } else {
+    self.targetLanguageMapping = languageMapping;
+  }
 
   return items;
 }
 
-// Records a histogram for |event|.
+// Records a histogram for `event`.
 - (void)recordInfobarEvent:(translate::InfobarEvent)event {
   UMA_HISTOGRAM_ENUMERATION(kEventHistogram, event);
 }
-// Records a histogram of |histogram| for |langCode|. This is used to log the
+// Records a histogram of `histogram` for `langCode`. This is used to log the
 // language distribution of certain Translate events.
 - (void)recordLanguageDataHistogram:(const std::string&)histogramName
                        languageCode:(const std::string&)langCode {
@@ -359,8 +396,8 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
 }
 
 // Returns a dictionary of prefs to send to the modalConsumer depending on
-// |sourceLanguage|, |targetLanguage|, |translateButtonEnabled|, and
-// |self.currentStep|.
+// `sourceLanguage`, `targetLanguage`, `translateButtonEnabled`, and
+// `self.currentStep`.
 - (NSDictionary*)createPrefDictionaryForSourceLanguage:(NSString*)sourceLanguage
                                         targetLanguage:(NSString*)targetLanguage
                                 translateButtonEnabled:
@@ -381,6 +418,7 @@ using translate_infobar_overlays::TranslateModalRequestConfig;
 
   return @{
     kSourceLanguagePrefKey : sourceLanguage,
+    kSourceLanguageIsUnknownPrefKey : @(self.sourceLanguageIsUnknown),
     kTargetLanguagePrefKey : targetLanguage,
     kEnableTranslateButtonPrefKey : @(translateButtonEnabled),
     kUpdateLanguageBeforeTranslatePrefKey : @(updateLanguageBeforeTranslate),

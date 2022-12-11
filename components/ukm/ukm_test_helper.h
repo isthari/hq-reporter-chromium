@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,7 +59,7 @@ class UkmTestHelper {
   bool HasUnsentLogs();
 
  private:
-  const raw_ptr<UkmService> ukm_service_;
+  const raw_ptr<UkmService, DanglingUntriaged> ukm_service_;
 };
 
 }  // namespace ukm

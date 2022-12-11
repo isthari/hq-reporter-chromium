@@ -1,8 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/files/file_path.h"
+#include "chrome/browser/ash/login/test/device_state_mixin.h"
 #include "chrome/browser/ash/login/test/logged_in_user_mixin.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/profiles/profile.h"
@@ -107,6 +108,9 @@ class SupervisedUserExtensionTest : public ExtensionBrowserTest {
  private:
   InProcessBrowserTestMixinHost mixin_host_;
 
+  ash::DeviceStateMixin device_state_{
+      &mixin_host_,
+      ash::DeviceStateMixin::State::OOBE_COMPLETED_CONSUMER_OWNED};
   // We want to log in as child user for all of the PRE tests, and regular user
   // otherwise.
   ash::LoggedInUserMixin logged_in_user_mixin_{

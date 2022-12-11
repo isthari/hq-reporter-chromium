@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_provider_factory.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
+#include "chrome/common/chrome_features.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 
 namespace web_app {
@@ -21,8 +22,20 @@ namespace web_app {
 WebAppAdjustments::WebAppAdjustments(Profile* profile) {
 #if BUILDFLAG(IS_CHROMEOS)
   link_capturing_pref_migration_ =
-      std::make_unique<web_app::LinkCapturingPrefMigration>(*profile);
+      std::make_unique<LinkCapturingPrefMigration>(*profile);
 #endif  // BUILDFLAG(IS_CHROMEOS)
+
+  if (base::FeatureList::IsEnabled(
+          features::kPreinstalledWebAppDuplicationFixer)) {
+    preinstalled_web_app_duplication_fixer_ =
+        std::make_unique<PreinstalledWebAppDuplicationFixer>(*profile);
+  }
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (base::FeatureList::IsEnabled(web_app::kWebAppCalculatorAppErasureFixer)) {
+    calculator_app_erasure_fixer_ =
+        std::make_unique<CalculatorAppErasureFixer>(*profile);
+  }
+#endif
 }
 
 WebAppAdjustments::~WebAppAdjustments() = default;
@@ -35,6 +48,11 @@ WebAppAdjustments::~WebAppAdjustments() = default;
 WebAppAdjustmentsFactory* WebAppAdjustmentsFactory::GetInstance() {
   static base::NoDestructor<WebAppAdjustmentsFactory> instance;
   return instance.get();
+}
+
+WebAppAdjustments* WebAppAdjustmentsFactory::Get(Profile* profile) {
+  return static_cast<WebAppAdjustments*>(
+      GetInstance()->GetServiceForBrowserContext(profile, /*create=*/false));
 }
 
 WebAppAdjustmentsFactory::WebAppAdjustmentsFactory()
@@ -65,6 +83,13 @@ content::BrowserContext* WebAppAdjustmentsFactory::GetBrowserContextToUse(
                      profile)
              ? context
              : nullptr;
+}
+
+void WebAppAdjustmentsFactory::RegisterProfilePrefs(
+    user_prefs::PrefRegistrySyncable* registry) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  CalculatorAppErasureFixer::RegisterProfilePrefs(registry);
+#endif
 }
 
 }  // namespace web_app

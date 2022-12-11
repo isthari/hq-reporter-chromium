@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,7 @@
  * @closurePrimitive {asserts.truthy}
  * @suppress {reportUnknownTypes} because T is not sufficiently constrained.
  */
-/* #export */ function assert(condition, opt_message) {
+export function assert(condition, opt_message) {
   if (!condition) {
     let message = 'Assertion failed';
     if (opt_message) {
@@ -61,29 +61,28 @@
  * This code should only be hit in the case of serious programmer error or
  * unexpected input.
  *
- * @param {string=} opt_message A message to show when this is hit.
+ * @param {string=} message A message to show when this is hit.
  * @closurePrimitive {asserts.fail}
  */
-/* #export */ function assertNotReached(opt_message) {
-  assert(false, opt_message || 'Unreachable code hit');
+export function assertNotReached(message) {
+  assert(false, message || 'Unreachable code hit');
 }
 
 /**
  * @param {*} value The value to check.
  * @param {function(new: T, ...)} type A user-defined constructor.
- * @param {string=} opt_message A message to show when this is hit.
+ * @param {string=} message A message to show when this is hit.
  * @return {T}
  * @template T
  */
-/* #export */ function assertInstanceof(value, type, opt_message) {
+export function assertInstanceof(value, type, message) {
   // We don't use assert immediately here so that we avoid constructing an error
   // message if we don't have to.
   if (!(value instanceof type)) {
     assertNotReached(
-        opt_message ||
+        message ||
         'Value ' + value + ' is not a[n] ' + (type.name || typeof type));
   }
   return value;
 }
 
-/* #ignore */ console.warn('crbug/1173575, non-JS module files deprecated.');

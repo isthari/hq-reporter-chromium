@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,6 @@
 
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/views/widget/unique_widget_ptr.h"
-
-namespace views {
-class View;
-}  // namespace views
-
-namespace aura {
-class Window;
-}  // namespace aura
 
 namespace ash {
 

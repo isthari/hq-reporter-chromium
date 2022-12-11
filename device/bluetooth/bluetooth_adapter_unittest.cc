@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,9 +17,9 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "device/bluetooth/bluetooth_common.h"
 #include "device/bluetooth/bluetooth_device.h"
@@ -48,10 +48,10 @@
 #include "device/bluetooth/test/bluetooth_test_fuchsia.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "device/bluetooth/bluetooth_low_energy_scan_filter.h"
 #include "device/bluetooth/bluetooth_low_energy_scan_session.h"
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 using device::BluetoothDevice;
 
@@ -130,7 +130,7 @@ class TestBluetoothAdapter final : public BluetoothAdapter {
       const std::string& address,
       const absl::optional<BluetoothDevice::AddressType>& address_type,
       ConnectDeviceCallback callback,
-      ErrorCallback error_callback) override {}
+      ConnectDeviceErrorCallback error_callback) override {}
 #endif
 
   BluetoothLocalGattService* GetGattService(
@@ -138,7 +138,7 @@ class TestBluetoothAdapter final : public BluetoothAdapter {
     return nullptr;
   }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   void SetServiceAllowList(const UUIDList& uuids,
                            base::OnceClosure callback,
                            ErrorCallback error_callback) override {}
@@ -154,7 +154,11 @@ class TestBluetoothAdapter final : public BluetoothAdapter {
       override {
     return nullptr;
   }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  void SetStandardChromeOSAdapterName() override {}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   void OnStartDiscoverySessionQuitLoop(
       base::OnceClosure run_loop_quit,
@@ -267,7 +271,7 @@ class TestBluetoothAdapter final : public BluetoothAdapter {
   void StartScanWithFilter(
       std::unique_ptr<BluetoothDiscoveryFilter> discovery_filter,
       DiscoverySessionResultCallback callback) override {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&TestBluetoothAdapter::SetFilter,
                        weak_ptr_factory_.GetWeakPtr(),
@@ -276,7 +280,7 @@ class TestBluetoothAdapter final : public BluetoothAdapter {
 
   void UpdateFilter(std::unique_ptr<BluetoothDiscoveryFilter> discovery_filter,
                     DiscoverySessionResultCallback callback) override {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&TestBluetoothAdapter::SetFilter,
                        weak_ptr_factory_.GetWeakPtr(),
@@ -295,7 +299,7 @@ class TestBluetoothAdapter final : public BluetoothAdapter {
   }
 
   void StopScan(DiscoverySessionResultCallback callback) override {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&TestBluetoothAdapter::FakeOSStopScan,
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
@@ -312,8 +316,8 @@ class TestBluetoothAdapter final : public BluetoothAdapter {
 
  private:
   void PostDelayedTask(base::OnceClosure callback) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  std::move(callback));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(callback));
   }
 
   UMABluetoothDiscoverySessionOutcome discovery_session_outcome_ =
@@ -716,24 +720,14 @@ TEST_P(BluetoothTestWinrt, ConstructDefaultAdapter) {
 TEST_F(BluetoothTest, MAYBE_ConstructDefaultAdapter) {
 #endif
   InitWithDefaultAdapter();
-  if (!adapter_->IsPresent()) {
-    LOG(WARNING) << "Bluetooth adapter not present; skipping unit test.";
+  if (!adapter_->IsPresent() || !adapter_->IsPowered()) {
+    LOG(WARNING)
+        << "Bluetooth adapter not present or not powered; skipping unit test.";
     return;
   }
 
-  bool expected = false;
-// MacOS returns empty for name and address if the adapter is off.
-#if BUILDFLAG(IS_MAC)
-  expected = !adapter_->IsPowered();
-#endif  // BUILDFLAG(IS_MAC)
-
-  EXPECT_EQ(expected, adapter_->GetAddress().empty());
-  EXPECT_EQ(expected, adapter_->GetName().empty());
-
-  EXPECT_TRUE(adapter_->IsPresent());
-  // Don't know on test machines if adapter will be powered or not, but
-  // the call should be safe to make and consistent.
-  EXPECT_EQ(adapter_->IsPowered(), adapter_->IsPowered());
+  EXPECT_FALSE(adapter_->GetAddress().empty());
+  EXPECT_FALSE(adapter_->GetName().empty());
   EXPECT_FALSE(adapter_->IsDiscoverable());
   EXPECT_FALSE(adapter_->IsDiscovering());
 }  // namespace device
@@ -1506,7 +1500,7 @@ TEST_P(BluetoothTestWinrtOnly, RegisterAdvertisement) {
   auto advertisement_data = std::make_unique<BluetoothAdvertisement::Data>(
       BluetoothAdvertisement::ADVERTISEMENT_TYPE_BROADCAST);
   advertisement_data->set_manufacturer_data(
-      std::make_unique<BluetoothAdvertisement::ManufacturerData>());
+      BluetoothAdvertisement::ManufacturerData());
 
   InitWithFakeAdapter();
   adapter_->RegisterAdvertisement(
@@ -1529,7 +1523,7 @@ TEST_P(BluetoothTestWinrtOnly, FailRegisterAdvertisement) {
   auto advertisement_data = std::make_unique<BluetoothAdvertisement::Data>(
       BluetoothAdvertisement::ADVERTISEMENT_TYPE_BROADCAST);
   advertisement_data->set_manufacturer_data(
-      std::make_unique<BluetoothAdvertisement::ManufacturerData>());
+      BluetoothAdvertisement::ManufacturerData());
 
   InitWithFakeAdapter();
   adapter_->RegisterAdvertisement(
@@ -1555,7 +1549,7 @@ TEST_P(BluetoothTestWinrtOnly, RegisterAndUnregisterAdvertisement) {
   auto advertisement_data = std::make_unique<BluetoothAdvertisement::Data>(
       BluetoothAdvertisement::ADVERTISEMENT_TYPE_BROADCAST);
   advertisement_data->set_manufacturer_data(
-      std::make_unique<BluetoothAdvertisement::ManufacturerData>());
+      BluetoothAdvertisement::ManufacturerData());
 
   InitWithFakeAdapter();
   adapter_->RegisterAdvertisement(
@@ -1587,7 +1581,7 @@ TEST_P(BluetoothTestWinrtOnly, FailUnregisterAdvertisement) {
   auto advertisement_data = std::make_unique<BluetoothAdvertisement::Data>(
       BluetoothAdvertisement::ADVERTISEMENT_TYPE_BROADCAST);
   advertisement_data->set_manufacturer_data(
-      std::make_unique<BluetoothAdvertisement::ManufacturerData>());
+      BluetoothAdvertisement::ManufacturerData());
 
   InitWithFakeAdapter();
   adapter_->RegisterAdvertisement(
@@ -1625,8 +1619,7 @@ TEST_P(BluetoothTestWinrtOnly, RegisterAdvertisementWithInvalidData) {
   // rejected.
   auto advertisement_data = std::make_unique<BluetoothAdvertisement::Data>(
       BluetoothAdvertisement::ADVERTISEMENT_TYPE_BROADCAST);
-  advertisement_data->set_service_data(
-      std::make_unique<BluetoothAdvertisement::ServiceData>());
+  advertisement_data->set_service_data(BluetoothAdvertisement::ServiceData());
 
   InitWithFakeAdapter();
   adapter_->RegisterAdvertisement(
@@ -1653,7 +1646,7 @@ TEST_P(BluetoothTestWinrtOnly, RegisterMultipleAdvertisements) {
     auto advertisement_data = std::make_unique<BluetoothAdvertisement::Data>(
         BluetoothAdvertisement::ADVERTISEMENT_TYPE_BROADCAST);
     advertisement_data->set_manufacturer_data(
-        std::make_unique<BluetoothAdvertisement::ManufacturerData>());
+        BluetoothAdvertisement::ManufacturerData());
 
     adapter_->RegisterAdvertisement(
         std::move(advertisement_data),
@@ -1681,7 +1674,7 @@ TEST_P(BluetoothTestWinrtOnly, UnregisterAdvertisementWhilePendingUnregister) {
   auto advertisement_data = std::make_unique<BluetoothAdvertisement::Data>(
       BluetoothAdvertisement::ADVERTISEMENT_TYPE_BROADCAST);
   advertisement_data->set_manufacturer_data(
-      std::make_unique<BluetoothAdvertisement::ManufacturerData>());
+      BluetoothAdvertisement::ManufacturerData());
 
   adapter_->RegisterAdvertisement(
       std::move(advertisement_data),
@@ -1728,7 +1721,7 @@ TEST_P(BluetoothTestWinrtOnly, DoubleUnregisterAdvertisement) {
   auto advertisement_data = std::make_unique<BluetoothAdvertisement::Data>(
       BluetoothAdvertisement::ADVERTISEMENT_TYPE_BROADCAST);
   advertisement_data->set_manufacturer_data(
-      std::make_unique<BluetoothAdvertisement::ManufacturerData>());
+      BluetoothAdvertisement::ManufacturerData());
 
   adapter_->RegisterAdvertisement(
       std::move(advertisement_data),
@@ -1772,7 +1765,7 @@ TEST_P(BluetoothTestWinrtOnly, SimulateAdvertisementStoppedByOS) {
   auto advertisement_data = std::make_unique<BluetoothAdvertisement::Data>(
       BluetoothAdvertisement::ADVERTISEMENT_TYPE_BROADCAST);
   advertisement_data->set_manufacturer_data(
-      std::make_unique<BluetoothAdvertisement::ManufacturerData>());
+      BluetoothAdvertisement::ManufacturerData());
 
   adapter_->RegisterAdvertisement(
       std::move(advertisement_data),

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -76,5 +76,11 @@ void FakeLocalPrinter::AddPrintJobObserver(
     mojo::PendingRemote<crosapi::mojom::PrintJobObserver> remote,
     crosapi::mojom::PrintJobSource source,
     AddPrintJobObserverCallback callback) {
+  FAIL();
+}
+
+void FakeLocalPrinter::GetOAuthAccessToken(
+    const std::string& printer_id,
+    GetOAuthAccessTokenCallback callback) {
   FAIL();
 }

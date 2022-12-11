@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/check_op.h"
 #include "base/files/file_path.h"
+#include "base/guid.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/user_metrics.h"
 #include "base/notreached.h"
@@ -26,19 +27,27 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_features.h"
 #include "ipc/ipc_platform_file.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "net/base/mime_util.h"
 #include "storage/browser/blob/blob_data_builder.h"
+#include "storage/browser/blob/blob_impl.h"
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/blob/shareable_file_reference.h"
+#include "storage/browser/file_system/copy_or_move_hook_delegate.h"
 #include "storage/browser/file_system/file_observers.h"
 #include "storage/browser/file_system/file_permission_policy.h"
+#include "storage/browser/file_system/file_system_backend.h"
 #include "storage/browser/file_system/file_system_context.h"
+#include "storage/browser/file_system/file_system_file_util.h"
+#include "storage/browser/file_system/file_system_url.h"
 #include "storage/browser/file_system/isolated_context.h"
 #include "storage/common/file_system/file_system_info.h"
 #include "storage/common/file_system/file_system_types.h"
 #include "storage/common/file_system/file_system_util.h"
 #include "third_party/blink/public/common/storage_key/storage_key.h"
+#include "third_party/blink/public/mojom/blob/blob.mojom.h"
+#include "third_party/blink/public/mojom/blob/serialized_blob.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -98,13 +107,13 @@ blink::mojom::FileSystemType ToMojoFileSystemType(
     case storage::FileSystemType::kFileSystemTypeSyncableForInternalSync:
     case storage::FileSystemType::kFileSystemTypeLocalForPlatformApp:
     case storage::FileSystemType::kFileSystemTypeForTransientFile:
-    case storage::FileSystemType::kFileSystemTypePluginPrivate:
     case storage::FileSystemType::kFileSystemTypeProvided:
     case storage::FileSystemType::kFileSystemTypeDeviceMediaAsFileStorage:
     case storage::FileSystemType::kFileSystemTypeArcContent:
     case storage::FileSystemType::kFileSystemTypeArcDocumentsProvider:
     case storage::FileSystemType::kFileSystemTypeDriveFs:
     case storage::FileSystemType::kFileSystemTypeSmbFs:
+    case storage::FileSystemType::kFileSystemTypeFuseBox:
     case storage::FileSystemType::kFileSystemInternalTypeEnumEnd:
       NOTREACHED();
       return blink::mojom::FileSystemType::kTemporary;
@@ -247,7 +256,8 @@ void FileSystemManagerImpl::ContinueOpen(
     RecordAction(base::UserMetricsAction("OpenFileSystemPersistent"));
   }
   context_->OpenFileSystem(
-      storage_key, ToStorageFileSystemType(file_system_type),
+      storage_key, /*bucket=*/absl::nullopt,
+      ToStorageFileSystemType(file_system_type),
       storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
       base::BindOnce(&FileSystemManagerImpl::DidOpenFileSystem, GetWeakPtr(),
                      std::move(callback)));
@@ -338,7 +348,7 @@ void FileSystemManagerImpl::ContinueMove(const storage::FileSystemURL& src_url,
   fs_op_runner->Move(src_url, dest_url,
                      storage::FileSystemOperation::CopyOrMoveOptionSet(),
                      FileSystemOperation::ERROR_BEHAVIOR_ABORT,
-                     storage::FileSystemOperation::CopyOrMoveProgressCallback(),
+                     std::make_unique<storage::CopyOrMoveHookDelegate>(),
                      base::BindOnce(&FileSystemManagerImpl::DidFinish,
                                     GetWeakPtr(), std::move(callback)));
 }
@@ -391,7 +401,7 @@ void FileSystemManagerImpl::ContinueCopy(const storage::FileSystemURL& src_url,
   fs_op_runner->Copy(src_url, dest_url,
                      storage::FileSystemOperation::CopyOrMoveOptionSet(),
                      FileSystemOperation::ERROR_BEHAVIOR_ABORT,
-                     storage::FileSystemOperation::CopyOrMoveProgressCallback(),
+                     std::make_unique<storage::CopyOrMoveHookDelegate>(),
                      base::BindOnce(&FileSystemManagerImpl::DidFinish,
                                     GetWeakPtr(), std::move(callback)));
 }
@@ -845,8 +855,6 @@ void FileSystemManagerImpl::ContinueTruncate(
     return;
   }
 
-  // TODO(https://crbug.com/1221308): function will use StorageKey for the
-  // receiver frame/worker in future CL
   OperationID op_id =
       fs_op_runner->Truncate(url, length,
                              base::BindOnce(&FileSystemManagerImpl::DidFinish,
@@ -907,10 +915,9 @@ void FileSystemManagerImpl::CreateSnapshotFile(
     const GURL& file_path,
     CreateSnapshotFileCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  // TODO(https://crbug.com/1221308): function will use StorageKey for the
-  // receiver frame/worker in future CL
-  FileSystemURL url(context_->CrackURL(
-      file_path, blink::StorageKey(url::Origin::Create(file_path))));
+
+  FileSystemURL url(
+      context_->CrackURL(file_path, receivers_.current_context()));
 
   // Make sure if this file can be read by the renderer as this is
   // called when the renderer is about to create a new File object
@@ -976,6 +983,37 @@ void FileSystemManagerImpl::GetPlatformPath(const GURL& path,
       base::BindOnce(&FileSystemManagerImpl::GetPlatformPathOnFileThread, path,
                      process_id_, context_, GetWeakPtr(),
                      receivers_.current_context(), std::move(callback)));
+}
+
+void FileSystemManagerImpl::RegisterBlob(
+    const std::string& content_type,
+    const GURL& url,
+    uint64_t length,
+    absl::optional<base::Time> expected_modification_time,
+    RegisterBlobCallback callback) {
+  storage::FileSystemURL crack_url =
+      context_->CrackURL(url, receivers_.current_context());
+  std::string uuid = base::GenerateGUID();
+  mojo::PendingRemote<blink::mojom::Blob> blob_remote;
+  mojo::PendingReceiver<blink::mojom::Blob> blob_receiver =
+      blob_remote.InitWithNewPipeAndPassReceiver();
+
+  if (crack_url.is_valid() &&
+      context_->GetFileSystemBackend(crack_url.type()) &&
+      security_policy_->CanReadFileSystemFile(process_id_, crack_url)) {
+    blob_storage_context_->CreateFileSystemBlob(
+        context_, std::move(blob_receiver), crack_url, uuid, content_type,
+        length, expected_modification_time.value_or(base::Time()));
+  } else {
+    std::unique_ptr<storage::BlobDataHandle> handle =
+        blob_storage_context_->context()->AddBrokenBlob(
+            uuid, content_type, "",
+            storage::BlobStatus::ERR_REFERENCED_FILE_UNAVAILABLE);
+    storage::BlobImpl::Create(std::move(handle), std::move(blob_receiver));
+  }
+
+  std::move(callback).Run(blink::mojom::SerializedBlob::New(
+      uuid, content_type, length, std::move(blob_remote)));
 }
 
 void FileSystemManagerImpl::Cancel(
@@ -1097,12 +1135,12 @@ void FileSystemManagerImpl::DidWriteSync(WriteSyncCallbackEntry* entry,
 
 void FileSystemManagerImpl::DidOpenFileSystem(
     OpenCallback callback,
-    const GURL& root,
+    const FileSystemURL& root,
     const std::string& filesystem_name,
     base::File::Error result) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(root.is_valid() || result != base::File::FILE_OK);
-  std::move(callback).Run(filesystem_name, root, result);
+  std::move(callback).Run(filesystem_name, root.ToGURL(), result);
   // For OpenFileSystem we do not create a new operation, so no unregister here.
 }
 
@@ -1239,12 +1277,6 @@ absl::optional<base::File::Error> FileSystemManagerImpl::ValidateFileSystemURL(
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!FileSystemURLIsValid(context_.get(), url))
     return base::File::FILE_ERROR_INVALID_URL;
-
-  // Deny access to files in PluginPrivate FileSystem from JavaScript.
-  // TODO(nhiroki): Move this filter somewhere else since this is not for
-  // validation.
-  if (url.type() == storage::kFileSystemTypePluginPrivate)
-    return base::File::FILE_ERROR_SECURITY;
 
   return absl::nullopt;
 }

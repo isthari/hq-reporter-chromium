@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,20 +8,23 @@
 #include <utility>
 
 #include "base/containers/contains.h"
+#include "build/build_config.h"
+#include "build/buildflag.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_service_factory.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/side_search/side_search_prefs.h"
 #include "chrome/browser/ui/side_search/side_search_tab_contents_helper.h"
 #include "chrome/browser/ui/side_search/side_search_tab_data.pb.h"
-#include "chrome/browser/ui/side_search/side_search_window_data.pb.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "components/prefs/pref_service.h"
 #include "components/sessions/content/session_tab_helper.h"
 #include "components/sessions/core/session_id.h"
 #include "content/public/browser/web_contents.h"
-
-#include "chrome/browser/ui/side_search/side_search_window_data.pb.h"
+#include "ui/base/buildflags.h"
 
 namespace side_search {
 
@@ -47,19 +50,6 @@ void MaybeAddSideSearchTabRestoreData(
         SerializeSideSearchTabDataAsString(helper);
 }
 
-void MaybeAddSideSearchWindowRestoreData(
-    bool toggled_open,
-    std::map<std::string, std::string>& extra_data) {
-  if (base::FeatureList::IsEnabled(features::kSideSearchStatePerTab))
-    return;
-
-  SideSearchWindowData side_search_window_data;
-  side_search_window_data.set_toggled_open(toggled_open);
-
-  extra_data[kSideSearchExtraDataKey] =
-      side_search_window_data.SerializeAsString();
-}
-
 absl::optional<std::pair<std::string, std::string>>
 MaybeGetSideSearchTabRestoreData(content::WebContents* web_contents) {
   SideSearchTabContentsHelper* helper =
@@ -70,40 +60,6 @@ MaybeGetSideSearchTabRestoreData(content::WebContents* web_contents) {
   }
 
   return absl::nullopt;
-}
-
-void MaybeRestoreSideSearchWindowState(
-    SideSearchTabContentsHelper::Delegate* delegate,
-    const std::map<std::string, std::string>& extra_data) {
-  if (base::FeatureList::IsEnabled(features::kSideSearchStatePerTab))
-    return;
-
-  if (base::Contains(extra_data, kSideSearchExtraDataKey)) {
-    SideSearchWindowData side_search_window_data;
-    side_search_window_data.ParseFromString(
-        extra_data.at(kSideSearchExtraDataKey));
-
-    if (side_search_window_data.toggled_open())
-      delegate->OpenSidePanel();
-  }
-}
-
-void MaybeSaveSideSearchWindowSessionData(Profile* profile,
-                                          SessionID window_id,
-                                          bool toggled_open) {
-  if (base::FeatureList::IsEnabled(features::kSideSearchStatePerTab))
-    return;
-
-  SessionService* session_service =
-      SessionServiceFactory::GetForProfileIfExisting(profile);
-  if (session_service) {
-    SideSearchWindowData side_search_window_data;
-    side_search_window_data.set_toggled_open(toggled_open);
-
-    session_service->AddWindowExtraData(
-        window_id, kSideSearchExtraDataKey,
-        side_search_window_data.SerializeAsString());
-  }
 }
 
 void MaybeSaveSideSearchTabSessionData(content::WebContents* web_contents) {
@@ -149,6 +105,39 @@ void SetSideSearchTabStateFromRestoreData(
           side_search_tab_data.toggled_open());
     }
   }
+}
+
+bool IsSidePanelWebContents(content::WebContents* web_contents) {
+  return !!SideSearchSideContentsHelper::FromWebContents(web_contents);
+}
+
+bool IsDSESupportEnabled(const Profile* profile) {
+  return base::FeatureList::IsEnabled(features::kSideSearchDSESupport) &&
+         IsSideSearchEnabled(profile);
+}
+
+bool IsEnabledForBrowser(const Browser* browser) {
+  return IsSideSearchEnabled(browser->profile()) && browser->is_type_normal();
+}
+
+bool IsSearchWebInSidePanelSupported(const Browser* browser) {
+  if (!browser)
+    return false;
+
+  const TemplateURL* const default_provider =
+      TemplateURLServiceFactory::GetForProfile(browser->profile())
+          ->GetDefaultSearchProvider();
+  DCHECK(default_provider);
+  return IsEnabledForBrowser(browser) &&
+         IsDSESupportEnabled(browser->profile()) &&
+         default_provider->IsSideSearchSupported() &&
+         base::FeatureList::IsEnabled(features::kSearchWebInSidePanel) &&
+         base::FeatureList::IsEnabled(features::kUnifiedSidePanel);
+}
+
+bool ShouldUseUnifiedSidePanel() {
+  return base::FeatureList::IsEnabled(features::kSideSearchDSESupport) &&
+         base::FeatureList::IsEnabled(features::kUnifiedSidePanel);
 }
 
 }  // namespace side_search

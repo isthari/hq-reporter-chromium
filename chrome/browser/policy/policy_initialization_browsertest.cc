@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,6 +70,7 @@ class PolicyInitializationBrowserTest : public InProcessBrowserTest {
     SetUpPlatformPolicyValue();
   }
   void CreatedBrowserMainParts(content::BrowserMainParts* parts) override {
+    InProcessBrowserTest::CreatedBrowserMainParts(parts);
     static_cast<ChromeBrowserMainParts*>(parts)->AddParts(
         std::make_unique<ChromeBrowserMainExtraPartsPolicyValueChecker>());
   }

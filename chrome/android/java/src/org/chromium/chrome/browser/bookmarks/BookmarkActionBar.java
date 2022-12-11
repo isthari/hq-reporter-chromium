@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,18 +15,16 @@ import androidx.appcompat.widget.Toolbar.OnMenuItemClickListener;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkItem;
+import org.chromium.chrome.browser.app.bookmarks.BookmarkAddEditFolderActivity;
+import org.chromium.chrome.browser.app.bookmarks.BookmarkFolderSelectActivity;
 import org.chromium.chrome.browser.incognito.IncognitoUtils;
-import org.chromium.chrome.browser.tab.TabLaunchType;
-import org.chromium.chrome.browser.tabmodel.document.TabDelegate;
 import org.chromium.components.bookmarks.BookmarkId;
+import org.chromium.components.bookmarks.BookmarkItem;
 import org.chromium.components.bookmarks.BookmarkType;
 import org.chromium.components.browser_ui.util.ToolbarUtils;
 import org.chromium.components.browser_ui.widget.dragreorder.DragReorderableListAdapter;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectableListToolbar;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate;
-import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.url.GURL;
 
 import java.util.List;
 
@@ -116,16 +114,30 @@ public class BookmarkActionBar extends SelectableListToolbar<BookmarkId>
             RecordUserAction.record("MobileBookmarkManagerEntryOpenedInNewTab");
             RecordHistogram.recordCount1000Histogram(
                     "Bookmarks.Count.OpenInNewTab", mSelectionDelegate.getSelectedItems().size());
-            openBookmarksInNewTabs(selectionDelegate.getSelectedItemsAsList(),
-                    new TabDelegate(false), mDelegate.getModel());
+            mDelegate.openBookmarks(selectionDelegate.getSelectedItemsAsList(),
+                    /*openInNewTab=*/true, /*incognito=*/false);
             selectionDelegate.clearSelection();
             return true;
         } else if (menuItem.getItemId() == R.id.selection_open_in_incognito_tab_id) {
             RecordUserAction.record("MobileBookmarkManagerEntryOpenedInIncognito");
             RecordHistogram.recordCount1000Histogram("Bookmarks.Count.OpenInIncognito",
                     mSelectionDelegate.getSelectedItems().size());
-            openBookmarksInNewTabs(selectionDelegate.getSelectedItemsAsList(),
-                    new TabDelegate(true), mDelegate.getModel());
+            mDelegate.openBookmarks(selectionDelegate.getSelectedItemsAsList(),
+                    /*openInNewTab=*/true, /*incognito=*/true);
+            selectionDelegate.clearSelection();
+            return true;
+        } else if (menuItem.getItemId() == R.id.reading_list_mark_as_read_id
+                || menuItem.getItemId() == R.id.reading_list_mark_as_unread_id) {
+            // Handle the seclection "mark as" buttons in the same block because the behavior is
+            // the same other than one boolean flip.
+            for (int i = 0; i < selectionDelegate.getSelectedItemsAsList().size(); i++) {
+                BookmarkId bookmark = selectionDelegate.getSelectedItemsAsList().get(i);
+                if (bookmark.getType() != BookmarkType.READING_LIST) continue;
+
+                BookmarkItem bookmarkItem = mDelegate.getModel().getBookmarkById(bookmark);
+                mDelegate.getModel().setReadStatusForReadingList(bookmarkItem.getUrl(),
+                        /*read=*/menuItem.getItemId() == R.id.reading_list_mark_as_read_id);
+            }
             selectionDelegate.clearSelection();
             return true;
         }
@@ -216,6 +228,7 @@ public class BookmarkActionBar extends SelectableListToolbar<BookmarkId>
             getMenu()
                     .findItem(R.id.selection_open_in_incognito_tab_id)
                     .setVisible(IncognitoUtils.isIncognitoModeEnabled());
+
             // It does not make sense to open a folder in new tab.
             for (BookmarkId bookmark : selectedBookmarks) {
                 BookmarkItem item = mDelegate.getModel().getBookmarkById(bookmark);
@@ -225,38 +238,69 @@ public class BookmarkActionBar extends SelectableListToolbar<BookmarkId>
                     break;
                 }
             }
+
+            boolean hasPartnerBoomarkSelected = false;
             // Partner bookmarks can't move, so if the selection includes a partner bookmark,
             // disable the move button.
             for (BookmarkId bookmark : selectedBookmarks) {
                 if (bookmark.getType() == BookmarkType.PARTNER) {
+                    hasPartnerBoomarkSelected = true;
                     getMenu().findItem(R.id.selection_mode_move_menu_id).setVisible(false);
                     break;
                 }
             }
 
-            // Disable edit, move buttons, if the selection includes a reading list item.
-            for (BookmarkId bookmark : selectedBookmarks) {
+            // Unless type-swapping is enabled disable edit/move buttons. For multi-selections,
+            // check that the read state matches for all items before showing "mark as" buttons.
+            // Disable move/edit buttons regardless if there's also a partner bookmark selected.
+            boolean typeSwappingEnabled = ReadingListFeatures.shouldAllowBookmarkTypeSwapping();
+            // Compute whether all selected bookmarks are reading list items and add up the number
+            // of read items.
+            int numReadingListItems = 0;
+            int numRead = 0;
+            for (int i = 0; i < selectedBookmarks.size(); i++) {
+                BookmarkId bookmark = selectedBookmarks.get(i);
+                BookmarkItem bookmarkItem = mDelegate.getModel().getBookmarkById(bookmark);
                 if (bookmark.getType() == BookmarkType.READING_LIST) {
-                    getMenu().findItem(R.id.selection_mode_move_menu_id).setVisible(false);
-                    getMenu().findItem(R.id.selection_mode_edit_menu_id).setVisible(false);
-                    break;
+                    numReadingListItems++;
+                    if (bookmarkItem.isRead()) numRead++;
                 }
             }
+
+            // Don't show the move/edit buttons if there are also partner bookmarks selected since
+            // these bookmarks can't be moved or edited. If there are no reading list items
+            // selected, then use default behavior.
+            if (numReadingListItems > 0) {
+                getMenu()
+                        .findItem(R.id.selection_mode_move_menu_id)
+                        .setVisible(typeSwappingEnabled && !hasPartnerBoomarkSelected);
+                getMenu()
+                        .findItem(R.id.selection_mode_edit_menu_id)
+                        .setVisible(selectedBookmarks.size() == 1 && typeSwappingEnabled
+                                && !hasPartnerBoomarkSelected);
+
+                // Check the reading list flag before "open in" items.
+                boolean shouldUseRegularTab = !ReadingListFeatures.shouldUseCustomTab();
+                getMenu()
+                        .findItem(R.id.selection_open_in_new_tab_id)
+                        .setVisible(shouldUseRegularTab);
+                getMenu()
+                        .findItem(R.id.selection_open_in_incognito_tab_id)
+                        .setVisible(shouldUseRegularTab);
+            }
+
+            // Only show the "mark as" options when all selections are reading list items and
+            // have the same read state.
+            boolean onlyReadingListSelected =
+                    selectedBookmarks.size() > 0 && numReadingListItems == selectedBookmarks.size();
+            getMenu()
+                    .findItem(R.id.reading_list_mark_as_read_id)
+                    .setVisible(onlyReadingListSelected && numRead == 0);
+            getMenu()
+                    .findItem(R.id.reading_list_mark_as_unread_id)
+                    .setVisible(onlyReadingListSelected && numRead == selectedBookmarks.size());
         } else {
             mDelegate.notifyStateChange(this);
-        }
-    }
-
-    private static void openBookmarksInNewTabs(
-            List<BookmarkId> bookmarks, TabDelegate tabDelegate, BookmarkModel model) {
-        for (BookmarkId id : bookmarks) {
-            if (id == null) continue;
-            GURL url = model.getBookmarkById(id).getUrl();
-            tabDelegate.createNewTab(
-                    new LoadUrlParams(url), TabLaunchType.FROM_LONGPRESS_BACKGROUND, null);
-            if (id.getType() == BookmarkType.READING_LIST) {
-                model.setReadStatusForReadingList(url, true);
-            }
         }
     }
 

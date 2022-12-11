@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,17 @@
 import 'chrome://resources/cr_elements/cr_view_manager/cr_view_manager.js';
 
 import {CrViewManagerElement} from 'chrome://resources/cr_elements/cr_view_manager/cr_view_manager.js';
-
-import {assert} from 'chrome://resources/js/assert.m.js';
-
+import {getTrustedHTML} from 'chrome://resources/js/static_types.js';
 import {assertEquals} from 'chrome://webui-test/chai_assert.js';
 import {isChildVisible} from 'chrome://webui-test/test_util.js';
 // clang-format on
 
+
 /** @fileoverview Suite of tests for cr-view-manager. */
 /** @enum {string} */
 enum TestNames {
-  Visibility = 'visibility',
-  EventFiring = 'event firing',
+  VISIBILITY = 'visibility',
+  EVENT_FIRING = 'event firing',
 }
 
 let viewManager: CrViewManagerElement;
@@ -29,7 +28,7 @@ suite(suiteName, function() {
   // Initialize an cr-view-manager inside a parent div before
   // each test.
   setup(function() {
-    document.body.innerHTML = `
+    document.body.innerHTML = getTrustedHTML`
         <div id="parent">
           <cr-view-manager id="viewManager">
             <div slot="view" id="viewOne">view 1</div>
@@ -42,7 +41,7 @@ suite(suiteName, function() {
     viewManager = document.body.querySelector('#viewManager')!;
   });
 
-  test(assert(TestNames.Visibility), function() {
+  test(TestNames.VISIBILITY, function() {
     function assertViewVisible(id: string, expectIsVisible: boolean) {
       assertEquals(
           expectIsVisible,
@@ -68,7 +67,7 @@ suite(suiteName, function() {
         });
   });
 
-  test(assert(TestNames.EventFiring), function() {
+  test(TestNames.EVENT_FIRING, function() {
     const viewOne = viewManager.querySelector('#viewOne')!;
 
     let fired = new Set();

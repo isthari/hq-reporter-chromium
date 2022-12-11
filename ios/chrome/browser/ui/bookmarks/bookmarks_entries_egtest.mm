@@ -1,27 +1,28 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <UIKit/UIKit.h>
 #import <XCTest/XCTest.h>
 
-#include "base/ios/ios_util.h"
-#include "base/strings/stringprintf.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/ios/ios_util.h"
+#import "base/strings/stringprintf.h"
+#import "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "build/build_config.h"
+#import "build/build_config.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey_ui.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_ui_constants.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "ios/web/public/test/http_server/http_server.h"
-#include "ios/web/public/test/http_server/http_server_util.h"
+#import "ios/web/public/test/http_server/http_server_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -36,9 +37,10 @@ using chrome_test_util::ContextBarCenterButtonWithLabel;
 using chrome_test_util::ContextBarLeadingButtonWithLabel;
 using chrome_test_util::ContextMenuCopyButton;
 using chrome_test_util::OmniboxText;
-using chrome_test_util::OpenLinkInNewTabButton;
 using chrome_test_util::OpenLinkInIncognitoButton;
+using chrome_test_util::OpenLinkInNewTabButton;
 using chrome_test_util::OpenLinkInNewWindowButton;
+using chrome_test_util::SwipeToShowDeleteButton;
 using chrome_test_util::TappableBookmarkNodeWithLabel;
 using chrome_test_util::WindowWithNumber;
 
@@ -65,6 +67,7 @@ id<GREYMatcher> AddBookmarkButton() {
 
   [ChromeEarlGrey waitForBookmarksToFinishLoading];
   [ChromeEarlGrey clearBookmarks];
+  [BookmarkEarlGrey clearBookmarksPositionCache];
 }
 
 // Tear down called once per test.
@@ -77,15 +80,6 @@ id<GREYMatcher> AddBookmarkButton() {
 #pragma mark - BookmarksEntriesTestCase Tests
 
 - (void)testUndoDeleteBookmarkFromSwipe {
-  // TODO(crbug.com/851227): On Compact Width, the bookmark cell is being
-  // deleted by grey_swipeFastInDirection.
-  // grey_swipeFastInDirectionWithStartPoint doesn't work either and it might
-  // fail on devices. Disabling this test under these conditions on the
-  // meantime.
-  if (![ChromeEarlGrey isCompactWidth]) {
-    EARL_GREY_TEST_SKIPPED(@"Test disabled on iPad.");
-  }
-
   [BookmarkEarlGrey setupStandardBookmarks];
   [BookmarkEarlGreyUI openBookmarks];
   [BookmarkEarlGreyUI openMobileBookmarks];
@@ -93,7 +87,7 @@ id<GREYMatcher> AddBookmarkButton() {
   // Swipe action on the URL.
   [[EarlGrey
       selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"Second URL")]
-      performAction:grey_swipeFastInDirection(kGREYDirectionLeft)];
+      performAction:SwipeToShowDeleteButton()];
 
   // Verify context bar does not change when "Delete" shows up.
   [BookmarkEarlGreyUI verifyContextBarInDefaultStateWithSelectEnabled:YES
@@ -119,15 +113,6 @@ id<GREYMatcher> AddBookmarkButton() {
 }
 
 - (void)testSwipeToDeleteDisabledInEditMode {
-  // TODO(crbug.com/851227): On non Compact Width  the bookmark cell is being
-  // deleted by grey_swipeFastInDirection.
-  // grey_swipeFastInDirectionWithStartPoint doesn't work either and it might
-  // fail on devices. Disabling this test under these conditions on the
-  // meantime.
-  if (![ChromeEarlGrey isCompactWidth]) {
-    EARL_GREY_TEST_SKIPPED(@"Test disabled on iPad on iOS11.");
-  }
-
   [BookmarkEarlGrey setupStandardBookmarks];
   [BookmarkEarlGreyUI openBookmarks];
   [BookmarkEarlGreyUI openMobileBookmarks];
@@ -135,7 +120,7 @@ id<GREYMatcher> AddBookmarkButton() {
   // Swipe action on the URL.
   [[EarlGrey
       selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"First URL")]
-      performAction:grey_swipeFastInDirection(kGREYDirectionLeft)];
+      performAction:SwipeToShowDeleteButton()];
 
   // Verify the delete confirmation button shows up.
   [[[EarlGrey selectElementWithMatcher:BookmarksDeleteSwipeButton()]
@@ -157,7 +142,7 @@ id<GREYMatcher> AddBookmarkButton() {
   // confirmation button as swipe-to-delete is disabled in edit mode.
   [[EarlGrey
       selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"Second URL")]
-      performAction:grey_swipeFastInDirection(kGREYDirectionLeft)];
+      performAction:SwipeToShowDeleteButton()];
 
   // Verify the delete confirmation button doesn't appear.
   [[[EarlGrey selectElementWithMatcher:BookmarksDeleteSwipeButton()]
@@ -170,7 +155,7 @@ id<GREYMatcher> AddBookmarkButton() {
   // Swipe action on the URL.
   [[EarlGrey
       selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"French URL")]
-      performAction:grey_swipeFastInDirection(kGREYDirectionLeft)];
+      performAction:SwipeToShowDeleteButton()];
 
   // Verify the delete confirmation button shows up. (swipe-to-delete is
   // re-enabled).
@@ -377,12 +362,7 @@ id<GREYMatcher> AddBookmarkButton() {
       performAction:grey_tap()];
 
   // Verify general pasteboard has the URL copied.
-  ConditionBlock condition = ^{
-    return !![[UIPasteboard generalPasteboard].string
-        containsString:@"www.a.fr"];
-  };
-  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(10, condition),
-             @"Waiting for URL to be copied to pasteboard.");
+  [ChromeEarlGrey verifyStringCopied:@"www.a.fr"];
 
   // Verify edit mode is closed (context bar back to default state).
   [BookmarkEarlGreyUI verifyContextBarInDefaultStateWithSelectEnabled:YES
@@ -928,7 +908,8 @@ id<GREYMatcher> AddBookmarkButton() {
                     error:&error];
     return error == nil;
   };
-  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(10, condition),
+  GREYAssert(base::test::ios::WaitUntilConditionOrTimeout(base::Seconds(10),
+                                                          condition),
              @"Waiting for bookmark to go away");
 
   // Press undo

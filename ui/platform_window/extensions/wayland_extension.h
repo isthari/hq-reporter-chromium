@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define UI_PLATFORM_WINDOW_EXTENSIONS_WAYLAND_EXTENSION_H_
 
 #include "base/component_export.h"
+#include "build/chromeos_buildflags.h"
 
 namespace ui {
 
@@ -38,11 +39,13 @@ class COMPONENT_EXPORT(PLATFORM_WINDOW) WaylandExtension {
   // features.
   virtual void StartWindowDraggingSessionIfNeeded(bool allow_system_drag) = 0;
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
   // Signals the underneath platform that browser is entering (or exiting)
   // 'immersive fullscreen mode'.
   // Under lacros, it controls for instance interaction with the system shelf
   // widget, when browser goes in fullscreen.
   virtual void SetImmersiveFullscreenStatus(bool status) = 0;
+#endif
 
   // Signals the underneath platform to shows a preview for the given window
   // snap direction. `allow_haptic_feedback` indicates if it should send haptic
@@ -74,6 +77,10 @@ class COMPONENT_EXPORT(PLATFORM_WINDOW) WaylandExtension {
 
   // Retrieve current layout state.
   virtual bool GetTabletMode() = 0;
+
+  // Signals the underneath platform to float the browser window on top other
+  // windows.
+  virtual void SetFloat(bool value) = 0;
 
  protected:
   virtual ~WaylandExtension();

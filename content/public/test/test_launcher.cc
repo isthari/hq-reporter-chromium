@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/sequence_checker.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -42,11 +43,14 @@
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
 #include "gpu/config/gpu_switches.h"
-#include "net/base/escape.h"
 #include "services/tracing/public/cpp/perfetto/perfetto_traced_process.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/buildflags.h"
 #include "ui/base/ui_base_features.h"
+
+#if BUILDFLAG(IS_ANDROID)
+#include "content/app/android/content_main_android.h"
+#endif
 
 #if BUILDFLAG(IS_POSIX)
 #include "base/files/file_descriptor_watcher_posix.h"
@@ -79,12 +83,12 @@ const char kManualTestPrefix[] = "MANUAL_";
 
 TestLauncherDelegate* g_launcher_delegate = nullptr;
 
-// ContentMain is not run on Android in the test process, and is run via
-// java for child processes. So ContentMainParams does not exist there.
-#if !BUILDFLAG(IS_ANDROID)
 // The global ContentMainParams config to be copied in each test.
+//
+// Note that ContentMain is not run on Android in the test process, and is run
+// via java for child processes. So this ContentMainParams is not used directly
+// there. But it is still used to stash parameters for the test.
 const ContentMainParams* g_params = nullptr;
-#endif
 
 void PrintUsage() {
   fprintf(stdout,
@@ -334,18 +338,17 @@ int LaunchTests(TestLauncherDelegate* launcher_delegate,
     return 0;
   }
 
-#if !BUILDFLAG(IS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
   // The ContentMainDelegate is set for browser tests on Android by the
   // browser test target and is not created by the |launcher_delegate|.
+  ContentMainParams params(GetContentMainDelegateForTesting());
+#else
   std::unique_ptr<ContentMainDelegate> content_main_delegate(
       launcher_delegate->CreateContentMainDelegate());
   ContentClientCreator::Create(content_main_delegate.get());
   // Many tests use GURL during setup, so we need to register schemes early in
   // test launching.
   RegisterContentSchemes();
-
-  // ContentMain is not run on Android in the test process, and is run via
-  // java for child processes.
   ContentMainParams params(content_main_delegate.get());
 #endif
 
@@ -358,7 +361,8 @@ int LaunchTests(TestLauncherDelegate* launcher_delegate,
 #elif BUILDFLAG(IS_MAC)
   sandbox::SeatbeltExecServer::CreateFromArgumentsResult seatbelt =
       sandbox::SeatbeltExecServer::CreateFromArguments(
-          command_line->GetProgram().value().c_str(), argc, argv);
+          command_line->GetProgram().value().c_str(), argc,
+          const_cast<const char**>(argv));
   if (seatbelt.sandbox_required) {
     CHECK(seatbelt.server->InitializeSandbox());
   }
@@ -376,6 +380,8 @@ int LaunchTests(TestLauncherDelegate* launcher_delegate,
 #if !BUILDFLAG(IS_ANDROID)
   // This needs to be before trying to run tests as otherwise utility processes
   // end up being launched as a test, which leads to rerunning the test.
+  // ContentMain is not run on Android in the test process, and is run via
+  // java for child processes.
   if (command_line->HasSwitch(switches::kProcessType) ||
       command_line->HasSwitch(switches::kLaunchAsBrowser)) {
     // The main test process has this initialized by the base::TestSuite. But
@@ -391,8 +397,8 @@ int LaunchTests(TestLauncherDelegate* launcher_delegate,
        command_line->HasSwitch(base::kGTestFilterFlag)) ||
       command_line->HasSwitch(base::kGTestListTestsFlag) ||
       command_line->HasSwitch(base::kGTestHelpFlag)) {
-#if !BUILDFLAG(IS_ANDROID)
     g_params = &params;
+#if !BUILDFLAG(IS_ANDROID)
     // The call to RunTestSuite() below bypasses TestLauncher, which creates
     // a temporary directory that is used as the user-data-dir. Create a
     // temporary directory now so that the test doesn't use the users home
@@ -447,11 +453,9 @@ TestLauncherDelegate* GetCurrentTestLauncherDelegate() {
   return g_launcher_delegate;
 }
 
-#if !BUILDFLAG(IS_ANDROID)
 ContentMainParams CopyContentMainParams() {
   return g_params->ShallowCopyForTesting();
 }
-#endif
 
 bool IsPreTest() {
   auto* test = testing::UnitTest::GetInstance();

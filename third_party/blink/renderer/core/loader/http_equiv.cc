@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/scriptable_document_parser.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
-#include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
@@ -33,6 +32,7 @@ void HttpEquiv::Process(Document& document,
                         const AtomicString& equiv,
                         const AtomicString& content,
                         bool in_document_head_element,
+                        bool is_sync_parser,
                         Element* element) {
   DCHECK(!equiv.IsNull());
   DCHECK(!content.IsNull());
@@ -54,9 +54,13 @@ void HttpEquiv::Process(Document& document,
         "X-Frame-Options may only be set via an HTTP header sent along with a "
         "document. It may not be set inside <meta>."));
   } else if (EqualIgnoringASCIICase(equiv, http_names::kAcceptCH)) {
-    HTMLMetaElement::ProcessMetaAcceptCH(document, content,
-                                         /*is_http_equiv*/ true,
-                                         /*is_preload_or_sync_parser*/ true);
+    HTMLMetaElement::ProcessMetaCH(document, content,
+                                   network::MetaCHType::HttpEquivAcceptCH,
+                                   is_sync_parser);
+  } else if (EqualIgnoringASCIICase(equiv, http_names::kDelegateCH)) {
+    HTMLMetaElement::ProcessMetaCH(document, content,
+                                   network::MetaCHType::HttpEquivDelegateCH,
+                                   is_sync_parser);
   } else if (EqualIgnoringASCIICase(equiv, "content-security-policy") ||
              EqualIgnoringASCIICase(equiv,
                                     "content-security-policy-report-only")) {
@@ -107,17 +111,26 @@ void HttpEquiv::ProcessHttpEquivOriginTrial(LocalDOMWindow* window,
   if (!window)
     return;
   // For meta tags injected by script, process the token with the origin of the
-  // external script, if available.
+  // external script, if available. Get the top 3 script urls from the stack, as
+  // the script that injected the meta tag might not be topmost. For example,
+  // due to a script that overrides builtin functions, like Node.appendChild().
+  // See crbug.com/1193888.
   // NOTE: The external script origin is not considered security-critical. See
   // the comment thread in the design doc for details:
   // https://docs.google.com/document/d/1xALH9W7rWmX0FpjudhDeS2TNTEOXuPn4Tlc9VmuPdHA/edit?disco=AAAAJyG8StI
-  KURL external_script_url(GetCurrentScriptUrl());
+  Vector<String> candidate_scripts = GetScriptUrlsFromCurrentStack(
+      window->GetIsolate(), /*unique_url_count=*/3);
+  Vector<scoped_refptr<SecurityOrigin>> external_origins;
+  for (const String& external_script : candidate_scripts) {
+    KURL external_script_url(external_script);
+    if (!external_script_url.IsValid())
+      continue;
+    external_origins.push_back(SecurityOrigin::Create(external_script_url));
+  }
 
-  if (external_script_url.IsValid()) {
-    scoped_refptr<SecurityOrigin> external_origin =
-        SecurityOrigin::Create(external_script_url);
+  if (external_origins.size() > 0) {
     window->GetOriginTrialContext()->AddTokenFromExternalScript(
-        content, external_origin.get());
+        content, external_origins);
     return;
   }
 

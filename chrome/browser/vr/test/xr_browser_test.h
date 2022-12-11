@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -212,8 +212,8 @@ class XrBrowserTestBase : public InProcessBrowserTest {
 
  protected:
   std::unique_ptr<base::Environment> env_;
-  std::vector<base::Feature> enable_features_;
-  std::vector<base::Feature> disable_features_;
+  std::vector<base::test::FeatureRef> enable_features_;
+  std::vector<base::test::FeatureRef> disable_features_;
   std::vector<std::string> append_switches_;
   std::vector<std::string> enable_blink_features_;
   std::vector<XrTestRequirement> runtime_requirements_;
@@ -234,7 +234,7 @@ class XrBrowserTestBase : public InProcessBrowserTest {
   // HTML files, initializing and starting the server if necessary.
   net::EmbeddedTestServer* GetEmbeddedServer();
 
-  raw_ptr<Browser> browser_ = nullptr;
+  raw_ptr<Browser, DanglingUntriaged> browser_ = nullptr;
   std::unique_ptr<net::EmbeddedTestServer> server_;
   base::test::ScopedFeatureList scoped_feature_list_;
   bool test_skipped_at_startup_ = false;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -88,6 +88,8 @@ class WebViewPasswordManagerClient
   const password_manager::PasswordFeatureManager* GetPasswordFeatureManager()
       const override;
   PrefService* GetPrefs() const override;
+  PrefService* GetLocalStatePrefs() const override;
+  const syncer::SyncService* GetSyncService() const override;
   password_manager::PasswordStoreInterface* GetProfilePasswordStore()
       const override;
   password_manager::PasswordStoreInterface* GetAccountPasswordStore()
@@ -117,7 +119,7 @@ class WebViewPasswordManagerClient
   url::Origin GetLastCommittedOrigin() const override;
   const password_manager::CredentialsFilter* GetStoreResultFilter()
       const override;
-  const autofill::LogManager* GetLogManager() const override;
+  autofill::LogManager* GetLogManager() override;
   ukm::SourceId GetUkmSourceId() override;
   password_manager::PasswordManagerMetricsRecorder* GetMetricsRecorder()
       override;
@@ -125,14 +127,11 @@ class WebViewPasswordManagerClient
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   password_manager::PasswordRequirementsService*
   GetPasswordRequirementsService() override;
-  void UpdateFormManagers() override;
   bool IsIsolationForPasswordSitesEnabled() const override;
   bool IsNewTabPage() const override;
   password_manager::FieldInfoManager* GetFieldInfoManager() const override;
-  bool IsAutofillAssistantUIVisible() const override;
 
   void set_bridge(id<PasswordManagerClientBridge> bridge) { bridge_ = bridge; }
-  const syncer::SyncService* GetSyncService();
 
   safe_browsing::PasswordProtectionService* GetPasswordProtectionService()
       const override;
@@ -142,7 +141,9 @@ class WebViewPasswordManagerClient
       const std::string& username,
       const std::vector<password_manager::MatchingReusedCredential>&
           matching_reused_credentials,
-      bool password_field_exists) override;
+      bool password_field_exists,
+      uint64_t reused_password_hash,
+      const std::string& domain) override;
 
   void LogPasswordReuseDetectedEvent() override;
 

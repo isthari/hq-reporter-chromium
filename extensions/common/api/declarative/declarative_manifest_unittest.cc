@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,7 @@ TEST_F(DeclarativeManifestTest, Valid) {
   std::vector<DeclarativeManifestData::Rule> rules =
       manifest_data->RulesForEvent("foo");
   EXPECT_EQ(1u, rules.size());
-  std::unique_ptr<base::DictionaryValue> expected_rule = ParseDictionary(
+  absl::optional<base::Value::Dict> expected_rule = ParseDictionary(
       "{"
       "  \"actions\": [{"
       "    \"instanceType\": \"action_type\""
@@ -31,7 +31,7 @@ TEST_F(DeclarativeManifestTest, Valid) {
       "    \"instanceType\" : \"condition_type\""
       "  }]"
       "}");
-  EXPECT_TRUE(expected_rule->Equals(rules[0].ToValue().get()));
+  EXPECT_EQ(*expected_rule, rules[0].ToValue());
 }
 
 TEST_F(DeclarativeManifestTest, ConditionMissingType) {

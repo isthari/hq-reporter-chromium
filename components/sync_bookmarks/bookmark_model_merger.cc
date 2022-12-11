@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,17 +12,21 @@
 #include "base/guid.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/sync/base/hash_util.h"
 #include "components/sync/protocol/bookmark_specifics.pb.h"
+#include "components/sync/protocol/entity_metadata.pb.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "components/sync_bookmarks/bookmark_specifics_conversions.h"
 #include "components/sync_bookmarks/switches.h"
 #include "components/sync_bookmarks/synced_bookmark_tracker.h"
+#include "components/sync_bookmarks/synced_bookmark_tracker_entity.h"
 #include "ui/base/models/tree_node_iterator.h"
 
 using syncer::EntityData;
@@ -286,27 +290,26 @@ void DeduplicateValidUpdatesByGUID(
           base::GUID::ParseLowercase(update.entity.specifics.bookmark().guid());
       DCHECK(guid_in_specifics.is_valid());
 
-      auto it_and_success =
+      auto [it, success] =
           guid_to_update.emplace(guid_in_specifics, updates_iter);
-      if (it_and_success.second) {
+      if (success) {
         ++updates_iter;
         continue;
       }
 
-      const UpdateResponseData& duplicate_update =
-          *it_and_success.first->second;
+      const auto& [guid, previous_update_it] = *it;
       DCHECK_EQ(guid_in_specifics.AsLowercaseString(),
-                duplicate_update.entity.specifics.bookmark().guid());
+                previous_update_it->entity.specifics.bookmark().guid());
       DLOG(ERROR) << "Duplicate guid for new sync ID " << update.entity.id
-                  << " and original sync ID " << duplicate_update.entity.id;
+                  << " and original sync ID " << previous_update_it->entity.id;
       const BookmarksGUIDDuplicates match_result =
-          MatchBookmarksGUIDDuplicates(update, duplicate_update);
+          MatchBookmarksGUIDDuplicates(update, *previous_update_it);
       base::UmaHistogramEnumeration("Sync.BookmarksGUIDDuplicates",
                                     match_result);
 
       if (CompareDuplicateUpdates(/*next_update=*/update,
-                                  /*previous_update=*/duplicate_update)) {
-        updates.erase(it_and_success.first->second);
+                                  /*previous_update=*/*previous_update_it)) {
+        updates.erase(previous_update_it);
         guid_to_update[guid_in_specifics] = updates_iter;
         ++updates_iter;
       } else {
@@ -410,8 +413,7 @@ int GetNumUnsyncedEntities(const SyncedBookmarkTracker* tracker) {
   DCHECK(tracker);
 
   int num_unsynced_entities = 0;
-  for (const SyncedBookmarkTracker::Entity* entity :
-       tracker->GetAllEntities()) {
+  for (const SyncedBookmarkTrackerEntity* entity : tracker->GetAllEntities()) {
     if (entity->IsUnsynced()) {
       ++num_unsynced_entities;
     }
@@ -521,8 +523,7 @@ BookmarkModelMerger::RemoteTreeNode::BuildTree(
   }
 
   // Sort the children according to their unique position.
-  std::sort(node.children_.begin(), node.children_.end(),
-            UniquePositionLessThan);
+  base::ranges::sort(node.children_, UniquePositionLessThan);
 
   return node;
 }
@@ -535,6 +536,7 @@ BookmarkModelMerger::BookmarkModelMerger(
     : bookmark_model_(bookmark_model),
       favicon_service_(favicon_service),
       bookmark_tracker_(bookmark_tracker),
+      remote_updates_size_(updates.size()),
       remote_forest_(BuildRemoteForest(std::move(updates), bookmark_tracker)),
       guid_to_match_map_(
           FindGuidMatchesOrReassignLocal(remote_forest_, bookmark_model_)) {
@@ -593,7 +595,7 @@ void BookmarkModelMerger::Merge() {
     DCHECK_EQ(permanent_folder->guid(),
               GetPermanentFolderGUIDForServerDefinedUniqueTag(
                   server_defined_unique_tag));
-    MergeSubtree(/*local_subtree_root=*/permanent_folder,
+    MergeSubtree(/*local_node=*/permanent_folder,
                  /*remote_node=*/root);
   }
 
@@ -607,6 +609,8 @@ void BookmarkModelMerger::Merge() {
   base::UmaHistogramCounts100000(
       "Sync.BookmarkModelMerger.UnsyncedEntitiesUponCompletion",
       GetNumUnsyncedEntities(bookmark_tracker_));
+
+  ReportTimeMetrics();
 }
 
 // static
@@ -641,9 +645,9 @@ BookmarkModelMerger::RemoteForest BookmarkModelMerger::BuildRemoteForest(
 
   // All remaining entries in |updates_per_parent_guid| must be unreachable from
   // permanent entities, since otherwise they would have been moved away.
-  for (const auto& [parent_guid, updates] :
+  for (const auto& [parent_guid, updates_for_guid] :
        grouped_updates.updates_per_parent_guid) {
-    for (const UpdateResponseData& update : updates) {
+    for (const UpdateResponseData& update : updates_for_guid) {
       if (update.entity.specifics.has_bookmark()) {
         LogProblematicBookmark(RemoteBookmarkUpdateError::kMissingParentEntity);
         tracker_for_recording_ignored_updates
@@ -720,16 +724,14 @@ BookmarkModelMerger::FindGuidMatchesOrReassignLocal(
       continue;
     }
 
-    bool success =
+    const bool success =
         guid_to_match_map.emplace(node->guid(), GuidMatch{node, remote_node})
             .second;
 
     // Insertion must have succeeded unless there were duplicate GUIDs in the
     // local BookmarkModel (invariant violation that gets resolved upon
     // restart).
-    // TODO(crbug.com/516866): The below CHECK is added to debug some crashes.
-    // Should be converted to a DCHECK after the root cause if found.
-    CHECK(success);
+    DCHECK(success);
   }
 
   for (const bookmarks::BookmarkNode* node : nodes_to_replace_guid) {
@@ -744,7 +746,7 @@ void BookmarkModelMerger::MergeSubtree(
     const bookmarks::BookmarkNode* local_subtree_root,
     const RemoteTreeNode& remote_node) {
   const EntityData& remote_update_entity = remote_node.entity();
-  const SyncedBookmarkTracker::Entity* entity = bookmark_tracker_->Add(
+  const SyncedBookmarkTrackerEntity* entity = bookmark_tracker_->Add(
       local_subtree_root, remote_update_entity.id,
       remote_node.response_version(), remote_update_entity.creation_time,
       remote_update_entity.specifics);
@@ -890,6 +892,7 @@ void BookmarkModelMerger::ProcessRemoteCreation(
     const RemoteTreeNode& remote_node,
     const bookmarks::BookmarkNode* local_parent,
     size_t index) {
+  TRACE_EVENT0("sync", "BookmarkModelMerger::ProcessRemoteCreation");
   DCHECK(!FindMatchingLocalNodeByGUID(remote_node));
 
   const EntityData& remote_update_entity = remote_node.entity();
@@ -900,7 +903,7 @@ void BookmarkModelMerger::ProcessRemoteCreation(
       CreateBookmarkNodeFromSpecifics(specifics.bookmark(), local_parent, index,
                                       bookmark_model_, favicon_service_);
   DCHECK(bookmark_node);
-  const SyncedBookmarkTracker::Entity* entity = bookmark_tracker_->Add(
+  const SyncedBookmarkTrackerEntity* entity = bookmark_tracker_->Add(
       bookmark_node, remote_update_entity.id, remote_node.response_version(),
       remote_update_entity.creation_time, specifics);
   const bool is_reupload_needed =
@@ -934,7 +937,7 @@ void BookmarkModelMerger::ProcessLocalCreation(
     const bookmarks::BookmarkNode* parent,
     size_t index) {
   DCHECK_LE(index, parent->children().size());
-  const SyncedBookmarkTracker::Entity* parent_entity =
+  const SyncedBookmarkTrackerEntity* parent_entity =
       bookmark_tracker_->GetEntityForBookmarkNode(parent);
   // Since we are merging top down, parent entity must be tracked.
   DCHECK(parent_entity);
@@ -959,7 +962,7 @@ void BookmarkModelMerger::ProcessLocalCreation(
       GenerateUniquePositionForLocalCreation(parent, index, suffix);
   const sync_pb::EntitySpecifics specifics = CreateSpecificsFromBookmarkNode(
       node, bookmark_model_, pos.ToProto(), /*force_favicon_load=*/true);
-  const SyncedBookmarkTracker::Entity* entity = bookmark_tracker_->Add(
+  const SyncedBookmarkTrackerEntity* entity = bookmark_tracker_->Add(
       node, sync_id, server_version, creation_time, specifics);
   // Mark the entity that it needs to be committed.
   bookmark_tracker_->IncrementSequenceNumber(entity);
@@ -979,6 +982,8 @@ size_t BookmarkModelMerger::FindMatchingChildBySemanticsStartingAt(
     const bookmarks::BookmarkNode* local_parent,
     size_t starting_child_index) const {
   DCHECK(local_parent);
+  TRACE_EVENT0("sync",
+               "BookmarkModelMerger::FindMatchingChildBySemanticsStartingAt");
   const auto& children = local_parent->children();
   DCHECK_LE(starting_child_index, children.size());
   const EntityData& remote_entity = remote_node.entity();
@@ -1040,18 +1045,37 @@ BookmarkModelMerger::GenerateUniquePositionForLocalCreation(
   // one as it might be skipped if it has unprocessed remote matching by GUID
   // update.
   for (size_t i = index; i > 0; --i) {
-    const SyncedBookmarkTracker::Entity* predecessor_entity =
+    const SyncedBookmarkTrackerEntity* predecessor_entity =
         bookmark_tracker_->GetEntityForBookmarkNode(
             parent->children()[i - 1].get());
     if (predecessor_entity != nullptr) {
       return syncer::UniquePosition::After(
           syncer::UniquePosition::FromProto(
-              predecessor_entity->metadata()->unique_position()),
+              predecessor_entity->metadata().unique_position()),
           suffix);
     }
     DCHECK(FindMatchingRemoteNodeByGUID(parent->children()[i - 1].get()));
   }
   return syncer::UniquePosition::InitialPosition(suffix);
+}
+
+void BookmarkModelMerger::ReportTimeMetrics() {
+  base::TimeDelta all_time_elapsed = base::TimeTicks::Now() - started_;
+
+  base::UmaHistogramMediumTimes("Sync.BookmarkModelMergerTime",
+                                all_time_elapsed);
+  if (remote_updates_size_ >= 10000) {
+    base::UmaHistogramMediumTimes("Sync.BookmarkModelMergerTime.10kUpdates",
+                                  all_time_elapsed);
+  }
+  if (remote_updates_size_ >= 50000) {
+    base::UmaHistogramMediumTimes("Sync.BookmarkModelMergerTime.50kUpdates",
+                                  all_time_elapsed);
+  }
+  if (remote_updates_size_ >= 100000) {
+    base::UmaHistogramMediumTimes("Sync.BookmarkModelMergerTime.100kUpdates",
+                                  all_time_elapsed);
+  }
 }
 
 }  // namespace sync_bookmarks

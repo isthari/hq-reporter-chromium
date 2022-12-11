@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,9 @@
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service.h"
 #include "chrome/common/search/instant_types.h"
 #include "components/omnibox/browser/favicon_cache.h"
+#include "components/omnibox/browser/omnibox.mojom-shared.h"
 #include "components/omnibox/browser/omnibox_client.h"
+#include "components/omnibox/browser/on_device_tail_model_observer.h"
 
 class ChromeOmniboxEditController;
 class GURL;
@@ -49,6 +51,7 @@ class ChromeOmniboxClient : public OmniboxClient {
   AutocompleteClassifier* GetAutocompleteClassifier() override;
   bool ShouldDefaultTypedNavigationsToHttps() const override;
   int GetHttpsPortForTesting() const override;
+  bool IsUsingFakeHttpsForHttpsUpgradeTesting() const override;
   gfx::Image GetIconIfExtensionMatch(
       const AutocompleteMatch& match) const override;
   gfx::Image GetSizedIcon(const gfx::VectorIcon& vector_icon_type,
@@ -84,14 +87,15 @@ class ChromeOmniboxClient : public OmniboxClient {
   void DiscardNonCommittedNavigations() override;
   void OpenUpdateChromeDialog() override;
   void FocusWebContents() override;
+  void OnNavigationLikely(
+      size_t index,
+      const AutocompleteMatch& match,
+      omnibox::mojom::NavigationPredictor navigation_predictor) override;
 
   // Update shortcuts when a navigation succeeds.
   static void OnSuccessfulNavigation(Profile* profile,
                                      const std::u16string& text,
                                      const AutocompleteMatch& match);
-
-  // Called when a navigation finishes.
-  static void OnFinishedNavigation(Profile* profile);
 
  private:
   // Performs prerendering for |match|.
@@ -102,8 +106,6 @@ class ChromeOmniboxClient : public OmniboxClient {
 
   void OnBitmapFetched(const BitmapFetchedCallback& callback,
                        int result_index,
-                       bool is_cached,
-                       base::TimeTicks start_time,
                        const SkBitmap& bitmap);
 
   raw_ptr<ChromeOmniboxEditController> controller_;
@@ -111,6 +113,7 @@ class ChromeOmniboxClient : public OmniboxClient {
   ChromeAutocompleteSchemeClassifier scheme_classifier_;
   std::vector<BitmapFetcherService::RequestId> request_ids_;
   FaviconCache favicon_cache_;
+  std::unique_ptr<OnDeviceTailModelObserver> tail_model_observer_;
 
   base::WeakPtrFactory<ChromeOmniboxClient> weak_factory_{this};
 };

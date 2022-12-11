@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "components/signin/public/base/signin_buildflags.h"
 #include "components/signin/public/base/signin_metrics.h"
 #include "components/signin/public/base/signin_pref_names.h"
+#include "components/signin/public/base/signin_switches.h"
 #include "components/signin/public/identity_manager/identity_test_environment.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
@@ -466,10 +467,11 @@ TEST_F(PrimaryAccountMutatorTest, RevokeSyncConsent_DisabledConsistency) {
 }
 
 // Test that revoking sync consent when Mirror account consistency is enabled
-// clears the primary account (except for lacros).
+// clears the primary account (except for lacros and Android, where users are
+// allowed to revoke sync consent).
 TEST_F(PrimaryAccountMutatorTest, RevokeSyncConsent_MirrorConsistency) {
   RunRevokeSyncConsentTest(signin::AccountConsistencyMethod::kMirror,
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_LACROS) || BUILDFLAG(IS_ANDROID)
                            RemoveAccountExpectation::kKeepAll
 #else
                            RemoveAccountExpectation::kRemoveAll
@@ -482,14 +484,6 @@ TEST_F(PrimaryAccountMutatorTest, RevokeSyncConsent_MirrorConsistency) {
 TEST_F(PrimaryAccountMutatorTest, RevokeSyncConsent_DiceConsistency) {
   RunRevokeSyncConsentTest(signin::AccountConsistencyMethod::kDice,
                            RemoveAccountExpectation::kKeepAll);
-}
-
-// Test that revoking the sync consent when DICE account consistency is
-// enabled clears the primary account if it uin auth error state.
-TEST_F(PrimaryAccountMutatorTest, RevokeSyncConsent_DiceConsistency_AuthError) {
-  RunRevokeSyncConsentTest(signin::AccountConsistencyMethod::kDice,
-                           RemoveAccountExpectation::kRemoveAll,
-                           AuthExpectation::kAuthError);
 }
 
 #else  //! BUILDFLAG(IS_CHROMEOS_ASH)

@@ -1,11 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/audio/android/opensles_output.h"
 
 #include "base/android/build_info.h"
-#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/strings/string_util.h"
@@ -280,7 +279,7 @@ bool OpenSLESOutputStream::CreatePlayer() {
   LOG_ON_FAILURE_AND_RETURN(
       (*engine)->CreateAudioPlayer(
           engine, player_object_.Receive(), &audio_source, &audio_sink,
-          base::size(interface_id), interface_id, interface_required),
+          std::size(interface_id), interface_id, interface_required),
       false);
 
   // Create AudioPlayer and specify SL_IID_ANDROIDCONFIGURATION.
@@ -391,8 +390,8 @@ void OpenSLESOutputStream::FillBufferQueueNoLock() {
       AudioTimestampHelper::FramesToTime(delay_frames, samples_per_second_);
 
   // Read data from the registered client source.
-  const int frames_filled =
-      callback_->OnMoreData(delay, base::TimeTicks::Now(), 0, audio_bus_.get());
+  const int frames_filled = callback_->OnMoreData(delay, base::TimeTicks::Now(),
+                                                  {}, audio_bus_.get());
   if (frames_filled <= 0) {
     // Audio source is shutting down, or halted on error.
     return;

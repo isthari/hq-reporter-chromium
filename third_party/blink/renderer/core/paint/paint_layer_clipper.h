@@ -166,22 +166,17 @@ class CORE_EXPORT PaintLayerClipper {
  public:
   explicit PaintLayerClipper(const PaintLayer*, bool use_geometry_mapper);
 
-  // Returns the background clip rect of the layer in the local coordinate
-  // space. Only looks for clips up to the given ancestor.
-  PhysicalRect LocalClipRect(const PaintLayer& ancestor_layer) const;
-
   // Computes the same thing as |background_rect| in CalculateRects(), but
   // skips applying CSS clip and the VisualOverflowRect() of |layer_|.
   void CalculateBackgroundClipRect(const ClipRectsContext&,
                                    ClipRect& output) const;
 
-  // This method figures out our layerBounds in coordinates relative to
-  // |root_layer|. It also computes our background and foreground clip rects
-  // for painting/event handling. Pass offsetFromRoot if known.
+  // Computes offset of |layer_| in the coordinates space |context.root_layer|,
+  // and background and foreground clip rects for painting/event handling.
   // |fragment_data| is only used in kUseGeometryMapper mode.
-  void CalculateRects(const ClipRectsContext&,
-                      const FragmentData*,
-                      PhysicalRect& layer_bounds,
+  void CalculateRects(const ClipRectsContext& context,
+                      const FragmentData* fragment_data,
+                      PhysicalOffset& layer_offset,
                       ClipRect& background_rect,
                       ClipRect& foreground_rect) const;
 
@@ -202,7 +197,7 @@ class CORE_EXPORT PaintLayerClipper {
   ALWAYS_INLINE void CalculateRectsWithGeometryMapper(
       const ClipRectsContext&,
       const FragmentData&,
-      PhysicalRect& layer_bounds,
+      PhysicalOffset& layer_offset,
       ClipRect& background_rect,
       ClipRect& foreground_rect) const;
 

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,11 +28,12 @@ class MockProjectorController : public ash::ProjectorController {
   MOCK_METHOD0(OnTranscriptionError, void());
   MOCK_METHOD0(OnSpeechRecognitionStopped, void());
   MOCK_METHOD1(SetProjectorToolsVisible, void(bool is_visible));
-  MOCK_CONST_METHOD0(IsEligible, bool());
   MOCK_CONST_METHOD0(GetNewScreencastPrecondition, NewScreencastPrecondition());
-  MOCK_METHOD1(OnToolSet, void(const AnnotatorTool& tool));
   MOCK_METHOD2(OnUndoRedoAvailabilityChanged,
                void(bool undo_available, bool redo_available));
+  MOCK_METHOD1(OnCanvasInitialized, void(bool success));
+  MOCK_METHOD0(GetAnnotatorAvailability, bool());
+  MOCK_METHOD0(ToggleAnnotationTray, void());
 };
 
 }  // namespace ash

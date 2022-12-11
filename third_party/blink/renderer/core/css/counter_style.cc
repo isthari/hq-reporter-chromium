@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,6 +29,7 @@
 
 #include "third_party/blink/renderer/core/css/counter_style.h"
 
+#include "base/auto_reset.h"
 #include "third_party/blink/renderer/core/css/counter_style_map.h"
 #include "third_party/blink/renderer/core/css/css_custom_ident_value.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
@@ -928,7 +929,7 @@ String CounterStyle::GenerateInitialRepresentation(int value) const {
 
 String CounterStyle::IndexesToString(
     const Vector<wtf_size_t>& symbol_indexes) const {
-  if (symbol_indexes.IsEmpty())
+  if (symbol_indexes.empty())
     return String();
 
   StringBuilder result;

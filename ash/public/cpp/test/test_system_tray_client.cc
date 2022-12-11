@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,6 +54,8 @@ void TestSystemTrayClient::ShowWifiSyncSettings() {
 
 void TestSystemTrayClient::ShowAboutChromeOS() {}
 
+void TestSystemTrayClient::ShowAboutChromeOSDetails() {}
+
 void TestSystemTrayClient::ShowAccessibilityHelp() {}
 
 void TestSystemTrayClient::ShowAccessibilitySettings() {}
@@ -68,12 +70,23 @@ void TestSystemTrayClient::ShowPrivacyAndSecuritySettings() {
   show_os_settings_privacy_and_security_count_++;
 }
 
+void TestSystemTrayClient::ShowPrivacyHubSettings() {
+  show_os_settings_privacy_hub_count_++;
+}
+
+void TestSystemTrayClient::ShowSmartPrivacySettings() {
+  show_os_smart_privacy_settings_count_++;
+}
+
 void TestSystemTrayClient::ShowEnterpriseInfo() {}
 
 void TestSystemTrayClient::ShowNetworkConfigure(const std::string& network_id) {
 }
 
-void TestSystemTrayClient::ShowNetworkCreate(const std::string& type) {}
+void TestSystemTrayClient::ShowNetworkCreate(const std::string& type) {
+  show_network_create_count_++;
+  last_network_type_ = type;
+}
 
 void TestSystemTrayClient::ShowSettingsCellularSetup(bool show_psim_flow) {}
 
@@ -82,11 +95,20 @@ void TestSystemTrayClient::ShowSettingsSimUnlock() {
 }
 
 void TestSystemTrayClient::ShowThirdPartyVpnCreate(
-    const std::string& extension_id) {}
+    const std::string& extension_id) {
+  ++show_third_party_vpn_create_count_;
+  last_third_party_vpn_extension_id_ = extension_id;
+}
 
-void TestSystemTrayClient::ShowArcVpnCreate(const std::string& app_id) {}
+void TestSystemTrayClient::ShowArcVpnCreate(const std::string& app_id) {
+  ++show_arc_vpn_create_count_;
+  last_arc_vpn_app_id_ = app_id;
+}
 
-void TestSystemTrayClient::ShowNetworkSettings(const std::string& network_id) {}
+void TestSystemTrayClient::ShowNetworkSettings(const std::string& network_id) {
+  show_network_settings_count_++;
+  last_network_settings_network_id_ = network_id;
+}
 
 void TestSystemTrayClient::ShowMultiDeviceSetup() {
   show_multi_device_setup_count_++;
@@ -96,16 +118,30 @@ void TestSystemTrayClient::ShowFirmwareUpdate() {
   show_firmware_update_count_++;
 }
 
-void TestSystemTrayClient::RequestRestartForUpdate() {}
-
 void TestSystemTrayClient::SetLocaleAndExit(
     const std::string& locale_iso_code) {}
 
-void TestSystemTrayClient::ShowAccessCodeCastingDialog() {}
+void TestSystemTrayClient::ShowAccessCodeCastingDialog(
+    AccessCodeCastDialogOpenLocation open_location) {}
 
 void TestSystemTrayClient::ShowCalendarEvent(
     const absl::optional<GURL>& event_url,
+    const base::Time& date,
     bool& opened_pwa,
-    GURL& final_event_url) {}
+    GURL& final_event_url) {
+  show_calendar_event_count_++;
+}
+
+void TestSystemTrayClient::ShowChannelInfoAdditionalDetails() {
+  ++show_channel_info_additional_details_count_;
+}
+
+void TestSystemTrayClient::ShowChannelInfoGiveFeedback() {
+  ++show_channel_info_give_feedback_count_;
+}
+
+bool TestSystemTrayClient::IsUserFeedbackEnabled() {
+  return user_feedback_enabled_;
+}
 
 }  // namespace ash

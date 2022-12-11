@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,7 @@ class ArcDemoModeDelegateImpl : public ArcClientAdapter::DemoModeDelegate {
   ArcDemoModeDelegateImpl& operator=(const ArcDemoModeDelegateImpl&) = delete;
 
   // ArcClientAdapter::DemoModeDelegate overrides:
-  void EnsureOfflineResourcesLoaded(base::OnceClosure callback) override;
+  void EnsureResourcesLoaded(base::OnceClosure callback) override;
   base::FilePath GetDemoAppsPath() override;
 };
 

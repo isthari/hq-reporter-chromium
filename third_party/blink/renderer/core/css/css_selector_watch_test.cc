@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -84,11 +84,9 @@ TEST_F(CSSSelectorWatchTest, RecalcOnDocumentChange) {
 }
 
 class CSSSelectorWatchCQTest : public CSSSelectorWatchTest,
-                               private ScopedCSSContainerQueriesForTest,
                                private ScopedLayoutNGForTest {
  protected:
-  CSSSelectorWatchCQTest()
-      : ScopedCSSContainerQueriesForTest(true), ScopedLayoutNGForTest(true) {}
+  CSSSelectorWatchCQTest() : ScopedLayoutNGForTest(true) {}
 };
 
 TEST_F(CSSSelectorWatchCQTest, ContainerQueryDisplayNone) {
@@ -101,7 +99,7 @@ TEST_F(CSSSelectorWatchCQTest, ContainerQueryDisplayNone) {
         container-type: inline-size;
       }
       .c #inner { display: none; }
-      @container c1 size(min-width: 200px) {
+      @container c1 (min-width: 200px) {
         .c #inner { display: inline }
       }
     </style>

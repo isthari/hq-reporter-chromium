@@ -55,7 +55,7 @@ class CORE_EXPORT StyleResolverState {
  public:
   StyleResolverState(Document&,
                      Element&,
-                     const StyleRecalcContext& = StyleRecalcContext(),
+                     const StyleRecalcContext* = nullptr,
                      const StyleRequest& = StyleRequest());
   StyleResolverState(const StyleResolverState&) = delete;
   StyleResolverState& operator=(const StyleResolverState&) = delete;
@@ -89,12 +89,10 @@ class CORE_EXPORT StyleResolverState {
   }
 
   void SetStyle(scoped_refptr<ComputedStyle>);
-  const ComputedStyle* Style() const { return style_.get(); }
-  ComputedStyle* Style() { return style_.get(); }
-  ComputedStyle& StyleRef() {
-    DCHECK(style_);
-    return *style_;
-  }
+  const ComputedStyle* Style() const { return style_builder_.InternalStyle(); }
+  ComputedStyle* Style() { return style_builder_.MutableInternalStyle(); }
+  ComputedStyleBuilder& StyleBuilder() { return style_builder_; }
+  const ComputedStyleBuilder& StyleBuilder() const { return style_builder_; }
   scoped_refptr<ComputedStyle> TakeStyle();
 
   const CSSToLengthConversionData& CssToLengthConversionData() const {
@@ -102,6 +100,12 @@ class CORE_EXPORT StyleResolverState {
   }
   CSSToLengthConversionData FontSizeConversionData() const;
   CSSToLengthConversionData UnzoomedLengthConversionData() const;
+
+  ScopedCSSToLengthConversionData GetScopedCSSToLengthConversionData(
+      const TreeScope* scope) const {
+    return ScopedCSSToLengthConversionData(css_to_length_conversion_data_,
+                                           scope);
+  }
 
   void SetConversionFontSizes(
       const CSSToLengthConversionData::FontSizes& font_sizes) {
@@ -117,6 +121,10 @@ class CORE_EXPORT StyleResolverState {
   }
 
   Element* GetAnimatingElement() const;
+
+  // Returns the pseudo element if the style resolution is targeting a pseudo
+  // element, null otherwise.
+  PseudoElement* GetPseudoElement() const;
 
   void SetParentStyle(scoped_refptr<const ComputedStyle>);
   const ComputedStyle* ParentStyle() const { return parent_style_.get(); }
@@ -160,7 +168,13 @@ class CORE_EXPORT StyleResolverState {
   // reference to the passed value.
   const CSSValue& ResolveLightDarkPair(const CSSValue&);
 
+  const ComputedStyle* OriginatingElementStyle() const {
+    return originating_element_style_.get();
+  }
   bool IsForHighlight() const { return is_for_highlight_; }
+  bool UsesHighlightPseudoInheritance() const {
+    return uses_highlight_pseudo_inheritance_;
+  }
 
   bool CanCacheBaseStyle() const { return can_cache_base_style_; }
 
@@ -181,6 +195,18 @@ class CORE_EXPORT StyleResolverState {
   }
   void SetAffectsCompositorSnapshots() { affects_compositor_snapshots_ = true; }
 
+  bool RejectedLegacyOverlapping() const {
+    return rejected_legacy_overlapping_;
+  }
+  void SetRejectedLegacyOverlapping() { rejected_legacy_overlapping_ = true; }
+
+  // Update the Font object on the ComputedStyle and the CSSLengthResolver to
+  // reflect applied font properties.
+  void UpdateFont();
+
+  // Update computed line-height and font used for 'lh' unit resolution.
+  void UpdateLineHeight();
+
  private:
   void UpdateLengthConversionData();
   CSSToLengthConversionData UnzoomedLengthConversionData(
@@ -189,8 +215,8 @@ class CORE_EXPORT StyleResolverState {
   ElementResolveContext element_context_;
   Document* document_;
 
-  // style_ is the primary output for each element's style resolve.
-  scoped_refptr<ComputedStyle> style_;
+  // The primary output for each element's style resolve.
+  ComputedStyleBuilder style_builder_;
 
   CSSToLengthConversionData css_to_length_conversion_data_;
 
@@ -210,10 +236,14 @@ class CORE_EXPORT StyleResolverState {
   PseudoElement* pseudo_element_;
   ElementStyleResources element_style_resources_;
   ElementType element_type_;
-  Element* nearest_container_;
+  Element* container_unit_context_;
 
+  scoped_refptr<const ComputedStyle> originating_element_style_;
   // True if we are resolving styles for a highlight pseudo-element.
   const bool is_for_highlight_;
+  // True if this is a highlight style request, and highlight inheritance
+  // should be used for this highlight pseudo.
+  const bool uses_highlight_pseudo_inheritance_;
 
   // True if the base style can be cached to optimize style recalculations for
   // animation updates or transition retargeting.
@@ -229,6 +259,10 @@ class CORE_EXPORT StyleResolverState {
 
   // True if snapshots of composited keyframes require re-validation.
   bool affects_compositor_snapshots_ = false;
+
+  // True if the cascade rejected any properties with the kLegacyOverlapping
+  // flag.
+  bool rejected_legacy_overlapping_ = false;
 };
 
 }  // namespace blink

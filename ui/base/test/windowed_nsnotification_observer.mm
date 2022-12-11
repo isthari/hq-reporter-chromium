@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/thread_task_runner_handle.h"
 
 @interface WindowedNSNotificationObserver ()
 - (void)onNotification:(NSNotification*)notification;
@@ -72,7 +71,7 @@
   while (_notificationCount < minimumCount) {
     const int oldCount = _notificationCount;
     base::RunLoop runLoop;
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, runLoop.QuitClosure(), TestTimeouts::action_timeout());
     _runLoop = &runLoop;
     runLoop.Run();

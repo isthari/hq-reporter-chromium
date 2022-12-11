@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -84,7 +84,7 @@ class TabWebContentsDelegateAndroid
                       std::unique_ptr<content::WebContents> new_contents,
                       const GURL& target_url,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_rect,
+                      const blink::mojom::WindowFeatures& window_features,
                       bool user_gesture,
                       bool* was_blocked) override;
   void OnDidBlockNavigation(
@@ -92,11 +92,13 @@ class TabWebContentsDelegateAndroid
       const GURL& blocked_url,
       const GURL& initiator_url,
       blink::mojom::NavigationBlockedReason reason) override;
+  void UpdateUserGestureCarryoverInfo(
+      content::WebContents* web_contents) override;
   content::PictureInPictureResult EnterPictureInPicture(
       content::WebContents* web_contents) override;
   void ExitPictureInPicture() override;
   bool IsBackForwardCacheSupported() override;
-  bool IsPrerender2Supported() override;
+  bool IsPrerender2Supported(content::WebContents& web_contents) override;
   std::unique_ptr<content::WebContents> ActivatePortalWebContents(
       content::WebContents* predecessor_contents,
       std::unique_ptr<content::WebContents> portal_contents) override;
@@ -136,6 +138,7 @@ class TabWebContentsDelegateAndroid
   bool IsCustomTab() const;
   const GURL GetManifestScope() const;
   bool IsInstalledWebappDelegateGeolocation() const;
+  bool IsModalContextMenu() const;
 
  private:
   std::unique_ptr<device::mojom::GeolocationContext>

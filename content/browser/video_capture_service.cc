@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "services/video_capture/public/mojom/video_capture_service.mojom.h"
-#include "services/video_capture/public/uma/video_capture_service_event.h"
 #include "services/video_capture/video_capture_service_impl.h"
 
 #if BUILDFLAG(IS_WIN)
@@ -132,12 +131,7 @@ video_capture::mojom::VideoCaptureService& GetVideoCaptureService() {
           base::Seconds(5),
           base::BindRepeating(
               [](mojo::Remote<video_capture::mojom::VideoCaptureService>*
-                     remote) {
-                video_capture::uma::LogVideoCaptureServiceEvent(
-                    video_capture::uma ::
-                        SERVICE_SHUTTING_DOWN_BECAUSE_NO_CLIENT);
-                remote->reset();
-              },
+                     remote) { remote->reset(); },
               &remote));
 #endif  // !BUILDFLAG(IS_ANDROID)
 

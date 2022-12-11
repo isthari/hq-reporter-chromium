@@ -1,19 +1,19 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_CRASH_REPORT_BREADCRUMBS_BREADCRUMB_MANAGER_BROWSER_AGENT_H_
 #define IOS_CHROME_BROWSER_CRASH_REPORT_BREADCRUMBS_BREADCRUMB_MANAGER_BROWSER_AGENT_H_
 
-#include <string>
+#import <string>
 
-#include "base/scoped_observation.h"
-#include "components/breadcrumbs/core/breadcrumb_manager_browser_agent.h"
-#include "ios/chrome/browser/main/browser_observer.h"
-#include "ios/chrome/browser/main/browser_user_data.h"
-#include "ios/chrome/browser/overlays/public/overlay_presenter.h"
-#include "ios/chrome/browser/overlays/public/overlay_presenter_observer.h"
-#include "ios/chrome/browser/web_state_list/web_state_list_observer.h"
+#import "base/scoped_observation.h"
+#import "components/breadcrumbs/core/breadcrumb_manager_browser_agent.h"
+#import "ios/chrome/browser/main/browser_observer.h"
+#import "ios/chrome/browser/main/browser_user_data.h"
+#import "ios/chrome/browser/overlays/public/overlay_presenter.h"
+#import "ios/chrome/browser/overlays/public/overlay_presenter_observer.h"
+#import "ios/chrome/browser/web_state_list/web_state_list_observer.h"
 
 class Browser;
 class WebStateList;
@@ -21,27 +21,27 @@ class WebStateList;
 // Name of Overlay initial presentation event.
 extern const char kBreadcrumbOverlay[];
 
-// Appended to |kBreadcrumbOverlay| event if overlay was re-activated rather
+// Appended to `kBreadcrumbOverlay` event if overlay was re-activated rather
 // than presented for the first time (f.e. the user has switched to a tab with
 // an overlay).
 extern const char kBreadcrumbOverlayActivated[];
 
-// Appended to |kBreadcrumbOverlay| event if overlay is Http Authentication.
+// Appended to `kBreadcrumbOverlay` event if overlay is Http Authentication.
 extern const char kBreadcrumbOverlayHttpAuth[];
 
-// Appended to |kBreadcrumbOverlay| event if overlay is generic app dialog.
+// Appended to `kBreadcrumbOverlay` event if overlay is generic app dialog.
 extern const char kBreadcrumbOverlayAlert[];
 
-// Appended to |kBreadcrumbOverlay| event if overlay is app launch confirmation.
+// Appended to `kBreadcrumbOverlay` event if overlay is app launch confirmation.
 extern const char kBreadcrumbOverlayAppLaunch[];
 
-// Appended to |kBreadcrumbOverlay| event if overlay is JavaScript alert.
+// Appended to `kBreadcrumbOverlay` event if overlay is JavaScript alert.
 extern const char kBreadcrumbOverlayJsAlert[];
 
-// Appended to |kBreadcrumbOverlay| event if overlay is JavaScript confirm.
+// Appended to `kBreadcrumbOverlay` event if overlay is JavaScript confirm.
 extern const char kBreadcrumbOverlayJsConfirm[];
 
-// Appended to |kBreadcrumbOverlay| event if overlay is JavaScript prompt.
+// Appended to `kBreadcrumbOverlay` event if overlay is JavaScript prompt.
 extern const char kBreadcrumbOverlayJsPrompt[];
 
 class BreadcrumbManagerBrowserAgent
@@ -57,9 +57,10 @@ class BreadcrumbManagerBrowserAgent
   ~BreadcrumbManagerBrowserAgent() override;
 
  private:
-  explicit BreadcrumbManagerBrowserAgent(Browser* browser);
   friend class BrowserUserData<BreadcrumbManagerBrowserAgent>;
   BROWSER_USER_DATA_KEY_DECL();
+
+  explicit BreadcrumbManagerBrowserAgent(Browser* browser);
 
   // breadcrumbs::BreadcrumbManagerBrowserAgent:
   void PlatformLogEvent(const std::string& event) override;

@@ -1,11 +1,10 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.tab.state;
 
 import org.chromium.base.Callback;
-import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.PostTask;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
 
@@ -20,7 +19,13 @@ import java.util.List;
 public class EmptyByteBufferPersistedTabDataStorage implements PersistedTabDataStorage {
     // Unused
     @Override
-    public void save(int tabId, String tabDataId, Supplier<ByteBuffer> dataSupplier) {
+    public void save(int tabId, String tabDataId, Serializer<ByteBuffer> serializer) {
+        assert false : "save is currently unused in EmptyByteBufferPersistedTabDataStorage";
+    }
+
+    @Override
+    public void save(int tabId, String tabDataId, Serializer<ByteBuffer> serializer,
+            Callback<Integer> callback) {
         assert false : "save is currently unused in EmptyByteBufferPersistedTabDataStorage";
     }
 
@@ -34,6 +39,18 @@ public class EmptyByteBufferPersistedTabDataStorage implements PersistedTabDataS
     @Override
     public ByteBuffer restore(int tabId, String tabDataId) {
         return ByteBuffer.allocateDirect(0);
+    }
+
+    @Override
+    public <U extends PersistedTabDataResult> U restore(
+            int tabId, String dataId, PersistedTabDataMapper<U> mapper) {
+        return mapper.map(ByteBuffer.allocateDirect(0));
+    }
+
+    @Override
+    public <U extends PersistedTabDataResult> void restore(
+            int tabId, String dataId, Callback<U> callback, PersistedTabDataMapper<U> mapper) {
+        callback.onResult(mapper.map(ByteBuffer.allocateDirect(0)));
     }
 
     // Unused

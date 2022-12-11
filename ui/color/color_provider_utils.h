@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,9 @@
 
 #include <string>
 
+#include "base/callback.h"
 #include "base/component_export.h"
+#include "base/containers/flat_map.h"
 #include "base/strings/string_piece.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/color/color_id.h"
@@ -17,6 +19,12 @@
 namespace ui {
 
 using RendererColorMap = base::flat_map<color::mojom::RendererColorId, SkColor>;
+
+class COMPONENT_EXPORT(COLOR) ColorProviderUtilsCallbacks {
+ public:
+  virtual ~ColorProviderUtilsCallbacks();
+  virtual bool ColorIdName(ColorId color_id, base::StringPiece* color_name) = 0;
+};
 
 // The following functions convert various values to strings intended for
 // logging. Do not retain the results for longer than the scope in which these
@@ -32,14 +40,10 @@ base::StringPiece COMPONENT_EXPORT(COLOR)
 
 // Converts SystemTheme.
 base::StringPiece COMPONENT_EXPORT(COLOR)
-    SystemThemeName(ColorProviderManager::SystemTheme system_theme);
+    SystemThemeName(ui::SystemTheme system_theme);
 
 // Converts ColorId.
-base::StringPiece COMPONENT_EXPORT(COLOR) ColorIdName(ColorId color_id);
-
-// Converts ColorSetId.
-base::StringPiece COMPONENT_EXPORT(COLOR)
-    ColorSetIdName(ColorSetId color_set_id);
+std::string COMPONENT_EXPORT(COLOR) ColorIdName(ColorId color_id);
 
 // Converts SkColor to string. Check if color matches a standard color palette
 // value and return it as a string. Otherwise return as an rgba(xx, xxx, xxx,
@@ -72,6 +76,11 @@ ColorProvider COMPONENT_EXPORT(COLOR) CreateColorProviderFromRendererColorMap(
 bool COMPONENT_EXPORT(COLOR) IsRendererColorMappingEquivalent(
     const ColorProvider& color_provider,
     const RendererColorMap& renderer_color_map);
+
+// Sets the callback for converting a ChromeColorId to a string name. This is
+// used by ColorIdName. Only one callback is allowed.
+void COMPONENT_EXPORT(COLOR)
+    SetColorProviderUtilsCallbacks(ColorProviderUtilsCallbacks* callbacks);
 
 }  // namespace ui
 

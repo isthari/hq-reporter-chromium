@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,17 +13,18 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_content_browser_client.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile_shortcut_manager.h"
+#include "chrome/browser/ui/webui/chrome_web_ui_configs.h"
 #include "chrome/browser/ui/webui/chrome_web_ui_controller_factory.h"
 #include "chrome/browser/update_client/chrome_update_query_params_delegate.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chrome/utility/chrome_content_utility_client.h"
 #include "components/component_updater/component_updater_paths.h"
 #include "components/startup_metric_utils/browser/startup_metric_utils.h"
 #include "components/update_client/update_query_params.h"
+#include "content/public/browser/webui_config_map.h"
 #include "content/public/common/content_paths.h"
 #include "content/public/test/scoped_web_ui_controller_factory_registration.h"
 #include "extensions/buildflags/buildflags.h"
@@ -35,7 +36,7 @@
 #include "ui/base/ui_base_paths.h"
 #include "ui/gl/test/gl_surface_test_support.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "chromeos/dbus/constants/dbus_paths.h"
 #endif
 
@@ -55,15 +56,6 @@ namespace {
 
 constexpr char kDefaultLocale[] = "en-US";
 
-class ChromeContentBrowserClientWithoutNetworkServiceInitialization
-    : public ChromeContentBrowserClient {
- public:
-  // content::ContentBrowserClient:
-  // Skip some production Network Service code that doesn't work in unit tests.
-  void OnNetworkServiceCreated(
-      network::mojom::NetworkService* network_service) override {}
-};
-
 // Creates a TestingBrowserProcess for each test.
 class ChromeUnitTestSuiteInitializer : public testing::EmptyTestEventListener {
  public:
@@ -75,15 +67,6 @@ class ChromeUnitTestSuiteInitializer : public testing::EmptyTestEventListener {
   ~ChromeUnitTestSuiteInitializer() override = default;
 
   void OnTestStart(const testing::TestInfo& test_info) override {
-    content_client_ = std::make_unique<ChromeContentClient>();
-    content::SetContentClient(content_client_.get());
-
-    browser_content_client_ = std::make_unique<
-        ChromeContentBrowserClientWithoutNetworkServiceInitialization>();
-    content::SetBrowserClientForTesting(browser_content_client_.get());
-    utility_content_client_ = std::make_unique<ChromeContentUtilityClient>();
-    content::SetUtilityClientForTesting(utility_content_client_.get());
-
     TestingBrowserProcess::CreateInstance();
     // Make sure the loaded locale is "en-US".
     if (ui::ResourceBundle::GetSharedInstance().GetLoadedLocaleForTesting() !=
@@ -97,28 +80,19 @@ class ChromeUnitTestSuiteInitializer : public testing::EmptyTestEventListener {
   }
 
   void OnTestEnd(const testing::TestInfo& test_info) override {
-    browser_content_client_.reset();
-    utility_content_client_.reset();
-    content_client_.reset();
-    content::SetContentClient(nullptr);
-
     TestingBrowserProcess::DeleteInstance();
     // Some tests cause ChildThreadImpl to initialize a PowerMonitor.
     base::PowerMonitor::ShutdownForTesting();
-    DCHECK(ui::AXPlatformNode::GetAccessibilityMode() == 0)
-        << "Please use ScopedAxModeSetter, or add a call to "
-           "AXPlatformNode::ResetAxModeForTesting() at the end of your test.";
+    DCHECK(ui::AXPlatformNode::GetAccessibilityMode() == ui::AXMode::kNone)
+        << "Please use ScopedAXModeSetter, or add a call to "
+           "AXPlatformNode::SetAXMode(ui::AXMode::kNone) at the end of your "
+           "test.";
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     arc::ClearArcAllowedCheckForTesting();
     crypto::ResetTokenManagerForTesting();
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+    browser_shutdown::ResetShutdownGlobalsForTesting();
   }
-
- private:
-  // Client implementations for the content module.
-  std::unique_ptr<ChromeContentClient> content_client_;
-  std::unique_ptr<ChromeContentBrowserClient> browser_content_client_;
-  std::unique_ptr<ChromeContentUtilityClient> utility_content_client_;
 };
 
 }  // namespace
@@ -133,8 +107,7 @@ void ChromeUnitTestSuite::Initialize() {
   testing::TestEventListeners& listeners =
       testing::UnitTest::GetInstance()->listeners();
   listeners.Append(new ChromeUnitTestSuiteInitializer);
-  listeners.Append(
-      new content::CheckForLeakedWebUIControllerFactoryRegistrations);
+  listeners.Append(new content::CheckForLeakedWebUIRegistrations);
 
   {
     ChromeContentClient content_client;
@@ -180,7 +153,7 @@ void ChromeUnitTestSuite::InitializeProviders() {
   ash::RegisterPathProvider();
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   chromeos::dbus_paths::RegisterPathProvider();
 #endif
 
@@ -192,6 +165,7 @@ void ChromeUnitTestSuite::InitializeProviders() {
 
   content::WebUIControllerFactory::RegisterFactory(
       ChromeWebUIControllerFactory::GetInstance());
+  RegisterChromeWebUIConfigs();
 
   gl::GLSurfaceTestSupport::InitializeOneOff();
 

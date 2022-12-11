@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,6 +77,80 @@ TEST(InterestGroupMojomTraitsTest, SerializeAndDeserializeName) {
   SerializeAndDeserializeAndCompare(interest_group);
 }
 
+TEST(InterestGroupMojomTraitsTest, SerializeAndDeserializePriority) {
+  InterestGroup interest_group = CreateInterestGroup();
+  interest_group.priority = 5.0;
+  SerializeAndDeserializeAndCompare(interest_group);
+}
+
+TEST(InterestGroupMojomTraitsTest,
+     SerializeAndDeserializeEnableBiddingSignalsPrioritization) {
+  InterestGroup interest_group = CreateInterestGroup();
+  interest_group.enable_bidding_signals_prioritization = true;
+  SerializeAndDeserializeAndCompare(interest_group);
+}
+
+TEST(InterestGroupMojomTraitsTest, SerializeAndDeserializePriorityVector) {
+  InterestGroup interest_group = CreateInterestGroup();
+
+  interest_group.priority_vector = {{{"signals", 1.23}}};
+  SerializeAndDeserializeAndCompare(interest_group);
+
+  interest_group.priority_vector = {
+      {{"signals1", 1}, {"signals2", 3}, {"signals3", -5}}};
+  SerializeAndDeserializeAndCompare(interest_group);
+}
+
+TEST(InterestGroupMojomTraitsTest,
+     SerializeAndDeserializePrioritySignalsOverride) {
+  InterestGroup interest_group = CreateInterestGroup();
+  // `priority_vector` is currently always set when `priority_signals_override`
+  // is.
+  interest_group.priority_vector.emplace();
+
+  interest_group.priority_signals_overrides = {{{"signals", 0.51}}};
+  SerializeAndDeserializeAndCompare(interest_group);
+
+  interest_group.priority_signals_overrides = {
+      {{"signals1", 1}, {"signals2", 3}, {"signals3", -5}}};
+  SerializeAndDeserializeAndCompare(interest_group);
+}
+
+TEST(InterestGroupMojomTraitsTest, SerializeAndDeserializeSellerCapabilities) {
+  InterestGroup interest_group = CreateInterestGroup();
+
+  interest_group.seller_capabilities = {
+      {url::Origin::Create(GURL(kOrigin1)),
+       InterestGroup::SellerCapabilitiesType()}};
+  SerializeAndDeserializeAndCompare(interest_group);
+
+  interest_group.seller_capabilities = {
+      {url::Origin::Create(GURL(kOrigin1)),
+       InterestGroup::SellerCapabilitiesType()},
+      {url::Origin::Create(GURL(kOrigin2)),
+       InterestGroup::SellerCapabilitiesType()}};
+  SerializeAndDeserializeAndCompare(interest_group);
+}
+
+TEST(InterestGroupMojomTraitsTest,
+     SerializeAndDeserializeAllSellerCapabilities) {
+  InterestGroup interest_group = CreateInterestGroup();
+
+  interest_group.all_sellers_capabilities.Put(
+      InterestGroup::SellerCapabilities::kInterestGroupCounts);
+  SerializeAndDeserializeAndCompare(interest_group);
+
+  interest_group.all_sellers_capabilities.Put(
+      InterestGroup::SellerCapabilities::kLatencyStats);
+  SerializeAndDeserializeAndCompare(interest_group);
+
+  interest_group.all_sellers_capabilities.Put(
+      InterestGroup::SellerCapabilities::kInterestGroupCounts);
+  interest_group.all_sellers_capabilities.Put(
+      InterestGroup::SellerCapabilities::kLatencyStats);
+  SerializeAndDeserializeAndCompare(interest_group);
+}
+
 TEST(InterestGroupMojomTraitsTest, SerializeAndDeserializeBiddingUrl) {
   InterestGroup interest_group = CreateInterestGroup();
   interest_group.bidding_url = GURL(kUrl1);
@@ -91,7 +165,7 @@ TEST(InterestGroupMojomTraitsTest, SerializeAndDeserializeWasmHelperUrl) {
 
 TEST(InterestGroupMojomTraitsTest, SerializeAndDeserializeUpdateUrl) {
   InterestGroup interest_group = CreateInterestGroup();
-  interest_group.update_url = GURL(kUrl1);
+  interest_group.daily_update_url = GURL(kUrl1);
   SerializeAndDeserializeAndCompare(interest_group);
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -69,16 +69,6 @@ bool ArcStorageManager::GetApplicationsSize(
   if (!storage_manager_instance)
     return false;
   storage_manager_instance->GetApplicationsSize(std::move(callback));
-  return true;
-}
-
-bool ArcStorageManager::DeleteApplicationsCache(
-    base::OnceCallback<void()> callback) {
-  auto* storage_manager_instance = ARC_GET_INSTANCE_FOR_METHOD(
-      arc_bridge_service_->storage_manager(), DeleteApplicationsCache);
-  if (!storage_manager_instance)
-    return false;
-  storage_manager_instance->DeleteApplicationsCache(std::move(callback));
   return true;
 }
 

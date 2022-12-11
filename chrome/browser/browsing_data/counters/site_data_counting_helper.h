@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 
 #include "base/callback.h"
 #include "base/memory/raw_ptr.h"
-#include "chrome/browser/browsing_data/browsing_data_media_license_helper.h"
+#include "base/time/time.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "net/cookies/canonical_cookie.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom-forward.h"
@@ -52,9 +52,6 @@ class SiteDataCountingHelper {
       const std::vector<content::StorageUsageInfo>& infos);
   void GetQuotaBucketsCallback(const std::set<storage::BucketLocator>& buckets,
                                blink::mojom::StorageType type);
-  void SitesWithMediaLicensesCallback(
-      const std::list<content::StorageUsageInfo>&
-          media_license_usage_info_list);
 
   void Done(const std::vector<GURL>& origins);
 
@@ -64,7 +61,6 @@ class SiteDataCountingHelper {
   base::OnceCallback<void(int)> completion_callback_;
   int tasks_;
   std::set<std::string> unique_hosts_;
-  scoped_refptr<BrowsingDataMediaLicenseHelper> media_license_helper_;
 };
 
 #endif  // CHROME_BROWSER_BROWSING_DATA_COUNTERS_SITE_DATA_COUNTING_HELPER_H_

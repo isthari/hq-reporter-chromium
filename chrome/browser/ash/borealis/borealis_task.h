@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,18 @@
 
 #include "base/files/file.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "chrome/browser/ash/borealis/borealis_context_manager.h"
+#include "chrome/browser/ash/borealis/borealis_features.h"
+#include "chrome/browser/ash/borealis/borealis_launch_options.h"
 #include "chrome/browser/ash/borealis/borealis_launch_watcher.h"
 #include "chrome/browser/ash/borealis/borealis_metrics.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/dlcservice/dlcservice_client.h"
+#include "chrome/browser/ash/guest_os/public/guest_os_wayland_server.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/dlcservice/dlcservice_client.h"
 
 namespace borealis {
 
-class BorealisCapabilities;
 class BorealisContext;
 
 // BorealisTasks are collections of operations that are run by the
@@ -45,6 +48,33 @@ class BorealisTask {
   CompletionResultCallback callback_;
 };
 
+// Double-checks that borealis is allowed.
+class CheckAllowed : public BorealisTask {
+ public:
+  CheckAllowed();
+  ~CheckAllowed() override;
+  void RunInternal(BorealisContext* context) override;
+
+ private:
+  void OnAllowednessChecked(BorealisContext* context,
+                            BorealisFeatures::AllowStatus allow_status);
+  base::WeakPtrFactory<CheckAllowed> weak_factory_{this};
+};
+
+// Finds the options used for the current borealis launch.
+class GetLaunchOptions : public BorealisTask {
+ public:
+  GetLaunchOptions();
+  ~GetLaunchOptions() override;
+  void RunInternal(BorealisContext* context) override;
+
+ private:
+  void HandleOptions(BorealisContext* context,
+                     BorealisLaunchOptions::Options options);
+
+  base::WeakPtrFactory<GetLaunchOptions> weak_factory_{this};
+};
+
 // Mounts the Borealis DLC.
 class MountDlc : public BorealisTask {
  public:
@@ -53,9 +83,8 @@ class MountDlc : public BorealisTask {
   void RunInternal(BorealisContext* context) override;
 
  private:
-  void OnMountDlc(
-      BorealisContext* context,
-      const chromeos::DlcserviceClient::InstallResult& install_result);
+  void OnMountDlc(BorealisContext* context,
+                  const ash::DlcserviceClient::InstallResult& install_result);
   base::WeakPtrFactory<MountDlc> weak_factory_{this};
 };
 
@@ -84,8 +113,7 @@ class RequestWaylandServer : public BorealisTask {
 
  private:
   void OnServerRequested(BorealisContext* context,
-                         BorealisCapabilities* capabilities,
-                         const base::FilePath& server_path);
+                         guest_os::GuestOsWaylandServer::Result result);
   base::WeakPtrFactory<RequestWaylandServer> weak_factory_{this};
 };
 

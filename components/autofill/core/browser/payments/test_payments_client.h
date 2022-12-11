@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,6 +54,7 @@ class TestPaymentsClient : public payments::PaymentsClient {
                               std::unique_ptr<base::Value>,
                               std::vector<std::pair<int, int>>)> callback,
       const int billable_service_number,
+      const int64_t billing_customer_number,
       UploadCardSource upload_card_source =
           UploadCardSource::UNKNOWN_UPLOAD_CARD_SOURCE) override;
 
@@ -108,9 +109,17 @@ class TestPaymentsClient : public payments::PaymentsClient {
   void SetUseInvalidLegalMessageInGetUploadDetails(
       bool use_invalid_legal_message);
 
+  void SetUseLegalMessageWithMultipleLinesInGetUploadDetails(
+      bool use_legal_message_with_multiple_lines);
+
   void set_select_challenge_option_result(
       AutofillClient::PaymentsRpcResult result) {
     select_challenge_option_result_ = result;
+  }
+
+  void set_update_virtual_card_enrollment_result(
+      AutofillClient::PaymentsRpcResult result) {
+    update_virtual_card_enrollment_result_ = result;
   }
 
   payments::PaymentsClient::UnmaskDetails* unmask_details() {
@@ -135,6 +144,9 @@ class TestPaymentsClient : public payments::PaymentsClient {
   }
   int billable_service_number_in_request() const {
     return billable_service_number_;
+  }
+  int64_t billing_customer_number_in_request() const {
+    return billing_customer_number_;
   }
   PaymentsClient::UploadCardSource upload_card_source_in_request() const {
     return upload_card_source_;
@@ -167,12 +179,16 @@ class TestPaymentsClient : public payments::PaymentsClient {
   std::string pan_first_six_;
   std::vector<const char*> active_experiments_;
   int billable_service_number_;
+  int64_t billing_customer_number_;
   PaymentsClient::UploadCardSource upload_card_source_;
   std::unique_ptr<std::unordered_map<std::string, std::string>> save_result_;
   bool use_invalid_legal_message_ = false;
+  bool use_legal_message_with_multiple_lines_ = false;
   std::unique_ptr<base::Value> LegalMessage();
   absl::optional<AutofillClient::PaymentsRpcResult>
       select_challenge_option_result_;
+  absl::optional<AutofillClient::PaymentsRpcResult>
+      update_virtual_card_enrollment_result_;
   payments::PaymentsClient::GetDetailsForEnrollmentRequestDetails
       get_details_for_enrollment_request_details_;
   payments::PaymentsClient::UpdateVirtualCardEnrollmentRequestDetails

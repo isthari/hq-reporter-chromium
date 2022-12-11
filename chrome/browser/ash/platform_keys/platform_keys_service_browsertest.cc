@@ -1,6 +1,8 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "chrome/browser/ash/platform_keys/platform_keys_service.h"
 
 #include <memory>
 #include <string>
@@ -8,12 +10,10 @@
 #include <utility>
 #include <vector>
 
-#include "ash/components/login/auth/user_context.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/containers/span.h"
-#include "base/cxx17_backports.h"
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
@@ -21,13 +21,11 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/ash/login/test/device_state_mixin.h"
 #include "chrome/browser/ash/login/test/login_manager_mixin.h"
 #include "chrome/browser/ash/login/test/scoped_policy_update.h"
 #include "chrome/browser/ash/login/test/user_policy_mixin.h"
-#include "chrome/browser/ash/platform_keys/platform_keys_service.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service_factory.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service_test_util.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
@@ -41,6 +39,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
 #include "components/policy/core/common/policy_switches.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -116,7 +115,7 @@ std::string PrependSHA256DigestInfo(base::StringPiece hash) {
       0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20};
   const base::StringPiece kDigestInfoSha256Der(
       reinterpret_cast<const char*>(kDigestInfoSha256DerData),
-      base::size(kDigestInfoSha256DerData));
+      std::size(kDigestInfoSha256DerData));
 
   return base::StrCat({kDigestInfoSha256Der, hash});
 }

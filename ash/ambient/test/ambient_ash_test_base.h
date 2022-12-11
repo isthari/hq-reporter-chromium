@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,12 @@
 #include "ash/ambient/ambient_controller.h"
 #include "ash/ambient/test/test_ambient_client.h"
 #include "ash/ambient/ui/ambient_background_image_view.h"
-#include "ash/public/cpp/ambient/ambient_animation_theme.h"
+#include "ash/constants/ambient_animation_theme.h"
 #include "ash/public/cpp/ambient/proto/photo_cache_entry.pb.h"
 #include "ash/public/cpp/test/test_image_downloader.h"
 #include "ash/test/ash_test_base.h"
+#include "base/callback.h"
+#include "base/time/time.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
@@ -96,6 +98,9 @@ class AmbientAshTestBase : public AshTestBase {
   // Wait until the event has been processed.
   void SetScreenIdleStateAndWait(bool is_screen_dimmed, bool is_off);
 
+  // Simulates clicking the power button.
+  void SimulatePowerButtonClick();
+
   void SimulateMediaMetadataChanged(media_session::MediaMetadata metadata);
 
   void SimulateMediaPlaybackStateChanged(
@@ -163,6 +168,8 @@ class AmbientAshTestBase : public AshTestBase {
 
   AmbientPhotoCache* photo_cache();
 
+  AmbientWeatherController* weather_controller();
+
   // Returns the top-level views which contains all the ambient components.
   std::vector<AmbientContainerView*> GetContainerViews();
   // Returns the top level ambient container view for the primary root window.
@@ -188,7 +195,12 @@ class AmbientAshTestBase : public AshTestBase {
 
   void SetDecodePhotoImage(const gfx::ImageSkia& image);
 
+  void SetPhotoDownloadDelay(base::TimeDelta delay);
+
  private:
+  void SpinWaitForAmbientViewAvailable(
+      const base::RepeatingClosure& quit_closure);
+
   std::unique_ptr<views::Widget> widget_;
   power_manager::PowerSupplyProperties proto_;
   TestImageDownloader image_downloader_;

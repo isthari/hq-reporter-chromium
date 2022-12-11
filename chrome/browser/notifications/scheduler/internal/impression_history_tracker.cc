@@ -1,15 +1,15 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/notifications/scheduler/internal/impression_history_tracker.h"
 
-#include <algorithm>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/cxx17_backports.h"
 #include "base/notreached.h"
 #include "chrome/browser/notifications/scheduler/internal/scheduler_utils.h"
@@ -190,7 +190,7 @@ void ImpressionHistoryTrackerImpl::OnStoreInitialized(
     ClientState::Impressions impressions;
     for (auto& impression : entry->impressions) {
       bool expired =
-          now - impression.create_time > config_.impression_expiration;
+          now - impression.create_time > config_->impression_expiration;
       if (expired) {
         SetNeedsUpdate(type, true);
       } else {
@@ -211,10 +211,7 @@ void ImpressionHistoryTrackerImpl::SyncRegisteredClients() {
   // Remove deprecated clients.
   for (auto it = client_states_.begin(); it != client_states_.end();) {
     auto client_type = it->first;
-    bool deprecated =
-        std::find(registered_clients_.begin(), registered_clients_.end(),
-                  client_type) == registered_clients_.end();
-    if (deprecated) {
+    if (!base::Contains(registered_clients_, client_type)) {
       store_->Delete(ToDatabaseKey(client_type),
                      base::BindOnce(&stats::LogDbOperation,
                                     stats::DatabaseType::kImpressionDb));
@@ -228,7 +225,7 @@ void ImpressionHistoryTrackerImpl::SyncRegisteredClients() {
   // Add new data for new registered client.
   for (const auto type : registered_clients_) {
     if (client_states_.find(type) == client_states_.end()) {
-      auto new_client_data = CreateNewClientState(type, config_);
+      auto new_client_data = CreateNewClientState(type, *config_);
 
       DCHECK(new_client_data);
       store_->Add(ToDatabaseKey(type), *new_client_data.get(),
@@ -266,7 +263,7 @@ void ImpressionHistoryTrackerImpl::AnalyzeImpressionHistory(
       case UserFeedback::kIgnore:
         dismisses.emplace_back(impression);
         PruneImpressionByCreateTime(
-            &dismisses, impression->create_time - config_.dismiss_duration);
+            &dismisses, impression->create_time - config_->dismiss_duration);
         CheckConsecutiveDismiss(client_state, &dismisses);
         break;
       case UserFeedback::kClick:
@@ -376,7 +373,7 @@ void ImpressionHistoryTrackerImpl::OnCustomNegativeActionCountQueried(
   if (it == client_states_.end())
     return;
   ClientState* client_state = it->second.get();
-  size_t num_actions = GetDismissCount(custom_throttle_config.get(), config_);
+  size_t num_actions = GetDismissCount(custom_throttle_config.get(), *config_);
   if (impressions->size() < num_actions)
     return;
 
@@ -417,7 +414,7 @@ void ImpressionHistoryTrackerImpl::ApplyPositiveImpression(
   // Increase |current_max_daily_show| by 1.
   client_state->current_max_daily_show =
       base::clamp(client_state->current_max_daily_show + 1, 0,
-                  config_.max_daily_shown_per_type);
+                  config_->max_daily_shown_per_type);
 }
 
 void ImpressionHistoryTrackerImpl::ApplyNegativeImpression(
@@ -448,7 +445,7 @@ void ImpressionHistoryTrackerImpl::OnCustomSuppressionDurationQueried(
   // Suppress the notification, the user will not see this type of
   // notification for a while.
   SuppressionInfo supression_info(
-      now, GetSuppressionDuration(custom_throttle_config.get(), config_));
+      now, GetSuppressionDuration(custom_throttle_config.get(), *config_));
   client_state->suppression_info = std::move(supression_info);
   client_state->current_max_daily_show = 0;
   client_state->last_negative_event_ts = now;

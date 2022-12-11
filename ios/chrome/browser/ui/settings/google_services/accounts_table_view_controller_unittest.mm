@@ -1,22 +1,27 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/google_services/accounts_table_view_controller.h"
 
-#include "components/variations/scoped_variations_ids_provider.h"
+#import "base/mac/foundation_util.h"
+#import "components/variations/scoped_variations_ids_provider.h"
 #import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/main/test_browser.h"
-#import "ios/chrome/browser/signin/authentication_service_delegate_fake.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/chrome/browser/signin/authentication_service_fake.h"
+#import "ios/chrome/browser/signin/fake_authentication_service_delegate.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
 #import "ios/chrome/browser/signin/identity_manager_factory.h"
+#import "ios/chrome/browser/ui/commands/application_commands.h"
+#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_controller_test.h"
-#include "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/gtest/include/gtest/gtest.h"
+#import "third_party/ocmock/OCMock/OCMock.h"
+#import "third_party/ocmock/gtest_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -35,12 +40,36 @@ class AccountsTableViewControllerTest : public ChromeTableViewControllerTest {
 
     AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
         browser_state_.get(),
-        std::make_unique<AuthenticationServiceDelegateFake>());
+        std::make_unique<FakeAuthenticationServiceDelegate>());
   }
 
   ChromeTableViewController* InstantiateController() override {
-    return [[AccountsTableViewController alloc] initWithBrowser:browser_.get()
-                                      closeSettingsOnAddAccount:NO];
+    // Set up ApplicationCommands mock. Because ApplicationCommands conforms
+    // to ApplicationSettingsCommands, that needs to be mocked and dispatched
+    // as well.
+    id mockApplicationCommandHandler =
+        OCMProtocolMock(@protocol(ApplicationCommands));
+    id mockApplicationSettingsCommandHandler =
+        OCMProtocolMock(@protocol(ApplicationSettingsCommands));
+
+    CommandDispatcher* dispatcher = browser_->GetCommandDispatcher();
+    [dispatcher startDispatchingToTarget:mockApplicationCommandHandler
+                             forProtocol:@protocol(ApplicationCommands)];
+    [dispatcher
+        startDispatchingToTarget:mockApplicationSettingsCommandHandler
+                     forProtocol:@protocol(ApplicationSettingsCommands)];
+
+    AccountsTableViewController* controller =
+        [[AccountsTableViewController alloc] initWithBrowser:browser_.get()
+                                   closeSettingsOnAddAccount:NO];
+    controller.applicationCommandsHandler = mockApplicationCommandHandler;
+    return controller;
+  }
+
+  void TearDown() override {
+    [base::mac::ObjCCast<AccountsTableViewController>(controller())
+        settingsWillBeDismissed];
+    ChromeTableViewControllerTest::TearDown();
   }
 
   // Identity Services
@@ -68,8 +97,8 @@ class AccountsTableViewControllerTest : public ChromeTableViewControllerTest {
 
 // Tests that a valid identity is added to the model.
 TEST_F(AccountsTableViewControllerTest, AddChromeIdentity) {
-  FakeChromeIdentity* identity =
-      [FakeChromeIdentity identityWithEmail:@"foo1@gmail.com"
+  FakeSystemIdentity* identity =
+      [FakeSystemIdentity identityWithEmail:@"foo1@gmail.com"
                                      gaiaID:@"foo1ID"
                                        name:@"Fake Foo 1"];
   identity_service()->AddIdentity(identity);
@@ -88,12 +117,12 @@ TEST_F(AccountsTableViewControllerTest, AddChromeIdentity) {
 
 // Tests that an invalid identity is not added to the model.
 TEST_F(AccountsTableViewControllerTest, IgnoreMismatchWithAccountInfo) {
-  FakeChromeIdentity* identity1 =
-      [FakeChromeIdentity identityWithEmail:@"foo1@gmail.com"
+  FakeSystemIdentity* identity1 =
+      [FakeSystemIdentity identityWithEmail:@"foo1@gmail.com"
                                      gaiaID:@"foo1ID"
                                        name:@"Fake Foo 1"];
-  FakeChromeIdentity* identity2 =
-      [FakeChromeIdentity identityWithEmail:@"foo2@gmail.com"
+  FakeSystemIdentity* identity2 =
+      [FakeSystemIdentity identityWithEmail:@"foo2@gmail.com"
                                      gaiaID:@"foo2ID"
                                        name:@"Fake Foo 2"];
   identity_service()->AddIdentity(identity1);

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -129,9 +129,9 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
     BrowserStartupControllerImpl() {
         mAsyncStartupCallbacks = new ArrayList<>();
         mMinimalBrowserStartedCallbacks = new ArrayList<>();
-        if (BuildInfo.isDebugAndroid()) {
-            // Only set up the tracing broadcast receiver on debug builds of the OS. Normal tracing
-            // should use the DevTools API.
+        if (BuildInfo.isDebugAndroid() && !ContextUtils.isSdkSandboxProcess()) {
+            // Only set up the tracing broadcast receiver on debug builds of the OS and
+            // non-SdkSandbox process. Normal tracing should use the DevTools API.
             PostTask.postTask(UiThreadTaskTraits.DEFAULT, new Runnable() {
                 @Override
                 public void run() {
@@ -176,6 +176,7 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
     @Override
     public void startBrowserProcessesAsync(@LibraryProcessType int libraryProcessType,
             boolean startGpuProcess, boolean startMinimalBrowser, final StartupCallback callback) {
+        assert !LibraryLoader.isBrowserProcessStartupBlockedForTesting();
         assertProcessTypeSupported(libraryProcessType);
         assert ThreadUtils.runningOnUiThread() : "Tried to start the browser on the wrong thread.";
         ServicificationStartupUma.getInstance().record(ServicificationStartupUma.getStartupMode(
@@ -203,7 +204,7 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
             // This is the first time we have been asked to start the browser process. We set the
             // flag that indicates that we have kicked off starting the browser process.
             mHasStartedInitializingBrowserProcess = true;
-            sShouldStartGpuProcessOnBrowserStartup = startGpuProcess;
+            sShouldStartGpuProcessOnBrowserStartup |= startGpuProcess;
 
             // Start-up at this point occurs before the first frame of the app is drawn. Although
             // contentStart() can be called eagerly, deferring it would allow a frame to be drawn,
@@ -235,9 +236,12 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
     }
 
     @Override
-    public void startBrowserProcessesSync(
-            @LibraryProcessType int libraryProcessType, boolean singleProcess) {
+    public void startBrowserProcessesSync(@LibraryProcessType int libraryProcessType,
+            boolean singleProcess, boolean startGpuProcess) {
+        assert !LibraryLoader.isBrowserProcessStartupBlockedForTesting();
         assertProcessTypeSupported(libraryProcessType);
+
+        sShouldStartGpuProcessOnBrowserStartup |= startGpuProcess;
 
         ServicificationStartupUma.getInstance().record(ServicificationStartupUma.getStartupMode(
                 mFullBrowserStartupDone, mMinimalBrowserStarted, false /* startMinimalBrowser */));
@@ -409,11 +413,11 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
     // callback lists, it is safe to call this more than once.
     private void enqueueCallbackExecutionOnStartupFailure() {
         PostTask.postTask(
-                UiThreadTaskTraits.BOOTSTRAP, () -> executeEnqueuedCallbacks(STARTUP_FAILURE));
+                UiThreadTaskTraits.DEFAULT, () -> executeEnqueuedCallbacks(STARTUP_FAILURE));
     }
 
     private void postStartupCompleted(final StartupCallback callback) {
-        PostTask.postTask(UiThreadTaskTraits.BOOTSTRAP, new Runnable() {
+        PostTask.postTask(UiThreadTaskTraits.DEFAULT, new Runnable() {
             @Override
             public void run() {
                 if (mStartupSuccess) {
@@ -434,15 +438,15 @@ public class BrowserStartupControllerImpl implements BrowserStartupController {
         mPrepareToStartCompleted = true;
         try (ScopedSysTraceEvent e = ScopedSysTraceEvent.scoped("prepareToStartBrowserProcess")) {
             // This strictmode exception is to cover the case where the browser process is being
-            // started asynchronously but not in the main browser flow.  The main browser flow will
-            // trigger library loading earlier and this will be a no-op, but in the other cases this
-            // will need to block on loading libraries. This applies to tests and
+            // started asynchronously but not in the main browser flow.  The main browser flow
+            // will trigger library loading earlier and this will be a no-op, but in the other
+            // cases this will need to block on loading libraries. This applies to tests and
             // ManageSpaceActivity, which can be launched from Settings.
             StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
             try {
-                // Normally Main.java will have already loaded the library asynchronously, we only
-                // need to load it here if we arrived via another flow, e.g. bookmark access & sync
-                // setup.
+                // Normally Main.java will have already loaded the library asynchronously, we
+                // only need to load it here if we arrived via another flow, e.g. bookmark
+                // access & sync setup.
                 LibraryLoader.getInstance().ensureInitialized();
             } finally {
                 StrictMode.setThreadPolicy(oldPolicy);

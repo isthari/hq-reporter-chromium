@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,8 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
-#include "base/task/sequenced_task_runner.h"
-#include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "components/policy/core/common/policy_service.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/sync_prefs.h"
@@ -95,7 +92,7 @@ class SyncServiceImpl : public SyncService,
         nullptr;
     version_info::Channel channel = version_info::Channel::UNKNOWN;
     std::string debug_identifier;
-    raw_ptr<policy::PolicyService> policy_service = nullptr;
+    bool is_regular_profile_for_uma = false;
   };
 
   explicit SyncServiceImpl(InitParams init_params);
@@ -107,7 +104,6 @@ class SyncServiceImpl : public SyncService,
 
   // Initializes the object. This must be called at most once, and
   // immediately after an object of this class is constructed.
-  // TODO(mastiz): Rename this to Start().
   void Initialize();
 
   // SyncService implementation
@@ -147,7 +143,7 @@ class SyncServiceImpl : public SyncService,
   bool QueryDetailedSyncStatusForDebugging(SyncStatus* result) const override;
   base::Time GetLastSyncedTimeForDebugging() const override;
   SyncCycleSnapshot GetLastCycleSnapshotForDebugging() const override;
-  std::unique_ptr<base::Value> GetTypeStatusMapForDebugging() override;
+  base::Value::List GetTypeStatusMapForDebugging() const override;
   void GetEntityCountsForDebugging(
       base::OnceCallback<void(const std::vector<TypeEntitiesCount>&)> callback)
       const override;
@@ -157,14 +153,11 @@ class SyncServiceImpl : public SyncService,
   void AddProtocolEventObserver(ProtocolEventObserver* observer) override;
   void RemoveProtocolEventObserver(ProtocolEventObserver* observer) override;
   void GetAllNodesForDebugging(
-      base::OnceCallback<void(std::unique_ptr<base::ListValue>)> callback)
-      override;
+      base::OnceCallback<void(base::Value::List)> callback) override;
 
   // SyncEngineHost implementation.
-  void OnEngineInitialized(
-      const WeakHandle<DataTypeDebugInfoListener>& debug_info_listener,
-      bool success,
-      bool is_first_time_sync_configure) override;
+  void OnEngineInitialized(bool success,
+                           bool is_first_time_sync_configure) override;
   void OnSyncCycleCompleted(const SyncCycleSnapshot& snapshot) override;
   void OnProtocolEvent(const ProtocolEvent& event) override;
   void OnConnectionStatusChange(ConnectionStatus status) override;
@@ -233,13 +226,10 @@ class SyncServiceImpl : public SyncService,
                                   create_http_post_provider_factory_cb);
 
   ModelTypeSet GetRegisteredDataTypesForTest() const;
+  bool HasAnyDatatypeErrorForTest(ModelTypeSet types) const;
 
   void GetThrottledDataTypesForTest(
       base::OnceCallback<void(ModelTypeSet)> cb) const;
-
-  // Simulates that all policies just got loaded. This does nothing if the
-  // policies were already loaded.
-  void TriggerPoliciesLoadedForTest();
 
   bool IsDataTypeControllerRunningForTest(ModelType type) const;
 
@@ -453,6 +443,12 @@ class SyncServiceImpl : public SyncService,
   std::unique_ptr<StartupController> startup_controller_;
 
   std::unique_ptr<SyncStoppedReporter> sync_stopped_reporter_;
+
+  // Whether the Profile that this SyncService is attached to is a "regular"
+  // profile, i.e. one for which sync actually makes sense. This excludes
+  // profiles types such as system and guest profiles, as well as sign-in and
+  // lockscreen profiles on Ash.
+  const bool is_regular_profile_for_uma_;
 
   // Used in OnSyncRequestedPrefChange() to know whether the notification was
   // caused by the service itself setting the pref.

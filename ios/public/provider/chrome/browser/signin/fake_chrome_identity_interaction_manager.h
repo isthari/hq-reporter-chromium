@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 
 // Identity that will be returned by the add account method if the dialog is
 // closed successfully.
-@property(nonatomic, strong, class) ChromeIdentity* identity;
+@property(nonatomic, strong, class) id<SystemIdentity> identity;
 
 // YES if the fake add account view is presented.
 @property(nonatomic, assign, readonly) BOOL viewControllerPresented;
@@ -24,7 +24,7 @@
 // Simulates a user tapping the cancel button.
 - (void)addAccountViewControllerDidTapCancel;
 
-// Simulates the user encountering an error not handled by ChromeIdentity.
+// Simulates the user encountering an error not handled by SystemIdentity.
 - (void)addAccountViewControllerDidThrowUnhandledError;
 
 // Simulates the add account view being interrupted.

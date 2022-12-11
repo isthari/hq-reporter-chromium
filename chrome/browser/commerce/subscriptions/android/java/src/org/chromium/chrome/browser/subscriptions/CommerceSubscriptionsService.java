@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,9 @@ import org.chromium.chrome.browser.lifecycle.PauseResumeWithNativeObserver;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.price_tracking.PriceDropNotificationManager;
+import org.chromium.chrome.browser.price_tracking.PriceTrackingFeatures;
+import org.chromium.chrome.browser.subscriptions.CommerceSubscription.CommerceSubscriptionType;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
-import org.chromium.chrome.browser.tasks.tab_management.PriceTrackingUtilities;
 import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.components.signin.identitymanager.PrimaryAccountChangeEvent;
 
@@ -31,13 +32,15 @@ public class CommerceSubscriptionsService {
     private final IdentityManager.Observer mIdentityManagerObserver;
     private final SharedPreferencesManager mSharedPreferencesManager;
     private final PriceDropNotificationManager mPriceDropNotificationManager;
+    private final CommerceSubscriptionsMetrics mMetrics;
     private ImplicitPriceDropSubscriptionsManager mImplicitPriceDropSubscriptionsManager;
     private ActivityLifecycleDispatcher mActivityLifecycleDispatcher;
     private PauseResumeWithNativeObserver mPauseResumeWithNativeObserver;
 
     /** Creates a new instance. */
-    CommerceSubscriptionsService(
-            SubscriptionsManagerImpl subscriptionsManager, IdentityManager identityManager) {
+    CommerceSubscriptionsService(SubscriptionsManagerImpl subscriptionsManager,
+            IdentityManager identityManager,
+            PriceDropNotificationManager priceDropNotificationManager) {
         mSubscriptionManager = subscriptionsManager;
         mIdentityManager = identityManager;
         mIdentityManagerObserver = new IdentityManager.Observer() {
@@ -48,7 +51,8 @@ public class CommerceSubscriptionsService {
         };
         mIdentityManager.addObserver(mIdentityManagerObserver);
         mSharedPreferencesManager = SharedPreferencesManager.getInstance();
-        mPriceDropNotificationManager = new PriceDropNotificationManager();
+        mPriceDropNotificationManager = priceDropNotificationManager;
+        mMetrics = new CommerceSubscriptionsMetrics();
     }
 
     /** Performs any deferred startup tasks required by {@link Subscriptions}. */
@@ -93,25 +97,29 @@ public class CommerceSubscriptionsService {
     }
 
     private void maybeRecordMetricsAndInitializeSubscriptions() {
-        if ((!PriceTrackingUtilities.isPriceDropNotificationEligible())
-                || (System.currentTimeMillis()
-                                - mSharedPreferencesManager.readLong(
-                                        CHROME_MANAGED_SUBSCRIPTIONS_TIMESTAMP, -1)
-                        < TimeUnit.SECONDS.toMillis(CommerceSubscriptionsServiceConfig
-                                                            .getStaleTabLowerBoundSeconds()))) {
+        if (System.currentTimeMillis()
+                        - mSharedPreferencesManager.readLong(
+                                CHROME_MANAGED_SUBSCRIPTIONS_TIMESTAMP, -1)
+                < TimeUnit.SECONDS.toMillis(
+                        CommerceSubscriptionsServiceConfig.getStaleTabLowerBoundSeconds())) {
             return;
         }
         mSharedPreferencesManager.writeLong(
                 CHROME_MANAGED_SUBSCRIPTIONS_TIMESTAMP, System.currentTimeMillis());
-        recordMetrics();
+        mMetrics.recordAccountWaaStatus();
+        if (!PriceTrackingFeatures.isPriceDropNotificationEligible()) return;
+        recordMetricsForEligibleAccount();
         if (mImplicitPriceDropSubscriptionsManager != null) {
             mImplicitPriceDropSubscriptionsManager.initializeSubscriptions();
         }
     }
 
-    private void recordMetrics() {
+    private void recordMetricsForEligibleAccount() {
         // Record notification opt-in metrics.
         mPriceDropNotificationManager.canPostNotificationWithMetricsRecorded();
+        mPriceDropNotificationManager.recordMetricsForNotificationCounts();
+        mSubscriptionManager.getSubscriptions(
+                CommerceSubscriptionType.PRICE_TRACK, false, mMetrics::recordSubscriptionCounts);
     }
 
     @VisibleForTesting

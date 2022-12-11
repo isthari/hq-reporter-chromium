@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,67 @@
 
 namespace ash {
 enum class AppListLaunchedFrom;
+enum class AppListOrderUpdateEvent;
+enum class AppListSortOrder;
+
+// UMA histograms that record the actions that clear the pref sort order.
+ASH_PUBLIC_EXPORT extern const char kClamshellPrefOrderClearActionHistogram[];
+ASH_PUBLIC_EXPORT extern const char kTabletPrefOrderClearActionHistogram[];
+
+// UMA histograms that record app list pref sort order when a session starts.
+// Exposed in this header because they are needed in tests.
+ASH_PUBLIC_EXPORT extern const char
+    kClamshellAppListSortOrderOnSessionStartHistogram[];
+ASH_PUBLIC_EXPORT extern const char
+    kTabletAppListSortOrderOnSessionStartHistogram[];
+
+// The UMA histogram that records the time duration between the app list sort
+// education nudge show and the first sort usage.
+ASH_PUBLIC_EXPORT extern const char kAppListSortDiscoveryDurationAfterNudge[];
+
+// Similar to `kAppListSortDiscoveryDurationAfterNudge`. The only difference is
+// that the metric data is separated by the tablet mode state under which the
+// reorder education nudge shows.
+ASH_PUBLIC_EXPORT extern const char
+    kAppListSortDiscoveryDurationAfterNudgeClamshell[];
+ASH_PUBLIC_EXPORT extern const char
+    kAppListSortDiscoveryDurationAfterNudgeTablet[];
+
+// The UMA histogram that records the time duration between the earliest user
+// session activation with the app list sort enabled and the first sort usage.
+ASH_PUBLIC_EXPORT extern const char
+    kAppListSortDiscoveryDurationAfterActivation[];
+
+// The different ways the app list can be shown. These values are written to
+// logs.  New enum values can be added, but existing enums must never be
+// renumbered or deleted and reused.
+enum class AppListShowSource {
+  kSearchKey = 0,
+  kShelfButton = 1,
+  kSwipeFromShelf = 2,
+  kTabletMode = 3,
+  kSearchKeyFullscreen_DEPRECATED = 4,    // Migrated to kSearchKey.
+  kShelfButtonFullscreen_DEPRECATED = 5,  // Obsolete on bubble launcher.
+  kAssistantEntryPoint = 6,
+  kScrollFromShelf = 7,
+  kBrowser = 8,
+  kMaxValue = kBrowser,
+};
+
+// Tracks the result of each search session starting from the search box.
+enum class SearchSessionResult {
+  kLaunch = 0,
+  kAnswerCardImpression = 1,
+  kQuit = 2,
+};
+
+// Tracks whether a best match result was shown and whether it was launched at
+// the conclusion of each search session.
+enum class SearchBestMatchState {
+  kBestMatchShownAndLaunched = 0,
+  kBestMatchShownAndIgnored = 1,
+  kBestMatchNotShown = 2,
+};
 
 // The type of the ChromeSearchResult. This is used for logging so do not
 // change the order of this enum. If you add to this enum update
@@ -113,6 +174,15 @@ enum SearchResultType {
   HELP_APP_DISCOVER,
   // A keyboard shortcut result from the Keyboard Shortcut provider.
   KEYBOARD_SHORTCUT,
+  // A keyboard shortcut result from the Keyboard Shortcut provider.
+  OPEN_TAB,
+  // Null result type that indicates that user did not interact with any results
+  // in some metrics.
+  NO_RESULT,
+  // A game search result.
+  GAME_SEARCH,
+  // A search result for OS personalization options.
+  PERSONALIZATION,
   // Boundary is always last.
   SEARCH_RESULT_TYPE_BOUNDARY
 };
@@ -135,6 +205,17 @@ ASH_PUBLIC_EXPORT void RecordLauncherClickedSearchQueryLength(int query_length);
 ASH_PUBLIC_EXPORT void RecordSuccessfulAppLaunchUsingSearch(
     AppListLaunchedFrom launched_from,
     int query_length);
+
+ASH_PUBLIC_EXPORT void ReportPrefOrderClearAction(
+    AppListOrderUpdateEvent action,
+    bool in_tablet);
+
+ASH_PUBLIC_EXPORT void RecordFirstSearchResult(SearchResultType type,
+                                               bool in_tablet);
+
+ASH_PUBLIC_EXPORT void ReportPrefSortOrderOnSessionStart(
+    ash::AppListSortOrder permanent_order,
+    bool in_tablet);
 
 }  // namespace ash
 

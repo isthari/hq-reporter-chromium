@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,7 +54,7 @@ ClientProcessImpl::ClientProcessImpl(
     coordinator_.Bind(std::move(coordinator));
   }
 
-  task_runner_ = base::ThreadTaskRunnerHandle::Get();
+  task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
 
   // TODO(primiano): this is a temporary workaround to tell the
   // base::MemoryDumpManager that it is special and should coordinate periodic

@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/content_settings/content_settings_manager_delegate.h"
 
 #include "base/feature_list.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/content_settings/browser/page_specific_content_settings.h"
@@ -29,7 +30,8 @@ void OnFileSystemAccessedInGuestViewContinuation(
     const GURL& url,
     base::OnceCallback<void(bool)> callback,
     bool allowed) {
-  content_settings::PageSpecificContentSettings::FileSystemAccessed(
+  content_settings::PageSpecificContentSettings::StorageAccessed(
+      content_settings::mojom::ContentSettingsManager::StorageType::FILE_SYSTEM,
       render_process_id, render_frame_id, url, !allowed);
   std::move(callback).Run(allowed);
 }
@@ -40,8 +42,8 @@ void OnFileSystemAccessedInGuestView(int render_process_id,
                                      bool allowed,
                                      base::OnceCallback<void(bool)> callback) {
   extensions::WebViewPermissionHelper* web_view_permission_helper =
-      extensions::WebViewPermissionHelper::FromFrameID(render_process_id,
-                                                       render_frame_id);
+      extensions::WebViewPermissionHelper::FromRenderFrameHostId(
+          content::GlobalRenderFrameHostId(render_process_id, render_frame_id));
   auto continuation = base::BindOnce(
       &OnFileSystemAccessedInGuestViewContinuation, render_process_id,
       render_frame_id, url, std::move(callback));
@@ -53,21 +55,9 @@ void OnFileSystemAccessedInGuestView(int render_process_id,
       url, allowed, std::move(continuation));
 }
 
-// TODO(crbug.com/1187753): Simplify this once NavigationThreadingOptimizations
-// is launched.
-void RunOrPostTaskOnSequence(
-    scoped_refptr<base::SequencedTaskRunner> task_runner,
-    base::OnceCallback<void(bool)> callback,
-    bool result) {
-  if (task_runner->RunsTasksInCurrentSequence()) {
-    DCHECK(!base::FeatureList::IsEnabled(
-        features::kNavigationThreadingOptimizations));
-    std::move(callback).Run(result);
-    return;
-  }
-
-  DCHECK(base::FeatureList::IsEnabled(
-      features::kNavigationThreadingOptimizations));
+void PostTaskOnSequence(scoped_refptr<base::SequencedTaskRunner> task_runner,
+                        base::OnceCallback<void(bool)> callback,
+                        bool result) {
   task_runner->PostTask(FROM_HERE, base::BindOnce(std::move(callback), result));
 }
 #endif
@@ -97,20 +87,14 @@ bool ContentSettingsManagerDelegate::AllowStorageAccess(
                           StorageType::FILE_SYSTEM &&
       extensions::WebViewRendererState::GetInstance()->IsGuest(
           render_process_id)) {
-    base::OnceClosure task =
-        base::BindOnce(&OnFileSystemAccessedInGuestView, render_process_id,
-                       render_frame_id, url, allowed,
-                       base::BindOnce(&RunOrPostTaskOnSequence,
-                                      base::SequencedTaskRunnerHandle::Get(),
-                                      std::move(*callback)));
-    // We may or may not be on the UI thread depending on whether the
-    // NavigationThreadingOptimizations feature is enabled.
-    // TODO(https://crbug.com/1187753): Clean this up once the feature is
-    // shipped and the code path is removed.
-    if (content::BrowserThread::CurrentlyOn(content::BrowserThread::UI))
-      std::move(task).Run();
-    else
-      content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(task));
+    content::GetUIThreadTaskRunner({})->PostTask(
+        FROM_HERE,
+        base::BindOnce(
+            &OnFileSystemAccessedInGuestView, render_process_id,
+            render_frame_id, url, allowed,
+            base::BindOnce(&PostTaskOnSequence,
+                           base::SequencedTaskRunner::GetCurrentDefault(),
+                           std::move(*callback))));
 
     return true;
   }

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/bind.h"
 #include "base/check.h"
 #include "base/files/file_path.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/chrome_cleaner/os/file_path_set.h"
 #include "chrome/chrome_cleaner/settings/settings.h"
 
@@ -36,7 +36,8 @@ void ChromeProxyMainDialog::NoPUPsFound() {
       std::vector<std::wstring>(),
       base::BindOnce(
           &ChromeProxyMainDialog::PostCloseAfterReceivingResponseTask,
-          base::Unretained(this), base::SequencedTaskRunnerHandle::Get()));
+          base::Unretained(this),
+          base::SequencedTaskRunner::GetCurrentDefault()));
 }
 
 void ChromeProxyMainDialog::ConfirmCleanup(
@@ -51,7 +52,7 @@ void ChromeProxyMainDialog::ConfirmCleanup(
       /*extension_ids=*/{},
       base::BindOnce(&ChromeProxyMainDialog::PostPromptResultReceivedTask,
                      base::Unretained(this),
-                     base::SequencedTaskRunnerHandle::Get()));
+                     base::SequencedTaskRunner::GetCurrentDefault()));
 }
 
 void ChromeProxyMainDialog::CleanupDone(ResultCode cleanup_result) {

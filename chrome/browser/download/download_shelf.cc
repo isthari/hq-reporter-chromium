@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/browser/download/download_core_service.h"
 #include "chrome/browser/download/download_core_service_factory.h"
@@ -44,7 +44,7 @@ void DownloadShelf::AddDownload(DownloadUIModel::DownloadUIModelPtr model) {
     // If we are going to remove the download from the shelf upon completion,
     // wait a few seconds to see if it completes quickly. If it's a small
     // download, then the user won't have time to interact with it.
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&DownloadShelf::ShowDownloadById,
                        weak_ptr_factory_.GetWeakPtr(), model->GetContentId()),
@@ -98,7 +98,7 @@ void DownloadShelf::ShowDownload(DownloadUIModel::DownloadUIModelPtr download) {
     return;
 
   if (!DownloadCoreServiceFactory::GetForBrowserContext(download->profile())
-           ->IsShelfEnabled())
+           ->IsDownloadUiEnabled())
     return;
 
   Unhide();

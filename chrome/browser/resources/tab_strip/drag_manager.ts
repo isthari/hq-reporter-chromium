@@ -1,11 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import './strings.m.js';
 
 import {assert} from 'chrome://resources/js/assert_ts.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 
 import {isTabElement, TabElement} from './tab.js';
 import {isDragHandle, isTabGroupElement, TabGroupElement} from './tab_group.js';
@@ -51,9 +51,11 @@ function getDefaultTabData(): Tab {
     title: '',
     url: {url: ''},
 
-    // Remove once Mojo can produce proper TypeScript or TypeScript definitions,
-    // so that these properties are recognized as optional.
+    // TODO(crbug.com/1293911): Remove once Mojo can produce proper TypeScript
+    // or TypeScript definitions, so that these properties are recognized as
+    // optional.
     faviconUrl: undefined,
+    activeFaviconUrl: undefined,
     groupId: undefined,
   };
 }
@@ -67,7 +69,7 @@ export interface DragManagerDelegate {
 
   placeTabGroupElement(element: TabGroupElement, index: number): void;
 
-  shouldPreventDrag(): boolean;
+  shouldPreventDrag(isDraggingTab: boolean): boolean;
 }
 
 type DragManagerDelegateElement = DragManagerDelegate&HTMLElement;
@@ -257,8 +259,8 @@ class DragSession {
     this.element_.setDraggedOut(false);
   }
 
-  shouldOffsetIndexForGroup_(dragOverElement: TabElement|
-                             TabGroupElement): boolean {
+  private shouldOffsetIndexForGroup_(dragOverElement: TabElement|
+                                     TabGroupElement): boolean {
     // Since TabGroupElements do not have any TabElements, they need to offset
     // the index for any elements that come after it as if there is at least
     // one element inside of it.
@@ -280,7 +282,7 @@ class DragSession {
     let scaleFactor = 1;
     let verticalOffset = 0;
 
-    // <if expr="chromeos">
+    // <if expr="chromeos_ash">
     // Touch on ChromeOS automatically scales drag images by 1.2 and adds a
     // vertical offset of 25px. See //ash/drag_drop/drag_drop_controller.cc.
     scaleFactor = 1.2;
@@ -468,7 +470,7 @@ export class DragManager {
       return;
     }
 
-    if (this.delegate_.shouldPreventDrag()) {
+    if (this.delegate_.shouldPreventDrag(isTabElement(draggedItem))) {
       event.preventDefault();
       return;
     }

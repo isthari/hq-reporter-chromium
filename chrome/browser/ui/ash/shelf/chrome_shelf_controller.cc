@@ -1,10 +1,9 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 
-#include <algorithm>
 #include <memory>
 #include <set>
 #include <utility>
@@ -12,8 +11,8 @@
 #include "ash/components/arc/arc_prefs.h"
 #include "ash/components/arc/arc_util.h"
 #include "ash/constants/app_types.h"
-#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
+#include "ash/metrics/login_unlock_throughput_recorder.h"
 #include "ash/public/cpp/multi_user_window_manager.h"
 #include "ash/public/cpp/shelf_item.h"
 #include "ash/public/cpp/shelf_model.h"
@@ -28,17 +27,19 @@
 #include "base/debug/dump_without_crashing.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/task/task_runner_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/apps/app_service/extension_apps_utils.h"
 #include "chrome/browser/apps/icon_standardizer.h"
+#include "chrome/browser/ash/app_list/app_service/app_service_app_icon_loader.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/extensions/chrome_app_icon_loader.h"
@@ -48,8 +49,6 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
-#include "chrome/browser/ui/app_list/app_service/app_service_app_icon_loader.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/app_list/md_icon_normalizer.h"
 #include "chrome/browser/ui/apps/app_info_dialog.h"
 #include "chrome/browser/ui/ash/app_icon_color_cache.h"
@@ -79,6 +78,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/webui/settings/ash/app_management/app_management_uma.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
@@ -94,6 +94,7 @@
 #include "components/account_id/account_id.h"
 #include "components/app_constants/constants.h"
 #include "components/favicon/content/content_favicon_driver.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 #include "components/services/app_service/public/mojom/types.mojom.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync_preferences/pref_service_syncable.h"
@@ -112,7 +113,6 @@
 #include "ui/resources/grit/ui_resources.h"
 
 using app_constants::kChromeAppId;
-using extension_misc::kGmailAppId;
 
 namespace {
 
@@ -127,6 +127,26 @@ gfx::ImageSkia CreateStandardImageOnWorkerThread(const gfx::ImageSkia& image) {
   if (!standard_image.isNull())
     standard_image.MakeThreadSafe();
   return standard_image;
+}
+
+// Report shelf buttons initialized to LoginUnlockThroughputRecorder.
+void ReportInitShelfIconList(const ash::ShelfModel* model) {
+  // Shell is not always initializaed in tests.
+  if (!ash::Shell::HasInstance())
+    return;
+
+  ash::Shell::Get()->login_unlock_throughput_recorder()->InitShelfIconList(
+      model);
+}
+
+// Report shelf buttons updated to LoginUnlockThroughputRecorder.
+void ReportUpdateShelfIconList(const ash::ShelfModel* model) {
+  // Shell is not always initializaed in tests.
+  if (!ash::Shell::HasInstance())
+    return;
+
+  ash::Shell::Get()->login_unlock_throughput_recorder()->UpdateShelfIconList(
+      model);
 }
 
 }  // namespace
@@ -192,8 +212,7 @@ void ChromeShelfControllerUserSwitchObserver::OnUserProfileReadyToSwitch(
     std::string user_id =
         multi_user_util::GetAccountIdFromProfile(profile).GetUserEmail();
     std::set<std::string>::iterator it =
-        std::find(added_user_ids_waiting_for_profiles_.begin(),
-                  added_user_ids_waiting_for_profiles_.end(), user_id);
+        base::ranges::find(added_user_ids_waiting_for_profiles_, user_id);
     if (it != added_user_ids_waiting_for_profiles_.end()) {
       added_user_ids_waiting_for_profiles_.erase(it);
       AddUser(profile->GetOriginalProfile());
@@ -218,7 +237,7 @@ ChromeShelfController::ChromeShelfController(Profile* profile,
   DCHECK(!instance_);
   instance_ = this;
 
-  DCHECK(model_);
+  CHECK(model_);
 
   if (!profile) {
     // If no profile was passed, we take the currently active profile and use it
@@ -256,9 +275,15 @@ ChromeShelfController::ChromeShelfController(Profile* profile,
       std::make_unique<AppServiceAppWindowShelfController>(this);
   app_service_app_window_controller_ = app_service_controller.get();
   app_window_controllers_.emplace_back(std::move(app_service_controller));
-  if (web_app::IsWebAppsCrosapiEnabled()) {
+  if (web_app::IsWebAppsCrosapiEnabled() &&
+      apps::AppServiceProxyFactory::IsAppServiceAvailableForProfile(profile)) {
+    apps::AppServiceProxy* proxy =
+        apps::AppServiceProxyFactory::GetForProfile(profile);
+    DCHECK(proxy);
+    CHECK(proxy->BrowserAppInstanceRegistry());
     browser_app_shelf_controller_ = std::make_unique<BrowserAppShelfController>(
-        profile, *model_, *shelf_item_factory_, *shelf_spinner_controller_);
+        profile, *proxy->BrowserAppInstanceRegistry(), *model_,
+        *shelf_item_factory_, *shelf_spinner_controller_);
   } else {
     // Create the browser monitor which will inform the shelf of status changes.
     browser_status_monitor_ = std::make_unique<BrowserStatusMonitor>(this);
@@ -311,6 +336,7 @@ void ChromeShelfController::Init() {
   if (browser_status_monitor_) {
     browser_status_monitor_->Initialize();
   }
+  ReportInitShelfIconList(model_);
 }
 
 ash::ShelfID ChromeShelfController::CreateAppItem(
@@ -394,7 +420,7 @@ bool ChromeShelfController::ShouldSyncItem(const ash::ShelfItem& item) {
   return ItemTypeIsPinned(item);
 }
 
-bool ChromeShelfController::IsPinned(const ash::ShelfID& id) {
+bool ChromeShelfController::IsPinned(const ash::ShelfID& id) const {
   const ash::ShelfItem* item = GetItem(id);
   return item && ItemTypeIsPinned(*item);
 }
@@ -419,7 +445,7 @@ void ChromeShelfController::Close(const ash::ShelfID& id) {
   delegate->Close();
 }
 
-bool ChromeShelfController::IsOpen(const ash::ShelfID& id) {
+bool ChromeShelfController::IsOpen(const ash::ShelfID& id) const {
   const ash::ShelfItem* item = GetItem(id);
   return item && item->status != ash::STATUS_CLOSED;
 }
@@ -460,6 +486,8 @@ void ChromeShelfController::SetItemImage(const ash::ShelfID& shelf_id,
             new_item.id.app_id, image);
     model_->Set(model_->ItemIndexByID(shelf_id), new_item);
   }
+
+  ReportUpdateShelfIconList(model_);
 }
 
 void ChromeShelfController::UpdateItemImage(const std::string& app_id) {
@@ -518,7 +546,7 @@ std::string ChromeShelfController::GetAppIDForWebContents(
 }
 
 ash::ShelfID ChromeShelfController::GetShelfIDForAppId(
-    const std::string& app_id) {
+    const std::string& app_id) const {
   // If there is no dedicated app item, use the browser shortcut item.
   const ash::ShelfItem* item =
       !app_id.empty() ? GetItem(ash::ShelfID(app_id)) : nullptr;
@@ -682,6 +710,7 @@ void ChromeShelfController::UpdateBrowserItemState() {
         model_->GetItemIndexForType(ash::TYPE_UNPINNED_BROWSER_SHORTCUT);
     if (item_index >= 0) {
       model_->RemoveItemAt(item_index);
+      ReportUpdateShelfIconList(model_);
       return;
     }
   }
@@ -707,6 +736,8 @@ void ChromeShelfController::UpdateBrowserItemState() {
 
   browser_item.status = browser_status;
   model_->Set(browser_index, browser_item);
+
+  ReportUpdateShelfIconList(model_);
 }
 
 void ChromeShelfController::SetShelfIDForBrowserWindowContents(
@@ -791,6 +822,8 @@ void ChromeShelfController::ReplacePinnedItem(const std::string& old_app_id,
   model_->RemoveItemAt(index);
   model_->AddAt(index, item,
                 std::make_unique<AppShortcutShelfItemController>(item.id));
+
+  ReportUpdateShelfIconList(model_);
 }
 
 void ChromeShelfController::PinAppAtIndex(const std::string& app_id,
@@ -805,6 +838,8 @@ void ChromeShelfController::PinAppAtIndex(const std::string& app_id,
 
   model_->AddAt(target_index, item,
                 std::make_unique<AppShortcutShelfItemController>(item.id));
+
+  ReportUpdateShelfIconList(model_);
 }
 
 int ChromeShelfController::PinnedItemIndexByAppID(const std::string& app_id) {
@@ -841,17 +876,18 @@ void ChromeShelfController::DoShowAppInfoFlow(Profile* profile,
 
   // Apps that are not in the App Service may call this function.
   // E.g. extensions, apps that are using their platform specific IDs.
-  if (app_type == apps::mojom::AppType::kUnknown) {
+  if (app_type == apps::AppType::kUnknown) {
     return;
   }
 
-  if (app_type == apps::mojom::AppType::kWeb ||
-      app_type == apps::mojom::AppType::kSystemWeb) {
+  if (app_type == apps::AppType::kWeb ||
+      app_type == apps::AppType::kSystemWeb) {
     chrome::ShowAppManagementPage(
         profile, app_id,
         ash::settings::AppManagementEntryPoint::kShelfContextMenuAppInfoWebApp);
   } else {
-    chrome::ShowAppManagementPage(profile, app_id,
+    chrome::ShowAppManagementPage(profile,
+                                  apps::GetEscapedAppId(app_id, app_type),
                                   ash::settings::AppManagementEntryPoint::
                                       kShelfContextMenuAppInfoChromeApp);
   }
@@ -1025,7 +1061,7 @@ void ChromeShelfController::OnAppUninstalledPrepared(
                  &is_app_disabled](const apps::AppUpdate& update) {
           show_in_shelf_changed = update.ShowInShelfChanged();
           is_app_disabled =
-              update.Readiness() == apps::mojom::Readiness::kDisabledByPolicy;
+              update.Readiness() == apps::Readiness::kDisabledByPolicy;
         });
     // If the app is hidden and disabled, we need to update the app pin state.
     // We don't remove the pin position from the preferences, in case we want to
@@ -1069,9 +1105,8 @@ void ChromeShelfController::OnAppImageUpdated(const std::string& app_id,
     copy = image.DeepCopy();
   }
 
-  base::PostTaskAndReplyWithResult(
-      standard_icon_task_runner_.get(), FROM_HERE,
-      base::BindOnce(&CreateStandardImageOnWorkerThread, copy),
+  standard_icon_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&CreateStandardImageOnWorkerThread, copy),
       base::BindOnce(&ChromeShelfController::UpdateAppImage,
                      weak_ptr_factory_.GetWeakPtr(), app_id));
 }
@@ -1094,6 +1129,8 @@ void ChromeShelfController::UpdateAppImage(const std::string& app_id,
     model_->Set(index, item);
     // It's possible we're waiting on more than one item, so don't break.
   }
+
+  ReportUpdateShelfIconList(model_);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1135,6 +1172,8 @@ void ChromeShelfController::RemoveShelfItem(const ash::ShelfID& id) {
   const int index = model_->ItemIndexByID(id);
   if (index >= 0 && index < model_->item_count())
     model_->RemoveItemAt(index);
+
+  ReportUpdateShelfIconList(model_);
 }
 
 void ChromeShelfController::PinRunningAppInternal(
@@ -1198,9 +1237,7 @@ void ChromeShelfController::OnIsSyncingChanged() {
 
   // Wait until the initial sync happens.
   auto* pref_service = PrefServiceSyncableFromProfile(profile());
-  bool is_syncing = chromeos::features::IsSyncSettingsCategorizationEnabled()
-                        ? pref_service->AreOsPrefsSyncing()
-                        : pref_service->IsSyncing();
+  bool is_syncing = pref_service->AreOsPrefsSyncing();
   if (!is_syncing)
     return;
   // Initialize the local prefs if this is the first time sync has occurred.
@@ -1213,7 +1250,7 @@ void ChromeShelfController::OnIsSyncingChanged() {
 }
 
 void ChromeShelfController::ScheduleUpdatePinnedAppsFromSync() {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&ChromeShelfController::UpdatePinnedAppsFromSync,
                      weak_ptr_factory_.GetWeakPtr()));
@@ -1269,6 +1306,8 @@ void ChromeShelfController::UpdatePinnedAppsFromSync() {
   }
 
   UpdatePolicyPinnedAppsFromPrefs();
+
+  ReportUpdateShelfIconList(model_);
 }
 
 bool ChromeShelfController::EnsureAppPinnedInModelAtIndex(
@@ -1326,6 +1365,8 @@ void ChromeShelfController::UpdatePinnedByPolicyForItemAtIndex(
     item.pinned_by_policy = pinned_by_policy;
     model_->Set(model_index, item);
   }
+
+  ReportUpdateShelfIconList(model_);
 }
 
 ash::ShelfItemStatus ChromeShelfController::GetAppState(
@@ -1369,6 +1410,8 @@ ash::ShelfID ChromeShelfController::InsertAppItem(
   item.app_status = ShelfControllerHelper::GetAppStatus(
       latest_active_profile_, item_delegate->shelf_id().app_id);
   model_->AddAt(index, item, std::move(item_delegate));
+
+  ReportUpdateShelfIconList(model_);
   return item.id;
 }
 
@@ -1398,6 +1441,8 @@ void ChromeShelfController::CreateBrowserShortcutItem(bool pinned) {
     model_->Add(browser_shortcut,
                 std::make_unique<BrowserShortcutShelfItemController>(model_));
   }
+
+  ReportUpdateShelfIconList(model_);
 }
 
 int ChromeShelfController::FindInsertionPoint() {
@@ -1428,7 +1473,7 @@ void ChromeShelfController::CloseWindowedAppsFromRemovedExtension(
   while (!browser_to_close.empty()) {
     TabStripModel* tab_strip = browser_to_close.back()->tab_strip_model();
     if (!tab_strip->empty())
-      tab_strip->CloseWebContentsAt(0, TabStripModel::CLOSE_NONE);
+      tab_strip->CloseWebContentsAt(0, TabCloseTypes::CLOSE_NONE);
     browser_to_close.pop_back();
   }
 }
@@ -1497,14 +1542,10 @@ void ChromeShelfController::AttachProfile(Profile* profile_to_attach) {
       prefs::kPolicyPinnedLauncherApps,
       base::BindRepeating(&ChromeShelfController::UpdatePinnedAppsFromSync,
                           base::Unretained(this)));
-  // Handling of prefs::kArcEnabled change should be called deferred to avoid
-  // race condition when OnAppUninstalledPrepared for ARC apps is called after
-  // UpdatePinnedAppsFromSync.
   pref_change_registrar_.Add(
       arc::prefs::kArcEnabled,
-      base::BindRepeating(
-          &ChromeShelfController::ScheduleUpdatePinnedAppsFromSync,
-          base::Unretained(this)));
+      base::BindRepeating(&ChromeShelfController::UpdatePinnedAppsFromSync,
+                          base::Unretained(this)));
 
   app_list::AppListSyncableService* app_list_syncable_service =
       app_list::AppListSyncableServiceFactory::GetForProfile(profile());
@@ -1568,6 +1609,8 @@ void ChromeShelfController::ShelfItemAdded(int index) {
   // Update the pin position preference as needed.
   if (ShouldSyncItemWithReentrancy(item))
     SyncPinPosition(item.id);
+
+  ReportUpdateShelfIconList(model_);
 }
 
 void ChromeShelfController::ShelfItemRemoved(int index,
@@ -1594,4 +1637,6 @@ void ChromeShelfController::ShelfItemChanged(int index,
     SyncPinPosition(item.id);
   else if (ShouldSyncItemWithReentrancy(old_item) && !ItemTypeIsPinned(item))
     shelf_prefs_->RemovePinPosition(profile(), old_item.id);
+
+  ReportUpdateShelfIconList(model_);
 }

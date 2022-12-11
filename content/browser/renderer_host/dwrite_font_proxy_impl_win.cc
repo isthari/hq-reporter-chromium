@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,14 +16,13 @@
 
 #include "base/callback_helpers.h"
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/i18n/case_conversion.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
@@ -33,6 +32,7 @@
 #include "content/public/common/content_features.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
+#include "third_party/abseil-cpp/absl/utility/utility.h"
 #include "third_party/blink/public/common/font_unique_name_lookup/font_unique_name_table.pb.h"
 #include "third_party/blink/public/common/font_unique_name_lookup/icu_fold_case_util.h"
 #include "third_party/skia/include/core/SkFontMgr.h"
@@ -137,8 +137,6 @@ void DWriteFontProxyImpl::FindFamily(const std::u16string& family_name,
   TRACE_EVENT0("dwrite,fonts", "FontProxyHost::OnFindFamily");
   UINT32 family_index = UINT32_MAX;
   if (collection_) {
-    SCOPED_UMA_HISTOGRAM_TIMER_MICROS(
-        "DirectWrite.Fonts.Content.FindFamilyTime");
     BOOL exists = FALSE;
     UINT32 index = UINT32_MAX;
     HRESULT hr = collection_->FindFamilyName(base::as_wcstr(family_name),
@@ -154,8 +152,6 @@ void DWriteFontProxyImpl::FindFamily(const std::u16string& family_name,
 void DWriteFontProxyImpl::GetFamilyCount(GetFamilyCountCallback callback) {
   InitializeDirectWrite();
   TRACE_EVENT0("dwrite,fonts", "FontProxyHost::OnGetFamilyCount");
-  SCOPED_UMA_HISTOGRAM_TIMER_MICROS(
-      "DirectWrite.Fonts.Content.GetFamilyCountTime");
   std::move(callback).Run(collection_ ? collection_->GetFontFamilyCount() : 0);
 }
 
@@ -168,8 +164,6 @@ void DWriteFontProxyImpl::GetFamilyNames(UINT32 family_index,
   if (!collection_)
     return;
 
-  SCOPED_UMA_HISTOGRAM_TIMER_MICROS(
-      "DirectWrite.Fonts.Content.GetFamilyNamesTime");
   TRACE_EVENT0("dwrite,fonts", "FontProxyHost::DoGetFamilyNames");
 
   mswr::ComPtr<IDWriteFontFamily> family;
@@ -216,7 +210,7 @@ void DWriteFontProxyImpl::GetFamilyNames(UINT32 family_index,
     }
     CHECK_EQ(L'\0', name[length - 1]);
 
-    family_names.emplace_back(base::in_place, base::WideToUTF16(locale.data()),
+    family_names.emplace_back(absl::in_place, base::WideToUTF16(locale.data()),
                               base::WideToUTF16(name.data()));
   }
   std::move(callback).Run(std::move(family_names));
@@ -232,8 +226,6 @@ void DWriteFontProxyImpl::GetFontFiles(uint32_t family_index,
   if (!collection_)
     return;
 
-  SCOPED_UMA_HISTOGRAM_TIMER_MICROS(
-      "DirectWrite.Fonts.Content.GetFontFilesTime");
   mswr::ComPtr<IDWriteFontFamily> family;
   HRESULT hr = collection_->GetFontFamily(family_index, &family);
   if (FAILED(hr)) {
@@ -320,8 +312,6 @@ void DWriteFontProxyImpl::MapCharacters(
     }
   }
 
-  SCOPED_UMA_HISTOGRAM_TIMER_MICROS(
-      "DirectWrite.Fonts.Content.MapCharactersTime");
   mswr::ComPtr<IDWriteFont> mapped_font;
 
   mswr::ComPtr<IDWriteNumberSubstitution> number_substitution;
@@ -428,7 +418,7 @@ void DWriteFontProxyImpl::MatchUniqueFont(
 
   DCHECK(base::FeatureList::IsEnabled(features::kFontSrcLocalMatching));
   callback = mojo::WrapCallbackWithDefaultInvokeIfNotRun(std::move(callback),
-                                                         base::FilePath(), 0);
+                                                         base::File(), 0);
   InitializeDirectWrite();
 
   // We must not get here if this version of DWrite can't handle performing the
@@ -493,7 +483,21 @@ void DWriteFontProxyImpl::MatchUniqueFont(
   }
 
   base::FilePath path(font_file_pathname);
-  std::move(callback).Run(path, ttc_index);
+
+  // Have the Browser process open the font file and send the handle to the
+  // Renderer Process to access the font. Otherwise, user-installed local font
+  // files outside of Windows fonts system directory wouldn't be accessible by
+  // Renderer due to Windows sandboxing rules.
+
+  // Specify FLAG_WIN_EXCLUSIVE_WRITE to prevent base::File from opening the
+  // file with FILE_SHARE_WRITE access. FLAG_WIN_EXCLUSIVE_WRITE doesn't
+  // actually open the file for write access.
+  base::File font_file(path, base::File::FLAG_OPEN | base::File::FLAG_READ |
+                                 base::File::FLAG_WIN_EXCLUSIVE_WRITE);
+  if (!font_file.IsValid() || !font_file.GetLength()) {
+    return;
+  }
+  std::move(callback).Run(std::move(font_file), ttc_index);
 }
 
 void DWriteFontProxyImpl::GetUniqueFontLookupMode(
@@ -512,7 +516,7 @@ void DWriteFontProxyImpl::GetUniqueNameLookupTable(
     GetUniqueNameLookupTableCallback callback) {
   DCHECK(base::FeatureList::IsEnabled(features::kFontSrcLocalMatching));
   DWriteFontLookupTableBuilder::GetInstance()->QueueShareMemoryRegionWhenReady(
-      base::SequencedTaskRunnerHandle::Get(), std::move(callback));
+      base::SequencedTaskRunner::GetCurrentDefault(), std::move(callback));
 }
 
 void DWriteFontProxyImpl::FallbackFamilyAndStyleForCodepoint(
@@ -531,8 +535,6 @@ void DWriteFontProxyImpl::FallbackFamilyAndStyleForCodepoint(
   if (!codepoint || !collection_ || !factory_)
     return;
 
-  SCOPED_UMA_HISTOGRAM_TIMER_MICROS(
-      "DirectWrite.Fonts.Content.FallbackFamilyAndStyleForCodepointTime");
   sk_sp<SkFontMgr> font_mgr(
       SkFontMgr_New_DirectWrite(factory_.Get(), collection_.Get()));
 
@@ -564,7 +566,6 @@ void DWriteFontProxyImpl::FallbackFamilyAndStyleForCodepoint(
 void DWriteFontProxyImpl::InitializeDirectWrite() {
   if (direct_write_initialized_)
     return;
-  SCOPED_UMA_HISTOGRAM_TIMER_MICROS("DirectWrite.Fonts.Content.InitializeTime");
   direct_write_initialized_ = true;
 
   TRACE_EVENT0("dwrite,fonts", "DWriteFontProxyImpl::InitializeDirectWrite");
@@ -596,7 +597,7 @@ void DWriteFontProxyImpl::InitializeDirectWrite() {
   }
 
   // Temp code to help track down crbug.com/561873
-  for (size_t font = 0; font < base::size(kLastResortFontNames); font++) {
+  for (size_t font = 0; font < std::size(kLastResortFontNames); font++) {
     uint32_t font_index = 0;
     BOOL exists = FALSE;
     if (SUCCEEDED(collection_->FindFamilyName(kLastResortFontNames[font],

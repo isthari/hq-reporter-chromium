@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -7,11 +7,11 @@
 //
 // Relationship of classes.
 //
-//  AudioOutputController                AudioOutputDevice
+//  audio::OutputController              AudioOutputDevice
 //           ^                                  ^
 //           |                                  |
 //           v                 IPC              v
-//  MojoAudioOutputStream  <---------> AudioOutputIPC (MojoAudioOutputIPC)
+//  audio::OutputStream  <---------> AudioOutputIPC (MojoAudioOutputIPC)
 //
 // Transportation of audio samples from the render to the browser process
 // is done by using shared memory in combination with a sync socket pair
@@ -184,7 +184,7 @@ class MEDIA_EXPORT AudioOutputDevice : public AudioRendererSink,
 
   AudioParameters audio_parameters_;
 
-  raw_ptr<RenderCallback> callback_;
+  raw_ptr<RenderCallback, DanglingUntriaged> callback_;
 
   // A pointer to the IPC layer that takes care of sending requests over to
   // the implementation. May be set to nullptr after errors.
@@ -210,8 +210,6 @@ class MEDIA_EXPORT AudioOutputDevice : public AudioRendererSink,
   // If |device_id_| is empty and |session_id_| is not, |matched_device_id_| is
   // received in OnDeviceAuthorized().
   std::string matched_device_id_;
-
-  absl::optional<base::UnguessableToken> processing_id_;
 
   // In order to avoid a race between OnStreamCreated and Stop(), we use this
   // guard to control stopping and starting the audio thread.

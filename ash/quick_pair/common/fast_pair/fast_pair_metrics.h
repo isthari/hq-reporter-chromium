@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,14 +29,17 @@ enum COMPONENT_EXPORT(QUICK_PAIR_COMMON) FastPairEngagementFlowEvent {
   kDiscoveryUiConnectPressed = 12,
   kDiscoveryUiDismissedByUser = 13,
   kDiscoveryUiLearnMorePressed = 14,
+  kDiscoveryUiDismissedByTimeout = 15,
   kPairingFailed = 121,
   kPairingSucceeded = 122,
   kDiscoveryUiConnectPressedAfterLearnMorePressed = 141,
   kDiscoveryUiDismissedByUserAfterLearnMorePressed = 142,
   kDiscoveryUiDismissedAfterLearnMorePressed = 143,
+  kDiscoveryUiDismissedByTimeoutAfterLearnMorePressed = 144,
   kErrorUiDismissed = 1211,
   kErrorUiSettingsPressed = 1212,
   kErrorUiDismissedByUser = 1213,
+  kPairingSucceededAlreadyPaired = 1221,
 };
 
 // These values are persisted to logs. Entries should not be renumbered and
@@ -51,9 +54,45 @@ enum COMPONENT_EXPORT(QUICK_PAIR_COMMON)
       kAssociateAccountUiDismissed = 12,
       kAssociateAccountLearnMorePressed = 13,
       kAssociateAccountSavePressed = 14,
+      kAssociateAccountUiDismissedByTimeout = 15,
       kAssociateAccountSavePressedAfterLearnMorePressed = 131,
       kAssociateAccountDismissedByUserAfterLearnMorePressed = 132,
       kAssociateAccountDismissedAfterLearnMorePressed = 133,
+      kAssociateAccountDismissedByTimeoutAfterLearnMorePressed = 134,
+    };
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused. The numbers here correspond to the
+// ordering of the flow. This enum should be kept in sync with the
+// FastPairInitialSuccessFunnelEvent enum in
+// src/tools/metrics/histograms/enums.xml.
+enum class COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+    FastPairInitialSuccessFunnelEvent {
+      kNotificationsClicked = 0,
+      kV1DeviceDetected = 1,
+      kInitializationStarted = 2,
+      kPairingStarted = 3,
+      kPairingComplete = 4,
+      kGuestModeDetected = 5,
+      kDeviceAlreadyAssociatedToAccount = 6,
+      kPreparingToWriteAccountKey = 7,
+      kAccountKeyWritten = 8,
+      kProcessComplete = 9,
+      kMaxValue = kProcessComplete,
+    };
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused. The numbers here correspond to the
+// ordering of the flow. This enum should be kept in sync with the
+// FastPairSubsequentSuccessFunnelEvent enum in
+// src/tools/metrics/histograms/enums.xml.
+enum class COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+    FastPairSubsequentSuccessFunnelEvent {
+      kNotificationsClicked = 0,
+      kInitializationStarted = 1,
+      kPairingStarted = 2,
+      kProcessComplete = 3,
+      kMaxValue = kProcessComplete,
     };
 
 // These values are persisted to logs. Entries should not be renumbered and
@@ -88,9 +127,40 @@ enum class COMPONENT_EXPORT(QUICK_PAIR_COMMON) FastPairVersion {
   kMaxValue = kVersion2,
 };
 
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused. This enum should be kept in sync
+// with the FastPairHandshakeSteps enum in
+// src/tools/metrics/histograms/enums.xml.
+enum class COMPONENT_EXPORT(QUICK_PAIR_COMMON) FastPairHandshakeSteps {
+  kHandshakeStarted = 0,
+  kGattInitalized = 1,
+  kKeyBasedPairingResponseReceived = 2,
+  kHandshakeComplete = 3,
+  kMaxValue = kHandshakeComplete,
+};
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused. This enum should be kept in sync
+// with the FastPairGattConnectionSteps enum in
+// src/tools/metrics/histograms/enums.xml.
+enum class COMPONENT_EXPORT(QUICK_PAIR_COMMON) FastPairGattConnectionSteps {
+  kConnectionStarted = 0,
+  kConnectionReady = 1,
+  kFoundKeybasedPairingCharacteristic = 2,
+  kNotifiationsEnabledForKeybasedPairing = 3,
+  kConnectionEstablished = 4,
+  kMaxValue = kConnectionEstablished
+};
+
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
 void AttemptRecordingFastPairEngagementFlow(const Device& device,
                                             FastPairEngagementFlowEvent event);
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordInitialSuccessFunnelFlow(FastPairInitialSuccessFunnelEvent event);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordSubsequentSuccessFunnelFlow(
+    FastPairSubsequentSuccessFunnelEvent event);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
 void AttemptRecordingTotalUxPairTime(const Device& device,
@@ -116,6 +186,12 @@ void RecordGattConnectionResult(bool success);
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
 void RecordGattConnectionErrorCode(
     device::BluetoothDevice::ConnectErrorCode error_code);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordEffectiveGattConnectionSuccess(bool success);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordGattConnectionAttemptCount(int num_attempts);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
 void RecordPairingFailureReason(const Device& device, PairFailure failure);
@@ -220,10 +296,18 @@ COMPONENT_EXPORT(QUICK_PAIR_COMMON)
 void RecordFastPairRepositoryCacheResult(bool success);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordGattInitializationStep(
+    FastPairGattConnectionSteps initialization_step);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
 void RecordHandshakeResult(bool success);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
 void RecordHandshakeFailureReason(HandshakeFailureReason failure_reason);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordHandshakeStep(FastPairHandshakeSteps handshake_step,
+                         const Device& device);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
 void RecordBluetoothLowEnergyScannerStartSessionResult(bool success);
@@ -259,6 +343,22 @@ void RecordConfirmPasskeyAskTime(base::TimeDelta total_ask_time);
 
 COMPONENT_EXPORT(QUICK_PAIR_COMMON)
 void RecordPairFailureRetry(int num_retries);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordSavedDevicesRemoveResult(bool success);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordSavedDevicesUpdatedOptInStatusResult(const Device& device,
+                                                bool success);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordGetSavedDevicesResult(bool success);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordSavedDevicesTotalUxLoadTime(base::TimeDelta total_load_time);
+
+COMPONENT_EXPORT(QUICK_PAIR_COMMON)
+void RecordSavedDevicesCount(int num_devices);
 
 }  // namespace quick_pair
 }  // namespace ash

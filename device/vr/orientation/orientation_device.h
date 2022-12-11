@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,6 +49,7 @@ class COMPONENT_EXPORT(VR_ORIENTATION) VROrientationDevice
   void RequestSession(
       mojom::XRRuntimeSessionOptionsPtr options,
       mojom::XRRuntime::RequestSessionCallback callback) override;
+  void ShutdownSession(mojom::XRRuntime::ShutdownSessionCallback) override;
 
   // Indicates whether the device was able to connect to orientation events.
   bool IsAvailable() const { return available_; }

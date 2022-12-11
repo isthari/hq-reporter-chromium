@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,12 +18,15 @@
 #include "ash/components/arc/session/arc_bridge_service.h"
 #include "base/bind.h"
 #include "base/check_op.h"
+#include "base/command_line.h"
 #include "base/location.h"
 #include "base/no_destructor.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/bind_post_task.h"
 #include "base/threading/thread_checker.h"
+#include "chromeos/components/cdm_factory_daemon/cdm_factory_daemon_proxy_ash.h"
+#include "chromeos/components/cdm_factory_daemon/mojom/browser_cdm_factory.mojom.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/gpu_feature_checker.h"
@@ -33,6 +36,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "mojo/public/cpp/platform/platform_channel.h"
 #include "mojo/public/cpp/system/invitation.h"
 #include "mojo/public/cpp/system/platform_handle.h"
@@ -61,6 +65,47 @@ class GpuArcVideoKeyedServiceFactory
   ~GpuArcVideoKeyedServiceFactory() override = default;
 };
 
+class FailingVideoDecodeAccelerator : public mojom::VideoDecodeAccelerator {
+ public:
+  FailingVideoDecodeAccelerator() {
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  }
+
+  FailingVideoDecodeAccelerator(const FailingVideoDecodeAccelerator&) = delete;
+  FailingVideoDecodeAccelerator& operator=(
+      const FailingVideoDecodeAccelerator&) = delete;
+
+  ~FailingVideoDecodeAccelerator() override = default;
+
+  // mojom::VideoDecodeAccelerator implementation.
+  void Initialize(mojom::VideoDecodeAcceleratorConfigPtr config,
+                  mojo::PendingRemote<mojom::VideoDecodeClient> client,
+                  InitializeCallback callback) override {
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+    // The CTS tests would fail if we just drop |client|.
+    clients_.Add(std::move(client));
+    std::move(callback).Run(
+        mojom::VideoDecodeAccelerator::Result::INSUFFICIENT_RESOURCES);
+  }
+  void Decode(mojom::BitstreamBufferPtr bitstream_buffer) override {
+    NOTREACHED();
+  }
+  void AssignPictureBuffers(uint32_t count) override { NOTREACHED(); }
+  void ImportBufferForPicture(int32_t picture_buffer_id,
+                              mojom::HalPixelFormat format,
+                              mojo::ScopedHandle handle,
+                              std::vector<VideoFramePlane> planes,
+                              mojom::BufferModifierPtr modifier) override {
+    NOTREACHED();
+  }
+  void ReusePictureBuffer(int32_t picture_buffer_id) override { NOTREACHED(); }
+  void Flush(FlushCallback callback) override { NOTREACHED(); }
+  void Reset(ResetCallback callback) override { NOTREACHED(); }
+
+ private:
+  mojo::RemoteSet<mojom::VideoDecodeClient> clients_;
+};
+
 class VideoAcceleratorFactoryService : public mojom::VideoAcceleratorFactory {
  public:
   VideoAcceleratorFactoryService() {
@@ -87,7 +132,9 @@ class VideoAcceleratorFactoryService : public mojom::VideoAcceleratorFactory {
   void CreateDecodeAccelerator(
       mojo::PendingReceiver<mojom::VideoDecodeAccelerator> receiver,
       mojo::PendingRemote<
-          mojom::ProtectedBufferManager> /*protected_buffer_manager*/)
+          mojom::ProtectedBufferManager> /*protected_buffer_manager*/,
+      mojo::PendingRemote<
+          chromeos::cdm::mojom::BrowserCdmFactory> /*browser_cdm_factory*/)
       override {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
@@ -106,7 +153,7 @@ class VideoAcceleratorFactoryService : public mojom::VideoAcceleratorFactory {
     // blocklist. Note: base::Unretained(this) is safe because *|this| should
     // never die. See the CHECK() in the destructor.
     const scoped_refptr<base::SingleThreadTaskRunner>& task_runner =
-        base::ThreadTaskRunnerHandle::Get();
+        base::SingleThreadTaskRunner::GetCurrentDefault();
     CHECK(task_runner);
     auto gpu_feature_checker = content::GpuFeatureChecker::Create(
         gpu::GpuFeatureType::GPU_FEATURE_TYPE_ACCELERATED_VIDEO_DECODE,
@@ -158,6 +205,20 @@ class VideoAcceleratorFactoryService : public mojom::VideoAcceleratorFactory {
         LOG(WARNING)
             << "Reached the maximum number of video decoder processes for ARC ("
             << kMaxArcVideoDecoderProcesses << ")";
+
+        // Workaround: a FailingVideoDecodeAccelerator is used in place of an
+        // actual VideoDecodeAccelerator whenever the client has reached the
+        // maximum number of video decoders. We need this instead of just
+        // dropping the incoming |receiver| because some ARC++ CTS tests would
+        // fail otherwise. It's unclear if this is expected behavior (see
+        // b/217133005 and b/219602580). Note that we still limit the number of
+        // FailingVideoDecodeAccelerators to prevent abuse.
+        constexpr size_t kMaxFailingVideoDecodeAccelerators = 2u;
+        if (failing_video_decode_accelerator_receivers_.size() <
+            kMaxFailingVideoDecodeAccelerators) {
+          failing_video_decode_accelerator_receivers_.Add(
+              &failing_video_decode_accelerator_, std::move(receiver));
+        }
         return;
       }
       mojo::Remote<mojom::VideoAcceleratorFactory> oop_video_factory;
@@ -174,14 +235,26 @@ class VideoAcceleratorFactoryService : public mojom::VideoAcceleratorFactory {
       content::BindInterfaceInGpuProcess(
           protected_buffer_manager.InitWithNewPipeAndPassReceiver());
 
+      // Version 10 accepts a BrowserCdmFactory.
+      oop_video_factory.RequireVersion(10);
+      mojo::PendingRemote<chromeos::cdm::mojom::BrowserCdmFactory>
+          browser_cdm_factory;
+      mojo::MakeSelfOwnedReceiver(
+          chromeos::CdmFactoryDaemonProxyAsh::CreateBrowserCdmFactoryProxy(),
+          browser_cdm_factory.InitWithNewPipeAndPassReceiver());
+
       oop_video_factory->CreateDecodeAccelerator(
-          std::move(receiver), std::move(protected_buffer_manager));
+          std::move(receiver), std::move(protected_buffer_manager),
+          std::move(browser_cdm_factory));
       oop_video_factories_.Add(std::move(oop_video_factory));
       return;
     }
     content::BindInterfaceInGpuProcess(std::move(receiver));
   }
 
+  FailingVideoDecodeAccelerator failing_video_decode_accelerator_;
+  mojo::ReceiverSet<mojom::VideoDecodeAccelerator>
+      failing_video_decode_accelerator_receivers_;
   mojo::RemoteSet<mojom::VideoAcceleratorFactory> oop_video_factories_;
 };
 

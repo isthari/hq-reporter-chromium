@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,6 +54,12 @@ void ClientControlledShellSurfaceDelegate::OnStateChanged(
       break;
     case chromeos::WindowStateType::kFullscreen:
       shell_surface_->SetFullscreen(true);
+      break;
+    case chromeos::WindowStateType::kPinned:
+      shell_surface_->SetPinned(chromeos::WindowPinType::kPinned);
+      break;
+    case chromeos::WindowStateType::kTrustedPinned:
+      shell_surface_->SetPinned(chromeos::WindowPinType::kTrustedPinned);
       break;
     default:
       NOTIMPLEMENTED();
@@ -134,25 +140,6 @@ std::unique_ptr<gfx::GpuMemoryBuffer> ExoTestHelper::CreateGpuMemoryBuffer(
       ->GetGpuMemoryBufferManager()
       ->CreateGpuMemoryBuffer(size, format, gfx::BufferUsage::GPU_READ,
                               gpu::kNullSurfaceHandle, nullptr);
-}
-
-std::unique_ptr<ClientControlledShellSurface>
-ExoTestHelper::CreateClientControlledShellSurface(
-    Surface* surface,
-    bool is_modal,
-    bool default_scale_cancellation) {
-  int container = is_modal ? ash::kShellWindowId_SystemModalContainer
-                           : ash::desks_util::GetActiveDeskContainerId();
-  auto shell_surface = Display().CreateOrGetClientControlledShellSurface(
-      surface, container,
-      WMHelper::GetInstance()->GetDefaultDeviceScaleFactor(),
-      default_scale_cancellation);
-  shell_surface->SetApplicationId("arc");
-  shell_surface->set_delegate(
-      std::make_unique<ClientControlledShellSurfaceDelegate>(
-          shell_surface.get()));
-
-  return shell_surface;
 }
 
 std::unique_ptr<InputMethodSurface> ExoTestHelper::CreateInputMethodSurface(

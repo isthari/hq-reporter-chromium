@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,10 +31,13 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/common/page_visibility_state.h"
 #include "content/public/common/widget_type.h"
+#include "services/device/public/mojom/screen_orientation_lock_types.mojom.h"
 #include "services/viz/public/mojom/hit_test/hit_test_region_list.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/mojom/frame/fullscreen.mojom.h"
 #include "third_party/blink/public/mojom/frame/intrinsic_sizing_info.mojom-forward.h"
 #include "third_party/blink/public/mojom/input/input_event_result.mojom-shared.h"
+#include "third_party/blink/public/mojom/input/input_handler.mojom-forward.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
 #include "ui/accessibility/ax_action_handler_registry.h"
 #include "ui/base/ime/mojom/text_input_state.mojom-forward.h"
@@ -108,6 +111,7 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView {
   std::u16string GetSelectedText() override;
   bool IsMouseLocked() override;
   bool GetIsMouseLockedUnadjustedMovementForTesting() override;
+  bool CanBeMouseLocked() override;
   bool LockKeyboard(absl::optional<base::flat_set<ui::DomCode>> codes) override;
   void SetBackgroundColor(SkColor color) override;
   absl::optional<SkColor> GetBackgroundColor() override;
@@ -128,13 +132,19 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView {
   display::ScreenInfo GetScreenInfo() const override;
   display::ScreenInfos GetScreenInfos() const override;
 
+  // For HiDPI capture mode, allow applying a render scale multiplier
+  // which modifies the effective device scale factor. Use a scale
+  // of 1.0f (exactly) to disable the feature after it was used.
+  void SetScaleOverrideForCapture(float scale);
+  float GetScaleOverrideForCapture() const;
+
   void EnableAutoResize(const gfx::Size& min_size,
                         const gfx::Size& max_size) override;
   void DisableAutoResize(const gfx::Size& new_size) override;
   float GetDeviceScaleFactor() const final;
   TouchSelectionControllerClientManager*
   GetTouchSelectionControllerClientManager() override;
-  bool ShouldVirtualKeyboardOverlayContent() override;
+  ui::mojom::VirtualKeyboardMode GetVirtualKeyboardMode() override;
   void NotifyVirtualKeyboardOverlayRect(
       const gfx::Rect& keyboard_rect) override {}
   bool IsHTMLFormPopup() const override;
@@ -218,12 +228,15 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView {
   virtual void WheelEventAck(const blink::WebMouseWheelEvent& event,
                              blink::mojom::InputEventResultState ack_result);
 
-  virtual void GestureEventAck(const blink::WebGestureEvent& event,
-                               blink::mojom::InputEventResultState ack_result);
+  virtual void GestureEventAck(
+      const blink::WebGestureEvent& event,
+      blink::mojom::InputEventResultState ack_result,
+      blink::mojom::ScrollResultDataPtr scroll_result_data);
 
   virtual void ChildDidAckGestureEvent(
       const blink::WebGestureEvent& event,
-      blink::mojom::InputEventResultState ack_result);
+      blink::mojom::InputEventResultState ack_result,
+      blink::mojom::ScrollResultDataPtr scroll_result_data);
 
   // Create a platform specific SyntheticGestureTarget implementation that will
   // be used to inject synthetic input events.
@@ -238,6 +251,20 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView {
   // Informs that the focused DOM node has changed.
   virtual void FocusedNodeChanged(bool is_editable_node,
                                   const gfx::Rect& node_bounds_in_screen) {}
+
+  // Requests to start stylus writing and returns true if successful.
+  virtual bool RequestStartStylusWriting();
+
+  // Sets whether the hovered element action is stylus writable or not.
+  virtual void SetHoverActionStylusWritable(bool stylus_writable) {}
+
+  // This message is received when the stylus writable element is focused.
+  // It receives the focused edit element bounds and the current caret bounds
+  // needed for stylus writing service. These bounds would be empty when the
+  // stylus writable element could not be focused.
+  virtual void OnEditElementFocusedForStylusWriting(
+      const gfx::Rect& focused_edit_bounds,
+      const gfx::Rect& caret_bounds) {}
 
   // This method will clear any cached fallback surface. For use in response to
   // a CommitPending where there is no content for TakeFallbackContentFrom.
@@ -539,6 +566,14 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView {
   // RenderWidgetHostView.
   VisibleTimeRequestTrigger* GetVisibleTimeRequestTrigger();
 
+  virtual void EnterFullscreenMode(
+      const blink::mojom::FullscreenOptions& options) {}
+  virtual void ExitFullscreenMode() {}
+  virtual void LockOrientation(
+      device::mojom::ScreenOrientationLockType orientation) {}
+  virtual void UnlockOrientation() {}
+  virtual void SetHasPersistentVideo(bool has_persistent_video) {}
+
  protected:
   explicit RenderWidgetHostViewBase(RenderWidgetHost* host);
   ~RenderWidgetHostViewBase() override;
@@ -582,6 +617,9 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView {
 
   void UpdateSystemCursorSize(const gfx::Size& cursor_size);
 
+  // Updates the active state by replicating it to the renderer.
+  void UpdateActiveState(bool active);
+
   // Each platform should override this to call RenderWidgetHostImpl::WasShown
   // and DelegatedFrameHost::WasShown, and do any platform-specific bookkeeping
   // needed.  The given `visible_time_request`, if any, should be passed to
@@ -608,13 +646,15 @@ class CONTENT_EXPORT RenderWidgetHostViewBase : public RenderWidgetHostView {
 
   // The model object. Access is protected to allow access to
   // RenderWidgetHostViewChildFrame.
-  raw_ptr<RenderWidgetHostImpl> host_;
+  raw_ptr<RenderWidgetHostImpl, DanglingUntriaged> host_;
 
   // Whether this view is a frame or a popup.
   WidgetType widget_type_ = WidgetType::kFrame;
 
   // Cached information about the renderer's display environment.
   display::ScreenInfos screen_infos_;
+
+  float scale_override_for_capture_ = 1.0f;
 
   // Indicates whether keyboard lock is active for this view.
   bool keyboard_locked_ = false;

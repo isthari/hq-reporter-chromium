@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -433,7 +433,7 @@ TEST_F(ProfileAttributesStorageTest, RemoveProfileByAccountId) {
       {"path_4", "name_4", AccountId::FromUserEmailGaiaId("email4", "444444"),
        false}};
 
-  for (size_t i = 0; i < base::size(kTestCases); ++i) {
+  for (size_t i = 0; i < std::size(kTestCases); ++i) {
     ProfileAttributesInitParams params;
     params.profile_path = GetProfilePath(kTestCases[i].profile_path);
     params.profile_name = base::ASCIIToUTF16(kTestCases[i].profile_name);
@@ -513,7 +513,7 @@ TEST_F(ProfileAttributesStorageTest, AddStubProfile) {
       {"path.test2", "name_2"},
       {"path_test3", "name_3"},
   };
-  const size_t kNumProfiles = base::size(kTestCases);
+  const size_t kNumProfiles = std::size(kTestCases);
 
   for (auto test_case : kTestCases) {
     base::FilePath profile_path = GetProfilePath(test_case.profile_path);
@@ -534,9 +534,9 @@ TEST_F(ProfileAttributesStorageTest, AddStubProfile) {
   // Check that the profiles can be extracted from the local state.
   std::vector<std::string> names;
   PrefService* local_state = g_browser_process->local_state();
-  const base::Value* attributes =
-      local_state->GetDictionary(prefs::kProfileAttributes);
-  for (const auto kv : attributes->DictItems()) {
+  const base::Value::Dict& attributes =
+      local_state->GetDict(prefs::kProfileAttributes);
+  for (const auto kv : attributes) {
     const base::Value& info = kv.second;
     const std::string* name = info.FindStringKey("name");
     names.push_back(*name);
@@ -750,10 +750,6 @@ TEST_F(ProfileAttributesStorageTest, EntryAccessors) {
 
   TEST_BOOL_ACCESSORS(ProfileAttributesEntry, entry, IsEphemeral);
 
-  EXPECT_CALL(observer(), OnProfileNameChanged(path, _)).Times(2);
-  TEST_BOOL_ACCESSORS(ProfileAttributesEntry, entry, IsUsingDefaultName);
-  VerifyAndResetCallExpectations();
-
   TEST_BOOL_ACCESSORS(ProfileAttributesEntry, entry, IsUsingDefaultAvatar);
   TEST_STRING_ACCESSORS(ProfileAttributesEntry, entry,
                         LastDownloadedGAIAPictureUrlWithSize);
@@ -835,19 +831,19 @@ TEST_F(ProfileAttributesStorageTest, EntryInternalAccessors) {
 
   EXPECT_TRUE(entry->SetString16(key, u"efgh"));
 
-  // If previous data is not there, setters should returns true even if the
+  // If previous data is not there, setters should returns false even if the
   // defaults (empty string, 0.0, or false) are written.
-  EXPECT_TRUE(entry->SetString("test1", std::string()));
-  EXPECT_TRUE(entry->SetString16("test2", std::u16string()));
-  EXPECT_TRUE(entry->SetDouble("test3", 0.0));
-  EXPECT_TRUE(entry->SetBool("test4", false));
+  EXPECT_FALSE(entry->SetString("test1", std::string()));
+  EXPECT_FALSE(entry->SetString16("test2", std::u16string()));
+  EXPECT_FALSE(entry->SetDouble("test3", 0.0));
+  EXPECT_FALSE(entry->SetBool("test4", false));
 
-  // If previous data is in a wrong type, setters should returns true even if
+  // If previous data is in a wrong type, setters should returns false even if
   // the defaults (empty string, 0.0, or false) are written.
-  EXPECT_TRUE(entry->SetString("test3", std::string()));
-  EXPECT_TRUE(entry->SetString16("test4", std::u16string()));
-  EXPECT_TRUE(entry->SetDouble("test1", 0.0));
-  EXPECT_TRUE(entry->SetBool("test2", false));
+  EXPECT_FALSE(entry->SetString("test3", std::string()));
+  EXPECT_FALSE(entry->SetString16("test4", std::u16string()));
+  EXPECT_FALSE(entry->SetDouble("test1", 0.0));
+  EXPECT_FALSE(entry->SetBool("test2", false));
 }
 
 TEST_F(ProfileAttributesStorageTest, ProfileActiveTime) {
@@ -1085,8 +1081,8 @@ TEST_F(ProfileAttributesStorageTest, CreateSupervisedTestingProfile) {
       testing_profile_manager()
           .CreateTestingProfile(
               "test1", std::unique_ptr<sync_preferences::PrefServiceSyncable>(),
-              supervised_user_name, 0, supervised_users::kChildAccountSUID,
-              TestingProfile::TestingFactories())
+              supervised_user_name, 0, TestingProfile::TestingFactories(),
+              /*is_supervised_profile=*/true)
           ->GetPath();
   base::FilePath profile_paths[] = {path_1, path_2};
   for (const base::FilePath& path : profile_paths) {
@@ -1609,6 +1605,7 @@ TEST_F(ProfileAttributesStorageTest, ProfilesState_SingleProfile) {
 // Themes aren't used on Android
 #if !BUILDFLAG(IS_ANDROID)
 TEST_F(ProfileAttributesStorageTest, ProfileThemeColors) {
+  ui::NativeTheme::GetInstanceForNativeUi()->set_use_dark_colors(false);
   AddTestingProfile();
   base::FilePath profile_path = GetProfilePath("testing_profile_path0");
 
@@ -1619,13 +1616,13 @@ TEST_F(ProfileAttributesStorageTest, ProfileThemeColors) {
   entry->SetAvatarIconIndex(profiles::GetPlaceholderAvatarIndex());
   VerifyAndResetCallExpectations();
 
-  EXPECT_EQ(entry->GetProfileThemeColors(),
-            GetDefaultProfileThemeColors(false));
+  ProfileThemeColors light_colors = GetDefaultProfileThemeColors();
+  EXPECT_EQ(entry->GetProfileThemeColors(), light_colors);
 
-  ui::NativeTheme::GetInstanceForNativeUi()->set_use_dark_colors(true);
-  EXPECT_EQ(entry->GetProfileThemeColors(), GetDefaultProfileThemeColors(true));
-  EXPECT_NE(entry->GetProfileThemeColors(),
-            GetDefaultProfileThemeColors(false));
+  auto* native_theme = ui::NativeTheme::GetInstanceForNativeUi();
+  native_theme->set_use_dark_colors(true);
+  EXPECT_EQ(entry->GetProfileThemeColors(), GetDefaultProfileThemeColors());
+  EXPECT_NE(entry->GetProfileThemeColors(), light_colors);
 
   ProfileThemeColors colors = {SK_ColorTRANSPARENT, SK_ColorBLACK,
                                SK_ColorWHITE};
@@ -1636,15 +1633,14 @@ TEST_F(ProfileAttributesStorageTest, ProfileThemeColors) {
   VerifyAndResetCallExpectations();
 
   // Colors shouldn't change after switching back to the light mode.
-  ui::NativeTheme::GetInstanceForNativeUi()->set_use_dark_colors(false);
+  native_theme->set_use_dark_colors(false);
   EXPECT_EQ(entry->GetProfileThemeColors(), colors);
 
   // absl::nullopt resets the colors to default.
   EXPECT_CALL(observer(), OnProfileAvatarChanged(profile_path)).Times(1);
   EXPECT_CALL(observer(), OnProfileThemeColorsChanged(profile_path)).Times(1);
   entry->SetProfileThemeColors(absl::nullopt);
-  EXPECT_EQ(entry->GetProfileThemeColors(),
-            GetDefaultProfileThemeColors(false));
+  EXPECT_EQ(entry->GetProfileThemeColors(), GetDefaultProfileThemeColors());
   VerifyAndResetCallExpectations();
 }
 #endif  // !BUILDFLAG(IS_ANDROID)
@@ -1873,7 +1869,7 @@ TEST_F(ProfileAttributesStorageTest,
       {"path_7", "Person 3", true},        {"path_8", "Person 1", true},
       {"path_9", "Person 2", true},        {"path_10", "Person 1", true},
       {"path_11", "Smith", false},         {"path_12", "Person 2", true}};
-  const size_t kNumProfiles = base::size(kTestCases);
+  const size_t kNumProfiles = std::size(kTestCases);
 
   ProfileAttributesEntry* entry = nullptr;
   for (size_t i = 0; i < kNumProfiles; ++i) {
@@ -1885,7 +1881,8 @@ TEST_F(ProfileAttributesStorageTest,
     storage()->AddProfile(std::move(params));
     entry = storage()->GetProfileAttributesWithPath(profile_path);
     EXPECT_TRUE(entry);
-    entry->SetIsUsingDefaultName(kTestCases[i].is_using_default_name);
+    entry->SetLocalProfileName(entry->GetLocalProfileName(),
+                               kTestCases[i].is_using_default_name);
   }
 
   EXPECT_EQ(kNumProfiles, storage()->GetNumberOfProfiles());
@@ -1923,47 +1920,3 @@ TEST_F(ProfileAttributesStorageTest,
   EXPECT_EQ(actual_profile_names, expected_profile_names);
 }
 #endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
-
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_ANDROID)
-TEST_F(ProfileAttributesStorageTest,
-       DontMigrateLegacyProfileNamesWithoutNewAvatarMenu) {
-  DisableObserver();  // This test doesn't test observers.
-  EXPECT_EQ(0U, storage()->GetNumberOfProfiles());
-
-  const struct {
-    const char* profile_path;
-    const char* profile_name;
-  } kTestCases[] = {{"path_1", "Default Profile"},
-                    {"path_2", "First user"},
-                    {"path_3", "Lemonade"},
-                    {"path_4", "Batman"}};
-  const size_t kNumProfiles = base::size(kTestCases);
-
-  for (size_t i = 0; i < kNumProfiles; ++i) {
-    base::FilePath profile_path = GetProfilePath(kTestCases[i].profile_path);
-    ProfileAttributesInitParams params;
-    params.profile_path = profile_path;
-    params.profile_name = base::ASCIIToUTF16(kTestCases[i].profile_name);
-    params.icon_index = i;
-    storage()->AddProfile(std::move(params));
-    ProfileAttributesEntry* entry =
-        storage()->GetProfileAttributesWithPath(profile_path);
-    EXPECT_TRUE(entry);
-    entry->SetIsUsingDefaultName(true);
-  }
-  EXPECT_EQ(kNumProfiles, storage()->GetNumberOfProfiles());
-
-  ResetProfileAttributesStorage();
-
-  // Profile names should have been preserved.
-  for (size_t i = 0; i < kNumProfiles; ++i) {
-    base::FilePath profile_path = GetProfilePath(kTestCases[i].profile_path);
-    std::u16string profile_name =
-        base::ASCIIToUTF16(kTestCases[i].profile_name);
-    ProfileAttributesEntry* entry =
-        storage()->GetProfileAttributesWithPath(profile_path);
-    EXPECT_TRUE(entry);
-    EXPECT_EQ(profile_name, entry->GetName());
-  }
-}
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_ANDROID)

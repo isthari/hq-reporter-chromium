@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 
 #include "base/bind.h"
 #include "base/syslog_logging.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
 #include "components/policy/core/common/remote_commands/remote_commands_service.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 
@@ -29,7 +29,7 @@ constexpr base::TimeDelta kRemotePowerwashCommandExpirationTime =
 constexpr base::TimeDelta kFailsafeTimerTimeout = base::Seconds(10);
 
 void StartPowerwash(enterprise_management::SignedData signed_command) {
-  chromeos::SessionManagerClient::Get()->StartRemoteDeviceWipe(signed_command);
+  ash::SessionManagerClient::Get()->StartRemoteDeviceWipe(signed_command);
 }
 
 }  // namespace
@@ -60,13 +60,13 @@ void DeviceCommandRemotePowerwashJob::RunImpl(
 
   // Also set a failsafe timer that starts the powerwash so a faulty network
   // connection doesn't prevent the powerwash from happening.
-  base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, base::BindOnce(&StartPowerwash, signed_command()),
       kFailsafeTimerTimeout);
 
   // Ack the command.
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(succeeded_callback), nullptr));
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(succeeded_callback), absl::nullopt));
 }
 
 }  // namespace policy

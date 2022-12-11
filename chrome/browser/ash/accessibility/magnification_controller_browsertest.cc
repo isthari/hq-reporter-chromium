@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,22 +8,15 @@
 #include "ash/shell.h"
 #include "base/command_line.h"
 #include "base/run_loop.h"
-#include "base/timer/timer.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
+#include "chrome/browser/ash/accessibility/html_test_utils.h"
 #include "chrome/browser/ash/accessibility/magnification_manager.h"
-#include "chrome/browser/browser_process.h"
+#include "chrome/browser/ash/accessibility/magnifier_animation_waiter.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "content/public/browser/render_widget_host_view.h"
-#include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
-#include "content/public/test/browser_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/wm/core/coordinate_conversion.h"
 
 namespace ash {
 
@@ -36,10 +29,6 @@ const char kTestHtmlContent[] =
     "style=\"margin-left:200;margin-top:200;width:100;height:50\">"
     "Big Button 1</button>"
     "</body>";
-
-aura::Window* GetRootWindow() {
-  return Shell::GetPrimaryRootWindow();
-}
 
 FullscreenMagnifierController* GetFullscreenMagnifierController() {
   return Shell::Get()->fullscreen_magnifier_controller();
@@ -60,34 +49,6 @@ void MoveMagnifierWindow(int x, int y) {
 gfx::Rect GetViewPort() {
   return GetFullscreenMagnifierController()->GetViewportRect();
 }
-
-class MagnifierAnimationWaiter {
- public:
-  explicit MagnifierAnimationWaiter(FullscreenMagnifierController* controller)
-      : controller_(controller) {}
-
-  MagnifierAnimationWaiter(const MagnifierAnimationWaiter&) = delete;
-  MagnifierAnimationWaiter& operator=(const MagnifierAnimationWaiter&) = delete;
-
-  void Wait() {
-    base::RepeatingTimer check_timer;
-    check_timer.Start(FROM_HERE, base::Milliseconds(10), this,
-                      &MagnifierAnimationWaiter::OnTimer);
-    runner_ = new content::MessageLoopRunner;
-    runner_->Run();
-  }
-
- private:
-  void OnTimer() {
-    DCHECK(runner_.get());
-    if (!controller_->IsOnAnimationForTesting()) {
-      runner_->Quit();
-    }
-  }
-
-  FullscreenMagnifierController* controller_;  // not owned
-  scoped_refptr<content::MessageLoopRunner> runner_;
-};
 
 }  // namespace
 
@@ -127,58 +88,22 @@ class FullscreenMagnifierControllerTest : public InProcessBrowserTest {
     return browser()->tab_strip_model()->GetActiveWebContents();
   }
 
-  void ExecuteScriptAndExtractInt(const std::string& script, int* result) {
-    ASSERT_TRUE(content::ExecuteScriptAndExtractInt(
-        GetWebContents(),
-        "window.domAutomationController.send(" + script + ");", result));
-  }
-
-  void ExecuteScript(const std::string& script) {
-    ASSERT_TRUE(content::ExecuteScript(GetWebContents(), script));
-  }
-
-  gfx::Rect GetControlBoundsInRoot(const std::string& field_id) {
-    ExecuteScript("var element = document.getElementById('" + field_id +
-                  "');"
-                  "var bounds = element.getBoundingClientRect();");
-    int top, left, width, height;
-    ExecuteScriptAndExtractInt("bounds.top", &top);
-    ExecuteScriptAndExtractInt("bounds.left", &left);
-    ExecuteScriptAndExtractInt("bounds.width", &width);
-    ExecuteScriptAndExtractInt("bounds.height", &height);
-    gfx::Rect rect(top, left, width, height);
-
-    content::RenderWidgetHostView* view =
-        GetWebContents()->GetRenderWidgetHostView();
-    gfx::Rect view_bounds_in_screen = view->GetViewBounds();
-    gfx::Point origin = rect.origin();
-    origin.Offset(view_bounds_in_screen.x(), view_bounds_in_screen.y());
-    gfx::Rect rect_in_screen(origin.x(), origin.y(), rect.width(),
-                             rect.height());
-    ::wm::ConvertRectFromScreen(GetRootWindow(), &rect_in_screen);
-    return rect_in_screen;
-  }
-
   void SetFocusOnElement(const std::string& element_id) {
-    ExecuteScript("document.getElementById('" + element_id + "').focus();");
+    ExecuteScript(GetWebContents(),
+                  "document.getElementById('" + element_id + "').focus();");
   }
 };
 
 // Test is flaky on ChromeOS: crbug.com/1150753
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#define MAYBE_FollowFocusOnWebButtonContained \
-  DISABLED_FollowFocusOnWebButtonContained
-#else
-#define MAYBE_FollowFocusOnWebButtonContained FollowFocusOnWebButtonContained
-#endif
 IN_PROC_BROWSER_TEST_F(FullscreenMagnifierControllerTest,
-                       MAYBE_FollowFocusOnWebButtonContained) {
+                       DISABLED_FollowFocusOnWebButtonContained) {
   DCHECK(IsMagnifierEnabled());
   ASSERT_NO_FATAL_FAILURE(EXPECT_TRUE(ui_test_utils::NavigateToURL(
       browser(), GURL(std::string(kDataURIPrefix) + kTestHtmlContent))));
 
   // Move magnifier window to contain the button.
-  const gfx::Rect button_bounds = GetControlBoundsInRoot("test_button");
+  const gfx::Rect button_bounds =
+      GetControlBoundsInRoot(GetWebContents(), "test_button");
   MoveMagnifierWindow(button_bounds.x() - 100, button_bounds.y() - 100);
   const gfx::Rect view_port_before_focus = GetViewPort();
   EXPECT_TRUE(view_port_before_focus.Contains(button_bounds));

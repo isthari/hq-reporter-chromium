@@ -1,18 +1,20 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/services/sharing/nearby/platform/wifi_lan_medium.h"
 
-#include "ash/services/nearby/public/cpp/tcp_server_socket_port.h"
 #include "base/bind.h"
 #include "base/check.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/notreached.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "base/time/time.h"
+#include "chromeos/ash/services/nearby/public/cpp/tcp_server_socket_port.h"
 #include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
 #include "net/base/net_errors.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
@@ -22,6 +24,13 @@ namespace nearby {
 namespace chrome {
 
 namespace {
+
+// The max time spent trying to connect to another device's TCP socket. We
+// expect connection attempts to fail in practice, for example, when two devices
+// are on different networks. We want to fail quickly so another upgrade medium
+// like WebRTC can be used. The default networking stack timeout is too long; it
+// can take over 2 minutes.
+constexpr base::TimeDelta kConnectTimeout = base::Seconds(2);
 
 // The max size of the server socket's queue of pending connection requests from
 // remote sockets. Any additional connection requests are refused.
@@ -89,6 +98,15 @@ WifiLanMedium::~WifiLanMedium() {
   shutdown_waitable_event.Wait();
 }
 
+bool WifiLanMedium::IsNetworkConnected() const {
+  // This is not used by ChromeOS. A virtual function was created in the base
+  // class to support Windows, so this implementation only exists to override
+  // that function. This may be implemented correctly at a later date if
+  // Wi-Fi LAN would need similar functionality.
+  // Context: cl/452402734
+  return true;
+}
+
 /*============================================================================*/
 // Begin: ConnectToService()
 /*============================================================================*/
@@ -129,8 +147,6 @@ std::unique_ptr<api::WifiLanSocket> WifiLanMedium::ConnectToService(
     return nullptr;
   }
 
-  VLOG(1) << "WifiLanMedium::" << __func__ << ": Connection established with "
-          << connected_socket_parameters->remote_end_point.ToString();
   return std::make_unique<WifiLanSocket>(
       std::move(*connected_socket_parameters));
 }
@@ -150,6 +166,7 @@ void WifiLanMedium::DoConnect(
   mojo::PendingReceiver<network::mojom::TCPConnectedSocket> receiver =
       tcp_connected_socket.InitWithNewPipeAndPassReceiver();
   socket_factory_->CreateTCPConnectedSocket(
+      /*timeout=*/kConnectTimeout,
       /*local_addr=*/absl::nullopt, address_list,
       /*tcp_connected_socket_options=*/nullptr,
       net::MutableNetworkTrafficAnnotationTag(kTrafficAnnotation),
@@ -187,7 +204,7 @@ void WifiLanMedium::OnConnect(
   VLOG(1) << "WifiLanMedium::" << __func__
           << ": Created TCP connected socket. local_addr="
           << local_addr->ToString() << ", peer_addr=" << peer_addr->ToString();
-  *connected_socket_parameters = {*peer_addr, std::move(tcp_connected_socket),
+  *connected_socket_parameters = {std::move(tcp_connected_socket),
                                   std::move(receive_stream),
                                   std::move(send_stream)};
 
@@ -427,6 +444,13 @@ void WifiLanMedium::OnFirewallHoleCreated(
 // End: ListenForService()
 /*============================================================================*/
 
+absl::optional<std::pair<std::int32_t, std::int32_t>>
+WifiLanMedium::GetDynamicPortRange() {
+  return std::pair<std::int32_t, std::int32_t>(
+      ash::nearby::TcpServerSocketPort::kMin,
+      ash::nearby::TcpServerSocketPort::kMax);
+}
+
 /*============================================================================*/
 // Begin: Not implemented
 /*============================================================================*/
@@ -447,11 +471,6 @@ bool WifiLanMedium::StopDiscovery(const std::string& service_type) {
   NOTIMPLEMENTED();
   return false;
 }
-absl::optional<std::pair<std::int32_t, std::int32_t>>
-WifiLanMedium::GetDynamicPortRange() {
-  NOTIMPLEMENTED();
-  return absl::nullopt;
-}
 /*============================================================================*/
 // End: Not implemented
 /*============================================================================*/
@@ -463,7 +482,8 @@ void WifiLanMedium::FinishConnectAttempt(base::WaitableEvent* event,
   if (it == pending_connect_waitable_events_.end())
     return;
 
-  // TODO(https://crbug.com/1261238): Log ConnectResult metric.
+  base::UmaHistogramEnumeration("Nearby.Connections.WifiLan.ConnectResult",
+                                result);
 
   base::WaitableEvent* event_copy = *it;
   pending_connect_waitable_events_.erase(it);
@@ -477,7 +497,8 @@ void WifiLanMedium::FinishListenAttempt(base::WaitableEvent* event,
   if (it == pending_listen_waitable_events_.end())
     return;
 
-  // TODO(https://crbug.com/1261238): Log ListenResult metric.
+  base::UmaHistogramEnumeration("Nearby.Connections.WifiLan.ListenResult",
+                                result);
 
   base::WaitableEvent* event_copy = *it;
   pending_listen_waitable_events_.erase(it);

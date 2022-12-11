@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -271,7 +271,7 @@ class VotesUploader {
       autofill::FormStructure& form_structure);
 
   // The client which implements embedder-specific PasswordManager operations.
-  raw_ptr<PasswordManagerClient> client_;
+  raw_ptr<PasswordManagerClient, DanglingUntriaged> client_;
 
   // Whether generation popup was shown at least once.
   bool generation_popup_was_shown_ = false;

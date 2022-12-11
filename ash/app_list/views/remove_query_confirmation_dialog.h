@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,8 +30,8 @@ class RemoveQueryConfirmationDialog : public views::WidgetDelegateView {
   // associated result.
   using RemovalConfirmationCallback = base::OnceCallback<void(bool)>;
 
-  RemoveQueryConfirmationDialog(const std::u16string& query,
-                                RemovalConfirmationCallback callback);
+  RemoveQueryConfirmationDialog(RemovalConfirmationCallback callback,
+                                const std::u16string& result_title);
 
   RemoveQueryConfirmationDialog(const RemoveQueryConfirmationDialog&) = delete;
   RemoveQueryConfirmationDialog& operator=(
@@ -43,6 +43,7 @@ class RemoveQueryConfirmationDialog : public views::WidgetDelegateView {
   const char* GetClassName() const override;
   gfx::Size CalculatePreferredSize() const override;
   void OnThemeChanged() override;
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   views::Button* cancel_button_for_test() { return cancel_button_; }
   views::Button* accept_button_for_test() { return accept_button_; }

@@ -2,6 +2,8 @@ Tests that cookies are set, updated and removed.
 Test started
 Enabling network
 
+Running test: deleteAllCookies
+
 Running test: simpleCookieAdd
 Setting Cookie
 Num of cookies 1
@@ -182,16 +184,24 @@ Cookies as seen on server: "HTTP_COOKIE: foo=bar1\n"
 
 Running test: deleteAllCookies
 
+Running test: getPartitionedCookies
+Site has cookie in other partition: false
+Site has cookie in other partition: false
+Num of cookies 0
+
 Running test: setPartitionedCookie
 Setting Cookie
-setCookie failed: Partitioned cookies disabled. Cannot set cookie partition key
-Num of cookies 0
+Num of cookies 1
+name: __Host-foo, value: bar, domain: devtools.test, path: /, partitionKey: https://example.test, secure, session, None
 Setting Cookie
-setCookie failed: Partitioned cookies disabled. Cannot set cookie partition key
-Num of cookies 0
+Num of cookies 2
+name: __Host-foo, value: bar, domain: devtools.test, path: /, partitionKey: https://example.test, secure, session, None
+name: __Host-foo, value: bar, domain: example.test, path: /, partitionKey: https://devtools.test, secure, session, None
 Setting Cookie
-setCookie failed: Partitioned cookies disabled. Cannot set cookie partition key
-Num of cookies 0
+Num of cookies 3
+name: __Host-foo, value: bar, domain: devtools.test, path: /, partitionKey: https://example.test, secure, session, None
+name: __Host-foo, value: bar, domain: example.test, path: /, partitionKey: https://devtools.test, secure, session, None
+name: __Host-foo, value: bar, domain: example.test, path: /, partitionKey: https://notinset.test, secure, session, None
 
 Running test: deleteAllCookies
 
@@ -200,17 +210,24 @@ Num of cookies 0
 
 Running test: setPartitionedCookies
 Adding multiple cookies
-Num of cookies 0
+Num of cookies 3
+name: __Host-foo, value: bar, domain: devtools.test, path: /, partitionKey: https://example.test, secure, session, None
+name: __Host-foo, value: bar, domain: example.test, path: /, partitionKey: https://devtools.test, secure, session, None
+name: __Host-foo, value: bar, domain: example.test, path: /, partitionKey: https://notinset.test, secure, session, None
 
-Running test: getPartitionedCookie
+Running test: getPartitionedCookies
+Site has cookie in other partition: true
+Site has cookie in other partition: true
 Num of cookies 1
-name: __Host-foo, value: bar, domain: example.test, path: /, secure, session, None
+name: __Host-foo, value: bar, domain: example.test, path: /, partitionKey: https://devtools.test, secure, session, None
 
 Running test: deleteAllCookies
 
 Running test: getPartitionedCookieFromOpaqueOrigin
+Site has cookie in other partition: false
+Site has cookie in other partition: false
 Num of cookies 1
-name: __Host-foo, value: bar, domain: example.test, path: /, secure, session, None
+name: __Host-foo, value: bar, domain: example.test, path: /, partitionKey: <opaque>, secure, session, None
 
 Running test: deleteAllCookies
 

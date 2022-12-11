@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define COMPONENTS_OPTIMIZATION_GUIDE_CONTENT_BROWSER_PAGE_CONTENT_ANNOTATIONS_SERVICE_H_
 
 #include <string>
+#include <vector>
 
 #include "base/callback_forward.h"
 #include "base/containers/lru_cache.h"
@@ -13,13 +14,14 @@
 #include "base/hash/hash.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/strings/strcat.h"
-#include "base/strings/string_number_conversions.h"
+#include "base/scoped_observation.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
 #include "components/continuous_search/browser/search_result_extractor_client.h"
 #include "components/continuous_search/browser/search_result_extractor_client_status.h"
 #include "components/continuous_search/common/public/mojom/continuous_search.mojom.h"
+#include "components/history/core/browser/history_service_observer.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/history/core/browser/url_row.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -28,12 +30,12 @@
 #include "components/optimization_guide/core/model_info.h"
 #include "components/optimization_guide/core/page_content_annotations_common.h"
 #include "components/optimization_guide/machine_learning_tflite_buildflags.h"
+#include "components/optimization_guide/proto/page_entities_metadata.pb.h"
+#include "components/search_engines/template_url_service.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
-namespace base {
-class OneShotTimer;
-}  // namespace base
+class OptimizationGuideLogger;
 
 namespace content {
 class WebContents;
@@ -53,6 +55,7 @@ class LocalPageEntitiesMetadataProvider;
 class OptimizationGuideModelProvider;
 class PageContentAnnotationsModelManager;
 class PageContentAnnotationsServiceBrowserTest;
+class PageContentAnnotationsValidator;
 class PageContentAnnotationsWebContentsObserver;
 
 // The information used by HistoryService to identify a visit to a URL.
@@ -76,16 +79,33 @@ struct HistoryVisit {
   };
 };
 
+// The type of page content annotations stored in the history database.
+enum class PageContentAnnotationsType {
+  kUnknown = 0,
+  // Results from executing the models on page content or annotations received
+  // from the remote Optimization Guide service.
+  kModelAnnotations = 1,
+  // Related searches for the Google Search Results page.
+  kRelatedSearches = 2,
+  // Metadata for "search-like" pages.
+  kSearchMetadata = 3,
+  // Metadata received from the remote Optimization Guide service.
+  kRemoteMetdata = 4,
+};
+
 // A KeyedService that annotates page content.
 class PageContentAnnotationsService : public KeyedService,
-                                      public EntityMetadataProvider {
+                                      public EntityMetadataProvider,
+                                      public history::HistoryServiceObserver {
  public:
   PageContentAnnotationsService(
       const std::string& application_locale,
       OptimizationGuideModelProvider* optimization_guide_model_provider,
       history::HistoryService* history_service,
+      TemplateURLService* template_url_service,
       leveldb_proto::ProtoDatabaseProvider* database_provider,
       const base::FilePath& database_dir,
+      OptimizationGuideLogger* optimization_guide_logger,
       scoped_refptr<base::SequencedTaskRunner> background_task_runner);
   ~PageContentAnnotationsService() override;
   PageContentAnnotationsService(const PageContentAnnotationsService&) = delete;
@@ -93,59 +113,86 @@ class PageContentAnnotationsService : public KeyedService,
       const PageContentAnnotationsService&) = delete;
 
   // This is the main entry point for page content annotations by external
-  // callers.
+  // callers. Callers must call |RequestAndNotifyWhenModelAvailable| as close to
+  // session start as possible to allow time for the model file to be
+  // downloaded.
   void BatchAnnotate(BatchAnnotationCallback callback,
                      const std::vector<std::string>& inputs,
                      AnnotationType annotation_type);
 
-  // Overrides the PageContentAnnotator for testing. See
-  // test_page_content_annotator.h for an implementation designed for testing.
-  void OverridePageContentAnnotatorForTesting(PageContentAnnotator* annotator);
+  // Requests that the given model for |type| be loaded in the background and
+  // then runs |callback| with true when the model is ready to execute. If the
+  // model is ready now, the callback is run immediately. If the model file will
+  // never be available, the callback is run with false.
+  void RequestAndNotifyWhenModelAvailable(
+      AnnotationType type,
+      base::OnceCallback<void(bool)> callback);
 
   // Returns the model info for the given annotation type, if the model file is
   // available.
   absl::optional<ModelInfo> GetModelInfoForType(AnnotationType type) const;
-
-  // Runs |callback| with true when the model that powers |BatchAnnotate| for
-  // the given annotation type is ready to execute. If the model is ready now,
-  // the callback is run immediately. If the model file will never be available,
-  // the callback is run with false.
-  void NotifyWhenModelAvailable(AnnotationType type,
-                                base::OnceCallback<void(bool)> callback);
 
   // EntityMetadataProvider:
   void GetMetadataForEntityId(
       const std::string& entity_id,
       EntityMetadataRetrievedCallback callback) override;
 
+  // history::HistoryServiceObserver:
+  void OnURLVisited(history::HistoryService* history_service,
+                    const history::URLRow& url_row,
+                    const history::VisitRow& visit_row) override;
+
+  // Overrides the PageContentAnnotator for testing. See
+  // test_page_content_annotator.h for an implementation designed for testing.
+  void OverridePageContentAnnotatorForTesting(PageContentAnnotator* annotator);
+
+  OptimizationGuideLogger* optimization_guide_logger() const {
+    return optimization_guide_logger_;
+  }
+
  private:
 #if BUILDFLAG(BUILD_WITH_TFLITE_LIB)
-  // Callback invoked when |visit| has been annotated.
+  // Callback invoked when a single |visit| has been annotated.
   void OnPageContentAnnotated(
       const HistoryVisit& visit,
       const absl::optional<history::VisitContentModelAnnotations>&
           content_annotations);
 
+  // Maybe calls |AnnotateVisitBatch| to start a new batch of content
+  // annotations. Returns true if a new batch is started. Returns false if a
+  // batch is already running, or if there batch queue is not full.
+  bool MaybeStartAnnotateVisitBatch();
+
   // Runs the page annotation models available to |model_manager_| on all the
   // visits within |current_visit_annotation_batch_|.
   void AnnotateVisitBatch();
 
-  // Callback run after the annotations for a |visit| of a batch has been
-  // determined. |current_visit_annotation_batch_| is updated to remove
-  // the annotated visit and will trigger the next visit to be annotated.
-  void OnBatchVisitAnnotated(
-      const HistoryVisit& visit,
-      const absl::optional<history::VisitContentModelAnnotations>&
-          content_annotations);
+  // Runs when a single annotation job of |type| is completed and |batch_result|
+  // can be merged into |merge_to_output|. |signal_merge_complete_callback|
+  // should be run last as it is a |base::BarrierClosure| that may trigger
+  // |OnBatchVisitsAnnotated| to run.
+  static void OnAnnotationBatchComplete(
+      AnnotationType type,
+      std::vector<absl::optional<history::VisitContentModelAnnotations>>*
+          merge_to_output,
+      base::OnceClosure signal_merge_complete_callback,
+      const std::vector<BatchAnnotationResult>& batch_result);
+
+  // Callback run after all annotation types in |annotation_types_to_execute_|
+  // for all of |current_visit_annotation_batch_| has been completed.
+  void OnBatchVisitsAnnotated(
+      std::unique_ptr<
+          std::vector<absl::optional<history::VisitContentModelAnnotations>>>
+          merged_annotation_outputs);
 
   std::unique_ptr<PageContentAnnotationsModelManager> model_manager_;
 
 #endif
 
-  // The annotator to use for requests to |BatchAnnotate|. In prod, this is
-  // simply |model_manager_.get()| but is set as a separate pointer here in
-  // order to be override-able for testing.
-  raw_ptr<PageContentAnnotator> annotator_;
+  // The annotator to use for requests to |BatchAnnotate| and |Annotate|. In
+  // prod, this is simply |model_manager_.get()| but is set as a separate
+  // pointer here in order to be override-able for testing.
+  raw_ptr<PageContentAnnotator> annotator_ = nullptr;
 
   // Requests to annotate |text|, which is associated with |web_contents|.
   //
@@ -179,29 +226,41 @@ class PageContentAnnotationsService : public KeyedService,
       continuous_search::SearchResultExtractorClientStatus status,
       continuous_search::mojom::CategoryResultsPtr results);
 
-  // Persist |entities| for |visit| in |history_service_|.
+  // Persist |page_entities_metadata| for |visit| in |history_service_|.
   //
   // Virtualized for testing.
-  virtual void PersistRemotePageEntities(
+  virtual void PersistRemotePageMetadata(
       const HistoryVisit& visit,
-      const std::vector<history::VisitContentModelAnnotations::Category>&
-          entities);
+      const proto::PageEntitiesMetadata& page_entities_metadata);
+
+  // Called when entity metadata for |entity_id| that had weight |weight| on
+  // page with |url| has been retrieved.
+  void OnEntityMetadataRetrieved(
+      const GURL& url,
+      const std::string& entity_id,
+      int weight,
+      const absl::optional<EntityMetadata>& entity_metadata);
 
   using PersistAnnotationsCallback = base::OnceCallback<void(history::VisitID)>;
   // Queries |history_service| for all the visits to the visited URL of |visit|.
   // |callback| will be invoked to write the bound content annotations to
-  // |history_service| once the visits to the given URL have returned.
-  void QueryURL(const HistoryVisit& visit, PersistAnnotationsCallback callback);
+  // |history_service| once the visits to the given URL have returned. The
+  // |annotation_type| of data to be stored in History Service is passed along
+  // for metrics purposes.
+  void QueryURL(const HistoryVisit& visit,
+                PersistAnnotationsCallback callback,
+                PageContentAnnotationsType annotation_type);
   // Callback invoked when |history_service| has returned results for the visits
   // to a URL. In turn invokes |callback| to write the bound content annotations
   // to |history_service|.
   void OnURLQueried(const HistoryVisit& visit,
                     PersistAnnotationsCallback callback,
+                    PageContentAnnotationsType annotation_type,
                     history::QueryURLResult url_result);
 
-  // Runs a batch annotation validation, that is calls |BatchAnnotate| with
-  // dummy input and discards the output.
-  void RunBatchAnnotationValidation();
+  // The minimum score that an allowlisted page category must have for it to be
+  // persisted.
+  const int min_page_category_score_to_persist_;
 
   // A metadata-only provider for page entities (as opposed to |model_manager_|
   // which does both entity model execution and metadata providing) that uses a
@@ -212,7 +271,13 @@ class PageContentAnnotationsService : public KeyedService,
 
   // The history service to write content annotations to. Not owned. Guaranteed
   // to outlive |this|.
-  raw_ptr<history::HistoryService> history_service_;
+  const raw_ptr<history::HistoryService> history_service_;
+  // Not owned and must outlive |this|. Can be nullptr in tests only.
+  const raw_ptr<TemplateURLService> template_url_service_;
+  // The scoped observation to the HistoryService.
+  base::ScopedObservation<history::HistoryService,
+                          PageContentAnnotationsService>
+      history_service_observation_{this};
   // The task tracker to keep track of tasks to query |history_service|.
   base::CancelableTaskTracker history_service_task_tracker_;
   // The client of continuous_search::mojom::SearchResultExtractor interface
@@ -235,12 +300,18 @@ class PageContentAnnotationsService : public KeyedService,
   // and annotations can be scheduled with minimal impact to browsing.
   std::vector<HistoryVisit> visits_to_annotate_;
 
+  // The set of |AnnotationType|'s to run on each of |visits_to_annotate_|.
+  std::vector<AnnotationType> annotation_types_to_execute_;
+
   // The batch of visits being annotated. If this is empty, it is assumed that
   // no visits are actively be annotated and a new batch can be started.
   std::vector<HistoryVisit> current_visit_annotation_batch_;
 
-  // Is only ever set when the feature is enabled.
-  std::unique_ptr<base::OneShotTimer> validation_timer_;
+  // Set during this' ctor if the corresponding command line or feature flags
+  // are set.
+  std::unique_ptr<PageContentAnnotationsValidator> validator_;
+
+  raw_ptr<OptimizationGuideLogger> optimization_guide_logger_ = nullptr;
 
   base::WeakPtrFactory<PageContentAnnotationsService> weak_ptr_factory_{this};
 };

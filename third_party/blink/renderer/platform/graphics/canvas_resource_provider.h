@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_RESOURCE_PROVIDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_RESOURCE_PROVIDER_H_
 
+#include "base/notreached.h"
 #include "cc/paint/skia_paint_canvas.h"
 #include "cc/raster/playback_image_provider.h"
 #include "gpu/command_buffer/common/shared_image_usage.h"
@@ -15,6 +16,7 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_recorder.h"
 #include "third_party/blink/renderer/platform/instrumentation/canvas_memory_dump_provider.h"
 #include "third_party/blink/renderer/platform/wtf/thread_specific.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/skia/include/core/SkSurface.h"
 
 class GrDirectContext;
@@ -76,8 +78,11 @@ class PLATFORM_EXPORT CanvasResourceProvider
     kDirectGpuMemoryBuffer [[deprecated]] = 6,
     kPassThrough = 7,
     kSwapChain = 8,
-    kSkiaDawnSharedImage = 9,
+    kSkiaDawnSharedImage [[deprecated]] = 9,
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     kMaxValue = kSkiaDawnSharedImage,
+#pragma GCC diagnostic pop
   };
 
   // The following parameters attempt to reach a compromise between not flushing
@@ -206,9 +211,9 @@ class PLATFORM_EXPORT CanvasResourceProvider
   void TryEnableSingleBuffering();
 
   // Only works in single buffering mode.
-  bool ImportResource(scoped_refptr<CanvasResource>);
+  bool ImportResource(scoped_refptr<CanvasResource>&&);
 
-  void RecycleResource(scoped_refptr<CanvasResource>);
+  void RecycleResource(scoped_refptr<CanvasResource>&&);
   void SetResourceRecyclingEnabled(bool);
   void ClearRecycledResources();
   scoped_refptr<CanvasResource> NewOrRecycledResource();
@@ -267,12 +272,8 @@ class PLATFORM_EXPORT CanvasResourceProvider
 
   void FlushIfRecordingLimitExceeded();
 
-  size_t TotalOpCount() const {
-    return recorder_ ? recorder_->TotalOpCount() : 0;
-  }
-  size_t TotalOpBytesUsed() const {
-    return recorder_ ? recorder_->BytesUsed() : 0;
-  }
+  size_t TotalOpCount() const { return recorder_.TotalOpCount(); }
+  size_t TotalOpBytesUsed() const { return recorder_.OpBytesUsed(); }
   size_t TotalPinnedImageBytes() const { return total_pinned_image_bytes_; }
 
   void DidPinImage(size_t bytes) override;
@@ -289,7 +290,8 @@ class PLATFORM_EXPORT CanvasResourceProvider
   gpu::gles2::GLES2Interface* ContextGL() const;
   gpu::raster::RasterInterface* RasterInterface() const;
   GrDirectContext* GetGrContext() const;
-  base::WeakPtr<WebGraphicsContext3DProviderWrapper> ContextProviderWrapper() {
+  base::WeakPtr<WebGraphicsContext3DProviderWrapper> ContextProviderWrapper()
+      const {
     return context_provider_wrapper_;
   }
   GrSurfaceOrigin GetGrSurfaceOrigin() const {
@@ -335,6 +337,7 @@ class PLATFORM_EXPORT CanvasResourceProvider
   SkSurface::ContentChangeMode mode_ = SkSurface::kRetain_ContentChangeMode;
 
   virtual void OnFlushForImage(cc::PaintImage::ContentId content_id);
+  void OnMemoryDump(base::trace_event::ProcessMemoryDump*) override;
 
  private:
   friend class FlushForImageListener;
@@ -349,7 +352,6 @@ class PLATFORM_EXPORT CanvasResourceProvider
   virtual void WillDraw() {}
 
   size_t ComputeSurfaceSize() const;
-  void OnMemoryDump(base::trace_event::ProcessMemoryDump*) override;
   size_t GetSize() const override;
 
   cc::ImageDecodeCache* ImageDecodeCacheRGBA8();
@@ -367,7 +369,7 @@ class PLATFORM_EXPORT CanvasResourceProvider
   const bool is_origin_top_left_;
   std::unique_ptr<CanvasImageProvider> canvas_image_provider_;
   std::unique_ptr<cc::SkiaPaintCanvas> skia_canvas_;
-  std::unique_ptr<MemoryManagedPaintRecorder> recorder_;
+  MemoryManagedPaintRecorder recorder_{this};
 
   size_t total_pinned_image_bytes_ = 0;
 
@@ -410,8 +412,8 @@ ALWAYS_INLINE void CanvasResourceProvider::FlushIfRecordingLimitExceeded() {
   // vector mode.
   if (IsPrinting() && clear_frame_)
     return;
-  if (recorder_ && ((recorder_->BytesUsed() > kMaxRecordedOpBytes) ||
-                    total_pinned_image_bytes_ > max_pinned_image_bytes_)) {
+  if (TotalOpBytesUsed() > kMaxRecordedOpBytes ||
+      total_pinned_image_bytes_ > max_pinned_image_bytes_) {
     FlushCanvas();
   }
 }

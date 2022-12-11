@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,7 +33,7 @@ import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.content.res.AppCompatResources;
 
 import org.chromium.base.ApiCompatibilityUtils;
-import org.chromium.base.annotations.UsedByReflection;
+import org.chromium.build.annotations.UsedByReflection;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
@@ -41,6 +41,7 @@ import org.chromium.chrome.browser.tab.TabFavicon;
 import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
+import org.chromium.url.GURL;
 
 /**
  * A widget that shows a single row of the {@link AccessibilityTabModelListView} list.
@@ -232,6 +233,8 @@ public class AccessibilityTabModelListItem extends FrameLayout implements OnClic
         mCloseAnimationDurationMs = CLOSE_ANIMATION_DURATION_MS;
         mDefaultAnimationDurationMs = DEFAULT_ANIMATION_DURATION_MS;
         mCloseTimeoutMs = CLOSE_TIMEOUT_MS;
+
+        setFocusableInTouchMode(true);
     }
 
     @Override
@@ -439,7 +442,7 @@ public class AccessibilityTabModelListItem extends FrameLayout implements OnClic
         }
 
         @Override
-        public void onFaviconUpdated(Tab tab, Bitmap icon) {
+        public void onFaviconUpdated(Tab tab, Bitmap icon, GURL iconUrl) {
             updateFavicon();
             notifyTabUpdated(tab);
         }

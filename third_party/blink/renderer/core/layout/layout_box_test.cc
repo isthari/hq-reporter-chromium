@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -813,6 +813,30 @@ TEST_P(LayoutBoxTest, OverflowRectsOverflowHidden) {
   EXPECT_CONTENTS_VISUAL_OVERFLOW(LayoutRect(10, 10, 300, 400), container);
   EXPECT_EQ(PhysicalRect(10, 10, 100, 200),
             container->OverflowClipRect(PhysicalOffset()));
+}
+
+TEST_P(LayoutBoxTest, SetTextFieldIntrinsicInlineSize) {
+  LoadAhem();
+  SetBodyInnerHTML(R"HTML(
+   <style>
+     input { font: 10px Ahem; }
+     #a::-webkit-inner-spin-button{ width: 50%; appearance: none; }
+     #b::-webkit-inner-spin-button{ width: 50px; appearance: none; }
+     #c::-webkit-inner-spin-button{ width: 100%; appearance: none; }
+   </style>
+   <input id='a' type='number' min='100' max='100' step='1'/>
+   <input id='b' type='number' min='100' max='100' step='1'/>
+   <input id='c' type='number' min='100' max='100' step='1'/>
+  )HTML");
+
+  LayoutBox* a = GetLayoutBoxByElementId("a");
+  EXPECT_EQ(LayoutUnit(60), a->DefaultIntrinsicContentInlineSize());
+
+  LayoutBox* b = GetLayoutBoxByElementId("b");
+  EXPECT_EQ(LayoutUnit(80), b->DefaultIntrinsicContentInlineSize());
+
+  LayoutBox* c = GetLayoutBoxByElementId("c");
+  EXPECT_EQ(LayoutUnit(30), c->DefaultIntrinsicContentInlineSize());
 }
 
 class AnimatedImage : public StubImage {
@@ -1929,6 +1953,56 @@ TEST_P(LayoutBoxTest, SetNeedsOverflowRecalcFlexBox) {
   element->classList().Remove("transform");
   element->GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
   EXPECT_TRUE(target->PaintingLayer()->NeedsVisualOverflowRecalc());
+}
+
+TEST_P(LayoutBoxTest, ScrollsWithViewportRelativePosition) {
+  SetBodyInnerHTML("<div id='target' style='position: relative'></div>");
+  EXPECT_FALSE(GetLayoutBoxByElementId("target")->IsFixedToView());
+}
+
+TEST_P(LayoutBoxTest, ScrollsWithViewportFixedPosition) {
+  SetBodyInnerHTML("<div id='target' style='position: fixed'></div>");
+  EXPECT_TRUE(GetLayoutBoxByElementId("target")->IsFixedToView());
+}
+
+TEST_P(LayoutBoxTest, ScrollsWithViewportFixedPositionInsideTransform) {
+  SetBodyInnerHTML(R"HTML(
+    <div style='transform: translateZ(0)'>
+      <div id='target' style='position: fixed'></div>
+    </div>
+    <div style='width: 10px; height: 1000px'></div>
+  )HTML");
+  EXPECT_FALSE(GetLayoutBoxByElementId("target")->IsFixedToView());
+}
+
+TEST_P(LayoutBoxTest, HitTestResizerWithTextAreaChild) {
+  SetBodyInnerHTML(R"HTML(
+    <style>body { margin: 0; }</style>
+    <div id="target"
+         style="width: 100px; height: 100px; overflow: auto; resize: both">
+      <textarea id="textarea"
+          style="width: 100%; height: 100%; resize: none"></textarea>
+    </div>
+  )HTML");
+
+  EXPECT_EQ(GetDocument().getElementById("target"), HitTest(99, 99));
+  EXPECT_TRUE(HitTest(1, 1)->IsDescendantOrShadowDescendantOf(
+      GetDocument().getElementById("textarea")));
+}
+
+TEST_P(LayoutBoxTest, HitTestResizerStackedWithTextAreaChild) {
+  SetBodyInnerHTML(R"HTML(
+    <style>body { margin: 0; }</style>
+    <div id="target" style="position: relative; width: 100px; height: 100px;
+                            overflow: auto; resize: both">
+      <textarea id="textarea"
+          style="width: 100%; height: 100%; resize: none"></textarea>
+    </div>
+  )HTML");
+
+  EXPECT_EQ(GetDocument().getElementById("target"), HitTest(99, 99));
+  EXPECT_TRUE(HitTest(1, 1)->IsDescendantOrShadowDescendantOf(
+      GetDocument().getElementById("textarea")));
 }
 
 class LayoutBoxBackgroundPaintLocationTest : public RenderingTest,

@@ -70,7 +70,7 @@
         <cr-button id="forgetBtn"
             class="cancel-button"
             aria-label$="[[getForgetA11yLabel_(device_.*)]]"
-            on-click="onForgetBtnClick_">
+            on-click="onForgetButtonClicked_">
           $i18n{bluetoothDeviceDetailForget}
         </cr-button>
       </template>
@@ -85,6 +85,13 @@
       </template>
     </div>
   </div>
+  <template is="dom-if"
+      if="[[shouldShowTrueWirelessImages_(device_.*)]]" restamp>
+    <os-settings-bluetooth-true-wireless-images
+        id="trueWirelessImages"
+        device="[[device_.deviceProperties]]">
+    </os-settings-bluetooth-true-wireless-images>
+  </template>
   <template is="dom-if"
       if="[[shouldShowNonAudioOutputDeviceMessage_(device_.*)]]" restamp>
     <div id="nonAudioOutputDeviceMessage"
@@ -137,4 +144,12 @@
       device="[[device_]]"
       on-close="onCloseChangeDeviceNameDialog_">
   </os-settings-bluetooth-change-device-name-dialog>
+</template>
+
+<template is="dom-if" if="[[shouldShowForgetDeviceDialog_]]" restamp>
+  <os-settings-bluetooth-forget-device-dialog
+      id="forgetDeviceDialog"
+      device_="[[device_]]"
+      on-close="onCloseForgetDeviceDialog_">
+  </os-settings-bluetooth-forget-device-dialog>
 </template>

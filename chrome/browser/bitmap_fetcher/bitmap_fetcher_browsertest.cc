@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,14 +40,13 @@ using net::test_server::HttpResponse;
 // Class to catch events from the BitmapFetcher for testing.
 class BitmapFetcherTestDelegate : public BitmapFetcherDelegate {
  public:
-  explicit BitmapFetcherTestDelegate(bool async)
-      : called_(false), success_(false), async_(async) {}
+  explicit BitmapFetcherTestDelegate(bool async) : async_(async) {}
 
   BitmapFetcherTestDelegate(const BitmapFetcherTestDelegate&) = delete;
   BitmapFetcherTestDelegate& operator=(const BitmapFetcherTestDelegate&) =
       delete;
 
-  ~BitmapFetcherTestDelegate() override { EXPECT_TRUE(called_); }
+  ~BitmapFetcherTestDelegate() override { EXPECT_EQ(expect_called_, called_); }
 
   // Method inherited from BitmapFetcherDelegate.
   void OnFetchComplete(const GURL& url, const SkBitmap* bitmap) override {
@@ -76,12 +75,15 @@ class BitmapFetcherTestDelegate : public BitmapFetcherDelegate {
   bool success() const { return success_; }
   const SkBitmap& bitmap() const { return bitmap_; }
 
+  void SetExpectNotToGetCalled() { expect_called_ = false; }
+
  private:
   base::RunLoop run_loop_;
-  bool called_;
+  bool called_ = false;
+  bool expect_called_ = true;
   GURL url_;
-  bool success_;
-  bool async_;
+  bool success_ = false;
+  const bool async_;
   SkBitmap bitmap_;
 };
 
@@ -177,7 +179,6 @@ IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, OnImageDecodedTest) {
 
   BitmapFetcher fetcher(url, &delegate, TRAFFIC_ANNOTATION_FOR_TESTS);
 
-  fetcher.SetStartTimeForTesting();
   fetcher.OnImageDecoded(image);
 
   // Ensure image is marked as succeeded.
@@ -273,6 +274,34 @@ IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest, DataURLImage) {
   // Ensure image is marked as succeeded.
   EXPECT_TRUE(delegate.success());
   EXPECT_TRUE(gfx::BitmapsAreEqual(test_bitmap(), delegate.bitmap()));
+}
+
+// Verifies that bitmap fetch callback gets canceled gracefully when the fetcher
+// gets deleted.
+IN_PROC_BROWSER_TEST_F(BitmapFetcherBrowserTest,
+                       FetcherDeletedBeforeDataURLImageResponse) {
+  // This is test_bitmap() in data: URL form.
+  GURL url(
+      "data:image/"
+      "png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVQYlWNk+"
+      "M/wn4GBgYGJAQoAHhgCAh6X4CYAAAAASUVORK5CYII=");
+
+  BitmapFetcherTestDelegate delegate(kAsyncCall);
+  delegate.SetExpectNotToGetCalled();
+  {
+    BitmapFetcher fetcher(url, &delegate, TRAFFIC_ANNOTATION_FOR_TESTS);
+
+    fetcher.Init(
+        net::ReferrerPolicy::REDUCE_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
+        network::mojom::CredentialsMode::kInclude);
+    fetcher.Start(browser()
+                      ->profile()
+                      ->GetDefaultStoragePartition()
+                      ->GetURLLoaderFactoryForBrowserProcess()
+                      .get());
+  }
+
+  EXPECT_FALSE(delegate.success());
 }
 
 class BitmapFetcherInitiatorBrowserTest : public InProcessBrowserTest {

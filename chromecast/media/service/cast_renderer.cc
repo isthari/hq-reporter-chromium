@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -387,6 +387,10 @@ base::TimeDelta CastRenderer::GetMediaTime() {
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(pipeline_);
   return pipeline_->GetMediaTime();
+}
+
+::media::RendererType CastRenderer::GetRendererType() {
+  return ::media::RendererType::kCast;
 }
 
 void CastRenderer::OnVideoResolutionPolicyChanged() {

@@ -1,36 +1,41 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/policy/policy_watcher_browser_agent.h"
+#import "ios/chrome/browser/policy/policy_watcher_browser_agent.h"
 
+#import "base/mac/backup_util.h"
+#import "base/mac/foundation_util.h"
+#import "base/path_service.h"
 #import "base/test/ios/wait_util.h"
-#include "build/build_config.h"
+#import "build/build_config.h"
 #import "components/pref_registry/pref_registry_syncable.h"
 #import "components/prefs/pref_service.h"
-#include "components/sync/base/pref_names.h"
+#import "components/sync/base/pref_names.h"
 #import "components/sync_preferences/pref_service_mock_factory.h"
 #import "components/sync_preferences/pref_service_syncable.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
 #import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/main/test_browser.h"
 #import "ios/chrome/browser/policy/policy_util.h"
-#include "ios/chrome/browser/policy/policy_watcher_browser_agent_observer_bridge.h"
-#import "ios/chrome/browser/pref_names.h"
+#import "ios/chrome/browser/policy/policy_watcher_browser_agent_observer_bridge.h"
 #import "ios/chrome/browser/prefs/browser_prefs.h"
-#include "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/chrome/browser/signin/authentication_service_fake.h"
+#import "ios/chrome/browser/prefs/pref_names.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
+#import "ios/chrome/browser/signin/authentication_service_factory.h"
+#import "ios/chrome/browser/signin/fake_authentication_service_delegate.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/commands/policy_change_commands.h"
 #import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #import "ios/chrome/browser/ui/main/test/fake_scene_state.h"
-#include "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
+#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
 #import "ios/web/public/test/web_task_environment.h"
-#include "testing/platform_test.h"
-#include "third_party/ocmock/OCMock/OCMock.h"
-#include "third_party/ocmock/gtest_support.h"
+#import "testing/platform_test.h"
+#import "third_party/ocmock/OCMock/OCMock.h"
+#import "third_party/ocmock/gtest_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -49,10 +54,12 @@ class PolicyWatcherBrowserAgentTest : public PlatformTest {
     builder.SetPrefService(CreatePrefService());
     builder.AddTestingFactory(
         AuthenticationServiceFactory::GetInstance(),
-        base::BindRepeating(
-            &AuthenticationServiceFake::CreateAuthenticationService));
+        AuthenticationServiceFactory::GetDefaultFactory());
     chrome_browser_state_ = builder.Build();
 
+    AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
+        chrome_browser_state_.get(),
+        std::make_unique<FakeAuthenticationServiceDelegate>());
     // Set the initial pref value.
     GetLocalState()->SetInteger(prefs::kBrowserSigninPolicy,
                                 static_cast<int>(BrowserSigninMode::kEnabled));
@@ -86,10 +93,10 @@ class PolicyWatcherBrowserAgentTest : public PlatformTest {
 
   // Sign in in the authentication service with a fake identity.
   void SignIn() {
-    FakeChromeIdentity* identity =
-        [FakeChromeIdentity identityWithEmail:@"email@mail.com"
-                                       gaiaID:@"gaiaID"
-                                         name:@"myName"];
+    FakeSystemIdentity* identity = [FakeSystemIdentity fakeIdentity1];
+    ios::FakeChromeIdentityService* identity_service_ =
+        ios::FakeChromeIdentityService::GetInstanceFromChromeProvider();
+    identity_service_->AddIdentity(identity);
     AuthenticationServiceFactory::GetForBrowserState(
         chrome_browser_state_.get())
         ->SignIn(identity);
@@ -198,11 +205,16 @@ TEST_F(PolicyWatcherBrowserAgentTest, CommandIfSignedIn) {
   id mockHandler = OCMProtocolMock(@protocol(PolicyChangeCommands));
   agent_->Initialize(mockHandler);
 
-  OCMExpect([mockHandler showForceSignedOutPrompt]);
+  base::RunLoop run_loop;
+  base::RunLoop* run_loop_ptr = &run_loop;
+  OCMExpect([mockHandler showForceSignedOutPrompt]).andDo(^(NSInvocation*) {
+    run_loop_ptr->Quit();
+  });
 
   // Action: disable browser sign-in.
   GetLocalState()->SetInteger(prefs::kBrowserSigninPolicy,
                               static_cast<int>(BrowserSigninMode::kDisabled));
+  run_loop.Run();
 
   // Verify the forceSignOut command was dispatched by the browser agent.
   EXPECT_OCMOCK_VERIFY(mockHandler);
@@ -232,7 +244,11 @@ TEST_F(PolicyWatcherBrowserAgentTest, NoCommandIfNotActive) {
   GetLocalState()->SetInteger(prefs::kBrowserSigninPolicy,
                               static_cast<int>(BrowserSigninMode::kDisabled));
 
-  EXPECT_TRUE(scene_state_.appState.shouldShowForceSignOutPrompt);
+  EXPECT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
+      base::test::ios::kWaitForActionTimeout, ^bool {
+        base::RunLoop().RunUntilIdle();
+        return scene_state_.appState.shouldShowForceSignOutPrompt;
+      }));
   EXPECT_FALSE(authentication_service->HasPrimaryIdentity(
       signin::ConsentLevel::kSignin));
 }
@@ -243,14 +259,14 @@ TEST_F(PolicyWatcherBrowserAgentTest, SignOutIfPolicyChangedAtColdStart) {
   // Create another Agent from a new browser to simulate a behaviour of "the
   // pref changed in background.
 
-  // Update the pref and Sign in.
-  GetLocalState()->SetInteger(prefs::kBrowserSigninPolicy,
-                              static_cast<int>(BrowserSigninMode::kDisabled));
-
   AuthenticationService* authentication_service =
       AuthenticationServiceFactory::GetForBrowserState(
           chrome_browser_state_.get());
   SignIn();
+
+  // Update the pref and Sign in.
+  GetLocalState()->SetInteger(prefs::kBrowserSigninPolicy,
+                              static_cast<int>(BrowserSigninMode::kDisabled));
 
   // Set up the test browser and attach the browser agents.
   std::unique_ptr<Browser> browser =
@@ -276,8 +292,13 @@ TEST_F(PolicyWatcherBrowserAgentTest, SignOutIfPolicyChangedAtColdStart) {
       signin::ConsentLevel::kSignin));
 
   id mockHandler = OCMProtocolMock(@protocol(PolicyChangeCommands));
-  OCMExpect([mockHandler showForceSignedOutPrompt]);
+  base::RunLoop run_loop;
+  base::RunLoop* run_loop_ptr = &run_loop;
+  OCMExpect([mockHandler showForceSignedOutPrompt]).andDo(^(NSInvocation*) {
+    run_loop_ptr->Quit();
+  });
   agent->Initialize(mockHandler);
+  run_loop.Run();
 
   EXPECT_OCMOCK_VERIFY(mockHandler);
   EXPECT_FALSE(authentication_service->HasPrimaryIdentity(
@@ -287,29 +308,26 @@ TEST_F(PolicyWatcherBrowserAgentTest, SignOutIfPolicyChangedAtColdStart) {
 // Tests that the command to show the UI isn't sent if the authentication
 // service is still signing out the user.
 TEST_F(PolicyWatcherBrowserAgentTest, UINotShownWhileSignOut) {
-  GetLocalState()->SetInteger(prefs::kBrowserSigninPolicy,
-                              static_cast<int>(BrowserSigninMode::kDisabled));
-
   AuthenticationService* authentication_service =
-      static_cast<AuthenticationServiceFake*>(
+      static_cast<AuthenticationService*>(
           AuthenticationServiceFactory::GetForBrowserState(
               chrome_browser_state_.get()));
 
-  FakeChromeIdentity* identity =
-      [FakeChromeIdentity identityWithEmail:@"email@google.com"
-                                     gaiaID:@"gaiaID"
-                                       name:@"myName"];
+  FakeSystemIdentity* identity = [FakeSystemIdentity fakeIdentity1];
+  ios::FakeChromeIdentityService* identity_service_ =
+      ios::FakeChromeIdentityService::GetInstanceFromChromeProvider();
+  identity_service_->AddIdentity(identity);
   authentication_service->SignIn(identity);
-
   ASSERT_TRUE(authentication_service->HasPrimaryIdentity(
       signin::ConsentLevel::kSignin));
+
+  GetLocalState()->SetInteger(prefs::kBrowserSigninPolicy,
+                              static_cast<int>(BrowserSigninMode::kDisabled));
 
   // Strict protocol: method calls will fail until the method is stubbed.
   id mockHandler = OCMStrictProtocolMock(@protocol(PolicyChangeCommands));
   agent_->Initialize(mockHandler);
 
-  ASSERT_TRUE(authentication_service->HasPrimaryIdentity(
-      signin::ConsentLevel::kSignin));
   // As the SignOut callback hasn't been called yet, this shouldn't trigger a UI
   // update.
   agent_->SignInUIDismissed();
@@ -327,15 +345,20 @@ TEST_F(PolicyWatcherBrowserAgentTest, UINotShownWhileSignOut) {
 // Tests that the command to show the UI is sent when the Browser Agent is
 // notified of the UI being dismissed.
 TEST_F(PolicyWatcherBrowserAgentTest, CommandSentWhenUIIsDismissed) {
+  SignIn();
+
   GetLocalState()->SetInteger(prefs::kBrowserSigninPolicy,
                               static_cast<int>(BrowserSigninMode::kDisabled));
-  SignIn();
 
   // Strict protocol: method calls will fail until the method is stubbed.
   id mockHandler = OCMStrictProtocolMock(@protocol(PolicyChangeCommands));
-  OCMExpect([mockHandler showForceSignedOutPrompt]);
-
+  base::RunLoop run_loop;
+  base::RunLoop* run_loop_ptr = &run_loop;
+  OCMExpect([mockHandler showForceSignedOutPrompt]).andDo(^(NSInvocation*) {
+    run_loop_ptr->Quit();
+  });
   agent_->Initialize(mockHandler);
+  run_loop.Run();
 
   EXPECT_OCMOCK_VERIFY(mockHandler);
 
@@ -445,4 +468,63 @@ TEST_F(PolicyWatcherBrowserAgentTest, AlertIfSyncDisabledChangedAtColdStart) {
     EXPECT_OCMOCK_VERIFY(mockHandler);
     EXPECT_FALSE([standard_defaults boolForKey:kSyncDisabledAlertShownKey]);
   }
+}
+
+// Tests that disabling the backup-allowed preference marks the app container
+// as excluded from backup, and enabling the preference clears this exclusion.
+TEST_F(PolicyWatcherBrowserAgentTest, BackupPreventionChanged) {
+  id mockHandler = OCMProtocolMock(@protocol(PolicyChangeCommands));
+  agent_->Initialize(mockHandler);
+  base::FilePath storage_dir = base::mac::GetUserLibraryPath();
+
+  // Ensure that backups are allowed initially.
+  ASSERT_TRUE(base::mac::ClearBackupExclusion(storage_dir));
+
+  // Disallow backups.
+  browser_->GetBrowserState()->GetPrefs()->SetBoolean(
+      prefs::kAllowChromeDataInBackups, false);
+  task_environment_.RunUntilIdle();
+  EXPECT_TRUE(base::mac::GetBackupExclusion(storage_dir));
+
+  // Allow backups.
+  browser_->GetBrowserState()->GetPrefs()->SetBoolean(
+      prefs::kAllowChromeDataInBackups, true);
+  task_environment_.RunUntilIdle();
+  EXPECT_FALSE(base::mac::GetBackupExclusion(storage_dir));
+}
+
+// Tests that disabling the backup-allowed preference marks the app container
+// as excluded from backup at startup.
+TEST_F(PolicyWatcherBrowserAgentTest, BackupDisallowedAtColdStart) {
+  base::FilePath storage_dir = base::mac::GetUserLibraryPath();
+
+  // Ensure that backups are allowed initially.
+  ASSERT_TRUE(base::mac::ClearBackupExclusion(storage_dir));
+
+  // Disallow backups
+  browser_->GetBrowserState()->GetPrefs()->SetBoolean(
+      prefs::kAllowChromeDataInBackups, false);
+
+  id mockHandler = OCMProtocolMock(@protocol(PolicyChangeCommands));
+  agent_->Initialize(mockHandler);
+  task_environment_.RunUntilIdle();
+  EXPECT_TRUE(base::mac::GetBackupExclusion(storage_dir));
+}
+
+// Tests that enabling the backup-allowed preference marks the app container
+// as no longer excluded from backup at startup.
+TEST_F(PolicyWatcherBrowserAgentTest, BackupAllowedAtColdStart) {
+  base::FilePath storage_dir = base::mac::GetUserLibraryPath();
+
+  // Ensure that backups are disallowed initially.
+  ASSERT_TRUE(base::mac::SetBackupExclusion(storage_dir));
+
+  // Allow backups
+  browser_->GetBrowserState()->GetPrefs()->SetBoolean(
+      prefs::kAllowChromeDataInBackups, true);
+
+  id mockHandler = OCMProtocolMock(@protocol(PolicyChangeCommands));
+  agent_->Initialize(mockHandler);
+  task_environment_.RunUntilIdle();
+  EXPECT_FALSE(base::mac::GetBackupExclusion(storage_dir));
 }

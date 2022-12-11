@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -90,8 +90,6 @@ class GLES2_IMPL_EXPORT ImplementationBase
   bool HasGrContextSupport() const override;
   void WillCallGLFromSkia() override;
   void DidCallGLFromSkia() override;
-  void SetDisplayTransform(gfx::OverlayTransform transform) override;
-  void SetFrameRate(float frame_rate) override;
 
   // base::trace_event::MemoryDumpProvider implementation.
   bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
@@ -107,7 +105,7 @@ class GLES2_IMPL_EXPORT ImplementationBase
   gpu::ContextResult Initialize(const SharedMemoryLimits& limits);
 
   // Waits for all commands to execute.
-  void WaitForCmd();
+  bool WaitForCmd();
 
   // Gets the value of the result.
   template <typename T>

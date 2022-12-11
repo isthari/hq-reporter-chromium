@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,8 @@ namespace ash {
 class CloseButton;
 class OverviewItem;
 
-// OverviewItemView covers the overview window and listens for events.
+// OverviewItemView covers the overview window, provides an overview only header
+// and handles events. It hosts a mirror view if the window is minimized.
 class ASH_EXPORT OverviewItemView : public WindowMiniView,
                                     public OverviewHighlightableView {
  public:
@@ -43,10 +44,8 @@ class ASH_EXPORT OverviewItemView : public WindowMiniView,
                    views::Button::PressedCallback close_callback,
                    aura::Window* window,
                    bool show_preview);
-
   OverviewItemView(const OverviewItemView&) = delete;
   OverviewItemView& operator=(const OverviewItemView&) = delete;
-
   ~OverviewItemView() override;
 
   // Fades the app icon and title out if |visibility| is kInvisible, in
@@ -76,7 +75,7 @@ class ASH_EXPORT OverviewItemView : public WindowMiniView,
   // OverviewHighlightableView:
   views::View* GetView() override;
   void MaybeActivateHighlightedView() override;
-  void MaybeCloseHighlightedView() override;
+  void MaybeCloseHighlightedView(bool primary_action) override;
   void MaybeSwapHighlightedView(bool right) override;
   bool MaybeActivateHighlightedViewOnOverviewExit(
       OverviewSession* overview_session) override;
@@ -94,6 +93,7 @@ class ASH_EXPORT OverviewItemView : public WindowMiniView,
   void OnGestureEvent(ui::GestureEvent* event) override;
   bool CanAcceptEvent(const ui::Event& event) override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  void OnThemeChanged() override;
 
  private:
   // The OverviewItem which owns the widget which houses this view. Non-null

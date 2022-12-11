@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -239,7 +239,7 @@ TEST_P(D3D11CopyingTexture2DWrapperTest,
   // TODO: check |gpu_task_runner_|.
 
   MailboxHolderArray mailboxes;
-  gfx::ColorSpace input_color_space = gfx::ColorSpace::CreateSCRGBLinear();
+  gfx::ColorSpace input_color_space = gfx::ColorSpace::CreateSRGBLinear();
   gfx::ColorSpace output_color_space;
   EXPECT_EQ(wrapper
                 ->Init(gpu_task_runner_, CreateMockHelperCB(),
@@ -275,14 +275,8 @@ TEST_P(D3D11CopyingTexture2DWrapperTest,
 
 TEST_P(D3D11CopyingTexture2DWrapperTest, HDRMetadataIsSentToVideoProcessor) {
   gfx::HDRMetadata metadata;
-  metadata.color_volume_metadata.primary_r =
-      gfx::ColorVolumeMetadata::Chromaticity(0.1, 0.2);
-  metadata.color_volume_metadata.primary_g =
-      gfx::ColorVolumeMetadata::Chromaticity(0.3, 0.4);
-  metadata.color_volume_metadata.primary_b =
-      gfx::ColorVolumeMetadata::Chromaticity(0.5, 0.6);
-  metadata.color_volume_metadata.white_point =
-      gfx::ColorVolumeMetadata::Chromaticity(0.7, 0.8);
+  metadata.color_volume_metadata.primaries = {0.1f, 0.2f, 0.3f, 0.4f,
+                                              0.5f, 0.6f, 0.7f, 0.8f};
   metadata.color_volume_metadata.luminance_max = 0.9;
   metadata.color_volume_metadata.luminance_min = 0.05;
   metadata.max_content_light_level = 1000;
@@ -292,7 +286,7 @@ TEST_P(D3D11CopyingTexture2DWrapperTest, HDRMetadataIsSentToVideoProcessor) {
   MockVideoProcessorProxy* processor_raw = processor.get();
   auto wrapper = std::make_unique<CopyingTexture2DWrapper>(
       gfx::Size(100, 200), ExpectTextureWrapper(), std::move(processor),
-      nullptr, gfx::ColorSpace::CreateSCRGBLinear());
+      nullptr, gfx::ColorSpace::CreateSRGBLinear());
 
   const DXGI_HDR_METADATA_HDR10 dxgi_metadata =
       gl::HDRMetadataHelperWin::HDRMetadataToDXGI(metadata);

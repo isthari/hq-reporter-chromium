@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,8 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/system/sys_info.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -27,6 +28,10 @@
 
 namespace discardable_memory {
 namespace {
+
+BASE_FEATURE(kShorterPeriodicPurge,
+             "ShorterPeriodicPurge",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 // Global atomic to generate unique discardable shared memory IDs.
 base::AtomicSequenceNumber g_next_discardable_shared_memory_id;
@@ -43,10 +48,13 @@ size_t GetDefaultAllocationSize() {
   [[maybe_unused]] const size_t kDefaultLowEndDeviceAllocationSize =
       kOneMegabyteInBytes;
 
-#if BUILDFLAG(IS_WIN) && defined(ARCH_CPU_32_BITS)
-  // On Windows 32 bit, use a smaller chunk, as address space fragmentation may
-  // make a 4MiB allocation impossible to fulfill in the browser process.
-  // See crbug.com/983348 for details.
+#if defined(ARCH_CPU_32_BITS) && !BUILDFLAG(IS_ANDROID)
+  // On 32 bit architectures, use a smaller chunk, as address space
+  // fragmentation may make a 4MiB allocation impossible to fulfill in the
+  // browser process.  See crbug.com/983348 for details.
+  //
+  // Not on Android, since on this platform total number of file descriptors is
+  // also a concern.
   return kDefaultLowEndDeviceAllocationSize;
 #elif BUILDFLAG(IS_FUCHSIA)
   // Low end Fuchsia devices may be very constrained, so use smaller allocations
@@ -182,14 +190,14 @@ ClientDiscardableSharedMemoryManager::ClientDiscardableSharedMemoryManager(
 ClientDiscardableSharedMemoryManager::ClientDiscardableSharedMemoryManager(
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner)
     : RefCountedDeleteOnSequence<ClientDiscardableSharedMemoryManager>(
-          base::ThreadTaskRunnerHandle::Get()),
-      task_runner_(base::ThreadTaskRunnerHandle::Get()),
+          base::SingleThreadTaskRunner::GetCurrentDefault()),
+      task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
       heap_(std::make_unique<DiscardableSharedMemoryHeap>()),
       io_task_runner_(std::move(io_task_runner)),
       manager_mojo_(nullptr) {
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       this, "ClientDiscardableSharedMemoryManager",
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
 }
 
 ClientDiscardableSharedMemoryManager::~ClientDiscardableSharedMemoryManager() {
@@ -416,8 +424,13 @@ void ClientDiscardableSharedMemoryManager::ScheduledPurge() {
   // recover the memory without adverse latency effects.
   // TODO(crbug.com/1123679): Determine if |kMinAgeForScheduledPurge| and the
   // constant from |ScheduledPurge| need to be tuned.
-  PurgeUnlockedMemory(
-      ClientDiscardableSharedMemoryManager::kMinAgeForScheduledPurge);
+  if (base::FeatureList::IsEnabled(kShorterPeriodicPurge)) {
+    PurgeUnlockedMemory(
+        ClientDiscardableSharedMemoryManager::kMinAgeForScheduledPurge / 2);
+  } else {
+    PurgeUnlockedMemory(
+        ClientDiscardableSharedMemoryManager::kMinAgeForScheduledPurge);
+  }
 
   bool should_schedule = false;
   {

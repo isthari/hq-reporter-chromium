@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "build/build_config.h"
 #include "components/safe_browsing/buildflags.h"
@@ -36,6 +37,10 @@ class WebContents;
 namespace ui {
 struct SelectedFileInfo;
 }
+
+namespace policy {
+FORWARD_DECLARE_TEST(DlpFilesControllerBrowserTest, FilesUploadCallerPassed);
+}  // namespace policy
 
 // This class handles file-selection requests coming from renderer processes.
 // It implements both the initialisation and listener functions for
@@ -88,8 +93,15 @@ class FileSelectHelper : public base::RefCountedThreadSafe<
                            ContentAnalysisCompletionCallback_TwoBadFiles);
   FRIEND_TEST_ALL_PREFIXES(FileSelectHelperTest,
                            ContentAnalysisCompletionCallback_OKBadFiles);
+  FRIEND_TEST_ALL_PREFIXES(
+      FileSelectHelperTest,
+      ContentAnalysisCompletionCallback_SystemFilesSkipped);
+  FRIEND_TEST_ALL_PREFIXES(FileSelectHelperTest,
+                           ContentAnalysisCompletionCallback_SystemOKBadFiles);
   FRIEND_TEST_ALL_PREFIXES(FileSelectHelperTest, GetFileTypesFromAcceptType);
   FRIEND_TEST_ALL_PREFIXES(FileSelectHelperTest, MultipleFileExtensionsForMime);
+  FRIEND_TEST_ALL_PREFIXES(policy::DlpFilesControllerBrowserTest,
+                           FilesUploadCallerPassed);
 
   explicit FileSelectHelper(Profile* profile);
   ~FileSelectHelper() override;
@@ -314,6 +326,10 @@ class FileSelectHelper : public base::RefCountedThreadSafe<
 
   // Set to false in unit tests since there is no WebContents.
   bool abort_on_missing_web_contents_in_tests_ = true;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  base::WeakPtrFactory<FileSelectHelper> weak_ptr_factory_{this};
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 };
 
 #endif  // CHROME_BROWSER_FILE_SELECT_HELPER_H_

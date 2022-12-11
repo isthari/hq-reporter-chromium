@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,15 +20,15 @@
 #include "chrome/browser/policy/networking/device_network_configuration_updater_ash.h"
 #include "chrome/browser/policy/networking/user_network_configuration_updater_ash.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/network/fake_network_device_handler.h"
+#include "chromeos/ash/components/network/mock_managed_network_configuration_handler.h"
+#include "chromeos/ash/components/network/onc/onc_certificate_importer.h"
+#include "chromeos/ash/components/network/policy_certificate_provider.h"
 #include "chromeos/components/onc/certificate_scope.h"
 #include "chromeos/components/onc/onc_parsed_certificates.h"
 #include "chromeos/components/onc/onc_test_utils.h"
 #include "chromeos/components/onc/onc_utils.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
-#include "chromeos/network/fake_network_device_handler.h"
-#include "chromeos/network/mock_managed_network_configuration_handler.h"
-#include "chromeos/network/onc/onc_certificate_importer.h"
-#include "chromeos/network/policy_certificate_provider.h"
 #include "chromeos/system/fake_statistics_provider.h"
 #include "chromeos/system/statistics_provider.h"
 #include "components/account_id/account_id.h"
@@ -54,6 +54,7 @@
 using testing::_;
 using testing::AnyNumber;
 using testing::AtLeast;
+using testing::Eq;
 using testing::Mock;
 using testing::Ne;
 using testing::Return;
@@ -87,7 +88,7 @@ class FakeUser : public user_manager::User {
 };
 
 class MockPolicyProvidedCertsObserver
-    : public chromeos::PolicyCertificateProvider::Observer {
+    : public ash::PolicyCertificateProvider::Observer {
  public:
   MockPolicyProvidedCertsObserver() = default;
 
@@ -99,7 +100,7 @@ class MockPolicyProvidedCertsObserver
   MOCK_METHOD0(OnPolicyProvidedCertsChanged, void());
 };
 
-class FakeNetworkDeviceHandler : public chromeos::FakeNetworkDeviceHandler {
+class FakeNetworkDeviceHandler : public ash::FakeNetworkDeviceHandler {
  public:
   FakeNetworkDeviceHandler() = default;
 
@@ -118,7 +119,7 @@ class FakeNetworkDeviceHandler : public chromeos::FakeNetworkDeviceHandler {
   bool mac_addr_randomization_ = false;
 };
 
-class FakeCertificateImporter : public chromeos::onc::CertificateImporter {
+class FakeCertificateImporter : public ash::onc::CertificateImporter {
  public:
   using OncParsedCertificates = chromeos::onc::OncParsedCertificates;
 
@@ -292,7 +293,7 @@ MATCHER_P(IsEqualTo,
           value,
           std::string(negation ? "isn't" : "is") + " equal to " +
               ValueToString(*value)) {
-  return value->Equals(&arg);
+  return *value == arg;
 }
 
 MATCHER(IsListEmpty, std::string(negation ? "isn't" : "is") + " empty.") {
@@ -313,7 +314,7 @@ ACTION_P(SetCertificateList, list) {
 
 class NetworkConfigurationUpdaterAshTest : public testing::Test {
  protected:
-  NetworkConfigurationUpdaterAshTest() : certificate_importer_(NULL) {}
+  NetworkConfigurationUpdaterAshTest() : certificate_importer_(nullptr) {}
 
   void SetUp() override {
     ash::UserSessionManager::GetInstance()->set_start_session_type_for_testing(
@@ -334,10 +335,8 @@ class NetworkConfigurationUpdaterAshTest : public testing::Test {
     base::Value fake_toplevel_onc =
         chromeos::onc::ReadDictionaryFromJson(kFakeONC);
 
-    base::DictionaryValue* global_config = nullptr;
-    fake_toplevel_onc
-        .FindKey(onc::toplevel_config::kGlobalNetworkConfiguration)
-        ->GetAsDictionary(&global_config);
+    base::Value* global_config = fake_toplevel_onc.FindDictKey(
+        onc::toplevel_config::kGlobalNetworkConfiguration);
     fake_global_network_config_.MergeDictionary(global_config);
 
     base::Value* certs =
@@ -349,6 +348,9 @@ class NetworkConfigurationUpdaterAshTest : public testing::Test {
 
     certificate_importer_ = new FakeCertificateImporter;
     client_certificate_importer_owned_.reset(certificate_importer_);
+
+    EXPECT_CALL(network_config_handler_, SetProfileWideVariableExpansions(_, _))
+        .Times(AnyNumber());
   }
 
   base::Value* GetExpectedFakeNetworkConfigs(::onc::ONCSource source) {
@@ -357,13 +359,6 @@ class NetworkConfigurationUpdaterAshTest : public testing::Test {
     fake_network_configs_ =
         fake_toplevel_onc.FindKey(onc::toplevel_config::kNetworkConfigurations)
             ->Clone();
-    if (source == ::onc::ONC_SOURCE_DEVICE_POLICY) {
-      std::string expected_identity =
-          std::string(kFakeSerialNumber) + "-" + std::string(kFakeAssetId);
-      SetExpectedValueInNetworkConfig(
-          &fake_network_configs_, "{guid-for-wifi-with-device-exp}",
-          {"WiFi", "EAP", "Identity"}, base::Value(expected_identity));
-    }
     return &fake_network_configs_;
   }
 
@@ -425,10 +420,10 @@ class NetworkConfigurationUpdaterAshTest : public testing::Test {
   content::BrowserTaskEnvironment task_environment_;
 
   std::unique_ptr<chromeos::onc::OncParsedCertificates> fake_certificates_;
-  StrictMock<chromeos::MockManagedNetworkConfigurationHandler>
+  StrictMock<ash::MockManagedNetworkConfigurationHandler>
       network_config_handler_;
   FakeNetworkDeviceHandler network_device_handler_;
-  chromeos::ScopedStubInstallAttributes scoped_stub_install_attributes_;
+  ash::ScopedStubInstallAttributes scoped_stub_install_attributes_;
   ash::ScopedTestDeviceSettingsService scoped_device_settings_service_;
   ash::ScopedTestingCrosSettings scoped_testing_cros_settings_;
   chromeos::system::ScopedFakeStatisticsProvider fake_statistics_provider_;
@@ -438,7 +433,7 @@ class NetworkConfigurationUpdaterAshTest : public testing::Test {
   // continues to point to that instance but
   // |client_certificate_importer_owned_| is released.
   FakeCertificateImporter* certificate_importer_;
-  std::unique_ptr<chromeos::onc::CertificateImporter>
+  std::unique_ptr<ash::onc::CertificateImporter>
       client_certificate_importer_owned_;
 
   StrictMock<MockConfigurationPolicyProvider> provider_;
@@ -450,24 +445,9 @@ class NetworkConfigurationUpdaterAshTest : public testing::Test {
   std::unique_ptr<NetworkConfigurationUpdater> network_configuration_updater_;
 
  private:
-  void SetExpectedValueInNetworkConfig(
-      base::Value* network_configs,
-      base::StringPiece guid,
-      std::initializer_list<base::StringPiece> path,
-      base::Value value) {
-    for (base::Value& network_config : network_configs->GetList()) {
-      const base::Value* guid_value =
-          network_config.FindKey(::onc::network_config::kGUID);
-      if (!guid_value || guid_value->GetString() != guid)
-        continue;
-      network_config.SetPath(path, std::move(value));
-      break;
-    }
-  }
-
   base::Value fake_network_configs_;
-  base::DictionaryValue fake_global_network_config_;
-  chromeos::ScopedFakeSessionManagerClient scoped_session_manager_client_;
+  base::Value fake_global_network_config_{base::Value::Type::DICTIONARY};
+  ash::ScopedFakeSessionManagerClient scoped_session_manager_client_;
 };
 
 TEST_F(NetworkConfigurationUpdaterAshTest, CellularRoamingDefaults) {
@@ -486,7 +466,7 @@ TEST_F(NetworkConfigurationUpdaterAshTest, CellularPolicyAllowRoamingManaged) {
   // Perform this test as though this "device" is enterprise managed.
   scoped_stub_install_attributes_.Get()->SetCloudManaged(
       policy::PolicyBuilder::kFakeDomain, policy::PolicyBuilder::kFakeDeviceId);
-  EXPECT_TRUE(chromeos::InstallAttributes::Get()->IsEnterpriseManaged());
+  EXPECT_TRUE(ash::InstallAttributes::Get()->IsEnterpriseManaged());
 
   CreateNetworkConfigurationUpdaterForDevicePolicy();
   MarkPolicyProviderInitialized();
@@ -506,7 +486,7 @@ TEST_F(NetworkConfigurationUpdaterAshTest,
 
   // Perform this test as though this "device" is unmanaged.
   scoped_stub_install_attributes_.Get()->SetConsumerOwned();
-  EXPECT_FALSE(chromeos::InstallAttributes::Get()->IsEnterpriseManaged());
+  EXPECT_FALSE(ash::InstallAttributes::Get()->IsEnterpriseManaged());
 
   CreateNetworkConfigurationUpdaterForDevicePolicy();
   MarkPolicyProviderInitialized();
@@ -520,19 +500,15 @@ TEST_F(NetworkConfigurationUpdaterAshTest,
 }
 
 TEST_F(NetworkConfigurationUpdaterAshTest, PolicyIsValidatedAndRepaired) {
-  std::unique_ptr<base::DictionaryValue> onc_repaired =
-      chromeos::onc::test_utils::ReadTestDictionary(
-          "repaired_toplevel_partially_invalid.onc");
+  base::Value onc_repaired = chromeos::onc::test_utils::ReadTestDictionaryValue(
+      "repaired_toplevel_partially_invalid.onc");
 
-  base::ListValue* network_configs_repaired = NULL;
-  onc_repaired->GetListWithoutPathExpansion(
-      onc::toplevel_config::kNetworkConfigurations, &network_configs_repaired);
+  base::Value* network_configs_repaired =
+      onc_repaired.FindListKey(onc::toplevel_config::kNetworkConfigurations);
   ASSERT_TRUE(network_configs_repaired);
 
-  base::DictionaryValue* global_config_repaired = NULL;
-  onc_repaired->GetDictionaryWithoutPathExpansion(
-      onc::toplevel_config::kGlobalNetworkConfiguration,
-      &global_config_repaired);
+  base::Value* global_config_repaired = onc_repaired.FindDictKey(
+      onc::toplevel_config::kGlobalNetworkConfiguration);
   ASSERT_TRUE(global_config_repaired);
 
   std::string onc_policy =
@@ -551,7 +527,7 @@ TEST_F(NetworkConfigurationUpdaterAshTest, PolicyIsValidatedAndRepaired) {
   std::vector<chromeos::onc::OncParsedCertificates::ClientCertificate>
       expected_client_certificates;
   ASSERT_NO_FATAL_FAILURE(SelectSingleClientCertificateFromOnc(
-      onc_repaired.get(), 1 /* client_certificate_index */,
+      &onc_repaired, 1 /* client_certificate_index */,
       &expected_client_certificates));
   certificate_importer_->SetExpectedONCClientCertificates(
       expected_client_certificates);
@@ -582,6 +558,8 @@ TEST_F(NetworkConfigurationUpdaterAshTest,
   MarkPolicyProviderInitialized();
 
   Mock::VerifyAndClearExpectations(&network_config_handler_);
+  EXPECT_CALL(network_config_handler_, SetProfileWideVariableExpansions(_, _))
+      .Times(AnyNumber());
   EXPECT_EQ(0u, certificate_importer_->GetAndResetImportCount());
 
   certificate_importer_->SetExpectedONCClientCertificates(
@@ -593,7 +571,11 @@ TEST_F(NetworkConfigurationUpdaterAshTest,
   EXPECT_EQ(1u, certificate_importer_->GetAndResetImportCount());
 }
 
-TEST_F(NetworkConfigurationUpdaterAshTest, ReplaceDeviceOncPlaceholders) {
+TEST_F(NetworkConfigurationUpdaterAshTest, SetDeviceVariableExpansions) {
+  Mock::VerifyAndClearExpectations(&network_config_handler_);
+  const base::flat_map<std::string, std::string> kExpectedExpansions = {
+      {"DEVICE_ASSET_ID", kFakeAssetId},
+      {"DEVICE_SERIAL_NUMBER", kFakeSerialNumber}};
   PolicyMap policy;
   policy.Set(key::kDeviceOpenNetworkConfiguration, POLICY_LEVEL_MANDATORY,
              POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD, base::Value(kFakeONC),
@@ -602,11 +584,38 @@ TEST_F(NetworkConfigurationUpdaterAshTest, ReplaceDeviceOncPlaceholders) {
 
   ::onc::ONCSource source = onc::ONC_SOURCE_DEVICE_POLICY;
   EXPECT_CALL(network_config_handler_,
-              SetPolicy(source, std::string(),
+              SetPolicy(source, /*userhash=*/std::string(),
                         IsEqualTo(GetExpectedFakeNetworkConfigs(source)),
                         IsEqualTo(GetExpectedFakeGlobalNetworkConfig())));
+  EXPECT_CALL(network_config_handler_,
+              SetProfileWideVariableExpansions(/*userhash=*/std::string(),
+                                               Eq(kExpectedExpansions)));
 
   CreateNetworkConfigurationUpdaterForDevicePolicy();
+  MarkPolicyProviderInitialized();
+}
+
+TEST_F(NetworkConfigurationUpdaterAshTest, SetUserVariableExpansions) {
+  Mock::VerifyAndClearExpectations(&network_config_handler_);
+  const base::flat_map<std::string, std::string> kExpectedExpansions = {
+      {"LOGIN_EMAIL", kFakeUserEmail}, {"LOGIN_ID", kFakeUserEmail}};
+  PolicyMap policy;
+  policy.Set(key::kOpenNetworkConfiguration, POLICY_LEVEL_MANDATORY,
+             POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD, base::Value(kFakeONC),
+             nullptr);
+  UpdateProviderPolicy(policy);
+
+  ::onc::ONCSource source = onc::ONC_SOURCE_USER_POLICY;
+  EXPECT_CALL(network_config_handler_,
+              SetPolicy(source, kFakeUsernameHash,
+                        IsEqualTo(GetExpectedFakeNetworkConfigs(source)),
+                        IsEqualTo(GetExpectedFakeGlobalNetworkConfig())));
+  EXPECT_CALL(network_config_handler_,
+              SetProfileWideVariableExpansions(/*userhash=*/kFakeUsernameHash,
+                                               Eq(kExpectedExpansions)));
+
+  CreateNetworkConfigurationUpdaterForUserPolicy(
+      /*set_client_cert_importer=*/false);
   MarkPolicyProviderInitialized();
 }
 
@@ -763,6 +772,8 @@ TEST_P(NetworkConfigurationUpdaterAshTestWithParam,
   CreateNetworkConfigurationUpdater();
 
   Mock::VerifyAndClearExpectations(&network_config_handler_);
+  EXPECT_CALL(network_config_handler_, SetProfileWideVariableExpansions(_, _))
+      .Times(AnyNumber());
   EXPECT_EQ(0u, certificate_importer_->GetAndResetImportCount());
 
   EXPECT_CALL(
@@ -809,6 +820,8 @@ TEST_P(NetworkConfigurationUpdaterAshTestWithParam, PolicyChange) {
   MarkPolicyProviderInitialized();
 
   Mock::VerifyAndClearExpectations(&network_config_handler_);
+  EXPECT_CALL(network_config_handler_, SetProfileWideVariableExpansions(_, _))
+      .Times(AnyNumber());
   // The certificate importer is only called if the certificates changes. An
   // empty policy does not count.
   EXPECT_EQ(0u, certificate_importer_->GetAndResetImportCount());
@@ -827,6 +840,8 @@ TEST_P(NetworkConfigurationUpdaterAshTestWithParam, PolicyChange) {
              POLICY_SOURCE_CLOUD, base::Value(kFakeONC), nullptr);
   UpdateProviderPolicy(policy);
   Mock::VerifyAndClearExpectations(&network_config_handler_);
+  EXPECT_CALL(network_config_handler_, SetProfileWideVariableExpansions(_, _))
+      .Times(AnyNumber());
   EXPECT_EQ(ExpectedImportCertificatesCallCount(),
             certificate_importer_->GetAndResetImportCount());
 

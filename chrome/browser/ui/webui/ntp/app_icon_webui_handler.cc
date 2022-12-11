@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,15 +37,15 @@ AppIconWebUIHandler::AppIconWebUIHandler() {
 AppIconWebUIHandler::~AppIconWebUIHandler() {}
 
 void AppIconWebUIHandler::RegisterMessages() {
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "getAppIconDominantColor",
       base::BindRepeating(&AppIconWebUIHandler::HandleGetAppIconDominantColor,
                           base::Unretained(this)));
 }
 
 void AppIconWebUIHandler::HandleGetAppIconDominantColor(
-    const base::ListValue* args) {
-  const std::string& extension_id = args->GetList()[0].GetString();
+    const base::Value::List& args) {
+  const std::string& extension_id = args[0].GetString();
 
   Profile* profile = Profile::FromWebUI(web_ui());
   extensions::ExtensionRegistry* extension_registry =

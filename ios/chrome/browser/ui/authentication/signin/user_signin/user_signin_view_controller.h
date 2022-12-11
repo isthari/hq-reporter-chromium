@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,9 +39,7 @@
 
 @property(nonatomic, assign, readonly) int acceptSigninButtonStringId;
 
-@property(nonatomic, assign) BOOL useFirstRunSkipButton;
-
-// See |initWithEmbeddedViewController:|.
+// See `initWithEmbeddedViewController:`.
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder*)coder NS_UNAVAILABLE;
 - (instancetype)initWithNibName:(NSString*)nibNAme
@@ -62,7 +60,7 @@
 - (void)updatePrimaryActionButtonStyle;
 
 // Returns the supported orientations for the device type:
-// |UIInterfaceOrientationPortrait| orientation on iPhone and all other
+// `UIInterfaceOrientationPortrait` orientation on iPhone and all other
 // orientations on iPad.
 - (NSUInteger)supportedInterfaceOrientations;
 

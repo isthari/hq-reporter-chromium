@@ -1,12 +1,12 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/ntp/incognito_view_controller.h"
 
-#include <string>
+#import <string>
 
-#include "components/content_settings/core/common/features.h"
+#import "components/content_settings/core/common/features.h"
 #import "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/ntp/incognito_view.h"
@@ -32,6 +32,9 @@
 
 @implementation IncognitoViewController {
   // The UrlLoadingService associated with this view.
+  // TODO(crbug.com/1335402): View controllers should not have access to
+  // model-layer objects. Create a mediator to connect model-layer class
+  // `UrlLoadingBrowserAgent` to the view controller.
   UrlLoadingBrowserAgent* _URLLoader;  // weak
 }
 
@@ -51,10 +54,11 @@
         [[RevampedIncognitoView alloc] initWithFrame:self.view.bounds];
     view.URLLoaderDelegate = self;
     self.incognitoView = view;
-
   } else {
-    self.incognitoView = [[IncognitoView alloc] initWithFrame:self.view.bounds
-                                                    URLLoader:_URLLoader];
+    IncognitoView* view =
+        [[IncognitoView alloc] initWithFrame:self.view.bounds];
+    view.URLLoaderDelegate = self;
+    self.incognitoView = view;
   }
 
   self.incognitoView.accessibilityIdentifier = kNTPIncognitoViewIdentifier;

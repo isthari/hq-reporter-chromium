@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,10 @@
 #include "base/containers/cxx20_erase.h"
 #include "base/lazy_instance.h"
 #include "base/memory/ref_counted_memory.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/devtools/device/usb/android_rsa.h"
 #include "chrome/browser/devtools/device/usb/android_usb_socket.h"
 #include "crypto/rsa_private_key.h"
@@ -220,7 +220,7 @@ AndroidUsbDevice::AndroidUsbDevice(
 void AndroidUsbDevice::InitOnCallerThread() {
   if (task_runner_)
     return;
-  task_runner_ = base::ThreadTaskRunnerHandle::Get();
+  task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
   Queue(std::make_unique<AdbMessage>(AdbMessage::kCommandCNXN, kVersion,
                                      kMaxPayload, kHostConnectMessage));
   ReadHeader();
@@ -477,7 +477,7 @@ void AndroidUsbDevice::Terminate() {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
   // Remove this AndroidUsbDevice from |g_devices|.
-  auto it = std::find(g_devices.Get().begin(), g_devices.Get().end(), this);
+  auto it = base::ranges::find(g_devices.Get(), this);
   if (it != g_devices.Get().end())
     g_devices.Get().erase(it);
 

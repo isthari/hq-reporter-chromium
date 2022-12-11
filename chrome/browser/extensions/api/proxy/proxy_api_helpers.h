@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/values.h"
 #include "components/proxy_config/proxy_prefs.h"
 #include "net/proxy_resolution/proxy_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class ProxyConfigDictionary;
 
@@ -48,28 +49,27 @@ bool CreatePACScriptFromDataURL(
 //
 // The parameter |bad_message| is passed to simulate the behavior of
 // EXTENSION_FUNCTION_VALIDATE. It is never NULL.
-bool GetProxyModeFromExtensionPref(const base::DictionaryValue* proxy_config,
+bool GetProxyModeFromExtensionPref(const base::Value::Dict& proxy_config,
                                    ProxyPrefs::ProxyMode* out,
                                    std::string* error,
                                    bool* bad_message);
-bool GetPacMandatoryFromExtensionPref(const base::DictionaryValue* proxy_config,
+bool GetPacMandatoryFromExtensionPref(const base::Value::Dict& proxy_config,
                                       bool* out,
                                       std::string* error,
                                       bool* bad_message);
-bool GetPacUrlFromExtensionPref(const base::DictionaryValue* proxy_config,
+bool GetPacUrlFromExtensionPref(const base::Value::Dict& proxy_config,
                                 std::string* out,
                                 std::string* error,
                                 bool* bad_message);
-bool GetPacDataFromExtensionPref(const base::DictionaryValue* proxy_config,
+bool GetPacDataFromExtensionPref(const base::Value::Dict& proxy_config,
                                  std::string* out,
                                  std::string* error,
                                  bool* bad_message);
-bool GetProxyRulesStringFromExtensionPref(
-    const base::DictionaryValue* proxy_config,
-    std::string* out,
-    std::string* error,
-    bool* bad_message);
-bool GetBypassListFromExtensionPref(const base::DictionaryValue* proxy_config,
+bool GetProxyRulesStringFromExtensionPref(const base::Value::Dict& proxy_config,
+                                          std::string* out,
+                                          std::string* error,
+                                          bool* bad_message);
+bool GetBypassListFromExtensionPref(const base::Value::Dict& proxy_config,
                                     std::string* out,
                                     std::string* error,
                                     bool* bad_message);
@@ -77,7 +77,7 @@ bool GetBypassListFromExtensionPref(const base::DictionaryValue* proxy_config,
 // Creates and returns a ProxyConfig dictionary (as defined in the extension
 // API) from the given parameters. Ownership is passed to the caller.
 // Depending on the value of |mode_enum|, several of the strings may be empty.
-std::unique_ptr<base::Value> CreateProxyConfigDict(
+absl::optional<base::Value::Dict> CreateProxyConfigDict(
     ProxyPrefs::ProxyMode mode_enum,
     bool pac_mandatory,
     const std::string& pac_url,
@@ -91,7 +91,7 @@ std::unique_ptr<base::Value> CreateProxyConfigDict(
 // |default_scheme| is the default scheme that is filled in, in case the
 // caller did not pass one.
 // Returns true if successful and sets |error| otherwise.
-bool GetProxyServer(const base::DictionaryValue* proxy_server,
+bool GetProxyServer(const base::Value::Dict& proxy_server,
                     net::ProxyServer::Scheme default_scheme,
                     net::ProxyServer* out,
                     std::string* error,
@@ -99,7 +99,7 @@ bool GetProxyServer(const base::DictionaryValue* proxy_server,
 
 // Joins a list of URLs (stored as StringValues) in |list| with |joiner|
 // to |out|. Returns true if successful and sets |error| otherwise.
-bool JoinUrlList(base::Value::ConstListView list,
+bool JoinUrlList(const base::Value::List& list,
                  const std::string& joiner,
                  std::string* out,
                  std::string* error,
@@ -109,26 +109,25 @@ bool JoinUrlList(base::Value::ConstListView list,
 
 // Creates and returns a ProxyRules dictionary as defined in the extension API
 // with the values of a ProxyConfigDictionary configured for fixed proxy
-// servers. Returns NULL in case of failures.
-std::unique_ptr<base::DictionaryValue> CreateProxyRulesDict(
+// servers. Returns an empty object in case of failures.
+absl::optional<base::Value::Dict> CreateProxyRulesDict(
     const ProxyConfigDictionary& proxy_config);
 
 // Creates and returns a ProxyServer dictionary as defined in the extension API
-// with values from a net::ProxyServer object. Never returns NULL.
-std::unique_ptr<base::DictionaryValue> CreateProxyServerDict(
-    const net::ProxyServer& proxy);
+// with values from a net::ProxyServer object. Returns an empty dictionary on
+// error.
+base::Value::Dict CreateProxyServerDict(const net::ProxyServer& proxy);
 
 // Creates and returns a PacScript dictionary as defined in the extension API
 // with the values of a ProxyconfigDictionary configured for pac scripts.
-// Returns NULL in case of failures.
-std::unique_ptr<base::DictionaryValue> CreatePacScriptDict(
+// Returns an empty object in case of failures.
+absl::optional<base::Value::Dict> CreatePacScriptDict(
     const ProxyConfigDictionary& proxy_config);
 
-// Tokenizes the |in| at delimiters |delims| and returns a new ListValue with
-// StringValues created from the tokens.
-std::unique_ptr<base::ListValue> TokenizeToStringList(
-    const std::string& in,
-    const std::string& delims);
+// Tokenizes the |in| at delimiters |delims| and returns a new
+// base::Value::List with string values created from the tokens.
+base::Value::List TokenizeToStringList(const std::string& in,
+                                       const std::string& delims);
 
 }  // namespace proxy_api_helpers
 }  // namespace extensions

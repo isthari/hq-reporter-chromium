@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,8 @@
 #include "components/cbor/diagnostic_writer.h"
 #include "components/device_event_log/device_event_log.h"
 #include "device/fido/cable/fido_cable_discovery.h"
+#include "device/fido/device_public_key_extension.h"
+#include "device/fido/discoverable_credential_metadata.h"
 #include "device/fido/features.h"
 #include "device/fido/fido_authenticator.h"
 #include "device/fido/fido_discovery_factory.h"
@@ -39,7 +41,7 @@
 #include "device/fido/win/type_conversions.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "device/fido/cros/authenticator.h"
 #endif
 
@@ -102,9 +104,11 @@ absl::optional<GetAssertionStatus> ConvertDeviceResponseCode(
 
 // ValidateResponseExtensions returns true iff |extensions| is valid as a
 // response to |request| and |options|.
-bool ValidateResponseExtensions(const CtapGetAssertionRequest& request,
-                                const CtapGetAssertionOptions& options,
-                                const cbor::Value& extensions) {
+bool ValidateResponseExtensions(
+    const CtapGetAssertionRequest& request,
+    const CtapGetAssertionOptions& options,
+    const AuthenticatorGetAssertionResponse& response,
+    const cbor::Value& extensions) {
   if (!extensions.is_map()) {
     return false;
   }
@@ -121,6 +125,21 @@ bool ValidateResponseExtensions(const CtapGetAssertionRequest& request,
       continue;
     } else if (ext_name == kExtensionCredBlob) {
       if (!request.get_cred_blob || !it.second.is_bytestring()) {
+        return false;
+      }
+    } else if (ext_name == kExtensionDevicePublicKey) {
+      if (!request.device_public_key) {
+        FIDO_LOG(ERROR) << "unsolicited devicePubKey extension output";
+        return false;
+      }
+      const bool backup_eligible_flag =
+          response.authenticator_data.backup_eligible();
+      const absl::optional<const char*> error =
+          CheckDevicePublicKeyExtensionForErrors(
+              it.second, request.device_public_key->attestation,
+              backup_eligible_flag);
+      if (error.has_value()) {
+        FIDO_LOG(ERROR) << error.value();
         return false;
       }
     } else {
@@ -164,8 +183,7 @@ bool ResponseValid(bool is_first_response,
   // published.
   const auto& user_entity = response.user_entity;
   const bool has_user_identifying_info =
-      user_entity &&
-      (user_entity->display_name || user_entity->name || user_entity->icon_url);
+      user_entity && (user_entity->display_name || user_entity->name);
   if (!response.authenticator_data.obtained_user_verification() &&
       has_user_identifying_info) {
     return false;
@@ -188,7 +206,7 @@ bool ResponseValid(bool is_first_response,
   const absl::optional<cbor::Value>& extensions =
       response.authenticator_data.extensions();
   if (extensions &&
-      !ValidateResponseExtensions(request, options, *extensions)) {
+      !ValidateResponseExtensions(request, options, response, *extensions)) {
     FIDO_LOG(ERROR) << "assertion response invalid due to extensions block: "
                     << cbor::DiagnosticWriter::Write(*extensions);
     return false;
@@ -196,6 +214,15 @@ bool ResponseValid(bool is_first_response,
 
   if (!is_first_response && response.user_selected) {
     // It is invalid to set `userSelected` on subsequent responses.
+    return false;
+  }
+
+  const bool has_dpk_extension =
+      extensions &&
+      extensions->GetMap().count(cbor::Value(kExtensionDevicePublicKey));
+  if (has_dpk_extension != response.device_public_key_signature.has_value()) {
+    FIDO_LOG(ERROR)
+        << "DPK extension isn't coherent with presence of DPK signature";
     return false;
   }
 
@@ -209,7 +236,7 @@ base::flat_set<FidoTransportProtocol> GetTransportsAllowedByRP(
       FidoTransportProtocol::kNearFieldCommunication,
       FidoTransportProtocol::kUsbHumanInterfaceDevice,
       FidoTransportProtocol::kBluetoothLowEnergy,
-      FidoTransportProtocol::kCloudAssistedBluetoothLowEnergy,
+      FidoTransportProtocol::kHybrid,
       FidoTransportProtocol::kAndroidAccessory,
   };
 
@@ -259,13 +286,15 @@ CtapGetAssertionRequest SpecializeRequestForAuthenticator(
     specialized_request.large_blob_read = false;
     specialized_request.large_blob_write.reset();
   }
-  if (!request.is_u2f_only && authenticator.Options() &&
-      authenticator.Options()->always_uv) {
+  if (authenticator.Options() && authenticator.Options()->always_uv) {
     specialized_request.user_verification =
         UserVerificationRequirement::kRequired;
   }
   if (request.get_cred_blob && !authenticator.SupportsCredBlobOfSize(0)) {
     specialized_request.get_cred_blob = false;
+  }
+  if (request.device_public_key && !authenticator.SupportsDevicePublicKey()) {
+    specialized_request.device_public_key.reset();
   }
   return specialized_request;
 }
@@ -304,6 +333,19 @@ GetAssertionRequestHandler::GetAssertionRequestHandler(
 }
 
 GetAssertionRequestHandler::~GetAssertionRequestHandler() = default;
+
+void GetAssertionRequestHandler::PreselectAccount(
+    std::vector<uint8_t> credential_id) {
+  // PreselectAccount is only supposed to be invoked for discoverable credential
+  // requests.
+  DCHECK(request_.allow_list.empty());
+  preselected_credential_ = std::move(credential_id);
+}
+
+base::WeakPtr<GetAssertionRequestHandler>
+GetAssertionRequestHandler::GetWeakPtr() {
+  return weak_factory_.GetWeakPtr();
+}
 
 void GetAssertionRequestHandler::OnBluetoothAdapterEnumerated(
     bool is_present,
@@ -382,6 +424,13 @@ void GetAssertionRequestHandler::DispatchRequest(
       return;
   }
 
+  if (preselected_credential_) {
+    DCHECK(request.allow_list.empty());
+    request.allow_list = {device::PublicKeyCredentialDescriptor(
+        CredentialType::kPublicKey, *preselected_credential_,
+        {FidoTransportProtocol::kInternal})};
+  }
+
   ReportGetAssertionRequestTransport(authenticator);
 
   CtapGetAssertionRequest request_copy(request);
@@ -417,33 +466,10 @@ void GetAssertionRequestHandler::AuthenticatorRemoved(
 void GetAssertionRequestHandler::GetPlatformCredentialStatus(
     FidoAuthenticator* platform_authenticator) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(my_sequence_checker_);
-
-#if BUILDFLAG(IS_MAC)
-  // In tests the platform authenticator may be a virtual device.
-  if (!platform_authenticator->IsTouchIdAuthenticator()) {
-    FidoRequestHandlerBase::GetPlatformCredentialStatus(platform_authenticator);
-    return;
-  }
-
-  fido::mac::TouchIdAuthenticator* touch_id_authenticator =
-      static_cast<fido::mac::TouchIdAuthenticator*>(platform_authenticator);
-  bool has_credential =
-      touch_id_authenticator->HasCredentialForGetAssertionRequest(request_);
-  std::vector<PublicKeyCredentialUserEntity> credential_users;
-  if (has_credential && request_.allow_list.empty()) {
-    credential_users =
-        touch_id_authenticator->GetResidentCredentialUsersForRequest(request_);
-  }
-  OnHavePlatformCredentialStatus(std::move(credential_users), has_credential);
-#elif BUILDFLAG(IS_CHROMEOS_ASH)
-  ChromeOSAuthenticator::HasCredentialForGetAssertionRequest(
+  platform_authenticator->GetCredentialInformationForRequest(
       request_, base::BindOnce(
                     &GetAssertionRequestHandler::OnHavePlatformCredentialStatus,
-                    weak_factory_.GetWeakPtr(),
-                    std::vector<PublicKeyCredentialUserEntity>()));
-#else
-  FidoRequestHandlerBase::GetPlatformCredentialStatus(platform_authenticator);
-#endif
+                    weak_factory_.GetWeakPtr()));
 }
 
 bool GetAssertionRequestHandler::AuthenticatorSelectedForPINUVAuthToken(
@@ -573,7 +599,7 @@ void GetAssertionRequestHandler::HandleResponse(
   }
 
 #if BUILDFLAG(IS_WIN)
-  if (authenticator->IsWinNativeApiAuthenticator()) {
+  if (authenticator->GetType() == FidoAuthenticator::Type::kWinNative) {
     state_ = State::kFinished;
     CancelActiveAuthenticators(authenticator->GetId());
     if (status != CtapDeviceResponseCode::kSuccess) {
@@ -670,6 +696,16 @@ void GetAssertionRequestHandler::HandleResponse(
         .Run(GetAssertionStatus::kAuthenticatorResponseInvalid, absl::nullopt,
              authenticator);
     return;
+  }
+
+  if (preselected_credential_) {
+    // A discoverable platform credential was preselected by the user prior to
+    // making the assertion request. Instruct the UI not to show another account
+    // selection dialog by setting the `userSelected` flag.
+    DCHECK_EQ(num_responses, 1u);
+    DCHECK(response->credential &&
+           response->credential->id == preselected_credential_);
+    response->user_selected = true;
   }
 
   DCHECK(responses_.empty());
@@ -806,14 +842,12 @@ void GetAssertionRequestHandler::OnGetAssertionSuccess(
 void GetAssertionRequestHandler::OnReadLargeBlobs(
     FidoAuthenticator* authenticator,
     CtapDeviceResponseCode status,
-    absl::optional<std::vector<std::pair<LargeBlobKey, std::vector<uint8_t>>>>
-        blobs) {
+    absl::optional<std::vector<std::pair<LargeBlobKey, LargeBlob>>> blobs) {
   if (status == CtapDeviceResponseCode::kSuccess) {
     for (auto& response : responses_) {
       const auto blob =
-          base::ranges::find_if(*blobs, [&response](const auto& pair) {
-            return pair.first == response.large_blob_key;
-          });
+          base::ranges::find(*blobs, response.large_blob_key,
+                             &std::pair<LargeBlobKey, LargeBlob>::first);
       if (blob != blobs->end()) {
         response.large_blob = std::move(blob->second);
       }

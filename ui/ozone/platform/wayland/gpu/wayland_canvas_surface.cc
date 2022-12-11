@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,9 @@
 #include <memory>
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/files/scoped_file.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/shared_memory_mapping.h"
 #include "base/memory/unsafe_shared_memory_region.h"
 #include "base/numerics/checked_math.h"
@@ -45,7 +47,7 @@ class WaylandCanvasSurface::SharedMemoryBuffer {
   SharedMemoryBuffer(const SharedMemoryBuffer&) = delete;
   SharedMemoryBuffer& operator=(const SharedMemoryBuffer&) = delete;
 
-  ~SharedMemoryBuffer() { buffer_manager_->DestroyBuffer(widget_, buffer_id_); }
+  ~SharedMemoryBuffer() { buffer_manager_->DestroyBuffer(buffer_id_); }
 
   // Returns SkSurface, which the client can use to write to this buffer.
   sk_sp<SkSurface> sk_surface() const { return sk_surface_; }
@@ -95,8 +97,9 @@ class WaylandCanvasSurface::SharedMemoryBuffer {
   }
 
   void CommitBuffer(const gfx::Rect& damage, float buffer_scale) {
-    buffer_manager_->CommitBuffer(widget_, buffer_id_, gfx::Rect(size_),
-                                  buffer_scale, damage);
+    buffer_manager_->CommitBuffer(widget_, buffer_id_, /*frame_id*/ buffer_id_,
+                                  frame_data_, gfx::Rect(size_),
+                                  gfx::RoundedCornersF(), buffer_scale, damage);
   }
 
   void OnUse() {
@@ -137,6 +140,8 @@ class WaylandCanvasSurface::SharedMemoryBuffer {
     return pending_damage_region_;
   }
 
+  void set_frame_data(const gl::FrameData& data) { frame_data_ = data; }
+
  private:
   // The size of the buffer.
   gfx::Size size_;
@@ -151,7 +156,7 @@ class WaylandCanvasSurface::SharedMemoryBuffer {
   const gfx::AcceleratedWidget widget_;
 
   // Non-owned pointer to the buffer manager on the gpu process/thread side.
-  WaylandBufferManagerGpu* const buffer_manager_;
+  const raw_ptr<WaylandBufferManagerGpu> buffer_manager_;
 
   // Shared memory for the buffer.
   base::WritableSharedMemoryMapping shm_mapping_;
@@ -164,6 +169,9 @@ class WaylandCanvasSurface::SharedMemoryBuffer {
 
   // Pending damage region if the buffer is pending to be submitted.
   gfx::Rect pending_damage_region_;
+
+  // Frame data.
+  gl::FrameData frame_data_;
 };
 
 class WaylandCanvasSurface::VSyncProvider : public gfx::VSyncProvider {
@@ -264,10 +272,24 @@ void WaylandCanvasSurface::PresentCanvas(const gfx::Rect& damage) {
     return;
 
   pending_buffer_->set_pending_damage_region(damage);
-  unsubmitted_buffers_.push_back(pending_buffer_);
-  pending_buffer_ = nullptr;
+}
 
-  ProcessUnsubmittedBuffers();
+bool WaylandCanvasSurface::SupportsAsyncBufferSwap() const {
+  return true;
+}
+
+void WaylandCanvasSurface::OnSwapBuffers(SwapBuffersCallback swap_ack_callback,
+                                         gl::FrameData data) {
+  if (pending_buffer_) {
+    pending_buffer_->set_frame_data(data);
+    unsubmitted_buffers_.push_back(pending_buffer_);
+    pending_buffer_ = nullptr;
+  }
+
+  if (!unsubmitted_buffers_.empty())
+    ProcessUnsubmittedBuffers();
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(swap_ack_callback), size_));
 }
 
 std::unique_ptr<gfx::VSyncProvider>
@@ -313,7 +335,7 @@ void WaylandCanvasSurface::ProcessUnsubmittedBuffers() {
   current_buffer_->CommitBuffer(damage, viewport_scale_);
 }
 
-void WaylandCanvasSurface::OnSubmission(uint32_t buffer_id,
+void WaylandCanvasSurface::OnSubmission(uint32_t frame_id,
                                         const gfx::SwapResult& swap_result,
                                         gfx::GpuFenceHandle release_fence) {
   DCHECK(release_fence.is_null());
@@ -323,15 +345,12 @@ void WaylandCanvasSurface::OnSubmission(uint32_t buffer_id,
   // it must be |current_buffer_| because we only submit new buffers when
   // |current_buffer_| is nullptr, and it is only set to nullptr in
   // |OnSubmission| and |ResizeCanvas|. In |ResizeCanvas|, |buffers_| is cleared
-  // so we will not know about |buffer_id|.
-  if (std::none_of(buffers_.begin(), buffers_.end(),
-                   [buffer_id](const auto& buffer) {
-                     return buffer->buffer_id() == buffer_id;
-                   }))
+  // so we will not know about |frame_id|.
+  if (!base::Contains(buffers_, frame_id, &SharedMemoryBuffer::buffer_id))
     return;
 
   DCHECK(current_buffer_);
-  DCHECK_EQ(current_buffer_->buffer_id(), buffer_id);
+  DCHECK_EQ(current_buffer_->buffer_id(), frame_id);
 
   if (previous_buffer_)
     previous_buffer_->OnRelease();
@@ -344,7 +363,7 @@ void WaylandCanvasSurface::OnSubmission(uint32_t buffer_id,
 }
 
 void WaylandCanvasSurface::OnPresentation(
-    uint32_t buffer_id,
+    uint32_t frame_id,
     const gfx::PresentationFeedback& feedback) {
   last_timestamp_ = feedback.timestamp;
   last_interval_ = feedback.interval;

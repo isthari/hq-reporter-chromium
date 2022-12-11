@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,14 @@
 class GURL;
 
 namespace web_package {
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class ScriptWebBundleOriginType {
+  kSameOrigin = 0,
+  kCrossOrigin = 1,
+  kMaxValue = kCrossOrigin,
+};
 
 // The max memory limit per process of subrsource web bundles.
 //
@@ -37,12 +45,6 @@ bool HasNoSniffHeader(const network::mojom::URLResponseHead& response);
 
 // Returns true if |url| is a valid uuid-in-package URL.
 bool IsValidUuidInPackageURL(const GURL& url);
-
-// Returns true if |url| is a valid UUID URN, i.e. |url| is a URN (RFC 2141)
-// whose NID is "uuid" and its NSS confirms to the syntactic structure
-// described in RFC 4122, section 3.
-// TODO(https://crbug.com/1257045): Remove this when we drop urn:uuid support.
-bool IsValidUrnUuidURL(const GURL& url);
 
 }  // namespace web_package
 

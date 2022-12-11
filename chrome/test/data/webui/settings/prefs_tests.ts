@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,10 +53,7 @@ suite('CrSettingsPrefs', function() {
     for (const testCase of prefsTestCases) {
       const expectedValue =
           JSON.stringify(testCase.nextValues[testCaseValueIndex]);
-      const prefsObject =
-          (fakeApi.prefs as
-           {[key: string]:
-                chrome.settingsPrivate.PrefObject})[testCase.pref.key]!;
+      const prefsObject = fakeApi.prefs[testCase.pref.key]!;
       const actualValue = JSON.stringify(prefsObject.value);
       assertEquals(expectedValue, actualValue, testCase.pref.key);
     }
@@ -79,7 +76,7 @@ suite('CrSettingsPrefs', function() {
 
   // Initialize a <settings-prefs> before each test.
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     // Override chrome.settingsPrivate with FakeSettingsPrivate.
     fakeApi = new FakeSettingsPrivate(prefsTestCases.map(function(testCase) {
@@ -100,23 +97,21 @@ suite('CrSettingsPrefs', function() {
     CrSettingsPrefs.deferInitialization = false;
     prefs.resetForTesting();
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
   });
 
   test('receives and caches prefs', function testGetPrefs() {
     // Test that each pref has been successfully copied to the Polymer
     // |prefs| property.
     for (const key in fakeApi.prefs) {
-      const expectedPref =
-          (fakeApi.prefs as
-           {[key: string]: chrome.settingsPrivate.PrefObject})[key];
+      const expectedPref = fakeApi.prefs[key];
       const actualPref = getPrefFromKey(prefs.prefs, key);
       assertNotEquals(undefined, actualPref);
       assertEquals(JSON.stringify(expectedPref), JSON.stringify(actualPref));
     }
   });
 
-  test('forwards pref changes to API', function testSetPrefs() {
+  test('forwards pref changes to API', async function testSetPrefs() {
     // Test that settings-prefs uses the setPref API.
     for (const testCase of prefsTestCases) {
       prefs.set(
@@ -129,12 +124,22 @@ suite('CrSettingsPrefs', function() {
     // Test that when setPref fails, the pref is reverted locally.
     for (const testCase of prefsTestCases) {
       fakeApi.failNextSetPref();
+      fakeApi.resetResolver('getPref');
+      fakeApi.resetResolver('setPref');
       prefs.set(
           'prefs.' + testCase.pref.key + '.value',
           deepCopy(testCase.nextValues[1]));
+      if (testCase.nextValues[0] !== testCase.nextValues[1]) {
+        const key1 = (await fakeApi.whenCalled('setPref')).key;
+        assertEquals(testCase.pref.key, key1);
+        const key2 = await fakeApi.whenCalled('getPref');
+        assertEquals(testCase.pref.key, key2);
+      }
+      const expectedValue = JSON.stringify(testCase.nextValues[0]);
+      const actualValue =
+          JSON.stringify(prefs.get('prefs.' + testCase.pref.key + '.value'));
+      assertEquals(expectedValue, actualValue);
     }
-
-    assertPrefsSet(0);
 
     // Test that setPref is not called when the pref doesn't change.
     fakeApi.disallowSetPref();

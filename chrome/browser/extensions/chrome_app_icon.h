@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -93,7 +93,7 @@ class ChromeAppIcon : public IconImage::Observer {
 
   // Unowned pointers.
   const raw_ptr<ChromeAppIconDelegate> delegate_;
-  const raw_ptr<content::BrowserContext> browser_context_;
+  const raw_ptr<content::BrowserContext, DanglingUntriaged> browser_context_;
 
   // Called when this instance of ChromeAppIcon is destroyed.
   DestroyedCallback destroyed_callback_;

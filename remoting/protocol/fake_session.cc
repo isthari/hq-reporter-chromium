@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,12 @@
 #include "base/bind.h"
 #include "base/check.h"
 #include "base/location.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "remoting/protocol/fake_authenticator.h"
 #include "remoting/protocol/session_plugin.h"
 #include "third_party/libjingle_xmpp/xmllite/xmlelement.h"
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 const char kTestJid[] = "host1@gmail.com/chromoting123";
 const char kTestAuthKey[] = "test_auth_key";
@@ -88,7 +87,7 @@ void FakeSession::Close(ErrorCode error) {
     if (signaling_delay_.is_zero()) {
       peer->Close(error);
     } else {
-      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
           FROM_HERE, base::BindOnce(&FakeSession::Close, peer, error),
           signaling_delay_);
     }
@@ -103,7 +102,7 @@ void FakeSession::SendTransportInfo(
   if (signaling_delay_.is_zero()) {
     peer_->ProcessTransportInfo(std::move(transport_info));
   } else {
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&FakeSession::ProcessTransportInfo, peer_,
                        std::move(transport_info)),
@@ -136,5 +135,4 @@ void FakeSession::SetAttachment(size_t round,
   attachments_[round] = std::move(attachment);
 }
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

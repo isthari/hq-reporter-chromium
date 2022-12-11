@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/files/file_path.h"
 #include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
+#include "components/download/public/background_service/download_params.h"
 #include "net/http/http_response_headers.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
@@ -49,6 +50,9 @@ struct CompletionInfo {
   // An optional base::HexEncoded SHA-256 hash (if available) of the file
   // contents.  If empty there is no available hash value.
   std::string hash256;
+
+  // The custom data sent back to clients when download is completed or failed.
+  DownloadParams::CustomData custom_data;
 
   CompletionInfo();
   CompletionInfo(

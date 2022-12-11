@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -90,8 +90,9 @@ bool SVGObjectPainter::PreparePaint(
     }
   }
   if (paint.HasColor()) {
-    const CSSProperty& property =
-        apply_to_fill ? GetCSSPropertyFill() : GetCSSPropertyStroke();
+    const Longhand& property = apply_to_fill
+                                   ? To<Longhand>(GetCSSPropertyFill())
+                                   : To<Longhand>(GetCSSPropertyStroke());
     const Color color = style.VisitedDependentColor(property);
     flags.setColor(ScaleAlpha(color.Rgb(), alpha));
     flags.setShader(nullptr);

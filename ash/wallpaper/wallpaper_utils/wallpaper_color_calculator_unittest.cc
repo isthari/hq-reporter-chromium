@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "ash/public/cpp/wallpaper/wallpaper_types.h"
+#include "ash/wallpaper/wallpaper_utils/wallpaper_calculated_colors.h"
 #include "ash/wallpaper/wallpaper_utils/wallpaper_color_calculator_observer.h"
 #include "ash/wallpaper/wallpaper_utils/wallpaper_color_extraction_result.h"
 #include "base/task/single_thread_task_runner.h"
@@ -114,7 +115,8 @@ class WallpaperColorCalculatorTest : public testing::Test {
 
  private:
   // Required for asynchronous calculations, e.g. by PostTaskAndReplyImpl.
-  std::unique_ptr<base::ThreadTaskRunnerHandle> task_runner_handle_;
+  std::unique_ptr<base::SingleThreadTaskRunner::CurrentDefaultHandle>
+      task_runner_handle_;
 };
 
 WallpaperColorCalculatorTest::WallpaperColorCalculatorTest()
@@ -129,7 +131,8 @@ void WallpaperColorCalculatorTest::InstallTaskRunner(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
   task_runner_handle_.reset();
   task_runner_handle_ =
-      std::make_unique<base::ThreadTaskRunnerHandle>(task_runner);
+      std::make_unique<base::SingleThreadTaskRunner::CurrentDefaultHandle>(
+          task_runner);
   if (calculator_)
     calculator_->SetTaskRunnerForTest(task_runner);
 }
@@ -179,7 +182,9 @@ TEST_F(WallPaperColorCalculatorAsyncTest, MetricsWhenPostingTaskFails) {
   EXPECT_THAT(histograms_.GetAllSamples("Ash.Wallpaper.ColorExtractionResult2"),
               IsEmpty());
 
-  EXPECT_EQ(kDefaultColor, calculator_->prominent_colors()[0]);
+  EXPECT_EQ(kDefaultColor,
+            calculator_->get_calculated_colors().prominent_colors[0]);
+  EXPECT_EQ(kDefaultColor, calculator_->get_calculated_colors().k_mean_color);
 }
 
 TEST_F(WallPaperColorCalculatorAsyncTest,
@@ -195,13 +200,19 @@ TEST_F(WallPaperColorCalculatorAsyncTest,
 
 TEST_F(WallPaperColorCalculatorAsyncTest, ColorUpdatedOnSuccessfulCalculation) {
   std::vector<SkColor> colors = {kDefaultColor};
-  calculator_->set_prominent_colors_for_test(colors);
+  SkColor k_mean_color = kDefaultColor;
+  calculator_->set_calculated_colors_for_test(
+      WallpaperCalculatedColors(colors, k_mean_color));
 
   EXPECT_TRUE(calculator_->StartCalculation());
-  EXPECT_EQ(kDefaultColor, calculator_->prominent_colors()[0]);
+  EXPECT_EQ(kDefaultColor,
+            calculator_->get_calculated_colors().prominent_colors[0]);
+  EXPECT_EQ(kDefaultColor, calculator_->get_calculated_colors().k_mean_color);
 
   task_runner_->RunUntilIdle();
-  EXPECT_NE(kDefaultColor, calculator_->prominent_colors()[0]);
+  EXPECT_NE(kDefaultColor,
+            calculator_->get_calculated_colors().prominent_colors[0]);
+  EXPECT_EQ(kGray, calculator_->get_calculated_colors().k_mean_color);
 }
 
 TEST_F(WallPaperColorCalculatorAsyncTest,

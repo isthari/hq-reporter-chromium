@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,10 +19,10 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.Batch;
+import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationDelegateImpl;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -34,10 +34,14 @@ import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.external_intents.ExternalNavigationHandler;
 import org.chromium.components.external_intents.ExternalNavigationParams;
 import org.chromium.components.external_intents.InterceptNavigationDelegateImpl;
-import org.chromium.components.navigation_interception.NavigationParams;
-import org.chromium.content_public.browser.test.util.DOMUtils;
+import org.chromium.content_public.browser.NavigationHandle;
+import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.net.test.EmbeddedTestServer;
+import org.chromium.ui.base.PageTransition;
+import org.chromium.url.GURL;
+import org.chromium.url.Origin;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,14 +79,18 @@ public class InterceptNavigationDelegateTest {
             BASE_PAGE + "navigation_from_user_gesture_to_iframe_page.html";
     private static final String NAVIGATION_FROM_PRERENDERING_PAGE =
             BASE_PAGE + "navigation_from_prerender.html";
+    private static final String IFRAME_CONTAINER_PAGE = BASE_PAGE + "iframe_container_page.html";
+    private static final String HELLO_PAGE = BASE_PAGE + "hello.html";
 
     private static final long DEFAULT_MAX_TIME_TO_WAIT_IN_MS = 3000;
     private static final long LONG_MAX_TIME_TO_WAIT_IN_MS = 20000;
 
     private ChromeActivity mActivity;
-    private List<NavigationParams> mNavParamHistory = new ArrayList<>();
+    private List<NavigationHandle> mNavParamHistory = new ArrayList<>();
     private List<ExternalNavigationParams> mExternalNavParamHistory = new ArrayList<>();
     private EmbeddedTestServer mTestServer;
+    private CallbackHelper mSubframeExternalProtocolCalled = new CallbackHelper();
+    private GURL mSubframeRedirectTarget;
 
     class TestExternalNavigationHandler extends ExternalNavigationHandler {
         public TestExternalNavigationHandler() {
@@ -111,9 +119,20 @@ public class InterceptNavigationDelegateTest {
                     new InterceptNavigationDelegateClientImpl(tab);
             InterceptNavigationDelegateImpl delegate = new InterceptNavigationDelegateImpl(client) {
                 @Override
-                public boolean shouldIgnoreNavigation(NavigationParams navigationParams) {
-                    mNavParamHistory.add(navigationParams);
-                    return super.shouldIgnoreNavigation(navigationParams);
+                public boolean shouldIgnoreNavigation(
+                        NavigationHandle navigationHandle, GURL escapedUrl) {
+                    mNavParamHistory.add(navigationHandle);
+                    return super.shouldIgnoreNavigation(navigationHandle, escapedUrl);
+                }
+
+                @Override
+                public GURL handleSubframeExternalProtocol(GURL escapedUrl,
+                        @PageTransition int transition, boolean hasUserGesture,
+                        Origin initiatorOrigin) {
+                    mSubframeExternalProtocolCalled.notifyCalled();
+                    if (mSubframeRedirectTarget != null) return mSubframeRedirectTarget;
+                    return super.handleSubframeExternalProtocol(
+                            escapedUrl, transition, hasUserGesture, initiatorOrigin);
                 }
             };
             client.initializeWithDelegate(delegate);
@@ -135,72 +154,67 @@ public class InterceptNavigationDelegateTest {
         Assert.assertEquals(1, mNavParamHistory.size());
 
         waitTillExpectedCallsComplete(2, DEFAULT_MAX_TIME_TO_WAIT_IN_MS);
-        Assert.assertFalse(mNavParamHistory.get(1).hasUserGesture);
+        Assert.assertFalse(mNavParamHistory.get(1).hasUserGesture());
     }
 
     @Test
     @SmallTest
-    @DisabledTest(message = "http://crbug.com/1283240")
     public void testNavigationFromUserGesture() throws TimeoutException {
         sActivityTestRule.loadUrl(mTestServer.getURL(NAVIGATION_FROM_USER_GESTURE_PAGE));
         Assert.assertEquals(1, mNavParamHistory.size());
 
-        DOMUtils.clickNode(mActivity.getActivityTab().getWebContents(), "first");
+        TouchCommon.singleClickView(mActivity.getActivityTab().getView());
         waitTillExpectedCallsComplete(2, DEFAULT_MAX_TIME_TO_WAIT_IN_MS);
-        Assert.assertTrue(mNavParamHistory.get(1).hasUserGesture);
+        Assert.assertTrue(mNavParamHistory.get(1).hasUserGesture());
     }
 
     @Test
     @SmallTest
-    @DisabledTest(message = "http://crbug.com/1283240")
     public void testNavigationFromXHRCallback() throws TimeoutException {
         sActivityTestRule.loadUrl(mTestServer.getURL(NAVIGATION_FROM_XHR_CALLBACK_PAGE));
         Assert.assertEquals(1, mNavParamHistory.size());
 
-        DOMUtils.clickNode(mActivity.getActivityTab().getWebContents(), "first");
+        TouchCommon.singleClickView(mActivity.getActivityTab().getView());
         waitTillExpectedCallsComplete(2, DEFAULT_MAX_TIME_TO_WAIT_IN_MS);
 
-        Assert.assertTrue(mNavParamHistory.get(1).hasUserGesture);
+        Assert.assertTrue(mNavParamHistory.get(1).hasUserGesture());
     }
 
     @Test
     @SmallTest
-    @DisabledTest(message = "http://crbug.com/1283240")
     public void testNavigationFromXHRCallbackAndShortTimeout() throws TimeoutException {
         sActivityTestRule.loadUrl(
                 mTestServer.getURL(NAVIGATION_FROM_XHR_CALLBACK_AND_SHORT_TIMEOUT_PAGE));
         Assert.assertEquals(1, mNavParamHistory.size());
 
-        DOMUtils.clickNode(mActivity.getActivityTab().getWebContents(), "first");
+        TouchCommon.singleClickView(mActivity.getActivityTab().getView());
         waitTillExpectedCallsComplete(2, DEFAULT_MAX_TIME_TO_WAIT_IN_MS);
 
-        Assert.assertTrue(mNavParamHistory.get(1).hasUserGesture);
+        Assert.assertTrue(mNavParamHistory.get(1).hasUserGesture());
     }
 
     @Test
     @SmallTest
-    @DisabledTest(message = "http://crbug.com/1283240")
     public void testNavigationFromXHRCallbackAndLongTimeout() throws TimeoutException {
         sActivityTestRule.loadUrl(
                 mTestServer.getURL(NAVIGATION_FROM_XHR_CALLBACK_AND_LONG_TIMEOUT_PAGE));
         Assert.assertEquals(1, mNavParamHistory.size());
 
-        DOMUtils.clickNode(mActivity.getActivityTab().getWebContents(), "first");
+        TouchCommon.singleClickView(mActivity.getActivityTab().getView());
         waitTillExpectedCallsComplete(2, LONG_MAX_TIME_TO_WAIT_IN_MS);
-        Assert.assertFalse(mNavParamHistory.get(1).hasUserGesture);
+        Assert.assertFalse(mNavParamHistory.get(1).hasUserGesture());
     }
 
     @Test
     @SmallTest
-    @DisabledTest(message = "http://crbug.com/1283240")
     public void testNavigationFromImageOnLoad() throws TimeoutException {
         sActivityTestRule.loadUrl(mTestServer.getURL(NAVIGATION_FROM_IMAGE_ONLOAD_PAGE));
         Assert.assertEquals(1, mNavParamHistory.size());
 
-        DOMUtils.clickNode(mActivity.getActivityTab().getWebContents(), "first");
+        TouchCommon.singleClickView(mActivity.getActivityTab().getView());
         waitTillExpectedCallsComplete(2, DEFAULT_MAX_TIME_TO_WAIT_IN_MS);
 
-        Assert.assertTrue(mNavParamHistory.get(1).hasUserGesture);
+        Assert.assertTrue(mNavParamHistory.get(1).hasUserGesture());
     }
 
     @Test
@@ -209,14 +223,10 @@ public class InterceptNavigationDelegateTest {
         sActivityTestRule.loadUrl(mTestServer.getURL(NAVIGATION_FROM_USER_GESTURE_IFRAME_PAGE));
         Assert.assertEquals(1, mNavParamHistory.size());
 
-        DOMUtils.clickNode(mActivity.getActivityTab().getWebContents(), "first");
-        waitTillExpectedCallsComplete(3, DEFAULT_MAX_TIME_TO_WAIT_IN_MS);
-        Assert.assertEquals(3, mExternalNavParamHistory.size());
+        TouchCommon.singleClickView(mActivity.getActivityTab().getView());
+        waitTillExpectedCallsComplete(2, DEFAULT_MAX_TIME_TO_WAIT_IN_MS);
 
-        Assert.assertTrue(mNavParamHistory.get(2).isExternalProtocol);
-        Assert.assertFalse(mNavParamHistory.get(2).isMainFrame);
-        Assert.assertTrue(
-                mExternalNavParamHistory.get(2).getRedirectHandler().shouldStayInApp(true, false));
+        mSubframeExternalProtocolCalled.waitForFirst();
     }
 
     @Test
@@ -230,9 +240,40 @@ public class InterceptNavigationDelegateTest {
         // The click will reload the page with a user gesture. The delegate
         // should still only hear about the navigation in the primary main
         // frame, not the prerendering one.
-        DOMUtils.clickNode(mActivity.getActivityTab().getWebContents(), "link");
+        TouchCommon.singleClickView(mActivity.getActivityTab().getView());
         waitTillExpectedCallsComplete(2, DEFAULT_MAX_TIME_TO_WAIT_IN_MS);
         Assert.assertEquals(2, mNavParamHistory.size());
         Assert.assertEquals(2, mExternalNavParamHistory.size());
+    }
+
+    @Test
+    @MediumTest
+    public void testIframeUrlRedirection() throws TimeoutException {
+        // Will cause handleSubframeExternalProtocol to return this GURL.
+        mSubframeRedirectTarget = new GURL(mTestServer.getURL(HELLO_PAGE));
+        String mainFrameUrl = mTestServer.getURL(IFRAME_CONTAINER_PAGE);
+
+        final Tab tab = sActivityTestRule.getActivity().getActivityTab();
+
+        final CallbackHelper subframeRedirect = new CallbackHelper();
+        WebContentsObserver observer = new WebContentsObserver() {
+            @Override
+            public void didStartNavigationInPrimaryMainFrame(NavigationHandle navigation) {
+                Assert.assertEquals(mainFrameUrl, navigation.getUrl().getSpec());
+            }
+
+            @Override
+            public void didRedirectNavigation(NavigationHandle navigation) {
+                if (navigation.isInPrimaryMainFrame()) return;
+                Assert.assertEquals(mSubframeRedirectTarget, navigation.getUrl());
+                subframeRedirect.notifyCalled();
+            }
+        };
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { tab.getWebContents().addObserver(observer); });
+
+        sActivityTestRule.loadUrl(mainFrameUrl);
+        mSubframeExternalProtocolCalled.waitForFirst();
+        subframeRedirect.waitForFirst();
     }
 }

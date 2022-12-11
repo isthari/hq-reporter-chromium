@@ -1,11 +1,10 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "storage/browser/test/test_file_system_backend.h"
 
 #include <set>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -78,6 +77,20 @@ class TestFileSystemBackend::QuotaUtil : public FileSystemQuotaUtil,
     return base::File::FILE_OK;
   }
 
+  void DeleteCachedDefaultBucket(
+      const blink::StorageKey& storage_key) override {
+    NOTREACHED();
+  }
+
+  base::File::Error DeleteBucketDataOnFileTaskRunner(
+      FileSystemContext* context,
+      QuotaManagerProxy* proxy,
+      const BucketLocator& bucket_locator,
+      FileSystemType type) override {
+    NOTREACHED();
+    return base::File::FILE_OK;
+  }
+
   void PerformStorageCleanupOnFileTaskRunner(FileSystemContext* context,
                                              QuotaManagerProxy* proxy,
                                              FileSystemType type) override {}
@@ -95,17 +108,16 @@ class TestFileSystemBackend::QuotaUtil : public FileSystemQuotaUtil,
     return std::vector<blink::StorageKey>();
   }
 
-  std::vector<blink::StorageKey> GetStorageKeysForHostOnFileTaskRunner(
-      FileSystemType type,
-      const std::string& host) override {
-    NOTREACHED();
-    return std::vector<blink::StorageKey>();
-  }
-
   int64_t GetStorageKeyUsageOnFileTaskRunner(
       FileSystemContext* context,
       const blink::StorageKey& storage_key,
       FileSystemType type) override {
+    return usage_;
+  }
+
+  int64_t GetBucketUsageOnFileTaskRunner(FileSystemContext* context,
+                                         const BucketLocator& bucket_locator,
+                                         FileSystemType type) override {
     return usage_;
   }
 
@@ -143,7 +155,7 @@ void TestFileSystemBackend::Initialize(FileSystemContext* context) {}
 
 void TestFileSystemBackend::ResolveURL(const FileSystemURL& url,
                                        OpenFileSystemMode mode,
-                                       OpenFileSystemCallback callback) {
+                                       ResolveURLCallback callback) {
   std::move(callback).Run(
       GetFileSystemRootURI(url.origin().GetURL(), url.type()),
       GetFileSystemName(url.origin().GetURL(), url.type()),

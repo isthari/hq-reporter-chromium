@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,37 +33,46 @@ class MockGooglePhotosAlbumsFetcher : public GooglePhotosAlbumsFetcher {
 
   MOCK_METHOD(GooglePhotosAlbumsCbkArgs,
               ParseResponse,
-              (absl::optional<base::Value> response),
+              (const base::Value::Dict* response),
               (override));
+
+  // Overridden to increase visibility.
+  absl::optional<size_t> GetResultCount(
+      const GooglePhotosAlbumsCbkArgs& result) override;
 };
 
-// Fetcher that returns a dummy value for the number of photos in a user's
-// Google Photos library. Used to avoid network requests in unit tests.
-class MockGooglePhotosCountFetcher : public GooglePhotosCountFetcher {
+// Fetcher that claims the user is allowed to access Google Photos data. Used to
+// avoid network requests in unit tests.
+class MockGooglePhotosEnabledFetcher : public GooglePhotosEnabledFetcher {
  public:
-  explicit MockGooglePhotosCountFetcher(Profile* profile);
+  explicit MockGooglePhotosEnabledFetcher(Profile* profile);
 
-  MockGooglePhotosCountFetcher(const MockGooglePhotosCountFetcher&) = delete;
-  MockGooglePhotosCountFetcher& operator=(const MockGooglePhotosCountFetcher&) =
+  MockGooglePhotosEnabledFetcher(const MockGooglePhotosEnabledFetcher&) =
       delete;
+  MockGooglePhotosEnabledFetcher& operator=(
+      const MockGooglePhotosEnabledFetcher&) = delete;
 
-  ~MockGooglePhotosCountFetcher() override;
+  ~MockGooglePhotosEnabledFetcher() override;
 
-  // GooglePhotosCountFetcher:
+  // GooglePhotosEnabledFetcher:
   MOCK_METHOD(void,
               AddRequestAndStartIfNecessary,
-              (base::OnceCallback<void(int)> callback),
+              (base::OnceCallback<void(GooglePhotosEnablementState)> callback),
               (override));
 
-  MOCK_METHOD(int,
+  MOCK_METHOD(GooglePhotosEnablementState,
               ParseResponse,
-              (absl::optional<base::Value> response),
+              (const base::Value::Dict* response),
               (override));
+
+  // Overridden to increase visibility.
+  absl::optional<size_t> GetResultCount(
+      const GooglePhotosEnablementState& result) override;
 };
 
 // Fetcher that returns an empty photo list and no resume token in response to a
-// request for the user's Google Photos photos. Used to avoid network requests
-// in unit tests.
+// request for photos from the user's Google Photos library. Used to avoid
+// network requests in unit tests.
 class MockGooglePhotosPhotosFetcher : public GooglePhotosPhotosFetcher {
  public:
   explicit MockGooglePhotosPhotosFetcher(Profile* profile);
@@ -77,14 +86,21 @@ class MockGooglePhotosPhotosFetcher : public GooglePhotosPhotosFetcher {
   // GooglePhotosPhotosFetcher:
   MOCK_METHOD(void,
               AddRequestAndStartIfNecessary,
-              (const absl::optional<std::string>& resume_token,
+              (const absl::optional<std::string>& item_id,
+               const absl::optional<std::string>& album_id,
+               const absl::optional<std::string>& resume_token,
+               bool shuffle,
                base::OnceCallback<void(GooglePhotosPhotosCbkArgs)> callback),
               (override));
 
   MOCK_METHOD(GooglePhotosPhotosCbkArgs,
               ParseResponse,
-              (absl::optional<base::Value> response),
+              (const base::Value::Dict* response),
               (override));
+
+  // Overridden to increase visibility.
+  absl::optional<size_t> GetResultCount(
+      const GooglePhotosPhotosCbkArgs& result) override;
 };
 
 }  // namespace wallpaper_handlers

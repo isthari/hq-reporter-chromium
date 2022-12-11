@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
+#include "chrome/browser/ash/login/test/device_state_mixin.h"
 #include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/ash/login/test/logged_in_user_mixin.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
@@ -56,6 +57,7 @@ class ParentPermissionDialogViewTest
   enum class NextDialogAction {
     kCancel,
     kAccept,
+    kClose,
   };
 
   ParentPermissionDialogViewTest()
@@ -122,6 +124,9 @@ class ParentPermissionDialogViewTest
           break;
         case NextDialogAction::kAccept:
           view_->AcceptDialog();
+          break;
+        case NextDialogAction::kClose:
+          view_->CloseDialog();
           break;
       }
     }
@@ -255,6 +260,13 @@ class ParentPermissionDialogViewTest
 
   ParentPermissionDialog::Result result_;
 
+  // Emulate consumer ownership (create public owner key file, install
+  // attributes file, etc) so Chrome doesn't need to do it. The current setup is
+  // not sufficient to go through the ownership flow successfully and it's not
+  // essential to the logic under test.
+  ash::DeviceStateMixin device_state_{
+      &mixin_host_,
+      ash::DeviceStateMixin::State::OOBE_COMPLETED_CONSUMER_OWNED};
   ash::LoggedInUserMixin logged_in_user_mixin_{
       &mixin_host_,
       // Simulate Gellerization / Adding Supervision to load extensions.
@@ -309,6 +321,13 @@ IN_PROC_BROWSER_TEST_F(ParentPermissionDialogViewTest,
                        PermissionDialogCanceled) {
   set_next_dialog_action(
       ParentPermissionDialogViewTest::NextDialogAction::kCancel);
+  ShowPrompt();
+  CheckResult(ParentPermissionDialog::Result::kParentPermissionCanceled);
+}
+
+IN_PROC_BROWSER_TEST_F(ParentPermissionDialogViewTest, PermissionDialogClosed) {
+  set_next_dialog_action(
+      ParentPermissionDialogViewTest::NextDialogAction::kClose);
   ShowPrompt();
   CheckResult(ParentPermissionDialog::Result::kParentPermissionCanceled);
 }

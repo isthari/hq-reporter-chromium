@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -61,13 +61,6 @@ bool ValidatePersistedEvents(const std::string& last_logged_event,
          static_cast<int>(persisted_events.size());
 }
 
-// Creates and returns a new file at `path`, overwriting any existing file.
-base::File CreateFile(const base::FilePath& path) {
-  constexpr int kFlags =
-      base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE;
-  return base::File(path, kFlags);
-}
-
 }  // namespace
 
 class BreadcrumbPersistentStorageManagerTest : public PlatformTest {
@@ -75,13 +68,13 @@ class BreadcrumbPersistentStorageManagerTest : public PlatformTest {
   BreadcrumbPersistentStorageManagerTest() {
     EXPECT_TRUE(scoped_temp_dir_.CreateUniqueTempDir());
     persistent_storage_ = std::make_unique<BreadcrumbPersistentStorageManager>(
-        scoped_temp_dir_.GetPath());
-    breadcrumb_manager_service_.StartPersisting(persistent_storage_.get());
+        scoped_temp_dir_.GetPath(),
+        /*is_metrics_enabled_callback=*/base::BindRepeating(
+            &BreadcrumbPersistentStorageManagerTest::is_metrics_enabled,
+            base::Unretained(this)));
   }
 
-  ~BreadcrumbPersistentStorageManagerTest() override {
-    breadcrumb_manager_service_.StopPersisting();
-  }
+  ~BreadcrumbPersistentStorageManagerTest() override = default;
 
   // Calls `GetStoredEvents()` and wait for its posted tasks to complete.
   std::vector<std::string> GetPersistedEvents() {
@@ -103,15 +96,24 @@ class BreadcrumbPersistentStorageManagerTest : public PlatformTest {
     std::move(quit_closure).Run();
   }
 
+  bool is_metrics_enabled() { return is_metrics_enabled_; }
+
+  void EnableMetricsConsent() { is_metrics_enabled_ = true; }
+  void DisableMetricsConsent() { is_metrics_enabled_ = false; }
+
   base::test::TaskEnvironment task_env_{
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   base::ScopedTempDir scoped_temp_dir_;
   BreadcrumbManagerKeyedService breadcrumb_manager_service_{
       /*is_off_the_record=*/false};
+
+ private:
   std::unique_ptr<BreadcrumbPersistentStorageManager> persistent_storage_;
 
   // Stores events returned by BreadcrumbPersistentStorageManager::GetEvents().
   std::vector<std::string> events_;
+
+  bool is_metrics_enabled_ = true;
 };
 
 // Ensures that logged events are persisted.
@@ -126,8 +128,8 @@ TEST_F(BreadcrumbPersistentStorageManagerTest, PersistEvents) {
   EXPECT_NE(std::string::npos, events.front().find("event"));
 }
 
-// Ensures that persisted events do not grow too large for a single large
-// event bucket when events are logged very quickly one after the other.
+// Ensures that persisted events do not grow too large when events are logged
+// very quickly one after the other.
 TEST_F(BreadcrumbPersistentStorageManagerTest, PersistLargeBucket) {
   std::string event;
   unsigned long event_count = 0;
@@ -169,42 +171,14 @@ TEST_F(BreadcrumbPersistentStorageManagerTest, PersistManyEventsOverTime) {
   EXPECT_TRUE(ValidatePersistedEvents(event, events));
 }
 
-// Ensures that old events are removed from the persisted file when old buckets
-// are dropped.
-TEST_F(BreadcrumbPersistentStorageManagerTest,
-       OldEventsRemovedFromPersistedFile) {
-  std::string event;
-  unsigned long event_counter = 0;
-  constexpr int kNumEventsPerBucket = 200;
-  constexpr int kNumEvents = kNumEventsPerBucket * 3;
-  while (event_counter < kNumEvents) {
-    event = base::StringPrintf("event %lu", event_counter);
-    breadcrumb_manager_service_.AddEvent(event);
-    event_counter++;
-
-    if (event_counter % kNumEventsPerBucket == 0)
-      task_env_.FastForwardBy(base::Hours(1));
-  }
-
-  // Advance clock to trigger writing final events.
-  task_env_.FastForwardBy(base::Minutes(1));
-
-  // The exact number of events could vary based on changes in the
-  // implementation. The important part of this test is to verify that a single
-  // event bucket will not grow unbounded and it will be limited to a value
-  // smaller than the overall total number of events which have been logged.
-  const auto events = GetPersistedEvents();
-  EXPECT_LT(events.size(), event_counter);
-  EXPECT_TRUE(ValidatePersistedEvents(event, events));
-}
-
 // Ensures that events are read correctly if the persisted file becomes
 // corrupted by losing the EOF token or if kPersistedFilesizeInBytes is reduced.
 TEST_F(BreadcrumbPersistentStorageManagerTest,
        GetStoredEventsAfterFilesizeReduction) {
   const base::FilePath breadcrumbs_file_path =
       GetBreadcrumbPersistentStorageFilePath(scoped_temp_dir_.GetPath());
-  base::File file = CreateFile(breadcrumbs_file_path);
+  base::File file(breadcrumbs_file_path,
+                  base::File::FLAG_CREATE_ALWAYS | base::File::FLAG_WRITE);
   ASSERT_TRUE(file.IsValid());
 
   // Simulate an old persisted file larger than the current one.
@@ -226,49 +200,38 @@ TEST_F(BreadcrumbPersistentStorageManagerTest,
   EXPECT_LT(events.size(), written_events);
 }
 
-using BreadcrumbPersistentStorageManagerFilenameTest = PlatformTest;
+// Ensures that the breadcrumbs file is deleted if metrics consent is not
+// provided, and recreated if it is re-enabled.
+TEST_F(BreadcrumbPersistentStorageManagerTest, ChangeMetricsConsent) {
+  const base::FilePath breadcrumbs_file_path =
+      GetBreadcrumbPersistentStorageFilePath(scoped_temp_dir_.GetPath());
 
-TEST_F(BreadcrumbPersistentStorageManagerFilenameTest,
-       MigrateOldBreadcrumbFiles) {
-  base::test::TaskEnvironment task_env;
-  base::ScopedTempDir scoped_temp_dir;
-  ASSERT_TRUE(scoped_temp_dir.CreateUniqueTempDir());
-  const base::FilePath scoped_temp_dir_path = scoped_temp_dir.GetPath();
+  breadcrumb_manager_service_.AddEvent("event 1");
+  task_env_.FastForwardBy(base::Seconds(1));
+  ASSERT_TRUE(base::PathExists(breadcrumbs_file_path));
+  auto events = GetPersistedEvents();
+  ASSERT_EQ(1ul, events.size());
+  ASSERT_NE(std::string::npos, events.front().find("event 1"));
 
-  // Create breadcrumb file and temp file with old filenames.
-  const base::FilePath old_breadcrumb_file_path =
-      scoped_temp_dir_path.Append(FILE_PATH_LITERAL("old breadcrumb file"));
-  const base::FilePath old_temp_file_path =
-      scoped_temp_dir_path.Append(FILE_PATH_LITERAL("old temp file"));
-  base::File old_breadcrumb_file = CreateFile(old_breadcrumb_file_path);
-  base::File old_temp_file = CreateFile(old_temp_file_path);
-  ASSERT_TRUE(old_breadcrumb_file.IsValid());
-  ASSERT_TRUE(old_temp_file.IsValid());
-  old_temp_file.Close();
+  // Turn off metrics consent; the breadcrumbs file should be deleted when an
+  // event is logged.
+  DisableMetricsConsent();
 
-  // Write some test data to the breadcrumb file.
-  const std::string test_data = "breadcrumb file test data";
-  ASSERT_NE(-1,
-            old_breadcrumb_file.Write(0, test_data.c_str(), test_data.size()));
-  old_breadcrumb_file.Close();
+  breadcrumb_manager_service_.AddEvent("event 2");
+  task_env_.FastForwardBy(base::Seconds(1));
+  EXPECT_FALSE(base::PathExists(breadcrumbs_file_path));
+  EXPECT_TRUE(GetPersistedEvents().empty());
 
-  BreadcrumbPersistentStorageManager persistent_storage(
-      scoped_temp_dir_path, old_breadcrumb_file_path, old_temp_file_path);
-  task_env.RunUntilIdle();
+  // Turn metrics consent back on; the breadcrumbs file should be recreated and
+  // include only events logged since metrics were re-enabled.
+  EnableMetricsConsent();
 
-  // The old files should have been removed, and the new breadcrumb file
-  // should be present.
-  EXPECT_FALSE(base::PathExists(old_breadcrumb_file_path));
-  EXPECT_FALSE(base::PathExists(old_temp_file_path));
-  base::File new_file(
-      GetBreadcrumbPersistentStorageFilePath(scoped_temp_dir_path),
-      base::File::FLAG_OPEN | base::File::FLAG_READ);
-  EXPECT_TRUE(new_file.IsValid());
-  const size_t test_data_size = test_data.size();
-  char new_file_data[test_data_size];
-  EXPECT_EQ(static_cast<int>(test_data_size),
-            new_file.Read(0, new_file_data, test_data_size));
-  EXPECT_EQ(test_data, std::string(new_file_data, test_data_size));
+  breadcrumb_manager_service_.AddEvent("event 3");
+  task_env_.FastForwardBy(base::Seconds(1));
+  EXPECT_TRUE(base::PathExists(breadcrumbs_file_path));
+  events = GetPersistedEvents();
+  EXPECT_EQ(1ul, events.size());
+  EXPECT_NE(std::string::npos, events.front().find("event 3"));
 }
 
 }  // namespace breadcrumbs

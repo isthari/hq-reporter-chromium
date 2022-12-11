@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "components/network_session_configurator/common/network_switches.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -93,27 +94,27 @@ class ChromeWebPlatformSecurityMetricsBrowserTest
   // Fetch the Blink.UseCounter.Features histogram in every renderer process
   // until reaching, but not exceeding, |expected_count|.
   void CheckCounter(WebFeature feature, int expected_count) {
-    CheckFeatureBucketCount("Blink.UseCounter.Features", feature,
-                            expected_count);
+    CheckHistogramCount("Blink.UseCounter.Features", feature, expected_count);
   }
 
   // Fetch the Blink.UseCounter.MainFrame.Features histogram in every renderer
   // process until reaching, but not exceeding, |expected_count|.
   void CheckCounterMainFrame(WebFeature feature, int expected_count) {
-    CheckFeatureBucketCount("Blink.UseCounter.MainFrame.Features", feature,
-                            expected_count);
+    CheckHistogramCount("Blink.UseCounter.MainFrame.Features", feature,
+                        expected_count);
   }
 
-  // Fetch the |histogram|'s |feature| in every renderer process until reaching,
+  // Fetch the |histogram|'s |bucket| in every renderer process until reaching,
   // but not exceeding, |expected_count|.
-  void CheckFeatureBucketCount(base::StringPiece histogram,
-                               WebFeature feature,
-                               int expected_count) {
+  template <typename T>
+  void CheckHistogramCount(base::StringPiece histogram,
+                           T bucket,
+                           int expected_count) {
     while (true) {
       content::FetchHistogramsFromChildProcesses();
       metrics::SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
 
-      int count = histogram_.GetBucketCount(histogram, feature);
+      int count = histogram_.GetBucketCount(histogram, bucket);
       CHECK_LE(count, expected_count);
       if (count == expected_count)
         return;
@@ -140,6 +141,8 @@ class ChromeWebPlatformSecurityMetricsBrowserTest
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) final {
+    // For anonymous iframe:
+    command_line->AppendSwitch(switches::kEnableBlinkTestFeatures);
     command_line->AppendSwitch(switches::kIgnoreCertificateErrors);
   }
 
@@ -449,7 +452,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateToURL(web_contents(), main_url));
   LoadIFrame(sub_url);
 
-  content::RenderFrameHost* main_document = web_contents()->GetMainFrame();
+  content::RenderFrameHost* main_document =
+      web_contents()->GetPrimaryMainFrame();
   content::RenderFrameHost* sub_document = ChildFrameAt(main_document, 0);
 
   EXPECT_EQ(true, content::ExecJs(main_document, R"(
@@ -492,7 +496,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateToURL(web_contents(), main_url));
   LoadIFrame(sub_url);
 
-  content::RenderFrameHost* main_document = web_contents()->GetMainFrame();
+  content::RenderFrameHost* main_document =
+      web_contents()->GetPrimaryMainFrame();
   content::RenderFrameHost* sub_document = ChildFrameAt(main_document, 0);
 
   EXPECT_EQ(true, content::ExecJs(main_document, R"(
@@ -530,7 +535,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateToURL(web_contents(), main_url));
   LoadIFrame(sub_url);
 
-  content::RenderFrameHost* main_document = web_contents()->GetMainFrame();
+  content::RenderFrameHost* main_document =
+      web_contents()->GetPrimaryMainFrame();
   content::RenderFrameHost* sub_document = ChildFrameAt(main_document, 0);
 
   EXPECT_EQ(true, content::ExecJs(main_document, R"(
@@ -569,7 +575,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateToURL(web_contents(), main_url));
   LoadIFrame(sub_url);
 
-  content::RenderFrameHost* main_document = web_contents()->GetMainFrame();
+  content::RenderFrameHost* main_document =
+      web_contents()->GetPrimaryMainFrame();
   content::RenderFrameHost* sub_document = ChildFrameAt(main_document, 0);
 
   EXPECT_EQ(true, content::ExecJs(main_document, R"(
@@ -610,7 +617,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateToURL(web_contents(), main_url));
   LoadIFrame(sub_url);
 
-  content::RenderFrameHost* main_document = web_contents()->GetMainFrame();
+  content::RenderFrameHost* main_document =
+      web_contents()->GetPrimaryMainFrame();
   content::RenderFrameHost* sub_document = ChildFrameAt(main_document, 0);
 
   EXPECT_EQ(true, content::ExecJs(main_document, R"(
@@ -653,7 +661,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
   LoadIFrame(url);
 
-  content::RenderFrameHost* main_document = web_contents()->GetMainFrame();
+  content::RenderFrameHost* main_document =
+      web_contents()->GetPrimaryMainFrame();
   content::RenderFrameHost* sub_document = ChildFrameAt(main_document, 0);
 
   EXPECT_EQ(true, content::ExecJs(main_document, R"(
@@ -691,7 +700,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateToURL(web_contents(), main_url));
   LoadIFrame(sub_url);
 
-  content::RenderFrameHost* main_document = web_contents()->GetMainFrame();
+  content::RenderFrameHost* main_document =
+      web_contents()->GetPrimaryMainFrame();
   content::RenderFrameHost* sub_document = ChildFrameAt(main_document, 0);
 
   EXPECT_EQ(true, content::ExecJs(main_document, R"(
@@ -735,7 +745,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateToURL(web_contents(), main_url));
   LoadIFrame(sub_url);
 
-  content::RenderFrameHost* main_document = web_contents()->GetMainFrame();
+  content::RenderFrameHost* main_document =
+      web_contents()->GetPrimaryMainFrame();
   content::RenderFrameHost* sub_document = ChildFrameAt(main_document, 0);
 
   EXPECT_EQ(true, content::ExecJs(main_document, R"(
@@ -775,7 +786,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateToURL(web_contents(), main_url));
   LoadIFrame(sub_url);
 
-  content::RenderFrameHost* main_document = web_contents()->GetMainFrame();
+  content::RenderFrameHost* main_document =
+      web_contents()->GetPrimaryMainFrame();
   content::RenderFrameHost* sub_document = ChildFrameAt(main_document, 0);
 
   EXPECT_EQ(true, content::ExecJs(main_document, R"(
@@ -815,7 +827,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateToURL(web_contents(), main_url));
   LoadIFrame(sub_url);
 
-  content::RenderFrameHost* main_document = web_contents()->GetMainFrame();
+  content::RenderFrameHost* main_document =
+      web_contents()->GetPrimaryMainFrame();
   content::RenderFrameHost* sub_document = ChildFrameAt(main_document, 0);
 
   EXPECT_EQ(true, content::ExecJs(main_document, R"(
@@ -857,7 +870,8 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateToURL(web_contents(), main_url));
   LoadIFrame(sub_url);
 
-  content::RenderFrameHost* main_document = web_contents()->GetMainFrame();
+  content::RenderFrameHost* main_document =
+      web_contents()->GetPrimaryMainFrame();
   content::RenderFrameHost* sub_document = ChildFrameAt(main_document, 0);
 
   EXPECT_EQ(true, content::ExecJs(main_document, R"(
@@ -1275,9 +1289,9 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
       https_server().GetURL("a.com", "/cross_site_iframe_factory.html?a(a,b)");
   ASSERT_TRUE(content::NavigateToURL(web_contents(), url));
   content::RenderFrameHost* same_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 0);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 0);
   content::RenderFrameHost* cross_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 1);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 1);
 
   struct TestCase {
     const char* name;
@@ -1380,7 +1394,7 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
 
   // Check that a same-origin access does not register use counters.
   content::RenderFrameHost* same_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 0);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(content::ExecJs(same_origin_subframe, "window.top.close()"));
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessClose, 0);
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessFromOtherPageClose, 0);
@@ -1394,7 +1408,7 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
 
   // Check that a cross-origin access register use counters.
   content::RenderFrameHost* cross_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 0);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(content::ExecJs(cross_origin_subframe, "window.top.close()"));
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessClose, 1);
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessFromOtherPageClose, 0);
@@ -1408,7 +1422,7 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
 
   // Check that a same-origin access does not register use counters.
   content::RenderFrameHost* same_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 0);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(content::ExecJs(same_origin_subframe, "window.top[0]"));
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessIndexedGetter, 0);
   CheckCounter(
@@ -1416,7 +1430,7 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
 
   // Check that a cross-origin access register use counters.
   content::RenderFrameHost* cross_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 1);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 1);
   EXPECT_TRUE(content::ExecJs(cross_origin_subframe, "window.top[0]"));
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessIndexedGetter, 1);
   CheckCounter(
@@ -1437,7 +1451,7 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
 
   // Check that a same-origin access does not register use counters.
   content::RenderFrameHost* same_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 0);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(
       content::ExecJs(same_origin_subframe,
                       content::JsReplace("window.top.location = $1", url)));
@@ -1456,7 +1470,7 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
 
   // Check that a cross-origin access register use counters.
   content::RenderFrameHost* cross_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 1);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 1);
   EXPECT_TRUE(content::ExecJs(
       cross_origin_subframe,
       content::JsReplace("window.top.location = $1", fragment_url)));
@@ -1475,7 +1489,7 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
 
   // Check that a same-origin access does not register use counters.
   content::RenderFrameHost* same_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 0);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(content::ExecJs(same_origin_subframe,
                               "window.top['about_blank_iframe']"));
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessNamedGetter, 0);
@@ -1484,7 +1498,7 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
 
   // Check that a cross-origin access register use counters.
   content::RenderFrameHost* cross_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 1);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 1);
   EXPECT_TRUE(content::ExecJs(cross_origin_subframe,
                               "window.top['about_blank_iframe']"));
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessNamedGetter, 1);
@@ -1507,7 +1521,7 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
 
   // Check that a same-origin access does not register use counters.
   content::RenderFrameHost* same_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 0);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(content::ExecJs(same_origin_subframe, "window.top.opener = ''"));
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessOpener, 0);
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessFromOtherPageOpener, 0);
@@ -1515,7 +1529,7 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   // Check that a cross-origin access doesn't register use counters because it
   // is blocked by the same-origin policy.
   content::RenderFrameHost* cross_origin_subframe =
-      ChildFrameAt(web_contents()->GetMainFrame(), 1);
+      ChildFrameAt(web_contents()->GetPrimaryMainFrame(), 1);
   EXPECT_FALSE(
       content::ExecJs(cross_origin_subframe, "window.top.opener = ''"));
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessOpener, 0);
@@ -1770,6 +1784,161 @@ IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
   EXPECT_TRUE(content::ExecJs(cross_origin_popup, "window.opener.window"));
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessWindow, 1);
   CheckCounter(WebFeature::kWindowProxyCrossOriginAccessFromOtherPageWindow, 1);
+}
+
+IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
+                       AnonymousIframeInitialEmptyDocumentControl) {
+  GURL url = https_server().GetURL("a.test", "/empty.html");
+  EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
+  EXPECT_TRUE(content::ExecJs(web_contents(), R"(
+    const iframe = document.createElement("iframe");
+    iframe.credentialless = false;
+    document.body.appendChild(iframe);
+  )"));
+  CheckCounter(WebFeature::kAnonymousIframe, 0);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", false, 0);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", true, 0);
+}
+
+IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
+                       AnonymousIframeInitialEmptyDocument) {
+  GURL url = https_server().GetURL("a.test", "/empty.html");
+  EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
+  EXPECT_TRUE(content::ExecJs(web_contents(), R"(
+    const iframe = document.createElement("iframe");
+    iframe.credentialless = true;
+    document.body.appendChild(iframe);
+  )"));
+  CheckCounter(WebFeature::kAnonymousIframe, 1);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", false, 1);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", true, 0);
+}
+
+IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
+                       AnonymousIframeNavigationControl) {
+  GURL url = https_server().GetURL("a.test", "/empty.html");
+  EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
+  EXPECT_TRUE(content::ExecJs(web_contents(), R"(
+    new Promise(resolve => {
+      let iframe = document.createElement("iframe");
+      iframe.src = location.href;
+      iframe.credentialless = false;
+      iframe.onload = resolve;
+      document.body.appendChild(iframe);
+    });
+  )"));
+  CheckCounter(WebFeature::kAnonymousIframe, 0);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", false, 0);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", true, 0);
+}
+
+IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
+                       AnonymousIframeNavigation) {
+  GURL url = https_server().GetURL("a.test", "/empty.html");
+  EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
+  EXPECT_TRUE(content::ExecJs(web_contents(), R"(
+    new Promise(resolve => {
+      let iframe = document.createElement("iframe");
+      iframe.src = location.href;
+      iframe.credentialless = true;
+      iframe.onload = resolve;
+      document.body.appendChild(iframe);
+    });
+  )"));
+  CheckCounter(WebFeature::kAnonymousIframe, 1);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", false, 1);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", true, 0);
+}
+
+IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
+                       AnonymousIframeIsSandboxedControl) {
+  GURL url = https_server().GetURL("a.test", "/empty.html");
+  EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
+  EXPECT_TRUE(content::ExecJs(web_contents(), R"(
+    new Promise(resolve => {
+      let iframe = document.createElement("iframe");
+      iframe.src = location.href;
+      iframe.onload = resolve;
+      document.body.appendChild(iframe);
+    });
+  )"));
+  CheckCounter(WebFeature::kAnonymousIframe, 0);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", false, 0);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", true, 0);
+}
+
+IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
+                       AnonymousIframeIsSandboxed) {
+  GURL url = https_server().GetURL("a.test", "/empty.html");
+  EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
+  EXPECT_TRUE(content::ExecJs(web_contents(), R"(
+    const createIframe = sandbox => {
+      let iframe = document.createElement("iframe");
+      iframe.src = location.href;
+      iframe.credentialless = true;
+      if (sandbox)
+        iframe.sandbox = "";
+      document.body.appendChild(iframe);
+      return new Promise(resolve => iframe.onload = resolve);
+    };
+    Promise.all([
+      createIframe(false),
+      createIframe(false),
+      createIframe(false),
+      createIframe(true),
+      createIframe(true),
+    ]);
+  )"));
+  CheckCounter(WebFeature::kAnonymousIframe, 1);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", false, 3);
+  CheckHistogramCount("Navigation.AnonymousIframeIsSandboxed", true, 2);
+}
+
+IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest, BlobUrl) {
+  GURL url = https_server().GetURL("a.test", "/empty.html");
+  EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
+  EXPECT_TRUE(content::ExecJs(web_contents(), R"(
+    new Promise(resolve => {
+      const iframe = document.createElement("iframe");
+      const blob = new Blob(["test"], {type: "text/html"});
+      const url = URL.createObjectURL(blob);
+      iframe.src = url;
+      iframe.onload = resolve;
+      document.body.appendChild(iframe);
+    });
+  )"));
+  CheckHistogramCount("Navigation.BlobUrl", true, 1);
+  CheckHistogramCount("Navigation.BlobUrl", false, 3);
+}
+
+IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
+                       BlobUrlFromDataUrl) {
+  EXPECT_TRUE(
+      content::NavigateToURL(web_contents(), GURL("data:text/html,test")));
+  EXPECT_TRUE(content::ExecJs(web_contents(), R"(
+    const blob = new Blob(["test"], {type: "text/html"});
+    const url = URL.createObjectURL(blob);
+    location.href = url;
+  )"));
+  CheckHistogramCount("Navigation.BlobUrl", true, 1);
+  CheckHistogramCount("Navigation.BlobUrl", false, 3);
+}
+
+IN_PROC_BROWSER_TEST_F(ChromeWebPlatformSecurityMetricsBrowserTest,
+                       BlobUrlPopup) {
+  GURL url = https_server().GetURL("a.test", "/empty.html");
+
+  EXPECT_TRUE(content::NavigateToURL(web_contents(), url));
+  CheckHistogramCount("Navigation.BlobUrl", true, 0);
+  CheckHistogramCount("Navigation.BlobUrl", false, 3);
+
+  EXPECT_TRUE(content::ExecJs(web_contents(), R"(
+    const blob = new Blob(["test"], {type: "text/html"});
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener');
+  )"));
+  CheckHistogramCount("Navigation.BlobUrl", true, 1);
+  CheckHistogramCount("Navigation.BlobUrl", false, 3);
 }
 
 // TODO(arthursonzogni): Add basic test(s) for the WebFeatures:

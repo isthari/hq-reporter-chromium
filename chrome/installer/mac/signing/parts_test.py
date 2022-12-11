@@ -1,12 +1,18 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import unittest
+from unittest import mock
 
-from . import model, parts, signing, test_common, test_config
+from . import model, parts, signing, test_config
 
-mock = test_common.import_mock()
+
+def _get_identity_hash(i):
+    if i == '[IDENTITY]':
+        return 'identity'
+
+    raise
 
 
 class TestGetParts(unittest.TestCase):
@@ -57,47 +63,52 @@ class TestGetParts(unittest.TestCase):
     def test_part_options(self):
         all_parts = parts.get_parts(test_config.TestConfig())
         self.assertEqual(
-            set(model.CodeSignOptions.RESTRICT +
-                model.CodeSignOptions.LIBRARY_VALIDATION +
-                model.CodeSignOptions.KILL +
-                model.CodeSignOptions.HARDENED_RUNTIME),
-            set(all_parts['app'].options))
+            model.CodeSignOptions.RESTRICT
+            | model.CodeSignOptions.LIBRARY_VALIDATION
+            | model.CodeSignOptions.KILL
+            | model.CodeSignOptions.HARDENED_RUNTIME, all_parts['app'].options)
         self.assertEqual(
-            set(model.CodeSignOptions.RESTRICT +
-                model.CodeSignOptions.LIBRARY_VALIDATION +
-                model.CodeSignOptions.KILL +
-                model.CodeSignOptions.HARDENED_RUNTIME),
-            set(all_parts['helper-app'].options))
+            model.CodeSignOptions.RESTRICT
+            | model.CodeSignOptions.LIBRARY_VALIDATION
+            | model.CodeSignOptions.KILL
+            | model.CodeSignOptions.HARDENED_RUNTIME,
+            all_parts['helper-app'].options)
         self.assertEqual(
-            set(model.CodeSignOptions.RESTRICT + model.CodeSignOptions.KILL +
-                model.CodeSignOptions.HARDENED_RUNTIME),
-            set(all_parts['helper-renderer-app'].options))
+            model.CodeSignOptions.RESTRICT | model.CodeSignOptions.KILL
+            | model.CodeSignOptions.HARDENED_RUNTIME,
+            all_parts['helper-renderer-app'].options)
         self.assertEqual(
-            set(model.CodeSignOptions.RESTRICT + model.CodeSignOptions.KILL +
-                model.CodeSignOptions.HARDENED_RUNTIME),
-            set(all_parts['helper-gpu-app'].options))
+            model.CodeSignOptions.RESTRICT | model.CodeSignOptions.KILL
+            | model.CodeSignOptions.HARDENED_RUNTIME,
+            all_parts['helper-gpu-app'].options)
         self.assertEqual(
-            set(model.CodeSignOptions.RESTRICT + model.CodeSignOptions.KILL +
-                model.CodeSignOptions.HARDENED_RUNTIME),
-            set(all_parts['helper-plugin-app'].options))
+            model.CodeSignOptions.RESTRICT | model.CodeSignOptions.KILL
+            | model.CodeSignOptions.HARDENED_RUNTIME,
+            all_parts['helper-plugin-app'].options)
         self.assertEqual(
-            set(model.CodeSignOptions.RESTRICT +
-                model.CodeSignOptions.LIBRARY_VALIDATION +
-                model.CodeSignOptions.KILL +
-                model.CodeSignOptions.HARDENED_RUNTIME),
-            set(all_parts['crashpad'].options))
+            model.CodeSignOptions.RESTRICT
+            | model.CodeSignOptions.LIBRARY_VALIDATION
+            | model.CodeSignOptions.KILL
+            | model.CodeSignOptions.HARDENED_RUNTIME,
+            all_parts['crashpad'].options)
         self.assertEqual(
-            set(model.CodeSignOptions.RESTRICT +
-                model.CodeSignOptions.LIBRARY_VALIDATION +
-                model.CodeSignOptions.KILL +
-                model.CodeSignOptions.HARDENED_RUNTIME),
-            set(all_parts['helper-alerts'].options))
+            model.CodeSignOptions.RESTRICT
+            | model.CodeSignOptions.LIBRARY_VALIDATION
+            | model.CodeSignOptions.KILL
+            | model.CodeSignOptions.HARDENED_RUNTIME,
+            all_parts['helper-alerts'].options)
         self.assertEqual(
-            set(model.CodeSignOptions.RESTRICT +
-                model.CodeSignOptions.LIBRARY_VALIDATION +
-                model.CodeSignOptions.KILL +
-                model.CodeSignOptions.HARDENED_RUNTIME),
-            set(all_parts['app-mode-app'].options))
+            model.CodeSignOptions.RESTRICT
+            | model.CodeSignOptions.LIBRARY_VALIDATION
+            | model.CodeSignOptions.KILL
+            | model.CodeSignOptions.HARDENED_RUNTIME,
+            all_parts['app-mode-app'].options)
+        self.assertEqual(
+            model.CodeSignOptions.RESTRICT
+            | model.CodeSignOptions.LIBRARY_VALIDATION
+            | model.CodeSignOptions.KILL
+            | model.CodeSignOptions.HARDENED_RUNTIME,
+            all_parts['privileged-helper'].options)
 
 
 def _get_plist_read(other_version):
@@ -127,6 +138,7 @@ def _get_plist_read(other_version):
     m: mock.DEFAULT
     for m in ('copy_files', 'move_file', 'make_dir', 'run_command')
 })
+@mock.patch('signing.model._get_identity_hash', _get_identity_hash)
 class TestSignChrome(unittest.TestCase):
 
     def setUp(self):
@@ -149,7 +161,7 @@ class TestSignChrome(unittest.TestCase):
         # Test that the provisioning profile is copied.
         self.assertEqual(kwargs['copy_files'].mock_calls, [
             mock.call.copy_files(
-                '/$I/Product Packaging/provisiontest.provisionprofile',
+                '/$I/Product Packaging/provisiontest.identity.provisionprofile',
                 '/$W/App Product.app/Contents/embedded.provisionprofile')
         ])
 
@@ -161,10 +173,11 @@ class TestSignChrome(unittest.TestCase):
             set([p.path for p in parts.get_parts(config).values()]),
             set(signed_paths))
 
-        # Make sure that the framework and the app are the last two parts that
-        # are signed.
-        self.assertEqual(signed_paths[-2:], [
+        # Make sure that the framework, helper, and the app are the last three
+        # parts that are signed.
+        self.assertEqual(signed_paths[-3:], [
             'App Product.app/Contents/Frameworks/Product Framework.framework',
+            'App Product.app/Contents/Library/LaunchServices/test.signing.bundle_id.UpdaterPrivilegedHelper',
             'App Product.app'
         ])
 
@@ -230,7 +243,7 @@ class TestSignChrome(unittest.TestCase):
         # Test that the provisioning profile is copied.
         self.assertEqual(kwargs['copy_files'].mock_calls, [
             mock.call.copy_files(
-                '/$I/Product Packaging/provisiontest.provisionprofile',
+                '/$I/Product Packaging/provisiontest.identity.provisionprofile',
                 '/$W/App Product.app/Contents/embedded.provisionprofile')
         ])
 
@@ -238,7 +251,10 @@ class TestSignChrome(unittest.TestCase):
         signed_paths = [
             call[1][2].path for call in kwargs['sign_part'].mock_calls
         ]
-        self.assertEqual(signed_paths, ['App Product.app'])
+        self.assertEqual(signed_paths, [
+            'App Product.app/Contents/Library/LaunchServices/test.signing.bundle_id.UpdaterPrivilegedHelper',
+            'App Product.app'
+        ])
 
         self.assertEqual(kwargs['run_command'].mock_calls, [
             mock.call.run_command([

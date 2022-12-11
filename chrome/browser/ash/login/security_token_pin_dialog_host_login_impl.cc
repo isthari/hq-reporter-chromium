@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,9 +22,9 @@ SecurityTokenPinDialogHostLoginImpl::~SecurityTokenPinDialogHostLoginImpl() =
 
 void SecurityTokenPinDialogHostLoginImpl::ShowSecurityTokenPinDialog(
     const std::string& /*caller_extension_name*/,
-    security_token_pin::CodeType code_type,
+    chromeos::security_token_pin::CodeType code_type,
     bool enable_user_input,
-    security_token_pin::ErrorLabel error_label,
+    chromeos::security_token_pin::ErrorLabel error_label,
     int attempts_left,
     const absl::optional<AccountId>& authenticating_user_account_id,
     SecurityTokenPinEnteredCallback pin_entered_callback,

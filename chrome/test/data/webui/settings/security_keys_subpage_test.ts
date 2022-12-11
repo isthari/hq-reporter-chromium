@@ -1,13 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {PromiseResolver} from 'chrome://resources/js/promise_resolver.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {BioEnrollDialogPage, CredentialManagementDialogPage, CrIconButtonElement, CrInputElement, Ctap2Status, ResetDialogPage, SampleStatus, SecurityKeysBioEnrollProxy, SecurityKeysBioEnrollProxyImpl, SecurityKeysCredentialBrowserProxy, SecurityKeysCredentialBrowserProxyImpl, SecurityKeysPINBrowserProxy, SecurityKeysPINBrowserProxyImpl, SecurityKeysResetBrowserProxy, SecurityKeysResetBrowserProxyImpl, SetPINDialogPage, SettingsSecurityKeysBioEnrollDialogElement, SettingsSecurityKeysCredentialManagementDialogElement, SettingsSecurityKeysResetDialogElement, SettingsSecurityKeysSetPinDialogElement} from 'chrome://settings/lazy_load.js';
+import {BioEnrollDialogPage, CredentialManagementDialogPage, CrIconButtonElement, CrInputElement, Ctap2Status, ResetDialogPage, SampleStatus, SecurityKeysBioEnrollProxy, SecurityKeysBioEnrollProxyImpl, SecurityKeysCredentialBrowserProxy, SecurityKeysCredentialBrowserProxyImpl, SecurityKeysPinBrowserProxy, SecurityKeysPinBrowserProxyImpl, SecurityKeysResetBrowserProxy, SecurityKeysResetBrowserProxyImpl, SetPinDialogPage, SettingsSecurityKeysBioEnrollDialogElement, SettingsSecurityKeysCredentialManagementDialogElement, SettingsSecurityKeysResetDialogElement, SettingsSecurityKeysSetPinDialogElement} from 'chrome://settings/lazy_load.js';
 import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
@@ -40,8 +40,8 @@ class TestSecurityKeysBrowserProxy extends TestBrowserProxy {
     this.promiseMap_.set(methodName, promise);
   }
 
-  protected handleMethod(methodName: string, opt_arg?: any): Promise<any> {
-    this.methodCalled(methodName, opt_arg);
+  protected handleMethod(methodName: string, arg?: any): Promise<any> {
+    this.methodCalled(methodName, arg);
     const promise = this.promiseMap_.get(methodName);
     if (promise !== undefined) {
       this.promiseMap_.delete(methodName);
@@ -53,22 +53,22 @@ class TestSecurityKeysBrowserProxy extends TestBrowserProxy {
   }
 }
 
-class TestSecurityKeysPINBrowserProxy extends TestSecurityKeysBrowserProxy
-    implements SecurityKeysPINBrowserProxy {
+class TestSecurityKeysPinBrowserProxy extends TestSecurityKeysBrowserProxy
+    implements SecurityKeysPinBrowserProxy {
   constructor() {
     super([
-      'startSetPIN',
-      'setPIN',
+      'startSetPin',
+      'setPin',
       'close',
     ]);
   }
 
-  startSetPIN() {
-    return this.handleMethod('startSetPIN');
+  startSetPin() {
+    return this.handleMethod('startSetPin');
   }
 
-  setPIN(oldPIN: string, newPIN: string) {
-    return this.handleMethod('setPIN', {oldPIN, newPIN});
+  setPin(oldPIN: string, newPIN: string) {
+    return this.handleMethod('setPin', {oldPIN, newPIN});
   }
 
   close() {
@@ -86,7 +86,7 @@ class TestSecurityKeysResetBrowserProxy extends TestSecurityKeysBrowserProxy
     ]);
   }
 
-  reset() {
+  override reset() {
     return this.handleMethod('reset');
   }
 
@@ -104,7 +104,7 @@ class TestSecurityKeysCredentialBrowserProxy extends
   constructor() {
     super([
       'startCredentialManagement',
-      'providePIN',
+      'providePin',
       'enumerateCredentials',
       'deleteCredentials',
       'updateUserInformation',
@@ -116,15 +116,15 @@ class TestSecurityKeysCredentialBrowserProxy extends
     return this.handleMethod('startCredentialManagement');
   }
 
-  providePIN(pin: string) {
-    return this.handleMethod('providePIN', pin);
+  providePin(pin: string) {
+    return this.handleMethod('providePin', pin);
   }
 
   enumerateCredentials() {
     return this.handleMethod('enumerateCredentials');
   }
 
-  deleteCredentials(ids: Array<string>) {
+  deleteCredentials(ids: string[]) {
     return this.handleMethod('deleteCredentials', ids);
   }
 
@@ -146,7 +146,7 @@ class TestSecurityKeysBioEnrollProxy extends TestSecurityKeysBrowserProxy
   constructor() {
     super([
       'startBioEnroll',
-      'providePIN',
+      'providePin',
       'getSensorInfo',
       'enumerateEnrollments',
       'startEnrolling',
@@ -161,8 +161,8 @@ class TestSecurityKeysBioEnrollProxy extends TestSecurityKeysBrowserProxy
     return this.handleMethod('startBioEnroll');
   }
 
-  providePIN(pin: string) {
-    return this.handleMethod('providePIN', pin);
+  providePin(pin: string) {
+    return this.handleMethod('providePin', pin);
   }
 
   getSensorInfo() {
@@ -215,7 +215,7 @@ suite('SecurityKeysResetDialog', function() {
   setup(function() {
     browserProxy = new TestSecurityKeysResetBrowserProxy();
     SecurityKeysResetBrowserProxyImpl.setInstance(browserProxy);
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     dialog = document.createElement('settings-security-keys-reset-dialog');
     allDivs = Object.values(ResetDialogPage);
   });
@@ -325,14 +325,14 @@ suite('SecurityKeysSetPINDialog', function() {
 
   let dialog: SettingsSecurityKeysSetPinDialogElement;
   let allDivs: string[];
-  let browserProxy: TestSecurityKeysPINBrowserProxy;
+  let browserProxy: TestSecurityKeysPinBrowserProxy;
 
   setup(function() {
-    browserProxy = new TestSecurityKeysPINBrowserProxy();
-    SecurityKeysPINBrowserProxyImpl.setInstance(browserProxy);
-    document.body.innerHTML = '';
+    browserProxy = new TestSecurityKeysPinBrowserProxy();
+    SecurityKeysPinBrowserProxyImpl.setInstance(browserProxy);
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     dialog = document.createElement('settings-security-keys-set-pin-dialog');
-    allDivs = Object.values(SetPINDialogPage);
+    allDivs = Object.values(SetPinDialogPage);
   });
 
   function assertComplete() {
@@ -349,7 +349,7 @@ suite('SecurityKeysSetPINDialog', function() {
 
   test('Initialization', async function() {
     document.body.appendChild(dialog);
-    await browserProxy.whenCalled('startSetPIN');
+    await browserProxy.whenCalled('startSetPin');
     assertShown(allDivs, dialog, 'initial');
     assertNotComplete();
   });
@@ -361,10 +361,10 @@ suite('SecurityKeysSetPINDialog', function() {
            [1000 /* invalid error */, 'error']]) {
     test('ImmediateError' + testCase[0]!.toString(), async function() {
       browserProxy.setResponseFor(
-          'startSetPIN', Promise.resolve({done: true, error: testCase[0]}));
+          'startSetPin', Promise.resolve({done: true, error: testCase[0]}));
       document.body.appendChild(dialog);
 
-      await browserProxy.whenCalled('startSetPIN');
+      await browserProxy.whenCalled('startSetPin');
       await browserProxy.whenCalled('close');
       assertComplete();
       assertShown(allDivs, dialog, (testCase[1] as string));
@@ -379,7 +379,7 @@ suite('SecurityKeysSetPINDialog', function() {
   test('ZeroRetries', async function() {
     // Authenticators can also signal that they are locked by indicating zero
     // attempts remaining.
-    browserProxy.setResponseFor('startSetPIN', Promise.resolve({
+    browserProxy.setResponseFor('startSetPin', Promise.resolve({
       done: false,
       error: null,
       currentMinPinLength,
@@ -388,7 +388,7 @@ suite('SecurityKeysSetPINDialog', function() {
     }));
     document.body.appendChild(dialog);
 
-    await browserProxy.whenCalled('startSetPIN');
+    await browserProxy.whenCalled('startSetPin');
     await browserProxy.whenCalled('close');
     assertComplete();
     assertShown(allDivs, dialog, 'locked');
@@ -423,11 +423,11 @@ suite('SecurityKeysSetPINDialog', function() {
 
   test('SetPIN', async function() {
     const startSetPINResolver = new PromiseResolver();
-    browserProxy.setResponseFor('startSetPIN', startSetPINResolver.promise);
+    browserProxy.setResponseFor('startSetPin', startSetPINResolver.promise);
     document.body.appendChild(dialog);
     const uiReady = eventToPromise('ui-ready', dialog);
 
-    await browserProxy.whenCalled('startSetPIN');
+    await browserProxy.whenCalled('startSetPin');
     startSetPINResolver.resolve({
       done: false,
       error: null,
@@ -453,9 +453,9 @@ suite('SecurityKeysSetPINDialog', function() {
     assertTrue(dialog.$.confirmPIN.invalid);
 
     const setPINResolver = new PromiseResolver();
-    browserProxy.setResponseFor('setPIN', setPINResolver.promise);
+    browserProxy.setResponseFor('setPin', setPINResolver.promise);
     setNewPINEntries(validNewPIN, validNewPIN);
-    const {oldPIN, newPIN} = await browserProxy.whenCalled('setPIN');
+    const {oldPIN, newPIN} = await browserProxy.whenCalled('setPin');
     assertTrue(dialog.$.pinSubmit.disabled);
     assertEquals(oldPIN, '');
     assertEquals(newPIN, validNewPIN);
@@ -472,11 +472,11 @@ suite('SecurityKeysSetPINDialog', function() {
            [1000 /* invalid error */, 'error']]) {
     test('Error' + testCase[0]!.toString(), async function() {
       const startSetPINResolver = new PromiseResolver();
-      browserProxy.setResponseFor('startSetPIN', startSetPINResolver.promise);
+      browserProxy.setResponseFor('startSetPin', startSetPINResolver.promise);
       document.body.appendChild(dialog);
       const uiReady = eventToPromise('ui-ready', dialog);
 
-      await browserProxy.whenCalled('startSetPIN');
+      await browserProxy.whenCalled('startSetPin');
       startSetPINResolver.resolve({
         done: false,
         error: null,
@@ -487,9 +487,9 @@ suite('SecurityKeysSetPINDialog', function() {
       await uiReady;
 
       browserProxy.setResponseFor(
-          'setPIN', Promise.resolve({done: true, error: testCase[0]}));
+          'setPin', Promise.resolve({done: true, error: testCase[0]}));
       setNewPINEntries(validNewPIN, validNewPIN);
-      await browserProxy.whenCalled('setPIN');
+      await browserProxy.whenCalled('setPin');
       await browserProxy.whenCalled('close');
       assertComplete();
       assertShown(allDivs, dialog, (testCase[1] as string));
@@ -503,11 +503,11 @@ suite('SecurityKeysSetPINDialog', function() {
 
   test('ChangePIN', async function() {
     const startSetPINResolver = new PromiseResolver();
-    browserProxy.setResponseFor('startSetPIN', startSetPINResolver.promise);
+    browserProxy.setResponseFor('startSetPin', startSetPINResolver.promise);
     document.body.appendChild(dialog);
     let uiReady = eventToPromise('ui-ready', dialog);
 
-    await browserProxy.whenCalled('startSetPIN');
+    await browserProxy.whenCalled('startSetPin');
     startSetPINResolver.resolve({
       done: false,
       error: null,
@@ -549,12 +549,12 @@ suite('SecurityKeysSetPINDialog', function() {
     assertFalse(dialog.$.confirmPIN.invalid);
 
     let setPINResolver = new PromiseResolver();
-    browserProxy.setResponseFor('setPIN', setPINResolver.promise);
+    browserProxy.setResponseFor('setPin', setPINResolver.promise);
     setPINEntry(dialog.$.currentPIN, validCurrentPIN);
     setPINEntry(dialog.$.newPIN, validNewPIN);
     setPINEntry(dialog.$.confirmPIN, validNewPIN);
     dialog.$.pinSubmit.click();
-    let {oldPIN, newPIN} = await browserProxy.whenCalled('setPIN');
+    let {oldPIN, newPIN} = await browserProxy.whenCalled('setPin');
     assertShown(allDivs, dialog, 'pinPrompt');
     assertNotComplete();
     assertTrue(dialog.$.pinSubmit.disabled);
@@ -571,11 +571,11 @@ suite('SecurityKeysSetPINDialog', function() {
 
     setPINEntry(dialog.$.currentPIN, anotherValidNewPIN);
 
-    browserProxy.resetResolver('setPIN');
+    browserProxy.resetResolver('setPin');
     setPINResolver = new PromiseResolver();
-    browserProxy.setResponseFor('setPIN', setPINResolver.promise);
+    browserProxy.setResponseFor('setPin', setPINResolver.promise);
     dialog.$.pinSubmit.click();
-    ({oldPIN, newPIN} = await browserProxy.whenCalled('setPIN'));
+    ({oldPIN, newPIN} = await browserProxy.whenCalled('setPin'));
     assertTrue(dialog.$.pinSubmit.disabled);
     assertEquals(oldPIN, anotherValidNewPIN);
     assertEquals(newPIN, validNewPIN);
@@ -595,7 +595,7 @@ suite('SecurityKeysCredentialManagement', function() {
   setup(function() {
     browserProxy = new TestSecurityKeysCredentialBrowserProxy();
     SecurityKeysCredentialBrowserProxyImpl.setInstance(browserProxy);
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     dialog = document.createElement(
         'settings-security-keys-credential-management-dialog');
     allDivs = Object.values(CredentialManagementDialogPage);
@@ -668,7 +668,7 @@ suite('SecurityKeysCredentialManagement', function() {
     browserProxy.setResponseFor(
         'startCredentialManagement', startCredentialManagementResolver.promise);
     const pinResolver = new PromiseResolver();
-    browserProxy.setResponseFor('providePIN', pinResolver.promise);
+    browserProxy.setResponseFor('providePin', pinResolver.promise);
     const enumerateResolver = new PromiseResolver();
     browserProxy.setResponseFor(
         'enumerateCredentials', enumerateResolver.promise);
@@ -690,7 +690,7 @@ suite('SecurityKeysCredentialManagement', function() {
     assertEquals(currentMinPinLength, dialog.$.pin.minPinLength);
     dialog.$.pin.$.pin.value = '000000';
     dialog.$.confirmButton.click();
-    const pin = await browserProxy.whenCalled('providePIN');
+    const pin = await browserProxy.whenCalled('providePin');
     assertEquals(pin, '000000');
 
     // Show a credential.
@@ -714,7 +714,7 @@ suite('SecurityKeysCredentialManagement', function() {
 
     // Check that the edit button is disabled.
     flush();
-    const editButtons: Array<CrIconButtonElement> =
+    const editButtons: CrIconButtonElement[] =
         Array.from(dialog.$.credentialList.querySelectorAll('.edit-button'));
     assertEquals(editButtons.length, 1);
     assertTrue(editButtons[0]!.hidden);
@@ -725,7 +725,7 @@ suite('SecurityKeysCredentialManagement', function() {
     browserProxy.setResponseFor(
         'startCredentialManagement', startCredentialManagementResolver.promise);
     const pinResolver = new PromiseResolver();
-    browserProxy.setResponseFor('providePIN', pinResolver.promise);
+    browserProxy.setResponseFor('providePin', pinResolver.promise);
     const enumerateResolver = new PromiseResolver();
     browserProxy.setResponseFor(
         'enumerateCredentials', enumerateResolver.promise);
@@ -751,7 +751,7 @@ suite('SecurityKeysCredentialManagement', function() {
     assertEquals(currentMinPinLength, dialog.$.pin.minPinLength);
     dialog.$.pin.$.pin.value = '000000';
     dialog.$.confirmButton.click();
-    const pin = await browserProxy.whenCalled('providePIN');
+    const pin = await browserProxy.whenCalled('providePin');
     assertEquals(pin, '000000');
 
     // Show a list of three credentials.
@@ -789,7 +789,7 @@ suite('SecurityKeysCredentialManagement', function() {
 
     // Update a credential
     flush();
-    const editButtons: Array<CrIconButtonElement> =
+    const editButtons: CrIconButtonElement[] =
         Array.from(dialog.$.credentialList.querySelectorAll('.edit-button'));
     assertEquals(editButtons.length, 3);
     editButtons.forEach(button => assertFalse(button.hidden));
@@ -806,7 +806,7 @@ suite('SecurityKeysCredentialManagement', function() {
 
     // Delete a credential.
     flush();
-    const deleteButtons: Array<CrIconButtonElement> =
+    const deleteButtons: CrIconButtonElement[] =
         Array.from(dialog.$.credentialList.querySelectorAll('.delete-button'));
     assertEquals(deleteButtons.length, 3);
     deleteButtons[0]!.click();
@@ -830,7 +830,7 @@ suite('SecurityKeysBioEnrollment', function() {
   setup(function() {
     browserProxy = new TestSecurityKeysBioEnrollProxy();
     SecurityKeysBioEnrollProxyImpl.setInstance(browserProxy);
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     dialog = document.createElement('settings-security-keys-bio-enroll-dialog');
     allDivs = Object.values(BioEnrollDialogPage);
   });
@@ -893,7 +893,7 @@ suite('SecurityKeysBioEnrollment', function() {
     const startResolver = new PromiseResolver();
     browserProxy.setResponseFor('startBioEnroll', startResolver.promise);
     const pinResolver = new PromiseResolver();
-    browserProxy.setResponseFor('providePIN', pinResolver.promise);
+    browserProxy.setResponseFor('providePin', pinResolver.promise);
     const getSensorInfoResolver = new PromiseResolver();
     browserProxy.setResponseFor('getSensorInfo', getSensorInfoResolver.promise);
     const enumerateResolver = new PromiseResolver();
@@ -914,7 +914,7 @@ suite('SecurityKeysBioEnrollment', function() {
     assertEquals(currentMinPinLength, dialog.$.pin.minPinLength);
     dialog.$.pin.$.pin.value = '000000';
     dialog.$.confirmButton.click();
-    const pin = await browserProxy.whenCalled('providePIN');
+    const pin = await browserProxy.whenCalled('providePin');
     assertEquals(pin, '000000');
     pinResolver.resolve(null);
 
@@ -963,7 +963,7 @@ suite('SecurityKeysBioEnrollment', function() {
     const startResolver = new PromiseResolver();
     browserProxy.setResponseFor('startBioEnroll', startResolver.promise);
     const pinResolver = new PromiseResolver();
-    browserProxy.setResponseFor('providePIN', pinResolver.promise);
+    browserProxy.setResponseFor('providePin', pinResolver.promise);
     const getSensorInfoResolver = new PromiseResolver();
     browserProxy.setResponseFor('getSensorInfo', getSensorInfoResolver.promise);
     const enumerateResolver = new PromiseResolver();
@@ -984,7 +984,7 @@ suite('SecurityKeysBioEnrollment', function() {
     assertEquals(currentMinPinLength, dialog.$.pin.minPinLength);
     dialog.$.pin.$.pin.value = '000000';
     dialog.$.confirmButton.click();
-    const pin = await browserProxy.whenCalled('providePIN');
+    const pin = await browserProxy.whenCalled('providePin');
     assertEquals(pin, '000000');
     pinResolver.resolve(null);
 
@@ -1074,7 +1074,7 @@ suite('SecurityKeysBioEnrollment', function() {
   test('EnrollCancel', async function() {
     // Simulate starting an enrollment and then cancelling it.
     browserProxy.setResponseFor('enumerateEnrollments', Promise.resolve([]));
-    const enrollResolver = new PromiseResolver;
+    const enrollResolver = new PromiseResolver();
     browserProxy.setResponseFor('startEnrolling', enrollResolver.promise);
 
     document.body.appendChild(dialog);
@@ -1108,7 +1108,7 @@ suite('SecurityKeysBioEnrollment', function() {
   test('EnrollError', async function() {
     // Test that resolving the startEnrolling promise with a CTAP error brings
     // up the error page.
-    const enrollResolver = new PromiseResolver;
+    const enrollResolver = new PromiseResolver();
     browserProxy.setResponseFor('startEnrolling', enrollResolver.promise);
 
     document.body.appendChild(dialog);

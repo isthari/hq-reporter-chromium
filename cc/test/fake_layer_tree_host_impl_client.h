@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,14 +21,15 @@ class FakeLayerTreeHostImplClient : public LayerTreeHostImplClient {
   void DidReceiveCompositorFrameAckOnImplThread() override {}
   void OnCanDrawStateChanged(bool can_draw) override {}
   void NotifyReadyToActivate() override;
+  bool IsReadyToActivate() override;
   void NotifyReadyToDraw() override;
   void SetNeedsRedrawOnImplThread() override {}
   void SetNeedsOneBeginImplFrameOnImplThread() override {}
   void SetNeedsCommitOnImplThread() override {}
   void SetNeedsPrepareTilesOnImplThread() override {}
   void SetVideoNeedsBeginFrames(bool needs_begin_frames) override {}
+  void SetDeferBeginMainFrameFromImpl(bool defer_begin_main_frame) override {}
   bool IsInsideDraw() override;
-  bool IsBeginMainFrameExpected() override;
   void RenewTreePriority() override {}
   void PostDelayedAnimationTaskOnImplThread(base::OnceClosure task,
                                             base::TimeDelta delay) override {}
@@ -40,6 +41,7 @@ class FakeLayerTreeHostImplClient : public LayerTreeHostImplClient {
                                    bool skip_draw) override {}
   void NeedsImplSideInvalidation(bool needs_first_draw_on_activation) override;
   void NotifyImageDecodeRequestFinished() override {}
+  void NotifyTransitionRequestFinished(uint32_t sequence_id) override {}
   void DidPresentCompositorFrameOnImplThread(
       uint32_t frame_token,
       PresentationTimeCallbackBuffer::PendingCallbacks activated,

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -124,6 +124,9 @@ class OpaqueBrowserFrameViewLayout : public views::LayoutManager {
   // Enables or disables WCO and updates child views accordingly.
   void SetWindowControlsOverlayEnabled(bool enabled, views::View* host);
 
+  // Enables or disables borderless.
+  void SetBorderlessModeEnabled(bool enabled, views::View* host);
+
   // views::LayoutManager:
   // Called explicitly from OpaqueBrowserFrameView so we can't group it with
   // the other overrides.
@@ -233,9 +236,10 @@ class OpaqueBrowserFrameViewLayout : public views::LayoutManager {
   views::Button* close_button_;
 
   raw_ptr<views::View> window_icon_;
-  raw_ptr<views::Label> window_title_;
+  raw_ptr<views::Label, DanglingUntriaged> window_title_;
 
-  raw_ptr<WebAppFrameToolbarView> web_app_frame_toolbar_ = nullptr;
+  raw_ptr<WebAppFrameToolbarView, DanglingUntriaged> web_app_frame_toolbar_ =
+      nullptr;
 
   std::vector<views::FrameButton> leading_buttons_;
   std::vector<views::FrameButton> trailing_buttons_;
@@ -243,7 +247,8 @@ class OpaqueBrowserFrameViewLayout : public views::LayoutManager {
   raw_ptr<views::ClientView> client_view_ = nullptr;
 
   bool is_window_controls_overlay_enabled_ = false;
-  raw_ptr<CaptionButtonPlaceholderContainer>
+  bool is_borderless_mode_enabled_ = false;
+  raw_ptr<CaptionButtonPlaceholderContainer, DanglingUntriaged>
       caption_button_placeholder_container_;
 };
 

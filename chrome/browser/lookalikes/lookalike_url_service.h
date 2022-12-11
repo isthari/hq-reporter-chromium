@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,8 +56,6 @@ class LookalikeUrlService : public KeyedService {
 
   void SetClockForTesting(base::Clock* clock);
   base::Clock* clock() const { return clock_; }
-
-  static const base::FeatureParam<base::TimeDelta> kManifestFetchDelay;
 
  private:
   void OnUpdateEngagedSitesCompleted(std::vector<DomainInfo> new_engaged_sites);

@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_checker.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "components/sync/engine/net/http_post_provider.h"
 #include "components/sync/engine/net/http_post_provider_factory.h"
@@ -53,6 +54,7 @@ class HttpBridge : public HttpPostProvider {
   void SetPostPayload(const char* content_type,
                       int content_length,
                       const char* content) override;
+  void SetAllowBatching(bool allow_batching) override;
   bool MakeSynchronousPost(int* net_error_code, int* http_status_code) override;
   void Abort() override;
 
@@ -130,6 +132,11 @@ class HttpBridge : public HttpPostProvider {
   std::string content_type_;
   std::string request_content_;
   std::string extra_headers_;
+
+  // When true `fetch_state_.url_loader` is configured so that it can be
+  // batched in the network layer. See the comment in
+  // network::SimpleURLLoader::SetAllowBatching().
+  bool allow_batching_ = false;
 
   // A waitable event we use to provide blocking semantics to
   // MakeSynchronousPost. We block created_on_loop_ while the IO loop fetches

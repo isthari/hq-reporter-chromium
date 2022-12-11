@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/callback_helpers.h"
 #include "base/containers/contains.h"
 #include "base/debug/dump_without_crashing.h"
-#include "base/feature_list.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -23,16 +22,18 @@
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
+#include "extensions/browser/network_permissions_updater.h"
 #include "extensions/browser/service_worker_task_queue.h"
 #include "extensions/common/activation_sequence.h"
-#include "extensions/common/cors_util.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/extensions_client.h"
 #include "extensions/common/features/feature_channel.h"
+#include "extensions/common/features/feature_developer_mode_only.h"
 #include "extensions/common/features/feature_session_type.h"
 #include "extensions/common/manifest_handlers/background_info.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "ipc/ipc_channel_proxy.h"
 #include "ui/base/webui/web_ui_util.h"
 #include "url/origin.h"
 
@@ -132,6 +133,10 @@ void RendererStartupHelper::InitializeProcess(
   if (activity_logging_enabled)
     renderer->SetActivityLoggingEnabled(activity_logging_enabled);
 
+  // extensions need to know the developer mode value for api restrictions.
+  renderer->SetDeveloperMode(
+      GetCurrentDeveloperMode(util::GetBrowserContextId(browser_context_)));
+
   // Extensions need to know the channel and the session type for API
   // restrictions. The values are sent to all renderers, as the non-extension
   // renderers may have content scripts.
@@ -164,6 +169,10 @@ void RendererStartupHelper::InitializeProcess(
   renderer->UpdateDefaultPolicyHostRestrictions(
       PermissionsData::GetDefaultPolicyBlockedHosts(context_id),
       PermissionsData::GetDefaultPolicyAllowedHosts(context_id));
+
+  renderer->UpdateUserHostRestrictions(
+      PermissionsData::GetUserBlockedHosts(context_id),
+      PermissionsData::GetUserAllowedHosts(context_id));
 
   // Loaded extensions.
   std::vector<mojom::ExtensionLoadedParamsPtr> loaded_extensions;
@@ -246,10 +255,13 @@ void RendererStartupHelper::ActivateExtensionInProcess(
   // always be called before creating URLLoaderFactory for any extension frames
   // that might be eventually hosted inside the renderer `process` (this
   // Browser-side ordering will be replicated within the NetworkService because
-  // SetCorsOriginAccessListsForOrigin and CreateURLLoaderFactory are 2 methods
+  // `SetCorsOriginAccessListsForOrigin()`, which is used in
+  // NetworkPermissionsUpdater, and `CreateURLLoaderFactory()` are 2 methods
   // of the same mojom::NetworkContext interface).
-  util::SetCorsOriginAccessListForExtension({process->GetBrowserContext()},
-                                            extension, base::DoNothing());
+  NetworkPermissionsUpdater::UpdateExtension(
+      *process->GetBrowserContext(), extension,
+      NetworkPermissionsUpdater::ContextSet::kCurrentContextOnly,
+      base::DoNothing());
 
   auto remote = process_mojo_map_.find(process);
   if (remote != process_mojo_map_.end()) {
@@ -306,13 +318,23 @@ void RendererStartupHelper::OnExtensionUnloaded(const Extension& extension) {
   }
 
   // Resets registered origin access lists in the BrowserContext asynchronously.
-  util::ResetCorsOriginAccessListForExtension(browser_context_, extension);
+  NetworkPermissionsUpdater::ResetOriginAccessForExtension(*browser_context_,
+                                                           extension);
 
   for (auto& process_extensions_pair : pending_active_extensions_)
     process_extensions_pair.second.erase(extension.id());
 
   // Mark the extension as unloaded.
   extension_process_map_.erase(extension.id());
+}
+
+void RendererStartupHelper::OnDeveloperModeChanged(bool in_developer_mode) {
+  for (auto& process_entry : process_mojo_map_) {
+    content::RenderProcessHost* process = process_entry.first;
+    mojom::Renderer* renderer = GetRenderer(process);
+    if (renderer)
+      renderer->SetDeveloperMode(in_developer_mode);
+  }
 }
 
 void RendererStartupHelper::UnloadAllExtensionsForTest() {
@@ -365,7 +387,8 @@ KeyedService* RendererStartupHelperFactory::BuildServiceInstanceFor(
 BrowserContext* RendererStartupHelperFactory::GetBrowserContextToUse(
     BrowserContext* context) const {
   // Redirected in incognito.
-  return ExtensionsBrowserClient::Get()->GetOriginalContext(context);
+  return ExtensionsBrowserClient::Get()->GetRedirectedContextInIncognito(
+      context, /*force_guest_profile=*/true, /*force_system_profile=*/false);
 }
 
 bool RendererStartupHelperFactory::ServiceIsCreatedWithBrowserContext() const {

@@ -94,16 +94,6 @@
     width: 100%;
   }
 
-  #scanProgressBar {
-    --paper-progress-active-color: var(--scanning-progress-bar);
-    --paper-progress-container-color: var(--scanning-progress-bar-track);
-  }
-
-  #cancelingProgressBar {
-    --paper-progress-active-color: var(--google-grey-500);
-    --paper-progress-container-color: var(--google-grey-200);
-  }
-
   action-toolbar {
     left: var(--action-toolbar-left);
     position: fixed;
@@ -137,12 +127,16 @@
     z-index: 1;
   }
 </style>
+<iron-media-query query="(prefers-color-scheme: dark)"
+  query-matches="{{isDarkModeEnabled_}}">
+</iron-media-query>
 <div id="previewDiv" class="preview" aria-label="[[previewAriaLabel_]]"
     tabindex="0" on-scroll="onScannedImagesScroll_">
   <div id="helpOrProgress" class="preview-item" aria-hidden="true"
       hidden$="[[!showHelpOrProgress_]]">
     <div id="helpDiv" hidden$="[[!showHelperText_]]">
-      <img id="readyToScanImg" src="svg/ready_to_scan.svg"
+      <img id="readyToScanImg"
+          src$="[[getReadyToScanSvgSrc_(isDarkModeEnabled_)]]"
           alt="[[i18n('scanPreviewHelperText')]]">
       </img>
       <span id="helperText">

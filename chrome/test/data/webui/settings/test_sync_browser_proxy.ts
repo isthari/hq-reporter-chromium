@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@ export class TestSyncBrowserProxy extends TestBrowserProxy implements
   private syncStatus_: SyncStatus|null = {
     signedIn: true,
     signedInUsername: 'fakeUsername',
-    statusAction: StatusAction.NO_ACTION
+    statusAction: StatusAction.NO_ACTION,
   };
 
   // Settable fake data.
@@ -39,13 +39,13 @@ export class TestSyncBrowserProxy extends TestBrowserProxy implements
       'sendTrustedVaultBannerStateChanged',
       'startSyncingWithEmail',
 
-      // <if expr="not chromeos">
+      // <if expr="not chromeos_ash">
       'pauseSync',
       'signOut',
       'startSignIn',
       // </if>
 
-      // <if expr="chromeos">
+      // <if expr="chromeos_ash">
       'turnOnSync',
       'turnOffSync',
       // </if>
@@ -81,7 +81,7 @@ export class TestSyncBrowserProxy extends TestBrowserProxy implements
     return Promise.resolve(this.storedAccounts);
   }
 
-  // <if expr="not chromeos">
+  // <if expr="not chromeos_ash">
   signOut(deleteProfile: boolean) {
     this.methodCalled('signOut', deleteProfile);
   }
@@ -147,7 +147,7 @@ export class TestSyncBrowserProxy extends TestBrowserProxy implements
 
   startKeyRetrieval() {}
 
-  // <if expr="chromeos">
+  // <if expr="chromeos_ash">
   attemptUserExit() {}
 
   turnOnSync() {

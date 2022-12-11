@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
 #include "base/test/simple_test_tick_clock.h"
@@ -35,10 +36,6 @@
 #include "chrome/browser/tab_contents/form_interaction_tab_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/test_tab_strip_model_delegate.h"
-#include "chrome/browser/usb/frame_usb_services.h"
-#include "chrome/browser/usb/usb_chooser_context.h"
-#include "chrome/browser/usb/usb_chooser_context_factory.h"
-#include "chrome/browser/usb/usb_tab_helper.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/browser/web_contents.h"
@@ -47,10 +44,9 @@
 #include "content/public/test/web_contents_tester.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "services/device/public/cpp/test/fake_usb_device_manager.h"
-#include "services/device/public/mojom/usb_manager.mojom.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/mojom/usb/web_usb_service.mojom.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom.h"
 
 namespace resource_coordinator {
 
@@ -353,13 +349,15 @@ TEST_F(TabLifecycleUnitTest, CannotDiscardVideoCapture) {
   test_clock_.Advance(kBackgroundUrgentProtectionTime);
   ExpectCanDiscardTrueAllReasons(&tab_lifecycle_unit);
 
-  blink::MediaStreamDevices video_devices{blink::MediaStreamDevice(
+  blink::mojom::StreamDevices devices;
+  devices.video_device = blink::MediaStreamDevice(
       blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE, "fake_media_device",
-      "fake_media_device")};
+      "fake_media_device");
+
   std::unique_ptr<content::MediaStreamUI> ui =
       MediaCaptureDevicesDispatcher::GetInstance()
           ->GetMediaStreamCaptureIndicator()
-          ->RegisterMediaStream(web_contents_, video_devices);
+          ->RegisterMediaStream(web_contents_, devices);
   ui->OnStarted(base::RepeatingClosure(),
                 content::MediaStreamUI::SourceCallback(),
                 /*label=*/std::string(), /*screen_capture_ids=*/{},
@@ -398,13 +396,14 @@ TEST_F(TabLifecycleUnitTest, CannotDiscardDesktopCapture) {
   test_clock_.Advance(kBackgroundUrgentProtectionTime);
   ExpectCanDiscardTrueAllReasons(&tab_lifecycle_unit);
 
-  blink::MediaStreamDevices desktop_capture_devices{blink::MediaStreamDevice(
+  blink::mojom::StreamDevices devices;
+  devices.video_device = blink::MediaStreamDevice(
       blink::mojom::MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE,
-      "fake_media_device", "fake_media_device")};
+      "fake_media_device", "fake_media_device");
   std::unique_ptr<content::MediaStreamUI> ui =
       MediaCaptureDevicesDispatcher::GetInstance()
           ->GetMediaStreamCaptureIndicator()
-          ->RegisterMediaStream(web_contents_, desktop_capture_devices);
+          ->RegisterMediaStream(web_contents_, devices);
   ui->OnStarted(base::RepeatingClosure(),
                 content::MediaStreamUI::SourceCallback(),
                 /*label=*/std::string(), /*screen_capture_ids=*/{},

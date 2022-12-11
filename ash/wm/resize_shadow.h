@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,6 +53,7 @@ class ResizeShadow {
   ResizeShadow& operator=(const ResizeShadow&) = delete;
   ~ResizeShadow();
 
+  bool visible() const { return visible_; }
   int GetLastHitTestForTest() const { return last_hit_test_; }
   const ui::Layer* GetLayerForTest() const { return layer_.get(); }
   ResizeShadowType GetResizeShadowTypeForTest() const { return type_; }

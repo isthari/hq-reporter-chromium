@@ -1,4 +1,4 @@
-# Copyright (c) 2012 The Chromium Authors. All rights reserved.
+# Copyright 2012 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -145,10 +145,9 @@ class CppBundleGenerator(object):
     ifdefs = []
     for platform in model_object.platforms:
       if platform == Platforms.CHROMEOS:
-        # TODO(https://crbug.com/1052397): For readability, this should become
-        # BUILDFLAG(IS_CHROMEOS) && BUILDFLAG(IS_CHROMEOS_ASH).
-        ifdefs.append('(BUILDFLAG(IS_CHROMEOS) && '
-                      '!BUILDFLAG(IS_CHROMEOS_LACROS))')
+        ifdefs.append('BUILDFLAG(IS_CHROMEOS_ASH)')
+      elif platform == Platforms.FUCHSIA:
+        ifdefs.append('BUILDFLAG(IS_FUCHSIA)')
       elif platform == Platforms.LACROS:
         # TODO(https://crbug.com/1052397): For readability, this should become
         # BUILDFLAG(IS_CHROMEOS) && BUILDFLAG(IS_CHROMEOS_LACROS).

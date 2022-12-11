@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,12 +12,11 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/chrome_cleaner/constants/chrome_cleaner_switches.h"
 #include "chrome/chrome_cleaner/logging/logging_service_api.h"
@@ -46,16 +45,16 @@ bool IsChromeWindow(HWND window) {
 
   // Ask for just enough of the class name to determine if it begins with
   // |kChromeWindowClassPrefix|.
-  wchar_t window_class_prefix[base::size(kChromeWindowClassPrefix)];
+  wchar_t window_class_prefix[std::size(kChromeWindowClassPrefix)];
   int class_name_length = ::GetClassName(window, window_class_prefix,
-                                         base::size(window_class_prefix));
+                                         std::size(window_class_prefix));
   if (class_name_length == 0)
     return false;
 
   return base::EqualsCaseInsensitiveASCII(
       base::WStringPiece(window_class_prefix, class_name_length),
       base::WStringPiece(kChromeWindowClassPrefix,
-                         base::size(kChromeWindowClassPrefix) - 1));
+                         std::size(kChromeWindowClassPrefix) - 1));
 }
 
 // Returns a handle to the foreground window if it is a Chrome window, otherwise
@@ -188,7 +187,7 @@ class ElevatingCleaner : public Cleaner {
       ReportDone(static_cast<ResultCode>(result));
       privileged_process_.Close();
     } else {
-      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
           FROM_HERE,
           base::BindOnce(&ElevatingCleaner::CheckDone, base::Unretained(this)),
           kCheckPeriod);
@@ -197,7 +196,7 @@ class ElevatingCleaner : public Cleaner {
 
   // Reports result code of the underlying process.
   void ReportDone(ResultCode result) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(done_callback_), result));
   }
 

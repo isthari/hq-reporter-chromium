@@ -1,11 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "printing/printing_context_chromeos.h"
 
-#include <string.h>
+#include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "printing/backend/cups_ipp_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -18,8 +19,10 @@ namespace {
 using ::testing::_;
 using ::testing::ByMove;
 using ::testing::DoAll;
+using ::testing::NiceMock;
 using ::testing::Return;
 using ::testing::SaveArg;
+using ::testing::SetArgPointee;
 
 constexpr char kPrinterName[] = "printer";
 constexpr char16_t kPrinterName16[] = u"printer";
@@ -28,22 +31,6 @@ constexpr char kUsername[] = "test user";
 
 constexpr char kDocumentName[] = "document name";
 constexpr char16_t kDocumentName16[] = u"document name";
-
-const char* GetOptionValue(const std::vector<ScopedCupsOption>& options,
-                           const char* option_name) {
-  DCHECK(option_name);
-  const char* ret = nullptr;
-  for (const auto& option : options) {
-    EXPECT_TRUE(option->name);
-    EXPECT_TRUE(option->value);
-    if (option->name && !strcmp(option_name, option->name)) {
-      EXPECT_EQ(nullptr, ret)
-          << "Multiple options with name " << option_name << " found.";
-      ret = option->value;
-    }
-  }
-  return ret;
-}
 
 class MockCupsPrinter : public CupsPrinter {
  public:
@@ -110,7 +97,7 @@ class PrintingContextTest : public testing::Test,
   void SetDefaultSettings(bool send_user_info, const std::string& uri) {
     auto unique_connection = std::make_unique<MockCupsConnection>();
     auto* connection = unique_connection.get();
-    auto unique_printer = std::make_unique<MockCupsPrinter>();
+    auto unique_printer = std::make_unique<NiceMock<MockCupsPrinter>>();
     printer_ = unique_printer.get();
     EXPECT_CALL(*printer_, GetUri()).WillRepeatedly(Return(uri));
     EXPECT_CALL(*connection, GetPrinter(kPrinterName))
@@ -125,8 +112,21 @@ class PrintingContextTest : public testing::Test,
     printing_context_->UpdatePrintSettingsFromPOD(std::move(settings));
   }
 
-  const char* Get(const char* name) const {
-    return GetOptionValue(SettingsToCupsOptions(settings_), name);
+  void TestCupsOptionValue(const char* option_name,
+                           const char* expected_option_value) const {
+    DCHECK(option_name);
+    auto cups_options = SettingsToCupsOptions(settings_);
+    const char* ret = nullptr;
+    for (const auto& option : cups_options) {
+      EXPECT_TRUE(option->name);
+      EXPECT_TRUE(option->value);
+      if (option->name && !strcmp(option_name, option->name)) {
+        EXPECT_EQ(nullptr, ret)
+            << "Multiple options with name " << option_name << " found.";
+        ret = option->value;
+      }
+    }
+    EXPECT_STREQ(expected_option_value, ret);
   }
 
   TestPrintSettings settings_;
@@ -136,59 +136,59 @@ class PrintingContextTest : public testing::Test,
   std::string GetAppLocale() override { return std::string(); }
 
   std::unique_ptr<PrintingContextChromeos> printing_context_;
-  MockCupsPrinter* printer_;
+  raw_ptr<MockCupsPrinter> printer_;
 };
 
 TEST_F(PrintingContextTest, SettingsToCupsOptions_Color) {
   settings_.set_color(mojom::ColorModel::kGray);
-  EXPECT_STREQ("monochrome", Get(kIppColor));
+  TestCupsOptionValue(kIppColor, "monochrome");
   settings_.set_color(mojom::ColorModel::kColor);
-  EXPECT_STREQ("color", Get(kIppColor));
+  TestCupsOptionValue(kIppColor, "color");
 }
 
 TEST_F(PrintingContextTest, SettingsToCupsOptions_Duplex) {
   settings_.set_duplex_mode(mojom::DuplexMode::kSimplex);
-  EXPECT_STREQ("one-sided", Get(kIppDuplex));
+  TestCupsOptionValue(kIppDuplex, "one-sided");
   settings_.set_duplex_mode(mojom::DuplexMode::kLongEdge);
-  EXPECT_STREQ("two-sided-long-edge", Get(kIppDuplex));
+  TestCupsOptionValue(kIppDuplex, "two-sided-long-edge");
   settings_.set_duplex_mode(mojom::DuplexMode::kShortEdge);
-  EXPECT_STREQ("two-sided-short-edge", Get(kIppDuplex));
+  TestCupsOptionValue(kIppDuplex, "two-sided-short-edge");
 }
 
 TEST_F(PrintingContextTest, SettingsToCupsOptions_Media) {
-  EXPECT_STREQ("", Get(kIppMedia));
+  TestCupsOptionValue(kIppMedia, "");
   settings_.set_requested_media(
       {gfx::Size(297000, 420000), "iso_a3_297x420mm"});
-  EXPECT_STREQ("iso_a3_297x420mm", Get(kIppMedia));
+  TestCupsOptionValue(kIppMedia, "iso_a3_297x420mm");
 }
 
 TEST_F(PrintingContextTest, SettingsToCupsOptions_Copies) {
   settings_.set_copies(3);
-  EXPECT_STREQ("3", Get(kIppCopies));
+  TestCupsOptionValue(kIppCopies, "3");
 }
 
 TEST_F(PrintingContextTest, SettingsToCupsOptions_Collate) {
-  EXPECT_STREQ("separate-documents-uncollated-copies", Get(kIppCollate));
+  TestCupsOptionValue(kIppCollate, "separate-documents-uncollated-copies");
   settings_.set_collate(true);
-  EXPECT_STREQ("separate-documents-collated-copies", Get(kIppCollate));
+  TestCupsOptionValue(kIppCollate, "separate-documents-collated-copies");
 }
 
 TEST_F(PrintingContextTest, SettingsToCupsOptions_Pin) {
-  EXPECT_STREQ(nullptr, Get(kIppPin));
+  TestCupsOptionValue(kIppPin, nullptr);
   settings_.set_pin_value("1234");
-  EXPECT_STREQ("1234", Get(kIppPin));
+  TestCupsOptionValue(kIppPin, "1234");
 }
 
 TEST_F(PrintingContextTest, SettingsToCupsOptions_Resolution) {
-  EXPECT_STREQ(nullptr, Get(kIppResolution));
+  TestCupsOptionValue(kIppResolution, nullptr);
   settings_.set_dpi_xy(0, 300);
-  EXPECT_STREQ(nullptr, Get(kIppResolution));
+  TestCupsOptionValue(kIppResolution, nullptr);
   settings_.set_dpi_xy(300, 0);
-  EXPECT_STREQ(nullptr, Get(kIppResolution));
+  TestCupsOptionValue(kIppResolution, nullptr);
   settings_.set_dpi(600);
-  EXPECT_STREQ("600dpi", Get(kIppResolution));
+  TestCupsOptionValue(kIppResolution, "600dpi");
   settings_.set_dpi_xy(600, 1200);
-  EXPECT_STREQ("600x1200dpi", Get(kIppResolution));
+  TestCupsOptionValue(kIppResolution, "600x1200dpi");
 }
 
 TEST_F(PrintingContextTest, SettingsToCupsOptions_SendUserInfo_Secure) {
@@ -200,7 +200,8 @@ TEST_F(PrintingContextTest, SettingsToCupsOptions_SendUserInfo_Secure) {
   std::string start_document_document_name;
   std::string start_document_username;
   EXPECT_CALL(*printer_, CreateJob)
-      .WillOnce(DoAll(SaveArg<1>(&create_job_document_name),
+      .WillOnce(DoAll(SetArgPointee<0>(/*job_id=*/1),
+                      SaveArg<1>(&create_job_document_name),
                       SaveArg<2>(&create_job_username), Return(status)));
   EXPECT_CALL(*printer_, StartDocument)
       .WillOnce(DoAll(SaveArg<1>(&start_document_document_name),
@@ -225,7 +226,8 @@ TEST_F(PrintingContextTest, SettingsToCupsOptions_SendUserInfo_Insecure) {
   std::string start_document_document_name;
   std::string start_document_username;
   EXPECT_CALL(*printer_, CreateJob)
-      .WillOnce(DoAll(SaveArg<1>(&create_job_document_name),
+      .WillOnce(DoAll(SetArgPointee<0>(/*job_id=*/1),
+                      SaveArg<1>(&create_job_document_name),
                       SaveArg<2>(&create_job_username), Return(status)));
   EXPECT_CALL(*printer_, StartDocument)
       .WillOnce(DoAll(SaveArg<1>(&start_document_document_name),
@@ -248,7 +250,8 @@ TEST_F(PrintingContextTest, SettingsToCupsOptions_DoNotSendUserInfo) {
   std::string start_document_document_name;
   std::string start_document_username;
   EXPECT_CALL(*printer_, CreateJob)
-      .WillOnce(DoAll(SaveArg<1>(&create_job_document_name),
+      .WillOnce(DoAll(SetArgPointee<0>(/*job_id=*/1),
+                      SaveArg<1>(&create_job_document_name),
                       SaveArg<2>(&create_job_username), Return(status)));
   EXPECT_CALL(*printer_, StartDocument)
       .WillOnce(DoAll(SaveArg<1>(&start_document_document_name),

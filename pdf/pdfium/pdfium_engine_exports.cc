@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -160,23 +160,23 @@ base::Value RecursiveGetStructTree(FPDF_STRUCTELEMENT struct_elem) {
   if (!opt_type)
     return base::Value(base::Value::Type::NONE);
 
-  base::Value result(base::Value::Type::DICTIONARY);
-  result.SetStringKey("type", *opt_type);
+  base::Value::Dict result;
+  result.Set("type", *opt_type);
 
   absl::optional<std::u16string> opt_alt =
       CallPDFiumWideStringBufferApiAndReturnOptional(
           base::BindRepeating(FPDF_StructElement_GetAltText, struct_elem),
           true);
   if (opt_alt)
-    result.SetStringKey("alt", *opt_alt);
+    result.Set("alt", *opt_alt);
 
   absl::optional<std::u16string> opt_lang =
       CallPDFiumWideStringBufferApiAndReturnOptional(
           base::BindRepeating(FPDF_StructElement_GetLang, struct_elem), true);
   if (opt_lang)
-    result.SetStringKey("lang", *opt_lang);
+    result.Set("lang", *opt_lang);
 
-  base::Value children(base::Value::Type::LIST);
+  base::Value::List children;
   for (int i = 0; i < children_count; i++) {
     FPDF_STRUCTELEMENT child_elem =
         FPDF_StructElement_GetChildAtIndex(struct_elem, i);
@@ -189,10 +189,10 @@ base::Value RecursiveGetStructTree(FPDF_STRUCTELEMENT struct_elem) {
   // use "~children" instead of "children" because we pretty-print the
   // result of this as JSON and the keys are sorted; it's much easier to
   // understand when the children are the last key.
-  if (!children.GetList().empty())
-    result.SetKey("~children", std::move(children));
+  if (!children.empty())
+    result.Set("~children", std::move(children));
 
-  return result;
+  return base::Value(std::move(result));
 }
 
 }  // namespace
@@ -243,7 +243,7 @@ std::vector<uint8_t> PDFiumEngineExports::CreateFlattenedPdf(
 #if BUILDFLAG(IS_WIN)
 bool PDFiumEngineExports::RenderPDFPageToDC(
     base::span<const uint8_t> pdf_buffer,
-    int page_number,
+    int page_index,
     const RenderingSettings& settings,
     HDC dc) {
   ScopedUnsupportedFeature scoped_unsupported_feature(
@@ -251,7 +251,7 @@ bool PDFiumEngineExports::RenderPDFPageToDC(
   ScopedFPDFDocument doc = LoadPdfData(pdf_buffer);
   if (!doc)
     return false;
-  ScopedFPDFPage page(FPDF_LoadPage(doc.get(), page_number));
+  ScopedFPDFPage page(FPDF_LoadPage(doc.get(), page_index));
   if (!page)
     return false;
 
@@ -319,7 +319,7 @@ void PDFiumEngineExports::SetPDFUsePrintMode(int mode) {
 
 bool PDFiumEngineExports::RenderPDFPageToBitmap(
     base::span<const uint8_t> pdf_buffer,
-    int page_number,
+    int page_index,
     const RenderingSettings& settings,
     void* bitmap_buffer) {
   ScopedUnsupportedFeature scoped_unsupported_feature(
@@ -327,7 +327,7 @@ bool PDFiumEngineExports::RenderPDFPageToBitmap(
   ScopedFPDFDocument doc = LoadPdfData(pdf_buffer);
   if (!doc)
     return false;
-  ScopedFPDFPage page(FPDF_LoadPage(doc.get(), page_number));
+  ScopedFPDFPage page(FPDF_LoadPage(doc.get(), page_index));
   if (!page)
     return false;
 
@@ -403,9 +403,9 @@ bool PDFiumEngineExports::GetPDFDocInfo(base::span<const uint8_t> pdf_buffer,
 
   if (max_page_width) {
     *max_page_width = 0;
-    for (int page_number = 0; page_number < page_count_local; page_number++) {
+    for (int page_index = 0; page_index < page_count_local; page_index++) {
       FS_SIZEF page_size;
-      if (FPDF_GetPageSizeByIndexF(doc.get(), page_number, &page_size) &&
+      if (FPDF_GetPageSizeByIndexF(doc.get(), page_index, &page_size) &&
           page_size.width > *max_page_width) {
         *max_page_width = page_size.width;
       }
@@ -457,7 +457,7 @@ base::Value PDFiumEngineExports::GetPDFStructTreeForPage(
 
 absl::optional<gfx::SizeF> PDFiumEngineExports::GetPDFPageSizeByIndex(
     base::span<const uint8_t> pdf_buffer,
-    int page_number) {
+    int page_index) {
   ScopedUnsupportedFeature scoped_unsupported_feature(
       ScopedUnsupportedFeature::kNoEngine);
   ScopedFPDFDocument doc = LoadPdfData(pdf_buffer);
@@ -465,7 +465,7 @@ absl::optional<gfx::SizeF> PDFiumEngineExports::GetPDFPageSizeByIndex(
     return absl::nullopt;
 
   FS_SIZEF size;
-  if (!FPDF_GetPageSizeByIndexF(doc.get(), page_number, &size))
+  if (!FPDF_GetPageSizeByIndexF(doc.get(), page_index, &size))
     return absl::nullopt;
 
   return gfx::SizeF(size.width, size.height);

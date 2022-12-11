@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -282,9 +282,8 @@ NTSTATUS ServiceResolverThunk::PerformPatch(void* local_thunk,
   return STATUS_SUCCESS;
 }
 
-bool Wow64ResolverThunk::IsFunctionAService(void* local_thunk) const {
-  NOTREACHED_NT();
-  return false;
+bool ServiceResolverThunk::VerifyJumpTargetForTesting(void*) const {
+  return true;
 }
 
 }  // namespace sandbox

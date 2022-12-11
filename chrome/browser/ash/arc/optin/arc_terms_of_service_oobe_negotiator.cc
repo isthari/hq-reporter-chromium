@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,41 +9,44 @@
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/ui/webui/chromeos/login/arc_terms_of_service_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/consolidated_consent_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
+#include "chrome/browser/ui/webui/ash/login/arc_terms_of_service_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/consolidated_consent_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
 
 namespace arc {
 
 namespace {
 
-chromeos::ArcTermsOfServiceScreenView* g_view_for_testing = nullptr;
+ash::ArcTermsOfServiceScreenView* g_view_for_testing = nullptr;
 
-chromeos::ArcTermsOfServiceScreenView* GetScreenView() {
+ash::ArcTermsOfServiceScreenView* GetScreenView() {
   // Inject testing instance.
   if (g_view_for_testing)
     return g_view_for_testing;
 
   auto* host = ash::LoginDisplayHost::default_host();
   DCHECK(host);
-  DCHECK(host->GetOobeUI());
-  return host->GetOobeUI()->GetView<chromeos::ArcTermsOfServiceScreenHandler>();
+
+  // Ensure WebUI is loaded
+  host->GetWizardController();
+
+  return host->GetOobeUI()->GetView<ash::ArcTermsOfServiceScreenHandler>();
 }
 
-chromeos::ConsolidatedConsentScreen* GetConsolidatedConsentScreen() {
+ash::ConsolidatedConsentScreen* GetConsolidatedConsentScreen() {
   // TODO: Inject testing instance.
-  chromeos::LoginDisplayHost* host = chromeos::LoginDisplayHost::default_host();
+  auto* host = ash::LoginDisplayHost::default_host();
   DCHECK(host);
   DCHECK(host->GetWizardController());
   return host->GetWizardController()
-      ->GetScreen<chromeos::ConsolidatedConsentScreen>();
+      ->GetScreen<ash::ConsolidatedConsentScreen>();
 }
 
 }  // namespace
 
 // static
 void ArcTermsOfServiceOobeNegotiator::SetArcTermsOfServiceScreenViewForTesting(
-    chromeos::ArcTermsOfServiceScreenView* view) {
+    ash::ArcTermsOfServiceScreenView* view) {
   g_view_for_testing = view;
 }
 
@@ -60,7 +63,7 @@ ArcTermsOfServiceOobeNegotiator::~ArcTermsOfServiceOobeNegotiator() {
 }
 
 void ArcTermsOfServiceOobeNegotiator::StartNegotiationImpl() {
-  if (chromeos::features::IsOobeConsolidatedConsentEnabled()) {
+  if (ash::features::IsOobeConsolidatedConsentEnabled()) {
     consolidated_consent_observation_.Observe(GetConsolidatedConsentScreen());
   } else {
     DCHECK(!screen_view_);
@@ -71,7 +74,7 @@ void ArcTermsOfServiceOobeNegotiator::StartNegotiationImpl() {
 }
 
 void ArcTermsOfServiceOobeNegotiator::HandleTermsAccepted(bool accepted) {
-  if (chromeos::features::IsOobeConsolidatedConsentEnabled()) {
+  if (ash::features::IsOobeConsolidatedConsentEnabled()) {
     consolidated_consent_observation_.Reset();
   } else {
     DCHECK(screen_view_);
@@ -86,18 +89,18 @@ void ArcTermsOfServiceOobeNegotiator::OnAccept(bool /* review_arc_settings */) {
 }
 
 void ArcTermsOfServiceOobeNegotiator::OnViewDestroyed(
-    chromeos::ArcTermsOfServiceScreenView* view) {
+    ash::ArcTermsOfServiceScreenView* view) {
   DCHECK_EQ(view, screen_view_);
   HandleTermsAccepted(false);
 }
 
 void ArcTermsOfServiceOobeNegotiator::OnConsolidatedConsentAccept() {
-  DCHECK(chromeos::features::IsOobeConsolidatedConsentEnabled());
+  DCHECK(ash::features::IsOobeConsolidatedConsentEnabled());
   HandleTermsAccepted(true);
 }
 
 void ArcTermsOfServiceOobeNegotiator::OnConsolidatedConsentScreenDestroyed() {
-  DCHECK(chromeos::features::IsOobeConsolidatedConsentEnabled());
+  DCHECK(ash::features::IsOobeConsolidatedConsentEnabled());
   HandleTermsAccepted(false);
 }
 

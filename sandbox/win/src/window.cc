@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/notreached.h"
 #include "base/win/sid.h"
 #include "base/win/win_util.h"
-#include "base/win/windows_version.h"
 #include "sandbox/win/src/acl.h"
 
 namespace {
@@ -136,11 +135,9 @@ ResultCode CreateAltDesktop(HWINSTA winsta, HDESK* desktop) {
       // replace the NULL DACL with one that has a single ACE that allows access
       // to everyone, so the desktop remains accessible when we further modify
       // the DACL. Also need WinBuiltinAnyPackageSid for AppContainer processes.
-      if (base::win::GetVersion() >= base::win::Version::WIN8) {
-        AddKnownSidToObject(*desktop, SecurityObjectType::kWindow,
-                            base::win::WellKnownSid::kAllApplicationPackages,
-                            SecurityAccessMode::kGrant, GENERIC_ALL);
-      }
+      AddKnownSidToObject(*desktop, SecurityObjectType::kWindow,
+                          base::win::WellKnownSid::kAllApplicationPackages,
+                          SecurityAccessMode::kGrant, GENERIC_ALL);
       AddKnownSidToObject(*desktop, SecurityObjectType::kWindow,
                           base::win::WellKnownSid::kWorld,
                           SecurityAccessMode::kGrant, GENERIC_ALL);

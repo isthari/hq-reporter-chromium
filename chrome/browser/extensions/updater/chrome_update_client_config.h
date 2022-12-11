@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,15 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "components/component_updater/configurator_impl.h"
+#include "components/update_client/buildflags.h"
 #include "components/update_client/configurator.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 class GURL;
+
+namespace base {
+class FilePath;
+}  // namespace base
 
 namespace content {
 class BrowserContext;
@@ -31,6 +36,10 @@ class ProtocolHandlerFactory;
 }
 
 namespace extensions {
+
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+inline constexpr const char* kExtensionsCrxCachePath = "extensions_crx_cache";
+#endif
 
 class ExtensionUpdateClientBaseTest;
 
@@ -79,6 +88,9 @@ class ChromeUpdateClientConfig : public update_client::Configurator {
   GetProtocolHandlerFactory() const override;
   absl::optional<bool> IsMachineExternallyManaged() const override;
   update_client::UpdaterStateProvider GetUpdaterStateProvider() const override;
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+  absl::optional<base::FilePath> GetCrxCachePath() const override;
+#endif
 
  protected:
   friend class base::RefCountedThreadSafe<ChromeUpdateClientConfig>;

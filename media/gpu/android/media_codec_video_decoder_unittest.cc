@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,13 @@
 #include "base/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "gpu/command_buffer/service/mock_texture_owner.h"
+#include "gpu/command_buffer/service/ref_counted_lock_for_test.h"
+#include "gpu/config/gpu_finch_features.h"
 #include "gpu/config/gpu_preferences.h"
 #include "media/base/android/media_codec_util.h"
 #include "media/base/android/mock_android_overlay.h"
@@ -115,7 +117,7 @@ class MediaCodecVideoDecoderTest : public testing::TestWithParam<VideoCodec> {
     uint8_t data = 0;
     fake_decoder_buffer_ = DecoderBuffer::CopyFrom(&data, 1);
     codec_allocator_ = std::make_unique<FakeCodecAllocator>(
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
     device_info_ = std::make_unique<NiceMock<MockDeviceInfo>>();
   }
 
@@ -153,7 +155,10 @@ class MediaCodecVideoDecoderTest : public testing::TestWithParam<VideoCodec> {
         base::BindRepeating(&CreateAndroidOverlayCb),
         base::BindRepeating(&MediaCodecVideoDecoderTest::RequestOverlayInfoCb,
                             base::Unretained(this)),
-        std::move(video_frame_factory), /*lock=*/nullptr);
+        std::move(video_frame_factory),
+        features::NeedThreadSafeAndroidMedia()
+            ? base::MakeRefCounted<gpu::RefCountedLockForTest>()
+            : nullptr);
     mcvd_ = std::make_unique<AsyncDestroyVideoDecoder<MediaCodecVideoDecoder>>(
         base::WrapUnique(mcvd));
     mcvd_raw_ = mcvd;
@@ -970,14 +975,9 @@ TEST_P(MediaCodecVideoDecoderVp9Test, HdrMetadataIsIncludedInCodecConfig) {
   gfx::HDRMetadata hdr_metadata;
   hdr_metadata.max_frame_average_light_level = 123;
   hdr_metadata.max_content_light_level = 456;
-  hdr_metadata.color_volume_metadata.primary_r.set_x(0.1f);
-  hdr_metadata.color_volume_metadata.primary_r.set_y(0.2f);
-  hdr_metadata.color_volume_metadata.primary_g.set_x(0.3f);
-  hdr_metadata.color_volume_metadata.primary_g.set_y(0.4f);
-  hdr_metadata.color_volume_metadata.primary_b.set_x(0.5f);
-  hdr_metadata.color_volume_metadata.primary_b.set_y(0.6f);
-  hdr_metadata.color_volume_metadata.white_point.set_x(0.7f);
-  hdr_metadata.color_volume_metadata.white_point.set_y(0.8f);
+  hdr_metadata.color_volume_metadata.primaries = {
+      0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f,
+  };
   hdr_metadata.color_volume_metadata.luminance_max = 1000;
   hdr_metadata.color_volume_metadata.luminance_min = 0;
 

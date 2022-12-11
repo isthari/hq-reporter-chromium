@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/containers/flat_set.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_window_testing.h"
@@ -26,6 +25,7 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/login/login_handler.h"
 #include "chrome/browser/ui/login/login_handler_test_utils.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -258,7 +258,7 @@ IN_PROC_BROWSER_TEST_F(PortalBrowserTest, TaskManagerOrderingOfDependentRows) {
 
   // There's an initial tab that's implicitly created.
   browser()->tab_strip_model()->CloseWebContentsAt(0,
-                                                   TabStripModel::CLOSE_NONE);
+                                                   TabCloseTypes::CLOSE_NONE);
   EXPECT_EQ(static_cast<int>(kNumTabs), browser()->tab_strip_model()->count());
 
   // Create portals in each tab.
@@ -364,7 +364,10 @@ IN_PROC_BROWSER_TEST_F(PortalBrowserTest, ShowSubFrameErrorPage) {
                       "document.documentElement.hasAttribute('subframe');"));
 }
 
-IN_PROC_BROWSER_TEST_F(PortalBrowserTest, BrowserHistoryUpdatesOnActivation) {
+// TODO(crbug.com/1372129): This test is flaking on all platforms. The renderer
+// seems to be terinated occasionally preventing the ASSERT_EQ from succeeding.
+IN_PROC_BROWSER_TEST_F(PortalBrowserTest,
+                       DISABLED_BrowserHistoryUpdatesOnActivation) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   Profile* profile = browser()->profile();
@@ -449,7 +452,7 @@ class PortalSafeBrowsingBrowserTest : public PortalBrowserTest {
 // by Safe Browsing, the embedder is also treated as dangerous in terms of how
 // we display the Safe Browsing interstitial.
 // Flaky on ChromeOS & under Ozone (crbug.com/1220319)
-#if BUILDFLAG(IS_CHROMEOS) || defined(USE_OZONE)
+#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_OZONE)
 #define MAYBE_EmbedderOfDangerousPortalConsideredDangerous \
   DISABLED_EmbedderOfDangerousPortalConsideredDangerous
 #else

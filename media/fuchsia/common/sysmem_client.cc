@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,7 +49,7 @@ void SysmemCollectionClient::Initialize(
 
   // If Sync() is not required then constraints can be set immediately.
   if (sync_completion_closures_.empty()) {
-    collection_->SetConstraints(/*have_constraints=*/true,
+    collection_->SetConstraints(/*has_constraints=*/true,
                                 std::move(constraints));
     return;
   }

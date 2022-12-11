@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/task_manager/providers/task.h"
 #include "components/favicon/core/favicon_driver_observer.h"
-#include "content/public/browser/navigation_entry.h"
 
 class ProcessResourceUsage;
 

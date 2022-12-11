@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/new_window_delegate.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "base/bind.h"
@@ -57,8 +58,9 @@ GURL GetURLToOpen(const std::string& allowed_host) {
 
 void OnNotificationClick(const GURL& url) {
   base::RecordAction(base::UserMetricsAction(kNotificationClickedActionName));
-  NewWindowDelegate::GetInstance()->OpenUrl(url,
-                                            /*from_user_interaction=*/true);
+  NewWindowDelegate::GetPrimary()->OpenUrl(
+      url, NewWindowDelegate::OpenUrlFrom::kUserInteraction,
+      NewWindowDelegate::Disposition::kNewForegroundTab);
 }
 
 }  // namespace
@@ -85,27 +87,26 @@ void WebsiteApprovalNotifier::MaybeShowApprovalNotification(
   message_center::RichNotificationData option_fields;
   option_fields.fullscreen_visibility =
       message_center::FullscreenVisibility::OVER_USER;
-  std::unique_ptr<message_center::Notification> notification =
-      ash::CreateSystemNotification(
-          message_center::NOTIFICATION_TYPE_SIMPLE,
-          kWebsiteApprovalNotificationIdPrefix + allowed_host,
-          l10n_util::GetStringUTF16(IDS_WEBSITE_APPROVED_NOTIFICATION_TITLE),
-          l10n_util::GetStringFUTF16(IDS_WEBSITE_APPROVED_NOTIFICATION_MESSAGE,
-                                     base::UTF8ToUTF16(allowed_host)),
-          l10n_util::GetStringUTF16(
-              IDS_WEBSITE_APPROVED_NOTIFICATION_DISPLAY_SOURCE),
-          GURL(),
-          message_center::NotifierId(
-              message_center::NotifierType::SYSTEM_COMPONENT,
-              kWebsiteApprovalNotifierId),
-          option_fields,
-          base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
-              base::BindRepeating(&OnNotificationClick, url)),
-          chromeos::kNotificationSupervisedUserIcon,
-          message_center::SystemNotificationWarningLevel::NORMAL);
+  message_center::Notification notification = CreateSystemNotification(
+      message_center::NOTIFICATION_TYPE_SIMPLE,
+      kWebsiteApprovalNotificationIdPrefix + allowed_host,
+      l10n_util::GetStringUTF16(IDS_WEBSITE_APPROVED_NOTIFICATION_TITLE),
+      l10n_util::GetStringFUTF16(IDS_WEBSITE_APPROVED_NOTIFICATION_MESSAGE,
+                                 base::UTF8ToUTF16(allowed_host)),
+      l10n_util::GetStringUTF16(
+          IDS_WEBSITE_APPROVED_NOTIFICATION_DISPLAY_SOURCE),
+      GURL(),
+      message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
+                                 kWebsiteApprovalNotifierId,
+                                 NotificationCatalogName::kWebsiteApproval),
+      option_fields,
+      base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
+          base::BindRepeating(&OnNotificationClick, url)),
+      chromeos::kNotificationSupervisedUserIcon,
+      message_center::SystemNotificationWarningLevel::NORMAL);
   base::RecordAction(base::UserMetricsAction(kNotificationShownActionName));
   NotificationDisplayService::GetForProfile(profile_)->Display(
-      NotificationHandler::Type::TRANSIENT, *notification,
+      NotificationHandler::Type::TRANSIENT, notification,
       /*metadata=*/nullptr);
 }
 

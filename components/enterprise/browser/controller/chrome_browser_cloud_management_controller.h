@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -175,7 +175,8 @@ class ChromeBrowserCloudManagementController
     virtual void OnBrowserUnenrolled(bool succeeded) {}
 
     // Called when the cloud reporting is launched.
-    virtual void OnCloudReportingLaunched() {}
+    virtual void OnCloudReportingLaunched(
+        enterprise_reporting::ReportScheduler* report_scheduler) {}
 
     // Called when enrollment result is recorded.
     virtual void OnEnrollmentResultRecorded() {}
@@ -231,7 +232,9 @@ class ChromeBrowserCloudManagementController
   // Returns whether the enterprise startup dialog is being diaplayed.
   bool IsEnterpriseStartupDialogShowing();
 
-  void UnenrollBrowser();
+  // Unenrolls the browser from cloud management by either invalidating or
+  // deleting the stored DMToken.
+  void UnenrollBrowser(bool delete_dm_token);
 
   // CloudPolicyClient::Observer implementation:
   void OnPolicyFetched(CloudPolicyClient* client) override;
@@ -252,6 +255,10 @@ class ChromeBrowserCloudManagementController
   void SetGaiaURLLoaderFactory(
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
 
+  enterprise_reporting::ReportScheduler* report_scheduler() {
+    return report_scheduler_.get();
+  }
+
  protected:
   void NotifyPolicyRegisterFinished(bool succeeded);
   void NotifyBrowserUnenrolled(bool succeeded);
@@ -265,7 +272,7 @@ class ChromeBrowserCloudManagementController
       const std::string& client_id);
 
   void InvalidatePolicies();
-  void InvalidateDMTokenCallback(bool success);
+  void UnenrollCallback(const std::string& metric_name, bool success);
 
   void CreateReportScheduler();
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,9 @@
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/values.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
-#include "chrome/browser/extensions/api/preference/preference_api_constants.h"
 #include "chrome/browser/extensions/api/preference/preference_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
@@ -36,13 +34,8 @@
 #include "extensions/browser/api/content_settings/content_settings_store.h"
 #include "extensions/browser/extension_prefs_scope.h"
 #include "extensions/browser/extension_util.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/error_utils.h"
-
-#if BUILDFLAG(ENABLE_PLUGINS)
-#include "chrome/browser/plugins/plugin_finder.h"
-#include "chrome/browser/plugins/plugin_installer.h"
-#include "content/public/browser/plugin_service.h"
-#endif
 
 using content::BrowserThread;
 
@@ -50,11 +43,10 @@ namespace Clear = extensions::api::content_settings::ContentSetting::Clear;
 namespace Get = extensions::api::content_settings::ContentSetting::Get;
 namespace Set = extensions::api::content_settings::ContentSetting::Set;
 namespace pref_helpers = extensions::preference_helpers;
-namespace pref_keys = extensions::preference_api_constants;
 
 namespace {
 
-bool RemoveContentType(std::vector<base::Value>& args,
+bool RemoveContentType(base::Value::List& args,
                        ContentSettingsType* content_type) {
   if (args.empty() || !args[0].is_string())
     return false;
@@ -91,6 +83,11 @@ ContentSettingsContentSettingClearFunction::Run() {
   std::unique_ptr<Clear::Params> params(Clear::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
+  if (content_type == ContentSettingsType::DEPRECATED_PPAPI_BROKER) {
+    NOTREACHED();
+    return RespondNow(Error(kUnknownErrorDoNotUse));
+  }
+
   ExtensionPrefsScope scope = kExtensionPrefsScopeRegular;
   bool incognito = false;
   if (params->details.scope ==
@@ -113,7 +110,7 @@ ContentSettingsContentSettingClearFunction::Run() {
   store->ClearContentSettingsForExtensionAndContentType(extension_id(), scope,
                                                         content_type);
 
-  return RespondNow(NoArguments());
+  return RespondNow(WithArguments());
 }
 
 ExtensionFunction::ResponseAction
@@ -124,6 +121,10 @@ ContentSettingsContentSettingGetFunction::Run() {
   std::unique_ptr<Get::Params> params(Get::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
+  if (content_type == ContentSettingsType::DEPRECATED_PPAPI_BROKER) {
+    NOTREACHED();
+    return RespondNow(Error(kUnknownErrorDoNotUse));
+  }
 
   GURL primary_url(params->details.primary_url);
   if (!primary_url.is_valid()) {
@@ -131,7 +132,7 @@ ContentSettingsContentSettingGetFunction::Run() {
   }
 
   GURL secondary_url(primary_url);
-  if (params->details.secondary_url.get()) {
+  if (params->details.secondary_url) {
     secondary_url = GURL(*params->details.secondary_url);
     if (!secondary_url.is_valid()) {
       return RespondNow(
@@ -140,10 +141,10 @@ ContentSettingsContentSettingGetFunction::Run() {
   }
 
   bool incognito = false;
-  if (params->details.incognito.get())
+  if (params->details.incognito)
     incognito = *params->details.incognito;
   if (incognito && !include_incognito_information())
-    return RespondNow(Error(pref_keys::kIncognitoErrorMessage));
+    return RespondNow(Error(extension_misc::kIncognitoErrorMessage));
 
   HostContentSettingsMap* map;
   content_settings::CookieSettings* cookie_settings;
@@ -167,17 +168,18 @@ ContentSettingsContentSettingGetFunction::Run() {
 
   ContentSetting setting =
       content_type == ContentSettingsType::COOKIES
-          ? cookie_settings->GetCookieSetting(primary_url, secondary_url,
-                                              nullptr)
+          ? cookie_settings->GetCookieSetting(
+                primary_url, secondary_url, nullptr,
+                content_settings::CookieSettings::QueryReason::kSetting)
           : map->GetContentSetting(primary_url, secondary_url, content_type);
 
-  base::Value result(base::Value::Type::DICTIONARY);
+  base::Value::Dict result;
   std::string setting_string =
       content_settings::ContentSettingToString(setting);
   DCHECK(!setting_string.empty());
-  result.SetStringKey(ContentSettingsStore::kContentSettingKey, setting_string);
+  result.Set(ContentSettingsStore::kContentSettingKey, setting_string);
 
-  return RespondNow(OneArgument(std::move(result)));
+  return RespondNow(WithArguments(std::move(result)));
 }
 
 ExtensionFunction::ResponseAction
@@ -188,6 +190,11 @@ ContentSettingsContentSettingSetFunction::Run() {
   std::unique_ptr<Set::Params> params(Set::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
+  if (content_type == ContentSettingsType::DEPRECATED_PPAPI_BROKER) {
+    NOTREACHED();
+    return RespondNow(Error(kUnknownErrorDoNotUse));
+  }
+
   std::string primary_error;
   ContentSettingsPattern primary_pattern =
       content_settings_helpers::ParseExtensionPattern(
@@ -196,7 +203,7 @@ ContentSettingsContentSettingSetFunction::Run() {
     return RespondNow(Error(primary_error));
 
   ContentSettingsPattern secondary_pattern = ContentSettingsPattern::Wildcard();
-  if (params->details.secondary_pattern.get()) {
+  if (params->details.secondary_pattern) {
     std::string secondary_error;
     secondary_pattern = content_settings_helpers::ParseExtensionPattern(
         *params->details.secondary_pattern, &secondary_error);
@@ -204,8 +211,8 @@ ContentSettingsContentSettingSetFunction::Run() {
       return RespondNow(Error(secondary_error));
   }
 
-  EXTENSION_FUNCTION_VALIDATE(params->details.setting->is_string());
-  std::string setting_str = params->details.setting->GetString();
+  EXTENSION_FUNCTION_VALIDATE(params->details.setting.is_string());
+  std::string setting_str = params->details.setting.GetString();
   ContentSetting setting;
   EXTENSION_FUNCTION_VALIDATE(
       content_settings::ContentSettingFromString(setting_str, &setting));
@@ -282,7 +289,7 @@ ContentSettingsContentSettingSetFunction::Run() {
     if (!browser_context()->IsOffTheRecord() &&
         !extensions::util::IsIncognitoEnabled(extension_id(),
                                               browser_context())) {
-      return RespondNow(Error(pref_keys::kIncognitoErrorMessage));
+      return RespondNow(Error(extension_misc::kIncognitoErrorMessage));
     }
   } else {
     // Incognito profiles can't access regular mode ever, they only exist in
@@ -293,7 +300,7 @@ ContentSettingsContentSettingSetFunction::Run() {
 
   if (scope == kExtensionPrefsScopeIncognitoSessionOnly &&
       !Profile::FromBrowserContext(browser_context())->HasPrimaryOTRProfile()) {
-    return RespondNow(Error(pref_keys::kIncognitoSessionOnlyErrorMessage));
+    return RespondNow(Error(extension_misc::kIncognitoSessionOnlyErrorMessage));
   }
 
   scoped_refptr<ContentSettingsStore> store =
@@ -302,7 +309,7 @@ ContentSettingsContentSettingSetFunction::Run() {
                                     secondary_pattern, content_type, setting,
                                     scope);
 
-  return RespondNow(NoArguments());
+  return RespondNow(WithArguments());
 }
 
 ExtensionFunction::ResponseAction
@@ -311,7 +318,7 @@ ContentSettingsContentSettingGetResourceIdentifiersFunction::Run() {
   // plugins have been deprecated since Chrome 87, there are no resource
   // identifiers for existing settings (but we retain the function for
   // backwards and potential forwards compatibility).
-  return RespondNow(NoArguments());
+  return RespondNow(WithArguments());
 }
 
 }  // namespace extensions

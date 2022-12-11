@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 
 namespace {
 
-base::WeakPtr<chromeos::PrintServersProvider> GetDevicePrintServersProvider() {
-  return chromeos::PrintServersProviderFactory::Get()->GetForDevice();
+base::WeakPtr<ash::PrintServersProvider> GetDevicePrintServersProvider() {
+  return ash::PrintServersProviderFactory::Get()->GetForDevice();
 }
 
 }  // namespace

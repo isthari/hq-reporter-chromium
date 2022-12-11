@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,8 @@
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/peerconnection/rtc_scoped_refptr_cross_thread_copier.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_std.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/webrtc/api/frame_transformer_interface.h"
 #include "third_party/webrtc/rtc_base/ref_counted_object.h"
@@ -30,7 +32,6 @@ class RTCEncodedAudioStreamTransformerDelegate
     : public webrtc::FrameTransformerInterface {
  public:
   RTCEncodedAudioStreamTransformerDelegate(
-      RTCEncodedAudioStreamTransformer* transformer,
       scoped_refptr<base::SingleThreadTaskRunner> realm_task_runner,
       scoped_refptr<RTCEncodedAudioStreamTransformer::Broker>
           transformer_broker)
@@ -149,7 +150,6 @@ RTCEncodedAudioStreamTransformer::RTCEncodedAudioStreamTransformer(
     : broker_(base::AdoptRef(new Broker(this))),
       delegate_(
           new rtc::RefCountedObject<RTCEncodedAudioStreamTransformerDelegate>(
-              this,
               std::move(realm_task_runner),
               broker_)) {}
 

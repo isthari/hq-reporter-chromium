@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,10 +17,10 @@
 #include "chrome/browser/ui/views/toolbar/reload_button.h"
 #include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_frame_toolbar_utils.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
-#include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/window_open_disposition_utils.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "ui/views/layout/box_layout.h"
@@ -159,7 +159,7 @@ WebAppNavigationButtonContainer::WebAppNavigationButtonContainer(
   views::BoxLayout& layout =
       *SetLayoutManager(std::make_unique<views::BoxLayout>(
           views::BoxLayout::Orientation::kHorizontal,
-          gfx::Insets(0, kWebAppFrameLeftMargin),
+          gfx::Insets::VH(0, kWebAppFrameLeftMargin),
           kPaddingBetweenNavigationButtons));
   // Right align to clip the leftmost items first when not enough space.
   layout.set_main_axis_alignment(views::BoxLayout::MainAxisAlignment::kEnd);

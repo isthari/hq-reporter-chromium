@@ -1,19 +1,23 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_UPDATER_TEST_INTEGRATION_TESTS_IMPL_H_
 #define CHROME_UPDATER_TEST_INTEGRATION_TESTS_IMPL_H_
 
+#include <set>
 #include <string>
 
 #include "base/callback_forward.h"
+#include "base/callback_helpers.h"
 #include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/memory/ref_counted.h"
+#include "base/values.h"
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+
+class GURL;
 
 namespace base {
 class CommandLine;
@@ -21,18 +25,27 @@ class Value;
 class Version;
 }  // namespace base
 
-class GURL;
-
 namespace updater {
-
 enum class UpdaterScope;
+}  // namespace updater
 
-namespace test {
+namespace updater::test {
 
 class ScopedServer;
 
-// Returns the path to the updater executable (in the build output directory).
+// Returns the path to the updater installer program (in the build output
+// directory). This is typically the updater setup, or the updater itself for
+// the platforms where a setup program is not provided.
 base::FilePath GetSetupExecutablePath();
+
+// Returns the names for processes which may be running during unit tests.
+std::set<base::FilePath::StringType> GetTestProcessNames();
+
+// Ensures test processes are not running after the function is called.
+void CleanProcesses();
+
+// Verifies that test processes are not running.
+void ExpectCleanProcesses();
 
 // Prints the updater.log file to stdout.
 void PrintLog(UpdaterScope scope);
@@ -51,12 +64,22 @@ void ExpectClean(UpdaterScope scope);
 // CUP).
 void EnterTestMode(const GURL& url);
 
+// Takes the updater our of the test mode by deleting the external constants
+// JSON file.
+void ExitTestMode(UpdaterScope scope);
+
+// Sets the external constants for group policies.
+void SetGroupPolicies(const base::Value::Dict& values);
+
 // Copies the logs to a location where they can be retrieved by ResultDB.
 void CopyLog(const base::FilePath& src_dir);
 
-// Waits for a given predicate to become true, testing it by polling. Returns
-// true if the predicate becomes true before a timeout, otherwise returns false.
-bool WaitFor(base::RepeatingCallback<bool()> predicate);
+// Waits for a given `predicate` to become true. Invokes `still_waiting`
+// periodically to provide a indication of progress. Returns true if the
+// predicate becomes true before a timeout, otherwise returns false.
+[[nodiscard]] bool WaitFor(
+    base::RepeatingCallback<bool()> predicate,
+    base::RepeatingClosure still_waiting = base::DoNothing());
 
 // Returns the path to the updater data dir.
 absl::optional<base::FilePath> GetDataDirPath(UpdaterScope scope);
@@ -83,15 +106,26 @@ void Uninstall(UpdaterScope scope);
 // `exit_code`. The server should exit a few seconds after.
 void RunWake(UpdaterScope scope, int exit_code);
 
+// Runs the wake-all client and wait for it to exit. Assert that it exits with
+// kErrorOk. The server should exit a few seconds after.
+void RunWakeAll(UpdaterScope scope);
+
 // As RunWake, but runs the wake client for whatever version of the server is
 // active, rather than kUpdaterVersion.
 void RunWakeActive(UpdaterScope scope, int exit_code);
 
 // Invokes the active instance's UpdateService::Update (via RPC) for an app.
-void Update(UpdaterScope scope, const std::string& app_id);
+void Update(UpdaterScope scope,
+            const std::string& app_id,
+            const std::string& install_data_index);
 
 // Invokes the active instance's UpdateService::UpdateAll (via RPC).
 void UpdateAll(UpdaterScope scope);
+
+// Deletes the updater executable directory. Does not do any kind of cleanup
+// related to service registration. The intent of this command is to replicate
+// a common mode of breaking the updater, so we can test how it recovers.
+void DeleteUpdaterDirectory(UpdaterScope scope);
 
 // Runs the command and waits for it to exit or time out.
 bool Run(UpdaterScope scope, base::CommandLine command_line, int* exit_code);
@@ -140,8 +174,15 @@ void SetExistenceCheckerPath(UpdaterScope scope,
 
 void SetServerStarts(UpdaterScope scope, int value);
 
-void ExpectAppUnregisteredExistenceCheckerPath(UpdaterScope scope,
-                                               const std::string& app_id);
+// Writes lots of data into the log file.
+void FillLog(UpdaterScope scope);
+
+// Confirms that an old log file exists and that the current log file is small.
+void ExpectLogRotated(UpdaterScope scope);
+
+void ExpectRegistered(UpdaterScope scope, const std::string& app_id);
+
+void ExpectNotRegistered(UpdaterScope scope, const std::string& app_id);
 
 void ExpectAppVersion(UpdaterScope scope,
                       const std::string& app_id,
@@ -149,23 +190,29 @@ void ExpectAppVersion(UpdaterScope scope,
 
 void RegisterApp(UpdaterScope scope, const std::string& app_id);
 
-void WaitForUpdaterExit(UpdaterScope scope);
+[[nodiscard]] bool WaitForUpdaterExit(UpdaterScope scope);
 
 #if BUILDFLAG(IS_WIN)
 void ExpectInterfacesRegistered(UpdaterScope scope);
+void ExpectMarshalInterfaceSucceeds(UpdaterScope scope);
 void ExpectLegacyUpdate3WebSucceeds(UpdaterScope scope,
                                     const std::string& app_id,
                                     int expected_final_state,
                                     int expected_error_code);
 void ExpectLegacyProcessLauncherSucceeds(UpdaterScope scope);
+void ExpectLegacyAppCommandWebSucceeds(UpdaterScope scope,
+                                       const std::string& app_id,
+                                       const std::string& command_id,
+                                       const base::Value::List& parameters,
+                                       int expected_exit_code);
+void ExpectLegacyPolicyStatusSucceeds(UpdaterScope scope);
 void RunTestServiceCommand(const std::string& sub_command);
 
 // Calls a function defined in test/service/win/rpc_client.py.
 // Entries of the `arguments` dictionary should be the function's parameter
 // name/value pairs.
-void InvokeTestServiceFunction(
-    const std::string& function_name,
-    const base::flat_map<std::string, base::Value>& arguments);
+void InvokeTestServiceFunction(const std::string& function_name,
+                               const base::Value::Dict& arguments);
 
 void RunUninstallCmdLine(UpdaterScope scope);
 #endif  // BUILDFLAG(IS_WIN)
@@ -183,6 +230,7 @@ void ExpectSelfUpdateSequence(UpdaterScope scope, ScopedServer* test_server);
 void ExpectUpdateSequence(UpdaterScope scope,
                           ScopedServer* test_server,
                           const std::string& app_id,
+                          const std::string& install_data_index,
                           const base::Version& from_version,
                           const base::Version& to_version);
 
@@ -190,16 +238,28 @@ void StressUpdateService(UpdaterScope scope);
 
 void CallServiceUpdate(UpdaterScope updater_scope,
                        const std::string& app_id,
+                       const std::string& install_data_index,
                        bool same_version_update_allowed);
 
 void SetupFakeLegacyUpdaterData(UpdaterScope scope);
 void ExpectLegacyUpdaterDataMigrated(UpdaterScope scope);
 
+void RunRecoveryComponent(UpdaterScope scope,
+                          const std::string& app_id,
+                          const base::Version& version);
+
 void ExpectLastChecked(UpdaterScope scope);
 
 void ExpectLastStarted(UpdaterScope scope);
 
-}  // namespace test
-}  // namespace updater
+void InstallApp(UpdaterScope scope, const std::string& app_id);
+
+void UninstallApp(UpdaterScope scope, const std::string& app_id);
+
+void RunOfflineInstall(UpdaterScope scope,
+                       bool is_legacy_install,
+                       bool is_silent_install);
+
+}  // namespace updater::test
 
 #endif  // CHROME_UPDATER_TEST_INTEGRATION_TESTS_IMPL_H_

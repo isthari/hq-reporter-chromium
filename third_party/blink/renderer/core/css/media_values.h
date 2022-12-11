@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom-shared.h"
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/css/css_length_resolver.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/text/writing_mode.h"
@@ -19,8 +20,9 @@
 
 namespace blink {
 
-class Document;
 class CSSPrimitiveValue;
+class Document;
+class Element;
 class LocalFrame;
 enum class CSSValueID;
 enum class ColorSpaceGamut;
@@ -29,10 +31,13 @@ enum class NavigationControls;
 
 mojom::blink::PreferredColorScheme CSSValueIDToPreferredColorScheme(
     CSSValueID id);
+mojom::blink::PreferredContrast CSSValueIDToPreferredContrast(CSSValueID);
 ForcedColors CSSValueIDToForcedColors(CSSValueID id);
 
-class CORE_EXPORT MediaValues : public GarbageCollected<MediaValues> {
+class CORE_EXPORT MediaValues : public GarbageCollected<MediaValues>,
+                                public CSSLengthResolver {
  public:
+  MediaValues() : CSSLengthResolver(1.0f /* zoom */) {}
   virtual ~MediaValues() = default;
   virtual void Trace(Visitor* visitor) const {}
 
@@ -82,21 +87,24 @@ class CORE_EXPORT MediaValues : public GarbageCollected<MediaValues> {
   virtual int GetHorizontalViewportSegments() const = 0;
   virtual int GetVerticalViewportSegments() const = 0;
   virtual device::mojom::blink::DevicePostureType GetDevicePosture() const = 0;
+  // Returns the container element used to retrieve base style and parent style
+  // when computing the computed value of a style() container query.
+  virtual Element* ContainerElement() const { return nullptr; }
 
  protected:
-  virtual double ViewportWidth() const = 0;
-  virtual double ViewportHeight() const = 0;
-  virtual float EmSize() const = 0;
-  virtual float RemSize() const = 0;
-  virtual float ExSize() const = 0;
-  virtual float ChSize() const = 0;
-  virtual WritingMode GetWritingMode() const = 0;
-
   static double CalculateViewportWidth(LocalFrame*);
   static double CalculateViewportHeight(LocalFrame*);
+  static double CalculateSmallViewportWidth(LocalFrame*);
+  static double CalculateSmallViewportHeight(LocalFrame*);
+  static double CalculateLargeViewportWidth(LocalFrame*);
+  static double CalculateLargeViewportHeight(LocalFrame*);
+  static double CalculateDynamicViewportWidth(LocalFrame*);
+  static double CalculateDynamicViewportHeight(LocalFrame*);
   static float CalculateEmSize(LocalFrame*);
   static float CalculateExSize(LocalFrame*);
   static float CalculateChSize(LocalFrame*);
+  static float CalculateIcSize(LocalFrame*);
+  static float CalculateLineHeight(LocalFrame*);
   static int CalculateDeviceWidth(LocalFrame*);
   static int CalculateDeviceHeight(LocalFrame*);
   static bool CalculateStrictMode(LocalFrame*);

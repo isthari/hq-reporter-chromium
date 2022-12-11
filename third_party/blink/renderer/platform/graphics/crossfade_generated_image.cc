@@ -25,7 +25,6 @@
 
 #include "third_party/blink/renderer/platform/graphics/crossfade_generated_image.h"
 
-#include "third_party/blink/renderer/platform/graphics/dark_mode_filter_helper.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_canvas.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -103,7 +102,7 @@ void CrossfadeGeneratedImage::DrawTile(GraphicsContext& context,
   gfx::RectF dest_rect(size_);
   ImageDrawOptions draw_options(options);
   draw_options.sampling_options =
-      context.ComputeSamplingOptions(this, dest_rect, src_rect);
+      context.ComputeSamplingOptions(*this, dest_rect, src_rect);
   DrawCrossfade(context.Canvas(), flags, draw_options);
 }
 

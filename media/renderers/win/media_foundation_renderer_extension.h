@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/callback.h"
 #include "base/win/scoped_handle.h"
 #include "media/base/media_export.h"
+#include "media/renderers/win/media_foundation_rendering_mode.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace media {
@@ -35,6 +36,17 @@ class MEDIA_EXPORT MediaFoundationRendererExtension {
   using SetOutputRectCB = base::OnceCallback<void(bool)>;
   virtual void SetOutputRect(const ::gfx::Rect& rect,
                              SetOutputRectCB callback) = 0;
+
+  // Notify that the frame has been displayed and can be reused.
+  virtual void NotifyFrameReleased(
+      const base::UnguessableToken& frame_token) = 0;
+
+  // Request a new frame to be provided to the client.
+  virtual void RequestNextFrame() = 0;
+
+  // Change which mode we are using for video frame rendering.
+  virtual void SetMediaFoundationRenderingMode(
+      MediaFoundationRenderingMode mode) = 0;
 };
 
 }  // namespace media

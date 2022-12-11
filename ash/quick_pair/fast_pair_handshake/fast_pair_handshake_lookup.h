@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,6 +51,9 @@ class FastPairHandshakeLookup {
 
   // Erases the FastPairHandshake instance for |device| if exists.
   bool Erase(scoped_refptr<Device> device);
+
+  // Erases the FastPairHandshake instance for |address| if exists.
+  bool Erase(const std::string& address);
 
   // Deletes all existing FastPairHandshake instances.
   void Clear();

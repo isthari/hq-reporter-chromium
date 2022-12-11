@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,9 @@
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/notreached.h"
 #include "base/scoped_multi_source_observation.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chromeos/ui/frame/default_frame_header.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/vector_icons/vector_icons.h"
@@ -43,6 +45,7 @@
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/layout/flex_layout_types.h"
 #include "ui/views/layout/layout_provider.h"
+#include "ui/views/view.h"
 #include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
 
@@ -139,7 +142,6 @@ ArcSplashScreenDialogView::ArcSplashScreenDialogView(
     views::View* anchor,
     bool is_for_unresizable)
     : anchor_(anchor), close_callback_(std::move(close_callback)) {
-  const auto background_color = GetDialogBackgroundBaseColor();
   // Setup delegate.
   SetArrow(views::BubbleBorder::Arrow::BOTTOM_CENTER);
   SetButtons(ui::DIALOG_BUTTON_NONE);
@@ -150,7 +152,10 @@ ArcSplashScreenDialogView::ArcSplashScreenDialogView(
   SetTitle(l10n_util::GetStringUTF16(IDS_ARC_COMPAT_MODE_SPLASH_SCREEN_TITLE));
   SetShowTitle(false);
   SetAccessibleRole(ax::mojom::Role::kDialog);
-  set_color(background_color);
+  // For handling the case when Esc key is pressed.
+  SetCancelCallback(
+      base::BindOnce(&ArcSplashScreenDialogView::OnCloseButtonClicked,
+                     weak_ptr_factory_.GetWeakPtr()));
   set_adjust_if_offscreen(false);
   set_close_on_deactivate(false);
 
@@ -159,7 +164,7 @@ ArcSplashScreenDialogView::ArcSplashScreenDialogView(
       ->SetOrientation(views::LayoutOrientation::kVertical)
       .SetMainAxisAlignment(views::LayoutAlignment::kCenter)
       .SetCrossAxisAlignment(views::LayoutAlignment::kCenter)
-      .SetInteriorMargin(gfx::Insets(20, 24, 24, 24))
+      .SetInteriorMargin(gfx::Insets::TLBR(20, 24, 24, 24))
       .SetDefault(
           views::kFlexBehaviorKey,
           views::FlexSpecification(views::MinimumFlexSizeRule::kPreferred,
@@ -167,13 +172,11 @@ ArcSplashScreenDialogView::ArcSplashScreenDialogView(
                                    /*adjust_height_for_width=*/true));
 
   constexpr gfx::Size kLogoImageSize(152, 126);
-  AddChildView(
-      views::Builder<views::ImageView>()  // Logo
-          .SetImage(gfx::ImageSkiaOperations::ExtractSubset(
-              gfx::CreateVectorIcon(kCompatModeSplashscreenIcon,
-                                    kLogoImageSize.width(), background_color),
-              gfx::Rect(kLogoImageSize)))
-          .Build());
+  AddChildView(views::Builder<views::ImageView>()  // Logo
+                   .SetImage(ui::ImageModel::FromVectorIcon(
+                       kCompatModeSplashscreenIcon, background_color_id_,
+                       kLogoImageSize.width()))
+                   .Build());
   AddChildView(views::Builder<views::Label>()  // Header
                    .SetText(l10n_util::GetStringUTF16(
                        IDS_ARC_COMPAT_MODE_SPLASH_SCREEN_TITLE))
@@ -181,7 +184,7 @@ ArcSplashScreenDialogView::ArcSplashScreenDialogView(
                    .SetHorizontalAlignment(gfx::ALIGN_CENTER)
                    .SetAllowCharacterBreak(true)
                    .SetMultiLine(true)
-                   .SetProperty(views::kMarginsKey, gfx::Insets(8, 0))
+                   .SetProperty(views::kMarginsKey, gfx::Insets::VH(8, 0))
                    .Build());
   AddChildView(
       views::Builder<views::Label>()  // Body
@@ -196,22 +199,27 @@ ArcSplashScreenDialogView::ArcSplashScreenDialogView(
           .SetHorizontalAlignment(gfx::ALIGN_CENTER)
           .SetMultiLine(true)
           .Build());
-  AddChildView(views::Builder<views::MdTextButton>()  // Close button
-                   .CopyAddressTo(&close_button_)
-                   .SetCallback(base::BindRepeating(
-                       &ArcSplashScreenDialogView::OnCloseButtonClicked,
-                       base::Unretained(this)))
-                   .SetText(l10n_util::GetStringUTF16(
-                       IDS_ARC_COMPAT_MODE_SPLASH_SCREEN_CLOSE))
-                   .SetCornerRadius(16)
-                   .SetProminent(true)
-                   .SetIsDefault(true)
-                   .SetProperty(views::kMarginsKey, gfx::Insets(20, 0, 0, 0))
-                   .Build());
+  AddChildView(
+      views::Builder<views::MdTextButton>()  // Close button
+          .CopyAddressTo(&close_button_)
+          .SetCallback(base::BindRepeating(
+              &ArcSplashScreenDialogView::OnCloseButtonClicked,
+              base::Unretained(this)))
+          .SetText(l10n_util::GetStringUTF16(
+              IDS_ARC_COMPAT_MODE_SPLASH_SCREEN_CLOSE))
+          .SetCornerRadius(16)
+          .SetProminent(true)
+          .SetIsDefault(true)
+          .SetProperty(views::kMarginsKey, gfx::Insets::TLBR(20, 0, 0, 0))
+          .Build());
 
   // Setup highlight border.
   highlight_border_ =
       anchor_->AddChildView(std::make_unique<HighlightBorder>());
+
+  // Observe anchor and its highlight to be notified when it's destroyed.
+  anchor_highlight_observations_.AddObservation(anchor_);
+  anchor_highlight_observations_.AddObservation(highlight_border_);
 
   // Add window observer.
   window_observer_ = std::make_unique<ArcSplashScreenWindowObserver>(
@@ -245,6 +253,22 @@ void ArcSplashScreenDialogView::AddedToWidget() {
     frame->SetCornerRadius(kCornerRadius);
 }
 
+void ArcSplashScreenDialogView::OnThemeChanged() {
+  views::BubbleDialogDelegateView::OnThemeChanged();
+  set_color(GetColorProvider()->GetColor(background_color_id_));
+}
+
+void ArcSplashScreenDialogView::OnViewIsDeleting(View* observed_view) {
+  if (observed_view == anchor_)
+    anchor_ = nullptr;
+  else if (observed_view == highlight_border_)
+    highlight_border_ = nullptr;
+  else
+    NOTREACHED();
+
+  anchor_highlight_observations_.RemoveObservation(observed_view);
+}
+
 void ArcSplashScreenDialogView::OnWindowActivated(ActivationReason reason,
                                                   aura::Window* gained_active,
                                                   aura::Window* lost_active) {
@@ -258,7 +282,7 @@ void ArcSplashScreenDialogView::OnWindowActivated(ActivationReason reason,
   forwarding_activation_ = true;
   // Forward the activation to the dialog if available.
   // To avoid nested-activation, here we post the task to the queue.
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(
                      [](base::WeakPtr<ArcSplashScreenDialogView> view) {
                        if (!view)
@@ -280,11 +304,14 @@ void ArcSplashScreenDialogView::OnCloseButtonClicked() {
   if (!close_callback_)
     return;
 
-  anchor_->RemoveChildViewT(highlight_border_);
+  if (anchor_ && highlight_border_)
+    anchor_->RemoveChildViewT(highlight_border_);
 
   std::move(close_callback_).Run();
-  GetWidget()->CloseWithReason(
-      views::Widget::ClosedReason::kCloseButtonClicked);
+
+  auto* const widget = GetWidget();
+  if (widget)
+    widget->CloseWithReason(views::Widget::ClosedReason::kCloseButtonClicked);
 }
 
 void ArcSplashScreenDialogView::Show(aura::Window* parent,
@@ -307,7 +334,7 @@ void ArcSplashScreenDialogView::Show(aura::Window* parent,
   OverlayDialog::Show(
       parent,
       base::BindOnce(&ArcSplashScreenDialogView::OnCloseButtonClicked,
-                     base::Unretained(dialog_view.get())),
+                     dialog_view->weak_ptr_factory_.GetWeakPtr()),
       /*dialog_view=*/nullptr);
 
   // TODO(b/206336651): Investigate the cases when the following check fails.

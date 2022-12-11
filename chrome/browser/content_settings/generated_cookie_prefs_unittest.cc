@@ -1,8 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/content_settings/generated_cookie_prefs.h"
+
+#include "base/ranges/algorithm.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/api/settings_private/generated_pref.h"
 #include "chrome/browser/extensions/api/settings_private/generated_pref_test_base.h"
@@ -331,18 +333,12 @@ void ValidateManagedPreference(
   if (pref->user_selectable_values) {
     for (const auto& value : *pref->user_selectable_values) {
       pref_user_selectable_values.push_back(
-          static_cast<CookiePrimarySetting>(value->GetInt()));
+          static_cast<CookiePrimarySetting>(value.GetInt()));
     }
   }
-  EXPECT_EQ(pref_user_selectable_values.size(),
-            test_case.expected_user_selectable_values.size());
 
-  // Avoid crashing the test if the previous check fails.
-  if (pref_user_selectable_values.size() ==
-      test_case.expected_user_selectable_values.size())
-    EXPECT_TRUE(std::equal(pref_user_selectable_values.begin(),
-                           pref_user_selectable_values.end(),
-                           test_case.expected_user_selectable_values.begin()));
+  EXPECT_TRUE(base::ranges::equal(pref_user_selectable_values,
+                                  test_case.expected_user_selectable_values));
 }
 
 }  // namespace

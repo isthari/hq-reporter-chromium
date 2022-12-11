@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -131,7 +131,7 @@ class SupervisedUserNavigationObserver
       int frame_id,
       const OnInterstitialResultCallback& callback);
 
-  // Filters the render frame host if render frame is live.
+  // Filters the RenderFrameHost if render frame is live.
   void FilterRenderFrame(content::RenderFrameHost* render_frame_host);
 
   // supervised_user::mojom::SupervisedUserCommands implementation. Should not

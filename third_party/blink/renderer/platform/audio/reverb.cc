@@ -117,7 +117,7 @@ void Reverb::Initialize(AudioBus* impulse_response_buffer,
   // The reverb can handle a mono impulse response and still do stereo
   // processing.
   unsigned num_convolvers = std::max(number_of_response_channels_, 2u);
-  convolvers_.ReserveCapacity(num_convolvers);
+  convolvers_.reserve(num_convolvers);
 
   int convolver_render_phase = 0;
   for (unsigned i = 0; i < num_convolvers; ++i) {
@@ -273,13 +273,13 @@ void Reverb::Process(const AudioBus* source_bus,
 }
 
 void Reverb::Reset() {
-  for (wtf_size_t i = 0; i < convolvers_.size(); ++i) {
-    convolvers_[i]->Reset();
+  for (auto& convolver : convolvers_) {
+    convolver->Reset();
   }
 }
 
 size_t Reverb::LatencyFrames() const {
-  return !convolvers_.IsEmpty() ? convolvers_.front()->LatencyFrames() : 0;
+  return !convolvers_.empty() ? convolvers_.front()->LatencyFrames() : 0;
 }
 
 }  // namespace blink

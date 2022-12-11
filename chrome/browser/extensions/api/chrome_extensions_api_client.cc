@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/files/file_path.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/api/automation_internal/chrome_automation_internal_api_delegate.h"
@@ -21,6 +20,7 @@
 #include "chrome/browser/extensions/api/extension_action/extension_action_api.h"
 #include "chrome/browser/extensions/api/feedback_private/chrome_feedback_private_delegate.h"
 #include "chrome/browser/extensions/api/file_system/chrome_file_system_delegate.h"
+#include "chrome/browser/extensions/api/file_system/consent_provider_impl.h"
 #include "chrome/browser/extensions/api/management/chrome_management_api_delegate.h"
 #include "chrome/browser/extensions/api/messaging/chrome_messaging_delegate.h"
 #include "chrome/browser/extensions/api/metrics_private/chrome_metrics_private_delegate.h"
@@ -67,11 +67,19 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/extensions/api/file_handlers/non_native_file_system_delegate_chromeos.h"
+#include "chrome/browser/extensions/api/file_system/chrome_file_system_delegate_ash.h"
 #include "chrome/browser/extensions/api/media_perception_private/media_perception_api_delegate_chromeos.h"
 #include "chrome/browser/extensions/api/virtual_keyboard_private/chrome_virtual_keyboard_delegate.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chrome/browser/extensions/api/file_system/chrome_file_system_delegate_lacros.h"
+#include "chrome/browser/extensions/api/virtual_keyboard_private/lacros_virtual_keyboard_delegate.h"
+#include "chromeos/crosapi/mojom/device_settings_service.mojom.h"
+#include "chromeos/startup/browser_params_proxy.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS)
 #include "chrome/browser/extensions/clipboard_extension_helper_chromeos.h"
 #endif
 
@@ -99,23 +107,22 @@ ChromeExtensionsAPIClient::~ChromeExtensionsAPIClient() {}
 void ChromeExtensionsAPIClient::AddAdditionalValueStoreCaches(
     content::BrowserContext* context,
     const scoped_refptr<value_store::ValueStoreFactory>& factory,
-    const scoped_refptr<base::ObserverListThreadSafe<SettingsObserver>>&
-        observers,
+    SettingsChangedCallback observer,
     std::map<settings_namespace::Namespace, ValueStoreCache*>* caches) {
   // Add support for chrome.storage.sync.
   (*caches)[settings_namespace::SYNC] =
-      new SyncValueStoreCache(factory, observers, context->GetPath());
+      new SyncValueStoreCache(factory, observer, context->GetPath());
 
   // Add support for chrome.storage.managed.
-  (*caches)[settings_namespace::MANAGED] =
-      new ManagedValueStoreCache(context, factory, observers);
+  (*caches)[settings_namespace::MANAGED] = new ManagedValueStoreCache(
+      *Profile::FromBrowserContext(context), factory, observer);
 }
 
 void ChromeExtensionsAPIClient::AttachWebContentsHelpers(
     content::WebContents* web_contents) const {
   favicon::CreateContentFaviconDriverForWebContents(web_contents);
 #if BUILDFLAG(ENABLE_PRINTING)
-  printing::InitializePrinting(web_contents);
+  printing::InitializePrintingForWebContents(web_contents);
 #endif
 #if BUILDFLAG(ENABLE_PDF)
   pdf::PDFWebContentsHelper::CreateForWebContentsWithClient(
@@ -165,7 +172,9 @@ bool ChromeExtensionsAPIClient::ShouldHideBrowserNetworkRequest(
 
   // Hide requests made by the NTP Instant renderer.
   auto* instant_service =
-      InstantServiceFactory::GetForProfile(static_cast<Profile*>(context));
+      context
+          ? InstantServiceFactory::GetForProfile(static_cast<Profile*>(context))
+          : nullptr;
   if (instant_service) {
     is_sensitive_request |=
         instant_service->IsInstantProcess(request.render_process_id);
@@ -186,10 +195,10 @@ void ChromeExtensionsAPIClient::NotifyWebRequestWithheld(
       content::RenderFrameHost::FromID(render_process_id, render_frame_id);
   if (!rfh)
     return;
-  // We don't count subframe blocked actions as yet, since there's no way to
-  // surface this to the user. Ignore these (which is also what we do for
-  // content scripts).
-  if (rfh->GetParent())
+  // We don't count subframes and prerendering blocked actions as yet, since
+  // there's no way to surface this to the user. Ignore these (which is also
+  // what we do for content scripts).
+  if (!rfh->IsInPrimaryMainFrame())
     return;
   content::WebContents* web_contents =
       content::WebContents::FromRenderFrameHost(rfh);
@@ -310,6 +319,18 @@ ChromeExtensionsAPIClient::CreateWebViewPermissionHelperDelegate(
   return new ChromeWebViewPermissionHelperDelegate(web_view_permission_helper);
 }
 
+#if BUILDFLAG(IS_CHROMEOS)
+std::unique_ptr<ConsentProvider>
+ChromeExtensionsAPIClient::CreateConsentProvider(
+    content::BrowserContext* browser_context) const {
+  auto consent_provider_delegate =
+      std::make_unique<file_system_api::ConsentProviderDelegate>(
+          Profile::FromBrowserContext(browser_context));
+  return std::make_unique<file_system_api::ConsentProviderImpl>(
+      std::move(consent_provider_delegate));
+}
+#endif  // BUILDFLAG(IS_CHROMEOS)
+
 scoped_refptr<ContentRulesRegistry>
 ChromeExtensionsAPIClient::CreateContentRulesRegistry(
     content::BrowserContext* browser_context,
@@ -326,16 +347,14 @@ ChromeExtensionsAPIClient::CreateDevicePermissionsPrompt(
   return std::make_unique<ChromeDevicePermissionsPrompt>(web_contents);
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 bool ChromeExtensionsAPIClient::ShouldAllowDetachingUsb(int vid,
                                                         int pid) const {
-  // TOOD(huangs): Figure out how to do the following in Lacros, which does not
-  // have access to ash::CrosSettings (https://crbug.com/1219329).
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  const base::ListValue* policy_list;
+  const base::Value::List* policy_list;
   if (ash::CrosSettings::Get()->GetList(ash::kUsbDetachableAllowlist,
                                         &policy_list)) {
-    for (const auto& entry : policy_list->GetList()) {
+    for (const auto& entry : *policy_list) {
       if (entry.FindIntKey(ash::kUsbDetachableAllowlistKeyVid) == vid &&
           entry.FindIntKey(ash::kUsbDetachableAllowlistKeyPid) == pid) {
         return true;
@@ -343,15 +362,30 @@ bool ChromeExtensionsAPIClient::ShouldAllowDetachingUsb(int vid,
     }
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  const crosapi::mojom::DeviceSettings* device_settings =
+      chromeos::BrowserParamsProxy::Get()->DeviceSettings().get();
+  if (device_settings && device_settings->usb_detachable_allow_list) {
+    for (const auto& entry :
+         device_settings->usb_detachable_allow_list->usb_device_ids) {
+      if (entry->has_vendor_id && entry->vendor_id == vid &&
+          entry->has_product_id && entry->product_id == pid) {
+        return true;
+      }
+    }
+  }
+#endif
   return false;
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 std::unique_ptr<VirtualKeyboardDelegate>
 ChromeExtensionsAPIClient::CreateVirtualKeyboardDelegate(
     content::BrowserContext* browser_context) const {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   return std::make_unique<ChromeVirtualKeyboardDelegate>(browser_context);
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  return std::make_unique<LacrosVirtualKeyboardDelegate>();
 #else
   return nullptr;
 #endif
@@ -384,8 +418,15 @@ MetricsPrivateDelegate* ChromeExtensionsAPIClient::GetMetricsPrivateDelegate() {
 }
 
 FileSystemDelegate* ChromeExtensionsAPIClient::GetFileSystemDelegate() {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  using ChromeFileSystemDelegate_Use = ChromeFileSystemDelegateAsh;
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  using ChromeFileSystemDelegate_Use = ChromeFileSystemDelegateLacros;
+#else
+  using ChromeFileSystemDelegate_Use = ChromeFileSystemDelegate;
+#endif
   if (!file_system_delegate_)
-    file_system_delegate_ = std::make_unique<ChromeFileSystemDelegate>();
+    file_system_delegate_ = std::make_unique<ChromeFileSystemDelegate_Use>();
   return file_system_delegate_.get();
 }
 
@@ -424,7 +465,7 @@ ChromeExtensionsAPIClient::GetNonNativeFileSystemDelegate() {
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 void ChromeExtensionsAPIClient::SaveImageDataToClipboard(
     std::vector<uint8_t> image_data,
     api::clipboard::ImageType type,
@@ -437,7 +478,7 @@ void ChromeExtensionsAPIClient::SaveImageDataToClipboard(
       std::move(image_data), type, std::move(additional_items),
       std::move(success_callback), std::move(error_callback));
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 AutomationInternalApiDelegate*
 ChromeExtensionsAPIClient::GetAutomationInternalApiDelegate() {

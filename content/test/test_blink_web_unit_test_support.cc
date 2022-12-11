@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,6 +42,7 @@
 #include "third_party/blink/public/platform/web_url_loader_factory.h"
 #include "third_party/blink/public/strings/grit/blink_strings.h"
 #include "third_party/blink/public/web/blink.h"
+#include "tools/v8_context_snapshot/buildflags.h"
 #include "v8/include/v8.h"
 
 #if BUILDFLAG(IS_MAC)
@@ -91,7 +92,7 @@ class DummyTaskRunner : public base::SingleThreadTaskRunner {
 };
 
 #if defined(V8_USE_EXTERNAL_STARTUP_DATA)
-#if defined(USE_V8_CONTEXT_SNAPSHOT)
+#if BUILDFLAG(USE_V8_CONTEXT_SNAPSHOT)
 constexpr gin::V8SnapshotFileType kSnapshotType =
     gin::V8SnapshotFileType::kWithAdditionalContext;
 #else
@@ -116,12 +117,14 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport(
   gin::V8Initializer::LoadV8Snapshot(kSnapshotType);
 #endif
 
-  // Test shell always exposes the GC.
-  std::string v8_flags("--expose-gc");
+  // Test shell always exposes the GC, and some tests need to modify flags so do
+  // not freeze them on initialization.
+  std::string v8_flags("--expose-gc --no-freeze-flags-after-init");
 
   blink::Platform::InitializeBlink();
   scoped_refptr<base::SingleThreadTaskRunner> dummy_task_runner;
-  std::unique_ptr<base::ThreadTaskRunnerHandle> dummy_task_runner_handle;
+  std::unique_ptr<base::SingleThreadTaskRunner::CurrentDefaultHandle>
+      dummy_task_runner_handle;
   if (scheduler_type == SchedulerType::kMockScheduler) {
     main_thread_scheduler_ =
         blink::scheduler::CreateWebMainThreadSchedulerForTests();
@@ -134,7 +137,8 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport(
     // TestBlinkWebUnitTestSupport would introduce a conflict.
     dummy_task_runner = base::MakeRefCounted<base::NullTaskRunner>();
     dummy_task_runner_handle =
-        std::make_unique<base::ThreadTaskRunnerHandle>(dummy_task_runner);
+        std::make_unique<base::SingleThreadTaskRunner::CurrentDefaultHandle>(
+            dummy_task_runner);
     // Force V8 to run single threaded.
     v8_flags += " --single-threaded";
   } else {
@@ -151,6 +155,10 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport(
 
   // Set V8 flags.
   v8::V8::SetFlagsFromString(v8_flags.c_str(), v8_flags.size());
+
+  // Makes Mojo calls to the browser. This is called inside
+  // blink::Initialize so it needs to be set first.
+  blink::WebRuntimeFeatures::EnableAndroidDownloadableFontsMatching(false);
 
   mojo::BinderMap binders;
   blink::Initialize(this, &binders, main_thread_scheduler_.get());
@@ -176,6 +184,10 @@ TestBlinkWebUnitTestSupport::~TestBlinkWebUnitTestSupport() {
 }
 
 blink::WebString TestBlinkWebUnitTestSupport::UserAgent() {
+  return blink::WebString::FromUTF8("test_runner/0.0.0.0");
+}
+
+blink::WebString TestBlinkWebUnitTestSupport::FullUserAgent() {
   return blink::WebString::FromUTF8("test_runner/0.0.0.0");
 }
 
@@ -257,29 +269,12 @@ bool TestBlinkWebUnitTestSupport::IsThreadedAnimationEnabled() {
   return threaded_animation_;
 }
 
-bool TestBlinkWebUnitTestSupport::IsUseZoomForDSFEnabled() {
-  return use_zoom_for_dsf_;
-}
-
-cc::TaskGraphRunner* TestBlinkWebUnitTestSupport::GetTaskGraphRunner() {
-  return &test_task_graph_runner_;
-}
-
 // static
 bool TestBlinkWebUnitTestSupport::SetThreadedAnimationEnabled(bool enabled) {
   DCHECK(g_test_platform)
       << "Not using TestBlinkWebUnitTestSupport as blink::Platform";
   bool old = g_test_platform->threaded_animation_;
   g_test_platform->threaded_animation_ = enabled;
-  return old;
-}
-
-// static
-bool TestBlinkWebUnitTestSupport::SetUseZoomForDsfEnabled(bool enabled) {
-  DCHECK(g_test_platform)
-      << "Not using TestBlinkWebUnitTestSupport as blink::Platform";
-  bool old = g_test_platform->use_zoom_for_dsf_;
-  g_test_platform->use_zoom_for_dsf_ = enabled;
   return old;
 }
 

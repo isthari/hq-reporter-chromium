@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,11 +24,10 @@ class GL_EXPORT GLImageEGL : public GLImage {
 
   // Overridden from GLImage:
   gfx::Size GetSize() override;
+  void* GetEGLImage() const override;
   BindOrCopy ShouldBindOrCopy() override;
   bool BindTexImage(unsigned target) override;
   void ReleaseTexImage(unsigned target) override {}
-
-  void* egl_image() const { return egl_image_; }
 
  protected:
   ~GLImageEGL() override;
@@ -47,7 +46,7 @@ class GL_EXPORT GLImageEGL : public GLImage {
                   void* buffer /* EGLClientBuffer */,
                   const EGLint* attrs);
 
-  raw_ptr<void> egl_image_ /* EGLImageKHR */;
+  raw_ptr<void, DanglingUntriaged> egl_image_ /* EGLImageKHR */;
   const gfx::Size size_;
   base::ThreadChecker thread_checker_;
 };

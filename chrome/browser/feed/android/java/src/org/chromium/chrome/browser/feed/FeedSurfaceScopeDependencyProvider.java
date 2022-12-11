@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,8 @@ import org.chromium.chrome.browser.xsurface.SurfaceScopeDependencyProvider;
 /**
  * Provides activity, darkmode and logging context for a single surface.
  */
-class FeedSurfaceScopeDependencyProvider implements SurfaceScopeDependencyProvider, ScrollListener {
+public class FeedSurfaceScopeDependencyProvider
+        implements SurfaceScopeDependencyProvider, ScrollListener {
     private static final String TAG = "Feed";
     private final Activity mActivity;
     private final Context mActivityContext;

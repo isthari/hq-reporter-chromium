@@ -1,11 +1,9 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/system/device_disabling_manager.h"
 
-#include "ash/components/settings/cros_settings_names.h"
-#include "ash/components/settings/cros_settings_provider.h"
 #include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -17,8 +15,10 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/ash/components/install_attributes/install_attributes.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
+#include "chromeos/ash/components/settings/cros_settings_provider.h"
 #include "chromeos/system/statistics_provider.h"
-#include "chromeos/tpm/install_attributes.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
@@ -128,20 +128,22 @@ void DeviceDisablingManager::CheckWhetherDeviceDisabledDuringOOBE(
   enrollment_domain_.clear();
   const std::string* maybe_enrollment_domain =
       g_browser_process->local_state()
-          ->GetDictionary(prefs::kServerBackedDeviceState)
-          ->FindStringKey(policy::kDeviceStateManagementDomain);
+          ->GetDict(prefs::kServerBackedDeviceState)
+          .FindString(policy::kDeviceStateManagementDomain);
   enrollment_domain_ =
       maybe_enrollment_domain ? *maybe_enrollment_domain : std::string();
 
   // Update the serial number.
-  serial_number_ = chromeos::system::StatisticsProvider::GetInstance()
-                       ->GetEnterpriseMachineID();
+  serial_number_ =
+      std::string(chromeos::system::StatisticsProvider::GetInstance()
+                      ->GetMachineID()
+                      .value_or(""));
 
   // Update the disabled message.
   const std::string* maybe_disabled_message =
       g_browser_process->local_state()
-          ->GetDictionary(prefs::kServerBackedDeviceState)
-          ->FindStringKey(policy::kDeviceStateDisabledMessage);
+          ->GetDict(prefs::kServerBackedDeviceState)
+          .FindString(policy::kDeviceStateDisabledMessage);
   std::string disabled_message =
       maybe_disabled_message ? *maybe_disabled_message : std::string();
   CacheDisabledMessageAndNotify(disabled_message);
@@ -238,8 +240,10 @@ void DeviceDisablingManager::UpdateFromCrosSettings() {
       browser_policy_connector_->GetEnterpriseEnrollmentDomain();
 
   // Cache the device serial number.
-  serial_number_ = chromeos::system::StatisticsProvider::GetInstance()
-                       ->GetEnterpriseMachineID();
+  serial_number_ =
+      std::string(chromeos::system::StatisticsProvider::GetInstance()
+                      ->GetMachineID()
+                      .value_or(""));
 
   // If no session or login is in progress, show the device disabled screen.
   delegate_->ShowDeviceDisabledScreen();

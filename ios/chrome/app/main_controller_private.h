@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,14 +14,6 @@
 class GURL;
 @protocol TabSwitcher;
 @class FirstRunAppAgent;
-
-// Private methods and protocols that are made visible here for tests.
-@interface MainController ()
-
-// YES if the last time the app was launched was with a previous version.
-@property(nonatomic, readonly) BOOL isFirstLaunchAfterUpgrade;
-
-@end
 
 // Methods that only exist for tests.
 @interface MainController (TestingOnly)

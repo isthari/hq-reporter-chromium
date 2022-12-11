@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -98,6 +98,10 @@ class TestDragDropClient : public aura::client::DragDropClient {
     drag_drop_data_ = std::move(data);
     return DragOperation::kCopy;
   }
+#if BUILDFLAG(IS_LINUX)
+  void UpdateDragImage(const gfx::ImageSkia& image,
+                       const gfx::Vector2d& offset) override {}
+#endif
   void DragCancel() override { drag_in_progress_ = false; }
   bool IsDragDropInProgress() override { return drag_in_progress_; }
   void AddObserver(aura::client::DragDropClientObserver* observer) override {}
@@ -244,8 +248,21 @@ TEST_F(WebContentsViewAuraTest, OccludeView) {
   EXPECT_EQ(web_contents()->GetVisibility(), Visibility::VISIBLE);
 }
 
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN)
-TEST_F(WebContentsViewAuraTest, DragDropFiles) {
+// TODO(crbug.com/1231509): Enable these tests on Fuchsia when
+// OSExchangeDataProviderFactory::CreateProvider is implemented.
+#if BUILDFLAG(IS_FUCHSIA)
+#define MAYBE_DragDropFiles DISABLED_DragDropFiles
+#define MAYBE_DragDropFilesOriginateFromRenderer \
+  DISABLED_DragDropFilesOriginateFromRenderer
+#define MAYBE_DragDropImageFromRenderer DISABLED_DragDropImageFromRenderer
+#else
+#define MAYBE_DragDropFiles DragDropFiles
+#define MAYBE_DragDropFilesOriginateFromRenderer \
+  DragDropFilesOriginateFromRenderer
+#define MAYBE_DragDropImageFromRenderer DragDropImageFromRenderer
+#endif
+
+TEST_F(WebContentsViewAuraTest, MAYBE_DragDropFiles) {
   WebContentsViewAura* view = GetView();
   auto data = std::make_unique<ui::OSExchangeData>();
 
@@ -316,7 +333,7 @@ TEST_F(WebContentsViewAuraTest, DragDropFiles) {
   auto drop_cb = view->GetDropCallback(event);
   ASSERT_TRUE(drop_cb);
   ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
-  std::move(drop_cb).Run(event, std::move(data), output_drag_op);
+  std::move(drop_cb).Run(std::move(data), output_drag_op);
   run_loop.Run();
 
   CheckDropData(view);
@@ -339,7 +356,7 @@ TEST_F(WebContentsViewAuraTest, DragDropFiles) {
   }
 }
 
-TEST_F(WebContentsViewAuraTest, DragDropFilesOriginateFromRenderer) {
+TEST_F(WebContentsViewAuraTest, MAYBE_DragDropFilesOriginateFromRenderer) {
   WebContentsViewAura* view = GetView();
   auto data = std::make_unique<ui::OSExchangeData>();
 
@@ -406,7 +423,7 @@ TEST_F(WebContentsViewAuraTest, DragDropFilesOriginateFromRenderer) {
   auto drop_cb = view->GetDropCallback(event);
   ASSERT_TRUE(drop_cb);
   ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
-  std::move(drop_cb).Run(event, std::move(data), output_drag_op);
+  std::move(drop_cb).Run(std::move(data), output_drag_op);
   run_loop.Run();
 
   CheckDropData(view);
@@ -428,7 +445,7 @@ TEST_F(WebContentsViewAuraTest, DragDropFilesOriginateFromRenderer) {
 #endif
 }
 
-TEST_F(WebContentsViewAuraTest, DragDropImageFromRenderer) {
+TEST_F(WebContentsViewAuraTest, MAYBE_DragDropImageFromRenderer) {
   WebContentsViewAura* view = GetView();
 
   const base::FilePath filename(FILE_PATH_LITERAL("image.jpg"));
@@ -496,7 +513,7 @@ TEST_F(WebContentsViewAuraTest, DragDropImageFromRenderer) {
   auto drop_cb = view->GetDropCallback(event);
   ASSERT_TRUE(drop_cb);
   ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
-  std::move(drop_cb).Run(event, std::move(data), output_drag_op);
+  std::move(drop_cb).Run(std::move(data), output_drag_op);
   run_loop.Run();
 
   CheckDropData(view);
@@ -514,8 +531,6 @@ TEST_F(WebContentsViewAuraTest, DragDropImageFromRenderer) {
   EXPECT_EQ("",
             drop_complete_data_->drop_data.file_contents_content_disposition);
 }
-
-#endif
 
 #if BUILDFLAG(IS_WIN)
 
@@ -571,7 +586,7 @@ TEST_F(WebContentsViewAuraTest, DragDropVirtualFiles) {
   auto drop_cb = view->GetDropCallback(event);
   ASSERT_TRUE(drop_cb);
   ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
-  std::move(drop_cb).Run(event, std::move(data), output_drag_op);
+  std::move(drop_cb).Run(std::move(data), output_drag_op);
   run_loop.Run();
 
   CheckDropData(view);
@@ -649,7 +664,7 @@ TEST_F(WebContentsViewAuraTest, DragDropVirtualFilesOriginateFromRenderer) {
   auto drop_cb = view->GetDropCallback(event);
   ASSERT_TRUE(drop_cb);
   ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
-  std::move(drop_cb).Run(event, std::move(data), output_drag_op);
+  std::move(drop_cb).Run(std::move(data), output_drag_op);
   run_loop.Run();
 
   CheckDropData(view);
@@ -706,7 +721,7 @@ TEST_F(WebContentsViewAuraTest, DragDropUrlData) {
   auto drop_cb = view->GetDropCallback(event);
   ASSERT_TRUE(drop_cb);
   ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
-  std::move(drop_cb).Run(event, std::move(data), output_drag_op);
+  std::move(drop_cb).Run(std::move(data), output_drag_op);
   run_loop.Run();
 
   CheckDropData(view);
@@ -720,7 +735,7 @@ TEST_F(WebContentsViewAuraTest, DragDropUrlData) {
       drop_complete_data_->drop_data.file_contents_source_url.is_empty());
   EXPECT_TRUE(drop_complete_data_->drop_data.file_contents.empty());
 }
-#endif
+#endif  // BUILDFLAG(IS_WIN)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -741,7 +756,7 @@ TEST_F(WebContentsViewAuraTest, StartDragging) {
   DropData drop_data;
   drop_data.text.emplace(u"Hello World!");
   view->StartDragging(drop_data, blink::DragOperationsMask::kDragOperationNone,
-                      gfx::ImageSkia(), gfx::Vector2d(),
+                      gfx::ImageSkia(), gfx::Vector2d(), gfx::Rect(),
                       blink::mojom::DragEventSourceInfo(),
                       RenderWidgetHostImpl::From(rvh()->GetWidget()));
 
@@ -749,8 +764,7 @@ TEST_F(WebContentsViewAuraTest, StartDragging) {
   EXPECT_TRUE(exchange_data);
   EXPECT_TRUE(exchange_data->GetSource());
   EXPECT_TRUE(exchange_data->GetSource()->IsUrlType());
-  EXPECT_TRUE(exchange_data->GetSource()->GetOrigin()->IsSameOriginWith(
-      url::Origin::Create(GURL(kGmailUrl))));
+  EXPECT_EQ(*(exchange_data->GetSource()->GetURL()), GURL(kGmailUrl));
 }
 
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -813,7 +827,7 @@ TEST_F(WebContentsViewAuraTest, StartDragFromPrivilegedWebContents) {
 
   DropData drop_data;
   view->StartDragging(drop_data, blink::DragOperationsMask::kDragOperationNone,
-                      gfx::ImageSkia(), gfx::Vector2d(),
+                      gfx::ImageSkia(), gfx::Vector2d(), gfx::Rect(),
                       blink::mojom::DragEventSourceInfo(),
                       RenderWidgetHostImpl::From(rvh()->GetWidget()));
 

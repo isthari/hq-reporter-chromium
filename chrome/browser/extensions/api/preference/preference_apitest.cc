@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
@@ -151,7 +150,7 @@ class ExtensionPreferenceApiTest
   void TearDownOnMainThread() override {
     // BrowserProcess::Shutdown() needs to be called in a message loop, so we
     // post a task to release the keep alive, then run the message loop.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&std::unique_ptr<ScopedKeepAlive>::reset,
                                   base::Unretained(&keep_alive_), nullptr));
     content::RunAllPendingInMessageLoop();
@@ -159,7 +158,7 @@ class ExtensionPreferenceApiTest
     extensions::ExtensionApiTest::TearDownOnMainThread();
   }
 
-  raw_ptr<Profile> profile_ = nullptr;
+  raw_ptr<Profile, DanglingUntriaged> profile_ = nullptr;
   std::unique_ptr<ScopedKeepAlive> keep_alive_;
 };
 
@@ -194,8 +193,7 @@ IN_PROC_BROWSER_TEST_P(ExtensionPreferenceApiTest, Standard) {
   // Windows, so pass a JSON array object with any unsupported prefs into
   // the test , so it can skip those.
   static constexpr char kMissingPrefs[] =
-#if BUILDFLAG(IS_WIN) || \
-    (BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_CHROMEOS_LACROS))
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHROMEOS_ASH)
       "[ ]";
 #else
       "[ \"protectedContentEnabled\" ]";
@@ -207,7 +205,7 @@ IN_PROC_BROWSER_TEST_P(ExtensionPreferenceApiTest, Standard) {
       test_data_dir_.AppendASCII("preference/standard");
   {
     extensions::ResultCatcher catcher;
-    ExtensionTestMessageListener listener("ready", true);
+    ExtensionTestMessageListener listener("ready", ReplyBehavior::kWillReply);
     EXPECT_TRUE(LoadExtension(extension_path)) << message_;
     EXPECT_TRUE(listener.WaitUntilSatisfied());
     // Run the tests.
@@ -218,7 +216,7 @@ IN_PROC_BROWSER_TEST_P(ExtensionPreferenceApiTest, Standard) {
 
   // The settings should not be reset when the extension is reloaded.
   {
-    ExtensionTestMessageListener listener("ready", true);
+    ExtensionTestMessageListener listener("ready", ReplyBehavior::kWillReply);
     ReloadExtension(last_loaded_extension_id());
     EXPECT_TRUE(listener.WaitUntilSatisfied());
     listener.Reply("");
@@ -234,7 +232,7 @@ IN_PROC_BROWSER_TEST_P(ExtensionPreferenceApiTest, Standard) {
   CheckPreferencesCleared();
 
   {
-    ExtensionTestMessageListener listener("ready", true);
+    ExtensionTestMessageListener listener("ready", ReplyBehavior::kWillReply);
     EXPECT_TRUE(LoadExtension(extension_path));
     EXPECT_TRUE(listener.WaitUntilSatisfied());
     listener.Reply("");
@@ -324,55 +322,55 @@ IN_PROC_BROWSER_TEST_P(ExtensionPreferenceApiTest, OnChangeSplit) {
   OpenURLOffTheRecord(profile_, GURL("chrome://newtab/"));
 
   // changeDefault listeners.
-  ExtensionTestMessageListener listener1("changeDefault regular ready", true);
+  ExtensionTestMessageListener listener1("changeDefault regular ready",
+                                         ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener_incognito1(
-      "changeDefault incognito ready", true);
+      "changeDefault incognito ready", ReplyBehavior::kWillReply);
 
   // changeIncognitoOnly listeners.
-  ExtensionTestMessageListener listener2(
-      "changeIncognitoOnly regular ready", true);
+  ExtensionTestMessageListener listener2("changeIncognitoOnly regular ready",
+                                         ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener_incognito2(
-      "changeIncognitoOnly incognito ready", true);
+      "changeIncognitoOnly incognito ready", ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener3(
-      "changeIncognitoOnly regular listening", true);
+      "changeIncognitoOnly regular listening", ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener_incognito3(
-      "changeIncognitoOnly incognito pref set", false);
+      "changeIncognitoOnly incognito pref set");
 
   // changeDefaultOnly listeners.
-  ExtensionTestMessageListener listener4(
-      "changeDefaultOnly regular ready", true);
+  ExtensionTestMessageListener listener4("changeDefaultOnly regular ready",
+                                         ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener_incognito4(
-      "changeDefaultOnly incognito ready", true);
-  ExtensionTestMessageListener listener5(
-      "changeDefaultOnly regular pref set", false);
+      "changeDefaultOnly incognito ready", ReplyBehavior::kWillReply);
+  ExtensionTestMessageListener listener5("changeDefaultOnly regular pref set");
   ExtensionTestMessageListener listener_incognito5(
-      "changeDefaultOnly incognito listening", true);
+      "changeDefaultOnly incognito listening", ReplyBehavior::kWillReply);
 
   // changeIncognitoOnlyBack listeners.
   ExtensionTestMessageListener listener6(
-      "changeIncognitoOnlyBack regular ready", true);
+      "changeIncognitoOnlyBack regular ready", ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener_incognito6(
-      "changeIncognitoOnlyBack incognito ready", true);
+      "changeIncognitoOnlyBack incognito ready", ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener7(
-      "changeIncognitoOnlyBack regular listening", true);
+      "changeIncognitoOnlyBack regular listening", ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener_incognito7(
-      "changeIncognitoOnlyBack incognito pref set", false);
+      "changeIncognitoOnlyBack incognito pref set");
 
   // clearIncognito listeners.
-  ExtensionTestMessageListener listener8(
-      "clearIncognito regular ready", true);
+  ExtensionTestMessageListener listener8("clearIncognito regular ready",
+                                         ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener_incognito8(
-      "clearIncognito incognito ready", true);
-  ExtensionTestMessageListener listener9(
-      "clearIncognito regular listening", true);
+      "clearIncognito incognito ready", ReplyBehavior::kWillReply);
+  ExtensionTestMessageListener listener9("clearIncognito regular listening",
+                                         ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener_incognito9(
-      "clearIncognito incognito pref cleared", false);
+      "clearIncognito incognito pref cleared");
 
   // clearDefault listeners.
-  ExtensionTestMessageListener listener10(
-      "clearDefault regular ready", true);
+  ExtensionTestMessageListener listener10("clearDefault regular ready",
+                                          ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener_incognito10(
-      "clearDefault incognito ready", true);
+      "clearDefault incognito ready", ReplyBehavior::kWillReply);
 
   base::FilePath extension_data_dir =
       test_data_dir_.AppendASCII("preference").AppendASCII("onchange_split");
@@ -441,9 +439,9 @@ IN_PROC_BROWSER_TEST_P(ExtensionPreferenceApiTest,
 
   extensions::ResultCatcher catcher;
   ExtensionTestMessageListener loaded_incognito_test_listener(
-      "incognito loaded", false);
+      "incognito loaded");
 
-  ExtensionTestMessageListener change_pref_listener("change pref value", false);
+  ExtensionTestMessageListener change_pref_listener("change pref value");
 
   ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("preference")
                                 .AppendASCII("onchange_split_regular_only"),
@@ -468,9 +466,9 @@ IN_PROC_BROWSER_TEST_P(ExtensionPreferenceApiTest,
 
   extensions::ResultCatcher catcher;
   ExtensionTestMessageListener loaded_incognito_test_listener(
-      "incognito loaded", false);
+      "incognito loaded");
 
-  ExtensionTestMessageListener change_pref_listener("change pref value", false);
+  ExtensionTestMessageListener change_pref_listener("change pref value");
 
   ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("preference")
                                 .AppendASCII("onchange_split_regular_only")));
@@ -486,11 +484,12 @@ IN_PROC_BROWSER_TEST_P(ExtensionPreferenceApiTest,
 // crbug.com/1064722.
 IN_PROC_BROWSER_TEST_P(ExtensionPreferenceApiTest, SafeBrowsing_SetTrue) {
   ExtensionTestMessageListener listener_true("set to true",
-                                             /* will_reply */ true);
-  ExtensionTestMessageListener listener_clear("cleared", /* will_reply */ true);
+                                             ReplyBehavior::kWillReply);
+  ExtensionTestMessageListener listener_clear("cleared",
+                                              ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener_false("set to false",
-                                              /* will_reply */ true);
-  ExtensionTestMessageListener listener_done("done", /* will_reply */ false);
+                                              ReplyBehavior::kWillReply);
+  ExtensionTestMessageListener listener_done("done");
 
   const base::FilePath extension_path =
       test_data_dir_.AppendASCII("preference").AppendASCII("safe_browsing");
@@ -551,11 +550,12 @@ IN_PROC_BROWSER_TEST_P(ExtensionPreferenceApiTest, SafeBrowsing_SetTrue) {
 // ThirdPartyCookiesAllowed is set to true/false by an extension.
 IN_PROC_BROWSER_TEST_P(ExtensionPreferenceApiTest, ThirdPartyCookiesAllowed) {
   ExtensionTestMessageListener listener_true("set to true",
-                                             /* will_reply */ true);
-  ExtensionTestMessageListener listener_clear("cleared", /* will_reply */ true);
+                                             ReplyBehavior::kWillReply);
+  ExtensionTestMessageListener listener_clear("cleared",
+                                              ReplyBehavior::kWillReply);
   ExtensionTestMessageListener listener_false("set to false",
-                                              /* will_reply */ true);
-  ExtensionTestMessageListener listener_done("done", /* will_reply */ false);
+                                              ReplyBehavior::kWillReply);
+  ExtensionTestMessageListener listener_done("done");
 
   // Verify initial state.
   VerifyPrefValueAndControlledState(

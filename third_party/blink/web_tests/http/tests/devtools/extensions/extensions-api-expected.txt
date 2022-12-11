@@ -18,6 +18,10 @@ RUNNING TEST: extension_testAPI
         reload : <function>
     }
     languageServices : {
+        getWasmGlobal : <function>
+        getWasmLinearMemory : <function>
+        getWasmLocal : <function>
+        getWasmOp : <function>
         registerLanguageExtensionPlugin : <function>
         unregisterLanguageExtensionPlugin : <function>
     }
@@ -64,6 +68,10 @@ RUNNING TEST: extension_testAPI
             }
         }
         themeName : "themeNameForTest"
+    }
+    recorder : {
+        registerRecorderExtensionPlugin : <function>
+        unregisterRecorderExtensionPlugin : <function>
     }
     resources : {
         addRequestHeaders : <function>

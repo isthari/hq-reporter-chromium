@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/command_line.h"
 #include "base/containers/contains.h"
 #include "base/containers/cxx20_erase.h"
 #include "base/guid.h"
@@ -19,11 +20,11 @@
 #include "base/json/string_escape.h"
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -39,6 +40,7 @@
 #include "content/shell/browser/shell_browser_main_parts.h"
 #include "content/shell/browser/shell_content_browser_client.h"
 #include "content/shell/browser/shell_devtools_manager_delegate.h"
+#include "content/shell/common/shell_switches.h"
 #include "net/http/http_response_headers.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/resource_request.h"
@@ -192,12 +194,12 @@ ShellDevToolsBindings::~ShellDevToolsBindings() {
 // static
 std::vector<ShellDevToolsBindings*>
 ShellDevToolsBindings::GetInstancesForWebContents(WebContents* web_contents) {
-  auto* bindings = GetShellDevtoolsBindingsInstances();
   std::vector<ShellDevToolsBindings*> result;
-  std::copy_if(bindings->begin(), bindings->end(), std::back_inserter(result),
-               [web_contents](ShellDevToolsBindings* binding) {
-                 return binding->inspected_contents() == web_contents;
-               });
+  base::ranges::copy_if(*GetShellDevtoolsBindingsInstances(),
+                        std::back_inserter(result),
+                        [web_contents](ShellDevToolsBindings* binding) {
+                          return binding->inspected_contents() == web_contents;
+                        });
   return result;
 }
 
@@ -205,9 +207,6 @@ void ShellDevToolsBindings::ReadyToCommitNavigation(
     NavigationHandle* navigation_handle) {
 #if !BUILDFLAG(IS_ANDROID)
   content::RenderFrameHost* frame = navigation_handle->GetRenderFrameHost();
-  // TODO(https://crbug.com/1218946): With MPArch there may be multiple main
-  // frames. This caller was converted automatically to the primary main frame
-  // to preserve its semantics. Follow up to confirm correctness.
   if (navigation_handle->IsInPrimaryMainFrame()) {
     frontend_host_ = DevToolsFrontendHost::Create(
         frame, base::BindRepeating(
@@ -229,7 +228,10 @@ void ShellDevToolsBindings::ReadyToCommitNavigation(
 void ShellDevToolsBindings::AttachInternal() {
   if (agent_host_)
     agent_host_->DetachClient(this);
-  agent_host_ = DevToolsAgentHost::GetOrCreateFor(inspected_contents_);
+  agent_host_ = base::CommandLine::ForCurrentProcess()->HasSwitch(
+                    switches::kContentShellDevToolsTabTarget)
+                    ? DevToolsAgentHost::GetOrCreateForTab(inspected_contents_)
+                    : DevToolsAgentHost::GetOrCreateFor(inspected_contents_);
   agent_host_->AttachClient(this);
   if (inspect_element_at_x_ != -1) {
     agent_host_->InspectElement(inspected_contents_->GetFocusedFrame(),
@@ -265,20 +267,18 @@ void ShellDevToolsBindings::WebContentsDestroyed() {
 }
 
 void ShellDevToolsBindings::HandleMessageFromDevToolsFrontend(
-    base::Value message) {
-  if (!message.is_dict())
-    return;
-  const std::string* method = message.FindStringKey("method");
+    base::Value::Dict message) {
+  const std::string* method = message.FindString("method");
   if (!method)
     return;
 
-  int request_id = message.FindIntKey("id").value_or(0);
-  base::Value* params_value = message.FindListKey("params");
+  int request_id = message.FindInt("id").value_or(0);
+  base::Value::List* params_value = message.FindList("params");
 
   // Since we've received message by value, we can take the list.
-  base::Value::ListStorage params;
+  base::Value::List params;
   if (params_value) {
-    params = std::move(*params_value).TakeListDeprecated();
+    params = std::move(*params_value);
   }
 
   if (*method == "dispatchProtocolMessage" && params.size() == 1) {
@@ -300,10 +300,10 @@ void ShellDevToolsBindings::HandleMessageFromDevToolsFrontend(
 
     GURL gurl(*url);
     if (!gurl.is_valid()) {
-      base::Value response(base::Value::Type::DICTIONARY);
-      response.SetIntKey("statusCode", 404);
-      response.SetBoolKey("urlValid", false);
-      SendMessageAck(request_id, std::move(response));
+      base::Value::Dict response;
+      response.Set("statusCode", 404);
+      response.Set("urlValid", false);
+      SendMessageAck(request_id, base::Value(std::move(response)));
       return;
     }
 
@@ -341,7 +341,7 @@ void ShellDevToolsBindings::HandleMessageFromDevToolsFrontend(
     resource_request->headers.AddHeadersFromString(*headers);
 
     auto* partition =
-        inspected_contents()->GetMainFrame()->GetStoragePartition();
+        inspected_contents()->GetPrimaryMainFrame()->GetStoragePartition();
     auto factory = partition->GetURLLoaderFactoryForBrowserProcess();
 
     auto simple_url_loader = network::SimpleURLLoader::Create(
@@ -426,9 +426,9 @@ void ShellDevToolsBindings::CallClientFunction(
     base::OnceCallback<void(base::Value)> cb) {
   std::string javascript;
 
-  web_contents()->GetMainFrame()->AllowInjectingJavaScript();
+  web_contents()->GetPrimaryMainFrame()->AllowInjectingJavaScript();
 
-  base::Value arguments(base::Value::Type::LIST);
+  base::Value::List arguments;
   if (!arg1.is_none()) {
     arguments.Append(std::move(arg1));
     if (!arg2.is_none()) {
@@ -438,7 +438,7 @@ void ShellDevToolsBindings::CallClientFunction(
       }
     }
   }
-  web_contents()->GetMainFrame()->ExecuteJavaScriptMethod(
+  web_contents()->GetPrimaryMainFrame()->ExecuteJavaScriptMethod(
       base::ASCIIToUTF16(object_name), base::ASCIIToUTF16(method_name),
       std::move(arguments), std::move(cb));
 }

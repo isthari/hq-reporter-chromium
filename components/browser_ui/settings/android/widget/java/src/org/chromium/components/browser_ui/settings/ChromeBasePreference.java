@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,8 @@ import android.util.AttributeSet;
 import androidx.annotation.Nullable;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceViewHolder;
+
+import org.chromium.base.metrics.RecordUserAction;
 
 /**
  * A preference that supports some Chrome-specific customizations:
@@ -37,6 +39,8 @@ public class ChromeBasePreference extends Preference {
     private Boolean mDividerAllowedAbove;
     @Nullable
     private Boolean mDividerAllowedBelow;
+    @Nullable
+    private String mUserAction;
 
     /**
      * Constructor for use in Java.
@@ -51,10 +55,17 @@ public class ChromeBasePreference extends Preference {
     public ChromeBasePreference(Context context, AttributeSet attrs) {
         super(context, attrs);
 
+        if (SettingsFeatureList.isEnabled(
+                    SettingsFeatureList.HIGHLIGHT_MANAGED_PREF_DISCLAIMER_ANDROID)) {
+            setLayoutResource(
+                    ManagedPreferencesUtils.getLayoutResourceForPreference(context, attrs));
+        }
+
         setSingleLineTitle(false);
 
         TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.ChromeBasePreference);
         mIconTint = a.getColorStateList(R.styleable.ChromeBasePreference_iconTint);
+        mUserAction = a.getString(R.styleable.ChromeBasePreference_userAction);
         a.recycle();
     }
 
@@ -69,10 +80,12 @@ public class ChromeBasePreference extends Preference {
     @Override
     public void onBindViewHolder(PreferenceViewHolder holder) {
         super.onBindViewHolder(holder);
+
         Drawable icon = getIcon();
         if (icon != null && mIconTint != null) {
             icon.setColorFilter(mIconTint.getDefaultColor(), PorterDuff.Mode.SRC_IN);
         }
+
         ManagedPreferencesUtils.onBindViewToPreference(mManagedPrefDelegate, this, holder.itemView);
 
         if (mDividerAllowedAbove != null) {
@@ -94,6 +107,9 @@ public class ChromeBasePreference extends Preference {
     @Override
     protected void onClick() {
         if (ManagedPreferencesUtils.onClickPreference(mManagedPrefDelegate, this)) return;
+        if (mUserAction != null) {
+            RecordUserAction.record(mUserAction);
+        }
         super.onClick();
     }
 }

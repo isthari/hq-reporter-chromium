@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 
 #include "base/callback.h"
 #include "base/containers/unique_ptr_adapters.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/browser_app_launcher.h"
@@ -18,11 +19,19 @@
 #include "chromeos/crosapi/mojom/app_service.mojom.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/services/app_service/public/cpp/app_capability_access_cache.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 #include "components/services/app_service/public/cpp/icon_cache.h"
 #include "components/services/app_service/public/cpp/icon_coalescer.h"
+#include "components/services/app_service/public/cpp/intent.h"
+#include "components/services/app_service/public/cpp/permission.h"
+#include "components/services/app_service/public/cpp/preferred_app.h"
 #include "components/services/app_service/public/cpp/preferred_apps_list.h"
+#include "components/services/app_service/public/mojom/app_service.mojom.h"
+#include "components/services/app_service/public/mojom/types.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "ui/gfx/native_widget_types.h"
@@ -37,13 +46,14 @@
 class Profile;
 
 namespace web_app {
-class WebAppsPublisherHost;
+class LacrosWebAppsController;
 }  // namespace web_app
 
 namespace apps {
 
 class BrowserAppInstanceForwarder;
 class BrowserAppInstanceTracker;
+class WebsiteMetricsServiceLacros;
 
 struct AppLaunchParams;
 
@@ -73,7 +83,7 @@ class AppServiceProxyLacros : public KeyedService,
   AppServiceProxyLacros& operator=(const AppServiceProxyLacros&) = delete;
   ~AppServiceProxyLacros() override;
 
-  void ReInitializeForTesting(Profile* profile);
+  void ReinitializeForTesting(Profile* profile);
 
   Profile* profile() const { return profile_; }
 
@@ -82,7 +92,7 @@ class AppServiceProxyLacros : public KeyedService,
 
   apps::BrowserAppLauncher* BrowserAppLauncher();
 
-  apps::PreferredAppsListHandle& PreferredApps();
+  apps::PreferredAppsListHandle& PreferredAppsList();
 
   apps::BrowserAppInstanceTracker* BrowserAppInstanceTracker();
 
@@ -97,17 +107,6 @@ class AppServiceProxyLacros : public KeyedService,
       bool allow_placeholder_icon,
       apps::LoadIconCallback callback) override;
 
-  // TODO(crbug.com/1253250): Will be removed soon. Please use the non mojom
-  // interface.
-  std::unique_ptr<IconLoader::Releaser> LoadIconFromIconKey(
-      apps::mojom::AppType app_type,
-      const std::string& app_id,
-      apps::mojom::IconKeyPtr icon_key,
-      apps::mojom::IconType icon_type,
-      int32_t size_hint_in_dip,
-      bool allow_placeholder_icon,
-      apps::mojom::Publisher::LoadIconCallback callback) override;
-
   // Launches the app for the given |app_id|. |event_flags| provides additional
   // context about the action which launches the app (e.g. a middle click
   // indicating opening a background tab). |launch_source| is the possible app
@@ -119,8 +118,8 @@ class AppServiceProxyLacros : public KeyedService,
   // app_id.
   void Launch(const std::string& app_id,
               int32_t event_flags,
-              apps::mojom::LaunchSource launch_source,
-              apps::mojom::WindowInfoPtr window_info = nullptr);
+              apps::LaunchSource launch_source,
+              apps::WindowInfoPtr window_info = nullptr);
 
   // Launches the app for the given |app_id| with files from |file_paths|.
   // DEPRECATED. Prefer passing the files in an Intent through
@@ -128,8 +127,8 @@ class AppServiceProxyLacros : public KeyedService,
   // TODO(crbug.com/1264164): Remove this method.
   void LaunchAppWithFiles(const std::string& app_id,
                           int32_t event_flags,
-                          apps::mojom::LaunchSource launch_source,
-                          apps::mojom::FilePathsPtr file_paths);
+                          LaunchSource launch_source,
+                          std::vector<base::FilePath> file_paths);
 
   // Launches an app for the given |app_id|, passing |intent| to the app.
   // |event_flags| provides additional context about the action which launch the
@@ -138,9 +137,10 @@ class AppServiceProxyLacros : public KeyedService,
   // window information to launch an app, e.g. display_id, window bounds.
   void LaunchAppWithIntent(const std::string& app_id,
                            int32_t event_flags,
-                           apps::mojom::IntentPtr intent,
-                           apps::mojom::LaunchSource launch_source,
-                           apps::mojom::WindowInfoPtr window_info = nullptr);
+                           IntentPtr intent,
+                           LaunchSource launch_source,
+                           WindowInfoPtr window_info,
+                           base::OnceCallback<void(bool)> callback);
 
   // Launches an app for the given |app_id|, passing |url| to the app.
   // |event_flags| provides additional context about the action which launch the
@@ -150,8 +150,9 @@ class AppServiceProxyLacros : public KeyedService,
   void LaunchAppWithUrl(const std::string& app_id,
                         int32_t event_flags,
                         GURL url,
-                        apps::mojom::LaunchSource launch_source,
-                        apps::mojom::WindowInfoPtr window_info = nullptr);
+                        LaunchSource launch_source,
+                        WindowInfoPtr window_info = nullptr,
+                        LaunchCallback callback = base::DoNothing());
 
   // Launches an app for the given |params.app_id|. The |params| can also
   // contain other param such as launch container, window diposition, etc.
@@ -159,30 +160,22 @@ class AppServiceProxyLacros : public KeyedService,
                            LaunchCallback callback = base::DoNothing());
 
   // Sets |permission| for the app identified by |app_id|.
-  void SetPermission(const std::string& app_id,
-                     apps::mojom::PermissionPtr permission);
+  void SetPermission(const std::string& app_id, PermissionPtr permission);
 
   // Uninstalls an app for the given |app_id|. If |parent_window| is specified,
   // the uninstall dialog will be created as a modal dialog anchored at
   // |parent_window|. Otherwise, the browser window will be used as the anchor.
   void Uninstall(const std::string& app_id,
-                 apps::mojom::UninstallSource uninstall_source,
+                 UninstallSource uninstall_source,
                  gfx::NativeWindow parent_window);
 
   // Uninstalls an app for the given |app_id| without prompting the user to
   // confirm.
   void UninstallSilently(const std::string& app_id,
-                         apps::mojom::UninstallSource uninstall_source);
+                         UninstallSource uninstall_source);
 
   // Stops the current running app for the given |app_id|.
   void StopApp(const std::string& app_id);
-
-  // Returns the menu items for the given |app_id|. |display_id| is the id of
-  // the display from which the app is launched.
-  void GetMenuModel(const std::string& app_id,
-                    apps::mojom::MenuType menu_type,
-                    int64_t display_id,
-                    apps::mojom::Publisher::GetMenuModelCallback callback);
 
   // Executes a shortcut menu |command_id| and |shortcut_id| for a menu item
   // previously built with GetMenuModel(). |app_id| is the menu app.
@@ -194,8 +187,6 @@ class AppServiceProxyLacros : public KeyedService,
 
   // Opens native settings for the app with |app_id|.
   void OpenNativeSettings(const std::string& app_id);
-
-  void FlushMojoCallsForTesting();
 
   apps::IconLoader* OverrideInnerIconLoaderForTesting(
       apps::IconLoader* icon_loader);
@@ -214,7 +205,7 @@ class AppServiceProxyLacros : public KeyedService,
   // exclude the browser apps. If |exclude_browser_tab_apps| is true then
   // exclude apps that open in browser tabs.
   std::vector<IntentLaunchInfo> GetAppsForIntent(
-      const apps::mojom::IntentPtr& intent,
+      const IntentPtr& intent,
       bool exclude_browsers = false,
       bool exclude_browser_tab_apps = true);
 
@@ -227,8 +218,7 @@ class AppServiceProxyLacros : public KeyedService,
   // Adds a preferred app for |url|.
   void AddPreferredApp(const std::string& app_id, const GURL& url);
   // Adds a preferred app for |intent|.
-  void AddPreferredApp(const std::string& app_id,
-                       const apps::mojom::IntentPtr& intent);
+  void AddPreferredApp(const std::string& app_id, const IntentPtr& intent);
 
   // Sets |app_id| as the preferred app for all of its supported links ('view'
   // intent filters with a scheme and host). Any existing preferred apps for
@@ -240,10 +230,22 @@ class AppServiceProxyLacros : public KeyedService,
   // |app_id|.
   void RemoveSupportedLinksPreference(const std::string& app_id);
 
+  void SetWindowMode(const std::string& app_id, WindowMode window_mode);
+  // TODO(crbug.com/1253250): Will be removed soon. Please use the non mojom
+  // interface.
   void SetWindowMode(const std::string& app_id,
                      apps::mojom::WindowMode window_mode);
 
-  web_app::WebAppsPublisherHost* WebAppsPublisherHostForTesting();
+  web_app::LacrosWebAppsController* LacrosWebAppsControllerForTesting();
+
+  void SetCrosapiAppServiceProxyForTesting(
+      crosapi::mojom::AppServiceProxy* proxy);
+
+  void SetWebsiteMetricsServiceForTesting(
+      std::unique_ptr<apps::WebsiteMetricsServiceLacros>
+          website_metrics_service);
+
+  base::WeakPtr<AppServiceProxyLacros> GetWeakPtr();
 
  protected:
   // An adapter, presenting an IconLoader interface based on the underlying
@@ -301,21 +303,11 @@ class AppServiceProxyLacros : public KeyedService,
         bool allow_placeholder_icon,
         apps::LoadIconCallback callback) override;
 
-    // TODO(crbug.com/1253250): Will be removed soon.
-    std::unique_ptr<IconLoader::Releaser> LoadIconFromIconKey(
-        apps::mojom::AppType app_type,
-        const std::string& app_id,
-        apps::mojom::IconKeyPtr icon_key,
-        apps::mojom::IconType icon_type,
-        int32_t size_hint_in_dip,
-        bool allow_placeholder_icon,
-        apps::mojom::Publisher::LoadIconCallback callback) override;
-
     // |host_| owns |this|, as the InnerIconLoader is an AppServiceProxyLacros
     // field.
-    AppServiceProxyLacros* host_;
+    raw_ptr<AppServiceProxyLacros> host_;
 
-    apps::IconLoader* overriding_icon_loader_for_testing_;
+    raw_ptr<apps::IconLoader> overriding_icon_loader_for_testing_ = nullptr;
   };
 
   bool IsValidProfile();
@@ -326,13 +318,20 @@ class AppServiceProxyLacros : public KeyedService,
   void Shutdown() override;
 
   // crosapi::mojom::AppServiceSubscriber overrides.
-  void OnApps(std::vector<apps::mojom::AppPtr> deltas,
-              apps::mojom::AppType app_type,
+  void OnApps(std::vector<AppPtr> deltas,
+              AppType app_type,
               bool should_notify_initialized) override;
-  void OnPreferredAppsChanged(
-      apps::mojom::PreferredAppChangesPtr changes) override;
-  void InitializePreferredApps(
-      PreferredAppsList::PreferredApps preferred_apps) override;
+  void OnPreferredAppsChanged(PreferredAppChangesPtr changes) override;
+  void InitializePreferredApps(PreferredApps preferred_apps) override;
+
+  // This wraps a call to remote_crosapi_app_service_proxy_->Launch(). It exists
+  // to provide a common code path to deal with the special case of extensions
+  // that are run in both ash and lacros. This is a transient state but requires
+  // special handling.
+  void ProxyLaunch(crosapi::mojom::LaunchParamsPtr params,
+                   LaunchCallback callback = base::DoNothing());
+
+  void InitWebsiteMetrics();
 
   apps::AppRegistryCache app_registry_cache_;
   apps::AppCapabilityAccessCache app_capability_access_cache_;
@@ -346,9 +345,9 @@ class AppServiceProxyLacros : public KeyedService,
   IconCoalescer icon_coalescer_;
   IconCache outer_icon_loader_;
 
-  apps::PreferredAppsList preferred_apps_;
+  apps::PreferredAppsList preferred_apps_list_;
 
-  Profile* profile_;
+  raw_ptr<Profile> profile_;
 
   // TODO(crbug.com/1061843): Remove BrowserAppLauncher and merge the interfaces
   // to AppServiceProxyLacros when publishers(ExtensionApps and WebApps) can run
@@ -364,15 +363,22 @@ class AppServiceProxyLacros : public KeyedService,
   bool is_using_testing_profile_ = false;
   base::OnceClosure dialog_created_callback_;
 
-  std::unique_ptr<web_app::WebAppsPublisherHost> web_apps_publisher_host_;
+  std::unique_ptr<web_app::LacrosWebAppsController> lacros_web_apps_controller_;
   mojo::Receiver<crosapi::mojom::AppServiceSubscriber> crosapi_receiver_{this};
+  raw_ptr<crosapi::mojom::AppServiceProxy> remote_crosapi_app_service_proxy_ =
+      nullptr;
   int crosapi_app_service_proxy_version_ = 0;
+
+  std::unique_ptr<apps::WebsiteMetricsServiceLacros> metrics_service_;
 
   base::WeakPtrFactory<AppServiceProxyLacros> weak_ptr_factory_{this};
 
  private:
   // For access to Initialize.
   friend class AppServiceProxyFactory;
+
+  // For test access to OnApps.
+  FRIEND_TEST_ALL_PREFIXES(AppServiceProxyTest, ReinitializeClearsCache);
 };
 
 }  // namespace apps

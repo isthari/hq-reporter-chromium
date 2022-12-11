@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,9 +68,6 @@ class OfflinePageArchiver {
 
     // Whether to remove popup overlay that obstructs viewing normal content.
     bool remove_popup_overlay = false;
-
-    // Run page problem detectors while generating MTHML if true.
-    bool use_page_problem_detectors = false;
   };
 
   // Callback for the final result of an attempt to generate of offline page

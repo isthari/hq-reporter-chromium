@@ -1,10 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/app_list/chrome_app_list_item_manager.h"
 
-#include "chrome/browser/ui/app_list/test/fake_app_list_model_updater.h"
+#include "chrome/browser/ash/app_list/test/fake_app_list_model_updater.h"
 #include "components/crx_file/id_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 

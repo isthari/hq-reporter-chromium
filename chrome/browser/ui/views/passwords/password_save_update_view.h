@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include "base/scoped_observation.h"
 #include "base/token.h"
 #include "chrome/browser/ui/passwords/bubble_controllers/save_update_bubble_controller.h"
-#include "chrome/browser/ui/user_education/help_bubble.h"
 #include "chrome/browser/ui/views/passwords/password_bubble_view_base.h"
+#include "components/user_education/common/help_bubble.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/views/layout/animating_layout_manager.h"
 #include "ui/views/view.h"
@@ -39,7 +39,9 @@ class PasswordSaveUpdateView : public PasswordBubbleViewBase,
     return destination_dropdown_;
   }
 
-  views::View* GetUsernameTextfieldForTest() const;
+  views::EditableCombobox* username_dropdown_for_testing() const {
+    return username_dropdown_.get();
+  }
 
  private:
   // Type of the IPH to show.
@@ -71,6 +73,7 @@ class PasswordSaveUpdateView : public PasswordBubbleViewBase,
   void TogglePasswordVisibility();
   void UpdateUsernameAndPasswordInModel();
   void UpdateBubbleUIElements();
+  std::unique_ptr<views::View> CreateFooterView();
 
   void DestinationChanged();
 
@@ -91,6 +94,9 @@ class PasswordSaveUpdateView : public PasswordBubbleViewBase,
   // Used for both the username and password editable comboboxes.
   void OnContentChanged();
 
+  // Should be called only after the bubble has been displayed.
+  void UpdateFootnote();
+
   SaveUpdateBubbleController controller_;
 
   // True iff it is an update password bubble on creation. False iff it is a
@@ -108,7 +114,7 @@ class PasswordSaveUpdateView : public PasswordBubbleViewBase,
 
   // When showing kReauthFailure IPH, the promo controller gives back an
   // ID. This is used to close the bubble later.
-  std::unique_ptr<HelpBubble> failed_reauth_promo_bubble_;
+  std::unique_ptr<user_education::HelpBubble> failed_reauth_promo_bubble_;
 
   // Hidden view that will contain status text for immediate output by
   // screen readers when the bubble changes state between Save and Update.

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -264,7 +264,7 @@ void ParentAccessControllerImpl::OnHelp() {
   RecordParentAccessAction(ParentAccessControllerImpl::UMAAction::kGetHelp);
   // TODO(https://crbug.com/999387): Remove this when handling touch
   // cancellation is fixed for system modal windows.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce([]() {
         Shell::Get()->login_screen_controller()->ShowParentAccessHelpApp();
       }));

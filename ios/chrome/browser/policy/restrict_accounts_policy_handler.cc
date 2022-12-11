@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,11 +30,14 @@ RestrictAccountsPolicyHandler::~RestrictAccountsPolicyHandler() {}
 bool RestrictAccountsPolicyHandler::CheckPolicySettings(
     const policy::PolicyMap& policies,
     policy::PolicyErrorMap* errors) {
-  const base::Value* value = policies.GetValue(policy_name());
+  // `GetValueUnsafe` is used to differentiate between the policy value being
+  // unset vs being set with an incorrect type.
+  const base::Value* value = policies.GetValueUnsafe(policy_name());
   if (!value)
     return true;
   if (!ArePatternsValid(value)) {
-    errors->AddError(policy_name(), IDS_POLICY_VALUE_FORMAT_ERROR);
+    errors->AddError(policy_name(),
+                     IDS_POLICY_INVALID_ACCOUNT_PATTERN_FORMAT_ERROR);
   }
   if (!value->is_list())
     return false;
@@ -45,8 +48,9 @@ bool RestrictAccountsPolicyHandler::CheckPolicySettings(
 void RestrictAccountsPolicyHandler::ApplyPolicySettings(
     const PolicyMap& policies,
     PrefValueMap* prefs) {
-  const base::Value* value = policies.GetValue(policy_name());
-  if (value && value->is_list())
+  const base::Value* value =
+      policies.GetValue(policy_name(), base::Value::Type::LIST);
+  if (value)
     prefs->SetValue(prefs::kRestrictAccountsToPatterns, value->Clone());
 }
 

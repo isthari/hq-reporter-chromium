@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -135,30 +135,13 @@ LONG CreateRandomSecret(std::string* secret) {
 constexpr char kServiceName[] = "Endpoint Verification Safe Storage";
 constexpr char kAccountName[] = "Endpoint Verification";
 
-class ScopedKeychianUserInteractionAllowed {
- public:
-  explicit ScopedKeychianUserInteractionAllowed(Boolean allowed) {
-    status_ = SecKeychainGetUserInteractionAllowed(&was_allowed_);
-    if (status_ != noErr)
-      return;
-    if (was_allowed_ == allowed)
-      return;
-    status_ = SecKeychainSetUserInteractionAllowed(allowed);
-    needs_reset_ = true;
-  }
+// Custom error code used to represent that a keychain is locked. Value was
+// chosen semi-randomly (it doesn't represent any currently defined OSStatus).
+constexpr int32_t kKeychainLocked = 125000;
 
-  ~ScopedKeychianUserInteractionAllowed() {
-    if (needs_reset_)
-      SecKeychainSetUserInteractionAllowed(was_allowed_);
-  }
-
-  OSStatus status() { return status_; }
-
- private:
-  OSStatus status_;
-  Boolean was_allowed_;
-  bool needs_reset_ = false;
-};
+bool IsAuthFailedError(OSStatus status) {
+  return status == errSecAuthFailed;
+}
 
 OSStatus AddRandomPasswordToKeychain(const crypto::AppleKeychain& keychain,
                                      std::string* secret) {
@@ -175,16 +158,20 @@ OSStatus AddRandomPasswordToKeychain(const crypto::AppleKeychain& keychain,
   return status;
 }
 
-OSStatus ReadEncryptedSecret(std::string* password, bool force_recreate) {
+int32_t ReadEncryptedSecret(std::string* password, bool force_recreate) {
+  password->clear();
+
+  OSStatus status;
+  crypto::ScopedKeychainUserInteractionAllowed user_interaction_allowed(
+      FALSE, &status);
+  if (status != noErr)
+    return status;
+
+  crypto::AppleKeychain keychain;
   UInt32 password_length = 0;
   void* password_data = nullptr;
-  crypto::AppleKeychain keychain;
-  password->clear();
   base::ScopedCFTypeRef<SecKeychainItemRef> item_ref;
-  ScopedKeychianUserInteractionAllowed user_interaction_allowed(FALSE);
-  if (user_interaction_allowed.status() != noErr)
-    return user_interaction_allowed.status();
-  OSStatus status = keychain.FindGenericPassword(
+  status = keychain.FindGenericPassword(
       strlen(kServiceName), kServiceName, strlen(kAccountName), kAccountName,
       &password_length, &password_data, item_ref.InitializeInto());
   if (status == noErr) {
@@ -193,23 +180,63 @@ OSStatus ReadEncryptedSecret(std::string* password, bool force_recreate) {
     return status;
   }
 
-  if (status == errSecItemNotFound || force_recreate) {
-    if (status != errSecItemNotFound) {
-      // If the item is present but can't be read. Try to delete it first.
-      // If any of those steps fail don't try to proceed any further.
-      item_ref.reset();
-      status = keychain.FindGenericPassword(
-          strlen(kServiceName), kServiceName, strlen(kAccountName),
-          kAccountName, nullptr, nullptr, item_ref.InitializeInto());
-      if (status != noErr)
-        return status;
-      status = keychain.ItemDelete(item_ref.get());
-      if (status != noErr)
-        return status;
+  bool was_auth_error = IsAuthFailedError(status);
+  bool was_item_not_found = status == errSecItemNotFound;
+
+  if ((was_auth_error || force_recreate) && !was_item_not_found) {
+    // If the item is present but can't be read:
+    // - Verify that the item's keychain is unlocked,
+    // - Then try to delete it,
+    // - Then recreate the item.
+    // If any of those steps fail don't try to proceed any further.
+    item_ref.reset();
+    OSStatus exists_status = keychain.FindGenericPassword(
+        strlen(kServiceName), kServiceName, strlen(kAccountName), kAccountName,
+        nullptr, nullptr, item_ref.InitializeInto());
+    if (exists_status != noErr) {
+      return exists_status;
     }
-    status = AddRandomPasswordToKeychain(keychain, password);
+
+    // Try to see if the failure is due to the keychain being locked.
+    if (was_auth_error) {
+      bool unlocked;
+      OSStatus keychain_status =
+          VerifyKeychainForItemUnlocked(item_ref, &unlocked);
+      if (keychain_status != noErr) {
+        // Failed to get keychain status.
+        return keychain_status;
+      }
+      if (!unlocked) {
+        return kKeychainLocked;
+      }
+    }
+
+    if (force_recreate) {
+      status = keychain.ItemDelete(item_ref.get());
+      if (status != noErr) {
+        return status;
+      }
+    }
   }
 
+  if (was_item_not_found || force_recreate) {
+    // Add the random password to the default keychain.
+    status = AddRandomPasswordToKeychain(keychain, password);
+
+    // If add failed, check whether the default keychain is locked. If so,
+    // return the custom status code.
+    if (IsAuthFailedError(status)) {
+      bool unlocked;
+      OSStatus keychain_status = VerifyDefaultKeychainUnlocked(&unlocked);
+      if (keychain_status != noErr) {
+        // Failed to get keychain status.
+        return keychain_status;
+      }
+      if (!unlocked) {
+        return kKeychainLocked;
+      }
+    }
+  }
   return status;
 }
 
@@ -257,7 +284,7 @@ void OverrideEndpointVerificationDirForTesting(const base::FilePath& path) {
 }
 
 void StoreDeviceData(const std::string& id,
-                     const std::unique_ptr<std::vector<uint8_t>> data,
+                     const absl::optional<std::vector<uint8_t>> data,
                      base::OnceCallback<void(bool)> callback) {
   base::FilePath data_file = GetEndpointVerificationDir();
   if (data_file.empty()) {
@@ -332,7 +359,7 @@ void RetrieveDeviceData(
 
 void RetrieveDeviceSecret(
     bool force_recreate,
-    base::OnceCallback<void(const std::string&, long int)> callback) {
+    base::OnceCallback<void(const std::string&, int32_t)> callback) {
   std::string secret;
 #if BUILDFLAG(IS_WIN)
   std::string encrypted_secret;
@@ -345,11 +372,11 @@ void RetrieveDeviceSecret(
   if (result != ERROR_SUCCESS && force_recreate)
     result = CreateRandomSecret(&secret);
 #elif BUILDFLAG(IS_MAC)
-  OSStatus result = ReadEncryptedSecret(&secret, force_recreate);
+  int32_t result = ReadEncryptedSecret(&secret, force_recreate);
 #else
-  long int result = -1;  // Anything but 0 is a failure.
+  int32_t result = -1;  // Anything but 0 is a failure.
 #endif
-  std::move(callback).Run(secret, static_cast<long int>(result));
+  std::move(callback).Run(secret, static_cast<int32_t>(result));
 }
 
 }  // namespace extensions

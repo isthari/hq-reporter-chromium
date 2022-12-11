@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "sanitizer.h"
 
-#include "third_party/blink/public/mojom/web_feature/web_feature.mojom-blink.h"
+#include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_node_filter.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_parse_from_string_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_document_documentfragment.h"
@@ -47,7 +47,7 @@ bool ConfigIsEmpty(const SanitizerConfig* config) {
          (!config->hasDropElements() && !config->hasBlockElements() &&
           !config->hasAllowElements() && !config->hasDropAttributes() &&
           !config->hasAllowAttributes() && !config->hasAllowCustomElements() &&
-          !config->hasAllowComments());
+          !config->hasAllowComments() && !config->hasAllowUnknownMarkup());
 }
 
 String FromAPI(Node* node) {
@@ -116,6 +116,7 @@ Element* Sanitizer::sanitizeFor(ScriptState* script_state,
                                  .WithURL(window->Url())
                                  .WithTypeFrom("text/html")
                                  .WithExecutionContext(window)
+                                 .WithAgent(*window->GetAgent())
                                  .CreateDocument();
   Element* element = inert_document->CreateElementForBinding(
       AtomicString(local_name), exception_state);
@@ -221,8 +222,10 @@ void Sanitizer::DoSanitizing(ContainerNode* fragment,
         // 2. Detect element kind. (regular element, custom element, or else.)
         bool is_custom_element =
             CustomElement::IsValidName(AtomicString(name), false);
-        bool is_regular = element->IsHTMLElement() && !is_custom_element &&
-                          !To<HTMLElement>(element)->IsHTMLUnknownElement();
+        bool is_unknown_element =
+            element->IsHTMLElement() &&
+            To<HTMLElement>(element)->IsHTMLUnknownElement();
+        bool is_regular = !is_custom_element && !is_unknown_element;
 
         // 3. If |kind| is `regular` and if |name| is not contained in the
         // baseline element allow list, then 'drop'
@@ -233,6 +236,11 @@ void Sanitizer::DoSanitizing(ContainerNode* fragment,
         } else if (is_custom_element && !config_.allow_custom_elements_) {
           // 4. If |kind| is `custom` and if allow_custom_elements_ is unset or
           // set to anything other than `true`, then 'drop'.
+          node = DropNode(element, fragment);
+          UseCounter::Count(window->GetExecutionContext(),
+                            WebFeature::kSanitizerAPIActionTaken);
+        } else if (is_unknown_element && !config_.allow_unknown_markup_) {
+          // TODO: No spec yet. https://github.com/WICG/sanitizer-api/pull/159
           node = DropNode(element, fragment);
           UseCounter::Count(window->GetExecutionContext(),
                             WebFeature::kSanitizerAPIActionTaken);
@@ -323,20 +331,27 @@ Node* Sanitizer::KeepElement(Element* element,
                              ContainerNode* fragment,
                              LocalDOMWindow* window) {
   String node_name = FromAPI(element);
-  if (Match(Wildcard(), node_name, config_.allow_attributes_)) {
-  } else if (Match(Wildcard(), node_name, config_.drop_attributes_)) {
+
+  if (Match(Wildcard(), node_name, config_.drop_attributes_)) {
     for (const auto& name : element->getAttributeNames()) {
       element->removeAttribute(name);
       UseCounter::Count(window->GetExecutionContext(),
                         WebFeature::kSanitizerAPIActionTaken);
     }
   } else {
+    bool allow_attributes_wildcard =
+        Match(Wildcard(), node_name, config_.allow_attributes_);
     for (const auto& name : element->getAttributeNames()) {
       // Attributes in drop list or not in allow list while allow list
       // exists will be dropped.
-      bool drop = !Match(name, node_name, GetBaselineAllowAttributes()) ||
+      bool is_unknown = !Match(name, node_name, GetKnownAttributes());
+      bool drop = (is_unknown ? !config_.allow_unknown_markup_
+                              : !Match(name, node_name,
+                                       GetBaselineAllowAttributes())) ||
                   Match(name, node_name, config_.drop_attributes_) ||
-                  !Match(name, node_name, config_.allow_attributes_);
+                  (!allow_attributes_wildcard &&
+                   !Match(name, node_name, config_.allow_attributes_));
+
       // 9. If |element|'s [=element interface=] is {{HTMLAnchorElement}} or
       // {{HTMLAreaElement}} and |element|'s `protocol` property is
       // "javascript:", then remove the `href` attribute from |element|.
@@ -373,7 +388,6 @@ Node* Sanitizer::KeepElement(Element* element,
     }
   }
   return NodeTraversal::Next(*element, fragment);
-  ;
 }
 
 SanitizerConfig* Sanitizer::getConfiguration() const {

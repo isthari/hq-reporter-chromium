@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,9 @@ import android.animation.AnimatorListenerAdapter;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.RectF;
+import android.util.FloatProperty;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.content.res.ResourcesCompat;
 
@@ -25,11 +27,14 @@ import org.chromium.chrome.browser.compositor.layouts.components.CompositorButto
 import org.chromium.chrome.browser.compositor.layouts.components.CompositorButton.CompositorOnClickHandler;
 import org.chromium.chrome.browser.compositor.layouts.components.TintedCompositorButton;
 import org.chromium.chrome.browser.compositor.overlays.strip.TabLoadTracker.TabLoadTrackerCallback;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.layouts.animation.CompositorAnimator;
-import org.chromium.chrome.browser.layouts.animation.FloatProperty;
 import org.chromium.chrome.browser.layouts.components.VirtualView;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tasks.tab_management.TabUiFeatureUtilities;
+import org.chromium.chrome.browser.tasks.tab_management.TabUiThemeProvider;
 import org.chromium.components.browser_ui.styles.ChromeColors;
+import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.ui.base.LocalizationUtils;
 import org.chromium.ui.resources.AndroidResourceType;
 import org.chromium.ui.resources.LayoutResource;
@@ -111,6 +116,62 @@ public class StripLayoutTab implements VirtualView {
                 }
             };
 
+    /** A property for animations to use for changing the drawX of the tab. */
+    public static final FloatProperty<StripLayoutTab> DRAW_X =
+            new FloatProperty<StripLayoutTab>("drawX") {
+                @Override
+                public void setValue(StripLayoutTab object, float value) {
+                    object.setDrawX(value);
+                }
+
+                @Override
+                public Float get(StripLayoutTab object) {
+                    return object.getDrawX();
+                }
+            };
+
+    /** A property for animations to use for changing the drawX of the tab. */
+    public static final FloatProperty<StripLayoutTab> BOTTOM_MARGIN =
+            new FloatProperty<StripLayoutTab>("bottomMargin") {
+                @Override
+                public void setValue(StripLayoutTab object, float value) {
+                    object.setBottomMargin(value);
+                }
+
+                @Override
+                public Float get(StripLayoutTab object) {
+                    return object.getBottomMargin();
+                }
+            };
+
+    /** A property for animations to use for changing the trailingMargin of the tab. */
+    public static final FloatProperty<StripLayoutTab> TRAILING_MARGIN =
+            new FloatProperty<StripLayoutTab>("trailingMargin") {
+                @Override
+                public void setValue(StripLayoutTab object, float value) {
+                    object.setTrailingMargin(value);
+                }
+
+                @Override
+                public Float get(StripLayoutTab object) {
+                    return object.getTrailingMargin();
+                }
+            };
+
+    /** A property for animations to use for changing the trailingMargin of the tab. */
+    public static final FloatProperty<StripLayoutTab> BRIGHTNESS =
+            new FloatProperty<StripLayoutTab>("brightness") {
+                @Override
+                public void setValue(StripLayoutTab object, float value) {
+                    object.setBrightness(value);
+                }
+
+                @Override
+                public Float get(StripLayoutTab object) {
+                    return object.getBrightness();
+                }
+            };
+
     // Behavior Constants
     private static final float VISIBILITY_FADE_CLOSE_BUTTON_PERCENTAGE = 0.99f;
 
@@ -119,6 +180,13 @@ public class StripLayoutTab implements VirtualView {
 
     // Close button width
     private static final int CLOSE_BUTTON_WIDTH_DP = 36;
+    private static final int CLOSE_BUTTON_WIDTH_SCROLLING_STRIP_DP = 48;
+
+    // Divider Constants
+    // TODO(crbug.com/1373632): Temp value until the 9-patches are updated.
+    private static final int DIVIDER_OFFSET_X = 9;
+    @VisibleForTesting
+    static final float DIVIDER_FOLIO_LIGHT_OPACITY = 0.2f;
 
     private int mId = Tab.INVALID_TAB_ID;
 
@@ -132,8 +200,11 @@ public class StripLayoutTab implements VirtualView {
     private boolean mVisible = true;
     private boolean mIsDying;
     private boolean mCanShowCloseButton = true;
+    private boolean mFolioAttached = true;
     private final boolean mIncognito;
+    private float mBottomMargin;
     private float mContentOffsetX;
+    private float mDividerOpacity;
     private float mVisiblePercentage = 1.f;
     private String mAccessibilityDescription;
 
@@ -141,6 +212,7 @@ public class StripLayoutTab implements VirtualView {
     private float mIdealX;
     private float mTabOffsetX;
     private float mTabOffsetY;
+    private float mTrailingMargin;
 
     // Actual draw parameters
     private float mDrawX;
@@ -155,6 +227,7 @@ public class StripLayoutTab implements VirtualView {
     private CompositorAnimator mButtonOpacityAnimation;
 
     private float mLoadingSpinnerRotationDegrees;
+    private float mBrightness = 1.f;
 
     // Preallocated
     private final RectF mClosePlacement = new RectF();
@@ -256,6 +329,14 @@ public class StripLayoutTab implements VirtualView {
     }
 
     /**
+     * Marks if tab container is attached to the toolbar for the Tab Strip Redesign folio treatment.
+     * @param folioAttached Whether the tab should be attached or not.
+     */
+    public void setFolioAttached(boolean folioAttached) {
+        mFolioAttached = folioAttached;
+    }
+
+    /**
      * @return The id of the {@link Tab} this {@link StripLayoutTab} represents.
      */
     public int getId() {
@@ -266,6 +347,12 @@ public class StripLayoutTab implements VirtualView {
      * @return The Android resource that represents the tab background.
      */
     public int getResourceId() {
+        if (TabUiFeatureUtilities.isTabStripDetachedEnabled() || !mFolioAttached) {
+            return R.drawable.bg_tabstrip_tab_detached;
+        } else if (TabUiFeatureUtilities.isTabStripFolioEnabled()) {
+            return R.drawable.bg_tabstrip_tab_folio;
+        }
+
         return R.drawable.bg_tabstrip_tab;
     }
 
@@ -277,10 +364,28 @@ public class StripLayoutTab implements VirtualView {
     }
 
     /**
+     * @return The Android resource that represents the tab divider.
+     */
+    public int getDividerResourceId() {
+        return R.drawable.bg_tabstrip_tab_divider;
+    }
+
+    /**
      * @param foreground Whether or not this tab is a foreground tab.
      * @return The tint color resource that represents the tab background.
      */
     public int getTint(boolean foreground) {
+        if (ChromeFeatureList.sTabStripRedesign.isEnabled()) {
+            // Inactive tabs have no container in TSR. Return arbitrary color to avoid calculation.
+            if (!foreground) return Color.TRANSPARENT;
+
+            if (TabUiFeatureUtilities.isTabStripFolioEnabled()) {
+                return ChromeColors.getDefaultThemeColor(mContext, mIncognito);
+            } else if (TabUiFeatureUtilities.isTabStripDetachedEnabled()) {
+                return TabUiThemeProvider.getTabStripDetachedTabColor(mContext, mIncognito);
+            }
+        }
+
         if (foreground) {
             return ChromeColors.getDefaultThemeColor(mContext, mIncognito);
         }
@@ -302,6 +407,11 @@ public class StripLayoutTab implements VirtualView {
      * @return The tint color resource that represents the tab outline.
      */
     public int getOutlineTint(boolean foreground) {
+        if (ChromeFeatureList.sTabStripRedesign.isEnabled()) {
+            // Tabs have no outline in TSR. Return arbitrary color to avoid calculation.
+            return Color.TRANSPARENT;
+        }
+
         if (foreground) {
             return getTint(true);
         }
@@ -316,6 +426,48 @@ public class StripLayoutTab implements VirtualView {
         final float overlayAlpha = ResourcesCompat.getFloat(
                 mContext.getResources(), R.dimen.compositor_background_tab_outline_alpha);
         return ColorUtils.getColorWithOverlay(baseColor, overlayColor, overlayAlpha);
+    }
+
+    /**
+     * @return The tint color resource for the tab divider.
+     */
+    public @ColorInt int getDividerTint() {
+        if (!ChromeFeatureList.sTabStripRedesign.isEnabled()) {
+            // Dividers are only present in TSR. Return arbitrary color to avoid calculation.
+            return Color.TRANSPARENT;
+        }
+
+        if (mIncognito) {
+            return mContext.getColor(R.color.divider_line_bg_color_light);
+        }
+
+        if (TabUiFeatureUtilities.isTabStripFolioEnabled() && !ColorUtils.inNightMode(mContext)
+                && !mIncognito) {
+            // This color will not be used at full opacity. We can't set this using the alpha
+            // component of the {@code @ColorInt}, since it is ignored when loading resources
+            // with a specified tint in the CC layer (instead retaining the alpha of the original
+            // image). Instead, this is reflected by setting the opacity of the divider itself.
+            // See https://crbug.com/1373634.
+            return androidx.core.graphics.ColorUtils.setAlphaComponent(
+                    SemanticColorUtils.getDefaultIconColorAccent1(mContext),
+                    (int) (DIVIDER_FOLIO_LIGHT_OPACITY * 255));
+        }
+
+        return SemanticColorUtils.getDividerLineBgColor(mContext);
+    }
+
+    /**
+     * @param dividerOpacity The new opacity for the tab divider.
+     */
+    public void setDividerOpacity(float dividerOpacity) {
+        mDividerOpacity = dividerOpacity;
+    }
+
+    /**
+     * @return The opacity of the tab divider.
+     */
+    public float getDividerOpacity() {
+        return mDividerOpacity;
     }
 
     /**
@@ -405,6 +557,35 @@ public class StripLayoutTab implements VirtualView {
     }
 
     /**
+     * @param brightness The fraction (from 0.f to 1.f) of how bright the tab should be.
+     */
+    public void setBrightness(float brightness) {
+        mBrightness = brightness;
+    }
+
+    /**
+     * @return The fraction (from 0.f to 1.f) of how bright the tab should be.
+     */
+    public float getBrightness() {
+        return mBrightness;
+    }
+
+    /**
+     * @param foreground Whether or not this tab is a foreground tab.
+     * @return The fraction (from 0.f to 1.f) of how opaque the tab should be.
+     */
+    public float getOpacity(boolean foreground) {
+        if (ChromeFeatureList.sTabStripRedesign.isEnabled()) {
+            if (foreground) {
+                return 1.0f;
+            } else {
+                return 0.0f;
+            }
+        }
+        return 1.0f;
+    }
+
+    /**
      * @param offsetX How far to offset the tab content (favicons and title).
      */
     public void setContentOffsetX(float offsetX) {
@@ -416,6 +597,27 @@ public class StripLayoutTab implements VirtualView {
      */
     public float getContentOffsetX() {
         return mContentOffsetX;
+    }
+
+    /**
+     * @return The trailing offset for the tab divider.
+     */
+    public float getDividerOffsetX() {
+        return DIVIDER_OFFSET_X;
+    }
+
+    /**
+     * @param bottomMargin How far to offset the bottom of the tab container from the toolbar.
+     */
+    public void setBottomMargin(float bottomMargin) {
+        mBottomMargin = bottomMargin;
+    }
+
+    /**
+     * @return How far to offset the bottom of the tab container from the toolbar.
+     */
+    public float getBottomMargin() {
+        return mBottomMargin;
     }
 
     /**
@@ -436,10 +638,11 @@ public class StripLayoutTab implements VirtualView {
 
     /**
      * @param show Whether or not the close button is allowed to be shown.
+     * @param animate Whether or not to animate the close button showing/hiding.
      */
-    public void setCanShowCloseButton(boolean show) {
+    public void setCanShowCloseButton(boolean show, boolean animate) {
         mCanShowCloseButton = show;
-        checkCloseButtonVisibility(true);
+        checkCloseButtonVisibility(animate);
     }
 
     /**
@@ -598,6 +801,23 @@ public class StripLayoutTab implements VirtualView {
     }
 
     /**
+     * This is used to help calculate the tab's position and is not used for rendering.
+     * @param trailingMargin The trailing margin of the tab (used for margins around tab groups
+     *                       when reordering, etc.).
+     */
+    public void setTrailingMargin(float trailingMargin) {
+        mTrailingMargin = trailingMargin;
+    }
+
+    /**
+     * This is used to help calculate the tab's position and is not used for rendering.
+     * @return The trailing margin of the tab.
+     */
+    public float getTrailingMargin() {
+        return mTrailingMargin;
+    }
+
+    /**
      * Finishes any content animations currently owned and running on this StripLayoutTab.
      */
     public void finishAnimation() {
@@ -613,26 +833,31 @@ public class StripLayoutTab implements VirtualView {
     }
 
     private RectF getCloseRect() {
+        boolean tabStripImprovementsEnabled = ChromeFeatureList.sTabStripImprovements.isEnabled();
+        int closeButtonWidth = tabStripImprovementsEnabled ? CLOSE_BUTTON_WIDTH_SCROLLING_STRIP_DP
+                                                           : CLOSE_BUTTON_WIDTH_DP;
         if (!LocalizationUtils.isLayoutRtl()) {
-            mClosePlacement.left = getWidth() - CLOSE_BUTTON_WIDTH_DP;
-            mClosePlacement.right = mClosePlacement.left + CLOSE_BUTTON_WIDTH_DP;
+            mClosePlacement.left = getWidth() - closeButtonWidth;
+            mClosePlacement.right = mClosePlacement.left + closeButtonWidth;
         } else {
             mClosePlacement.left = 0;
-            mClosePlacement.right = CLOSE_BUTTON_WIDTH_DP;
+            mClosePlacement.right = closeButtonWidth;
         }
 
         mClosePlacement.top = 0;
         mClosePlacement.bottom = getHeight();
 
         float xOffset = 0;
-        ResourceManager manager = mRenderHost.getResourceManager();
-        if (manager != null) {
-            LayoutResource resource =
-                    manager.getResource(AndroidResourceType.STATIC, getResourceId());
-            if (resource != null) {
-                xOffset = LocalizationUtils.isLayoutRtl()
-                        ? resource.getPadding().left
-                        : -(resource.getBitmapSize().width() - resource.getPadding().right);
+        if (!tabStripImprovementsEnabled) {
+            ResourceManager manager = mRenderHost.getResourceManager();
+            if (manager != null) {
+                LayoutResource resource =
+                        manager.getResource(AndroidResourceType.STATIC, getResourceId());
+                if (resource != null) {
+                    xOffset = LocalizationUtils.isLayoutRtl()
+                            ? resource.getPadding().left
+                            : -(resource.getBitmapSize().width() - resource.getPadding().right);
+                }
             }
         }
 

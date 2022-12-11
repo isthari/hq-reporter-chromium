@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,19 @@
 
 #include <string>
 
-#include "base/callback.h"
+#include "base/callback_forward.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/sync/test/integration/status_change_checker.h"
-#include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/themes/theme_service_observer.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
 
 class Profile;
 class ThemeService;
 
 namespace themes_helper {
+
+bool IsSystemThemeDistinctFromDefaultTheme(Profile* profile);
 
 // Gets the unique ID of the custom theme with the given index.
 [[nodiscard]] std::string GetCustomTheme(int index);
@@ -85,8 +86,7 @@ class ThemeConditionChecker : public StatusChangeChecker,
 // The themes sync integration tests don't actually install any custom themes,
 // but they do occasionally check that the ThemeService attempts to install
 // synced themes.
-class ThemePendingInstallChecker : public StatusChangeChecker,
-                                   public content::NotificationObserver {
+class ThemePendingInstallChecker : public StatusChangeChecker {
  public:
   ThemePendingInstallChecker(Profile* profile, const std::string& theme);
   ~ThemePendingInstallChecker() override;
@@ -94,16 +94,11 @@ class ThemePendingInstallChecker : public StatusChangeChecker,
   // Implementation of StatusChangeChecker.
   bool IsExitConditionSatisfied(std::ostream* os) override;
 
-  // Implementation of content::NotificationObserver.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
-
  private:
   raw_ptr<Profile> profile_;
-  const std::string& theme_;
+  const raw_ref<const std::string> theme_;
 
-  content::NotificationRegistrar registrar_;
+  base::WeakPtrFactory<ThemePendingInstallChecker> weak_ptr_factory_{this};
 };
 
 // Waits until |profile| is using the system theme.
@@ -118,6 +113,13 @@ class SystemThemeChecker : public ThemeConditionChecker {
 class DefaultThemeChecker : public ThemeConditionChecker {
  public:
   explicit DefaultThemeChecker(Profile* profile);
+};
+
+// Waits until |profile| is using a custom theme.
+// Returns false in case of timeout.
+class CustomThemeChecker : public ThemeConditionChecker {
+ public:
+  explicit CustomThemeChecker(Profile* profile);
 };
 
 #endif  // CHROME_BROWSER_SYNC_TEST_INTEGRATION_THEMES_HELPER_H_

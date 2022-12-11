@@ -1,16 +1,14 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_PROFILES_PROFILE_WINDOW_H_
 #define CHROME_BROWSER_PROFILES_PROFILE_WINDOW_H_
 
-#include <string>
-
 #include "base/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
-#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/profile_chooser_constants.h"
 #include "chrome/browser/ui/startup/startup_types.h"
@@ -24,11 +22,6 @@ class Profile;
 namespace base { class FilePath; }
 
 namespace profiles {
-
-// Returns the path of the profile connected to the given email.  If no profile
-// is found an empty file path is returned.
-base::FilePath GetPathOfProfileWithEmail(ProfileManager* profile_manager,
-                                         const std::string& email);
 
 // Activates a window for |profile| on the desktop specified by
 // |desktop_type|. If no such window yet exists, or if |always_create| is
@@ -79,12 +72,6 @@ bool HasProfileSwitchTargets(Profile* profile);
 
 // Close all the browser windows for |profile|.
 void CloseProfileWindows(Profile* profile);
-
-// Converts from modes in the avatar menu to modes understood by
-// ProfileMenuView.
-void BubbleViewModeFromAvatarBubbleMode(BrowserWindow::AvatarBubbleMode mode,
-                                        Profile* profile,
-                                        BubbleViewMode* bubble_view_mode);
 
 // Handles running a callback when a new Browser for the given profile
 // has been completely created.  This object deletes itself once the browser

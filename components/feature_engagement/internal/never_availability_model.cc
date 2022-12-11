@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,21 +10,20 @@
 #include "base/callback.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace feature_engagement {
 
-NeverAvailabilityModel::NeverAvailabilityModel() : ready_(false) {}
+NeverAvailabilityModel::NeverAvailabilityModel() = default;
 
 NeverAvailabilityModel::~NeverAvailabilityModel() = default;
 
 void NeverAvailabilityModel::Initialize(OnInitializedCallback callback,
                                         uint32_t current_day) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&NeverAvailabilityModel::ForwardedOnInitializedCallback,
-                     base::Unretained(this), std::move(callback)));
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 bool NeverAvailabilityModel::IsReady() const {
@@ -38,7 +37,7 @@ absl::optional<uint32_t> NeverAvailabilityModel::GetAvailability(
 
 void NeverAvailabilityModel::ForwardedOnInitializedCallback(
     OnInitializedCallback callback) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), true));
   ready_ = true;
 }

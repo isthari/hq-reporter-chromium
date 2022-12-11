@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,10 @@ PaintRenderingContext2D::PaintRenderingContext2D(
     const PaintRenderingContext2DSettings* context_settings,
     float zoom,
     float device_scale_factor,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner,
     PaintWorkletGlobalScope* global_scope)
-    : container_size_(container_size),
+    : BaseRenderingContext2D(std::move(task_runner)),
+      container_size_(container_size),
       context_settings_(context_settings),
       effective_zoom_(zoom),
       global_scope_(global_scope) {
@@ -24,15 +26,13 @@ PaintRenderingContext2D::PaintRenderingContext2D(
   clip_antialiasing_ = kAntiAliased;
   GetState().SetShouldAntialias(true);
 
-  GetPaintCanvas()->clear(context_settings->alpha() ? SK_ColorTRANSPARENT
-                                                    : SK_ColorBLACK);
+  GetPaintCanvas()->clear(context_settings->alpha() ? SkColors::kTransparent
+                                                    : SkColors::kBlack);
   did_record_draw_commands_in_paint_recorder_ = true;
 }
 
 void PaintRenderingContext2D::InitializePaintRecorder() {
-  paint_recorder_ = std::make_unique<PaintRecorder>();
-  cc::PaintCanvas* canvas = paint_recorder_->beginRecording(
-      container_size_.width(), container_size_.height());
+  cc::PaintCanvas* canvas = paint_recorder_.beginRecording(container_size_);
 
   // Always save an initial frame, to support resetting the top level matrix
   // and clip.
@@ -91,16 +91,14 @@ void PaintRenderingContext2D::setShadowOffsetY(double y) {
 }
 
 cc::PaintCanvas* PaintRenderingContext2D::GetPaintCanvas() const {
-  DCHECK(paint_recorder_);
-  DCHECK(paint_recorder_->getRecordingCanvas());
-  return paint_recorder_->getRecordingCanvas();
+  DCHECK(paint_recorder_.getRecordingCanvas());
+  return paint_recorder_.getRecordingCanvas();
 }
 
 cc::PaintCanvas* PaintRenderingContext2D::GetDrawingPaintCanvas() {
-  DCHECK(paint_recorder_);
-  DCHECK(paint_recorder_->getRecordingCanvas());
+  DCHECK(paint_recorder_.getRecordingCanvas());
   did_record_draw_commands_in_paint_recorder_ = true;
-  return paint_recorder_->getRecordingCanvas();
+  return paint_recorder_.getRecordingCanvas();
 }
 
 cc::PaintCanvas* PaintRenderingContext2D::GetPaintCanvasForDraw(
@@ -134,13 +132,13 @@ void PaintRenderingContext2D::WillOverwriteCanvas() {
   previous_frame_.reset();
   if (did_record_draw_commands_in_paint_recorder_) {
     // Discard previous draw commands
-    paint_recorder_->finishRecordingAsPicture();
+    paint_recorder_.finishRecordingAsPicture();
     InitializePaintRecorder();
   }
 }
 
 DOMMatrix* PaintRenderingContext2D::getTransform() {
-  const TransformationMatrix& t = GetState().GetTransform();
+  const AffineTransform& t = GetState().GetTransform();
   DOMMatrix* m = DOMMatrix::Create();
   m->setA(t.A() / effective_zoom_);
   m->setB(t.B() / effective_zoom_);
@@ -170,9 +168,8 @@ sk_sp<PaintRecord> PaintRenderingContext2D::GetRecord() {
     return previous_frame_;  // Reuse the previous frame
   }
 
-  CHECK(paint_recorder_);
-  DCHECK(paint_recorder_->getRecordingCanvas());
-  previous_frame_ = paint_recorder_->finishRecordingAsPicture();
+  DCHECK(paint_recorder_.getRecordingCanvas());
+  previous_frame_ = paint_recorder_.finishRecordingAsPicture();
   InitializePaintRecorder();
   return previous_frame_;
 }

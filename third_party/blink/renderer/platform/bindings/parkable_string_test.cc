@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/threading/platform_thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/timer/elapsed_timer.h"
 #include "base/trace_event/memory_allocator_dump.h"
@@ -89,8 +88,16 @@ class ParkableStringTest : public testing::TestWithParam<bool> {
     if (base::FeatureList::IsEnabled(features::kCompressParkableStrings)) {
       EXPECT_GT(task_environment_.GetPendingMainThreadTaskCount(), 0u);
     }
-    task_environment_.FastForwardBy(
-        base::Seconds(ParkableStringManager::kAgingIntervalInSeconds));
+
+    if (base::FeatureList::IsEnabled(features::kDelayFirstParkingOfStrings) &&
+        !first_aging_done_) {
+      task_environment_.FastForwardBy(
+          ParkableStringManager::kFirstParkingDelay);
+      first_aging_done_ = true;
+    } else {
+      task_environment_.FastForwardBy(
+          base::Seconds(ParkableStringManager::kAgingIntervalInSeconds));
+    }
   }
 
   void WaitForDelayedParking() {
@@ -118,6 +125,8 @@ class ParkableStringTest : public testing::TestWithParam<bool> {
   void SetUp() override {
     auto& manager = ParkableStringManager::Instance();
     manager.ResetForTesting();
+    manager.SetTaskRunnerForTesting(
+        task_environment_.GetMainThreadTaskRunner());
     manager.SetDataAllocatorForTesting(
         std::make_unique<InMemoryDataAllocator>());
   }
@@ -153,6 +162,7 @@ class ParkableStringTest : public testing::TestWithParam<bool> {
     }
   }
 
+  bool first_aging_done_ = false;
   base::test::ScopedFeatureList scoped_feature_list_;
   base::test::TaskEnvironment task_environment_;
 };
@@ -221,7 +231,7 @@ TEST_P(ParkableStringTest, DecompressUtf16String) {
   }
 
   String large_string = String(&data[0], size_in_chars);
-  String copy = large_string.IsolatedCopy();
+  String copy = String(large_string.Impl()->IsolatedCopy());
   ParkableString parkable(large_string.ReleaseImpl());
   large_string = String();
   EXPECT_FALSE(parkable.Is8Bit());
@@ -292,7 +302,7 @@ TEST_P(ParkableStringTest, Park) {
 
 TEST_P(ParkableStringTest, EqualityNoUnparking) {
   String large_string = MakeLargeString();
-  String copy = large_string.IsolatedCopy();
+  String copy = String(large_string.Impl()->IsolatedCopy());
   EXPECT_NE(large_string.Impl(), copy.Impl());
 
   ParkableString parkable(large_string.Impl());
@@ -401,7 +411,7 @@ TEST_P(ParkableStringTest, AbortedParkingRetainsCompressedData) {
 
 TEST_P(ParkableStringTest, Unpark) {
   ParkableString parkable(MakeLargeString().Impl());
-  String unparked_copy = parkable.ToString().IsolatedCopy();
+  String unparked_copy = String(parkable.ToString().Impl()->IsolatedCopy());
   EXPECT_TRUE(parkable.may_be_parked());
   EXPECT_FALSE(parkable.Impl()->is_parked());
   EXPECT_TRUE(ParkAndWait(parkable));
@@ -993,6 +1003,27 @@ TEST_P(ParkableStringTest, Aging) {
             parkable.Impl()->age_for_testing());
 }
 
+TEST_P(ParkableStringTest, NoPrematureAging) {
+  ParkableString parkable(MakeLargeString().ReleaseImpl());
+  EXPECT_EQ(ParkableStringImpl::Age::kYoung,
+            parkable.Impl()->age_for_testing());
+
+  // What would be a premature aging depends on |kDelayFirstParkingOfStrings|.
+  // Under the feature the regular aging interval is not enough.
+  if (base::FeatureList::IsEnabled(features::kDelayFirstParkingOfStrings)) {
+    task_environment_.FastForwardBy(
+        base::Seconds(ParkableStringManager::kAgingIntervalInSeconds));
+  } else {
+    // Outside of the feature use half the regular aging interval.
+    task_environment_.FastForwardBy(
+        base::Seconds(ParkableStringManager::kAgingIntervalInSeconds / 2));
+  }
+
+  // Since not enough time elapsed not aging was done.
+  EXPECT_EQ(ParkableStringImpl::Age::kYoung,
+            parkable.Impl()->age_for_testing());
+}
+
 TEST_P(ParkableStringTest, OldStringsAreParked) {
   ParkableString parkable(MakeLargeString().ReleaseImpl());
   EXPECT_EQ(ParkableStringImpl::Age::kYoung,
@@ -1224,7 +1255,7 @@ TEST_P(ParkableStringTestWithQueuedThreadPool, AgingParkingInProgress) {
   // task on the main thread to kick in before the immediate async compression
   // task completes.
   base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  scheduler::GetSingleThreadTaskRunnerForTesting()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(),
       base::Seconds(ParkableStringManager::kAgingIntervalInSeconds));
   run_loop.Run();

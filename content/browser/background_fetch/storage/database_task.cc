@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,8 @@
 
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/observer_list.h"
+#include "base/task/single_thread_task_runner.h"
 #include "content/browser/background_fetch/background_fetch_data_manager.h"
 #include "content/browser/background_fetch/background_fetch_data_manager_observer.h"
 #include "content/browser/background_fetch/storage/database_helpers.h"
@@ -55,7 +57,7 @@ void DatabaseTask::Finished() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // Post the OnTaskFinished callback to the same thread, to allow the the
   // DatabaseTask to finish execution before deallocating it.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&DatabaseTaskHost::OnTaskFinished,
                                 host_->GetWeakPtr(), this));
 }
@@ -89,7 +91,7 @@ void DatabaseTask::IsQuotaAvailable(const blink::StorageKey& storage_key,
 
   quota_manager_proxy()->GetUsageAndQuota(
       storage_key, blink::mojom::StorageType::kTemporary,
-      base::ThreadTaskRunnerHandle::Get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
       base::BindOnce(&DidGetUsageAndQuota, std::move(callback), size));
 }
 
@@ -185,7 +187,8 @@ BackgroundFetchDataManager* DatabaseTask::data_manager() {
   return host_->data_manager();
 }
 
-storage::QuotaManagerProxy* DatabaseTask::quota_manager_proxy() {
+const scoped_refptr<storage::QuotaManagerProxy>&
+DatabaseTask::quota_manager_proxy() {
   return data_manager()->quota_manager_proxy();
 }
 

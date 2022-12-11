@@ -1,16 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chromecast.cma.backend.android;
 
-import android.annotation.TargetApi;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioTimestamp;
 import android.media.AudioTrack;
 import android.os.Build;
 import android.os.SystemClock;
+import android.util.Pair;
 import android.util.SparseIntArray;
 
 import androidx.annotation.IntDef;
@@ -25,6 +25,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.LinkedList;
+import java.util.Queue;
 
 /**
  * Implements an audio sink object using Android's AudioTrack module to
@@ -48,7 +50,6 @@ import java.nio.ByteOrder;
  *
  */
 @JNINamespace("chromecast::media")
-@TargetApi(Build.VERSION_CODES.N)
 class AudioSinkAudioTrackImpl {
     private static final String TAG = "AATrack";
     private static final int DEBUG_LEVEL = 0;
@@ -80,11 +81,13 @@ class AudioSinkAudioTrackImpl {
     private static final int AUDIO_FORMAT_HW_AV_SYNC = AudioFormat.ENCODING_PCM_16BIT;
     private static final int AUDIO_MODE = AudioTrack.MODE_STREAM;
 
-    // Parameter to determine the proper internal buffer size of the AudioTrack instance. In order
+    // Parameter to determine the proper internal buffer size of the AudioTrack instance.
+    private static final int BUFFER_SIZE_MULTIPLIER = 3;
+    // Parameter to determine the start threshold of the AudioTrack instance. In order
     // to minimize latency we want a buffer as small as possible. However, to avoid underruns we
     // need a size several times the size returned by AudioTrack.getMinBufferSize() (see
     // the Android documentation for details).
-    private static final int MIN_BUFFER_SIZE_MULTIPLIER = 3;
+    private static final int START_THRESHOLD_MULTIPLIER = 2;
 
     private static final long NO_TIMESTAMP = Long.MIN_VALUE;
     private static final long NO_FRAME_POSITION = -1;
@@ -96,12 +99,6 @@ class AudioSinkAudioTrackImpl {
 
     private static final long TIMESTAMP_UPDATE_PERIOD = 250 * MSEC_IN_NSEC;
     private static final long UNDERRUN_LOG_THROTTLE_PERIOD = SEC_IN_NSEC;
-
-    // Internally Android fetches data from AudioTrack buffer in periods of 20ms.
-    private static final long ANDROID_AUDIO_PERIOD_SIZE_US = 20000;
-
-    // Threshold at which we start logging low buffer warnings.
-    private static final long VERY_LOW_BUFFER_LEVEL = ANDROID_AUDIO_PERIOD_SIZE_US;
 
     private static long sInstanceCounter;
 
@@ -125,9 +122,6 @@ class AudioSinkAudioTrackImpl {
 
     // Additional padding for minimum buffer time, determined experimentally.
     private static final long MIN_BUFFERED_TIME_PADDING_US = 120000;
-
-    // Max retries for AudioTrackBuilder
-    private static final int MAX_RETRIES_FOR_AUDIO_TRACKS = 1;
 
     private final long mNativeAudioSinkAudioTrackImpl;
 
@@ -164,6 +158,7 @@ class AudioSinkAudioTrackImpl {
     private int mSampleSize;
 
     private AudioTrack mAudioTrack;
+    private int mStartThresholdInFrames;
 
     // Timestamping logic for RenderingDelay calculations. See also the description for
     // getNewFramePos0Timestamp() for additional information.
@@ -180,16 +175,14 @@ class AudioSinkAudioTrackImpl {
     private long mTimestampStabilityCounter; // Counts consecutive stable timestamps at startup.
     private long mTimestampStabilityStartTimeNsec; // Time when we started being stable.
 
-    private long mLastRenderingDelayUsecs;
-
     private int mLastUnderrunCount;
 
     // Statistics
     private long mTotalFramesWritten;
-
-    // Sample Rate calculator
-    private long mSRWindowStartTimeNsec;
-    private long mSRWindowFramesWritten;
+    private long mTotalFramesWrittenAfterReset;
+    // Store intervals of audio buffers without timestamp, [startPosition, endPosition).
+    private Queue<Pair<Long, Long>> mPendingFramesWithoutTimestamp;
+    private long mTotalPlayedFramesWithoutTimestamp;
 
     // Buffers shared between native and java space to move data across the JNI.
     // We use a direct buffers so that the native class can have access to
@@ -199,6 +192,8 @@ class AudioSinkAudioTrackImpl {
     private ByteBuffer mPcmBuffer; // PCM audio data (native->java)
     private ByteBuffer mRenderingDelayBuffer; // RenderingDelay return value
                                               // (java->native)
+    private ByteBuffer
+            mAudioTrackTimestampBuffer; // AudioTrack.getTimestamp return value (java->native)
 
     /**
      * Converts the given nanoseconds value into microseconds with proper rounding. It is assumed
@@ -219,11 +214,7 @@ class AudioSinkAudioTrackImpl {
             case 6:
                 return AudioFormat.CHANNEL_OUT_5POINT1;
             case 8:
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    return AudioFormat.CHANNEL_OUT_7POINT1_SURROUND;
-                } else {
-                    return AudioFormat.CHANNEL_OUT_7POINT1;
-                }
+                return AudioFormat.CHANNEL_OUT_7POINT1_SURROUND;
             default:
                 Log.e(TAG, "Unsupported channel count: " + channelCount);
                 return AudioFormat.CHANNEL_OUT_DEFAULT;
@@ -258,23 +249,27 @@ class AudioSinkAudioTrackImpl {
     @CalledByNative
     private static AudioSinkAudioTrackImpl create(long nativeAudioSinkAudioTrackImpl,
             @AudioContentType int castContentType, int channelCount, int sampleRateInHz,
-            int bytesPerBuffer, int sessionId, boolean useHwAvSync) {
+            int bytesPerBuffer, int sessionId, boolean isApkAudio, boolean useHwAvSync) {
         return new AudioSinkAudioTrackImpl(nativeAudioSinkAudioTrackImpl, castContentType,
-                channelCount, sampleRateInHz, bytesPerBuffer, sessionId, useHwAvSync);
+                channelCount, sampleRateInHz, bytesPerBuffer, sessionId, isApkAudio, useHwAvSync);
     }
 
     private AudioSinkAudioTrackImpl(long nativeAudioSinkAudioTrackImpl,
             @AudioContentType int castContentType, int channelCount, int sampleRateInHz,
-            int bytesPerBuffer, int sessionId, boolean useHwAvSync) {
+            int bytesPerBuffer, int sessionId, boolean isApkAudio, boolean useHwAvSync) {
         mNativeAudioSinkAudioTrackImpl = nativeAudioSinkAudioTrackImpl;
         mLastTimestampUpdateNsec = NO_TIMESTAMP;
-        mLastRenderingDelayUsecs = NO_TIMESTAMP;
         mTriggerTimestampUpdateNow = false;
         mTimestampStabilityCounter = 0;
         mReferenceTimestampState = ReferenceTimestampState.STARTING_UP;
         mOriginalFramePosOfLastTimestamp = NO_FRAME_POSITION;
+        mStartThresholdInFrames = 0;
         mLastUnderrunCount = 0;
         mTotalFramesWritten = 0;
+        if (isApkAudio) {
+            mPendingFramesWithoutTimestamp = new LinkedList<>();
+        }
+        mTotalPlayedFramesWithoutTimestamp = 0;
         init(castContentType, channelCount, sampleRateInHz, bytesPerBuffer, sessionId, useHwAvSync);
     }
 
@@ -321,8 +316,10 @@ class AudioSinkAudioTrackImpl {
                                        : CAST_TYPE_TO_ANDROID_CONTENT_TYPE_MAP.get(castContentType);
 
         int channelConfig = getChannelConfig(mChannelCount);
-        int bufferSizeInBytes = MIN_BUFFER_SIZE_MULTIPLIER
-                * AudioTrack.getMinBufferSize(mSampleRateInHz, channelConfig, audioEncodingFormat);
+        int minBufferSizeInBytes =
+                AudioTrack.getMinBufferSize(mSampleRateInHz, channelConfig, audioEncodingFormat);
+        int bufferSizeInBytes = BUFFER_SIZE_MULTIPLIER * minBufferSizeInBytes;
+
         int bufferSizeInMs =
                 1000 * bufferSizeInBytes / (mSampleSize * mChannelCount * mSampleRateInHz);
         Log.i(mTag,
@@ -330,26 +327,32 @@ class AudioSinkAudioTrackImpl {
                         + "ms) usageType=" + usageType + " contentType=" + contentType
                         + " with session-id=" + sessionId);
 
-        // Retry if AudioTrack creation fails.
-        int retries = 0;
-        do {
-            AudioAttributes.Builder attributesBuilder = new AudioAttributes.Builder();
-            attributesBuilder.setContentType(contentType).setUsage(usageType);
-            if (mUseHwAvSync) {
-                attributesBuilder.setFlags(AudioAttributes.FLAG_HW_AV_SYNC);
-            }
-            AudioTrack.Builder builder = new AudioTrack.Builder();
-            builder.setBufferSizeInBytes(bufferSizeInBytes)
-                    .setTransferMode(AUDIO_MODE)
-                    .setAudioAttributes(attributesBuilder.build())
-                    .setAudioFormat(new AudioFormat.Builder()
-                                            .setEncoding(audioEncodingFormat)
-                                            .setSampleRate(mSampleRateInHz)
-                                            .setChannelMask(channelConfig)
-                                            .build());
-            if (isValidSessionId(sessionId)) builder.setSessionId(sessionId);
-            mAudioTrack = builder.build();
-        } while (mAudioTrack == null && retries++ < MAX_RETRIES_FOR_AUDIO_TRACKS);
+        AudioAttributes.Builder attributesBuilder = new AudioAttributes.Builder();
+        attributesBuilder.setContentType(contentType).setUsage(usageType);
+        if (mUseHwAvSync) {
+            attributesBuilder.setFlags(AudioAttributes.FLAG_HW_AV_SYNC);
+        }
+        AudioTrack.Builder builder = new AudioTrack.Builder();
+        builder.setBufferSizeInBytes(bufferSizeInBytes)
+                .setTransferMode(AUDIO_MODE)
+                .setAudioAttributes(attributesBuilder.build())
+                .setAudioFormat(new AudioFormat.Builder()
+                                        .setEncoding(audioEncodingFormat)
+                                        .setSampleRate(mSampleRateInHz)
+                                        .setChannelMask(channelConfig)
+                                        .build());
+        if (isValidSessionId(sessionId)) builder.setSessionId(sessionId);
+        mAudioTrack = builder.build();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // The playback will not be started until Android AudioTrack has more data than
+            // the start threshold. Reduce the start threshold to start playback as soon as
+            // possible after starting or resuming.
+            int minBufferSizeInFrames = minBufferSizeInBytes / (mChannelCount * mSampleSize);
+            mAudioTrack.setStartThresholdInFrames(
+                    START_THRESHOLD_MULTIPLIER * minBufferSizeInFrames);
+            mStartThresholdInFrames = mAudioTrack.getStartThresholdInFrames();
+            Log.i(mTag, "Set start threshold to %d", mStartThresholdInFrames);
+        }
 
         // Allocated shared buffers.
         mPcmBuffer = ByteBuffer.allocateDirect(bytesPerBuffer);
@@ -357,15 +360,26 @@ class AudioSinkAudioTrackImpl {
 
         mRenderingDelayBuffer = ByteBuffer.allocateDirect(2 * 8); // 2 long
         mRenderingDelayBuffer.order(ByteOrder.nativeOrder());
+        // Initialize with a invalid rendering delay.
+        mRenderingDelayBuffer.putLong(0, 0);
+        mRenderingDelayBuffer.putLong(8, NO_TIMESTAMP);
+
+        mAudioTrackTimestampBuffer = ByteBuffer.allocateDirect(3 * 8); // 3 long
+        mAudioTrackTimestampBuffer.order(ByteOrder.nativeOrder());
+        // Initialize with zero frame position and system nano time.
+        mAudioTrackTimestampBuffer.putLong(0, 0);
+        mAudioTrackTimestampBuffer.putLong(8, 0);
+        mAudioTrackTimestampBuffer.putLong(16, System.nanoTime());
 
         AudioSinkAudioTrackImplJni.get().cacheDirectBufferAddress(mNativeAudioSinkAudioTrackImpl,
-                AudioSinkAudioTrackImpl.this, mPcmBuffer, mRenderingDelayBuffer);
+                AudioSinkAudioTrackImpl.this, mPcmBuffer, mRenderingDelayBuffer,
+                mAudioTrackTimestampBuffer);
     }
 
     @CalledByNative
     private void play() {
         Log.i(mTag, "Start playback");
-        mSRWindowFramesWritten = 0;
+        mTotalFramesWrittenAfterReset = 0;
         mAudioTrack.play();
         mTriggerTimestampUpdateNow = true; // Get a fresh timestamp asap.
     }
@@ -398,8 +412,10 @@ class AudioSinkAudioTrackImpl {
         return mAudioTrack.getPlayState() == AudioTrack.PLAYSTATE_PAUSED;
     }
 
-    /** Stops the AudioTrack and returns an estimate of the time it takes for the remaining data
-     * left in the internal queue to be played out (in usecs). */
+    /**
+     * Stops the AudioTrack and returns an estimate of the time it takes for the remaining data
+     * left in the internal queue to be played out (in usecs).
+     */
     @CalledByNative
     private long prepareForShutdown() {
         long playtimeLeftNsecs;
@@ -448,14 +464,11 @@ class AudioSinkAudioTrackImpl {
     }
 
     int getUnderrunCount() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            return mAudioTrack.getUnderrunCount();
-        }
-        // Using pre-N API.
-        return 0;
+        return mAudioTrack.getUnderrunCount();
     }
 
-    /** Writes the PCM data of the given size into the AudioTrack object. The
+    /**
+     * Writes the PCM data of the given size into the AudioTrack object. The
      * PCM data is provided through the memory-mapped ByteBuffer.
      *
      * Returns the number of bytes written into the AudioTrack object, -1 for
@@ -469,9 +482,6 @@ class AudioSinkAudioTrackImpl {
                             + " sizeInBytes=" + sizeInBytes + " state=" + getPlayStateString()
                             + " underruns=" + mLastUnderrunCount);
         }
-
-        // Check buffer level before feeding in new data.
-        if (haveValidRefPoint()) checkBufferLevel();
 
         // Setup the PCM ByteBuffer correctly.
         mPcmBuffer.limit(sizeInBytes);
@@ -520,6 +530,10 @@ class AudioSinkAudioTrackImpl {
         }
 
         int framesWritten = bytesWritten / (mSampleSize * mChannelCount);
+        if (mPendingFramesWithoutTimestamp != null && timestampNs == NO_TIMESTAMP) {
+            mPendingFramesWithoutTimestamp.add(
+                    Pair.create(mTotalFramesWritten, mTotalFramesWritten + framesWritten));
+        }
         mTotalFramesWritten += framesWritten;
 
         if (DEBUG_LEVEL >= 3) {
@@ -535,7 +549,12 @@ class AudioSinkAudioTrackImpl {
             return bytesWritten;
         }
 
-        updateSampleRateMeasure(framesWritten);
+        if (mTotalFramesWrittenAfterReset < mStartThresholdInFrames) {
+            mTotalFramesWrittenAfterReset += framesWritten;
+            if (mTotalFramesWrittenAfterReset >= mStartThresholdInFrames) {
+                Log.i(mTag, "Receive enough data to start the playback.");
+            }
+        }
 
         updateRenderingDelay();
 
@@ -544,62 +563,76 @@ class AudioSinkAudioTrackImpl {
         return bytesWritten;
     }
 
+    @CalledByNative
+    public int getStartThresholdInFrames() {
+        return mStartThresholdInFrames;
+    }
+
+    @CalledByNative
+    public void getAudioTrackTimestamp() {
+        AudioTimestamp timestamp = new AudioTimestamp();
+        if (!mAudioTrack.getTimestamp(timestamp)) {
+            // The timestamp is invalid. Do not update values.
+            return;
+        }
+        mAudioTrackTimestampBuffer.putLong(0, timestamp.framePosition);
+        if (mPendingFramesWithoutTimestamp == null) {
+            mAudioTrackTimestampBuffer.putLong(8, timestamp.framePosition);
+            mAudioTrackTimestampBuffer.putLong(16, timestamp.nanoTime);
+            return;
+        }
+        while (!mPendingFramesWithoutTimestamp.isEmpty()
+                && timestamp.framePosition >= mPendingFramesWithoutTimestamp.peek().second) {
+            // Calculate the total frames without timestamp before current reported position.
+            mTotalPlayedFramesWithoutTimestamp += (mPendingFramesWithoutTimestamp.peek().second
+                    - mPendingFramesWithoutTimestamp.peek().first);
+            mPendingFramesWithoutTimestamp.remove();
+        }
+        assert timestamp.framePosition >= mTotalPlayedFramesWithoutTimestamp;
+        if (!mPendingFramesWithoutTimestamp.isEmpty()
+                && timestamp.framePosition >= mPendingFramesWithoutTimestamp.peek().first) {
+            // The reported position is in the middle of an audio buffer without timestamp. Use
+            // the start position to calculate the accurate position.
+            mAudioTrackTimestampBuffer.putLong(8,
+                    mPendingFramesWithoutTimestamp.peek().first
+                            - mTotalPlayedFramesWithoutTimestamp);
+        } else {
+            mAudioTrackTimestampBuffer.putLong(
+                    8, timestamp.framePosition - mTotalPlayedFramesWithoutTimestamp);
+        }
+        mAudioTrackTimestampBuffer.putLong(16, timestamp.nanoTime);
+    }
+
     /** Returns the elapsed time from the given start_time until now, in nsec. */
     private long elapsedNsec(long startTimeNsec) {
         return System.nanoTime() - startTimeNsec;
     }
 
-    private void checkBufferLevel() {
-        long bufferLevel = mTotalFramesWritten - mAudioTrack.getPlaybackHeadPosition();
-        long bufferLevelUsec = convertNsecsToUsecs(convertFramesToNanoTime(bufferLevel));
-        if (bufferLevelUsec <= VERY_LOW_BUFFER_LEVEL) {
-            long lastRenderingDelayUsec =
-                    (mLastRenderingDelayUsecs == NO_TIMESTAMP) ? -1 : mLastRenderingDelayUsecs;
-            boolean hitUnderrun = (getUnderrunCount() != mLastUnderrunCount);
-            mBufferLevelWarningLog.log(mTag,
-                    "Low buffer level=" + bufferLevelUsec + "us "
-                            + " RD=" + lastRenderingDelayUsec + (hitUnderrun ? "us *" : "us"));
-        }
-    }
-
-    private void updateSampleRateMeasure(long framesWritten) {
-        if (mSRWindowFramesWritten == 0) {
-            // Start new window.
-            mSRWindowStartTimeNsec = System.nanoTime();
-            mSRWindowFramesWritten = framesWritten;
-            return;
-        }
-        mSRWindowFramesWritten += framesWritten;
-        long periodNsec = elapsedNsec(mSRWindowStartTimeNsec);
-        float sampleRate = 1e9f * mSRWindowFramesWritten / periodNsec;
-        if (DEBUG_LEVEL >= 3) {
-            Log.i(mTag,
-                    "SR=" + mSRWindowFramesWritten + "/" + (periodNsec / 1000)
-                            + "us = " + sampleRate);
-        }
-    }
-
     private void updateRenderingDelay() {
         checkForUnderruns();
         updateRefPointTimestamp();
+        long playoutTimeUsecs;
+        long delayUsecs;
+        long nowUsecs = convertNsecsToUsecs(System.nanoTime());
         if (!haveValidRefPoint()) {
+            // Timestamp is resynced because of resuming, reuse the last valid stable rendering
+            // delay before pausing.
+            if (mRenderingDelayBuffer.getLong(8) != NO_TIMESTAMP) {
+                mRenderingDelayBuffer.putLong(8, nowUsecs);
+                return;
+            }
             // No timestamp available yet, just put dummy values and return.
             mRenderingDelayBuffer.putLong(0, 0);
             mRenderingDelayBuffer.putLong(8, NO_TIMESTAMP);
-            mLastRenderingDelayUsecs = NO_TIMESTAMP;
             return;
         }
 
         // Interpolate to get proper Rendering delay.
-        long playoutTimeNsecs = getInterpolatedTStampNsecs(mTotalFramesWritten);
-        long playoutTimeUsecs = convertNsecsToUsecs(playoutTimeNsecs);
-        long nowUsecs = convertNsecsToUsecs(System.nanoTime());
-        long delayUsecs = playoutTimeUsecs - nowUsecs;
-
+        playoutTimeUsecs = convertNsecsToUsecs(getInterpolatedTStampNsecs(mTotalFramesWritten));
+        delayUsecs = playoutTimeUsecs - nowUsecs;
         // Populate RenderingDelay return value for native land.
         mRenderingDelayBuffer.putLong(0, delayUsecs);
         mRenderingDelayBuffer.putLong(8, nowUsecs);
-        mLastRenderingDelayUsecs = delayUsecs;
 
         if (DEBUG_LEVEL >= 3) {
             Log.i(mTag, "RenderingDelay: delay=" + delayUsecs + " play=" + nowUsecs);
@@ -645,6 +678,8 @@ class AudioSinkAudioTrackImpl {
                             + ")! Resetting rendering delay logic.");
             // Invalidate timestamp (resets RenderingDelay).
             mLastUnderrunCount = underruns;
+            mRenderingDelayBuffer.putLong(0, 0);
+            mRenderingDelayBuffer.putLong(8, NO_TIMESTAMP);
             resyncTimestamp(ReferenceTimestampState.RESYNCING_AFTER_UNDERRUN);
         }
     }
@@ -794,6 +829,6 @@ class AudioSinkAudioTrackImpl {
     interface Natives {
         void cacheDirectBufferAddress(long nativeAudioSinkAndroidAudioTrackImpl,
                 AudioSinkAudioTrackImpl caller, ByteBuffer mPcmBuffer,
-                ByteBuffer mRenderingDelayBuffer);
+                ByteBuffer mRenderingDelayBuffer, ByteBuffer mAudioTrackTimestampBuffer);
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,16 +67,20 @@
     TestRunner.addResult('Refreshing.');
   }
 
-  function databaseLoaded() {
+  async function databaseLoaded() {
     TestRunner.addResult('Refreshed.');
     indexedDBModel.removeEventListener(Resources.IndexedDBModel.Events.DatabaseLoaded, databaseLoaded);
     ApplicationTestRunner.dumpIndexedDBTree();
     TestRunner.addResult('Navigating to another security origin.');
-    TestRunner.navigate(withoutIndexedDBURL, navigatedAway);
+    const dbRemoval = indexedDBModel.once(Resources.IndexedDBModel.Events.DatabaseRemoved);
+    const navigation = TestRunner.navigatePromise(withoutIndexedDBURL);
+    await Promise.all([dbRemoval, navigation]);
+    navigatedAway();
   }
 
   function navigatedAway() {
     TestRunner.addResult('Navigated to another security origin.');
+    indexedDBModel.removeEventListener(Resources.IndexedDBModel.Events.DatabaseRemoved);
     ApplicationTestRunner.dumpIndexedDBTree();
     TestRunner.addResult('Navigating back.');
     TestRunner.navigate(originalURL, navigatedBack);
@@ -104,7 +108,7 @@
     TestRunner.addResult('Refreshing.');
     UI.panels.resources.sidebar.indexedDBListTreeElement.refreshIndexedDB();
     TestRunner.addSniffer(
-        Resources.IndexedDBModel.prototype, 'updateOriginDatabaseNames', databaseNamesLoadedAfterDeleting, false);
+        Resources.IndexedDBModel.prototype, 'updateStorageKeyDatabaseNames', databaseNamesLoadedAfterDeleting, false);
   }
 
   function databaseNamesLoadedAfterDeleting() {

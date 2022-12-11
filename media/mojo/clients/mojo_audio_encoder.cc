@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "media/base/audio_buffer.h"
@@ -18,7 +19,7 @@ MojoAudioEncoder::MojoAudioEncoder(
     mojo::PendingRemote<mojom::AudioEncoder> remote_encoder)
     : pending_remote_encoder_(std::move(remote_encoder)),
       buffer_pool_(new AudioBufferMemoryPool()),
-      runner_(base::SequencedTaskRunnerHandle::Get()) {
+      runner_(base::SequencedTaskRunner::GetCurrentDefault()) {
   weak_this_ = weak_factory_.GetWeakPtr();
 }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,8 @@
 #include <string>
 
 #include "build/build_config.h"
+#include "ui/gfx/geometry/insets_f.h"
+#include "ui/gfx/geometry/outsets_f.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size_f.h"
@@ -19,9 +21,6 @@ typedef struct CGRect CGRect;
 #endif
 
 namespace gfx {
-
-class InsetsF;
-class OutsetsF;
 
 // A floating version of gfx::Rect.
 class GEOMETRY_EXPORT RectF {
@@ -89,28 +88,15 @@ class GEOMETRY_EXPORT RectF {
     size_.SetSize(width, height);
   }
 
-  // Shrink the rectangle by |inset| on all sides.
-  void Inset(float inset) { Inset(inset, inset); }
-  // Shrink the rectangle by a horizontal and vertical distance on all sides.
-  void Inset(float horizontal, float vertical) {
-    Inset(horizontal, vertical, horizontal, vertical);
-  }
-
-  // Shrink the rectangle by the given insets.
+  // Shrinks the rectangle by |inset| on all sides.
+  void Inset(float inset) { Inset(InsetsF(inset)); }
+  // Shrinks the rectangle by the given |insets|.
   void Inset(const InsetsF& insets);
 
-  // Shrink the rectangle by the specified amount on each side.
-  void Inset(float left, float top, float right, float bottom);
-
-  // Expand the rectangle by the specified amount on each side.
+  // Expands the rectangle by |outset| on all sides.
   void Outset(float outset) { Inset(-outset); }
-  void Outset(float horizontal, float vertical) {
-    Inset(-horizontal, -vertical);
-  }
-  void Outset(float left, float top, float right, float bottom) {
-    Inset(-left, -top, -right, -bottom);
-  }
-  void Outset(const OutsetsF& outsets);
+  // Expands the rectangle by the given |outsets|.
+  void Outset(const OutsetsF& outsets) { Inset(outsets.ToInsets()); }
 
   // Move the rectangle by a horizontal and vertical distance.
   void Offset(float horizontal, float vertical);
@@ -232,6 +218,14 @@ class GEOMETRY_EXPORT RectF {
     set_size(ScaleSize(size(), x_scale, y_scale));
   }
 
+  // Divides the rectangle by |inv_scale|.
+  void InvScale(float inv_scale) { InvScale(inv_scale, inv_scale); }
+
+  void InvScale(float x_scale, float y_scale) {
+    origin_.InvScale(x_scale, y_scale);
+    size_.InvScale(x_scale, y_scale);
+  }
+
   // This method reports if the RectF can be safely converted to an integer
   // Rect. When it is false, some dimension of the RectF is outside the bounds
   // of what an integer can represent, and converting it to a Rect will require
@@ -239,6 +233,10 @@ class GEOMETRY_EXPORT RectF {
   bool IsExpressibleAsRect() const;
 
   std::string ToString() const;
+
+  bool ApproximatelyEqual(const RectF& rect,
+                          float tolerance_x,
+                          float tolerance_y) const;
 
  private:
   PointF origin_;

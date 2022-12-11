@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -99,10 +99,8 @@ MediaItemUIFooterView::MediaItemUIFooterView(
       .SetCollapseMargins(true)
       .SetDefault(
           views::kMarginsKey,
-          gfx::Insets(
-              /*vertical=*/0,
-              /*horizontal=*/ChromeLayoutProvider::Get()->GetDistanceMetric(
-                  views::DISTANCE_RELATED_BUTTON_HORIZONTAL)));
+          gfx::Insets::VH(0, ChromeLayoutProvider::Get()->GetDistanceMetric(
+                                 views::DISTANCE_RELATED_BUTTON_HORIZONTAL)));
 
   if (stop_casting_callback.is_null())
     return;

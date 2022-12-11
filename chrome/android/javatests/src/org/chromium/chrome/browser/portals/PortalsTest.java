@@ -1,23 +1,22 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.portals;
 
-import android.annotation.TargetApi;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.os.Build;
 import android.service.notification.StatusBarNotification;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.uiautomator.UiDevice;
-import android.support.test.uiautomator.UiObject;
-import android.support.test.uiautomator.UiSelector;
 import android.text.TextUtils;
 import android.view.View;
 
 import androidx.test.filters.LargeTest;
 import androidx.test.filters.MediumTest;
+import androidx.test.uiautomator.UiDevice;
+import androidx.test.uiautomator.UiObject;
+import androidx.test.uiautomator.UiSelector;
 
 import org.hamcrest.Matchers;
 import org.junit.After;
@@ -36,7 +35,6 @@ import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.app.ChromeActivity;
@@ -552,12 +550,10 @@ public class PortalsTest {
     private NotificationPredicate mMediaPlaybackNotificationPred =
             notification -> notification.getId() == R.id.media_playback_notification;
 
-    @TargetApi(Build.VERSION_CODES.M)
     private void waitForNotification(NotificationPredicate pred) {
         waitForNotification(pred, CriteriaHelper.DEFAULT_MAX_TIME_TO_POLL);
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     private void waitForNotification(NotificationPredicate pred, long maxTimeoutMs) {
         CriteriaHelper.pollInstrumentationThread(() -> {
             StatusBarNotification notifications[] =
@@ -573,7 +569,6 @@ public class PortalsTest {
         }, maxTimeoutMs, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     private void waitForNoNotifications(NotificationPredicate pred) {
         CriteriaHelper.pollInstrumentationThread(() -> {
             StatusBarNotification notifications[] =
@@ -628,7 +623,7 @@ public class PortalsTest {
     @LargeTest
     @Feature({"Portals"})
     @MinAndroidSdkLevel(Build.VERSION_CODES.M)
-    @FlakyTest(message = "https://crbug.com/1184291")
+    @DisabledTest(message = "https://crbug.com/1184291")
     public void testMediaNotificationDisappearsAfterActivation() throws Exception {
         String mainUrl =
                 mTestServer.getURL("/chrome/test/data/android/portals/media-notification.html");
@@ -713,6 +708,7 @@ public class PortalsTest {
     @Test
     @LargeTest
     @Feature({"Portals"})
+    @DisabledTest(message = "https://crbug.com/1340918")
     public void testPermissionDeniedInPortalAfterBeingGrantedInPortalHost() throws Exception {
         String mainUrl = mTestServer.getURL("/chrome/test/data/android/portals/geolocation.html");
         mActivityTestRule.startMainActivityWithURL(mainUrl);

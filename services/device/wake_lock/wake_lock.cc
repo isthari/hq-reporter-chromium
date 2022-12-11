@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "services/device/wake_lock/wake_lock_context.h"
 
@@ -28,7 +29,7 @@ WakeLock::WakeLock(mojo::PendingReceiver<mojom::WakeLock> receiver,
       context_id_(context_id),
       native_view_getter_(native_view_getter),
 #endif
-      main_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      main_task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
       file_task_runner_(std::move(file_task_runner)),
       observer_(observer) {
   DCHECK(observer_);

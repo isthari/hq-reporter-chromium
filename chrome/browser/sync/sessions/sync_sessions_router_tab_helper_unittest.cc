@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,8 +41,8 @@ class FakeLocalSessionEventHandler : public LocalSessionEventHandler {
 
 class SyncSessionsRouterTabHelperTest : public ChromeRenderViewHostTestHarness {
  public:
-  SyncSessionsRouterTabHelperTest() : ChromeRenderViewHostTestHarness() {}
-  ~SyncSessionsRouterTabHelperTest() override {}
+  SyncSessionsRouterTabHelperTest() = default;
+  ~SyncSessionsRouterTabHelperTest() override = default;
 
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();

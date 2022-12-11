@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -62,8 +62,14 @@ class SecurityStatePageLoadMetricsObserver
   ObservePolicy OnStart(content::NavigationHandle* navigation_handle,
                         const GURL& currently_committed_url,
                         bool started_in_foreground) override;
-  ObservePolicy OnCommit(content::NavigationHandle* navigation_handle,
-                         ukm::SourceId source_id) override;
+  ObservePolicy OnFencedFramesStart(
+      content::NavigationHandle* navigation_handle,
+      const GURL& currently_committed_url) override;
+  ObservePolicy OnPrerenderStart(content::NavigationHandle* navigation_handle,
+                                 const GURL& currently_committed_url) override;
+  ObservePolicy OnCommit(content::NavigationHandle* navigation_handle) override;
+  void DidActivatePrerenderedPage(
+      content::NavigationHandle* navigation_handle) override;
   void OnComplete(
       const page_load_metrics::mojom::PageLoadTiming& timing) override;
 
@@ -71,6 +77,9 @@ class SecurityStatePageLoadMetricsObserver
   void DidChangeVisibleSecurityState() override;
 
  private:
+  void RecordSecurityLevelHistogram(
+      content::NavigationHandle* navigation_handle);
+
   // If the SiteEngagementService does not exist, this will be null.
   raw_ptr<site_engagement::SiteEngagementService> engagement_service_ = nullptr;
 
@@ -78,7 +87,6 @@ class SecurityStatePageLoadMetricsObserver
   double initial_engagement_score_ = 0.0;
   security_state::SecurityLevel initial_security_level_ = security_state::NONE;
   security_state::SecurityLevel current_security_level_ = security_state::NONE;
-  ukm::SourceId source_id_ = ukm::kInvalidSourceId;
 };
 
 #endif  // CHROME_BROWSER_PAGE_LOAD_METRICS_OBSERVERS_SECURITY_STATE_PAGE_LOAD_METRICS_OBSERVER_H_

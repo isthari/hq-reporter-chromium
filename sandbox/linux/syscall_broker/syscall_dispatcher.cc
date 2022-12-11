@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -195,6 +195,12 @@ int SyscallDispatcher::DispatchSyscall(const arch_seccomp_data& args) {
     case __NR_unlinkat:
       return PerformUnlinkat(args);
 #endif  // defined(__NR_unlinkat)
+#if defined(__NR_inotify_add_watch)
+    case __NR_inotify_add_watch:
+      return InotifyAddWatch(static_cast<int>(args.args[0]),
+                             reinterpret_cast<const char*>(args.args[1]),
+                             static_cast<uint32_t>(args.args[2]));
+#endif
     default:
       RAW_CHECK(false);
       return -ENOSYS;

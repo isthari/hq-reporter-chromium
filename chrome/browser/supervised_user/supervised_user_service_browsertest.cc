@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -82,9 +82,9 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised, LocalPolicies) {
   logged_in_user_mixin_.LogInUser();
   Profile* profile = browser()->profile();
   PrefService* prefs = profile->GetPrefs();
-  EXPECT_FALSE(prefs->GetBoolean(prefs::kForceGoogleSafeSearch));
+  EXPECT_TRUE(prefs->GetBoolean(prefs::kForceGoogleSafeSearch));
   EXPECT_EQ(prefs->GetInteger(prefs::kForceYouTubeRestrict),
-            safe_search_util::YOUTUBE_RESTRICT_OFF);
+            safe_search_util::YOUTUBE_RESTRICT_MODERATE);
   EXPECT_FALSE(
       prefs->IsUserModifiablePreference(prefs::kForceGoogleSafeSearch));
   EXPECT_FALSE(prefs->IsUserModifiablePreference(prefs::kForceYouTubeRestrict));
@@ -102,8 +102,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised, ProfileName) {
   // Change the name. Both the profile pref and the entry in
   // ProfileAttributesStorage should be updated.
   std::string name = "Supervised User Test Name";
-  settings->SetLocalSetting(supervised_users::kUserName,
-                            std::make_unique<base::Value>(name));
+  settings->SetLocalSetting(supervised_users::kUserName, base::Value(name));
   EXPECT_FALSE(prefs->IsUserModifiablePreference(prefs::kProfileName));
   EXPECT_EQ(name, prefs->GetString(prefs::kProfileName));
 
@@ -116,14 +115,12 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised, ProfileName) {
 
   // Change the name once more.
   std::string new_name = "New Supervised User Test Name";
-  settings->SetLocalSetting(supervised_users::kUserName,
-                            std::make_unique<base::Value>(new_name));
+  settings->SetLocalSetting(supervised_users::kUserName, base::Value(new_name));
   EXPECT_EQ(new_name, prefs->GetString(prefs::kProfileName));
   EXPECT_EQ(new_name, base::UTF16ToUTF8(entry->GetName()));
 
   // Remove the setting.
-  settings->SetLocalSetting(supervised_users::kUserName,
-                            std::unique_ptr<base::Value>());
+  settings->RemoveLocalSetting(supervised_users::kUserName);
   EXPECT_EQ(original_name, prefs->GetString(prefs::kProfileName));
   EXPECT_EQ(original_name, base::UTF16ToUTF8(entry->GetName()));
 }
@@ -139,7 +136,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised,
   base::ScopedPathOverride path_override(chrome::DIR_USER_DATA,
                                          fake_user_data_dir_.GetPath());
   base::FilePath denylist_path =
-      SupervisedUserService::GetDenylistPathForTesting(/*isOldPath=*/false);
+      SupervisedUserService::GetDenylistPathForTesting();
   EXPECT_FALSE(base::PathExists(denylist_path));
 
   base::RunLoop run_loop;
@@ -175,7 +172,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised,
                                          fake_user_data_dir_.GetPath());
 
   base::FilePath denylist_path =
-      SupervisedUserService::GetDenylistPathForTesting(/*isOldPath=*/false);
+      SupervisedUserService::GetDenylistPathForTesting();
   base::WriteFile(denylist_path, "");
   EXPECT_TRUE(base::PathExists(denylist_path));
 
@@ -184,44 +181,6 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised,
   histogram_tester.ExpectUniqueSample(
       SupervisedUserService::GetDenylistSourceHistogramForTesting(),
       SupervisedUserService::DenylistSource::kDenylist, 1);
-}
-
-// Disabled due to excessive flakiness (crbug/1251785).
-IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised,
-                       DISABLED_OldDenylistLoaded) {
-  base::HistogramTester histogram_tester;
-  histogram_tester.ExpectTotalCount(
-      SupervisedUserService::GetDenylistSourceHistogramForTesting(), 0);
-
-  base::ScopedAllowBlockingForTesting allow_blocking;
-  base::ScopedPathOverride path_override(chrome::DIR_USER_DATA,
-                                         fake_user_data_dir_.GetPath());
-
-  base::FilePath old_denylist_path =
-      SupervisedUserService::GetDenylistPathForTesting(/*isOldPath=*/true);
-  base::WriteFile(old_denylist_path, "");
-  EXPECT_TRUE(base::PathExists(old_denylist_path));
-
-  base::RunLoop run_loop;
-  content::URLLoaderInterceptor interceptor(base::BindLambdaForTesting(
-      [&](content::URLLoaderInterceptor::RequestParams* params) {
-        LOG(ERROR) << params->url_request.url.path();
-        std::string headers = "HTTP/1.1 500 Internal Server Error\n\n";
-        content::URLLoaderInterceptor::WriteResponse(headers, "",
-                                                     params->client.get());
-        run_loop.Quit();
-        return true;
-      }));
-
-  logged_in_user_mixin_.LogInUser();
-  run_loop.Run();
-
-  base::FilePath denylist_path =
-      SupervisedUserService::GetDenylistPathForTesting(/*isOldPath=*/false);
-  EXPECT_FALSE(base::PathExists(denylist_path));
-  histogram_tester.ExpectUniqueSample(
-      SupervisedUserService::GetDenylistSourceHistogramForTesting(),
-      SupervisedUserService::DenylistSource::kOldDenylist, 1);
 }
 
 // Disabled due to excessive flakiness (crbug/1251785).
@@ -250,7 +209,7 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserServiceTestSupervised,
   run_loop.Run();
 
   base::FilePath denylist_path =
-      SupervisedUserService::GetDenylistPathForTesting(/*isOldPath=*/false);
+      SupervisedUserService::GetDenylistPathForTesting();
   EXPECT_FALSE(base::PathExists(denylist_path));
   histogram_tester.ExpectUniqueSample(
       SupervisedUserService::GetDenylistSourceHistogramForTesting(),

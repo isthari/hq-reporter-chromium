@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,15 +20,16 @@
 #include "chrome/browser/ash/arc/enterprise/cert_store/arc_cert_installer_utils.h"
 #include "chrome/browser/ash/arc/keymaster/arc_keymaster_bridge.h"
 #include "chrome/browser/ash/arc/policy/arc_policy_bridge.h"
-#include "chrome/browser/ash/certificate_provider/certificate_provider_service_factory.h"
 #include "chrome/browser/ash/platform_keys/key_permissions/key_permissions_service_factory.h"
 #include "chrome/browser/ash/platform_keys/key_permissions/key_permissions_service_impl.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service_factory.h"
+#include "chrome/browser/certificate_provider/certificate_provider_service_factory.h"
 #include "chrome/browser/net/nss_service.h"
 #include "chrome/browser/net/nss_service_factory.h"
 #include "chrome/browser/platform_keys/platform_keys.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_keyed_service_factory.h"
 #include "chrome/common/net/x509_certificate_model_nss.h"
 #include "chrome/services/keymaster/public/mojom/cert_store.mojom.h"
 #include "components/policy/core/common/policy_map.h"
@@ -40,12 +41,16 @@
 #include "net/cert/x509_util_nss.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
+
 namespace arc {
 
 namespace {
 
 // Singleton factory for CertStoreService.
-class CertStoreServiceFactory : public BrowserContextKeyedServiceFactory {
+class CertStoreServiceFactory : public ProfileKeyedServiceFactory {
  public:
   static CertStoreService* GetForBrowserContext(
       content::BrowserContext* context) {
@@ -63,16 +68,10 @@ class CertStoreServiceFactory : public BrowserContextKeyedServiceFactory {
  private:
   friend base::DefaultSingletonTraits<CertStoreServiceFactory>;
   CertStoreServiceFactory()
-      : BrowserContextKeyedServiceFactory(
+      : ProfileKeyedServiceFactory(
             "CertStoreService",
-            BrowserContextDependencyManager::GetInstance()) {
+            ProfileSelections::BuildForRegularAndIncognito()) {
     DependsOn(NssServiceFactory::GetInstance());
-  }
-
-  // BrowserContextKeyedServiceFactory overrides:
-  content::BrowserContext* GetBrowserContextToUse(
-      content::BrowserContext* context) const override {
-    return context;
   }
 
   bool ServiceIsNULLWhileTesting() const override { return true; }
@@ -217,7 +216,7 @@ void ListCerts(content::BrowserContext* const context,
   content::GetIOThreadTaskRunner({})->PostTask(
       FROM_HERE,
       base::BindOnce(&ListCertsWithDbGetterOnIO,
-                     base::ThreadTaskRunnerHandle::Get(), slot,
+                     base::SingleThreadTaskRunner::GetCurrentDefault(), slot,
                      std::move(callback),
                      NssServiceFactory::GetForContext(context)
                          ->CreateNSSCertDatabaseGetterForIOThread()));
@@ -249,14 +248,11 @@ void IsCertificateAllowed(IsCertificateAllowedCallback callback,
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(cert);
 
-  std::string public_key_spki_der =
-      chromeos::platform_keys::GetSubjectPublicKeyInfo(cert);
-
   // Check if the key is marked for corporate usage.
   ash::platform_keys::KeyPermissionsServiceFactory::GetForBrowserContext(
       context)
       ->IsCorporateKey(
-          public_key_spki_der,
+          chromeos::platform_keys::GetSubjectPublicKeyInfoBlob(cert),
           base::BindOnce(&CheckCorporateFlag, std::move(callback)));
 }
 
@@ -497,7 +493,7 @@ void CertStoreService::OnBuiltAllowedCertDescriptions(
     // that's the only thread that knows if the system slot is enabled.
     ListCerts(context_, keymaster::mojom::ChapsSlot::kSystem,
               base::BindOnce(&CertStoreService::OnCertificatesListed,
-                             weak_ptr_factory_.GetWeakPtr(),
+                             weak_ptr_factory_.GetMutableWeakPtr(),
                              keymaster::mojom::ChapsSlot::kSystem,
                              std::move(cert_descriptions)));
     return;
@@ -509,7 +505,7 @@ void CertStoreService::OnBuiltAllowedCertDescriptions(
       PrepareChromeOsKeys(cert_descriptions);
   keymaster_bridge->UpdatePlaceholderKeys(
       std::move(keys), base::BindOnce(&CertStoreService::OnUpdatedKeymasterKeys,
-                                      weak_ptr_factory_.GetWeakPtr(),
+                                      weak_ptr_factory_.GetMutableWeakPtr(),
                                       std::move(cert_descriptions)));
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,14 +28,15 @@
 // Implements media::mojom::CdmDocumentService. Can only be used on the
 // UI thread because PlatformVerificationFlow and the pref service lives on the
 // UI thread.
+// Ownership Note: There's one CdmDocumentServiceImpl per RenderFrame per
+// service type ( MediaFoundationService or CdmService). For
+// MediaFoundationService's case, this can be seen in the ownership chain of
+// InterfaceFactoryImpl -> MediaFoundationCdmFactory -> MojoCdmHelper
+// -> mojo::Remote<mojom::CdmDocumentService>.
 class CdmDocumentServiceImpl final
     : public content::DocumentService<media::mojom::CdmDocumentService> {
  public:
   static void Create(
-      content::RenderFrameHost* render_frame_host,
-      mojo::PendingReceiver<media::mojom::CdmDocumentService> receiver);
-
-  CdmDocumentServiceImpl(
       content::RenderFrameHost* render_frame_host,
       mojo::PendingReceiver<media::mojom::CdmDocumentService> receiver);
 
@@ -51,6 +52,7 @@ class CdmDocumentServiceImpl final
   void GetMediaFoundationCdmData(
       GetMediaFoundationCdmDataCallback callback) final;
   void SetCdmClientToken(const std::vector<uint8_t>& client_token) final;
+  void OnCdmEvent(media::CdmEvent event, uint32_t hresult) final;
 
   static void ClearCdmData(
       Profile* profile,
@@ -61,6 +63,10 @@ class CdmDocumentServiceImpl final
 #endif  // BUILDFLAG(IS_WIN)
 
  private:
+  CdmDocumentServiceImpl(
+      content::RenderFrameHost& render_frame_host,
+      mojo::PendingReceiver<media::mojom::CdmDocumentService> receiver);
+
   // |this| can only be destructed as a DocumentService.
   ~CdmDocumentServiceImpl() final;
 
@@ -88,7 +94,12 @@ class CdmDocumentServiceImpl final
       platform_verification_flow_;
 #endif
 
-  const raw_ptr<content::RenderFrameHost> render_frame_host_;
+#if BUILDFLAG(IS_WIN)
+  // See comments in OnCdmEvent() implementation.
+  bool has_reported_cdm_error_ = false;
+  bool has_reported_significant_playback_ = false;
+#endif
+
   base::WeakPtrFactory<CdmDocumentServiceImpl> weak_factory_{this};
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,20 +45,20 @@ class MODULES_EXPORT CanMakePaymentEvent final : public ExtendableEvent {
 
   const AtomicString& InterfaceName() const override;
 
-  const String& topOrigin() const;
-  const String& paymentRequestOrigin() const;
-  const HeapVector<Member<PaymentMethodData>>& methodData() const;
-  const HeapVector<Member<PaymentDetailsModifier>>& modifiers() const;
+  ScriptValue topOrigin(ScriptState*) const;
+  ScriptValue paymentRequestOrigin(ScriptState*) const;
+  ScriptValue methodData(ScriptState*) const;
+  ScriptValue modifiers(ScriptState*) const;
 
   void respondWith(ScriptState*, ScriptPromise, ExceptionState&);
 
   void Trace(Visitor*) const override;
 
  private:
-  String top_origin_;
-  String payment_request_origin_;
-  HeapVector<Member<PaymentMethodData>> method_data_;
-  HeapVector<Member<PaymentDetailsModifier>> modifiers_;
+  const String top_origin_;
+  const String payment_request_origin_;
+  const HeapVector<Member<PaymentMethodData>> method_data_;
+  const HeapVector<Member<PaymentDetailsModifier>> modifiers_;
 
   Member<CanMakePaymentRespondWithObserver> observer_;
 };

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,6 @@
 #define CHROME_BROWSER_UI_WEBUI_WHATS_NEW_WHATS_NEW_HANDLER_H_
 
 #include "content/public/browser/web_ui_message_handler.h"
-
-namespace base {
-class ListValue;
-}
 
 // Page handler for chrome://whats-new.
 class WhatsNewHandler : public content::WebUIMessageHandler {
@@ -20,7 +16,10 @@ class WhatsNewHandler : public content::WebUIMessageHandler {
   WhatsNewHandler& operator=(const WhatsNewHandler&) = delete;
 
  private:
-  void HandleInitialize(const base::ListValue* args);
+  void HandleInitialize(const base::Value::List& args);
+
+  // Makes a request to show a HaTS survey.
+  void TryShowHatsSurveyWithTimeout();
 
   // content::WebUIMessageHandler:
   void RegisterMessages() override;

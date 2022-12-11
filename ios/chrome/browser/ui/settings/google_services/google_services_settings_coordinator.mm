@@ -1,29 +1,26 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/google_services/google_services_settings_coordinator.h"
 
-#include "base/mac/foundation_util.h"
-#include "components/google/core/common/google_util.h"
+#import "base/mac/foundation_util.h"
+#import "components/google/core/common/google_util.h"
 #import "components/signin/public/identity_manager/identity_manager.h"
 #import "components/strings/grit/components_strings.h"
-#include "components/sync/driver/sync_service_utils.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
+#import "components/sync/driver/sync_service_utils.h"
+#import "ios/chrome/browser/application_context/application_context.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/main/browser.h"
-#include "ios/chrome/browser/signin/authentication_service.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/chrome/browser/signin/chrome_account_manager_service_factory.h"
-#include "ios/chrome/browser/signin/identity_manager_factory.h"
-#include "ios/chrome/browser/sync/sync_service_factory.h"
-#include "ios/chrome/browser/sync/sync_setup_service.h"
-#include "ios/chrome/browser/sync/sync_setup_service_factory.h"
+#import "ios/chrome/browser/signin/identity_manager_factory.h"
+#import "ios/chrome/browser/sync/sync_service_factory.h"
+#import "ios/chrome/browser/sync/sync_setup_service.h"
+#import "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #import "ios/chrome/browser/ui/alert_coordinator/action_sheet_coordinator.h"
 #import "ios/chrome/browser/ui/authentication/authentication_flow.h"
 #import "ios/chrome/browser/ui/authentication/authentication_ui_util.h"
-#import "ios/chrome/browser/ui/authentication/enterprise/enterprise_utils.h"
 #import "ios/chrome/browser/ui/authentication/signout_action_sheet_coordinator.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browsing_data_commands.h"
@@ -35,10 +32,11 @@
 #import "ios/chrome/browser/ui/settings/google_services/google_services_settings_mediator.h"
 #import "ios/chrome/browser/ui/settings/sync/sync_encryption_passphrase_table_view_controller.h"
 #import "ios/chrome/browser/ui/table_view/table_view_utils.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/url/chrome_url_constants.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -87,14 +85,13 @@ using signin_metrics::PromoAction;
       [[GoogleServicesSettingsViewController alloc]
           initWithStyle:ChromeTableViewStyle()];
   viewController.presentationDelegate = self;
-  viewController.forcedSigninEnabled = IsForceSignInEnabled();
+  viewController.forcedSigninEnabled =
+      self.authService->GetServiceStatus() ==
+      AuthenticationService::ServiceStatus::SigninForcedByPolicy;
   self.viewController = viewController;
   self.mediator = [[GoogleServicesSettingsMediator alloc]
       initWithUserPrefService:self.browser->GetBrowserState()->GetPrefs()
-             localPrefService:GetApplicationContext()->GetLocalState()
-        accountManagerService:ChromeAccountManagerServiceFactory::
-                                  GetForBrowserState(
-                                      self.browser->GetBrowserState())];
+             localPrefService:GetApplicationContext()->GetLocalState()];
   self.mediator.consumer = viewController;
   self.mediator.authService = self.authService;
   self.mediator.identityManager = IdentityManagerFactory::GetForBrowserState(
@@ -153,8 +150,8 @@ using signin_metrics::PromoAction;
                          message:nil
                             rect:targetRect
                             view:self.viewController.view];
-  // Because setting |title| to nil automatically forces the title-style text on
-  // |message| in the UIAlertController, the attributed message below
+  // Because setting `title` to nil automatically forces the title-style text on
+  // `message` in the UIAlertController, the attributed message below
   // specifically denotes the font style to apply.
   if (isSyncConsentGiven) {
     self.signOutCoordinator.attributedMessage = [[NSAttributedString alloc]
@@ -207,7 +204,8 @@ using signin_metrics::PromoAction;
       initWithBaseViewController:self.viewController
                          browser:self.browser
                             rect:targetRect
-                            view:self.viewController.view];
+                            view:self.viewController.view
+                      withSource:signin_metrics::USER_CLICKED_SIGNOUT_SETTINGS];
   __weak GoogleServicesSettingsCoordinator* weakSelf = self;
   self.signoutActionSheetCoordinator.delegate = self;
   self.signoutActionSheetCoordinator.completion = ^(BOOL success) {

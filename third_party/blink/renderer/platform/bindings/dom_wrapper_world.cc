@@ -92,7 +92,8 @@ DOMWrapperWorld::DOMWrapperWorld(v8::Isolate* isolate,
     case WorldType::kInspectorIsolated:
     case WorldType::kRegExp:
     case WorldType::kForV8ContextSnapshotNonMain:
-    case WorldType::kWorker: {
+    case WorldType::kWorker:
+    case WorldType::kShadowRealm: {
       WorldMap& map = GetWorldMap();
       DCHECK(!map.Contains(world_id_));
       map.insert(world_id_, this);
@@ -113,7 +114,7 @@ DOMWrapperWorld& DOMWrapperWorld::MainWorld() {
 
 void DOMWrapperWorld::AllWorldsInCurrentThread(
     Vector<scoped_refptr<DOMWrapperWorld>>& worlds) {
-  DCHECK(worlds.IsEmpty());
+  DCHECK(worlds.empty());
   WTF::CopyValuesToVector(GetWorldMap(), worlds);
   if (IsMainThread())
     worlds.push_back(&MainWorld());
@@ -276,10 +277,12 @@ int DOMWrapperWorld::GenerateWorldIdForType(WorldType world_type) {
     case WorldType::kRegExp:
     case WorldType::kForV8ContextSnapshotNonMain:
     case WorldType::kWorker:
+    case WorldType::kShadowRealm: {
       int32_t world_id = *next_world_id;
       CHECK_GE(world_id, WorldId::kUnspecifiedWorldIdStart);
       *next_world_id = world_id + 1;
       return world_id;
+    }
   }
   NOTREACHED();
   return kInvalidWorldId;

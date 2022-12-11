@@ -1,14 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/saml/in_session_password_change_manager.h"
 
-#include "ash/components/login/auth/saml_password_attributes.h"
 #include "ash/public/cpp/session/session_activation_observer.h"
 #include "ash/public/cpp/session/session_controller.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
+#include "build/build_config.h"
 #include "chrome/browser/ash/login/login_pref_names.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/browser_process.h"
@@ -18,6 +18,8 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "chromeos/ash/components/dbus/userdataauth/userdataauth_client.h"
+#include "chromeos/ash/components/login/auth/public/saml_password_attributes.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user_names.h"
 #include "content/public/test/browser_task_environment.h"
@@ -43,6 +45,12 @@ inline std::u16string utf16(const char* ascii) {
 
 class InSessionPasswordChangeManagerTest : public testing::Test {
  public:
+  InSessionPasswordChangeManagerTest() { UserDataAuthClient::InitializeFake(); }
+
+  ~InSessionPasswordChangeManagerTest() override {
+    UserDataAuthClient::Shutdown();
+  }
+
   void SetUp() override {
     ASSERT_TRUE(profile_manager_.SetUp());
     profile_ = profile_manager_.CreateTestingProfile("test");
@@ -166,7 +174,13 @@ TEST_F(InSessionPasswordChangeManagerTest, MaybeShow_DeleteExpirationTime) {
   EXPECT_FALSE(Notification().has_value());
 }
 
-TEST_F(InSessionPasswordChangeManagerTest, MaybeShow_PasswordChanged) {
+// TODO(crbug.com/1358349): re-enable thie test. Flakily times out on Linux.
+#if BUILDFLAG(IS_LINUX)
+#define MAYBE_MaybeShow_PasswordChanged DISABLED_MaybeShow_PasswordChanged
+#else
+#define MAYBE_MaybeShow_PasswordChanged MaybeShow_PasswordChanged
+#endif
+TEST_F(InSessionPasswordChangeManagerTest, MAYBE_MaybeShow_PasswordChanged) {
   SetExpirationTime(base::Time::Now() + (kAdvanceWarningTime / 2) - kOneHour);
   manager_->MaybeShowExpiryNotification();
 
@@ -236,7 +250,8 @@ TEST_F(InSessionPasswordChangeManagerTest, TimePasses_NoUserActionTaken) {
   EXPECT_EQ(utf16("Choose a new one now"), Notification()->message());
 }
 
-TEST_F(InSessionPasswordChangeManagerTest, TimePasses_NotificationDismissed) {
+TEST_F(InSessionPasswordChangeManagerTest,
+       DISABLED_TimePasses_NotificationDismissed) {
   SetExpirationTime(base::Time::Now() + kOneYear + kAdvanceWarningTime / 2);
   manager_->MaybeShowExpiryNotification();
 

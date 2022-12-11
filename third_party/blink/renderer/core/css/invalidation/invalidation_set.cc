@@ -266,11 +266,10 @@ bool InvalidationSet::HasEmptyBackings() const {
 StringImpl* InvalidationSet::FindAnyClass(Element& element) const {
   const SpaceSplitString& class_names = element.ClassNames();
   wtf_size_t size = class_names.size();
-  if (const AtomicString& string_impl =
-          classes_.GetAtomicString(backing_flags_)) {
+  if (StringImpl* string_impl = classes_.GetStringImpl(backing_flags_)) {
     for (wtf_size_t i = 0; i < size; ++i) {
-      if (Equal(string_impl.Impl(), class_names[i].Impl()))
-        return string_impl.Impl();
+      if (Equal(string_impl, class_names[i].Impl()))
+        return string_impl;
     }
   }
   if (const HashSet<AtomicString>* set = classes_.GetHashSet(backing_flags_)) {
@@ -284,10 +283,9 @@ StringImpl* InvalidationSet::FindAnyClass(Element& element) const {
 }
 
 StringImpl* InvalidationSet::FindAnyAttribute(Element& element) const {
-  if (const AtomicString& string_impl =
-          attributes_.GetAtomicString(backing_flags_)) {
-    if (element.HasAttributeIgnoringNamespace(string_impl))
-      return string_impl.Impl();
+  if (StringImpl* string_impl = attributes_.GetStringImpl(backing_flags_)) {
+    if (element.HasAttributeIgnoringNamespace(AtomicString(string_impl)))
+      return string_impl;
   }
   if (const HashSet<AtomicString>* set =
           attributes_.GetHashSet(backing_flags_)) {
@@ -302,28 +300,28 @@ StringImpl* InvalidationSet::FindAnyAttribute(Element& element) const {
 void InvalidationSet::AddClass(const AtomicString& class_name) {
   if (WholeSubtreeInvalid())
     return;
-  CHECK(!class_name.IsEmpty());
+  CHECK(!class_name.empty());
   classes_.Add(backing_flags_, class_name);
 }
 
 void InvalidationSet::AddId(const AtomicString& id) {
   if (WholeSubtreeInvalid())
     return;
-  CHECK(!id.IsEmpty());
+  CHECK(!id.empty());
   ids_.Add(backing_flags_, id);
 }
 
 void InvalidationSet::AddTagName(const AtomicString& tag_name) {
   if (WholeSubtreeInvalid())
     return;
-  CHECK(!tag_name.IsEmpty());
+  CHECK(!tag_name.empty());
   tag_names_.Add(backing_flags_, tag_name);
 }
 
 void InvalidationSet::AddAttribute(const AtomicString& attribute) {
   if (WholeSubtreeInvalid())
     return;
-  CHECK(!attribute.IsEmpty());
+  CHECK(!attribute.empty());
   attributes_.Add(backing_flags_, attribute);
 }
 
@@ -412,7 +410,7 @@ String InvalidationSet::ToString() const {
     std::sort(names.begin(), names.end(), WTF::CodeUnitCompareLessThan);
 
     for (const auto& name : names) {
-      if (!builder.IsEmpty())
+      if (!builder.empty())
         builder.Append(" ");
       builder.Append(prefix);
       builder.Append(name);
@@ -427,15 +425,15 @@ String InvalidationSet::ToString() const {
   if (HasIds())
     features.Append(format_backing(Ids(), "#", ""));
   if (HasClasses()) {
-    features.Append(!features.IsEmpty() ? " " : "");
+    features.Append(!features.empty() ? " " : "");
     features.Append(format_backing(Classes(), ".", ""));
   }
   if (HasTagNames()) {
-    features.Append(!features.IsEmpty() ? " " : "");
+    features.Append(!features.empty() ? " " : "");
     features.Append(format_backing(TagNames(), "", ""));
   }
   if (HasAttributes()) {
-    features.Append(!features.IsEmpty() ? " " : "");
+    features.Append(!features.empty() ? " " : "");
     features.Append(format_backing(Attributes(), "[", "]"));
   }
 
@@ -463,11 +461,11 @@ String InvalidationSet::ToString() const {
 
   StringBuilder main;
   main.Append("{");
-  if (!features.IsEmpty()) {
+  if (!features.empty()) {
     main.Append(" ");
     main.Append(features);
   }
-  if (!metadata.IsEmpty()) {
+  if (!metadata.empty()) {
     main.Append(" ");
     main.Append(metadata);
   }

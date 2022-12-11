@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,8 +68,9 @@ class POLICY_EXPORT RemoteCommandsService
     kBrowserClearBrowsingData = 18,
     kDeviceResetEuicc = 19,
     kBrowserRotateAttestationCredential = 20,
+    kFetchCrdAvailabilityInfo = 21,
     // Used by UMA histograms. Shall refer to the last enumeration.
-    kMaxValue = kBrowserRotateAttestationCredential
+    kMaxValue = kFetchCrdAvailabilityInfo
   };
 
   // Returns the metric name to report received commands.

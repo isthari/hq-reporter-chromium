@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,7 @@
 #include "ash/public/cpp/wallpaper/wallpaper_types.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client_impl.h"
 #include "components/user_manager/user_names.h"
+#include "third_party/skia/include/core/SkCanvas.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/image/image_skia.h"
@@ -69,9 +70,9 @@ void CreateAndSetWallpaper() {
 
   base::RunLoop run_loop;
   TestWallpaperObserver observer(run_loop.QuitClosure());
-  WallpaperControllerClientImpl::Get()->SetCustomWallpaper(
+  WallpaperControllerClientImpl::Get()->SetThirdPartyWallpaper(
       user_manager::StubAccountId(), /*file_name=*/"dummyfilename",
-      ash::WALLPAPER_LAYOUT_CENTER_CROPPED, image, /*preview_mode=*/false);
+      ash::WALLPAPER_LAYOUT_CENTER_CROPPED, image);
   run_loop.Run();
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)

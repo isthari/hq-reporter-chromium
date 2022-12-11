@@ -1,4 +1,4 @@
-// Copyright 2018 The Crashpad Authors. All rights reserved.
+// Copyright 2018 The Crashpad Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,8 @@
 
 #include <string.h>
 
-#include "base/cxx17_backports.h"
+#include <iterator>
+
 #include "base/notreached.h"
 #include "build/build_config.h"
 #include "gtest/gtest.h"
@@ -101,7 +102,7 @@ void ChildTestFunction() {
   static StringAnnotation<32> non_allowed_annotation(kNonAllowedAnnotationName);
   non_allowed_annotation.Set(kNonAllowedAnnotationValue);
 
-  char string_data[base::size(kSensitiveStackData)];
+  char string_data[std::size(kSensitiveStackData)];
   strcpy(string_data, kSensitiveStackData);
 
   void (*code_pointer)(void) = ChildTestFunction;

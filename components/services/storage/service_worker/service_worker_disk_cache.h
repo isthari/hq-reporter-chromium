@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,10 +20,6 @@
 #include "net/disk_cache/disk_cache.h"
 
 namespace storage {
-
-// TODO(crbug.com/586174): Use disk_cache::EntryResult for better lifetime
-// management of disk cache entries. Using EntryResult will eliminate allocating
-// raw pointers and static methods in service worker resource readers/writers.
 
 class ServiceWorkerDiskCache;
 
@@ -112,7 +108,7 @@ class ServiceWorkerDiskCache {
                   int64_t cache_size,
                   base::OnceClosure post_cleanup_callback,
                   net::CompletionOnceCallback callback);
-  void OnCreateBackendComplete(int return_value);
+  void OnCreateBackendComplete(disk_cache::BackendResult result);
 
   uint64_t GetNextCallId();
 

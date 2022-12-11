@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,8 @@ class TabGroupHighlight : public views::View {
                     const tab_groups::TabGroupId& group);
   TabGroupHighlight(const TabGroupHighlight&) = delete;
   TabGroupHighlight& operator=(const TabGroupHighlight&) = delete;
+
+  void UpdateBounds(views::View* leading_view, views::View* trailing_view);
 
   // views::View:
   void OnPaint(gfx::Canvas* canvas) override;

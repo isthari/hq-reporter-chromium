@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,12 @@
 #include <utility>
 #include <vector>
 
+#include "base/base_paths.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
+#include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
@@ -23,6 +25,7 @@
 #include "build/build_config.h"
 #include "gpu/config/gpu_switches.h"
 #include "skia/buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/angle/src/gpu_info_util/SystemInfo.h"  // nogncheck
 #include "third_party/skia/include/core/SkGraphics.h"
 #include "ui/gl/buildflags.h"
@@ -37,16 +40,21 @@
 #include "ui/gl/init/create_gr_gl_interface.h"
 #include "ui/gl/init/gl_factory.h"
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_MAC)
+#include "base/mac/bundle_locations.h"
+#include "base/mac/foundation_util.h"
+#endif
+
+#if BUILDFLAG(IS_OZONE)
 #include "ui/ozone/public/ozone_platform.h"           // nogncheck
 #include "ui/ozone/public/platform_gl_egl_utility.h"  // nogncheck
 #endif
 
 #if BUILDFLAG(USE_DAWN) || BUILDFLAG(SKIA_USE_DAWN)
-#include "third_party/dawn/src/include/dawn/dawn_proc.h"          // nogncheck
-#include "third_party/dawn/src/include/dawn/webgpu.h"             // nogncheck
-#include "third_party/dawn/src/include/dawn/webgpu_cpp.h"         // nogncheck
-#include "third_party/dawn/src/include/dawn_native/DawnNative.h"  // nogncheck
+#include "third_party/dawn/include/dawn/dawn_proc.h"          // nogncheck
+#include "third_party/dawn/include/dawn/native/DawnNative.h"  // nogncheck
+#include "third_party/dawn/include/dawn/webgpu.h"             // nogncheck
+#include "third_party/dawn/include/dawn/webgpu_cpp.h"         // nogncheck
 #endif
 
 namespace {
@@ -65,9 +73,9 @@ namespace {
 #define EGL_FEATURE_CONDITION_ANGLE 0x3468
 #endif /* EGL_ANGLE_feature_control */
 
-scoped_refptr<gl::GLSurface> InitializeGLSurface() {
+scoped_refptr<gl::GLSurface> InitializeGLSurface(gl::GLDisplay* display) {
   scoped_refptr<gl::GLSurface> surface(
-      gl::init::CreateOffscreenGLSurface(gfx::Size()));
+      gl::init::CreateOffscreenGLSurface(display, gfx::Size()));
   if (!surface.get()) {
     LOG(ERROR) << "gl::GLContext::CreateOffscreenGLSurface failed";
     return nullptr;
@@ -281,55 +289,30 @@ bool CollectBasicGraphicsInfo(const base::CommandLine* command_line,
   if (CollectGraphicsDeviceInfoFromCommandLine(command_line, gpu_info))
     return true;
 
-  std::string use_gl = command_line->GetSwitchValueASCII(switches::kUseGL);
-  std::string use_angle =
-      command_line->GetSwitchValueASCII(switches::kUseANGLE);
+  // We can't check if passthrough is supported yet because GL may not be
+  // initialized.
   gpu_info->passthrough_cmd_decoder =
-      gl::UsePassthroughCommandDecoder(command_line) &&
-      gl::PassthroughCommandDecoderSupported();
+      gl::UsePassthroughCommandDecoder(command_line);
+
+  bool fallback_to_software = false;
+  absl::optional<gl::GLImplementationParts> implementation =
+      gl::GetRequestedGLImplementationFromCommandLine(command_line,
+                                                      &fallback_to_software);
 
   // If GL is disabled then we don't need GPUInfo.
-  if (use_gl == gl::kGLImplementationDisabledName) {
+  if (implementation == gl::kGLImplementationDisabled) {
     gpu_info->gl_vendor = "Disabled";
     gpu_info->gl_renderer = "Disabled";
     gpu_info->gl_version = "Disabled";
-
     return true;
   }
 
-  gl::GLImplementationParts implementation =
-      gl::GetNamedGLImplementation(use_gl, use_angle);
-
-  bool useSoftwareGLForTests =
-      command_line->HasSwitch(switches::kOverrideUseSoftwareGLForTests);
-  gl::GLImplementationParts legacyImpl =
-      gl::GetLegacySoftwareGLImplementation();
-  gl::GLImplementationParts swangleImpl = gl::GetSoftwareGLImplementation();
-
-  if (implementation == legacyImpl ||
-      (useSoftwareGLForTests &&
-       legacyImpl == gl::init::GetSoftwareGLImplementationForPlatform())) {
+  if (implementation == gl::GetSoftwareGLImplementation()) {
     // If using the software GL implementation, use fake vendor and
     // device ids to make sure it never gets blocklisted. It allows us
     // to proceed with loading the blocklist which may have non-device
     // specific entries we want to apply anyways (e.g., OS version
     // blocklisting).
-    gpu_info->gpu.vendor_id = 0xffff;
-    gpu_info->gpu.device_id = 0xffff;
-
-    // Also declare the driver_vendor to be <software GL> to be able to
-    // specify exceptions based on driver_vendor==<software GL> for some
-    // blocklist rules.
-    gpu_info->gpu.driver_vendor =
-        std::string(gl::GetGLImplementationGLName(legacyImpl));
-
-    return true;
-  } else if (implementation == swangleImpl ||
-             (useSoftwareGLForTests &&
-              swangleImpl ==
-                  gl::init::GetSoftwareGLImplementationForPlatform())) {
-    // Similarly to the above, use fake vendor and device ids
-    // to make sure they never gets blocklisted for SwANGLE as well.
     gpu_info->gpu.vendor_id = 0xffff;
     gpu_info->gpu.device_id = 0xffff;
 
@@ -351,11 +334,16 @@ bool CollectBasicGraphicsInfo(const base::CommandLine* command_line,
   return CollectBasicGraphicsInfo(gpu_info);
 }
 
-bool CollectGraphicsInfoGL(GPUInfo* gpu_info) {
+bool CollectGraphicsInfoGL(GPUInfo* gpu_info, gl::GLDisplay* display) {
   TRACE_EVENT0("startup", "gpu_info_collector::CollectGraphicsInfoGL");
   DCHECK_NE(gl::GetGLImplementation(), gl::kGLImplementationNone);
 
-  scoped_refptr<gl::GLSurface> surface(InitializeGLSurface());
+  // Now that we can check GL extensions, update passthrough support info.
+  if (!gl::PassthroughCommandDecoderSupported()) {
+    gpu_info->passthrough_cmd_decoder = false;
+  }
+
+  scoped_refptr<gl::GLSurface> surface(InitializeGLSurface(display));
   if (!surface.get()) {
     LOG(ERROR) << "Could not create surface for info collection.";
     return false;
@@ -398,10 +386,11 @@ bool CollectGraphicsInfoGL(GPUInfo* gpu_info) {
   base::UmaHistogramSparse("GPU.MaxMSAASampleCount", max_samples);
 
 #if BUILDFLAG(IS_ANDROID)
+  gl::GLDisplayEGL* egl_display = display->GetAs<gl::GLDisplayEGL>();
   gpu_info->can_support_threaded_texture_mailbox =
-      gl::GLSurfaceEGL::HasEGLExtension("EGL_KHR_fence_sync") &&
-      gl::GLSurfaceEGL::HasEGLExtension("EGL_KHR_image_base") &&
-      gl::GLSurfaceEGL::HasEGLExtension("EGL_KHR_gl_texture_2D_image") &&
+      egl_display->ext->b_EGL_KHR_fence_sync &&
+      egl_display->ext->b_EGL_KHR_image_base &&
+      egl_display->ext->b_EGL_KHR_gl_texture_2D_image &&
       gfx::HasExtension(extension_set, "GL_OES_EGL_image");
 #else
   gl::GLWindowSystemBindingInfo window_system_binding_info;
@@ -473,7 +462,7 @@ void IdentifyActiveGPU(GPUInfo* gpu_info) {
   if (!gpu_info->gl_vendor.empty()) {
     std::string gl_vendor_lower = base::ToLowerASCII(gpu_info->gl_vendor);
     int index = StringContainsName(gl_vendor_lower, kVendorNames,
-                                   base::size(kVendorNames));
+                                   std::size(kVendorNames));
     if (index >= 0) {
       active_vendor_id = kVendorIDs[index];
     }
@@ -481,7 +470,7 @@ void IdentifyActiveGPU(GPUInfo* gpu_info) {
   if (active_vendor_id == 0 && !gpu_info->gl_renderer.empty()) {
     std::string gl_renderer_lower = base::ToLowerASCII(gpu_info->gl_renderer);
     int index = StringContainsName(gl_renderer_lower, kVendorNames,
-                                   base::size(kVendorNames));
+                                   std::size(kVendorNames));
     if (index >= 0) {
       active_vendor_id = kVendorIDs[index];
     }
@@ -527,7 +516,10 @@ void FillGPUInfoFromSystemInfo(GPUInfo* gpu_info,
   gpu_info->gpu.device_id = active->deviceId;
 #if BUILDFLAG(IS_CHROMEOS)
   gpu_info->gpu.revision = active->revisionId;
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS)
+#if BUILDFLAG(IS_MAC)
+  gpu_info->gpu.register_id = active->systemDeviceId;
+#endif  // BUILDFLAG(IS_MAC)
   gpu_info->gpu.driver_vendor = std::move(active->driverVendor);
   gpu_info->gpu.driver_version = std::move(active->driverVersion);
   gpu_info->gpu.active = true;
@@ -542,7 +534,10 @@ void FillGPUInfoFromSystemInfo(GPUInfo* gpu_info,
     device.device_id = system_info->gpus[i].deviceId;
 #if BUILDFLAG(IS_CHROMEOS)
     device.revision = system_info->gpus[i].revisionId;
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS)
+#if BUILDFLAG(IS_MAC)
+    device.register_id = system_info->gpus[i].systemDeviceId;
+#endif  // BUILDFLAG(IS_MAC)
     device.driver_vendor = std::move(system_info->gpus[i].driverVendor);
     device.driver_version = std::move(system_info->gpus[i].driverVersion);
 
@@ -569,8 +564,8 @@ bool CollectGpuExtraInfo(gfx::GpuExtraInfo* gpu_extra_info,
                          const GpuPreferences& prefs) {
   // Populate the list of ANGLE features by querying the functions exposed by
   // EGL_ANGLE_feature_control if it's available.
-  if (gl::GLSurfaceEGL::IsANGLEFeatureControlSupported()) {
-    EGLDisplay display = gl::GLSurfaceEGL::GetHardwareDisplay();
+  if (gl::g_driver_egl.client_ext.b_EGL_ANGLE_feature_control) {
+    EGLDisplay display = gl::GLSurfaceEGL::GetGLDisplayEGL()->GetDisplay();
     EGLAttrib feature_count = 0;
     eglQueryDisplayAttribANGLE(display, EGL_FEATURE_COUNT_ANGLE,
                                &feature_count);
@@ -591,7 +586,7 @@ bool CollectGpuExtraInfo(gfx::GpuExtraInfo* gpu_extra_info,
     }
   }
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   if (const auto* const egl_utility =
           ui::OzonePlatform::GetInstance()->GetPlatformGLEGLUtility()) {
     egl_utility->CollectGpuExtraInfo(prefs.enable_native_gpu_memory_buffers,
@@ -607,7 +602,34 @@ void CollectDawnInfo(const gpu::GpuPreferences& gpu_preferences,
   DawnProcTable procs = dawn::native::GetProcs();
   dawnProcSetProcs(&procs);
 
-  auto instance = std::make_unique<dawn::native::Instance>();
+  std::string dawn_search_path;
+  base::FilePath module_path;
+#if BUILDFLAG(IS_MAC)
+  if (base::mac::AmIBundled()) {
+    dawn_search_path = base::mac::FrameworkBundlePath()
+                           .Append("Libraries")
+                           .AsEndingWithSeparator()
+                           .MaybeAsASCII();
+  }
+  if (dawn_search_path.empty())
+#endif
+  {
+    if (base::PathService::Get(base::DIR_MODULE, &module_path)) {
+      dawn_search_path = module_path.AsEndingWithSeparator().MaybeAsASCII();
+    }
+  }
+  const char* dawn_search_path_c_str = dawn_search_path.c_str();
+
+  wgpu::DawnInstanceDescriptor dawn_instance_desc = {};
+  dawn_instance_desc.additionalRuntimeSearchPathsCount =
+      dawn_search_path.empty() ? 0u : 1u;
+  dawn_instance_desc.additionalRuntimeSearchPaths = &dawn_search_path_c_str;
+
+  wgpu::InstanceDescriptor instance_desc = {};
+  instance_desc.nextInChain = &dawn_instance_desc;
+
+  auto instance = std::make_unique<dawn::native::Instance>(
+      reinterpret_cast<const WGPUInstanceDescriptor*>(&instance_desc));
   instance->DiscoverDefaultAdapters();
   std::vector<dawn::native::Adapter> adapters = instance->GetAdapters();
 

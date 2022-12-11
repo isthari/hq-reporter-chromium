@@ -1,12 +1,12 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/js/assert.js';
 
-import {fakeHelpContentList} from './fake_data.js';
-import {FakeHelpContentProvider} from './fake_help_content_provider.js';
-import {HelpContentProviderInterface} from './feedback_types.js';
+import {fakeFeedbackContext} from './fake_data.js';
+import {FakeFeedbackServiceProvider} from './fake_feedback_service_provider.js';
+import {FeedbackServiceProvider, FeedbackServiceProviderInterface, HelpContentProvider, HelpContentProviderInterface} from './feedback_types.js';
 
 /**
  * @fileoverview
@@ -15,30 +15,38 @@ import {HelpContentProviderInterface} from './feedback_types.js';
  */
 
 /**
+ * @type {?FeedbackServiceProviderInterface}
+ */
+let feedbackServiceProvider = null;
+
+/**
  * @type {?HelpContentProviderInterface}
  */
 let helpContentProvider = null;
 
 /**
- * @param {!HelpContentProviderInterface} testProvider
+ * @param {?FeedbackServiceProviderInterface} testProvider
+ */
+export function setFeedbackServiceProviderForTesting(testProvider) {
+  feedbackServiceProvider = testProvider;
+}
+
+/**
+ * @param {?HelpContentProviderInterface} testProvider
  */
 export function setHelpContentProviderForTesting(testProvider) {
   helpContentProvider = testProvider;
 }
 
 /**
- * Create a FakeHelpContentProvider with reasonable fake data.
- * TODO(xiangdongkong): Remove once mojo bindings are implemented.
+ * @return {!FeedbackServiceProviderInterface}
  */
-function setupFakeHelpContentProvider() {
-  // Create provider.
-  const provider = new FakeHelpContentProvider();
-
-  // Setup help contents.
-  provider.setFakeHelpContents(fakeHelpContentList);
-
-  // Set the fake provider.
-  setHelpContentProviderForTesting(provider);
+export function getFeedbackServiceProvider() {
+  if (!feedbackServiceProvider) {
+    feedbackServiceProvider = FeedbackServiceProvider.getRemote();
+  }
+  assert(!!feedbackServiceProvider);
+  return feedbackServiceProvider;
 }
 
 /**
@@ -46,8 +54,7 @@ function setupFakeHelpContentProvider() {
  */
 export function getHelpContentProvider() {
   if (!helpContentProvider) {
-    // TODO(xiangdongkong): Instantiate a real mojo interface here.
-    setupFakeHelpContentProvider();
+    helpContentProvider = HelpContentProvider.getRemote();
   }
 
   assert(!!helpContentProvider);

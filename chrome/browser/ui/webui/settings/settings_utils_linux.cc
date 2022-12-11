@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -103,8 +103,10 @@ bool DetectAndStartProxyConfigUtil() {
     case base::nix::DESKTOP_ENVIRONMENT_CINNAMON:
       launched = StartProxyConfigUtil(kCinnamonProxyConfigCommand);
       break;
+    case base::nix::DESKTOP_ENVIRONMENT_DEEPIN:
     case base::nix::DESKTOP_ENVIRONMENT_GNOME:
     case base::nix::DESKTOP_ENVIRONMENT_PANTHEON:
+    case base::nix::DESKTOP_ENVIRONMENT_UKUI:
     case base::nix::DESKTOP_ENVIRONMENT_UNITY: {
       launched = StartProxyConfigUtil(kGNOME2ProxyConfigCommand);
       if (!launched) {
@@ -132,6 +134,7 @@ bool DetectAndStartProxyConfigUtil() {
       break;
 
     case base::nix::DESKTOP_ENVIRONMENT_XFCE:
+    case base::nix::DESKTOP_ENVIRONMENT_LXQT:
     case base::nix::DESKTOP_ENVIRONMENT_OTHER:
       break;
   }

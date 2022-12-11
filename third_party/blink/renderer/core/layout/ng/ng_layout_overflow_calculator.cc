@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/layout/geometry/writing_mode_converter.h"
+#include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/layout_ng_text_combine.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
 #include "third_party/blink/renderer/core/layout/ng/legacy_layout_tree_walking.h"
@@ -14,13 +15,17 @@
 #include "third_party/blink/renderer/core/layout/ng/ng_length_utils.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_fragment.h"
+#include "third_party/blink/renderer/core/style/style_overflow_clip_margin.h"
+#include "third_party/blink/renderer/platform/geometry/layout_rect_outsets.h"
+#include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 
 namespace blink {
 
 // static
 PhysicalRect NGLayoutOverflowCalculator::RecalculateLayoutOverflowForFragment(
     const NGPhysicalBoxFragment& fragment) {
-  DCHECK(!fragment.IsLegacyLayoutRoot());
+  DCHECK(!fragment.IsLegacyLayoutRoot() ||
+         fragment.GetLayoutObject()->IsMedia());
   const NGBlockNode node(const_cast<LayoutBox*>(
       To<LayoutBox>(fragment.GetSelfOrContainerLayoutObject())));
   const WritingDirectionMode writing_direction =
@@ -59,10 +64,10 @@ PhysicalRect NGLayoutOverflowCalculator::RecalculateLayoutOverflowForFragment(
       calculator.AddChild(*box_fragment, child.offset);
     }
   }
-  if (fragment.IsTableNG()) {
-    if (const NGTableBorders* table_borders = fragment.TableCollapsedBorders())
-      calculator.AddTableCollapsedBorders(*table_borders);
-  }
+
+  if (fragment.TableCollapsedBorders())
+    calculator.AddTableSelfRect();
+
   return calculator.Result(fragment.InflowBounds());
 }
 
@@ -77,6 +82,7 @@ NGLayoutOverflowCalculator::NGLayoutOverflowCalculator(
     : node_(node),
       writing_direction_(writing_direction),
       is_scroll_container_(is_css_box && node_.IsScrollContainer()),
+      is_view_(node_.IsView()),
       has_left_overflow_(is_css_box && node_.HasLeftOverflow()),
       has_top_overflow_(is_css_box && node_.HasTopOverflow()),
       has_non_visible_overflow_(is_css_box && node_.HasNonVisibleOverflow()),
@@ -109,50 +115,12 @@ const PhysicalRect NGLayoutOverflowCalculator::Result(
                                  end_offset.top - start_offset.top)};
   inflow_overflow = AdjustOverflowForScrollOrigin(inflow_overflow);
 
-  PhysicalRect normal_overflow = layout_overflow_;
-  normal_overflow.UniteEvenIfEmpty(inflow_overflow);
+  layout_overflow_.UniteEvenIfEmpty(inflow_overflow);
+  return layout_overflow_;
+}
 
-  if (node_.IsInlineFormattingContextRoot() || node_.IsFlexibleBox() ||
-      node_.IsGrid())
-    return normal_overflow;
-
-  WritingModeConverter converter(writing_direction_, size_);
-
-  LogicalRect block_end_padding_rect = {
-      LogicalOffset(converter.ToLogical(padding_rect_).offset.inline_offset,
-                    converter.ToLogical(*inflow_bounds).BlockEndOffset()),
-      LogicalSize(LayoutUnit(),
-                  padding_.ConvertToLogical(writing_direction_).block_end)};
-
-  PhysicalRect alternate_overflow = layout_overflow_;
-  alternate_overflow.UniteEvenIfEmpty(AdjustOverflowForScrollOrigin(
-      converter.ToPhysical(block_end_padding_rect)));
-
-  if (normal_overflow == alternate_overflow)
-    return normal_overflow;
-
-  // Use |normal_overflow| if we already had inline overflow.
-  if (converter.ToLogical(alternate_overflow.size).inline_size !=
-      converter.ToLogical(padding_rect_.size).inline_size)
-    return normal_overflow;
-
-  if (!inflow_bounds->IsEmpty())
-    return normal_overflow;
-
-  // We'd like everything to be |normal_overflow|, lets see what the impact
-  // would be.
-  if (node_.Style().OverflowInlineDirection() == EOverflow::kAuto ||
-      node_.Style().OverflowInlineDirection() == EOverflow::kScroll) {
-    UseCounter::Count(node_.GetDocument(),
-                      WebFeature::kNewLayoutOverflowDifferentBlock);
-    if (!inflow_bounds->IsEmpty()) {
-      UseCounter::Count(
-          node_.GetDocument(),
-          WebFeature::kNewLayoutOverflowDifferentBlockWithNonEmptyInflowBounds);
-    }
-  }
-
-  return alternate_overflow;
+void NGLayoutOverflowCalculator::AddTableSelfRect() {
+  AddOverflow({PhysicalOffset(), size_});
 }
 
 template <typename Items>
@@ -219,15 +187,6 @@ void NGLayoutOverflowCalculator::AddItems(
   AddItemsInternal(box_fragment.GetLayoutObject(), items.Items());
 }
 
-void NGLayoutOverflowCalculator::AddTableCollapsedBorders(
-    const NGTableBorders& table_borders) {
-  PhysicalRect overflow{PhysicalOffset(), size_};
-  overflow.Expand(
-      table_borders.GetCollapsedBorderVisualSizeDiff().ConvertToPhysical(
-          writing_direction_));
-  AddOverflow(overflow);
-}
-
 PhysicalRect NGLayoutOverflowCalculator::AdjustOverflowForHanging(
     const PhysicalRect& line_rect,
     PhysicalRect overflow) {
@@ -279,7 +238,6 @@ PhysicalRect NGLayoutOverflowCalculator::LayoutOverflowForPropagation(
     return child_fragment.LayoutOverflow();
 
   PhysicalRect overflow = {{}, child_fragment.Size()};
-  const auto& child_style = child_fragment.Style();
 
   // Collapsed table rows/sections set IsHiddenForPaint flag.
   bool ignore_layout_overflow =
@@ -298,10 +256,9 @@ PhysicalRect NGLayoutOverflowCalculator::LayoutOverflowForPropagation(
         // ShouldApplyOverflowClipMargin should only be true if we're clipping
         // overflow in both axes.
         DCHECK_EQ(overflow_clip_axes, kOverflowClipBothAxis);
-        PhysicalRect child_padding_rect({}, child_fragment.Size());
-        child_padding_rect.Contract(child_fragment.Borders());
-        child_padding_rect.Inflate(child_style.OverflowClipMargin());
-        child_overflow.Intersect(child_padding_rect);
+        PhysicalRect child_overflow_rect({}, child_fragment.Size());
+        child_overflow_rect.Expand(child_fragment.OverflowClipMarginOutsets());
+        child_overflow.Intersect(child_overflow_rect);
       } else {
         if (overflow_clip_axes & kOverflowClipX) {
           child_overflow.offset.left = LayoutUnit();
@@ -317,7 +274,7 @@ PhysicalRect NGLayoutOverflowCalculator::LayoutOverflowForPropagation(
   }
 
   // Apply any transforms to the overflow.
-  if (absl::optional<TransformationMatrix> transform =
+  if (absl::optional<gfx::Transform> transform =
           node_.GetTransformForChildFragment(child_fragment, size_)) {
     overflow =
         PhysicalRect::EnclosingRect(transform->MapRect(gfx::RectF(overflow)));

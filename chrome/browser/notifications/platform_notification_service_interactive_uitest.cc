@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -161,9 +161,11 @@ class PlatformNotificationServiceBrowserTest : public InProcessBrowserTest {
   // Executes |script| and stores the result as a string in |result|. A boolean
   // will be returned, indicating whether the script was executed successfully.
   bool RunScript(const std::string& script, std::string* result) const {
-    return content::ExecuteScriptAndExtractString(
-        browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame(),
-        script, result);
+    return content::ExecuteScriptAndExtractString(browser()
+                                                      ->tab_strip_model()
+                                                      ->GetActiveWebContents()
+                                                      ->GetPrimaryMainFrame(),
+                                                  script, result);
   }
 
   GURL TestPageUrl() const {
@@ -325,8 +327,8 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
 #endif
 
   EXPECT_FALSE(notification.icon().IsEmpty());
-  EXPECT_EQ(kIconWidth, notification.icon().Width());
-  EXPECT_EQ(kIconHeight, notification.icon().Height());
+  EXPECT_EQ(kIconWidth, notification.icon().Size().width());
+  EXPECT_EQ(kIconHeight, notification.icon().Size().height());
   EXPECT_FALSE(notification.small_image().IsEmpty());
 
   // Test that notifications with the same tag replace each other and have
@@ -425,8 +427,8 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
   EXPECT_EQ(kIconHeight, all_options_notification.image().Height());
 #endif
   EXPECT_FALSE(all_options_notification.icon().IsEmpty());
-  EXPECT_EQ(kIconWidth, all_options_notification.icon().Width());
-  EXPECT_EQ(kIconHeight, all_options_notification.icon().Height());
+  EXPECT_EQ(kIconWidth, all_options_notification.icon().Size().width());
+  EXPECT_EQ(kIconHeight, all_options_notification.icon().Size().height());
   EXPECT_FALSE(all_options_notification.small_image().IsEmpty());
   EXPECT_TRUE(all_options_notification.renotify());
   EXPECT_TRUE(all_options_notification.silent());
@@ -703,8 +705,8 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
   EXPECT_FALSE(notification.icon().IsEmpty());
 
   EXPECT_EQ("Data URL Title", base::UTF16ToUTF8(notification.title()));
-  EXPECT_EQ(kIconWidth, notification.icon().Width());
-  EXPECT_EQ(kIconHeight, notification.icon().Height());
+  EXPECT_EQ(kIconWidth, notification.icon().Size().width());
+  EXPECT_EQ(kIconHeight, notification.icon().Size().height());
 }
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
@@ -724,8 +726,8 @@ IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,
   EXPECT_FALSE(notification.icon().IsEmpty());
 
   EXPECT_EQ("Blob Title", base::UTF16ToUTF8(notification.title()));
-  EXPECT_EQ(kIconWidth, notification.icon().Width());
-  EXPECT_EQ(kIconHeight, notification.icon().Height());
+  EXPECT_EQ(kIconWidth, notification.icon().Size().width());
+  EXPECT_EQ(kIconHeight, notification.icon().Size().height());
 }
 
 IN_PROC_BROWSER_TEST_F(PlatformNotificationServiceBrowserTest,

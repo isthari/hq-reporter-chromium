@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include <string>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/process/launch.h"
@@ -279,7 +278,7 @@ void BeginUserExperiment(const InstallerState& installer_state,
       kExperimentRetryDelay,
   };
   setup_command.CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
-                                 kSwitchesToCopy, base::size(kSwitchesToCopy));
+                                 kSwitchesToCopy, std::size(kSwitchesToCopy));
 
   if (user_context) {
     // This is either a per-user install or a per-machine install run via

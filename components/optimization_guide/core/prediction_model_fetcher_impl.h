@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@
 #include "url/gurl.h"
 
 namespace network {
-class NetworkConnectionTracker;
 class SharedURLLoaderFactory;
 class SimpleURLLoader;
 }  // namespace network
@@ -34,8 +33,7 @@ class PredictionModelFetcherImpl : public PredictionModelFetcher {
  public:
   PredictionModelFetcherImpl(
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-      const GURL& optimization_guide_service_get_models_url,
-      network::NetworkConnectionTracker* network_connection_tracker);
+      const GURL& optimization_guide_service_get_models_url);
 
   PredictionModelFetcherImpl(const PredictionModelFetcherImpl&) = delete;
   PredictionModelFetcherImpl& operator=(const PredictionModelFetcherImpl&) =
@@ -46,7 +44,6 @@ class PredictionModelFetcherImpl : public PredictionModelFetcher {
   // PredictionModelFetcher implementation
   bool FetchOptimizationGuideServiceModels(
       const std::vector<proto::ModelInfo>& models_request_info,
-      const std::vector<proto::FieldTrial>& active_field_trials,
       proto::RequestContext request_context,
       const std::string& locale,
       ModelsFetchedCallback models_fetched_callback) override;
@@ -81,10 +78,6 @@ class PredictionModelFetcherImpl : public PredictionModelFetcher {
 
   // Used for creating a |url_loader_| when needed for request hints.
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
-
-  // Listens to changes around the network connection. Not owned. Guaranteed to
-  // outlive |this|.
-  raw_ptr<network::NetworkConnectionTracker> network_connection_tracker_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 };

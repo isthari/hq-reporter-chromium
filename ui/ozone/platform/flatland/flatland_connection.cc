@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,7 +66,7 @@ void FlatlandConnection::Present(
 void FlatlandConnection::OnError(
     fuchsia::ui::composition::FlatlandError error) {
   LOG(ERROR) << "Flatland error: " << static_cast<int>(error);
-  // TODO(crbug.com/1230150): Send error signal to the owners of this class.
+  // TODO(fxbug.dev/93998): Send error signal to the owners of this class.
 }
 
 void FlatlandConnection::OnNextFrameBegin(

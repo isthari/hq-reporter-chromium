@@ -1,12 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/bluetooth/bluetooth_detailed_view_legacy.h"
 
 #include <memory>
-#include <string>
-#include <unordered_map>
 #include <utility>
 
 #include "ash/public/cpp/system_tray_client.h"
@@ -14,450 +12,215 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
-#include "ash/system/machine_learning/user_settings_event_logger.h"
+#include "ash/style/icon_button.h"
+#include "ash/system/bluetooth/bluetooth_device_list_item_view.h"
+#include "ash/system/bluetooth/bluetooth_disabled_detailed_view.h"
 #include "ash/system/model/system_tray_model.h"
+#include "ash/system/tray/detailed_view_delegate.h"
 #include "ash/system/tray/hover_highlight_view.h"
-#include "ash/system/tray/tray_info_label.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/system/tray/tray_toggle_button.h"
-#include "ash/system/tray/tray_utils.h"
-#include "base/bind.h"
-#include "base/strings/utf_string_conversions.h"
-#include "chromeos/ui/vector_icons/vector_icons.h"
+#include "ash/system/tray/tri_view.h"
+#include "base/check.h"
+#include "base/memory/ptr_util.h"
 #include "device/bluetooth/chromeos/bluetooth_utils.h"
-#include "services/device/public/cpp/bluetooth/bluetooth_utils.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
-#include "ui/views/border.h"
-#include "ui/views/controls/button/toggle_button.h"
+#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/image_view.h"
+#include "ui/views/controls/label.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/view_utils.h"
-
-using device::mojom::BluetoothDeviceInfo;
-using device::mojom::BluetoothSystem;
+#include "ui/views/view.h"
 
 namespace ash {
-namespace tray {
-namespace {
-
-const int kDisabledPanelLabelBaselineY = 20;
-const int kEnterpriseManagedIconSizeDip = 20;
-
-// Returns corresponding device type icons for given Bluetooth device types and
-// connection states.
-const gfx::VectorIcon& GetBluetoothDeviceIcon(
-    BluetoothDeviceInfo::DeviceType device_type,
-    BluetoothDeviceInfo::ConnectionState connection_state) {
-  switch (device_type) {
-    case BluetoothDeviceInfo::DeviceType::kComputer:
-      return ash::kSystemMenuComputerLegacyIcon;
-    case BluetoothDeviceInfo::DeviceType::kPhone:
-      return ash::kSystemMenuPhoneLegacyIcon;
-    case BluetoothDeviceInfo::DeviceType::kAudio:
-    case BluetoothDeviceInfo::DeviceType::kCarAudio:
-      return ash::kSystemMenuHeadsetLegacyIcon;
-    case BluetoothDeviceInfo::DeviceType::kVideo:
-      return ash::kSystemMenuVideocamLegacyIcon;
-    case BluetoothDeviceInfo::DeviceType::kJoystick:
-    case BluetoothDeviceInfo::DeviceType::kGamepad:
-      return ash::kSystemMenuGamepadLegacyIcon;
-    case BluetoothDeviceInfo::DeviceType::kKeyboard:
-    case BluetoothDeviceInfo::DeviceType::kKeyboardMouseCombo:
-      return ash::kSystemMenuKeyboardLegacyIcon;
-    case BluetoothDeviceInfo::DeviceType::kTablet:
-      return ash::kSystemMenuTabletLegacyIcon;
-    case BluetoothDeviceInfo::DeviceType::kMouse:
-      return ash::kSystemMenuMouseLegacyIcon;
-    case BluetoothDeviceInfo::DeviceType::kModem:
-    case BluetoothDeviceInfo::DeviceType::kPeripheral:
-      return ash::kSystemMenuBluetoothLegacyIcon;
-    default:
-      return connection_state ==
-                     BluetoothDeviceInfo::ConnectionState::kConnected
-                 ? ash::kSystemMenuBluetoothConnectedLegacyIcon
-                 : ash::kSystemMenuBluetoothLegacyIcon;
-  }
-}
-
-views::View* CreateDisabledPanel() {
-  views::View* container = new views::View;
-  auto box_layout = std::make_unique<views::BoxLayout>(
-      views::BoxLayout::Orientation::kVertical);
-  box_layout->set_main_axis_alignment(
-      views::BoxLayout::MainAxisAlignment::kCenter);
-  container->SetLayoutManager(std::move(box_layout));
-
-  auto* color_provider = AshColorProvider::Get();
-  auto* image_view =
-      container->AddChildView(std::make_unique<views::ImageView>());
-  image_view->SetImage(gfx::CreateVectorIcon(
-      kSystemMenuBluetoothDisabledIcon,
-      AshColorProvider::GetDisabledColor(color_provider->GetContentLayerColor(
-          AshColorProvider::ContentLayerType::kIconColorPrimary))));
-  image_view->SetVerticalAlignment(views::ImageView::Alignment::kTrailing);
-
-  auto* label = container->AddChildView(std::make_unique<views::Label>(
-      l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_BLUETOOTH_DISABLED)));
-  label->SetEnabledColor(
-      AshColorProvider::GetDisabledColor(color_provider->GetContentLayerColor(
-          AshColorProvider::ContentLayerType::kTextColorPrimary)));
-  TrayPopupUtils::SetLabelFontList(
-      label, TrayPopupUtils::FontStyle::kDetailedViewLabel);
-  label->SetBorder(views::CreateEmptyBorder(
-      kDisabledPanelLabelBaselineY - label->GetBaseline(), 0, 0, 0));
-
-  // Make top padding of the icon equal to the height of the label so that the
-  // icon is vertically aligned to center of the container.
-  image_view->SetBorder(
-      views::CreateEmptyBorder(label->GetPreferredSize().height(), 0, 0, 0));
-  return container;
-}
-
-void LogUserBluetoothEvent(const BluetoothAddress& device_address) {
-  ml::UserSettingsEventLogger* logger = ml::UserSettingsEventLogger::Get();
-  if (logger) {
-    logger->LogBluetoothUkmEvent(device_address);
-  }
-}
-
-HoverHighlightView* GetScrollListItemForDevice(
-    const std::unordered_map<HoverHighlightView*, BluetoothAddress>& device_map,
-    const BluetoothAddress& address) {
-  for (const auto& view_and_address : device_map) {
-    if (view_and_address.second == address)
-      return view_and_address.first;
-  }
-  return nullptr;
-}
-
-}  // namespace
 
 BluetoothDetailedViewLegacy::BluetoothDetailedViewLegacy(
-    DetailedViewDelegate* delegate,
-    LoginStatus login)
-    : TrayDetailedView(delegate), login_(login) {
-  CreateItems();
+    DetailedViewDelegate* detailed_view_delegate,
+    BluetoothDetailedView::Delegate* delegate)
+    : BluetoothDetailedView(delegate),
+      TrayDetailedView(detailed_view_delegate) {
+  CreateTitleRow(IDS_ASH_STATUS_TRAY_BLUETOOTH);
+  CreateTitleRowButtons();
+  CreateScrollableList();
+  CreateDisabledView();
+  CreatePairNewDeviceView();
+  UpdateBluetoothEnabledState(/*enabled=*/false);
   device::RecordUiSurfaceDisplayed(
       device::BluetoothUiSurface::kBluetoothQuickSettings);
 }
 
 BluetoothDetailedViewLegacy::~BluetoothDetailedViewLegacy() = default;
 
-void BluetoothDetailedViewLegacy::ShowLoadingIndicator() {
-  // Setting a value of -1 gives progress_bar an infinite-loading behavior.
-  ShowProgress(-1, true);
+views::View* BluetoothDetailedViewLegacy::GetAsView() {
+  return this;
 }
 
-void BluetoothDetailedViewLegacy::HideLoadingIndicator() {
-  ShowProgress(0, false);
-}
+void BluetoothDetailedViewLegacy::UpdateBluetoothEnabledState(bool enabled) {
+  disabled_view_->SetVisible(!enabled);
+  pair_new_device_view_->SetVisible(enabled);
+  scroller()->SetVisible(enabled);
 
-void BluetoothDetailedViewLegacy::ShowBluetoothDisabledPanel() {
-  device_map_.clear();
-  paired_devices_heading_ = nullptr;
-  unpaired_devices_heading_ = nullptr;
-  bluetooth_discovering_label_ = nullptr;
-  scroll_content()->RemoveAllChildViews();
+  const std::u16string toggle_tooltip =
+      enabled ? l10n_util::GetStringUTF16(
+                    IDS_ASH_STATUS_TRAY_BLUETOOTH_ENABLED_TOOLTIP)
+              : l10n_util::GetStringUTF16(
+                    IDS_ASH_STATUS_TRAY_BLUETOOTH_DISABLED_TOOLTIP);
+  toggle_button_->SetTooltipText(l10n_util::GetStringFUTF16(
+      IDS_ASH_STATUS_TRAY_BLUETOOTH_TOGGLE_TOOLTIP, toggle_tooltip));
 
-  DCHECK(scroller());
-  if (!disabled_panel_) {
-    disabled_panel_ = CreateDisabledPanel();
-    // Insert |disabled_panel_| before the scroller, since the scroller will
-    // have unnecessary bottom border when it is not the last child.
-    AddChildViewAt(disabled_panel_, GetIndexOf(scroller()));
-    // |disabled_panel_| need to fill the remaining space below the title row
-    // so that the inner contents of |disabled_panel_| are placed properly.
-    box_layout()->SetFlexForView(disabled_panel_, 1);
-  }
-
-  disabled_panel_->SetVisible(true);
-  scroller()->SetVisible(false);
+  // The toggle should already have animated to |enabled| unless it has become
+  // out of sync with the Bluetooth state, so just set it to the correct state.
+  if (toggle_button_->GetIsOn() != enabled)
+    toggle_button_->SetIsOn(enabled);
 
   Layout();
 }
 
-void BluetoothDetailedViewLegacy::HideBluetoothDisabledPanel() {
-  DCHECK(scroller());
-  if (disabled_panel_)
-    disabled_panel_->SetVisible(false);
-  scroller()->SetVisible(true);
-
-  Layout();
+BluetoothDeviceListItemView* BluetoothDetailedViewLegacy::AddDeviceListItem() {
+  return scroll_content()->AddChildView(
+      new BluetoothDeviceListItemView(/*listener=*/this));
 }
 
-bool BluetoothDetailedViewLegacy::IsDeviceScrollListEmpty() const {
-  return device_map_.empty();
+views::View* BluetoothDetailedViewLegacy::AddDeviceListSubHeader(
+    const gfx::VectorIcon& icon,
+    int text_id) {
+  return AddScrollListSubHeader(scroll_content(), icon, text_id);
 }
 
-void BluetoothDetailedViewLegacy::UpdateDeviceScrollList(
-    const BluetoothDeviceList& connected_devices,
-    const BluetoothDeviceList& connecting_devices,
-    const BluetoothDeviceList& paired_not_connected_devices,
-    const BluetoothDeviceList& discovered_not_paired_devices) {
-  connecting_devices_.clear();
-  for (const auto& device : connecting_devices)
-    connecting_devices_.push_back(device->Clone());
-
-  paired_not_connected_devices_.clear();
-  for (const auto& device : paired_not_connected_devices)
-    paired_not_connected_devices_.push_back(device->Clone());
-
-  // Keep track of previous device_map_ so that existing scroll list
-  // item views can be re-used. This is required for a11y so that
-  // keyboard focus and screen-reader call outs are not disrupted
-  // by frequent device list updates.
-  std::unordered_map<HoverHighlightView*, BluetoothAddress> old_device_map =
-      device_map_;
-  device_map_.clear();
-
-  // Add paired devices and their section header to the list.
-  bool has_paired_devices = !connected_devices.empty() ||
-                            !connecting_devices.empty() ||
-                            !paired_not_connected_devices.empty();
-  int index = 0;
-  if (has_paired_devices) {
-    paired_devices_heading_ =
-        AddSubHeading(IDS_ASH_STATUS_TRAY_BLUETOOTH_PAIRED_DEVICES,
-                      paired_devices_heading_, index++);
-    index = AddSameTypeDevicesToScrollList(connected_devices, old_device_map,
-                                           index, true, true);
-    index = AddSameTypeDevicesToScrollList(connecting_devices, old_device_map,
-                                           index, true, false);
-    index = AddSameTypeDevicesToScrollList(paired_not_connected_devices,
-                                           old_device_map, index, false, false);
-  } else if (paired_devices_heading_) {
-    scroll_content()->RemoveChildViewT(paired_devices_heading_);
-    paired_devices_heading_ = nullptr;
-  }
-
-  // Add unpaired devices to the list. If at least one paired device is
-  // present, also add a section header above the unpaired devices.
-  if (!discovered_not_paired_devices.empty()) {
-    if (has_paired_devices) {
-      unpaired_devices_heading_ =
-          AddSubHeading(IDS_ASH_STATUS_TRAY_BLUETOOTH_UNPAIRED_DEVICES,
-                        unpaired_devices_heading_, index++);
-    }
-    index = AddSameTypeDevicesToScrollList(discovered_not_paired_devices,
-                                           old_device_map, index, false, false);
-  }
-
-  if (unpaired_devices_heading_ &&
-      (discovered_not_paired_devices.empty() || !has_paired_devices)) {
-    scroll_content()->RemoveChildViewT(unpaired_devices_heading_);
-    unpaired_devices_heading_ = nullptr;
-  }
-
-  // Show user Bluetooth state if there is no bluetooth devices in list.
-  if (device_map_.empty()) {
-    if (!bluetooth_discovering_label_) {
-      bluetooth_discovering_label_ =
-          new TrayInfoLabel(IDS_ASH_STATUS_TRAY_BLUETOOTH_DISCOVERING);
-      scroll_content()->AddChildViewAt(bluetooth_discovering_label_, index++);
-    } else {
-      scroll_content()->ReorderChildView(bluetooth_discovering_label_, index++);
-    }
-  } else if (bluetooth_discovering_label_) {
-    scroll_content()->RemoveChildViewT(bluetooth_discovering_label_);
-    bluetooth_discovering_label_ = nullptr;
-  }
-
-  // Remove views for devices from old_device_map that are not in device_map_.
-  for (auto& view_and_address : old_device_map) {
-    if (device_map_.find(view_and_address.first) == device_map_.end()) {
-      scroll_content()->RemoveChildViewT(view_and_address.first);
-    }
-  }
-
+void BluetoothDetailedViewLegacy::NotifyDeviceListChanged() {
   scroll_content()->InvalidateLayout();
-
   Layout();
 }
 
-void BluetoothDetailedViewLegacy::SetToggleIsOn(bool is_on) {
-  if (toggle_)
-    toggle_->AnimateIsOn(is_on);
+views::View* BluetoothDetailedViewLegacy::device_list() {
+  return scroll_content();
+}
+
+void BluetoothDetailedViewLegacy::HandleViewClicked(views::View* view) {
+  // We only handle clicks on the "pair new device" view and on the individual
+  // device views. When |view| is a child of |pair_new_device_view_| we know the
+  // "pair new device" button was clicked, otherwise it must have been an
+  // individual device view.
+  if (pair_new_device_view_->GetIndexOf(view).has_value()) {
+    delegate()->OnPairNewDeviceRequested();
+    return;
+  }
+  delegate()->OnDeviceListItemSelected(
+      static_cast<BluetoothDeviceListItemView*>(view)->device_properties());
 }
 
 const char* BluetoothDetailedViewLegacy::GetClassName() const {
   return "BluetoothDetailedViewLegacy";
 }
 
-void BluetoothDetailedViewLegacy::CreateItems() {
-  CreateScrollableList();
-  scroll_content()->SetID(kScrollContentID);
-  CreateTitleRow(IDS_ASH_STATUS_TRAY_BLUETOOTH);
+void BluetoothDetailedViewLegacy::CreateDisabledView() {
+  DCHECK(!disabled_view_);
+
+  // Check that the views::ScrollView has already been created so that we can
+  // insert the disabled view before it to avoid the unnecessary bottom border
+  // spacing of views::ScrollView when it is not the last child.
+  DCHECK(scroller());
+
+  disabled_view_ = AddChildViewAt(new BluetoothDisabledDetailedView,
+                                  GetIndexOf(scroller()).value());
+  disabled_view_->SetID(
+      static_cast<int>(BluetoothDetailedViewChildId::kDisabledView));
+
+  // Make |disabled_panel_| fill the entire space below the title row so that
+  // the inner contents can be placed correctly.
+  box_layout()->SetFlexForView(disabled_view_, 1);
 }
 
-TriView* BluetoothDetailedViewLegacy::AddSubHeading(int text_id,
-                                                    TriView* sub_heading_view,
-                                                    int child_index) {
-  if (!sub_heading_view) {
-    sub_heading_view = AddScrollListSubHeader(text_id);
-  }
-  scroll_content()->ReorderChildView(sub_heading_view, child_index);
-  return sub_heading_view;
+void BluetoothDetailedViewLegacy::CreatePairNewDeviceView() {
+  DCHECK(!pair_new_device_view_);
+
+  // Check that the views::ScrollView has already been created so that we can
+  // insert the "pair new device" before it.
+  DCHECK(scroller());
+
+  pair_new_device_view_ =
+      AddChildViewAt(new views::View(), GetIndexOf(scroller()).value());
+  pair_new_device_view_->SetLayoutManager(std::make_unique<views::BoxLayout>(
+      views::BoxLayout::Orientation::kVertical));
+  pair_new_device_view_->SetID(
+      static_cast<int>(BluetoothDetailedViewChildId::kPairNewDeviceView));
+
+  std::unique_ptr<HoverHighlightView> hover_highlight_view =
+      std::make_unique<HoverHighlightView>(/*listener=*/this);
+  hover_highlight_view->SetID(static_cast<int>(
+      BluetoothDetailedViewChildId::kPairNewDeviceClickableView));
+
+  std::unique_ptr<ash::IconButton> button = std::make_unique<ash::IconButton>(
+      views::Button::PressedCallback(), IconButton::Type::kMedium,
+      &kSystemMenuPlusIcon, IDS_ASH_STATUS_TRAY_BLUETOOTH_PAIR_NEW_DEVICE);
+  button->SetCanProcessEventsWithinSubtree(/*can_process=*/false);
+  button->SetFocusBehavior(
+      /*focus_behavior=*/views::View::FocusBehavior::NEVER);
+
+  hover_highlight_view->AddViewAndLabel(
+      std::move(button),
+      l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_BLUETOOTH_PAIR_NEW_DEVICE));
+
+  TrayPopupUtils::SetLabelFontList(hover_highlight_view->text_label(),
+                                   TrayPopupUtils::FontStyle::kSubHeader);
+
+  views::View* separator = pair_new_device_view_->AddChildView(
+      TrayPopupUtils::CreateListSubHeaderSeparator());
+  const gfx::Insets padding = separator->GetInsets();
+
+  // The hover highlight view does not have top padding by default, unlike the
+  // following separator. To keep the icon and label centered, and to make the
+  // entirety of the view "highlightable", remove the padding from the separator
+  // and add it to both the top and bottom of the hover highlight view.
+  separator->SetBorder(/*b=*/nullptr);
+  hover_highlight_view->SetBorder(views::CreateEmptyBorder(
+      gfx::Insets::TLBR(padding.top(), 0, padding.top(), 0)));
+
+  pair_new_device_view_->AddChildViewAt(hover_highlight_view.release(), 0);
 }
 
-int BluetoothDetailedViewLegacy::AddSameTypeDevicesToScrollList(
-    const BluetoothDeviceList& list,
-    const std::unordered_map<HoverHighlightView*, BluetoothAddress>&
-        old_device_list,
-    int child_index,
-    bool highlight,
-    bool checked) {
-  for (const auto& device : list) {
-    const gfx::VectorIcon& icon =
-        GetBluetoothDeviceIcon(device->device_type, device->connection_state);
-    std::u16string device_name =
-        device::GetBluetoothDeviceNameForDisplay(device);
-    HoverHighlightView* container =
-        GetScrollListItemForDevice(old_device_list, device->address);
-    if (!container) {
-      container = AddScrollListItem(icon, device_name);
-    } else {
-      container->text_label()->SetText(device_name);
+void BluetoothDetailedViewLegacy::CreateTitleRowButtons() {
+  DCHECK(!settings_button_);
+  DCHECK(!toggle_button_);
 
-      DCHECK(views::IsViewClass<views::ImageView>(container->left_view()));
-      views::ImageView* left_icon =
-          static_cast<views::ImageView*>(container->left_view());
-      left_icon->SetImage(gfx::CreateVectorIcon(
-          icon, AshColorProvider::Get()->GetContentLayerColor(
-                    AshColorProvider::ContentLayerType::kIconColorPrimary)));
-    }
+  tri_view()->SetContainerVisible(TriView::Container::END, /*visible=*/true);
 
-    if (device->is_blocked_by_policy) {
-      if (container->right_view()) {
-        container->SetRightViewVisible(true);
-      } else {
-        gfx::ImageSkia enterprise_managed_icon = CreateVectorIcon(
-            chromeos::kEnterpriseIcon, kEnterpriseManagedIconSizeDip,
-            gfx::kGoogleGrey100);
-        container->AddRightIcon(enterprise_managed_icon,
-                                enterprise_managed_icon.width());
-      }
-    } else if (container->right_view()) {
-      container->SetRightViewVisible(false);
-    }
-
-    container->SetAccessibleName(
-        device::GetBluetoothDeviceLabelForAccessibility(device));
-    switch (device->connection_state) {
-      case BluetoothDeviceInfo::ConnectionState::kNotConnected:
-        break;
-      case BluetoothDeviceInfo::ConnectionState::kConnecting:
-        SetupConnectingScrollListItem(container);
-        break;
-      case BluetoothDeviceInfo::ConnectionState::kConnected:
-        SetupConnectedScrollListItem(
-            container, device->battery_info
-                           ? absl::make_optional<uint8_t>(
-                                 device->battery_info->battery_percentage)
-                           : absl::nullopt);
-        break;
-    }
-    scroll_content()->ReorderChildView(container, child_index++);
-    device_map_[container] = device->address;
-  }
-  return child_index;
-}
-
-bool BluetoothDetailedViewLegacy::FoundDevice(
-    const BluetoothAddress& device_address,
-    const BluetoothDeviceList& device_list) const {
-  for (const auto& device : device_list) {
-    if (device->address == device_address)
-      return true;
-  }
-  return false;
-}
-
-void BluetoothDetailedViewLegacy::UpdateClickedDevice(
-    const BluetoothAddress& device_address,
-    HoverHighlightView* item_container) {
-  if (FoundDevice(device_address, paired_not_connected_devices_)) {
-    SetupConnectingScrollListItem(item_container);
-    scroll_content()->SizeToPreferredSize();
-    scroller()->Layout();
-  }
-}
-
-void BluetoothDetailedViewLegacy::ToggleButtonPressed() {
-  Shell::Get()->tray_bluetooth_helper()->SetBluetoothEnabled(
-      toggle_->GetIsOn());
-}
-
-void BluetoothDetailedViewLegacy::ShowSettings() {
-  if (TrayPopupUtils::CanOpenWebUISettings()) {
-    CloseBubble();  // Deletes |this|.
-    Shell::Get()->system_tray_model()->client()->ShowBluetoothSettings();
-  }
-}
-
-absl::optional<BluetoothAddress>
-BluetoothDetailedViewLegacy::GetFocusedDeviceAddress() const {
-  for (const auto& view_and_address : device_map_) {
-    if (view_and_address.first->HasFocus())
-      return view_and_address.second;
-  }
-  return absl::nullopt;
-}
-
-void BluetoothDetailedViewLegacy::FocusDeviceByAddress(
-    const BluetoothAddress& address) const {
-  for (auto& view_and_address : device_map_) {
-    if (view_and_address.second == address) {
-      view_and_address.first->RequestFocus();
-      return;
-    }
-  }
-}
-
-void BluetoothDetailedViewLegacy::HandleViewClicked(views::View* view) {
-  TrayBluetoothHelper* helper = Shell::Get()->tray_bluetooth_helper();
-  if (helper->GetBluetoothState() != BluetoothSystem::State::kPoweredOn)
-    return;
-
-  HoverHighlightView* container = static_cast<HoverHighlightView*>(view);
-  std::unordered_map<HoverHighlightView*, BluetoothAddress>::iterator find;
-  find = device_map_.find(container);
-  if (find == device_map_.end())
-    return;
-
-  const BluetoothAddress& device_address = find->second;
-  if (FoundDevice(device_address, connecting_devices_))
-    return;
-
-  UpdateClickedDevice(device_address, container);
-  LogUserBluetoothEvent(device_address);
-  helper->ConnectToBluetoothDevice(device_address);
-}
-
-void BluetoothDetailedViewLegacy::CreateExtraTitleRowButtons() {
-  if (login_ == LoginStatus::LOCKED)
-    return;
-
-  DCHECK(!toggle_);
-  DCHECK(!settings_);
-
-  tri_view()->SetContainerVisible(TriView::Container::END, true);
-
-  toggle_ = new TrayToggleButton(
-      base::BindRepeating(&BluetoothDetailedViewLegacy::ToggleButtonPressed,
-                          base::Unretained(this)),
+  std::unique_ptr<TrayToggleButton> toggle = std::make_unique<TrayToggleButton>(
+      base::BindRepeating(&BluetoothDetailedViewLegacy::OnToggleClicked,
+                          weak_factory_.GetWeakPtr()),
       IDS_ASH_STATUS_TRAY_BLUETOOTH);
-  toggle_->SetIsOn(Shell::Get()->tray_bluetooth_helper()->GetBluetoothState() ==
-                   BluetoothSystem::State::kPoweredOn);
-  tri_view()->AddView(TriView::Container::END, toggle_);
+  toggle->SetID(static_cast<int>(BluetoothDetailedViewChildId::kToggleButton));
+  toggle_button_ =
+      tri_view()->AddView(TriView::Container::END, std::move(toggle));
 
-  settings_ = CreateSettingsButton(
-      base::BindRepeating(&BluetoothDetailedViewLegacy::ShowSettings,
-                          base::Unretained(this)),
-      IDS_ASH_STATUS_TRAY_BLUETOOTH_SETTINGS);
-  tri_view()->AddView(TriView::Container::END, settings_);
+  std::unique_ptr<views::Button> settings =
+      base::WrapUnique(CreateSettingsButton(
+          base::BindRepeating(&BluetoothDetailedViewLegacy::OnSettingsClicked,
+                              weak_factory_.GetWeakPtr()),
+          IDS_ASH_STATUS_TRAY_BLUETOOTH_SETTINGS));
+  settings->SetID(
+      static_cast<int>(BluetoothDetailedViewChildId::kSettingsButton));
+  settings_button_ =
+      tri_view()->AddView(TriView::Container::END, std::move(settings));
 }
 
-}  // namespace tray
+void BluetoothDetailedViewLegacy::OnSettingsClicked() {
+  if (!TrayPopupUtils::CanOpenWebUISettings())
+    return;
+  CloseBubble();  // Deletes |this|.
+  Shell::Get()->system_tray_model()->client()->ShowBluetoothSettings();
+}
+
+void BluetoothDetailedViewLegacy::OnToggleClicked() {
+  const bool toggle_state = toggle_button_->GetIsOn();
+  delegate()->OnToggleClicked(toggle_state);
+
+  // Avoid the situation where there is a delay between the toggle becoming
+  // enabled/disabled and Bluetooth becoming enabled/disabled by forcing the
+  // view state to match the toggle state.
+  UpdateBluetoothEnabledState(toggle_state);
+}
+
 }  // namespace ash

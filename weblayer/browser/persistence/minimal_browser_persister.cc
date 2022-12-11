@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 
 #include "base/containers/contains.h"
 #include "base/containers/cxx20_erase.h"
+#include "base/memory/raw_ref.h"
+#include "base/ranges/algorithm.h"
 #include "components/sessions/content/content_serialized_navigation_builder.h"
 #include "components/sessions/content/session_tab_helper.h"
 #include "components/sessions/core/session_command.h"
@@ -13,6 +15,7 @@
 #include "components/sessions/core/session_id.h"
 #include "components/sessions/core/session_service_commands.h"
 #include "components/sessions/core/session_types.h"
+#include "content/public/browser/navigation_entry.h"
 #include "weblayer/browser/browser_impl.h"
 #include "weblayer/browser/persistence/browser_persistence_common.h"
 #include "weblayer/browser/tab_impl.h"
@@ -183,18 +186,26 @@ class MinimalRestorer {
 };
 
 // Iterates over the NavigationEntries of a tab in the order they should be
-// written.
+// written. Starts at the pending NavigationEntry if it exists, and skips over
+// a NavigationEntry if it is the initial NavigationEntry.
 class NavigationEntryIterator {
  public:
   explicit NavigationEntryIterator(Tab* tab)
       : controller_(
             static_cast<TabImpl*>(tab)->web_contents()->GetController()),
-        at_pending_(controller_.GetPendingEntry() != nullptr &&
-                    controller_.GetPendingEntryIndex() != -1),
-        entry_index_(at_pending_ ? controller_.GetPendingEntryIndex()
-                                 : controller_.GetCurrentEntryIndex()) {
+        at_pending_(controller_->GetPendingEntry() != nullptr &&
+                    controller_->GetPendingEntryIndex() != -1),
+        entry_index_(at_pending_ ? controller_->GetPendingEntryIndex()
+                                 : controller_->GetCurrentEntryIndex()) {
     // GetPendingEntryIndex() returns -1 for new entries, which this implicitly
     // skips (Chrome's persistence code does the same).
+
+    if (content::NavigationEntry* current_entry = entry()) {
+      // If `entry_index_` points to the initial NavigationEntry, skip it, as
+      // initial NavigationEntries should not be persisted.
+      if (!at_pending_ && current_entry->IsInitialEntry())
+        Next();
+    }
   }
   NavigationEntryIterator(const NavigationEntryIterator&) = delete;
   NavigationEntryIterator& operator=(const NavigationEntryIterator&) = delete;
@@ -204,11 +215,11 @@ class NavigationEntryIterator {
   int entry_index() const { return entry_index_; }
 
   // Returns the current entry.
-  content::NavigationEntry* entry() {
+  content::NavigationEntry* entry() const {
     if (at_pending_)
-      return controller_.GetPendingEntry();
+      return controller_->GetPendingEntry();
     return entry_index_ == -1 ? nullptr
-                              : controller_.GetEntryAtIndex(entry_index_);
+                              : controller_->GetEntryAtIndex(entry_index_);
   }
 
   // Returns true if the end has been reached.
@@ -220,17 +231,25 @@ class NavigationEntryIterator {
       return false;
     if (at_pending_) {
       at_pending_ = false;
-      entry_index_ = controller_.GetCurrentEntryIndex();
-      if (entry_index_ == controller_.GetPendingEntryIndex())
+      entry_index_ = controller_->GetCurrentEntryIndex();
+      if (entry_index_ == controller_->GetPendingEntryIndex())
         --entry_index_;
     } else if (entry_index_ != -1) {
       --entry_index_;
+    }
+
+    // Skip over the initial NavigationEntry as it shouldn't be persisted.
+    content::NavigationEntry* entry =
+        controller_->GetEntryAtIndex(entry_index_);
+    if (entry && entry->IsInitialEntry()) {
+      DCHECK_EQ(0, entry_index_);
+      entry_index_ = -1;
     }
     return !at_end();
   }
 
  private:
-  content::NavigationController& controller_;
+  const raw_ref<content::NavigationController> controller_;
   bool at_pending_;
   int entry_index_ = -1;
 };
@@ -249,7 +268,7 @@ bool PersistTabStatePrimaryPass(const SessionID& browser_session_id,
   auto tabs = browser->GetTabs();
   DCHECK(base::Contains(tabs, tab));
   const int tab_index =
-      static_cast<int>(std::find(tabs.begin(), tabs.end(), tab) - tabs.begin());
+      static_cast<int>(base::ranges::find(tabs, tab) - tabs.begin());
   if (!builder->AppendIfFits(BuildCommandsForTabConfiguration(
           browser_session_id, static_cast<TabImpl*>(tab), tab_index))) {
     return false;
@@ -308,9 +327,8 @@ int GetActiveTabIndex(BrowserImpl* browser) {
   if (!browser->GetActiveTab())
     return -1;
   const std::vector<Tab*>& tabs = browser->GetTabs();
-  return static_cast<int>(
-      std::find(tabs.begin(), tabs.end(), browser->GetActiveTab()) -
-      tabs.begin());
+  return static_cast<int>(base::ranges::find(tabs, browser->GetActiveTab()) -
+                          tabs.begin());
 }
 
 }  // namespace
@@ -363,7 +381,9 @@ std::vector<uint8_t> PersistMinimalState(BrowserImpl* browser,
 void RestoreMinimalStateForBrowser(BrowserImpl* browser,
                                    const std::vector<uint8_t>& value) {
   MinimalRestorer restorer(value);
+  browser->set_is_minimal_restore_in_progress(true);
   RestoreBrowserState(browser, restorer.RestoreCommands());
+  browser->set_is_minimal_restore_in_progress(false);
 }
 
 }  // namespace weblayer

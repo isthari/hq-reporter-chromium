@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,26 +8,27 @@
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <cmath>
+#import <stddef.h>
+#import <stdint.h>
+#import <cmath>
 
-#include "base/check_op.h"
-#include "base/ios/ios_util.h"
-#include "base/mac/foundation_util.h"
-#include "base/notreached.h"
-#include "base/numerics/math_constants.h"
-#include "ios/chrome/browser/system_flags.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/browser/ui/util/dynamic_type_util.h"
-#include "ios/chrome/browser/ui/util/rtl_geometry.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
-#include "ios/web/public/thread/web_thread.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "ui/base/l10n/l10n_util_mac.h"
-#include "ui/base/resource/resource_bundle.h"
-#include "ui/gfx/ios/uikit_util.h"
-#include "ui/gfx/scoped_cg_context_save_gstate_mac.h"
+#import "base/check.h"
+#import "base/check_op.h"
+#import "base/ios/ios_util.h"
+#import "base/mac/foundation_util.h"
+#import "base/notreached.h"
+#import "base/numerics/math_constants.h"
+#import "ios/chrome/browser/flags/system_flags.h"
+#import "ios/chrome/browser/ui/icons/symbols.h"
+#import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/ui/util/dynamic_type_util.h"
+#import "ios/chrome/browser/ui/util/rtl_geometry.h"
+#import "ios/chrome/common/ui/util/ui_util.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util_mac.h"
+#import "ui/base/resource/resource_bundle.h"
+#import "ui/gfx/ios/uikit_util.h"
+#import "ui/gfx/scoped_cg_context_save_gstate_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -67,6 +68,12 @@ void MaybeSetUITextFieldScaledFont(BOOL maybe,
   } else {
     textField.font = font;
   }
+}
+
+UIFont* CreateDynamicFont(UIFontTextStyle style, UIFontWeight weight) {
+  UIFontDescriptor* fontDescriptor =
+      [UIFontDescriptor preferredFontDescriptorWithTextStyle:style];
+  return [UIFont systemFontOfSize:fontDescriptor.pointSize weight:weight];
 }
 
 UIImage* CaptureViewWithOption(UIView* view,
@@ -275,7 +282,7 @@ UIView* GetFirstResponderSubview(UIView* view) {
 }
 
 UIResponder* GetFirstResponder() {
-  DCHECK_CURRENTLY_ON(web::WebThread::UI);
+  DCHECK(NSThread.isMainThread);
   return GetFirstResponderSubview(GetAnyKeyWindow());
 }
 
@@ -328,12 +335,34 @@ void TriggerHapticFeedbackForNotification(UINotificationFeedbackType type) {
   }
 }
 
-NSString* TextForTabCount(long count) {
-  if (count <= 0)
-    return @"";
-  if (count > 99)
-    return @":)";
-  return [NSString stringWithFormat:@"%ld", count];
+NSAttributedString* TextForTabCount(int count, CGFloat font_size) {
+  NSString* string;
+  if (count <= 0) {
+    string = @"";
+  } else if (count > 99) {
+    string = @":)";
+  } else {
+    string = [NSString stringWithFormat:@"%d", count];
+  }
+
+  if (UseSymbols()) {
+    UIFontWeight weight = UIAccessibilityIsBoldTextEnabled() ? UIFontWeightHeavy
+                                                             : UIFontWeightBold;
+    UIFont* font = [UIFont systemFontOfSize:font_size weight:weight];
+    UIFontDescriptor* descriptor = [font.fontDescriptor
+        fontDescriptorWithDesign:UIFontDescriptorSystemDesignRounded];
+    font = [UIFont fontWithDescriptor:descriptor size:font_size];
+
+    return [[NSAttributedString alloc] initWithString:string
+                                           attributes:@{
+                                             NSFontAttributeName : font,
+                                             NSKernAttributeName : @(-0.8),
+                                           }];
+  }
+  UIFont* font = [UIFont systemFontOfSize:font_size weight:UIFontWeightBold];
+  return
+      [[NSAttributedString alloc] initWithString:string
+                                      attributes:@{NSFontAttributeName : font}];
 }
 
 void RegisterEditMenuItem(UIMenuItem* item) {

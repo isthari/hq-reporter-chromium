@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include "base/message_loop/message_pump_type.h"
 #include "base/run_loop.h"
 #include "base/task/deferred_sequenced_task_runner.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits_extension.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "content/browser/browser_process_io_thread.h"
@@ -37,24 +37,9 @@ namespace features {
 //
 // TODO(nuskos): Remove this feature flag after we've done our retroactive study
 // of all chrometto performance improvements.
-constexpr base::Feature kBrowserPrioritizeInputQueue{
-    "BrowserPrioritizeInputQueue", base::FEATURE_ENABLED_BY_DEFAULT};
-
-// When TreatBootstrapAsDefault is enabled, the browser will execute tasks with
-// the kBootstrap task type on the default task queues (based on priority of
-// the task) rather than a dedicated high-priority task queue. Intended to
-// evaluate the impact of the already-launched prioritization of bootstrap
-// tasks (crbug.com/1258621).
-const base::Feature kTreatBootstrapTaskTypeAsDefault{
-    "TreatBootstrapAsDefault", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// When TreatPreconnectAsDefault is enabled, the browser will execute tasks with
-// the kPreconnect task type on the default task queues (based on priority of
-// the task) rather than a dedicated high-priority task queue. Intended to
-// evaluate the impact of the already-launched prioritization of preconnect
-// tasks (crbug.com/1257582).
-const base::Feature kTreatPreconnectTaskTypeAsDefault{
-    "TreatPreconnectAsDefault", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kBrowserPrioritizeInputQueue,
+             "BrowserPrioritizeInputQueue",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 }  // namespace features
 
@@ -151,28 +136,6 @@ QueueType BaseBrowserTaskExecutor::GetQueueType(
     DCHECK_LT(task_type, BrowserTaskType::kBrowserTaskType_Last);
 
     switch (task_type) {
-      case BrowserTaskType::kBootstrap:
-        if (base::FeatureList::IsEnabled(
-                features::kTreatBootstrapTaskTypeAsDefault)) {
-          // Defer to traits.priority() below rather than executing this task on
-          // the dedicated bootstrap queue.
-          break;
-        }
-
-        // Note we currently ignore the priority for bootstrap tasks.
-        return QueueType::kBootstrap;
-
-      case BrowserTaskType::kPreconnect:
-        if (base::FeatureList::IsEnabled(
-                features::kTreatPreconnectTaskTypeAsDefault)) {
-          // Defer to traits.priority() below rather than executing this task on
-          // the dedicated preconnect queue.
-          break;
-        }
-
-        // Note we currently ignore the priority for preconnection tasks.
-        return QueueType::kPreconnection;
-
       case BrowserTaskType::kUserInput:
         if (base::FeatureList::IsEnabled(
                 features::kBrowserPrioritizeInputQueue)) {
@@ -188,6 +151,9 @@ QueueType BaseBrowserTaskExecutor::GetQueueType(
         }
         // Defer to traits.priority() below.
         break;
+
+      case BrowserTaskType::kServiceWorkerStorageControlResponse:
+        return QueueType::kServiceWorkerStorageControlResponse;
 
       case BrowserTaskType::kDefault:
         // Defer to traits.priority() below.
@@ -227,7 +193,7 @@ BrowserTaskExecutor::~BrowserTaskExecutor() = default;
 
 // static
 void BrowserTaskExecutor::Create() {
-  DCHECK(!base::ThreadTaskRunnerHandle::IsSet());
+  DCHECK(!base::SingleThreadTaskRunner::HasCurrentDefault());
   CreateInternal(std::make_unique<BrowserUIThreadScheduler>(),
                  std::make_unique<BrowserIOThreadDelegate>());
   Get()->ui_thread_executor_->BindToCurrentThread();
@@ -291,11 +257,7 @@ void BrowserTaskExecutor::ResetForTesting() {
 
 // static
 void BrowserTaskExecutor::PostFeatureListSetup() {
-  DCHECK(Get()->browser_ui_thread_handle_);
-  DCHECK(Get()->browser_io_thread_handle_);
   DCHECK(Get()->ui_thread_executor_);
-  Get()->browser_ui_thread_handle_->PostFeatureListInitializationSetup();
-  Get()->browser_io_thread_handle_->PostFeatureListInitializationSetup();
   Get()->ui_thread_executor_->PostFeatureListSetup();
 }
 
@@ -350,9 +312,9 @@ void BrowserTaskExecutor::RunAllPendingTasksOnThreadForTesting(
 }
 
 // static
-void BrowserTaskExecutor::EnableAllQueues() {
-  Get()->browser_ui_thread_handle_->EnableAllQueues();
-  Get()->browser_io_thread_handle_->EnableAllQueues();
+void BrowserTaskExecutor::OnStartupComplete() {
+  Get()->browser_ui_thread_handle_->OnStartupComplete();
+  Get()->browser_io_thread_handle_->OnStartupComplete();
 }
 
 // static
@@ -390,11 +352,18 @@ std::unique_ptr<BrowserProcessIOThread> BrowserTaskExecutor::CreateIOThread() {
   base::Thread::Options options;
   options.message_pump_type = base::MessagePumpType::IO;
   options.delegate = std::move(browser_io_thread_delegate);
+// TODO(1329208): Consider doing this on Windows as well. The platform
+// discrepancy stems from organic evolution of the thread priorities on each
+// platform and while it might make sense not to bump the priority of the IO
+// thread per Windows' priority boosts capabilities on MessagePumpForIO, this
+// should at least be aligned with what platform_thread_win.cc does for
+// ThreadType::kDisplayCritical (IO pumps in other processes) and it currently
+// does not.
+#if !BUILDFLAG(IS_WIN)
   // Up the priority of the |io_thread_| as some of its IPCs relate to
   // display tasks.
-  if (base::FeatureList::IsEnabled(
-          ::features::kBrowserUseDisplayThreadPriority))
-    options.priority = base::ThreadPriority::DISPLAY;
+  options.thread_type = base::ThreadType::kCompositing;
+#endif
   if (!io_thread->StartWithOptions(std::move(options)))
     LOG(FATAL) << "Failed to start BrowserThread:IO";
   return io_thread;

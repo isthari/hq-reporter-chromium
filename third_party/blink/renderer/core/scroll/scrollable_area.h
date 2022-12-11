@@ -28,7 +28,9 @@
 
 #include "base/callback_helpers.h"
 #include "base/gtest_prod_util.h"
+#include "base/notreached.h"
 #include "cc/input/scroll_snap_data.h"
+#include "third_party/blink/public/common/input/web_gesture_device.h"
 #include "third_party/blink/public/mojom/frame/color_scheme.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/scroll/scroll_into_view_params.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -52,13 +54,12 @@ class SingleThreadTaskRunner;
 
 namespace cc {
 class AnimationHost;
+class AnimationTimeline;
 class Layer;
 }  // namespace cc
 
 namespace blink {
 class ChromeClient;
-class Color;
-class CompositorAnimationTimeline;
 class Document;
 class LayoutBox;
 class LayoutObject;
@@ -94,7 +95,7 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
 
   // Returns the amount of delta, in |granularity| units, for a direction-based
   // (i.e. keyboard or scrollbar arrow) scroll.
-  static float DirectionBasedScrollDelta(ScrollGranularity granularity);
+  static float DirectionBasedScrollDelta(ui::ScrollGranularity granularity);
 
   // Convert a non-finite scroll value (Infinity, -Infinity, NaN) to 0 as
   // per https://drafts.csswg.org/cssom-view/#normalize-non-finite-values.
@@ -105,13 +106,13 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
   virtual ChromeClient* GetChromeClient() const { return nullptr; }
 
   // Used to scale a length in dip units into a length in layout/paint units.
-  float ScaleFromDIP() const;
+  virtual float ScaleFromDIP() const;
 
   virtual SmoothScrollSequencer* GetSmoothScrollSequencer() const {
     return nullptr;
   }
 
-  virtual ScrollResult UserScroll(ScrollGranularity,
+  virtual ScrollResult UserScroll(ui::ScrollGranularity,
                                   const ScrollOffset&,
                                   ScrollCallback on_finish);
 
@@ -223,7 +224,7 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
   // overflow:overlay might be deprecated soon.
   bool HasOverlayScrollbars() const;
   void SetScrollbarOverlayColorTheme(ScrollbarOverlayColorTheme);
-  void RecalculateScrollbarOverlayColorTheme(const Color& background_color);
+  void RecalculateScrollbarOverlayColorTheme();
   ScrollbarOverlayColorTheme GetScrollbarOverlayColorTheme() const {
     return static_cast<ScrollbarOverlayColorTheme>(
         scrollbar_overlay_color_theme_);
@@ -250,7 +251,7 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
   virtual cc::AnimationHost* GetCompositorAnimationHost() const {
     return nullptr;
   }
-  virtual CompositorAnimationTimeline* GetCompositorAnimationTimeline() const {
+  virtual cc::AnimationTimeline* GetCompositorAnimationTimeline() const {
     return nullptr;
   }
 
@@ -533,15 +534,14 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
 
   void OnScrollFinished();
 
-  float ScrollStep(ScrollGranularity, ScrollbarOrientation) const;
+  float ScrollStep(ui::ScrollGranularity, ScrollbarOrientation) const;
 
   // Injects a gesture scroll event based on the given parameters,
   // targeted at this scrollable area.
   void InjectGestureScrollEvent(WebGestureDevice device,
                                 ScrollOffset delta,
-                                ScrollGranularity granularity,
+                                ui::ScrollGranularity granularity,
                                 WebInputEvent::Type gesture_type) const;
-  void InvalidateScrollTimeline();
   // If the layout box is a global root scroller then the root frame view's
   // ScrollableArea is returned. Otherwise, the layout box's
   // PaintLayerScrollableArea (which can be null) is returned.
@@ -595,7 +595,7 @@ class CORE_EXPORT ScrollableArea : public GarbageCollectedMixin {
 
   // Resolves into un-zoomed physical pixels a scroll |delta| based on its
   // ScrollGranularity units.
-  ScrollOffset ResolveScrollDelta(ScrollGranularity, const ScrollOffset& delta);
+  ScrollOffset ResolveScrollDelta(ui::ScrollGranularity, const ScrollOffset& delta);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ScrollableAreaTest,

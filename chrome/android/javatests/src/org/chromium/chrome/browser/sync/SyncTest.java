@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,12 @@ import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
+import org.chromium.base.test.util.DoNotBatch;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Matchers;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
@@ -24,11 +27,17 @@ import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.sync.SyncTestUtil;
 import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.identitymanager.ConsentLevel;
+import org.chromium.components.sync.PassphraseType;
+import org.chromium.components.sync.UserSelectableType;
+
+import java.util.Arrays;
+import java.util.HashSet;
 
 /**
  * Test suite for Sync.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
+@DoNotBatch(reason = "TODO(crbug.com/1168590): SyncTestRule doesn't support batching.")
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class SyncTest {
     @Rule
@@ -38,16 +47,26 @@ public class SyncTest {
 
     private static final String TAG = "SyncTest";
 
-    @DisabledTest(message = "https://crbug.com/1197554")
+    /**
+     * Waits until {@link SyncService#isSyncingUrlsWithKeystorePassphrase} returns desired value.
+     */
+    private void waitForIsSyncingUrlsWithKeystorePassphrase(boolean desiredValue) {
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(mSyncTestRule.getSyncService().isSyncingUrlsWithKeystorePassphrase(),
+                    Matchers.is(desiredValue));
+        }, SyncTestUtil.TIMEOUT_MS, SyncTestUtil.INTERVAL_MS);
+    }
+
     @Test
     @LargeTest
     @Feature({"Sync"})
+    @DisabledTest(message = "https://crbug.com/1197554")
     public void testSignInAndOut() {
         CoreAccountInfo accountInfo = mSyncTestRule.setUpAccountAndEnableSyncForTesting();
 
         // Signing out should disable sync.
         mSyncTestRule.signOut();
-        Assert.assertFalse(SyncTestUtil.isSyncRequested());
+        Assert.assertFalse(SyncTestUtil.isSyncFeatureEnabled());
 
         // Signing back in should re-enable sync.
         mSyncTestRule.signinAndEnableSync(accountInfo);
@@ -71,7 +90,7 @@ public class SyncTest {
 
         // Clearing server data should turn off sync and sign out of chrome.
         Assert.assertNull(mSyncTestRule.getPrimaryAccount(ConsentLevel.SYNC));
-        Assert.assertFalse(SyncTestUtil.isSyncRequested());
+        Assert.assertFalse(SyncTestUtil.isSyncFeatureEnabled());
         CriteriaHelper.pollUiThread(
                 ()
                         -> !IdentityServicesProvider.get()
@@ -89,8 +108,76 @@ public class SyncTest {
 
         mSyncTestRule.stopSync();
         Assert.assertEquals(accountInfo, mSyncTestRule.getPrimaryAccount(ConsentLevel.SYNC));
-        Assert.assertFalse(SyncTestUtil.isSyncRequested());
+        Assert.assertFalse(SyncTestUtil.isSyncFeatureEnabled());
 
         mSyncTestRule.startSyncAndWait();
+    }
+
+    @Test
+    @LargeTest
+    @Feature({"Sync"})
+    public void testIsSyncingUrlsWithKeystorePassphraseWhileUsingKeystorePassphrase() {
+        mSyncTestRule.setUpAccountAndEnableSyncForTesting();
+        // By default Sync is being setup with KEYSTORE_PASSPHRASE and all types enabled.
+        CriteriaHelper.pollUiThread(()
+                                            -> mSyncTestRule.getSyncService().getPassphraseType()
+                        == PassphraseType.KEYSTORE_PASSPHRASE,
+                "Timed out checking getPassphraseType() == PassphraseType.KEYSTORE_PASSPHRASE",
+                SyncTestUtil.TIMEOUT_MS, SyncTestUtil.INTERVAL_MS);
+        waitForIsSyncingUrlsWithKeystorePassphrase(true);
+
+        // isSyncingUrlsWithKeystorePassphrase() should return false when history is disabled.
+        mSyncTestRule.disableDataType(UserSelectableType.HISTORY);
+        waitForIsSyncingUrlsWithKeystorePassphrase(false);
+
+        // Now enable only history datatypes and verify that isSyncingUrlsWithKeystorePassphrase()
+        // returns true again.
+        mSyncTestRule.setSelectedTypes(
+                false, new HashSet<>(Arrays.asList(UserSelectableType.HISTORY)));
+        waitForIsSyncingUrlsWithKeystorePassphrase(true);
+    }
+
+    @Test
+    @LargeTest
+    @Feature({"Sync"})
+    public void testIsSyncingUrlsWithKeystorePassphraseWhileUsingTrustedVaultPassprhase() {
+        mSyncTestRule.getFakeServerHelper().setTrustedVaultNigori(new byte[] {1, 2, 3, 4});
+        mSyncTestRule.setUpAccountAndEnableSyncForTesting();
+
+        // Although not reflected in the name, isSyncingUrlsWithKeystorePassphrase() should treat
+        // TRUSTED_VAULT_PASSPHRASE in exactly the same way as KEYSTORE_PASSPHRASE.
+        CriteriaHelper.pollUiThread(()
+                                            -> mSyncTestRule.getSyncService().getPassphraseType()
+                        == PassphraseType.TRUSTED_VAULT_PASSPHRASE,
+                "Timed out checking getPassphraseType() == PassphraseType.TRUSTED_VAULT_PASSPHRASE",
+                SyncTestUtil.TIMEOUT_MS, SyncTestUtil.INTERVAL_MS);
+        waitForIsSyncingUrlsWithKeystorePassphrase(true);
+
+        // isSyncingUrlsWithKeystorePassphrase() should return false when history is disabled.
+        mSyncTestRule.disableDataType(UserSelectableType.HISTORY);
+        waitForIsSyncingUrlsWithKeystorePassphrase(false);
+
+        // Now enable only history datatypes and verify that isSyncingUrlsWithKeystorePassphrase()
+        // returns true again.
+        mSyncTestRule.setSelectedTypes(
+                false, new HashSet<>(Arrays.asList(UserSelectableType.HISTORY)));
+        waitForIsSyncingUrlsWithKeystorePassphrase(true);
+    }
+
+    @Test
+    @LargeTest
+    @Feature({"Sync"})
+    public void testIsSyncingUrlsWithKeystorePassphraseWhileUsingCustomPassphrase() {
+        mSyncTestRule.setUpAccountAndEnableSyncForTesting();
+        SyncTestUtil.encryptWithPassphrase("passphrase");
+        CriteriaHelper.pollUiThread(()
+                                            -> mSyncTestRule.getSyncService().getPassphraseType()
+                        == PassphraseType.CUSTOM_PASSPHRASE,
+                "Timed out checking getPassphraseType() == PassphraseType.CUSTOM_PASSPHRASE",
+                SyncTestUtil.TIMEOUT_MS, SyncTestUtil.INTERVAL_MS);
+
+        // isSyncingUrlsWithKeystorePassphrase() should return false with CUSTOM_PASSPHRASE no
+        // matter which datatypes are enabled.
+        waitForIsSyncingUrlsWithKeystorePassphrase(false);
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,9 +54,8 @@ struct AttributionGroupHash {
 namespace WTF {
 
 template <>
-struct DefaultHash<blink::scheduler::AttributionGroup> {
-  using Hash = blink::scheduler::AttributionGroupHash;
-};
+struct DefaultHash<blink::scheduler::AttributionGroup>
+    : blink::scheduler::AttributionGroupHash {};
 
 template <>
 struct HashTraits<blink::scheduler::AttributionGroup>

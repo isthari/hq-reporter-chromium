@@ -1,22 +1,22 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /** @fileoverview Test suite for wallpaper-breadcrumb component.  */
 
-import {GooglePhotosAlbum} from 'chrome://personalization/trusted/personalization_app.mojom-webui.js';
-import {PersonalizationBreadcrumb} from 'chrome://personalization/trusted/personalization_breadcrumb_element.js';
-import {Paths, PersonalizationRouter} from 'chrome://personalization/trusted/personalization_router_element.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import 'chrome://personalization/strings.m.js';
+import 'chrome://webui-test/mojo_webui_test_support.js';
 
+import {GooglePhotosAlbum, Paths, PersonalizationBreadcrumb, PersonalizationRouter, TopicSource} from 'chrome://personalization/js/personalization_app.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {assertDeepEquals, assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {flushTasks, waitAfterNextRender} from 'chrome://webui-test/test_util.js';
+import {flushTasks, waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
 import {baseSetup, initElement} from './personalization_app_test_utils.js';
 import {TestPersonalizationStore} from './test_personalization_store.js';
 import {TestWallpaperProvider} from './test_wallpaper_interface_provider.js';
 
-export function PersonalizationBreadcrumbTest() {
+suite('PersonalizationBreadcrumbTest', function() {
   let breadcrumbElement: PersonalizationBreadcrumb|null;
 
   let wallpaperProvider: TestWallpaperProvider;
@@ -66,14 +66,13 @@ export function PersonalizationBreadcrumbTest() {
   });
 
   test('show label when wallpaper subpage is loaded', async () => {
-    loadTimeData.overrideValues({isPersonalizationHubEnabled: true});
     breadcrumbElement =
-        initElement(PersonalizationBreadcrumb, {'path': Paths.Collections});
+        initElement(PersonalizationBreadcrumb, {'path': Paths.COLLECTIONS});
 
     await waitAfterNextRender(breadcrumbElement);
 
     let breadcrumbContainer =
-        breadcrumbElement.shadowRoot!.getElementById('breadcrumbContainer');
+        breadcrumbElement.shadowRoot!.getElementById('selector');
     assertTrue(!!breadcrumbContainer && !breadcrumbContainer.hidden);
     assertBreadcrumbs(
         breadcrumbContainer!, [breadcrumbElement.i18n('wallpaperLabel')]);
@@ -85,17 +84,15 @@ export function PersonalizationBreadcrumbTest() {
     wallpaperBreadcrumb!.click();
 
     breadcrumbContainer =
-        breadcrumbElement.shadowRoot!.getElementById('breadcrumbContainer');
+        breadcrumbElement.shadowRoot!.getElementById('selector');
     assertTrue(!!breadcrumbContainer && !breadcrumbContainer.hidden);
     assertBreadcrumbs(
         breadcrumbContainer!, [breadcrumbElement.i18n('wallpaperLabel')]);
   });
 
   test('click home button goes back to root page', async () => {
-    loadTimeData.overrideValues({isPersonalizationHubEnabled: true});
-
     breadcrumbElement =
-        initElement(PersonalizationBreadcrumb, {'path': Paths.Collections});
+        initElement(PersonalizationBreadcrumb, {'path': Paths.COLLECTIONS});
     await waitAfterNextRender(breadcrumbElement);
 
     // navigate to main page when Home icon is clicked on.
@@ -106,7 +103,7 @@ export function PersonalizationBreadcrumbTest() {
           goToRoute(path: Paths, queryParams: Object = {}) {
             resolve([path, queryParams]);
             PersonalizationRouter.instance = original;
-          }
+          },
         } as PersonalizationRouter;
       };
     });
@@ -115,26 +112,13 @@ export function PersonalizationBreadcrumbTest() {
         breadcrumbElement!.shadowRoot!.getElementById('homeButton');
     homeButton!.click();
     const [path, queryParams] = await goToRoutePromise;
-    assertEquals(Paths.Root, path);
+    assertEquals(Paths.ROOT, path);
     assertDeepEquals({}, queryParams);
   });
 
   test('back button hidden if personalization hub feature is on', async () => {
-    loadTimeData.overrideValues({isPersonalizationHubEnabled: false});
-
-    breadcrumbElement = initElement(
-        PersonalizationBreadcrumb, {'path': Paths.CollectionImages});
-    await waitAfterNextRender(breadcrumbElement);
-
-    assertTrue(
-        !!breadcrumbElement!.shadowRoot!.getElementById('backButton'),
-        'back button should be visible');
-
-    // Recreate the element with the hub feature on.
-    loadTimeData.overrideValues({isPersonalizationHubEnabled: true});
-    breadcrumbElement.remove();
     breadcrumbElement =
-        initElement(PersonalizationBreadcrumb, {'path': Paths.Collections});
+        initElement(PersonalizationBreadcrumb, {'path': Paths.COLLECTIONS});
     await waitAfterNextRender(breadcrumbElement);
 
     assertTrue(
@@ -147,7 +131,7 @@ export function PersonalizationBreadcrumbTest() {
     assertTrue(!!collection);
     breadcrumbElement = initElement(
         PersonalizationBreadcrumb,
-        {'path': Paths.CollectionImages, 'collectionId': collection.id});
+        {'path': Paths.COLLECTION_IMAGES, 'collectionId': collection.id});
 
     personalizationStore.data.wallpaper.backdrop.collections =
         wallpaperProvider.collections;
@@ -156,7 +140,7 @@ export function PersonalizationBreadcrumbTest() {
     await waitAfterNextRender(breadcrumbElement);
 
     const breadcrumbContainer =
-        breadcrumbElement.shadowRoot!.getElementById('breadcrumbContainer');
+        breadcrumbElement.shadowRoot!.getElementById('selector');
     assertTrue(!!breadcrumbContainer && !breadcrumbContainer.hidden);
     assertBreadcrumbs(
         breadcrumbContainer!,
@@ -169,7 +153,7 @@ export function PersonalizationBreadcrumbTest() {
           goToRoute(path: Paths, queryParams: Object = {}) {
             resolve([path, queryParams]);
             PersonalizationRouter.instance = original;
-          }
+          },
         } as PersonalizationRouter;
       };
     });
@@ -180,7 +164,7 @@ export function PersonalizationBreadcrumbTest() {
         breadcrumbElement!.shadowRoot!.getElementById('breadcrumb0');
     wallpaperBreadcrumb!.click();
     const [path, queryParams] = await goToRoutePromise;
-    assertEquals(Paths.Collections, path);
+    assertEquals(Paths.COLLECTIONS, path);
     assertDeepEquals({}, queryParams);
   });
 
@@ -198,16 +182,17 @@ export function PersonalizationBreadcrumbTest() {
     personalizationStore.notifyObservers();
 
     breadcrumbElement = initElement(PersonalizationBreadcrumb, {
-      'path': Paths.GooglePhotosCollection,
-      'googlePhotosAlbumId': googlePhotosAlbum.id
+      'path': Paths.GOOGLE_PHOTOS_COLLECTION,
+      'googlePhotosAlbumId': googlePhotosAlbum.id,
     });
 
     const breadcrumbContainer =
-        breadcrumbElement.shadowRoot!.getElementById('breadcrumbContainer');
+        breadcrumbElement.shadowRoot!.getElementById('selector');
     assertTrue(!!breadcrumbContainer && !breadcrumbContainer.hidden);
     assertBreadcrumbs(breadcrumbContainer, [
       breadcrumbElement.i18n('wallpaperLabel'),
-      breadcrumbElement.i18n('googlePhotosLabel'), googlePhotosAlbum.title
+      breadcrumbElement.i18n('googlePhotosLabel'),
+      googlePhotosAlbum.title,
     ]);
 
     const original = PersonalizationRouter.instance;
@@ -217,7 +202,7 @@ export function PersonalizationBreadcrumbTest() {
           goToRoute(path: Paths, queryParams: Object = {}) {
             resolve([path, queryParams]);
             PersonalizationRouter.instance = original;
-          }
+          },
         } as PersonalizationRouter;
       };
     });
@@ -229,7 +214,7 @@ export function PersonalizationBreadcrumbTest() {
         breadcrumbElement!.shadowRoot!.getElementById('breadcrumb1');
     googlePhotoBreadcrumb!.click();
     const [path, queryParams] = await goToRoutePromise;
-    assertEquals(Paths.GooglePhotosCollection, path);
+    assertEquals(Paths.GOOGLE_PHOTOS_COLLECTION, path);
     assertDeepEquals({}, queryParams);
   });
 
@@ -239,14 +224,14 @@ export function PersonalizationBreadcrumbTest() {
     loadTimeData.overrideValues({'googlePhotosLabel': 'Google Photos'});
 
     breadcrumbElement = initElement(
-        PersonalizationBreadcrumb, {'path': Paths.GooglePhotosCollection});
+        PersonalizationBreadcrumb, {'path': Paths.GOOGLE_PHOTOS_COLLECTION});
 
     const breadcrumbContainer =
-        breadcrumbElement.shadowRoot!.getElementById('breadcrumbContainer');
+        breadcrumbElement.shadowRoot!.getElementById('selector');
     assertTrue(!!breadcrumbContainer && !breadcrumbContainer.hidden);
     assertBreadcrumbs(breadcrumbContainer, [
       breadcrumbElement.i18n('wallpaperLabel'),
-      breadcrumbElement.i18n('googlePhotosLabel')
+      breadcrumbElement.i18n('googlePhotosLabel'),
     ]);
 
     const original = PersonalizationRouter.instance;
@@ -256,7 +241,7 @@ export function PersonalizationBreadcrumbTest() {
           goToRoute(path: Paths, queryParams: Object = {}) {
             resolve([path, queryParams]);
             PersonalizationRouter.instance = original;
-          }
+          },
         } as PersonalizationRouter;
       };
     });
@@ -267,13 +252,13 @@ export function PersonalizationBreadcrumbTest() {
         breadcrumbElement!.shadowRoot!.getElementById('breadcrumb0');
     wallpaperBreadcrumb!.click();
     const [path, queryParams] = await goToRoutePromise;
-    assertEquals(Paths.Collections, path);
+    assertEquals(Paths.COLLECTIONS, path);
     assertDeepEquals({}, queryParams);
   });
 
   test('show label when local images subpage is loaded', async () => {
-    breadcrumbElement =
-        initElement(PersonalizationBreadcrumb, {'path': Paths.LocalCollection});
+    breadcrumbElement = initElement(
+        PersonalizationBreadcrumb, {'path': Paths.LOCAL_COLLECTION});
 
     personalizationStore.data.wallpaper.local.images =
         wallpaperProvider.localImages;
@@ -282,11 +267,11 @@ export function PersonalizationBreadcrumbTest() {
     await waitAfterNextRender(breadcrumbElement);
 
     const breadcrumbContainer =
-        breadcrumbElement.shadowRoot!.getElementById('breadcrumbContainer');
+        breadcrumbElement.shadowRoot!.getElementById('selector');
     assertTrue(!!breadcrumbContainer && !breadcrumbContainer.hidden);
     assertBreadcrumbs(breadcrumbContainer, [
       breadcrumbElement.i18n('wallpaperLabel'),
-      breadcrumbElement.i18n('myImagesLabel')
+      breadcrumbElement.i18n('myImagesLabel'),
     ]);
 
     const original = PersonalizationRouter.instance;
@@ -296,7 +281,7 @@ export function PersonalizationBreadcrumbTest() {
           goToRoute(path: Paths, queryParams: Object = {}) {
             resolve([path, queryParams]);
             PersonalizationRouter.instance = original;
-          }
+          },
         } as PersonalizationRouter;
       };
     });
@@ -307,18 +292,18 @@ export function PersonalizationBreadcrumbTest() {
         breadcrumbElement!.shadowRoot!.getElementById('breadcrumb0');
     wallpaperBreadcrumb!.click();
     const [path, queryParams] = await goToRoutePromise;
-    assertEquals(Paths.Collections, path);
+    assertEquals(Paths.COLLECTIONS, path);
     assertDeepEquals({}, queryParams);
   });
 
   test('show label when ambient subpage is loaded', async () => {
     breadcrumbElement =
-        initElement(PersonalizationBreadcrumb, {'path': Paths.Ambient});
+        initElement(PersonalizationBreadcrumb, {'path': Paths.AMBIENT});
 
     await waitAfterNextRender(breadcrumbElement);
 
     let breadcrumbContainer =
-        breadcrumbElement.shadowRoot!.getElementById('breadcrumbContainer');
+        breadcrumbElement.shadowRoot!.getElementById('selector');
     assertTrue(!!breadcrumbContainer && !breadcrumbContainer.hidden);
     assertBreadcrumbs(
         breadcrumbContainer!, [breadcrumbElement.i18n('screensaverLabel')]);
@@ -330,9 +315,93 @@ export function PersonalizationBreadcrumbTest() {
     screensaverBreadcrumb!.click();
 
     breadcrumbContainer =
-        breadcrumbElement.shadowRoot!.getElementById('breadcrumbContainer');
+        breadcrumbElement.shadowRoot!.getElementById('selector');
     assertTrue(!!breadcrumbContainer && !breadcrumbContainer.hidden);
     assertBreadcrumbs(
         breadcrumbContainer!, [breadcrumbElement.i18n('screensaverLabel')]);
   });
-}
+
+  test(
+      'show label when ambient album page - Google Photos is loaded',
+      async () => {
+        loadTimeData.overrideValues(
+            {'ambientModeTopicSourceGooglePhotos': 'Google Photos'});
+
+        breadcrumbElement = initElement(PersonalizationBreadcrumb, {
+          'path': Paths.AMBIENT_ALBUMS,
+          'topicSource': TopicSource.kGooglePhotos,
+        });
+
+        const breadcrumbContainer =
+            breadcrumbElement.shadowRoot!.getElementById('selector');
+        assertTrue(!!breadcrumbContainer && !breadcrumbContainer.hidden);
+        assertBreadcrumbs(breadcrumbContainer, [
+          breadcrumbElement.i18n('screensaverLabel'),
+          breadcrumbElement.i18n('ambientModeTopicSourceGooglePhotos'),
+        ]);
+
+        const original = PersonalizationRouter.instance;
+        const goToRoutePromise = new Promise<[Paths, Object]>(resolve => {
+          PersonalizationRouter.instance = () => {
+            return {
+              goToRoute(path: Paths, queryParams: Object = {}) {
+                resolve([path, queryParams]);
+                PersonalizationRouter.instance = original;
+              },
+            } as PersonalizationRouter;
+          };
+        });
+
+        // current breadcrumbs: Home > Screensaver > Google Photos
+        // navigate to ambient subpage when Screensaver breadcrumb is clicked
+        // on.
+        const screensaverBreadcrumb =
+            breadcrumbElement!.shadowRoot!.getElementById('breadcrumb0');
+        screensaverBreadcrumb!.click();
+        const [path, queryParams] = await goToRoutePromise;
+        assertEquals(Paths.AMBIENT, path);
+        assertDeepEquals({}, queryParams);
+      });
+
+  test(
+      'show label when ambient album page - Art gallery is loaded',
+      async () => {
+        loadTimeData.overrideValues(
+            {'ambientModeTopicSourceArtGallery': 'Art Gallery'});
+
+        breadcrumbElement = initElement(PersonalizationBreadcrumb, {
+          'path': Paths.AMBIENT_ALBUMS,
+          'topicSource': TopicSource.kArtGallery,
+        });
+
+        const breadcrumbContainer =
+            breadcrumbElement.shadowRoot!.getElementById('selector');
+        assertTrue(!!breadcrumbContainer && !breadcrumbContainer.hidden);
+        assertBreadcrumbs(breadcrumbContainer, [
+          breadcrumbElement.i18n('screensaverLabel'),
+          breadcrumbElement.i18n('ambientModeTopicSourceArtGallery'),
+        ]);
+
+        const original = PersonalizationRouter.instance;
+        const goToRoutePromise = new Promise<[Paths, Object]>(resolve => {
+          PersonalizationRouter.instance = () => {
+            return {
+              goToRoute(path: Paths, queryParams: Object = {}) {
+                resolve([path, queryParams]);
+                PersonalizationRouter.instance = original;
+              },
+            } as PersonalizationRouter;
+          };
+        });
+
+        // current breadcrumbs: Home > Screensaver > Art Gallery
+        // navigate to ambient subpage when Screensaver breadcrumb is clicked
+        // on.
+        const screensaverBreadcrumb =
+            breadcrumbElement!.shadowRoot!.getElementById('breadcrumb0');
+        screensaverBreadcrumb!.click();
+        const [path, queryParams] = await goToRoutePromise;
+        assertEquals(Paths.AMBIENT, path);
+        assertDeepEquals({}, queryParams);
+      });
+});

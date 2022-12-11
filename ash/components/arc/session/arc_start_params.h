@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -69,9 +69,6 @@ struct StartParams {
   // Experiment flag for ARC Custom Tabs.
   bool arc_custom_tabs_experiment = false;
 
-  // Flag to disable system default apps.
-  bool arc_disable_system_default_app = false;
-
   // Flag to disable scheduling of media store periodic maintenance tasks.
   bool disable_media_store_maintenance = false;
 
@@ -94,6 +91,15 @@ struct StartParams {
 
   // Flag to enable notification refresh.
   bool enable_notifications_refresh = false;
+
+  // Flag to enable TTS caching.
+  bool enable_tts_caching = false;
+
+  // Flag to enable disable consumer auto update toggle as part of EU new deal.
+  bool enable_consumer_auto_update_toggle = false;
+
+  // Flag that indicates whether ARCVM uses virtio-blk for /data.
+  bool use_virtio_blk_data = false;
 };
 
 }  // namespace arc

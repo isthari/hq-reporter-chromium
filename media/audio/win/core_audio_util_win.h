@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "media/audio/audio_device_name.h"
 #include "media/base/audio_parameters.h"
@@ -25,10 +26,7 @@
 
 namespace media {
 
-// Represents audio channel configuration constants as understood by Windows.
-// E.g. KSAUDIO_SPEAKER_MONO.  For a list of possible values see:
-// http://msdn.microsoft.com/en-us/library/windows/hardware/ff537083(v=vs.85).aspx
-typedef uint32_t ChannelConfig;
+using ChannelConfig = uint32_t;
 
 class MEDIA_EXPORT CoreAudioUtil {
  public:
@@ -55,7 +53,7 @@ class MEDIA_EXPORT CoreAudioUtil {
     size_t size() const;
 
    private:
-    WAVEFORMATEX* ptr_;
+    raw_ptr<WAVEFORMATEX> ptr_;
   };
 
   CoreAudioUtil() = delete;

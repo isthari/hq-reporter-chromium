@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,9 +42,15 @@ void PrintManager::DidPrintDocument(mojom::DidPrintDocumentParamsPtr params,
   std::move(callback).Run(false);
 }
 
+void PrintManager::IsPrintingEnabled(IsPrintingEnabledCallback callback) {
+  // Assume printing is enabled by default.
+  std::move(callback).Run(true);
+}
+
 void PrintManager::ShowInvalidPrinterSettingsError() {}
 
-void PrintManager::PrintingFailed(int32_t cookie) {
+void PrintManager::PrintingFailed(int32_t cookie,
+                                  mojom::PrintFailureReason reason) {
   // Note: Not redundant with cookie checks in the same method in other parts of
   // the class hierarchy.
   if (!IsValidCookie(cookie))
@@ -53,6 +59,10 @@ void PrintManager::PrintingFailed(int32_t cookie) {
 #if BUILDFLAG(IS_ANDROID)
   PdfWritingDone(0);
 #endif
+}
+
+void PrintManager::ClearPrintRenderFramesForTesting() {
+  print_render_frames_.clear();
 }
 
 bool PrintManager::IsPrintRenderFrameConnected(

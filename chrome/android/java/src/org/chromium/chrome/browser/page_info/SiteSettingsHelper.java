@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,9 @@ import android.os.Bundle;
 
 import org.chromium.base.StrictModeContext;
 import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.chrome.browser.site_settings.ChromeSiteSettingsDelegate;
 import org.chromium.components.browser_ui.settings.SettingsLauncher;
 import org.chromium.components.browser_ui.site_settings.ContentSettingsResources;
 import org.chromium.components.browser_ui.site_settings.SingleCategorySettings;
@@ -33,7 +35,9 @@ public class SiteSettingsHelper {
         boolean isOfflinePage = OfflinePageUtils.getOfflinePage(webContents) != null;
         // TODO(crbug.com/1033178): dedupe the DomDistillerUrlUtils#getOriginalUrlFromDistillerUrl()
         // calls.
-        GURL url = DomDistillerUrlUtils.getOriginalUrlFromDistillerUrl(webContents.getVisibleUrl());
+        GURL url = webContents != null
+                ? DomDistillerUrlUtils.getOriginalUrlFromDistillerUrl(webContents.getVisibleUrl())
+                : null;
         return !isOfflinePage && url != null && UrlUtilities.isHttpOrHttps(url);
     }
 
@@ -48,7 +52,9 @@ public class SiteSettingsHelper {
                 SiteSettingsCategory.preferenceKey(category));
         extras.putString(SingleCategorySettings.EXTRA_TITLE,
                 context.getResources().getString(ContentSettingsResources.getTitle(
-                        SiteSettingsCategory.contentSettingsType(category))));
+                        SiteSettingsCategory.contentSettingsType(category),
+                        new ChromeSiteSettingsDelegate(
+                                context, Profile.getLastUsedRegularProfile()))));
         Intent preferencesIntent = settingsLauncher.createSettingsActivityIntent(
                 context, SingleCategorySettings.class.getName(), extras);
         launchIntent(context, preferencesIntent);

@@ -1,10 +1,9 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chromeos/ui/frame/immersive/immersive_fullscreen_controller.h"
 
-#include "ash/frame/header_view.h"
 #include "ash/frame/non_client_frame_view_ash.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shelf_types.h"
@@ -17,6 +16,7 @@
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
 #include "base/test/scoped_feature_list.h"
+#include "chromeos/ui/frame/header_view.h"
 #include "chromeos/ui/frame/immersive/immersive_fullscreen_controller_delegate.h"
 #include "chromeos/ui/frame/immersive/immersive_fullscreen_controller_test_api.h"
 #include "ui/aura/client/aura_constants.h"
@@ -34,6 +34,7 @@
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/native/native_view_host.h"
+#include "ui/views/test/views_test_utils.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 
@@ -60,7 +61,8 @@ class TestBubbleDialogDelegate : public views::BubbleDialogDelegateView {
 class MockImmersiveFullscreenControllerDelegate
     : public ImmersiveFullscreenControllerDelegate {
  public:
-  MockImmersiveFullscreenControllerDelegate(views::View* top_container_view)
+  explicit MockImmersiveFullscreenControllerDelegate(
+      views::View* top_container_view)
       : top_container_view_(top_container_view),
         enabled_(false),
         visible_fraction_(1) {}
@@ -178,7 +180,7 @@ class ImmersiveFullscreenControllerTest : public AshTestBase {
 
   aura::Window* window() { return widget_->GetNativeWindow(); }
 
-  HeaderView* immersive_delegate() {
+  chromeos::HeaderView* immersive_delegate() {
     return NonClientFrameViewAsh::Get(window())->GetHeaderView();
   }
 
@@ -208,7 +210,7 @@ class ImmersiveFullscreenControllerTest : public AshTestBase {
     gfx::Size window_size = widget_->GetWindowBoundsInScreen().size();
     content_view_ = new views::NativeViewHost();
     content_view_->SetBounds(0, 0, window_size.width(), window_size.height());
-    widget_->GetContentsView()->AddChildView(content_view_);
+    widget_->client_view()->AddChildView(content_view_);
 
     test_api_ =
         std::make_unique<ImmersiveFullscreenControllerTestApi>(controller());
@@ -750,7 +752,8 @@ TEST_F(ImmersiveFullscreenControllerTest, WindowsInTabletMode) {
 
   // Top-of-window views will not be revealed for snapped window in splitview
   // mode either.
-  split_view_controller()->SnapWindow(window(), SplitViewController::LEFT);
+  split_view_controller()->SnapWindow(
+      window(), SplitViewController::SnapPosition::kPrimary);
   EXPECT_TRUE(WindowState::Get(window())->IsSnapped());
   EXPECT_TRUE(split_view_controller()->InSplitViewMode());
   AttemptReveal(MODALITY_GESTURE_SCROLL);
@@ -802,7 +805,7 @@ TEST_F(ImmersiveFullscreenControllerTest, RevealViaGestureChildConsumesEvents) {
           &child_delegate, aura::client::WINDOW_TYPE_CONTROL, 1234,
           gfx::Rect()));
   content_view()->Attach(child.get());
-  content_view()->Layout();
+  views::test::RunScheduledLayout(content_view());
 
   ConsumeEventHandler handler;
   child->AddPreTargetHandler(&handler);
@@ -1161,4 +1164,4 @@ TEST_F(ImmersiveFullscreenControllerTest, Shelf) {
   EXPECT_EQ(SHELF_AUTO_HIDE, shelf->GetVisibilityState());
 }
 
-}  // namespase ash
+}  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,13 +58,6 @@ constexpr int kMarginLeftOfRelatedImageDip = 8;
 constexpr int kMediaStringMaxWidthDip = 280;
 
 constexpr int kMediaStringGradientWidthDip = 20;
-
-// Do not use directly. Use IsDynamicLottieAsset() in ambient_util.h instead.
-// This is only exposed here so that Lottie asset ids can be generated in tests.
-//
-// The motion designers who build the Lottie animations and eng have agreed upon
-// this prefix. Do not change unless coordinated with motion designers.
-constexpr char kLottieDynamicAssetIdPrefix[] = "dynamic_img";
 
 }  // namespace ash
 

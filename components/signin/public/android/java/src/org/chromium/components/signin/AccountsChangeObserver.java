@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,4 +17,11 @@ public interface AccountsChangeObserver {
      */
     @MainThread
     void onAccountsChanged();
+
+    /**
+     * Called after updating {@link org.chromium.components.signin.base.CoreAccountInfo} on every
+     * change to the accounts or to the error condition that occurred while getting accounts.
+     */
+    @MainThread
+    default void onCoreAccountInfosChanged() {}
 }

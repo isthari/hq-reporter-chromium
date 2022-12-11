@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -99,8 +99,6 @@ class WebStateImpl::RealizedWebState final : public NavigationManagerDelegate {
       NSURLRequest* request,
       WebStatePolicyDecider::RequestInfo request_info,
       WebStatePolicyDecider::PolicyDecisionCallback callback);
-  bool ShouldAllowErrorPageToBeDisplayed(NSURLResponse* response,
-                                         bool for_main_frame);
   void ShouldAllowResponse(
       NSURLResponse* response,
       WebStatePolicyDecider::ResponseInfo response_info,
@@ -125,6 +123,7 @@ class WebStateImpl::RealizedWebState final : public NavigationManagerDelegate {
                       WebStateDelegate::AuthCallback callback);
   void WebFrameBecameAvailable(std::unique_ptr<WebFrame> frame);
   void WebFrameBecameUnavailable(const std::string& frame_id);
+  void RetrieveExistingFrames();
   void RemoveAllWebFrames();
 
   // WebState:
@@ -135,6 +134,8 @@ class WebStateImpl::RealizedWebState final : public NavigationManagerDelegate {
   UIView* GetView();
   void DidCoverWebContent();
   void DidRevealWebContent();
+  base::Time GetLastActiveTime() const;
+  base::Time GetCreationTime() const;
   void WasShown();
   void WasHidden();
   void SetKeepRenderProcessAlive(bool keep_alive);
@@ -143,11 +144,7 @@ class WebStateImpl::RealizedWebState final : public NavigationManagerDelegate {
   void OpenURL(const WebState::OpenURLParams& params);
   void Stop();
   CRWSessionStorage* BuildSessionStorage();
-  CRWJSInjectionReceiver* GetJSInjectionReceiver() const;
   void LoadData(NSData* data, NSString* mime_type, const GURL& url);
-  void ExecuteJavaScript(const std::u16string& javascript);
-  void ExecuteJavaScript(const std::u16string& javascript,
-                         JavaScriptResultCallback callback);
   void ExecuteUserJavaScript(NSString* javaScript);
   const std::string& GetContentsMimeType() const;
   bool ContentIsHTML() const;
@@ -159,6 +156,7 @@ class WebStateImpl::RealizedWebState final : public NavigationManagerDelegate {
   bool IsEvicted() const;
   const FaviconStatus& GetFaviconStatus() const;
   void SetFaviconStatus(const FaviconStatus& favicon_status);
+  int GetNavigationItemCount() const;
   const GURL& GetVisibleURL() const;
   const GURL& GetLastCommittedURL() const;
   GURL GetCurrentURL(URLVerificationTrustLevel* trust_level) const;
@@ -181,6 +179,10 @@ class WebStateImpl::RealizedWebState final : public NavigationManagerDelegate {
   NSDictionary<NSNumber*, NSNumber*>* GetStatesForAllPermissions() const
       API_AVAILABLE(ios(15.0));
   void OnStateChangedForPermission(Permission permission)
+      API_AVAILABLE(ios(15.0));
+  void RequestPermissionsWithDecisionHandler(
+      NSArray<NSNumber*>* permissions,
+      PermissionDecisionHandler web_view_decision_handler)
       API_AVAILABLE(ios(15.0));
 
   // NavigationManagerDelegate:
@@ -253,7 +255,7 @@ class WebStateImpl::RealizedWebState final : public NavigationManagerDelegate {
   // information for this WebStateImpl.
   std::unique_ptr<SessionCertificatePolicyCacheImpl> certificate_policy_cache_;
 
-  // |WebUIIOS| object for the current page if it is a WebUI page that
+  // `WebUIIOS` object for the current page if it is a WebUI page that
   // uses the web-based WebUI framework, or nullptr otherwise.
   std::unique_ptr<WebUIIOS> web_ui_;
 
@@ -263,6 +265,13 @@ class WebStateImpl::RealizedWebState final : public NavigationManagerDelegate {
   // Whether this WebState has an opener.  See
   // WebState::CreateParams::created_with_opener_ for more details.
   bool created_with_opener_ = false;
+
+  // The time that this WebState was last made active. The initial value is
+  // the WebState's creation time.
+  base::Time last_active_time_ = base::Time::Now();
+
+  // The WebState's creation time.
+  base::Time creation_time_ = base::Time::Now();
 
   // The most recently restored session history that has not yet committed in
   // the WKWebView. This is reset in OnNavigationItemCommitted().

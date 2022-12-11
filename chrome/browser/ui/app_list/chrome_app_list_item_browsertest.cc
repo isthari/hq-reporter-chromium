@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,14 @@
 
 #include <vector>
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/accelerators.h"
+#include "ash/public/cpp/test/app_list_test_api.h"
 #include "base/strings/stringprintf.h"
+#include "chrome/browser/ash/app_list/test/chrome_app_list_test_support.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
-#include "chrome/browser/ui/app_list/test/chrome_app_list_test_support.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/browser_test.h"
 #include "ui/gfx/image/image_skia.h"
@@ -62,7 +64,9 @@ class ChromeAppListItemTest : public InProcessBrowserTest {
   void ShowLauncherAppsGrid() {
     EXPECT_FALSE(client_->GetAppListWindow());
     ash::AcceleratorController::Get()->PerformActionIfEnabled(
-        ash::TOGGLE_APP_LIST_FULLSCREEN, {});
+        ash::TOGGLE_APP_LIST, {});
+    ash::AppListTestApi().WaitForBubbleWindow(
+        /*wait_for_opening_animation=*/false);
     EXPECT_TRUE(client_->GetAppListWindow());
   }
 

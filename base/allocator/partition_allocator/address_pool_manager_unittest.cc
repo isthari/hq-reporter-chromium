@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,39 @@
 
 #include <cstdint>
 
+#include "base/allocator/partition_allocator/address_space_stats.h"
 #include "base/allocator/partition_allocator/page_allocator.h"
+#include "base/allocator/partition_allocator/partition_alloc_base/bits.h"
+#include "base/allocator/partition_allocator/partition_alloc_buildflags.h"
 #include "base/allocator/partition_allocator/partition_alloc_constants.h"
-#include "base/bits.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace base {
-namespace internal {
+namespace partition_alloc::internal {
+
+class AddressSpaceStatsDumperForTesting final : public AddressSpaceStatsDumper {
+ public:
+  AddressSpaceStatsDumperForTesting() = default;
+  ~AddressSpaceStatsDumperForTesting() = default;
+
+  void DumpStats(
+      const partition_alloc::AddressSpaceStats* address_space_stats) override {
+    regular_pool_usage_ = address_space_stats->regular_pool_stats.usage;
+#if defined(PA_HAS_64_BITS_POINTERS)
+    regular_pool_largest_reservation_ =
+        address_space_stats->regular_pool_stats.largest_available_reservation;
+#endif  // defined(PA_HAS_64_BITS_POINTERS)
+#if !defined(PA_HAS_64_BITS_POINTERS) && \
+    BUILDFLAG(ENABLE_BACKUP_REF_PTR_SUPPORT)
+    blocklist_size_ = address_space_stats->blocklist_size;
+#endif  // !defined(PA_HAS_64_BITS_POINTERS) &&
+        // BUILDFLAG(ENABLE_BACKUP_REF_PTR_SUPPORT)
+  }
+
+  size_t regular_pool_usage_ = 0;
+  size_t regular_pool_largest_reservation_ = 0;
+  size_t blocklist_size_ = 0;
+};
 
 #if defined(PA_HAS_64_BITS_POINTERS)
 
@@ -30,11 +55,14 @@ class PartitionAllocAddressPoolManagerTest : public testing::Test {
 
   void SetUp() override {
     manager_ = std::make_unique<AddressPoolManagerForTesting>();
-    base_address_ = AllocPages(kPoolSize, kSuperPageSize,
-                               PageAccessibilityConfiguration::kInaccessible,
-                               PageTag::kPartitionAlloc);
+    base_address_ =
+        AllocPages(kPoolSize, kSuperPageSize,
+                   PageAccessibilityConfiguration(
+                       PageAccessibilityConfiguration::kInaccessible),
+                   PageTag::kPartitionAlloc);
     ASSERT_TRUE(base_address_);
-    pool_ = manager_->Add(base_address_, kPoolSize);
+    manager_->Add(kRegularPoolHandle, base_address_, kPoolSize);
+    pool_ = kRegularPoolHandle;
   }
 
   void TearDown() override {
@@ -45,8 +73,8 @@ class PartitionAllocAddressPoolManagerTest : public testing::Test {
 
   AddressPoolManager* GetAddressPoolManager() { return manager_.get(); }
 
-  static constexpr size_t kPageCnt = 4096;
-  static constexpr size_t kPoolSize = kSuperPageSize * kPageCnt;
+  static constexpr size_t kPoolSize = kPoolMaxSize;
+  static constexpr size_t kPageCnt = kPoolSize / kSuperPageSize;
 
   std::unique_ptr<AddressPoolManagerForTesting> manager_;
   uintptr_t base_address_;
@@ -55,9 +83,13 @@ class PartitionAllocAddressPoolManagerTest : public testing::Test {
 
 TEST_F(PartitionAllocAddressPoolManagerTest, TooLargePool) {
   uintptr_t base_addr = 0x4200000;
+  const pool_handle extra_pool = 2;
+  static_assert(kNumPools >= 2);
 
   EXPECT_DEATH_IF_SUPPORTED(
-      GetAddressPoolManager()->Add(base_addr, kPoolSize + kSuperPageSize), "");
+      GetAddressPoolManager()->Add(extra_pool, base_addr,
+                                   kPoolSize + kSuperPageSize),
+      "");
 }
 
 TEST_F(PartitionAllocAddressPoolManagerTest, ManyPages) {
@@ -109,7 +141,7 @@ TEST_F(PartitionAllocAddressPoolManagerTest, GetUsedSuperpages) {
   }
   EXPECT_EQ(GetAddressPoolManager()->Reserve(pool_, 0, kSuperPageSize), 0u);
 
-  std::bitset<base::kMaxSuperPagesInPool> used_super_pages;
+  std::bitset<kMaxSuperPagesInPool> used_super_pages;
   GetAddressPoolManager()->GetPoolUsedSuperPages(pool_, used_super_pages);
 
   // We expect every bit to be set.
@@ -196,8 +228,9 @@ TEST_F(PartitionAllocAddressPoolManagerTest, DecommittedDataIsErased) {
       GetAddressPoolManager()->Reserve(pool_, 0, kSuperPageSize);
   ASSERT_TRUE(address);
   RecommitSystemPages(address, kSuperPageSize,
-                      PageAccessibilityConfiguration::kReadWrite,
-                      PageAccessibilityDisposition::kUpdatePermissions);
+                      PageAccessibilityConfiguration(
+                          PageAccessibilityConfiguration::kReadWrite),
+                      PageAccessibilityDisposition::kRequireUpdate);
 
   memset(reinterpret_cast<void*>(address), 42, kSuperPageSize);
   GetAddressPoolManager()->UnreserveAndDecommit(pool_, address, kSuperPageSize);
@@ -206,8 +239,9 @@ TEST_F(PartitionAllocAddressPoolManagerTest, DecommittedDataIsErased) {
       GetAddressPoolManager()->Reserve(pool_, 0, kSuperPageSize);
   ASSERT_EQ(address, address2);
   RecommitSystemPages(address2, kSuperPageSize,
-                      PageAccessibilityConfiguration::kReadWrite,
-                      PageAccessibilityDisposition::kUpdatePermissions);
+                      PageAccessibilityConfiguration(
+                          PageAccessibilityConfiguration::kReadWrite),
+                      PageAccessibilityDisposition::kRequireUpdate);
 
   uint32_t sum = 0;
   for (size_t i = 0; i < kSuperPageSize; i++) {
@@ -219,6 +253,32 @@ TEST_F(PartitionAllocAddressPoolManagerTest, DecommittedDataIsErased) {
                                                 kSuperPageSize);
 }
 
+TEST_F(PartitionAllocAddressPoolManagerTest, RegularPoolUsageChanges) {
+  AddressSpaceStatsDumperForTesting dumper{};
+
+  GetAddressPoolManager()->DumpStats(&dumper);
+  ASSERT_EQ(dumper.regular_pool_usage_, 0ull);
+  ASSERT_EQ(dumper.regular_pool_largest_reservation_, kPageCnt);
+
+  // Bisect the pool by reserving a super page in the middle.
+  const uintptr_t midpoint_address =
+      base_address_ + (kPageCnt / 2) * kSuperPageSize;
+  ASSERT_EQ(
+      GetAddressPoolManager()->Reserve(pool_, midpoint_address, kSuperPageSize),
+      midpoint_address);
+
+  GetAddressPoolManager()->DumpStats(&dumper);
+  ASSERT_EQ(dumper.regular_pool_usage_, 1ull);
+  ASSERT_EQ(dumper.regular_pool_largest_reservation_, kPageCnt / 2);
+
+  GetAddressPoolManager()->UnreserveAndDecommit(pool_, midpoint_address,
+                                                kSuperPageSize);
+
+  GetAddressPoolManager()->DumpStats(&dumper);
+  ASSERT_EQ(dumper.regular_pool_usage_, 0ull);
+  ASSERT_EQ(dumper.regular_pool_largest_reservation_, kPageCnt);
+}
+
 #else   // defined(PA_HAS_64_BITS_POINTERS)
 
 TEST(PartitionAllocAddressPoolManagerTest, IsManagedByRegularPool) {
@@ -226,21 +286,21 @@ TEST(PartitionAllocAddressPoolManagerTest, IsManagedByRegularPool) {
   static const size_t kNumPages[kAllocCount] = {1, 4, 7, 8, 13, 16, 31, 60};
   uintptr_t addrs[kAllocCount];
   for (size_t i = 0; i < kAllocCount; ++i) {
-    addrs[i] = AddressPoolManager::GetInstance()->Reserve(
-        GetRegularPool(), 0,
+    addrs[i] = AddressPoolManager::GetInstance().Reserve(
+        kRegularPoolHandle, 0,
         AddressPoolManagerBitmap::kBytesPer1BitOfRegularPoolBitmap *
             kNumPages[i]);
     EXPECT_TRUE(addrs[i]);
     EXPECT_TRUE(!(addrs[i] & kSuperPageOffsetMask));
-    AddressPoolManager::GetInstance()->MarkUsed(
-        GetRegularPool(), addrs[i],
+    AddressPoolManager::GetInstance().MarkUsed(
+        kRegularPoolHandle, addrs[i],
         AddressPoolManagerBitmap::kBytesPer1BitOfRegularPoolBitmap *
             kNumPages[i]);
   }
   for (size_t i = 0; i < kAllocCount; ++i) {
     uintptr_t address = addrs[i];
     size_t num_pages =
-        bits::AlignUp(
+        base::bits::AlignUp(
             kNumPages[i] *
                 AddressPoolManagerBitmap::kBytesPer1BitOfRegularPoolBitmap,
             kSuperPageSize) /
@@ -256,12 +316,12 @@ TEST(PartitionAllocAddressPoolManagerTest, IsManagedByRegularPool) {
     }
   }
   for (size_t i = 0; i < kAllocCount; ++i) {
-    AddressPoolManager::GetInstance()->MarkUnused(
-        GetRegularPool(), addrs[i],
+    AddressPoolManager::GetInstance().MarkUnused(
+        kRegularPoolHandle, addrs[i],
         AddressPoolManagerBitmap::kBytesPer1BitOfRegularPoolBitmap *
             kNumPages[i]);
-    AddressPoolManager::GetInstance()->UnreserveAndDecommit(
-        GetRegularPool(), addrs[i],
+    AddressPoolManager::GetInstance().UnreserveAndDecommit(
+        kRegularPoolHandle, addrs[i],
         AddressPoolManagerBitmap::kBytesPer1BitOfRegularPoolBitmap *
             kNumPages[i]);
     EXPECT_FALSE(AddressPoolManager::IsManagedByRegularPool(addrs[i]));
@@ -269,19 +329,19 @@ TEST(PartitionAllocAddressPoolManagerTest, IsManagedByRegularPool) {
   }
 }
 
-#if BUILDFLAG(USE_BACKUP_REF_PTR)
+#if BUILDFLAG(ENABLE_BACKUP_REF_PTR_SUPPORT)
 TEST(PartitionAllocAddressPoolManagerTest, IsManagedByBRPPool) {
   constexpr size_t kAllocCount = 4;
   // Totally (1+3+7+11) * 2MB = 44MB allocation
   static const size_t kNumPages[kAllocCount] = {1, 3, 7, 11};
   uintptr_t addrs[kAllocCount];
   for (size_t i = 0; i < kAllocCount; ++i) {
-    addrs[i] = AddressPoolManager::GetInstance()->Reserve(
-        GetBRPPool(), 0, kSuperPageSize * kNumPages[i]);
+    addrs[i] = AddressPoolManager::GetInstance().Reserve(
+        kBRPPoolHandle, 0, kSuperPageSize * kNumPages[i]);
     EXPECT_TRUE(addrs[i]);
     EXPECT_TRUE(!(addrs[i] & kSuperPageOffsetMask));
-    AddressPoolManager::GetInstance()->MarkUsed(GetBRPPool(), addrs[i],
-                                                kSuperPageSize * kNumPages[i]);
+    AddressPoolManager::GetInstance().MarkUsed(kBRPPoolHandle, addrs[i],
+                                               kSuperPageSize * kNumPages[i]);
   }
 
   constexpr size_t first_guard_size =
@@ -309,17 +369,39 @@ TEST(PartitionAllocAddressPoolManagerTest, IsManagedByBRPPool) {
     }
   }
   for (size_t i = 0; i < kAllocCount; ++i) {
-    AddressPoolManager::GetInstance()->MarkUnused(
-        GetBRPPool(), addrs[i], kSuperPageSize * kNumPages[i]);
-    AddressPoolManager::GetInstance()->UnreserveAndDecommit(
-        GetBRPPool(), addrs[i], kSuperPageSize * kNumPages[i]);
+    AddressPoolManager::GetInstance().MarkUnused(kBRPPoolHandle, addrs[i],
+                                                 kSuperPageSize * kNumPages[i]);
+    AddressPoolManager::GetInstance().UnreserveAndDecommit(
+        kBRPPoolHandle, addrs[i], kSuperPageSize * kNumPages[i]);
     EXPECT_FALSE(AddressPoolManager::IsManagedByRegularPool(addrs[i]));
     EXPECT_FALSE(AddressPoolManager::IsManagedByBRPPool(addrs[i]));
   }
 }
-#endif  // BUILDFLAG(USE_BACKUP_REF_PTR)
+#endif  // BUILDFLAG(ENABLE_BACKUP_REF_PTR_SUPPORT)
+
+TEST(PartitionAllocAddressPoolManagerTest, RegularPoolUsageChanges) {
+  AddressSpaceStatsDumperForTesting dumper{};
+  AddressPoolManager::GetInstance().DumpStats(&dumper);
+  const size_t usage_before = dumper.regular_pool_usage_;
+
+  const uintptr_t address = AddressPoolManager::GetInstance().Reserve(
+      kRegularPoolHandle, 0, kSuperPageSize);
+  ASSERT_TRUE(address);
+  AddressPoolManager::GetInstance().MarkUsed(kRegularPoolHandle, address,
+                                             kSuperPageSize);
+
+  AddressPoolManager::GetInstance().DumpStats(&dumper);
+  EXPECT_GT(dumper.regular_pool_usage_, usage_before);
+
+  AddressPoolManager::GetInstance().MarkUnused(kRegularPoolHandle, address,
+                                               kSuperPageSize);
+  AddressPoolManager::GetInstance().UnreserveAndDecommit(
+      kRegularPoolHandle, address, kSuperPageSize);
+
+  AddressPoolManager::GetInstance().DumpStats(&dumper);
+  EXPECT_EQ(dumper.regular_pool_usage_, usage_before);
+}
 
 #endif  // defined(PA_HAS_64_BITS_POINTERS)
 
-}  // namespace internal
-}  // namespace base
+}  // namespace partition_alloc::internal

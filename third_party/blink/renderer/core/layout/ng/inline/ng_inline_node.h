@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,8 @@
 
 namespace blink {
 
+class NGBreakToken;
+class NGColumnSpannerPath;
 class NGConstraintSpace;
 class NGInlineChildLayoutContext;
 class NGLayoutResult;
@@ -35,10 +37,10 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
   }
   NGLayoutInputNode NextSibling() const { return nullptr; }
 
-  scoped_refptr<const NGLayoutResult> Layout(
-      const NGConstraintSpace&,
-      const NGBreakToken*,
-      NGInlineChildLayoutContext* context) const;
+  const NGLayoutResult* Layout(const NGConstraintSpace&,
+                               const NGBreakToken*,
+                               const NGColumnSpannerPath*,
+                               NGInlineChildLayoutContext* context) const;
 
   // Computes the value of min-content and max-content for this anonymous block
   // box. min-content is the inline size when lines wrap at every break
@@ -94,9 +96,17 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
   bool IsBidiEnabled() const { return Data().is_bidi_enabled_; }
   TextDirection BaseDirection() const { return Data().BaseDirection(); }
 
+  bool HasInitialLetterBox() const { return Data().has_initial_letter_box_; }
+
   bool HasRuby() const { return Data().has_ruby_; }
 
   bool IsBlockLevel() { return EnsureData().is_block_level_; }
+
+  // This returns true if Deferred Shaping was applied to this IFC, and
+  // it's unlocked and should be reshaped.
+  bool ShouldBeReshaped() const;
+  // TODO(crbug.com/1259085): Rename this function.
+  bool IsDisplayLocked() const;
 
   // @return if this node can contain the "first formatted line".
   // https://www.w3.org/TR/CSS22/selector.html#first-formatted-line
@@ -107,11 +117,6 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
 
   bool UseFirstLineStyle() const;
   void CheckConsistency() const;
-
-  bool ShouldReportLetterSpacingUseCounterForTesting(
-      const LayoutObject* layout_object,
-      bool first_line,
-      const LayoutBlockFlow* block_flow);
 
   // This function is available after PrepareLayout(), only for SVG <text>.
   const Vector<std::pair<unsigned, NGSvgCharacterData>>& SvgCharacterDataList()
@@ -159,6 +164,12 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
                  const HeapVector<NGInlineItem>* previous_items = nullptr,
                  const Font* override_font = nullptr) const;
   void ShapeTextForFirstLineIfNeeded(NGInlineNodeData*) const;
+  void ShapeTextIncludingFirstLine(
+      NGInlineNodeData::ShapingState new_state,
+      NGInlineNodeData* data,
+      const String* previous_text,
+      const HeapVector<NGInlineItem>* previous_items) const;
+  void ShapeTextOrDefer(const NGConstraintSpace& space) const;
   void AssociateItemsWithInlines(NGInlineNodeData*) const;
 
   NGInlineNodeData* MutableData() const {

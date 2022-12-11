@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -140,10 +140,8 @@ class ASH_EXPORT FullscreenMagnifierController
   // Returns true if magnifier is still on animation for moving viewport.
   bool IsOnAnimationForTesting() const { return is_on_animation_; }
 
-  // Disables the delay for moving magnifier window.
-  void DisableMoveMagnifierDelayForTesting() {
-    disable_move_magnifier_delay_ = true;
-  }
+  // Returns the current number of touch points.
+  int32_t GetTouchPointsForTesting() const { return touch_points_; }
 
  private:
   class GestureProviderClient;
@@ -167,6 +165,9 @@ class ASH_EXPORT FullscreenMagnifierController
   ui::EventDispatchDetails RewriteEvent(
       const ui::Event& event,
       const Continuation continuation) override;
+
+  // ui::GestureConsumer:
+  const std::string& GetName() const override;
 
   // Redraws the magnification window with the given origin position and the
   // given scale. Returns true if the window is changed; otherwise, false.
@@ -310,10 +311,6 @@ class ASH_EXPORT FullscreenMagnifierController
 
   // Most recent caret position in |root_window_| coordinates.
   gfx::Point caret_point_;
-
-  // Flag for disabling moving magnifier delay. It can only be true in testing
-  // mode.
-  bool disable_move_magnifier_delay_ = false;
 
   // Flag to draw a preview box around magnifier viewport area instead of
   // magnifying the screen for debugging.

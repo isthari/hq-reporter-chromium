@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,8 @@
 #include "base/test/test_simple_task_runner.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
+#include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/script/classic_script.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
@@ -177,10 +179,12 @@ class AnimationWorkletProxyClientTest : public RenderingTest {
           registerAnimator('stateless_animator', Stateless);
       )JS";
 
-    ASSERT_TRUE(ClassicScript::CreateUnspecifiedScript(source_code)
-                    ->RunScriptOnWorkerOrWorklet(*first_global_scope));
-    ASSERT_TRUE(ClassicScript::CreateUnspecifiedScript(source_code)
-                    ->RunScriptOnWorkerOrWorklet(*second_global_scope));
+    ClassicScript::CreateUnspecifiedScript(source_code)
+        ->RunScriptOnScriptState(
+            first_global_scope->ScriptController()->GetScriptState());
+    ClassicScript::CreateUnspecifiedScript(source_code)
+        ->RunScriptOnScriptState(
+            second_global_scope->ScriptController()->GetScriptState());
 
     std::unique_ptr<AnimationWorkletInput> state =
         std::make_unique<AnimationWorkletInput>();
@@ -225,10 +229,10 @@ TEST_F(AnimationWorkletProxyClientTest,
   AnimationWorkletProxyClient* proxy_client =
       MakeGarbageCollected<AnimationWorkletProxyClient>(1, nullptr, nullptr,
                                                         nullptr, nullptr);
-  EXPECT_TRUE(proxy_client->mutator_items_.IsEmpty());
+  EXPECT_TRUE(proxy_client->mutator_items_.empty());
 
   scoped_refptr<base::SingleThreadTaskRunner> mutator_task_runner =
-      base::ThreadTaskRunnerHandle::Get();
+      scheduler::GetSingleThreadTaskRunnerForTesting();
   auto mutator = std::make_unique<AnimationWorkletMutatorDispatcherImpl>(
       mutator_task_runner);
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,16 +39,5 @@ void InitiateUserRemoval(base::OnceClosure on_pref_persisted_callback);
 
 }  // namespace user_removal_manager
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when Chrome OS code migration is
-// done.
-namespace chromeos {
-namespace user_removal_manager {
-using ::ash::user_removal_manager::InitiateUserRemoval;
-using ::ash::user_removal_manager::LogOut;
-using ::ash::user_removal_manager::OverrideLogOutForTesting;
-using ::ash::user_removal_manager::RemoveUsersIfNeeded;
-}  // namespace user_removal_manager
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_SYSTEM_USER_REMOVAL_MANAGER_H_

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,12 @@
 #include "base/callback.h"
 #include "base/containers/queue.h"
 #include "base/location.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
-#include "base/task/post_task.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
 #include "net/base/load_flags.h"
@@ -97,7 +97,7 @@ class PrinterConfigCacheImpl : public PrinterConfigCache {
     if (finding != cache_.end()) {
       const Entry& entry = finding->second;
       if (entry.time_of_fetch + expiration > clock_->Now()) {
-        base::SequencedTaskRunnerHandle::Get()->PostTask(
+        base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
             FROM_HERE, base::BindOnce(std::move(cb), FetchResult::Success(
                                                          key, entry.contents,
                                                          entry.time_of_fetch)));
@@ -180,13 +180,13 @@ class PrinterConfigCacheImpl : public PrinterConfigCache {
       // (if extant) or retain no entry at all (if not).
       const Entry newly_inserted = Entry(*contents, clock_->Now());
       cache_.insert_or_assign(context->key, newly_inserted);
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(context->cb),
                                     FetchResult::Success(
                                         context->key, newly_inserted.contents,
                                         newly_inserted.time_of_fetch)));
     } else {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(context->cb),
                                     FetchResult::Failure(context->key)));
     }
@@ -202,7 +202,7 @@ class PrinterConfigCacheImpl : public PrinterConfigCache {
   base::queue<std::unique_ptr<FetchContext>> fetch_queue_;
 
   // Dispenses Time objects to mark time of fetch on Entry instances.
-  const base::Clock* clock_;
+  raw_ptr<const base::Clock> clock_;
 
   // Dispenses fresh URLLoaderFactory instances; see header comment
   // on Create().

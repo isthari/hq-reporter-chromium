@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@ suite('TabSwiper', () => {
   let tabSwiper: TabSwiper;
 
   setup(() => {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     tabElement = document.createElement('div');
     document.body.appendChild(tabElement);
@@ -34,7 +34,7 @@ suite('TabSwiper', () => {
     const pointerState: PointerEventInit = {
       clientY: startY,
       pointerId: 1,
-      pointerType: 'touch'
+      pointerType: 'touch',
     };
     tabElement.dispatchEvent(new PointerEvent('pointerdown', pointerState));
 
@@ -44,14 +44,14 @@ suite('TabSwiper', () => {
     tabElement.dispatchEvent(new PointerEvent('pointermove', pointerState));
     assertEquals(tabElStyle.maxWidth, `${tabWidth}px`);
     assertEquals(tabElStyle.opacity, '1');
-    let startTop = tabElement.getBoundingClientRect().top;
+    const startTop = tabElement.getBoundingClientRect().top;
     assertEquals(startTop, 0);
 
     // Swipe was enough to start animating the position.
     pointerState.clientY = startY - (TRANSLATE_ANIMATION_THRESHOLD_PX + 1);
     tabElement.dispatchEvent(new PointerEvent('pointermove', pointerState));
     assertEquals(tabElStyle.maxWidth, `${tabWidth}px`);
-    let top = tabElement.getBoundingClientRect().top;
+    const top = tabElement.getBoundingClientRect().top;
     assertTrue(top < startTop && top > -1 * SWIPE_FINISH_THRESHOLD_PX);
 
     // Swipe was enough to start animating max width and opacity.
@@ -79,7 +79,7 @@ suite('TabSwiper', () => {
     const pointerState: PointerEventInit = {
       clientY: startY,
       pointerId: 1,
-      pointerType: 'touch'
+      pointerType: 'touch',
     };
     tabElement.dispatchEvent(new PointerEvent('pointerdown', pointerState));
 

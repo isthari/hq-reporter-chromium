@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/task/sequenced_task_runner.h"
 #include "media/mojo/common/mojo_pipe_read_write_util.h"
 
 using media::mojo_pipe_read_write_util::IsPipeReadWriteError;
@@ -22,7 +23,7 @@ MojoDataPipeReader::MojoDataPipeReader(
     : consumer_handle_(std::move(consumer_handle)),
       pipe_watcher_(FROM_HERE,
                     mojo::SimpleWatcher::ArmingPolicy::MANUAL,
-                    base::SequencedTaskRunnerHandle::Get()) {
+                    base::SequencedTaskRunner::GetCurrentDefault()) {
   DVLOG(1) << __func__;
 
   MojoResult result = pipe_watcher_.Watch(
@@ -137,7 +138,7 @@ MojoDataPipeWriter::MojoDataPipeWriter(
     : producer_handle_(std::move(producer_handle)),
       pipe_watcher_(FROM_HERE,
                     mojo::SimpleWatcher::ArmingPolicy::MANUAL,
-                    base::SequencedTaskRunnerHandle::Get()) {
+                    base::SequencedTaskRunner::GetCurrentDefault()) {
   DVLOG(1) << __func__;
 
   MojoResult result =

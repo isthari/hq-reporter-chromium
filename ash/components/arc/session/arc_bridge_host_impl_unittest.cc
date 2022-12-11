@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -118,12 +118,10 @@ TEST_F(ArcBridgeHostImplTest, TestOnInstanceReady) {
     MAKE_INSTANCE_READY(Bluetooth);
     MAKE_INSTANCE_READY(BootPhaseMonitor);
     MAKE_INSTANCE_READY(Camera);
-    MAKE_INSTANCE_READY(CastReceiver);
     MAKE_INSTANCE_READY(CertStore);
     MAKE_INSTANCE_READY(Clipboard);
     MAKE_INSTANCE_READY(CompatibilityMode);
     MAKE_INSTANCE_READY(CrashCollector);
-    MAKE_INSTANCE_READY(DarkTheme);
     MAKE_INSTANCE_READY(DigitalGoods);
     MAKE_INSTANCE_READY(DiskQuota);
     MAKE_INSTANCE_READY(EnterpriseReporting);
@@ -140,7 +138,7 @@ TEST_F(ArcBridgeHostImplTest, TestOnInstanceReady) {
     MAKE_INSTANCE_READY(Midis);
     MAKE_INSTANCE_READY(NearbyShare);
     MAKE_INSTANCE_READY(Net);
-    // TODO(yusukes): Test mojom::NotificationsInstance. Unlike others, the
+    // TODO(khmel): Test mojom::NotificationsInstance. Unlike others, the
     // notification instance is not managed by ArcBridgeHostImpl. Since the
     // instance is forwarded to ash, we need a completely different test.
     MAKE_INSTANCE_READY(ObbMounter);

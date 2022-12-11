@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,23 +27,20 @@ import {WrapupRepairCompletePage} from 'chrome://shimless-rma/wrapup_repair_comp
 import {WrapupRestockPage} from 'chrome://shimless-rma/wrapup_restock_page.js';
 import {WrapupWaitForManualWpEnablePage} from 'chrome://shimless-rma/wrapup_wait_for_manual_wp_enable_page.js';
 
-import {assertTrue} from '../../chai_assert.js';
+import {assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
 
-export function allInputsDisabledTest() {
+suite('allInputsDisabledTest', function() {
   const INPUT_TYPES =
       ['cr-input', 'cr-button', 'cr-radio-group', 'cr-slider', 'cr-toggle'];
 
   /** @type {?FakeShimlessRmaService} */
   let service = null;
 
-  suiteSetup(() => {
+  setup(() => {
+    document.body.innerHTML = '';
     service = new FakeShimlessRmaService();
     setShimlessRmaServiceForTesting(service);
     setupFakeService();
-  });
-
-  setup(() => {
-    document.body.innerHTML = '';
   });
 
   teardown(() => {
@@ -54,7 +51,7 @@ export function allInputsDisabledTest() {
   // load.
   function setupFakeService() {
     // kUpdateOs
-    service.setGetCurrentOsVersionResult('');
+    service.setGetCurrentOsVersionResult(null);
 
     // kEnterRSUWPDisableCode
     service.setGetRsuDisableWriteProtectChallengeResult('');
@@ -77,6 +74,9 @@ export function allInputsDisabledTest() {
     service.setGetCalibrationSetupInstructionsResult(
         CalibrationSetupInstruction
             .kCalibrationInstructionPlaceBaseOnFlatSurface);
+
+    // kConfigureNetwork
+    service.setCheckForOsUpdatesResult('fake version');
   }
 
   // Test that the set of inputs specified in |INPUT_TYPES| are disabled on each
@@ -108,4 +108,4 @@ export function allInputsDisabledTest() {
       document.body.removeChild(component);
     });
   });
-}
+});

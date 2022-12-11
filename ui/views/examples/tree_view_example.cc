@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,8 +45,7 @@ class ExampleTreeViewDrawingProvider : public views::TreeViewDrawingProvider {
 
 }  // namespace
 
-namespace views {
-namespace examples {
+namespace views::examples {
 
 TreeViewExample::TreeViewExample()
     : ExampleBase(GetStringUTF8(IDS_TREE_VIEW_SELECT_LABEL).c_str()),
@@ -223,5 +222,4 @@ void TreeViewExample::ExecuteCommand(int command_id, int event_flags) {
   }
 }
 
-}  // namespace examples
-}  // namespace views
+}  // namespace views::examples

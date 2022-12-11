@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,15 @@
 #include "base/command_line.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/values.h"
-#include "chrome/browser/ash/certificate_provider/test_certificate_provider_extension.h"
-#include "chrome/browser/ash/certificate_provider/test_certificate_provider_extension_mixin.h"
 #include "chrome/browser/ash/login/saml/test_client_cert_saml_idp_mixin.h"
 #include "chrome/browser/ash/login/test/device_state_mixin.h"
 #include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
 #include "chrome/browser/ash/scoped_test_system_nss_key_slot_mixin.h"
+#include "chrome/browser/certificate_provider/test_certificate_provider_extension.h"
+#include "chrome/browser/certificate_provider/test_certificate_provider_extension_mixin.h"
 #include "chrome/browser/policy/extension_force_install_mixin.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "extensions/common/features/simple_feature.h"
@@ -53,11 +54,14 @@ namespace ash {
 //   WaitForPinDialog();
 //
 //   InputPinByClickingKeypad(GetCorrectPin());
-//   test::OobeJS().ClickOnPath({"gaia-signin", "pinDialog", "submit"});
+//   ClickPinDialogSubmit();
 //   test::WaitForPrimaryUserSessionStart();
 // }
 
-class SecurityTokenSamlTest : public OobeBaseTest {
+// Test parameter controls if new AuthSession-based cryptohome API
+// should be used.
+class SecurityTokenSamlTest : public OobeBaseTest,
+                              public testing::WithParamInterface<bool> {
  protected:
   SecurityTokenSamlTest();
   SecurityTokenSamlTest(const SecurityTokenSamlTest&) = delete;
@@ -76,6 +80,9 @@ class SecurityTokenSamlTest : public OobeBaseTest {
   // Enters the security token PIN by simulating click events on the on-screen
   // keypad.
   void InputPinByClickingKeypad(const std::string& pin);
+
+  // Simulates a click on the PIN dialog submit button.
+  void ClickPinDialogSubmit();
 
   // Returns the Pin for `certificate_provider_extension_`.
   std::string GetCorrectPin() const;
@@ -100,7 +107,7 @@ class SecurityTokenSamlTest : public OobeBaseTest {
   void StartObservingLoginUiMessages();
 
   // Called when the Login Screen UI notifies that the PIN dialog is shown.
-  void OnPinDialogShownMessage(const base::ListValue*);
+  void OnPinDialogShownMessage(const base::Value::List&);
 
   // Bypass "signin_screen" feature only enabled for allowlisted extensions.
   extensions::SimpleFeature::ScopedThreadUnsafeAllowlistForTest
@@ -118,6 +125,7 @@ class SecurityTokenSamlTest : public OobeBaseTest {
           &mixin_host_, &extension_force_install_mixin_};
   int pin_dialog_shown_count_ = 0;
   base::RunLoop* pin_dialog_shown_run_loop_ = nullptr;
+  base::test::ScopedFeatureList scoped_feature_list_;
   base::WeakPtrFactory<SecurityTokenSamlTest> weak_factory_{this};
 };
 

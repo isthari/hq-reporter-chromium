@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,6 +68,8 @@ void DialRegistry::SetNetLog(net::NetLog* net_log) {
 
 void DialRegistry::Start() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // base::Unretained() is safe here because DialRegistry is (indirectly) owned
+  // by a singleton and is never freed.
   content::GetUIThreadTaskRunner({})->PostTaskAndReplyWithResult(
       FROM_HERE, base::BindOnce(&content::GetNetworkConnectionTracker),
       base::BindOnce(&DialRegistry::SetNetworkConnectionTracker,
@@ -105,21 +107,23 @@ void DialRegistry::SetClockForTest(base::Clock* clock) {
 
 bool DialRegistry::ReadyToDiscover() {
   network::mojom::ConnectionType type;
+  // base::Unretained() is safe here because DialRegistry is (indirectly) owned
+  // by a singleton and is never freed.
   if (!network_connection_tracker_ ||
       !network_connection_tracker_->GetConnectionType(
           &type, base::BindOnce(&DialRegistry::OnConnectionChanged,
                                 base::Unretained(this)))) {
     // If the ConnectionType is unknown, return false. We'll try to start
     // discovery again when we receive the OnConnectionChanged callback.
-    client_.OnDialError(DIAL_UNKNOWN);
+    client_->OnDialError(DIAL_UNKNOWN);
     return false;
   }
   if (type == network::mojom::ConnectionType::CONNECTION_NONE) {
-    client_.OnDialError(DIAL_NETWORK_DISCONNECTED);
+    client_->OnDialError(DIAL_NETWORK_DISCONNECTED);
     return false;
   }
   if (network::NetworkConnectionTracker::IsConnectionCellular(type)) {
-    client_.OnDialError(DIAL_CELLULAR_NETWORK);
+    client_->OnDialError(DIAL_CELLULAR_NETWORK);
     return false;
   }
   return true;
@@ -131,7 +135,7 @@ bool DialRegistry::DiscoverNow() {
     return false;
 
   if (!dial_) {
-    client_.OnDialError(DIAL_UNKNOWN);
+    client_->OnDialError(DIAL_UNKNOWN);
     return false;
   }
 
@@ -233,7 +237,7 @@ void DialRegistry::MaybeSendDeviceList() {
        it != device_by_label_map_.end(); ++it) {
     device_list.push_back(*(it->second));
   }
-  client_.OnDialDeviceList(device_list);
+  client_->OnDialDeviceList(device_list);
 
   // Reset watermark.
   last_event_registry_generation_ = registry_generation_;
@@ -297,14 +301,14 @@ void DialRegistry::OnError(DialService::DialServiceErrorCode code) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   switch (code) {
     case DialService::DIAL_SERVICE_SOCKET_ERROR:
-      client_.OnDialError(DIAL_SOCKET_ERROR);
+      client_->OnDialError(DIAL_SOCKET_ERROR);
       break;
     case DialService::DIAL_SERVICE_NO_INTERFACES:
-      client_.OnDialError(DIAL_NO_INTERFACES);
+      client_->OnDialError(DIAL_NO_INTERFACES);
       break;
     default:
       NOTREACHED();
-      client_.OnDialError(DIAL_UNKNOWN);
+      client_->OnDialError(DIAL_UNKNOWN);
       break;
   }
 }
@@ -313,7 +317,7 @@ void DialRegistry::OnConnectionChanged(network::mojom::ConnectionType type) {
   switch (type) {
     case network::mojom::ConnectionType::CONNECTION_NONE:
       if (dial_) {
-        client_.OnDialError(DIAL_NETWORK_DISCONNECTED);
+        client_->OnDialError(DIAL_NETWORK_DISCONNECTED);
         StopPeriodicDiscovery();
         Clear();
         MaybeSendDeviceList();

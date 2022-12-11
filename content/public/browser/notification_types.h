@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,12 +21,6 @@ namespace content {
 enum NotificationType {
   NOTIFICATION_CONTENT_START = 0,
 
-  // General -----------------------------------------------------------------
-
-  // Special signal value to represent an interest in all notifications.
-  // Not valid when posting a notification.
-  NOTIFICATION_ALL = NOTIFICATION_CONTENT_START,
-
   // NavigationController ----------------------------------------------------
 
   // A new non-pending navigation entry has been created. This will
@@ -37,7 +31,7 @@ enum NotificationType {
   // details will be NavigationController::LoadCommittedDetails.
   // DEPRECATED: Use WebContentsObserver::NavigationEntryCommitted()
   // TODO(https://crbug.com/1174760): Remove.
-  NOTIFICATION_NAV_ENTRY_COMMITTED,
+  NOTIFICATION_NAV_ENTRY_COMMITTED = NOTIFICATION_CONTENT_START,
 
   // Other load-related (not from NavigationController) ----------------------
 
@@ -99,13 +93,6 @@ enum NotificationType {
   // Use RenderWidgetHostObserver::RenderWidgetHostVisibilityChanged()
   // TODO(https://crbug.com/1174771): Remove.
   NOTIFICATION_RENDER_WIDGET_VISIBILITY_CHANGED,
-
-  // Notification from WebContents that we have received a response from the
-  // renderer in response to a dom automation controller action. The source is
-  // the RenderViewHost, and the details is a string with the response.
-  // DEPRECATED: Use WebContentsObserver::DomOperationResponse()
-  // TODO(https://crbug.com/1174774): Remove.
-  NOTIFICATION_DOM_OPERATION_RESPONSE,
 
   // Custom notifications used by the embedder should start from here.
   NOTIFICATION_CONTENT_END,

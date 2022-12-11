@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,17 +19,10 @@ FakeDeviceCloudPolicyManager::FakeDeviceCloudPolicyManager(
           std::move(store),
           std::make_unique<MockCloudExternalDataManager>(),
           task_runner,
-          nullptr),
-      unregister_result_(true) {}
+          nullptr) {}
 
 FakeDeviceCloudPolicyManager::~FakeDeviceCloudPolicyManager() {
   Shutdown();
 }
-
-void FakeDeviceCloudPolicyManager::Unregister(UnregisterCallback callback) {
-  std::move(callback).Run(unregister_result_);
-}
-
-void FakeDeviceCloudPolicyManager::Disconnect() {}
 
 }  // namespace policy

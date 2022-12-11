@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/observer_list.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_drive_image_download_service.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_features.h"
@@ -25,7 +24,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
-#include "chromeos/dbus/dlcservice/dlcservice_client.h"
+#include "chromeos/ash/components/dbus/dlcservice/dlcservice_client.h"
 #include "components/exo/shell_surface_util.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
@@ -33,6 +32,7 @@
 
 namespace plugin_vm {
 
+const char kPitaDlc[] = "pita";
 const char kPluginVmShelfAppId[] = "lgjpclljbbmphhnalkeplcmnjpfmmaek";
 const char kPluginVmName[] = "PvmDefault";
 const char kChromeOSBaseDirectoryDisplayText[] = "Network \u203a ChromeOS";
@@ -75,11 +75,11 @@ void SetFakePluginVmPolicy(Profile* profile,
                            const std::string& image_url,
                            const std::string& image_hash,
                            const std::string& license_key) {
-  DictionaryPrefUpdate update(profile->GetPrefs(),
+  ScopedDictPrefUpdate update(profile->GetPrefs(),
                               plugin_vm::prefs::kPluginVmImage);
-  base::Value* dict = update.Get();
-  dict->SetStringPath(prefs::kPluginVmImageUrlKeyName, image_url);
-  dict->SetStringPath(prefs::kPluginVmImageHashKeyName, image_hash);
+  base::Value::Dict& dict = update.Get();
+  dict.SetByDottedPath(prefs::kPluginVmImageUrlKeyName, image_url);
+  dict.SetByDottedPath(prefs::kPluginVmImageHashKeyName, image_hash);
   plugin_vm::PluginVmInstallerFactory::GetForProfile(profile)
       ->SkipLicenseCheckForTesting();  // IN-TEST
   MutableFakeLicenseKey() = license_key;
@@ -153,6 +153,10 @@ PluginVmPolicySubscription::PluginVmPolicySubscription(
                           base::Unretained(this)));
   pref_change_registrar_->Add(
       plugin_vm::prefs::kPluginVmUserId,
+      base::BindRepeating(&PluginVmPolicySubscription::OnPolicyChanged,
+                          base::Unretained(this)));
+  pref_change_registrar_->Add(
+      plugin_vm::prefs::kPluginVmImageExists,
       base::BindRepeating(&PluginVmPolicySubscription::OnPolicyChanged,
                           base::Unretained(this)));
   device_allowed_subscription_ = cros_settings->AddSettingsObserver(

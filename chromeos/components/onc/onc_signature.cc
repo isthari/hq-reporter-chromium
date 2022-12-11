@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -94,8 +94,7 @@ const OncFieldSignature ipsec_fields[] = {
     {::onc::ipsec::kServerCARef, &kStringSignature},
     {::onc::ipsec::kServerCARefs, &kStringListSignature},
     {::onc::ipsec::kXAUTH, &kXAUTHSignature},
-    // Not yet supported.
-    //  { ipsec::kEAP, &kEAPSignature },
+    {::onc::ipsec::kEAP, &kEAPSignature},
     {nullptr}};
 
 const OncFieldSignature xauth_fields[] = {
@@ -226,7 +225,8 @@ const OncFieldSignature ipconfig_fields[] = {
     {::onc::ipconfig::kSearchDomains, &kStringListSignature},
     {::onc::ipconfig::kIncludedRoutes, &kStringListSignature},
     {::onc::ipconfig::kExcludedRoutes, &kStringListSignature},
-    {::onc::ipconfig::kType, &kStringSignature},
+    {::onc::ipconfig::kType, &kStringSignature,
+     []() { return base::Value(::onc::ipconfig::kIPv4); }},
     {::onc::ipconfig::kWebProxyAutoDiscoveryUrl, &kStringSignature},
     {nullptr}};
 
@@ -267,6 +267,7 @@ const OncFieldSignature wifi_with_state_fields[] = {
     {::onc::wifi::kFrequency, &kIntegerSignature},
     {::onc::wifi::kFrequencyList, &kIntegerListSignature},
     {::onc::wifi::kSignalStrength, &kIntegerSignature},
+    {::onc::wifi::kSignalStrengthRssi, &kIntegerSignature},
     {nullptr}};
 
 const OncFieldSignature cellular_payment_portal_fields[] = {
@@ -290,6 +291,11 @@ const OncFieldSignature cellular_apn_fields[] = {
     {::onc::cellular_apn::kLocalizedName, &kStringSignature},
     {::onc::cellular_apn::kLanguage, &kStringSignature},
     {::onc::cellular_apn::kAttach, &kStringSignature},
+    {::onc::cellular_apn::kId, &kStringSignature},
+    {::onc::cellular_apn::kState, &kStringSignature},
+    {::onc::cellular_apn::kAuthenticationType, &kStringSignature},
+    {::onc::cellular_apn::kIpType, &kStringSignature},
+    {::onc::cellular_apn::kApnTypes, &kStringListSignature},
     {nullptr}};
 
 const OncFieldSignature cellular_found_network_fields[] = {
@@ -314,6 +320,7 @@ const OncFieldSignature cellular_fields[] = {
     {::onc::cellular::kAutoConnect, &kBoolSignature},
     {::onc::cellular::kICCID, &kStringSignature},
     {::onc::cellular::kSMDPAddress, &kStringSignature},
+    {::onc::cellular::kUserAPNList, &kCellularApnListSignature},
     {nullptr}};
 
 const OncFieldSignature cellular_with_state_fields[] = {
@@ -382,6 +389,8 @@ const OncFieldSignature network_with_state_fields[] = {
     {nullptr}};
 
 const OncFieldSignature global_network_configuration_fields[] = {
+    {::onc::global_network_config::kAllowCellularSimLock, &kBoolSignature,
+     []() { return base::Value(true); }},
     {::onc::global_network_config::kAllowOnlyPolicyCellularNetworks,
      &kBoolSignature},
     {::onc::global_network_config::kAllowOnlyPolicyNetworksToAutoconnect,

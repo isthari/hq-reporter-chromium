@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,9 +31,9 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/public/cpp/shelf_model.h"  // nogncheck
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_test.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_test.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_item_factory.h"
 #include "chrome/browser/ui/ash/shelf/shelf_controller_helper.h"
@@ -194,7 +194,6 @@ class AppInfoDialogViewsTest : public BrowserWithTestWindowTest,
             nullptr);
   }
 
- protected:
   raw_ptr<views::Widget> widget_ = nullptr;
   raw_ptr<AppInfoDialog> dialog_ =
       nullptr;  // Owned by |widget_|'s views hierarchy.
@@ -340,8 +339,12 @@ TEST_F(AppInfoDialogViewsTest, ArcAppInfoLinks) {
   std::unique_ptr<TestingProfile> other_profile =
       std::make_unique<TestingProfile>();
   extension_environment_.CreateExtensionServiceForProfile(other_profile.get());
+  // We're adding the extension to the second profile, so don't install it
+  // automatically in the profile from `extension_environment_`.
+  const bool install = false;
   scoped_refptr<const extensions::Extension> other_app =
-      extension_environment_.MakePackagedApp(app_constants::kChromeAppId, true);
+      extension_environment_.MakePackagedApp(app_constants::kChromeAppId,
+                                             install);
   extensions::ExtensionSystem::Get(other_profile.get())
       ->extension_service()
       ->AddExtension(other_app.get());

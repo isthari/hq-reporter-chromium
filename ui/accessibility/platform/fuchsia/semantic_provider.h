@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <fuchsia/accessibility/semantics/cpp/fidl.h>
 
-#include "ui/accessibility/ax_export.h"
+#include "base/component_export.h"
 
 namespace ui {
 
@@ -17,7 +17,7 @@ namespace ui {
 // Fuchsia semantic tree in a valid state, they are committed. Please see
 // |fuchsia.accessibility.semantics| API for more documentation on valid
 // semantic trees.
-class AX_EXPORT AXFuchsiaSemanticProvider {
+class COMPONENT_EXPORT(AX_PLATFORM) AXFuchsiaSemanticProvider {
  public:
   // Fuchsia root node id.
   static constexpr uint32_t kFuchsiaRootNodeId = 0u;
@@ -34,7 +34,7 @@ class AX_EXPORT AXFuchsiaSemanticProvider {
 
     // Called when the FIDL channel to the Semantics Manager is closed. If this
     // callback returns true, an attempt to reconnect will be made.
-    virtual bool OnSemanticsManagerConnectionClosed() = 0;
+    virtual bool OnSemanticsManagerConnectionClosed(zx_status_t status) = 0;
 
     // Processes an incoming accessibility action from Fuchsia. It
     // receives the Fuchsia node ID and the action requested. If this
@@ -67,7 +67,7 @@ class AX_EXPORT AXFuchsiaSemanticProvider {
   virtual bool Delete(uint32_t node_id) = 0;
 
   // Clears the semantic tree.
-  virtual bool Clear();
+  virtual bool Clear() = 0;
 
   // Sends an accessibility event to Fuchsia. Please consult
   // https://cs.opensource.google/fuchsia/fuchsia/+/master:sdk/fidl/fuchsia.accessibility.semantics/semantics_manager.fidl
@@ -78,9 +78,11 @@ class AX_EXPORT AXFuchsiaSemanticProvider {
   // Returns true if there are pending updates or deletions to be made.
   virtual bool HasPendingUpdates() const = 0;
 
-  // TODO(abrusher): Push updates to the semantic provider, rather than polling.
   // Returns the pixel scale.
   virtual float GetPixelScale() const = 0;
+
+  // Sets the pixel scale.
+  virtual void SetPixelScale(float pixel_scale) = 0;
 };
 
 }  // namespace ui

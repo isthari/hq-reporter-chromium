@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,23 +23,26 @@
 #include "base/debug/alias.h"
 #include "base/feature_list.h"
 #include "base/location.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/notreached.h"
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "base/types/optional_util.h"
 #include "build/build_config.h"
 #include "gin/array_buffer.h"
 #include "gin/public/gin_embedders.h"
 #include "gin/public/isolate_holder.h"
 #include "gin/public/v8_platform.h"
 #include "pdf/accessibility_structs.h"
-#include "pdf/document_loader_impl.h"
 #include "pdf/draw_utils/coordinates.h"
 #include "pdf/draw_utils/shadow.h"
+#include "pdf/loader/document_loader_impl.h"
+#include "pdf/loader/url_loader.h"
+#include "pdf/loader/url_loader_wrapper_impl.h"
 #include "pdf/pdf_features.h"
 #include "pdf/pdf_transform.h"
 #include "pdf/pdf_utils/dates.h"
@@ -48,10 +51,6 @@
 #include "pdf/pdfium/pdfium_mem_buffer_file_write.h"
 #include "pdf/pdfium/pdfium_permissions.h"
 #include "pdf/pdfium/pdfium_unsupported_features.h"
-#include "pdf/ppapi_migration/bitmap.h"
-#include "pdf/ppapi_migration/geometry_conversions.h"
-#include "pdf/ppapi_migration/url_loader.h"
-#include "pdf/url_loader_wrapper_impl.h"
 #include "printing/mojom/print.mojom-shared.h"
 #include "printing/units.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
@@ -64,13 +63,14 @@
 #include "third_party/pdfium/public/cpp/fpdf_scopers.h"
 #include "third_party/pdfium/public/fpdf_annot.h"
 #include "third_party/pdfium/public/fpdf_attachment.h"
-#include "third_party/pdfium/public/fpdf_catalog.h"
 #include "third_party/pdfium/public/fpdf_ext.h"
 #include "third_party/pdfium/public/fpdf_fwlevent.h"
 #include "third_party/pdfium/public/fpdf_ppo.h"
 #include "third_party/pdfium/public/fpdf_searchex.h"
+#include "third_party/pdfium/public/fpdfview.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
+#include "ui/base/window_open_disposition_utils.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/point_conversions.h"
@@ -261,9 +261,10 @@ void SetUpV8() {
   }
 
   DCHECK(!g_isolate_holder);
-  g_isolate_holder = new gin::IsolateHolder(
-      base::ThreadTaskRunnerHandle::Get(), gin::IsolateHolder::kSingleThread,
-      gin::IsolateHolder::IsolateType::kUtility);
+  g_isolate_holder =
+      new gin::IsolateHolder(base::SingleThreadTaskRunner::GetCurrentDefault(),
+                             gin::IsolateHolder::kSingleThread,
+                             gin::IsolateHolder::IsolateType::kUtility);
 
 #if defined(PDF_ENABLE_XFA)
   gin::InitializeCppgcFromV8Platform();
@@ -306,6 +307,10 @@ bool CheckIfEditableFormTextArea(int flags, int form_type) {
 
 bool IsLinkArea(PDFiumPage::Area area) {
   return area == PDFiumPage::WEBLINK_AREA || area == PDFiumPage::DOCLINK_AREA;
+}
+
+bool IsSelectableArea(PDFiumPage::Area area) {
+  return area == PDFiumPage::TEXT_AREA || IsLinkArea(area);
 }
 
 // Normalize a blink::WebMouseEvent. For macOS, normalization means transforming
@@ -500,11 +505,15 @@ void ParamsTransformPageToScreen(unsigned long view_fit_type,
 
 void InitializeSDK(bool enable_v8, FontMappingMode font_mapping_mode) {
   FPDF_LIBRARY_CONFIG config;
-  config.version = 3;
+  config.version = 4;
   config.m_pUserFontPaths = nullptr;
   config.m_pIsolate = nullptr;
   config.m_pPlatform = nullptr;
   config.m_v8EmbedderSlot = gin::kEmbedderPDFium;
+  config.m_RendererType =
+      base::FeatureList::IsEnabled(features::kPdfUseSkiaRenderer)
+          ? FPDF_RENDERERTYPE_SKIA
+          : FPDF_RENDERERTYPE_AGG;
 
 #if defined(PDF_ENABLE_V8)
   if (enable_v8) {
@@ -550,9 +559,6 @@ PDFiumEngine::PDFiumEngine(PDFEngine::Client* client,
   IFSDK_PAUSE::version = 1;
   IFSDK_PAUSE::user = nullptr;
   IFSDK_PAUSE::NeedToPauseNow = Pause_NeedToPauseNow;
-
-  // PreviewModeClient does not know its pp::Instance.
-  SetLastInstance();
 }
 
 PDFiumEngine::~PDFiumEngine() {
@@ -593,11 +599,9 @@ void PDFiumEngine::PluginSizeUpdated(const gfx::Size& size) {
     // asynchronously to avoid observable differences between this path and the
     // normal loading path.
     document_pending_ = false;
-    client_->ScheduleTaskOnMainThread(
-        FROM_HERE,
-        base::BindOnce(&PDFiumEngine::FinishLoadingDocument,
-                       weak_factory_.GetWeakPtr()),
-        /*result=*/0, base::TimeDelta());
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(&PDFiumEngine::FinishLoadingDocument,
+                                  weak_factory_.GetWeakPtr()));
   }
 }
 
@@ -639,6 +643,11 @@ void PDFiumEngine::Paint(const gfx::Rect& rect,
                          std::vector<gfx::Rect>& ready,
                          std::vector<gfx::Rect>& pending) {
   gfx::Rect leftover = rect;
+
+  // Set a timer here to check how long it takes to finish rendering and
+  // painting the visible pages.
+  base::TimeTicks begin_time = base::TimeTicks::Now();
+
   for (size_t i = 0; i < visible_pages_.size(); ++i) {
     int index = visible_pages_[i];
     // Convert the current page's rectangle to screen rectangle.  We do this
@@ -704,6 +713,9 @@ void PDFiumEngine::Paint(const gfx::Rect& rect,
       ready.push_back(dirty_in_screen);
     }
   }
+
+  base::UmaHistogramMediumTimes("PDF.RenderAndPaintVisiblePagesTime",
+                                base::TimeTicks::Now() - begin_time);
 }
 
 void PDFiumEngine::PostPaint() {
@@ -824,7 +836,7 @@ void PDFiumEngine::OnNewDataReceived() {
 
 void PDFiumEngine::OnDocumentComplete() {
   if (doc())
-    return FinishLoadingDocument(0);
+    return FinishLoadingDocument();
 
   document_->file_access().m_FileLen = doc_loader_->GetDocumentSize();
   if (!fpdf_availability()) {
@@ -841,7 +853,7 @@ void PDFiumEngine::OnDocumentCanceled() {
     OnDocumentComplete();
 }
 
-void PDFiumEngine::FinishLoadingDocument(int32_t /*unused_but_required*/) {
+void PDFiumEngine::FinishLoadingDocument() {
   // Note that doc_loader_->IsDocumentComplete() may not be true here if
   // called via `OnDocumentCanceled()`.
   DCHECK(doc());
@@ -922,8 +934,8 @@ bool PDFiumEngine::IsValidLink(const std::string& url) {
   return client_->IsValidLink(url);
 }
 
-void PDFiumEngine::ContinueFind(int32_t result) {
-  StartFind(current_find_text_, result != 0);
+void PDFiumEngine::ContinueFind(bool case_sensitive) {
+  StartFind(current_find_text_, case_sensitive);
 }
 
 bool PDFiumEngine::HandleInputEvent(const blink::WebInputEvent& event) {
@@ -1015,8 +1027,6 @@ std::vector<uint8_t> PDFiumEngine::PrintPagesAsRasterPdf(
     return std::vector<uint8_t>();
 
   KillFormFocus();
-
-  SetLastInstance();
 
   return print_.PrintPagesAsPdf(page_numbers, print_params);
 }
@@ -1216,8 +1226,8 @@ void PDFiumEngine::OnMultipleClick(int click_count,
     start_index++;
 
   int end_index = char_index;
-  int total = pages_[page_index]->GetCharCount();
-  while (end_index++ <= total) {
+  const int total = pages_[page_index]->GetCharCount();
+  for (; end_index < total; ++end_index) {
     char16_t cur = pages_[page_index]->GetCharAtIndex(end_index);
     if (FindMultipleClickBoundary(is_double_click, cur))
       break;
@@ -1373,6 +1383,10 @@ bool PDFiumEngine::OnRightMouseDown(const blink::WebMouseEvent& event) {
     return true;
   }
 
+  // Before examining the selection, first refresh the link. Due to keyboard
+  // events and possibly other events, the saved link info may be stale.
+  UpdateLinkUnderCursor(GetLinkAtPosition(point));
+
   // Handle the case when focus starts outside a form text area and stays
   // outside.
   if (selection_.empty())
@@ -1403,10 +1417,10 @@ bool PDFiumEngine::NavigateToLinkDestination(
       return true;
 
     if (disposition == WindowOpenDisposition::CURRENT_TAB) {
-      client_->NavigateToDestination(
-          target.page, base::OptionalOrNullptr(target.x_in_pixels),
-          base::OptionalOrNullptr(target.y_in_pixels),
-          base::OptionalOrNullptr(target.zoom));
+      client_->NavigateToDestination(target.page,
+                                     base::OptionalToPtr(target.x_in_pixels),
+                                     base::OptionalToPtr(target.y_in_pixels),
+                                     base::OptionalToPtr(target.zoom));
     } else {
       std::string parameters = base::StringPrintf("#page=%d", target.page + 1);
       parameters += base::StringPrintf(
@@ -1538,7 +1552,12 @@ bool PDFiumEngine::OnMouseMove(const blink::WebMouseEvent& event) {
 
   // We're selecting but right now we're not over text, so don't change the
   // current selection.
-  if (area != PDFiumPage::TEXT_AREA && !IsLinkArea(area))
+  if (page_index < 0 || char_index < 0)
+    return false;
+
+  // Similarly, do not select if `area` is not a selectable type. This can occur
+  // even if there is text in the area. e.g. When print previewing.
+  if (!IsSelectableArea(area))
     return false;
 
   SelectionChangeInvalidator selection_invalidator(this);
@@ -1601,6 +1620,9 @@ void PDFiumEngine::OnMouseEnter(const blink::WebMouseEvent& event) {
 }
 
 bool PDFiumEngine::ExtendSelection(int page_index, int char_index) {
+  DCHECK_GE(page_index, 0);
+  DCHECK_GE(char_index, 0);
+
   // Check if the user has decreased their selection area and we need to remove
   // pages from `selection_`.
   for (size_t i = 0; i < selection_.size(); ++i) {
@@ -1658,8 +1680,8 @@ bool PDFiumEngine::ExtendSelection(int page_index, int char_index) {
     }
 
     int count = pages_[page_index]->GetCharCount();
-    selection_.push_back(
-        PDFiumRange(pages_[page_index].get(), count, count - char_index));
+    selection_.emplace_back(pages_[page_index].get(), count - 1,
+                            char_index - count);
   }
 
   return true;
@@ -1737,8 +1759,8 @@ bool PDFiumEngine::OnChar(const blink::WebKeyboardEvent& event) {
 
 void PDFiumEngine::StartFind(const std::string& text, bool case_sensitive) {
   // If the caller asks StartFind() to search for no text, then this is an
-  // error on the part of the caller. The PPAPI Find_Private interface
-  // guarantees it is not empty, so this should never happen.
+  // error on the part of the caller. The `blink::FindInPage` code guarantees it
+  // is not empty, so this should never happen.
   DCHECK(!text.empty());
 
   // If StartFind() gets called before we have any page information (i.e.
@@ -1815,16 +1837,15 @@ void PDFiumEngine::StartFind(const std::string& text, bool case_sensitive) {
     return;
   }
 
-  // In unit tests, PPAPI is not initialized, so just call ContinueFind()
-  // directly.
+  // In unit tests, just call ContinueFind() directly for simplicity and reduce
+  // the need to use RunLoops.
   if (doc_loader_set_for_testing_) {
-    ContinueFind(case_sensitive ? 1 : 0);
+    ContinueFind(case_sensitive);
   } else {
-    client_->ScheduleTaskOnMainThread(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&PDFiumEngine::ContinueFind,
-                       find_weak_factory_.GetWeakPtr()),
-        case_sensitive ? 1 : 0, base::TimeDelta());
+                       find_weak_factory_.GetWeakPtr(), case_sensitive));
   }
 }
 
@@ -1894,6 +1915,7 @@ void PDFiumEngine::SearchUsingICU(const std::u16string& term,
                        character_to_start_searching_from, text_length, data);
   api_string_adapter.Close(written);
 
+  const gfx::RectF page_bounds = pages_[current_page]->GetCroppedRect();
   std::u16string adjusted_page_text;
   adjusted_page_text.reserve(page_text.size());
   // Values in `removed_indices` are in the adjusted text index space and
@@ -1908,6 +1930,14 @@ void PDFiumEngine::SearchUsingICU(const std::u16string& term,
   // whitespace characters. Calculating where the collapsed regions are after
   // the fact is as complex as collapsing them manually.
   for (size_t i = 0; i < page_text.size(); i++) {
+    // Filter out characters outside the page bounds, which are semantically not
+    // part of the page.
+    if (!pages_[current_page]->IsCharInPageBounds(
+            character_to_start_searching_from + i, page_bounds)) {
+      removed_indices.push_back(adjusted_page_text.size());
+      continue;
+    }
+
     char16_t c = page_text[i];
     // Collapse whitespace regions by inserting a ' ' into the
     // adjusted text and recording any removed whitespace indices as preceding
@@ -1931,6 +1961,9 @@ void PDFiumEngine::SearchUsingICU(const std::u16string& term,
     else
       adjusted_page_text.push_back(SimplifyForSearch(c));
   }
+
+  if (adjusted_page_text.empty())
+    return;
 
   std::vector<PDFEngine::Client::SearchStringResult> results =
       client_->SearchString(adjusted_page_text.c_str(), adjusted_term.c_str(),
@@ -1981,7 +2014,6 @@ void PDFiumEngine::SearchUsingICU(const std::u16string& term,
 }
 
 void PDFiumEngine::AddFindResult(const PDFiumRange& result) {
-  bool first_result = find_results_.empty();
   // Figure out where to insert the new location, since we could have
   // started searching midway and now we wrapped.
   size_t result_index;
@@ -1997,11 +2029,6 @@ void PDFiumEngine::AddFindResult(const PDFiumRange& result) {
   find_results_.insert(find_results_.begin() + result_index, result);
   UpdateTickMarks();
   client_->NotifyNumberOfFindResultsChanged(find_results_.size(), false);
-  if (first_result) {
-    DCHECK(!resume_find_index_);
-    DCHECK(!current_find_index_);
-    SelectFindResult(/*forward=*/true);
-  }
 }
 
 bool PDFiumEngine::SelectFindResult(bool forward) {
@@ -2022,8 +2049,9 @@ bool PDFiumEngine::SelectFindResult(bool forward) {
     if ((forward && current_index >= last_index) ||
         (!forward && current_index == 0)) {
       current_find_index_.reset();
-      client_->NotifySelectedFindResultChanged(-1);
-      client_->NotifyNumberOfFindResultsChanged(find_results_.size(), true);
+      client_->NotifySelectedFindResultChanged(-1, /*final_result=*/false);
+      client_->NotifyNumberOfFindResultsChanged(find_results_.size(),
+                                                /*final_result=*/true);
       return true;
     }
     int increment = forward ? 1 : -1;
@@ -2069,9 +2097,8 @@ bool PDFiumEngine::SelectFindResult(bool forward) {
     }
   }
 
-  client_->NotifySelectedFindResultChanged(current_find_index_.value());
-  if (!search_in_progress_)
-    client_->NotifyNumberOfFindResultsChanged(find_results_.size(), true);
+  client_->NotifySelectedFindResultChanged(
+      current_find_index_.value(), /*final_result=*/!search_in_progress_);
   return true;
 }
 
@@ -2081,7 +2108,6 @@ void PDFiumEngine::StopFind() {
   selecting_ = false;
 
   find_results_.clear();
-  search_in_progress_ = false;
   next_page_to_search_ = -1;
   last_page_to_search_ = -1;
   last_character_index_to_search_ = -1;
@@ -2155,10 +2181,8 @@ void PDFiumEngine::SetReadOnly(bool enable) {
   selection_.clear();
 }
 
-void PDFiumEngine::SetTwoUpView(bool enable) {
-  desired_layout_options_.set_page_spread(
-      enable ? DocumentLayout::PageSpread::kTwoUpOdd
-             : DocumentLayout::PageSpread::kOneUp);
+void PDFiumEngine::SetDocumentLayout(DocumentLayout::PageSpread page_spread) {
+  desired_layout_options_.set_page_spread(page_spread);
   ProposeNextDocumentLayout();
 }
 
@@ -2179,9 +2203,6 @@ void PDFiumEngine::InvalidateAllPages() {
 }
 
 std::string PDFiumEngine::GetSelectedText() {
-  if (!HasPermission(DocumentPermission::kCopy))
-    return std::string();
-
   std::u16string result;
   for (size_t i = 0; i < selection_.size(); ++i) {
     std::u16string current_selection_text = selection_[i].GetText();
@@ -2364,29 +2385,27 @@ int PDFiumEngine::GetNumberOfPages() const {
   return pages_.size();
 }
 
-base::Value PDFiumEngine::GetBookmarks() {
-  base::Value dict = TraverseBookmarks(nullptr, 0);
-  DCHECK(dict.is_dict());
+base::Value::List PDFiumEngine::GetBookmarks() {
+  base::Value::Dict dict = TraverseBookmarks(nullptr, 0);
   // The root bookmark contains no useful information.
-  base::Value* children = dict.FindListKey("children");
-  DCHECK(children);
+  base::Value::List* children = dict.FindList("children");
   return std::move(*children);
 }
 
-base::Value PDFiumEngine::TraverseBookmarks(FPDF_BOOKMARK bookmark,
-                                            unsigned int depth) {
-  base::Value dict(base::Value::Type::DICTIONARY);
+base::Value::Dict PDFiumEngine::TraverseBookmarks(FPDF_BOOKMARK bookmark,
+                                                  unsigned int depth) {
+  base::Value::Dict dict;
   std::u16string title = CallPDFiumWideStringBufferApi(
       base::BindRepeating(&FPDFBookmark_GetTitle, bookmark),
       /*check_expected_size=*/true);
-  dict.SetStringKey("title", title);
+  dict.Set("title", title);
 
   FPDF_DEST dest = FPDFBookmark_GetDest(doc(), bookmark);
   // Some bookmarks don't have a page to select.
   if (dest) {
     int page_index = FPDFDest_GetDestPageIndex(doc(), dest);
     if (PageIndexInBounds(page_index)) {
-      dict.SetIntKey("page", page_index);
+      dict.Set("page", page_index);
 
       absl::optional<float> x;
       absl::optional<float> y;
@@ -2394,11 +2413,11 @@ base::Value PDFiumEngine::TraverseBookmarks(FPDF_BOOKMARK bookmark,
       pages_[page_index]->GetPageDestinationTarget(dest, &x, &y, &zoom);
 
       if (x)
-        dict.SetIntKey("x", static_cast<int>(x.value()));
+        dict.Set("x", static_cast<int>(x.value()));
       if (y)
-        dict.SetIntKey("y", static_cast<int>(y.value()));
+        dict.Set("y", static_cast<int>(y.value()));
       if (zoom)
-        dict.SetDoubleKey("zoom", zoom.value());
+        dict.Set("zoom", static_cast<double>(zoom.value()));
     }
   } else {
     // Extract URI for bookmarks linking to an external page.
@@ -2406,11 +2425,11 @@ base::Value PDFiumEngine::TraverseBookmarks(FPDF_BOOKMARK bookmark,
     std::string uri = CallPDFiumStringBufferApi(
         base::BindRepeating(&FPDFAction_GetURIPath, doc(), action),
         /*check_expected_size=*/true);
-    if (!uri.empty())
-      dict.SetStringKey("uri", uri);
+    if (!uri.empty() && base::IsStringUTF8AllowingNoncharacters(uri))
+      dict.Set("uri", uri);
   }
 
-  base::Value children(base::Value::Type::LIST);
+  base::Value::List children;
 
   // Don't trust PDFium to handle circular bookmarks.
   constexpr unsigned int kMaxDepth = 128;
@@ -2427,7 +2446,7 @@ base::Value PDFiumEngine::TraverseBookmarks(FPDF_BOOKMARK bookmark,
       children.Append(TraverseBookmarks(child_bookmark, depth + 1));
     }
   }
-  dict.SetKey("children", std::move(children));
+  dict.Set("children", std::move(children));
   return dict;
 }
 
@@ -2511,7 +2530,7 @@ absl::optional<PDFEngine::NamedDestination> PDFiumEngine::GetNamedDestination(
     return {};
 
   int page = FPDFDest_GetDestPageIndex(doc(), dest);
-  if (page < 0)
+  if (!PageIndexInBounds(page))
     return {};
 
   PDFEngine::NamedDestination result;
@@ -2592,10 +2611,7 @@ absl::optional<AccessibilityTextRunInfo> PDFiumEngine::GetTextRunInfo(
     int page_index,
     int start_char_index) {
   DCHECK(PageIndexInBounds(page_index));
-  auto info = pages_[page_index]->GetTextRunInfo(start_char_index);
-  if (!client_->IsPrintPreview() && start_char_index >= 0)
-    pages_[page_index]->LogOverlappingAnnotations();
-  return info;
+  return pages_[page_index]->GetTextRunInfo(start_char_index);
 }
 
 std::vector<AccessibilityLinkInfo> PDFiumEngine::GetLinkInfo(
@@ -2794,7 +2810,7 @@ void PDFiumEngine::ContinueLoadingDocument(const std::string& password) {
   LoadBody();
 
   if (doc_loader_->IsDocumentComplete())
-    FinishLoadingDocument(0);
+    FinishLoadingDocument();
 }
 
 void PDFiumEngine::LoadPageInfo() {
@@ -2951,7 +2967,7 @@ void PDFiumEngine::LoadForm() {
       static constexpr FPDF_ANNOTATION_SUBTYPE kFocusableAnnotSubtypes[] = {
           FPDF_ANNOT_LINK, FPDF_ANNOT_HIGHLIGHT, FPDF_ANNOT_WIDGET};
       FPDF_BOOL ret = FPDFAnnot_SetFocusableSubtypes(
-          form(), kFocusableAnnotSubtypes, base::size(kFocusableAnnotSubtypes));
+          form(), kFocusableAnnotSubtypes, std::size(kFocusableAnnotSubtypes));
       DCHECK(ret);
     }
   }
@@ -3113,10 +3129,11 @@ void PDFiumEngine::InsetPage(const DocumentLayout::Options& layout_options,
                              gfx::Rect& rect) const {
   draw_utils::PageInsetSizes inset_sizes =
       GetInsetSizes(layout_options, page_index, num_of_pages);
-  rect.Inset(static_cast<int>(ceil(inset_sizes.left * multiplier)),
-             static_cast<int>(ceil(inset_sizes.top * multiplier)),
-             static_cast<int>(ceil(inset_sizes.right * multiplier)),
-             static_cast<int>(ceil(inset_sizes.bottom * multiplier)));
+  rect.Inset(gfx::Insets::TLBR(
+      static_cast<int>(ceil(inset_sizes.top * multiplier)),
+      static_cast<int>(ceil(inset_sizes.left * multiplier)),
+      static_cast<int>(ceil(inset_sizes.bottom * multiplier)),
+      static_cast<int>(ceil(inset_sizes.right * multiplier))));
 }
 
 absl::optional<size_t> PDFiumEngine::GetAdjacentPageIndexForTwoUpView(
@@ -3149,7 +3166,6 @@ bool PDFiumEngine::ContinuePaint(int progressive_index, SkBitmap& image_data) {
   DCHECK_LT(static_cast<size_t>(progressive_index), progressive_paints_.size());
 
   last_progressive_start_time_ = base::Time::Now();
-  SetLastInstance();
 
   int page_index = progressive_paints_[progressive_index].page_index();
   DCHECK(PageIndexInBounds(page_index));
@@ -3568,7 +3584,7 @@ PDFiumEngine::SelectionChangeInvalidator::GetVisibleSelections() const {
 void PDFiumEngine::SelectionChangeInvalidator::Invalidate(
     const gfx::Rect& selection) {
   gfx::Rect expanded_selection = selection;
-  expanded_selection.Inset(-1, -1);
+  expanded_selection.Inset(-1);
   engine_->client_->Invalidate(expanded_selection);
 }
 
@@ -3647,7 +3663,6 @@ void PDFiumEngine::SetCurrentPage(int index) {
     FORM_DoPageAAction(old_page, form(), FPDFPAGE_AACTION_CLOSE);
   }
   most_visible_page_ = index;
-  SetLastInstance();
   if (most_visible_page_ != -1 && called_do_document_action_) {
     FPDF_PAGE new_page = pages_[most_visible_page_]->GetPage();
     FORM_DoPageAAction(new_page, form(), FPDFPAGE_AACTION_OPEN);
@@ -4091,7 +4106,6 @@ void PDFiumEngine::LoadDocumentMetadata() {
   doc_metadata_.page_count = pages_.size();
   doc_metadata_.linearized = IsLinearized();
   doc_metadata_.has_attachments = !doc_attachment_info_list_.empty();
-  doc_metadata_.tagged = FPDFCatalog_IsTagged(doc());
   doc_metadata_.form_type = static_cast<FormType>(FPDF_GetFormType(doc()));
 
   // Document information dictionary entries
@@ -4314,10 +4328,6 @@ void PDFiumEngine::MaybeRequestPendingThumbnail(int page_index) {
       pending_thumbnail.device_pixel_ratio,
       std::move(pending_thumbnail.send_callback));
   pending_thumbnails_.erase(it);
-}
-
-void PDFiumEngine::SetLastInstance() {
-  client_->SetLastPluginInstance();
 }
 
 PDFiumEngine::ProgressivePaint::ProgressivePaint(int index,

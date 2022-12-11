@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,8 @@
 #include "build/build_config.h"
 #include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
 #include "chrome/browser/apps/platform_apps/app_window_interactive_uitest_base.h"
-#include "chrome/browser/ui/ash/tablet_mode_page_behavior.h"
 #include "chrome/test/base/interactive_test_utils.h"
-#include "chromeos/login/login_state/login_state.h"
-#include "chromeos/login/login_state/scoped_test_public_session_login_state.h"
+#include "chromeos/ash/components/login/login_state/scoped_test_public_session_login_state.h"
 #include "chromeos/ui/base/window_properties.h"
 #include "chromeos/ui/frame/immersive/immersive_fullscreen_controller.h"
 #include "content/public/test/browser_test.h"
@@ -87,7 +85,8 @@ class ChromeNativeAppWindowViewsAuraAshBrowserTest
   std::unique_ptr<ExtensionTestMessageListener>
   LaunchPlatformAppWithFocusedWindow() {
     std::unique_ptr<ExtensionTestMessageListener> launched_listener =
-        std::make_unique<ExtensionTestMessageListener>("Launched", true);
+        std::make_unique<ExtensionTestMessageListener>(
+            "Launched", ReplyBehavior::kWillReply);
     LoadAndLaunchPlatformApp("leave_fullscreen", launched_listener.get());
 
     // We start by making sure the window is actually focused.
@@ -204,12 +203,12 @@ IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
   ASSERT_TRUE(window());
 
   app_window_->OSFullscreen();
-  EXPECT_EQ(ui::SHOW_STATE_DEFAULT, window()->GetRestoredState());
+  EXPECT_EQ(ui::SHOW_STATE_NORMAL, window()->GetRestoredState());
   ash::ShellTestApi().SetTabletModeEnabledForTest(true);
   EXPECT_TRUE(window()->IsFullscreen());
-  EXPECT_EQ(ui::SHOW_STATE_DEFAULT, window()->GetRestoredState());
+  EXPECT_EQ(ui::SHOW_STATE_NORMAL, window()->GetRestoredState());
   ash::ShellTestApi().SetTabletModeEnabledForTest(false);
-  EXPECT_EQ(ui::SHOW_STATE_DEFAULT, window()->GetRestoredState());
+  EXPECT_EQ(ui::SHOW_STATE_NORMAL, window()->GetRestoredState());
 
   CloseAppWindow(app_window_);
 }
@@ -233,7 +232,7 @@ IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
 // that the app is in a normal window or fullscreen mode.
 IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
                        PublicSessionNoImmersiveModeWhenFullscreen) {
-  chromeos::ScopedTestPublicSessionLoginState login_state;
+  ash::ScopedTestPublicSessionLoginState login_state;
 
   InitWindow();
   ASSERT_TRUE(window());
@@ -256,12 +255,12 @@ IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
   // fullscreen.
   EXPECT_FALSE(window()->IsFullscreen());
   app_window_->OSFullscreen();
-  EXPECT_EQ(ui::SHOW_STATE_DEFAULT, window()->GetRestoredState());
+  EXPECT_EQ(ui::SHOW_STATE_NORMAL, window()->GetRestoredState());
   EXPECT_TRUE(window()->IsFullscreen());
   EXPECT_TRUE(IsImmersiveActive());
   ash::ShellTestApi().SetTabletModeEnabledForTest(true);
   EXPECT_TRUE(window()->IsFullscreen());
-  EXPECT_EQ(ui::SHOW_STATE_DEFAULT, window()->GetRestoredState());
+  EXPECT_EQ(ui::SHOW_STATE_NORMAL, window()->GetRestoredState());
 
   window()->Restore();
   // Restoring a window inside tablet mode should deactivate fullscreen, but not
@@ -313,7 +312,7 @@ IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
 // fullscreen mode under different conditions. (Window API)
 IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
                        BubbleInsidePublicSessionWindow) {
-  chromeos::ScopedTestPublicSessionLoginState state;
+  ash::ScopedTestPublicSessionLoginState state;
   std::unique_ptr<ExtensionTestMessageListener> launched_listener =
       LaunchPlatformAppWithFocusedWindow();
   WaitFullscreenChange(launched_listener.get());
@@ -327,7 +326,7 @@ IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
 // fullscreen mode under different conditions. (DOM)
 IN_PROC_BROWSER_TEST_F(ChromeNativeAppWindowViewsAuraAshBrowserTest,
                        BubbleInsidePublicSessionDom) {
-  chromeos::ScopedTestPublicSessionLoginState state;
+  ash::ScopedTestPublicSessionLoginState state;
   std::unique_ptr<ExtensionTestMessageListener> launched_listener =
       LaunchPlatformAppWithFocusedWindow();
   WaitFullscreenChangeUntilKeyFocus(launched_listener.get());

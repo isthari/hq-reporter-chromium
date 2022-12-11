@@ -1,11 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {PostMessageAPIClient} from '//resources/js/post_message_api_client.m.js';
-import {RequestHandler} from '//resources/js/post_message_api_request_handler.m.js';
+import {PostMessageAPIClient} from '//resources/ash/common/post_message_api/post_message_api_client.js';
+import {RequestHandler} from '//resources/ash/common/post_message_api/post_message_api_request_handler.js';
 
-const TARGET_URL = 'chrome://projector/';
+const TARGET_URL = 'chrome://projector-annotator/';
 
 /**
  * Returns the projector app element inside this current DOM.
@@ -36,6 +36,15 @@ export class TrustedAnnotatorClient extends PostMessageAPIClient {
   onUndoRedoAvailabilityChanged(undoAvailable, redoAvailable) {
     return this.callApiFn(
         'onUndoRedoAvailabilityChanged', [undoAvailable, redoAvailable]);
+  }
+
+  /**
+   * Notifies the native UI that the canvas has initialized.
+   * @param {boolean} success
+   * @return {Promise}
+   */
+  onCanvasInitialized(success) {
+    return this.callApiFn('onCanvasInitialized', [success]);
   }
 }
 
@@ -102,6 +111,9 @@ export class AnnotatorUntrustedCommFactory {
     elem.addUndoRedoListener((undoAvailable, redoAvailable) => {
       AnnotatorUntrustedCommFactory.client_.onUndoRedoAvailabilityChanged(
           undoAvailable, redoAvailable);
+    });
+    elem.addCanvasInitializationCallback((success) => {
+      AnnotatorUntrustedCommFactory.client_.onCanvasInitialized(success);
     });
   }
 

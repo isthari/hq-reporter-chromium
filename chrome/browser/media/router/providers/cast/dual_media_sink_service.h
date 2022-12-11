@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,8 +32,9 @@ class MediaSinkServiceBase;
 
 // This class uses DialMediaSinkService and CastMediaSinkService to discover
 // sinks used by the Cast MediaRouteProvider. It also encapsulates the setup
-// necessary to enable dual discovery on Dial/CastMediaSinkService.
-// All methods must be called on the UI thread.
+// necessary to enable dual discovery on Dial/CastMediaSinkService. It is used
+// as a singleton that is never freed. All methods must be called on the UI
+// thread.
 class DualMediaSinkService {
  public:
   // Arg 0: Provider name ("dial" or "cast").
@@ -70,15 +71,9 @@ class DualMediaSinkService {
   base::CallbackListSubscription AddSinksDiscoveredCallback(
       const OnSinksDiscoveredProviderCallback& callback);
 
-  // Instantiate two PendingRemote objects. The objects will be bound with
-  // |logger_impl| and passed to |cast_media_sink_service_| and
-  // |dial_media_sink_service_|.
-  // The binding should be done once and the method is a no-op after the first
-  // call.
-  // Marked virtual for testing.
-  virtual void BindLogger(LoggerImpl* logger_impl);
+  void AddLogger(LoggerImpl* logger_impl);
 
-  virtual void RemoveLogger();
+  void RemoveLogger(LoggerImpl* logger_impl);
 
   virtual void OnUserGesture();
 
@@ -100,18 +95,11 @@ class DualMediaSinkService {
 
  private:
   friend class DualMediaSinkServiceTest;
-  friend class AccessCodeCastHandlerTest;
 
   FRIEND_TEST_ALL_PREFIXES(DualMediaSinkServiceTest,
                            AddSinksDiscoveredCallback);
   FRIEND_TEST_ALL_PREFIXES(DualMediaSinkServiceTest,
                            AddSinksDiscoveredCallbackAfterDiscovery);
-  FRIEND_TEST_ALL_PREFIXES(AccessCodeCastHandlerTest,
-                           DiscoveryDeviceMissingWithOk);
-  FRIEND_TEST_ALL_PREFIXES(AccessCodeCastHandlerTest,
-                           ValidDiscoveryDeviceAndCode);
-  FRIEND_TEST_ALL_PREFIXES(AccessCodeCastHandlerTest, InvalidDiscoveryDevice);
-  FRIEND_TEST_ALL_PREFIXES(AccessCodeCastHandlerTest, NonOKResultCode);
 
   friend struct std::default_delete<DualMediaSinkService>;
 
@@ -125,8 +113,6 @@ class DualMediaSinkService {
   std::unique_ptr<DialMediaSinkService> dial_media_sink_service_;
   std::unique_ptr<CastMediaSinkService> cast_media_sink_service_;
   std::unique_ptr<CastAppDiscoveryService> cast_app_discovery_service_;
-
-  bool logger_is_bound_ = false;
 
   OnSinksDiscoveredProviderCallbackList sinks_discovered_callbacks_;
   base::flat_map<std::string, std::vector<MediaSinkInternal>> current_sinks_;

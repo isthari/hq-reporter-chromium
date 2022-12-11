@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,12 @@
 #include <memory>
 #include <vector>
 
+#include "base/android/scoped_java_ref.h"
 #include "base/files/scoped_file.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/gfx_export.h"
@@ -54,6 +56,12 @@ class GFX_EXPORT SurfaceControl {
   // Returns true if OnCommit callback is supported.
   static bool SupportsOnCommit();
 
+  // Returns true if tagging a transaction with vsync id is supported.
+  static GFX_EXPORT bool SupportsSetFrameTimeline();
+
+  // Returns true if APIs to convert Java SurfaceControl to ASurfaceControl.
+  static GFX_EXPORT bool SupportsSurfacelessControl();
+
   // Applies transaction. Used to emulate webview functor interface, where we
   // pass raw ASurfaceTransaction object. For use inside Chromium use
   // Transaction class below instead.
@@ -70,6 +78,8 @@ class GFX_EXPORT SurfaceControl {
     Surface();
     Surface(const Surface& parent, const char* name);
     Surface(ANativeWindow* parent, const char* name);
+    Surface(JNIEnv* env,
+            const base::android::JavaRef<jobject>& j_surface_control);
 
     Surface(const Surface&) = delete;
     Surface& operator=(const Surface&) = delete;
@@ -149,6 +159,7 @@ class GFX_EXPORT SurfaceControl {
     void SetPosition(const Surface& surface, const gfx::Point& position);
     void SetScale(const Surface& surface, float sx, float sy);
     void SetCrop(const Surface& surface, const gfx::Rect& rect);
+    void SetFrameTimelineId(int64_t vsync_id);
 
     // Sets the callback which will be dispatched when the transaction is acked
     // by the framework.

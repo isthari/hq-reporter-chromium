@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/sync/test/integration/apps_helper.h"
 #include "chrome/browser/sync/test/integration/web_apps_sync_test_base.h"
+#include "chrome/browser/web_applications/os_integration/web_app_shortcut.h"
+#include "chrome/browser/web_applications/user_display_mode.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_proto_utils.h"
@@ -18,7 +20,7 @@
 #include "components/sync/protocol/app_specifics.pb.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "components/sync/protocol/extension_specifics.pb.h"
-#include "components/sync/test/fake_server/fake_server_verifier.h"
+#include "components/sync/test/fake_server_verifier.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -64,8 +66,7 @@ class SingleClientWebAppsSyncTest : public WebAppsSyncTestBase {
   }
 
   void AwaitWebAppQuiescence() {
-    ASSERT_TRUE(AwaitQuiescence());
-    apps_helper::AwaitWebAppQuiescence(GetAllProfiles());
+    ASSERT_TRUE(apps_helper::AwaitWebAppQuiescence(GetAllProfiles()));
     content::RunAllTasksUntilIdle();
     base::RunLoop run_loop;
     internals::GetShortcutIOTaskRunner()->PostTask(
@@ -81,7 +82,7 @@ class SingleClientWebAppsSyncTest : public WebAppsSyncTestBase {
     WebApp app(app_id);
     app.SetName(app_id);
     app.SetStartUrl(url);
-    app.SetUserDisplayMode(DisplayMode::kBrowser);
+    app.SetUserDisplayMode(UserDisplayMode::kBrowser);
     app.SetManifestId(manifest_id);
 
     WebApp::SyncFallbackData sync_fallback_data;
@@ -125,18 +126,15 @@ IN_PROC_BROWSER_TEST_F(SingleClientWebAppsSyncTest,
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // Apps is an OS type on Ash if SyncSettingsCategorization is enabled.
-  if (ash::features::IsSyncSettingsCategorizationEnabled()) {
-    ASSERT_TRUE(
-        settings->GetSelectedOsTypes().Has(UserSelectableOsType::kOsApps));
-    EXPECT_TRUE(service->GetActiveDataTypes().Has(syncer::WEB_APPS));
+  ASSERT_TRUE(
+      settings->GetSelectedOsTypes().Has(UserSelectableOsType::kOsApps));
+  EXPECT_TRUE(service->GetActiveDataTypes().Has(syncer::WEB_APPS));
 
-    settings->SetSelectedOsTypes(false, UserSelectableOsTypeSet());
-    ASSERT_FALSE(
-        settings->GetSelectedOsTypes().Has(UserSelectableOsType::kOsApps));
-    EXPECT_FALSE(service->GetActiveDataTypes().Has(syncer::WEB_APPS));
-    return;
-  }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+  settings->SetSelectedOsTypes(false, UserSelectableOsTypeSet());
+  ASSERT_FALSE(
+      settings->GetSelectedOsTypes().Has(UserSelectableOsType::kOsApps));
+  EXPECT_FALSE(service->GetActiveDataTypes().Has(syncer::WEB_APPS));
+#else  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   ASSERT_TRUE(settings->GetSelectedTypes().Has(UserSelectableType::kApps));
   EXPECT_TRUE(service->GetActiveDataTypes().Has(syncer::WEB_APPS));
@@ -144,6 +142,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWebAppsSyncTest,
   settings->SetSelectedTypes(false, UserSelectableTypeSet());
   ASSERT_FALSE(settings->GetSelectedTypes().Has(UserSelectableType::kApps));
   EXPECT_FALSE(service->GetActiveDataTypes().Has(syncer::WEB_APPS));
+#endif
 }
 
 IN_PROC_BROWSER_TEST_F(SingleClientWebAppsSyncTest,
@@ -155,7 +154,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWebAppsSyncTest,
   AwaitWebAppQuiescence();
 
   auto& web_app_registrar =
-      WebAppProvider::GetForTest(GetProfile(0))->registrar();
+      WebAppProvider::GetForTest(GetProfile(0))->registrar_unsafe();
   EXPECT_TRUE(web_app_registrar.IsInstalled(app_id));
 }
 
@@ -168,7 +167,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWebAppsSyncTest,
   ASSERT_TRUE(SetupSync());
   AwaitWebAppQuiescence();
   auto& web_app_registrar =
-      WebAppProvider::GetForTest(GetProfile(0))->registrar();
+      WebAppProvider::GetForTest(GetProfile(0))->registrar_unsafe();
 
   EXPECT_EQ(web_app_registrar.GetAppById(app_id), nullptr);
 }
@@ -183,7 +182,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWebAppsSyncTest,
   ASSERT_TRUE(SetupSync());
   AwaitWebAppQuiescence();
   auto& web_app_registrar =
-      WebAppProvider::GetForTest(GetProfile(0))->registrar();
+      WebAppProvider::GetForTest(GetProfile(0))->registrar_unsafe();
 
   EXPECT_FALSE(web_app_registrar.IsInstalled(app_id));
 }
@@ -217,7 +216,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWebAppsSyncTest,
   AwaitWebAppQuiescence();
 
   auto& web_app_registrar =
-      WebAppProvider::GetForTest(GetProfile(0))->registrar();
+      WebAppProvider::GetForTest(GetProfile(0))->registrar_unsafe();
 
   EXPECT_FALSE(web_app_registrar.IsInstalled(app_id));
 }
@@ -233,7 +232,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWebAppsSyncTest,
   AwaitWebAppQuiescence();
 
   auto& web_app_registrar =
-      WebAppProvider::GetForTest(GetProfile(0))->registrar();
+      WebAppProvider::GetForTest(GetProfile(0))->registrar_unsafe();
 
   EXPECT_TRUE(web_app_registrar.IsInstalled(app_id));
 
@@ -263,7 +262,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWebAppsSyncTest,
   AwaitWebAppQuiescence();
 
   auto& web_app_registrar =
-      WebAppProvider::GetForTest(GetProfile(0))->registrar();
+      WebAppProvider::GetForTest(GetProfile(0))->registrar_unsafe();
 
   EXPECT_TRUE(web_app_registrar.IsInstalled(app_id));
 

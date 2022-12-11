@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -25,7 +25,6 @@
 #include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/policy/policy_test_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -43,15 +42,13 @@
 #include "components/prefs/pref_service.h"
 #include "content/common/content_navigation_policy.h"
 #include "content/public/browser/gpu_data_manager.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
-#include "content/public/test/mock_notification_observer.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/events/platform/platform_event_source.h"
 #include "url/gurl.h"
 
 #if !BUILDFLAG(IS_MAC)
@@ -84,8 +81,8 @@ bool IsWebGLEnabled(content::WebContents* contents) {
 
 }  // namespace
 
-// This test is flaky on Windows 10: https://crbug.com/1069558
-#if BUILDFLAG(IS_WIN)
+// TODO(crbug.com/1069558): Deflake this test.
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
 #define MAYBE_Disable3DAPIs DISABLED_Disable3DAPIs
 #else
 #define MAYBE_Disable3DAPIs Disable3DAPIs
@@ -123,9 +120,10 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, MAYBE_Disable3DAPIs) {
   EXPECT_TRUE(IsWebGLEnabled(contents));
 }
 
-#if BUILDFLAG(IS_MAC) && !defined(NDEBUG)
-// Times out on mac-debug.
-// TODO(crbug.com/1159423): Re-enable
+// TODO(crbug.com/1378338): Re-enable this flaky test on Linux
+// and lacros asan builder.
+#if BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_CHROMEOS_LACROS) && defined(ADDRESS_SANITIZER)
 #define MAYBE_HomepageLocation DISABLED_HomepageLocation
 #else
 #define MAYBE_HomepageLocation HomepageLocation
@@ -201,9 +199,31 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, MAYBE_IncognitoEnabled) {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 
-// Disabled, see http://crbug.com/554728.
-IN_PROC_BROWSER_TEST_F(PolicyTest,
-                       DISABLED_PRE_WaitForInitialUserActivityUnsatisfied) {
+// We need to block mouse events in |WaitForInitialUserActivityUnsatisfied| test
+// to avoid flakiness due to unexpected mouse input.
+class BlockMouseEventPolicyTest : public PolicyTest {
+ public:
+  void SetUp() override {
+    // Backup previous IgnoreNativePlatformEvents value to restore after test.
+    old_ignore_native_platform_events_ =
+        ui::PlatformEventSource::ShouldIgnoreNativePlatformEvents();
+    ui::PlatformEventSource::SetIgnoreNativePlatformEvents(true);
+
+    PolicyTest::SetUp();
+  }
+  void TearDown() override {
+    ui::PlatformEventSource::SetIgnoreNativePlatformEvents(
+        old_ignore_native_platform_events_);
+
+    PolicyTest::TearDown();
+  }
+
+ private:
+  bool old_ignore_native_platform_events_;
+};
+
+IN_PROC_BROWSER_TEST_F(BlockMouseEventPolicyTest,
+                       PRE_WaitForInitialUserActivityUnsatisfied) {
   // Indicate that the session started 2 hours ago and no user activity has
   // occurred yet.
   g_browser_process->local_state()->SetInt64(
@@ -211,13 +231,9 @@ IN_PROC_BROWSER_TEST_F(PolicyTest,
       (base::Time::Now() - base::Hours(2)).ToInternalValue());
 }
 
-// Disabled, see http://crbug.com/554728.
-IN_PROC_BROWSER_TEST_F(PolicyTest,
-                       DISABLED_WaitForInitialUserActivityUnsatisfied) {
-  content::MockNotificationObserver observer;
-  content::NotificationRegistrar registrar;
-  registrar.Add(&observer, chrome::NOTIFICATION_APP_TERMINATING,
-                content::NotificationService::AllSources());
+IN_PROC_BROWSER_TEST_F(BlockMouseEventPolicyTest,
+                       WaitForInitialUserActivityUnsatisfied) {
+  PolicyTestAppTerminationObserver observer;
 
   // Require initial user activity.
   PolicyMap policies;
@@ -229,14 +245,12 @@ IN_PROC_BROWSER_TEST_F(PolicyTest,
 
   // Set the session length limit to 1 hour. Verify that the session is not
   // terminated.
-  EXPECT_CALL(observer, Observe(chrome::NOTIFICATION_APP_TERMINATING, _, _))
-      .Times(0);
   policies.Set(key::kSessionLengthLimit, POLICY_LEVEL_MANDATORY,
                POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
                base::Value(kOneHourInMs), nullptr);
   UpdateProviderPolicy(policies);
   base::RunLoop().RunUntilIdle();
-  Mock::VerifyAndClearExpectations(&observer);
+  EXPECT_FALSE(observer.WasAppTerminated());
 }
 
 IN_PROC_BROWSER_TEST_F(PolicyTest, PRE_WaitForInitialUserActivitySatisfied) {
@@ -249,15 +263,10 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, PRE_WaitForInitialUserActivitySatisfied) {
 }
 
 IN_PROC_BROWSER_TEST_F(PolicyTest, WaitForInitialUserActivitySatisfied) {
-  content::MockNotificationObserver observer;
-  content::NotificationRegistrar registrar;
-  registrar.Add(&observer, chrome::NOTIFICATION_APP_TERMINATING,
-                content::NotificationService::AllSources());
+  PolicyTestAppTerminationObserver observer;
 
   // Require initial user activity and set the session length limit to 3 hours.
   // Verify that the session is not terminated.
-  EXPECT_CALL(observer, Observe(chrome::NOTIFICATION_APP_TERMINATING, _, _))
-      .Times(0);
   PolicyMap policies;
   policies.Set(key::kWaitForInitialUserActivity, POLICY_LEVEL_MANDATORY,
                POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD, base::Value(true),
@@ -267,17 +276,16 @@ IN_PROC_BROWSER_TEST_F(PolicyTest, WaitForInitialUserActivitySatisfied) {
                base::Value(kThreeHoursInMs), nullptr);
   UpdateProviderPolicy(policies);
   base::RunLoop().RunUntilIdle();
-  Mock::VerifyAndClearExpectations(&observer);
+  EXPECT_FALSE(observer.WasAppTerminated());
 
   // Decrease the session length limit to 1 hour. Verify that the session is
   // terminated immediately.
-  EXPECT_CALL(observer, Observe(chrome::NOTIFICATION_APP_TERMINATING, _, _));
   policies.Set(key::kSessionLengthLimit, POLICY_LEVEL_MANDATORY,
                POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
                base::Value(kOneHourInMs), nullptr);
   UpdateProviderPolicy(policies);
   base::RunLoop().RunUntilIdle();
-  Mock::VerifyAndClearExpectations(&observer);
+  EXPECT_TRUE(observer.WasAppTerminated());
 }
 
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 #include <time.h>
 
 #include "base/compiler_specific.h"
-#include "base/cxx17_backports.h"
 #include "base/third_party/nspr/prtime.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -79,7 +78,7 @@ TEST_F(PRTimeTest, ParseTimeTest1) {
   char time_buf[64] = {};
 #if BUILDFLAG(IS_WIN)
   localtime_s(&local_time, &current_time);
-  asctime_s(time_buf, base::size(time_buf), &local_time);
+  asctime_s(time_buf, std::size(time_buf), &local_time);
 #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
   localtime_r(&current_time, &local_time);
   asctime_r(&local_time, time_buf);

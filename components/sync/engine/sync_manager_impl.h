@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -75,7 +75,6 @@ class SyncManagerImpl
   void ShutdownOnSyncThread() override;
   ModelTypeConnector* GetModelTypeConnector() override;
   std::unique_ptr<ModelTypeConnector> GetModelTypeConnectorProxy() override;
-  WeakHandle<DataTypeDebugInfoListener> GetDebugInfoListener() override;
   std::string cache_guid() override;
   std::string birthday() override;
   std::string bag_of_chips() override;
@@ -123,6 +122,8 @@ class SyncManagerImpl
   // NudgeHandler implementation.
   void NudgeForInitialDownload(ModelType type) override;
   void NudgeForCommit(ModelType type) override;
+  void SetHasPendingInvalidations(ModelType type,
+                                  bool has_pending_invalidations) override;
 
  private:
   void NotifySyncStatusChanged(const SyncStatus& status);

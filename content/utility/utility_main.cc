@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,11 @@
 #include "base/timer/hi_res_timer_manager.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "components/services/screen_ai/buildflags/buildflags.h"
 #include "content/child/child_process.h"
 #include "content/common/content_switches_internal.h"
 #include "content/common/partition_alloc_support.h"
 #include "content/public/common/content_client.h"
-#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/utility/content_utility_client.h"
@@ -26,7 +26,6 @@
 #include "sandbox/policy/mojom/sandbox.mojom.h"
 #include "sandbox/policy/sandbox.h"
 #include "sandbox/policy/sandbox_type.h"
-#include "services/network/public/mojom/network_service.mojom.h"
 #include "services/tracing/public/cpp/trace_startup.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/icu/source/common/unicode/unistr.h"
@@ -34,6 +33,12 @@
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 #include "content/utility/speech/speech_recognition_sandbox_hook_linux.h"
+#include "gpu/config/gpu_info_collector.h"
+#include "media/gpu/sandbox/hardware_video_encoding_sandbox_hook_linux.h"
+// gn check is not smart enough to realize that this include only applies to
+// Linux/ChromeOS and the BUILD.gn dependencies correctly account for that.
+#include "third_party/angle/src/gpu_info_util/SystemInfo.h"  //nogncheck
+
 #if BUILDFLAG(ENABLE_PRINTING)
 #include "printing/sandbox/print_backend_sandbox_hook_linux.h"
 #endif
@@ -42,21 +47,24 @@
 #include "services/network/network_sandbox_hook_linux.h"
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/services/ime/ime_sandbox_hook.h"
-#include "chromeos/assistant/buildflags.h"
-#include "chromeos/services/tts/tts_sandbox_hook.h"
-#include "gpu/config/gpu_info_collector.h"
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_ASH)
 #include "media/gpu/sandbox/hardware_video_decoding_sandbox_hook_linux.h"
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_ASH)
 
-// gn check is not smart enough to realize that this include only applies to
-// ash-chrome and the BUILD.gn dependencies correctly account for that.
-#include "third_party/angle/src/gpu_info_util/SystemInfo.h"  // nogncheck
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chromeos/ash/components/assistant/buildflags.h"
+#include "chromeos/ash/services/ime/ime_sandbox_hook.h"
+#include "chromeos/services/tts/tts_sandbox_hook.h"
 
 #if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
-#include "chromeos/services/libassistant/libassistant_sandbox_hook.h"  // nogncheck
+#include "chromeos/ash/services/libassistant/libassistant_sandbox_hook.h"  // nogncheck
 #endif  // BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if (BUILDFLAG(ENABLE_SCREEN_AI_SERVICE) && \
+     (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)))
+#include "components/services/screen_ai/sandbox/screen_ai_sandbox_hook_linux.h"  // nogncheck
+#endif
 
 #if BUILDFLAG(IS_MAC)
 #include "base/message_loop/message_pump_mac.h"
@@ -64,6 +72,7 @@
 
 #if BUILDFLAG(IS_WIN)
 #include "base/rand_util.h"
+#include "base/win/win_util.h"
 #include "base/win/windows_version.h"
 #include "sandbox/win/src/sandbox.h"
 
@@ -71,15 +80,28 @@ sandbox::TargetServices* g_utility_target_services = nullptr;
 #endif
 
 namespace content {
+
 namespace {
 
-base::ThreadPriority GetIOThreadPriority(const std::string& utility_sub_type) {
-  return (base::FeatureList::IsEnabled(
-              features::kNetworkServiceUsesDisplayThreadPriority) &&
-          utility_sub_type == network::mojom::NetworkService::Name_)
-             ? base::ThreadPriority::DISPLAY
-             : base::ThreadPriority::NORMAL;
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+bool ShouldUseAmdGpuPolicy(sandbox::mojom::Sandbox sandbox_type) {
+  const bool obtain_gpu_info =
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_ASH)
+      sandbox_type == sandbox::mojom::Sandbox::kHardwareVideoDecoding ||
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_ASH)
+      sandbox_type == sandbox::mojom::Sandbox::kHardwareVideoEncoding;
+
+  if (obtain_gpu_info) {
+    // The kHardwareVideoDecoding and kHardwareVideoEncoding sandboxes need to
+    // know the GPU type in order to select the right policy.
+    gpu::GPUInfo gpu_info{};
+    gpu::CollectBasicGraphicsInfo(&gpu_info);
+    return angle::IsAMD(gpu_info.active_gpu().vendor_id);
+  }
+
+  return false;
 }
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 
 }  // namespace
 
@@ -124,10 +146,9 @@ int UtilityMain(MainFunctionParams parameters) {
   base::SingleThreadTaskExecutor main_thread_task_executor(message_pump_type);
   base::PlatformThread::SetName("CrUtilityMain");
 
-  const std::string utility_sub_type =
-      parameters.command_line->GetSwitchValueASCII(switches::kUtilitySubType);
-
   if (parameters.command_line->HasSwitch(switches::kUtilityStartupDialog)) {
+    const std::string utility_sub_type =
+        parameters.command_line->GetSwitchValueASCII(switches::kUtilitySubType);
     auto dialog_match = parameters.command_line->GetSwitchValueASCII(
         switches::kUtilityStartupDialog);
     if (dialog_match.empty() || dialog_match == utility_sub_type) {
@@ -158,13 +179,24 @@ int UtilityMain(MainFunctionParams parameters) {
       pre_sandbox_hook =
           base::BindOnce(&speech::SpeechRecognitionPreSandboxHook);
       break;
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+    case sandbox::mojom::Sandbox::kScreenAI:
+      pre_sandbox_hook = base::BindOnce(&screen_ai::ScreenAIPreSandboxHook);
+      break;
+#endif
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_ASH)
     case sandbox::mojom::Sandbox::kHardwareVideoDecoding:
       pre_sandbox_hook =
           base::BindOnce(&media::HardwareVideoDecodingPreSandboxHook);
       break;
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_ASH)
+    case sandbox::mojom::Sandbox::kHardwareVideoEncoding:
+      pre_sandbox_hook =
+          base::BindOnce(&media::HardwareVideoEncodingPreSandboxHook);
+      break;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     case sandbox::mojom::Sandbox::kIme:
-      pre_sandbox_hook = base::BindOnce(&chromeos::ime::ImePreSandboxHook);
+      pre_sandbox_hook = base::BindOnce(&ash::ime::ImePreSandboxHook);
       break;
     case sandbox::mojom::Sandbox::kTts:
       pre_sandbox_hook = base::BindOnce(&chromeos::tts::TtsPreSandboxHook);
@@ -172,25 +204,18 @@ int UtilityMain(MainFunctionParams parameters) {
 #if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
     case sandbox::mojom::Sandbox::kLibassistant:
       pre_sandbox_hook =
-          base::BindOnce(&chromeos::libassistant::LibassistantPreSandboxHook);
+          base::BindOnce(&ash::libassistant::LibassistantPreSandboxHook);
       break;
 #endif  // BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
     default:
       break;
   }
-  if (parameters.zygote_child || !pre_sandbox_hook.is_null()) {
+  if (!sandbox::policy::IsUnsandboxedSandboxType(sandbox_type) &&
+      (parameters.zygote_child || !pre_sandbox_hook.is_null())) {
     sandbox::policy::SandboxLinux::Options sandbox_options;
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-    if (sandbox_type == sandbox::mojom::Sandbox::kHardwareVideoDecoding) {
-      // The kHardwareVideoDecoding sandbox needs to know the GPU type in order
-      // to select the right policy.
-      gpu::GPUInfo gpu_info{};
-      gpu::CollectBasicGraphicsInfo(&gpu_info);
-      sandbox_options.use_amd_specific_policies =
-          angle::IsAMD(gpu_info.active_gpu().vendor_id);
-    }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+    sandbox_options.use_amd_specific_policies =
+        ShouldUseAmdGpuPolicy(sandbox_type);
     sandbox::policy::Sandbox::Initialize(
         sandbox_type, std::move(pre_sandbox_hook), sandbox_options);
   }
@@ -198,7 +223,7 @@ int UtilityMain(MainFunctionParams parameters) {
   g_utility_target_services = parameters.sandbox_info->target_services;
 #endif
 
-  ChildProcess utility_process(GetIOThreadPriority(utility_sub_type));
+  ChildProcess utility_process(base::ThreadType::kDefault);
   GetContentClient()->utility()->PostIOThreadCreated(
       utility_process.io_task_runner());
   base::RunLoop run_loop;
@@ -242,6 +267,21 @@ int UtilityMain(MainFunctionParams parameters) {
   if (base::win::GetVersion() < base::win::Version::WIN11) {
     HMODULE shell32_pin = ::LoadLibrary(L"shell32.dll");
     UNREFERENCED_PARAMETER(shell32_pin);
+  }
+
+  // Not all utility processes require DPI awareness as this context only
+  // pertains to certain workloads & impacted system API calls (e.g. UX
+  // scaling or per-monitor windowing). We do not blanket apply DPI awareness
+  // as utility processes running within a kService sandbox with the Win32K
+  // Lockdown policy applied may crash when calling EnableHighDPISupport. See
+  // crbug.com/978133.
+  if (sandbox_type == sandbox::mojom::Sandbox::kMediaFoundationCdm) {
+    // The Media Foundation Utility Process needs to be marked as DPI aware so
+    // the Media Engine & CDM can correctly identify the target monitor for
+    // video output. This is required to ensure that the proper monitor is
+    // queried for hardware capabilities & any settings are applied to the
+    // correct monitor.
+    base::win::EnableHighDPISupport();
   }
 
   if (!sandbox::policy::IsUnsandboxedSandboxType(sandbox_type) &&

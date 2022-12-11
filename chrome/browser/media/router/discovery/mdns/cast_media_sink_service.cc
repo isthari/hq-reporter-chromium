@@ -1,17 +1,19 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/media/router/discovery/mdns/cast_media_sink_service.h"
 
 #include "base/bind.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/media/router/discovery/discovery_network_monitor.h"
 #include "chrome/browser/media/router/discovery/mdns/media_sink_util.h"
 #include "chrome/browser/media/router/media_router_feature.h"
-#include "components/cast_channel/cast_socket_service.h"
 #include "components/media_router/common/media_sink.h"
+#include "components/media_router/common/pref_names.h"
+#include "components/media_router/common/providers/cast/channel/cast_socket_service.h"
 #include "components/prefs/pref_service.h"
 
 namespace media_router {
@@ -46,7 +48,7 @@ void CastMediaSinkService::Start(
   impl_ =
       CreateImpl(base::BindRepeating(
                      &RunSinksDiscoveredCallbackOnSequence,
-                     base::SequencedTaskRunnerHandle::Get(),
+                     base::SequencedTaskRunner::GetCurrentDefault(),
                      base::BindRepeating(
                          &CastMediaSinkService::RunSinksDiscoveredCallback,
                          weak_ptr_factory_.GetWeakPtr(), sinks_discovered_cb)),
@@ -99,10 +101,9 @@ void CastMediaSinkService::StartMdnsDiscovery() {
     dns_sd_registry_ = DnsSdRegistry::GetInstance();
     dns_sd_registry_->AddObserver(this);
     dns_sd_registry_->RegisterDnsSdListener(kCastServiceType);
-    if (logger_impl_) {
-      logger_impl_->LogInfo(mojom::LogCategory::kDiscovery, kLoggerComponent,
-                            "mDNS discovery started.", "", "", "");
-    }
+    LoggerList::GetInstance()->Log(
+        LoggerImpl::Severity::kInfo, mojom::LogCategory::kDiscovery,
+        kLoggerComponent, "mDNS discovery started.", "", "", "");
   }
 }
 
@@ -154,26 +155,6 @@ void CastMediaSinkService::RunSinksDiscoveredCallback(
     std::vector<MediaSinkInternal> sinks) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   sinks_discovered_cb.Run(std::move(sinks));
-}
-
-void CastMediaSinkService::BindLogger(LoggerImpl* logger_impl) {
-  DCHECK(logger_impl);
-  logger_impl_ = logger_impl;
-  if (dns_sd_registry_) {
-    logger_impl->LogInfo(mojom::LogCategory::kDiscovery, kLoggerComponent,
-                         "mDNS service has started.", "", "", "");
-  }
-
-  mojo::PendingRemote<mojom::Logger> pending_remote;
-  logger_impl_->Bind(pending_remote.InitWithNewPipeAndPassReceiver());
-  impl_->task_runner()->PostTask(
-      FROM_HERE,
-      base::BindOnce(&CastMediaSinkServiceImpl::BindLogger,
-                     base::Unretained(impl_.get()), std::move(pending_remote)));
-}
-
-void CastMediaSinkService::RemoveLogger() {
-  logger_impl_ = nullptr;
 }
 
 }  // namespace media_router

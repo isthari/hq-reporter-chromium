@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,10 +17,6 @@ namespace ash {
 
 class AppListFolderItem;
 class FolderHeaderViewDelegate;
-
-namespace test {
-class FolderHeaderViewTest;
-}
 
 // FolderHeaderView contains an editable folder name field.
 class ASH_EXPORT FolderHeaderView : public views::View,
@@ -52,7 +48,7 @@ class ASH_EXPORT FolderHeaderView : public views::View,
 
  private:
   class FolderNameView;
-  friend class test::FolderHeaderViewTest;
+  friend class FolderHeaderViewTest;
   friend class PopulatedAppListTest;
 
   // Updates UI.

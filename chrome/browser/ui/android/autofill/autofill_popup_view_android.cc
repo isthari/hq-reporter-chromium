@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,11 @@
 #include "base/strings/strcat.h"
 #include "chrome/android/chrome_jni_headers/AutofillPopupBridge_jni.h"
 #include "chrome/browser/android/resource_mapper.h"
-#include "chrome/browser/autofill/autofill_keyboard_accessory_adapter.h"
+#include "chrome/browser/autofill/autofill_popup_controller_utils.h"
+#include "chrome/browser/ui/android/autofill/autofill_accessibility_utils.h"
 #include "chrome/browser/ui/android/autofill/autofill_keyboard_accessory_view.h"
+#include "chrome/browser/ui/autofill/autofill_keyboard_accessory_adapter.h"
 #include "chrome/browser/ui/autofill/autofill_popup_controller.h"
-#include "chrome/browser/ui/autofill/autofill_popup_controller_utils.h"
 #include "components/autofill/core/browser/ui/popup_item_ids.h"
 #include "components/autofill/core/browser/ui/suggestion.h"
 #include "components/autofill/core/common/autofill_payments_features.h"
@@ -78,15 +79,37 @@ void AutofillPopupViewAndroid::OnSuggestionsChanged() {
       Java_AutofillPopupBridge_createAutofillSuggestionArray(env, count);
 
   for (size_t i = 0; i < count; ++i) {
-    std::u16string value_text =
-        controller_->GetSuggestionMinorTextAt(i).empty()
-            ? controller_->GetSuggestionMainTextAt(i)
-            : base::StrCat({controller_->GetSuggestionMainTextAt(i), u" ",
-                            controller_->GetSuggestionMinorTextAt(i)});
-    ScopedJavaLocalRef<jstring> value =
-        base::android::ConvertUTF16ToJavaString(env, value_text);
-    ScopedJavaLocalRef<jstring> label = base::android::ConvertUTF16ToJavaString(
-        env, controller_->GetSuggestionLabelAt(i));
+    std::u16string label;
+    std::u16string secondary_label;
+    if (base::FeatureList::IsEnabled(
+            features::kAutofillEnableVirtualCardMetadata) &&
+        base::FeatureList::IsEnabled(
+            features::kAutofillEnableCardProductName)) {
+      label = controller_->GetSuggestionMainTextAt(i);
+      secondary_label = controller_->GetSuggestionMinorTextAt(i);
+    } else {
+      label = controller_->GetSuggestionMinorTextAt(i).empty()
+                  ? controller_->GetSuggestionMainTextAt(i)
+                  : base::StrCat({controller_->GetSuggestionMainTextAt(i), u" ",
+                                  controller_->GetSuggestionMinorTextAt(i)});
+    }
+    std::vector<std::vector<autofill::Suggestion::Text>> suggestion_labels =
+        controller_->GetSuggestionLabelsAt(i);
+    std::u16string sublabel;
+    std::u16string secondary_sublabel;
+    std::u16string item_tag;
+    DCHECK_LE(suggestion_labels.size(), 2U);
+    if (suggestion_labels.size() > 0) {
+      DCHECK_LE(suggestion_labels[0].size(), 2U);
+      sublabel = std::move(suggestion_labels[0][0].value);
+      if (suggestion_labels[0].size() > 1)
+        secondary_sublabel = std::move(suggestion_labels[0][1].value);
+    }
+    if (suggestion_labels.size() > 1) {
+      DCHECK_EQ(suggestion_labels[1].size(), 1U);
+      item_tag = std::move(suggestion_labels[1][0].value);
+    }
+
     int android_icon_id = 0;
 
     const Suggestion& suggestion = controller_->GetSuggestionAt(i);
@@ -102,22 +125,25 @@ void AutofillPopupViewAndroid::OnSuggestionsChanged() {
             POPUP_ITEM_ID_INSECURE_CONTEXT_PAYMENT_DISABLED_MESSAGE ||
         suggestion.frontend_id == POPUP_ITEM_ID_CREDIT_CARD_SIGNIN_PROMO ||
         suggestion.frontend_id == POPUP_ITEM_ID_MIXED_FORM_MESSAGE;
-    // Set the offer title to display as the item tag.
-    ScopedJavaLocalRef<jstring> item_tag =
-        base::android::ConvertUTF16ToJavaString(
-            env, base::FeatureList::IsEnabled(
-                     features::kAutofillEnableOffersInDownstream)
-                     ? suggestion.offer_label
-                     : std::u16string());
+
     Java_AutofillPopupBridge_addToAutofillSuggestionArray(
-        env, data_array, i, value, label, item_tag, android_icon_id,
-        /*icon_at_start=*/false, suggestion.frontend_id, is_deletable,
+        env, java_object_, data_array, i,
+        base::android::ConvertUTF16ToJavaString(env, label),
+        base::android::ConvertUTF16ToJavaString(env, secondary_label),
+        base::android::ConvertUTF16ToJavaString(env, sublabel),
+        base::android::ConvertUTF16ToJavaString(env, secondary_sublabel),
+        base::android::ConvertUTF16ToJavaString(env, item_tag), android_icon_id,
+        suggestion.is_icon_at_start, suggestion.frontend_id, is_deletable,
         is_label_multiline, /*isLabelBold*/ false,
         url::GURLAndroid::FromNativeGURL(env, suggestion.custom_icon_url));
   }
 
   Java_AutofillPopupBridge_show(env, java_object_, data_array,
                                 controller_->IsRTL());
+}
+
+void AutofillPopupViewAndroid::AxAnnounce(const std::u16string& text) {
+  AnnounceTextForA11y(text);
 }
 
 absl::optional<int32_t> AutofillPopupViewAndroid::GetAxUniqueId() {
@@ -143,7 +169,7 @@ void AutofillPopupViewAndroid::DeletionRequested(
 
   std::u16string confirmation_title, confirmation_body;
   if (!controller_->GetRemovalConfirmationText(list_index, &confirmation_title,
-          &confirmation_body)) {
+                                               &confirmation_body)) {
     return;
   }
 

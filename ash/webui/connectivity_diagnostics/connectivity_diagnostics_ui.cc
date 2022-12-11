@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <utility>
 
-#include "ash/grit/connectivity_diagnostics_resources.h"
-#include "ash/grit/connectivity_diagnostics_resources_map.h"
 #include "ash/webui/connectivity_diagnostics/url_constants.h"
+#include "ash/webui/grit/connectivity_diagnostics_resources.h"
+#include "ash/webui/grit/connectivity_diagnostics_resources_map.h"
 #include "ash/webui/network_ui/network_diagnostics_resource_provider.h"
 #include "ash/webui/network_ui/network_health_resource_provider.h"
 #include "chromeos/services/network_health/public/mojom/network_diagnostics.mojom.h"
@@ -51,13 +51,13 @@ class ConnectivityDiagnosticsMessageHandler
   ~ConnectivityDiagnosticsMessageHandler() override = default;
 
   void RegisterMessages() override {
-    web_ui()->RegisterDeprecatedMessageCallback(
+    web_ui()->RegisterMessageCallback(
         "sendFeedbackReport",
         base::BindRepeating(
             &ConnectivityDiagnosticsMessageHandler::SendFeedbackReportRequest,
             base::Unretained(this)));
 
-    web_ui()->RegisterDeprecatedMessageCallback(
+    web_ui()->RegisterMessageCallback(
         "getShowFeedbackButton",
         base::BindRepeating(
             &ConnectivityDiagnosticsMessageHandler::GetShowFeedbackButton,
@@ -65,19 +65,18 @@ class ConnectivityDiagnosticsMessageHandler
   }
 
  private:
-  void SendFeedbackReportRequest(const base::ListValue* value) {
+  void SendFeedbackReportRequest(const base::Value::List& value) {
     send_feedback_report_callback_.Run(/*extra_diagnostics*/ "");
   }
 
   // TODO(crbug/1220965): Remove conditional feedback button when WebUI feedback
   // is launched.
-  void GetShowFeedbackButton(const base::ListValue* value) {
-    auto args = value->GetList();
+  void GetShowFeedbackButton(const base::Value::List& args) {
     if (args.size() < 1 || !args[0].is_string())
       return;
 
     auto callback_id = args[0].GetString();
-    base::Value response(base::Value::Type::LIST);
+    base::Value::List response;
     response.Append(base::Value(show_feedback_button_));
 
     AllowJavascript();
@@ -104,11 +103,13 @@ ConnectivityDiagnosticsUI::ConnectivityDiagnosticsUI(
   DCHECK(bind_network_diagnostics_service_callback_);
   DCHECK(bind_network_health_service_callback_);
   DCHECK(send_feedback_report_callback);
-  content::WebUIDataSource* source =
-      content::WebUIDataSource::Create(kChromeUIConnectivityDiagnosticsHost);
+  content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
+      web_ui->GetWebContents()->GetBrowserContext(),
+      kChromeUIConnectivityDiagnosticsHost);
   source->OverrideContentSecurityPolicy(
       network::mojom::CSPDirectiveName::ScriptSrc,
-      "script-src chrome://resources chrome://test 'self';");
+      "script-src chrome://resources chrome://test chrome://webui-test "
+      "'self';");
 
   source->DisableTrustedTypesCSP();
   source->UseStringsJs();
@@ -132,11 +133,8 @@ ConnectivityDiagnosticsUI::ConnectivityDiagnosticsUI(
   source->AddLocalizedString("closeBtn", IDS_CONNECTIVITY_DIAGNOSTICS_CLOSE);
   source->AddLocalizedString("sendFeedbackBtn",
                              IDS_CONNECTIVITY_DIAGNOSTICS_SEND_FEEDBACK);
-  chromeos::network_diagnostics::AddResources(source);
-  chromeos::network_health::AddResources(source);
-
-  content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
-                                source);
+  network_diagnostics::AddResources(source);
+  network_health::AddResources(source);
 }
 
 ConnectivityDiagnosticsUI::~ConnectivityDiagnosticsUI() = default;

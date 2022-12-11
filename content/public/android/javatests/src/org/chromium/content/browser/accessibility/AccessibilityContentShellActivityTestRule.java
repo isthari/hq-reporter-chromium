@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@ import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 
+import org.chromium.base.FeatureList;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.UrlUtils;
@@ -102,6 +103,8 @@ public class AccessibilityContentShellActivityTestRule extends ContentShellActiv
 
         mTracker = new AccessibilityActionAndEventTracker();
         mWcax.setAccessibilityTrackerForTesting(mTracker);
+
+        FeatureList.setTestCanUseDefaultsForTesting();
     }
 
     /**
@@ -120,6 +123,9 @@ public class AccessibilityContentShellActivityTestRule extends ContentShellActiv
 
         // Reset our test data.
         AccessibilityContentShellTestData.resetData();
+
+        FeatureList.resetTestCanUseDefaultsForTesting();
+        FeatureList.setTestFeatures(null);
     }
 
     /**

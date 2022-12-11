@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,12 @@
 #include <memory>
 #include <string>
 
+#include "base/values.h"
 #include "extensions/common/extension_id.h"
 #include "extensions/common/mojom/frame.mojom-forward.h"
 #include "extensions/renderer/bindings/api_binding_types.h"
 
 struct ExtensionHostMsg_APIActionOrEvent_Params;
-
-namespace base {
-class DictionaryValue;
-}
 
 namespace extensions {
 class ScriptContext;
@@ -62,15 +59,14 @@ class IPCMessageSender {
       const std::string& event_name) = 0;
 
   // Sends a message to add/remove a filtered listener.
-  virtual void SendAddFilteredEventListenerIPC(
-      ScriptContext* context,
-      const std::string& event_name,
-      const base::DictionaryValue& filter,
-      bool is_lazy) = 0;
+  virtual void SendAddFilteredEventListenerIPC(ScriptContext* context,
+                                               const std::string& event_name,
+                                               const base::Value::Dict& filter,
+                                               bool is_lazy) = 0;
   virtual void SendRemoveFilteredEventListenerIPC(
       ScriptContext* context,
       const std::string& event_name,
-      const base::DictionaryValue& filter,
+      const base::Value::Dict& filter,
       bool remove_lazy_listener) = 0;
 
   // Opens a message channel to the specified target.
@@ -87,6 +83,11 @@ class IPCMessageSender {
                                     bool close_channel) = 0;
   virtual void SendPostMessageToPort(const PortId& port_id,
                                      const Message& message) = 0;
+
+  // Sends a message indicating that a receiver of a message indicated that it
+  // plans to send a response later.
+  virtual void SendMessageResponsePending(int routing_id,
+                                          const PortId& port_id) = 0;
 
   // Sends activityLog IPC to the browser process.
   virtual void SendActivityLogIPC(

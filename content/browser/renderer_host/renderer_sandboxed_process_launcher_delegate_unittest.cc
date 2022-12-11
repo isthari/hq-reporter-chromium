@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,10 +38,10 @@ class RendererFeatureSandboxWinTest
  public:
   RendererFeatureSandboxWinTest() = default;
 
-  // App Containers are only available in Windows 8 and up
   ::sandbox::AppContainerType GetExpectedAppContainerType() override {
-    if (base::win::GetVersion() >= base::win::Version::WIN8 &&
-        ::testing::get<0>(GetParam()))
+    // App Containers are not well supported until Windows 10 RS5.
+    if (base::win::GetVersion() >= base::win::Version::WIN10_RS5 &&
+        ::testing::get<TestParameter::kEnableRendererAppContainer>(GetParam()))
       return ::sandbox::AppContainerType::kLowbox;
 
     return ::sandbox::AppContainerType::kNone;
@@ -61,7 +61,7 @@ TEST_P(RendererFeatureSandboxWinTest, RendererGeneratedPolicyTest) {
   base::HandlesToInheritVector handles_to_inherit;
   ::sandbox::BrokerServices* broker =
       ::sandbox::SandboxFactory::GetBrokerServices();
-  scoped_refptr<::sandbox::TargetPolicy> policy = broker->CreatePolicy();
+  auto policy = broker->CreatePolicy();
 
   content::RendererSandboxedProcessLauncherDelegateWin test_renderer_delegate(
       &cmd_line, /* is_jit_disabled */ false);
@@ -70,12 +70,12 @@ TEST_P(RendererFeatureSandboxWinTest, RendererGeneratedPolicyTest) {
   ::sandbox::ResultCode result =
       ::sandbox::policy::SandboxWin::GeneratePolicyForSandboxedProcess(
           cmd_line, ::sandbox::policy::switches::kRendererProcess,
-          handles_to_inherit, &test_renderer_delegate, policy);
+          handles_to_inherit, &test_renderer_delegate, policy.get());
   ASSERT_EQ(::sandbox::ResultCode::SBOX_ALL_OK, result);
 
-  ValidateSecurityLevels(policy);
-  ValidatePolicyFlagSettings(policy);
-  ValidateAppContainerSettings(policy);
+  ValidateSecurityLevels(policy->GetConfig());
+  ValidatePolicyFlagSettings(policy->GetConfig());
+  ValidateAppContainerSettings(policy->GetConfig());
 }
 
 INSTANTIATE_TEST_SUITE_P(

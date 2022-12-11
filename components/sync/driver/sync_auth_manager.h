@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,11 +27,6 @@ struct AccessTokenInfo;
 }  // namespace signin
 
 namespace syncer {
-
-// Enables the retry of the token fetch without backoff on the first fetch
-// cancellation.
-constexpr inline base::Feature kSyncRetryFirstCanceledTokenFetch = {
-    "SyncRetryFirstCanceledTokenFetch", base::FEATURE_ENABLED_BY_DEFAULT};
 
 struct SyncCredentials;
 
@@ -117,6 +112,9 @@ class SyncAuthManager : public signin::IdentityManager::Observer {
       const CoreAccountInfo& account_info) override;
   void OnRefreshTokenRemovedForAccount(
       const CoreAccountId& account_id) override;
+  void OnErrorStateOfRefreshTokenUpdatedForAccount(
+      const CoreAccountInfo& account_info,
+      const GoogleServiceAuthError& error) override;
   void OnRefreshTokensLoaded() override;
 
   // Test-only methods for inspecting/modifying internal state.

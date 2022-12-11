@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,11 @@
 #include "components/crash/core/common/crash_key.h"
 #include "components/embedder_support/user_agent_utils.h"
 #include "components/page_info/android/page_info_client.h"
+#include "components/variations/variations_ids_provider.h"
 #include "weblayer/browser/android/metrics/weblayer_metrics_service_client.h"
 #include "weblayer/browser/component_updater/registration.h"
 #include "weblayer/browser/devtools_server_android.h"
 #include "weblayer/browser/java/jni/WebLayerImpl_jni.h"
-#include "weblayer/browser/url_bar/page_info_client_impl.h"
 #include "weblayer/common/crash_reporter/crash_keys.h"
 
 using base::android::JavaParamRef;
@@ -56,6 +56,18 @@ static void JNI_WebLayerImpl_RegisterExternalExperimentIDs(
 
   WebLayerMetricsServiceClient::GetInstance()->RegisterExternalExperiments(
       experiment_ids);
+}
+
+static base::android::ScopedJavaLocalRef<jstring>
+JNI_WebLayerImpl_GetXClientDataHeader(JNIEnv* env) {
+  std::string header;
+  auto headers =
+      variations::VariationsIdsProvider::GetInstance()->GetClientDataHeaders(
+          false /* is_signed_in */);
+  if (headers)
+    header =
+        headers->headers_map.at(variations::mojom::GoogleWebVisibility::ANY);
+  return base::android::ConvertUTF8ToJavaString(env, header);
 }
 
 std::u16string GetClientApplicationName() {

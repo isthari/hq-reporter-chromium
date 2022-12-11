@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 
 #include "base/cancelable_callback.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "components/viz/common/display/renderer_settings.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
@@ -67,7 +67,6 @@ class VIZ_SERVICE_EXPORT DisplayScheduler
   class BeginFrameRequestObserverImpl;
 
   bool OnBeginFrame(const BeginFrameArgs& args);
-  void BeginFrameRequestedChanged(bool requested);
   int MaxPendingSwaps() const;
 
   base::TimeTicks current_frame_display_time() const {
@@ -121,7 +120,6 @@ class VIZ_SERVICE_EXPORT DisplayScheduler
       base::flat_set<base::PlatformThreadId> thread_ids);
 
   std::unique_ptr<BeginFrameObserver> begin_frame_observer_;
-  std::unique_ptr<BeginFrameSourceObserver> begin_frame_state_observer_;
   raw_ptr<BeginFrameSource> begin_frame_source_;
   raw_ptr<base::SingleThreadTaskRunner> task_runner_;
 
@@ -150,6 +148,7 @@ class VIZ_SERVICE_EXPORT DisplayScheduler
   const raw_ptr<HintSessionFactory> hint_session_factory_;
   base::flat_set<base::PlatformThreadId> current_thread_ids_;
   std::unique_ptr<HintSession> hint_session_;
+  bool create_session_for_current_thread_ids_failed_ = false;
 
   // If set, we are dynamically adjusting our frame deadline, by the percentile
   // of historic draw times to base the adjustment on.

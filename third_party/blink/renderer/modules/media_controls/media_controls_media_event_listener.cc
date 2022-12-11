@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -69,8 +69,7 @@ void MediaControlsMediaEventListener::Attach() {
       event_type_names::kFullscreenchange, this, false);
 
   // Picture-in-Picture events.
-  if (RuntimeEnabledFeatures::PictureInPictureEnabled() &&
-      media_controls_->GetDocument().GetSettings() &&
+  if (media_controls_->GetDocument().GetSettings() &&
       media_controls_->GetDocument()
           .GetSettings()
           ->GetPictureInPictureEnabled() &&

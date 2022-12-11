@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/bind.h"
-#include "chrome/browser/ash/input_method/mock_input_method_manager_impl.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/external_provider_impl.h"
@@ -128,10 +127,11 @@ class ExtensionCleanupHandlerUnittest : public testing::Test {
   }
 
   void SetupExemptList() {
-    const base::Value exemptList[]{base::Value(kExemptExtensionId)};
+    base::Value::List exempt_list;
+    exempt_list.Append(kExemptExtensionId);
     mock_prefs_->SetManagedPref(
         prefs::kRestrictedManagedGuestSessionExtensionCleanupExemptList,
-        std::make_unique<base::ListValue>(exemptList));
+        base::Value(std::move(exempt_list)));
   }
 
   content::BrowserTaskEnvironment task_environment_;
@@ -164,7 +164,7 @@ TEST_F(ExtensionCleanupHandlerUnittest, Cleanup) {
   SetupExemptList();
   std::unique_ptr<extensions::ExtensionSet> all_installed_extensions =
       extension_registry_->GenerateInstalledExtensionsSet();
-  EXPECT_EQ(all_installed_extensions->size(), 3);
+  EXPECT_EQ(all_installed_extensions->size(), 3u);
 
   base::RunLoop run_loop;
   extension_cleanup_handler_->Cleanup(
@@ -176,7 +176,7 @@ TEST_F(ExtensionCleanupHandlerUnittest, Cleanup) {
 
   all_installed_extensions =
       extension_registry_->GenerateInstalledExtensionsSet();
-  EXPECT_EQ(all_installed_extensions->size(), 1);
+  EXPECT_EQ(all_installed_extensions->size(), 1u);
   EXPECT_TRUE(all_installed_extensions->Contains(kExemptExtensionId));
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #define CHROME_BROWSER_EXTENSIONS_SITE_PERMISSIONS_HELPER_H_
 
 #include "base/memory/raw_ptr.h"
+#include "chrome/browser/ui/toolbar/toolbar_actions_model.h"
+#include "extensions/browser/permissions_manager.h"
 
 class Profile;
 class GURL;
@@ -32,11 +34,13 @@ class SitePermissionsHelper {
   enum class SiteInteraction {
     // The extension cannot run on the site.
     kNone,
-    // The extension would like access to the site, but is pending user
-    // approval.
-    kPending,
+    // The extension has withheld site access by the user.
+    kWithheld,
+    // The extension has activeTab permission to run on the site, but is pending
+    // user action to run.
+    kActiveTab,
     // The extension has permission to run on the site.
-    kActive,
+    kGranted,
   };
 
   explicit SitePermissionsHelper(Profile* profile);
@@ -44,10 +48,14 @@ class SitePermissionsHelper {
   const SitePermissionsHelper& operator=(const SitePermissionsHelper&) = delete;
   ~SitePermissionsHelper();
 
-  // Returns the current site access pointed by `web_contents` for `extension`.
-  SiteAccess GetCurrentSiteAccess(const Extension& extension,
-                                  content::WebContents* web_contents) const;
-  // Returns the site interaction pointed by `web_contents` for `extension`.
+  // Returns the site access for `extension` in `gurl`. This can only be called
+  // if the url is not restricted, and if the user can configure site access for
+  // the extension (which excludes things like policy extensions) or if the
+  // extension has active tab permission.
+  SiteAccess GetSiteAccess(const Extension& extension, const GURL& gurl) const;
+
+  // Returns the site interaction for `extension` in the current site pointed by
+  // `web_contents`.
   SiteInteraction GetSiteInteraction(const Extension& extension,
                                      content::WebContents* web_contents) const;
 
@@ -58,12 +66,24 @@ class SitePermissionsHelper {
                         content::WebContents* web_contents,
                         SitePermissionsHelper::SiteAccess new_access);
 
+  // Updates the user site settings pointed to by `web_contents` to
+  // `site_setting` for `action_ids`.
+  void UpdateUserSiteSettings(
+      const base::flat_set<ToolbarActionsModel::ActionId>& action_ids,
+      content::WebContents* web_contents,
+      PermissionsManager::UserSiteSetting site_setting);
+
+  // Returns whether `site_access` option can be selected for `extension` in
+  // `url`.
+  bool CanSelectSiteAccess(const Extension& extension,
+                           const GURL& gurl,
+                           SiteAccess site_access) const;
+
   // Returns whether the `extension` has been blocked on the given
   // `web_contents`.
   bool HasBeenBlocked(const Extension& extension,
                       content::WebContents* web_contents) const;
 
- private:
   // Returns true if this extension uses the activeTab permission and would
   // probably be able to to access the given `url`. The actual checks when an
   // activeTab extension tries to run are a little more complicated and can be
@@ -74,6 +94,15 @@ class SitePermissionsHelper {
   bool HasActiveTabAndCanAccess(const Extension& extension,
                                 const GURL& url) const;
 
+  // Returns true if `extension_id` can show site access requests in the
+  // toolbar.
+  bool ShowAccessRequestsInToolbar(const std::string& extension_id);
+
+  // Sets whether `extenson_id` can show site access requests in the toolbar.
+  void SetShowAccessRequestsInToolbar(const std::string& extension_id,
+                                      bool show_access_requests_in_toolbar);
+
+ private:
   raw_ptr<Profile> profile_;
 };
 

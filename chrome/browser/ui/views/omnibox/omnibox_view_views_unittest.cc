@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,7 +33,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/omnibox/chrome_omnibox_client.h"
 #include "chrome/browser/ui/omnibox/chrome_omnibox_edit_controller.h"
-#include "chrome/browser/ui/omnibox/omnibox_theme.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/testing_profile.h"
@@ -70,7 +69,6 @@
 #include "chrome/browser/ash/input_method/mock_input_method_manager_impl.h"
 #endif
 
-using FeatureAndParams = base::test::ScopedFeatureList::FeatureAndParams;
 using gfx::Range;
 using metrics::OmniboxEventProto;
 
@@ -300,8 +298,8 @@ class TestingOmniboxEditController : public ChromeOmniboxEditController {
 class OmniboxViewViewsTestBase : public ChromeViewsTestBase {
  public:
   OmniboxViewViewsTestBase(
-      const std::vector<FeatureAndParams>& enabled_features,
-      const std::vector<base::Feature>& disabled_features,
+      const std::vector<base::test::FeatureRefAndParams>& enabled_features,
+      const std::vector<base::test::FeatureRef>& disabled_features,
       bool is_rtl_ui_test = false) {
     scoped_feature_list_.InitWithFeaturesAndParameters(enabled_features,
                                                        disabled_features);
@@ -314,13 +312,14 @@ class OmniboxViewViewsTestBase : public ChromeViewsTestBase {
 
 class OmniboxViewViewsTest : public OmniboxViewViewsTestBase {
  public:
-  OmniboxViewViewsTest(const std::vector<FeatureAndParams>& enabled_features,
-                       const std::vector<base::Feature>& disabled_features,
-                       bool is_rtl_ui_test = false);
+  OmniboxViewViewsTest(
+      const std::vector<base::test::FeatureRefAndParams>& enabled_features,
+      const std::vector<base::test::FeatureRef>& disabled_features,
+      bool is_rtl_ui_test = false);
 
   OmniboxViewViewsTest()
-      : OmniboxViewViewsTest(std::vector<FeatureAndParams>(),
-                             std::vector<base::Feature>()) {}
+      : OmniboxViewViewsTest(std::vector<base::test::FeatureRefAndParams>(),
+                             std::vector<base::test::FeatureRef>()) {}
   OmniboxViewViewsTest(const OmniboxViewViewsTest&) = delete;
   OmniboxViewViewsTest& operator=(const OmniboxViewViewsTest&) = delete;
 
@@ -396,8 +395,8 @@ class OmniboxViewViewsTest : public OmniboxViewViewsTestBase {
 };
 
 OmniboxViewViewsTest::OmniboxViewViewsTest(
-    const std::vector<FeatureAndParams>& enabled_features,
-    const std::vector<base::Feature>& disabled_features,
+    const std::vector<base::test::FeatureRefAndParams>& enabled_features,
+    const std::vector<base::test::FeatureRef>& disabled_features,
     bool is_rtl_ui_test)
     : OmniboxViewViewsTestBase(enabled_features,
                                disabled_features,

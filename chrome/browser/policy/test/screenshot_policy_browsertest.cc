@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,7 +47,7 @@ class CaptureNotificationWaiter : public message_center::MessageCenterObserver {
 
   // message_center::MessageCenterObserver:
   void OnNotificationAdded(const std::string& notification_id) override {
-    if (notification_id == kScreenCaptureNotificationId)
+    if (notification_id.starts_with(kScreenCaptureNotificationId))
       run_loop_.Quit();
   }
 

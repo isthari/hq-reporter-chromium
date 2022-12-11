@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,10 @@
 #include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
 
 namespace arc {
 
@@ -193,12 +197,6 @@ void UpdateAuthAccountCheckStatus(mojom::AccountCheckStatus status,
   LogStabilityUmaEnum(
       GetHistogramNameByUserType("Arc.Auth.AccountCheck.Status", profile),
       status);
-}
-
-void UpdateAndroidIdSource(mojom::AndroidIdSource source,
-                           const Profile* profile) {
-  base::UmaHistogramEnumeration(
-      GetHistogramNameByUserType("Arc.Auth.AndroidIdSource", profile), source);
 }
 
 void UpdateAuthCodeFetcherProxyBypassUMA(bool proxy_bypassed,

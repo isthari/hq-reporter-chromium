@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,19 +12,24 @@
 #include "base/containers/flat_map.h"
 #include "base/cxx17_backports.h"
 #include "base/enterprise_util.h"
+#include "base/files/file_path.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/rand_util.h"
+#include "base/time/time.h"
 #include "base/version.h"
 #include "build/build_config.h"
 #include "chrome/updater/activity.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/crx_downloader_factory.h"
 #include "chrome/updater/external_constants.h"
+#include "chrome/updater/net/network.h"
 #include "chrome/updater/policy/service.h"
 #include "chrome/updater/prefs.h"
 #include "chrome/updater/updater_scope.h"
+#include "chrome/updater/util/util.h"
 #include "components/crx_file/crx_verifier.h"
 #include "components/prefs/pref_service.h"
+#include "components/update_client/buildflags.h"
 #include "components/update_client/network.h"
 #include "components/update_client/patch/in_process_patcher.h"
 #include "components/update_client/patcher.h"
@@ -36,34 +41,29 @@
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_WIN)
-#include "chrome/updater/win/net/network.h"
-#elif BUILDFLAG(IS_MAC)
-#include "chrome/updater/mac/net/network.h"
-#elif BUILDFLAG(IS_LINUX)
-#include "chrome/updater/linux/net/network.h"
+#include "base/win/win_util.h"
 #endif
-
-namespace {
-
-// Default time constants.
-const int kDelayOneMinute = 60;
-const int kDelayOneHour = kDelayOneMinute * 60;
-
-}  // namespace
 
 namespace updater {
 
 Configurator::Configurator(scoped_refptr<UpdaterPrefs> prefs,
                            scoped_refptr<ExternalConstants> external_constants)
     : prefs_(prefs),
-      policy_service_(PolicyService::Create()),
+      policy_service_(base::MakeRefCounted<PolicyService>(external_constants)),
       external_constants_(external_constants),
       activity_data_service_(
           std::make_unique<ActivityDataService>(GetUpdaterScope())),
       unzip_factory_(
           base::MakeRefCounted<update_client::InProcessUnzipperFactory>()),
       patch_factory_(
-          base::MakeRefCounted<update_client::InProcessPatcherFactory>()) {}
+          base::MakeRefCounted<update_client::InProcessPatcherFactory>()) {
+#if BUILDFLAG(IS_LINUX)
+  // On Linux creating the NetworkFetcherFactory requires performing blocking IO
+  // to load an external library. This should be done when the configurator is
+  // created.
+  GetNetworkFetcherFactory();
+#endif
+}
 Configurator::~Configurator() = default;
 
 double Configurator::InitialDelay() const {
@@ -77,9 +77,8 @@ int Configurator::ServerKeepAliveSeconds() const {
 
 int Configurator::NextCheckDelay() const {
   int minutes = 0;
-  return policy_service_->GetLastCheckPeriodMinutes(nullptr, &minutes)
-             ? minutes * kDelayOneMinute
-             : 5 * kDelayOneHour;
+  CHECK(policy_service_->GetLastCheckPeriodMinutes(nullptr, &minutes));
+  return base::Minutes(minutes).InSeconds();
 }
 
 int Configurator::OnDemandDelay() const {
@@ -111,7 +110,7 @@ std::string Configurator::GetChannel() const {
 }
 
 std::string Configurator::GetLang() const {
-  return "en-US";
+  return "";
 }
 
 std::string Configurator::GetOSLongName() const {
@@ -132,9 +131,10 @@ std::string Configurator::GetDownloadPreference() const {
 
 scoped_refptr<update_client::NetworkFetcherFactory>
 Configurator::GetNetworkFetcherFactory() {
-  if (!network_fetcher_factory_)
-    network_fetcher_factory_ =
-        base::MakeRefCounted<NetworkFetcherFactory>(GetPolicyService());
+  if (!network_fetcher_factory_) {
+    network_fetcher_factory_ = base::MakeRefCounted<NetworkFetcherFactory>(
+        PolicyServiceProxyConfiguration::Get(policy_service_));
+  }
   return network_fetcher_factory_;
 }
 
@@ -178,12 +178,7 @@ update_client::ActivityDataService* Configurator::GetActivityDataService()
 }
 
 bool Configurator::IsPerUserInstall() const {
-  switch (GetUpdaterScope()) {
-    case UpdaterScope::kSystem:
-      return false;
-    case UpdaterScope::kUser:
-      return true;
-  }
+  return !IsSystemInstall();
 }
 
 std::unique_ptr<update_client::ProtocolHandlerFactory>
@@ -192,8 +187,20 @@ Configurator::GetProtocolHandlerFactory() const {
 }
 
 absl::optional<bool> Configurator::IsMachineExternallyManaged() const {
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
-  return base::IsMachineExternallyManaged();
+#if BUILDFLAG(IS_WIN)
+  // TODO (crbug.com/1320776): For legacy compatibility, this uses
+  // base::IsEnrolledToDomain(). It cannot use IsEnterpriseDevice() because
+  // checking for AAD-join status involves a potentially blocking which is
+  // currently not allowed in this method.
+  // Consider whether this should use IsManagedDevice() instead.
+  return base::win::IsEnrolledToDomain();
+#elif BUILDFLAG(IS_MAC)
+  // TODO (crbug.com/1320776): For legacy compatibility, this uses
+  // IsEnterpriseDevice() which effectively equates to a domain join check.
+  // IsManagedDevice() involves potentially blocking calls which are currently
+  // not allowed in this method.
+  // Consider whether this should use IsManagedDevice() instead.
+  return base::IsEnterpriseDevice();
 #else
   return absl::nullopt;
 #endif
@@ -210,8 +217,19 @@ crx_file::VerifierFormat Configurator::GetCrxVerifierFormat() const {
 update_client::UpdaterStateProvider Configurator::GetUpdaterStateProvider()
     const {
   return base::BindRepeating([](bool /*is_machine*/) {
-    return base::flat_map<std::string, std::string>();
+    return update_client::UpdaterStateAttributes();
   });
 }
+
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+absl::optional<base::FilePath> Configurator::GetCrxCachePath() const {
+  absl::optional<base::FilePath> optional_result =
+      updater::GetBaseDataDirectory(GetUpdaterScope());
+  return optional_result.has_value()
+             ? absl::optional<base::FilePath>(
+                   optional_result.value().AppendASCII(kCrxCachePath))
+             : absl::nullopt;
+}
+#endif
 
 }  // namespace updater

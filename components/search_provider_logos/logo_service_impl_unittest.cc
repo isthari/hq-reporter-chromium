@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,10 +22,10 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/mock_callback.h"
 #include "base/test/simple_test_clock.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -312,10 +312,11 @@ class FakeImageDecoder : public image_fetcher::ImageDecoder {
  public:
   void DecodeImage(const std::string& image_data,
                    const gfx::Size& desired_image_frame_size,
+                   data_decoder::DataDecoder* data_decoder,
                    image_fetcher::ImageDecodedCallback callback) override {
     gfx::Image image = gfx::Image::CreateFrom1xPNGBytes(
         reinterpret_cast<const uint8_t*>(image_data.data()), image_data.size());
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), image));
   }
 };
@@ -990,7 +991,7 @@ void EnqueueCallbacks(LogoServiceImpl* logo_service,
   callbacks.on_fresh_decoded_logo_available =
       std::move((*fresh_callbacks)[start_index]);
   logo_service->GetLogo(std::move(callbacks), /*for_webui_ntp=*/false);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&EnqueueCallbacks, logo_service, cached_callbacks,
                      fresh_callbacks, start_index + 1));

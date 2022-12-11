@@ -24,7 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -290,6 +290,8 @@ Position EndOfWordPosition(const Position& position, WordSide side) {
 PositionInFlatTreeWithAffinity NextWordPosition(
     const PositionInFlatTree& start,
     PlatformWordBehavior platform_word_behavior) {
+  if (start.IsNull())
+    return PositionInFlatTreeWithAffinity();
   const PositionInFlatTree next =
       NextWordPositionInternal(start, platform_word_behavior);
   // Note: The word boundary can not be upstream position.
@@ -310,6 +312,8 @@ PositionWithAffinity NextWordPosition(
 
 PositionInFlatTreeWithAffinity PreviousWordPosition(
     const PositionInFlatTree& start) {
+  if (start.IsNull())
+    return PositionInFlatTreeWithAffinity();
   const PositionInFlatTree prev = PreviousWordPositionInternal(start);
   return AdjustBackwardPositionToAvoidCrossingEditingBoundaries(
       PositionInFlatTreeWithAffinity(prev), start);

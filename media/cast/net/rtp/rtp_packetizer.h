@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 namespace media {
 namespace cast {
 
+struct EncodedFrame;
 class PacedSender;
 
 struct RtpPacketizerConfig {
@@ -52,7 +53,7 @@ class RtpPacketizer {
   size_t send_octet_count() const { return send_octet_count_; }
 
  private:
-  void BuildCommonRTPheader(Packet* packet,
+  void BuildCommonRtpHeader(Packet* packet,
                             bool marker_bit,
                             RtpTimeTicks rtp_timestamp);
 

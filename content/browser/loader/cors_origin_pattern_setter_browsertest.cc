@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,7 +63,7 @@ class CorsOriginPatternSetterBrowserTest : public ContentBrowserTest {
   std::string GetReason() {
     bool executing = true;
     std::string reason;
-    web_contents()->GetMainFrame()->ExecuteJavaScriptForTests(
+    web_contents()->GetPrimaryMainFrame()->ExecuteJavaScriptForTests(
         script_, base::BindOnce(
                      [](bool* flag, std::string* reason, base::Value value) {
                        *flag = false;
@@ -197,14 +197,7 @@ IN_PROC_BROWSER_TEST_F(CorsOriginPatternSetterBrowserTest,
 
 // Tests if complete allow list set does not allow a host with a different port
 // to pass.
-// Flaky on Win/Mac. crbug.com/1188675
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
-#define MAYBE_BlockDifferentPort DISABLED_BlockDifferentPort
-#else
-#define MAYBE_BlockDifferentPort BlockDifferentPort
-#endif
-IN_PROC_BROWSER_TEST_F(CorsOriginPatternSetterBrowserTest,
-                       MAYBE_BlockDifferentPort) {
+IN_PROC_BROWSER_TEST_F(CorsOriginPatternSetterBrowserTest, BlockDifferentPort) {
   SetAllowList("http", kTestHost, kDisallowSubdomains);
 
   std::unique_ptr<TitleWatcher> watcher = CreateWatcher();

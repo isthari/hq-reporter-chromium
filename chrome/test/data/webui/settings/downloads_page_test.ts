@@ -1,16 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
 import 'chrome://settings/settings.js';
 
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {DownloadsBrowserProxy, DownloadsBrowserProxyImpl, SettingsDownloadsPageElement} from 'chrome://settings/lazy_load.js';
 import {assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
-// <if expr="chromeos">
+// <if expr="chromeos_ash">
 import {assertEquals} from 'chrome://webui-test/chai_assert.js';
 // </if>
 
@@ -45,7 +45,7 @@ class TestDownloadsBrowserProxy extends TestBrowserProxy implements
     this.methodCalled('resetAutoOpenFileTypes');
   }
 
-  // <if expr="chromeos">
+  // <if expr="chromeos_ash">
   getDownloadLocationText(path: string) {
     this.methodCalled('getDownloadLocationText', path);
     return Promise.resolve('downloads-text');
@@ -61,7 +61,7 @@ suite('DownloadsHandler', function() {
     downloadsBrowserProxy = new TestDownloadsBrowserProxy();
     DownloadsBrowserProxyImpl.setInstance(downloadsBrowserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     downloadsPage = document.createElement('settings-downloads-page');
     document.body.appendChild(downloadsPage);
@@ -84,7 +84,7 @@ suite('DownloadsHandler', function() {
     return downloadsBrowserProxy.whenCalled('selectDownloadLocation');
   });
 
-  test('openAdvancedDownloadsettings', function() {
+  test('openAdvancedDownloadsettings', async function() {
     let button = downloadsPage.shadowRoot!.querySelector<HTMLElement>(
         '#resetAutoOpenFileTypes');
     assertFalse(!!button);
@@ -96,17 +96,16 @@ suite('DownloadsHandler', function() {
     assertTrue(!!button);
 
     button!.click();
-    return downloadsBrowserProxy.whenCalled('resetAutoOpenFileTypes')
-        .then(function() {
-          webUIListenerCallback('auto-open-downloads-changed', false);
-          flush();
-          const button = downloadsPage.shadowRoot!.querySelector<HTMLElement>(
-              '#resetAutoOpenFileTypes');
-          assertFalse(!!button);
-        });
+    await downloadsBrowserProxy.whenCalled('resetAutoOpenFileTypes');
+
+    webUIListenerCallback('auto-open-downloads-changed', false);
+    flush();
+    button = downloadsPage.shadowRoot!.querySelector<HTMLElement>(
+        '#resetAutoOpenFileTypes');
+    assertFalse(!!button);
   });
 
-  // <if expr="chromeos">
+  // <if expr="chromeos_ash">
   function setDefaultDownloadPathPref(downloadPath: string) {
     downloadsPage.prefs = {
       download: {
@@ -114,8 +113,8 @@ suite('DownloadsHandler', function() {
           key: 'download.default_directory',
           type: chrome.settingsPrivate.PrefType.STRING,
           value: downloadPath,
-        }
-      }
+        },
+      },
     };
   }
 
@@ -126,14 +125,13 @@ suite('DownloadsHandler', function() {
     return pathElement!.textContent!.trim();
   }
 
-  test('rewrite default download paths', function() {
+  test('rewrite default download paths', async function() {
     setDefaultDownloadPathPref('downloads-path');
-    return downloadsBrowserProxy.whenCalled('getDownloadLocationText')
-        .then(path => {
-          assertEquals('downloads-path', path);
-          flush();
-          assertEquals('downloads-text', getDefaultDownloadPathString());
-        });
+    const path =
+        await downloadsBrowserProxy.whenCalled('getDownloadLocationText');
+    assertEquals('downloads-path', path);
+    flush();
+    assertEquals('downloads-text', getDefaultDownloadPathString());
   });
   // </if>
 });

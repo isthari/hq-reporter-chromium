@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -72,14 +72,14 @@ class DialMediaRouteProvider : public mojom::MediaRouteProvider,
                    const std::string& sink_id,
                    const std::string& presentation_id,
                    const url::Origin& origin,
-                   int32_t tab_id,
+                   int32_t frame_tree_node_id,
                    base::TimeDelta timeout,
                    bool incognito,
                    CreateRouteCallback callback) override;
   void JoinRoute(const std::string& media_source,
                  const std::string& presentation_id,
                  const url::Origin& origin,
-                 int32_t tab_id,
+                 int32_t frame_tree_node_id,
                  base::TimeDelta timeout,
                  bool incognito,
                  JoinRouteCallback callback) override;
@@ -168,7 +168,7 @@ class DialMediaRouteProvider : public mojom::MediaRouteProvider,
   void HandleStopAppResult(const MediaRoute::Id& route_id,
                            TerminateRouteCallback callback,
                            const absl::optional<std::string>& message,
-                           RouteRequestResult::ResultCode result_code);
+                           mojom::RouteRequestResultCode result_code);
   void NotifyAllOnRoutesUpdated();
   void NotifyOnRoutesUpdated(const std::vector<MediaRoute>& routes);
 

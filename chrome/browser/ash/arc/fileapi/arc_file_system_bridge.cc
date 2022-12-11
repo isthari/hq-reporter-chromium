@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/strings/escape.h"
 #include "base/system/sys_info.h"
 #include "base/task/bind_post_task.h"
 #include "base/task/thread_pool.h"
@@ -29,10 +30,9 @@
 #include "chrome/browser/ash/drive/file_system_util.h"
 #include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
-#include "chrome/browser/chromeos/fileapi/external_file_url_util.h"
+#include "chrome/browser/ash/fileapi/external_file_url_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/virtual_file_provider/virtual_file_provider_client.h"
+#include "chromeos/ash/components/dbus/virtual_file_provider/virtual_file_provider_client.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
@@ -40,7 +40,6 @@
 #include "extensions/browser/api/file_handlers/mime_util.h"
 #include "mojo/public/cpp/platform/platform_handle.h"
 #include "mojo/public/cpp/system/platform_handle.h"
-#include "net/base/escape.h"
 #include "storage/browser/file_system/external_mount_points.h"
 #include "storage/browser/file_system/file_system_context.h"
 #include "url/gurl.h"
@@ -67,6 +66,22 @@ bool IsTestImageBuild() {
          track.find(kTestImageRelease) != std::string::npos;
 }
 
+// Returns true if `download` passes validation.
+bool IsMediaStoreDownloadMetadataValid(
+    const mojom::MediaStoreDownloadMetadataPtr& download) {
+  // Download should have non-empty display name and owner package name.
+  if (download->display_name.empty() || download->owner_package_name.empty())
+    return false;
+
+  // Download should have path relative to "Download/" which is the download
+  // directory for the associated profile.
+  const base::FilePath download_path("Download/");
+  return download_path == download->relative_path ||
+         (!download->relative_path.IsAbsolute() &&
+          !download->relative_path.ReferencesParent() &&
+          download_path.IsParent(download->relative_path));
+}
+
 // Returns FileSystemContext.
 scoped_refptr<storage::FileSystemContext> GetFileSystemContext(
     content::BrowserContext* context) {
@@ -81,8 +96,7 @@ file_manager::util::FileSystemURLAndHandle GetFileSystemURL(
     const GURL& url) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   return file_manager::util::CreateIsolatedURLFromVirtualPath(
-      context, /* empty origin */ GURL(),
-      chromeos::ExternalFileURLToVirtualPath(url));
+      context, url::Origin(), ash::ExternalFileURLToVirtualPath(url));
 }
 
 // Retrieves file's metadata on the IO thread, and runs the callback on the UI
@@ -188,9 +202,9 @@ void ArcFileSystemBridge::GetFileName(const std::string& url,
   // It's generally not safe to unescape path separators in strings to be used
   // in file paths.
   if (url_decoded.is_empty() || !IsUrlAllowed(url_decoded) ||
-      !net::UnescapeBinaryURLComponentSafe(url_decoded.ExtractFileName(),
-                                           true /* fail_on_path_separators */,
-                                           &unescaped_file_name)) {
+      !base::UnescapeBinaryURLComponentSafe(url_decoded.ExtractFileName(),
+                                            true /* fail_on_path_separators */,
+                                            &unescaped_file_name)) {
     LOG(ERROR) << "Invalid URL: " << url << " " << url_decoded;
     std::move(callback).Run(absl::nullopt);
     return;
@@ -391,6 +405,26 @@ void ArcFileSystemBridge::GetFileSelectorElements(
                                                           std::move(callback));
 }
 
+void ArcFileSystemBridge::OnMediaStoreUriAdded(
+    const GURL& uri,
+    mojom::MediaStoreMetadataPtr metadata) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
+  // Validate `metadata`.
+  bool is_valid = false;
+  if (metadata->is_download())
+    is_valid = IsMediaStoreDownloadMetadataValid(metadata->get_download());
+
+  if (!is_valid) {
+    LOG(ERROR) << "`OnMediaStoreUriAdded()` called with invalid payload.";
+    NOTREACHED();
+    return;
+  }
+
+  for (auto& observer : observer_list_)
+    observer.OnMediaStoreUriAdded(uri, *metadata);
+}
+
 void ArcFileSystemBridge::GenerateVirtualFileId(
     const GURL& url_decoded,
     GenerateVirtualFileIdCallback callback,
@@ -401,12 +435,10 @@ void ArcFileSystemBridge::GenerateVirtualFileId(
     std::move(callback).Run(absl::nullopt);
     return;
   }
-  chromeos::DBusThreadManager::Get()
-      ->GetVirtualFileProviderClient()
-      ->GenerateVirtualFileId(
-          size, base::BindOnce(&ArcFileSystemBridge::OnGenerateVirtualFileId,
-                               weak_ptr_factory_.GetWeakPtr(), url_decoded,
-                               std::move(callback)));
+  ash::VirtualFileProviderClient::Get()->GenerateVirtualFileId(
+      size, base::BindOnce(&ArcFileSystemBridge::OnGenerateVirtualFileId,
+                           weak_ptr_factory_.GetWeakPtr(), url_decoded,
+                           std::move(callback)));
 }
 
 void ArcFileSystemBridge::OnGenerateVirtualFileId(
@@ -431,12 +463,10 @@ void ArcFileSystemBridge::OpenFileById(const GURL& url_decoded,
     return;
   }
 
-  chromeos::DBusThreadManager::Get()
-      ->GetVirtualFileProviderClient()
-      ->OpenFileById(id.value(),
-                     base::BindOnce(&ArcFileSystemBridge::OnOpenFileById,
-                                    weak_ptr_factory_.GetWeakPtr(), url_decoded,
-                                    std::move(callback), id.value()));
+  ash::VirtualFileProviderClient::Get()->OpenFileById(
+      id.value(), base::BindOnce(&ArcFileSystemBridge::OnOpenFileById,
+                                 weak_ptr_factory_.GetWeakPtr(), url_decoded,
+                                 std::move(callback), id.value()));
 }
 
 void ArcFileSystemBridge::OnOpenFileById(const GURL& url_decoded,
@@ -523,7 +553,7 @@ base::FilePath ArcFileSystemBridge::GetLinuxVFSPathFromExternalFileURL(
     const GURL& url) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  base::FilePath virtual_path = chromeos::ExternalFileURLToVirtualPath(url);
+  base::FilePath virtual_path = ash::ExternalFileURLToVirtualPath(url);
 
   std::string mount_name, cracked_id;
   storage::FileSystemType file_system_type;

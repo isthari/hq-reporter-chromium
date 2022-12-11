@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -286,7 +286,7 @@ TEST(AXTextUtils, GetWordStartOffsetsMalformedInputTest) {
   const std::u16string text =
       u"..we *## should parse $#@$ through bad ,,  input";
   EXPECT_THAT(GetWordStartOffsets(text),
-              testing::ElementsAre(2, 9, 16, 27, 35, 43));
+              testing::ElementsAre(2, 9, 16, 24, 27, 35, 43));
 }
 
 TEST(AXTextUtils, GetSentenceStartOffsetsBasicTest) {

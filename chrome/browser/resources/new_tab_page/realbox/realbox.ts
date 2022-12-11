@@ -1,48 +1,52 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import './realbox_dropdown.js';
 import './realbox_icon.js';
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {skColorToRgba} from 'chrome://resources/js/color_utils.js';
-import {hasKeyModifiers} from 'chrome://resources/js/util.m.js';
-import {Url} from 'chrome://resources/mojo/url/mojom/url.mojom-webui.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
+import {hasKeyModifiers} from 'chrome://resources/js/util_ts.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {I18nMixin, loadTimeData} from '../i18n_setup.js';
-import {AutocompleteMatch, AutocompleteResult, PageCallbackRouter, PageHandlerRemote, SearchBoxTheme} from '../realbox.mojom-webui.js';
+import {loadTimeData} from '../i18n_setup.js';
+import {AutocompleteMatch, AutocompleteResult, NavigationPredictor, PageCallbackRouter, PageHandlerInterface} from '../omnibox.mojom-webui.js';
 import {decodeString16, mojoString16, mojoTimeDelta} from '../utils.js';
 
+import {getTemplate} from './realbox.html.js';
 import {RealboxBrowserProxy} from './realbox_browser_proxy.js';
 import {RealboxDropdownElement} from './realbox_dropdown.js';
-import {AutocompleteMatchWithImageData} from './realbox_icon.js';
+import {RealboxIconElement} from './realbox_icon.js';
 
-type Input = {
-  text: string,
-  inline: string,
-};
+interface Input {
+  text: string;
+  inline: string;
+}
 
-type InputUpdate = {
-  text?: string,
-  inline?: string,
-  moveCursorToEnd?: boolean,
-};
+interface InputUpdate {
+  text?: string;
+  inline?: string;
+  moveCursorToEnd?: boolean;
+}
 
-interface RealboxElement {
+export interface RealboxElement {
   $: {
+    icon: RealboxIconElement,
     input: HTMLInputElement,
     inputWrapper: HTMLElement,
     matches: RealboxDropdownElement,
+    voiceSearchButton: HTMLElement,
   };
 }
 
 /** A real search box that behaves just like the Omnibox. */
-class RealboxElement extends I18nMixin
-(PolymerElement) {
+export class RealboxElement extends PolymerElement {
   static get is() {
     return 'ntp-realbox';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -51,6 +55,12 @@ class RealboxElement extends I18nMixin
       // Public properties
       //========================================================================
 
+      /** Whether the theme is dark. */
+      isDark: {
+        type: Boolean,
+        reflectToAttribute: true,
+      },
+
       /** Whether matches are currently visible. */
       matchesAreVisible: {
         type: Boolean,
@@ -58,9 +68,25 @@ class RealboxElement extends I18nMixin
         reflectToAttribute: true,
       },
 
-      theme: {
-        type: Object,
-        observer: 'onThemeChange_',
+      /** Whether the realbox should match the searchbox. */
+      matchSearchbox: {
+        type: Boolean,
+        value: () => loadTimeData.getBoolean('realboxMatchSearchboxTheme'),
+        reflectToAttribute: true,
+      },
+
+      /** Whether the Google Lens icon should be visible in the searchbox. */
+      realboxLensSearchEnabled: {
+        type: Boolean,
+        value: () => loadTimeData.getBoolean('realboxLensSearch'),
+        reflectToAttribute: true,
+      },
+
+      /** Whether to display single-colored icons or not. */
+      singleColoredIcons: {
+        type: Boolean,
+        value: false,
+        reflectToAttribute: true,
       },
 
       //========================================================================
@@ -133,6 +159,15 @@ class RealboxElement extends I18nMixin
         value: () => loadTimeData.getString('realboxDefaultIcon'),
       },
 
+      /**
+       * Whether the Google Lens icon should be visible in the searchbox.
+       */
+      realboxLensSearchEnabled_: {
+        type: Boolean,
+        value: () => loadTimeData.getBoolean('realboxLensSearch'),
+        reflectToAttribute: true,
+      },
+
       result_: {
         type: Object,
       },
@@ -160,8 +195,11 @@ class RealboxElement extends I18nMixin
     };
   }
 
+  isDark: boolean;
   matchesAreVisible: boolean;
-  theme: SearchBoxTheme;
+  matchSearchbox: boolean;
+  realboxLensSearchEnabled: boolean;
+  singleColoredIcons: boolean;
   private charTypedTime_: number;
   private isDeletingInput_: boolean;
   private lastIgnoredEnterEvent_: KeyboardEvent|null;
@@ -170,19 +208,16 @@ class RealboxElement extends I18nMixin
   private lastQueriedInput_: string|null;
   private pastedInInput_: boolean;
   private realboxIcon_: string;
+  private realboxLensSearchEnabled_: boolean;
   private result_: AutocompleteResult|null;
   private selectedMatch_: AutocompleteMatch|null;
   private selectedMatchIndex_: number;
   private inputAriaLive_: string;
 
-  private pageHandler_: PageHandlerRemote;
+  private pageHandler_: PageHandlerInterface;
   private callbackRouter_: PageCallbackRouter;
   private autocompleteResultChangedListenerId_: number|null = null;
-  private autocompleteMatchImageAvailableListenerId_: number|null = null;
 
-  // Suppress TypeScript's error TS2376 to intentionally allow calling
-  // performance.mark() before calling super().
-  // @ts-ignore:next-line
   constructor() {
     performance.mark('realbox-creation-start');
     super();
@@ -194,25 +229,21 @@ class RealboxElement extends I18nMixin
     return this.selectedMatch_ ? 'off' : 'polite';
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
     this.autocompleteResultChangedListenerId_ =
         this.callbackRouter_.autocompleteResultChanged.addListener(
             this.onAutocompleteResultChanged_.bind(this));
-    this.autocompleteMatchImageAvailableListenerId_ =
-        this.callbackRouter_.autocompleteMatchImageAvailable.addListener(
-            this.onAutocompleteMatchImageAvailable_.bind(this));
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
     super.disconnectedCallback();
+    assert(this.autocompleteResultChangedListenerId_);
     this.callbackRouter_.removeListener(
-        assert(this.autocompleteResultChangedListenerId_!));
-    this.callbackRouter_.removeListener(
-        assert(this.autocompleteMatchImageAvailableListenerId_!));
+        this.autocompleteResultChangedListenerId_);
   }
 
-  ready() {
+  override ready() {
     super.ready();
     performance.measure('realbox-creation', 'realbox-creation-start');
   }
@@ -220,30 +251,6 @@ class RealboxElement extends I18nMixin
   //============================================================================
   // Callbacks
   //============================================================================
-
-  /**
-   * @param matchIndex match index
-   * @param url match imageUrl or destinationUrl.
-   * @param dataUrl match image or favicon content in in base64 encoded Data URL
-   *     format.
-   */
-  private onAutocompleteMatchImageAvailable_(
-      matchIndex: number, url: Url, dataUrl: string) {
-    if (!this.result_ || !this.result_.matches) {
-      return;
-    }
-
-    const match = this.result_.matches[matchIndex];
-    if (!match || this.selectedMatchIndex_ !== matchIndex) {
-      return;
-    }
-
-    // Set favicon content of the selected match, if applicable.
-    if (match.destinationUrl.url === url.url) {
-      (match as AutocompleteMatchWithImageData).faviconDataUrl = dataUrl;
-      this.notifyPath('selectedMatch_.faviconDataUrl');
-    }
-  }
 
   private onAutocompleteResultChanged_(result: AutocompleteResult) {
     if (this.lastQueriedInput_ === null ||
@@ -279,7 +286,7 @@ class RealboxElement extends I18nMixin
       this.updateInput_({
         text: decodeString16(this.selectedMatch_!.fillIntoEdit),
         inline: '',
-        moveCursorToEnd: true
+        moveCursorToEnd: true,
       });
     } else {
       this.$.matches.unselect();
@@ -287,20 +294,6 @@ class RealboxElement extends I18nMixin
         inline: '',
       });
     }
-  }
-
-  private onThemeChange_() {
-    if (!loadTimeData.getBoolean('realboxMatchOmniboxTheme')) {
-      return;
-    }
-
-    this.updateStyles({
-      '--search-box-bg': skColorToRgba(assert(this.theme.bg)),
-      '--search-box-placeholder': skColorToRgba(assert(this.theme.placeholder)),
-      '--search-box-results-bg': skColorToRgba(assert(this.theme.resultsBg)),
-      '--search-box-text': skColorToRgba(assert(this.theme.text)),
-      '--search-box-icon': skColorToRgba(assert(this.theme.icon)),
-    });
   }
 
   //============================================================================
@@ -333,14 +326,8 @@ class RealboxElement extends I18nMixin
     }
   }
 
-  private onInputFocus_(e: Event) {
+  private onInputFocus_() {
     this.lastInputFocusTime_ = window.performance.now();
-    (e.target as HTMLInputElement).placeholder = '';
-  }
-
-  private onInputBlur_(e: Event) {
-    (e.target as HTMLInputElement).placeholder =
-        loadTimeData.getString('realboxHint');
   }
 
   private onInputInput_(e: InputEvent) {
@@ -390,8 +377,10 @@ class RealboxElement extends I18nMixin
         inputValue === lastInputValue &&
         this.lastInput_.inline[0].toLocaleLowerCase() ===
             e.key.toLocaleLowerCase()) {
+      const text = this.lastInput_.text + e.key;
+      assert(text);
       this.updateInput_({
-        text: assert(this.lastInput_.text + e.key),
+        text: text,
         inline: this.lastInput_.inline.substr(1),
       });
 
@@ -410,18 +399,21 @@ class RealboxElement extends I18nMixin
       return;
     }
 
-    // Query for zero-prefix matches if user is tabbing into an empty input.
-    if (!this.$.input.value) {
+    // Query for zero-prefix matches if user is tabbing into an empty input and
+    // matches are not visible.
+    if (!this.$.input.value && !this.matchesAreVisible) {
       this.queryAutocomplete_('');
     }
   }
 
   private onInputMouseDown_(e: MouseEvent) {
     if (e.button !== 0) {
-      // Only handle main (generally left) button presses.
       return;
     }
-    if (!this.$.input.value) {
+
+    // Query for zero-prefix matches when the main (generally left) mouse button
+    // is pressed on an empty input and matches are not visible.
+    if (!this.$.input.value && !this.matchesAreVisible) {
       this.queryAutocomplete_('');
     }
   }
@@ -467,7 +459,7 @@ class RealboxElement extends I18nMixin
     }
 
     if (e.defaultPrevented) {
-      // Ignore previousely handled events.
+      // Ignore previously handled events.
       return;
     }
 
@@ -539,8 +531,12 @@ class RealboxElement extends I18nMixin
 
     if (e.key === 'ArrowDown') {
       this.$.matches.selectNext();
+      this.pageHandler_.onNavigationLikely(
+          this.selectedMatchIndex_, NavigationPredictor.kUpOrDownArrowButton);
     } else if (e.key === 'ArrowUp') {
       this.$.matches.selectPrevious();
+      this.pageHandler_.onNavigationLikely(
+          this.selectedMatchIndex_, NavigationPredictor.kUpOrDownArrowButton);
     } else if (e.key === 'Escape' || e.key === 'PageUp') {
       this.$.matches.selectFirst();
     } else if (e.key === 'PageDown') {
@@ -555,12 +551,15 @@ class RealboxElement extends I18nMixin
 
     // Update the input.
     const newFill = decodeString16(this.selectedMatch_!.fillIntoEdit);
-    const newInline = this.selectedMatch_!.allowedToBeDefaultMatch ?
+    const newInline = this.selectedMatchIndex_ === 0 &&
+            this.selectedMatch_!.allowedToBeDefaultMatch ?
         decodeString16(this.selectedMatch_!.inlineAutocompletion) :
         '';
     const newFillEnd = newFill.length - newInline.length;
+    const text = newFill.substr(0, newFillEnd);
+    assert(text);
     this.updateInput_({
-      text: assert(newFill.substr(0, newFillEnd)),
+      text: text,
       inline: newInline,
       moveCursorToEnd: newInline.length === 0,
     });
@@ -584,7 +583,7 @@ class RealboxElement extends I18nMixin
     this.updateInput_({
       text: decodeString16(this.selectedMatch_!.fillIntoEdit),
       inline: '',
-      moveCursorToEnd: true
+      moveCursorToEnd: true,
     });
   }
 
@@ -608,6 +607,11 @@ class RealboxElement extends I18nMixin
 
   private onVoiceSearchClick_() {
     this.dispatchEvent(new Event('open-voice-search'));
+  }
+
+  private onLensSearchClick_() {
+    this.matchesAreVisible = false;
+    this.dispatchEvent(new Event('open-lens-search'));
   }
 
   //============================================================================
@@ -636,10 +640,11 @@ class RealboxElement extends I18nMixin
 
   private navigateToMatch_(matchIndex: number, e: KeyboardEvent|MouseEvent) {
     assert(matchIndex >= 0);
-    const match = assert(this.result_!.matches[matchIndex]);
+    const match = this.result_!.matches[matchIndex];
+    assert(match);
     assert(this.lastInputFocusTime_);
     const delta =
-        mojoTimeDelta(window.performance.now() - this.lastInputFocusTime_!);
+        mojoTimeDelta(window.performance.now() - this.lastInputFocusTime_);
     this.pageHandler_.openAutocompleteMatch(
         matchIndex, match.destinationUrl, this.matchesAreVisible, delta,
         (e as MouseEvent).button || 0, e.altKey, e.ctrlKey, e.metaKey,
@@ -692,9 +697,11 @@ class RealboxElement extends I18nMixin
         lastInputValue.startsWith(newInputValue);
     this.lastInput_ = newInput;
   }
+}
 
-  static get template() {
-    return html`{__html_template__}`;
+declare global {
+  interface HTMLElementTagNameMap {
+    'ntp-realbox': RealboxElement;
   }
 }
 

@@ -1,15 +1,16 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/web/js_messaging/web_frames_manager_impl.h"
+#import "ios/web/js_messaging/web_frames_manager_impl.h"
 
 #import "base/strings/string_number_conversions.h"
-#include "ios/web/js_messaging/web_frame_impl.h"
-#include "ios/web/public/test/fakes/fake_web_frame.h"
+#import "ios/web/js_messaging/web_frame_impl.h"
+#import "ios/web/public/js_messaging/web_frame.h"
+#import "ios/web/public/test/fakes/fake_web_frame.h"
 #import "ios/web/public/test/web_test_with_web_state.h"
 #import "ios/web/web_state/web_state_impl.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest/include/gtest/gtest.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -17,15 +18,52 @@
 
 namespace web {
 
+namespace {
+
+class FakeWebFramesManagerObserver : public WebFramesManagerImpl::Observer {
+ public:
+  // The current available frames as tracked by the WebFramesManage Observer
+  // calls.
+  const std::map<std::string, WebFrame*> frames() const { return frames_; }
+
+  // WebFramesManagerImpl::Observer
+  void WebFrameDidBecomeAvailable(WebFramesManager* web_frames_manager,
+                                  WebFrame* web_frame) override {
+    frames_[web_frame->GetFrameId()] = web_frame;
+  }
+
+  void WebFrameWillBecomeUnavailable(WebFramesManager* web_frames_manager,
+                                     const std::string frame_id) override {
+    frames_.erase(frame_id);
+  }
+
+ private:
+  std::map<std::string, WebFrame*> frames_;
+};
+
+}  // namespace
+
 class WebFramesManagerImplTest : public WebTestWithWebState {
  protected:
-  // Notifies |web_state()| of a newly available |web_frame|.
+  void SetUp() override {
+    WebTestWithWebState::SetUp();
+
+    GetWebFramesManager().AddObserver(&observer_);
+  }
+
+  void TearDown() override {
+    GetWebFramesManager().RemoveObserver(&observer_);
+
+    WebTestWithWebState::TearDown();
+  }
+
+  // Notifies `web_state()` of a newly available `web_frame`.
   void SendFrameBecameAvailableMessage(std::unique_ptr<WebFrame> web_frame) {
     WebStateImpl* web_state_impl = static_cast<WebStateImpl*>(web_state());
     web_state_impl->WebFrameBecameAvailable(std::move(web_frame));
   }
 
-  // Notifies |web_state()| that the web frame with |frame_id| will become
+  // Notifies `web_state()` that the web frame with `frame_id` will become
   // unavailable.
   void SendFrameBecameUnavailableMessage(const std::string& frame_id) {
     WebStateImpl* web_state_impl = static_cast<WebStateImpl*>(web_state());
@@ -36,6 +74,9 @@ class WebFramesManagerImplTest : public WebTestWithWebState {
     WebStateImpl* web_state_impl = static_cast<WebStateImpl*>(web_state());
     return web_state_impl->GetWebFramesManagerImpl();
   }
+
+ protected:
+  FakeWebFramesManagerObserver observer_;
 };
 
 // Tests main web frame construction/destruction.
@@ -59,10 +100,20 @@ TEST_F(WebFramesManagerImplTest, MainWebFrame) {
   EXPECT_EQ(main_frame_ptr->GetSecurityOrigin(),
             main_frame->GetSecurityOrigin());
 
+  const std::map<std::string, WebFrame*> observed_frames = observer_.frames();
+  ASSERT_EQ(1ul, observed_frames.size());
+  auto main_frame_it = observed_frames.find(kMainFakeFrameId);
+  ASSERT_NE(main_frame_it, observed_frames.end());
+  WebFrame* observed_main_frame = main_frame_it->second;
+  EXPECT_TRUE(observed_main_frame);
+  EXPECT_EQ(main_frame, observed_main_frame);
+
   SendFrameBecameUnavailableMessage(kMainFakeFrameId);
   EXPECT_EQ(0ul, GetWebFramesManager().GetAllWebFrames().size());
   EXPECT_FALSE(GetWebFramesManager().GetMainWebFrame());
   EXPECT_FALSE(GetWebFramesManager().GetFrameWithId(kMainFakeFrameId));
+
+  EXPECT_EQ(0ul, observer_.frames().size());
 }
 
 // Tests duplicate registration of the main web frame.
@@ -79,7 +130,7 @@ TEST_F(WebFramesManagerImplTest, DuplicateMainWebFrame) {
   SendFrameBecameAvailableMessage(std::move(frame));
   SendFrameBecameAvailableMessage(std::move(second_main_frame));
 
-  // Validate that |frame| remains the main frame and |second_main_frame| is
+  // Validate that `frame` remains the main frame and `second_main_frame` is
   // ignored.
   EXPECT_EQ(1ul, GetWebFramesManager().GetAllWebFrames().size());
   WebFrame* main_frame = GetWebFramesManager().GetMainWebFrame();
@@ -92,6 +143,14 @@ TEST_F(WebFramesManagerImplTest, DuplicateMainWebFrame) {
   EXPECT_TRUE(main_frame->IsMainFrame());
   EXPECT_EQ(main_frame_ptr->GetSecurityOrigin(),
             main_frame->GetSecurityOrigin());
+
+  const std::map<std::string, WebFrame*> observed_frames = observer_.frames();
+  ASSERT_EQ(1ul, observed_frames.size());
+  auto main_frame_it = observed_frames.find(kMainFakeFrameId);
+  ASSERT_NE(main_frame_it, observed_frames.end());
+  WebFrame* observed_main_frame = main_frame_it->second;
+  EXPECT_TRUE(observed_main_frame);
+  EXPECT_EQ(main_frame, observed_main_frame);
 }
 
 // Tests WebStateImpl::RemoveAllWebFrames. Removing all frames must go through
@@ -118,6 +177,18 @@ TEST_F(WebFramesManagerImplTest, RemoveAllWebFrames) {
   EXPECT_FALSE(GetWebFramesManager().GetFrameWithId(kChildFakeFrameId));
   // Check frame 2.
   EXPECT_FALSE(GetWebFramesManager().GetFrameWithId(kChildFakeFrameId2));
+
+  const std::map<std::string, WebFrame*> observed_frames = observer_.frames();
+  ASSERT_EQ(0ul, observed_frames.size());
+  // Check main frame.
+  auto main_frame_it = observed_frames.find(kMainFakeFrameId);
+  ASSERT_EQ(main_frame_it, observed_frames.end());
+  // Check frame 1.
+  auto frame_1_it = observed_frames.find(kChildFakeFrameId);
+  ASSERT_EQ(frame_1_it, observed_frames.end());
+  // Check frame 2.
+  auto frame_2_it = observed_frames.find(kChildFakeFrameId2);
+  ASSERT_EQ(frame_2_it, observed_frames.end());
 }
 
 // Tests removing a frame which doesn't exist.
@@ -140,6 +211,14 @@ TEST_F(WebFramesManagerImplTest, RemoveNonexistantFrame) {
   EXPECT_TRUE(main_frame->IsMainFrame());
   EXPECT_EQ(main_frame_ptr->GetSecurityOrigin(),
             main_frame->GetSecurityOrigin());
+
+  const std::map<std::string, WebFrame*> observed_frames = observer_.frames();
+  ASSERT_EQ(1ul, observed_frames.size());
+  auto main_frame_it = observed_frames.find(kMainFakeFrameId);
+  ASSERT_NE(main_frame_it, observed_frames.end());
+  WebFrame* observed_main_frame = main_frame_it->second;
+  EXPECT_TRUE(observed_main_frame);
+  EXPECT_EQ(main_frame, observed_main_frame);
 }
 
 }  // namespace web

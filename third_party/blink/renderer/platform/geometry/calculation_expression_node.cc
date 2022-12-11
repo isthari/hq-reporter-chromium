@@ -1,16 +1,20 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/platform/geometry/calculation_expression_node.h"
 
 #include "base/notreached.h"
+#include "base/ranges/algorithm.h"
+#include "third_party/blink/renderer/platform/geometry/length_functions.h"
 
 namespace blink {
 
 // ------ CalculationExpressionNumberNode ------
 
-float CalculationExpressionNumberNode::Evaluate(float max_value) const {
+float CalculationExpressionNumberNode::Evaluate(
+    float max_value,
+    const Length::AnchorEvaluator*) const {
   return value_;
 }
 
@@ -37,7 +41,8 @@ CalculationExpressionNumberNode::ResolvedResultType() const {
 // ------ CalculationExpressionPixelsAndPercentNode ------
 
 float CalculationExpressionPixelsAndPercentNode::Evaluate(
-    float max_value) const {
+    float max_value,
+    const Length::AnchorEvaluator*) const {
   return value_.pixels + value_.percent / 100 * max_value;
 }
 
@@ -147,7 +152,7 @@ CalculationExpressionOperationNode::CreateSimplified(Children&& children,
     case CalculationOperator::kClamp: {
       DCHECK_EQ(children.size(), 3u);
       Vector<float> operand_pixels;
-      operand_pixels.ReserveCapacity(children.size());
+      operand_pixels.reserve(children.size());
       bool can_simplify = true;
       for (auto& child : children) {
         const auto* pixels_and_percent =
@@ -178,45 +183,70 @@ CalculationExpressionOperationNode::CreateSimplified(Children&& children,
   }
 }
 
-float CalculationExpressionOperationNode::Evaluate(float max_value) const {
+bool CalculationExpressionOperationNode::ComputeHasAnchorQueries() const {
+  for (const auto& child : children_) {
+    if (child->HasAnchorQueries())
+      return true;
+  }
+  return false;
+}
+
+CalculationExpressionOperationNode::CalculationExpressionOperationNode(
+    Children&& children,
+    CalculationOperator op)
+    : children_(std::move(children)), operator_(op) {
+#if DCHECK_IS_ON()
+  result_type_ = ResolvedResultType();
+  DCHECK_NE(result_type_, ResultType::kInvalid);
+#endif
+  has_anchor_queries_ = ComputeHasAnchorQueries();
+}
+
+float CalculationExpressionOperationNode::Evaluate(
+    float max_value,
+    const Length::AnchorEvaluator* anchor_evaluator) const {
   switch (operator_) {
     case CalculationOperator::kAdd: {
       DCHECK_EQ(children_.size(), 2u);
-      float left = children_[0]->Evaluate(max_value);
-      float right = children_[1]->Evaluate(max_value);
+      float left = children_[0]->Evaluate(max_value, anchor_evaluator);
+      float right = children_[1]->Evaluate(max_value, anchor_evaluator);
       return left + right;
     }
     case CalculationOperator::kSubtract: {
       DCHECK_EQ(children_.size(), 2u);
-      float left = children_[0]->Evaluate(max_value);
-      float right = children_[1]->Evaluate(max_value);
+      float left = children_[0]->Evaluate(max_value, anchor_evaluator);
+      float right = children_[1]->Evaluate(max_value, anchor_evaluator);
       return left - right;
     }
     case CalculationOperator::kMultiply: {
       DCHECK_EQ(children_.size(), 2u);
-      float left = children_[0]->Evaluate(max_value);
-      float right = children_[1]->Evaluate(max_value);
+      float left = children_[0]->Evaluate(max_value, anchor_evaluator);
+      float right = children_[1]->Evaluate(max_value, anchor_evaluator);
       return left * right;
     }
     case CalculationOperator::kMin: {
-      DCHECK(!children_.IsEmpty());
-      float minimum = children_[0]->Evaluate(max_value);
-      for (auto& child : children_)
-        minimum = std::min(minimum, child->Evaluate(max_value));
+      DCHECK(!children_.empty());
+      float minimum = children_[0]->Evaluate(max_value, anchor_evaluator);
+      for (auto& child : children_) {
+        minimum =
+            std::min(minimum, child->Evaluate(max_value, anchor_evaluator));
+      }
       return minimum;
     }
     case CalculationOperator::kMax: {
-      DCHECK(!children_.IsEmpty());
-      float maximum = children_[0]->Evaluate(max_value);
-      for (auto& child : children_)
-        maximum = std::max(maximum, child->Evaluate(max_value));
+      DCHECK(!children_.empty());
+      float maximum = children_[0]->Evaluate(max_value, anchor_evaluator);
+      for (auto& child : children_) {
+        maximum =
+            std::max(maximum, child->Evaluate(max_value, anchor_evaluator));
+      }
       return maximum;
     }
     case CalculationOperator::kClamp: {
-      DCHECK(!children_.IsEmpty());
-      float min = children_[0]->Evaluate(max_value);
-      float val = children_[1]->Evaluate(max_value);
-      float max = children_[2]->Evaluate(max_value);
+      DCHECK(!children_.empty());
+      float min = children_[0]->Evaluate(max_value, anchor_evaluator);
+      float val = children_[1]->Evaluate(max_value, anchor_evaluator);
+      float max = children_[2]->Evaluate(max_value, anchor_evaluator);
       // clamp(MIN, VAL, MAX) is identical to max(MIN, min(VAL, MAX))
       return std::max(min, std::min(val, max));
     }
@@ -233,8 +263,12 @@ bool CalculationExpressionOperationNode::operator==(
   if (!other.IsOperation())
     return false;
   const auto& other_operation = To<CalculationExpressionOperationNode>(other);
-  return operator_ == other_operation.GetOperator() &&
-         children_ == other_operation.GetChildren();
+  if (operator_ != other_operation.GetOperator())
+    return false;
+  using ValueType = Children::value_type;
+  return base::ranges::equal(
+      children_, other_operation.GetChildren(),
+      [](const ValueType& a, const ValueType& b) { return *a == *b; });
 }
 
 scoped_refptr<const CalculationExpressionNode>
@@ -259,7 +293,7 @@ CalculationExpressionOperationNode::Zoom(double factor) const {
     case CalculationOperator::kClamp: {
       DCHECK(children_.size());
       Vector<scoped_refptr<const CalculationExpressionNode>> cloned_operands;
-      cloned_operands.ReserveCapacity(children_.size());
+      cloned_operands.reserve(children_.size());
       for (const auto& child : children_)
         cloned_operands.push_back(child->Zoom(factor));
       return CreateSimplified(std::move(cloned_operands), operator_);

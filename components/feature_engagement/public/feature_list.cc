@@ -1,10 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/feature_engagement/public/feature_list.h"
 
-#include "base/cxx17_backports.h"
 #include "build/build_config.h"
 #include "components/feature_engagement/public/feature_constants.h"
 
@@ -21,7 +20,6 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHAdaptiveButtonInTopToolbarCustomizationShareFeature,
     &kIPHAdaptiveButtonInTopToolbarCustomizationVoiceSearchFeature,
     &kIPHAddToHomescreenMessageFeature,
-    &kIPHAddToHomescreenTextBubbleFeature,
     &kIPHAutoDarkOptOutFeature,
     &kIPHAutoDarkUserEducationMessageFeature,
     &kIPHAutoDarkUserEducationMessageOptInFeature,
@@ -37,13 +35,9 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHChromeReengagementNotification1Feature,
     &kIPHChromeReengagementNotification2Feature,
     &kIPHChromeReengagementNotification3Feature,
-    &kIPHContextualSearchTranslationEnableFeature,
-    &kIPHContextualSearchWebSearchFeature,
-    &kIPHContextualSearchPromoteTapFeature,
-    &kIPHContextualSearchPromotePanelOpenFeature,
-    &kIPHContextualSearchOptInFeature,
-    &kIPHContextualSearchTappedButShouldLongpressFeature,
-    &kIPHContextualSearchInPanelHelpFeature,
+    &kIPHContextualPageActionsQuietVariantFeature,
+    &kIPHContextualPageActionsActionChipFeature,
+    &kIPHCrowFeature,
     &kIPHDownloadSettingsFeature,
     &kIPHDownloadInfoBarDownloadContinuingFeature,
     &kIPHDownloadInfoBarDownloadsAreFasterFeature,
@@ -62,7 +56,6 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHFeatureNotificationGuideVoiceSearchUsedFeature,
     &kIPHFeedCardMenuFeature,
     &kIPHGenericAlwaysTriggerHelpUiFeature,
-    &kIPHHomepagePromoCardFeature,
     &kIPHIdentityDiscFeature,
     &kIPHInstanceSwitcherFeature,
     &kIPHKeyboardAccessoryAddressFillingFeature,
@@ -70,17 +63,22 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHKeyboardAccessoryPasswordFillingFeature,
     &kIPHKeyboardAccessoryPaymentFillingFeature,
     &kIPHKeyboardAccessoryPaymentOfferFeature,
+    &kIPHLowUserEngagementDetectorFeature,
     &kIPHMicToolbarFeature,
     &kIPHNewTabPageHomeButtonFeature,
     &kIPHPageInfoFeature,
     &kIPHPageInfoStoreInfoFeature,
     &kIPHPreviewsOmniboxUIFeature,
+    &kIPHPriceDropNTPFeature,
     &kIPHPwaInstallAvailableFeature,
     &kIPHQuietNotificationPromptsFeature,
     &kIPHReadLaterContextMenuFeature,
     &kIPHReadLaterAppMenuBookmarkThisPageFeature,
     &kIPHReadLaterAppMenuBookmarksFeature,
     &kIPHReadLaterBottomSheetFeature,
+    &kIPHRequestDesktopSiteAppMenuFeature,
+    &kIPHRequestDesktopSiteDefaultOnFeature,
+    &kIPHRequestDesktopSiteOptInFeature,
     &kIPHShoppingListMenuItemFeature,
     &kIPHShoppingListSaveFlowFeature,
     &kIPHTabGroupsQuicklyComparePagesFeature,
@@ -97,6 +95,7 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHVideoTutorialTryNowFeature,
     &kIPHExploreSitesTileFeature,
     &kIPHFeedHeaderMenuFeature,
+    &kIPHWebFeedAwarenessFeature,
     &kIPHFeedSwipeRefresh,
     &kIPHShareScreenshotFeature,
     &kIPHSharingHubLinkToggleFeature,
@@ -104,8 +103,6 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHWebFeedPostFollowDialogFeature,
     &kIPHSharedHighlightingBuilder,
     &kIPHSharedHighlightingReceiverFeature,
-    &kIPHStartSurfaceTabSwitcherHomeButton,
-    &kIPHUpdatedConnectionSecurityIndicatorsFeature,
     &kIPHSharingHubWebnotesStylizeFeature,
 #endif  // BUILDFLAG(IS_ANDROID)
 #if BUILDFLAG(IS_IOS)
@@ -114,28 +111,45 @@ const base::Feature* const kAllFeatures[] = {
     &kIPHNewTabTipFeature,
     &kIPHNewIncognitoTabTipFeature,
     &kIPHBadgedReadingListFeature,
+    &kIPHBadgedWhatsNewFeature,
+    &kIPHWhatsNewFeature,
     &kIPHReadingListMessagesFeature,
     &kIPHBadgedTranslateManualTriggerFeature,
     &kIPHDiscoverFeedHeaderFeature,
+    &kIPHDefaultSiteViewFeature,
+    &kIPHPasswordSuggestionsFeature,
+    &kIPHFollowWhileBrowsingFeature,
+    &kIPHOverflowMenuTipFeature,
 #endif  // BUILDFLAG(IS_IOS)
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) || \
     BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)
+    &kIPHBatterySaverModeFeature,
     &kIPHDesktopTabGroupsNewGroupFeature,
+    &kIPHExtensionsMenuFeature,
     &kIPHFocusHelpBubbleScreenReaderPromoFeature,
     &kIPHGMCCastStartStopFeature,
+    &kIPHHighEfficiencyInfoModeFeature,
+    &kIPHHighEfficiencyModeFeature,
     &kIPHLiveCaptionFeature,
+    &kIPHTabAudioMutingFeature,
     &kIPHPasswordsAccountStorageFeature,
+    &kIPHPerformanceNewBadgeFeature,
+    &kIPHPriceTrackingPageActionIconLabelFeature,
     &kIPHReadingListDiscoveryFeature,
     &kIPHReadingListEntryPointFeature,
     &kIPHReadingListInSidePanelFeature,
     &kIPHReopenTabFeature,
+    &kIPHSideSearchAutoTriggeringFeature,
     &kIPHSideSearchFeature,
+    &kIPHSideSearchPageActionLabelFeature,
     &kIPHTabSearchFeature,
     &kIPHWebUITabStripFeature,
     &kIPHDesktopPwaInstallFeature,
     &kIPHProfileSwitchFeature,
-    &kIPHUpdatedConnectionSecurityIndicatorsFeature,
     &kIPHDesktopSharedHighlightingFeature,
+    &kIPHIntentChipFeature,
+    &kIPHWebUiHelpBubbleTestFeature,
+    &kIPHPriceTrackingInSidePanelFeature,
 #endif  // BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_LINUX) ||
         // BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_FUCHSIA)
 
@@ -152,7 +166,7 @@ const char kIPHDemoModeFeatureChoiceParam[] = "chosen_feature";
 
 std::vector<const base::Feature*> GetAllFeatures() {
   return std::vector<const base::Feature*>(
-      kAllFeatures, kAllFeatures + base::size(kAllFeatures));
+      kAllFeatures, kAllFeatures + std::size(kAllFeatures));
 }
 
 }  // namespace feature_engagement

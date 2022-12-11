@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,7 @@ URLRequestContextGetter::URLRequestContextGetter(
     scoped_refptr<base::SingleThreadTaskRunner> network_task_runner)
     : network_task_runner_(network_task_runner),
       proxy_config_service_(
-          net::ConfiguredProxyResolutionService::CreateSystemProxyConfigService(
+          net::ProxyConfigService::CreateSystemProxyConfigService(
               network_task_runner)) {}
 
 net::URLRequestContext* URLRequestContextGetter::GetURLRequestContext() {

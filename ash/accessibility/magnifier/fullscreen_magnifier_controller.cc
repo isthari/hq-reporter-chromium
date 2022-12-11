@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,10 +68,8 @@ constexpr int kCursorPanningMargin = 100;
 constexpr int kKeyboardBottomPanningMargin = 10;
 
 void MoveCursorTo(aura::WindowTreeHost* host, const gfx::Point& root_location) {
-  auto host_location_3f = gfx::Point3F(gfx::PointF(root_location));
-  host->GetRootTransform().TransformPoint(&host_location_3f);
-  host->MoveCursorToLocationInPixels(
-      gfx::ToCeiledPoint(host_location_3f.AsPointF()));
+  host->MoveCursorToLocationInPixels(gfx::ToCeiledPoint(
+      host->GetRootTransform().MapPoint(gfx::PointF(root_location))));
 }
 
 }  // namespace
@@ -103,8 +101,9 @@ FullscreenMagnifierController::FullscreenMagnifierController()
     : root_window_(Shell::GetPrimaryRootWindow()),
       scale_(kNonMagnifiedScale),
       original_scale_(kNonMagnifiedScale) {
-  Shell::Get()->AddPreTargetHandler(this,
-                                    ui::EventTarget::Priority::kAccessibility);
+  Shell::Get()->AddAccessibilityEventHandler(
+      this,
+      AccessibilityEventHandlerManager::HandlerType::kFullscreenMagnifier);
   root_window_->AddObserver(this);
   root_window_->GetHost()->GetEventSource()->AddEventRewriter(this);
 
@@ -121,7 +120,7 @@ FullscreenMagnifierController::~FullscreenMagnifierController() {
   root_window_->GetHost()->GetEventSource()->RemoveEventRewriter(this);
   root_window_->RemoveObserver(this);
 
-  Shell::Get()->RemovePreTargetHandler(this);
+  Shell::Get()->RemoveAccessibilityEventHandler(this);
 }
 
 void FullscreenMagnifierController::SetEnabled(bool enabled) {
@@ -410,7 +409,8 @@ ui::EventDispatchDetails FullscreenMagnifierController::RewriteEvent(
     touch_points_++;
     press_event_map_[touch_event->pointer_details().id] =
         std::make_unique<ui::TouchEvent>(*touch_event);
-  } else if (touch_event->type() == ui::ET_TOUCH_RELEASED) {
+  } else if (touch_event->type() == ui::ET_TOUCH_RELEASED ||
+             touch_event->type() == ui::ET_TOUCH_CANCELLED) {
     touch_points_--;
     press_event_map_.erase(touch_event->pointer_details().id);
   }
@@ -479,6 +479,11 @@ ui::EventDispatchDetails FullscreenMagnifierController::RewriteEvent(
     return DiscardEvent(continuation);
 
   return SendEvent(continuation, &event);
+}
+
+const std::string& FullscreenMagnifierController::GetName() const {
+  static const std::string name("FullscreenMagnifierController");
+  return name;
 }
 
 bool FullscreenMagnifierController::Redraw(
@@ -645,7 +650,6 @@ void FullscreenMagnifierController::OnMouseMove(
   int margin = kCursorPanningMargin / scale_;  // No need to consider DPI.
 
   // Edge mouse following mode.
-  // TODO(https://crbug.com/1178027): Add continuous mouse following mode.
   int x_margin = margin;
   int y_margin = margin;
 
@@ -757,8 +761,9 @@ bool FullscreenMagnifierController::ProcessGestures() {
       // Root transform does dip scaling, screen magnification scaling and
       // translation. Apply inverse transform to convert non-dip screen
       // coordinate to dip logical coordinate.
-      root_window_->GetHost()->GetInverseRootTransform().TransformPoint(
-          &gesture_center);
+      gesture_center =
+          root_window_->GetHost()->GetInverseRootTransform().MapPoint(
+              gesture_center);
 
       // Calcualte new origin to keep the distance between |gesture_center|
       // and |origin| same in screen coordinate. This means the following
@@ -789,12 +794,10 @@ bool FullscreenMagnifierController::ProcessGestures() {
           display::Screen::GetScreen()->GetDisplayNearestWindow(root_window_);
       gfx::Transform rotation_transform;
       rotation_transform.Rotate(display.PanelRotationAsDegree());
-      gfx::Transform rotation_inverse_transform;
-      const bool result =
-          rotation_transform.GetInverse(&rotation_inverse_transform);
-      DCHECK(result);
-      gfx::PointF scroll(details.scroll_x(), details.scroll_y());
-      rotation_inverse_transform.TransformPoint(&scroll);
+      gfx::Transform rotation_inverse_transform =
+          rotation_transform.GetCheckedInverse();
+      gfx::PointF scroll = rotation_inverse_transform.MapPoint(
+          gfx::PointF(details.scroll_x(), details.scroll_y()));
 
       // Divide by scale to keep scroll speed same at any scale.
       float new_x = origin_.x() + (-scroll.x() / scale_);

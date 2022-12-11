@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,11 +37,6 @@ class TranslationResultLoader : public ResultLoader {
                        ResponseParserCallback complete_callback) override;
 
  private:
-  void OnRequestAccessTokenComplete(
-      const PreprocessedOutput& preprocessed_output,
-      BuildRequestCallback callback,
-      const std::string& access_token) const;
-
   std::unique_ptr<TranslationResponseParser> translation_response_parser_;
 };
 

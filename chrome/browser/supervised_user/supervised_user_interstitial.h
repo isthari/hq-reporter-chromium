@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "base/callback_forward.h"
 #include "base/memory/raw_ptr.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/supervised_user/supervised_user_error_page/supervised_user_error_page.h"
 #include "url/gurl.h"
 
@@ -19,6 +20,10 @@ class WebContents;
 
 class Profile;
 
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+class SupervisedUserFaviconRequestHandler;
+#endif
+
 // This class is used by SupervisedUserNavigationObserver to handle requests
 // from supervised user error page. The error page is shown when a page is
 // blocked because it is on a denylist (in "allow everything" mode), not on any
@@ -26,6 +31,42 @@ class Profile;
 // search.
 class SupervisedUserInterstitial {
  public:
+  // The names of histograms emitted by this class.
+  static constexpr char kInterstitialCommandHistogramName[] =
+      "ManagedMode.BlockingInterstitialCommand";
+  static constexpr char kInterstitialPermissionSourceHistogramName[] =
+      "ManagedUsers.RequestPermissionSource";
+
+  // For use in the kInterstitialCommandHistogramName histogram.
+  //
+  // The enum values should remain synchronized with the enum
+  // ManagedModeBlockingCommand in tools/metrics/histograms/enums.xml.
+  //
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  enum class Commands {
+    // PREVIEW = 0,
+    BACK = 1,
+    // NTP = 2,
+    REMOTE_ACCESS_REQUEST = 3,
+    LOCAL_ACCESS_REQUEST = 4,
+    HISTOGRAM_BOUNDING_VALUE = 5
+  };
+
+  // For use in the kInterstitialPermissionSourceHistogramName histogram.
+  //
+  // The enum values should remain synchronized with the
+  // enum ManagedUserURLRequestPermissionSource in
+  // tools/metrics/histograms/enums.xml.
+  //
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  enum class RequestPermissionSource {
+    MAIN_FRAME = 0,
+    SUB_FRAME,
+    HISTOGRAM_BOUNDING_VALUE
+  };
+
   SupervisedUserInterstitial(const SupervisedUserInterstitial&) = delete;
   SupervisedUserInterstitial& operator=(const SupervisedUserInterstitial&) =
       delete;
@@ -71,6 +112,8 @@ class SupervisedUserInterstitial {
 
   void OnInterstitialDone();
 
+  void OutputRequestPermissionSourceMetric();
+
   // Owns SupervisedUserNavigationObserver which owns us.
   raw_ptr<content::WebContents> web_contents_;
 
@@ -85,6 +128,10 @@ class SupervisedUserInterstitial {
 
   // The Navigation ID of the navigation that last triggered the interstitial.
   int64_t interstitial_navigation_id_;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  std::unique_ptr<SupervisedUserFaviconRequestHandler> favicon_handler_;
+#endif
 };
 
 #endif  // CHROME_BROWSER_SUPERVISED_USER_SUPERVISED_USER_INTERSTITIAL_H_

@@ -40,7 +40,8 @@ absl::Status TfLiteInterpreterWrapper::SanityCheckComputeSettings(
   Delegate delegate = compute_settings.tflite_settings().delegate();
   if (delegate != Delegate::NONE && delegate != Delegate::GPU &&
       delegate != Delegate::HEXAGON && delegate != Delegate::NNAPI &&
-      delegate != Delegate::XNNPACK && delegate != Delegate::EDGETPU_CORAL) {
+      delegate != Delegate::XNNPACK && delegate != Delegate::EDGETPU_CORAL &&
+      delegate != Delegate::CORE_ML) {
     return absl::UnimplementedError(absl::StrFormat(
         "Using delegate '%s' is not supported.", Delegate_Name(delegate)));
   }
@@ -245,6 +246,9 @@ absl::Status TfLiteInterpreterWrapper::InitializeDelegate() {
     } else if (which_delegate == Delegate::XNNPACK) {
       RETURN_IF_ERROR(
           LoadDelegatePlugin("XNNPack", *compute_settings->tflite_settings()));
+    } else if (which_delegate == Delegate::CORE_ML) {
+      RETURN_IF_ERROR(
+          LoadDelegatePlugin("CoreML", *compute_settings->tflite_settings()));
     }
   }
   return absl::OkStatus();
@@ -254,8 +258,10 @@ absl::Status TfLiteInterpreterWrapper::InvokeWithFallback(
     const std::function<absl::Status(tflite::Interpreter* interpreter)>&
         set_inputs) {
   RETURN_IF_ERROR(set_inputs(interpreter_.get()));
-  // Reset cancel flag before calling `Invoke()`.
-  cancel_flag_.Set(false);
+  if (cancel_flag_.Get()) {
+    cancel_flag_.Set(false);
+    return absl::CancelledError("cancelled before Invoke() was called");
+  }
   TfLiteStatus status = kTfLiteError;
   if (fallback_on_execution_error_) {
     status = InterpreterUtils::InvokeWithCPUFallback(interpreter_.get());
@@ -269,6 +275,7 @@ absl::Status TfLiteInterpreterWrapper::InvokeWithFallback(
   // Assume the inference is cancelled successfully if Invoke() returns
   // kTfLiteError and the cancel flag is `true`.
   if (status == kTfLiteError && cancel_flag_.Get()) {
+    cancel_flag_.Set(false);
     return absl::CancelledError("Invoke() cancelled.");
   }
   if (delegate_) {
@@ -285,14 +292,17 @@ absl::Status TfLiteInterpreterWrapper::InvokeWithFallback(
 }
 
 absl::Status TfLiteInterpreterWrapper::InvokeWithoutFallback() {
-  // Reset cancel flag before calling `Invoke()`.
-  cancel_flag_.Set(false);
+  if (cancel_flag_.Get()) {
+    cancel_flag_.Set(false);
+    return absl::CancelledError("cancelled before Invoke() was called");
+  }
   TfLiteStatus status = interpreter_->Invoke();
   if (status != kTfLiteOk) {
     // Assume InvokeWithoutFallback() is guarded under caller's synchronization.
     // Assume the inference is cancelled successfully if Invoke() returns
     // kTfLiteError and the cancel flag is `true`.
     if (status == kTfLiteError && cancel_flag_.Get()) {
+      cancel_flag_.Set(false);
       return absl::CancelledError("Invoke() cancelled.");
     }
     return absl::InternalError("Invoke() failed.");

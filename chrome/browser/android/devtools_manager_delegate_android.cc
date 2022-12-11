@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -258,11 +258,6 @@ DevToolsManagerDelegateAndroid::CreateNewTarget(const GURL& url) {
 
   TabAndroid* tab = TabAndroid::FromWebContents(web_contents);
   return tab ? DevToolsAgentHostForTab(tab) : nullptr;
-}
-
-std::string DevToolsManagerDelegateAndroid::GetDiscoveryPageHTML() {
-  return ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
-      IDR_DEVTOOLS_DISCOVERY_PAGE_HTML);
 }
 
 bool DevToolsManagerDelegateAndroid::IsBrowserTargetDiscoverable() {

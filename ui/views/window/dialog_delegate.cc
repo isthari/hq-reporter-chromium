@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/observer_list.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -252,9 +253,8 @@ std::unique_ptr<NonClientFrameView> DialogDelegate::CreateDialogFrameView(
       provider->GetInsetsMetric(INSETS_DIALOG_TITLE), gfx::Insets());
 
   const BubbleBorder::Shadow kShadow = BubbleBorder::DIALOG_SHADOW;
-  std::unique_ptr<BubbleBorder> border = std::make_unique<BubbleBorder>(
-      BubbleBorder::FLOAT, kShadow, gfx::kPlaceholderColor);
-  border->set_use_theme_background_color(true);
+  std::unique_ptr<BubbleBorder> border =
+      std::make_unique<BubbleBorder>(BubbleBorder::FLOAT, kShadow);
   DialogDelegate* delegate = widget->widget_delegate()->AsDialogDelegate();
   if (delegate) {
     if (delegate->GetParams().round_corners)
@@ -275,12 +275,8 @@ const DialogClientView* DialogDelegate::GetDialogClientView() const {
 }
 
 DialogClientView* DialogDelegate::GetDialogClientView() {
-  if (!GetWidget())
-    return nullptr;
-  views::View* client_view = GetWidget()->client_view();
-  return client_view->GetClassName() == DialogClientView::kViewClassName
-             ? static_cast<DialogClientView*>(client_view)
-             : nullptr;
+  return const_cast<DialogClientView*>(
+      const_cast<const DialogDelegate*>(this)->GetDialogClientView());
 }
 
 BubbleFrameView* DialogDelegate::GetBubbleFrameView() const {

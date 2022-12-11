@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,9 @@
 #include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_test.h"
 #include "chrome/browser/ash/arc/policy/arc_policy_bridge.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_test.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/policy/core/common/mock_policy_service.h"
 #include "components/policy/core/common/policy_map.h"
@@ -130,7 +130,7 @@ class ArcForceInstalledAppsTrackerTest : public testing::Test {
   }
 
   ArcAppListPrefs* prefs() { return arc_app_test_.arc_app_list_prefs(); }
-  arc::mojom::AppHost* const app_host() { return prefs(); }
+  arc::mojom::AppHost* app_host() { return prefs(); }
 
   content::BrowserTaskEnvironment task_environment_;
   data_decoder::test::InProcessDataDecoder in_process_data_decoder_;

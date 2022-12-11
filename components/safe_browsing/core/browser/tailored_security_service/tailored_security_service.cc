@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,13 +12,17 @@
 #include "base/json/json_writer.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/observer_list.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/prefs/pref_service.h"
+#include "components/safe_browsing/core/browser/tailored_security_service/tailored_security_notification_result.h"
 #include "components/safe_browsing/core/browser/tailored_security_service/tailored_security_service_observer.h"
+#include "components/safe_browsing/core/browser/tailored_security_service/tailored_security_service_util.h"
 #include "components/safe_browsing/core/common/features.h"
+#include "components/safe_browsing/core/common/safe_browsing_policy_handler.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/signin/public/identity_manager/access_token_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
@@ -280,13 +284,23 @@ void TailoredSecurityService::AddQueryRequest() {
   DCHECK(!is_shut_down_);
   active_query_request_++;
   if (active_query_request_ == 1) {
-    // Query now and register a repeating timer to get the tailored security bit
-    // every `kRepeatingCheckTailoredSecurityBitDelayInMinutes` minutes.
-    QueryTailoredSecurityBit();
-    timer_.Start(
-        FROM_HERE,
-        base::Minutes(kRepeatingCheckTailoredSecurityBitDelayInMinutes), this,
-        &TailoredSecurityService::QueryTailoredSecurityBit);
+    if (base::Time::Now() - last_updated_ <=
+        base::Minutes(kRepeatingCheckTailoredSecurityBitDelayInMinutes)) {
+      // Since we queried recently, start the timer with a shorter delay.
+      base::TimeDelta delay =
+          base::Minutes(kRepeatingCheckTailoredSecurityBitDelayInMinutes) -
+          (base::Time::Now() - last_updated_);
+      timer_.Start(FROM_HERE, delay, this,
+                   &TailoredSecurityService::QueryTailoredSecurityBit);
+    } else {
+      // Query now and register a timer to get the tailored security bit
+      // every `kRepeatingCheckTailoredSecurityBitDelayInMinutes` minutes.
+      QueryTailoredSecurityBit();
+      timer_.Start(
+          FROM_HERE,
+          base::Minutes(kRepeatingCheckTailoredSecurityBitDelayInMinutes), this,
+          &TailoredSecurityService::QueryTailoredSecurityBit);
+    }
   }
 }
 
@@ -310,9 +324,10 @@ void TailoredSecurityService::StartRequest(
   DCHECK(!is_shut_down_);
 
   // Wrap the original callback into a generic completion callback.
-  CompletionCallback completion_callback = base::BindOnce(
-      &TailoredSecurityService::QueryTailoredSecurityBitCompletionCallback,
-      weak_ptr_factory_.GetWeakPtr(), std::move(callback));
+  CompletionCallback completion_callback =
+      base::BindOnce(&TailoredSecurityService::
+                         ExtractTailoredSecurityBitFromResponseAndRunCallback,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback));
   GURL url(kQueryTailoredSecurityServiceUrl);
 
   static constexpr net::NetworkTrafficAnnotationTag traffic_annotation =
@@ -362,12 +377,61 @@ void TailoredSecurityService::OnTailoredSecurityBitRetrieved(
   }
   is_tailored_security_enabled_ = is_enabled;
   last_updated_ = base::Time::Now();
+  if (active_query_request_ > 0) {
+    timer_.Start(
+        FROM_HERE,
+        base::Minutes(kRepeatingCheckTailoredSecurityBitDelayInMinutes), this,
+        &TailoredSecurityService::QueryTailoredSecurityBit);
+  }
 }
 
-void TailoredSecurityService::QueryTailoredSecurityBitCompletionCallback(
-    QueryTailoredSecurityBitCallback callback,
-    Request* request,
-    bool success) {
+void TailoredSecurityService::MaybeNotifySyncUser(bool is_enabled,
+                                                  base::Time previous_update) {
+  if (!base::FeatureList::IsEnabled(kTailoredSecurityIntegration))
+    return;
+
+  if (!identity_manager()->HasPrimaryAccount(signin::ConsentLevel::kSync)) {
+    if (is_enabled) {
+      RecordEnabledNotificationResult(
+          TailoredSecurityNotificationResult::kAccountNotConsented);
+    }
+    return;
+  }
+
+  if (SafeBrowsingPolicyHandler::IsSafeBrowsingProtectionLevelSetByPolicy(
+          prefs())) {
+    if (is_enabled) {
+      RecordEnabledNotificationResult(
+          TailoredSecurityNotificationResult::kSafeBrowsingControlledByPolicy);
+    }
+    return;
+  }
+
+  if (is_enabled && IsEnhancedProtectionEnabled(*prefs())) {
+    RecordEnabledNotificationResult(
+        TailoredSecurityNotificationResult::kEnhancedProtectionAlreadyEnabled);
+  }
+
+  if (is_enabled && !IsEnhancedProtectionEnabled(*prefs())) {
+    for (auto& observer : observer_list_) {
+      observer.OnSyncNotificationMessageRequest(true);
+    }
+  }
+
+  if (!is_enabled && IsEnhancedProtectionEnabled(*prefs()) &&
+      prefs()->GetBoolean(
+          prefs::kEnhancedProtectionEnabledViaTailoredSecurity)) {
+    for (auto& observer : observer_list_) {
+      observer.OnSyncNotificationMessageRequest(false);
+    }
+  }
+}
+
+void TailoredSecurityService::
+    ExtractTailoredSecurityBitFromResponseAndRunCallback(
+        QueryTailoredSecurityBitCallback callback,
+        Request* request,
+        bool success) {
   DCHECK(!is_shut_down_);
 
   std::unique_ptr<Request> request_ptr =
@@ -392,9 +456,10 @@ void TailoredSecurityService::SetTailoredSecurityBitForTesting(
     QueryTailoredSecurityBitCallback callback,
     const net::NetworkTrafficAnnotationTag& traffic_annotation) {
   // Wrap the original callback into a generic completion callback.
-  CompletionCallback completion_callback = base::BindOnce(
-      &TailoredSecurityService::QueryTailoredSecurityBitCompletionCallback,
-      weak_ptr_factory_.GetWeakPtr(), std::move(callback));
+  CompletionCallback completion_callback =
+      base::BindOnce(&TailoredSecurityService::
+                         ExtractTailoredSecurityBitFromResponseAndRunCallback,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback));
 
   GURL url(kQueryTailoredSecurityServiceUrl);
   std::unique_ptr<Request> request =

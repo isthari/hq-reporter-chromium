@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/no_destructor.h"
@@ -18,9 +19,12 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "components/custom_handlers/protocol_handler.h"
+#include "components/custom_handlers/protocol_handler_registry.h"
+#include "components/custom_handlers/simple_protocol_handler_registry_factory.h"
+#include "content/public/browser/browser_context.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -40,15 +44,19 @@
 #include "media/media_buildflags.h"
 #include "third_party/blink/public/common/peerconnection/webrtc_ip_handling_policy.h"
 #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
+#include "third_party/blink/public/mojom/window_features/window_features.mojom.h"
 
 namespace content {
 
 namespace {
 // Null until/unless the default main message loop is running.
-base::NoDestructor<base::OnceClosure> g_quit_main_message_loop;
+base::OnceClosure& GetMainMessageLoopQuitClosure() {
+  static base::NoDestructor<base::OnceClosure> closure;
+  return *closure;
+}
 
-const int kDefaultTestWindowWidthDip = 800;
-const int kDefaultTestWindowHeightDip = 600;
+constexpr int kDefaultTestWindowWidthDip = 800;
+constexpr int kDefaultTestWindowHeightDip = 600;
 
 // Owning pointer. We can not use unique_ptr as a global. That introduces a
 // static constructor/destructor.
@@ -122,7 +130,7 @@ Shell* Shell::CreateShell(std::unique_ptr<WebContents> web_contents,
   // for windows opened from the renderer) then the Shell won't hear about the
   // main frame being created as a WebContentsObservers. This gives the delegate
   // a chance to act on the main frame accordingly.
-  if (raw_web_contents->GetMainFrame()->IsRenderFrameCreated())
+  if (raw_web_contents->GetPrimaryMainFrame()->IsRenderFrameLive())
     g_platform->MainFrameCreated(shell);
 
   return shell;
@@ -130,13 +138,14 @@ Shell* Shell::CreateShell(std::unique_ptr<WebContents> web_contents,
 
 // static
 void Shell::SetMainMessageLoopQuitClosure(base::OnceClosure quit_closure) {
-  *g_quit_main_message_loop = std::move(quit_closure);
+  GetMainMessageLoopQuitClosure() = std::move(quit_closure);
 }
 
 // static
 void Shell::QuitMainMessageLoopForTesting() {
-  if (*g_quit_main_message_loop)
-    std::move(*g_quit_main_message_loop).Run();
+  auto& quit_loop = GetMainMessageLoopQuitClosure();
+  if (quit_loop)
+    std::move(quit_loop).Run();
 }
 
 // static
@@ -186,8 +195,9 @@ void Shell::Shutdown() {
        it.Advance()) {
     it.GetCurrentValue()->DisableRefCounts();
   }
-  if (*g_quit_main_message_loop)
-    std::move(*g_quit_main_message_loop).Run();
+  auto& quit_loop = GetMainMessageLoopQuitClosure();
+  if (quit_loop)
+    std::move(quit_loop).Run();
 
   // Pump the message loop to allow window teardown tasks to run.
   base::RunLoop().RunUntilIdle();
@@ -222,7 +232,7 @@ Shell* Shell::CreateNewWindow(BrowserContext* browser_context,
 }
 
 void Shell::RenderFrameCreated(RenderFrameHost* frame_host) {
-  if (frame_host == web_contents_->GetMainFrame())
+  if (frame_host == web_contents_->GetPrimaryMainFrame())
     g_platform->MainFrameCreated(this);
 }
 
@@ -272,8 +282,8 @@ void Shell::LoadDataWithBaseURLInternal(const GURL& url,
     params.url = GURL(data_url_header);
     std::string data_url_as_string = data_url_header + data;
 #if BUILDFLAG(IS_ANDROID)
-    params.data_url_as_string =
-        base::RefCountedString::TakeString(&data_url_as_string);
+    params.data_url_as_string = base::MakeRefCounted<base::RefCountedString>(
+        std::move(data_url_as_string));
 #endif
   } else {
     params.url = GURL(data_url_header + data);
@@ -290,11 +300,11 @@ void Shell::AddNewContents(WebContents* source,
                            std::unique_ptr<WebContents> new_contents,
                            const GURL& target_url,
                            WindowOpenDisposition disposition,
-                           const gfx::Rect& initial_rect,
+                           const blink::mojom::WindowFeatures& window_features,
                            bool user_gesture,
                            bool* was_blocked) {
   CreateShell(
-      std::move(new_contents), AdjustWindowSize(initial_rect.size()),
+      std::move(new_contents), AdjustWindowSize(window_features.bounds.size()),
       !delay_popup_contents_delegate_for_testing_ /* should_set_delegate */);
 }
 
@@ -466,7 +476,7 @@ void Shell::ToggleFullscreenModeForTab(WebContents* web_contents,
 #endif
   if (is_fullscreen_ != enter_fullscreen) {
     is_fullscreen_ = enter_fullscreen;
-    web_contents->GetMainFrame()
+    web_contents->GetPrimaryMainFrame()
         ->GetRenderViewHost()
         ->GetWidget()
         ->SynchronizeVisualProperties();
@@ -490,6 +500,53 @@ blink::mojom::DisplayMode Shell::GetDisplayMode(
              ? blink::mojom::DisplayMode::kFullscreen
              : blink::mojom::DisplayMode::kBrowser;
 }
+
+#if !BUILDFLAG(IS_ANDROID)
+void Shell::RegisterProtocolHandler(RenderFrameHost* requesting_frame,
+                                    const std::string& protocol,
+                                    const GURL& url,
+                                    bool user_gesture) {
+  content::BrowserContext* context = requesting_frame->GetBrowserContext();
+  if (context->IsOffTheRecord())
+    return;
+
+  custom_handlers::ProtocolHandler handler =
+      custom_handlers::ProtocolHandler::CreateProtocolHandler(
+          protocol, url, GetProtocolHandlerSecurityLevel(requesting_frame));
+
+  // The parameters's normalization process defined in the spec has been already
+  // applied in the WebContentImpl class, so at this point it shouldn't be
+  // possible to create an invalid handler.
+  // https://html.spec.whatwg.org/multipage/system-state.html#normalize-protocol-handler-parameters
+  DCHECK(handler.IsValid());
+
+  custom_handlers::ProtocolHandlerRegistry* registry = custom_handlers::
+      SimpleProtocolHandlerRegistryFactory::GetForBrowserContext(context, true);
+  DCHECK(registry);
+  if (registry->SilentlyHandleRegisterHandlerRequest(handler))
+    return;
+
+  if (!user_gesture && !windows_.empty()) {
+    // TODO(jfernandez): This is not strictly needed, but we need a way to
+    // inform the observers in browser tests that the request has been
+    // cancelled, to avoid timeouts. Chrome just holds the handler as pending in
+    // the PageContentSettingsDelegate, but we don't have such thing in the
+    // Content Shell.
+    registry->OnDenyRegisterProtocolHandler(handler);
+    return;
+  }
+
+  // FencedFrames can not register to handle any protocols.
+  if (requesting_frame->IsNestedWithinFencedFrame()) {
+    registry->OnIgnoreRegisterProtocolHandler(handler);
+    return;
+  }
+
+  // TODO(jfernandez): Are we interested at all on using the
+  // PermissionRequestManager in the ContentShell ?
+  registry->OnAcceptRegisterProtocolHandler(handler);
+}
+#endif
 
 void Shell::RequestToLockMouse(WebContents* web_contents,
                                bool user_gesture,
@@ -584,7 +641,7 @@ bool Shell::IsBackForwardCacheSupported() {
   return true;
 }
 
-bool Shell::IsPrerender2Supported() {
+bool Shell::IsPrerender2Supported(WebContents& web_contents) {
   return true;
 }
 
@@ -623,8 +680,7 @@ void Shell::UpdateInspectedWebContentsIfNecessary(
   for (auto* shell_devtools_bindings :
        ShellDevToolsBindings::GetInstancesForWebContents(old_contents)) {
     shell_devtools_bindings->UpdateInspectedWebContents(
-        new_contents, base::BindOnce([](scoped_refptr<PendingCallback>) {},
-                                     pending_callback));
+        new_contents, base::DoNothingWithBoundArgs(pending_callback));
   }
 }
 

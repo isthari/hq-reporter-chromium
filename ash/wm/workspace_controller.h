@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,7 +55,7 @@ class ASH_EXPORT WorkspaceController : public aura::WindowObserver {
 // the property will be cleared from |desk_container|.
 ASH_EXPORT void SetWorkspaceController(
     aura::Window* desk_container,
-    WorkspaceController* workspace_controller);
+    std::unique_ptr<WorkspaceController> workspace_controller);
 
 // Gets the worspace controller from the properties of the specific given
 // |desk_container|. Only virtual desks containers are accepted.

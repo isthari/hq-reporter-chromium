@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,8 +41,8 @@ enterprise_management::RemoteCommand CreateCommand() {
 }
 
 std::string GetPayloadWithNonce() {
-  base::Value root(base::Value::Type::DICTIONARY);
-  root.SetStringKey(kNonceField, kNonceValue);
+  base::Value::Dict root;
+  root.Set(kNonceField, kNonceValue);
 
   std::string payload;
   base::JSONWriter::Write(root, &payload);

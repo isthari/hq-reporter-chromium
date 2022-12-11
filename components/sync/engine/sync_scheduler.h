@@ -1,13 +1,11 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_SYNC_ENGINE_SYNC_SCHEDULER_H_
 #define COMPONENTS_SYNC_ENGINE_SYNC_SCHEDULER_H_
 
-#include <memory>
-
-#include "base/callback.h"
+#include "base/callback_forward.h"
 #include "base/compiler_specific.h"
 #include "base/time/time.h"
 #include "components/sync/base/sync_invalidation.h"
@@ -77,9 +75,7 @@ class SyncScheduler : public SyncCycle::Delegate {
   // clients have committed data.  We need to contact the sync server (being
   // careful to pass along the "hints" delivered with those invalidations) in
   // order to fetch the update.
-  virtual void ScheduleInvalidationNudge(
-      ModelType type,
-      std::unique_ptr<SyncInvalidation> invalidation) = 0;
+  virtual void ScheduleInvalidationNudge(ModelType type) = 0;
 
   // Requests a non-blocking initial sync request for the specified type.
   //
@@ -98,6 +94,11 @@ class SyncScheduler : public SyncCycle::Delegate {
   // Called when the network layer detects a connection status change.
   virtual void OnConnectionStatusChange(
       network::mojom::ConnectionType type) = 0;
+
+  // Update pending invalidations state in DataTypeTracker. Called whenever
+  // invalidation comes or drops.
+  virtual void SetHasPendingInvalidations(ModelType type,
+                                          bool has_pending_invalidations) = 0;
 };
 
 }  // namespace syncer

@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright 2015 The Chromium Authors. All rights reserved.
-     Use of this source code is governed by a BSD-style license that can be
-     found in the LICENSE file. -->
+<!--
+Copyright 2015 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
 
 <!-- The order of the following items is from: http://crbug.com/610358. -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
@@ -13,9 +15,19 @@
         android:title="@string/all_sites"
         android:icon="@drawable/settings_all_sites"
         app:iconTint="@macro/default_icon_color" />
-    <!-- Cookies -->
+    <!-- Cookies (PrivacySandboxSettings4 disabled) -->
     <org.chromium.components.browser_ui.settings.ChromeBasePreference
         android:key="cookies"
+        android:fragment="org.chromium.components.browser_ui.site_settings.SingleCategorySettings" />
+    <!-- Cookies (PrivacySandboxSettings4 enabled) -->
+    <org.chromium.components.browser_ui.settings.ChromeBasePreference
+        android:key="third_party_cookies"
+        android:title="@string/third_party_cookies_page_title"
+        android:icon="@drawable/permission_cookie"
+        app:iconTint="@macro/default_icon_color"
+        android:fragment="org.chromium.components.browser_ui.site_settings.SingleCategorySettings" />
+    <org.chromium.components.browser_ui.settings.ChromeBasePreference
+        android:key="site_data"
         android:fragment="org.chromium.components.browser_ui.site_settings.SingleCategorySettings" />
     <!-- Location -->
     <org.chromium.components.browser_ui.settings.ChromeBasePreference
@@ -105,6 +117,10 @@
     <org.chromium.components.browser_ui.settings.ChromeBasePreference
         android:fragment="org.chromium.components.browser_ui.site_settings.SingleCategorySettings"
         android:key="idle_detection" />
+    <!-- Federated Identity API -->
+    <org.chromium.components.browser_ui.settings.ChromeBasePreference
+        android:fragment="org.chromium.components.browser_ui.site_settings.SingleCategorySettings"
+        android:key="federated_identity_api" />
     <!-- Auto-dark Web Content -->
     <org.chromium.components.browser_ui.settings.ChromeBasePreference
         android:fragment="org.chromium.components.browser_ui.site_settings.SingleCategorySettings"

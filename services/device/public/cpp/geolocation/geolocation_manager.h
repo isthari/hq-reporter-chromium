@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,13 @@
 #include "base/callback.h"
 #include "base/component_export.h"
 #include "base/memory/weak_ptr.h"
-#include "base/observer_list.h"
 #include "base/observer_list_threadsafe.h"
 #include "services/device/public/cpp/geolocation/location_system_permission_status.h"
 #include "services/device/public/mojom/geoposition.mojom.h"
 
 namespace device {
+
+#if BUILDFLAG(IS_MAC)
 
 // This class is owned by the browser process and keeps track of the macOS
 // location permissions for the browser.
@@ -68,6 +69,11 @@ class COMPONENT_EXPORT(GEOLOCATION) GeolocationManager {
   scoped_refptr<PermissionObserverList> observers_;
   scoped_refptr<PositionObserverList> position_observers_;
 };
+
+#else
+class COMPONENT_EXPORT(GEOLOCATION) GeolocationManager {};
+
+#endif
 
 }  // namespace device
 

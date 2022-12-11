@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,13 @@
 #include <string>
 #include <vector>
 
+#include "base/at_exit.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "crypto/openssl_util.h"
 #include "net/tools/transport_security_state_generator/input_file_parsers.h"
@@ -124,14 +126,14 @@ bool CheckDuplicateEntries(const TransportSecurityStateEntries& entries) {
 // Checks for entries which have no effect.
 bool CheckNoopEntries(const TransportSecurityStateEntries& entries) {
   for (const auto& entry : entries) {
-    if (!entry->force_https && entry->pinset.empty() && !entry->expect_ct) {
+    if (!entry->force_https && entry->pinset.empty()) {
       if (entry->hostname == "learn.doubleclick.net") {
         // This entry is deliberately used as an exclusion.
         continue;
       }
 
       LOG(ERROR) << "Entry for " << entry->hostname
-                 << " has no mode, no pins and is not expect-CT";
+                 << " has no mode and no pins";
       return false;
     }
   }
@@ -200,6 +202,7 @@ bool CheckHostnames(const TransportSecurityStateEntries& entries) {
 int main(int argc, char* argv[]) {
   crypto::EnsureOpenSSLInit();
 
+  base::AtExitManager at_exit_manager;
   base::CommandLine::Init(argc, argv);
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
@@ -251,8 +254,9 @@ int main(int argc, char* argv[]) {
 
   TransportSecurityStateEntries entries;
   Pinsets pinsets;
+  base::Time timestamp;
 
-  if (!ParseCertificatesFile(certs_input, &pinsets) ||
+  if (!ParseCertificatesFile(certs_input, &pinsets, &timestamp) ||
       !ParseJSON(json_input, &entries, &pinsets)) {
     LOG(ERROR) << "Error while parsing the input files.";
     return 1;
@@ -280,7 +284,7 @@ int main(int argc, char* argv[]) {
 
   std::string output;
   PreloadedStateGenerator generator;
-  output = generator.Generate(preload_template, entries, pinsets);
+  output = generator.Generate(preload_template, entries, pinsets, timestamp);
   if (output.empty()) {
     LOG(ERROR) << "Trie generation failed.";
     return 1;

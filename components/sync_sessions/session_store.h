@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,10 @@
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "components/sync/model/data_batch.h"
+#include "components/sync/model/metadata_batch.h"
 #include "components/sync/model/model_error.h"
 #include "components/sync/model/model_type_store.h"
+#include "components/sync_device_info/device_info.h"
 #include "components/sync_sessions/synced_session_tracker.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -33,6 +35,8 @@ class SessionStore {
     std::string session_tag;
     std::string client_name;
     sync_pb::SyncEnums::DeviceType device_type = sync_pb::SyncEnums::TYPE_UNSET;
+    syncer::DeviceInfo::FormFactor device_form_factor =
+        syncer::DeviceInfo::FormFactor::kUnknown;
   };
 
   using OpenCallback = base::OnceCallback<void(

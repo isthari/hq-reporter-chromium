@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -123,7 +123,7 @@ absl::optional<base::sequence_manager::WakeUp> SchedulerHelper::GetNextWakeUp()
     const {
   CheckOnValidThread();
   DCHECK(sequence_manager_);
-  return sequence_manager_->GetNextWakeUp();
+  return sequence_manager_->GetNextDelayedWakeUp();
 }
 
 void SchedulerHelper::SetTimeDomain(
@@ -140,11 +140,14 @@ void SchedulerHelper::ResetTimeDomain() {
 }
 
 void SchedulerHelper::OnBeginNestedRunLoop() {
+  ++nested_runloop_depth_;
   if (observer_)
     observer_->OnBeginNestedRunLoop();
 }
 
 void SchedulerHelper::OnExitNestedRunLoop() {
+  --nested_runloop_depth_;
+  DCHECK_GE(nested_runloop_depth_, 0);
   if (observer_)
     observer_->OnExitNestedRunLoop();
 }

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/policy/networking/user_network_configuration_updater.h"
@@ -17,8 +18,15 @@
 
 class Profile;
 
+namespace ash {
+class ManagedNetworkConfigurationHandler;
+namespace onc {
+class CertificateImporter;
+}  // namespace onc
+}  // namespace ash
+
 namespace base {
-class ListValue;
+class Value;
 }
 
 namespace user_manager {
@@ -30,14 +38,6 @@ class NSSCertDatabase;
 class X509Certificate;
 typedef std::vector<scoped_refptr<X509Certificate>> CertificateList;
 }  // namespace net
-
-namespace chromeos {
-class ManagedNetworkConfigurationHandler;
-
-namespace onc {
-class CertificateImporter;
-}
-}  // namespace chromeos
 
 namespace policy {
 
@@ -67,13 +67,13 @@ class UserNetworkConfigurationUpdaterAsh
       Profile* profile,
       const user_manager::User& user,
       PolicyService* policy_service,
-      chromeos::ManagedNetworkConfigurationHandler* network_config_handler);
+      ash::ManagedNetworkConfigurationHandler* network_config_handler);
 
   // Helper method to expose |SetClientCertificateImporter| for usage in tests.
   // Note that the CertificateImporter is only used for importing client
   // certificates.
   void SetClientCertificateImporterForTest(
-      std::unique_ptr<chromeos::onc::CertificateImporter> certificate_importer);
+      std::unique_ptr<ash::onc::CertificateImporter> certificate_importer);
 
   // Determines if |policy_map| contains a OpenNetworkConfiguration policy that
   // mandates that at least one additional certificate should be used and
@@ -88,14 +88,13 @@ class UserNetworkConfigurationUpdaterAsh
       Profile* profile,
       const user_manager::User& user,
       PolicyService* policy_service,
-      chromeos::ManagedNetworkConfigurationHandler* network_config_handler);
+      ash::ManagedNetworkConfigurationHandler* network_config_handler);
 
   // NetworkConfigurationUpdater:
   void ImportClientCertificates() override;
 
-  void ApplyNetworkPolicy(
-      base::ListValue* network_configs_onc,
-      base::DictionaryValue* global_network_config) override;
+  void ApplyNetworkPolicy(base::Value::List network_configs_onc,
+                          base::Value::Dict global_network_config) override;
 
   // content::NotificationObserver implementation. Observes the profile to which
   // |this| belongs to for PROFILE_ADDED notification.
@@ -110,18 +109,18 @@ class UserNetworkConfigurationUpdaterAsh
   // Sets the certificate importer that should be used to import certificate
   // policies. If there is |pending_certificates_onc_|, it gets imported.
   void SetClientCertificateImporter(
-      std::unique_ptr<chromeos::onc::CertificateImporter> certificate_importer);
+      std::unique_ptr<ash::onc::CertificateImporter> certificate_importer);
 
   // The user for whom the user policy will be applied.
-  const user_manager::User* const user_;
+  const raw_ptr<const user_manager::User> user_;
 
   // Pointer to the global singleton or a test instance.
-  chromeos::ManagedNetworkConfigurationHandler* const network_config_handler_;
+  const raw_ptr<ash::ManagedNetworkConfigurationHandler>
+      network_config_handler_;
 
   // Certificate importer to be used for importing policy defined client
   // certificates. Set by |SetClientCertificateImporter|.
-  std::unique_ptr<chromeos::onc::CertificateImporter>
-      client_certificate_importer_;
+  std::unique_ptr<ash::onc::CertificateImporter> client_certificate_importer_;
 
   content::NotificationRegistrar registrar_;
 

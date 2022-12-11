@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,13 +40,11 @@ class GL_EXPORT GLImageD3D : public GLImage {
   GLImageD3D(const GLImageD3D&) = delete;
   GLImageD3D& operator=(const GLImageD3D&) = delete;
 
-  // Safe downcast. Returns nullptr on failure.
-  static GLImageD3D* FromGLImage(GLImage* image);
-
   bool Initialize();
 
   // GLImage implementation
   Type GetType() const override;
+  void* GetEGLImage() const override;
   BindOrCopy ShouldBindOrCopy() override;
   gfx::Size GetSize() override;
   unsigned GetInternalFormat() override;
@@ -57,10 +55,11 @@ class GL_EXPORT GLImageD3D : public GLImage {
   bool CopyTexSubImage(unsigned target,
                        const gfx::Point& offset,
                        const gfx::Rect& rect) override;
-  void Flush() override {}
   void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
                     uint64_t process_tracing_id,
                     const std::string& dump_name) override;
+
+  const gfx::ColorSpace& color_space() const { return color_space_; }
 
   const Microsoft::WRL::ComPtr<ID3D11Texture2D>& texture() const {
     return texture_;
@@ -70,8 +69,6 @@ class GL_EXPORT GLImageD3D : public GLImage {
   }
   size_t array_slice() const { return array_slice_; }
   size_t plane_index() const { return plane_index_; }
-
-  void* egl_image() const { return egl_image_; }
 
  protected:
   const gfx::Size size_;

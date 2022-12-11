@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,7 +35,8 @@ class OffloadingVideoEncoderTest : public testing::Test {
     auto mock_video_encoder = std::make_unique<MockVideoEncoder>();
     mock_video_encoder_ = mock_video_encoder.get();
     work_runner_ = base::ThreadPool::CreateSequencedTaskRunner({});
-    callback_runner_ = base::SequencedTaskRunnerHandle::Get();
+    callback_runner_ = base::SequencedTaskRunner::GetCurrentDefault();
+    EXPECT_CALL(*mock_video_encoder_, DisablePostedCallbacks());
     offloading_encoder_ = std::make_unique<OffloadingVideoEncoder>(
         std::move(mock_video_encoder), work_runner_, callback_runner_);
     EXPECT_CALL(*mock_video_encoder_, Dtor()).WillOnce(Invoke([this]() {

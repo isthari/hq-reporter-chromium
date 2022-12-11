@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 namespace optimization_guide {
 
 namespace {
-const std::vector<WeightedString> kOutput{WeightedString("output", 1.0)};
+const std::vector<WeightedIdentifier> kOutput{WeightedIdentifier(1337, 1.0)};
 }
 
 class TestJobExecutor : public PageContentAnnotationJobExecutor {

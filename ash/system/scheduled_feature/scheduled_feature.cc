@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "base/cxx17_backports.h"
 #include "base/i18n/time_formatting.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/time/time.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -52,6 +53,9 @@ ScheduledFeature::ScheduledFeature(
   Shell::Get()->session_controller()->AddObserver(this);
   aura::Env::GetInstance()->AddObserver(this);
   chromeos::PowerManagerClient::Get()->AddObserver(this);
+  // Check that both start or end times are supplied or both are absent.
+  DCHECK_EQ(prefs_path_custom_start_time_.empty(),
+            prefs_path_custom_end_time_.empty());
 }
 
 ScheduledFeature::~ScheduledFeature() {
@@ -60,13 +64,12 @@ ScheduledFeature::~ScheduledFeature() {
   Shell::Get()->session_controller()->RemoveObserver(this);
 }
 
-// static
 bool ScheduledFeature::GetEnabled() const {
   return active_user_pref_service_ &&
          active_user_pref_service_->GetBoolean(prefs_path_enabled_);
 }
 
-ScheduledFeature::ScheduleType ScheduledFeature::GetScheduleType() const {
+ScheduleType ScheduledFeature::GetScheduleType() const {
   if (active_user_pref_service_) {
     return static_cast<ScheduleType>(
         active_user_pref_service_->GetInteger(prefs_path_schedule_type_));
@@ -76,21 +79,21 @@ ScheduledFeature::ScheduleType ScheduledFeature::GetScheduleType() const {
 }
 
 TimeOfDay ScheduledFeature::GetCustomStartTime() const {
-  if (active_user_pref_service_) {
-    return TimeOfDay(
-        active_user_pref_service_->GetInteger(prefs_path_custom_start_time_));
-  }
-
-  return TimeOfDay(kDefaultStartTimeOffsetMinutes);
+  DCHECK(!prefs_path_custom_start_time_.empty());
+  return TimeOfDay(active_user_pref_service_
+                       ? active_user_pref_service_->GetInteger(
+                             prefs_path_custom_start_time_)
+                       : kDefaultStartTimeOffsetMinutes)
+      .SetClock(clock_);
 }
 
 TimeOfDay ScheduledFeature::GetCustomEndTime() const {
-  if (active_user_pref_service_) {
-    return TimeOfDay(
-        active_user_pref_service_->GetInteger(prefs_path_custom_end_time_));
-  }
-
-  return TimeOfDay(kDefaultEndTimeOffsetMinutes);
+  DCHECK(!prefs_path_custom_end_time_.empty());
+  return TimeOfDay(active_user_pref_service_
+                       ? active_user_pref_service_->GetInteger(
+                             prefs_path_custom_end_time_)
+                       : kDefaultEndTimeOffsetMinutes)
+      .SetClock(clock_);
 }
 
 bool ScheduledFeature::IsNowWithinSunsetSunrise() const {
@@ -106,13 +109,21 @@ void ScheduledFeature::SetEnabled(bool enabled) {
 }
 
 void ScheduledFeature::SetScheduleType(ScheduleType type) {
-  if (active_user_pref_service_) {
-    active_user_pref_service_->SetInteger(prefs_path_schedule_type_,
-                                          static_cast<int>(type));
+  if (!active_user_pref_service_)
+    return;
+
+  if (type == ScheduleType::kCustom && (prefs_path_custom_start_time_.empty() ||
+                                        prefs_path_custom_end_time_.empty())) {
+    NOTREACHED();
+    return;
   }
+
+  active_user_pref_service_->SetInteger(prefs_path_schedule_type_,
+                                        static_cast<int>(type));
 }
 
 void ScheduledFeature::SetCustomStartTime(TimeOfDay start_time) {
+  DCHECK(!prefs_path_custom_start_time_.empty());
   if (active_user_pref_service_) {
     active_user_pref_service_->SetInteger(
         prefs_path_custom_start_time_,
@@ -121,6 +132,7 @@ void ScheduledFeature::SetCustomStartTime(TimeOfDay start_time) {
 }
 
 void ScheduledFeature::SetCustomEndTime(TimeOfDay end_time) {
+  DCHECK(!prefs_path_custom_end_time_.empty());
   if (active_user_pref_service_) {
     active_user_pref_service_->SetInteger(
         prefs_path_custom_end_time_, end_time.offset_minutes_from_zero_hour());
@@ -197,21 +209,26 @@ void ScheduledFeature::StartWatchingPrefsChanges() {
   pref_change_registrar_->Add(
       prefs_path_schedule_type_,
       base::BindRepeating(&ScheduledFeature::OnScheduleTypePrefChanged,
-                          base::Unretained(this)));
-  pref_change_registrar_->Add(
-      prefs_path_custom_start_time_,
-      base::BindRepeating(&ScheduledFeature::OnCustomSchedulePrefsChanged,
-                          base::Unretained(this)));
-  pref_change_registrar_->Add(
-      prefs_path_custom_end_time_,
-      base::BindRepeating(&ScheduledFeature::OnCustomSchedulePrefsChanged,
-                          base::Unretained(this)));
+                          base::Unretained(this),
+                          /*keep_manual_toggles_during_schedules=*/false));
+
+  if (!prefs_path_custom_start_time_.empty()) {
+    pref_change_registrar_->Add(
+        prefs_path_custom_start_time_,
+        base::BindRepeating(&ScheduledFeature::OnCustomSchedulePrefsChanged,
+                            base::Unretained(this)));
+  }
+  if (!prefs_path_custom_end_time_.empty()) {
+    pref_change_registrar_->Add(
+        prefs_path_custom_end_time_,
+        base::BindRepeating(&ScheduledFeature::OnCustomSchedulePrefsChanged,
+                            base::Unretained(this)));
+  }
 }
 
 void ScheduledFeature::InitFromUserPrefs() {
   StartWatchingPrefsChanges();
-  Refresh(/*did_schedule_change=*/true,
-          /*keep_manual_toggles_during_schedules=*/true);
+  OnScheduleTypePrefChanged(/*keep_manual_toggles_during_schedules=*/true);
   is_first_user_init_ = false;
 }
 
@@ -223,21 +240,20 @@ void ScheduledFeature::OnEnabledPrefChanged() {
           /*keep_manual_toggles_during_schedules=*/false);
 }
 
-void ScheduledFeature::OnScheduleTypePrefChanged() {
-  const ScheduledFeature::ScheduleType schedule_type = GetScheduleType();
+void ScheduledFeature::OnScheduleTypePrefChanged(
+    bool keep_manual_toggles_during_schedules) {
+  const ScheduleType schedule_type = GetScheduleType();
   // To prevent adding (or removing) an observer twice in a row when switching
   // between different users, we need to check `is_observing_geolocation_`.
-  if (schedule_type == ScheduledFeature::ScheduleType::kNone &&
-      is_observing_geolocation_) {
+  if (schedule_type == ScheduleType::kNone && is_observing_geolocation_) {
     geolocation_controller_->RemoveObserver(this);
     is_observing_geolocation_ = false;
-  } else if (schedule_type != ScheduledFeature::ScheduleType::kNone &&
+  } else if (schedule_type != ScheduleType::kNone &&
              !is_observing_geolocation_) {
     geolocation_controller_->AddObserver(this);
     is_observing_geolocation_ = true;
   }
-  Refresh(/*did_schedule_change=*/true,
-          /*keep_manual_toggles_during_schedules=*/false);
+  Refresh(/*did_schedule_change=*/true, keep_manual_toggles_during_schedules);
 }
 
 void ScheduledFeature::OnCustomSchedulePrefsChanged() {

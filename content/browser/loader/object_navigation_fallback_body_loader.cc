@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@
 #include "mojo/public/cpp/system/data_pipe_drainer.h"
 #include "net/http/http_response_info.h"
 #include "services/network/public/cpp/is_potentially_trustworthy.h"
+#include "services/network/public/cpp/record_ontransfersizeupdate_utils.h"
 #include "services/network/public/mojom/early_hints.mojom.h"
 #include "services/network/public/mojom/timing_allow_origin.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
@@ -157,10 +158,6 @@ blink::mojom::ResourceTimingInfoPtr GenerateResourceTiming(
     timing_info->allow_redirect_details = timing_info->allow_timing_details;
     timing_info->last_redirect_end_time =
         commit_params.redirect_response.back()->load_timing.receive_headers_end;
-
-    if (!timing_info->allow_redirect_details) {
-      timing_info->start_time = response_head.load_timing.request_start;
-    }
   } else {
     timing_info->allow_redirect_details = false;
     timing_info->last_redirect_end_time = base::TimeTicks();
@@ -265,10 +262,13 @@ void ObjectNavigationFallbackBodyLoader::MaybeComplete() {
   timing_info_->decoded_body_size = status_->decoded_body_length;
 
   RenderFrameHostManager* render_manager =
-      navigation_request_.frame_tree_node()->render_manager();
+      navigation_request_->frame_tree_node()->render_manager();
   if (RenderFrameProxyHost* proxy = render_manager->GetProxyToParent()) {
-    proxy->GetAssociatedRemoteFrame()->RenderFallbackContentWithResourceTiming(
-        std::move(timing_info_), server_timing_value_);
+    if (proxy->is_render_frame_proxy_live()) {
+      proxy->GetAssociatedRemoteFrame()
+          ->RenderFallbackContentWithResourceTiming(std::move(timing_info_),
+                                                    server_timing_value_);
+    }
   } else {
     render_manager->current_frame_host()
         ->GetAssociatedLocalFrame()
@@ -287,7 +287,7 @@ void ObjectNavigationFallbackBodyLoader::BodyLoadFailed() {
   // The endpoint for the URL loader client was closed before the body load
   // completed. This is considered failure, so trigger the fallback content, but
   // without any timing info, since it can't be calculated.
-  navigation_request_.RenderFallbackContentForObjectTag();
+  navigation_request_->RenderFallbackContentForObjectTag();
 }
 
 void ObjectNavigationFallbackBodyLoader::OnReceiveEarlyHints(
@@ -298,7 +298,8 @@ void ObjectNavigationFallbackBodyLoader::OnReceiveEarlyHints(
 
 void ObjectNavigationFallbackBodyLoader::OnReceiveResponse(
     network::mojom::URLResponseHeadPtr,
-    mojo::ScopedDataPipeConsumerHandle body) {
+    mojo::ScopedDataPipeConsumerHandle body,
+    absl::optional<mojo_base::BigBuffer> cached_metadata) {
   // Should have already happened.
   NOTREACHED();
 }
@@ -318,20 +319,11 @@ void ObjectNavigationFallbackBodyLoader::OnUploadProgress(
   NOTREACHED();
 }
 
-void ObjectNavigationFallbackBodyLoader::OnReceiveCachedMetadata(
-    mojo_base::BigBuffer data) {
-  // Not needed so implementation omitted.
-}
-
 void ObjectNavigationFallbackBodyLoader::OnTransferSizeUpdated(
     int32_t transfer_size_diff) {
   // Not needed so implementation omitted.
-}
-
-void ObjectNavigationFallbackBodyLoader::OnStartLoadingResponseBody(
-    mojo::ScopedDataPipeConsumerHandle body) {
-  // Should have already happened.
-  NOTREACHED();
+  network::RecordOnTransferSizeUpdatedUMA(
+      network::OnTransferSizeUpdatedFrom::kObjectNavigationFallbackBodyLoader);
 }
 
 void ObjectNavigationFallbackBodyLoader::OnComplete(

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,11 @@
 #include "base/containers/circular_deque.h"
 #include "base/containers/queue.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/unsafe_shared_memory_pool.h"
 #include "base/synchronization/lock.h"
+#include "base/time/time.h"
 #include "media/base/media_export.h"
 #include "media/base/video_encoder.h"
 #include "media/video/video_encode_accelerator.h"
@@ -27,7 +29,13 @@ class SequencedTaskRunner;
 
 namespace media {
 class GpuVideoAcceleratorFactories;
+class MediaLog;
 class H264AnnexBToAvcBitstreamConverter;
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC) && \
+    BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
+class H265AnnexBToHevcBitstreamConverter;
+#endif  // BUILDFLAG(ENABLE_PLATFORM_HEVC) &&
+        // BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
 
 // This class is a somewhat complex adapter from VideoEncodeAccelerator
 // to VideoEncoder, it takes cares of such things as
@@ -40,7 +48,10 @@ class MEDIA_EXPORT VideoEncodeAcceleratorAdapter
  public:
   VideoEncodeAcceleratorAdapter(
       GpuVideoAcceleratorFactories* gpu_factories,
-      scoped_refptr<base::SequencedTaskRunner> callback_task_runner);
+      std::unique_ptr<MediaLog> media_log,
+      scoped_refptr<base::SequencedTaskRunner> callback_task_runner,
+      VideoEncodeAccelerator::Config::EncoderType required_encoder_type =
+          VideoEncodeAccelerator::Config::EncoderType::kHardware);
   ~VideoEncodeAcceleratorAdapter() override;
 
   enum class InputBufferKind { Any, GpuMemBuf, CpuMemBuf };
@@ -76,6 +87,8 @@ class MEDIA_EXPORT VideoEncodeAcceleratorAdapter
   static void DestroyAsync(std::unique_ptr<VideoEncodeAcceleratorAdapter> self);
 
  private:
+  class GpuMemoryBufferVideoFramePool;
+  class ReadOnlyRegionPool;
   enum class State {
     kNotInitialized,
     kWaitingForFirstFrame,
@@ -116,18 +129,26 @@ class MEDIA_EXPORT VideoEncodeAcceleratorAdapter
       const gfx::Size& size,
       scoped_refptr<VideoFrame> src_frame);
 
+  scoped_refptr<ReadOnlyRegionPool> input_pool_;
   scoped_refptr<base::UnsafeSharedMemoryPool> output_pool_;
-  scoped_refptr<base::UnsafeSharedMemoryPool> input_pool_;
   std::unique_ptr<base::UnsafeSharedMemoryPool::Handle> output_handle_holder_;
-  size_t input_buffer_size_;
+  scoped_refptr<GpuMemoryBufferVideoFramePool> gmb_frame_pool_;
 
   std::unique_ptr<VideoEncodeAccelerator> accelerator_;
   raw_ptr<GpuVideoAcceleratorFactories> gpu_factories_;
+  std::unique_ptr<MediaLog> media_log_;
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
   // If |h264_converter_| is null, we output in annexb format. Otherwise, we
   // output in avc format.
   std::unique_ptr<H264AnnexBToAvcBitstreamConverter> h264_converter_;
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC) && \
+    BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
+  // If |h265_converter_| is null, we output in annexb format. Otherwise, we
+  // output in hevc format.
+  std::unique_ptr<H265AnnexBToHevcBitstreamConverter> h265_converter_;
+#endif  // BUILDFLAG(ENABLE_PLATFORM_HEVC) &&
+        // BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 
   // These are encodes that have been sent to the accelerator but have not yet
@@ -161,10 +182,15 @@ class MEDIA_EXPORT VideoEncodeAcceleratorAdapter
   std::vector<uint8_t> resize_buf_;
 
   VideoCodecProfile profile_ = VIDEO_CODEC_PROFILE_UNKNOWN;
+  VideoEncodeAccelerator::SupportedRateControlMode supported_rc_modes_ =
+      VideoEncodeAccelerator::kNoMode;
   Options options_;
   OutputCB output_cb_;
 
   gfx::Size input_coded_size_;
+
+  VideoEncodeAccelerator::Config::EncoderType required_encoder_type_ =
+      VideoEncodeAccelerator::Config::EncoderType::kHardware;
 };
 
 }  // namespace media

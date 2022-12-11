@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "base/callback_helpers.h"
 #include "base/json/values_util.h"
 #include "base/location.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/values.h"
 #include "components/prefs/pref_service.h"
 
@@ -92,7 +92,7 @@ void PrefMemberBase::InvokeUnnamedCallback(
 }
 
 PrefMemberBase::Internal::Internal()
-    : owning_task_runner_(base::SequencedTaskRunnerHandle::Get()) {}
+    : owning_task_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {}
 PrefMemberBase::Internal::~Internal() = default;
 
 bool PrefMemberBase::Internal::IsOnCorrectSequence() const {

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,6 @@
 // in //ash/constants/ash_features.h.
 namespace chromeos {
 
-COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
-extern const base::Feature kLacrosTtsSupport;
-
 namespace features {
 
 // All features in alphabetical order. The features should be documented
@@ -23,25 +20,35 @@ namespace features {
 // being rolled out via Finch, add a comment in the .cc file.
 
 COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
-extern const base::Feature kBluetoothAdvertisementMonitoring;
+BASE_DECLARE_FEATURE(kBluetoothPhoneFilter);
+COMPONENT_EXPORT(CHROMEOS_CONSTANTS) BASE_DECLARE_FEATURE(kCloudGamingDevice);
+COMPONENT_EXPORT(CHROMEOS_CONSTANTS) BASE_DECLARE_FEATURE(kDarkLightMode);
+COMPONENT_EXPORT(CHROMEOS_CONSTANTS) BASE_DECLARE_FEATURE(kDemoModeSWA);
 COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
-extern const base::Feature kBluetoothPhoneFilter;
-COMPONENT_EXPORT(CHROMEOS_CONSTANTS) extern const base::Feature kDarkLightMode;
+BASE_DECLARE_FEATURE(kDisableIdleSocketsCloseOnMemoryPressure);
 COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
-extern const base::Feature kDisableQuickAnswersV2Translation;
+BASE_DECLARE_FEATURE(kDisableOfficeEditingComponentApp);
 COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
-extern const base::Feature kQuickAnswersV2SettingsSubToggle;
+BASE_DECLARE_FEATURE(kDisableQuickAnswersV2Translation);
 COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
-extern const base::Feature kQuickAnswersAlwaysTriggerForSingleWord;
+BASE_DECLARE_FEATURE(kPasswordManagerSystemAuthentication);
+COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
+BASE_DECLARE_FEATURE(kQuickAnswersRichCard);
+COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
+BASE_DECLARE_FEATURE(kQuickAnswersV2SettingsSubToggle);
 
 // Keep alphabetized.
 
-COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
-bool IsBluetoothAdvertisementMonitoringEnabled();
 COMPONENT_EXPORT(CHROMEOS_CONSTANTS) bool IsDarkLightModeEnabled();
+COMPONENT_EXPORT(CHROMEOS_CONSTANTS) bool IsCloudGamingDeviceEnabled();
+COMPONENT_EXPORT(CHROMEOS_CONSTANTS) bool IsDemoModeSWAEnabled();
+COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
+bool IsPasswordManagerSystemAuthenticationEnabled();
 COMPONENT_EXPORT(CHROMEOS_CONSTANTS) bool IsQuickAnswersV2TranslationDisabled();
 COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
 bool IsQuickAnswersV2SettingsSubToggleEnabled();
+COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
+bool IsQuickAnswersRichCardEnabled();
 COMPONENT_EXPORT(CHROMEOS_CONSTANTS)
 bool IsQuickAnswersAlwaysTriggerForSingleWord();
 

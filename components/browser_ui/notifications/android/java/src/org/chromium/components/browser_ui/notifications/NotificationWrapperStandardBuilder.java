@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -83,9 +83,7 @@ public class NotificationWrapperStandardBuilder implements NotificationWrapperBu
 
     @Override
     public NotificationWrapperBuilder setSmallIcon(Icon icon) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            ApiHelperForM.setSmallIcon(mBuilder, icon);
-        }
+        ApiHelperForM.setSmallIcon(mBuilder, icon);
         return this;
     }
 

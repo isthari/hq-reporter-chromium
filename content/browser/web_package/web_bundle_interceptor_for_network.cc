@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include "base/strings/stringprintf.h"
 #include "components/web_package/web_bundle_utils.h"
 #include "content/browser/loader/navigation_loader_interceptor.h"
-#include "content/browser/loader/single_request_url_loader_factory.h"
 #include "content/browser/web_package/web_bundle_reader.h"
 #include "content/browser/web_package/web_bundle_redirect_url_loader.h"
 #include "content/browser/web_package/web_bundle_source.h"
@@ -15,6 +14,7 @@
 #include "content/browser/web_package/web_bundle_utils.h"
 #include "content/public/browser/download_utils.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/cpp/single_request_url_loader_factory.h"
 
 namespace content {
 
@@ -43,9 +43,10 @@ void WebBundleInterceptorForNetwork::MaybeCreateLoader(
     std::move(callback).Run({});
     return;
   }
-  std::move(callback).Run(base::MakeRefCounted<SingleRequestURLLoaderFactory>(
-      base::BindOnce(&WebBundleInterceptorForNetwork::StartResponse,
-                     weak_factory_.GetWeakPtr())));
+  std::move(callback).Run(
+      base::MakeRefCounted<network::SingleRequestURLLoaderFactory>(
+          base::BindOnce(&WebBundleInterceptorForNetwork::StartResponse,
+                         weak_factory_.GetWeakPtr())));
 }
 
 bool WebBundleInterceptorForNetwork::MaybeCreateLoaderForResponse(
@@ -108,11 +109,24 @@ void WebBundleInterceptorForNetwork::OnMetadataReady(
         web_bundle_utils::GetMetadataParseErrorMessage(error));
     return;
   }
-  primary_url_ = reader_->GetPrimaryURL();
+  primary_url_ = reader_->GetPrimaryURL().value_or(GURL());
   if (primary_url_.is_empty()) {
     web_bundle_utils::CompleteWithInvalidWebBundleError(
         std::move(forwarding_client_), frame_tree_node_id_,
         web_bundle_utils::kNoPrimaryUrlErrorMessage);
+    return;
+  }
+  if (!web_bundle_utils::IsAllowedExchangeUrl(primary_url_)) {
+    web_bundle_utils::CompleteWithInvalidWebBundleError(
+        std::move(forwarding_client_), frame_tree_node_id_,
+        web_bundle_utils::kInvalidPrimaryUrlErrorMessage);
+    return;
+  }
+  if (!base::ranges::all_of(reader_->GetEntries(),
+                            &web_bundle_utils::IsAllowedExchangeUrl)) {
+    web_bundle_utils::CompleteWithInvalidWebBundleError(
+        std::move(forwarding_client_), frame_tree_node_id_,
+        web_bundle_utils::kInvalidExchangeUrlErrorMessage);
     return;
   }
   if (!reader_->HasEntry(primary_url_)) {

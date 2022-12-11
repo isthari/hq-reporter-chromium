@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -75,6 +75,12 @@ class MockWebIDBCallbacks : public WebIDBCallbacks {
   void SuccessArray(Vector<mojom::blink::IDBReturnValuePtr>) override;
   MOCK_METHOD1(DoSuccessArray,
                void(const Vector<mojom::blink::IDBReturnValuePtr>&));
+
+  void SuccessArrayArray(
+      Vector<Vector<mojom::blink::IDBReturnValuePtr>>) override;
+
+  MOCK_METHOD1(DoSuccessArrayArray,
+               void(const Vector<Vector<mojom::blink::IDBReturnValuePtr>>&));
 
   MOCK_METHOD1(SuccessInteger, void(int64_t));
 

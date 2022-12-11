@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 
 #include <string>
 
-#include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/login/user_flow.h"
 #include "chrome/browser/ash/login/users/affiliation.h"
 #include "chrome/browser/ash/login/users/avatar/mock_user_image_manager.h"
@@ -18,12 +17,13 @@
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace ash {
+
 class FakeSupervisedUserManager;
 
 class MockUserManager : public ChromeUserManager {
  public:
   MockUserManager();
-  virtual ~MockUserManager();
+  ~MockUserManager() override;
 
   MOCK_METHOD0(Shutdown, void(void));
   MOCK_CONST_METHOD0(GetUsersAllowedForMultiProfile,
@@ -82,8 +82,8 @@ class MockUserManager : public ChromeUserManager {
                           const user_manager::User*,
                           bool));
   MOCK_CONST_METHOD1(AsyncRemoveCryptohome, void(const AccountId&));
-  MOCK_CONST_METHOD3(GetPlatformKnownUserId,
-                     bool(const std::string&, const std::string&, AccountId*));
+  MOCK_CONST_METHOD2(GetPlatformKnownUserId,
+                     bool(const std::string&, AccountId*));
   MOCK_CONST_METHOD0(GetGuestAccountId, const AccountId&());
   MOCK_CONST_METHOD0(IsFirstExecAfterBoot, bool(void));
   MOCK_CONST_METHOD1(IsGuestAccountId, bool(const AccountId&));
@@ -139,8 +139,6 @@ class MockUserManager : public ChromeUserManager {
                     const AffiliationIDSet& user_affiliation_ids));
 
   bool ShouldReportUser(const std::string& user_id) const override;
-  MOCK_CONST_METHOD1(IsManagedSessionEnabledForUser,
-                     bool(const user_manager::User&));
   MOCK_CONST_METHOD1(IsFullManagementDisclosureNeeded,
                      bool(policy::DeviceLocalAccountPolicyBroker*));
   MOCK_METHOD2(CacheRemovedUser,
@@ -195,10 +193,5 @@ class MockUserManager : public ChromeUserManager {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove once the migration is finished.
-namespace chromeos {
-using ::ash::MockUserManager;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_USERS_MOCK_USER_MANAGER_H_

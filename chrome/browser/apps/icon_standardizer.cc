@@ -1,11 +1,14 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/apps/icon_standardizer.h"
 
+#include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkMaskFilter.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_operations.h"
+#include "ui/gfx/image/image_skia_rep.h"
 
 namespace apps {
 
@@ -15,7 +18,7 @@ constexpr float kCircleOutlineStrokeWidthRatio = 0.1f;
 
 constexpr int kMinimumVisibleAlpha = 40;
 
-constexpr float kCircleShapePixelDifferenceThreshold = 0.01f;
+constexpr float kCircleShapePixelDifferenceThreshold = 0.02f;
 
 constexpr float kIconScaleToFit = 0.85f;
 
@@ -228,15 +231,6 @@ bool IsIconRepCircleShaped(const gfx::ImageSkiaRep& rep) {
   // If the pixel difference between a circle and the original icon is small
   // enough, then the icon can be considered circle shaped.
   return (percentage_diff_pixels < kCircleShapePixelDifferenceThreshold);
-}
-
-// Returns whether the shape of the icon is roughly circle shaped.
-bool IsIconCircleShaped(const gfx::ImageSkia& image) {
-  for (gfx::ImageSkiaRep rep : image.image_reps()) {
-    if (IsIconRepCircleShaped(rep))
-      return true;
-  }
-  return false;
 }
 
 absl::optional<gfx::ImageSkiaRep> StandardizeSizeOfImageRep(

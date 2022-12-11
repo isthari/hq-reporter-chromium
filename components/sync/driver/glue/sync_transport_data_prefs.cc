@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include <utility>
 
 #include "base/base64.h"
-#include "base/feature_list.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/values.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/base/model_type.h"
@@ -18,9 +18,6 @@
 namespace syncer {
 
 namespace {
-
-constexpr base::Feature kSyncResetVeryShortPollInterval{
-    "SyncResetVeryShortPollInterval", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // 64-bit integer serialization of the base::Time when the last sync occurred.
 const char kSyncLastSyncedTime[] = "sync.last_synced_time";
@@ -49,13 +46,14 @@ const char kSyncObsoleteKeystoreEncryptionBootstrapToken[] =
 void UpdateInvalidationVersions(
     const std::map<ModelType, int64_t>& invalidation_versions,
     PrefService* pref_service) {
-  auto invalidation_dictionary = std::make_unique<base::DictionaryValue>();
+  base::Value::Dict invalidation_dictionary;
   for (const auto& [type, version] : invalidation_versions) {
-    invalidation_dictionary->SetString(
+    invalidation_dictionary.Set(
         base::NumberToString(GetSpecificsFieldNumberFromModelType(type)),
         base::NumberToString(version));
   }
-  pref_service->Set(kSyncInvalidationVersions2, *invalidation_dictionary);
+  pref_service->SetDict(kSyncInvalidationVersions2,
+                        std::move(invalidation_dictionary));
 }
 
 std::string GetLegacyModelTypeNameForInvalidationVersions(ModelType type) {
@@ -214,8 +212,7 @@ base::TimeDelta SyncTransportDataPrefs::GetPollInterval() const {
   // callers to use a reasonable default value instead.
   // This fixes a past bug where stored pref values were accidentally
   // re-interpreted from "seconds" to "microseconds"; see crbug.com/1246850.
-  if (poll_interval < base::Minutes(1) &&
-      base::FeatureList::IsEnabled(kSyncResetVeryShortPollInterval)) {
+  if (poll_interval < base::Minutes(1)) {
     pref_service_->ClearPref(kSyncPollIntervalSeconds);
     return base::TimeDelta();
   }
@@ -279,9 +276,9 @@ std::string SyncTransportDataPrefs::GetBagOfChips() const {
 // static
 void SyncTransportDataPrefs::MigrateInvalidationVersions(
     PrefService* pref_service) {
-  const base::Value* invalidation_dictionary =
-      pref_service->GetDictionary(kDeprecatedSyncInvalidationVersions);
-  if (invalidation_dictionary->DictEmpty()) {
+  const base::Value::Dict& invalidation_dictionary =
+      pref_service->GetDict(kDeprecatedSyncInvalidationVersions);
+  if (invalidation_dictionary.empty()) {
     // No data, or was already migrated. Nothing to do here.
     return;
   }
@@ -294,8 +291,7 @@ void SyncTransportDataPrefs::MigrateInvalidationVersions(
     // migration.
     if (key.empty())
       continue;
-    const std::string* version_str =
-        invalidation_dictionary->FindStringKey(key);
+    const std::string* version_str = invalidation_dictionary.FindString(key);
     if (!version_str)
       continue;
     int64_t version = 0;
@@ -313,13 +309,12 @@ std::map<ModelType, int64_t> SyncTransportDataPrefs::GetInvalidationVersions()
     const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   std::map<ModelType, int64_t> invalidation_versions;
-  const base::Value* invalidation_dictionary =
-      pref_service_->GetDictionary(kSyncInvalidationVersions2);
+  const base::Value::Dict& invalidation_dictionary =
+      pref_service_->GetDict(kSyncInvalidationVersions2);
   for (ModelType type : ProtocolTypes()) {
     std::string key =
         base::NumberToString(GetSpecificsFieldNumberFromModelType(type));
-    const std::string* version_str =
-        invalidation_dictionary->FindStringKey(key);
+    const std::string* version_str = invalidation_dictionary.FindString(key);
     if (!version_str)
       continue;
     int64_t version = 0;

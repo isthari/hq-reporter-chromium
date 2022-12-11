@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include <string>
 #include <vector>
 
-#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/file_system_provider/abort_callback.h"
 #include "chrome/browser/ash/file_system_provider/provided_file_system.h"
@@ -34,7 +33,7 @@ namespace ash {
 namespace file_system_provider {
 
 class Queue;
-class RequestManager;
+class OperationRequestManager;
 
 // Decorates ProvidedFileSystemInterface with throttling capabilities.
 class ThrottledFileSystem : public ProvidedFileSystemInterface {
@@ -114,7 +113,7 @@ class ThrottledFileSystem : public ProvidedFileSystemInterface {
                      bool recursive,
                      storage::AsyncFileUtil::StatusCallback callback) override;
   const ProvidedFileSystemInfo& GetFileSystemInfo() const override;
-  RequestManager* GetRequestManager() override;
+  OperationRequestManager* GetRequestManager() override;
   Watchers* GetWatchers() override;
   const OpenedFiles& GetOpenedFiles() const override;
   void AddObserver(ProvidedFileSystemObserver* observer) override;

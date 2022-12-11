@@ -1,9 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {BookmarksToolbarElement, Command} from 'chrome://bookmarks/bookmarks.js';
-import {isMac} from 'chrome://resources/js/cr.m.js';
+import {isMac} from 'chrome://resources/js/platform.js';
 import {pressAndReleaseKeyOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
@@ -26,7 +26,7 @@ suite('<bookmarks-toolbar>', function() {
       createItem('2'),
       createItem('3'),
       createFolder('4', [], {
-        unmodifiable: chrome.bookmarks.BookmarkTreeNodeUnmodifiable.MANAGED
+        unmodifiable: chrome.bookmarks.BookmarkTreeNodeUnmodifiable.MANAGED,
       }),
       createFolder('5', []),
       createFolder(
@@ -100,7 +100,7 @@ suite('<bookmarks-toolbar>', function() {
   });
 
   test('delete button is disabled when items are unmodifiable', function() {
-    store.data.nodes['3'].unmodifiable = 'managed';
+    store.data.nodes['3']!.unmodifiable = 'managed';
     store.data.selection.items = new Set(['2', '3']);
     store.notifyObservers();
     flush();

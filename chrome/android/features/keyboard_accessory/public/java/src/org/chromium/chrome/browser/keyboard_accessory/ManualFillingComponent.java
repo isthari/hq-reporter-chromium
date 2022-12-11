@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,24 +7,26 @@ package org.chromium.chrome.browser.keyboard_accessory;
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewStub;
 
 import androidx.annotation.Px;
 
 import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.chrome.browser.back_press.BackPressManager;
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData;
 import org.chromium.chrome.browser.keyboard_accessory.data.PropertyProvider;
 import org.chromium.components.autofill.AutofillDelegate;
 import org.chromium.components.autofill.AutofillSuggestion;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
+import org.chromium.components.browser_ui.widget.gesture.BackPressHandler;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.ui.AsyncViewStub;
 import org.chromium.ui.DropdownPopupWindow;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
  * This component handles the new, non-popup filling UI.
  */
-public interface ManualFillingComponent {
+public interface ManualFillingComponent extends BackPressHandler {
     /**
      * Observers are added with {@link #addObserver} and removed with {@link #removeObserver}.
      * They are notified when the {@link ManualFillingComponent} is destroyed.
@@ -91,12 +93,12 @@ public interface ManualFillingComponent {
      *         activity.
      * @param sheetController A {@link BottomSheetController} to show the UI in.
      * @param keyboardDelegate A {@link SoftKeyboardDelegate} to control only the system keyboard.
-     * @param barStub The {@link ViewStub} used to inflate the keyboard accessory bar.
-     * @param sheetStub The {@link ViewStub} used to inflate the keyboard accessory bottom
-     *         sheet.
+     * @param backPressManager A {@link BackPressManager} to register {@link BackPressHandler}.
+     * @param barStub The {@link AsyncViewStub} used to inflate the keyboard accessory bar.
      */
     void initialize(WindowAndroid windowAndroid, BottomSheetController sheetController,
-            SoftKeyboardDelegate keyboardDelegate, ViewStub barStub, ViewStub sheetStub);
+            SoftKeyboardDelegate keyboardDelegate, BackPressManager backPressManager,
+            AsyncViewStub sheetStub, AsyncViewStub barStub);
 
     /**
      * Cleans up the manual UI by destroying the accessory bar and its bottom sheet.
@@ -107,7 +109,7 @@ public interface ManualFillingComponent {
      * Handles tapping on the Android back button.
      * @return Whether tapping the back button dismissed the accessory sheet or not.
      */
-    boolean handleBackPress();
+    boolean onBackPressed();
 
     /**
      * Ensures that keyboard accessory and keyboard are hidden and reset.
@@ -157,9 +159,10 @@ public interface ManualFillingComponent {
             PropertyProvider<AutofillSuggestion[]> autofillProvider, AutofillDelegate delegate);
 
     /**
-     * Signals that the accessory has permission to show if the user focuses a form field.
+     * Signals that the accessory has permission to show.
+     * @param waitForKeyboard signals if the keyboard is requested.
      */
-    void showWhenKeyboardIsVisible();
+    void show(boolean waitForKeyboard);
 
     /**
      * Requests to close the active tab in the keyboard accessory. If there is no active tab, this
@@ -173,7 +176,7 @@ public interface ManualFillingComponent {
     void swapSheetWithKeyboard();
 
     /**
-     * Hides the sheet until undone with {@link #showWhenKeyboardIsVisible()}.
+     * Hides the sheet until undone with {@link #show()}.
      */
     void hide();
 
@@ -225,4 +228,17 @@ public interface ManualFillingComponent {
      * @param confirmedCallback A {@link Runnable} to trigger upon confirmation.
      */
     void confirmOperation(String title, String message, Runnable confirmedCallback);
+
+    /**
+     * Returns the amount that the keyboard will be extended by the filling component when shown.
+     * i.e. The height of any accessories to be shown on top of the keyboard.
+     */
+    int getKeyboardExtensionHeight();
+
+    /**
+     * Will force the accessory to show when the keyboard is shown.
+     * TODO(crbug.com/1385400): Ideally this would live in a test utility like
+     * ManualFillingTestHelper.
+     */
+    void forceShowForTesting();
 }

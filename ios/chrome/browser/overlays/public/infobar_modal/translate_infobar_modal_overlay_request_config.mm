@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #import <vector>
 
-#include "base/strings/sys_string_conversions.h"
-#include "components/translate/core/browser/translate_infobar_delegate.h"
-#include "ios/chrome/browser/infobars/infobar_ios.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/translate/core/browser/translate_infobar_delegate.h"
+#import "ios/chrome/browser/infobars/infobar_ios.h"
 #import "ios/chrome/browser/overlays/public/common/infobars/infobar_overlay_request_config.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -29,6 +29,7 @@ TranslateModalRequestConfig::TranslateModalRequestConfig(InfoBarIOS* infobar)
   current_step_ = delegate->translate_step();
   source_language_name_ = delegate->source_language_name();
   target_language_name_ = delegate->target_language_name();
+  unknown_language_name_ = delegate->unknown_language_name();
   for (size_t i = 0; i < delegate->num_languages(); ++i) {
     language_names_.push_back(delegate->language_name_at((int(i))));
   }

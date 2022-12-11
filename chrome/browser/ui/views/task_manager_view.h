@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,7 +67,7 @@ class TaskManagerView : public TableViewDelegate,
   void WindowClosing() override;
 
   // views::TableGrouper:
-  void GetGroupRange(int model_index, views::GroupRange* range) override;
+  void GetGroupRange(size_t model_index, views::GroupRange* range) override;
 
   // views::TableViewObserver:
   void OnSelectionChanged() override;
@@ -115,8 +115,8 @@ class TaskManagerView : public TableViewDelegate,
   // We need to own the text of the menu, the Windows API does not copy it.
   std::u16string always_on_top_menu_text_;
 
-  raw_ptr<views::TableView> tab_table_;
-  raw_ptr<views::View> tab_table_parent_;
+  raw_ptr<views::TableView, DanglingUntriaged> tab_table_;
+  raw_ptr<views::View, DanglingUntriaged> tab_table_parent_;
 
   // all possible columns, not necessarily visible
   std::vector<ui::TableColumn> columns_;

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "content/public/test/browser_task_environment.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -65,7 +65,7 @@ class FakeFileStreamWriter : public storage::FileStreamWriter {
     DCHECK(write_log_);
     write_log_->push_back(std::string(buf->data(), buf_len));
     pending_bytes_ += buf_len;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(std::move(callback),
                        write_error_ == net::OK ? buf_len : write_error_));
@@ -76,7 +76,7 @@ class FakeFileStreamWriter : public storage::FileStreamWriter {
     DCHECK(cancel_counter_);
     DCHECK_EQ(net::OK, write_error_);
     ++(*cancel_counter_);
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), net::OK));
     return net::ERR_IO_PENDING;
   }
@@ -85,7 +85,7 @@ class FakeFileStreamWriter : public storage::FileStreamWriter {
     DCHECK(flush_log_);
     flush_log_->push_back(pending_bytes_);
     pending_bytes_ = 0;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), net::OK));
     return net::ERR_IO_PENDING;
   }
@@ -124,7 +124,7 @@ TEST_F(FileSystemProviderBufferingFileStreamWriterTest, Write) {
   std::vector<int> inner_flush_log;
   BufferingFileStreamWriter writer(
       base::WrapUnique(new FakeFileStreamWriter(
-          &inner_write_log, &inner_flush_log, NULL, net::OK)),
+          &inner_write_log, &inner_flush_log, nullptr, net::OK)),
       kIntermediateBufferLength);
 
   ASSERT_LT(kIntermediateBufferLength, 2 * short_text_buffer_->size());
@@ -198,7 +198,7 @@ TEST_F(FileSystemProviderBufferingFileStreamWriterTest, Write_WithError) {
   std::vector<int> inner_flush_log;
   BufferingFileStreamWriter writer(
       std::unique_ptr<storage::FileStreamWriter>(new FakeFileStreamWriter(
-          &inner_write_log, &inner_flush_log, NULL, net::ERR_FAILED)),
+          &inner_write_log, &inner_flush_log, nullptr, net::ERR_FAILED)),
       kIntermediateBufferLength);
 
   ASSERT_LT(kIntermediateBufferLength, 2 * short_text_buffer_->size());
@@ -248,7 +248,7 @@ TEST_F(FileSystemProviderBufferingFileStreamWriterTest, Write_Directly) {
   std::vector<int> inner_flush_log;
   BufferingFileStreamWriter writer(
       std::unique_ptr<storage::FileStreamWriter>(new FakeFileStreamWriter(
-          &inner_write_log, &inner_flush_log, NULL, net::OK)),
+          &inner_write_log, &inner_flush_log, nullptr, net::OK)),
       kIntermediateBufferLength);
 
   ASSERT_GT(kIntermediateBufferLength, short_text_buffer_->size());
@@ -344,7 +344,7 @@ TEST_F(FileSystemProviderBufferingFileStreamWriterTest, Flush) {
   std::vector<int> inner_flush_log;
   BufferingFileStreamWriter writer(
       std::unique_ptr<storage::FileStreamWriter>(new FakeFileStreamWriter(
-          &inner_write_log, &inner_flush_log, NULL, net::OK)),
+          &inner_write_log, &inner_flush_log, nullptr, net::OK)),
       kIntermediateBufferLength);
 
   // Write less bytes than size of the intermediate buffer.
@@ -382,7 +382,7 @@ TEST_F(FileSystemProviderBufferingFileStreamWriterTest, Flush_AfterWriteError) {
   std::vector<int> inner_flush_log;
   BufferingFileStreamWriter writer(
       std::unique_ptr<storage::FileStreamWriter>(new FakeFileStreamWriter(
-          &inner_write_log, &inner_flush_log, NULL, net::ERR_FAILED)),
+          &inner_write_log, &inner_flush_log, nullptr, net::ERR_FAILED)),
       kIntermediateBufferLength);
 
   // Write less bytes than size of the intermediate buffer. This should succeed

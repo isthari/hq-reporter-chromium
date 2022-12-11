@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -187,6 +187,21 @@ bool SyscallSets::IsFileSystem(int sysno) {
 #if defined(__i386__) || defined(__arm__) || \
     (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_32_BITS))
     case __NR_utimensat_time64:
+#endif
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool SyscallSets::IsTruncate(int sysno) {
+  switch (sysno) {
+    case __NR_ftruncate:
+    case __NR_truncate:
+#if defined(__i386__) || defined(__arm__) || \
+    (defined(ARCH_CPU_MIPS_FAMILY) && defined(ARCH_CPU_32_BITS))
+    case __NR_ftruncate64:
+    case __NR_truncate64:
 #endif
       return true;
     default:
@@ -1196,4 +1211,14 @@ bool SyscallSets::IsMipsMisc(int sysno) {
   }
 }
 #endif  // defined(__mips__)
+
+bool SyscallSets::IsGoogle3Threading(int sysno) {
+  switch (sysno) {
+    case __NR_getitimer:
+    case __NR_setitimer:
+      return true;
+    default:
+      return false;
+  }
+}
 }  // namespace sandbox.

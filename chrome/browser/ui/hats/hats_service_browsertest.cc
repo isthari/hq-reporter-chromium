@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,15 +34,10 @@
 
 namespace {
 
-base::test::ScopedFeatureList::FeatureAndParams probability_zero{
+base::test::FeatureRefAndParams probability_zero{
     features::kHappinessTrackingSurveysForDesktopSettings,
     {{"probability", "0.000"}}};
-base::test::ScopedFeatureList::FeatureAndParams probability_one{
-    features::kHappinessTrackingSurveysForDesktopSettings,
-    {{"probability", "1.000"},
-     {"survey", kHatsSurveyTriggerSettings},
-     {"en_site_id", "test_site_id"}}};
-base::test::ScopedFeatureList::FeatureAndParams settings_probability_one{
+base::test::FeatureRefAndParams probability_one{
     features::kHappinessTrackingSurveysForDesktopSettings,
     {{"probability", "1.000"},
      {"survey", kHatsSurveyTriggerSettings},
@@ -71,8 +66,7 @@ class ScopedSetMetricsConsent {
 class HatsServiceBrowserTestBase : public InProcessBrowserTest {
  protected:
   explicit HatsServiceBrowserTestBase(
-      std::vector<base::test::ScopedFeatureList::FeatureAndParams>
-          enabled_features)
+      std::vector<base::test::FeatureRefAndParams> enabled_features)
       : enabled_features_(enabled_features) {
     scoped_feature_list_.InitWithFeaturesAndParameters(enabled_features_, {});
   }
@@ -104,8 +98,7 @@ class HatsServiceBrowserTestBase : public InProcessBrowserTest {
 
   base::test::ScopedFeatureList scoped_feature_list_;
 
-  std::vector<base::test::ScopedFeatureList::FeatureAndParams>
-      enabled_features_;
+  std::vector<base::test::FeatureRefAndParams> enabled_features_;
 };
 
 class HatsServiceProbabilityZero : public HatsServiceBrowserTestBase {
@@ -128,9 +121,7 @@ class HatsServiceProbabilityOne : public HatsServiceBrowserTestBase {
       delete;
 
  protected:
-  HatsServiceProbabilityOne()
-      : HatsServiceBrowserTestBase(
-            {probability_one, settings_probability_one}) {}
+  HatsServiceProbabilityOne() : HatsServiceBrowserTestBase({probability_one}) {}
 
   ~HatsServiceProbabilityOne() override = default;
 

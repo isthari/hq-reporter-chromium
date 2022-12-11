@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -75,7 +75,7 @@ function expectControlled(prefName, newValue) {
 // Tests getting the preference value (which should be uncontrolled and at its
 // default value).
 function prefGetter(prefName, defaultValue) {
-  if (possibly_missing_preferences.has(prefName) && !this[prefName]) {
+  if (possibly_missing_preferences.has(prefName)) {
     return;
   }
   this[prefName].get({}, expectDefault(prefName, defaultValue));
@@ -84,7 +84,7 @@ function prefGetter(prefName, defaultValue) {
 // Tests setting the preference value (to the inverse of the default, so that
 // it should be controlled by this extension).
 function prefSetter(prefName, defaultValue) {
-  if (possibly_missing_preferences.has(prefName) && !this[prefName]) {
+  if (possibly_missing_preferences.has(prefName)) {
     return;
   }
   this[prefName].set({value: !defaultValue},

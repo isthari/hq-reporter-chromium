@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,8 +66,7 @@ class Browser {
   virtual std::vector<uint8_t> GetMinimalPersistenceState() = 0;
 
   // Returns true if this Browser is in the process of restoring the previous
-  // state. That is, PersistenceInfo was supplied to the constructor and
-  // the state is asynchronously being loaded.
+  // state.
   virtual bool IsRestoringPreviousState() = 0;
 
   virtual void AddObserver(BrowserObserver* observer) = 0;

@@ -18,43 +18,37 @@
 
 @implementation TFLClassificationOptions (Helpers)
 
-+ (char**)cStringArrayFromNSArray:(NSArray<NSString*>*)strings
-                            error:(NSError**)error {
++ (char **)cStringArrayFromNSArray:(NSArray<NSString *> *)strings error:(NSError **)error {
   if (strings.count <= 0) {
     [TFLCommonUtils
-        customErrorWithCode:TFLSupportErrorCodeInvalidArgumentError
-                description:
-                    @"Invalid length of strings found for list type options."
-                      error:error];
-    return NULL;
-  }
-
-  char** cStrings = (char**)calloc(strings.count, sizeof(char*));
-
-  if (!cStrings) {
-    [TFLCommonUtils
-        customErrorWithCode:TFLSupportErrorCodeInternalError
-                description:@"Could not initialize list type options."
-                      error:error];
+        createCustomError:error
+                 withCode:TFLSupportErrorCodeInvalidArgumentError
+              description:
+                  @"Invalid length of strings found for list type options."];
     return nil;
   }
 
+  char** cStrings = [TFLCommonUtils mallocWithSize:strings.count * sizeof(char*)
+                                             error:error];
+  if (!cStrings)
+    return NULL;
+
   for (NSInteger i = 0; i < strings.count; i++) {
-    char* cString = [TFLCommonUtils
-        mallocWithSize:[strings[i]
-                           lengthOfBytesUsingEncoding:NSUTF8StringEncoding] +
-                       1
+    cStrings[i] = [TFLCommonUtils
+        mallocWithSize:([strings[i]
+                            lengthOfBytesUsingEncoding:NSUTF8StringEncoding] +
+                        1) *
+                       sizeof(char)
                  error:error];
-    if (!cString)
-      return nil;
+    if (!cStrings[i])
+      return NULL;
 
-    strcpy(cString, strings[i].UTF8String);
+    strcpy(cStrings[i], strings[i].UTF8String);
   }
-
   return cStrings;
 }
 
-+ (void)deleteCStringsArray:(char**)cStrings count:(int)count {
++ (void)deleteCStringsArray:(char **)cStrings count:(int)count {
   for (NSInteger i = 0; i < count; i++) {
     free(cStrings[i]);
   }
@@ -62,57 +56,64 @@
   free(cStrings);
 }
 
-- (BOOL)copyClassificationOptionsToCClassificationOptions:
-            (TfLiteClassificationOptions*)cClassificationOptions
-                                                    error:(NSError**)error {
+- (BOOL)copyToCOptions:(TfLiteClassificationOptions *)cClassificationOptions
+                 error:(NSError **)error {
   cClassificationOptions->score_threshold = self.scoreThreshold;
   cClassificationOptions->max_results = (int)self.maxResults;
 
   if (self.labelDenyList) {
-    char** cClassNameBlackList =
-        [TFLClassificationOptions cStringArrayFromNSArray:self.labelDenyList
-                                                    error:error];
+    char **cClassNameBlackList =
+        [TFLClassificationOptions cStringArrayFromNSArray:self.labelDenyList error:error];
     if (!cClassNameBlackList) {
       return NO;
     }
     cClassificationOptions->label_denylist.list = cClassNameBlackList;
-    cClassificationOptions->label_denylist.length =
-        (int)self.labelDenyList.count;
+    cClassificationOptions->label_denylist.length = (int)self.labelDenyList.count;
   }
 
   if (self.labelAllowList) {
-    char** cClassNameWhiteList =
-        [TFLClassificationOptions cStringArrayFromNSArray:self.labelAllowList
-                                                    error:error];
+    char **cClassNameWhiteList =
+        [TFLClassificationOptions cStringArrayFromNSArray:self.labelAllowList error:error];
     if (!cClassNameWhiteList) {
       return NO;
     }
 
     cClassificationOptions->label_allowlist.list = cClassNameWhiteList;
-    cClassificationOptions->label_allowlist.length =
-        (int)self.labelAllowList.count;
+    cClassificationOptions->label_allowlist.length = (int)self.labelAllowList.count;
   }
 
-  if (self.displayNamesLocal) {
-    cClassificationOptions->display_names_local =
-        (char*)self.displayNamesLocal.UTF8String;
+  if (self.displayNamesLocale) {
+    if (self.displayNamesLocale.UTF8String) {
+      cClassificationOptions->display_names_local =
+          strdup(self.displayNamesLocale.UTF8String);
+      if (!cClassificationOptions->display_names_local) {
+        exit(-1);  // Memory Allocation Failed.
+      }
+    } else {
+      [TFLCommonUtils
+          createCustomError:error
+                   withCode:TFLSupportErrorCodeInvalidArgumentError
+                description:@"Could not convert (NSString *) to (char *)."];
+      return NO;
+    }
   }
 
   return YES;
 }
 
-- (void)deleteCStringArraysOfClassificationOptions:
+- (void)deleteAllocatedMemoryOfClassificationOptions:
     (TfLiteClassificationOptions*)cClassificationOptions {
   if (self.labelAllowList) {
-    [TFLClassificationOptions
-        deleteCStringsArray:cClassificationOptions->label_allowlist.list
-                      count:cClassificationOptions->label_allowlist.length];
+    [TFLClassificationOptions deleteCStringsArray:cClassificationOptions->label_allowlist.list
+                                            count:cClassificationOptions->label_allowlist.length];
   }
 
   if (self.labelDenyList) {
-    [TFLClassificationOptions
-        deleteCStringsArray:cClassificationOptions->label_denylist.list
-                      count:cClassificationOptions->label_denylist.length];
+    [TFLClassificationOptions deleteCStringsArray:cClassificationOptions->label_denylist.list
+                                            count:cClassificationOptions->label_denylist.length];
   }
+
+  free(cClassificationOptions->display_names_local);
 }
+
 @end

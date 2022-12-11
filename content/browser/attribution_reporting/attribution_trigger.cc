@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,36 +6,26 @@
 
 #include <utility>
 
-#include "base/check.h"
+#include "components/attribution_reporting/suitable_origin.h"
 
 namespace content {
 
 AttributionTrigger::AttributionTrigger(
-    uint64_t trigger_data,
-    net::SchemefulSite conversion_destination,
-    url::Origin reporting_origin,
-    uint64_t event_source_trigger_data,
-    int64_t priority,
-    absl::optional<int64_t> dedup_key)
-    : trigger_data_(trigger_data),
-      conversion_destination_(std::move(conversion_destination)),
-      reporting_origin_(std::move(reporting_origin)),
-      event_source_trigger_data_(event_source_trigger_data),
-      priority_(priority),
-      dedup_key_(dedup_key) {
-  DCHECK(!reporting_origin_.opaque());
-  DCHECK(!conversion_destination_.opaque());
-}
+    attribution_reporting::TriggerRegistration registration,
+    attribution_reporting::SuitableOrigin destination_origin,
+    bool is_within_fenced_frame)
+    : registration_(std::move(registration)),
+      destination_origin_(std::move(destination_origin)),
+      is_within_fenced_frame_(is_within_fenced_frame) {}
 
-AttributionTrigger::AttributionTrigger(const AttributionTrigger& other) =
+AttributionTrigger::AttributionTrigger(const AttributionTrigger&) = default;
+
+AttributionTrigger& AttributionTrigger::operator=(const AttributionTrigger&) =
     default;
 
-AttributionTrigger& AttributionTrigger::operator=(
-    const AttributionTrigger& other) = default;
+AttributionTrigger::AttributionTrigger(AttributionTrigger&&) = default;
 
-AttributionTrigger::AttributionTrigger(AttributionTrigger&& other) = default;
-
-AttributionTrigger& AttributionTrigger::operator=(AttributionTrigger&& other) =
+AttributionTrigger& AttributionTrigger::operator=(AttributionTrigger&&) =
     default;
 
 AttributionTrigger::~AttributionTrigger() = default;

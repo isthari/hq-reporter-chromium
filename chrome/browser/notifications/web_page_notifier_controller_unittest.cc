@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "components/content_settings/core/test/content_settings_mock_provider.h"
 #include "components/content_settings/core/test/content_settings_test_utils.h"
 #include "components/favicon/core/test/mock_favicon_service.h"
+#include "components/permissions/test/permission_test_util.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -79,6 +80,9 @@ void WebPageNotifierControllerTest::TestGetNotifiersList(
   builder.AddTestingFactory(FaviconServiceFactory::GetInstance(),
                             base::BindRepeating(&BuildMockFaviconService));
   profile = builder.Build();
+
+  profile->SetPermissionControllerDelegate(
+      permissions::GetPermissionControllerDelegate(profile.get()));
 
   auto* host_content_settings_map =
       HostContentSettingsMapFactory::GetForProfile(profile.get());

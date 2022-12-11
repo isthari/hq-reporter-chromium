@@ -1,14 +1,10 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/app_constants/constants.h"
 
 namespace app_constants {
-
-// The following two IDs are duplicated in
-// //extensions/common/constants.h. Don't change these without changing the
-// others.
 
 const char kChromeAppId[] = "mgndgikekgjfcpckkfioiadnlibdjbkf";
 

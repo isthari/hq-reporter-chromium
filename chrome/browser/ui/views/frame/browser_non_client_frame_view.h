@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -109,10 +109,6 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
   // to be repainted.
   virtual void UpdateFrameColor();
 
-  // Returns COLOR_TOOLBAR_TOP_SEPARATOR[,_INACTIVE] depending on the activation
-  // state of the window.
-  SkColor GetToolbarTopSeparatorColor() const;
-
   // For non-transparent windows, returns the background tab image resource ID
   // if the image has been customized, directly or indirectly, by the theme.
   absl::optional<int> GetCustomBackgroundId(
@@ -131,6 +127,10 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
   // Set the visibility of the window controls overlay toggle button.
   void SetWindowControlsOverlayToggleVisible(bool visible);
 
+  // Updates the visibility of the title bar based on the visibility of the
+  // borderless mode.
+  void UpdateBorderlessModeEnabled();
+
   // views::NonClientFrameView:
   using views::NonClientFrameView::ShouldPaintAsActive;
   void Layout() override;
@@ -145,6 +145,21 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
   // Gets the TabSearchBubbleHost if present in the NonClientFrameView. Can
   // return null.
   virtual TabSearchBubbleHost* GetTabSearchBubbleHost();
+
+  // Returns the insets from the edge of the native window to the client view in
+  // DIPs. The value is left-to-right even on RTL locales. That is,
+  // insets.left() will be on the left in screen coordinates.
+  virtual gfx::Insets MirroredFrameBorderInsets() const;
+
+  // Returns the insets from the client view to the input region. The returned
+  // insets will be negative, such that view_rect.Inset(GetInputInsets()) will
+  // be the input region.
+  virtual gfx::Insets GetInputInsets() const;
+
+  // Gets the rounded-rect that will be used to clip the window frame when
+  // drawing. The region will be as if the window was restored, and will be in
+  // view coordinates.
+  virtual SkRRect GetRestoredClipRegion() const;
 
  protected:
   // Called when |frame_|'s "paint as active" state has changed.
@@ -184,23 +199,23 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
   }
 
  private:
-  // views::NonClientFrameView:
 #if BUILDFLAG(IS_WIN)
-  int GetSystemMenuY() const override;
-#endif
+  // ui::EventHandler:
+  void OnGestureEvent(ui::GestureEvent* event) override;
 
-  // Get the |frame_| theme provider since it should be non-null even before
-  // we're added to the view hierarchy.
-  const ui::ThemeProvider* GetFrameThemeProvider() const;
+  // views::NonClientFrameView:
+  int GetSystemMenuY() const override;
+#endif  // BUILDFLAG(IS_WIN)
 
   // The frame that hosts this view.
-  const raw_ptr<BrowserFrame> frame_;
+  const raw_ptr<BrowserFrame, DanglingUntriaged> frame_;
 
   // The BrowserView hosted within this View.
-  const raw_ptr<BrowserView> browser_view_;
+  const raw_ptr<BrowserView, DanglingUntriaged> browser_view_;
 
   // Menu button and page status icons. Only used by web-app windows.
-  raw_ptr<WebAppFrameToolbarView> web_app_frame_toolbar_ = nullptr;
+  raw_ptr<WebAppFrameToolbarView, DanglingUntriaged> web_app_frame_toolbar_ =
+      nullptr;
 
   base::CallbackListSubscription paint_as_active_subscription_ =
       frame_->RegisterPaintAsActiveChangedCallback(

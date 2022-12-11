@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,13 @@
 #include <iterator>
 #include <string>
 
+#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/values.h"
-#include "chrome/browser/ash/certificate_provider/test_certificate_provider_extension.h"
 #include "chrome/browser/ash/login/saml/test_client_cert_saml_idp_mixin.h"
 #include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
@@ -24,10 +23,11 @@
 #include "chrome/browser/ash/login/users/test_users.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/ash/scoped_test_system_nss_key_slot_mixin.h"
+#include "chrome/browser/certificate_provider/test_certificate_provider_extension.h"
 #include "chrome/browser/policy/extension_force_install_mixin.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_map.h"
@@ -44,6 +44,7 @@
 #include "url/gurl.h"
 
 namespace ash {
+
 namespace {
 
 // Pattern for the DeviceLoginScreenAutoSelectCertificateForUrls admin policy
@@ -77,6 +78,11 @@ SecurityTokenSamlTest::SecurityTokenSamlTest()
     : saml_idp_mixin_(&mixin_host_,
                       &gaia_mixin_,
                       /*client_cert_authorities=*/{GetClientCertCaName()}) {
+  if (GetParam()) {
+    scoped_feature_list_.InitAndEnableFeature(features::kUseAuthFactors);
+  } else {
+    scoped_feature_list_.InitAndDisableFeature(features::kUseAuthFactors);
+  }
   // Allow the forced installation of extensions in the background.
   needs_background_networking_ = true;
 
@@ -152,6 +158,10 @@ void SecurityTokenSamlTest::InputPinByClickingKeypad(const std::string& pin) {
   }
 }
 
+void SecurityTokenSamlTest::ClickPinDialogSubmit() {
+  test::OobeJS().ClickOnPath({"gaia-signin", "pinDialog", "submit"});
+}
+
 std::string SecurityTokenSamlTest::GetCorrectPin() const {
   return kCorrectPin;
 }
@@ -180,7 +190,7 @@ void SecurityTokenSamlTest::SetClientCertAutoSelectPolicy() {
       policy_map.GetMutable(policy::key::kAutoSelectCertificateForUrls);
   if (existing_entry) {
     // Append to the existing policy.
-    existing_entry->value()->Append(policy_item_value);
+    existing_entry->value(base::Value::Type::LIST)->Append(policy_item_value);
   } else {
     // Set the new policy value.
     base::Value policy_value(base::Value::Type::LIST);
@@ -205,14 +215,14 @@ void SecurityTokenSamlTest::ConfigureFakeGaia() {
 
 // Subscribes for the notifications from the Login Screen UI,
 void SecurityTokenSamlTest::StartObservingLoginUiMessages() {
-  GetLoginUI()->RegisterDeprecatedMessageCallback(
+  GetLoginUI()->RegisterMessageCallback(
       "securityTokenPinDialogShownForTest",
       base::BindRepeating(&SecurityTokenSamlTest::OnPinDialogShownMessage,
                           weak_factory_.GetWeakPtr()));
 }
 
 // Called when the Login Screen UI notifies that the PIN dialog is shown.
-void SecurityTokenSamlTest::OnPinDialogShownMessage(const base::ListValue*) {
+void SecurityTokenSamlTest::OnPinDialogShownMessage(const base::Value::List&) {
   ++pin_dialog_shown_count_;
   if (pin_dialog_shown_run_loop_)
     pin_dialog_shown_run_loop_->Quit();

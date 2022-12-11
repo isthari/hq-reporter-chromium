@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,9 @@
 #include <memory>
 
 #include "ash/components/arc/arc_prefs.h"
+#include "ash/components/arc/arc_util.h"
+#include "ash/components/arc/metrics/arc_metrics_service.h"
+#include "ash/components/arc/metrics/stability_metrics_manager.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
 #include "ash/components/arc/session/arc_service_manager.h"
 #include "ash/components/arc/test/arc_util_test_support.h"
@@ -16,6 +19,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "chrome/browser/ash/arc/arc_optin_uma.h"
+#include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/session/arc_provisioning_result.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/ash/arc/test/test_arc_session_manager.h"
@@ -25,9 +29,8 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/network/network_handler_test_helper.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/network/network_handler_test_helper.h"
 #include "chromeos/services/network_config/public/cpp/cros_network_config_test_helper.h"
 #include "components/arc/test/fake_intent_helper_host.h"
 #include "components/arc/test/fake_intent_helper_instance.h"
@@ -56,10 +59,9 @@ class ArcSettingsServiceTest : public BrowserWithTestWindowTest {
     SetArcAvailableCommandLineForTesting(
         base::CommandLine::ForCurrentProcess());
     ArcSessionManager::SetUiEnabledForTesting(false);
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
+    ash::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
     network_handler_test_helper_ =
-        std::make_unique<chromeos::NetworkHandlerTestHelper>();
+        std::make_unique<ash::NetworkHandlerTestHelper>();
     network_config_helper_ = std::make_unique<
         chromeos::network_config::CrosNetworkConfigTestHelper>();
     ash::StatsReportingController::RegisterLocalStatePrefs(
@@ -73,6 +75,16 @@ class ArcSettingsServiceTest : public BrowserWithTestWindowTest {
 
     BrowserWithTestWindowTest::SetUp();
     arc_service_manager_->set_browser_context(profile());
+
+    arc::prefs::RegisterLocalStatePrefs(local_state_.registry());
+    arc::StabilityMetricsManager::Initialize(&local_state_);
+
+    ArcMetricsService::GetForBrowserContextForTesting(profile())
+        ->SetHistogramNamerCallback(
+            base::BindRepeating([](const std::string& base_name) {
+              return arc::GetHistogramNameByUserTypeForPrimaryProfile(
+                  base_name);
+            }));
 
     const AccountId account_id(AccountId::FromUserEmailGaiaId(
         profile()->GetProfileUserName(), "1234567890"));
@@ -94,6 +106,7 @@ class ArcSettingsServiceTest : public BrowserWithTestWindowTest {
   }
 
   void TearDown() override {
+    arc::StabilityMetricsManager::Shutdown();
     arc_bridge_service()->intent_helper()->CloseInstance(
         &intent_helper_instance_);
     arc_bridge_service()->backup_settings()->CloseInstance(
@@ -110,8 +123,7 @@ class ArcSettingsServiceTest : public BrowserWithTestWindowTest {
 
     ash::StatsReportingController::Shutdown();
     network_handler_test_helper_.reset();
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    ash::ConciergeClient::Shutdown();
   }
 
   void SetInstances() {
@@ -142,8 +154,7 @@ class ArcSettingsServiceTest : public BrowserWithTestWindowTest {
   }
 
  private:
-  std::unique_ptr<chromeos::NetworkHandlerTestHelper>
-      network_handler_test_helper_;
+  std::unique_ptr<ash::NetworkHandlerTestHelper> network_handler_test_helper_;
   std::unique_ptr<chromeos::network_config::CrosNetworkConfigTestHelper>
       network_config_helper_;
   TestingPrefServiceSimple local_state_;
@@ -162,8 +173,7 @@ class ArcSettingsServiceTest : public BrowserWithTestWindowTest {
 TEST_F(ArcSettingsServiceTest,
        InitialSettingsAppliedForInstanceAfterProvisioning) {
   arc_session_manager()->RequestEnable();
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
 
   EXPECT_FALSE(
       profile()->GetPrefs()->GetBoolean(prefs::kArcInitialSettingsPending));
@@ -198,8 +208,7 @@ TEST_F(ArcSettingsServiceTest,
 TEST_F(ArcSettingsServiceTest,
        DISABLED_InitialSettingsAppliedForInstanceBeforeProvisioning) {
   arc_session_manager()->RequestEnable();
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
 
   SetInstances();
   EXPECT_FALSE(

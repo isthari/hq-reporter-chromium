@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,6 +49,12 @@ class RecordingOverlayView;
 // check. Otherwise, capture mode will abort the operation.
 using OnCaptureModeDlpRestrictionChecked =
     base::OnceCallback<void(bool proceed)>;
+
+// Defines the type of the callback that will be invoked when the remaining free
+// space on Drive is retrieved. `free_remaining_bytes` will be set to -1 if
+// there is an error in computing the DriveFS quota.
+using OnGotDriveFsFreeSpace =
+    base::OnceCallback<void(int64_t free_remaining_bytes)>;
 
 // Defines the interface for the delegate of CaptureModeController, that can be
 // implemented by an ash client (e.g. Chrome). The CaptureModeController owns
@@ -143,6 +149,9 @@ class ASH_PUBLIC_EXPORT CaptureModeDelegate {
   // Returns the absolute path for the user's Android Play files.
   virtual base::FilePath GetAndroidFilesPath() const = 0;
 
+  // Returns the absolute path for the user's Linux Files.
+  virtual base::FilePath GetLinuxFilesPath() const = 0;
+
   // Creates and returns the view that will be used as the contents view of the
   // overlay widget, which is added as a child of the recorded surface to host
   // contents rendered in a web view that are meant to be part of the recording
@@ -155,6 +164,18 @@ class ASH_PUBLIC_EXPORT CaptureModeDelegate {
   virtual void ConnectToVideoSourceProvider(
       mojo::PendingReceiver<video_capture::mojom::VideoSourceProvider>
           receiver) = 0;
+
+  // Gets the remaining free space on DriveFS and invokes `callback` with that
+  // value, or -1 if there's an error in computing the DriveFS quota.
+  virtual void GetDriveFsFreeSpaceBytes(OnGotDriveFsFreeSpace callback) = 0;
+
+  // Returns true if camera support is disabled by admins via
+  // the `SystemFeaturesDisableList` policy, false otherwise.
+  virtual bool IsCameraDisabledByPolicy() const = 0;
+
+  // Returns true if audio recording is disabled by admins via the
+  // `AudioCaptureAllowed` policy.
+  virtual bool IsAudioCaptureDisabledByPolicy() const = 0;
 };
 
 }  // namespace ash

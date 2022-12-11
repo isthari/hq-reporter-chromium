@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "base/time/default_tick_clock.h"
+#include "base/time/time.h"
 #include "components/viz/common/gpu/raster_context_provider.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_frame_pool.h"
@@ -123,6 +124,7 @@ class PLATFORM_EXPORT WebRtcVideoFrameAdapter
 
     std::unique_ptr<media::RenderableGpuMemoryBufferVideoFramePool>
         accelerated_frame_pool_;
+    bool disable_gmb_frames_ = false;
 
     base::Lock context_provider_lock_;
     scoped_refptr<viz::RasterContextProvider> raster_context_provider_

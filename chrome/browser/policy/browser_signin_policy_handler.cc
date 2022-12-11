@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "components/signin/public/base/signin_pref_names.h"
 
 namespace policy {
+
 BrowserSigninPolicyHandler::BrowserSigninPolicyHandler(Schema chrome_schema)
     : IntRangePolicyHandler(key::kBrowserSignin,
                             prefs::kForceBrowserSignin,
@@ -40,7 +41,8 @@ void BrowserSigninPolicyHandler::ApplyPolicySettings(const PolicyMap& policies,
     return;
 #endif
 
-  const base::Value* value = policies.GetValue(policy_name());
+  const base::Value* value =
+      policies.GetValue(policy_name(), base::Value::Type::INTEGER);
   switch (static_cast<BrowserSigninMode>(value->GetInt())) {
     case BrowserSigninMode::kForced:
 #if !BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS)

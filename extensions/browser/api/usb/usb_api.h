@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,8 @@
 
 #include "base/containers/span.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
+#include "base/values.h"
 #include "extensions/browser/api/api_resource_manager.h"
 #include "extensions/browser/api/usb/usb_device_manager.h"
 #include "extensions/browser/extension_function.h"
@@ -35,6 +36,8 @@ class UsbExtensionFunction : public ExtensionFunction {
   ~UsbExtensionFunction() override;
 
   UsbDeviceManager* usb_device_manager();
+
+  bool IsUsbDeviceAllowedByPolicy(int vendor_id, int product_id);
 
  private:
   raw_ptr<UsbDeviceManager> usb_device_manager_ = nullptr;
@@ -73,7 +76,7 @@ class UsbTransferFunction : public UsbConnectionFunction {
   ~UsbTransferFunction() override;
 
   void OnCompleted(device::mojom::UsbTransferStatus status,
-                   std::unique_ptr<base::DictionaryValue> transfer_info);
+                   base::Value::Dict transfer_info);
   void OnTransferInCompleted(device::mojom::UsbTransferStatus status,
                              base::span<const uint8_t> data);
   void OnTransferOutCompleted(device::mojom::UsbTransferStatus status);
@@ -115,7 +118,7 @@ class UsbFindDevicesFunction : public UsbExtensionFunction {
 
   uint16_t vendor_id_;
   uint16_t product_id_;
-  std::unique_ptr<base::ListValue> result_;
+  base::Value::List result_;
   base::RepeatingClosure barrier_;
 };
 

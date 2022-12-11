@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,11 +21,8 @@ namespace extensions {
 class ExtensionRegistry;
 }
 
-namespace web_app {
-enum class InstallResultCode;
-}
-
 namespace webapps {
+enum class InstallResultCode;
 class TestAppBannerManagerDesktop;
 
 // Manages web app banners for desktop platforms.
@@ -72,7 +69,7 @@ class AppBannerManagerDesktop
 
   // Called when the web app install initiated by a banner has completed.
   virtual void DidFinishCreatingWebApp(const web_app::AppId& app_id,
-                                       web_app::InstallResultCode code);
+                                       webapps::InstallResultCode code);
 
  private:
   friend class content::WebContentsUserData<AppBannerManagerDesktop>;

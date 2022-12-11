@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -99,7 +99,8 @@ void OnTraceBufferUsageResult(WebUIDataSource::GotDataCallback callback,
                               float percent_full,
                               size_t approximate_event_count) {
   std::string str = base::NumberToString(percent_full);
-  std::move(callback).Run(base::RefCountedString::TakeString(&str));
+  std::move(callback).Run(
+      base::MakeRefCounted<base::RefCountedString>(std::move(str)));
 }
 
 bool GetTraceBufferUsage(WebUIDataSource::GotDataCallback callback) {
@@ -121,7 +122,8 @@ bool GetTraceBufferUsage(WebUIDataSource::GotDataCallback callback) {
             usage = base::NumberToString(percent_full);
           }
           std::move(shared_callback->data)
-              .Run(base::RefCountedString::TakeString(&usage));
+              .Run(base::MakeRefCounted<base::RefCountedString>(
+                  std::move(usage)));
         });
     return true;
   }
@@ -219,7 +221,7 @@ void OnTracingRequest(const std::string& path,
   if (!OnBeginJSONRequest(path, std::move(split_callback.first))) {
     std::string error("##ERROR##");
     std::move(split_callback.second)
-        .Run(base::RefCountedString::TakeString(&error));
+        .Run(base::MakeRefCounted<base::RefCountedString>(std::move(error)));
   }
 }
 
@@ -236,10 +238,8 @@ TracingUI::TracingUI(WebUI* web_ui)
     : WebUIController(web_ui),
       delegate_(GetContentClient()->browser()->GetTracingDelegate()) {
   // Set up the chrome://tracing/ source.
-  BrowserContext* browser_context =
-      web_ui->GetWebContents()->GetBrowserContext();
-
-  WebUIDataSource* source = WebUIDataSource::Create(kChromeUITracingHost);
+  WebUIDataSource* source = WebUIDataSource::CreateAndAdd(
+      web_ui->GetWebContents()->GetBrowserContext(), kChromeUITracingHost);
   source->DisableTrustedTypesCSP();
   source->UseStringsJs();
   source->SetDefaultResource(IDR_TRACING_ABOUT_TRACING_HTML);
@@ -247,7 +247,6 @@ TracingUI::TracingUI(WebUI* web_ui)
 
   source->SetRequestFilter(base::BindRepeating(OnShouldHandleRequest),
                            base::BindRepeating(OnTracingRequest));
-  WebUIDataSource::Add(browser_context, source);
 }
 
 TracingUI::~TracingUI() = default;

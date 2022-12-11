@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,13 +22,13 @@ SkColor GetPlatformImageColor(PlatformImage image, int x, int y) {
   base::ScopedCFTypeRef<CGColorSpaceRef> color_space(
       CGColorSpaceCreateDeviceRGB());
   base::ScopedCFTypeRef<CGContextRef> bitmap_context(CGBitmapContextCreate(
-      /*data=*/ NULL,
-      /*width=*/ 1,
-      /*height=*/ 1,
-      /*bitsPerComponent=*/ 8,
-      /*bytesPerRow=*/ 4,
-      color_space,
-      kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host));
+      /*data=*/NULL,
+      /*width=*/1,
+      /*height=*/1,
+      /*bitsPerComponent=*/8,
+      /*bytesPerRow=*/4, color_space,
+      kCGImageAlphaPremultipliedFirst |
+          static_cast<CGImageAlphaInfo>(kCGBitmapByteOrder32Host)));
   CGContextDrawImage(bitmap_context, CGRectMake(0, 0, 1, 1), pixel_image);
 
   // The CGBitmapContext has the same memory layout as SkColor, so we can just

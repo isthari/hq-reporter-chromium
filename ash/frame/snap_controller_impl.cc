@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,15 +58,19 @@ void SnapControllerImpl::ShowSnapPreview(aura::Window* window,
 }
 
 void SnapControllerImpl::CommitSnap(aura::Window* window,
-                                    chromeos::SnapDirection snap) {
+                                    chromeos::SnapDirection snap,
+                                    float snap_ratio) {
   phantom_window_controller_.reset();
   if (snap == chromeos::SnapDirection::kNone)
     return;
 
   WindowState* window_state = WindowState::Get(window);
+  window_state->set_snap_action_source(
+      WindowSnapActionSource::kUseCaptionButtonToSnap);
   const WMEvent snap_event(snap == chromeos::SnapDirection::kPrimary
                                ? WM_EVENT_SNAP_PRIMARY
-                               : WM_EVENT_SNAP_SECONDARY);
+                               : WM_EVENT_SNAP_SECONDARY,
+                           snap_ratio);
   window_state->OnWMEvent(&snap_event);
 }
 

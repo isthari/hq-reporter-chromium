@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,15 +43,15 @@ class ImportDataHandler : public SettingsPageUIHandler,
 
   // Handler for the "importData" message. First argument is the selected
   // browser index, and second argument is the types of data to import.
-  void HandleImportData(const base::ListValue* args);
+  void HandleImportData(const base::Value::List& args);
 
   // Handler for the "initializeImportDialog" message. First argument is a
   // callback id.
-  void HandleInitializeImportDialog(const base::ListValue* args);
+  void HandleInitializeImportDialog(const base::Value::List& args);
 
   // Handler for the "importFromBookmarksFile" message. Opens a file selection
   // dialog to choose the bookmarks HTML file.
-  void HandleImportFromBookmarksFile(const base::ListValue* args);
+  void HandleImportFromBookmarksFile(const base::Value::List& args);
 
   void SendBrowserProfileData(const std::string& callback_id);
 

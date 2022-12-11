@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,6 @@ class SyncService;
 // Indicates whether uploading of data to Google is enabled, i.e. the user has
 // given consent to upload this data. Since this enum is used for logging
 // histograms, entries must not be removed or reordered.
-// A Java counterpart will be generated for this enum.
-// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.components.sync
 enum class UploadState {
   // Syncing is enabled in principle, but the sync service is not actually
   // active yet. Either it's still initializing (in which case we e.g. don't

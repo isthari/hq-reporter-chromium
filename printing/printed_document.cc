@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -93,12 +92,12 @@ void DebugDumpDataTask(const std::u16string& doc_name,
 
 void DebugDumpSettings(const std::u16string& doc_name,
                        const PrintSettings& settings) {
-  base::Value job_settings = PrintSettingsToJobSettingsDebug(settings);
+  base::Value job_settings(PrintSettingsToJobSettingsDebug(settings));
   std::string settings_str;
   base::JSONWriter::WriteWithOptions(
       job_settings, base::JSONWriter::OPTIONS_PRETTY_PRINT, &settings_str);
   scoped_refptr<base::RefCountedMemory> data =
-      base::RefCountedString::TakeString(&settings_str);
+      base::MakeRefCounted<base::RefCountedString>(std::move(settings_str));
   base::ThreadPool::PostTask(
       FROM_HERE, {base::TaskPriority::BEST_EFFORT, base::MayBlock()},
       base::BindOnce(&DebugDumpDataTask, doc_name, FILE_PATH_LITERAL(".json"),
@@ -210,7 +209,7 @@ bool PrintedDocument::IsComplete() const {
   if (mutable_.converting_pdf_)
     return true;
 
-  PageNumber page(*immutable_.settings_, mutable_.page_count_);
+  PageNumber page(immutable_.settings_->ranges(), mutable_.page_count_);
   if (page == PageNumber::npos())
     return false;
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,18 @@
 
 #include <string>
 
-#include "ash/components/settings/cros_settings_names.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/check.h"
+#include "base/check_is_test.h"
+#include "base/check_op.h"
+#include "base/command_line.h"
+#include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_functions.h"
+#include "chrome/browser/ash/account_manager/account_apps_availability.h"
+#include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/consent_auditor/consent_auditor_factory.h"
@@ -20,9 +25,13 @@
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/browser/ui/chrome_pages.h"
+#include "chrome/browser/ui/settings_window_manager_chromeos.h"
+#include "chrome/browser/ui/webui/ash/login/sync_consent_screen_handler.h"
+#include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
 #include "chrome/browser/unified_consent/unified_consent_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/webui_url_constants.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "components/consent_auditor/consent_auditor.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/base/consent_level.h"
@@ -36,6 +45,12 @@
 #include "components/sync/driver/sync_user_settings.h"
 #include "components/unified_consent/unified_consent_service.h"
 #include "components/user_manager/user_manager.h"
+
+namespace {
+
+constexpr char kUserActionContinue[] = "continue";
+
+}  // namespace
 
 namespace ash {
 namespace {
@@ -106,41 +121,47 @@ void SyncConsentScreen::MaybeLaunchSyncConsentSettings(Profile* profile) {
     // TODO (alemate): In a very special case when chrome is exiting at the very
     // moment we show Settings, it might crash here because profile could be
     // already destroyed. This needs to be fixed.
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE,
-        base::BindOnce(
-            [](Profile* profile) {
-              profile->GetPrefs()->ClearPref(
-                  ::prefs::kShowSyncSettingsOnSessionStart);
-              chrome::ShowSettingsSubPageForProfile(profile,
-                                                    chrome::kSyncSetupSubPage);
-            },
-            base::Unretained(profile)),
-        kSyncConsentSettingsShowDelay);
+    if (crosapi::browser_util::IsLacrosEnabled()) {
+      profile->GetPrefs()->ClearPref(::prefs::kShowArcSettingsOnSessionStart);
+      chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
+          profile, chromeos::settings::mojom::kSyncSetupSubpagePath);
+    } else {
+      // SyncSetupSubPage here is shown in the browser instead of the OS
+      // Settings. We delay showing chrome sync settings by
+      // kSyncConsentSettingsShowDelay to make the settings tab shows on top of
+      // the restored tabs and windows.
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+          FROM_HERE,
+          base::BindOnce(
+              [](Profile* profile) {
+                profile->GetPrefs()->ClearPref(
+                    ::prefs::kShowSyncSettingsOnSessionStart);
+                chrome::ShowSettingsSubPageForProfile(
+                    profile, chrome::kSyncSetupSubPage);
+              },
+              base::Unretained(profile)),
+          kSyncConsentSettingsShowDelay);
+    }
   }
 }
 
-SyncConsentScreen::SyncConsentScreen(SyncConsentScreenView* view,
+SyncConsentScreen::SyncConsentScreen(base::WeakPtr<SyncConsentScreenView> view,
                                      const ScreenExitCallback& exit_callback)
     : BaseScreen(SyncConsentScreenView::kScreenId, OobeScreenPriority::DEFAULT),
-      view_(view),
+      view_(std::move(view)),
       exit_callback_(exit_callback) {
   DCHECK(view_);
-  view_->Bind(this);
 }
 
-SyncConsentScreen::~SyncConsentScreen() {
-  if (view_)
-    view_->Bind(nullptr);
-}
+SyncConsentScreen::~SyncConsentScreen() = default;
 
-void SyncConsentScreen::Init(const WizardContext* context) {
+void SyncConsentScreen::Init(const WizardContext& context) {
   if (is_initialized_)
     return;
   is_initialized_ = true;
   user_ = user_manager::UserManager::Get()->GetPrimaryUser();
   profile_ = ProfileHelper::Get()->GetProfileByUser(user_);
-  UpdateScreen(*context);
+  UpdateScreen(context);
 }
 
 void SyncConsentScreen::Finish(Result result) {
@@ -161,7 +182,12 @@ void SyncConsentScreen::Finish(Result result) {
   }
 }
 
-bool SyncConsentScreen::MaybeSkip(WizardContext* context) {
+bool SyncConsentScreen::MaybeSkip(WizardContext& context) {
+  if (context.skip_post_login_screens_for_tests) {
+    exit_callback_.Run(Result::NOT_APPLICABLE);
+    return true;
+  }
+
   Init(context);
 
   switch (behavior_) {
@@ -181,11 +207,9 @@ bool SyncConsentScreen::MaybeSkip(WizardContext* context) {
 }
 
 void SyncConsentScreen::ShowImpl() {
-  Init(context());
+  Init(*context());
 
   if (behavior_ != SyncScreenBehavior::kShow) {
-    // Wait for updates and set the loading throbber to be visible.
-    view_->SetThrobberVisible(true /*visible*/);
     syncer::SyncService* service = GetSyncService(profile_);
     if (service)
       sync_service_observation_.Observe(service);
@@ -195,17 +219,22 @@ void SyncConsentScreen::ShowImpl() {
     start_time_ = base::TimeTicks::Now();
   } else {
     PrepareScreenBasedOnCapability();
+    view_->ShowLoadedStep();
   }
+
+  bool is_arc_restricted =
+      AccountAppsAvailability::IsArcAccountRestrictionsEnabled();
+
   // Show the entire screen.
   // If SyncScreenBehavior is show, this should show the sync consent screen.
   // If SyncScreenBehavior is unknown, this should show the loading throbber.
-  view_->Show();
+  if (view_)
+    view_->Show(is_arc_restricted);
 }
 
 void SyncConsentScreen::HideImpl() {
   sync_service_observation_.Reset();
   timeout_waiter_.AbandonAndStop();
-  view_->Hide();
 }
 
 void SyncConsentScreen::OnStateChanged(syncer::SyncService* sync) {
@@ -213,12 +242,10 @@ void SyncConsentScreen::OnStateChanged(syncer::SyncService* sync) {
   UpdateScreen(*context());
 }
 
-// TODO(https://crbug.com/1229582) Remove SplitSettings from names in this file.
-void SyncConsentScreen::OnNonSplitSettingsContinue(
-    const bool opted_in,
-    const bool review_sync,
-    const std::vector<int>& consent_description,
-    const int consent_confirmation) {
+void SyncConsentScreen::OnContinue(const bool opted_in,
+                                   const bool review_sync,
+                                   const std::vector<int>& consent_description,
+                                   const int consent_confirmation) {
   if (is_hidden())
     return;
   RecordUmaReviewFollowingSetup(review_sync);
@@ -331,7 +358,9 @@ void SyncConsentScreen::UpdateScreen(const WizardContext& context) {
 
   if (behavior_ == SyncScreenBehavior::kShow) {
     PrepareScreenBasedOnCapability();
-    view_->SetThrobberVisible(false /*visible*/);
+    if (view_) {
+      view_->ShowLoadedStep();
+    }
     GetSyncService(profile_)->RemoveObserver(this);
     timeout_waiter_.AbandonAndStop();
     base::UmaHistogramCustomTimes("OOBE.SyncConsentScreen.LoadingTime",
@@ -397,7 +426,9 @@ void SyncConsentScreen::PrepareScreenBasedOnCapability() {
   // Turn on "sync everything" toggle for non-minor users; turn off all data
   // types for minor users.
   SetSyncEverythingEnabled(!is_minor_mode);
-  view_->SetIsMinorMode(is_minor_mode);
+  if (view_) {
+    view_->SetIsMinorMode(is_minor_mode);
+  }
 }
 
 void SyncConsentScreen::SetSyncEverythingEnabled(bool enabled) {
@@ -406,6 +437,11 @@ void SyncConsentScreen::SetSyncEverythingEnabled(bool enabled) {
   if (enabled != sync_settings->IsSyncEverythingEnabled()) {
     syncer::UserSelectableTypeSet empty_set;
     sync_settings->SetSelectedTypes(enabled, empty_set);
+  }
+
+  if (enabled != sync_settings->IsSyncAllOsTypesEnabled()) {
+    syncer::UserSelectableOsTypeSet os_empty_set;
+    sync_settings->SetSelectedOsTypes(enabled, os_empty_set);
   }
 }
 
@@ -417,6 +453,46 @@ void SyncConsentScreen::SetProfileSyncDisabledByPolicyForTesting(bool value) {
 // static
 void SyncConsentScreen::SetProfileSyncEngineInitializedForTesting(bool value) {
   sync_engine_initialized_for_test = value;
+}
+
+void SyncConsentScreen::HandleContinue(
+    const bool opted_in,
+    const bool review_sync,
+    const base::Value::List& consent_description_list,
+    const std::string& consent_confirmation) {
+  auto consent_description =
+      ::login::ConvertToStringList(consent_description_list);
+  std::vector<int> consent_description_ids;
+  int consent_confirmation_id;
+  if (view_) {
+    view_->RetrieveConsentIDs(consent_description, consent_confirmation,
+                              consent_description_ids, consent_confirmation_id);
+    OnContinue(opted_in, review_sync, consent_description_ids,
+               consent_confirmation_id);
+  }
+  // IN-TEST
+  SyncConsentScreen::SyncConsentScreenTestDelegate* test_delegate =
+      GetDelegateForTesting();  // IN-TEST
+  if (test_delegate) {
+    CHECK_IS_TEST();
+    test_delegate->OnConsentRecordedStrings(consent_description,
+                                            consent_confirmation);
+  }
+}
+
+void SyncConsentScreen::OnUserAction(const base::Value::List& args) {
+  const std::string& action_id = args[0].GetString();
+  if (action_id == kUserActionContinue) {
+    CHECK_EQ(args.size(), 5u);
+    const bool opted_in = args[1].GetBool();
+    const bool review_sync = args[2].GetBool();
+    const base::Value::List& consent_description_list = args[3].GetList();
+    const std::string& consent_confirmation = args[4].GetString();
+    HandleContinue(opted_in, review_sync, consent_description_list,
+                   consent_confirmation);
+    return;
+  }
+  BaseScreen::OnUserAction(args);
 }
 
 }  // namespace ash

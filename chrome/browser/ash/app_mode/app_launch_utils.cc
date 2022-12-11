@@ -1,11 +1,13 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/app_mode/app_launch_utils.h"
+#include <memory>
 
 #include "ash/constants/ash_switches.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "chrome/browser/ash/app_mode/arc/arc_kiosk_app_manager.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_launch_error.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
@@ -13,9 +15,12 @@
 #include "chrome/browser/ash/app_mode/startup_app_launcher.h"
 #include "chrome/browser/ash/app_mode/web_app/web_kiosk_app_launcher.h"
 #include "chrome/browser/ash/app_mode/web_app/web_kiosk_app_manager.h"
+#include "chrome/browser/ash/app_mode/web_app/web_kiosk_app_service_launcher.h"
+#include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/login/startup_utils.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
@@ -43,12 +48,19 @@ class AppLaunchManager : public StartupAppLauncher::Delegate {
   AppLaunchManager(Profile* profile, const KioskAppId& kiosk_app_id) {
     CHECK(kiosk_app_id.type != KioskAppType::kArcApp);
 
-    if (kiosk_app_id.type == KioskAppType::kChromeApp)
+    if (kiosk_app_id.type == KioskAppType::kChromeApp) {
       app_launcher_ = std::make_unique<StartupAppLauncher>(
-          profile, *kiosk_app_id.app_id, this);
-    else
+          profile, *kiosk_app_id.app_id, /*should_skip_install=*/true,
+          /*delegate=*/this);
+    } else if (base::FeatureList::IsEnabled(features::kKioskEnableAppService) &&
+               !crosapi::browser_util::IsLacrosEnabled()) {
+      app_launcher_ = std::make_unique<WebKioskAppServiceLauncher>(
+          profile, *kiosk_app_id.account_id, /*delegate=*/this);
+    } else {
       app_launcher_ = std::make_unique<WebKioskAppLauncher>(
-          profile, this, *kiosk_app_id.account_id);
+          profile, *kiosk_app_id.account_id,
+          /*should_skip_install=*/true, /*delegate=*/this);
+    }
   }
   AppLaunchManager(const AppLaunchManager&) = delete;
   AppLaunchManager& operator=(const AppLaunchManager&) = delete;
@@ -67,13 +79,6 @@ class AppLaunchManager : public StartupAppLauncher::Delegate {
   }
   bool IsNetworkReady() const override {
     // See comments above. Network is assumed to be online here.
-    return true;
-  }
-  bool ShouldSkipAppInstallation() const override {
-    // Given that this delegate does not reliably report whether the network is
-    // ready, avoid making app update checks - this might take a while if
-    // network is not online. Also, during crash-restart, we should continue
-    // with the same app version as the restored session.
     return true;
   }
   void OnAppInstalling() override {}
@@ -101,7 +106,7 @@ void ResetEphemeralKioskPreferences(PrefService* prefs) {
         user_manager::UserManager::Get()->IsLoggedInAsAnyKioskApp());
   for (size_t pref_id = 0;
        pref_id < (test_prefs_to_reset ? test_prefs_to_reset->size()
-                                      : base::size(kPrefsToReset));
+                                      : std::size(kPrefsToReset));
        pref_id++) {
     const std::string branch_path = test_prefs_to_reset
                                         ? (*test_prefs_to_reset)[pref_id]

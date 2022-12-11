@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,7 @@
 #include "ui/views/controls/menu/menu_closure_animation_mac.h"
 #endif
 
-namespace views {
-namespace test {
+namespace views::test {
 
 // TestMenuDelegate -----------------------------------------------------------
 
@@ -58,6 +57,12 @@ void TestMenuDelegate::WriteDragData(MenuItemView* sender,
 void TestMenuDelegate::WillHideMenu(MenuItemView* menu) {
   will_hide_menu_count_++;
   will_hide_menu_ = menu;
+}
+
+bool TestMenuDelegate::ShouldExecuteCommandWithoutClosingMenu(
+    int id,
+    const ui::Event& e) {
+  return should_execute_command_without_closing_menu_;
 }
 
 void TestMenuDelegate::PerformDrop(const ui::DropTargetEvent& event,
@@ -109,5 +114,4 @@ void ReleaseRefTestViewsDelegate::ReleaseRef() {
     release_ref_callback_.Run();
 }
 
-}  // namespace test
-}  // namespace views
+}  // namespace views::test

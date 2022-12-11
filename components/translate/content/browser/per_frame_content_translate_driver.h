@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "components/services/language_detection/public/cpp/language_detection_service.h"
 #include "components/translate/content/browser/content_translate_driver.h"
 #include "components/translate/content/common/translate.mojom.h"
@@ -77,11 +78,11 @@ class PerFrameContentTranslateDriver : public ContentTranslateDriver {
     void Report();
 
     int pending_request_count = 0;
-    bool main_frame_success = false;
+    bool outermost_main_frame_success = false;
     int frame_request_count = 0;
     int frame_success_count = 0;
-    TranslateErrors::Type main_frame_error = TranslateErrors::NONE;
-    std::vector<TranslateErrors::Type> frame_errors;
+    TranslateErrors outermost_main_frame_error = TranslateErrors::NONE;
+    std::vector<TranslateErrors> frame_errors;
   };
 
   void StartLanguageDetection();
@@ -128,7 +129,7 @@ class PerFrameContentTranslateDriver : public ContentTranslateDriver {
       bool cancelled,
       const std::string& source_lang,
       const std::string& translated_lang,
-      TranslateErrors::Type error_type);
+      TranslateErrors error_type);
 
   int IncrementSeqNo(int seq_no) { return (seq_no % 100000) + 1; }
 

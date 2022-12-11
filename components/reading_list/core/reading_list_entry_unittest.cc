@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -406,7 +406,7 @@ TEST(ReadingListEntry, FromReadingListLocal) {
 
 // Tests the merging of two ReadingListEntry.
 // Additional merging tests are done in
-// ReadingListStoreTest.CompareEntriesForSync
+// ReadingListSyncBridgeTest.CompareEntriesForSync
 TEST(ReadingListEntry, MergeWithEntry) {
   ReadingListEntry local_entry(GURL("http://example.com/"), "title",
                                base::Time::FromTimeT(10));

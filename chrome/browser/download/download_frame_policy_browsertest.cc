@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -197,7 +197,7 @@ class DownloadFramePolicyBrowserTest
     }
 
     content::TestNavigationObserver navigation_observer(web_contents());
-    EXPECT_TRUE(content::ExecJs(web_contents()->GetMainFrame(), script,
+    EXPECT_TRUE(content::ExecJs(web_contents()->GetPrimaryMainFrame(), script,
                                 content::EXECUTE_SCRIPT_NO_USER_GESTURE));
 
     navigation_observer.Wait();
@@ -276,7 +276,7 @@ class DownloadFramePolicyBrowserTest
   std::unique_ptr<content::DownloadTestObserver> download_observer_;
   std::unique_ptr<page_load_metrics::PageLoadMetricsTestWaiter>
       web_feature_waiter_;
-  raw_ptr<content::RenderFrameHost> subframe_rfh_ = nullptr;
+  raw_ptr<content::RenderFrameHost, DanglingUntriaged> subframe_rfh_ = nullptr;
   size_t expected_num_downloads_ = 0;
 };
 
@@ -510,12 +510,9 @@ IN_PROC_BROWSER_TEST_P(OtherFrameNavigationDownloadBrowserTest_AdFrame,
                              is_cross_origin /* is_cross_origin */);
 
   if (!prevent_frame_busting) {
-    // Currently, cross-process navigation doesn't carry the gesture regardless
-    // whether the initiator frame has gesture or not.
-    bool expect_gesture = initiate_with_gesture && !is_cross_origin;
-
     bool expect_download =
-        !block_downloads_in_ad_frame_without_user_activation || expect_gesture;
+        !block_downloads_in_ad_frame_without_user_activation ||
+        initiate_with_gesture;
 
     SetNumDownloadsExpectation(expect_download);
 
@@ -524,7 +521,7 @@ IN_PROC_BROWSER_TEST_P(OtherFrameNavigationDownloadBrowserTest_AdFrame,
     GetWebFeatureWaiter()->AddWebFeatureExpectation(
         blink::mojom::WebFeature::kDownloadInAdFrame);
 
-    if (!expect_gesture) {
+    if (!initiate_with_gesture) {
       GetWebFeatureWaiter()->AddWebFeatureExpectation(
           blink::mojom::WebFeature::kDownloadInAdFrameWithoutUserGesture);
     }
@@ -650,7 +647,7 @@ IN_PROC_BROWSER_TEST_P(
                              is_cross_origin);
 
   EXPECT_TRUE(
-      ExecJs(web_contents()->GetMainFrame(),
+      ExecJs(web_contents()->GetPrimaryMainFrame(),
              content::JsReplace("document.querySelector('iframe').sandbox = $1",
                                 update_to_token)));
 
@@ -658,7 +655,7 @@ IN_PROC_BROWSER_TEST_P(
   content::TestNavigationManager navigation_observer(web_contents(),
                                                      download_url);
   EXPECT_TRUE(
-      ExecJs(web_contents()->GetMainFrame(),
+      ExecJs(web_contents()->GetPrimaryMainFrame(),
              content::JsReplace("document.querySelector('iframe').src = $1",
                                 download_url)));
   navigation_observer.WaitForNavigationFinished();
@@ -693,7 +690,7 @@ IN_PROC_BROWSER_TEST_P(DownloadFramePolicyBrowserTest_UpdateIframeSandboxFlags,
                              is_cross_origin);
 
   EXPECT_TRUE(
-      ExecJs(web_contents()->GetMainFrame(),
+      ExecJs(web_contents()->GetPrimaryMainFrame(),
              content::JsReplace("document.querySelector('iframe').sandbox = $1",
                                 update_to_token)));
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 
 #include "chrome/browser/search/background/ntp_background.pb.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "url/gurl.h"
 
 enum class ErrorType {
@@ -129,6 +130,9 @@ struct CustomBackground {
 
   // Id of the collection being used for "daily refresh".
   std::string collection_id;
+
+  // Main color of the image.
+  SkColor custom_background_main_color;
 };
 
 #endif  // CHROME_BROWSER_SEARCH_BACKGROUND_NTP_BACKGROUND_DATA_H_

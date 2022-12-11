@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/buildflag.h"
 #include "media/media_buildflags.h"
 #include "media/remoting/renderer_controller.h"
@@ -94,6 +94,10 @@ bool FakeRemotingDataStreamSender::ValidateFrameBuffer(size_t index,
 #endif  // BUILDFLAG(ENABLE_MEDIA_REMOTING_RPC)
 }
 
+void FakeRemotingDataStreamSender::CloseDataPipe() {
+  data_pipe_reader_.Close();
+}
+
 void FakeRemotingDataStreamSender::SendFrame(uint32_t frame_size) {
   next_frame_data_.resize(frame_size);
   data_pipe_reader_.Read(
@@ -103,7 +107,8 @@ void FakeRemotingDataStreamSender::SendFrame(uint32_t frame_size) {
 }
 
 void FakeRemotingDataStreamSender::OnFrameRead(bool success) {
-  EXPECT_TRUE(success);
+  if (!success)
+    return;
 
   ++send_frame_count_;
   received_frame_list.push_back(std::move(next_frame_data_));
@@ -122,11 +127,11 @@ FakeRemoter::~FakeRemoter() = default;
 
 void FakeRemoter::Start() {
   if (start_will_fail_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&FakeRemoter::StartFailed, weak_factory_.GetWeakPtr()));
   } else {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&FakeRemoter::Started, weak_factory_.GetWeakPtr()));
   }
@@ -151,7 +156,7 @@ void FakeRemoter::StartDataStreams(
 }
 
 void FakeRemoter::Stop(mojom::RemotingStopReason reason) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&FakeRemoter::Stopped,
                                 weak_factory_.GetWeakPtr(), reason));
 }

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/path_service.h"
@@ -30,6 +29,7 @@
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
 #include "third_party/skia/include/core/SkPixmap.h"
 #include "ui/gfx/color_space.h"
@@ -54,7 +54,7 @@ class MockFrameSource : public VideoCaptureOverlay::FrameSource {
  public:
   MOCK_METHOD0(GetSourceSize, gfx::Size());
   MOCK_METHOD1(InvalidateRect, void(const gfx::Rect& rect));
-  MOCK_METHOD0(RequestRefreshFrame, void());
+  MOCK_METHOD0(RefreshNow, void());
   MOCK_METHOD1(OnOverlayConnectionLost, void(VideoCaptureOverlay* overlay));
 };
 
@@ -83,13 +83,13 @@ class VideoCaptureOverlayTest : public testing::Test {
     // Test colors have been chosen to exercise different opacities,
     // intensities, and color channels; to confirm all aspects of the "SrcOver"
     // image blending algorithms are working properly.
-    constexpr SkColor kTestImageBackground =
-        SkColorSetARGB(0xff, 0xff, 0xff, 0xff);
-    constexpr SkColor kTestImageColors[4] = {
-        SkColorSetARGB(0xaa, 0xff, 0x00, 0x00),
-        SkColorSetARGB(0xbb, 0x00, 0xee, 0x00),
-        SkColorSetARGB(0xcc, 0x00, 0x00, 0x77),
-        SkColorSetARGB(0xdd, 0x66, 0x66, 0x00),
+    constexpr SkColor4f kTestImageBackground =
+        SkColor4f{1.0f, 1.0f, 1.0f, 1.0f};
+    constexpr SkColor4f kTestImageColors[4] = {
+        SkColor4f{1.0f, 0.0f, 0.0f, 0.667f},
+        SkColor4f{0.0f, 0.933f, 0.0f, 0.733f},
+        SkColor4f{0.0f, 0.0f, 0.467f, 0.8f},
+        SkColor4f{0.4f, 0.4f, 0.0f, 0.867f},
     };
     constexpr SkIRect kTestImageColorRects[4] = {
         SkIRect::MakeXYWH(4, 2, 4, 4), SkIRect::MakeXYWH(16, 2, 4, 4),
@@ -103,12 +103,11 @@ class VideoCaptureOverlayTest : public testing::Test {
     CHECK(result.tryAllocPixels(info, info.minRowBytes()));
     SkCanvas canvas(result, SkSurfaceProps{});
     canvas.drawColor(kTestImageBackground);
-    for (size_t i = 0; i < base::size(kTestImageColors); ++i) {
-      const size_t idx = (i + cycle) % base::size(kTestImageColors);
+    for (size_t i = 0; i < std::size(kTestImageColors); ++i) {
+      const size_t idx = (i + cycle) % std::size(kTestImageColors);
       SkPaint paint;
       paint.setBlendMode(SkBlendMode::kSrc);
-      paint.setColor(SkColor4f::FromColor(kTestImageColors[idx]),
-                     info.colorSpace());
+      paint.setColor(kTestImageColors[idx], info.colorSpace());
       canvas.drawIRect(kTestImageColorRects[i], paint);
     }
 
@@ -224,6 +223,21 @@ TEST_F(VideoCaptureOverlayTest, DoesNotRenderIfCompletelyOutOfBounds) {
           .format = kI420Format}));
 }
 
+TEST_F(VideoCaptureOverlayTest, DoesNotRenderIfEmptyBlitRect) {
+  constexpr gfx::Size kSize = gfx::Size(100, 200);
+  constexpr gfx::Rect kFrameRect = gfx::Rect(kSize);
+  EXPECT_CALL(*frame_source(), GetSourceSize()).WillRepeatedly(Return(kSize));
+  std::unique_ptr<VideoCaptureOverlay> overlay = CreateOverlay();
+
+  overlay->SetImageAndBounds(MakeTestBitmap(0), gfx::RectF(1, 1, 1, 1));
+  EXPECT_FALSE(
+      overlay->MakeRenderer(VideoCaptureOverlay::CapturedFrameProperties{
+          .compositor_region = kFrameRect,
+          .sub_region = kFrameRect,
+          .content_region = gfx::Rect(0, 0, 50, 100),
+          .format = kI420Format}));
+}
+
 // Tests that that MakeCombinedRenderer() only makes a OnceRenderer when one or
 // more overlays are set to make visible changes to a video frame.
 TEST_F(VideoCaptureOverlayTest,
@@ -316,7 +330,7 @@ class VideoCaptureOverlayRenderTest
     // as those of the YUV tests, and so only one set of golden files needs to
     // be used.
     if (is_argb_test()) {
-      uint8_t* dst = frame->visible_data(VideoFrame::kARGBPlane);
+      uint8_t* dst = frame->GetWritableVisibleData(VideoFrame::kARGBPlane);
       const int stride = frame->stride(VideoFrame::kARGBPlane);
       for (int row = 0; row < size.height(); ++row, dst += stride) {
         uint32_t* const begin = reinterpret_cast<uint32_t*>(dst);
@@ -487,7 +501,7 @@ TEST_P(VideoCaptureOverlayRenderTest, FullCover_NoScaling) {
   EXPECT_CALL(frame_source, InvalidateRect(gfx::Rect())).RetiresOnSaturation();
   EXPECT_CALL(frame_source, InvalidateRect(gfx::Rect(kSourceSize)))
       .RetiresOnSaturation();
-  EXPECT_CALL(frame_source, RequestRefreshFrame());
+  EXPECT_CALL(frame_source, RefreshNow());
 
   const SkBitmap test_bitmap = MakeTestBitmap(0);
   overlay.SetImageAndBounds(test_bitmap, gfx::RectF(0, 0, 1, 1));
@@ -517,7 +531,7 @@ TEST_P(VideoCaptureOverlayRenderTest, FullCover_WithScaling) {
   EXPECT_CALL(frame_source, InvalidateRect(gfx::Rect())).RetiresOnSaturation();
   EXPECT_CALL(frame_source, InvalidateRect(gfx::Rect(kSourceSize)))
       .RetiresOnSaturation();
-  EXPECT_CALL(frame_source, RequestRefreshFrame());
+  EXPECT_CALL(frame_source, RefreshNow());
 
   const SkBitmap test_bitmap = MakeTestBitmap(0);
   overlay.SetImageAndBounds(test_bitmap, gfx::RectF(0, 0, 1, 1));

@@ -40,6 +40,7 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
+#include "third_party/blink/renderer/platform/theme_types.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 
@@ -106,10 +107,11 @@ class CORE_EXPORT InputTypeView : public GarbageCollectedMixin {
   void DispatchSimulatedClickIfActive(KeyboardEvent&) const;
 
   virtual void SubtreeHasChanged();
-  virtual bool TypeShouldForceLegacyLayout() const;
   virtual LayoutObject* CreateLayoutObject(const ComputedStyle&,
                                            LegacyLayout) const;
-  virtual void CustomStyleForLayoutObject(ComputedStyle& style);
+  virtual scoped_refptr<ComputedStyle> CustomStyleForLayoutObject(
+      scoped_refptr<ComputedStyle> original_style);
+  virtual ControlPart AutoAppearance() const;
   virtual TextDirection ComputedTextDirection();
   virtual void OpenPopupView();
   virtual void ClosePopupView();

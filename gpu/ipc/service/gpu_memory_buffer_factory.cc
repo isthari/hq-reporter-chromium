@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,8 @@ namespace gpu {
 // static
 std::unique_ptr<GpuMemoryBufferFactory>
 GpuMemoryBufferFactory::CreateNativeType(
-    viz::VulkanContextProvider* vulkan_context_provider) {
+    viz::VulkanContextProvider* vulkan_context_provider,
+    scoped_refptr<base::SingleThreadTaskRunner> io_runner) {
 #if BUILDFLAG(IS_MAC)
   return std::make_unique<GpuMemoryBufferFactoryIOSurface>();
 #elif BUILDFLAG(IS_ANDROID)
@@ -38,7 +39,7 @@ GpuMemoryBufferFactory::CreateNativeType(
   return std::make_unique<GpuMemoryBufferFactoryNativePixmap>(
       vulkan_context_provider);
 #elif BUILDFLAG(IS_WIN)
-  return std::make_unique<GpuMemoryBufferFactoryDXGI>();
+  return std::make_unique<GpuMemoryBufferFactoryDXGI>(std::move(io_runner));
 #else
   return nullptr;
 #endif

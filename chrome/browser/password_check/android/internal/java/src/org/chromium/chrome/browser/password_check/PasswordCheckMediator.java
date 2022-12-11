@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,9 +31,9 @@ import androidx.appcompat.app.AlertDialog;
 
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.browser.device_reauth.ReauthenticatorBridge;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.password_check.helper.PasswordCheckChangePasswordHelper;
 import org.chromium.chrome.browser.password_check.helper.PasswordCheckIconHelper;
+import org.chromium.chrome.browser.password_manager.PasswordCheckReferrer;
 import org.chromium.chrome.browser.password_manager.settings.PasswordAccessReauthenticationHelper;
 import org.chromium.chrome.browser.password_manager.settings.PasswordAccessReauthenticationHelper.ReauthReason;
 import org.chromium.components.browser_ui.settings.SettingsLauncher;
@@ -204,7 +204,8 @@ class PasswordCheckMediator
 
             // If a check was just completed, record some metrics.
             if (oldStatus == PasswordCheckUIStatus.RUNNING) {
-                recordMetricsOnCheckCompletion();
+                PasswordCheckMetricsRecorder.recordCompromisedCredentialsCountAfterCheck(
+                        compromisedCredentialCount);
             }
         }
         header.set(CHECK_TIMESTAMP, checkTimestamp);
@@ -213,22 +214,6 @@ class PasswordCheckMediator
         if (items.size() == 0) {
             items.add(new ListItem(PasswordCheckProperties.ItemType.HEADER, header));
         }
-    }
-
-    private void recordMetricsOnCheckCompletion() {
-        int countTotal = 0;
-        int countWithAutoChange = 0;
-        // Note: items[0] is the header, so skip that one.
-        ListModel<ListItem> items = mModel.get(ITEMS);
-        for (int i = 1; i < items.size(); i++) {
-            countTotal++;
-            CompromisedCredential credential = items.get(i).model.get(COMPROMISED_CREDENTIAL);
-            if (credential.hasAutoChangeButton()) {
-                countWithAutoChange++;
-            }
-        }
-        PasswordCheckMetricsRecorder.recordCompromisedCredentialsCountAfterCheck(
-                countTotal, countWithAutoChange);
     }
 
     @Override
@@ -253,18 +238,7 @@ class PasswordCheckMediator
     public void onEdit(CompromisedCredential credential, Context context) {
         PasswordCheckMetricsRecorder.recordUiUserAction(
                 PasswordCheckUserAction.EDIT_PASSWORD_CLICK);
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.EDIT_PASSWORDS_IN_SETTINGS)) {
-            mDelegate.onEditCredential(credential, context);
-            return;
-        }
-        if (!mReauthenticationHelper.canReauthenticate()) {
-            mReauthenticationHelper.showScreenLockToast(ReauthReason.VIEW_PASSWORD);
-            return;
-        }
-
-        mReauthenticationHelper.reauthenticate(ReauthReason.EDIT_PASSWORD, reauthSucceeded -> {
-            if (reauthSucceeded) mChangePasswordDelegate.launchEditPage(credential);
-        });
+        mDelegate.onEditCredential(credential, context);
     }
 
     @Override
@@ -325,38 +299,12 @@ class PasswordCheckMediator
 
     @Override
     public void onChangePasswordButtonClick(CompromisedCredential credential) {
-        PasswordCheckMetricsRecorder.recordUiUserAction(credential.hasAutoChangeButton()
-                        ? PasswordCheckUserAction.CHANGE_PASSWORD_MANUALLY
-                        : PasswordCheckUserAction.CHANGE_PASSWORD);
+        PasswordCheckMetricsRecorder.recordUiUserAction(PasswordCheckUserAction.CHANGE_PASSWORD);
         PasswordCheckMetricsRecorder.recordCheckResolutionAction(
                 PasswordCheckResolutionAction.OPENED_SITE, credential);
         mCctIsOpened = true;
+        mDelegate.onManualPasswordChangeStarted(credential);
         mChangePasswordDelegate.launchAppOrCctWithChangePasswordUrl(credential);
-    }
-
-    @Override
-    public void onChangePasswordWithScriptButtonClick(CompromisedCredential credential) {
-        if (!mReauthenticatorBridge.canUseAuthentication()
-                || !ChromeFeatureList.isEnabled(ChromeFeatureList.BIOMETRIC_TOUCH_TO_FILL)) {
-            startAutomatedPasswordChange(credential);
-            return;
-        }
-
-        mReauthenticatorBridge.reauthenticate(reauthSucceeded -> {
-            if (reauthSucceeded) {
-                startAutomatedPasswordChange(credential);
-            }
-        });
-    }
-
-    private void startAutomatedPasswordChange(CompromisedCredential credential) {
-        assert credential.hasAutoChangeButton();
-        PasswordCheckMetricsRecorder.recordUiUserAction(
-                PasswordCheckUserAction.CHANGE_PASSWORD_AUTOMATICALLY);
-        PasswordCheckMetricsRecorder.recordCheckResolutionAction(
-                PasswordCheckResolutionAction.STARTED_SCRIPT, credential);
-        mCctIsOpened = true;
-        mChangePasswordDelegate.launchCctWithScript(credential);
     }
 
     private void updateStatusHeaderWhenCredentialsChange() {
@@ -421,10 +369,8 @@ class PasswordCheckMediator
         mIconHelper.getLargeIcon(credential, (faviconOrFallback) -> {
             credentialModel.set(FAVICON_OR_FALLBACK, faviconOrFallback);
         });
-        return new ListItem(credential.hasAutoChangeButton()
-                        ? PasswordCheckProperties.ItemType.COMPROMISED_CREDENTIAL_WITH_SCRIPT
-                        : PasswordCheckProperties.ItemType.COMPROMISED_CREDENTIAL,
-                credentialModel);
+        return new ListItem(
+                PasswordCheckProperties.ItemType.COMPROMISED_CREDENTIAL, credentialModel);
     }
 
     private void sortCredentials(List<CompromisedCredential> credentials) {
@@ -434,8 +380,8 @@ class PasswordCheckMediator
 
         Collections.sort(credentials, (CompromisedCredential lhs, CompromisedCredential rhs) -> {
             // Phished credentials should always appear first.
-            if (lhs.isPhished() != rhs.isPhished()) {
-                return lhs.isPhished() ? -1 : 1;
+            if (lhs.isOnlyPhished() != rhs.isOnlyPhished()) {
+                return lhs.isOnlyPhished() ? -1 : 1;
             }
 
             boolean lhsInitial = mPreCheckSet.contains(lhs);

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -109,13 +109,14 @@ class MockFrameSinkVideoCapturer : public viz::mojom::FrameSinkVideoCapturer {
                     const gfx::Size& max_size,
                     bool use_fixed_aspect_ratio));
   MOCK_METHOD1(SetAutoThrottlingEnabled, void(bool));
-  void ChangeTarget(
-      const absl::optional<viz::VideoCaptureTarget>& target) final {
+  void ChangeTarget(const absl::optional<viz::VideoCaptureTarget>& target,
+                    uint32_t crop_version) final {
     DCHECK_NOT_ON_DEVICE_THREAD();
-    MockChangeTarget(target);
+    MockChangeTarget(target, crop_version);
   }
-  MOCK_METHOD1(MockChangeTarget,
-               void(const absl::optional<viz::VideoCaptureTarget>& target));
+  MOCK_METHOD2(MockChangeTarget,
+               void(const absl::optional<viz::VideoCaptureTarget>& target,
+                    uint32_t crop_version));
   void Start(
       mojo::PendingRemote<viz::mojom::FrameSinkVideoConsumer> consumer,
       viz::mojom::BufferFormatPreference buffer_format_preference) final {
@@ -214,6 +215,8 @@ class MockVideoFrameReceiver : public media::VideoFrameReceiver {
   MOCK_METHOD1(OnBufferRetired, void(int buffer_id));
   MOCK_METHOD1(OnError, void(media::VideoCaptureError error));
   MOCK_METHOD1(OnFrameDropped, void(media::VideoCaptureFrameDropReason reason));
+  MOCK_METHOD1(OnNewCropVersion, void(uint32_t crop_version));
+  MOCK_METHOD0(OnFrameWithEmptyRegionCapture, void());
   MOCK_METHOD1(OnLog, void(const std::string& message));
   MOCK_METHOD0(OnStarted, void());
   MOCK_METHOD0(OnStopped, void());
@@ -350,14 +353,14 @@ class FrameSinkVideoCaptureDeviceTest : public testing::Test {
     const viz::VideoCaptureTarget target(viz::FrameSinkId{1, 1});
     EXPECT_CALL(
         capturer_,
-        MockChangeTarget(absl::optional<viz::VideoCaptureTarget>(target)));
+        MockChangeTarget(absl::optional<viz::VideoCaptureTarget>(target), 0));
     EXPECT_CALL(
         capturer_,
         MockStart(NotNull(),
                   viz::mojom::BufferFormatPreference::kPreferGpuMemoryBuffer));
 
     EXPECT_FALSE(capturer_.is_bound());
-    POST_DEVICE_METHOD_CALL(OnTargetChanged, target);
+    POST_DEVICE_METHOD_CALL(OnTargetChanged, target, /*crop_version=*/0);
     POST_DEVICE_METHOD_CALL(AllocateAndStartWithReceiver, GetCaptureParams(),
                             std::move(receiver));
     WAIT_FOR_DEVICE_TASKS();
@@ -516,16 +519,15 @@ TEST_F(FrameSinkVideoCaptureDeviceTest, CapturesAndDeliversFrames) {
         MockFrameSinkVideoConsumerFrameCallbacks& callbacks =
             callbackses[frame_number - first_frame_number];
 
-        const media::VideoCaptureFeedback fake_feedback =
-            media::VideoCaptureFeedback(static_cast<double>(frame_number) /
-                                        kNumFramesToDeliver);
+        media::VideoCaptureFeedback fake_feedback = media::VideoCaptureFeedback(
+            static_cast<double>(frame_number) / kNumFramesToDeliver);
+        fake_feedback.frame_id = receiver->TakeFeedbackId(buffer_id);
+
         EXPECT_CALL(callbacks, ProvideFeedback(fake_feedback));
         EXPECT_CALL(callbacks, Done());
         EXPECT_CALL(*receiver, OnBufferRetired(buffer_id));
 
-        const int feedback_id = receiver->TakeFeedbackId(buffer_id);
-        POST_DEVICE_METHOD_CALL(OnUtilizationReport, feedback_id,
-                                fake_feedback);
+        POST_DEVICE_METHOD_CALL(OnUtilizationReport, fake_feedback);
         receiver->ReleaseAccessPermission(buffer_id);
         WAIT_FOR_DEVICE_TASKS();
       }
@@ -603,7 +605,8 @@ TEST_F(FrameSinkVideoCaptureDeviceTest, ShutsDownOnFatalError) {
   // and destroy the VideoFrameReceiver.
   {
     EXPECT_CALL(capturer_,
-                MockChangeTarget(absl::optional<viz::VideoCaptureTarget>()));
+                MockChangeTarget(absl::optional<viz::VideoCaptureTarget>(),
+                                 /*crop_version=*/0));
     EXPECT_CALL(capturer_, MockStop());
     POST_DEVICE_METHOD_CALL0(OnTargetPermanentlyLost);
     WAIT_FOR_DEVICE_TASKS();

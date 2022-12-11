@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,10 @@
  */
 
 import './passwords_list_handler.js';
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
-import '../settings_shared_css.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
+import '../settings_shared.css.js';
 import './avatar_icon.js';
-import './passwords_shared_css.js';
+import './passwords_shared.css.js';
 import './password_list_item.js';
 import './password_move_multiple_passwords_to_account_dialog.js';
 import 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
@@ -24,10 +24,10 @@ import 'chrome://resources/polymer/v3_0/iron-list/iron-list.js';
 
 import {CrToastElement} from 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
 import {PluralStringProxyImpl} from 'chrome://resources/js/plural_string_proxy.js';
-import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
-import {WebUIListenerMixin, WebUIListenerMixinInterface} from 'chrome://resources/js/web_ui_listener_mixin.js';
+import {getDeepActiveElement} from 'chrome://resources/js/util_ts.js';
+import {WebUiListenerMixin, WebUiListenerMixinInterface} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
 import {IronListElement} from 'chrome://resources/polymer/v3_0/iron-list/iron-list.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {GlobalScrollTargetMixin} from '../global_scroll_target_mixin.js';
 import {loadTimeData} from '../i18n_setup.js';
@@ -37,8 +37,8 @@ import {routes} from '../route.js';
 import {Route, RouteObserverMixin, RouteObserverMixinInterface, Router} from '../router.js';
 
 import {MergePasswordsStoreCopiesMixin, MergePasswordsStoreCopiesMixinInterface} from './merge_passwords_store_copies_mixin.js';
-import {MultiStorePasswordUiEntry} from './multi_store_password_ui_entry.js';
 import {AccountStorageOptInStateChangedListener, PasswordManagerImpl} from './password_manager_proxy.js';
+import {getTemplate} from './passwords_device_section.html.js';
 import {PasswordsListHandlerElement} from './passwords_list_handler.js';
 
 /**
@@ -69,11 +69,11 @@ export interface PasswordsDeviceSectionElement {
 type Constructor<T> = new (...args: any[]) => T;
 
 const PasswordsDeviceSectionElementBase =
-    MergePasswordsStoreCopiesMixin(GlobalScrollTargetMixin(WebUIListenerMixin(
+    MergePasswordsStoreCopiesMixin(GlobalScrollTargetMixin(WebUiListenerMixin(
         RouteObserverMixin(PolymerElement) as unknown as
         Constructor<PolymerElement>))) as {
-      new (): PolymerElement & WebUIListenerMixinInterface &
-      MergePasswordsStoreCopiesMixinInterface & RouteObserverMixinInterface
+      new (): PolymerElement & WebUiListenerMixinInterface &
+          MergePasswordsStoreCopiesMixinInterface & RouteObserverMixinInterface,
     };
 
 export class PasswordsDeviceSectionElement extends
@@ -83,7 +83,7 @@ export class PasswordsDeviceSectionElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -191,22 +191,32 @@ export class PasswordsDeviceSectionElement extends
         type: String,
         value: '',
       },
+
+      isPasswordViewPageEnabled_: {
+        type: Boolean,
+        value() {
+          return loadTimeData.getBoolean('enablePasswordViewPage');
+        },
+        reflectToAttribute: true,
+      },
+
+      focusConfig: Object,
     };
   }
 
   static get observers() {
     return [
-      'maybeRedirectToPasswordsPage_(isUserAllowedToAccessPage_, currentRoute_)'
+      'maybeRedirectToPasswordsPage_(isUserAllowedToAccessPage_, currentRoute_)',
     ];
   }
 
   subpageRoute: Route;
   filter: string;
-  private deviceOnlyPasswords_: Array<MultiStorePasswordUiEntry>;
-  private deviceAndAccountPasswords_: Array<MultiStorePasswordUiEntry>;
-  private allDevicePasswords_: Array<MultiStorePasswordUiEntry>;
+  private deviceOnlyPasswords_: chrome.passwordsPrivate.PasswordUiEntry[];
+  private deviceAndAccountPasswords_: chrome.passwordsPrivate.PasswordUiEntry[];
+  private allDevicePasswords_: chrome.passwordsPrivate.PasswordUiEntry[];
   private shouldShowMoveMultiplePasswordsBanner_: boolean;
-  private lastFocused_: MultiStorePasswordUiEntry;
+  private lastFocused_: chrome.passwordsPrivate.PasswordUiEntry;
   private listBlurred_: boolean;
   private accountEmail_: string;
   private isUserAllowedToAccessPage_: boolean;
@@ -216,25 +226,27 @@ export class PasswordsDeviceSectionElement extends
   private showMoveMultiplePasswordsDialog_: boolean;
   private currentRoute_: Route|null;
   private devicePasswordsLabel_: string;
+  private isPasswordViewPageEnabled_: boolean;
+  focusConfig: Map<string, string|(() => void)>;
   private accountStorageOptInStateListener_:
       AccountStorageOptInStateChangedListener|null = null;
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
     this.addListenersForAccountStorageRequirements_();
     this.currentRoute_ = Router.getInstance().currentRoute;
 
-    const extractFirstStoredAccountEmail = (accounts: Array<StoredAccount>) => {
+    const extractFirstStoredAccountEmail = (accounts: StoredAccount[]) => {
       this.accountEmail_ = accounts.length > 0 ? accounts[0].email : '';
     };
     SyncBrowserProxyImpl.getInstance().getStoredAccounts().then(
         extractFirstStoredAccountEmail);
-    this.addWebUIListener(
+    this.addWebUiListener(
         'stored-accounts-updated', extractFirstStoredAccountEmail);
   }
 
-  ready() {
+  override ready() {
     super.ready();
 
     document.addEventListener('keydown', keyboardEvent => {
@@ -251,7 +263,7 @@ export class PasswordsDeviceSectionElement extends
     });
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
     super.disconnectedCallback();
 
     PasswordManagerImpl.getInstance().removeAccountStorageOptInStateListener(
@@ -259,19 +271,23 @@ export class PasswordsDeviceSectionElement extends
     this.accountStorageOptInStateListener_ = null;
   }
 
-  private computeAllDevicePasswords_(): Array<MultiStorePasswordUiEntry> {
-    return this.savedPasswords.filter(p => p.isPresentOnDevice());
+  private computeAllDevicePasswords_():
+      chrome.passwordsPrivate.PasswordUiEntry[] {
+    return this.savedPasswords.filter(
+        p => p.storedIn !== chrome.passwordsPrivate.PasswordStoreSet.ACCOUNT);
   }
 
-  private computeDeviceOnlyPasswords_(): Array<MultiStorePasswordUiEntry> {
+  private computeDeviceOnlyPasswords_():
+      chrome.passwordsPrivate.PasswordUiEntry[] {
     return this.savedPasswords.filter(
-        p => p.isPresentOnDevice() && !p.isPresentInAccount());
+        p => p.storedIn === chrome.passwordsPrivate.PasswordStoreSet.DEVICE);
   }
 
   private computeDeviceAndAccountPasswords_():
-      Array<MultiStorePasswordUiEntry> {
+      chrome.passwordsPrivate.PasswordUiEntry[] {
     return this.savedPasswords.filter(
-        p => p.isPresentOnDevice() && p.isPresentInAccount());
+        p => p.storedIn ===
+            chrome.passwordsPrivate.PasswordStoreSet.DEVICE_AND_ACCOUNT);
   }
 
   private computeIsUserAllowedToAccessPage_(): boolean {
@@ -299,7 +315,7 @@ export class PasswordsDeviceSectionElement extends
             (this.savedPasswords
                  .filter(
                      p2 => p1.username === p2.username &&
-                         p1.urls.origin === p2.urls.origin)
+                         p1.urls.signonRealm === p2.urls.signonRealm)
                  .length === 1));
   }
 
@@ -312,7 +328,7 @@ export class PasswordsDeviceSectionElement extends
   /**
    * From RouteObserverMixin.
    */
-  currentRouteChanged(route: Route) {
+  override currentRouteChanged(route: Route) {
     super.currentRouteChanged(route);
     this.currentRoute_ = route || null;
   }
@@ -322,13 +338,13 @@ export class PasswordsDeviceSectionElement extends
       this.syncDisabled_ = !syncStatus.signedIn;
     };
     SyncBrowserProxyImpl.getInstance().getSyncStatus().then(setSyncDisabled);
-    this.addWebUIListener('sync-status-changed', setSyncDisabled);
+    this.addWebUiListener('sync-status-changed', setSyncDisabled);
 
-    const setSignedIn = (storedAccounts: Array<StoredAccount>) => {
+    const setSignedIn = (storedAccounts: StoredAccount[]) => {
       this.signedIn_ = storedAccounts.length > 0;
     };
     SyncBrowserProxyImpl.getInstance().getStoredAccounts().then(setSignedIn);
-    this.addWebUIListener('stored-accounts-updated', setSignedIn);
+    this.addWebUiListener('stored-accounts-updated', setSignedIn);
 
     const setOptedIn = (optedInForAccountStorage: boolean) => {
       this.optedInForAccountStorage_ = optedInForAccountStorage;
@@ -340,13 +356,14 @@ export class PasswordsDeviceSectionElement extends
     this.accountStorageOptInStateListener_ = setOptedIn;
   }
 
-  private isNonEmpty_(passwords: Array<MultiStorePasswordUiEntry>): boolean {
+  private isNonEmpty_(passwords: chrome.passwordsPrivate.PasswordUiEntry[]):
+      boolean {
     return passwords.length > 0;
   }
 
   private getFilteredPasswords_(
-      passwords: Array<MultiStorePasswordUiEntry>,
-      filter: string): Array<MultiStorePasswordUiEntry> {
+      passwords: chrome.passwordsPrivate.PasswordUiEntry[],
+      filter: string): chrome.passwordsPrivate.PasswordUiEntry[] {
     if (!filter) {
       return passwords.slice();
     }
@@ -373,7 +390,7 @@ export class PasswordsDeviceSectionElement extends
   }
 
   private onManageAccountPasswordsClicked_() {
-    OpenWindowProxyImpl.getInstance().openURL(
+    OpenWindowProxyImpl.getInstance().openUrl(
         loadTimeData.getString('googlePasswordManagerUrl'));
   }
 

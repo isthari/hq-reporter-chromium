@@ -1,24 +1,24 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "chrome/browser/extensions/activity_log/activity_database.h"
 
 #include <stddef.h>
 
 #include <string>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/simple_test_clock.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/activity_log/activity_action_constants.h"
-#include "chrome/browser/extensions/activity_log/activity_database.h"
 #include "chrome/browser/extensions/activity_log/activity_log_task_runner.h"
 #include "chrome/browser/extensions/activity_log/fullstream_ui_policy.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -66,7 +66,7 @@ const char* const ActivityDatabaseTestPolicy::kTableFieldTypes[] = {
 bool ActivityDatabaseTestPolicy::InitDatabase(sql::Database* db) {
   return ActivityDatabase::InitializeTable(db, kTableName, kTableContentFields,
                                            kTableFieldTypes,
-                                           base::size(kTableContentFields));
+                                           std::size(kTableContentFields));
 }
 
 bool ActivityDatabaseTestPolicy::FlushDatabase(sql::Database* db) {
@@ -80,7 +80,7 @@ bool ActivityDatabaseTestPolicy::FlushDatabase(sql::Database* db) {
     sql::Statement statement(db->GetCachedStatement(
         sql::StatementID(SQL_FROM_HERE), sql_str.c_str()));
     statement.BindString(0, action.extension_id());
-    statement.BindInt64(1, action.time().ToInternalValue());
+    statement.BindTime(1, action.time());
     statement.BindInt(2, static_cast<int>(action.action_type()));
     statement.BindString(3, action.api_name());
     if (!statement.Run()) {
@@ -104,7 +104,7 @@ class ActivityDatabaseTest : public ChromeRenderViewHostTestHarness {
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
     SetActivityLogTaskRunnerForTesting(
-        base::ThreadTaskRunnerHandle::Get().get());
+        base::SingleThreadTaskRunner::GetCurrentDefault().get());
     base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableExtensionActivityLogTesting);
@@ -263,7 +263,7 @@ TEST_F(ActivityDatabaseTest, InitFailure) {
   ActivityDatabase* activity_db = new ActivityDatabase(delegate);
   scoped_refptr<Action> action = new Action(
       "punky", base::Time::Now(), Action::ACTION_API_CALL, "brewster");
-  action->mutable_args()->Append("woof");
+  action->mutable_args().Append("woof");
   delegate->Record(activity_db, action);
   activity_db->Close();
 }

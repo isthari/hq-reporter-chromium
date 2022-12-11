@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,6 +44,8 @@ import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.chrome.R;
@@ -127,6 +129,7 @@ public class VrShellDelegate
     private static boolean sRegisteredDaydreamHook;
     private static boolean sRegisteredVrAssetsComponent;
     private static boolean sTestVrShellDelegateOnStartup;
+    private static ObservableSupplierImpl<Boolean> sVrModeEnabledSupplier;
 
     private ChromeActivity mActivity;
 
@@ -214,6 +217,7 @@ public class VrShellDelegate
 
         @Override
         public void onReceive(Context context, Intent intent) {
+            if (!IntentUtils.isTrustedIntentFromSelf(intent)) return;
             ChromeActivity activity = mTargetActivity.get();
             if (activity == null) return;
             getInstance(activity);
@@ -590,14 +594,17 @@ public class VrShellDelegate
      */
     public static void setVrModeEnabled(Activity activity, boolean enabled) {
         ensureLifecycleObserverInitialized();
+        if (sVrModeEnabledSupplier == null) sVrModeEnabledSupplier = new ObservableSupplierImpl<>();
         if (enabled) {
             if (sVrModeEnabledActivitys.contains(activity)) return;
             AndroidCompat.setVrModeEnabled(activity, true);
             sVrModeEnabledActivitys.add(activity);
+            sVrModeEnabledSupplier.set(true);
         } else {
             if (!sVrModeEnabledActivitys.contains(activity)) return;
             AndroidCompat.setVrModeEnabled(activity, false);
             sVrModeEnabledActivitys.remove(activity);
+            sVrModeEnabledSupplier.set(false);
         }
     }
 
@@ -699,10 +706,11 @@ public class VrShellDelegate
         // a thread-safety issue since it thinks the receiver isn't fully initialized before being
         // exposed to other threads. This isn't actually an issue in this case, but we need to set
         // sVrBroadcastReceiver after we're done using it here to fix the compile error.
-        activity.registerReceiver(receiver, filter);
+        ContextUtils.registerNonExportedBroadcastReceiver(activity, receiver, filter);
         sVrBroadcastReceiver = receiver;
         Intent vrIntent = new Intent(VR_ENTRY_RESULT_ACTION);
         vrIntent.setPackage(activity.getPackageName());
+        IntentUtils.addTrustedIntentExtras(vrIntent);
         return PendingIntent.getBroadcast(activity, 0, vrIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
@@ -860,8 +868,7 @@ public class VrShellDelegate
     }
 
     private int getGvrKeyboardPackageVersion() {
-        return PackageUtils.getPackageVersion(
-                ContextUtils.getApplicationContext(), GVR_KEYBOARD_PACKAGE_ID);
+        return PackageUtils.getPackageVersion(GVR_KEYBOARD_PACKAGE_ID);
     }
 
     protected boolean isVrBrowsingEnabled() {
@@ -1038,6 +1045,11 @@ public class VrShellDelegate
     public boolean canRequestRecordAudioPermission() {
         return mActivity.getWindowAndroid().canRequestPermission(
                 android.Manifest.permission.RECORD_AUDIO);
+    }
+
+    public static ObservableSupplier<Boolean> getVrModeEnabledSupplier() {
+        if (sVrModeEnabledSupplier == null) sVrModeEnabledSupplier = new ObservableSupplierImpl<>();
+        return sVrModeEnabledSupplier;
     }
 
     private boolean isWindowModeCorrectForVr() {

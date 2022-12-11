@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -41,26 +41,20 @@ class ProtobufModelScorer : public Scorer {
   // Factory method which creates a new Scorer object by parsing the given
   // model. If parsing fails this method returns NULL.
   // Can use this if model_str is empty.
-  static ProtobufModelScorer* Create(const base::StringPiece& model_str,
-                                     base::File visual_tflite_model);
+  static std::unique_ptr<ProtobufModelScorer> Create(
+      const base::StringPiece& model_str,
+      base::File visual_tflite_model);
 
   double ComputeScore(const FeatureMap& features) const override;
 
-  void GetMatchingVisualTargets(
-      const SkBitmap& bitmap,
-      std::unique_ptr<ClientPhishingRequest> request,
-      base::OnceCallback<void(std::unique_ptr<ClientPhishingRequest>)> callback)
-      const override;
-
-// TODO(crbug/1278502): This is disabled as a temporary measure due to crashes.
-#if BUILDFLAG(BUILD_WITH_TFLITE_LIB) && !BUILDFLAG(IS_CHROMEOS) && \
-    !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(BUILD_WITH_TFLITE_LIB)
   void ApplyVisualTfLiteModel(
       const SkBitmap& bitmap,
-      base::OnceCallback<void(std::vector<double>)> callback) override;
+      base::OnceCallback<void(std::vector<double>)> callback) const override;
 #endif
 
   int model_version() const override;
+  int dom_model_version() const override;
   base::RepeatingCallback<bool(uint32_t)> find_page_word_callback()
       const override;
   base::RepeatingCallback<bool(const std::string&)> find_page_term_callback()

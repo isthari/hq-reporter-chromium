@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -254,8 +254,7 @@ public class SnackbarView {
         // Themes are used first.
         if (snackbar.getTheme() == Snackbar.Theme.GOOGLE) {
             // TODO(crbug.com/1260203): Revisit once we know whether to make this dynamic.
-            return ApiCompatibilityUtils.getColor(
-                    view.getResources(), R.color.default_control_color_active_baseline);
+            return view.getContext().getColor(R.color.default_control_color_active_baseline);
         }
 
         assert snackbar.getTheme() == Snackbar.Theme.BASIC;

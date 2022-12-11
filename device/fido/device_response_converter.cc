@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,8 @@
 #include "device/fido/authenticator_supported_options.h"
 #include "device/fido/features.h"
 #include "device/fido/fido_constants.h"
+#include "device/fido/fido_parsing_utils.h"
+#include "device/fido/fido_transport_protocol.h"
 #include "device/fido/opaque_attestation_statement.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -87,28 +89,14 @@ ReadCTAPMakeCredentialResponse(FidoTransportProtocol transport_used,
     return absl::nullopt;
 
   it = decoded_map.find(CBOR(0x03));
-  if (it == decoded_map.end()) {
+  if (it == decoded_map.end() || !it->second.is_map())
     return absl::nullopt;
-  }
-
-  cbor::Value attestation;
-  if (it->second.is_bytestring() && it->second.GetBytestring().size() == 1 &&
-      it->second.GetBytestring()[0] == 0xa0) {
-    // This is a workaround for iOS 15.4 beta 1, which encodes an empty CBOR map
-    // (0xa0) inside a bytestring.
-    // TODO: remove this after 15.4 beta 2 is released.
-    attestation = cbor::Value(cbor::Value::Type::MAP);
-  } else if (it->second.is_map()) {
-    attestation = it->second.Clone();
-  } else {
-    return absl::nullopt;
-  }
 
   AuthenticatorMakeCredentialResponse response(
       transport_used,
       AttestationObject(std::move(*authenticator_data),
                         std::make_unique<OpaqueAttestationStatement>(
-                            format, std::move(attestation))));
+                            format, it->second.Clone())));
 
   it = decoded_map.find(CBOR(0x04));
   if (it != decoded_map.end()) {
@@ -124,8 +112,27 @@ ReadCTAPMakeCredentialResponse(FidoTransportProtocol transport_used,
         it->second.GetBytestring().size() != kLargeBlobKeyLength) {
       return absl::nullopt;
     }
-    response.set_large_blob_key(
+    response.large_blob_key = fido_parsing_utils::Materialize(
         base::make_span<kLargeBlobKeyLength>(it->second.GetBytestring()));
+  }
+
+  it = decoded_map.find(CBOR(0x06));
+  if (it != decoded_map.end()) {
+    if (!it->second.is_map()) {
+      return absl::nullopt;
+    }
+    const auto& unsigned_extension_outputs_map = it->second.GetMap();
+    for (const auto& map_it : unsigned_extension_outputs_map) {
+      if (!map_it.first.is_string()) {
+        return absl::nullopt;
+      }
+      if (map_it.first.GetString() == kExtensionDevicePublicKey) {
+        if (!map_it.second.is_bytestring()) {
+          return absl::nullopt;
+        }
+        response.device_public_key_signature = map_it.second.GetBytestring();
+      }
+    }
   }
 
   return response;
@@ -204,6 +211,25 @@ absl::optional<AuthenticatorGetAssertionResponse> ReadCTAPGetAssertionResponse(
     }
     memcpy(response.large_blob_key->data(), key.data(),
            response.large_blob_key->size());
+  }
+
+  it = response_map.find(CBOR(0x08));
+  if (it != response_map.end()) {
+    if (!it->second.is_map()) {
+      return absl::nullopt;
+    }
+    const auto& unsigned_extension_outputs_map = it->second.GetMap();
+    for (const auto& map_it : unsigned_extension_outputs_map) {
+      if (!map_it.first.is_string()) {
+        return absl::nullopt;
+      }
+      if (map_it.first.GetString() == kExtensionDevicePublicKey) {
+        if (!map_it.second.is_bytestring()) {
+          return absl::nullopt;
+        }
+        response.device_public_key_signature = map_it.second.GetBytestring();
+      }
+    }
   }
 
   return response;
@@ -539,6 +565,24 @@ absl::optional<AuthenticatorGetInfoResponse> ReadCTAPGetInfoResponse(
 
     response.max_credential_id_length =
         base::saturated_cast<uint32_t>(it->second.GetUnsigned());
+  }
+
+  it = response_map.find(CBOR(0x09));
+  if (it != response_map.end()) {
+    if (!it->second.is_array())
+      return absl::nullopt;
+
+    response.transports.emplace();
+    for (const auto& transport_str : it->second.GetArray()) {
+      if (!transport_str.is_string())
+        return absl::nullopt;
+
+      absl::optional<FidoTransportProtocol> maybe_transport(
+          ConvertToFidoTransportProtocol(transport_str.GetString()));
+      if (maybe_transport.has_value()) {
+        response.transports->insert(*maybe_transport);
+      }
+    }
   }
 
   it = response_map.find(CBOR(0x0a));

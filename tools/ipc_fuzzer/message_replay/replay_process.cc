@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -150,8 +150,9 @@ void ReplayProcess::OpenChannel() {
   channel_ = IPC::ChannelProxy::Create(
       IPC::ChannelMojo::CreateClientFactory(
           std::move(legacy_ipc_bootstrap_pipe), io_thread_.task_runner(),
-          base::ThreadTaskRunnerHandle::Get()),
-      this, io_thread_.task_runner(), base::ThreadTaskRunnerHandle::Get());
+          base::SingleThreadTaskRunner::GetCurrentDefault()),
+      this, io_thread_.task_runner(),
+      base::SingleThreadTaskRunner::GetCurrentDefault());
 }
 
 bool ReplayProcess::OpenTestcase() {

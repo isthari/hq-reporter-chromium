@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_preferences_util.h"
 #include "chrome/browser/ui/blocked_content/popunder_preventer.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/webui/chrome_web_contents_handler.h"
@@ -267,7 +266,6 @@ ConstrainedWebDialogDelegateViews::ConstrainedWebDialogDelegateViews(
               browser_context,
               initiator_web_contents,
               view)) {
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::CONSTRAINED_WEB);
   DCHECK(web_dialog_delegate_);
   web_contents_holder_ =
       WebContents::Create(WebContents::CreateParams(browser_context));

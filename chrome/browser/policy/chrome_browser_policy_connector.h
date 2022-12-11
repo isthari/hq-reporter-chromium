@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -119,6 +119,10 @@ class ChromeBrowserPolicyConnector : public BrowserPolicyConnector {
   // The device settings used in Lacros.
   crosapi::mojom::DeviceSettings* GetDeviceSettings() const;
 
+  DeviceSettingsLacros* device_settings_lacros() {
+    return device_settings_.get();
+  }
+
   PolicyLoaderLacros* device_account_policy_loader() {
     return device_account_policy_loader_;
   }
@@ -182,12 +186,8 @@ class ChromeBrowserPolicyConnector : public BrowserPolicyConnector {
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
   std::unique_ptr<DeviceSettingsLacros> device_settings_ = nullptr;
   // Owned by |platform_provider_|.
-  PolicyLoaderLacros* device_account_policy_loader_ = nullptr;
+  raw_ptr<PolicyLoaderLacros> device_account_policy_loader_ = nullptr;
 #endif
-
-  // Holds a callback to |ChromeBrowserCloudManagementController::Init| so that
-  // its execution can be deferred until an enrollment token is available.
-  base::OnceClosure deferred_init_callback_;
 
   // Weak pointers needed for tasks that need to wait until it can be decided
   // if an enrollment token is available or not.

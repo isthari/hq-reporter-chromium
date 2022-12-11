@@ -1,4 +1,4 @@
-# Copyright 2018 The Chromium Authors. All rights reserved.
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -55,7 +55,7 @@ def CheckLintLuciMilo(input_api, output_api):
     return input_api.RunTests([
         input_api.Command(
             name='lint-luci-milo',
-            cmd=[input_api.python_executable, 'lint-luci-milo.py'],
+            cmd=[input_api.python3_executable, 'lint-luci-milo.py'],
             kwargs={},
             message=output_api.PresubmitError),
     ])
@@ -66,14 +66,19 @@ def CheckTestingBuildbot(input_api, output_api):
       'infra/config/generated/luci/luci-milo-dev.cfg' in input_api.LocalPaths()
       ):
     return input_api.RunTests([
-        input_api.Command(
-            name='testing/buildbot config checks',
-            cmd=[input_api.python_executable, input_api.os_path.join(
-                '..', '..', 'testing', 'buildbot',
-                'generate_buildbot_json.py',),
-                 '--check'],
-            kwargs={},
-            message=output_api.PresubmitError),
+        input_api.Command(name='testing/buildbot config checks',
+                          cmd=[
+                              input_api.python3_executable,
+                              input_api.os_path.join(
+                                  '..',
+                                  '..',
+                                  'testing',
+                                  'buildbot',
+                                  'generate_buildbot_json.py',
+                              ), '--check'
+                          ],
+                          kwargs={},
+                          message=output_api.PresubmitError),
     ])
   return []
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "services/device/public/mojom/screen_orientation.mojom.h"
 #include "services/device/public/mojom/screen_orientation_lock_types.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/display/mojom/screen_orientation.mojom.h"
 
 namespace content {
 
@@ -50,11 +51,14 @@ class CONTENT_EXPORT ScreenOrientationProvider
   // The delegate is not owned by ScreenOrientationProvider.
   static void SetDelegate(ScreenOrientationDelegate* delegate);
   static ScreenOrientationDelegate* GetDelegateForTesting();
+  static bool LockMatchesOrientation(
+      device::mojom::ScreenOrientationLockType lock,
+      display::mojom::ScreenOrientation orientation);
 
   // WebContentsObserver
   void DidToggleFullscreenModeForTab(bool entered_fullscreen,
                                      bool will_cause_resize) override;
-  void DidFinishNavigation(NavigationHandle* navigation_handle) override;
+  void PrimaryPageChanged(Page& page) override;
 
  private:
   // Calls on |on_result_callback_| with |result|, followed by resetting

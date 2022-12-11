@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,7 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/sequence_checker.h"
 #include "base/strings/strcat.h"
-#include "base/task/post_task.h"
+#include "base/strings/string_util.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/values.h"
@@ -39,30 +39,31 @@
 #include "components/component_updater/android/components_info_holder.h"
 #include "components/component_updater/android/embedded_component_loader_jni_headers/ComponentLoaderPolicyBridge_jni.h"
 #include "components/update_client/utils.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace component_updater {
 namespace {
 
 constexpr char kManifestFileName[] = "manifest.json";
 
-std::unique_ptr<base::DictionaryValue> ReadManifest(
+absl::optional<base::Value::Dict> ReadManifest(
     const std::string& manifest_content) {
   JSONStringValueDeserializer deserializer(manifest_content);
   std::string error;
   std::unique_ptr<base::Value> root = deserializer.Deserialize(nullptr, &error);
-  return (root && root->is_dict())
-             ? std::unique_ptr<base::DictionaryValue>(
-                   static_cast<base::DictionaryValue*>(root.release()))
-             : nullptr;
+  if (root && root->is_dict())
+    return std::move(*root).TakeDict();
+
+  return absl::nullopt;
 }
 
-std::unique_ptr<base::DictionaryValue> ReadManifestFromFd(int fd) {
+absl::optional<base::Value::Dict> ReadManifestFromFd(int fd) {
   std::string content;
   base::ScopedFILE file_stream(
       base::FileToFILE(base::File(std::move(fd)), "r"));
   return base::ReadStreamToString(file_stream.get(), &content)
              ? ReadManifest(content)
-             : nullptr;
+             : absl::nullopt;
 }
 
 void RecordComponentLoadStatusHistogram(const std::string& suffix,
@@ -155,7 +156,7 @@ AndroidComponentLoaderPolicy::GetComponentId(JNIEnv* env) {
 
 void AndroidComponentLoaderPolicy::NotifyNewVersion(
     base::flat_map<std::string, base::ScopedFD>& fd_map,
-    std::unique_ptr<base::DictionaryValue> manifest) {
+    absl::optional<base::Value::Dict> manifest) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (!manifest) {
@@ -163,7 +164,10 @@ void AndroidComponentLoaderPolicy::NotifyNewVersion(
     return;
   }
   std::string version_ascii;
-  manifest->GetStringASCII("version", &version_ascii);
+  if (const std::string* ptr = manifest->FindString("version")) {
+    if (base::IsStringASCII(*ptr))
+      version_ascii = *ptr;
+  }
   base::Version version(version_ascii);
   if (!version.IsValid()) {
     ComponentLoadFailedInternal(ComponentLoadResult::kInvalidVersion);
@@ -173,7 +177,7 @@ void AndroidComponentLoaderPolicy::NotifyNewVersion(
   RecordComponentLoadStatusHistogram(loader_policy_->GetMetricsSuffix(),
                                      ComponentLoadResult::kComponentLoaded);
   ComponentsInfoHolder::GetInstance()->AddComponent(GetComponentId(), version);
-  loader_policy_->ComponentLoaded(version, fd_map, std::move(manifest));
+  loader_policy_->ComponentLoaded(version, fd_map, std::move(*manifest));
 }
 
 void AndroidComponentLoaderPolicy::ComponentLoadFailedInternal(

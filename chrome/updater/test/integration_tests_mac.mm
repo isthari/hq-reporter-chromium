@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "base/base_paths.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -26,15 +27,15 @@
 #include "chrome/common/mac/launchd.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/external_constants_builder.h"
-#include "chrome/updater/launchd_util.h"
-#import "chrome/updater/mac/mac_util.h"
 #include "chrome/updater/mac/xpc_service_names.h"
 #include "chrome/updater/persisted_data.h"
 #include "chrome/updater/prefs.h"
 #include "chrome/updater/test/integration_tests_impl.h"
 #include "chrome/updater/updater_branding.h"
 #include "chrome/updater/updater_scope.h"
-#include "chrome/updater/util.h"
+#include "chrome/updater/util/launchd_util.h"
+#import "chrome/updater/util/mac_util.h"
+#include "chrome/updater/util/util.h"
 #include "components/crx_file/crx_verifier.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -63,10 +64,10 @@ Launchd::Type LaunchdType(UpdaterScope scope) {
 }
 
 base::FilePath GetExecutablePath() {
-  base::FilePath test_executable;
-  if (!base::PathService::Get(base::FILE_EXE, &test_executable))
+  base::FilePath out_dir;
+  if (!base::PathService::Get(base::DIR_EXE, &out_dir))
     return base::FilePath();
-  return test_executable.DirName().Append(GetExecutableRelativePath());
+  return out_dir.Append(GetExecutableRelativePath());
 }
 
 absl::optional<base::FilePath> GetProductPath(UpdaterScope scope) {
@@ -120,7 +121,8 @@ void EnterTestMode(const GURL& url) {
                   .SetInitialDelay(0.1)
                   .SetServerKeepAliveSeconds(1)
                   .SetCrxVerifierFormat(crx_file::VerifierFormat::CRX3)
-                  .Overwrite());
+                  .SetOverinstallTimeout(TestTimeouts::action_timeout())
+                  .Modify());
 }
 
 absl::optional<base::FilePath> GetDataDirPath(UpdaterScope scope) {
@@ -136,6 +138,8 @@ absl::optional<base::FilePath> GetDataDirPath(UpdaterScope scope) {
 }
 
 void Clean(UpdaterScope scope) {
+  CleanProcesses();
+
   Launchd::Domain launchd_domain = LaunchdDomain(scope);
   Launchd::Type launchd_type = LaunchdType(scope);
 
@@ -145,9 +149,6 @@ void Clean(UpdaterScope scope) {
     EXPECT_TRUE(base::DeletePathRecursively(*path));
   EXPECT_TRUE(Launchd::GetInstance()->DeletePlist(
       launchd_domain, launchd_type, updater::CopyWakeLaunchdName(scope)));
-  EXPECT_TRUE(Launchd::GetInstance()->DeletePlist(
-      launchd_domain, launchd_type,
-      updater::CopyUpdateServiceInternalLaunchdName(scope)));
   EXPECT_TRUE(Launchd::GetInstance()->DeletePlist(
       launchd_domain, launchd_type,
       updater::CopyUpdateServiceLaunchdName(scope)));
@@ -167,8 +168,6 @@ void Clean(UpdaterScope scope) {
                          CopyWakeLaunchdName(scope));
     RemoveJobFromLaunchd(scope, launchd_domain, launchd_type,
                          CopyUpdateServiceLaunchdName(scope));
-    RemoveJobFromLaunchd(scope, launchd_domain, launchd_type,
-                         CopyUpdateServiceInternalLaunchdName(scope));
   }
 
   // Also clean up any other versions of the updater that are around.
@@ -190,6 +189,8 @@ void Clean(UpdaterScope scope) {
 }
 
 void ExpectClean(UpdaterScope scope) {
+  ExpectCleanProcesses();
+
   Launchd::Domain launchd_domain = LaunchdDomain(scope);
   Launchd::Type launchd_type = LaunchdType(scope);
 
@@ -200,9 +201,6 @@ void ExpectClean(UpdaterScope scope) {
     EXPECT_FALSE(base::PathExists(*path));
   EXPECT_FALSE(Launchd::GetInstance()->PlistExists(
       launchd_domain, launchd_type, updater::CopyWakeLaunchdName(scope)));
-  EXPECT_FALSE(Launchd::GetInstance()->PlistExists(
-      launchd_domain, launchd_type,
-      updater::CopyUpdateServiceInternalLaunchdName(scope)));
   EXPECT_FALSE(Launchd::GetInstance()->PlistExists(
       launchd_domain, launchd_type,
       updater::CopyUpdateServiceLaunchdName(scope)));
@@ -223,7 +221,6 @@ void ExpectClean(UpdaterScope scope) {
     EXPECT_FALSE(base::PathExists(*keystone_path));
 
   ExpectServiceAbsent(scope, GetUpdateServiceLaunchdName(scope));
-  ExpectServiceAbsent(scope, GetUpdateServiceInternalLaunchdName(scope));
 }
 
 void ExpectInstalled(UpdaterScope scope) {
@@ -238,9 +235,6 @@ void ExpectInstalled(UpdaterScope scope) {
 
   EXPECT_TRUE(Launchd::GetInstance()->PlistExists(launchd_domain, launchd_type,
                                                   CopyWakeLaunchdName(scope)));
-  EXPECT_TRUE(Launchd::GetInstance()->PlistExists(
-      launchd_domain, launchd_type,
-      CopyUpdateServiceInternalLaunchdName(scope)));
 }
 
 void ExpectActiveUpdater(UpdaterScope scope) {
@@ -262,20 +256,10 @@ absl::optional<base::FilePath> GetInstalledExecutablePath(UpdaterScope scope) {
 }
 
 void ExpectCandidateUninstalled(UpdaterScope scope) {
-  Launchd::Domain launchd_domain = LaunchdDomain(scope);
-  Launchd::Type launchd_type = LaunchdType(scope);
-
   absl::optional<base::FilePath> versioned_folder_path =
-      GetVersionedUpdaterFolderPath(scope);
-  EXPECT_TRUE(versioned_folder_path);
-  if (versioned_folder_path)
-    EXPECT_FALSE(base::PathExists(*versioned_folder_path));
-
-  EXPECT_FALSE(Launchd::GetInstance()->PlistExists(launchd_domain, launchd_type,
-                                                   CopyWakeLaunchdName(scope)));
-  EXPECT_FALSE(Launchd::GetInstance()->PlistExists(
-      launchd_domain, launchd_type,
-      CopyUpdateServiceInternalLaunchdName(scope)));
+      GetVersionedInstallDirectory(scope);
+  ASSERT_TRUE(versioned_folder_path);
+  EXPECT_FALSE(base::PathExists(*versioned_folder_path));
 }
 
 void Uninstall(UpdaterScope scope) {
@@ -318,33 +302,37 @@ void ExpectNotActive(UpdaterScope scope, const std::string& app_id) {
   EXPECT_FALSE(base::PathIsWritable(*path));
 }
 
-void WaitForUpdaterExit(UpdaterScope /*scope*/) {
-  ASSERT_TRUE(WaitFor(base::BindRepeating([]() {
-    std::string ps_stdout;
-    EXPECT_TRUE(base::GetAppOutput({"ps", "ax", "-o", "command"}, &ps_stdout));
-    if (ps_stdout.find(GetExecutablePath().BaseName().AsUTF8Unsafe()) ==
-        std::string::npos) {
-      return true;
-    }
-    return false;
-  })));
+bool WaitForUpdaterExit(UpdaterScope /*scope*/) {
+  return WaitFor(
+      base::BindRepeating([]() {
+        std::string ps_stdout;
+        EXPECT_TRUE(
+            base::GetAppOutput({"ps", "ax", "-o", "command"}, &ps_stdout));
+        if (ps_stdout.find(GetExecutablePath().BaseName().AsUTF8Unsafe()) ==
+            std::string::npos) {
+          return true;
+        }
+        return false;
+      }),
+      base::BindLambdaForTesting(
+          []() { VLOG(0) << "Still waiting for updater to exit..."; }));
 }
 
 void SetupRealUpdaterLowerVersion(UpdaterScope scope) {
-  base::FilePath source_path;
-  ASSERT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &source_path));
-  base::FilePath old_updater_path =
-      source_path.Append("third_party").Append("updater");
+  base::FilePath exe_path;
+  ASSERT_TRUE(base::PathService::Get(base::DIR_EXE, &exe_path));
+  base::FilePath old_updater_path = exe_path.Append("old_updater");
 #if BUILDFLAG(CHROMIUM_BRANDING)
 #if defined(ARCH_CPU_ARM64)
   old_updater_path = old_updater_path.Append("chromium_mac_arm64");
 #elif defined(ARCH_CPU_X86_64)
   old_updater_path = old_updater_path.Append("chromium_mac_amd64");
 #endif
+#elif BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  old_updater_path = old_updater_path.Append("chrome_mac_universal");
 #endif
   base::CommandLine command_line(
-      old_updater_path.Append("updater")
-          .Append(PRODUCT_FULLNAME_STRING "_test.app")
+      old_updater_path.Append(PRODUCT_FULLNAME_STRING "_test.app")
           .Append("Contents")
           .Append("MacOS")
           .Append(PRODUCT_FULLNAME_STRING "_test"));
@@ -404,6 +392,21 @@ void ExpectLegacyUpdaterDataMigrated(UpdaterScope scope) {
   EXPECT_TRUE(persisted_data->GetBrandCode(kKippleApp).empty());
   EXPECT_EQ(persisted_data->GetBrandPath(kPopularApp), base::FilePath("/"));
   EXPECT_TRUE(persisted_data->GetFingerprint(kPopularApp).empty());
+}
+
+void InstallApp(UpdaterScope scope, const std::string& app_id) {
+  RegisterApp(scope, app_id);
+}
+
+void UninstallApp(UpdaterScope scope, const std::string& app_id) {
+  SetExistenceCheckerPath(scope, app_id,
+                          base::FilePath(FILE_PATH_LITERAL("NONE")));
+}
+
+void RunOfflineInstall(UpdaterScope scope,
+                       bool is_legacy_install,
+                       bool is_silent_install) {
+  // TODO(crbug.com/1286574).
 }
 
 }  // namespace test

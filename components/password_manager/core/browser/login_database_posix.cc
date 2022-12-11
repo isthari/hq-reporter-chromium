@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,7 @@ void RecordPasswordDecryptionResult(PasswordDecryptionResult result) {
 
 LoginDatabase::EncryptionResult LoginDatabase::EncryptedString(
     const std::u16string& plain_text,
-    std::string* cipher_text) const {
+    std::string* cipher_text) {
   return OSCrypt::EncryptString16(plain_text, cipher_text)
              ? ENCRYPTION_RESULT_SUCCESS
              : ENCRYPTION_RESULT_SERVICE_FAILURE;
@@ -37,7 +37,7 @@ LoginDatabase::EncryptionResult LoginDatabase::EncryptedString(
 
 LoginDatabase::EncryptionResult LoginDatabase::DecryptedString(
     const std::string& cipher_text,
-    std::u16string* plain_text) const {
+    std::u16string* plain_text) {
 #if !BUILDFLAG(IS_FUCHSIA)
 #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
   // On Android and ChromeOS, we have a mix of obfuscated and plain-text

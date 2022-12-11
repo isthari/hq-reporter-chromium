@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,14 +19,6 @@
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/devtools_frontend_host.h"
 #include "content/public/browser/web_contents_observer.h"
-
-#if !BUILDFLAG(IS_ANDROID)
-#include "content/public/browser/devtools_frontend_host.h"
-#endif
-
-namespace base {
-class Value;
-}
 
 namespace content {
 
@@ -76,7 +68,7 @@ class ShellDevToolsBindings : public WebContentsObserver,
   void DispatchProtocolMessage(DevToolsAgentHost* agent_host,
                                base::span<const uint8_t> message) override;
 
-  void HandleMessageFromDevToolsFrontend(base::Value);
+  void HandleMessageFromDevToolsFrontend(base::Value::Dict message);
 
   // WebContentsObserver overrides
   void ReadyToCommitNavigation(NavigationHandle* navigation_handle) override;

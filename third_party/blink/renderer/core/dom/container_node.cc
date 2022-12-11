@@ -23,6 +23,7 @@
 
 #include "third_party/blink/renderer/core/dom/container_node.h"
 
+#include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/css/selector_query.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
@@ -32,6 +33,7 @@
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatch_forbidden_scope.h"
 #include "third_party/blink/renderer/core/dom/events/scoped_event_queue.h"
+#include "third_party/blink/renderer/core/dom/layout_tree_builder_traversal.h"
 #include "third_party/blink/renderer/core/dom/name_node_list.h"
 #include "third_party/blink/renderer/core/dom/node_child_removal_tracker.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
@@ -147,12 +149,12 @@ static inline bool CollectChildrenAndRemoveFromOldParent(
   if (auto* fragment = DynamicTo<DocumentFragment>(node)) {
     GetChildNodes(*fragment, nodes);
     fragment->RemoveChildren();
-    return !nodes.IsEmpty();
+    return !nodes.empty();
   }
   nodes.push_back(&node);
   if (ContainerNode* old_parent = node.parentNode())
     old_parent->RemoveChild(&node, exception_state);
-  return !exception_state.HadException() && !nodes.IsEmpty();
+  return !exception_state.HadException() && !nodes.empty();
 }
 
 void ContainerNode::ParserTakeAllChildrenFrom(ContainerNode& old_parent) {
@@ -1160,16 +1162,6 @@ void ContainerNode::SetFocused(bool received,
       OwnerShadowHost()->SetFocused(received, focus_type);
   }
 
-  // If this is an author shadow host and indirectly focused (has focused
-  // element within its shadow root), update focus.
-  auto* this_element = DynamicTo<Element>(this);
-  if (this_element && GetDocument().FocusedElement() &&
-      GetDocument().FocusedElement() != this) {
-    if (this_element->AuthorShadowRoot()) {
-      received = received && this_element->AuthorShadowRoot()->delegatesFocus();
-    }
-  }
-
   if (IsFocused() == received)
     return;
 
@@ -1180,6 +1172,7 @@ void ContainerNode::SetFocused(bool received,
   if (GetLayoutObject() || received)
     return;
 
+  auto* this_element = DynamicTo<Element>(this);
   // If :focus sets display: none, we lose focus but still need to recalc our
   // style.
   if (!this_element || !this_element->ChildrenOrSiblingsAffectedByFocus()) {
@@ -1382,14 +1375,34 @@ void ContainerNode::RecalcDescendantStyles(
   DCHECK(GetDocument().InStyleRecalc());
   DCHECK(!NeedsStyleRecalc());
 
+  StyleRecalcChange local_change = change;
   for (Node* child = firstChild(); child; child = child->nextSibling()) {
-    if (!change.TraverseChild(*child))
+    if (!local_change.TraverseChild(*child))
       continue;
     if (auto* child_text_node = DynamicTo<Text>(child))
-      child_text_node->RecalcTextStyle(change);
+      child_text_node->RecalcTextStyle(local_change);
 
-    if (auto* child_element = DynamicTo<Element>(child))
-      child_element->RecalcStyle(change, style_recalc_context);
+    if (auto* child_element = DynamicTo<Element>(child)) {
+      local_change = local_change.Combine(
+          child_element->RecalcStyle(local_change, style_recalc_context));
+    }
+  }
+}
+
+void ContainerNode::RecalcSubsequentSiblingStyles(
+    const StyleRecalcChange change,
+    const StyleRecalcContext& style_recalc_context) {
+  DCHECK(GetDocument().InStyleRecalc());
+  DCHECK(!NeedsStyleRecalc());
+
+  // We use LayoutTreeBuilderTraversal to skip siblings which are not in the
+  // flat tree, because they don't have a ComputedStyle (and are therefore not
+  // affected by any change on this node).
+  for (Node* sibling = LayoutTreeBuilderTraversal::NextSibling(*this); sibling;
+       sibling = LayoutTreeBuilderTraversal::NextSibling(*sibling)) {
+    if (auto* sibling_element = DynamicTo<Element>(sibling)) {
+      sibling_element->RecalcStyle(change, style_recalc_context);
+    }
   }
 }
 
@@ -1555,8 +1568,8 @@ HTMLCollection* ContainerNode::getElementsByTagNameNS(
     const AtomicString& namespace_uri,
     const AtomicString& local_name) {
   return EnsureCachedCollection<TagCollectionNS>(
-      kTagCollectionNSType,
-      namespace_uri.IsEmpty() ? g_null_atom : namespace_uri, local_name);
+      kTagCollectionNSType, namespace_uri.empty() ? g_null_atom : namespace_uri,
+      local_name);
 }
 
 // Takes an AtomicString in argument because it is common for elements to share
@@ -1586,7 +1599,7 @@ RadioNodeList* ContainerNode::GetRadioNodeList(const AtomicString& name,
 Element* ContainerNode::getElementById(const AtomicString& id) const {
   // According to https://dom.spec.whatwg.org/#concept-id, empty IDs are
   // treated as equivalent to the lack of an id attribute.
-  if (id.IsEmpty()) {
+  if (id.empty()) {
     return nullptr;
   }
 
@@ -1611,6 +1624,33 @@ Element* ContainerNode::getElementById(const AtomicString& id) const {
 
 NodeListsNodeData& ContainerNode::EnsureNodeLists() {
   return EnsureRareData().EnsureNodeLists();
+}
+
+// https://html.spec.whatwg.org/C/#autofocus-delegate
+Element* ContainerNode::GetAutofocusDelegate() const {
+  for (Node& node : NodeTraversal::DescendantsOf(*this)) {
+    auto* element = DynamicTo<Element>(node);
+    if (!element)
+      continue;
+
+    if (!element->IsAutofocusable())
+      continue;
+
+    Element* focusable_area =
+        element->IsFocusable() ? element : element->GetFocusableArea();
+    if (!focusable_area)
+      continue;
+
+    // The spec says to continue instead of returning focusable_area if
+    // focusable_area is not click-focusable and the call was initiated by the
+    // user clicking. I don't believe this is currently possible, so DCHECK
+    // instead.
+    DCHECK(focusable_area->IsMouseFocusable());
+
+    return focusable_area;
+  }
+
+  return nullptr;
 }
 
 }  // namespace blink

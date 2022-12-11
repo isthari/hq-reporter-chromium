@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,11 +32,12 @@
 #include "chrome/browser/ash/policy/core/device_policy_cros_browser_test.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
-#include "chrome/browser/ui/webui/chromeos/login/sync_consent_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/terms_of_service_screen_handler.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
+#include "chrome/browser/ui/webui/ash/login/family_link_notice_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
+#include "chrome/browser/ui/webui/ash/login/sync_consent_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/terms_of_service_screen_handler.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
 #include "components/policy/core/common/cloud/test/policy_builder.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_service.h"
@@ -53,8 +54,6 @@ namespace em = ::enterprise_management;
 using ::net::test_server::BasicHttpResponse;
 using ::net::test_server::HttpRequest;
 using ::net::test_server::HttpResponse;
-using ::testing::_;
-using ::testing::InvokeWithoutArgs;
 
 const char kAccountId[] = "dla@example.com";
 const char kDisplayName[] = "display name";
@@ -102,7 +101,7 @@ class PublicSessionTosScreenTest : public OobeBaseTest {
 
     // Prevent browser start in user session so that we do not need to wait
     // for its initialization.
-    ash::test::UserSessionManagerTestApi(ash::UserSessionManager::GetInstance())
+    test::UserSessionManagerTestApi(UserSessionManager::GetInstance())
         .SetShouldLaunchBrowserInTests(false);
   }
 
@@ -113,7 +112,7 @@ class PublicSessionTosScreenTest : public OobeBaseTest {
 
   void SetUpInProcessBrowserTestFixture() override {
     OobeBaseTest::SetUpInProcessBrowserTestFixture();
-    chromeos::SessionManagerClient::InitializeFakeInMemory();
+    SessionManagerClient::InitializeFakeInMemory();
     InitializePolicy();
   }
 
@@ -206,8 +205,8 @@ class PublicSessionTosScreenTest : public OobeBaseTest {
     original_callback_.Run(result_.value());
   }
 
-  chromeos::FakeSessionManagerClient* session_manager_client() {
-    return chromeos::FakeSessionManagerClient::Get();
+  FakeSessionManagerClient* session_manager_client() {
+    return FakeSessionManagerClient::Get();
   }
 
   absl::optional<TermsOfServiceScreen::Result> result_;
@@ -361,8 +360,8 @@ class ManagedUserTosScreenTestBase : public OobeBaseTest {
     original_callback_.Run(result_.value());
   }
 
-  chromeos::FakeSessionManagerClient* session_manager_client() {
-    return chromeos::FakeSessionManagerClient::Get();
+  FakeSessionManagerClient* session_manager_client() {
+    return FakeSessionManagerClient::Get();
   }
 
   bool TosFileExists() {
@@ -406,14 +405,14 @@ class ManagedUserTosScreenTest : public ManagedUserTosScreenTestBase,
                                  public ::testing::WithParamInterface<bool> {
  public:
   ManagedUserTosScreenTest() {
-    auto enabled_features =
-        std::vector<base::Feature>{features::kManagedTermsOfService};
-    auto disabled_features = std::vector<base::Feature>{};
+    std::vector<base::test::FeatureRef> enabled_features = {
+        features::kManagedTermsOfService};
+    std::vector<base::test::FeatureRef> disabled_features = {};
 
     if (GetParam()) {
-      enabled_features.push_back(features::kUseAuthsessionAuthentication);
+      enabled_features.push_back(features::kUseAuthFactors);
     } else {
-      disabled_features.push_back(features::kUseAuthsessionAuthentication);
+      disabled_features.push_back(features::kUseAuthFactors);
     }
     feature_list_.InitWithFeatures(enabled_features, disabled_features);
   }
@@ -497,7 +496,7 @@ enum class PendingScreen { kEmpty, kTermsOfService, kSyncConsent };
 OobeScreenId PendingScreenToId(PendingScreen pending_screen) {
   switch (pending_screen) {
     case PendingScreen::kEmpty:
-      return OobeScreen::SCREEN_UNKNOWN;
+      return OOBE_SCREEN_UNKNOWN;
     case PendingScreen::kTermsOfService:
       return TermsOfServiceScreenView::kScreenId;
     case PendingScreen::kSyncConsent:
@@ -514,11 +513,9 @@ class ManagedUserTosOnboardingResumeTest
     pending_screen_param_ = std::get<0>(GetParam());
 
     if (std::get<1>(GetParam())) {
-      feature_list_.InitAndEnableFeature(
-          features::kUseAuthsessionAuthentication);
+      feature_list_.InitAndEnableFeature(features::kUseAuthFactors);
     } else {
-      feature_list_.InitAndDisableFeature(
-          features::kUseAuthsessionAuthentication);
+      feature_list_.InitAndDisableFeature(features::kUseAuthFactors);
     }
   }
 
@@ -569,7 +566,7 @@ IN_PROC_BROWSER_TEST_P(ManagedUserTosOnboardingResumeTest, ResumeOnboarding) {
       EnsurePendingScreenIsEmpty();
       EXPECT_EQ(WizardController::default_controller()
                     ->get_screen_after_managed_tos_for_testing(),
-                OobeScreen::SCREEN_UNKNOWN);
+                OOBE_SCREEN_UNKNOWN);
       test::WaitForPrimaryUserSessionStart();
       break;
     case PendingScreen::kTermsOfService:

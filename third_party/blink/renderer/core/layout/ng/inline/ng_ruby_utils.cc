@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -278,7 +278,7 @@ NGAnnotationMetrics ComputeAnnotationOverflow(
         }
 
         // Check if we really have an annotation.
-        if (const auto* layout_result = item.layout_result.get()) {
+        if (const auto& layout_result = item.layout_result) {
           LayoutUnit overflow = layout_result->AnnotationOverflow();
           if (IsFlippedLinesWritingMode(line_style.GetWritingMode()))
             overflow = -overflow;

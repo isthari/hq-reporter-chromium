@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,30 +12,34 @@
 #include "base/bind.h"
 #include "base/guid.h"
 #include "base/memory/raw_ptr.h"
-#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "components/sync/base/client_tag_hash.h"
+#include "components/sync/base/features.h"
 #include "components/sync/base/unique_position.h"
 #include "components/sync/engine/cancelation_signal.h"
 #include "components/sync/engine/commit_contribution.h"
 #include "components/sync/engine/cycle/entity_change_metric_recording.h"
 #include "components/sync/engine/cycle/status_controller.h"
 #include "components/sync/engine/model_type_processor.h"
-#include "components/sync/engine/sync_engine_switches.h"
 #include "components/sync/protocol/autofill_specifics.pb.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 #include "components/sync/protocol/password_specifics.pb.h"
 #include "components/sync/protocol/sync.pb.h"
 #include "components/sync/protocol/sync_entity.pb.h"
-#include "components/sync/test/engine/fake_cryptographer.h"
-#include "components/sync/test/engine/mock_model_type_processor.h"
-#include "components/sync/test/engine/mock_nudge_handler.h"
-#include "components/sync/test/engine/single_type_mock_server.h"
+#include "components/sync/test/fake_cryptographer.h"
+#include "components/sync/test/mock_invalidation.h"
+#include "components/sync/test/mock_invalidation_tracker.h"
+#include "components/sync/test/mock_model_type_processor.h"
+#include "components/sync/test/mock_nudge_handler.h"
+#include "components/sync/test/single_type_mock_server.h"
+#include "components/sync/test/trackable_mock_invalidation.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -45,6 +49,7 @@ using sync_pb::ModelTypeState;
 using sync_pb::SyncEntity;
 using testing::IsNull;
 using testing::NotNull;
+using testing::UnorderedElementsAre;
 
 namespace syncer {
 
@@ -81,6 +86,22 @@ sync_pb::EntitySpecifics EncryptPasswordSpecificsWithNthKey(
   return encrypted_specifics;
 }
 
+ClientTagHash GeneratePreferenceTagHash(const std::string& tag) {
+  if (tag.empty()) {
+    return ClientTagHash();
+  }
+  return ClientTagHash::FromUnhashed(PREFERENCES, tag);
+}
+
+MATCHER_P(HasPreferenceClientTag,
+          expected_tag,
+          base::StringPrintf(
+              "expected_tag: %s, hash: %s",
+              expected_tag,
+              GeneratePreferenceTagHash(expected_tag).value().c_str())) {
+  return arg->entity.client_tag_hash == GeneratePreferenceTagHash(expected_tag);
+}
+
 }  // namespace
 
 // Tests the ModelTypeWorker.
@@ -112,16 +133,9 @@ sync_pb::EntitySpecifics EncryptPasswordSpecificsWithNthKey(
 // convenience functions so we can emulate server behavior.
 class ModelTypeWorkerTest : public ::testing::Test {
  protected:
-  static ClientTagHash GenerateTagHash(const std::string& tag) {
-    if (tag.empty()) {
-      return ClientTagHash();
-    }
-    return ClientTagHash::FromUnhashed(PREFERENCES, tag);
-  }
-
-  const ClientTagHash kHash1 = GenerateTagHash(kTag1);
-  const ClientTagHash kHash2 = GenerateTagHash(kTag2);
-  const ClientTagHash kHash3 = GenerateTagHash(kTag3);
+  const ClientTagHash kHash1 = GeneratePreferenceTagHash(kTag1);
+  const ClientTagHash kHash2 = GeneratePreferenceTagHash(kTag2);
+  const ClientTagHash kHash3 = GeneratePreferenceTagHash(kTag3);
 
   ModelTypeWorkerTest()
       : ModelTypeWorkerTest(PREFERENCES, /*is_encrypted_type=*/false) {}
@@ -155,6 +169,26 @@ class ModelTypeWorkerTest : public ::testing::Test {
         GetSpecificsFieldNumberFromModelType(model_type_));
     initial_state.mutable_progress_marker()->set_token(
         "some_saved_progress_token");
+
+    initial_state.set_initial_sync_done(true);
+
+    InitializeWithState(model_type_, initial_state);
+
+    nudge_handler()->ClearCounters();
+  }
+
+  void InitializeWithInvalidations() {
+    ModelTypeState initial_state;
+    initial_state.mutable_progress_marker()->set_data_type_id(
+        GetSpecificsFieldNumberFromModelType(model_type_));
+    initial_state.mutable_progress_marker()->set_token(
+        "some_saved_progress_token");
+
+    sync_pb::ModelTypeState_Invalidation* loaded_invalidation =
+        initial_state.add_invalidations();
+
+    loaded_invalidation->set_hint("loaded_hint_1");
+    loaded_invalidation->set_version(1);
 
     initial_state.set_initial_sync_done(true);
 
@@ -246,7 +280,7 @@ class ModelTypeWorkerTest : public ::testing::Test {
 
   CommitRequestDataList GenerateCommitRequest(const std::string& name,
                                               const std::string& value) {
-    return GenerateCommitRequest(GenerateTagHash(name),
+    return GenerateCommitRequest(GeneratePreferenceTagHash(name),
                                  GenerateSpecifics(name, value));
   }
 
@@ -260,7 +294,7 @@ class ModelTypeWorkerTest : public ::testing::Test {
 
   CommitRequestDataList GenerateDeleteRequest(const std::string& tag) {
     CommitRequestDataList request;
-    const ClientTagHash tag_hash = GenerateTagHash(tag);
+    const ClientTagHash tag_hash = GeneratePreferenceTagHash(tag);
     request.push_back(processor()->DeleteRequest(tag_hash));
     return request;
   }
@@ -275,11 +309,19 @@ class ModelTypeWorkerTest : public ::testing::Test {
     worker()->ApplyUpdates(&status_controller_);
   }
 
+  void TriggerEmptyUpdateFromServer() {
+    worker()->ProcessGetUpdatesResponse(
+        server()->GetProgress(), server()->GetContext(),
+        /*applicable_updates=*/{}, &status_controller_);
+    worker()->ApplyUpdates(&status_controller_);
+  }
+
   void TriggerPartialUpdateFromServer(int64_t version_offset,
                                       const std::string& tag,
                                       const std::string& value) {
     SyncEntity entity = server()->UpdateFromServer(
-        version_offset, GenerateTagHash(tag), GenerateSpecifics(tag, value));
+        version_offset, GeneratePreferenceTagHash(tag),
+        GenerateSpecifics(tag, value));
 
     if (update_encryption_filter_index_ != 0) {
       EncryptUpdateWithNthKey(update_encryption_filter_index_,
@@ -297,9 +339,11 @@ class ModelTypeWorkerTest : public ::testing::Test {
                                       const std::string& tag2,
                                       const std::string& value2) {
     SyncEntity entity1 = server()->UpdateFromServer(
-        version_offset, GenerateTagHash(tag1), GenerateSpecifics(tag1, value1));
+        version_offset, GeneratePreferenceTagHash(tag1),
+        GenerateSpecifics(tag1, value1));
     SyncEntity entity2 = server()->UpdateFromServer(
-        version_offset, GenerateTagHash(tag2), GenerateSpecifics(tag2, value2));
+        version_offset, GeneratePreferenceTagHash(tag2),
+        GenerateSpecifics(tag2, value2));
 
     if (update_encryption_filter_index_ != 0) {
       EncryptUpdateWithNthKey(update_encryption_filter_index_,
@@ -322,8 +366,8 @@ class ModelTypeWorkerTest : public ::testing::Test {
 
   void TriggerTombstoneFromServer(int64_t version_offset,
                                   const std::string& tag) {
-    SyncEntity entity =
-        server()->TombstoneFromServer(version_offset, GenerateTagHash(tag));
+    SyncEntity entity = server()->TombstoneFromServer(
+        version_offset, GeneratePreferenceTagHash(tag));
 
     if (update_encryption_filter_index_ != 0) {
       EncryptUpdateWithNthKey(update_encryption_filter_index_,
@@ -404,6 +448,16 @@ class ModelTypeWorkerTest : public ::testing::Test {
   }
 
   bool IsProcessorDisconnected() { return is_processor_disconnected_; }
+
+  std::unique_ptr<SyncInvalidation> BuildInvalidation(
+      int64_t version,
+      const std::string& payload) {
+    return MockInvalidation::Build(version, payload);
+  }
+
+  static std::unique_ptr<SyncInvalidation> BuildUnknownVersionInvalidation() {
+    return MockInvalidation::BuildUnknownVersion();
+  }
 
   void ResetWorker() { worker_.reset(); }
 
@@ -487,7 +541,7 @@ TEST_F(ModelTypeWorkerTest, SimpleCommit) {
   processor()->SetCommitRequest(GenerateCommitRequest(kTag1, kValue1));
   DoSuccessfulCommit();
 
-  const ClientTagHash client_tag_hash = GenerateTagHash(kTag1);
+  const ClientTagHash client_tag_hash = GeneratePreferenceTagHash(kTag1);
 
   // Exhaustively verify the SyncEntity sent in the commit message.
   ASSERT_EQ(1U, server()->GetNumCommitMessages());
@@ -573,7 +627,8 @@ TEST_F(ModelTypeWorkerTest, SimpleDelete) {
   ASSERT_TRUE(server()->HasCommitEntity(kHash1));
   const SyncEntity& entity = server()->GetLastCommittedEntity(kHash1);
   EXPECT_FALSE(entity.id_string().empty());
-  EXPECT_EQ(GenerateTagHash(kTag1).value(), entity.client_defined_unique_tag());
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag1).value(),
+            entity.client_defined_unique_tag());
   EXPECT_EQ(base_version, entity.version());
   EXPECT_TRUE(entity.deleted());
 
@@ -661,9 +716,11 @@ TEST_F(ModelTypeWorkerTest, ReceiveUpdates) {
       GetEntityChangeHistogramNameForTest(worker()->GetModelType()),
       ModelTypeEntityChange::kRemoteNonInitialUpdate, 0);
 
-  const ClientTagHash tag_hash = GenerateTagHash(kTag1);
+  const ClientTagHash tag_hash = GeneratePreferenceTagHash(kTag1);
 
   TriggerUpdateFromServer(10, kTag1, kValue1);
+  EXPECT_EQ(status_controller()->get_updated_types(),
+            ModelTypeSet{worker()->GetModelType()});
 
   ASSERT_EQ(1U, processor()->GetNumUpdateResponses());
   std::vector<const UpdateResponseData*> updates_list =
@@ -689,6 +746,13 @@ TEST_F(ModelTypeWorkerTest, ReceiveUpdates) {
       ModelTypeEntityChange::kRemoteNonInitialUpdate, 1);
 }
 
+TEST_F(ModelTypeWorkerTest,
+       ReceiveUpdates_ShouldNotPopulateUpdatedTypesOnTombstone) {
+  NormalInitialize();
+  TriggerTombstoneFromServer(10, kTag1);
+  EXPECT_EQ(status_controller()->get_updated_types(), ModelTypeSet());
+}
+
 TEST_F(ModelTypeWorkerTest, ReceiveUpdates_NoDuplicateHash) {
   NormalInitialize();
 
@@ -703,11 +767,14 @@ TEST_F(ModelTypeWorkerTest, ReceiveUpdates_NoDuplicateHash) {
       processor()->GetNthUpdateResponse(0);
   ASSERT_EQ(3u, result.size());
   ASSERT_TRUE(result[0]);
-  EXPECT_EQ(GenerateTagHash(kTag1), result[0]->entity.client_tag_hash);
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag1),
+            result[0]->entity.client_tag_hash);
   ASSERT_TRUE(result[1]);
-  EXPECT_EQ(GenerateTagHash(kTag2), result[1]->entity.client_tag_hash);
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag2),
+            result[1]->entity.client_tag_hash);
   ASSERT_TRUE(result[2]);
-  EXPECT_EQ(GenerateTagHash(kTag3), result[2]->entity.client_tag_hash);
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag3),
+            result[2]->entity.client_tag_hash);
 }
 
 TEST_F(ModelTypeWorkerTest, ReceiveUpdates_DuplicateHashWithinPartialUpdate) {
@@ -724,7 +791,8 @@ TEST_F(ModelTypeWorkerTest, ReceiveUpdates_DuplicateHashWithinPartialUpdate) {
       processor()->GetNthUpdateResponse(0);
   ASSERT_EQ(1u, result.size());
   ASSERT_TRUE(result[0]);
-  EXPECT_EQ(GenerateTagHash(kTag1), result[0]->entity.client_tag_hash);
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag1),
+            result[0]->entity.client_tag_hash);
   EXPECT_EQ(kValue2, result[0]->entity.specifics.preference().value());
 }
 
@@ -743,7 +811,8 @@ TEST_F(ModelTypeWorkerTest, ReceiveUpdates_DuplicateHashAcrossPartialUpdates) {
       processor()->GetNthUpdateResponse(0);
   ASSERT_EQ(1u, result.size());
   ASSERT_TRUE(result[0]);
-  EXPECT_EQ(GenerateTagHash(kTag1), result[0]->entity.client_tag_hash);
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag1),
+            result[0]->entity.client_tag_hash);
   EXPECT_EQ(kValue2, result[0]->entity.specifics.preference().value());
 }
 
@@ -753,10 +822,10 @@ TEST_F(ModelTypeWorkerTest,
   // First create two entities with different tags, so they get assigned
   // different server ids.
   SyncEntity entity1 = server()->UpdateFromServer(
-      /*version_offset=*/10, GenerateTagHash(kTag1),
+      /*version_offset=*/10, GeneratePreferenceTagHash(kTag1),
       GenerateSpecifics("key1", "value1"));
   SyncEntity entity2 = server()->UpdateFromServer(
-      /*version_offset=*/10, GenerateTagHash(kTag2),
+      /*version_offset=*/10, GeneratePreferenceTagHash(kTag2),
       GenerateSpecifics("key2", "value2"));
 
   // Modify both entities to have empty tags.
@@ -802,9 +871,12 @@ TEST_F(ModelTypeWorkerTest, ReceiveUpdates_MultipleDuplicateHashes) {
   ASSERT_TRUE(result[0]);
   ASSERT_TRUE(result[1]);
   ASSERT_TRUE(result[2]);
-  EXPECT_EQ(GenerateTagHash(kTag1), result[0]->entity.client_tag_hash);
-  EXPECT_EQ(GenerateTagHash(kTag2), result[1]->entity.client_tag_hash);
-  EXPECT_EQ(GenerateTagHash(kTag3), result[2]->entity.client_tag_hash);
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag1),
+            result[0]->entity.client_tag_hash);
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag2),
+            result[1]->entity.client_tag_hash);
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag3),
+            result[2]->entity.client_tag_hash);
   EXPECT_EQ(kValue1, result[0]->entity.specifics.preference().value());
   EXPECT_EQ(kValue2, result[1]->entity.specifics.preference().value());
   EXPECT_EQ(kValue3, result[2]->entity.specifics.preference().value());
@@ -819,13 +891,13 @@ TEST_F(ModelTypeWorkerTest,
   // First create three entities with different tags, so they get assigned
   // different server ids.
   SyncEntity oldest_entity = server()->UpdateFromServer(
-      /*version_offset=*/10, GenerateTagHash(kTag1),
+      /*version_offset=*/10, GeneratePreferenceTagHash(kTag1),
       GenerateSpecifics("key1", "value1"));
   SyncEntity second_newest_entity = server()->UpdateFromServer(
-      /*version_offset=*/11, GenerateTagHash(kTag2),
+      /*version_offset=*/11, GeneratePreferenceTagHash(kTag2),
       GenerateSpecifics("key2", "value2"));
   SyncEntity newest_entity = server()->UpdateFromServer(
-      /*version_offset=*/12, GenerateTagHash(kTag3),
+      /*version_offset=*/12, GeneratePreferenceTagHash(kTag3),
       GenerateSpecifics("key3", "value3"));
 
   // Mimic a bug on the server by modifying all entities to have the same tag.
@@ -960,9 +1032,11 @@ TEST_F(ModelTypeWorkerTest, ReceiveMultiPartUpdates) {
       processor()->GetNthUpdateResponse(0);
   ASSERT_EQ(2U, updates.size());
   ASSERT_TRUE(updates[0]);
-  EXPECT_EQ(GenerateTagHash(kTag1), updates[0]->entity.client_tag_hash);
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag1),
+            updates[0]->entity.client_tag_hash);
   ASSERT_TRUE(updates[1]);
-  EXPECT_EQ(GenerateTagHash(kTag2), updates[1]->entity.client_tag_hash);
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag2),
+            updates[1]->entity.client_tag_hash);
 
   // A subsequent update doesn't pass the same entities again.
   TriggerUpdateFromServer(10, kTag3, kValue3);
@@ -970,7 +1044,8 @@ TEST_F(ModelTypeWorkerTest, ReceiveMultiPartUpdates) {
   updates = processor()->GetNthUpdateResponse(1);
   ASSERT_EQ(1U, updates.size());
   ASSERT_TRUE(updates[0]);
-  EXPECT_EQ(GenerateTagHash(kTag3), updates[0]->entity.client_tag_hash);
+  EXPECT_EQ(GeneratePreferenceTagHash(kTag3),
+            updates[0]->entity.client_tag_hash);
 }
 
 // Test that updates with no entities behave correctly.
@@ -1291,7 +1366,8 @@ TEST_F(ModelTypeWorkerTest, ReceiveCorruptEncryption) {
 
   // Manually create an update.
   SyncEntity entity;
-  entity.set_client_defined_unique_tag(GenerateTagHash(kTag1).value());
+  entity.set_client_defined_unique_tag(
+      GeneratePreferenceTagHash(kTag1).value());
   entity.set_id_string("SomeID");
   entity.set_version(1);
   entity.set_ctime(1000);
@@ -1362,17 +1438,13 @@ TEST_F(ModelTypeWorkerTest, TimeUntilEncryptionKeyFoundMetric) {
       ModelTypeForHistograms::kPreferences, 1);
 
   // Send empty GetUpdatesResponse. The counter shouldn't change.
-  worker()->ProcessGetUpdatesResponse(
-      server()->GetProgress(), server()->GetContext(), {}, status_controller());
+  TriggerEmptyUpdateFromServer();
 
   // Finish the GetUpdates cycle. The counter should be set to 1.
-  ApplyUpdates();
   get_updates_while_should_have_been_known++;
 
   // An empty GetUpdates cycle. The counter should be set to 2.
-  worker()->ProcessGetUpdatesResponse(
-      server()->GetProgress(), server()->GetContext(), {}, status_controller());
-  ApplyUpdates();
+  TriggerEmptyUpdateFromServer();
   get_updates_while_should_have_been_known++;
 
   // Send the Nigori containing the missing key. The key isn't available yet
@@ -1381,9 +1453,7 @@ TEST_F(ModelTypeWorkerTest, TimeUntilEncryptionKeyFoundMetric) {
 
   // Another empty GetUpdates cycle. This one shouldn't be counted, since the
   // cryptographer now knows it's lacking some keys.
-  worker()->ProcessGetUpdatesResponse(
-      server()->GetProgress(), server()->GetContext(), {}, status_controller());
-  ApplyUpdates();
+  TriggerEmptyUpdateFromServer();
 
   // Double check the histogram hasn't been recorded so far.
   EXPECT_TRUE(histogram_tester
@@ -1409,8 +1479,7 @@ TEST_F(ModelTypeWorkerTest, TimeUntilEncryptionKeyFoundMetric) {
 TEST_F(ModelTypeWorkerTest, IgnoreUpdatesEncryptedWithKeysMissingForTooLong) {
   base::HistogramTester histogram_tester;
   base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(
-      switches::kIgnoreSyncEncryptionKeysLongMissing);
+  feature_list.InitAndEnableFeature(kIgnoreSyncEncryptionKeysLongMissing);
 
   NormalInitialize();
   worker()->SetMinGetUpdatesToIgnoreKeyForTest(2);
@@ -1419,14 +1488,12 @@ TEST_F(ModelTypeWorkerTest, IgnoreUpdatesEncryptedWithKeysMissingForTooLong) {
   SetUpdateEncryptionFilter(1);
   TriggerUpdateFromServer(10, kTag1, kValue1);
 
-  // The undecryptable update has been around for only 1 GetUpdatesResponse, so
-  // the worker is still blocked.
+  // The undecryptable update has been around for only 1 GetUpdates, so the
+  // worker is still blocked.
   EXPECT_TRUE(worker()->BlockForEncryption());
 
   // Send empty GetUpdates, reaching the threshold of 2.
-  worker()->ProcessGetUpdatesResponse(
-      server()->GetProgress(), server()->GetContext(), {}, status_controller());
-  ApplyUpdates();
+  TriggerEmptyUpdateFromServer();
 
   // The undecryptable update should have been dropped and the worker is no
   // longer blocked.
@@ -1536,6 +1603,54 @@ TEST_F(ModelTypeWorkerTest, ShouldPropagateCommitFailure) {
 
   EXPECT_EQ(1U, processor()->GetNumCommitFailures());
   EXPECT_EQ(0U, processor()->GetNumCommitResponses());
+}
+
+TEST_F(ModelTypeWorkerTest, ShouldKeepGcDirectiveDuringSyncCycle) {
+  NormalInitialize();
+
+  // The first GetUpdates returns entities with GC directive for download-only
+  // data types.
+  server()->SetReturnGcDirective(true);
+  TriggerPartialUpdateFromServer(/*version_offset=*/10, kTag1, kValue1);
+
+  // Simulate another GetUpdates response without entities and without GC
+  // directive.
+  server()->SetReturnGcDirective(false);
+  TriggerEmptyUpdateFromServer();
+
+  ASSERT_EQ(1u, processor()->GetNumUpdateResponses());
+  EXPECT_EQ(1u, processor()->GetNthUpdateResponse(0).size());
+  EXPECT_TRUE(processor()->GetNthGcDirective(0).has_version_watermark());
+
+  // Verify that after sync cycle the GC directive has been removed to prevent
+  // deleting data.
+  TriggerEmptyUpdateFromServer();
+  ASSERT_EQ(2u, processor()->GetNumUpdateResponses());
+  EXPECT_EQ(0u, processor()->GetNthUpdateResponse(1).size());
+  EXPECT_FALSE(processor()->GetNthGcDirective(1).has_version_watermark());
+}
+
+TEST_F(ModelTypeWorkerTest, ShouldCleanUpPendingUpdatesOnGcDirective) {
+  NormalInitialize();
+
+  // The first GetUpdates returns entities with GC directive for download-only
+  // data types.
+  server()->SetReturnGcDirective(true);
+  TriggerPartialUpdateFromServer(/*version_offset=*/10, kTag1, kValue1);
+
+  // Simulate another GetUpdates response with new entities and GC directive.
+  server()->SetReturnGcDirective(true);
+  TriggerPartialUpdateFromServer(/*version_offset=*/10, kTag2, kValue2, kTag3,
+                                 kValue3);
+
+  // Only the entities from the second GetUpdates should have made it to the
+  // processor.
+  worker()->ApplyUpdates(status_controller());
+  EXPECT_EQ(1u, processor()->GetNumUpdateResponses());
+  EXPECT_THAT(processor()->GetNthUpdateResponse(0),
+              UnorderedElementsAre(HasPreferenceClientTag(kTag2),
+                                   HasPreferenceClientTag(kTag3)));
+  EXPECT_TRUE(processor()->GetNthGcDirective(0).has_version_watermark());
 }
 
 TEST(ModelTypeWorkerPopulateUpdateResponseDataTest,
@@ -2376,6 +2491,597 @@ TEST_F(ModelTypeWorkerTest, ShouldHaveLocalChangesWhenContributedMaxEntities) {
   contribution = worker()->GetContribution(kMaxEntities);
   ASSERT_THAT(contribution, IsNull());
   EXPECT_FALSE(worker()->HasLocalChangesForTest());
+}
+
+class ModelTypeWorkerPasswordsTestWithNotes
+    : public ModelTypeWorkerPasswordsTest {
+ public:
+  ModelTypeWorkerPasswordsTestWithNotes() {
+    feature_list_.InitAndEnableFeature(syncer::kPasswordNotesWithBackup);
+  }
+  ~ModelTypeWorkerPasswordsTestWithNotes() override = default;
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+TEST_F(ModelTypeWorkerPasswordsTestWithNotes,
+       ShouldIgnoreTheEncryptedNotesBackupWhenNotesInPasswordSpecificsData) {
+  base::HistogramTester histogram_tester;
+  const std::string kPasswordInSpecificsNote = "Note Value";
+  const std::string kPasswordNoteBackup = "Note Backup";
+  NormalInitialize();
+
+  // Create a new Nigori and allow the cryptographer to decrypt it.
+  AddPendingKey();
+  DecryptPendingKey();
+
+  // Set a value for the note in the PasswordSpecificsData.
+  sync_pb::PasswordSpecificsData unencrypted_password;
+  unencrypted_password.set_password_value(kPassword);
+  unencrypted_password.mutable_notes()->add_note()->set_value(
+      kPasswordInSpecificsNote);
+  sync_pb::EntitySpecifics encrypted_specifics =
+      EncryptPasswordSpecificsWithNthKey(1, unencrypted_password);
+
+  sync_pb::PasswordSpecificsData_Notes notes_backup;
+  notes_backup.add_note()->set_value(kPasswordNoteBackup);
+
+  FakeCryptographer::FromSingleDefaultKey(GetNthKeyName(1))
+      ->EncryptString(notes_backup.SerializeAsString(),
+                      encrypted_specifics.mutable_password()
+                          ->mutable_encrypted_notes_backup());
+
+  // Receive an encrypted password, encrypted with a key that is already known.
+  SyncEntity entity = server()->UpdateFromServer(
+      /*version_offset=*/10, kHash1, encrypted_specifics);
+  worker()->ProcessGetUpdatesResponse(server()->GetProgress(),
+                                      server()->GetContext(), {&entity},
+                                      status_controller());
+  worker()->ApplyUpdates(status_controller());
+
+  ASSERT_TRUE(processor()->HasUpdateResponse(kHash1));
+  const UpdateResponseData& update = processor()->GetUpdateResponse(kHash1);
+  ASSERT_TRUE(
+      update.entity.specifics.password().has_client_only_encrypted_data());
+  EXPECT_EQ(kPasswordInSpecificsNote, update.entity.specifics.password()
+                                          .client_only_encrypted_data()
+                                          .notes()
+                                          .note(0)
+                                          .value());
+  histogram_tester.ExpectUniqueSample(
+      "Sync.PasswordNotesStateInUpdate",
+      syncer::PasswordNotesStateForUMA::kSetInSpecificsData, 1);
+}
+
+TEST_F(ModelTypeWorkerPasswordsTestWithNotes,
+       ShouldUseTheEncryptedNotesBackupWhenMissingInPasswordSpecificsData) {
+  base::HistogramTester histogram_tester;
+  const std::string kPasswordNoteBackup = "Note Backup";
+  NormalInitialize();
+
+  // Create a new Nigori and allow the cryptographer to decrypt it.
+  AddPendingKey();
+  DecryptPendingKey();
+
+  sync_pb::PasswordSpecificsData unencrypted_password;
+  unencrypted_password.set_password_value(kPassword);
+  sync_pb::EntitySpecifics encrypted_specifics =
+      EncryptPasswordSpecificsWithNthKey(1, unencrypted_password);
+
+  sync_pb::PasswordSpecificsData_Notes notes_backup;
+  notes_backup.add_note()->set_value(kPasswordNoteBackup);
+
+  FakeCryptographer::FromSingleDefaultKey(GetNthKeyName(1))
+      ->EncryptString(notes_backup.SerializeAsString(),
+                      encrypted_specifics.mutable_password()
+                          ->mutable_encrypted_notes_backup());
+
+  // Receive an encrypted password, encrypted with a key that is already known.
+  SyncEntity entity = server()->UpdateFromServer(
+      /*version_offset=*/10, kHash1, encrypted_specifics);
+  worker()->ProcessGetUpdatesResponse(server()->GetProgress(),
+                                      server()->GetContext(), {&entity},
+                                      status_controller());
+  worker()->ApplyUpdates(status_controller());
+
+  ASSERT_TRUE(processor()->HasUpdateResponse(kHash1));
+  const UpdateResponseData& update = processor()->GetUpdateResponse(kHash1);
+  ASSERT_TRUE(
+      update.entity.specifics.password().has_client_only_encrypted_data());
+  EXPECT_EQ(kPasswordNoteBackup, update.entity.specifics.password()
+                                     .client_only_encrypted_data()
+                                     .notes()
+                                     .note(0)
+                                     .value());
+  histogram_tester.ExpectUniqueSample(
+      "Sync.PasswordNotesStateInUpdate",
+      syncer::PasswordNotesStateForUMA::kSetOnlyInBackup, 1);
+}
+
+TEST_F(ModelTypeWorkerPasswordsTestWithNotes,
+       ShouldEmitUnsetWhenNoNotesInUpdate) {
+  base::HistogramTester histogram_tester;
+  NormalInitialize();
+
+  // Create a new Nigori and allow the cryptographer to decrypt it.
+  AddPendingKey();
+  DecryptPendingKey();
+
+  sync_pb::PasswordSpecificsData unencrypted_password;
+  unencrypted_password.set_password_value(kPassword);
+  sync_pb::EntitySpecifics encrypted_specifics =
+      EncryptPasswordSpecificsWithNthKey(1, unencrypted_password);
+
+  // Receive an encrypted password, encrypted with a key that is already known.
+  SyncEntity entity = server()->UpdateFromServer(
+      /*version_offset=*/10, kHash1, encrypted_specifics);
+  worker()->ProcessGetUpdatesResponse(server()->GetProgress(),
+                                      server()->GetContext(), {&entity},
+                                      status_controller());
+  worker()->ApplyUpdates(status_controller());
+
+  ASSERT_TRUE(processor()->HasUpdateResponse(kHash1));
+  histogram_tester.ExpectUniqueSample("Sync.PasswordNotesStateInUpdate",
+                                      syncer::PasswordNotesStateForUMA::kUnset,
+                                      1);
+}
+
+TEST_F(ModelTypeWorkerPasswordsTestWithNotes, ShouldEmitNotesBackupCorrupted) {
+  base::HistogramTester histogram_tester;
+  const std::string kPasswordNoteBackup = "Note Backup";
+  NormalInitialize();
+
+  // Create a new Nigori and allow the cryptographer to decrypt it.
+  AddPendingKey();
+  DecryptPendingKey();
+
+  sync_pb::PasswordSpecificsData unencrypted_password;
+  unencrypted_password.set_password_value(kPassword);
+  sync_pb::EntitySpecifics encrypted_specifics =
+      EncryptPasswordSpecificsWithNthKey(1, unencrypted_password);
+
+  sync_pb::PasswordSpecificsData_Notes notes_backup;
+  notes_backup.add_note()->set_value(kPasswordNoteBackup);
+
+  FakeCryptographer::FromSingleDefaultKey(GetNthKeyName(1))
+      ->EncryptString(notes_backup.SerializeAsString(),
+                      encrypted_specifics.mutable_password()
+                          ->mutable_encrypted_notes_backup());
+
+  // Replace a few bytes to corrupt it.
+  encrypted_specifics.mutable_password()
+      ->mutable_encrypted_notes_backup()
+      ->mutable_blob()
+      ->replace(0, 4, "xyz!");
+
+  // Receive an encrypted password, encrypted with a key that is already known.
+  SyncEntity entity = server()->UpdateFromServer(
+      /*version_offset=*/10, kHash1, encrypted_specifics);
+  worker()->ProcessGetUpdatesResponse(server()->GetProgress(),
+                                      server()->GetContext(), {&entity},
+                                      status_controller());
+  worker()->ApplyUpdates(status_controller());
+
+  histogram_tester.ExpectUniqueSample(
+      "Sync.PasswordNotesStateInUpdate",
+      syncer::PasswordNotesStateForUMA::kSetOnlyInBackupButCorrupted, 1);
+}
+
+// Verifies persisting invalidations load from the ModelTypeProcessor.
+TEST_F(ModelTypeWorkerTest, LoadInvalidations) {
+  base::test::ScopedFeatureList feature;
+  feature.InitAndEnableFeature(kSyncPersistInvalidations);
+
+  InitializeWithInvalidations();
+
+  sync_pb::GetUpdateTriggers gu_trigger_1;
+  worker()->CollectPendingInvalidations(&gu_trigger_1);
+  ASSERT_EQ(1, gu_trigger_1.notification_hint_size());
+  EXPECT_THAT(gu_trigger_1.notification_hint(), Not(testing::IsEmpty()));
+}
+
+// Verifies StorePendingInvalidations() calls for every incoming invalidation.
+TEST_F(ModelTypeWorkerTest, StoreInvalidationsCallCount) {
+  base::test::ScopedFeatureList feature;
+  feature.InitAndEnableFeature(kSyncPersistInvalidations);
+
+  NormalInitialize();
+  for (size_t i = 0; i < ModelTypeWorker::kMaxPendingInvalidations + 2u; ++i) {
+    worker()->RecordRemoteInvalidation(BuildInvalidation(i + 1, "hint"));
+    EXPECT_EQ(static_cast<int>(i + 1),
+              processor()->GetStoreInvalidationsCallCount());
+  }
+}
+
+// Verifies the management of invalidation hints and GU trigger fields.
+TEST_F(ModelTypeWorkerTest, HintCoalescing) {
+  // Easy case: record one hint.
+  NormalInitialize();
+
+  {
+    worker()->RecordRemoteInvalidation(BuildInvalidation(1, "bm_hint_1"));
+
+    sync_pb::GetUpdateTriggers gu_trigger;
+    worker()->CollectPendingInvalidations(&gu_trigger);
+    ASSERT_EQ(1, gu_trigger.notification_hint_size());
+    EXPECT_EQ("bm_hint_1", gu_trigger.notification_hint(0));
+    EXPECT_FALSE(gu_trigger.client_dropped_hints());
+  }
+
+  {
+    worker()->RecordRemoteInvalidation(BuildInvalidation(2, "bm_hint_2"));
+
+    sync_pb::GetUpdateTriggers gu_trigger;
+    worker()->CollectPendingInvalidations(&gu_trigger);
+    ASSERT_EQ(2, gu_trigger.notification_hint_size());
+
+    // Expect the most hint recent is last in the list.
+    EXPECT_EQ("bm_hint_1", gu_trigger.notification_hint(0));
+    EXPECT_EQ("bm_hint_2", gu_trigger.notification_hint(1));
+    EXPECT_FALSE(gu_trigger.client_dropped_hints());
+  }
+}
+
+// Verifies the management of pending invalidations and ModelTypeState.
+TEST_F(ModelTypeWorkerTest, ModelTypeStateAfterApplyUpdates) {
+  base::test::ScopedFeatureList feature;
+  feature.InitAndEnableFeature(kSyncPersistInvalidations);
+
+  NormalInitialize();
+
+  worker()->RecordRemoteInvalidation(BuildInvalidation(1, "bm_hint_1"));
+  worker()->RecordRemoteInvalidation(BuildInvalidation(2, "bm_hint_2"));
+  worker()->RecordRemoteInvalidation(BuildInvalidation(3, "bm_hint_3"));
+
+  sync_pb::GetUpdateTriggers gu_trigger;
+  // A GetUpdates request is started (but doesn't finish yet). This causes
+  // the existing invalidations to get marked as "processed".
+  worker()->CollectPendingInvalidations(&gu_trigger);
+  ASSERT_EQ(3, gu_trigger.notification_hint_size());
+  EXPECT_EQ("bm_hint_1", gu_trigger.notification_hint(0));
+  EXPECT_EQ("bm_hint_2", gu_trigger.notification_hint(1));
+  EXPECT_EQ("bm_hint_3", gu_trigger.notification_hint(2));
+  EXPECT_FALSE(gu_trigger.client_dropped_hints());
+
+  // While the GetUpdates request is still ongoing, more invalidations come
+  // in. These are marked as "unprocessed".
+  worker()->RecordRemoteInvalidation(
+      BuildInvalidation(4, "unprocessed_hint_4"));
+  worker()->RecordRemoteInvalidation(
+      BuildInvalidation(5, "unprocessed_hint_5"));
+
+  // The GetUpdates request finishes. This should delete the processed
+  // invalidations.
+  worker()->ApplyUpdates(status_controller());
+
+  // Unprocessed invalidations after ApplyUpdates are in ModelTypeState.
+  EXPECT_EQ(2, processor()->GetNthUpdateState(0).invalidations_size());
+  EXPECT_EQ("unprocessed_hint_4",
+            processor()->GetNthUpdateState(0).invalidations(0).hint());
+  EXPECT_EQ("unprocessed_hint_5",
+            processor()->GetNthUpdateState(0).invalidations(1).hint());
+}
+
+// Test the dropping of invalidation hints.  Receives invalidations one by one.
+// Pending invalidation vector buffer size is 10.
+TEST_F(ModelTypeWorkerTest, DropHintsLocally_OneAtATime) {
+  NormalInitialize();
+  for (size_t i = 0; i < ModelTypeWorker::kMaxPendingInvalidations; ++i) {
+    worker()->RecordRemoteInvalidation(BuildInvalidation(i, "hint"));
+  }
+  {
+    sync_pb::GetUpdateTriggers gu_trigger;
+    worker()->CollectPendingInvalidations(&gu_trigger);
+    EXPECT_EQ(ModelTypeWorker::kMaxPendingInvalidations,
+              static_cast<size_t>(gu_trigger.notification_hint_size()));
+    EXPECT_FALSE(gu_trigger.client_dropped_hints());
+  }
+
+  // Force an overflow.
+  worker()->RecordRemoteInvalidation(BuildInvalidation(1000, "new_hint"));
+
+  {
+    sync_pb::GetUpdateTriggers gu_trigger;
+    worker()->CollectPendingInvalidations(&gu_trigger);
+    EXPECT_TRUE(gu_trigger.client_dropped_hints());
+    ASSERT_EQ(ModelTypeWorker::kMaxPendingInvalidations,
+              static_cast<size_t>(gu_trigger.notification_hint_size()));
+
+    // Verify the newest hint was not dropped and is the last in the list.
+    EXPECT_EQ("new_hint", gu_trigger.notification_hint(
+                              ModelTypeWorker::kMaxPendingInvalidations - 1));
+
+    // Verify the oldest hint, too.
+    EXPECT_EQ("hint", gu_trigger.notification_hint(0));
+  }
+}
+
+// Tests the receipt of 'unknown version' invalidations.
+TEST_F(ModelTypeWorkerTest, DropHintsAtServer_Alone) {
+  NormalInitialize();
+  // Record the unknown version invalidation.
+  worker()->RecordRemoteInvalidation(BuildUnknownVersionInvalidation());
+  {
+    sync_pb::GetUpdateTriggers gu_trigger;
+    worker()->CollectPendingInvalidations(&gu_trigger);
+    EXPECT_TRUE(gu_trigger.server_dropped_hints());
+    EXPECT_FALSE(gu_trigger.client_dropped_hints());
+    ASSERT_EQ(0, gu_trigger.notification_hint_size());
+  }
+
+  // Clear status then verify.
+  worker()->ApplyUpdates(status_controller());
+  {
+    sync_pb::GetUpdateTriggers gu_trigger;
+    worker()->CollectPendingInvalidations(&gu_trigger);
+    EXPECT_FALSE(gu_trigger.client_dropped_hints());
+    EXPECT_FALSE(gu_trigger.server_dropped_hints());
+    ASSERT_EQ(0, gu_trigger.notification_hint_size());
+  }
+}
+
+// Tests the receipt of 'unknown version' invalidations.  This test also
+// includes a known version invalidation to mix things up a bit.
+TEST_F(ModelTypeWorkerTest, DropHintsAtServer_WithOtherInvalidations) {
+  NormalInitialize();
+  // Record the two invalidations, one with unknown version, the other known.
+  worker()->RecordRemoteInvalidation(BuildUnknownVersionInvalidation());
+  worker()->RecordRemoteInvalidation(BuildInvalidation(10, "hint"));
+
+  {
+    sync_pb::GetUpdateTriggers gu_trigger;
+    worker()->CollectPendingInvalidations(&gu_trigger);
+    EXPECT_TRUE(gu_trigger.server_dropped_hints());
+    EXPECT_FALSE(gu_trigger.client_dropped_hints());
+    ASSERT_EQ(1, gu_trigger.notification_hint_size());
+    EXPECT_EQ("hint", gu_trigger.notification_hint(0));
+  }
+
+  // Clear status then verify.
+  worker()->ApplyUpdates(status_controller());
+  {
+    sync_pb::GetUpdateTriggers gu_trigger;
+    worker()->CollectPendingInvalidations(&gu_trigger);
+    EXPECT_FALSE(gu_trigger.client_dropped_hints());
+    EXPECT_FALSE(gu_trigger.server_dropped_hints());
+    ASSERT_EQ(0, gu_trigger.notification_hint_size());
+  }
+}
+
+class ModelTypeWorkerAckTrackingTest : public ModelTypeWorkerTest {
+ public:
+  ModelTypeWorkerAckTrackingTest() = default;
+
+  bool IsInvalidationUnacknowledged(int tracking_id) {
+    return tracker_.IsUnacked(tracking_id);
+  }
+
+  bool IsInvalidationAcknowledged(int tracking_id) {
+    return tracker_.IsAcknowledged(tracking_id);
+  }
+
+  bool IsInvalidationDropped(int tracking_id) {
+    return tracker_.IsDropped(tracking_id);
+  }
+
+  int SendInvalidation(int version, const std::string& hint) {
+    // Build and register the invalidation.
+    std::unique_ptr<TrackableMockInvalidation> inv =
+        tracker_.IssueInvalidation(version, hint);
+    int id = inv->GetTrackingId();
+
+    // Send it to the ModelTypeWorker.
+    worker()->RecordRemoteInvalidation(std::move(inv));
+
+    // Return its ID to the test framework for use in assertions.
+    return id;
+  }
+
+  int SendUnknownVersionInvalidation() {
+    // Build and register the invalidation.
+    std::unique_ptr<TrackableMockInvalidation> inv =
+        tracker_.IssueUnknownVersionInvalidation();
+    int id = inv->GetTrackingId();
+
+    // Send it to the ModelTypeWorker.
+    worker()->RecordRemoteInvalidation(std::move(inv));
+
+    // Return its ID to the test framework for use in assertions.
+    return id;
+  }
+
+  bool AllInvalidationsAccountedFor() const {
+    return tracker_.AllInvalidationsAccountedFor();
+  }
+
+ private:
+  MockInvalidationTracker tracker_;
+};
+
+// Test the acknowledgement of a single invalidation.
+TEST_F(ModelTypeWorkerAckTrackingTest, SimpleAcknowledgement) {
+  NormalInitialize();
+  int inv_id = SendInvalidation(10, "hint");
+  EXPECT_TRUE(IsInvalidationUnacknowledged(inv_id));
+
+  // Invalidations are acknowledged if they were used in
+  // GetUpdates proto message. To check the acknowledged invalidation,
+  // force invalidation to be used in proto message.
+  sync_pb::GetUpdateTriggers gu_trigger;
+  worker()->CollectPendingInvalidations(&gu_trigger);
+
+  worker()->ApplyUpdates(status_controller());
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv_id));
+
+  EXPECT_TRUE(AllInvalidationsAccountedFor());
+}
+
+// Test the acknowledgement of many invalidations.
+TEST_F(ModelTypeWorkerAckTrackingTest, ManyAcknowledgements) {
+  NormalInitialize();
+  int inv1_id = SendInvalidation(10, "hint");
+  int inv2_id = SendInvalidation(14, "hint2");
+
+  EXPECT_TRUE(IsInvalidationUnacknowledged(inv1_id));
+  EXPECT_TRUE(IsInvalidationUnacknowledged(inv2_id));
+
+  sync_pb::GetUpdateTriggers gu_trigger;
+  worker()->CollectPendingInvalidations(&gu_trigger);
+
+  worker()->ApplyUpdates(status_controller());
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv1_id));
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv2_id));
+
+  EXPECT_TRUE(AllInvalidationsAccountedFor());
+}
+
+// Test dropping when the buffer overflows and subsequent drop recovery.
+TEST_F(ModelTypeWorkerAckTrackingTest, OverflowAndRecover) {
+  NormalInitialize();
+  std::vector<int> invalidation_ids;
+
+  int inv10_id = SendInvalidation(10, "hint");
+  for (size_t i = 1; i < ModelTypeWorker::kMaxPendingInvalidations; ++i) {
+    invalidation_ids.push_back(SendInvalidation(i + 10, "hint"));
+  }
+
+  for (int id : invalidation_ids)
+    EXPECT_TRUE(IsInvalidationUnacknowledged(id));
+
+  // This invalidation, though arriving the most recently, has the oldest
+  // version number so it should be dropped first.
+  int inv5_id = SendInvalidation(5, "old_hint");
+  EXPECT_TRUE(IsInvalidationDropped(inv5_id));
+
+  // This invalidation has a larger version number, so it will force a
+  // previously delivered invalidation to be dropped.
+  int inv100_id = SendInvalidation(100, "new_hint");
+  EXPECT_TRUE(IsInvalidationDropped(inv10_id));
+
+  sync_pb::GetUpdateTriggers gu_trigger;
+  worker()->CollectPendingInvalidations(&gu_trigger);
+
+  // This should recover from the drop and bring us back into sync.
+  worker()->ApplyUpdates(status_controller());
+
+  for (int id : invalidation_ids)
+    EXPECT_TRUE(IsInvalidationAcknowledged(id));
+
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv100_id));
+
+  EXPECT_TRUE(AllInvalidationsAccountedFor());
+}
+
+// Test receipt of an unknown version invalidation from the server.
+TEST_F(ModelTypeWorkerAckTrackingTest, UnknownVersionFromServer_Simple) {
+  NormalInitialize();
+  int inv_id = SendUnknownVersionInvalidation();
+  EXPECT_TRUE(IsInvalidationUnacknowledged(inv_id));
+  sync_pb::GetUpdateTriggers gu_trigger;
+  worker()->CollectPendingInvalidations(&gu_trigger);
+  worker()->ApplyUpdates(status_controller());
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv_id));
+  EXPECT_TRUE(AllInvalidationsAccountedFor());
+}
+
+// Test receipt of multiple unknown version invalidations from the server.
+TEST_F(ModelTypeWorkerAckTrackingTest, UnknownVersionFromServer_Complex) {
+  NormalInitialize();
+  int inv1_id = SendUnknownVersionInvalidation();
+  int inv2_id = SendInvalidation(10, "hint");
+  int inv3_id = SendUnknownVersionInvalidation();
+  int inv4_id = SendUnknownVersionInvalidation();
+  int inv5_id = SendInvalidation(20, "hint2");
+
+  // These invalidations have been overridden, so they got acked early.
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv1_id));
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv3_id));
+
+  // These invalidations are still waiting to be used.
+  EXPECT_TRUE(IsInvalidationUnacknowledged(inv2_id));
+  EXPECT_TRUE(IsInvalidationUnacknowledged(inv4_id));
+  EXPECT_TRUE(IsInvalidationUnacknowledged(inv5_id));
+
+  sync_pb::GetUpdateTriggers gu_trigger;
+  worker()->CollectPendingInvalidations(&gu_trigger);
+
+  // Finish the sync cycle and expect all remaining invalidations to be acked.
+  worker()->ApplyUpdates(status_controller());
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv1_id));
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv2_id));
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv3_id));
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv4_id));
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv5_id));
+
+  EXPECT_TRUE(AllInvalidationsAccountedFor());
+}
+
+TEST_F(ModelTypeWorkerAckTrackingTest, AckInvalidationsAddedDuringSyncCycle) {
+  NormalInitialize();
+  // Invalidations that are not used in CollectPendingInvalidations() persist
+  // until next ApplyUpdates().
+  int inv1_id = SendInvalidation(10, "hint");
+  int inv2_id = SendInvalidation(14, "hint2");
+
+  worker()->ApplyUpdates(status_controller());
+
+  EXPECT_FALSE(IsInvalidationAcknowledged(inv1_id));
+  EXPECT_FALSE(IsInvalidationAcknowledged(inv2_id));
+
+  // Prepare proto message with the invalidations inv1_id and inv2_id.
+  sync_pb::GetUpdateTriggers gu_trigger_1;
+  worker()->CollectPendingInvalidations(&gu_trigger_1);
+  ASSERT_EQ(2, gu_trigger_1.notification_hint_size());
+
+  int inv3_id = SendInvalidation(100, "hint3");
+
+  worker()->ApplyUpdates(status_controller());
+
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv1_id));
+  EXPECT_TRUE(IsInvalidationAcknowledged(inv2_id));
+  EXPECT_FALSE(IsInvalidationAcknowledged(inv3_id));
+
+  // Be sure that invalidations are not used twice in proto messages.
+  // Invalidations are expected to be deleted in
+  // RecordSuccessfulSyncCycleIfNotBlocked after being processed in proto
+  // message.
+  sync_pb::GetUpdateTriggers gu_trigger_2;
+  worker()->CollectPendingInvalidations(&gu_trigger_2);
+  ASSERT_EQ(1, gu_trigger_2.notification_hint_size());
+
+  worker()->ApplyUpdates(status_controller());
+  EXPECT_TRUE(AllInvalidationsAccountedFor());
+}
+
+// Test invalidations that are used in several proto messages.
+TEST_F(ModelTypeWorkerAckTrackingTest, MultipleGetUpdates) {
+  NormalInitialize();
+  int inv1_id = SendInvalidation(1, "hint1");
+  int inv2_id = SendInvalidation(2, "hint2");
+
+  worker()->ApplyUpdates(status_controller());
+
+  EXPECT_FALSE(IsInvalidationAcknowledged(inv1_id));
+  EXPECT_FALSE(IsInvalidationAcknowledged(inv2_id));
+
+  sync_pb::GetUpdateTriggers gu_trigger_1;
+  worker()->CollectPendingInvalidations(&gu_trigger_1);
+  ASSERT_EQ(2, gu_trigger_1.notification_hint_size());
+
+  int inv3_id = SendInvalidation(100, "hint3");
+
+  EXPECT_FALSE(IsInvalidationAcknowledged(inv1_id));
+  EXPECT_FALSE(IsInvalidationAcknowledged(inv2_id));
+  EXPECT_FALSE(IsInvalidationAcknowledged(inv3_id));
+  // As they are not acknowledged yet, inv1_id, inv2_id and inv3_id
+  // should be included in next proto message.
+  sync_pb::GetUpdateTriggers gu_trigger_2;
+  worker()->CollectPendingInvalidations(&gu_trigger_2);
+  ASSERT_EQ(3, gu_trigger_2.notification_hint_size());
+
+  worker()->ApplyUpdates(status_controller());
+  EXPECT_TRUE(AllInvalidationsAccountedFor());
 }
 
 }  // namespace syncer

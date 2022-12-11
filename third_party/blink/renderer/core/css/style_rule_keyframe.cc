@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,37 +11,45 @@
 
 namespace blink {
 
-StyleRuleKeyframe::StyleRuleKeyframe(std::unique_ptr<Vector<double>> keys,
-                                     CSSPropertyValueSet* properties)
+StyleRuleKeyframe::StyleRuleKeyframe(
+    std::unique_ptr<Vector<KeyframeOffset>> keys,
+    CSSPropertyValueSet* properties)
     : StyleRuleBase(kKeyframe), properties_(properties), keys_(*keys) {}
 
 String StyleRuleKeyframe::KeyText() const {
-  DCHECK(!keys_.IsEmpty());
+  DCHECK(!keys_.empty());
 
   StringBuilder key_text;
   for (unsigned i = 0; i < keys_.size(); ++i) {
     if (i)
       key_text.Append(", ");
-    key_text.AppendNumber(keys_.at(i) * 100);
+    if (keys_.at(i).phase != Timing::TimelineNamedPhase::kNone) {
+      key_text.Append(Timing::TimelineRangeNameToString(keys_.at(i).phase));
+      key_text.Append(" ");
+    }
+    key_text.AppendNumber(keys_.at(i).percent * 100);
     key_text.Append('%');
   }
 
   return key_text.ReleaseString();
 }
 
-bool StyleRuleKeyframe::SetKeyText(const String& key_text) {
+bool StyleRuleKeyframe::SetKeyText(const ExecutionContext* execution_context,
+                                   const String& key_text) {
   DCHECK(!key_text.IsNull());
 
-  std::unique_ptr<Vector<double>> keys =
-      CSSParser::ParseKeyframeKeyList(key_text);
-  if (!keys || keys->IsEmpty())
+  auto* context = MakeGarbageCollected<CSSParserContext>(*execution_context);
+
+  std::unique_ptr<Vector<KeyframeOffset>> keys =
+      CSSParser::ParseKeyframeKeyList(context, key_text);
+  if (!keys || keys->empty())
     return false;
 
   keys_ = *keys;
   return true;
 }
 
-const Vector<double>& StyleRuleKeyframe::Keys() const {
+const Vector<KeyframeOffset>& StyleRuleKeyframe::Keys() const {
   return keys_;
 }
 
@@ -57,7 +65,7 @@ String StyleRuleKeyframe::CssText() const {
   result.Append(" { ");
   String decls = properties_->AsText();
   result.Append(decls);
-  if (!decls.IsEmpty())
+  if (!decls.empty())
     result.Append(' ');
   result.Append('}');
   return result.ReleaseString();

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,11 @@
 #include "ash/public/cpp/tablet_mode.h"
 #include "base/notreached.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/ash/app_list/reorder/app_list_reorder_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_client_impl.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
 #include "chrome/browser/ui/app_list/chrome_app_list_model_updater.h"
-#include "chrome/browser/ui/app_list/reorder/app_list_reorder_util.h"
 #include "chrome/browser/ui/ash/app_icon_color_cache.h"
 #include "extensions/browser/app_sorting.h"
 #include "extensions/browser/extension_system.h"
@@ -114,8 +114,9 @@ const char* ChromeAppListItem::GetItemType() const {
   return "";
 }
 
-void ChromeAppListItem::GetContextMenuModel(bool add_sort_options,
-                                            GetMenuModelCallback callback) {
+void ChromeAppListItem::GetContextMenuModel(
+    ash::AppListItemContext item_context,
+    GetMenuModelCallback callback) {
   std::move(callback).Run(nullptr);
 }
 
@@ -168,20 +169,28 @@ void ChromeAppListItem::IncrementIconVersion() {
     updater->SetItemIconVersion(id(), metadata_->icon_version);
 }
 
-void ChromeAppListItem::SetIcon(const gfx::ImageSkia& icon) {
+void ChromeAppListItem::SetIcon(const gfx::ImageSkia& icon,
+                                bool is_place_holder_icon) {
   metadata_->icon = icon;
   metadata_->icon.EnsureRepsForSupportedScales();
   metadata_->badge_color =
       ash::AppIconColorCache::GetInstance().GetLightVibrantColorForApp(id(),
                                                                        icon);
   metadata_->icon_color =
-      app_list::reorder::GetSortableIconColorForApp(id(), icon);
+      is_place_holder_icon
+          ? ash::IconColor()
+          : app_list::reorder::GetSortableIconColorForApp(id(), icon);
 
   AppListModelUpdater* updater = model_updater();
   if (updater) {
-    updater->SetItemIcon(id(), metadata_->icon);
-    updater->SetNotificationBadgeColor(id(), metadata_->badge_color);
-    updater->SetIconColor(id(), metadata_->icon_color);
+    // NOTE: `metadata_` could be reset during updating the icon and color
+    // through `updater`. Therefore, copy the id and the badge color.
+    const std::string id_copy = id();
+    const SkColor badge_color_copy = metadata_->badge_color;
+
+    updater->SetItemIconAndColor(id_copy, metadata_->icon,
+                                 metadata_->icon_color);
+    updater->SetNotificationBadgeColor(id_copy, badge_color_copy);
   }
 }
 
@@ -206,15 +215,11 @@ void ChromeAppListItem::SetPosition(const syncer::StringOrdinal& position) {
   metadata_->position = position;
 }
 
-void ChromeAppListItem::SetIsPersistent(bool is_persistent) {
-  metadata_->is_persistent = is_persistent;
+void ChromeAppListItem::SetIsSystemFolder(bool is_system_folder) {
+  metadata_->is_system_folder = is_system_folder;
   AppListModelUpdater* updater = model_updater();
   if (updater)
-    updater->SetItemIsPersistent(id(), is_persistent);
-}
-
-void ChromeAppListItem::SetIsPageBreak(bool is_page_break) {
-  metadata_->is_page_break = is_page_break;
+    updater->SetItemIsSystemFolder(id(), is_system_folder);
 }
 
 void ChromeAppListItem::SetIsNewInstall(bool is_new_install) {
@@ -239,6 +244,10 @@ void ChromeAppListItem::SetChromeName(const std::string& name) {
 void ChromeAppListItem::SetChromePosition(
     const syncer::StringOrdinal& position) {
   metadata_->position = position;
+}
+
+void ChromeAppListItem::SetIsEphemeral(bool is_ephemeral) {
+  metadata_->is_ephemeral = is_ephemeral;
 }
 
 bool ChromeAppListItem::CompareForTest(const ChromeAppListItem* other) const {

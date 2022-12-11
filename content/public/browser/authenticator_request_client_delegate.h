@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,10 @@
 #include "device/fido/fido_transport_protocol.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
+#if BUILDFLAG(IS_ANDROID)
+#include "base/android/scoped_java_ref.h"
+#endif
+
 #if BUILDFLAG(IS_MAC)
 #include "device/fido/mac/authenticator_config.h"
 #endif
@@ -26,6 +30,8 @@
 namespace device {
 class FidoAuthenticator;
 class FidoDiscoveryFactory;
+class PublicKeyCredentialDescriptor;
+class PublicKeyCredentialUserEntity;
 }  // namespace device
 
 namespace url {
@@ -43,17 +49,44 @@ class WebContents;
 // (https://www.w3.org/TR/webauthn/) requests.
 //
 // Instances can be obtained via
-// ContentBrowserClient::GetWebAuthenticationDelegate(). They are guaranteed not
-// to outlive the RenderFrameHost with which they are associated.
+// ContentBrowserClient::GetWebAuthenticationDelegate().
 class CONTENT_EXPORT WebAuthenticationDelegate {
  public:
   WebAuthenticationDelegate();
   virtual ~WebAuthenticationDelegate();
 
-  // Permits the embedder to override normal relying party ID processing. Is
-  // given the untrusted, claimed relying party ID from the WebAuthn call, as
-  // well as the origin of the caller, and may return a relying party ID to
-  // override normal validation.
+  // Returns true if `caller_origin` should be able to claim the given Relying
+  // Party ID outside of regular processing. Otherwise, standard WebAuthn RP ID
+  // security checks are performed by `WebAuthRequestSecurityChecker`.
+  // (https://www.w3.org/TR/2021/REC-webauthn-2-20210408/#relying-party-identifier).
+  //
+  // This is an access-control decision: RP IDs are used to control access to
+  // credentials so thought is required before allowing an origin to assert an
+  // RP ID.
+  virtual bool OverrideCallerOriginAndRelyingPartyIdValidation(
+      BrowserContext* browser_context,
+      const url::Origin& caller_origin,
+      const std::string& relying_party_id);
+
+  // Returns whether |caller_origin| is permitted to use the
+  // RemoteDesktopClientOverride extension.
+  //
+  // This is an access control decision: RP IDs are used to control access to
+  // credentials. If this method returns true, the respective origin is able to
+  // claim any RP ID.
+  virtual bool OriginMayUseRemoteDesktopClientOverride(
+      BrowserContext* browser_context,
+      const url::Origin& caller_origin);
+
+  // Returns true if the tab security level is acceptable to allow WebAuthn
+  // requests, false otherwise.
+  virtual bool IsSecurityLevelAcceptableForWebAuthn(
+      content::RenderFrameHost* rfh,
+      const url::Origin& caller_origin);
+
+#if !BUILDFLAG(IS_ANDROID)
+  // Permits the embedder to override the Relying Party ID for a WebAuthn call,
+  // given the claimed relying party ID and the origin of the caller.
   //
   // This is an access-control decision: RP IDs are used to control access to
   // credentials so thought is required before allowing an origin to assert an
@@ -70,6 +103,7 @@ class CONTENT_EXPORT WebAuthenticationDelegate {
   //  b) skips any permission prompt for attestation.
   virtual bool ShouldPermitIndividualAttestation(
       BrowserContext* browser_context,
+      const url::Origin& caller_origin,
       const std::string& relying_party_id);
 
   // SupportsResidentKeys returns true if this implementation of
@@ -86,6 +120,19 @@ class CONTENT_EXPORT WebAuthenticationDelegate {
   // implementation in ChromeContentBrowserClient for Android, return |true| so
   // that testing is possible.
   virtual bool IsFocused(WebContents* web_contents);
+
+  // Returns a bool if the result of the isUserVerifyingPlatformAuthenticator
+  // API call originating from |render_frame_host| should be overridden with
+  // that value, or absl::nullopt otherwise.
+  virtual absl::optional<bool>
+  IsUserVerifyingPlatformAuthenticatorAvailableOverride(
+      RenderFrameHost* render_frame_host);
+
+  // Returns the WebAuthenticationRequestProxy for the |browser_context|, if
+  // any.
+  virtual WebAuthenticationRequestProxy* MaybeGetRequestProxy(
+      BrowserContext* browser_context);
+#endif  // !IS_ANDROID
 
 #if BUILDFLAG(IS_WIN)
   // OperationSucceeded is called when a registration or assertion operation
@@ -107,9 +154,10 @@ class CONTENT_EXPORT WebAuthenticationDelegate {
   GetTouchIdAuthenticatorConfig(BrowserContext* browser_context);
 #endif  // BUILDFLAG(IS_MAC)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   // Callback that should generate and return a unique request id.
-  using ChromeOSGenerateRequestIdCallback = base::RepeatingCallback<uint32_t()>;
+  using ChromeOSGenerateRequestIdCallback =
+      base::RepeatingCallback<std::string()>;
 
   // Returns a callback to generate a request id for a WebAuthn request
   // originating from |RenderFrameHost|. The request id has two purposes: 1.
@@ -118,19 +166,28 @@ class CONTENT_EXPORT WebAuthenticationDelegate {
   // asking ChromeOS platform to cancel the request.
   virtual ChromeOSGenerateRequestIdCallback GetGenerateRequestIdCallback(
       RenderFrameHost* render_frame_host);
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
-  // Returns a bool if the result of the isUserVerifyingPlatformAuthenticator
-  // API call originating from |render_frame_host| should be overridden with
-  // that value, or absl::nullopt otherwise.
-  virtual absl::optional<bool>
-  IsUserVerifyingPlatformAuthenticatorAvailableOverride(
-      RenderFrameHost* render_frame_host);
+#if BUILDFLAG(IS_ANDROID)
+  // GetIntentSender returns a Java object that implements
+  // `WebAuthenticationDelegate.IntentSender` from
+  // WebAuthenticationDelegate.java. See the comments in that file for details.
+  virtual base::android::ScopedJavaLocalRef<jobject> GetIntentSender(
+      WebContents* web_contents);
 
-  // Returns the WebAuthenticationRequestProxy for the |browser_context|, if
-  // any.
-  virtual WebAuthenticationRequestProxy* MaybeGetRequestProxy(
-      BrowserContext* browser_context);
+  // GetSupportLevel returns one of:
+  //   0 -> No WebAuthn support for this `WebContents`.
+  //   1 -> WebAuthn should be implemented like an app.
+  //   2 -> WebAuthn should be implemented like a browser.
+  //
+  // The difference between app and browser is meaningful on Android because
+  // there is a different, privileged interface for browsers.
+  //
+  // The return value is an `int` rather than an enum because it's bounced
+  // access JNI boundaries multiple times and so it's only converted to an
+  // enum at the very end.
+  virtual int GetSupportLevel(WebContents* web_contents);
+#endif
 };
 
 // AuthenticatorRequestClientDelegate is an interface that lets embedders
@@ -140,6 +197,9 @@ class CONTENT_EXPORT WebAuthenticationDelegate {
 class CONTENT_EXPORT AuthenticatorRequestClientDelegate
     : public device::FidoRequestHandlerBase::Observer {
  public:
+  using AccountPreselectedCallback =
+      base::RepeatingCallback<void(std::vector<uint8_t> credential_id)>;
+
   // Failure reasons that might be of interest to the user, so the embedder may
   // decide to inform the user.
   enum class InterestingFailureReason {
@@ -190,12 +250,13 @@ class CONTENT_EXPORT AuthenticatorRequestClientDelegate
   virtual bool DoesBlockRequestOnFailure(InterestingFailureReason reason);
 
   // Supplies callbacks that the embedder can invoke to initiate certain
-  // actions, namely: cancel the request, start the request over, initiate BLE
-  // pairing process, cancel WebAuthN request, and dispatch request to connected
-  // authenticators.
+  // actions, namely: cancel the request, start the request over, preselect an
+  // account, dispatch request to connected authenticators, and power on the
+  // bluetooth adapter.
   virtual void RegisterActionCallbacks(
       base::OnceClosure cancel_callback,
       base::RepeatingClosure start_over_callback,
+      AccountPreselectedCallback account_preselected_callback,
       device::FidoRequestHandlerBase::RequestCallback request_callback,
       base::RepeatingClosure bluetooth_adapter_power_on_callback);
 
@@ -224,7 +285,7 @@ class CONTENT_EXPORT AuthenticatorRequestClientDelegate
   // request.
   virtual void ConfigureCable(
       const url::Origin& origin,
-      device::FidoRequestType request_type,
+      device::CableRequestType request_type,
       base::span<const device::CableDiscoveryData> pairings_from_extension,
       device::FidoDiscoveryFactory* fido_discovery_factory);
 
@@ -242,15 +303,31 @@ class CONTENT_EXPORT AuthenticatorRequestClientDelegate
       base::OnceCallback<void(device::AuthenticatorGetAssertionResponse)>
           callback);
 
-  // Disables the UI (needed in cases when called by other components, like
-  // cryptotoken).
+  // Disables the WebAuthn request modal dialog UI.
   virtual void DisableUI();
 
   virtual bool IsWebAuthnUIEnabled();
 
-  // Set to true to enable a mode where a prominent UI is only show for
-  // discoverable platform credentials.
+  // Configures whether a virtual authenticator environment is enabled. The
+  // embedder might choose to e.g. automate account selection under a virtual
+  // environment.
+  void SetVirtualEnvironment(bool virtual_environment);
+
+  bool IsVirtualEnvironmentEnabled();
+
+  // Set to true to enable a mode where a priori discovered credentials are
+  // shown alongside autofilled passwords, instead of the modal flow.
   virtual void SetConditionalRequest(bool is_conditional);
+
+  // Sets a credential filter for conditional mediation requests, which will
+  // only allow passkeys with matching credential IDs to be displayed to the
+  // user.
+  virtual void SetCredentialIdFilter(
+      std::vector<device::PublicKeyCredentialDescriptor> credential_list);
+
+  // Optionally configures the user entity passed for a makeCredential request.
+  virtual void SetUserEntityForMakeCredentialRequest(
+      const device::PublicKeyCredentialUserEntity& user_entity);
 
   // device::FidoRequestHandlerBase::Observer:
   void OnTransportAvailabilityEnumerated(
@@ -278,6 +355,9 @@ class CONTENT_EXPORT AuthenticatorRequestClientDelegate
   void OnSampleCollected(int bio_samples_remaining) override;
   void FinishCollectToken() override;
   void OnRetryUserVerification(int attempts) override;
+
+ private:
+  bool virtual_environment_ = false;
 };
 
 }  // namespace content

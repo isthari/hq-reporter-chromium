@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,13 @@ import {
   getDefaultWindowSize,
 } from './app_window.js';
 import {assert, assertInstanceof} from './assert.js';
+import * as customEffect from './custom_effect.js';
+import {DEPLOYED_VERSION} from './deployed_version.js';
 import {CameraManager} from './device/index.js';
+import {ModeConstraints} from './device/type.js';
 import * as dom from './dom.js';
 import {reportError} from './error.js';
-import * as focusRing from './focus_ring.js';
+import * as expert from './expert.js';
 import {GalleryButton} from './gallerybutton.js';
 import {I18nString} from './i18n_string.js';
 import {Intent} from './intent.js';
@@ -18,7 +21,7 @@ import * as filesystem from './models/file_system.js';
 import * as loadTimeData from './models/load_time_data.js';
 import * as localStorage from './models/local_storage.js';
 import {ChromeHelper} from './mojo/chrome_helper.js';
-import {notifyCameraResourceReady} from './mojo/device_operator.js';
+import {DeviceOperator} from './mojo/device_operator.js';
 import * as nav from './nav.js';
 import {PerfLogger} from './perf.js';
 import {preloadImagesList} from './preload_images.js';
@@ -29,19 +32,21 @@ import {
   ErrorLevel,
   ErrorType,
   Facing,
+  LocalStorageKey,
   Mode,
   PerfEvent,
   ViewName,
 } from './type.js';
 import {addUnloadCallback} from './unload.js';
 import * as util from './util.js';
-import {checkEnumVariant} from './util.js';
 import {Camera} from './views/camera.js';
+import * as timertick from './views/camera/timertick.js';
 import {CameraIntent} from './views/camera_intent.js';
 import {Dialog} from './views/dialog.js';
 import {View} from './views/view.js';
 import {Warning, WarningType} from './views/warning.js';
 import {WaitableEvent} from './waitable_event.js';
+import {windowController} from './window_controller.js';
 
 /**
  * The app window instance which is used for communication with Tast tests. For
@@ -53,16 +58,20 @@ const appWindow = window.appWindow;
  * Creates the Camera App main object.
  */
 export class App {
-  private perfLogger: PerfLogger;
-  private intent: Intent|null;
-  private readonly cameraManager: CameraManager;
-  private galleryButton = new GalleryButton();
-  private cameraView: Camera;
+  private readonly perfLogger: PerfLogger;
 
-  constructor({perfLogger, intent, facing, mode: defaultMode}: {
+  private readonly intent: Intent|null;
+
+  private readonly cameraManager: CameraManager;
+
+  private readonly galleryButton = new GalleryButton();
+
+  private readonly cameraView: Camera;
+
+  constructor({perfLogger, intent, facing, mode}: {
     perfLogger: PerfLogger,
     intent: Intent|null,
-    facing: Facing,
+    facing: Facing|null,
     mode: Mode|null,
   }) {
     this.perfLogger = perfLogger;
@@ -72,14 +81,18 @@ export class App {
     state.set(
         state.State.SHOULD_HANDLE_INTENT_RESULT, shouldHandleIntentResult);
 
-    const modeConstraints = shouldHandleIntentResult ?
-        {exact: defaultMode} :
-        {default: defaultMode ?? Mode.PHOTO};
+    const modeConstraints: ModeConstraints = {
+      kind: shouldHandleIntentResult && mode !== null ? 'exact' : 'default',
+      mode: mode ?? Mode.PHOTO,
+    };
     this.cameraManager =
         new CameraManager(this.perfLogger, facing, modeConstraints);
 
     this.cameraView = (() => {
       if (shouldHandleIntentResult) {
+        // If shouldHandleIntentResult is true, then this.intent is definitely
+        // not null.
+        assert(this.intent !== null);
         return new CameraIntent(
             this.intent, this.cameraManager, this.perfLogger);
       } else {
@@ -99,10 +112,14 @@ export class App {
       }
     }, {passive: false, capture: true});
 
+    window.addEventListener('resize', () => nav.layoutShownViews());
+    windowController.addListener(() => nav.layoutShownViews());
+
+    customEffect.setup();
     util.setupI18nElements(document.body);
     this.setupToggles();
+    localStorage.cleanup();
     this.setupEffect();
-    focusRing.initialize();
 
     // Set up views navigation by their DOM z-order.
     nav.setup([
@@ -119,24 +136,30 @@ export class App {
    * Sets up toggles (checkbox and radio) by data attributes.
    */
   private setupToggles() {
-    dom.getAll('input', HTMLInputElement).forEach((element) => {
+    for (const element of dom.getAll('input', HTMLInputElement)) {
       element.addEventListener('keypress', (event) => {
         const e = assertInstanceof(event, KeyboardEvent);
-        if (util.getShortcutIdentifier(e) === 'Enter') {
+        if (util.getKeyboardShortcut(e) === 'Enter') {
           element.click();
         }
       });
+      const localStorageKey = element.dataset['key'] === undefined ?
+          null :
+          util.assertEnumVariant(LocalStorageKey, element.dataset['key']);
+      const stateKey = element.dataset['state'] === undefined ?
+          null :
+          state.assertState(element.dataset['state']);
 
-      const save = (element: HTMLInputElement) => {
-        if (element.dataset['key'] !== undefined) {
-          localStorage.set(element.dataset['key'], element.checked);
+      function save(element: HTMLInputElement) {
+        if (localStorageKey !== null) {
+          localStorage.set(localStorageKey, element.checked);
         }
-      };
+      }
       element.addEventListener('change', (event) => {
-        if (element.dataset['state'] !== undefined) {
-          state.set(
-              state.assertState(element.dataset['state']), element.checked);
+        if (stateKey !== null) {
+          state.set(stateKey, element.checked);
         }
+        // Check if event is triggered by user on UI.
         if (event.isTrusted) {
           save(element);
           if (element.type === 'radio' && element.checked) {
@@ -150,33 +173,117 @@ export class App {
           }
         }
       });
-      if (element.dataset['state'] !== undefined) {
-        const s = state.assertState(element.dataset['state']);
-        state.addObserver(s, (value) => {
+      if (stateKey !== null) {
+        state.set(stateKey, element.checked);
+        state.addObserver(stateKey, (value) => {
           if (value !== element.checked) {
             util.toggleChecked(element, value);
           }
         });
-        state.set(s, element.checked);
       }
-      if (element.dataset['key'] !== undefined) {
-        // Restore the previously saved state on startup.
-        const value =
-            localStorage.getBool(element.dataset['key'], element.checked);
+      if (localStorageKey !== null) {
+        const value = localStorage.getBool(localStorageKey, element.checked);
         util.toggleChecked(element, value);
       }
-    });
+    }
+  }
+
+  /**
+   * Sets up visual effects, toasts, and dialogs for the new features.
+   */
+  async setupFeatureEffectsAndDialogs(): Promise<void> {
+    const registerDocScanIntroductionDialog = () => {
+      this.cameraManager.registerCameraUI({
+        onUpdateConfig: async () => {
+          if (localStorage.getBool(LocalStorageKey.DOC_MODE_DIALOG_SHOWN) ||
+              !state.get(Mode.SCAN)) {
+            return;
+          }
+
+          const {ready} =
+              await ChromeHelper.getInstance().getDocumentScannerReadyState();
+          if (!ready) {
+            return;
+          }
+          // No need to show doc scan feature toast if the user has already seen
+          // the doc scan mode.
+          localStorage.set(LocalStorageKey.DOC_MODE_TOAST_SHOWN, true);
+
+          localStorage.set(LocalStorageKey.DOC_MODE_DIALOG_SHOWN, true);
+          const message = loadTimeData.getI18nMessage(
+              I18nString.DOCUMENT_MODE_DIALOG_INTRO_TITLE);
+          nav.open(ViewName.DOCUMENT_MODE_DIALOG, {message});
+        },
+      });
+    };
+    const registerDownloadingDocScanIndicator = () => {
+      let hasShownDocIndicator = false;
+      this.cameraManager.registerCameraUI({
+        onUpdateConfig: async () => {
+          const {ready} =
+              await ChromeHelper.getInstance().getDocumentScannerReadyState();
+          if (ready || !state.get(Mode.SCAN) || hasShownDocIndicator) {
+            return;
+          }
+          customEffect.showDownloadingDocScanIndicator();
+          hasShownDocIndicator = true;
+        },
+      });
+    };
+    const registerPtzToast = () => {
+      this.cameraManager.registerCameraUI({
+        onUpdateConfig: () => {
+          if (state.get(state.State.ENABLE_PTZ) &&
+              !localStorage.getBool(LocalStorageKey.PTZ_TOAST_SHOWN)) {
+            localStorage.set(LocalStorageKey.PTZ_TOAST_SHOWN, true);
+            customEffect.showPtzToast();
+          }
+        },
+      });
+    };
+
+    const {supported, ready} =
+        await ChromeHelper.getInstance().getDocumentScannerReadyState();
+
+    // Handling logic for new feature toast.
+    if (supported && ready &&
+        !localStorage.getBool(LocalStorageKey.DOC_MODE_TOAST_SHOWN)) {
+      // Only show new feature indicator for doc scan if it is ready when
+      // starting the app.
+      localStorage.set(LocalStorageKey.DOC_MODE_TOAST_SHOWN, true);
+      customEffect.showDocScanAvailableIndicator();
+    } else if (!localStorage.getBool(LocalStorageKey.PTZ_TOAST_SHOWN)) {
+      if (state.get(state.State.ENABLE_PTZ)) {
+        localStorage.set(LocalStorageKey.PTZ_TOAST_SHOWN, true);
+        customEffect.showPtzToast();
+      } else {
+        registerPtzToast();
+      }
+    }
+
+
+    // TODO(chuhsuan): Separate loading indicators and feature toasts in
+    // order to provide more control like showing them at the same time.
+    if (supported) {
+      if (!localStorage.getBool(LocalStorageKey.DOC_MODE_DIALOG_SHOWN)) {
+        registerDocScanIntroductionDialog();
+      }
+      if (!ready) {
+        registerDownloadingDocScanIndicator();
+      }
+    }
   }
 
   /**
    * Sets up visual effect for all applicable elements.
    */
   private setupEffect() {
-    dom.getAll('.inkdrop', HTMLElement)
-        .forEach((el) => util.setInkdropEffect(el));
+    for (const el of dom.getAll('.inkdrop', HTMLElement)) {
+      util.setInkdropEffect(el);
+    }
 
     const observer = new MutationObserver((mutationList) => {
-      mutationList.forEach((mutation) => {
+      for (const mutation of mutationList) {
         assert(mutation.type === 'childList');
         // Only the newly added nodes with inkdrop class are considered here. So
         // simply adding class attribute on existing element will not work.
@@ -184,12 +291,11 @@ export class App {
           if (!(node instanceof HTMLElement)) {
             continue;
           }
-          const el = assertInstanceof(node, HTMLElement);
-          if (el.classList.contains('inkdrop')) {
-            util.setInkdropEffect(el);
+          if (node.classList.contains('inkdrop')) {
+            util.setInkdropEffect(node);
           }
         }
-      });
+      }
     });
     observer.observe(document.body, {
       subtree: true,
@@ -201,6 +307,7 @@ export class App {
    * Starts the app by loading the model and opening the camera-view.
    */
   async start(launchType: metrics.LaunchType): Promise<void> {
+    await DeviceOperator.initializeInstance();
     document.documentElement.dir = loadTimeData.getTextDirection();
     try {
       await filesystem.initialize();
@@ -238,7 +345,6 @@ export class App {
       } else {
         // CCA must get camera usage for completing its initialization when
         // first launched.
-        notifyCameraResourceReady();
         await this.cameraManager.initialize(this.cameraView);
         await this.cameraView.initialize();
         cameraResourceInitialized.signal();
@@ -275,17 +381,18 @@ export class App {
     })();
 
     const preloadImages = (async () => {
-      const loadImage = (url: string) =>
-          new Promise<void>((resolve, reject) => {
-            const link = document.createElement('link');
-            link.rel = 'preload';
-            link.as = 'image';
-            link.href = url;
-            link.onload = () => resolve();
-            link.onerror = () =>
-                reject(new Error(`Failed to preload image ${url}`));
-            document.head.appendChild(link);
-          });
+      function loadImage(url: string) {
+        return new Promise<void>((resolve, reject) => {
+          const link = document.createElement('link');
+          link.rel = 'preload';
+          link.as = 'image';
+          link.href = url;
+          link.onload = () => resolve();
+          link.onerror = () =>
+              reject(new Error(`Failed to preload image ${url}`));
+          document.head.appendChild(link);
+        });
+      }
       const results = await Promise.allSettled(
           preloadImagesList.map((name) => loadImage(`/images/${name}`)));
       for (const result of results) {
@@ -300,10 +407,12 @@ export class App {
 
     metrics.sendLaunchEvent({launchType});
     await Promise.all([showWindow, startCamera, preloadImages]);
+    await this.setupFeatureEffectsAndDialogs();
   }
 
   /**
    * Handles pressed keys.
+   *
    * @param event Key press event.
    */
   private onKeyPressed(event: Event) {
@@ -315,6 +424,7 @@ export class App {
    * Suspends app and hides app window.
    */
   async suspend(): Promise<void> {
+    timertick.cancel();
     await this.cameraManager.requestSuspend();
     nav.open(ViewName.WARNING, WarningType.CAMERA_PAUSED);
   }
@@ -329,6 +439,7 @@ export class App {
 
   /**
    * Begins to take photo or recording with the current options, e.g. timer.
+   *
    * @param shutterType The shutter is triggered by which shutter type.
    * @return Promise resolved when take action completes.
    *     Returns null if CCA can't start take action.
@@ -343,18 +454,17 @@ export class App {
  */
 function parseSearchParams(): {
   intent: Intent|null,
-  facing: Facing,
+  facing: Facing|null,
   mode: Mode|null,
   openFrom: string|null,
-  autoTake: boolean
+  autoTake: boolean,
 } {
   const url = new URL(window.location.href);
   const params = url.searchParams;
 
-  const facing =
-      checkEnumVariant(Facing, params.get('facing')) ?? Facing.NOT_SET;
+  const facing = util.checkEnumVariant(Facing, params.get('facing'));
 
-  const mode = checkEnumVariant(Mode, params.get('mode'));
+  const mode = util.checkEnumVariant(Mode, params.get('mode'));
 
   const intent = (() => {
     if (params.get('intentId') === null) {
@@ -409,7 +519,7 @@ let instance: App|null = null;
     metrics.sendPerfEvent({event, duration, perfInfo});
 
     // Setup for console perf logger.
-    if (state.get(state.State.PRINT_PERFORMANCE_LOGS)) {
+    if (expert.isEnabled(expert.ExpertOption.PRINT_PERFORMANCE_LOGS)) {
       // eslint-disable-next-line no-console
       console.log(
           '%c%s %s ms %s', 'color: #4E4F97; font-weight: bold;',
@@ -448,6 +558,15 @@ let instance: App|null = null;
         perfLogger.stop(event, extras);
       }
     });
+  }
+
+  if (DEPLOYED_VERSION !== undefined) {
+    // eslint-disable-next-line no-console
+    console.log(
+        `Local override enabled for CCA (${DEPLOYED_VERSION}). ` +
+        'To disable local override, ' +
+        'remove /etc/camera/cca/js/deployed_version.js on device.');
+    toast.showDebugMessage(`Local override enabled (${DEPLOYED_VERSION})`);
   }
 
   instance = new App({perfLogger, intent, facing, mode});

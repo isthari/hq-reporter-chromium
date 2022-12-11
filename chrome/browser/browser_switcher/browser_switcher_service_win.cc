@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/syslog_logging.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/win/registry.h"
@@ -255,6 +254,10 @@ void BrowserSwitcherServiceWin::OnIeemSitelistParsed(ParsedXml xml) {
   }
 }
 
+void BrowserSwitcherServiceWin::PrefsFileDeleted(bool /*success*/) {
+  CacheFileUpdated();
+}
+
 void BrowserSwitcherServiceWin::CacheFileUpdated() {
   if (cache_file_updated_callback_for_testing_)
     std::move(cache_file_updated_callback_for_testing_).Run();
@@ -282,10 +285,12 @@ void BrowserSwitcherServiceWin::DeletePrefsFile() {
   if (path.empty())
     return;
   path = path.AppendASCII("cache.dat");
-  sequenced_task_runner_->PostTaskAndReply(
-      FROM_HERE, base::BindOnce(base::GetDeleteFileCallback(), std::move(path)),
-      base::BindOnce(&BrowserSwitcherServiceWin::CacheFileUpdated,
-                     weak_ptr_factory_.GetWeakPtr()));
+  sequenced_task_runner_->PostTask(
+      FROM_HERE,
+      base::GetDeleteFileCallback(
+          std::move(path),
+          base::BindOnce(&BrowserSwitcherServiceWin::PrefsFileDeleted,
+                         weak_ptr_factory_.GetWeakPtr())));
 }
 
 void BrowserSwitcherServiceWin::SavePrefsToFile() {
@@ -307,10 +312,14 @@ void BrowserSwitcherServiceWin::DeleteSitelistCacheFile() {
   if (path.empty())
     return;
   path = path.AppendASCII("sitelistcache.dat");
-  sequenced_task_runner_->PostTaskAndReply(
-      FROM_HERE, base::BindOnce(base::GetDeleteFileCallback(), std::move(path)),
-      base::BindOnce(&BrowserSwitcherServiceWin::SitelistCacheFileUpdated,
-                     weak_ptr_factory_.GetWeakPtr()));
+  sequenced_task_runner_->PostTask(
+      FROM_HERE,
+      base::GetDeleteFileCallback(
+          std::move(path),
+          base::OnceCallback<void(bool)>(base::DoNothing())
+              .Then(base::BindOnce(
+                  &BrowserSwitcherServiceWin::SitelistCacheFileUpdated,
+                  weak_ptr_factory_.GetWeakPtr()))));
 }
 
 void BrowserSwitcherServiceWin::UpdateAllCacheFiles() {

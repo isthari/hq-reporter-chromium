@@ -1,9 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_PLATFORM_KEYS_KEY_PERMISSIONS_MOCK_KEY_PERMISSIONS_SERVICE_H_
 #define CHROME_BROWSER_ASH_PLATFORM_KEYS_KEY_PERMISSIONS_MOCK_KEY_PERMISSIONS_SERVICE_H_
+
+#include <stdint.h>
 
 #include <string>
 #include <vector>
@@ -18,8 +20,7 @@ namespace content {
 class BrowserContext;
 }
 
-namespace ash {
-namespace platform_keys {
+namespace ash::platform_keys {
 
 class MockKeyPermissionsService : public KeyPermissionsService {
  public:
@@ -28,19 +29,19 @@ class MockKeyPermissionsService : public KeyPermissionsService {
 
   MOCK_METHOD(void,
               CanUserGrantPermissionForKey,
-              (const std::string& public_key_spki_der,
+              (std::vector<uint8_t> public_key_spki_der,
                CanUserGrantPermissionForKeyCallback callback),
               (override));
 
   MOCK_METHOD(void,
               IsCorporateKey,
-              (const std::string& public_key_spki_der_b64,
+              (std::vector<uint8_t> public_key_spki_der,
                IsCorporateKeyCallback callback),
               (override));
 
   MOCK_METHOD(void,
               SetCorporateKey,
-              (const std::string& public_key_spki_der_b64,
+              (std::vector<uint8_t> public_key_spki_der,
                SetCorporateKeyCallback callback),
               (override));
 };
@@ -48,7 +49,6 @@ class MockKeyPermissionsService : public KeyPermissionsService {
 std::unique_ptr<KeyedService> BuildMockKeyPermissionsService(
     content::BrowserContext* browser_context);
 
-}  // namespace platform_keys
-}  // namespace ash
+}  // namespace ash::platform_keys
 
 #endif  // CHROME_BROWSER_ASH_PLATFORM_KEYS_KEY_PERMISSIONS_MOCK_KEY_PERMISSIONS_SERVICE_H_

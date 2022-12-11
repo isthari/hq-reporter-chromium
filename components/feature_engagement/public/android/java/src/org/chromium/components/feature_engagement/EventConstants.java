@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -186,11 +186,9 @@ public final class EventConstants {
     /** 'Manage windows' menu for multi-instance support feature was tapped. */
     public static final String INSTANCE_SWITCHER_IPH_USED = "instance_switcher_iph_used";
 
-    /** HomepagePromo has been accepted. */
-    public static final String NTP_SHOWN = "ntp_shown";
-    public static final String NTP_HOME_BUTTON_CLICKED = "ntp_homebutton_clicked";
-
     public static final String TAB_SWITCHER_BUTTON_CLICKED = "tab_switcher_button_clicked";
+
+    public static final String FOREGROUND_SESSION_DESTROYED = "foreground_session_destroyed";
 
     /** Read later related events. */
     public static final String APP_MENU_BOOKMARK_STAR_ICON_PRESSED =
@@ -245,6 +243,9 @@ public final class EventConstants {
     /** Sharing Hub link toggle events. */
     public static final String SHARING_HUB_LINK_TOGGLE_CLICKED = "sharing_hub_link_toggle_clicked";
 
+    /** Crow events. */
+    public static final String CROW_TAB_MENU_ITEM_CLICKED = "crow_tab_menu_item_clicked";
+
     /** Mic toolbar IPH event */
     public static final String SUCCESSFUL_VOICE_SEARCH = "successful_voice_search";
 
@@ -270,10 +271,6 @@ public final class EventConstants {
     /** WebFeed events. */
     public static final String WEB_FEED_FOLLOW_INTRO_CLICKED = "web_feed_follow_intro_clicked";
 
-    /** Tab switcher home button events. */
-    public static final String START_SURFACE_TAB_SWITCHER_HOME_BUTTON_CLICKED =
-            "start_surface_tab_switcher_home_button_clicked";
-
     /** Shared Highlighting button event */
     public static final String IPH_SHARED_HIGHLIGHTING_USED = "iph_shared_highlighting_used";
 
@@ -297,6 +294,28 @@ public final class EventConstants {
     /** A tap on the folder icon in the enhanced bookmark save flow. */
     public static final String SHOPPING_LIST_SAVE_FLOW_FOLDER_TAP =
             "shopping_list_save_flow_folder_tap";
+
+    /** An app menu (tab-level) desktop site setting update event. */
+    public static final String APP_MENU_DESKTOP_SITE_FOR_TAB_CLICKED =
+            "app_menu_desktop_site_for_tab_clicked";
+
+    /** Desktop site settings page opened. */
+    public static final String DESKTOP_SITE_SETTINGS_PAGE_OPENED =
+            "desktop_site_settings_page_opened";
+
+    /** Desktop site default-on message primary action event. */
+    public static final String DESKTOP_SITE_DEFAULT_ON_PRIMARY_ACTION =
+            "desktop_site_default_on_primary_action";
+
+    /** Desktop site default-on message gesture event. */
+    public static final String DESKTOP_SITE_DEFAULT_ON_GESTURE = "desktop_site_default_on_gesture";
+
+    /** Desktop site opt-in message primary action event. */
+    public static final String DESKTOP_SITE_OPT_IN_PRIMARY_ACTION =
+            "desktop_site_opt_in_primary_action";
+
+    /** Desktop site opt-in message gesture event. */
+    public static final String DESKTOP_SITE_OPT_IN_GESTURE = "desktop_site_opt_in_gesture";
 
     /**
      * Do not instantiate.

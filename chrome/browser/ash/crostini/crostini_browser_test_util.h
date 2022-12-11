@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,11 @@
 
 #include <memory>
 
-#include "ash/components/disks/disk_mount_manager.h"
-#include "ash/components/disks/mock_disk_mount_manager.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/ash/crostini/fake_crostini_features.h"
-#include "chrome/test/base/browser_process_platform_part_test_api_chromeos.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chromeos/ash/components/disks/disk_mount_manager.h"
+#include "chromeos/ash/components/disks/mock_disk_mount_manager.h"
 #include "services/network/public/mojom/network_change_manager.mojom-forward.h"
 
 class CrostiniBrowserTestChromeBrowserMainExtraParts;
@@ -49,8 +48,8 @@ class CrostiniBrowserTestBase : public InProcessBrowserTest {
                      const std::string& source_format,
                      const std::string& mount_label,
                      const std::vector<std::string>& mount_options,
-                     chromeos::MountType type,
-                     chromeos::MountAccessMode access_mode,
+                     ash::MountType type,
+                     ash::MountAccessMode access_mode,
                      ash::disks::DiskMountManager::MountPathCallback callback);
 
   // Owned by ash::disks::DiskMountManager;

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -187,10 +187,15 @@ MessageQuotaChecker::~MessageQuotaChecker() = default;
 
 // static
 MessageQuotaChecker::Configuration MessageQuotaChecker::GetConfiguration() {
-  Configuration ret;
-
-  ret.is_enabled =
+  // Const since this may be called from any thread. Initialization is
+  // thread-safe. This is a workaround since some consumers of Mojo (e.g. many
+  // browser tests) use base::FeatureList incorrectly and thus cause data races
+  // when features are queried from arbitrary threads.
+  static const bool is_enabled =
       base::FeatureList::IsEnabled(features::kMojoRecordUnreadMessageCount);
+
+  Configuration ret;
+  ret.is_enabled = is_enabled;
   ret.sample_rate = kMojoRecordUnreadMessageCountSampleRate.Get();
 
   // Lower-bound the quota value to 100, which implies roughly 2% message

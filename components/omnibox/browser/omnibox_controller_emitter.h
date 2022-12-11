@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_OMNIBOX_BROWSER_OMNIBOX_CONTROLLER_EMITTER_H_
 #define COMPONENTS_OMNIBOX_BROWSER_OMNIBOX_CONTROLLER_EMITTER_H_
 
+#include "base/observer_list.h"
 #include "build/build_config.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/omnibox/browser/autocomplete_controller.h"

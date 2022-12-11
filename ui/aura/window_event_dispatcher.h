@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@
 #include "base/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_multi_source_observation.h"
+#include "cc/metrics/events_metrics_manager.h"
 #include "ui/aura/aura_export.h"
 #include "ui/aura/client/capture_delegate.h"
 #include "ui/aura/env_observer.h"
@@ -66,6 +66,7 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
 
   // Stops dispatching/synthesizing mouse events.
   void Shutdown();
+  bool in_shutdown() const { return in_shutdown_; }
 
   WindowTreeHost* host() { return host_; }
 
@@ -221,7 +222,10 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   // Overridden from ui::EventProcessor:
   ui::EventTarget* GetRootForEvent(ui::Event* event) override;
   void OnEventProcessingStarted(ui::Event* event) override;
-  void OnEventProcessingFinished(ui::Event* event) override;
+  void OnEventProcessingFinished(
+      ui::Event* event,
+      ui::EventTarget* target,
+      const ui::EventDispatchDetails& details) override;
 
   // Overridden from ui::EventDispatcherDelegate.
   bool CanDispatchToTarget(ui::EventTarget* target) override;
@@ -278,6 +282,10 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   // the mouse cursor.
   void SynthesizeMouseMoveAfterChangeToWindow(Window* window);
 
+  // Determines whether to report event latency.
+  bool ShouldReportEventLatency(ui::EventTarget* target,
+                                const ui::EventDispatchDetails& details);
+
   ui::EventDispatchDetails PreDispatchLocatedEvent(Window* target,
                                                    ui::LocatedEvent* event);
   ui::EventDispatchDetails PreDispatchMouseEvent(Window* target,
@@ -288,6 +296,9 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
                                                  ui::TouchEvent* event);
   ui::EventDispatchDetails PreDispatchKeyEvent(Window* target,
                                                ui::KeyEvent* event);
+
+  std::unique_ptr<cc::EventsMetricsManager::ScopedMonitor>
+  CreateScropedMetricsMonitorForEvent(const ui::Event& event);
 
   raw_ptr<WindowTreeHost> host_;
 
@@ -313,7 +324,8 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   std::unique_ptr<ui::LocatedEvent> held_repostable_event_;
 
   // Set when dispatching a held event.
-  raw_ptr<ui::LocatedEvent> dispatching_held_event_ = nullptr;
+  raw_ptr<ui::LocatedEvent, DanglingUntriaged> dispatching_held_event_ =
+      nullptr;
 
   base::ScopedMultiSourceObservation<aura::Window, aura::WindowObserver>
       observation_manager_{this};
@@ -330,6 +342,16 @@ class AURA_EXPORT WindowEventDispatcher : public ui::EventProcessor,
   // See ObserverNotifier for details. This is a queue to handle the case of
   // nested event dispatch.
   std::queue<std::unique_ptr<ObserverNotifier>> observer_notifiers_;
+
+  // Determines whether a scroll-update has been seen after the last
+  // scroll-begin. Used to determine whether a scroll-update is the first one in
+  // a scroll sequence or not.
+  bool has_seen_gesture_scroll_update_after_begin_ = false;
+
+  // A stack of scoped monitors for events to track metrics for the currently
+  // active event.
+  std::vector<std::unique_ptr<cc::EventsMetricsManager::ScopedMonitor>>
+      event_metrics_monitors_;
 
   bool in_shutdown_ = false;
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,6 +55,8 @@ public class ChromeMessageQueueMediator implements MessageQueueDelegate, UrlFocu
     private final CallbackController mCallbackController = new CallbackController();
     private int mUrlFocusToken = TokenHolder.INVALID_TOKEN;
     private Handler mQueueHandler;
+
+    private boolean mIsDestroyed;
 
     private LayoutStateObserver mLayoutStateObserver = new LayoutStateObserver() {
         private int mToken = TokenHolder.INVALID_TOKEN;
@@ -148,6 +150,7 @@ public class ChromeMessageQueueMediator implements MessageQueueDelegate, UrlFocu
     }
 
     public void destroy() {
+        mIsDestroyed = true;
         mActivityLifecycleDispatcher.unregister(mPauseResumeWithNativeObserver);
         mActivityLifecycleDispatcher = null;
         mCallbackController.destroy();
@@ -190,6 +193,21 @@ public class ChromeMessageQueueMediator implements MessageQueueDelegate, UrlFocu
                 mBrowserControlsToken);
         mContainerCoordinator.hideMessageContainer();
         mBrowserControlsObserver.setOneTimeRunnableOnControlsFullyVisible(null);
+    }
+
+    @Override
+    public void onAnimationStart() {
+        if (mContainerCoordinator == null) return;
+        mContainerCoordinator.onAnimationStart();
+    }
+
+    @Override
+    public void onAnimationEnd() {
+        if (mContainerCoordinator == null) {
+            assert mIsDestroyed;
+            return;
+        }
+        mContainerCoordinator.onAnimationEnd();
     }
 
     /**

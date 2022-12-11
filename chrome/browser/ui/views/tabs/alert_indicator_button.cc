@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,10 @@
 #include "base/metrics/user_metrics.h"
 #include "base/time/time.h"
 #include "chrome/app/vector_icons/vector_icons.h"
+#include "chrome/browser/ui/browser_element_identifiers.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
-#include "chrome/browser/ui/views/tabs/tab_controller.h"
+#include "chrome/browser/ui/views/tabs/tab_slot_controller.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/vector_icons/vector_icons.h"
 #include "media/base/media_switches.h"
@@ -26,6 +27,7 @@
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/animation/animation_delegate_views.h"
 #include "ui/views/metrics.h"
+#include "ui/views/view_class_properties.h"
 
 namespace {
 
@@ -143,9 +145,8 @@ AlertIndicatorButton::AlertIndicatorButton(Tab* parent_tab)
   SetEventTargeter(std::make_unique<views::ViewTargeter>(this));
 
   SetAccessibleName(l10n_util::GetStringUTF16(IDS_ACCNAME_MUTE_TAB));
-  // Disable animations of hover state change, to be consistent with the
-  // behavior of the tab close button.
-  // set_animate_on_state_change(false);
+
+  SetProperty(views::kElementIdentifierKey, kTabAlertIndicatorButtonElementId);
 }
 
 AlertIndicatorButton::~AlertIndicatorButton() = default;
@@ -385,13 +386,15 @@ gfx::Image GetTabAlertIndicatorAffordanceImage(TabAlertState alert_state,
 
 void AlertIndicatorButton::ResetImages(TabAlertState state) {
   SkColor color = parent_tab_->GetAlertIndicatorColor(state);
-  gfx::ImageSkia indicator_image =
-      GetTabAlertIndicatorImage(state, color).AsImageSkia();
-  SetImage(views::Button::STATE_NORMAL, &indicator_image);
-  SetImage(views::Button::STATE_DISABLED, &indicator_image);
-  gfx::ImageSkia affordance_image =
-      GetTabAlertIndicatorAffordanceImage(state, color).AsImageSkia();
-  SetImage(views::Button::STATE_PRESSED, &affordance_image);
+  gfx::Image indicator_image = GetTabAlertIndicatorImage(state, color);
+  SetImageModel(views::Button::STATE_NORMAL,
+                ui::ImageModel::FromImage(indicator_image));
+  SetImageModel(views::Button::STATE_DISABLED,
+                ui::ImageModel::FromImage(indicator_image));
+  gfx::Image affordance_image =
+      GetTabAlertIndicatorAffordanceImage(state, color);
+  SetImageModel(views::Button::STATE_PRESSED,
+                ui::ImageModel::FromImage(affordance_image));
 }
 
 BEGIN_METADATA(AlertIndicatorButton, views::ImageButton)

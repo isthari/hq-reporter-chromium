@@ -1,15 +1,13 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/cxx17_backports.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -52,7 +50,7 @@ class ViewFocusChangeWaiter : public views::FocusChangeListener {
     focus_manager_->AddFocusChangeListener(this);
     // Call the focus change notification once in case the focus has
     // already changed.
-    OnWillChangeFocus(NULL, focus_manager_->GetFocusedView());
+    OnWillChangeFocus(nullptr, focus_manager_->GetFocusedView());
   }
 
   ViewFocusChangeWaiter(const ViewFocusChangeWaiter&) = delete;
@@ -74,7 +72,7 @@ class ViewFocusChangeWaiter : public views::FocusChangeListener {
   void OnDidChangeFocus(views::View* focused_before,
                         views::View* focused_now) override {
     if (focused_now && focused_now->GetID() != previous_view_id_) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
     }
   }
@@ -105,7 +103,7 @@ class SendKeysMenuListener : public AppMenuButtonObserver {
     menu_open_count_++;
     if (test_dismiss_menu_) {
       SendKeyPress(browser_, ui::VKEY_ESCAPE);
-      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
           FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated(),
           base::Milliseconds(200));
     } else {
@@ -259,8 +257,8 @@ LRESULT CALLBACK SystemMenuTestCBTHook(int n_code,
   if (n_code == HCBT_ACTIVATE || n_code == HCBT_CREATEWND) {
     wchar_t class_name[MAX_PATH] = {0};
     GetClassName(reinterpret_cast<HWND>(w_param), class_name,
-                 base::size(class_name));
-    if (base::LowerCaseEqualsASCII(class_name, "#32768")) {
+                 std::size(class_name));
+    if (base::EqualsCaseInsensitiveASCII(class_name, "#32768")) {
       // Select the New Tab option and then send the enter key to execute it.
       ::PostMessage(reinterpret_cast<HWND>(w_param), WM_CHAR, 'T', 0);
       ::PostMessage(reinterpret_cast<HWND>(w_param), WM_KEYDOWN, VK_RETURN, 0);
@@ -311,8 +309,8 @@ LRESULT CALLBACK SystemMenuReopenClosedTabTestCBTHook(int n_code,
   if (n_code == HCBT_ACTIVATE || n_code == HCBT_CREATEWND) {
     wchar_t class_name[MAX_PATH] = {0};
     GetClassName(reinterpret_cast<HWND>(w_param), class_name,
-                 base::size(class_name));
-    if (base::LowerCaseEqualsASCII(class_name, "#32768")) {
+                 std::size(class_name));
+    if (base::EqualsCaseInsensitiveASCII(class_name, "#32768")) {
       // Send 'E' for the Reopen closed tab option.
       ::PostMessage(reinterpret_cast<HWND>(w_param), WM_CHAR, 'E', 0);
     }

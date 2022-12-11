@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,8 +20,7 @@
 #include "ui/views/animation/test/square_ink_drop_ripple_test_api.h"
 #include "ui/views/animation/test/test_ink_drop_ripple_observer.h"
 
-namespace views {
-namespace test {
+namespace views::test {
 
 const float kVisibleOpacity = 0.175f;
 
@@ -408,5 +407,4 @@ TEST_P(InkDropRippleTest, RipplePendingToActivatedObserverOrder) {
       {InkDropState::ACTION_PENDING, InkDropState::ACTIVATED}));
 }
 
-}  // namespace test
-}  // namespace views
+}  // namespace views::test

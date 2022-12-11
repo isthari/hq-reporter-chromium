@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,10 @@
 #include "base/location.h"
 #include "base/memory/free_deleter.h"
 #include "base/process/memory.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/time/time.h"
 #include "base/trace_event/memory_allocator_dump.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/process_memory_dump.h"
@@ -51,15 +52,15 @@ uint8_t* FrameBufferPool::GetFrameBuffer(size_t min_size, void** fb_priv) {
   if (!registered_dump_provider_) {
     base::trace_event::MemoryDumpManager::GetInstance()
         ->RegisterDumpProviderWithSequencedTaskRunner(
-            this, "FrameBufferPool", base::SequencedTaskRunnerHandle::Get(),
+            this, "FrameBufferPool",
+            base::SequencedTaskRunner::GetCurrentDefault(),
             MemoryDumpProvider::Options());
     registered_dump_provider_ = true;
   }
 
   // Check if a free frame buffer exists.
-  auto it = std::find_if(
-      frame_buffers_.begin(), frame_buffers_.end(),
-      [](const std::unique_ptr<FrameBuffer>& fb) { return !IsUsed(fb.get()); });
+  auto it = base::ranges::find_if_not(frame_buffers_, &IsUsed,
+                                      &std::unique_ptr<FrameBuffer>::get);
 
   // If not, create one.
   if (it == frame_buffers_.end())
@@ -132,7 +133,8 @@ base::OnceClosure FrameBufferPool::CreateFrameCallback(void* fb_priv) {
   ++frame_buffer->held_by_frame;
 
   return base::BindOnce(&FrameBufferPool::OnVideoFrameDestroyed, this,
-                        base::SequencedTaskRunnerHandle::Get(), frame_buffer);
+                        base::SequencedTaskRunner::GetCurrentDefault(),
+                        frame_buffer);
 }
 
 bool FrameBufferPool::OnMemoryDump(

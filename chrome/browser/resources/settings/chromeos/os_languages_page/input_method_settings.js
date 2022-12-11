@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,19 +13,28 @@ export const SettingsType = {
   PINYIN_SETTINGS: 3,
   PINYIN_FUZZY_SETTINGS: 4,
   BASIC_SETTINGS: 5,
-  ENGLISH_SOUTH_AFRICA_SETTINGS: 6,
+  ENGLISH_BASIC_WITH_AUTOSHIFT_SETTINGS: 6,
   SUGGESTION_SETTINGS: 7,
+  PK_DIACRITICS_SETTINGS: 8,
+  JAPANESE_SETTINGS: 9,
 };
 
 /**
  * @param {boolean} predictiveWritingEnabled .
+ * @param {boolean} physicalKeyboardDiacriticsEnabled .
  * @return {Object<string,!Array<!SettingsType>>}
  */
-export function getInputMethodSettings(predictiveWritingEnabled) {
-  const usEnglishSettings = predictiveWritingEnabled ?
-      [SettingsType.LATIN_SETTINGS, SettingsType.SUGGESTION_SETTINGS] :
-      [SettingsType.LATIN_SETTINGS];
-  return {
+export function getInputMethodSettings(
+    predictiveWritingEnabled, physicalKeyboardDiacriticsEnabled,
+    isJapaneseSettingsEnabled) {
+  const usEnglishSettings = [SettingsType.LATIN_SETTINGS];
+  if (predictiveWritingEnabled) {
+    usEnglishSettings.push(SettingsType.SUGGESTION_SETTINGS);
+  }
+  if (physicalKeyboardDiacriticsEnabled) {
+    usEnglishSettings.push(SettingsType.PK_DIACRITICS_SETTINGS);
+  }
+  const settingsMap = {
     // NOTE: Please group by SettingsType, and keep entries sorted
     // alphabetically
     // by ID within each group, just for readability.
@@ -123,7 +132,14 @@ export function getInputMethodSettings(predictiveWritingEnabled) {
     'xkb:us::ind': [SettingsType.BASIC_SETTINGS],
     'xkb:us::msa': [SettingsType.BASIC_SETTINGS],
 
-    // ENGLISH_SOUTH_AFRICA_SETTINGS
-    'xkb:za:gb:eng': [SettingsType.ENGLISH_SOUTH_AFRICA_SETTINGS],
+    // ENGLISH_BASIC_WITH_AUTOSHIFT_SETTINGS
+    'xkb:pk::eng': [SettingsType.ENGLISH_BASIC_WITH_AUTOSHIFT_SETTINGS],
+    'xkb:za:gb:eng': [SettingsType.ENGLISH_BASIC_WITH_AUTOSHIFT_SETTINGS],
   };
+  // MOZC settings
+  if (isJapaneseSettingsEnabled) {
+    settingsMap['nacl_mozc_jp'] = [SettingsType.JAPANESE_SETTINGS];
+    settingsMap['nacl_mozc_us'] = [SettingsType.JAPANESE_SETTINGS];
+  }
+  return settingsMap;
 }

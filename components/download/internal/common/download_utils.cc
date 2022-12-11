@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -130,6 +130,43 @@ void AppendRangeHeader(net::HttpRequestHeaders* headers,
 
   headers->SetHeader(net::HttpRequestHeaders::kRange, range_header);
 }
+
+#if BUILDFLAG(IS_ANDROID)
+struct CreateIntermediateUriResult {
+ public:
+  CreateIntermediateUriResult(const base::FilePath& content_uri,
+                              const base::FilePath& file_name)
+      : content_uri(content_uri), file_name(file_name) {}
+
+  base::FilePath content_uri;
+  base::FilePath file_name;
+};
+
+CreateIntermediateUriResult CreateIntermediateUri(
+    const GURL& original_url,
+    const GURL& referrer_url,
+    const base::FilePath& current_path,
+    const base::FilePath& suggested_name,
+    const std::string& mime_type) {
+  base::FilePath content_path =
+      current_path.IsContentUri() && base::ContentUriExists(current_path)
+          ? current_path
+          : DownloadCollectionBridge::CreateIntermediateUriForPublish(
+                original_url, referrer_url, suggested_name, mime_type);
+  base::FilePath file_name;
+  if (!content_path.empty()) {
+    file_name = DownloadCollectionBridge::GetDisplayName(content_path);
+  }
+  if (file_name.empty())
+    file_name = suggested_name;
+  return CreateIntermediateUriResult(content_path, file_name);
+}
+
+void OnInterMediateUriCreated(LocalPathCallback callback,
+                              const CreateIntermediateUriResult& result) {
+  std::move(callback).Run(result.content_uri, result.file_name);
+}
+#endif  // BUILDFLAG(IS_ANDROID)
 
 }  // namespace
 
@@ -349,16 +386,19 @@ std::unique_ptr<network::ResourceRequest> CreateResourceRequest(
     // cross-site URL has been visited before.
     url::Origin origin = url::Origin::Create(params->url());
     request->trusted_params->isolation_info = net::IsolationInfo::Create(
-        net::IsolationInfo::RequestType::kMainFrame, origin, origin,
-        net::SiteForCookies::FromOrigin(origin));
+        params->update_first_party_url_on_redirect()
+            ? net::IsolationInfo::RequestType::kMainFrame
+            : net::IsolationInfo::RequestType::kOther,
+        origin, origin, net::SiteForCookies::FromOrigin(origin));
     request->site_for_cookies = net::SiteForCookies::FromUrl(params->url());
   }
 
   request->do_not_prompt_for_login = params->do_not_prompt_for_login();
   request->referrer = params->referrer();
   request->referrer_policy = params->referrer_policy();
-  request->is_main_frame = true;
-  request->update_first_party_url_on_redirect = true;
+  request->is_outermost_main_frame = true;
+  request->update_first_party_url_on_redirect =
+      params->update_first_party_url_on_redirect();
 
   // Downloads should be treated as navigations from Fetch spec perspective.
   // See also:
@@ -481,7 +521,8 @@ DownloadDBEntry CreateDownloadDBEntryFromItem(const DownloadItemImpl& item) {
   InProgressInfo in_progress_info;
   in_progress_info.url_chain = item.GetUrlChain();
   in_progress_info.referrer_url = item.GetReferrerUrl();
-  in_progress_info.site_url = item.GetSiteUrl();
+  in_progress_info.serialized_embedder_download_data =
+      item.GetSerializedEmbedderDownloadData();
   in_progress_info.tab_url = item.GetTabUrl();
   in_progress_info.tab_referrer_url = item.GetTabReferrerUrl();
   in_progress_info.fetch_error_body = item.fetch_error_body();
@@ -507,7 +548,6 @@ DownloadDBEntry CreateDownloadDBEntryFromItem(const DownloadItemImpl& item) {
   in_progress_info.metered = item.AllowMetered();
   in_progress_info.bytes_wasted = item.GetBytesWasted();
   in_progress_info.auto_resume_count = item.GetAutoResumeCount();
-  in_progress_info.download_schedule = item.GetDownloadSchedule();
   in_progress_info.credentials_mode = item.GetCredentialsMode();
   auto range_request_offset = item.GetRangeRequestOffset();
   in_progress_info.range_request_from = range_request_offset.first;
@@ -733,6 +773,30 @@ int GetDownloadFileBufferSize() {
   return base::GetFieldTrialParamByFeatureAsInt(
       features::kAllowFileBufferSizeControl, kDownloadFileBufferSizeFinchKey,
       kDefaultDownloadFileBufferSize);
+}
+
+void DetermineLocalPath(DownloadItem* download,
+                        const base::FilePath& virtual_path,
+                        LocalPathCallback callback) {
+#if BUILDFLAG(IS_ANDROID)
+  if ((!download->IsTransient() &&
+       DownloadCollectionBridge::ShouldPublishDownload(virtual_path)) ||
+      virtual_path.IsContentUri()) {
+    GetDownloadTaskRunner()->PostTaskAndReplyWithResult(
+        FROM_HERE,
+        base::BindOnce(&CreateIntermediateUri,
+                       // Safe because we control download file lifetime.
+                       download->GetOriginalUrl(), download->GetReferrerUrl(),
+                       virtual_path,
+                       virtual_path.IsContentUri()
+                           ? download->GetFileNameToReportUser()
+                           : virtual_path.BaseName(),
+                       download->GetMimeType()),
+        base::BindOnce(&OnInterMediateUriCreated, std::move(callback)));
+    return;
+  }
+#endif  // BUILDFLAG(IS_ANDROID)
+  std::move(callback).Run(virtual_path, base::FilePath());
 }
 
 }  // namespace download

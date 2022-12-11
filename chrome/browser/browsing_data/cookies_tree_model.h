@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,8 +33,6 @@ class CookieTreeIndexedDBNode;
 class CookieTreeIndexedDBsNode;
 class CookieTreeLocalStorageNode;
 class CookieTreeLocalStoragesNode;
-class CookieTreeMediaLicenseNode;
-class CookieTreeMediaLicensesNode;
 class CookieTreeQuotaNode;
 class CookieTreeServiceWorkerNode;
 class CookieTreeServiceWorkersNode;
@@ -90,8 +88,6 @@ class CookieTreeNode : public ui::TreeNode<CookieTreeNode> {
       TYPE_SHARED_WORKER,     // This is used for CookieTreeSharedWorkerNode.
       TYPE_CACHE_STORAGES,    // This is used for CookieTreeCacheStoragesNode.
       TYPE_CACHE_STORAGE,     // This is used for CookieTreeCacheStorageNode.
-      TYPE_MEDIA_LICENSES,    // This is used for CookieTreeMediaLicensesNode.
-      TYPE_MEDIA_LICENSE,     // This is used for CookieTreeMediaLicenseNode.
     };
 
     DetailedInfo();
@@ -119,8 +115,6 @@ class CookieTreeNode : public ui::TreeNode<CookieTreeNode> {
             shared_worker);
     DetailedInfo& InitCacheStorage(
         const content::StorageUsageInfo* storage_usage_info);
-    DetailedInfo& InitMediaLicense(
-        const content::StorageUsageInfo* storage_usage_info);
 
     NodeType node_type;
     url::Origin origin;
@@ -133,7 +127,6 @@ class CookieTreeNode : public ui::TreeNode<CookieTreeNode> {
     raw_ptr<const BrowsingDataQuotaHelper::QuotaInfo> quota_info = nullptr;
     raw_ptr<const browsing_data::SharedWorkerHelper::SharedWorkerInfo>
         shared_worker_info = nullptr;
-    raw_ptr<const content::StorageUsageInfo> media_license_usage_info = nullptr;
   };
 
   CookieTreeNode() {}
@@ -224,7 +217,6 @@ class CookieTreeHostNode : public CookieTreeNode {
   CookieTreeCacheStoragesNode* GetOrCreateCacheStoragesNode();
   CookieTreeQuotaNode* UpdateOrCreateQuotaNode(
       std::list<BrowsingDataQuotaHelper::QuotaInfo>::iterator quota_info);
-  CookieTreeMediaLicensesNode* GetOrCreateMediaLicensesNode();
 
   std::string canonicalized_host() const { return canonicalized_host_; }
 
@@ -246,17 +238,20 @@ class CookieTreeHostNode : public CookieTreeNode {
   // the COOKIES node to add children. Checking each child and interrogating
   // them to see if they are a COOKIES, DATABASES, etc node seems
   // less preferable than storing an extra pointer per origin.
-  raw_ptr<CookieTreeCookiesNode> cookies_child_ = nullptr;
-  raw_ptr<CookieTreeDatabasesNode> databases_child_ = nullptr;
-  raw_ptr<CookieTreeLocalStoragesNode> local_storages_child_ = nullptr;
-  raw_ptr<CookieTreeSessionStoragesNode> session_storages_child_ = nullptr;
-  raw_ptr<CookieTreeIndexedDBsNode> indexed_dbs_child_ = nullptr;
+  raw_ptr<CookieTreeCookiesNode, DanglingUntriaged> cookies_child_ = nullptr;
+  raw_ptr<CookieTreeDatabasesNode, DanglingUntriaged> databases_child_ =
+      nullptr;
+  raw_ptr<CookieTreeLocalStoragesNode, DanglingUntriaged>
+      local_storages_child_ = nullptr;
+  raw_ptr<CookieTreeSessionStoragesNode, DanglingUntriaged>
+      session_storages_child_ = nullptr;
+  raw_ptr<CookieTreeIndexedDBsNode, DanglingUntriaged> indexed_dbs_child_ =
+      nullptr;
   raw_ptr<CookieTreeFileSystemsNode> file_systems_child_ = nullptr;
-  raw_ptr<CookieTreeQuotaNode> quota_child_ = nullptr;
+  raw_ptr<CookieTreeQuotaNode, DanglingUntriaged> quota_child_ = nullptr;
   raw_ptr<CookieTreeServiceWorkersNode> service_workers_child_ = nullptr;
   raw_ptr<CookieTreeSharedWorkersNode> shared_workers_child_ = nullptr;
   raw_ptr<CookieTreeCacheStoragesNode> cache_storages_child_ = nullptr;
-  raw_ptr<CookieTreeMediaLicensesNode> media_licenses_child_ = nullptr;
 
   // The URL for which this node was initially created.
   GURL url_;
@@ -313,17 +308,10 @@ class CookiesTreeModel : public ui::TreeNodeModel<CookieTreeNode> {
     bool batch_in_progress_ = false;
   };
 
-  // ui::TreeModel methods:
-  // Returns the set of icons for the nodes in the tree. You only need override
-  // this if you don't want to use the default folder icons.
-  void GetIcons(std::vector<gfx::ImageSkia>* icons) override;
+  // ui::TreeModel:
+  void GetIcons(std::vector<ui::ImageModel>* icons) override;
+  absl::optional<size_t> GetIconIndex(ui::TreeModelNode* node) override;
 
-  // Returns the index of the icon to use for |node|. Return -1 to use the
-  // default icon. The index is relative to the list of icons returned from
-  // GetIcons.
-  int GetIconIndex(ui::TreeModelNode* node) override;
-
-  // CookiesTreeModel methods:
   void DeleteAllStoredObjects();
 
   // Deletes a specific node in the tree, identified by |cookie_node|, and its
@@ -361,7 +349,6 @@ class CookiesTreeModel : public ui::TreeNodeModel<CookieTreeNode> {
   void PopulateServiceWorkerUsageInfo(LocalDataContainer* container);
   void PopulateSharedWorkerInfo(LocalDataContainer* container);
   void PopulateCacheStorageUsageInfo(LocalDataContainer* container);
-  void PopulateMediaLicenseInfo(LocalDataContainer* container);
 
   // Returns the Access Context Audit service provided to the cookies tree model
   // as part of the constructor, or nullptr if no service was provided.
@@ -380,14 +367,16 @@ class CookiesTreeModel : public ui::TreeNodeModel<CookieTreeNode> {
   void SetBatchExpectation(int batches_expected, bool reset);
 
   // Create CookiesTreeModel by profile info.
-  static std::unique_ptr<CookiesTreeModel> CreateForProfile(Profile* profile);
+  // DEPRECATED(crbug.com/1271155): The cookies tree model is slowly being
+  // deprecated, during this process the semantics of the model are nuanced
+  // w.r.t partitioned storage, and should not be used in new locations.
+  static std::unique_ptr<CookiesTreeModel> CreateForProfileDeprecated(
+      Profile* profile);
 
   static browsing_data::CookieHelper::IsDeletionDisabledCallback
   GetCookieDeletionDisabledCallback(Profile* profile);
 
  private:
-  enum CookieIconIndex { COOKIE = 0, DATABASE = 1 };
-
   // Record that one batch has been delivered.
   void RecordBatchSeen();
 
@@ -435,9 +424,6 @@ class CookiesTreeModel : public ui::TreeNodeModel<CookieTreeNode> {
       LocalDataContainer* container,
       ScopedBatchUpdateNotifier* notifier,
       const std::u16string& filter);
-  void PopulateMediaLicenseInfoWithFilter(LocalDataContainer* container,
-                                          ScopedBatchUpdateNotifier* notifier,
-                                          const std::u16string& filter);
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   // The extension special storage policy; see ExtensionsProtectingNode() above.

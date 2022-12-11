@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "net/base/io_buffer.h"
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/socket.h"
@@ -23,7 +22,8 @@ WebSocketClientSocketHandleAdapter::WebSocketClientSocketHandleAdapter(
     std::unique_ptr<ClientSocketHandle> connection)
     : connection_(std::move(connection)) {}
 
-WebSocketClientSocketHandleAdapter::~WebSocketClientSocketHandleAdapter() {}
+WebSocketClientSocketHandleAdapter::~WebSocketClientSocketHandleAdapter() =
+    default;
 
 int WebSocketClientSocketHandleAdapter::Read(IOBuffer* buf,
                                              int buf_len,
@@ -52,12 +52,7 @@ WebSocketSpdyStreamAdapter::WebSocketSpdyStreamAdapter(
     base::WeakPtr<SpdyStream> stream,
     Delegate* delegate,
     NetLogWithSource net_log)
-    : headers_sent_(false),
-      stream_(stream),
-      stream_error_(ERR_CONNECTION_CLOSED),
-      delegate_(delegate),
-      write_length_(0),
-      net_log_(net_log) {
+    : stream_(stream), delegate_(delegate), net_log_(net_log) {
   stream_->SetDelegate(this);
 }
 
@@ -219,7 +214,7 @@ int WebSocketSpdyStreamAdapter::CopySavedReadDataIntoBuffer() {
   // delayed until all buffered data are read.  PostTask so that Read() can
   // return beforehand.
   if (!stream_ && delegate_ && read_data_.IsEmpty()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&WebSocketSpdyStreamAdapter::CallDelegateOnClose,
                        weak_factory_.GetWeakPtr()));

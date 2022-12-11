@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,18 +9,18 @@
 
 #include "base/bind.h"
 #include "base/containers/contains.h"
-#include "base/containers/flat_set.h"
+#include "base/containers/fixed_flat_set.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_util.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/supervised_user/kids_management_url_checker_client.h"
 #include "chrome/browser/supervised_user/supervised_user_denylist.h"
 #include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
+#include "chrome/common/url_constants.h"
 #include "components/url_matcher/url_util.h"
 #include "components/variations/service/variations_service.h"
 #include "content/public/browser/web_contents.h"
@@ -87,12 +87,26 @@ bool IsNonStandardUrlScheme(const GURL& effective_url) {
 
 bool IsAlwaysAllowedHost(const GURL& effective_url) {
   // Allow navigations to allowed origins.
-  static const char* const kAllowedUrls[] = {
-      "families.google.com", "familylink.google.com", "accounts.google.com",
-      "myaccount.google.com"};
+  constexpr auto kAllowedHosts = base::MakeFixedFlatSet<base::StringPiece>(
+      {"accounts.google.com", "families.google.com", "familylink.google.com",
+       "myaccount.google.com", "policies.google.com", "support.google.com"});
 
-  for (const char* allowedUrl : kAllowedUrls) {
-    if (allowedUrl == effective_url.host_piece())
+  return base::Contains(kAllowedHosts, effective_url.host_piece());
+}
+
+bool IsAlwaysAllowedUrlPrefix(const GURL& effective_url) {
+  // A list of allowed URL prefixes.
+  //
+  // Consider using url_matcher::CreateURLPrefixCondition (initialized once at
+  // startup) for performance if the set of allowed URL prefixes grows large.
+  static const char* const kAllowedUrlPrefixes[] = {
+      // The Chrome sync dashboard is linked to from within Chrome settings.
+      // Allow both the initial URL that is loaded, and the URL to which it
+      // redirects.
+      chrome::kSyncGoogleDashboardURL, "https://chrome.google.com/sync"};
+
+  for (const char* allowedUrlPrefix : kAllowedUrlPrefixes) {
+    if (base::StartsWith(effective_url.spec(), allowedUrlPrefix))
       return true;
   }
   return false;
@@ -118,8 +132,8 @@ bool IsCrxWebstoreOrDownloadUrl(const GURL& effective_url) {
       "https://chrome.google.com/webstore/download/"};
 
   // Chrome Webstore.
-  if (extension_urls::GetWebstoreLaunchURL().host() ==
-      url_matcher::util::Normalize(effective_url).host()) {
+  if (extension_urls::IsWebstoreDomain(
+          url_matcher::util::Normalize(effective_url))) {
     return true;
   }
 
@@ -158,29 +172,25 @@ namespace {
 const char kManagedSiteListConflictHistogramName[] =
     "FamilyUser.ManagedSiteList.Conflict";
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
 // UMA histogram FamilyUser.WebFilterType
 // Reports WebFilterType which indicates web filter behaviour are used for
-// current Family Link user on Chrome OS.
+// current Family Link user.
 constexpr char kWebFilterTypeHistogramName[] = "FamilyUser.WebFilterType";
 
 // UMA histogram FamilyUser.ManualSiteListType
 // Reports ManualSiteListType which indicates approved list and blocked list
-// usage for current Family Link user on Chrome OS.
+// usage for current Family Link user.
 constexpr char kManagedSiteListHistogramName[] = "FamilyUser.ManagedSiteList";
 
 // UMA histogram FamilyUser.ManagedSiteListCount.Approved
-// Reports the number of approved urls and domains for current Family Link user
-// on Chrome OS.
+// Reports the number of approved urls and domains for current Family Link user.
 constexpr char kApprovedSitesCountHistogramName[] =
     "FamilyUser.ManagedSiteListCount.Approved";
 
 // UMA histogram FamilyUser.ManagedSiteListCount.Blocked
-// Reports the number of blocked urls and domains for current Family Link user
-// on Chrome OS.
+// Reports the number of blocked urls and domains for current Family Link user.
 constexpr char kBlockedSitesCountHistogramName[] =
     "FamilyUser.ManagedSiteListCount.Blocked";
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }  // namespace
 
 SupervisedUserURLFilter::SupervisedUserURLFilter()
@@ -194,7 +204,6 @@ SupervisedUserURLFilter::~SupervisedUserURLFilter() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
 // static
 const char* SupervisedUserURLFilter::GetWebFilterTypeHistogramNameForTest() {
   return kWebFilterTypeHistogramName;
@@ -217,8 +226,6 @@ SupervisedUserURLFilter::GetBlockedSitesCountHistogramNameForTest() {
   return kBlockedSitesCountHistogramName;
 }
 
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-
 // static
 const char*
 SupervisedUserURLFilter::GetManagedSiteListConflictHistogramNameForTest() {
@@ -240,8 +247,8 @@ bool SupervisedUserURLFilter::ShouldSkipParentManualAllowlistFiltering(
 // static
 SupervisedUserURLFilter::FilteringBehavior
 SupervisedUserURLFilter::BehaviorFromInt(int behavior_value) {
-  DCHECK_GE(behavior_value, ALLOW);
-  DCHECK_LE(behavior_value, BLOCK);
+  DCHECK(behavior_value == ALLOW || behavior_value == BLOCK)
+      << "SupervisedUserURLFilter value not supported: " << behavior_value;
   return static_cast<FilteringBehavior>(behavior_value);
 }
 
@@ -320,6 +327,7 @@ bool SupervisedUserURLFilter::IsExemptedFromGuardianApproval(
   bool exempted_from_guardian_approval =
       IsNonStandardUrlScheme(effective_url) ||
       IsAlwaysAllowedHost(effective_url) ||
+      IsAlwaysAllowedUrlPrefix(effective_url) ||
       IsPlayStoreTermsOfServiceUrl(effective_url);
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -549,7 +557,6 @@ void SupervisedUserURLFilter::SetBlockingTaskRunnerForTesting(
   blocking_task_runner_ = task_runner;
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
 SupervisedUserURLFilter::WebFilterType
 SupervisedUserURLFilter::GetWebFilterType() const {
   // If the default filtering behavior is not block, it means the web filter
@@ -620,7 +627,6 @@ void SupervisedUserURLFilter::ReportManagedSiteListMetrics() const {
 void SupervisedUserURLFilter::SetFilterInitialized(bool is_filter_initialized) {
   is_filter_initialized_ = is_filter_initialized;
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 bool SupervisedUserURLFilter::RunAsyncChecker(
     const GURL& url,

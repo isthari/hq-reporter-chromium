@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_ASH_CROSAPI_KIOSK_SESSION_SERVICE_ASH_H_
 
 #include "base/callback.h"
-#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
 #include "chromeos/crosapi/mojom/kiosk_session_service.mojom.h"
@@ -28,6 +27,10 @@ class KioskSessionServiceAsh : public mojom::KioskSessionService {
 
   // crosapi::mojom::KioskSessionService:
   void AttemptUserExit() override;
+
+  void RestartDeviceDeprecated(
+      const std::string& description,
+      RestartDeviceDeprecatedCallback callback) override;
 
  private:
   // Any number of crosapi clients can connect to this class.

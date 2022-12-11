@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -94,8 +94,8 @@ class RTree {
  private:
   // These values were empirically determined to produce reasonable performance
   // in most cases.
-  enum { kMinChildren = 6 };
-  enum { kMaxChildren = 11 };
+  static constexpr int kMinChildren = 6;
+  static constexpr int kMaxChildren = 11;
 
   template <typename U>
   struct Node;
@@ -152,8 +152,8 @@ class RTree {
 
   // This is the count of data elements (rather than total nodes in the tree)
   size_t num_data_elements_ = 0u;
-  Branch<T> root_;
   std::vector<Node<T>> nodes_;
+  Branch<T> root_;
 
   // If false, the rtree encountered overflow does not have reliable bounds.
   bool has_valid_bounds_ = true;
@@ -241,11 +241,9 @@ auto RTree<T>::BuildRecursive(std::vector<Branch<T>>* branches, int level)
   // We might sort our branches here, but we expect Blink gives us a reasonable
   // x,y order. Skipping a call to sort (in Y) here resulted in a 17% win for
   // recording with negligible difference in playback speed.
-  int num_branches = static_cast<int>(branches->size() / kMaxChildren);
   int remainder = static_cast<int>(branches->size() % kMaxChildren);
 
   if (remainder > 0) {
-    ++num_branches;
     // If the remainder isn't enough to fill a node, we'll add fewer nodes to
     // other branches.
     if (remainder >= kMinChildren)
@@ -434,6 +432,7 @@ void RTree<T>::GetAllBoundsRecursive(Node<T>* node,
 template <typename T>
 void RTree<T>::Reset() {
   num_data_elements_ = 0;
+  root_.subtree = nullptr;
   nodes_.clear();
   root_.bounds = gfx::Rect();
   has_valid_bounds_ = true;

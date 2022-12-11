@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,7 @@
 
 #include <memory>
 
-#include "ash/components/login/auth/user_context.h"
-#include "ash/components/proximity_auth/proximity_auth_local_state_pref_manager.h"
-#include "ash/components/proximity_auth/smart_lock_metrics_recorder.h"
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/smartlock_state.h"
 #include "base/base64url.h"
 #include "base/bind.h"
@@ -20,7 +18,7 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/system/sys_info.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/login/easy_unlock/easy_unlock_challenge_wrapper.h"
 #include "chrome/browser/ash/login/easy_unlock/easy_unlock_key_manager.h"
@@ -30,19 +28,21 @@
 #include "chrome/browser/ash/login/session/user_session_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/components/multidevice/logging/logging.h"
-#include "chromeos/components/multidevice/remote_device.h"
-#include "chromeos/components/multidevice/remote_device_cache.h"
-#include "chromeos/components/multidevice/remote_device_ref.h"
-#include "chromeos/components/multidevice/software_feature_state.h"
-#include "chromeos/login/login_state/login_state.h"
-#include "chromeos/tpm/tpm_token_loader.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
+#include "chromeos/ash/components/login/login_state/login_state.h"
+#include "chromeos/ash/components/multidevice/logging/logging.h"
+#include "chromeos/ash/components/multidevice/remote_device.h"
+#include "chromeos/ash/components/multidevice/remote_device_cache.h"
+#include "chromeos/ash/components/multidevice/remote_device_ref.h"
+#include "chromeos/ash/components/multidevice/software_feature_state.h"
+#include "chromeos/ash/components/proximity_auth/proximity_auth_local_state_pref_manager.h"
+#include "chromeos/ash/components/proximity_auth/smart_lock_metrics_recorder.h"
+#include "chromeos/ash/components/tpm/tpm_token_loader.h"
+#include "chromeos/ash/services/secure_channel/public/cpp/client/secure_channel_client.h"
 
 namespace ash {
-namespace {
 
-// TODO(https://crbug.com/1164001): remove after moving to ash::
-using ::chromeos::TPMTokenLoader;
+namespace {
 
 // The maximum allowed backoff interval when waiting for cryptohome to start.
 uint32_t kMaxCryptohomeBackoffIntervalMs = 10000u;
@@ -86,7 +86,7 @@ void RetryDataLoadOnError(
     return;
   }
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&LoadDataForUser, account_id, next_backoff_ms,
                      std::move(callback)),
@@ -155,8 +155,7 @@ std::vector<multidevice::BeaconSeed> DeserializeBeaconSeeds(
       continue;
     }
 
-    beacon_seeds.push_back(
-        chromeos::multidevice::FromCryptAuthSeed(beacon_seed));
+    beacon_seeds.push_back(multidevice::FromCryptAuthSeed(beacon_seed));
   }
 
   PA_LOG(VERBOSE) << "Deserialized " << beacon_seeds.size() << " BeaconSeeds.";
@@ -226,7 +225,7 @@ AccountId EasyUnlockServiceSignin::GetAccountId() const {
   return account_id_;
 }
 
-const base::ListValue* EasyUnlockServiceSignin::GetRemoteDevices() const {
+const base::Value::List* EasyUnlockServiceSignin::GetRemoteDevices() const {
   const UserData* data = FindLoadedDataForCurrentUser();
   if (!data)
     return nullptr;
@@ -306,7 +305,6 @@ void EasyUnlockServiceSignin::InitializeInternal() {
 
   proximity_auth::ScreenlockBridge* screenlock_bridge =
       proximity_auth::ScreenlockBridge::Get();
-  screenlock_bridge->AddObserver(this);
   if (screenlock_bridge->focused_account_id().is_valid())
     OnFocusedUserChanged(screenlock_bridge->focused_account_id());
 }
@@ -319,10 +317,8 @@ void EasyUnlockServiceSignin::ShutdownInternal() {
   remote_device_cache_.reset();
   challenge_wrapper_.reset();
   pref_manager_.reset();
-  StopFeatureUsageMetrics();
 
   weak_ptr_factory_.InvalidateWeakPtrs();
-  proximity_auth::ScreenlockBridge::Get()->RemoveObserver(this);
   user_data_.clear();
 }
 
@@ -333,16 +329,19 @@ bool EasyUnlockServiceSignin::IsAllowedInternal() const {
           pref_manager_->IsChromeOSLoginAllowed());
 }
 
-bool EasyUnlockServiceSignin::IsEligible() const {
-  return pref_manager_ && pref_manager_->IsSmartLockEligible();
-}
-
 bool EasyUnlockServiceSignin::IsEnabled() const {
   return pref_manager_ && pref_manager_->IsEasyUnlockEnabled();
 }
 
 bool EasyUnlockServiceSignin::IsChromeOSLoginEnabled() const {
   return pref_manager_ && pref_manager_->IsChromeOSLoginEnabled();
+}
+
+SmartLockState EasyUnlockServiceSignin::GetInitialSmartLockState() const {
+  if (IsChromeOSLoginEnabled())
+    return EasyUnlockService::GetInitialSmartLockState();
+
+  return SmartLockState::kDisabled;
 }
 
 void EasyUnlockServiceSignin::OnSuspendDoneInternal() {
@@ -357,8 +356,12 @@ void EasyUnlockServiceSignin::OnScreenDidLock(
       proximity_auth::ScreenlockBridge::LockHandler::SIGNIN_SCREEN)
     return;
 
-  // Update initial UI is when the account picker on login screen is ready.
-  ShowInitialUserPodState();
+  EasyUnlockService::OnScreenDidLock(screen_type);
+
+  if (!base::FeatureList::IsEnabled(features::kSmartLockUIRevamp)) {
+    // Update initial UI is when the account picker on login screen is ready.
+    ShowInitialUserPodState();
+  }
   user_pod_last_focused_timestamp_ = base::TimeTicks::Now();
 }
 
@@ -403,14 +406,18 @@ void EasyUnlockServiceSignin::OnFocusedUserChanged(
   SetProximityAuthDevices(account_id_, multidevice::RemoteDeviceRefList(),
                           absl::nullopt /* local_device */);
   ResetSmartLockState();
-  StartFeatureUsageMetrics();
 
   // Changing the "Active User" above changes the return values of IsAllowed()
   // and IsEnabled() below.
   if (!IsAllowed() || !IsEnabled())
     return;
 
-  ShowInitialUserPodState();
+  // Update initial UI is when the account picker on login screen is ready.
+  if (base::FeatureList::IsEnabled(features::kSmartLockUIRevamp)) {
+    ShowInitialSmartLockState();
+  } else {
+    ShowInitialUserPodState();
+  }
 
   // If there is a hardlock, then there is no point in loading the devices.
   SmartLockStateHandler::HardlockState hardlock_state;
@@ -622,6 +629,8 @@ EasyUnlockServiceSignin::FindLoadedDataForCurrentUser() const {
 }
 
 void EasyUnlockServiceSignin::ShowInitialUserPodState() {
+  DCHECK(!base::FeatureList::IsEnabled(features::kSmartLockUIRevamp));
+
   if (!IsAllowed() || !IsEnabled())
     return;
 

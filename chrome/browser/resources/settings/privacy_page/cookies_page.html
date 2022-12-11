@@ -108,6 +108,16 @@
               <iron-icon icon="settings:block"></iron-icon>
               <div class="secondary">$i18n{cookiePageBlockThirdBulTwo}</div>
             </div>
+            <template is="dom-if" if="[[enableFirstPartySetsUI_]]">
+              <settings-toggle-button
+                  id="firstPartySetsToggle"
+                  pref="{{prefs.privacy_sandbox.first_party_sets_enabled}}"
+                  label="$i18n{cookiePageFpsLabel}"
+                  sub-label="$i18n{cookiePageFpsSubLabel}"
+                  disabled="[[firstPartySetsToggleDisabled_(
+                      prefs.generated.cookie_primary_setting.value)]]">
+              </settings-toggle-button>
+            </template>
           </div>
         </settings-collapse-radio-button>
         <settings-collapse-radio-button id="blockAll"
@@ -135,6 +145,9 @@
     <settings-toggle-button id="clearOnExit" class="hr"
         pref="{{prefs.generated.cookie_session_only}}"
         label="$i18n{cookiePageClearOnExit}"
+<if expr="not chromeos_ash">
+        sub-label="[[getClearOnExitSubLabel_()]]"
+</if>
         on-settings-boolean-control-change="onClearOnExitChange_">
     </settings-toggle-button>
     <settings-do-not-track-toggle id="doNotTrack"
@@ -150,7 +163,7 @@
         on-settings-boolean-control-change="onNetworkPredictionChange_">
     </settings-toggle-button>
     <cr-link-row id="site-data-trigger" class="hr"
-        on-click="onSiteDataClick_" label="[[getSiteDataLabel_()]]"
+        on-click="onSiteDataClick_" label="$i18n{cookiePageAllSitesLink}"
         role-description="$i18n{subpageArrowRoleDescription}">
     </cr-link-row>
     <div id="exceptionHeader">
@@ -186,4 +199,3 @@
           target="_blank" tabindex="-1" aria-disabled="true"
           role="none"></a>
     </cr-toast>
-

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,9 +80,10 @@ class WebDialogBrowserTest : public InProcessBrowserTest {
 
   bool was_view_deleted() const { return !view_tracker_.view(); }
 
-  raw_ptr<views::WebDialogView> view_ = nullptr;
+  raw_ptr<views::WebDialogView, DanglingUntriaged> view_ = nullptr;
   bool web_dialog_delegate_destroyed_ = false;
-  raw_ptr<ui::test::TestWebDialogDelegate> delegate_ = nullptr;
+  raw_ptr<ui::test::TestWebDialogDelegate, DanglingUntriaged> delegate_ =
+      nullptr;
 
  private:
   views::ViewTracker view_tracker_;

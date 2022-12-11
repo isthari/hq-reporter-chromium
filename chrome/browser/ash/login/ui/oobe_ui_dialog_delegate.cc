@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,10 +20,11 @@
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/ui/ash/ash_util.h"
+#include "chrome/browser/ui/ash/login_screen_client_impl.h"
+#include "chrome/browser/ui/webui/ash/login/core_oobe_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
 #include "chrome/browser/ui/webui/chrome_web_contents_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/core_oobe_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/aura/window.h"
 #include "ui/base/accelerators/accelerator.h"
@@ -39,28 +40,10 @@
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 
-DEFINE_ENUM_CONVERTERS(
-    ash::OobeDialogPaddingMode,
-    {ash::OobeDialogPaddingMode::PADDING_AUTO, u"PADDING_AUTO"},
-    {ash::OobeDialogPaddingMode::PADDING_WIDE, u"PADDING_WIDE"},
-    {ash::OobeDialogPaddingMode::PADDING_NARROW, u"PADDING_NARROW"})
-
 namespace ash {
 namespace {
 
 constexpr char kGaiaURL[] = "chrome://oobe/gaia-signin";
-
-CoreOobeView::DialogPaddingMode ConvertDialogPaddingMode(
-    OobeDialogPaddingMode padding) {
-  switch (padding) {
-    case OobeDialogPaddingMode::PADDING_AUTO:
-      return CoreOobeView::DialogPaddingMode::MODE_AUTO;
-    case OobeDialogPaddingMode::PADDING_WIDE:
-      return CoreOobeView::DialogPaddingMode::MODE_WIDE;
-    case OobeDialogPaddingMode::PADDING_NARROW:
-      return CoreOobeView::DialogPaddingMode::MODE_NARROW;
-  }
-}
 
 }  // namespace
 
@@ -116,12 +99,6 @@ class OobeWebDialogView : public views::WebDialogView {
     web_contents()->FocusThroughTabTraversal(reverse);
     GetWidget()->Activate();
     web_contents()->Focus();
-
-    if (!GetOobeUI())
-      return;
-    CoreOobeView* view = GetOobeUI()->GetCoreOobeView();
-    if (view)
-      view->FocusReturned(reverse);
   }
 
  private:
@@ -177,8 +154,6 @@ class LayoutWidgetDelegateView : public views::WidgetDelegateView {
   }
   bool GetHasShelf() const { return has_shelf_; }
 
-  OobeDialogPaddingMode GetPadding() const { return padding_; }
-
   // views::WidgetDelegateView:
   ui::ModalType GetModalType() const override { return ui::MODAL_TYPE_WINDOW; }
 
@@ -187,7 +162,6 @@ class LayoutWidgetDelegateView : public views::WidgetDelegateView {
       for (views::View* child : children()) {
         child->SetBoundsRect(GetContentsBounds());
       }
-      padding_ = OobeDialogPaddingMode::PADDING_AUTO;
       return;
     }
 
@@ -197,7 +171,7 @@ class LayoutWidgetDelegateView : public views::WidgetDelegateView {
         display::Screen::GetScreen()->GetPrimaryDisplay().size();
     const bool is_horizontal = display_size.width() > display_size.height();
     CalculateOobeDialogBounds(GetContentsBounds(), shelf_height, is_horizontal,
-                              &bounds, &padding_);
+                              &bounds);
 
     for (views::View* child : children()) {
       child->SetBoundsRect(bounds);
@@ -215,15 +189,11 @@ class LayoutWidgetDelegateView : public views::WidgetDelegateView {
   // Indicates if ash shelf is displayed (and should be excluded from available
   // space).
   bool has_shelf_ = true;
-
-  // Tracks dialog margins after last size calculations.
-  OobeDialogPaddingMode padding_ = OobeDialogPaddingMode::PADDING_AUTO;
 };
 
 BEGIN_METADATA(LayoutWidgetDelegateView, views::WidgetDelegateView)
 ADD_PROPERTY_METADATA(bool, Fullscreen)
 ADD_PROPERTY_METADATA(bool, HasShelf)
-ADD_READONLY_PROPERTY_METADATA(OobeDialogPaddingMode, Padding)
 END_METADATA
 
 OobeUIDialogDelegate::OobeUIDialogDelegate(
@@ -282,6 +252,11 @@ OobeUIDialogDelegate::OobeUIDialogDelegate(
 
 OobeUIDialogDelegate::~OobeUIDialogDelegate() {
   view_observer_.Reset();
+  // Reset scoped observation of the captive portal before closing the captive
+  // portal delegate as it posts the task which can trigger
+  // `OnAfterCaptivePortalHidden` to be called after `OobeUIDialogDelegate`
+  // destruction.
+  captive_portal_observer_.Reset();
   if (captive_portal_delegate_)
     captive_portal_delegate_->Close();
   if (controller_)
@@ -301,12 +276,9 @@ void OobeUIDialogDelegate::SetShouldDisplayCaptivePortal(bool should_display) {
 }
 
 void OobeUIDialogDelegate::Show() {
-  if (LoginScreenClientImpl::Get()) {
-    scoped_system_tray_observer_ = std::make_unique<base::ScopedObservation<
-        LoginScreenClientImpl, SystemTrayObserver,
-        &LoginScreenClientImpl::AddSystemTrayObserver,
-        &LoginScreenClientImpl::RemoveSystemTrayObserver>>(this);
-    scoped_system_tray_observer_->Observe(LoginScreenClientImpl::Get());
+  if (auto* client = LoginScreenClientImpl::Get()) {
+    scoped_system_tray_observer_.Reset();
+    scoped_system_tray_observer_.Observe(client);
   }
   widget_->Show();
   if (state_ == OobeDialogState::HIDDEN) {
@@ -325,7 +297,7 @@ void OobeUIDialogDelegate::ShowFullScreen() {
 }
 
 void OobeUIDialogDelegate::Hide() {
-  scoped_system_tray_observer_.reset();
+  scoped_system_tray_observer_.Reset();
   if (!widget_)
     return;
   widget_->Hide();
@@ -363,6 +335,10 @@ OobeUI* OobeUIDialogDelegate::GetOobeUI() const {
 
 gfx::NativeWindow OobeUIDialogDelegate::GetNativeWindow() const {
   return widget_ ? widget_->GetNativeWindow() : nullptr;
+}
+
+views::Widget* OobeUIDialogDelegate::GetWebDialogWidget() const {
+  return widget_;
 }
 
 views::View* OobeUIDialogDelegate::GetWebDialogView() {
@@ -434,8 +410,6 @@ bool OobeUIDialogDelegate::AcceleratorPressed(
 void OobeUIDialogDelegate::OnViewBoundsChanged(views::View* observed_view) {
   if (!widget_)
     return;
-  GetOobeUI()->GetCoreOobeView()->SetDialogPaddingMode(
-      ConvertDialogPaddingMode(layout_view_->GetPadding()));
   GetOobeUI()->GetCoreOobeView()->UpdateClientAreaSize(
       layout_view_->GetContentsBounds().size());
 }
@@ -455,7 +429,8 @@ void OobeUIDialogDelegate::OnKeyboardVisibilityChanged(bool visible) {
 void OobeUIDialogDelegate::OnBeforeCaptivePortalShown() {
   should_display_captive_portal_ = false;
 
-  captive_portal_delegate_->Show();
+  if (captive_portal_delegate_)
+    captive_portal_delegate_->Show();
 }
 
 void OobeUIDialogDelegate::OnAfterCaptivePortalHidden() {
@@ -464,7 +439,8 @@ void OobeUIDialogDelegate::OnAfterCaptivePortalHidden() {
   // captive portal next time the OOBE dialog pops up.
   should_display_captive_portal_ = false;
 
-  captive_portal_delegate_->Hide();
+  if (captive_portal_delegate_)
+    captive_portal_delegate_->Hide();
 }
 
 void OobeUIDialogDelegate::OnCurrentScreenChanged(OobeScreenId current_screen,

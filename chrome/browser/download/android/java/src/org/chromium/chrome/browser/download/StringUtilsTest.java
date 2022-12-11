@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,9 +16,7 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.util.DownloadUtils;
 import org.chromium.components.offline_items_collection.OfflineItem.Progress;
 import org.chromium.components.offline_items_collection.OfflineItemProgressUnit;
@@ -27,7 +25,6 @@ import org.chromium.components.offline_items_collection.OfflineItemProgressUnit;
  * Tests of {@link StringUtils}.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
-@Features.DisableFeatures(ChromeFeatureList.DOWNLOAD_FILE_PROVIDER)
 @Batch(Batch.UNIT_TESTS)
 public class StringUtilsTest {
     @Test

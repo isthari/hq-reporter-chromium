@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "crypto/sha2.h"
 #include "crypto/signature_creator.h"
@@ -309,7 +309,7 @@ ContentHashResult::~ContentHashResult() = default;
 
 // ContentHashWaiter ----------------------------------------------------------
 ContentHashWaiter::ContentHashWaiter()
-    : reply_task_runner_(base::SequencedTaskRunnerHandle::Get()) {}
+    : reply_task_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {}
 ContentHashWaiter::~ContentHashWaiter() = default;
 
 std::unique_ptr<ContentHashResult> ContentHashWaiter::CreateAndWaitForCallback(

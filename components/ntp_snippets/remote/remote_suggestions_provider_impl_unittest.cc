@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -165,7 +165,7 @@ void ServeOneByOneImage(
     image_fetcher::ImageFetcherCallback* callback) {
   std::move(*image_data_callback)
       .Run("1-by-1-image-data", image_fetcher::RequestMetadata());
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(*callback), gfx::test::CreateImage(1, 1),
                      image_fetcher::RequestMetadata()));

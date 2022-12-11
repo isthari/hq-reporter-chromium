@@ -79,7 +79,7 @@ void LayoutSVGShape::StyleDidChange(StyleDifference diff,
 
   transform_uses_reference_box_ =
       TransformHelper::DependsOnReferenceBox(StyleRef());
-  SVGResources::UpdatePaints(*GetElement(), old_style, StyleRef());
+  SVGResources::UpdatePaints(*this, old_style, StyleRef());
 
   // Most of the stroke attributes (caps, joins, miters, width, etc.) will cause
   // a re-layout which will clear the stroke-path cache; however, there are a
@@ -98,7 +98,7 @@ void LayoutSVGShape::StyleDidChange(StyleDifference diff,
 
 void LayoutSVGShape::WillBeDestroyed() {
   NOT_DESTROYED();
-  SVGResources::ClearPaints(*GetElement(), Style());
+  SVGResources::ClearPaints(*this, Style());
   LayoutSVGModelObject::WillBeDestroyed();
 }
 
@@ -200,10 +200,9 @@ bool LayoutSVGShape::ShapeDependentStrokeContains(
     if (!HasPath())
       CreatePath();
 
-    StrokeData stroke_data;
-    SVGLayoutSupport::ApplyStrokeStyleToStrokeData(stroke_data, StyleRef(),
-                                                   *this, DashScaleFactor());
+    const Path* path = path_.get();
 
+    AffineTransform root_transform;
     if (HasNonScalingStroke()) {
       // The reason is similar to the above code about HasPath().
       if (!rare_data_)
@@ -211,16 +210,20 @@ bool LayoutSVGShape::ShapeDependentStrokeContains(
 
       // Un-scale to get back to the root-transform (cheaper than re-computing
       // the root transform from scratch).
-      AffineTransform root_transform;
       root_transform.Scale(StyleRef().EffectiveZoom())
-          .Multiply(NonScalingStrokeTransform());
+          .PreConcat(NonScalingStrokeTransform());
 
-      stroke_path_cache_ = std::make_unique<Path>(
-          NonScalingStrokePath().StrokePath(stroke_data, root_transform));
+      path = &NonScalingStrokePath();
     } else {
-      stroke_path_cache_ = std::make_unique<Path>(
-          path_->StrokePath(stroke_data, ComputeRootTransform()));
+      root_transform = ComputeRootTransform();
     }
+
+    StrokeData stroke_data;
+    SVGLayoutSupport::ApplyStrokeStyleToStrokeData(stroke_data, StyleRef(),
+                                                   *this, DashScaleFactor());
+
+    stroke_path_cache_ =
+        std::make_unique<Path>(path->StrokePath(stroke_data, root_transform));
   }
 
   DCHECK(stroke_path_cache_);
@@ -344,7 +347,8 @@ AffineTransform LayoutSVGShape::ComputeRootTransform() const {
   const LayoutObject* root = this;
   while (root && !root->IsSVGRoot())
     root = root->Parent();
-  return LocalToAncestorTransform(To<LayoutSVGRoot>(root)).ToAffineTransform();
+  return AffineTransform::FromTransform(
+      LocalToAncestorTransform(To<LayoutSVGRoot>(root)));
 }
 
 AffineTransform LayoutSVGShape::ComputeNonScalingStrokeTransform() const {
@@ -356,7 +360,7 @@ AffineTransform LayoutSVGShape::ComputeNonScalingStrokeTransform() const {
   // better to apply this effect during rasterization?
   AffineTransform host_transform;
   host_transform.Scale(1 / StyleRef().EffectiveZoom())
-      .Multiply(ComputeRootTransform());
+      .PreConcat(ComputeRootTransform());
 
   // Width of non-scaling stroke is independent of translation, so zero it out
   // here.
@@ -372,7 +376,7 @@ void LayoutSVGShape::UpdateNonScalingStrokeData() {
   const AffineTransform transform = ComputeNonScalingStrokeTransform();
   auto& rare_data = EnsureRareData();
   if (rare_data.non_scaling_stroke_transform_ != transform) {
-    SetShouldDoFullPaintInvalidation(PaintInvalidationReason::kStyle);
+    SetShouldDoFullPaintInvalidation();
     rare_data.non_scaling_stroke_transform_ = transform;
   }
 
@@ -388,11 +392,11 @@ void LayoutSVGShape::Paint(const PaintInfo& paint_info) const {
 bool LayoutSVGShape::NodeAtPoint(HitTestResult& result,
                                  const HitTestLocation& hit_test_location,
                                  const PhysicalOffset& accumulated_offset,
-                                 HitTestAction hit_test_action) {
+                                 HitTestPhase phase) {
   NOT_DESTROYED();
   DCHECK_EQ(accumulated_offset, PhysicalOffset());
   // We only draw in the foreground phase, so we only hit-test then.
-  if (hit_test_action != kHitTestForeground)
+  if (phase != HitTestPhase::kForeground)
     return false;
   if (IsShapeEmpty())
     return false;

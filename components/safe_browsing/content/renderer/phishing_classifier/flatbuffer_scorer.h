@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -43,26 +43,20 @@ class FlatBufferModelScorer : public Scorer {
   // Factory method which creates a new Scorer object by parsing the given
   // flatbuffer or tflite model. If parsing fails this method returns NULL.
   // Use this only if region is valid.
-  static FlatBufferModelScorer* Create(base::ReadOnlySharedMemoryRegion region,
-                                       base::File visual_tflite_model);
+  static std::unique_ptr<FlatBufferModelScorer> Create(
+      base::ReadOnlySharedMemoryRegion region,
+      base::File visual_tflite_model);
 
   double ComputeScore(const FeatureMap& features) const override;
 
-  void GetMatchingVisualTargets(
-      const SkBitmap& bitmap,
-      std::unique_ptr<ClientPhishingRequest> request,
-      base::OnceCallback<void(std::unique_ptr<ClientPhishingRequest>)> callback)
-      const override;
-
-// TODO(crbug/1278502): This is disabled as a temporary measure due to crashes.
-#if BUILDFLAG(BUILD_WITH_TFLITE_LIB) && !BUILDFLAG(IS_CHROMEOS) && \
-    !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(BUILD_WITH_TFLITE_LIB)
   void ApplyVisualTfLiteModel(
       const SkBitmap& bitmap,
-      base::OnceCallback<void(std::vector<double>)> callback) override;
+      base::OnceCallback<void(std::vector<double>)> callback) const override;
 #endif
 
   int model_version() const override;
+  int dom_model_version() const override;
   size_t max_words_per_term() const override;
   uint32_t murmurhash3_seed() const override;
   size_t max_shingles_per_page() const override;

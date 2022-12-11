@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,18 +16,18 @@
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/strings/escape.h"
 #include "chrome/browser/ash/drive/drive_integration_service.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_paths_internal.h"
-#include "chromeos/login/login_state/login_state.h"
+#include "chromeos/ash/components/login/login_state/login_state.h"
 #include "components/drive/drive_pref_names.h"
 #include "components/prefs/pref_service.h"
-#include "components/sync/driver/sync_driver_switches.h"
+#include "components/sync/base/command_line_switches.h"
 #include "components/user_manager/user.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/network_service_instance.h"
-#include "net/base/escape.h"
 #include "services/network/public/cpp/network_connection_tracker.h"
 
 using content::BrowserThread;
@@ -44,8 +44,7 @@ DriveIntegrationService* GetIntegrationServiceByProfile(Profile* profile) {
 }
 
 bool IsUnderDriveMountPoint(const base::FilePath& path) {
-  std::vector<base::FilePath::StringType> components;
-  path.GetComponents(&components);
+  std::vector<base::FilePath::StringType> components = path.GetComponents();
   if (components.size() < 4)
     return false;
   if (components[0] != FILE_PATH_LITERAL("/"))
@@ -56,7 +55,7 @@ bool IsUnderDriveMountPoint(const base::FilePath& path) {
     return false;
   static const base::FilePath::CharType kPrefix[] =
       FILE_PATH_LITERAL("drivefs");
-  if (components[3].compare(0, base::size(kPrefix) - 1, kPrefix) != 0)
+  if (components[3].compare(0, std::size(kPrefix) - 1, kPrefix) != 0)
     return false;
 
   return true;
@@ -80,7 +79,7 @@ bool IsDriveAvailableForProfile(Profile* profile) {
           ash::switches::kDisableGaiaServices)) {
     return false;
   }
-  if (!chromeos::LoginState::IsInitialized())
+  if (!ash::LoginState::IsInitialized())
     return false;
   // Disable Drive for incognito profiles.
   if (profile->IsOffTheRecord())
@@ -92,7 +91,7 @@ bool IsDriveAvailableForProfile(Profile* profile) {
 
   // Disable drive if sync is disabled by command line flag. Outside tests, this
   // only occurs in cases already handled by the gaia account check above.
-  if (!switches::IsSyncAllowedByFlag())
+  if (!syncer::IsSyncAllowedByFlag())
     return false;
 
   return true;

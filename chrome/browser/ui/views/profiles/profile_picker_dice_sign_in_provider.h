@@ -1,23 +1,23 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_UI_VIEWS_PROFILES_PROFILE_PICKER_DICE_SIGN_IN_PROVIDER_H_
 #define CHROME_BROWSER_UI_VIEWS_PROFILES_PROFILE_PICKER_DICE_SIGN_IN_PROVIDER_H_
 
-#include "base/callback.h"
+#include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
-#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/chrome_web_modal_dialog_manager_delegate.h"
 #include "chrome/browser/ui/views/profiles/profile_picker_web_contents_host.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/web_contents_delegate.h"
-#include "ui/color/color_provider_manager.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 struct CoreAccountInfo;
-class ProfilePickerDiceSignInToolbar;
+class ProfilePickerWebContentsHost;
 
 namespace content {
 struct ContextMenuParams;
@@ -25,11 +25,7 @@ class RenderFrameHost;
 class WebContents;
 }  // namespace content
 
-namespace ui {
-class ThemeProvider;
-}  // namespace ui
-
-// Class responsible for the GAIA sign-in within profile creation flow.
+// Class responsible for the GAIA sign-in within profile management flows.
 class ProfilePickerDiceSignInProvider
     : public content::WebContentsDelegate,
       public ChromeWebModalDialogManagerDelegate,
@@ -45,11 +41,16 @@ class ProfilePickerDiceSignInProvider
   // casing is not needed here.
   using SignedInCallback =
       base::OnceCallback<void(Profile* profile,
-                              std::unique_ptr<content::WebContents>,
-                              bool is_saml)>;
+                              bool is_saml,
+                              std::unique_ptr<content::WebContents>)>;
 
-  ProfilePickerDiceSignInProvider(ProfilePickerWebContentsHost* host,
-                                  ProfilePickerDiceSignInToolbar* toolbar);
+  // Creates a new provider that will render the Gaia sign-in flow in `host` for
+  // a profile at `profile_path`.
+  // If no `profile_path` is provided, a new profile (and associated directory)
+  // will be created.
+  explicit ProfilePickerDiceSignInProvider(
+      ProfilePickerWebContentsHost* host,
+      absl::optional<base::FilePath> profile_path = absl::nullopt);
   ~ProfilePickerDiceSignInProvider() override;
   ProfilePickerDiceSignInProvider(const ProfilePickerDiceSignInProvider&) =
       delete;
@@ -71,10 +72,11 @@ class ProfilePickerDiceSignInProvider
   // Navigates back in the sign-in flow if applicable.
   void NavigateBack();
 
-  // Returns theme provider based on the sign-in profile or nullptr if the flow
-  // is not yet initialized.
-  const ui::ThemeProvider* GetThemeProvider() const;
-  ui::ColorProviderManager::InitializerSupplier* GetCustomTheme() const;
+  // Returns whether the flow is initialized (i.e. whether `profile_` has been
+  // loaded).
+  bool IsInitialized() const;
+
+  content::WebContents* contents() const { return contents_.get(); }
 
  private:
   // content::WebContentsDelegate:
@@ -84,7 +86,7 @@ class ProfilePickerDiceSignInProvider
                       std::unique_ptr<content::WebContents> new_contents,
                       const GURL& target_url,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_rect,
+                      const blink::mojom::WindowFeatures& window_features,
                       bool user_gesture,
                       bool* was_blocked) override;
   bool HandleKeyboardEvent(
@@ -103,11 +105,10 @@ class ProfilePickerDiceSignInProvider
   void OnPrimaryAccountChanged(
       const signin::PrimaryAccountChangeEvent& event_details) override;
 
-  // Initializes the flow with the newly created profile.
-  void OnProfileCreated(
-      base::OnceCallback<void(bool)>& switch_finished_callback,
-      Profile* new_profile,
-      Profile::CreateStatus status);
+  // Initializes the flow with the newly created or loaded profile.
+  void OnProfileInitialized(
+      base::OnceCallback<void(bool)> switch_finished_callback,
+      Profile* new_profile);
 
   // Finishes the sign-in (if there is a primary account with refresh tokens).
   void FinishFlowIfSignedIn();
@@ -116,17 +117,13 @@ class ProfilePickerDiceSignInProvider
   // detected).
   void FinishFlow(bool is_saml);
 
-  // Returns whether the flow is initialized (i.e. whether `profile_` has been
-  // created).
-  bool IsInitialized() const;
-
   void OnSignInContentsFreedUp();
 
-  content::WebContents* contents() const { return contents_.get(); }
-
-  // The host and toolbar objects, must outlive this object.
+  // The host must outlive this object.
   const raw_ptr<ProfilePickerWebContentsHost> host_;
-  const raw_ptr<ProfilePickerDiceSignInToolbar> toolbar_;
+  // The path to the profile in which to perform the sign-in. If absent, a new
+  // profile will be created.
+  const absl::optional<base::FilePath> profile_path_;
   // Sign-in callback, valid until it's called.
   SignedInCallback callback_;
 
@@ -135,7 +132,7 @@ class ProfilePickerDiceSignInProvider
   // Prevent |profile_| from being destroyed first.
   std::unique_ptr<ScopedProfileKeepAlive> profile_keep_alive_;
 
-  // The web contents backed by `profile`. This is used for displaying the
+  // The web contents backed by `profile_`. This is used for displaying the
   // sign-in flow.
   std::unique_ptr<content::WebContents> contents_;
 

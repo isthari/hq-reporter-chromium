@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,17 +8,17 @@
 #include <memory>
 #include <string>
 
-#include "ash/services/nearby/public/mojom/firewall_hole.mojom.h"
 #include "base/containers/flat_set.h"
 #include "base/memory/scoped_refptr.h"
 #include "chrome/services/sharing/nearby/platform/wifi_lan_socket.h"
+#include "chromeos/ash/services/nearby/public/mojom/firewall_hole.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/shared_remote.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "net/base/ip_endpoint.h"
 #include "services/network/public/mojom/tcp_socket.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/nearby/src/cpp/platform/api/wifi_lan.h"
+#include "third_party/nearby/src/internal/platform/implementation/wifi_lan.h"
 
 namespace base {
 class SequencedTaskRunner;

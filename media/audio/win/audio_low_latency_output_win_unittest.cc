@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -107,7 +107,7 @@ class ReadFromFileAudioSource : public AudioOutputStream::AudioSourceCallback {
   // AudioOutputStream::AudioSourceCallback implementation.
   int OnMoreData(base::TimeDelta /* delay */,
                  base::TimeTicks /* delay_timestamp */,
-                 int /* prior_frames_skipped */,
+                 const AudioGlitchInfo& /* glitch_info */,
                  AudioBus* dest) override {
     // Store time difference between two successive callbacks in an array.
     // These values will be written to a file in the destructor.
@@ -204,11 +204,8 @@ class AudioOutputStreamWrapper {
 
  private:
   AudioOutputStream* CreateOutputStream() {
-    AudioParameters params(format_, channel_layout_, sample_rate_,
+    AudioParameters params(format_, {channel_layout_, channels_}, sample_rate_,
                            samples_per_packet_);
-    if (channel_layout_ == CHANNEL_LAYOUT_DISCRETE) {
-      params.set_channels_for_discrete(channels_);
-    }
     DVLOG(1) << params.AsHumanReadableString();
     AudioOutputStream* aos = audio_man_->MakeAudioOutputStream(
         params, std::string(), AudioManager::LogCallback());
@@ -375,8 +372,8 @@ TEST_F(WASAPIAudioOutputStreamTest, ValidPacketSize) {
 
   // Wait for the first callback and verify its parameters.  Ignore any
   // subsequent callbacks that might arrive.
-  EXPECT_CALL(source,
-              OnMoreData(HasValidDelay(packet_duration), _, 0, NotNull()))
+  EXPECT_CALL(source, OnMoreData(HasValidDelay(packet_duration), _,
+                                 AudioGlitchInfo(), NotNull()))
       .WillOnce(DoAll(QuitLoop(ThreadTaskRunnerHandle::Get()),
                       Return(aosw.samples_per_packet())))
       .WillRepeatedly(Return(0));
@@ -515,8 +512,8 @@ TEST_F(WASAPIAudioOutputStreamTest,
       static_cast<double>(aosw.samples_per_packet()) / aosw.sample_rate());
 
   // Wait for the first callback and verify its parameters.
-  EXPECT_CALL(source,
-              OnMoreData(HasValidDelay(packet_duration), _, 0, NotNull()))
+  EXPECT_CALL(source, OnMoreData(HasValidDelay(packet_duration), _,
+                                 AudioGlitchInfo(), NotNull()))
       .WillOnce(DoAll(QuitLoop(ThreadTaskRunnerHandle::Get()),
                       Return(aosw.samples_per_packet())))
       .WillRepeatedly(Return(aosw.samples_per_packet()));
@@ -549,8 +546,8 @@ TEST_F(WASAPIAudioOutputStreamTest,
       static_cast<double>(aosw.samples_per_packet()) / aosw.sample_rate());
 
   // Wait for the first callback and verify its parameters.
-  EXPECT_CALL(source,
-              OnMoreData(HasValidDelay(packet_duration), _, 0, NotNull()))
+  EXPECT_CALL(source, OnMoreData(HasValidDelay(packet_duration), _,
+                                 AudioGlitchInfo(), NotNull()))
       .WillOnce(DoAll(QuitLoop(ThreadTaskRunnerHandle::Get()),
                       Return(aosw.samples_per_packet())))
       .WillRepeatedly(Return(aosw.samples_per_packet()));

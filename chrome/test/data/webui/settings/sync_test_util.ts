@@ -1,40 +1,43 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {Route, Router, StoredAccount, SyncStatus} from 'chrome://settings/settings.js';
+import {Route, Router, SettingsRoutes, StoredAccount, SyncStatus} from 'chrome://settings/settings.js';
 // clang-format on
 
-type SyncAllPrefs = {
-  appsRegistered: boolean,
-  appsSynced: boolean,
-  autofillRegistered: boolean,
-  autofillSynced: boolean,
-  bookmarksRegistered: boolean,
-  bookmarksSynced: boolean,
-  encryptAllData: boolean,
-  customPassphraseAllowed: boolean,
-  extensionsRegistered: boolean,
-  extensionsSynced: boolean,
-  passphraseRequired: boolean,
-  passwordsRegistered: boolean,
-  passwordsSynced: boolean,
-  paymentsIntegrationEnabled: boolean,
-  preferencesRegistered: boolean,
-  preferencesSynced: boolean,
-  readingListRegistered: boolean,
-  readingListSynced: boolean,
-  syncAllDataTypes: boolean,
-  tabsRegistered: boolean,
-  tabsSynced: boolean,
-  themesRegistered: boolean,
-  themesSynced: boolean,
-  typedUrlsRegistered: boolean,
-  typedUrlsSynced: boolean,
-};
+interface SyncAllPrefs {
+  appsRegistered: boolean;
+  appsSynced: boolean;
+  autofillRegistered: boolean;
+  autofillSynced: boolean;
+  bookmarksRegistered: boolean;
+  bookmarksSynced: boolean;
+  encryptAllData: boolean;
+  customPassphraseAllowed: boolean;
+  extensionsRegistered: boolean;
+  extensionsSynced: boolean;
+  passphraseRequired: boolean;
+  passwordsRegistered: boolean;
+  passwordsSynced: boolean;
+  paymentsIntegrationEnabled: boolean;
+  preferencesRegistered: boolean;
+  preferencesSynced: boolean;
+  readingListRegistered: boolean;
+  readingListSynced: boolean;
+  savedTabGroupsRegistered: boolean;
+  savedTabGroupsSynced: boolean;
+  syncAllDataTypes: boolean;
+  tabsRegistered: boolean;
+  tabsSynced: boolean;
+  themesRegistered: boolean;
+  themesSynced: boolean;
+  typedUrlsRegistered: boolean;
+  typedUrlsSynced: boolean;
+  explicitPassphraseTime?: string;
+}
 
 /**
  * Returns sync prefs with everything synced and no passphrase required.
@@ -59,6 +62,8 @@ export function getSyncAllPrefs(): SyncAllPrefs {
     preferencesSynced: true,
     readingListRegistered: true,
     readingListSynced: true,
+    savedTabGroupsRegistered: true,
+    savedTabGroupsSynced: true,
     syncAllDataTypes: true,
     tabsRegistered: true,
     tabsSynced: true,
@@ -69,15 +74,15 @@ export function getSyncAllPrefs(): SyncAllPrefs {
   };
 }
 
-export type SyncRoutes = {
-  BASIC: Route,
-  PEOPLE: Route,
-  SYNC: Route,
-  SYNC_ADVANCED: Route,
-  SIGN_OUT: Route
-  ADVANCED: Route,
-  ABOUT: Route,
-};
+export interface SyncRoutes {
+  BASIC: Route;
+  PEOPLE: Route;
+  SYNC: Route;
+  SYNC_ADVANCED: Route;
+  SIGN_OUT: Route;
+  ADVANCED: Route;
+  ABOUT: Route;
+}
 
 export function setupRouterWithSyncRoutes() {
   const BASIC = new Route('/');
@@ -98,7 +103,8 @@ export function setupRouterWithSyncRoutes() {
     ABOUT: new Route('/help'),
   };
 
-  Router.resetInstanceForTesting(new Router(routes));
+  Router.resetInstanceForTesting(
+      new Router(routes as unknown as SettingsRoutes));
 }
 
 export function simulateSyncStatus(status: SyncStatus|undefined) {

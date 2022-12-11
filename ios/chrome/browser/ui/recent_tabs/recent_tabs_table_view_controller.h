@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,8 +18,9 @@ class DistantSession;
 
 @protocol ApplicationCommands;
 @protocol RecentTabsMenuProvider;
-@protocol RecentTabsTableViewControllerDelegate;
 @protocol RecentTabsPresentationDelegate;
+@protocol RecentTabsTableViewControllerDelegate;
+@protocol RecentTabsTableViewControllerUIDelegate;
 @protocol TableViewFaviconDataSource;
 
 @interface RecentTabsTableViewController
@@ -36,15 +37,22 @@ class DistantSession;
 @property(nonatomic, assign) WindowOpenDisposition restoredTabDisposition;
 // RecentTabsTableViewControllerDelegate delegate.
 @property(nonatomic, weak) id<RecentTabsTableViewControllerDelegate> delegate;
+// Delegate for UI-related events.
+@property(nonatomic, weak) id<RecentTabsTableViewControllerUIDelegate>
+    UIDelegate;
 // Whether the updates of the RecentTabs should be ignored. Setting this to NO
 // would trigger a reload of the TableView.
 @property(nonatomic, assign) BOOL preventUpdates;
+// Search term for filtering displayed items to those which match `searchTerm`.
+// Setting as null clears any search results and resets to showing all tabs.
+@property(nonatomic, copy) NSString* searchTerms;
 
 // Delegate to present the tab UI.
 @property(nonatomic, weak) id<RecentTabsPresentationDelegate>
     presentationDelegate;
 
-// Data source for images.
+// Data source for images. Must be set before the cells are configured for the
+// first time.
 @property(nonatomic, weak) id<TableViewFaviconDataSource> imageDataSource;
 
 // Provider of menu configurations for the recentTabs component.
@@ -57,12 +65,12 @@ class DistantSession;
 - (instancetype)init NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithStyle:(UITableViewStyle)style NS_UNAVAILABLE;
 
-// Returns Sessions corresponding to the given |sectionIdentifier|.
+// Returns Sessions corresponding to the given `sectionIdentifier`.
 - (synced_sessions::DistantSession const*)sessionForTableSectionWithIdentifier:
     (NSInteger)sectionIdentifer;
 
 // Hides Sessions corresponding to the given the table view's
-// |sectionIdentifier|.
+// `sectionIdentifier`.
 - (void)removeSessionAtTableSectionWithIdentifier:(NSInteger)sectionIdentifier;
 
 @end

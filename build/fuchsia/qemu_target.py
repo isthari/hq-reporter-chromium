@@ -1,4 +1,4 @@
-# Copyright 2018 The Chromium Authors. All rights reserved.
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -17,8 +17,8 @@ import subprocess
 import sys
 import tempfile
 
-from common import GetHostArchFromPlatform, GetEmuRootForPlatform
-from common import EnsurePathExists
+from common import EnsurePathExists, GetHostArchFromPlatform, \
+                   GetEmuRootForPlatform
 from qemu_image import ExecQemuImgWithRetry
 from target import FuchsiaTargetException
 
@@ -40,10 +40,11 @@ class QemuTarget(emu_target.EmuTarget):
 
   def __init__(self, out_dir, target_cpu, cpu_cores, require_kvm, ram_size_mb,
                logs_dir):
-    super(QemuTarget, self).__init__(out_dir, target_cpu, logs_dir)
+    super(QemuTarget, self).__init__(out_dir, target_cpu, logs_dir, None)
     self._cpu_cores=cpu_cores
     self._require_kvm=require_kvm
     self._ram_size_mb=ram_size_mb
+    self._host_ssh_port = None
 
   @staticmethod
   def CreateFromArgs(args):
@@ -75,18 +76,15 @@ class QemuTarget(emu_target.EmuTarget):
       return False
 
   def _BuildQemuConfig(self):
-    boot_data.AssertBootImagesExist(self._GetTargetSdkArch(), 'qemu')
+    boot_data.AssertBootImagesExist(self._pb_path)
 
     emu_command = [
         '-kernel',
-        EnsurePathExists(
-            boot_data.GetTargetFile('qemu-kernel.kernel',
-                                    self._GetTargetSdkArch(),
-                                    boot_data.TARGET_TYPE_QEMU)),
+        EnsurePathExists(boot_data.GetTargetFile(self._kernel, self._pb_path)),
         '-initrd',
         EnsurePathExists(
-            boot_data.GetBootImage(self._out_dir, self._GetTargetSdkArch(),
-                                   boot_data.TARGET_TYPE_QEMU)),
+            boot_data.GetBootImage(self._out_dir, self._pb_path,
+                                   self._ramdisk)),
         '-m',
         str(self._ram_size_mb),
         '-smp',
@@ -96,9 +94,9 @@ class QemuTarget(emu_target.EmuTarget):
         # any changes.
         '-snapshot',
         '-drive',
-        'file=%s,format=qcow2,if=none,id=blobstore,snapshot=on' %
-        _EnsureBlobstoreQcowAndReturnPath(self._out_dir,
-                                          self._GetTargetSdkArch()),
+        'file=%s,format=qcow2,if=none,id=blobstore,snapshot=on,cache=unsafe' %
+        _EnsureBlobstoreQcowAndReturnPath(self._out_dir, self._disk_image,
+                                          self._pb_path),
         '-object',
         'iothread,id=iothread0',
         '-device',
@@ -115,7 +113,8 @@ class QemuTarget(emu_target.EmuTarget):
     # Configure the machine to emulate, based on the target architecture.
     if self._target_cpu == 'arm64':
       emu_command.extend([
-          '-machine','virt,gic-version=3',
+          '-machine',
+          'virt-2.12,gic-version=host',
       ])
     else:
       emu_command.extend([
@@ -184,6 +183,37 @@ class QemuTarget(emu_target.EmuTarget):
     qemu_command.append('-nographic')
     return qemu_command
 
+  def _Shutdown(self):
+    if not self._emu_process:
+      logging.error('%s did not start' % (self.EMULATOR_NAME))
+      return
+    returncode = self._emu_process.poll()
+    if returncode == None:
+      logging.info('Shutting down %s' % (self.EMULATOR_NAME))
+      self._emu_process.kill()
+    elif returncode == 0:
+      logging.info('%s quit unexpectedly without errors' % self.EMULATOR_NAME)
+    elif returncode < 0:
+      logging.error('%s was terminated by signal %d' %
+                    (self.EMULATOR_NAME, -returncode))
+    else:
+      logging.error('%s quit unexpectedly with exit code %d' %
+                    (self.EMULATOR_NAME, returncode))
+
+  def _HasNetworking(self):
+    return False
+
+  def _IsEmuStillRunning(self):
+    if not self._emu_process:
+      return False
+    return os.waitpid(self._emu_process.pid, os.WNOHANG)[0] == 0
+
+  def _GetEndpoint(self):
+    if not self._IsEmuStillRunning():
+      raise Exception('%s quit unexpectedly.' % (self.EMULATOR_NAME))
+    return (self.LOCAL_ADDRESS, self._host_ssh_port)
+
+
 def _ComputeFileHash(filename):
   hasher = hashlib.md5()
   with open(filename, 'rb') as f:
@@ -195,15 +225,14 @@ def _ComputeFileHash(filename):
   return hasher.hexdigest()
 
 
-def _EnsureBlobstoreQcowAndReturnPath(out_dir, target_arch):
+def _EnsureBlobstoreQcowAndReturnPath(out_dir, kernel, image_path):
   """Returns a file containing the Fuchsia blobstore in a QCOW format,
   with extra buffer space added for growth."""
 
   qimg_tool = os.path.join(common.GetEmuRootForPlatform('qemu'),
                            'bin', 'qemu-img')
   fvm_tool = common.GetHostToolPathFromPlatform('fvm')
-  blobstore_path = boot_data.GetTargetFile('storage-full.blk', target_arch,
-                                           'qemu')
+  blobstore_path = boot_data.GetTargetFile(kernel, image_path)
   qcow_path = os.path.join(out_dir, 'gen', 'blobstore.qcow')
 
   # Check a hash of the blobstore to determine if we can re-use an existing

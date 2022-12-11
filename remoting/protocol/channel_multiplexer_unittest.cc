@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "net/base/completion_repeating_callback.h"
 #include "net/base/net_errors.h"
 #include "net/socket/socket.h"
@@ -30,8 +29,7 @@ using testing::_;
 using testing::AtMost;
 using testing::InvokeWithoutArgs;
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 namespace {
 
@@ -44,7 +42,7 @@ const char kTestChannelName2[] = "test2";
 
 
 void QuitCurrentThread() {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
 }
 
@@ -341,5 +339,4 @@ TEST_F(ChannelMultiplexerTest, SessionFail) {
   base::RunLoop().RunUntilIdle();
 }
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

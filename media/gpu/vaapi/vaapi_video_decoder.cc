@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "base/containers/fixed_flat_map.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -41,9 +42,9 @@
 #include "media/media_buildflags.h"
 #include "ui/gfx/buffer_format_util.h"
 
-#if BUILDFLAG(ENABLE_PLATFORM_HEVC_DECODING)
+#if BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
 #include "media/gpu/vaapi/h265_vaapi_video_decoder_delegate.h"
-#endif
+#endif  // BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // gn check does not account for BUILDFLAG(), so including these headers will
@@ -63,11 +64,11 @@ constexpr size_t kTimestampCacheSize = 128;
 absl::optional<VideoPixelFormat> GetPixelFormatForBitDepth(uint8_t bit_depth) {
   constexpr auto kSupportedBitDepthAndGfxFormats = base::MakeFixedFlatMap<
       uint8_t, gfx::BufferFormat>({
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
     {8u, gfx::BufferFormat::YUV_420_BIPLANAR}, {10u, gfx::BufferFormat::P010},
 #else
     {8u, gfx::BufferFormat::RGBX_8888},
-#endif  // defined(USE_OZONE)
+#endif  // BUILDFLAG(IS_OZONE)
   });
   if (!base::Contains(kSupportedBitDepthAndGfxFormats, bit_depth)) {
     VLOGF(1) << "Unsupported bit depth: " << base::strict_cast<int>(bit_depth);
@@ -110,7 +111,8 @@ std::unique_ptr<VideoDecoderMixin> VaapiVideoDecoder::Create(
     scoped_refptr<base::SequencedTaskRunner> decoder_task_runner,
     base::WeakPtr<VideoDecoderMixin::Client> client) {
   const bool can_create_decoder =
-      num_instances_.Increment() < kMaxNumOfInstances;
+      num_instances_.Increment() < kMaxNumOfInstances ||
+      !base::FeatureList::IsEnabled(media::kLimitConcurrentDecoderInstances);
   if (!can_create_decoder) {
     num_instances_.Decrement();
     return nullptr;
@@ -273,14 +275,6 @@ void VaapiVideoDecoder::Initialize(const VideoDecoderConfig& config,
     transcryption_ = (VaapiWrapper::GetImplementationType() ==
                       VAImplementation::kMesaGallium);
 #endif
-#if BUILDFLAG(ENABLE_PLATFORM_HEVC_DECODING)
-  } else if (config.codec() == VideoCodec::kHEVC &&
-             !base::CommandLine::ForCurrentProcess()->HasSwitch(
-                 switches::kEnableClearHevcForTesting)) {
-    SetErrorState("clear HEVC content is not supported");
-    std::move(init_cb).Run(DecoderStatus::Codes::kUnsupportedEncryptionMode);
-    return;
-#endif
   }
 
   // Initialize VAAPI wrapper.
@@ -321,6 +315,7 @@ void VaapiVideoDecoder::Initialize(const VideoDecoderConfig& config,
   }
 
   aspect_ratio_ = config.aspect_ratio();
+  is_rtc_ = config.is_rtc();
 
   output_cb_ = std::move(output_cb);
   waiting_cb_ = std::move(waiting_cb);
@@ -350,7 +345,7 @@ void VaapiVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
   // If we're in the error state, immediately fail the decode task.
   if (state_ == State::kError) {
     // VideoDecoder interface: |decode_cb| can't be called from within Decode().
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(std::move(decode_cb), DecoderStatus::Codes::kFailed));
     return;
@@ -626,9 +621,11 @@ void VaapiVideoDecoder::ApplyResolutionChange() {
     // NOTE: Only use this for protected content as other requirements for using
     // it are tied to protected content.
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-    chromeos::ChromeOsCdmFactory::GetScreenResolutions(BindToCurrentLoop(
-        base::BindOnce(&VaapiVideoDecoder::ApplyResolutionChangeWithScreenSizes,
-                       weak_this_)));
+    cdm_context_ref_->GetCdmContext()
+        ->GetChromeOsCdmContext()
+        ->GetScreenResolutions(BindToCurrentLoop(base::BindOnce(
+            &VaapiVideoDecoder::ApplyResolutionChangeWithScreenSizes,
+            weak_this_)));
     return;
 #endif
   }
@@ -795,8 +792,7 @@ void VaapiVideoDecoder::ApplyResolutionChangeWithScreenSizes(
   // TODO(b/203240043): Create a GMB directly instead of allocating a
   // VideoFrame.
   scoped_refptr<VideoFrame> dummy_frame = CreateGpuMemoryBufferVideoFrame(
-      /*gpu_memory_buffer_factory=*/nullptr, *format, decoder_pic_size,
-      decoder_visible_rect, decoder_natural_size,
+      *format, decoder_pic_size, decoder_visible_rect, decoder_natural_size,
       /*timestamp=*/base::TimeDelta(),
       cdm_context_ref_ ? gfx::BufferUsage::PROTECTED_SCANOUT_VDA_WRITE
                        : gfx::BufferUsage::SCANOUT_VDA_WRITE);
@@ -811,13 +807,19 @@ void VaapiVideoDecoder::ApplyResolutionChangeWithScreenSizes(
        .modifier = dummy_frame->layout().modifier()}};
 #endif  // BUILDFLAG(IS_LINUX)
 
+  const size_t num_codec_reference_frames = decoder_->GetNumReferenceFrames();
+  // Verify |num_codec_reference_frames| has a reasonable value. Anecdotally 16
+  // is the largest amount of reference frames seen, on an ITU-T H.264 test
+  // vector (CAPCM*1_Sand_E.h264).
+  CHECK_LE(num_codec_reference_frames, 32u);
+
   auto status_or_layout = client_->PickDecoderOutputFormat(
       candidates, decoder_visible_rect, decoder_natural_size,
-      output_visible_rect.size(), decoder_->GetRequiredNumOfPictures(),
+      output_visible_rect.size(), num_codec_reference_frames,
       /*use_protected=*/!!cdm_context_ref_,
       /*need_aux_frame_pool=*/true, std::move(allocator));
 
-  if (status_or_layout.has_error()) {
+  if (!status_or_layout.has_value()) {
     if (status_or_layout == CroStatus::Codes::kResetRequired) {
       DVLOGF(2) << "The frame pool initialization is aborted";
       SetState(State::kExpectingReset);
@@ -840,31 +842,32 @@ void VaapiVideoDecoder::ApplyResolutionChangeWithScreenSizes(
 CroStatus::Or<scoped_refptr<VideoFrame>>
 VaapiVideoDecoder::AllocateCustomFrameProxy(
     base::WeakPtr<VaapiVideoDecoder> decoder,
-    gpu::GpuMemoryBufferFactory* gpu_memory_buffer_factory,
     VideoPixelFormat format,
     const gfx::Size& coded_size,
     const gfx::Rect& visible_rect,
     const gfx::Size& natural_size,
     bool use_protected,
+    bool use_linear_buffers,
     base::TimeDelta timestamp) {
   if (!decoder)
     return CroStatus::Codes::kFailedToCreateVideoFrame;
-  return decoder->AllocateCustomFrame(gpu_memory_buffer_factory, format,
-                                      coded_size, visible_rect, natural_size,
-                                      use_protected, timestamp);
+  return decoder->AllocateCustomFrame(format, coded_size, visible_rect,
+                                      natural_size, use_protected,
+                                      use_linear_buffers, timestamp);
 }
 
 CroStatus::Or<scoped_refptr<VideoFrame>> VaapiVideoDecoder::AllocateCustomFrame(
-    gpu::GpuMemoryBufferFactory* gpu_memory_buffer_factory,
     VideoPixelFormat format,
     const gfx::Size& coded_size,
     const gfx::Rect& visible_rect,
     const gfx::Size& natural_size,
     bool use_protected,
+    bool use_linear_buffers,
     base::TimeDelta timestamp) {
   DVLOGF(2);
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(state_ == State::kChangingResolution || state_ == State::kDecoding);
+  DCHECK(!use_linear_buffers);
   if (format != PIXEL_FORMAT_NV12)
     return CroStatus::Codes::kFailedToCreateVideoFrame;
 
@@ -878,11 +881,8 @@ CroStatus::Or<scoped_refptr<VideoFrame>> VaapiVideoDecoder::AllocateCustomFrame(
   if (!pixmap_and_info)
     return CroStatus::Codes::kFailedToCreateVideoFrame;
 
-  // Increase this one every time this method is called.
-  static int gmb_id = 0;
-  CHECK_LT(gmb_id, std::numeric_limits<int>::max());
   gfx::GpuMemoryBufferHandle gmb_handle;
-  auto handle_id = gfx::GpuMemoryBufferId(gmb_id++);
+  auto handle_id = GetNextGpuMemoryBufferId();
   gmb_handle.id = handle_id;
   gmb_handle.type = gfx::GpuMemoryBufferType::NATIVE_PIXMAP;
   gmb_handle.native_pixmap_handle = pixmap_and_info->pixmap->ExportHandle();
@@ -954,13 +954,13 @@ bool VaapiVideoDecoder::NeedsTranscryption() {
   DCHECK(state_ == State::kWaitingForInput);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  // We do not need to invoke transcryption if this is coming from ARC since
-  // that will already be done.
+  // We do not need to invoke transcryption if this is coming from a remote CDM
+  // since it will already have been done.
   if (cdm_context_ref_ &&
       cdm_context_ref_->GetCdmContext()->GetChromeOsCdmContext() &&
       cdm_context_ref_->GetCdmContext()
           ->GetChromeOsCdmContext()
-          ->UsingArcCdm()) {
+          ->IsRemoteCdm()) {
     return false;
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -1117,10 +1117,24 @@ VaapiStatus VaapiVideoDecoder::CreateAcceleratedVideoDecoder() {
         encryption_scheme_);
     decoder_delegate_ = accelerator.get();
 
-    decoder_ = std::make_unique<VP9Decoder>(std::move(accelerator), profile_,
-                                            color_space_);
+    // The VaapiVideoDecoder can generally deal with larger-to-smaller VP9
+    // resolution changes without re-configuring the VA-API context. However, we
+    // exclude two use cases:
+    //
+    // - WebRTC: resolution changes are only expected to occur on key frames.
+    //   Therefore, if we ignore larger-to-smaller changes, we would be
+    //   introducing a memory usage regression on the common case.
+    //
+    // - Protected content: the scaling logic in
+    //   ApplyResolutionChangeWithScreenSizes() assumes that we have a fresh
+    //   picture size so that we can calculate the correct scaling factor.
+    const bool ignore_resolution_changes_to_smaller =
+        !(cdm_context_ref_ && !transcryption_) && !is_rtc_;
+    decoder_ = std::make_unique<VP9Decoder>(
+        std::move(accelerator), profile_, color_space_,
+        ignore_resolution_changes_to_smaller);
   }
-#if BUILDFLAG(ENABLE_PLATFORM_HEVC_DECODING)
+#if BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
   else if (profile_ >= HEVCPROFILE_MIN && profile_ <= HEVCPROFILE_MAX) {
     auto accelerator = std::make_unique<H265VaapiVideoDecoderDelegate>(
         this, vaapi_wrapper_, std::move(protected_update_cb),
@@ -1131,7 +1145,7 @@ VaapiStatus VaapiVideoDecoder::CreateAcceleratedVideoDecoder() {
     decoder_ = std::make_unique<H265Decoder>(std::move(accelerator), profile_,
                                              color_space_);
   }
-#endif  // BUILDFLAG(ENABLE_PLATFORM_HEVC_DECODING)
+#endif  // BUILDFLAG(ENABLE_HEVC_PARSER_AND_HW_DECODER)
   else if (profile_ >= AV1PROFILE_MIN && profile_ <= AV1PROFILE_MAX) {
     auto accelerator = std::make_unique<AV1VaapiVideoDecoderDelegate>(
         this, vaapi_wrapper_, std::move(protected_update_cb),

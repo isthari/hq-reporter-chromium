@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,19 +32,29 @@ export const SAMPLE_WINDOW_DATA_WITH_MEDIA_TAB: Window[] = [{
   height: SAMPLE_WINDOW_HEIGHT,
   tabs: [
     createTab({
+      active: false,
       alertStates: [TabAlertState.kMediaRecording],
       index: 0,
       tabId: 1,
       title: 'Meet',
       url: {url: 'https://meet.google.com/'},
-      lastActiveTimeTicks: {internalValue: BigInt(3)},
+      lastActiveTimeTicks: {internalValue: BigInt(4)},
     }),
     createTab({
+      active: false,
       index: 1,
       tabId: 2,
       title: 'Google',
       url: {url: 'https://www.google.com'},
       lastActiveTimeTicks: {internalValue: BigInt(5)},
+    }),
+    createTab({
+      active: false,
+      index: 2,
+      tabId: 3,
+      title: 'Example',
+      url: {url: 'https://www.example.com'},
+      lastActiveTimeTicks: {internalValue: BigInt(3)},
     }),
   ],
 }];
@@ -101,7 +111,7 @@ export const SAMPLE_WINDOW_DATA: Window[] = [
         url: {url: 'https://www.apple.com/'},
       }),
     ],
-  }
+  },
 ];
 
 export const SAMPLE_RECENTLY_CLOSED_DATA: RecentlyClosedTab[] = [
@@ -203,7 +213,7 @@ export function generateSampleDataFromSiteNames(siteNames: string[]):
     windows: [{
       active: true,
       height: SAMPLE_WINDOW_HEIGHT,
-      tabs: generateSampleTabsFromSiteNames(siteNames)
+      tabs: generateSampleTabsFromSiteNames(siteNames),
     }],
     recentlyClosedTabs: [],
     tabGroups: [],

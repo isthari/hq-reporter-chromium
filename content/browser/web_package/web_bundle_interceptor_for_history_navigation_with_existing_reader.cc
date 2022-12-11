@@ -1,15 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/web_package/web_bundle_interceptor_for_history_navigation_with_existing_reader.h"
 
-#include "content/browser/loader/single_request_url_loader_factory.h"
 #include "content/browser/web_package/web_bundle_reader.h"
 #include "content/browser/web_package/web_bundle_source.h"
 #include "content/browser/web_package/web_bundle_utils.h"
 #include "net/base/url_util.h"
 #include "services/network/public/cpp/resource_request.h"
+#include "services/network/public/cpp/single_request_url_loader_factory.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -44,10 +44,11 @@ void WebBundleInterceptorForHistoryNavigationWithExistingReader::
                           target_inner_url_))
                 : net::SimplifyUrlForRequest(target_inner_url_));
   std::move(callback).Run(
-      base::MakeRefCounted<SingleRequestURLLoaderFactory>(base::BindOnce(
-          &WebBundleInterceptorForHistoryNavigationWithExistingReader::
-              CreateURLLoader,
-          weak_factory_.GetWeakPtr())));
+      base::MakeRefCounted<network::SingleRequestURLLoaderFactory>(
+          base::BindOnce(
+              &WebBundleInterceptorForHistoryNavigationWithExistingReader::
+                  CreateURLLoader,
+              weak_factory_.GetWeakPtr())));
 }
 
 void WebBundleInterceptorForHistoryNavigationWithExistingReader::

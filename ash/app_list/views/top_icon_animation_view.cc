@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,8 @@
 #include "ash/app_list/views/apps_grid_view.h"
 #include "ash/public/cpp/app_list/app_list_color_provider.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "ash/style/ash_color_id.h"
+#include "base/task/single_thread_task_runner.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/image/image_skia_operations.h"
@@ -48,9 +49,7 @@ TopIconAnimationView::TopIconAnimationView(AppsGridView* grid,
   title_label->SetLineHeight(
       grid_->app_list_config()->app_title_max_line_height());
   title_label->SetHorizontalAlignment(gfx::ALIGN_CENTER);
-  title_label->SetEnabledColor(
-      AppListColorProvider::Get()->GetAppListItemTextColor(
-          /*is_in_folder=*/true));
+  title_label->SetEnabledColorId(cros_tokens::kTextColorPrimary);
   title_label->SetText(title);
   if (item_in_folder_icon_) {
     // The title's opacity of the item should be changed separately if it is in
@@ -144,7 +143,7 @@ void TopIconAnimationView::OnImplicitAnimationsCompleted() {
   for (auto& observer : observers_)
     observer.OnTopIconAnimationsComplete(this);
   DCHECK(parent());
-  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(
       FROM_HERE, parent()->RemoveChildViewT(this));
 }
 

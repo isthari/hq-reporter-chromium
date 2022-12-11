@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,16 +14,17 @@
 #include "ash/quick_pair/fast_pair_handshake/fast_pair_data_encryptor_impl.h"
 #include "ash/quick_pair/fast_pair_handshake/fast_pair_gatt_service_client_impl.h"
 #include "ash/quick_pair/fast_pair_handshake/fast_pair_handshake.h"
-#include "ash/services/quick_pair/public/cpp/decrypted_response.h"
-#include "ash/services/quick_pair/public/cpp/fast_pair_message_type.h"
 #include "base/callback_helpers.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
+#include "chromeos/ash/services/quick_pair/public/cpp/decrypted_response.h"
+#include "chromeos/ash/services/quick_pair/public/cpp/fast_pair_message_type.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
+#include "device/bluetooth/test/mock_bluetooth_device.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -128,6 +129,12 @@ class FastPairHandshakeImplTest : public testing::Test {
     device_ = base::MakeRefCounted<Device>(kMetadataId, kAddress,
                                            Protocol::kFastPairInitial);
 
+    mock_device_ = std::make_unique<device::MockBluetoothDevice>(
+        adapter_.get(), /*bluetooth_class=*/0, "test_device_name", kAddress,
+        /*paired=*/false, /*connected=*/false);
+    ON_CALL(*(adapter_.get()), GetDevice(kAddress))
+        .WillByDefault(testing::Return(mock_device_.get()));
+
     FastPairGattServiceClientImpl::Factory::SetFactoryForTesting(
         &gatt_service_client_factory_);
 
@@ -155,6 +162,7 @@ class FastPairHandshakeImplTest : public testing::Test {
   }
 
   scoped_refptr<testing::NiceMock<device::MockBluetoothAdapter>> adapter_;
+  std::unique_ptr<device::MockBluetoothDevice> mock_device_;
   base::HistogramTester histogram_tester_;
   scoped_refptr<Device> device_;
   FakeFastPairGattServiceClientImplFactory gatt_service_client_factory_;
@@ -282,6 +290,18 @@ TEST_F(FastPairHandshakeImplTest, Success) {
   histogram_tester().ExpectTotalCount(kKeyBasedCharacteristicDecryptResult, 1);
   histogram_tester().ExpectTotalCount(kHandshakeResult, 1);
   histogram_tester().ExpectTotalCount(kHandshakeFailureReason, 0);
+}
+
+TEST_F(FastPairHandshakeImplTest, FailsIfNoDevice) {
+  auto device = base::MakeRefCounted<Device>(kMetadataId, "invalid_address",
+                                             Protocol::kFastPairInitial);
+
+  auto handshake = std::make_unique<FastPairHandshakeImpl>(
+      adapter_, device,
+      base::BindLambdaForTesting([](scoped_refptr<Device> device,
+                                    absl::optional<PairFailure> failure) {
+        EXPECT_EQ(failure, PairFailure::kPairingDeviceLost);
+      }));
 }
 
 }  // namespace quick_pair

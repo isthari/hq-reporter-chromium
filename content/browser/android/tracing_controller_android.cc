@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -195,11 +195,12 @@ bool TracingControllerAndroid::GetKnownCategoriesAsync(
 void TracingControllerAndroid::OnKnownCategoriesReceived(
     const ScopedJavaGlobalRef<jobject>& callback,
     const std::set<std::string>& categories_received) {
-  base::ListValue category_list;
+  base::Value::List category_list;
   for (const std::string& category : categories_received)
     category_list.Append(category);
   std::string received_category_list;
-  base::JSONWriter::Write(category_list, &received_category_list);
+  base::JSONWriter::Write(base::Value(std::move(category_list)),
+                          &received_category_list);
 
   // This log is required by adb_profile_chrome.py.
   // TODO(crbug.com/898816): Replace (users of) this with DevTools' Tracing API.

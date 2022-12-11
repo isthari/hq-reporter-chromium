@@ -1,6 +1,8 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "base/memory/raw_ptr.h"
 
 #import <Cocoa/Cocoa.h>
 
@@ -10,10 +12,13 @@
 #include "base/mac/scoped_objc_class_swizzler.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
 #include "chrome/app/chrome_command_ids.h"
 #import "chrome/browser/app_controller_mac.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/profiles/delete_profile_helper.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -75,7 +80,7 @@ class AppControllerTest : public PlatformTest {
 
   content::BrowserTaskEnvironment task_environment_;
   TestingProfileManager profile_manager_;
-  TestingProfile* profile_;
+  raw_ptr<TestingProfile> profile_;
 };
 
 class AppControllerKeyEquivalentTest : public PlatformTest {
@@ -115,9 +120,10 @@ class AppControllerKeyEquivalentTest : public PlatformTest {
 
     EXPECT_TRUE([[closeWindowMenuItem_ keyEquivalent] isEqualToString:@"W"]);
     EXPECT_EQ([closeWindowMenuItem_ keyEquivalentModifierMask],
-              NSCommandKeyMask);
+              NSEventModifierFlagCommand);
     EXPECT_TRUE([[closeTabMenuItem_ keyEquivalent] isEqualToString:@"w"]);
-    EXPECT_EQ([closeTabMenuItem_ keyEquivalentModifierMask], NSCommandKeyMask);
+    EXPECT_EQ([closeTabMenuItem_ keyEquivalentModifierMask],
+              NSEventModifierFlagCommand);
   }
 
   void CheckMenuItemsMatchNonBrowserWindow() {
@@ -128,7 +134,7 @@ class AppControllerKeyEquivalentTest : public PlatformTest {
 
     EXPECT_TRUE([[closeWindowMenuItem_ keyEquivalent] isEqualToString:@"w"]);
     EXPECT_EQ([closeWindowMenuItem_ keyEquivalentModifierMask],
-              NSCommandKeyMask);
+              NSEventModifierFlagCommand);
     EXPECT_TRUE([[closeTabMenuItem_ keyEquivalent] isEqualToString:@""]);
     EXPECT_EQ([closeTabMenuItem_ keyEquivalentModifierMask], 0UL);
   }
@@ -180,7 +186,7 @@ TEST_F(AppControllerTest, DockMenu) {
   }
 }
 
-TEST_F(AppControllerTest, LastProfile) {
+TEST_F(AppControllerTest, LastProfileIfLoaded) {
   // Create a second profile.
   base::FilePath dest_path1 = profile_->GetPath();
   base::FilePath dest_path2 =
@@ -195,12 +201,15 @@ TEST_F(AppControllerTest, LastProfile) {
   base::scoped_nsobject<AppController> ac([[AppController alloc] init]);
 
   // Delete the active profile.
-  profile_manager_.profile_manager()->ScheduleProfileForDeletion(
-      dest_path1, base::DoNothing());
+  profile_manager_.profile_manager()
+      ->GetDeleteProfileHelper()
+      .MaybeScheduleProfileForDeletion(
+          dest_path1, base::DoNothing(),
+          ProfileMetrics::DELETE_PROFILE_USER_MANAGER);
 
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_EQ(dest_path2, [ac lastProfile]->GetPath());
+  EXPECT_EQ(dest_path2, [ac lastProfileIfLoaded]->GetPath());
 }
 
 // Tests key equivalents for Close Window when target is a child window (like a
@@ -287,4 +296,108 @@ TEST_F(AppControllerKeyEquivalentTest, UpdateMenuItemsForNonWindow) {
   *TargetForAction() = nonWindowObject;
 
   CheckMenuItemsMatchNonBrowserWindow();
+}
+
+class AppControllerSafeProfileTest : public AppControllerTest {
+ protected:
+  AppControllerSafeProfileTest() = default;
+  ~AppControllerSafeProfileTest() override = default;
+
+  void TearDown() override { [NSApp setDelegate:nil]; }
+};
+
+// Tests that RunInLastProfileSafely() works with an already-loaded
+// profile.
+TEST_F(AppControllerSafeProfileTest, LastProfileLoaded) {
+  PrefService* local_state = g_browser_process->local_state();
+  local_state->SetString(prefs::kProfileLastUsed,
+                         profile_->GetPath().BaseName().MaybeAsASCII());
+
+  base::scoped_nsobject<AppController> ac([[AppController alloc] init]);
+  [NSApp setDelegate:ac];
+  ASSERT_EQ(profile_, [ac lastProfileIfLoaded]);
+
+  base::RunLoop run_loop;
+  app_controller_mac::RunInLastProfileSafely(
+      base::BindLambdaForTesting([&](Profile* profile) {
+        EXPECT_EQ(profile, profile_.get());
+        run_loop.Quit();
+      }),
+      app_controller_mac::kIgnoreOnFailure);
+  run_loop.Run();
+}
+
+// Tests that RunInLastProfileSafely() re-loads the profile from disk if
+// it's not currently in memory.
+TEST_F(AppControllerSafeProfileTest, LastProfileNotLoaded) {
+  PrefService* local_state = g_browser_process->local_state();
+  local_state->SetString(prefs::kProfileLastUsed, "New Profile 2");
+
+  base::scoped_nsobject<AppController> ac([[AppController alloc] init]);
+  [NSApp setDelegate:ac];
+  ASSERT_EQ(nil, [ac lastProfileIfLoaded]);
+
+  base::RunLoop run_loop;
+  app_controller_mac::RunInLastProfileSafely(
+      base::BindLambdaForTesting([&](Profile* profile) {
+        EXPECT_NE(profile, nullptr);
+        EXPECT_NE(profile, profile_.get());
+        EXPECT_EQ(profile->GetBaseName().MaybeAsASCII(), "New Profile 2");
+        run_loop.Quit();
+      }),
+      app_controller_mac::kIgnoreOnFailure);
+  run_loop.Run();
+}
+
+// Tests that RunInProfileInSafeProfileHelper::RunInProfile() works with an
+// already-loaded profile.
+TEST_F(AppControllerSafeProfileTest, SpecificProfileLoaded) {
+  PrefService* local_state = g_browser_process->local_state();
+  local_state->SetString(prefs::kProfileLastUsed,
+                         profile_->GetPath().BaseName().MaybeAsASCII());
+
+  base::scoped_nsobject<AppController> ac([[AppController alloc] init]);
+  [NSApp setDelegate:ac];
+  ASSERT_EQ(profile_, [ac lastProfileIfLoaded]);
+
+  TestingProfile* profile2 =
+      profile_manager_.CreateTestingProfile("New Profile 2");
+
+  base::RunLoop run_loop;
+  app_controller_mac::RunInProfileSafely(
+      profile_manager_.profiles_dir().AppendASCII("New Profile 2"),
+      base::BindLambdaForTesting([&](Profile* profile) {
+        // This should run with the specific profile we asked for, rather than
+        // the last-used profile.
+        EXPECT_EQ(profile, profile2);
+        run_loop.Quit();
+      }),
+      app_controller_mac::kIgnoreOnFailure);
+  run_loop.Run();
+}
+
+// Tests that RunInProfileSafely() re-loads the profile from
+// disk if it's not currently in memory.
+TEST_F(AppControllerSafeProfileTest, SpecificProfileNotLoaded) {
+  PrefService* local_state = g_browser_process->local_state();
+  local_state->SetString(prefs::kProfileLastUsed,
+                         profile_->GetPath().BaseName().MaybeAsASCII());
+
+  base::scoped_nsobject<AppController> ac([[AppController alloc] init]);
+  [NSApp setDelegate:ac];
+  ASSERT_EQ(profile_, [ac lastProfileIfLoaded]);
+
+  base::RunLoop run_loop;
+  app_controller_mac::RunInProfileSafely(
+      profile_manager_.profiles_dir().AppendASCII("New Profile 2"),
+      base::BindLambdaForTesting([&](Profile* profile) {
+        // This should run with the specific profile we asked for, rather than
+        // the last-used profile.
+        EXPECT_NE(profile, nullptr);
+        EXPECT_NE(profile, profile_.get());
+        EXPECT_EQ(profile->GetBaseName().MaybeAsASCII(), "New Profile 2");
+        run_loop.Quit();
+      }),
+      app_controller_mac::kIgnoreOnFailure);
+  run_loop.Run();
 }

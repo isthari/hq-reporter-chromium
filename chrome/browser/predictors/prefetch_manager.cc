@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,8 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/memory/raw_ptr.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/predictors/predictors_features.h"
 #include "chrome/browser/predictors/predictors_switches.h"
 #include "chrome/browser/predictors/resource_prefetch_predictor.h"
@@ -118,13 +120,14 @@ struct PrefetchInfo {
 struct PrefetchJob {
   PrefetchJob(PrefetchRequest prefetch_request, PrefetchInfo& info)
       : url(prefetch_request.url),
-        network_isolation_key(
-            std::move(prefetch_request.network_isolation_key)),
+        network_anonymization_key(
+            std::move(prefetch_request.network_anonymization_key)),
         destination(prefetch_request.destination),
+        creation_time(base::TimeTicks::Now()),
         info(info.weak_factory.GetWeakPtr()) {
     DCHECK(url.is_valid());
     DCHECK(url.SchemeIsHTTPOrHTTPS());
-    DCHECK(network_isolation_key.IsFullyPopulated());
+    DCHECK(network_anonymization_key.IsFullyPopulated());
     info.OnJobCreated();
   }
 
@@ -137,8 +140,9 @@ struct PrefetchJob {
   PrefetchJob& operator=(const PrefetchJob&) = delete;
 
   GURL url;
-  net::NetworkIsolationKey network_isolation_key;
+  net::NetworkAnonymizationKey network_anonymization_key;
   network::mojom::RequestDestination destination;
+  base::TimeTicks creation_time;
 
   // PrefetchJob lives until the URL load completes, so it can outlive the
   // PrefetchManager and therefore the PrefetchInfo.
@@ -272,7 +276,7 @@ void PrefetchManager::PrefetchUrl(
           std::move(factory), std::move(throttles),
           content::GlobalRequestID::MakeBrowserInitiated().request_id, options,
           &request, client.get(), kPrefetchTrafficAnnotation,
-          base::ThreadTaskRunnerHandle::Get(),
+          base::SingleThreadTaskRunner::GetCurrentDefault(),
           /*cors_exempt_header_list=*/absl::nullopt);
 
   delegate_->PrefetchInitiated(info.url, job->url);
@@ -310,6 +314,11 @@ void PrefetchManager::OnPrefetchFinished(
 void PrefetchManager::TryToLaunchPrefetchJobs() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
+  // We assume that the number of jobs in the queue will be relatively small at
+  // any given time. We can revisit this as needed.
+  UMA_HISTOGRAM_COUNTS_100("Navigation.Prefetch.PrefetchJobQueueLength",
+                           queued_jobs_.size());
+
   if (queued_jobs_.empty() ||
       inflight_jobs_count_ >= features::GetMaxInflightPrefetches()) {
     return;
@@ -330,6 +339,11 @@ void PrefetchManager::TryToLaunchPrefetchJobs() {
     base::WeakPtr<PrefetchInfo> info = job->info;
     // |this| owns all infos.
     DCHECK(info);
+
+    // Note: PrefetchJobs are put into |queued_jobs_| immediately on creation,
+    // so their creation time is also the time at which they started queueing.
+    UMA_HISTOGRAM_TIMES("Navigation.Prefetch.PrefetchJobQueueingTime",
+                        base::TimeTicks::Now() - job->creation_time);
 
     if (job->url.is_valid() && factory && !info->was_canceled)
       PrefetchUrl(std::move(job), factory);

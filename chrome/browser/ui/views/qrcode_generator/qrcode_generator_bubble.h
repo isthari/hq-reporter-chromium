@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 
 #include "base/callback.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/qrcode_generator/qrcode_generator_bubble_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_bubble_delegate_view.h"
 #include "chrome/services/qrcode_generator/public/mojom/qrcode_generator.mojom.h"
@@ -55,6 +54,7 @@ class QRCodeGeneratorBubble : public QRCodeGeneratorBubbleView,
 
   // QRCodeGeneratorBubbleView:
   void Hide() override;
+  void OnThemeChanged() override;
 
   // Returns a suggested download filename for a given URL.
   // e.g.: www.foo.com may suggest qrcode_foo.png.
@@ -65,10 +65,13 @@ class QRCodeGeneratorBubble : public QRCodeGeneratorBubbleView,
   // pixels or dips. Both |image| and |size| must be square, and the resulting
   // image is also square.
   static gfx::ImageSkia AddQRCodeQuietZone(const gfx::ImageSkia& image,
-                                           const gfx::Size& size);
+                                           const gfx::Size& size,
+                                           SkColor background_color);
 
   views::ImageView* image_for_testing() { return qr_code_image_; }
   views::Textfield* textfield_for_testing() { return textfield_url_; }
+  views::Label* error_label_for_testing() { return bottom_error_label_; }
+  views::LabelButton* download_button_for_testing() { return download_button_; }
 
   void SetQRCodeServiceForTesting(
       mojo::Remote<mojom::QRCodeGeneratorService>&& remote);
@@ -85,6 +88,9 @@ class QRCodeGeneratorBubble : public QRCodeGeneratorBubbleView,
 
   // Shows an error message.
   void DisplayError(mojom::QRCodeGeneratorError error);
+
+  // Hides all error messages and enables or disables download button.
+  void HideErrors(bool enable_download_button);
 
   // Shrinks the view and sets it not visible.
   void ShrinkAndHideDisplay(views::View* view);
@@ -121,16 +127,16 @@ class QRCodeGeneratorBubble : public QRCodeGeneratorBubbleView,
   GURL url_;
 
   // Pointers to view widgets; weak.
-  raw_ptr<views::ImageView> qr_code_image_ = nullptr;
-  raw_ptr<views::Textfield> textfield_url_ = nullptr;
-  raw_ptr<views::LabelButton> download_button_ = nullptr;
-  raw_ptr<views::TooltipIcon> tooltip_icon_ = nullptr;
-  raw_ptr<views::Label> center_error_label_ = nullptr;
-  raw_ptr<views::Label> bottom_error_label_ = nullptr;
+  raw_ptr<views::ImageView, DanglingUntriaged> qr_code_image_ = nullptr;
+  raw_ptr<views::Textfield, DanglingUntriaged> textfield_url_ = nullptr;
+  raw_ptr<views::LabelButton, DanglingUntriaged> download_button_ = nullptr;
+  raw_ptr<views::TooltipIcon, DanglingUntriaged> tooltip_icon_ = nullptr;
+  raw_ptr<views::Label, DanglingUntriaged> center_error_label_ = nullptr;
+  raw_ptr<views::Label, DanglingUntriaged> bottom_error_label_ = nullptr;
 
   base::OnceClosure on_closing_;
   base::OnceClosure on_back_button_pressed_;
-  raw_ptr<content::WebContents> web_contents_;  // weak.
+  raw_ptr<content::WebContents, DanglingUntriaged> web_contents_;  // weak.
 };
 
 }  // namespace qrcode_generator

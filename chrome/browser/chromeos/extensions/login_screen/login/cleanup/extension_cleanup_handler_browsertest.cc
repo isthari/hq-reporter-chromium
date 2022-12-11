@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 
 #include "ash/constants/ash_switches.h"
+#include "base/path_service.h"
 #include "chrome/browser/ash/login/test/embedded_policy_test_server_mixin.h"
 #include "chrome/browser/ash/login/test/session_manager_state_waiter.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
@@ -20,6 +21,8 @@
 #include "chrome/browser/extensions/pending_extension_manager.h"
 #include "chrome/browser/extensions/policy_test_utils.h"
 #include "chrome/browser/policy/extension_force_install_mixin.h"
+#include "chrome/common/chrome_paths.h"
+#include "components/app_constants/constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/test/policy_builder.h"
 #include "content/public/test/browser_test.h"
@@ -33,8 +36,8 @@
 namespace {
 
 const char* const kExemptExtensions[] = {
-    extension_misc::kChromeAppId,
-    extension_misc::kLacrosAppId,
+    app_constants::kChromeAppId,
+    app_constants::kLacrosAppId,
 };
 
 const char kAccountId[] = "public-session@test";
@@ -57,13 +60,14 @@ class ExtensionCleanupHandlerTest : public policy::DevicePolicyCrosBrowserTest {
 
  protected:
   ExtensionCleanupHandlerTest() = default;
-  ~ExtensionCleanupHandlerTest() override {}
+  ~ExtensionCleanupHandlerTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     DevicePolicyCrosBrowserTest::SetUpCommandLine(command_line);
     command_line->AppendSwitch(ash::switches::kLoginManager);
     command_line->AppendSwitch(ash::switches::kForceLoginManagerInTests);
     command_line->AppendSwitchASCII(ash::switches::kLoginProfile, "user");
+    command_line->AppendSwitch(ash::switches::kOobeSkipPostLogin);
   }
 
   void SetUpOnMainThread() override {
@@ -165,7 +169,6 @@ class ExtensionCleanupHandlerTest : public policy::DevicePolicyCrosBrowserTest {
   void WaitForSessionStart() {
     if (IsSessionStarted())
       return;
-    ash::WizardController::SkipPostLoginScreensForTesting();
     ash::test::WaitForPrimaryUserSessionStart();
   }
 

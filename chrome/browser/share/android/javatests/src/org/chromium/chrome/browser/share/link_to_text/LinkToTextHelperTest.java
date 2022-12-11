@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,18 +13,15 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
-import org.robolectric.annotation.Config;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.url.GURL;
 import org.chromium.url.JUnitTestGURLs;
-import org.chromium.url.ShadowGURL;
 
 /**
  * Tests for {@link LinkToTextHelper}.
  */
 @RunWith(BaseRobolectricTestRunner.class)
-@Config(shadows = {ShadowGURL.class})
 public class LinkToTextHelperTest {
     private static final String VISIBLE_URL = JUnitTestGURLs.EXAMPLE_URL;
     private Activity mActivity;
@@ -71,7 +68,7 @@ public class LinkToTextHelperTest {
     @Test
     @SmallTest
     public void hasTextFragment_URLWithNoTextSelector() {
-        GURL url = JUnitTestGURLs.getGURL(VISIBLE_URL);
+        GURL url = new GURL(VISIBLE_URL);
         Assert.assertEquals(false, LinkToTextHelper.hasTextFragment(url));
     }
 }

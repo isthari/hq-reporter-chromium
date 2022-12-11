@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,7 +38,6 @@
 
 using extensions::Extension;
 using extensions::ExtensionPrefs;
-using extensions::ExtensionRegistry;
 using extensions::Manifest;
 
 const char kFakeExtensionPrefix[] = "fakeextension";
@@ -46,7 +45,7 @@ const char kFakeExtensionPrefix[] = "fakeextension";
 SyncExtensionHelper::ExtensionState::ExtensionState()
     : enabled_state(ENABLED), disable_reasons(0), incognito_enabled(false) {}
 
-SyncExtensionHelper::ExtensionState::~ExtensionState() {}
+SyncExtensionHelper::ExtensionState::~ExtensionState() = default;
 
 bool SyncExtensionHelper::ExtensionState::Equals(
     const SyncExtensionHelper::ExtensionState& other) const {
@@ -64,11 +63,12 @@ SyncExtensionHelper* SyncExtensionHelper::GetInstance() {
 
 SyncExtensionHelper::SyncExtensionHelper() : setup_completed_(false) {}
 
-SyncExtensionHelper::~SyncExtensionHelper() {}
+SyncExtensionHelper::~SyncExtensionHelper() = default;
 
 void SyncExtensionHelper::SetupIfNecessary(SyncTest* test) {
-  if (setup_completed_)
+  if (setup_completed_) {
     return;
+  }
 
   extension_name_prefix_ = kFakeExtensionPrefix + base::GenerateGUID();
   for (int i = 0; i < test->num_clients(); ++i) {
@@ -170,8 +170,9 @@ bool SyncExtensionHelper::IsExtensionPendingInstallForSync(
           ->pending_extension_manager();
   const extensions::PendingExtensionInfo* info =
       pending_extension_manager->GetById(id);
-  if (!info)
+  if (!info) {
     return false;
+  }
   return info->is_from_sync();
 }
 
@@ -190,12 +191,12 @@ void SyncExtensionHelper::InstallExtensionsPendingForSync(Profile* profile) {
   std::list<std::string> pending_crx_ids =
       pending_extension_manager->GetPendingIdsForUpdateCheck();
 
-  std::list<std::string>::const_iterator iter;
   const extensions::PendingExtensionInfo* info = nullptr;
   for (const std::string& pending_crx_id : pending_crx_ids) {
     ASSERT_TRUE(info = pending_extension_manager->GetById(pending_crx_id));
-    if (!info->is_from_sync())
+    if (!info->is_from_sync()) {
       continue;
+    }
 
     StringMap::const_iterator iter = id_to_name_.find(pending_crx_id);
     if (iter == id_to_name_.end()) {
@@ -329,36 +330,37 @@ std::string NameToPublicKey(const std::string& name) {
 scoped_refptr<Extension> CreateExtension(const base::FilePath& base_dir,
                                          const std::string& name,
                                          Manifest::Type type) {
-  base::DictionaryValue source;
-  source.SetString(extensions::manifest_keys::kName, name);
+  base::Value::Dict source;
+  source.SetByDottedPath(extensions::manifest_keys::kName, name);
   const std::string& public_key = NameToPublicKey(name);
-  source.SetString(extensions::manifest_keys::kPublicKey, public_key);
-  source.SetString(extensions::manifest_keys::kVersion, "0.0.0.0");
-  source.SetInteger(extensions::manifest_keys::kManifestVersion, 2);
+  source.SetByDottedPath(extensions::manifest_keys::kPublicKey, public_key);
+  source.SetByDottedPath(extensions::manifest_keys::kVersion, "0.0.0.0");
+  source.SetByDottedPath(extensions::manifest_keys::kManifestVersion, 2);
   switch (type) {
     case Manifest::TYPE_EXTENSION:
       // Do nothing.
       break;
     case Manifest::TYPE_THEME:
-      source.Set(extensions::manifest_keys::kTheme,
-                 std::make_unique<base::DictionaryValue>());
+      source.SetByDottedPath(extensions::manifest_keys::kTheme,
+                             base::Value::Dict());
       break;
     case Manifest::TYPE_HOSTED_APP:
     case Manifest::TYPE_LEGACY_PACKAGED_APP:
-      source.Set(extensions::manifest_keys::kApp,
-                 std::make_unique<base::DictionaryValue>());
-      source.SetString(extensions::manifest_keys::kLaunchWebURL,
-                       "http://www.example.com");
+      source.SetByDottedPath(extensions::manifest_keys::kApp,
+                             base::Value::Dict());
+      source.SetByDottedPath(extensions::manifest_keys::kLaunchWebURL,
+                             "http://www.example.com");
       break;
     case Manifest::TYPE_PLATFORM_APP: {
-      source.Set(extensions::manifest_keys::kApp,
-                 std::make_unique<base::DictionaryValue>());
-      source.Set(extensions::manifest_keys::kPlatformAppBackground,
-                 std::make_unique<base::DictionaryValue>());
-      auto scripts = std::make_unique<base::ListValue>();
-      scripts->Append("main.js");
-      source.Set(extensions::manifest_keys::kPlatformAppBackgroundScripts,
-                 std::move(scripts));
+      source.SetByDottedPath(extensions::manifest_keys::kApp,
+                             base::Value::Dict());
+      source.SetByDottedPath(extensions::manifest_keys::kPlatformAppBackground,
+                             base::Value::Dict());
+      base::Value::List scripts;
+      scripts.Append("main.js");
+      source.SetByDottedPath(
+          extensions::manifest_keys::kPlatformAppBackgroundScripts,
+          std::move(scripts));
       break;
     }
     default:

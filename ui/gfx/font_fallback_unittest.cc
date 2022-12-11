@@ -1,12 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ui/gfx/font_fallback_win.h"
-
 #include <tuple>
 
-#include "base/cxx17_backports.h"
+#include "base/containers/contains.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -17,6 +15,7 @@
 #include "third_party/icu/source/common/unicode/uscript.h"
 #include "third_party/icu/source/common/unicode/utf16.h"
 #include "third_party/skia/include/core/SkTypeface.h"
+#include "ui/gfx/font_fallback_win.h"
 #include "ui/gfx/platform_font.h"
 #include "ui/gfx/test/font_fallback_test_data.h"
 
@@ -206,11 +205,8 @@ TEST_P(GetFallbackFontTest, GetFallbackFont) {
 
   // Ensure the fallback font is a part of the validation fallback fonts list.
   if (!test_option_.skip_fallback_fonts_validation) {
-    bool valid = std::find(test_case_.fallback_fonts.begin(),
-                           test_case_.fallback_fonts.end(),
-                           fallback_font.GetFontName()) !=
-                 test_case_.fallback_fonts.end();
-    if (!valid) {
+    if (!base::Contains(test_case_.fallback_fonts,
+                        fallback_font.GetFontName())) {
       ADD_FAILURE() << "GetFallbackFont failed for '" << script_name_
                     << "' invalid fallback font: "
                     << fallback_font.GetFontName()
@@ -240,7 +236,7 @@ std::vector<FallbackFontTestCase> GetSampleFontTestCases() {
     char16_t text[8];
     UErrorCode errorCode = U_ZERO_ERROR;
     int text_length =
-        uscript_getSampleString(script, text, base::size(text), &errorCode);
+        uscript_getSampleString(script, text, std::size(text), &errorCode);
     if (text_length <= 0 || errorCode != U_ZERO_ERROR)
       continue;
 

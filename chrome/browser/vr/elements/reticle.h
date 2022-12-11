@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,13 +66,13 @@ class Reticle : public UiElement {
   // permitted to retain pointers to UiElements since they may be destructed,
   // but the scene itself is constant, so we will look up our elements on the
   // fly.
-  raw_ptr<UiScene> scene_;
+  raw_ptr<UiScene, DanglingUntriaged> scene_;
 
   // Unlike other UiElements which bind their values form the model, the reticle
   // must derive values from the model late in the pipeline after the scene has
   // fully updated its geometry. We therefore retain a pointer to the model and
   // make use of it in |Render|.
-  raw_ptr<Model> model_;
+  raw_ptr<Model, DanglingUntriaged> model_;
 };
 
 }  // namespace vr

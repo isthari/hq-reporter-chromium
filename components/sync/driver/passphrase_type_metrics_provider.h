@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,8 +54,7 @@ class PassphraseTypeMetricsProvider : public metrics::MetricsProvider {
   ~PassphraseTypeMetricsProvider() override;
 
   // MetricsProvider overrides.
-  void ProvideCurrentSessionData(
-      metrics::ChromeUserMetricsExtension* uma_proto) override;
+  bool ProvideHistograms() override;
 
  private:
   const GetAllSyncServicesCallback get_all_sync_services_callback_;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,7 @@
 #endif
 
 #include "base/strings/string_util.h"
-#include "build/build_config.h"
-#include "components/pref_registry/pref_registry_syncable.h"
+#include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 
 #if BUILDFLAG(IS_WIN)
@@ -135,7 +134,7 @@ int GetCountryIDFromPrefs(PrefService* prefs) {
   return prefs->GetInteger(country_codes::kCountryIDAtInstall);
 }
 
-void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
+void RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterIntegerPref(country_codes::kCountryIDAtInstall,
                                 kCountryIDUnknown);
 }
@@ -193,5 +192,28 @@ int GetCurrentCountryID() {
 }
 
 #endif  // OS_*
+
+std::string CountryIDToCountryString(int country_id) {
+  // We only use the lowest 16 bits to build two ASCII characters. If there is
+  // more than that, the ID is invalid. The check for positive integers also
+  // handles the |kCountryIDUnknown| case.
+  if ((country_id & 0xFFFF) != country_id || country_id < 0)
+    return kCountryCodeUnknown;
+
+  // Decode the country code string from the provided integer. The first two
+  // bytes of the country ID represent two ASCII chars.
+  std::string country_code = {static_cast<char>(country_id >> 8),
+                              static_cast<char>(country_id)};
+  country_code = base::ToUpperASCII(country_code);
+
+  // Validate the code that was produced by feeding it back into the system.
+  return (CountryStringToCountryID(country_code) == country_id)
+             ? country_code
+             : kCountryCodeUnknown;
+}
+
+std::string GetCurrentCountryCode() {
+  return CountryIDToCountryString(GetCurrentCountryID());
+}
 
 }  // namespace country_codes

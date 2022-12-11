@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,13 @@
 #include <string>
 
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "chrome/browser/ash/printing/history/print_job_info.pb.h"
 #include "chrome/browser/chromeos/printing/printer_error_codes.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chromeos/printing/printer_configuration.h"
 
-namespace chromeos {
+namespace ash {
 
 class CupsPrintJob {
  public:
@@ -30,7 +31,7 @@ class CupsPrintJob {
     STATE_ERROR,
   };
 
-  CupsPrintJob(const Printer& printer,
+  CupsPrintJob(const chromeos::Printer& printer,
                int job_id,
                const std::string& document_title,
                int total_page_number,
@@ -56,7 +57,7 @@ class CupsPrintJob {
   bool IsExpired() const;
 
   // Getters.
-  const Printer& printer() const { return printer_; }
+  const chromeos::Printer& printer() const { return printer_; }
   int job_id() const { return job_id_; }
   const std::string& document_title() const { return document_title_; }
   int total_page_number() const { return total_page_number_; }
@@ -66,14 +67,16 @@ class CupsPrintJob {
   const printing::proto::PrintSettings& settings() const { return settings_; }
   base::Time creation_time() const { return creation_time_; }
   State state() const { return state_; }
-  PrinterErrorCode error_code() const { return error_code_; }
+  chromeos::PrinterErrorCode error_code() const { return error_code_; }
 
   // Setters.
   void set_printed_page_number(int page_number) {
     printed_page_number_ = page_number;
   }
   void set_state(State state) { state_ = state; }
-  void set_error_code(PrinterErrorCode error_code) { error_code_ = error_code; }
+  void set_error_code(chromeos::PrinterErrorCode error_code) {
+    error_code_ = error_code;
+  }
 
   // Returns true if |state_| represents a terminal state.
   bool IsJobFinished() const;
@@ -82,7 +85,7 @@ class CupsPrintJob {
   bool PipelineDead() const;
 
  private:
-  const Printer printer_;
+  const chromeos::Printer printer_;
   const int job_id_;
 
   std::string document_title_;
@@ -94,11 +97,11 @@ class CupsPrintJob {
   const base::Time creation_time_;
 
   State state_ = State::STATE_NONE;
-  PrinterErrorCode error_code_ = PrinterErrorCode::NO_ERROR;
+  chromeos::PrinterErrorCode error_code_ = chromeos::PrinterErrorCode::NO_ERROR;
 
   base::WeakPtrFactory<CupsPrintJob> weak_factory_{this};
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_CUPS_PRINT_JOB_H_

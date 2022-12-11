@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,13 @@ package org.chromium.components.background_task_scheduler.internal;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkInfo;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.text.format.DateUtils;
 
 import androidx.annotation.Nullable;
@@ -49,6 +49,7 @@ public class BackgroundTaskBroadcastReceiver extends BroadcastReceiver {
         private final PowerManager.WakeLock mWakeLock;
         private final TaskParameters mTaskParams;
         private final BackgroundTask mBackgroundTask;
+        private final long mTaskStartTimeMs;
 
         private boolean mHasExecuted;
 
@@ -58,6 +59,7 @@ public class BackgroundTaskBroadcastReceiver extends BroadcastReceiver {
             mWakeLock = wakeLock;
             mTaskParams = taskParams;
             mBackgroundTask = backgroundTask;
+            mTaskStartTimeMs = SystemClock.uptimeMillis();
         }
 
         public void execute() {
@@ -99,7 +101,8 @@ public class BackgroundTaskBroadcastReceiver extends BroadcastReceiver {
                 BackgroundTaskSchedulerUma.getInstance().reportTaskRescheduled();
                 mBackgroundTask.reschedule(mContext);
             }
-            // TODO(crbug.com/970160): Add UMA to record how long the tasks need to complete.
+            BackgroundTaskSchedulerUma.getInstance().reportTaskFinished(
+                    mTaskParams.getTaskId(), SystemClock.uptimeMillis() - mTaskStartTimeMs);
         }
     }
 
@@ -149,11 +152,12 @@ public class BackgroundTaskBroadcastReceiver extends BroadcastReceiver {
         }
 
         // Keep the CPU on through a wake lock.
+        PowerManager.WakeLock wakeLock = null;
         PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
-        PowerManager.WakeLock wakeLock =
-                powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKELOCK_TAG);
-        wakeLock.acquire(MAX_TIMEOUT_MS);
-
+        if (powerManager != null) {
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKELOCK_TAG);
+            wakeLock.acquire(MAX_TIMEOUT_MS);
+        }
         TaskExecutor taskExecutor = new TaskExecutor(context, wakeLock, taskParams, backgroundTask);
         PostTask.postTask(UiThreadTaskTraits.BEST_EFFORT, taskExecutor::execute);
     }
@@ -181,15 +185,7 @@ public class BackgroundTaskBroadcastReceiver extends BroadcastReceiver {
         BatteryManager batteryManager =
                 (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            return ApiHelperForM.isCharging(batteryManager);
-        }
-
-        IntentFilter intentFilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-        Intent batteryStatus = context.registerReceiver(null, intentFilter);
-        int status = batteryStatus.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
-        return status == BatteryManager.BATTERY_STATUS_CHARGING
-                || status == BatteryManager.BATTERY_STATUS_FULL;
+        return batteryManager.isCharging();
     }
 
     private @Nullable @TaskInfo.NetworkType Integer convertToTaskInfoNetworkType(

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -103,8 +103,9 @@ void StartServiceWorkerForDispatch(ServiceWorkerMetrics::EventType event_type,
           partition->GetServiceWorkerContext());
   auto devtools_context =
       base::WrapRefCounted<DevToolsBackgroundServicesContextImpl>(
-          service_worker_context->storage_partition()
-              ->GetDevToolsBackgroundServicesContext());
+          static_cast<DevToolsBackgroundServicesContextImpl*>(
+              service_worker_context->storage_partition()
+                  ->GetDevToolsBackgroundServicesContext()));
 
   FindServiceWorkerRegistration(
       event_type, std::move(service_worker_context),
@@ -175,7 +176,7 @@ void PushMessagingRouter::DeliverMessageToWorker(
     if (payload)
       event_metadata["Payload"] = *payload;
     devtools_context->LogBackgroundServiceEvent(
-        service_worker->registration_id(), service_worker->key().origin(),
+        service_worker->registration_id(), service_worker->key(),
         DevToolsBackgroundService::kPushMessaging, "Push event dispatched",
         message_id, event_metadata);
   }
@@ -241,7 +242,7 @@ void PushMessagingRouter::DeliverMessageEnd(
       push_event_status !=
           blink::mojom::PushEventStatus::SERVICE_WORKER_ERROR) {
     devtools_context->LogBackgroundServiceEvent(
-        service_worker->registration_id(), service_worker->key().origin(),
+        service_worker->registration_id(), service_worker->key(),
         DevToolsBackgroundService::kPushMessaging, "Push event completed",
         message_id, {{"Status", status_description}});
   }

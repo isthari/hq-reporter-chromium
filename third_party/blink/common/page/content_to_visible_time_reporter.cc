@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,10 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/debug/dump_without_crashing.h"
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/strings/strcat.h"
+#include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/widget/record_content_to_visible_time_request.mojom.h"
@@ -38,12 +37,6 @@ const char* GetHistogramSuffix(
   } else {
     return "NoSavedFrames_NotLoaded";
   }
-}
-
-void ReportUnOccludedMetric(const base::TimeTicks requested_time,
-                            const gfx::PresentationFeedback& feedback) {
-  const base::TimeDelta delta = feedback.timestamp - requested_time;
-  UMA_HISTOGRAM_TIMES("Aura.WebContentsWindowUnOccludedTime", delta);
 }
 
 void RecordBackForwardCacheRestoreMetric(
@@ -85,21 +78,11 @@ ContentToVisibleTimeReporter::TabWasShown(
     // every time a tab is backgrounded, even if the content is still visible.
     RecordHistogramsAndTraceEvents(TabSwitchResult::kMissedTabHide,
                                    true /* show_reason_tab_switching */,
-                                   false /* show_reason_unoccluded */,
                                    false /* show_reason_bfcache_restore */,
                                    gfx::PresentationFeedback::Failure());
   }
   DCHECK(!tab_switch_start_state_);
-
-  // Invalidate previously issued callbacks, to avoid accessing a null
-  // |tab_switch_start_state_|.
-  //
-  // TODO(crbug.com/1289266): Make sure that TabWasShown() is never called twice
-  // without a call to TabWasHidden() in-between, and remove this mitigation.
-  weak_ptr_factory_.InvalidateWeakPtrs();
-
-  has_saved_frames_ = has_saved_frames;
-  tab_switch_start_state_ = std::move(start_state);
+  OverwriteTabSwitchStartState(std::move(start_state), has_saved_frames);
 
   // |tab_switch_start_state_| is only reset by RecordHistogramsAndTraceEvents
   // once the metrics have been emitted.
@@ -107,7 +90,6 @@ ContentToVisibleTimeReporter::TabWasShown(
       &ContentToVisibleTimeReporter::RecordHistogramsAndTraceEvents,
       weak_ptr_factory_.GetWeakPtr(), TabSwitchResult::kSuccess,
       tab_switch_start_state_->show_reason_tab_switching,
-      tab_switch_start_state_->show_reason_unoccluded,
       tab_switch_start_state_->show_reason_bfcache_restore);
 }
 
@@ -116,24 +98,27 @@ ContentToVisibleTimeReporter::TabWasShown(bool has_saved_frames,
                                           base::TimeTicks event_start_time,
                                           bool destination_is_loaded,
                                           bool show_reason_tab_switching,
-                                          bool show_reason_unoccluded,
                                           bool show_reason_bfcache_restore) {
   return TabWasShown(
       has_saved_frames,
       mojom::RecordContentToVisibleTimeRequest::New(
           event_start_time, destination_is_loaded, show_reason_tab_switching,
-          show_reason_unoccluded, show_reason_bfcache_restore));
+          show_reason_bfcache_restore));
 }
 
 void ContentToVisibleTimeReporter::TabWasHidden() {
-  if (tab_switch_start_state_) {
+  if (tab_switch_start_state_ &&
+      (!IsTabSwitchMetric2FeatureEnabled() ||
+       tab_switch_start_state_->show_reason_tab_switching)) {
     RecordHistogramsAndTraceEvents(TabSwitchResult::kIncomplete,
                                    true /* show_reason_tab_switching */,
-                                   false /* show_reason_unoccluded */,
                                    false /* show_reason_bfcache_restore */,
                                    gfx::PresentationFeedback::Failure());
-    weak_ptr_factory_.InvalidateWeakPtrs();
   }
+
+  // No matter what the show reason, clear `tab_switch_start_state_` which is no
+  // longer valid.
+  ResetTabSwitchStartState();
 }
 
 bool ContentToVisibleTimeReporter::IsTabSwitchMetric2FeatureEnabled() {
@@ -147,25 +132,25 @@ bool ContentToVisibleTimeReporter::IsTabSwitchMetric2FeatureEnabled() {
 void ContentToVisibleTimeReporter::RecordHistogramsAndTraceEvents(
     TabSwitchResult tab_switch_result,
     bool show_reason_tab_switching,
-    bool show_reason_unoccluded,
     bool show_reason_bfcache_restore,
     const gfx::PresentationFeedback& feedback) {
   DCHECK(tab_switch_start_state_);
   // If the DCHECK fail, make sure RenderWidgetHostImpl::WasShown was triggered
   // for recording the event.
-  DCHECK(show_reason_bfcache_restore || show_reason_unoccluded ||
-         show_reason_tab_switching);
+  DCHECK(show_reason_bfcache_restore || show_reason_tab_switching);
   // The kPresentationFailure result should only be used if `feedback` has a
   // failure.
   DCHECK_NE(tab_switch_result, TabSwitchResult::kPresentationFailure);
 
+  // Reset tab switch information on exit. Unretained is safe because the
+  // closure is invoked synchronously.
+  base::ScopedClosureRunner reset_state(
+      base::BindOnce(&ContentToVisibleTimeReporter::ResetTabSwitchStartState,
+                     base::Unretained(this)));
+
   if (show_reason_bfcache_restore) {
     RecordBackForwardCacheRestoreMetric(
         tab_switch_start_state_->event_start_time, feedback);
-  }
-
-  if (show_reason_unoccluded) {
-    ReportUnOccludedMetric(tab_switch_start_state_->event_start_time, feedback);
   }
 
   if (!show_reason_tab_switching)
@@ -197,6 +182,8 @@ void ContentToVisibleTimeReporter::RecordHistogramsAndTraceEvents(
 
   if (IsTabSwitchMetric2FeatureEnabled()) {
     // Record result histogram.
+    base::UmaHistogramEnumeration("Browser.Tabs.TabSwitchResult2",
+                                  tab_switch_result);
     base::UmaHistogramEnumeration(
         base::StrCat({"Browser.Tabs.TabSwitchResult2.", suffix}),
         tab_switch_result);
@@ -204,6 +191,8 @@ void ContentToVisibleTimeReporter::RecordHistogramsAndTraceEvents(
     // Record latency histogram.
     switch (tab_switch_result) {
       case TabSwitchResult::kSuccess:
+        base::UmaHistogramMediumTimes("Browser.Tabs.TotalSwitchDuration2",
+                                      tab_switch_duration);
         base::UmaHistogramMediumTimes(
             base::StrCat({"Browser.Tabs.TotalSwitchDuration2.", suffix}),
             tab_switch_duration);
@@ -211,23 +200,25 @@ void ContentToVisibleTimeReporter::RecordHistogramsAndTraceEvents(
       case TabSwitchResult::kMissedTabHide:
       case TabSwitchResult::kIncomplete:
         base::UmaHistogramMediumTimes(
+            "Browser.Tabs.TotalIncompleteSwitchDuration2", tab_switch_duration);
+        base::UmaHistogramMediumTimes(
             base::StrCat(
                 {"Browser.Tabs.TotalIncompleteSwitchDuration2.", suffix}),
             tab_switch_duration);
         break;
       case TabSwitchResult::kPresentationFailure:
+        // Do nothing.
+        break;
+      case TabSwitchResult::DEPRECATED_kUnhandled:
+        NOTREACHED();
         break;
     }
   }
 
-  // TODO(crbug.com/1164477): Remove these once the TabSwitchMetric2 feature
-  // is enabled by default. During the validation experiment, the experiment
-  // group will log TabSwitchResult2 and TabSwitchResult with the same values,
-  // so that it's easy to compare the same TabSwitchResult metrics for the
-  // control group and experiment group. If TabSwitchResult in the experiment
-  // group is ok, so is TabSwitchResult2, and we can then deprecate
-  // TabSwitchResult since the historical data outside the experiment group is
-  // unreliable.
+  // TODO(crbug.com/1164477): Remove these deprecated metrics in M108 after
+  // automated test suites have been updated to use the new metrics. Until then
+  // log them in parallel. (Google-internal details at
+  // http://shortn/_hpallg5Q7H.)
 
   // Record result histogram.
   base::UmaHistogramEnumeration(
@@ -251,12 +242,28 @@ void ContentToVisibleTimeReporter::RecordHistogramsAndTraceEvents(
           tab_switch_duration);
       break;
     case TabSwitchResult::kPresentationFailure:
+      // Do nothing.
+      break;
+    case TabSwitchResult::DEPRECATED_kUnhandled:
+      NOTREACHED();
       break;
   }
+}
 
-  // Reset tab switch information.
-  has_saved_frames_ = false;
-  tab_switch_start_state_.reset();
+void ContentToVisibleTimeReporter::OverwriteTabSwitchStartState(
+    mojom::RecordContentToVisibleTimeRequestPtr state,
+    bool has_saved_frames) {
+  if (tab_switch_start_state_) {
+    // Invalidate previously issued callbacks, to avoid accessing
+    // `tab_switch_start_state_` which is about to be deleted.
+    //
+    // TODO(crbug.com/1289266): Make sure that TabWasShown() is never called
+    // twice without a call to TabWasHidden() in-between, and remove this
+    // mitigation.
+    weak_ptr_factory_.InvalidateWeakPtrs();
+  }
+  tab_switch_start_state_ = std::move(state);
+  has_saved_frames_ = has_saved_frames;
 }
 
 }  // namespace blink

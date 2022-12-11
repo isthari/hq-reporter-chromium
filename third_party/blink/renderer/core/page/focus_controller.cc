@@ -35,7 +35,9 @@
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
 #include "third_party/blink/renderer/core/dom/focus_params.h"
+#include "third_party/blink/renderer/core/dom/popover_data.h"
 #include "third_party/blink/renderer/core/dom/range.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"  // For firstPositionInOrBeforeNode
@@ -48,7 +50,10 @@
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/remote_frame.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/html/forms/html_form_control_element.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
+#include "third_party/blink/renderer/core/html/forms/html_select_element.h"
+#include "third_party/blink/renderer/core/html/forms/listed_element.h"
 #include "third_party/blink/renderer/core/html/forms/text_control_element.h"
 #include "third_party/blink/renderer/core/html/html_plugin_element.h"
 #include "third_party/blink/renderer/core/html/html_slot_element.h"
@@ -67,6 +72,30 @@
 namespace blink {
 
 namespace {
+
+bool IsOpenPopoverWithInvoker(const Node* node) {
+  auto* popover = DynamicTo<HTMLElement>(node);
+  return popover && popover->HasPopoverAttribute() && popover->popoverOpen() &&
+         popover->GetPopoverData()->invoker();
+}
+
+const Element* InsideOpenPopoverWithInvoker(const Element* element) {
+  for (; element; element = FlatTreeTraversal::ParentElement(*element)) {
+    if (IsOpenPopoverWithInvoker(element))
+      return element;
+  }
+  return nullptr;
+}
+
+bool IsOpenPopoverInvoker(const Node* node) {
+  auto* invoker = DynamicTo<HTMLFormControlElement>(node);
+  if (!invoker)
+    return false;
+  HTMLElement* popover = invoker->popoverTargetElement().element;
+  if (!popover)
+    return false;
+  return popover->popoverOpen();
+}
 
 // This class defines the navigation order.
 class FocusNavigation : public GarbageCollected<FocusNavigation> {
@@ -130,8 +159,15 @@ class FocusNavigation : public GarbageCollected<FocusNavigation> {
     return nullptr;
   }
 
-  // Owner is the slot node for slot scope and slot fallback contents scope, the
-  // shadow host for shadow tree scope and the iframe node for frame scope.
+  // Owner of a FocusNavigation:
+  // - If node is in slot scope, owner is the assigned slot (found by traversing
+  //   ancestors).
+  // - If node is in slot fallback content scope, owner is the parent or
+  //   shadowHost element.
+  // - If node is in shadow tree scope, owner is the parent or shadowHost
+  //   element.
+  // - If node is in frame scope, owner is the iframe node.
+  // - If node is inside an open popover with an invoker, owner is the invoker.
   Element* FindOwner(ContainerNode& node) {
     auto result = owner_map_.find(&node);
     if (result != owner_map_.end())
@@ -141,12 +177,18 @@ class FocusNavigation : public GarbageCollected<FocusNavigation> {
     // the slot node have assigned nodes.
 
     Element* owner = nullptr;
-    if (node.AssignedSlot())
-      owner = node.AssignedSlot();
+    Element* owner_slot = nullptr;
+    if (Element* element = DynamicTo<Element>(node))
+      owner_slot = SlotScopedTraversal::FindScopeOwnerSlot(*element);
+
+    if (owner_slot)
+      owner = owner_slot;
     else if (IsA<HTMLSlotElement>(node.parentNode()))
       owner = node.ParentOrShadowHostElement();
     else if (&node == node.ContainingTreeScope().RootNode())
       owner = TreeOwner(&node);
+    else if (IsOpenPopoverWithInvoker(&node))
+      owner = DynamicTo<HTMLElement>(node)->GetPopoverData()->invoker();
     else if (node.parentNode())
       owner = FindOwner(*node.parentNode());
 
@@ -202,6 +244,9 @@ class ScopedFocusNavigation {
       FocusController::OwnerMap&);
   static ScopedFocusNavigation OwnedByIFrame(const HTMLFrameOwnerElement&,
                                              FocusController::OwnerMap&);
+  static ScopedFocusNavigation OwnedByPopoverInvoker(
+      const Element&,
+      FocusController::OwnerMap&);
   static HTMLSlotElement* FindFallbackScopeOwnerSlot(const Element&);
 
  private:
@@ -231,7 +276,7 @@ ScopedFocusNavigation::ScopedFocusNavigation(
     FocusController::OwnerMap& owner_map)
     : current_(current) {
   if (auto* slot = DynamicTo<HTMLSlotElement>(scoping_root_node)) {
-    if (slot->AssignedNodes().IsEmpty()) {
+    if (slot->AssignedNodes().empty()) {
       navigation_ = MakeGarbageCollected<FocusNavigation>(scoping_root_node,
                                                           *slot, owner_map);
     } else {
@@ -276,8 +321,13 @@ ScopedFocusNavigation ScopedFocusNavigation::CreateFor(
   if (HTMLSlotElement* slot = SlotScopedTraversal::FindScopeOwnerSlot(current))
     return ScopedFocusNavigation(*slot, &current, owner_map);
   if (HTMLSlotElement* slot =
-          ScopedFocusNavigation::FindFallbackScopeOwnerSlot(current))
+          ScopedFocusNavigation::FindFallbackScopeOwnerSlot(current)) {
     return ScopedFocusNavigation(*slot, &current, owner_map);
+  }
+  if (auto* popover = InsideOpenPopoverWithInvoker(&current)) {
+    return ScopedFocusNavigation(const_cast<Element&>(*popover), &current,
+                                 owner_map);
+  }
   return ScopedFocusNavigation(current.ContainingTreeScope().RootNode(),
                                &current, owner_map);
 }
@@ -312,6 +362,17 @@ ScopedFocusNavigation ScopedFocusNavigation::OwnedByIFrame(
       *To<LocalFrame>(frame.ContentFrame())->GetDocument(), nullptr, owner_map);
 }
 
+ScopedFocusNavigation ScopedFocusNavigation::OwnedByPopoverInvoker(
+    const Element& invoker,
+    FocusController::OwnerMap& owner_map) {
+  DCHECK(IsA<HTMLFormControlElement>(invoker));
+  HTMLElement* popover = DynamicTo<HTMLFormControlElement>(invoker)
+                             ->popoverTargetElement()
+                             .element;
+  DCHECK(IsOpenPopoverWithInvoker(popover));
+  return ScopedFocusNavigation(*popover, nullptr, owner_map);
+}
+
 ScopedFocusNavigation ScopedFocusNavigation::OwnedByHTMLSlotElement(
     const HTMLSlotElement& element,
     FocusController::OwnerMap& owner_map) {
@@ -324,7 +385,7 @@ HTMLSlotElement* ScopedFocusNavigation::FindFallbackScopeOwnerSlot(
   Element* parent = const_cast<Element*>(element.parentElement());
   while (parent) {
     if (auto* slot = DynamicTo<HTMLSlotElement>(parent))
-      return slot->AssignedNodes().IsEmpty() ? slot : nullptr;
+      return slot->AssignedNodes().empty() ? slot : nullptr;
     parent = parent->parentElement();
   }
   return nullptr;
@@ -595,8 +656,8 @@ Element* FindFocusableElementRecursivelyForward(
       return found;
 
     // Now |found| is on a non focusable scope owner (either shadow host or
-    // <shadow> or slot) Find inside the inward scope and return it if found.
-    // Otherwise continue searching in the same scope.
+    // slot) Find inside the inward scope and return it if found. Otherwise
+    // continue searching in the same scope.
     ScopedFocusNavigation inner_scope =
         ScopedFocusNavigation::OwnedByNonFocusableFocusScopeOwner(*found,
                                                                   owner_map);
@@ -633,9 +694,9 @@ Element* FindFocusableElementRecursivelyBackward(
     if (found->DelegatesFocus() && AdjustedTabIndex(*found) < 0)
       continue;
 
-    // Now |found| is on a non focusable scope owner (a shadow host, a <shadow>
-    // or a slot).  Find focusable element in descendant scope. If not found,
-    // find the next focusable element within the current scope.
+    // Now |found| is on a non focusable scope owner (a shadow host or a slot).
+    // Find focusable element in descendant scope. If not found, find the next
+    // focusable element within the current scope.
     if (IsNonFocusableFocusScopeOwner(*found)) {
       ScopedFocusNavigation inner_scope =
           ScopedFocusNavigation::OwnedByNonFocusableFocusScopeOwner(*found,
@@ -690,18 +751,18 @@ Element* FindFocusableElementAcrossFocusScopesForward(
     ScopedFocusNavigation& scope,
     FocusController::OwnerMap& owner_map) {
   const Element* current = scope.CurrentElement();
-  Element* found;
+  Element* found = nullptr;
   if (current && IsShadowHostWithoutCustomFocusLogic(*current)) {
     ScopedFocusNavigation inner_scope =
         ScopedFocusNavigation::OwnedByShadowHost(*current, owner_map);
-    Element* found_in_inner_focus_scope =
-        FindFocusableElementRecursivelyForward(inner_scope, owner_map);
-    found = found_in_inner_focus_scope
-                ? found_in_inner_focus_scope
-                : FindFocusableElementRecursivelyForward(scope, owner_map);
-  } else {
-    found = FindFocusableElementRecursivelyForward(scope, owner_map);
+    found = FindFocusableElementRecursivelyForward(inner_scope, owner_map);
+  } else if (IsOpenPopoverInvoker(current)) {
+    ScopedFocusNavigation inner_scope =
+        ScopedFocusNavigation::OwnedByPopoverInvoker(*current, owner_map);
+    found = FindFocusableElementRecursivelyForward(inner_scope, owner_map);
   }
+  if (!found)
+    found = FindFocusableElementRecursivelyForward(scope, owner_map);
 
   // If there's no focusable element to advance to, move up the focus scopes
   // until we find one.
@@ -722,6 +783,12 @@ Element* FindFocusableElementAcrossFocusScopesBackward(
     FocusController::OwnerMap& owner_map) {
   Element* found = FindFocusableElementRecursivelyBackward(scope, owner_map);
 
+  while (IsOpenPopoverInvoker(found)) {
+    ScopedFocusNavigation inner_scope =
+        ScopedFocusNavigation::OwnedByPopoverInvoker(*found, owner_map);
+    found = FindFocusableElementRecursivelyBackward(inner_scope, owner_map);
+  }
+
   // If there's no focusable element to advance to, move up the focus scopes
   // until we find one.
   ScopedFocusNavigation current_scope = scope;
@@ -730,7 +797,8 @@ Element* FindFocusableElementAcrossFocusScopesBackward(
     if (!owner)
       break;
     current_scope = ScopedFocusNavigation::CreateFor(*owner, owner_map);
-    if (IsKeyboardFocusableShadowHost(*owner) && !owner->DelegatesFocus()) {
+    if ((IsKeyboardFocusableShadowHost(*owner) && !owner->DelegatesFocus()) ||
+        IsOpenPopoverInvoker(owner)) {
       found = owner;
       break;
     }
@@ -897,6 +965,8 @@ void FocusController::FocusHasChanged() {
 }
 
 void FocusController::SetFocused(bool focused) {
+  // If we are setting focus, we should be active.
+  DCHECK(!focused || is_active_);
   if (is_focused_ == focused)
     return;
   is_focused_ = focused;
@@ -1017,8 +1087,9 @@ bool FocusController::AdvanceFocusInDocumentOrder(
 
   document->UpdateStyleAndLayout(DocumentUpdateReason::kFocus);
   ScopedFocusNavigation scope =
-      current ? ScopedFocusNavigation::CreateFor(*current, owner_map)
-              : ScopedFocusNavigation::CreateForDocument(*document, owner_map);
+      (current && current->IsInTreeScope())
+          ? ScopedFocusNavigation::CreateFor(*current, owner_map)
+          : ScopedFocusNavigation::CreateForDocument(*document, owner_map);
   Element* element =
       FindFocusableElementAcrossFocusScopes(type, scope, owner_map);
   if (!element) {
@@ -1126,7 +1197,7 @@ bool FocusController::AdvanceFocusInDocumentOrder(
 
   SetFocusedFrame(new_document.GetFrame());
 
-  element->focus(
+  element->Focus(
       FocusParams(SelectionBehaviorOnFocus::kReset, type, source_capabilities));
   return true;
 }
@@ -1142,12 +1213,12 @@ Element* FocusController::FindFocusableElement(mojom::blink::FocusType type,
   return FindFocusableElementAcrossFocusScopes(type, scope, owner_map);
 }
 
-Element* FocusController::NextFocusableElementInForm(
+Element* FocusController::NextFocusableElementForIME(
     Element* element,
     mojom::blink::FocusType focus_type) {
   // TODO(ajith.v) Due to crbug.com/781026 when next/previous element is far
   // from current element in terms of tabindex, then it's signalling CPU load.
-  // Will nvestigate further for a proper solution later.
+  // Will investigate further for a proper solution later.
   static const int kFocusTraversalThreshold = 50;
   element->GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kFocus);
   auto* html_element = DynamicTo<HTMLElement>(element);
@@ -1164,9 +1235,6 @@ Element* FocusController::NextFocusableElementInForm(
   else
     form_owner = form_control_element->formOwner();
 
-  if (!form_owner)
-    return nullptr;
-
   OwnerMap owner_map;
   Element* next_element = FindFocusableElement(focus_type, *element, owner_map);
   int traversal = 0;
@@ -1177,27 +1245,43 @@ Element* FocusController::NextFocusableElementInForm(
     auto* next_html_element = DynamicTo<HTMLElement>(next_element);
     if (!next_html_element)
       continue;
-    if (next_html_element->isContentEditableForBinding() &&
-        next_element->IsDescendantOf(form_owner))
-      return next_element;
-    auto* form_element = DynamicTo<HTMLFormControlElement>(next_element);
-    if (!form_element)
+    if (next_html_element->isContentEditableForBinding()) {
+      if (form_owner) {
+        if (next_element->IsDescendantOf(form_owner)) {
+          // |element| and |next_element| belongs to the same <form> element.
+          return next_element;
+        }
+      } else {
+        if (!Traversal<HTMLFormElement>::FirstAncestor(*next_html_element)) {
+          // Neither this |element| nor the |next_element| has a form owner,
+          // i.e. belong to the virtual <form>less form.
+          return next_element;
+        }
+      }
+    }
+    auto* next_form_control_element =
+        DynamicTo<HTMLFormControlElement>(next_element);
+    if (!next_form_control_element)
       continue;
-    if (form_element->formOwner() != form_owner ||
-        form_element->IsDisabledOrReadOnly())
+    if (next_form_control_element->formOwner() != form_owner ||
+        next_form_control_element->IsDisabledOrReadOnly())
       continue;
     // Focusless spatial navigation supports all form types. However, submit
     // buttons are explicitly excluded as moving to them isn't necessary - the
     // IME should just submit instead.
     if (RuntimeEnabledFeatures::FocuslessSpatialNavigationEnabled() &&
         page_->GetSettings().GetSpatialNavigationEnabled() &&
-        !form_element->CanBeSuccessfulSubmitButton()) {
+        !next_form_control_element->CanBeSuccessfulSubmitButton()) {
       return next_element;
     }
     LayoutObject* layout = next_element->GetLayoutObject();
     if (layout && layout->IsTextControlIncludingNG()) {
-      // TODO(ajith.v) Extend it for select elements, radio buttons and check
-      // boxes
+      // TODO(crbug.com/1320441): Extend it for radio buttons and checkboxes.
+      return next_element;
+    }
+
+    if (auto* select_element =
+            DynamicTo<HTMLSelectElement>(next_form_control_element)) {
       return next_element;
     }
   }
@@ -1240,7 +1324,7 @@ Element* FocusController::FindFocusableElementAfter(
 }
 
 static bool RelinquishesEditingFocus(const Element& element) {
-  DCHECK(HasEditableStyle(element));
+  DCHECK(IsEditable(element));
   return element.GetDocument().GetFrame() && RootEditableElement(element);
 }
 
@@ -1289,6 +1373,7 @@ bool FocusController::SetFocusedElement(Element* element,
     SetFocusedFrame(nullptr);
     return false;
   }
+
   SetFocusedFrame(new_focused_frame);
 
   if (new_document) {

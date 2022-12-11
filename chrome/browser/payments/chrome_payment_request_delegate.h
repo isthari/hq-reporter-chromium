@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,10 +44,6 @@ class ChromePaymentRequestDelegate : public ContentPaymentRequestDelegate {
   const std::string& GetApplicationLocale() const override;
   bool IsOffTheRecord() const override;
   const GURL& GetLastCommittedURL() const override;
-  void DoFullCardRequest(
-      const autofill::CreditCard& credit_card,
-      base::WeakPtr<autofill::payments::FullCardRequest::ResultDelegate>
-          result_delegate) override;
   autofill::AddressNormalizer* GetAddressNormalizer() override;
   autofill::RegionDataLoader* GetRegionDataLoader() override;
   ukm::UkmRecorder* GetUkmRecorder() override;
@@ -56,9 +52,12 @@ class ChromePaymentRequestDelegate : public ContentPaymentRequestDelegate {
   bool IsBrowserWindowActive() const override;
   void ShowNoMatchingPaymentCredentialDialog(
       const std::u16string& merchant_name,
-      base::OnceClosure response_callback) override;
+      const std::string& rp_id,
+      base::OnceClosure response_callback,
+      base::OnceClosure opt_out_callback) override;
 
   // ContentPaymentRequestDelegate:
+  content::RenderFrameHost* GetRenderFrameHost() const override;
   std::unique_ptr<webauthn::InternalAuthenticator> CreateInternalAuthenticator()
       const override;
   scoped_refptr<PaymentManifestWebDataService>
@@ -69,7 +68,6 @@ class ChromePaymentRequestDelegate : public ContentPaymentRequestDelegate {
       PaymentHandlerOpenWindowCallback callback) override;
   bool IsInteractive() const override;
   std::string GetInvalidSslCertificateErrorMessage() override;
-  bool SkipUiForBasicCard() const override;
   std::string GetTwaPackageName() const override;
   PaymentRequestDialog* GetDialogForTesting() override;
   SecurePaymentConfirmationNoCreds* GetNoMatchingCredentialsDialogForTesting()
@@ -92,7 +90,7 @@ class ChromePaymentRequestDelegate : public ContentPaymentRequestDelegate {
 
   std::unique_ptr<SecurePaymentConfirmationNoCreds> spc_no_creds_dialog_;
 
-  content::GlobalRenderFrameHostId frame_routing_id_;
+  const content::GlobalRenderFrameHostId frame_routing_id_;
 };
 
 }  // namespace payments

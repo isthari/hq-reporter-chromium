@@ -1,21 +1,26 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_DRAG_DROP_SCOPED_DRAG_DROP_OBSERVER_H_
 #define ASH_DRAG_DROP_SCOPED_DRAG_DROP_OBSERVER_H_
 
-#include "ash/shell.h"
 #include "ash/shell_observer.h"
+#include "base/functional/callback.h"
 #include "base/scoped_observation.h"
-#include "ui/aura/client/drag_drop_client.h"
 #include "ui/aura/client/drag_drop_client_observer.h"
 
 namespace ui {
 class DropTargetEvent;
 }  // namespace ui
 
+namespace aura::client {
+class DragDropClient;
+}  // namespace aura::client
+
 namespace ash {
+
+class Shell;
 
 // A class which observes an `aura::client::DragDropClient` for the scope of its
 // existence. Drag events are passed to a callback supplied in the constructor.
@@ -34,7 +39,8 @@ class ASH_EXPORT ScopedDragDropObserver
  private:
   // aura::client::DragDropClientObserver:
   void OnDragUpdated(const ui::DropTargetEvent& event) override;
-  void OnDragEnded() override;
+  void OnDragCompleted(const ui::DropTargetEvent& event) override;
+  void OnDragCancelled() override;
 
   // ShellObserver:
   void OnShellDestroying() override;
@@ -43,11 +49,7 @@ class ASH_EXPORT ScopedDragDropObserver
   base::ScopedObservation<aura::client::DragDropClient,
                           aura::client::DragDropClientObserver>
       drag_drop_client_observer_{this};
-  base::ScopedObservation<Shell,
-                          ShellObserver,
-                          &Shell::AddShellObserver,
-                          &Shell::RemoveShellObserver>
-      shell_observer_{this};
+  base::ScopedObservation<Shell, ShellObserver> shell_observer_{this};
 };
 
 }  // namespace ash

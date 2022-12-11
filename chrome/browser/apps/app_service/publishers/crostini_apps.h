@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,9 @@
 #include "chrome/browser/apps/app_service/publishers/app_publisher.h"
 #include "chrome/browser/ash/guest_os/guest_os_registry_service.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
+#include "components/services/app_service/public/cpp/app_types.h"
+#include "components/services/app_service/public/cpp/menu.h"
 #include "components/services/app_service/public/cpp/publisher_base.h"
 #include "components/services/app_service/public/mojom/app_service.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -24,7 +27,6 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
 
-class PrefChangeRegistrar;
 class Profile;
 
 namespace apps {
@@ -62,55 +64,40 @@ class CrostiniApps : public KeyedService,
                 int32_t size_hint_in_dip,
                 bool allow_placeholder_icon,
                 apps::LoadIconCallback callback) override;
+  void Launch(const std::string& app_id,
+              int32_t event_flags,
+              LaunchSource launch_source,
+              WindowInfoPtr window_info) override;
+  void LaunchAppWithIntent(const std::string& app_id,
+                           int32_t event_flags,
+                           IntentPtr intent,
+                           LaunchSource launch_source,
+                           WindowInfoPtr window_info,
+                           LaunchCallback callback) override;
   void LaunchAppWithParams(AppLaunchParams&& params,
                            LaunchCallback callback) override;
+  void Uninstall(const std::string& app_id,
+                 UninstallSource uninstall_source,
+                 bool clear_site_data,
+                 bool report_abuse) override;
+  void GetMenuModel(const std::string& app_id,
+                    MenuType menu_type,
+                    int64_t display_id,
+                    base::OnceCallback<void(MenuItems)> callback) override;
 
   // apps::mojom::Publisher overrides.
   void Connect(mojo::PendingRemote<apps::mojom::Subscriber> subscriber_remote,
                apps::mojom::ConnectOptionsPtr opts) override;
-  void LoadIcon(const std::string& app_id,
-                apps::mojom::IconKeyPtr icon_key,
-                apps::mojom::IconType icon_type,
-                int32_t size_hint_in_dip,
-                bool allow_placeholder_icon,
-                LoadIconCallback callback) override;
-  void Launch(const std::string& app_id,
-              int32_t event_flags,
-              apps::mojom::LaunchSource launch_source,
-              apps::mojom::WindowInfoPtr window_info) override;
-  void LaunchAppWithIntent(const std::string& app_id,
-                           int32_t event_flags,
-                           apps::mojom::IntentPtr intent,
-                           apps::mojom::LaunchSource launch_source,
-                           apps::mojom::WindowInfoPtr window_info,
-                           LaunchAppWithIntentCallback callback) override;
-  void Uninstall(const std::string& app_id,
-                 apps::mojom::UninstallSource uninstall_source,
-                 bool clear_site_data,
-                 bool report_abuse) override;
-  void GetMenuModel(const std::string& app_id,
-                    apps::mojom::MenuType menu_type,
-                    int64_t display_id,
-                    GetMenuModelCallback callback) override;
-  void ExecuteContextMenuCommand(const std::string& app_id,
-                                 int command_id,
-                                 const std::string& shortcut_id,
-                                 int64_t display_id) override;
 
   // GuestOsRegistryService::Observer overrides.
   void OnRegistryUpdated(
       guest_os::GuestOsRegistryService* registry_service,
-      guest_os::GuestOsRegistryService::VmType vm_type,
+      guest_os::VmType vm_type,
       const std::vector<std::string>& updated_apps,
       const std::vector<std::string>& removed_apps,
       const std::vector<std::string>& inserted_apps) override;
 
-  // Registers and unregisters terminal with AppService.
-  // TODO(crbug.com/1028898): Move this code into System Apps
-  // once it can support hiding apps.
-  void OnCrostiniEnabledChanged();
-
-  std::unique_ptr<App> CreateApp(
+  AppPtr CreateApp(
       const guest_os::GuestOsRegistryService::Registration& registration,
       bool generate_new_icon_key);
 
@@ -121,14 +108,11 @@ class CrostiniApps : public KeyedService,
 
   mojo::RemoteSet<apps::mojom::Subscriber> subscribers_;
 
-  Profile* profile_;
+  Profile* const profile_;
 
-  std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
-  guest_os::GuestOsRegistryService* registry_;
+  guest_os::GuestOsRegistryService* registry_ = nullptr;
 
   apps_util::IncrementingIconKeyFactory icon_key_factory_;
-
-  bool crostini_enabled_;
 
   base::WeakPtrFactory<CrostiniApps> weak_ptr_factory_{this};
 };

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,13 +58,13 @@ std::string DeviceManagementServiceConfiguration::GetPlatformParameter() const {
   chromeos::system::StatisticsProvider* provider =
       chromeos::system::StatisticsProvider::GetInstance();
 
-  std::string hwclass;
-  if (!provider->GetMachineStatistic(chromeos::system::kHardwareClassKey,
-                                     &hwclass)) {
+  const absl::optional<base::StringPiece> hwclass =
+      provider->GetMachineStatistic(chromeos::system::kHardwareClassKey);
+  if (!hwclass) {
     LOG(ERROR) << "Failed to get machine information";
   }
   os_name += ",CrOS," + base::SysInfo::GetLsbReleaseBoard();
-  os_hardware += "," + hwclass;
+  os_hardware += "," + std::string(hwclass.value_or(""));
 #endif
 
   std::string os_version("-");

@@ -1,32 +1,74 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /**
  * @fileoverview Polymer element for displaying material design Update screen.
+ *
+ * UI for checking and downloading updates as part of the update process.
+ * 'indeterminate' paper-progress will recalculate styles on every frame
+ * when OOBE is loaded (even when another screen is open).
+ * So we make it 'indeterminate' only when the checking for updates dialog is
+ * shown, and make set to false when dialog is hidden.
+ *
+ * Example:
+ *    <checking-downloading-update> </checking-downloading-update>
+ *
+ * Attributes:
+ *  'checkingForUpdate' - Whether the screen is currently checking for updates.
+ *                        Shows the checking for updates dialog and hides the
+ *                        downloading dialog.
+ *  'progressValue' - Progress bar percent value.
+ *  'estimatedTimeLeft' - Time left in seconds for the update to complete
+ *                        download.
+ *  'hasEstimate' - True if estimated time left is to be shown.
+ *  'defaultProgressMessage' - Message showing either estimated time left or
+ *                             default update status.
+ *  'updateCompleted' - True if update is completed and probably manual action
+ *                      is required.
+ *  'cancelAllowed' - True if update cancellation is allowed.
+ *  'checkingForUpdatesKey' - ID of localized string shown while checking for
+ *                            updates.
+ *  'downloadingUpdatesKey' - ID of localized string shown while update is being
+ *                           downloaded.
+ *  'cancelHintKey' - ID of the localized string for update cancellation
+ *                    message.
  */
 
-/* #js_imports_placeholder */
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '//resources/polymer/v3_0/paper-progress/paper-progress.js';
+import '//resources/polymer/v3_0/paper-styles/color.js';
+import '../../components/oobe_icons.m.js';
+import '../../components/common_styles/oobe_common_styles.m.js';
+import '../../components/common_styles/oobe_dialog_host_styles.m.js';
+import '../../components/dialogs/oobe_adaptive_dialog.js';
+
+import {loadTimeData} from '//resources/js/load_time_data.m.js';
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {OobeDialogHostBehavior} from '../../components/behaviors/oobe_dialog_host_behavior.m.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+
 
 /**
  * @constructor
  * @extends {PolymerElement}
  * @implements {OobeI18nBehaviorInterface}
  */
-const CheckingDownloadingUpdateBase = Polymer.mixinBehaviors(
-    [OobeI18nBehavior, OobeDialogHostBehavior], Polymer.Element);
-
+const CheckingDownloadingUpdateBase =
+    mixinBehaviors([OobeI18nBehavior, OobeDialogHostBehavior], PolymerElement);
 
 /**
  * @polymer
  */
-/* #export */ class CheckingDownloadingUpdate extends
-    CheckingDownloadingUpdateBase {
+export class CheckingDownloadingUpdate extends CheckingDownloadingUpdateBase {
   static get is() {
     return 'checking-downloading-update';
   }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -95,11 +137,6 @@ const CheckingDownloadingUpdateBase = Polymer.mixinBehaviors(
       downloadingUpdatesKey: String,
 
       /**
-       * ID of the localized string for update cancellation message.
-       */
-      cancelHintKey: String,
-
-      /**
        * Message "3 minutes left".
        */
       estimatedTimeLeftMsg_: {
@@ -119,10 +156,15 @@ const CheckingDownloadingUpdateBase = Polymer.mixinBehaviors(
     };
   }
 
+  static get observers() {
+    return ['playAnimation_(checkingForUpdate)'];
+  }
+
   computeProgressMessage_(
       hasEstimate, defaultProgressMessage, estimatedTimeLeftMsg_) {
-    if (hasEstimate)
+    if (hasEstimate) {
       return estimatedTimeLeftMsg_;
+    }
     return defaultProgressMessage;
   }
 
@@ -130,8 +172,8 @@ const CheckingDownloadingUpdateBase = Polymer.mixinBehaviors(
    * Sets estimated time left until download will complete.
    */
   computeEstimatedTimeLeftMsg_(estimatedTimeLeft) {
-    let seconds = estimatedTimeLeft;
-    let minutes = Math.ceil(seconds / 60);
+    const seconds = estimatedTimeLeft;
+    const minutes = Math.ceil(seconds / 60);
     var message = '';
     if (minutes > 60) {
       message = loadTimeData.getString('downloadingTimeLeftLong');
@@ -158,6 +200,15 @@ const CheckingDownloadingUpdateBase = Polymer.mixinBehaviors(
    */
   isCheckingOrUpdateCompleted_(checkingForUpdate, updateCompleted) {
     return checkingForUpdate || updateCompleted;
+  }
+
+  /**
+   * @private
+   * @param {Boolean} checkingForUpdate If the screen is currently checking for
+   *     updates.
+   */
+  playAnimation_(checkingForUpdate) {
+    this.$.checkingAnimation.playing = checkingForUpdate;
   }
 }
 

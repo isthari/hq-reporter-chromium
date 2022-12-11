@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +16,9 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_clock.h"
 #include "build/build_config.h"
 #include "chrome/browser/offline_pages/offline_page_model_factory.h"
@@ -154,7 +155,6 @@ class TestURLLoaderClient : public network::mojom::URLLoaderClient {
     virtual void OnReceiveRedirect(const GURL& redirected_url) = 0;
     virtual void OnReceiveResponse(
         network::mojom::URLResponseHeadPtr response_head) = 0;
-    virtual void OnStartLoadingResponseBody() = 0;
     virtual void OnComplete() = 0;
 
    protected:
@@ -171,11 +171,12 @@ class TestURLLoaderClient : public network::mojom::URLLoaderClient {
   void OnReceiveEarlyHints(network::mojom::EarlyHintsPtr early_hints) override {
   }
 
-  void OnReceiveResponse(network::mojom::URLResponseHeadPtr response_head,
-                         mojo::ScopedDataPipeConsumerHandle body) override {
+  void OnReceiveResponse(
+      network::mojom::URLResponseHeadPtr response_head,
+      mojo::ScopedDataPipeConsumerHandle body,
+      absl::optional<mojo_base::BigBuffer> cached_metadata) override {
+    response_body_ = std::move(body);
     observer_->OnReceiveResponse(std::move(response_head));
-    if (body)
-      OnStartLoadingResponseBody(std::move(body));
   }
 
   void OnReceiveRedirect(
@@ -184,19 +185,11 @@ class TestURLLoaderClient : public network::mojom::URLLoaderClient {
     observer_->OnReceiveRedirect(redirect_info.new_url);
   }
 
-  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override {}
-
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override {}
 
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback ack_callback) override {}
-
-  void OnStartLoadingResponseBody(
-      mojo::ScopedDataPipeConsumerHandle body) override {
-    response_body_ = std::move(body);
-    observer_->OnStartLoadingResponseBody();
-  }
 
   void OnComplete(const network::URLLoaderCompletionStatus& status) override {
     completion_status_ = status;
@@ -241,12 +234,12 @@ static network::ResourceRequest CreateResourceRequest(
     const GURL& url,
     const std::string& method,
     const net::HttpRequestHeaders& extra_headers,
-    bool is_main_frame) {
+    bool is_outermost_main_frame) {
   network::ResourceRequest request;
   request.method = method;
   request.headers = extra_headers;
   request.url = url;
-  request.is_main_frame = is_main_frame;
+  request.is_outermost_main_frame = is_outermost_main_frame;
   return request;
 }
 
@@ -263,13 +256,12 @@ class OfflinePageURLLoaderBuilder : public TestURLLoaderClient::Observer {
   void OnReceiveRedirect(const GURL& redirected_url) override;
   void OnReceiveResponse(
       network::mojom::URLResponseHeadPtr response_head) override;
-  void OnStartLoadingResponseBody() override;
   void OnComplete() override;
 
   void InterceptRequest(const GURL& url,
                         const std::string& method,
                         const net::HttpRequestHeaders& extra_headers,
-                        bool is_main_frame);
+                        bool is_outermost_main_frame);
 
   OfflinePageRequestHandlerTest* test() { return test_; }
 
@@ -278,7 +270,7 @@ class OfflinePageURLLoaderBuilder : public TestURLLoaderClient::Observer {
   void InterceptRequestInternal(const GURL& url,
                                 const std::string& method,
                                 const net::HttpRequestHeaders& extra_headers,
-                                bool is_main_frame);
+                                bool is_outermost_main_frame);
   void MaybeStartLoader(
       const network::ResourceRequest& request,
       content::URLLoaderRequestInterceptor::RequestHandler request_handler);
@@ -311,7 +303,7 @@ class OfflinePageRequestHandlerTest : public testing::Test {
   void InterceptRequest(const GURL& url,
                         const std::string& method,
                         const net::HttpRequestHeaders& extra_headers,
-                        bool is_main_frame);
+                        bool is_outermost_main_frame);
   void SimulateHasNetworkConnectivity(bool has_connectivity);
   void RunUntilIdle();
   void WaitForAsyncOperation();
@@ -554,11 +546,11 @@ void OfflinePageRequestHandlerTest::InterceptRequest(
     const GURL& url,
     const std::string& method,
     const net::HttpRequestHeaders& extra_headers,
-    bool is_main_frame) {
+    bool is_outermost_main_frame) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   interceptor_factory_.InterceptRequest(url, method, extra_headers,
-                                        is_main_frame);
+                                        is_outermost_main_frame);
 }
 
 void OfflinePageRequestHandlerTest::SimulateHasNetworkConnectivity(
@@ -841,7 +833,8 @@ int64_t OfflinePageRequestHandlerTest::SavePage(const GURL& url,
 
   auto archiver = std::make_unique<OfflinePageTestArchiver>(
       nullptr, url, OfflinePageArchiver::ArchiverResult::SUCCESSFULLY_CREATED,
-      std::u16string(), file_size, digest, base::ThreadTaskRunnerHandle::Get());
+      std::u16string(), file_size, digest,
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   archiver->set_filename(file_path);
 
   async_operation_completed_ = false;
@@ -863,7 +856,7 @@ std::unique_ptr<KeyedService>
 OfflinePageRequestHandlerTest::BuildTestOfflinePageModel(
     SimpleFactoryKey* key) {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
-      base::ThreadTaskRunnerHandle::Get();
+      base::SingleThreadTaskRunner::GetCurrentDefault();
 
   base::FilePath store_path =
       key->GetPath().Append(chrome::kOfflinePageMetadataDirname);
@@ -917,13 +910,14 @@ void OfflinePageRequestHandlerTest::OnGetPageByOfflineIdDone(
 
 void OfflinePageRequestHandlerTest::LoadPage(const GURL& url) {
   InterceptRequest(url, "GET", net::HttpRequestHeaders(),
-                   true /* is_main_frame */);
+                   true /* is_outermost_main_frame */);
 }
 
 void OfflinePageRequestHandlerTest::LoadPageWithHeaders(
     const GURL& url,
     const net::HttpRequestHeaders& extra_headers) {
-  InterceptRequest(url, "GET", extra_headers, true /* is_main_frame */);
+  InterceptRequest(url, "GET", extra_headers,
+                   true /* is_outermost_main_frame */);
 }
 
 void OfflinePageRequestHandlerTest::ReadCompleted(
@@ -934,7 +928,7 @@ void OfflinePageRequestHandlerTest::ReadCompleted(
   response_ = response;
   is_offline_page_set_in_navigation_data_ =
       is_offline_page_set_in_navigation_data;
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
 }
 
@@ -953,9 +947,6 @@ void OfflinePageURLLoaderBuilder::OnReceiveRedirect(
 void OfflinePageURLLoaderBuilder::OnReceiveResponse(
     network::mojom::URLResponseHeadPtr response_head) {
   mime_type_ = response_head->mime_type;
-}
-
-void OfflinePageURLLoaderBuilder::OnStartLoadingResponseBody() {
   ReadBody();
 }
 
@@ -975,17 +966,18 @@ void OfflinePageURLLoaderBuilder::InterceptRequestInternal(
     const GURL& url,
     const std::string& method,
     const net::HttpRequestHeaders& extra_headers,
-    bool is_main_frame) {
+    bool is_outermost_main_frame) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   client_ = std::make_unique<TestURLLoaderClient>(this);
 
-  network::ResourceRequest request =
-      CreateResourceRequest(url, method, extra_headers, is_main_frame);
+  network::ResourceRequest request = CreateResourceRequest(
+      url, method, extra_headers, is_outermost_main_frame);
 
   url_loader_ = OfflinePageURLLoader::Create(
       navigation_ui_data_.get(),
-      test_->web_contents()->GetMainFrame()->GetFrameTreeNodeId(), request,
+      test_->web_contents()->GetPrimaryMainFrame()->GetFrameTreeNodeId(),
+      request,
       base::BindOnce(&OfflinePageURLLoaderBuilder::MaybeStartLoader,
                      base::Unretained(this), request));
 
@@ -1000,9 +992,9 @@ void OfflinePageURLLoaderBuilder::InterceptRequest(
     const GURL& url,
     const std::string& method,
     const net::HttpRequestHeaders& extra_headers,
-    bool is_main_frame) {
+    bool is_outermost_main_frame) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  InterceptRequestInternal(url, method, extra_headers, is_main_frame);
+  InterceptRequestInternal(url, method, extra_headers, is_outermost_main_frame);
   base::RunLoop().Run();
 }
 
@@ -1037,7 +1029,7 @@ void OfflinePageURLLoaderBuilder::ReadBody() {
     if (rv == MOJO_RESULT_SHOULD_WAIT) {
       handle_watcher_ = std::make_unique<mojo::SimpleWatcher>(
           FROM_HERE, mojo::SimpleWatcher::ArmingPolicy::AUTOMATIC,
-          base::SequencedTaskRunnerHandle::Get());
+          base::SequencedTaskRunner::GetCurrentDefault());
       handle_watcher_->Watch(
           client_->response_body(),
           MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED,
@@ -1092,29 +1084,29 @@ TEST_F(OfflinePageRequestHandlerTest, FailedToCreateRequestJob) {
 
   // Must be http/https URL.
   InterceptRequest(GURL("ftp://host/doc"), "GET", net::HttpRequestHeaders(),
-                   true /* is_main_frame */);
+                   true /* is_outermost_main_frame */);
   EXPECT_EQ(0, bytes_read());
   EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
 
   InterceptRequest(GURL("file:///path/doc"), "GET", net::HttpRequestHeaders(),
-                   true /* is_main_frame */);
+                   true /* is_outermost_main_frame */);
   EXPECT_EQ(0, bytes_read());
   EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
 
   // Must be GET method.
   InterceptRequest(GURL(kTestUrl), "POST", net::HttpRequestHeaders(),
-                   true /* is_main_frame */);
+                   true /* is_outermost_main_frame */);
   EXPECT_EQ(0, bytes_read());
   EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
 
   InterceptRequest(GURL(kTestUrl), "HEAD", net::HttpRequestHeaders(),
-                   true /* is_main_frame */);
+                   true /* is_outermost_main_frame */);
   EXPECT_EQ(0, bytes_read());
   EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
 
   // Must be main resource.
   InterceptRequest(GURL(kTestUrl), "POST", net::HttpRequestHeaders(),
-                   false /* is_main_frame */);
+                   false /* is_outermost_main_frame */);
   EXPECT_EQ(0, bytes_read());
   EXPECT_FALSE(offline_page_tab_helper()->GetOfflinePageForTest());
 

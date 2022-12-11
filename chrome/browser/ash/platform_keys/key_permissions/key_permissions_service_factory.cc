@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 
 namespace ash {
@@ -34,9 +33,7 @@ KeyPermissionsServiceFactory* KeyPermissionsServiceFactory::GetInstance() {
 }
 
 KeyPermissionsServiceFactory::KeyPermissionsServiceFactory()
-    : BrowserContextKeyedServiceFactory(
-          "KeyPermissionsService",
-          BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory("KeyPermissionsService") {
   DependsOn(PlatformKeysServiceFactory::GetInstance());
   DependsOn(UserPrivateTokenKeyPermissionsManagerServiceFactory::GetInstance());
 }
@@ -49,7 +46,7 @@ KeyedService* KeyPermissionsServiceFactory::BuildServiceInstanceFor(
   }
 
   return new KeyPermissionsServiceImpl(
-      ProfileHelper::IsRegularProfile(profile),
+      ProfileHelper::IsUserProfile(profile),
       profile->GetProfilePolicyConnector()->IsManaged(),
       PlatformKeysServiceFactory::GetForBrowserContext(profile),
       KeyPermissionsManagerImpl::GetUserPrivateTokenKeyPermissionsManager(

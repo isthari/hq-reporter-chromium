@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,9 +34,15 @@ enum class TrustedVaultRegistrationStatus {
 
 enum class TrustedVaultDownloadKeysStatus {
   kSuccess,
-  // Member corresponding to the authentication factor doesn't exist, not
-  // registered in the security domain or corrupted.
-  kMemberNotFoundOrCorrupted,
+  // Member corresponding to the authentication factor doesn't exist.
+  kMemberNotFound,
+  // Member corresponding to the authentication factor not registered in the
+  // security domain.
+  kMembershipNotFound,
+  // Membership exists but is corrupted.
+  kMembershipCorrupted,
+  // Membership exists but is empty.
+  kMembershipEmpty,
   // Keys were successfully downloaded and verified, but no new keys exist.
   kNoNewKeys,
   // At least one of the key proofs isn't valid or unable to verify them using
@@ -46,14 +52,19 @@ enum class TrustedVaultDownloadKeysStatus {
   kAccessTokenFetchingFailure,
   // Used for all network, http and protocol errors, when no statuses above
   // fits.
-  kOtherError
+  kOtherError,
 };
 
+// This enum is used in histograms. These values are persisted to logs. Entries
+// should not be renumbered and numeric values should never be reused, only add
+// at the end and. Also remember to update in tools/metrics/histograms/enums.xml
+// TrustedVaultRecoverabilityStatus enum.
 enum class TrustedVaultRecoverabilityStatus {
   // Recoverability status not retrieved due to network, http or protocol error.
-  kError,
-  kNotDegraded,
-  kDegraded
+  kNotDegraded = 0,
+  kDegraded = 1,
+  kError = 2,
+  kMaxValue = kError,
 };
 
 enum class AuthenticationFactorType { kPhysicalDevice, kUnspecified };

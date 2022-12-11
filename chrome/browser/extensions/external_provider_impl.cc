@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/check.h"
 #include "base/command_line.h"
 #include "base/containers/contains.h"
 #include "base/files/file_path.h"
@@ -35,6 +36,7 @@
 #include "chrome/browser/extensions/forced_extensions/install_stage_tracker.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/web_applications/preinstalled_app_install_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -52,12 +54,16 @@
 #include "extensions/common/manifest.h"
 #include "ui/base/l10n/l10n_util.h"
 
+#if BUILDFLAG(IS_CHROMEOS)
+#include "chrome/browser/chromeos/app_mode/kiosk_app_external_loader.h"
+#endif  // BUIDLFLAG(IS_CHROMEOS)
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/components/arc/arc_util.h"
 #include "ash/constants/ash_paths.h"
 #include "base/path_service.h"
-#include "chrome/browser/ash/app_mode/kiosk_app_external_loader.h"
 #include "chrome/browser/ash/customization/customization_document.h"
+#include "chrome/browser/ash/extensions/signin_screen_extensions_external_loader.h"
 #include "chrome/browser/ash/login/demo_mode/demo_extensions_external_loader.h"
 #include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #include "chrome/browser/ash/policy/core/browser_policy_connector_ash.h"
@@ -65,14 +71,17 @@
 #include "chrome/browser/ash/policy/core/device_local_account_policy_service.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/extensions/device_local_account_external_policy_loader.h"
-#include "chrome/browser/chromeos/extensions/signin_screen_extensions_external_loader.h"
-#include "extensions/common/constants.h"
 #else
 #include "chrome/browser/extensions/preinstalled_apps.h"
 #endif
 
 #if BUILDFLAG(IS_WIN)
 #include "chrome/browser/extensions/external_registry_loader_win.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "base/check_is_test.h"
+#include "chrome/browser/lacros/app_mode/device_local_account_extension_installer_lacros.h"
 #endif
 
 using content::BrowserThread;
@@ -150,28 +159,26 @@ void ExternalProviderImpl::VisitRegisteredExtension() {
   loader_->StartLoading();
 }
 
-void ExternalProviderImpl::SetPrefs(
-    std::unique_ptr<base::DictionaryValue> prefs) {
+void ExternalProviderImpl::SetPrefs(base::Value::Dict prefs) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // Check if the service is still alive. It is possible that it went
   // away while |loader_| was working on the FILE thread.
-  if (!service_) return;
+  if (!service_)
+    return;
 
   InstallStageTracker* install_stage_tracker =
       InstallStageTracker::Get(profile_);
-  for (auto it : prefs->DictItems()) {
+  for (auto it : prefs) {
     install_stage_tracker->ReportInstallCreationStage(
         it.first,
         InstallStageTracker::InstallCreationStage::SEEN_BY_EXTERNAL_PROVIDER);
   }
 
-  prefs_ = std::make_unique<base::Value::DictStorage>(
-      std::move(*prefs).TakeDictDeprecated());
+  prefs_ = std::move(prefs);
   ready_ = true;  // Queries for extensions are allowed from this point.
 
-  NotifyServiceOnExternalExtensionsFound(/*is_initial_load=*/true);
-  service_->OnExternalProviderReady(this);
+  NotifyServiceOnExternalExtensionsFound();
 }
 
 void ExternalProviderImpl::TriggerOnExternalExtensionFound() {
@@ -183,25 +190,26 @@ void ExternalProviderImpl::TriggerOnExternalExtensionFound() {
   if (!service_ || !prefs_)
     return;
 
-  NotifyServiceOnExternalExtensionsFound(/*is_initial_load=*/false);
+  NotifyServiceOnExternalExtensionsFound();
 }
 
-void ExternalProviderImpl::NotifyServiceOnExternalExtensionsFound(
-    bool is_initial_load) {
+void ExternalProviderImpl::NotifyServiceOnExternalExtensionsFound() {
   std::vector<ExternalInstallInfoUpdateUrl> external_update_url_extensions;
   std::vector<ExternalInstallInfoFile> external_file_extensions;
 
   RetrieveExtensionsFromPrefs(&external_update_url_extensions,
                               &external_file_extensions);
   for (const auto& extension : external_update_url_extensions)
-    service_->OnExternalExtensionUpdateUrlFound(extension, is_initial_load);
+    service_->OnExternalExtensionUpdateUrlFound(extension,
+                                                /*force_update=*/true);
 
   for (const auto& extension : external_file_extensions)
     service_->OnExternalExtensionFileFound(extension);
+
+  service_->OnExternalProviderReady(this);
 }
 
-void ExternalProviderImpl::UpdatePrefs(
-    std::unique_ptr<base::DictionaryValue> prefs) {
+void ExternalProviderImpl::UpdatePrefs(base::Value::Dict prefs) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   CHECK(allow_updates_);
 
@@ -212,17 +220,16 @@ void ExternalProviderImpl::UpdatePrefs(
 
   std::set<std::string> removed_extensions;
   // Find extensions that were removed by this ExternalProvider.
-  for (auto& pref : *prefs_) {
+  for (auto pref : *prefs_) {
     const std::string& extension_id = pref.first;
     // Don't bother about invalid ids.
     if (!crx_file::id_util::IdIsValid(extension_id))
       continue;
-    if (!prefs->FindKey(extension_id))
+    if (!prefs.Find(extension_id))
       removed_extensions.insert(extension_id);
   }
 
-  prefs_ = std::make_unique<base::Value::DictStorage>(
-      std::move(*prefs).TakeDictDeprecated());
+  *prefs_ = std::move(prefs);
 
   std::vector<ExternalInstallInfoUpdateUrl> external_update_url_extensions;
   std::vector<ExternalInstallInfoFile> external_file_extensions;
@@ -246,9 +253,8 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
       InstallStageTracker::Get(profile_);
 
   // Discover all the extensions this provider has.
-  for (auto& pref : *prefs_) {
+  for (auto pref : *prefs_) {
     const std::string& extension_id = pref.first;
-    const base::DictionaryValue* extension_dict = nullptr;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     if (extension_id == kCameraAppId) {
@@ -278,7 +284,7 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
       continue;
     }
 
-    if (!pref.second.GetAsDictionary(&extension_dict)) {
+    if (!pref.second.is_dict()) {
       LOG(WARNING) << "Malformed extension dictionary: key "
                    << extension_id.c_str()
                    << " has a value that is not a dictionary.";
@@ -288,19 +294,16 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
       continue;
     }
 
-    std::string external_crx;
-    const base::Value* external_version_value = nullptr;
+    const base::Value::Dict& extension_dict = pref.second.GetDict();
+    const std::string* external_crx = extension_dict.FindString(kExternalCrx);
     std::string external_version;
-    std::string external_update_url;
+    const std::string* external_update_url = nullptr;
 
-    bool has_external_crx =
-        extension_dict->GetString(kExternalCrx, &external_crx);
-
-    bool has_external_version = false;
-    if (extension_dict->Get(kExternalVersion, &external_version_value)) {
+    const base::Value* external_version_value =
+        extension_dict.Find(kExternalVersion);
+    if (external_version_value) {
       if (external_version_value->is_string()) {
         external_version = external_version_value->GetString();
-        has_external_version = true;
       } else {
         install_stage_tracker->ReportFailure(
             extension_id, InstallStageTracker::FailureReason::
@@ -312,9 +315,8 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
       }
     }
 
-    bool has_external_update_url =
-        extension_dict->GetString(kExternalUpdateUrl, &external_update_url);
-    if (has_external_crx != has_external_version) {
+    external_update_url = extension_dict.FindString(kExternalUpdateUrl);
+    if ((external_crx != nullptr) != (external_version_value != nullptr)) {
       install_stage_tracker->ReportFailure(
           extension_id,
           InstallStageTracker::FailureReason::MALFORMED_EXTENSION_DICT);
@@ -324,7 +326,7 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
       continue;
     }
 
-    if (has_external_crx == has_external_update_url) {
+    if ((external_crx != nullptr) == (external_update_url != nullptr)) {
       install_stage_tracker->ReportFailure(
           extension_id,
           InstallStageTracker::FailureReason::MALFORMED_EXTENSION_DICT);
@@ -336,14 +338,15 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
     }
 
     // Check that extension supports current browser locale.
-    const base::ListValue* supported_locales = nullptr;
-    if (extension_dict->GetList(kSupportedLocales, &supported_locales)) {
+    const base::Value::List* supported_locales =
+        extension_dict.FindList(kSupportedLocales);
+    if (supported_locales) {
       std::vector<std::string> browser_locales;
       l10n_util::GetParentLocales(g_browser_process->GetApplicationLocale(),
                                   &browser_locales);
 
       bool locale_supported = false;
-      for (const base::Value& locale : supported_locales->GetList()) {
+      for (const base::Value& locale : *supported_locales) {
         const std::string* current_locale = locale.GetIfString();
         if (current_locale && l10n_util::IsValidLocaleSyntax(*current_locale)) {
           std::string normalized_locale =
@@ -374,12 +377,12 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
 
     int creation_flags = creation_flags_;
     absl::optional<bool> is_bookmark_app =
-        extension_dict->FindBoolKey(kIsBookmarkApp);
+        extension_dict.FindBool(kIsBookmarkApp);
     if (is_bookmark_app.value_or(false)) {
       creation_flags |= Extension::FROM_BOOKMARK;
     }
     absl::optional<bool> is_from_webstore =
-        extension_dict->FindBoolKey(kIsFromWebstore);
+        extension_dict.FindBool(kIsFromWebstore);
     if (is_from_webstore.value_or(false)) {
       creation_flags |= Extension::FROM_WEBSTORE;
     }
@@ -389,13 +392,13 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
     // the replacement web app has installed and migrated over user preferences.
     // TODO(crbug.com/1099150): Remove this field after migration is complete.
     const std::string* web_app_migration_flag =
-        extension_dict->FindStringPath(kWebAppMigrationFlag);
+        extension_dict.FindString(kWebAppMigrationFlag);
     bool is_migrating_to_web_app =
         web_app_migration_flag &&
         web_app::IsPreinstalledAppInstallFeatureEnabled(*web_app_migration_flag,
                                                         *profile_);
     bool keep_if_present =
-        extension_dict->FindBoolPath(kKeepIfPresent).value_or(false);
+        extension_dict.FindBool(kKeepIfPresent).value_or(false);
     if (keep_if_present || is_migrating_to_web_app) {
       ExtensionRegistry* extension_registry = ExtensionRegistry::Get(profile_);
       const Extension* extension =
@@ -415,12 +418,12 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
     }
 
     absl::optional<bool> was_installed_by_oem =
-        extension_dict->FindBoolKey(kWasInstalledByOem);
+        extension_dict.FindBool(kWasInstalledByOem);
     if (was_installed_by_oem.value_or(false)) {
       creation_flags |= Extension::WAS_INSTALLED_BY_OEM;
     }
     absl::optional<bool> may_be_untrusted =
-        extension_dict->FindBoolKey(kMayBeUntrusted);
+        extension_dict.FindBool(kMayBeUntrusted);
     if (may_be_untrusted.value_or(false)) {
       creation_flags |= Extension::MAY_BE_UNTRUSTED;
     }
@@ -435,10 +438,10 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
       continue;
     }
 
-    std::string install_parameter;
-    extension_dict->GetString(kInstallParam, &install_parameter);
+    const std::string* install_parameter =
+        extension_dict.FindString(kInstallParam);
 
-    if (has_external_crx) {
+    if (external_crx) {
       if (crx_location_ == ManifestLocation::kInvalidLocation) {
         install_stage_tracker->ReportFailure(
             extension_id,
@@ -448,14 +451,14 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
         continue;
       }
 
-      base::FilePath path = base::FilePath::FromUTF8Unsafe(external_crx);
+      base::FilePath path = base::FilePath::FromUTF8Unsafe(*external_crx);
       if (path.value().find(base::FilePath::kParentDirectory) !=
           base::StringPiece::npos) {
         install_stage_tracker->ReportFailure(
             extension_id, InstallStageTracker::FailureReason::
                               MALFORMED_EXTENSION_DICT_FILE_PATH);
         LOG(WARNING) << "Path traversal not allowed in path: "
-                     << external_crx.c_str();
+                     << external_crx->c_str();
         continue;
       }
 
@@ -468,7 +471,7 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
           install_stage_tracker->ReportFailure(
               extension_id, InstallStageTracker::FailureReason::
                                 MALFORMED_EXTENSION_DICT_FILE_PATH);
-          LOG(WARNING) << "File path " << external_crx.c_str()
+          LOG(WARNING) << "File path " << external_crx->c_str()
                        << " is relative.  An absolute path is required.";
           continue;
         }
@@ -488,8 +491,8 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
       external_file_extensions->emplace_back(
           extension_id, version, path, crx_location_, creation_flags,
           auto_acknowledge_, install_immediately_);
-    } else {  // if (has_external_update_url)
-      CHECK(has_external_update_url);  // Checking of keys above ensures this.
+    } else {                       // if (external_update_url)
+      CHECK(external_update_url);  // Checking of keys above ensures this.
       if (download_location_ == ManifestLocation::kInvalidLocation) {
         install_stage_tracker->ReportFailure(
             extension_id,
@@ -498,20 +501,21 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
                      << "extensions from update URLs.";
         continue;
       }
-      GURL update_url(external_update_url);
+      GURL update_url(*external_update_url);
       if (!update_url.is_valid()) {
         install_stage_tracker->ReportFailure(
             extension_id, InstallStageTracker::FailureReason::
                               MALFORMED_EXTENSION_DICT_UPDATE_URL);
         LOG(WARNING) << "Malformed extension dictionary for extension: "
                      << extension_id.c_str() << ".  Key " << kExternalUpdateUrl
-                     << " has value \"" << external_update_url
+                     << " has value \"" << *external_update_url
                      << "\", which is not a valid URL.";
         continue;
       }
       external_update_url_extensions->emplace_back(
-          extension_id, install_parameter, std::move(update_url),
-          download_location_, creation_flags, auto_acknowledge_);
+          extension_id, install_parameter != nullptr ? *install_parameter : "",
+          std::move(update_url), download_location_, creation_flags,
+          auto_acknowledge_);
     }
   }
 
@@ -519,7 +523,7 @@ void ExternalProviderImpl::RetrieveExtensionsFromPrefs(
        it != unsupported_extensions.end(); ++it) {
     // Remove extension for the list of know external extensions. The extension
     // will be uninstalled later because provider doesn't provide it anymore.
-    prefs_->erase(prefs_->find(*it));
+    prefs_->Remove(*it);
   }
 }
 
@@ -534,9 +538,9 @@ bool ExternalProviderImpl::IsReady() const {
 bool ExternalProviderImpl::HasExtension(
     const std::string& id) const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  CHECK(prefs_.get());
+  CHECK(prefs_);
   CHECK(ready_);
-  return prefs_->find(id) != prefs_->end();
+  return prefs_->contains(id);
 }
 
 bool ExternalProviderImpl::GetExtensionDetails(
@@ -544,21 +548,20 @@ bool ExternalProviderImpl::GetExtensionDetails(
     ManifestLocation* location,
     std::unique_ptr<base::Version>* version) const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  CHECK(prefs_.get());
+  CHECK(prefs_);
   CHECK(ready_);
-  auto it = prefs_->find(id);
-  if (it == prefs_->end() || !it->second.is_dict())
+  const base::Value::Dict* dict = prefs_->FindDict(id);
+  if (!dict)
     return false;
 
   ManifestLocation loc = ManifestLocation::kInvalidLocation;
-  if (it->second.FindKey(kExternalUpdateUrl)) {
+  if (dict->contains(kExternalUpdateUrl)) {
     loc = download_location_;
 
-  } else if (it->second.FindKey(kExternalCrx)) {
+  } else if (dict->contains(kExternalCrx)) {
     loc = crx_location_;
 
-    const std::string* external_version =
-        it->second.FindStringKey(kExternalVersion);
+    const std::string* external_version = dict->FindString(kExternalVersion);
     if (!external_version)
       return false;
 
@@ -577,15 +580,15 @@ bool ExternalProviderImpl::GetExtensionDetails(
 }
 
 bool ExternalProviderImpl::HandleMinProfileVersion(
-    const base::DictionaryValue* extension,
+    const base::Value::Dict& extension,
     const std::string& extension_id,
     std::set<std::string>* unsupported_extensions) {
-  std::string min_profile_created_by_version;
-  if (extension->GetString(kMinProfileCreatedByVersion,
-                           &min_profile_created_by_version)) {
+  const std::string* min_profile_created_by_version =
+      extension.FindString(kMinProfileCreatedByVersion);
+  if (min_profile_created_by_version) {
     base::Version profile_version(
         profile_->GetPrefs()->GetString(prefs::kProfileCreatedByVersion));
-    base::Version min_version(min_profile_created_by_version);
+    base::Version min_version(*min_profile_created_by_version);
     if (min_version.IsValid() && profile_version.CompareTo(min_version) < 0) {
       unsupported_extensions->insert(extension_id);
       InstallStageTracker::Get(profile_)->ReportFailure(
@@ -594,7 +597,7 @@ bool ExternalProviderImpl::HandleMinProfileVersion(
               << extension_id
               << " profile.created_by_version: " << profile_version.GetString()
               << " min_profile_created_by_version: "
-              << min_profile_created_by_version;
+              << *min_profile_created_by_version;
       return false;
     }
   }
@@ -602,11 +605,11 @@ bool ExternalProviderImpl::HandleMinProfileVersion(
 }
 
 bool ExternalProviderImpl::HandleDoNotInstallForEnterprise(
-    const base::DictionaryValue* extension,
+    const base::Value::Dict& extension,
     const std::string& extension_id,
     std::set<std::string>* unsupported_extensions) {
   absl::optional<bool> do_not_install_for_enterprise =
-      extension->FindBoolKey(kDoNotInstallForEnterprise);
+      extension.FindBool(kDoNotInstallForEnterprise);
   if (do_not_install_for_enterprise.value_or(false)) {
     const policy::ProfilePolicyConnector* const connector =
         profile_->GetProfilePolicyConnector();
@@ -651,9 +654,12 @@ void ExternalProviderImpl::CreateExternalProviders(
     provider_list->push_back(std::move(signin_profile_provider));
     return;
   }
+#endif
 
-  policy::BrowserPolicyConnectorAsh* connector =
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  policy::BrowserPolicyConnectorAsh* const connector =
       g_browser_process->platform_part()->browser_policy_connector_ash();
+  DCHECK(connector);
   bool is_chrome_os_public_session = false;
   const user_manager::User* user =
       ash::ProfileHelper::Get()->GetUserByProfile(profile);
@@ -672,7 +678,20 @@ void ExternalProviderImpl::CreateExternalProviders(
     } else {
       NOTREACHED();
     }
-  } else {
+  }
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  if (profiles::IsKioskSession() || profiles::IsPublicSession()) {
+    if (DeviceLocalAccountExtensionInstallerLacros::Get()) {
+      external_loader =
+          DeviceLocalAccountExtensionInstallerLacros::Get()->extension_loader();
+      crx_location = ManifestLocation::kExternalPolicy;
+    } else {
+      CHECK_IS_TEST();
+    }
+  }
+#endif
+
+  if (!external_loader.get()) {
     external_loader = base::MakeRefCounted<ExternalPolicyLoader>(
         profile, ExtensionManagementFactory::GetForBrowserContext(profile),
         ExternalPolicyLoader::FORCED);
@@ -680,37 +699,25 @@ void ExternalProviderImpl::CreateExternalProviders(
         profile, ExtensionManagementFactory::GetForBrowserContext(profile),
         ExternalPolicyLoader::RECOMMENDED);
   }
-#else
-  external_loader = base::MakeRefCounted<ExternalPolicyLoader>(
-      profile, ExtensionManagementFactory::GetForBrowserContext(profile),
-      ExternalPolicyLoader::FORCED);
-  external_recommended_loader = base::MakeRefCounted<ExternalPolicyLoader>(
-      profile, ExtensionManagementFactory::GetForBrowserContext(profile),
-      ExternalPolicyLoader::RECOMMENDED);
-#endif
 
   // Policies are mandatory so they can't be skipped with command line flag.
-  if (external_loader.get()) {
-    auto policy_provider = std::make_unique<ExternalProviderImpl>(
-        service, external_loader, profile, crx_location,
-        ManifestLocation::kExternalPolicyDownload, Extension::NO_FLAGS);
-    policy_provider->set_allow_updates(true);
-    provider_list->push_back(std::move(policy_provider));
-  }
+  auto policy_provider = std::make_unique<ExternalProviderImpl>(
+      service, external_loader, profile, crx_location,
+      ManifestLocation::kExternalPolicyDownload, Extension::NO_FLAGS);
+  policy_provider->set_allow_updates(true);
+  provider_list->push_back(std::move(policy_provider));
 
   // Load the KioskAppExternalProvider when running in the Chrome App kiosk
   // mode.
   if (chrome::IsRunningInForcedAppMode()) {
+#if BUILDFLAG(IS_CHROMEOS)
+    if (profiles::IsChromeAppKioskSession()) {
+      ManifestLocation location = ManifestLocation::kExternalPolicy;
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-    if (user && user->GetType() == user_manager::USER_TYPE_KIOSK_APP) {
-      // Kiosk primary app external provider.
-      // For enterprise managed kiosk apps, change the location to
-      // "force-installed by policy".
-      policy::BrowserPolicyConnectorAsh* const connector =
-          g_browser_process->platform_part()->browser_policy_connector_ash();
-      ManifestLocation location = ManifestLocation::kExternalPref;
-      if (connector && connector->IsDeviceEnterpriseManaged())
-        location = ManifestLocation::kExternalPolicy;
+      if (!connector->IsDeviceEnterpriseManaged())
+        location = ManifestLocation::kExternalPref;
+#endif
 
       auto kiosk_app_provider = std::make_unique<ExternalProviderImpl>(
           service,
@@ -752,7 +759,7 @@ void ExternalProviderImpl::CreateExternalProviders(
   // In tests don't install pre-installed apps.
   // It would only slowdown tests and make them flaky.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ::switches::kDisablePreinstalledApps)) {
+          ::switches::kDisableDefaultApps)) {
     return;
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_DOWNLOAD_ANDROID_DOWNLOAD_MANAGER_SERVICE_H_
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -126,15 +127,6 @@ class DownloadManagerService
                       const JavaParamRef<jobject>& callback,
                       const JavaParamRef<jobject>& j_profile_key);
 
-  // Called to change the download schedule of a download item that has GUID
-  // equal to |id|.
-  void ChangeSchedule(JNIEnv* env,
-                      const JavaParamRef<jobject>& obj,
-                      const JavaParamRef<jstring>& id,
-                      jboolean only_on_wifi,
-                      jlong start_time,
-                      const JavaParamRef<jobject>& j_profile_key);
-
   // Returns whether or not the given download can be opened by the browser.
   bool IsDownloadOpenableInBrowser(JNIEnv* env,
                                    jobject obj,
@@ -189,8 +181,8 @@ class DownloadManagerService
       const JavaParamRef<jstring>& jtarget_path);
 
   // Retrives the in-progress manager and give up the ownership.
-  download::InProgressDownloadManager* RetriveInProgressDownloadManager(
-      content::BrowserContext* context);
+  std::unique_ptr<download::InProgressDownloadManager>
+  RetrieveInProgressDownloadManager(content::BrowserContext* context);
 
   // Gets a download item from DownloadManager or InProgressManager.
   download::DownloadItem* GetDownload(const std::string& download_guid,
@@ -213,6 +205,24 @@ class DownloadManagerService
   // For testing.
   friend class DownloadManagerServiceTest;
   friend struct base::DefaultSingletonTraits<DownloadManagerService>;
+
+  enum DownloadAction { RESUME, RETRY, PAUSE, CANCEL, REMOVE, UNKNOWN };
+
+  // Holds params provided to the download function calls.
+  struct DownloadActionParams {
+    explicit DownloadActionParams(DownloadAction download_action);
+    DownloadActionParams(DownloadAction download_action, bool user_gesture);
+    DownloadActionParams(const DownloadActionParams& other);
+
+    ~DownloadActionParams() = default;
+
+    DownloadAction action;
+    bool has_user_gesture;
+  };
+
+  using PendingDownloadActions = std::map<std::string, DownloadActionParams>;
+  using Coordinators =
+      std::map<ProfileKey*, download::SimpleDownloadManagerCoordinator*>;
 
   // Helper function to start the download resumption.
   void ResumeDownloadInternal(const std::string& download_guid,
@@ -278,21 +288,6 @@ class DownloadManagerService
 
   std::vector<ProfileKey*> profiles_with_pending_get_downloads_actions_;
 
-  enum DownloadAction { RESUME, RETRY, PAUSE, CANCEL, REMOVE, UNKNOWN };
-
-  // Holds params provided to the download function calls.
-  struct DownloadActionParams {
-    explicit DownloadActionParams(DownloadAction download_action);
-    DownloadActionParams(DownloadAction download_action, bool user_gesture);
-    DownloadActionParams(const DownloadActionParams& other);
-
-    ~DownloadActionParams() = default;
-
-    DownloadAction action;
-    bool has_user_gesture;
-  };
-
-  using PendingDownloadActions = std::map<std::string, DownloadActionParams>;
   PendingDownloadActions pending_actions_;
 
   void EnqueueDownloadAction(const std::string& download_guid,
@@ -303,8 +298,7 @@ class DownloadManagerService
   base::ScopedMultiSourceObservation<Profile, ProfileObserver>
       observed_profiles_{this};
 
-  std::map<ProfileKey*, download::SimpleDownloadManagerCoordinator*>
-      coordinators_;
+  Coordinators coordinators_;
 };
 
 #endif  // CHROME_BROWSER_DOWNLOAD_ANDROID_DOWNLOAD_MANAGER_SERVICE_H_

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -125,10 +125,10 @@ class ScreenCaptureNotificationUIViews : public ScreenCaptureNotificationUI,
   content::MediaStreamUI::SourceCallback source_callback_;
   base::ScopedMultiSourceObservation<views::View, views::ViewObserver>
       bounds_observations_{this};
-  raw_ptr<NotificationBarClientView> client_view_ = nullptr;
-  raw_ptr<views::View> source_button_ = nullptr;
-  raw_ptr<views::View> stop_button_ = nullptr;
-  raw_ptr<views::View> hide_link_ = nullptr;
+  raw_ptr<NotificationBarClientView, DanglingUntriaged> client_view_ = nullptr;
+  raw_ptr<views::View, DanglingUntriaged> source_button_ = nullptr;
+  raw_ptr<views::View, DanglingUntriaged> stop_button_ = nullptr;
+  raw_ptr<views::View, DanglingUntriaged> hide_link_ = nullptr;
 };
 
 ScreenCaptureNotificationUIViews::ScreenCaptureNotificationUIViews(
@@ -270,13 +270,11 @@ views::ClientView* ScreenCaptureNotificationUIViews::CreateClientView(
 std::unique_ptr<views::NonClientFrameView>
 ScreenCaptureNotificationUIViews::CreateNonClientFrameView(
     views::Widget* widget) {
-  constexpr auto kPadding = gfx::Insets(5, 10);
+  constexpr auto kPadding = gfx::Insets::VH(5, 10);
   auto frame =
       std::make_unique<views::BubbleFrameView>(gfx::Insets(), kPadding);
-  SkColor color =
-      widget->GetColorProvider()->GetColor(ui::kColorDialogBackground);
   frame->SetBubbleBorder(std::make_unique<views::BubbleBorder>(
-      views::BubbleBorder::NONE, views::BubbleBorder::STANDARD_SHADOW, color));
+      views::BubbleBorder::NONE, views::BubbleBorder::STANDARD_SHADOW));
   return frame;
 }
 

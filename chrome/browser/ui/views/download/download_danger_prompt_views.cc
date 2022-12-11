@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include "chrome/browser/safe_browsing/advanced_protection_status_manager.h"
 #include "chrome/browser/safe_browsing/advanced_protection_status_manager_factory.h"
 #include "chrome/browser/ui/bookmarks/bookmark_editor.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
@@ -122,9 +121,6 @@ DownloadDangerPromptViews::DownloadDangerPromptViews(
   AddChildView(std::move(message_body_label));
 
   RecordOpenedDangerousConfirmDialog(download_->GetDangerType());
-
-  chrome::RecordDialogCreation(
-      chrome::DialogIdentifier::DOWNLOAD_DANGER_PROMPT);
 }
 
 DownloadDangerPromptViews::~DownloadDangerPromptViews() {
@@ -162,19 +158,11 @@ std::u16string DownloadDangerPromptViews::GetWindowTitle() const {
     case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_URL:
     case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_CONTENT:
     case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_HOST:
+    case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE:
     case download::DOWNLOAD_DANGER_TYPE_POTENTIALLY_UNWANTED:
       return l10n_util::GetStringUTF16(IDS_KEEP_DANGEROUS_DOWNLOAD_TITLE);
     case download::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT:
       return l10n_util::GetStringUTF16(IDS_KEEP_UNCOMMON_DOWNLOAD_TITLE);
-    case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE: {
-      if (base::FeatureList::IsEnabled(
-              safe_browsing::kSafeBrowsingCTDownloadWarning)) {
-        return l10n_util::GetStringUTF16(
-            IDS_CONFIRM_DANGEROUS_DOWNLOAD_ACCOUNT_COMPROMISE_TITLE);
-      } else {
-        return l10n_util::GetStringUTF16(IDS_KEEP_DANGEROUS_DOWNLOAD_TITLE);
-      }
-    }
     default: {
       return l10n_util::GetStringUTF16(
           IDS_CONFIRM_KEEP_DANGEROUS_DOWNLOAD_TITLE);
@@ -204,22 +192,11 @@ std::u16string DownloadDangerPromptViews::GetMessageBody() const {
       }
       case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_URL:  // Fall through
       case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_CONTENT:
+      case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE:
       case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_HOST: {
         return l10n_util::GetStringFUTF16(
             IDS_PROMPT_MALICIOUS_DOWNLOAD_CONTENT,
             download_->GetFileNameToReportUser().LossyDisplayName());
-      }
-      case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE: {
-        if (base::FeatureList::IsEnabled(
-                safe_browsing::kSafeBrowsingCTDownloadWarning)) {
-          return l10n_util::GetStringFUTF16(
-              IDS_PROMPT_DANGEROUS_DOWNLOAD_ACCOUNT_COMPROMISE,
-              download_->GetFileNameToReportUser().LossyDisplayName());
-        } else {
-          return l10n_util::GetStringFUTF16(
-              IDS_PROMPT_MALICIOUS_DOWNLOAD_CONTENT,
-              download_->GetFileNameToReportUser().LossyDisplayName());
-        }
       }
       case download::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT: {
         if (safe_browsing::AdvancedProtectionStatusManagerFactory::
@@ -268,17 +245,10 @@ std::u16string DownloadDangerPromptViews::GetMessageBody() const {
       case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_CONTENT:
       case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_HOST:
       case download::DOWNLOAD_DANGER_TYPE_POTENTIALLY_UNWANTED:
+      case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE:
       case download::DOWNLOAD_DANGER_TYPE_UNCOMMON_CONTENT: {
         return l10n_util::GetStringUTF16(
             IDS_PROMPT_CONFIRM_KEEP_MALICIOUS_DOWNLOAD_BODY);
-      }
-      case download::DOWNLOAD_DANGER_TYPE_DANGEROUS_ACCOUNT_COMPROMISE: {
-        return base::FeatureList::IsEnabled(
-                   safe_browsing::kSafeBrowsingCTDownloadWarning)
-                   ? l10n_util::GetStringUTF16(
-                         IDS_PROMPT_CONFIRM_DANGEROUS_DOWNLOAD_ACCOUNT_COMPROMISE_BODY)
-                   : l10n_util::GetStringUTF16(
-                         IDS_PROMPT_CONFIRM_KEEP_MALICIOUS_DOWNLOAD_BODY);
       }
       default: {
         return l10n_util::GetStringUTF16(
@@ -300,6 +270,7 @@ void DownloadDangerPromptViews::RunDone(Action action) {
     if (download_->IsDangerous() && !download_->IsDone()) {
       const bool accept = action == DownloadDangerPrompt::ACCEPT;
       RecordDownloadDangerPrompt(accept, *download_);
+      RecordDownloadWarningEvent(action, download_);
       if (!download_->GetURL().is_empty() &&
           !content::DownloadItemUtils::GetBrowserContext(download_)
                ->IsOffTheRecord()) {
@@ -307,7 +278,13 @@ void DownloadDangerPromptViews::RunDone(Action action) {
             show_context_
                 ? ClientSafeBrowsingReportRequest::DANGEROUS_DOWNLOAD_BY_API
                 : ClientSafeBrowsingReportRequest::DANGEROUS_DOWNLOAD_RECOVERY;
-        SendSafeBrowsingDownloadReport(report_type, accept, *download_);
+        // Do not send cancel report under the new trigger condition since it's
+        // not a terminal action.
+        if (!base::FeatureList::IsEnabled(
+                safe_browsing::kSafeBrowsingCsbrrNewDownloadTrigger) ||
+            accept) {
+          SendSafeBrowsingDownloadReport(report_type, accept, download_);
+        }
       }
     }
     download_->RemoveObserver(this);

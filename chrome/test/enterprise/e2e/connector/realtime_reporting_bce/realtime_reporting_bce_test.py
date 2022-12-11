@@ -1,4 +1,4 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -6,9 +6,13 @@ import os
 import re
 from datetime import datetime
 
-from chrome_ent_test.infra.core import before_all, category, environment, test
+from chrome_ent_test.infra.core import before_all
+from chrome_ent_test.infra.core import category
+from chrome_ent_test.infra.core import environment
+from chrome_ent_test.infra.core import test
+
 from infra import ChromeEnterpriseTestCase
-from reporting_server import RealTimeReportingServer
+from .reporting_server import RealTimeReportingServer
 
 
 @category("chrome_only")
@@ -19,10 +23,11 @@ class RealTimeBCEReportingPipelineTest(ChromeEnterpriseTestCase):
   def getServiceAccountKey(self):
     path = "gs://%s/secrets/ServiceAccountKey.json" % self.gsbucket
     cmd = r'gsutil cat ' + path
-    serviceAccountKey = self.RunCommand(self.win_config['dc'], cmd).rstrip()
+    serviceAccountKey = self.RunCommand(self.win_config['dc'],
+                                        cmd).rstrip().decode()
     localDir = os.path.dirname(os.path.abspath(__file__))
     filePath = os.path.join(localDir, 'service_accountkey.json')
-    with open(filePath, 'w') as f:
+    with open(filePath, 'w', encoding="utf-8") as f:
       f.write(serviceAccountKey)
 
   @before_all
@@ -34,7 +39,7 @@ class RealTimeBCEReportingPipelineTest(ChromeEnterpriseTestCase):
   def test_browser_enrolled_prod(self):
     path = "gs://%s/secrets/CELabOrg-enrollToken" % self.gsbucket
     cmd = r'gsutil cat ' + path
-    token = self.RunCommand(self.win_config['dc'], cmd).rstrip()
+    token = self.RunCommand(self.win_config['dc'], cmd).rstrip().decode()
     self.SetPolicy(self.win_config['dc'], r'CloudManagementEnrollmentToken',
                    token, 'String')
 
@@ -49,8 +54,9 @@ class RealTimeBCEReportingPipelineTest(ChromeEnterpriseTestCase):
         self.win_config['client'],
         os.path.join(commonDir, 'common', 'realtime_reporting_ui_test.py'),
         timeout=600)
-    clientId = re.search(r'DeviceId:.*$',clientId.strip()).group(0) \
-      .replace('DeviceId:','')
+    clientId = re.search(r'DeviceId:.*$',
+                         clientId.strip()).group(0).replace('DeviceId:',
+                                                            '').rstrip("\\rn'")
     # read service account private key from gs-bucket & write into local
     self.getServiceAccountKey()
     eventFound = RealTimeReportingServer().lookupevents(

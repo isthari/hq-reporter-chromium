@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,7 +59,7 @@ void GetPageCallbackImpl(base::OnceClosure quit_closure,
   std::move(quit_closure).Run();
 }
 
-// |page_number| is 0-based. Returned result has 1-based page number.
+// `page_number` is 0-based. Returned result has 1-based page number.
 std::string GetFileNameForPageNumber(const std::string& name, int page_number) {
   std::string ret = name;
   ret += std::to_string(page_number + 1);
@@ -142,7 +142,8 @@ class PdfToEmfConverterBrowserTest : public InProcessBrowserTest {
     if (pdf_data_str.empty())
       return false;
 
-    test_input_ = base::RefCountedString::TakeString(&pdf_data_str);
+    test_input_ =
+        base::MakeRefCounted<base::RefCountedString>(std::move(pdf_data_str));
     return true;
   }
 

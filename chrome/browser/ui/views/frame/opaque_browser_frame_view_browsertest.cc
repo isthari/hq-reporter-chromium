@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,12 @@
 #include "base/memory/raw_ptr.h"
 #include "base/test/bind.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/opaque_browser_frame_view_layout.h"
 #include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_frame_toolbar_test_helper.h"
@@ -24,16 +24,39 @@
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
+#include "chrome/browser/web_applications/user_display_mode.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "content/public/common/content_features.h"
 #include "content/public/test/browser_test.h"
 #include "ui/base/hit_test.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/views/test/test_views.h"
 #include "ui/views/view_utils.h"
+
+#if BUILDFLAG(IS_LINUX)
+#include "ui/linux/linux_ui.h"
+#include "ui/linux/linux_ui_factory.h"
+#include "ui/linux/linux_ui_getter.h"
+
+class FakeLinuxUiGetter : public ui::LinuxUiGetter {
+ public:
+  explicit FakeLinuxUiGetter(bool use_system_theme)
+      : use_system_theme_(use_system_theme) {}
+
+  ui::LinuxUiTheme* GetForWindow(aura::Window* window) override {
+    return GetForProfile(nullptr);
+  }
+
+  ui::LinuxUiTheme* GetForProfile(Profile* profile) override {
+    return use_system_theme_ ? ui::GetDefaultLinuxUiTheme() : nullptr;
+  }
+
+ private:
+  const bool use_system_theme_;
+};
+#endif
 
 // Tests web-app windows that use the OpaqueBrowserFrameView implementation
 // for their non client frames.
@@ -50,7 +73,12 @@ class WebAppOpaqueBrowserFrameViewTest : public InProcessBrowserTest {
 
   static GURL GetAppURL() { return GURL("https://test.org"); }
 
-  void SetUpOnMainThread() override { SetThemeMode(ThemeMode::kDefault); }
+  void SetUpOnMainThread() override {
+    SetThemeMode(ThemeMode::kDefault);
+#if BUILDFLAG(IS_LINUX)
+    ui::LinuxUiGetter::set_instance(nullptr);
+#endif
+  }
 
   bool InstallAndLaunchWebApp(
       absl::optional<SkColor> theme_color = absl::nullopt) {
@@ -72,8 +100,7 @@ class WebAppOpaqueBrowserFrameViewTest : public InProcessBrowserTest {
     // browser windows, see |CreateBrowserNonClientFrameView()|.
     bool is_opaque_browser_frame_view =
         views::IsViewClass<OpaqueBrowserFrameView>(frame_view);
-#if BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS_ASH) && \
-    !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX)
     DCHECK(is_opaque_browser_frame_view);
 #else
     if (!is_opaque_browser_frame_view)
@@ -100,6 +127,10 @@ class WebAppOpaqueBrowserFrameViewTest : public InProcessBrowserTest {
   };
 
   void SetThemeMode(ThemeMode theme_mode) {
+#if BUILDFLAG(IS_LINUX)
+    bool use_system_theme = theme_mode == ThemeMode::kSystem;
+    linux_ui_getter_ = std::make_unique<FakeLinuxUiGetter>(use_system_theme);
+#endif
     ThemeService* theme_service =
         ThemeServiceFactory::GetForProfile(browser()->profile());
     if (theme_mode == ThemeMode::kSystem)
@@ -110,9 +141,14 @@ class WebAppOpaqueBrowserFrameViewTest : public InProcessBrowserTest {
               theme_mode == ThemeMode::kDefault);
   }
 
-  raw_ptr<BrowserView> browser_view_ = nullptr;
-  raw_ptr<OpaqueBrowserFrameView> opaque_browser_frame_view_ = nullptr;
-  raw_ptr<WebAppFrameToolbarView> web_app_frame_toolbar_ = nullptr;
+  raw_ptr<BrowserView, DanglingUntriaged> browser_view_ = nullptr;
+  raw_ptr<OpaqueBrowserFrameView, DanglingUntriaged>
+      opaque_browser_frame_view_ = nullptr;
+  raw_ptr<WebAppFrameToolbarView, DanglingUntriaged> web_app_frame_toolbar_ =
+      nullptr;
+#if BUILDFLAG(IS_LINUX)
+  std::unique_ptr<ui::LinuxUiGetter> linux_ui_getter_;
+#endif
 
   // Disable animations.
   ui::ScopedAnimationDurationScaleMode scoped_animation_duration_scale_mode_{
@@ -123,11 +159,11 @@ IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, NoThemeColor) {
   if (!InstallAndLaunchWebApp())
     return;
   EXPECT_EQ(web_app_frame_toolbar_->active_color_for_testing(),
-            gfx::kGoogleGrey900);
+            web_app_frame_toolbar_->GetColorProvider()->GetColor(
+                kColorFrameCaptionActive));
 }
 
-#if BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS_ASH) && \
-    !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX)
 // The app theme color should be ignored in system theme mode.
 IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, SystemThemeColor) {
   SetThemeMode(ThemeMode::kSystem);
@@ -158,33 +194,44 @@ IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, SystemThemeColor) {
   EXPECT_EQ(web_app_frame_toolbar_->active_color_for_testing(),
             expected_caption_color);
 }
-#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_LINUX)
 
 IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, LightThemeColor) {
   if (!InstallAndLaunchWebApp(SK_ColorYELLOW))
     return;
   EXPECT_EQ(web_app_frame_toolbar_->active_color_for_testing(),
-            gfx::kGoogleGrey900);
+            web_app_frame_toolbar_->GetColorProvider()->GetColor(
+                kColorFrameCaptionActive));
+  EXPECT_TRUE(
+      color_utils::IsDark(*web_app_frame_toolbar_->active_color_for_testing()));
 }
 
 IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, DarkThemeColor) {
   if (!InstallAndLaunchWebApp(SK_ColorBLUE))
     return;
-  EXPECT_EQ(web_app_frame_toolbar_->active_color_for_testing(), SK_ColorWHITE);
+  EXPECT_EQ(web_app_frame_toolbar_->active_color_for_testing(),
+            web_app_frame_toolbar_->GetColorProvider()->GetColor(
+                kColorFrameCaptionActive));
+  EXPECT_FALSE(
+      color_utils::IsDark(*web_app_frame_toolbar_->active_color_for_testing()));
 }
 
 IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, MediumThemeColor) {
   // Use the theme color for Gmail.
-  if (!InstallAndLaunchWebApp(SkColorSetRGB(0xd6, 0x49, 0x3b)))
+  if (!InstallAndLaunchWebApp(SkColorSetRGB(0xD6, 0x49, 0x3B)))
     return;
-  EXPECT_EQ(web_app_frame_toolbar_->active_color_for_testing(), SK_ColorWHITE);
+  EXPECT_EQ(web_app_frame_toolbar_->active_color_for_testing(),
+            web_app_frame_toolbar_->GetColorProvider()->GetColor(
+                kColorFrameCaptionActive));
+  EXPECT_FALSE(
+      color_utils::IsDark(*web_app_frame_toolbar_->active_color_for_testing()));
 }
 
 IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, StaticTitleBarHeight) {
   if (!InstallAndLaunchWebApp())
     return;
 
-  opaque_browser_frame_view_->Layout();
+  RunScheduledLayouts();
   const int title_bar_height = GetRestoredTitleBarHeight();
   EXPECT_GT(title_bar_height, 0);
 
@@ -192,7 +239,7 @@ IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, StaticTitleBarHeight) {
   const int container_height = web_app_frame_toolbar_->height();
   web_app_frame_toolbar_->get_right_container_for_testing()->AddChildView(
       new views::StaticSizedView(gfx::Size(1, title_bar_height * 2)));
-  opaque_browser_frame_view_->Layout();
+  RunScheduledLayouts();
 
   // The height of the web app frame toolbar and title bar should not be
   // affected.
@@ -203,6 +250,7 @@ IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, StaticTitleBarHeight) {
 // Tests for the appearance of the origin text in the titlebar. The origin text
 // shows and then hides both when the window is first opened and any time the
 // titlebar's appearance changes.
+// TODO(crbug.com/1337118): Revise this test.
 IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, OriginTextVisibility) {
   ui_test_utils::UrlLoadObserver url_observer(
       GetAppURL(), content::NotificationService::AllSources());
@@ -253,7 +301,7 @@ IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, OriginTextVisibility) {
     // Make sure the navigation has finished before proceeding.
     url_observer.Wait();
     ASSERT_TRUE(ExecJs(
-        browser_view_->GetActiveWebContents()->GetMainFrame(),
+        browser_view_->GetActiveWebContents()->GetPrimaryMainFrame(),
         "var meta = document.head.appendChild(document.createElement('meta'));"
         "meta.name = 'theme-color';"
         "meta.content = '#123456';"));
@@ -284,10 +332,7 @@ IN_PROC_BROWSER_TEST_F(WebAppOpaqueBrowserFrameViewTest, Fullscreen) {
 class WebAppOpaqueBrowserFrameViewWindowControlsOverlayTest
     : public InProcessBrowserTest {
  public:
-  WebAppOpaqueBrowserFrameViewWindowControlsOverlayTest() {
-    scoped_feature_list_.InitAndEnableFeature(
-        features::kWebAppWindowControlsOverlay);
-  }
+  WebAppOpaqueBrowserFrameViewWindowControlsOverlayTest() = default;
   WebAppOpaqueBrowserFrameViewWindowControlsOverlayTest(
       const WebAppOpaqueBrowserFrameViewWindowControlsOverlayTest&) = delete;
   WebAppOpaqueBrowserFrameViewWindowControlsOverlayTest& operator=(
@@ -313,7 +358,7 @@ class WebAppOpaqueBrowserFrameViewWindowControlsOverlayTest
     web_app_info->start_url = start_url;
     web_app_info->scope = start_url.GetWithoutFilename();
     web_app_info->display_mode = blink::mojom::DisplayMode::kStandalone;
-    web_app_info->user_display_mode = blink::mojom::DisplayMode::kStandalone;
+    web_app_info->user_display_mode = web_app::UserDisplayMode::kStandalone;
     web_app_info->title = u"A Web App";
     web_app_info->display_override = {
         blink::mojom::DisplayMode::kWindowControlsOverlay};
@@ -356,12 +401,12 @@ class WebAppOpaqueBrowserFrameViewWindowControlsOverlayTest
     std::ignore = title_watcher.WaitAndGetTitle();
   }
 
-  raw_ptr<BrowserView> browser_view_ = nullptr;
-  raw_ptr<OpaqueBrowserFrameView> opaque_browser_frame_view_ = nullptr;
+  raw_ptr<BrowserView, DanglingUntriaged> browser_view_ = nullptr;
+  raw_ptr<OpaqueBrowserFrameView, DanglingUntriaged>
+      opaque_browser_frame_view_ = nullptr;
   WebAppFrameToolbarTestHelper web_app_frame_toolbar_helper_;
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
   base::ScopedTempDir temp_dir_;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 namespace blink {
 
 class ComputedStyle;
+class ComputedStyleBuilder;
 class CSSProperty;
 
 struct OptionalStyleColor {
@@ -39,14 +40,18 @@ class ColorPropertyFunctions {
  public:
   static OptionalStyleColor GetInitialColor(const CSSProperty&,
                                             const ComputedStyle& initial_style);
+  template <typename ComputedStyleOrBuilder>
   static OptionalStyleColor GetUnvisitedColor(const CSSProperty&,
-                                              const ComputedStyle&);
+                                              const ComputedStyleOrBuilder&);
+  template <typename ComputedStyleOrBuilder>
   static OptionalStyleColor GetVisitedColor(const CSSProperty&,
-                                            const ComputedStyle&);
+                                            const ComputedStyleOrBuilder&);
   static void SetUnvisitedColor(const CSSProperty&,
-                                ComputedStyle&,
+                                ComputedStyleBuilder&,
                                 const Color&);
-  static void SetVisitedColor(const CSSProperty&, ComputedStyle&, const Color&);
+  static void SetVisitedColor(const CSSProperty&,
+                              ComputedStyleBuilder&,
+                              const Color&);
 };
 
 }  // namespace blink

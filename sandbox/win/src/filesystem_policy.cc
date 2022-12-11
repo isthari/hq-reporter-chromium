@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,8 @@
 
 #include <string>
 
-#include "base/cxx17_backports.h"
 #include "base/notreached.h"
 #include "base/win/scoped_handle.h"
-#include "base/win/windows_version.h"
 #include "sandbox/win/src/ipc_tags.h"
 #include "sandbox/win/src/policy_engine_opcodes.h"
 #include "sandbox/win/src/policy_params.h"
@@ -73,7 +71,7 @@ SECURITY_QUALITY_OF_SERVICE GetAnonymousQOS() {
 namespace sandbox {
 
 bool FileSystemPolicy::GenerateRules(const wchar_t* name,
-                                     TargetPolicy::Semantics semantics,
+                                     Semantics semantics,
                                      LowLevelPolicy* policy) {
   std::wstring mod_name(name);
   if (mod_name.empty()) {
@@ -115,7 +113,7 @@ bool FileSystemPolicy::GenerateRules(const wchar_t* name,
   PolicyRule rename(result);
 
   switch (semantics) {
-    case TargetPolicy::FILES_ALLOW_READONLY: {
+    case Semantics::kFilesAllowReadonly: {
       // We consider all flags that are not known to be readonly as potentially
       // used for write.
       DWORD allowed_flags = FILE_READ_DATA | FILE_READ_ATTRIBUTES |
@@ -131,13 +129,13 @@ bool FileSystemPolicy::GenerateRules(const wchar_t* name,
       rule_to_add &= ~kCallNtSetInfoRename;
       break;
     }
-    case TargetPolicy::FILES_ALLOW_QUERY: {
+    case Semantics::kFilesAllowQuery: {
       // Here we don't want to add policy for the open or the create.
       rule_to_add &=
           ~(kCallNtOpenFile | kCallNtCreateFile | kCallNtSetInfoRename);
       break;
     }
-    case TargetPolicy::FILES_ALLOW_ANY: {
+    case Semantics::kFilesAllowAny: {
       break;
     }
     default: {
@@ -346,7 +344,7 @@ std::wstring FixNTPrefixForMatch(const std::wstring& name) {
 
   // NT prefix escaped for rule matcher
   const wchar_t kNTPrefixEscaped[] = L"\\/?/?\\";
-  const int kNTPrefixEscapedLen = base::size(kNTPrefixEscaped) - 1;
+  const int kNTPrefixEscapedLen = std::size(kNTPrefixEscaped) - 1;
 
   if (0 != mod_name.compare(0, kNTPrefixLen, kNTPrefix)) {
     if (0 != mod_name.compare(0, kNTPrefixEscapedLen, kNTPrefixEscaped)) {

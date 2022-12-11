@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/callback.h"
 #include "base/time/time.h"
 #include "extensions/browser/crx_file_info.h"
-#include "extensions/browser/updater/manifest_fetch_data.h"
+#include "extensions/browser/updater/extension_downloader_types.h"
 #include "extensions/browser/updater/safe_manifest_parser.h"
 #include "extensions/common/extension_id.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -49,6 +49,8 @@ class ExtensionDownloaderDelegate {
     // There was an update for this extension but the download of the crx
     // failed.
     CRX_FETCH_FAILED,
+
+    kMaxValue = CRX_FETCH_FAILED,
   };
 
   // Passed as an argument to OnExtensionDownloadStageChanged() to detail how
@@ -270,7 +272,7 @@ class ExtensionDownloaderDelegate {
   // if PingData should not be included for this extension's update check
   // (this is the default).
   virtual bool GetPingDataForExtension(const ExtensionId& id,
-                                       ManifestFetchData::PingData* ping);
+                                       DownloadPingData* ping);
 
   // Invoked to determine whether extension |id| is currently
   // pending installation.

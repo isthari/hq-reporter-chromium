@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include "chromeos/printing/ppd_provider.h"
 #include "chromeos/printing/printer_configuration.h"
 
-namespace chromeos {
+namespace ash {
 
 // Interface for automatic printer detection.  This API allows for
 // incremental discovery of printers and notification when discovery
@@ -33,10 +33,10 @@ class CHROMEOS_EXPORT PrinterDetector {
   // The result of a detection.
   struct DetectedPrinter {
     // Printer information
-    Printer printer;
+    chromeos::Printer printer;
 
     // Additional metadata used to find a driver.
-    PrinterSearchData ppd_search_data;
+    chromeos::PrinterSearchData ppd_search_data;
   };
 
   using OnPrintersFoundCallback = base::RepeatingCallback<void(
@@ -50,6 +50,6 @@ class CHROMEOS_EXPORT PrinterDetector {
   virtual std::vector<DetectedPrinter> GetPrinters() = 0;
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_PRINTER_DETECTOR_H_

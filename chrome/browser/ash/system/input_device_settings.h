@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -331,17 +331,5 @@ class InputDeviceSettings {
 
 }  // namespace system
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when Chrome OS code migration is
-// done.
-namespace chromeos {
-namespace system {
-using ::ash::system::InputDeviceSettings;
-using ::ash::system::MouseSettings;
-using ::ash::system::PointerSensitivity;
-using ::ash::system::PointingStickSettings;
-using ::ash::system::TouchpadSettings;
-}  // namespace system
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_SYSTEM_INPUT_DEVICE_SETTINGS_H_

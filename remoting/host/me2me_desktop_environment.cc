@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/environment.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/task/single_thread_task_runner.h"
@@ -36,7 +37,27 @@
 #include "base/win/windows_version.h"
 #endif  // BUILDFLAG(IS_WIN)
 
+#if defined(REMOTING_USE_X11)
+#include "remoting/host/linux/x11_util.h"
+#include "ui/gfx/x/connection.h"
+#endif  // defined(REMOTING_USE_X11)
+
 namespace remoting {
+
+namespace {
+
+#if defined(REMOTING_USE_X11)
+
+// Helper function that caches the result of IsUsingVideoDummyDriver().
+bool UsingVideoDummyDriver() {
+  static bool is_using_dummy_driver =
+      IsUsingVideoDummyDriver(x11::Connection::Get());
+  return is_using_dummy_driver;
+}
+
+#endif  // defined(REMOTING_USE_X11)
+
+}  // namespace
 
 Me2MeDesktopEnvironment::~Me2MeDesktopEnvironment() {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
@@ -58,12 +79,17 @@ Me2MeDesktopEnvironment::CreateScreenControls() {
   // they disconnect and reconnect. Both OS X and Windows will restore the
   // resolution automatically when the user logs back in on the console, and on
   // Linux the curtain-mode uses a separate session.
-  return base::WrapUnique(new ResizingHostObserver(DesktopResizer::Create(),
-                                                   curtain_ == nullptr));
+  auto resizer = std::make_unique<ResizingHostObserver>(
+      DesktopResizer::Create(), curtain_ == nullptr);
+  resizer->RegisterForDisplayChanges(*GetDisplayInfoMonitor());
+  return resizer;
 }
 
 std::string Me2MeDesktopEnvironment::GetCapabilities() const {
-  std::string capabilities;
+  std::string capabilities = BasicDesktopEnvironment::GetCapabilities();
+  if (!capabilities.empty()) {
+    capabilities += " ";
+  }
   capabilities += protocol::kRateLimitResizeRequests;
 
   if (InputInjector::SupportsTouchEvents()) {
@@ -98,6 +124,19 @@ std::string Me2MeDesktopEnvironment::GetCapabilities() const {
     capabilities += protocol::kRemoteWebAuthnCapability;
   }
 
+#if (BUILDFLAG(IS_LINUX) && defined(REMOTING_USE_X11)) || BUILDFLAG(IS_MAC)
+  capabilities += " ";
+  capabilities += protocol::kMultiStreamCapability;
+#endif  // (BUILDFLAG(IS_LINUX) && defined(REMOTING_USE_X11)) || ...
+
+#if BUILDFLAG(IS_LINUX) && defined(REMOTING_USE_X11)
+  // Client-controlled layout is only supported with Xorg+video-dummy.
+  if (UsingVideoDummyDriver()) {
+    capabilities += " ";
+    capabilities += protocol::kClientControlledLayoutCapability;
+  }
+#endif  // BUILDFLAG(IS_LINUX) && defined(REMOTING_USE_X11)
+
   return capabilities;
 }
 
@@ -123,6 +162,19 @@ Me2MeDesktopEnvironment::Me2MeDesktopEnvironment(
   // see http://crbug.com/73423. It's safe to enable it here because it works
   // properly under Xvfb.
   mutable_desktop_capture_options()->set_use_update_notifications(true);
+
+#if BUILDFLAG(IS_LINUX)
+  // Setting this option to false means that the capture differ wrapper will not
+  // be used when the X11 capturer is selected. This reduces the X11 capture
+  // time by a few milliseconds per frame and is safe because we can rely on
+  // XDAMAGE to identify the changed regions rather than checking each pixel
+  // ourselves.
+  mutable_desktop_capture_options()->set_detect_updated_region(false);
+#endif
+
+#if defined(REMOTING_USE_WAYLAND)
+  mutable_desktop_capture_options()->set_prefer_cursor_embedded(false);
+#endif
 }
 
 bool Me2MeDesktopEnvironment::InitializeSecurity(
@@ -210,7 +262,7 @@ std::unique_ptr<DesktopEnvironment> Me2MeDesktopEnvironmentFactory::Create(
     return nullptr;
   }
 
-  return std::move(desktop_environment);
+  return desktop_environment;
 }
 
 }  // namespace remoting

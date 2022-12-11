@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/geometry/vector2d.h"
+#include "ui/gl/gl_surface.h"
 
 class SkCanvas;
 
@@ -75,7 +76,8 @@ class VIZ_SERVICE_EXPORT SoftwareOutputDevice {
   // immediately run |swap_ack_callback| via PostTask. If swap isn't synchronous
   // this can be overriden so that |swap_ack_callback| is run after swap
   // completes.
-  virtual void OnSwapBuffers(SwapBuffersCallback swap_ack_callback);
+  virtual void OnSwapBuffers(SwapBuffersCallback swap_ack_callback,
+                             gl::FrameData data);
 
   virtual int MaxFramesPending() const;
 

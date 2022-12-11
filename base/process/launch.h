@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,6 @@
 #include "base/strings/string_piece.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 
 #if BUILDFLAG(IS_WIN)
 #include "base/win/windows_types.h"
@@ -94,7 +93,11 @@ struct BASE_EXPORT LaunchOptions {
 #if BUILDFLAG(IS_WIN)
   bool start_hidden = false;
 
-  // Process will be started using a shell helper so that it is elevated.
+  // Process will be started using ShellExecuteEx instead of CreateProcess so
+  // that it is elevated. LaunchProcess with this flag will have different
+  // behaviour due to ShellExecuteEx. Some common operations like OpenProcess
+  // will fail. Currently the only other supported LaunchOptions are
+  // |start_hidden| and |wait|.
   bool elevated = false;
 
   // Sets STARTF_FORCEOFFFEEDBACK so that the feedback cursor is forced off
@@ -305,11 +308,11 @@ struct BASE_EXPORT LaunchOptions {
   bool new_process_group = false;
 #endif  // BUILDFLAG(IS_POSIX)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   // If non-negative, the specified file descriptor will be set as the launched
   // process' controlling terminal.
   int ctrl_terminal_fd = -1;
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 };
 
 // Launch a process via the command line |cmdline|.
@@ -332,7 +335,9 @@ BASE_EXPORT Process LaunchProcess(const CommandLine& cmdline,
 // Windows-specific LaunchProcess that takes the command line as a
 // string.  Useful for situations where you need to control the
 // command line arguments directly, but prefer the CommandLine version
-// if launching Chrome itself.
+// if launching Chrome itself. Also prefer the CommandLine version if
+// `options.elevated` is set because `cmdline` needs to be parsed for
+// ShellExecuteEx.
 //
 // The first command line argument should be the path to the process,
 // and don't forget to quote it.
@@ -341,14 +346,6 @@ BASE_EXPORT Process LaunchProcess(const CommandLine& cmdline,
 //  cmdline = "c:\windows\explorer.exe" -foo "c:\bar\"
 BASE_EXPORT Process LaunchProcess(const CommandLine::StringType& cmdline,
                                   const LaunchOptions& options);
-
-// Launches a process with elevated privileges.  This does not behave exactly
-// like LaunchProcess as it uses ShellExecuteEx instead of CreateProcess to
-// create the process.  This means the process will have elevated privileges
-// and thus some common operations like OpenProcess will fail. Currently the
-// only supported LaunchOptions are |start_hidden| and |wait|.
-BASE_EXPORT Process LaunchElevatedProcess(const CommandLine& cmdline,
-                                          const LaunchOptions& options);
 
 #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 // A POSIX-specific version of LaunchProcess that takes an argv array
@@ -437,7 +434,7 @@ BASE_EXPORT LaunchOptions LaunchOptionsForTest();
 //
 // It is unsafe to use any pthread APIs after ForkWithFlags().
 // However, performing an exec() will lift this restriction.
-BASE_EXPORT pid_t ForkWithFlags(unsigned long flags, pid_t* ptid, pid_t* ctid);
+BASE_EXPORT pid_t ForkWithFlags(int flags, pid_t* ptid, pid_t* ctid);
 #endif
 
 namespace internal {

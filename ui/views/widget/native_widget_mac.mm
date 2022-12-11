@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "base/strings/sys_string_conversions.h"
 #include "components/crash/core/common/crash_key.h"
 #import "components/remote_cocoa/app_shim/bridged_content_view.h"
+#import "components/remote_cocoa/app_shim/immersive_mode_controller.h"
 #import "components/remote_cocoa/app_shim/native_widget_mac_nswindow.h"
 #import "components/remote_cocoa/app_shim/native_widget_ns_window_bridge.h"
 #import "components/remote_cocoa/app_shim/views_nswindow_delegate.h"
@@ -37,11 +38,12 @@
 #import "ui/views/cocoa/drag_drop_client_mac.h"
 #import "ui/views/cocoa/native_widget_mac_ns_window_host.h"
 #include "ui/views/cocoa/text_input_host.h"
+#include "ui/views/views_features.h"
 #include "ui/views/widget/drop_helper.h"
 #include "ui/views/widget/native_widget_delegate.h"
 #include "ui/views/widget/widget_aura_utils.h"
 #include "ui/views/widget/widget_delegate.h"
-#include "ui/views/window/native_frame_view.h"
+#include "ui/views/window/native_frame_view_mac.h"
 
 using remote_cocoa::mojom::WindowVisibilityState;
 
@@ -52,26 +54,26 @@ namespace {
 static base::RepeatingCallback<void(NativeWidgetMac*)>*
     g_init_native_widget_callback = nullptr;
 
-NSInteger StyleMaskForParams(const Widget::InitParams& params) {
+uint64_t StyleMaskForParams(const Widget::InitParams& params) {
   // If the Widget is modal, it will be displayed as a sheet. This works best if
-  // it has NSTitledWindowMask. For example, with NSBorderlessWindowMask, the
-  // parent window still accepts input.
-  // NSFullSizeContentViewWindowMask ensures that calculating the modal's
+  // it has NSWindowStyleMaskTitled. For example, with
+  // NSWindowStyleMaskBorderless, the parent window still accepts input.
+  // NSWindowStyleMaskFullSizeContentView ensures that calculating the modal's
   // content rect doesn't account for a nonexistent title bar.
   if (params.delegate &&
       params.delegate->GetModalType() == ui::MODAL_TYPE_WINDOW)
-    return NSTitledWindowMask | NSFullSizeContentViewWindowMask;
+    return NSWindowStyleMaskTitled | NSWindowStyleMaskFullSizeContentView;
 
   // TODO(tapted): Determine better masks when there are use cases for it.
   if (params.remove_standard_frame)
-    return NSBorderlessWindowMask;
+    return NSWindowStyleMaskBorderless;
 
   if (params.type == Widget::InitParams::TYPE_WINDOW) {
-    return NSTitledWindowMask | NSClosableWindowMask |
-           NSMiniaturizableWindowMask | NSResizableWindowMask |
-           NSTexturedBackgroundWindowMask;
+    return NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+           NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable |
+           NSWindowStyleMaskTexturedBackground;
   }
-  return NSBorderlessWindowMask;
+  return NSWindowStyleMaskBorderless;
 }
 
 CGWindowLevel CGWindowLevelForZOrderLevel(ui::ZOrderLevel level,
@@ -100,7 +102,7 @@ CGWindowLevel CGWindowLevelForZOrderLevel(ui::ZOrderLevel level,
 class NativeWidgetMac::ZoomFocusMonitor : public FocusChangeListener {
  public:
   ZoomFocusMonitor() = default;
-  ~ZoomFocusMonitor() override {}
+  ~ZoomFocusMonitor() override = default;
   void OnWillChangeFocus(View* focused_before, View* focused_now) override {}
   void OnDidChangeFocus(View* focused_before, View* focused_now) override {
     if (!focused_now || !UAZoomEnabled())
@@ -118,8 +120,7 @@ class NativeWidgetMac::ZoomFocusMonitor : public FocusChangeListener {
 
 NativeWidgetMac::NativeWidgetMac(internal::NativeWidgetDelegate* delegate)
     : delegate_(delegate),
-      ns_window_host_(new NativeWidgetMacNSWindowHost(this)),
-      ownership_(Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET) {}
+      ns_window_host_(new NativeWidgetMacNSWindowHost(this)) {}
 
 NativeWidgetMac::~NativeWidgetMac() {
   if (ownership_ == Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET)
@@ -140,7 +141,8 @@ void NativeWidgetMac::WindowDestroyed() {
   // |OnNativeWidgetDestroyed| may delete |this| if the object does not own
   // itself.
   bool should_delete_this =
-      (ownership_ == Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET);
+      (ownership_ == Widget::InitParams::NATIVE_WIDGET_OWNS_WIDGET) ||
+      (ownership_ == Widget::InitParams::CLIENT_OWNS_WIDGET);
   delegate_->OnNativeWidgetDestroyed();
   if (should_delete_this)
     delete this;
@@ -176,6 +178,15 @@ void NativeWidgetMac::GetWindowFrameTitlebarHeight(
     float* titlebar_height) {
   *override_titlebar_height = false;
   *titlebar_height = 0;
+}
+
+bool NativeWidgetMac::WillExecuteCommand(
+    int32_t command,
+    WindowOpenDisposition window_open_disposition,
+    bool is_before_first_responder) {
+  // This is supported only by subclasses in chrome/browser/ui.
+  NOTIMPLEMENTED();
+  return false;
 }
 
 bool NativeWidgetMac::ExecuteCommand(
@@ -216,9 +227,32 @@ void NativeWidgetMac::InitNativeWidget(Widget::InitParams params) {
         [CreateNSWindow(create_window_params.get()) retain]);
     ns_window_host_->CreateInProcessNSWindowBridge(std::move(window));
   }
+
+  // If the z-order wasn't specifically set to something other than `kNormal`,
+  // then override it if it would leave the widget z-ordered incorrectly in some
+  // platform-specific corner cases.
+  if (params.parent &&
+      (!params.z_order || params.z_order == ui::ZOrderLevel::kNormal)) {
+    // In immersive fullscreen, bubbles will be shown under the toolbar by
+    // default. Fix it by using a higher z-order level.
+    // TODO(mek): Figure out how to make this work with remote remote_cocoa
+    // windows.
+    if (remote_cocoa::IsNSToolbarFullScreenWindow(
+            params.parent.GetNativeNSView().window)) {
+      params.z_order = ui::ZOrderLevel::kFloatingWindow;
+    } else if (auto* parent_widget =
+                   Widget::GetWidgetForNativeView(params.parent)) {
+      // If our parent is z-ordered above us, then float a bit higher.
+      params.z_order =
+          std::max(params.z_order.value_or(ui::ZOrderLevel::kNormal),
+                   parent_widget->GetZOrderLevel());
+    }
+  }
+
   ns_window_host_->SetParent(parent_host);
   ns_window_host_->InitWindow(params,
                               ConvertBoundsToScreenIfNeeded(params.bounds));
+
   OnWindowInitialized();
 
   // Only set the z-order here if it is non-default since setting it may affect
@@ -255,7 +289,7 @@ void NativeWidgetMac::OnWidgetInitDone() {
 
 std::unique_ptr<NonClientFrameView>
 NativeWidgetMac::CreateNonClientFrameView() {
-  return std::make_unique<NativeFrameView>(GetWidget());
+  return std::make_unique<NativeFrameViewMac>(GetWidget());
 }
 
 bool NativeWidgetMac::ShouldUseNativeFrame() const {
@@ -284,6 +318,14 @@ const Widget* NativeWidgetMac::GetWidget() const {
 }
 
 gfx::NativeView NativeWidgetMac::GetNativeView() const {
+  // The immersive mode's overlay widget content view is moved to an another
+  // NSWindow when entering fullscreen. When the view is moved, the current
+  // content view will be nil. Return the cached original content view instead.
+  NSView* contentView = (NSView*)GetNativeWindowProperty(
+      views::NativeWidgetMacNSWindowHost::kImmersiveContentNSView);
+  if (contentView) {
+    return gfx::NativeView(contentView);
+  }
   // Returns a BridgedContentView, unless there is no views::RootView set.
   return [GetNativeWindow().GetNativeNSWindow() contentView];
 }
@@ -518,6 +560,25 @@ void NativeWidgetMac::StackAtTop() {
     GetNSWindowMojo()->StackAtTop();
 }
 
+bool NativeWidgetMac::IsStackedAbove(gfx::NativeView native_view) {
+  if (!GetNSWindowMojo())
+    return false;
+
+  // -[NSApplication orderedWindows] are ordered front-to-back.
+  NSWindow* first = GetNativeWindow().GetNativeNSWindow();
+  NSWindow* second = [native_view.GetNativeNSView() window];
+
+  for (NSWindow* window in [NSApp orderedWindows]) {
+    if (window == second)
+      return !first;
+
+    if (window == first)
+      first = nil;
+  }
+
+  return false;
+}
+
 void NativeWidgetMac::SetShape(std::unique_ptr<Widget::ShapeRects> shape) {
   NOTIMPLEMENTED();
 }
@@ -617,7 +678,9 @@ bool NativeWidgetMac::IsVisibleOnAllWorkspaces() const {
 }
 
 void NativeWidgetMac::Maximize() {
-  NOTIMPLEMENTED();  // See IsMaximized().
+  if (!GetNSWindowMojo())
+    return;
+  GetNSWindowMojo()->SetZoomed(true);
 }
 
 void NativeWidgetMac::Minimize() {
@@ -627,9 +690,9 @@ void NativeWidgetMac::Minimize() {
 }
 
 bool NativeWidgetMac::IsMaximized() const {
-  // The window frame isn't altered on Mac unless going fullscreen. The green
-  // "+" button just makes the window bigger. So, always false.
-  return false;
+  if (!ns_window_host_)
+    return false;
+  return ns_window_host_->IsZoomed();
 }
 
 bool NativeWidgetMac::IsMinimized() const {
@@ -641,15 +704,16 @@ bool NativeWidgetMac::IsMinimized() const {
 void NativeWidgetMac::Restore() {
   if (!GetNSWindowMojo())
     return;
-  GetNSWindowMojo()->SetFullscreen(false);
+  GetNSWindowMojo()->ExitFullscreen();
   GetNSWindowMojo()->SetMiniaturized(false);
+  GetNSWindowMojo()->SetZoomed(false);
 }
 
 void NativeWidgetMac::SetFullscreen(bool fullscreen,
-                                    const base::TimeDelta& delay) {
+                                    int64_t target_display_id) {
   if (!ns_window_host_)
     return;
-  ns_window_host_->SetFullscreen(fullscreen, delay);
+  ns_window_host_->SetFullscreen(fullscreen, target_display_id);
 }
 
 bool NativeWidgetMac::IsFullscreen() const {
@@ -685,6 +749,8 @@ void NativeWidgetMac::RunShellDrag(View* view,
                                    const gfx::Point& location,
                                    int operation,
                                    ui::mojom::DragEventSource source) {
+  if (!ns_window_host_)
+    return;
   ns_window_host_->drag_drop_client()->StartDragAndDrop(view, std::move(data),
                                                         operation, source);
 }
@@ -709,9 +775,9 @@ void NativeWidgetMac::ScheduleLayout() {
     compositor->ScheduleDraw();
 }
 
-void NativeWidgetMac::SetCursor(gfx::NativeCursor cursor) {
-  if (GetInProcessNSWindowBridge())
-    GetInProcessNSWindowBridge()->SetCursor(cursor);
+void NativeWidgetMac::SetCursor(const ui::Cursor& cursor) {
+  if (GetNSWindowMojo())
+    GetNSWindowMojo()->SetCursor(cursor);
 }
 
 void NativeWidgetMac::ShowEmojiPanel() {
@@ -811,6 +877,9 @@ ui::GestureConsumer* NativeWidgetMac::GetGestureConsumer() {
 }
 
 void NativeWidgetMac::OnSizeConstraintsChanged() {
+  if (!GetNSWindowMojo())
+    return;
+
   Widget* widget = GetWidget();
   GetNSWindowMojo()->SetSizeConstraints(
       widget->GetMinimumSize(), widget->GetMaximumSize(),
@@ -833,6 +902,10 @@ void NativeWidgetMac::OnNativeViewHierarchyChanged() {
 
 std::string NativeWidgetMac::GetName() const {
   return name_;
+}
+
+base::WeakPtr<internal::NativeWidgetPrivate> NativeWidgetMac::GetWeakPtr() {
+  return weak_factory.GetWeakPtr();
 }
 
 // static

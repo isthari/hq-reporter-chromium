@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,12 @@ namespace performance_manager {
 class PerformanceManagerLifetime;
 }
 
+#if BUILDFLAG(IS_ANDROID)
+namespace crash_reporter {
+class ChildExitObserver;
+}
+#endif
+
 namespace weblayer {
 class BrowserProcess;
 struct MainParams;
@@ -27,7 +33,6 @@ struct MainParams;
 class BrowserMainPartsImpl : public content::BrowserMainParts {
  public:
   BrowserMainPartsImpl(MainParams* params,
-                       content::MainFunctionParams main_function_params,
                        std::unique_ptr<PrefService> local_state);
 
   BrowserMainPartsImpl(const BrowserMainPartsImpl&) = delete;
@@ -53,10 +58,8 @@ class BrowserMainPartsImpl : public content::BrowserMainParts {
       performance_manager_lifetime_;
 #if BUILDFLAG(IS_ANDROID)
   std::unique_ptr<metrics::MemoryMetricsLogger> memory_metrics_logger_;
+  std::unique_ptr<crash_reporter::ChildExitObserver> child_exit_observer_;
 #endif  // BUILDFLAG(IS_ANDROID)
-
-  // For running weblayer_browsertests.
-  content::MainFunctionParams main_function_params_;
 
   // Ownership of this moves to BrowserProcess. See
   // ContentBrowserClientImpl::local_state_ for details.

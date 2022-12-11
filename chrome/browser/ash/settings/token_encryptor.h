@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -73,11 +73,5 @@ class CryptohomeTokenEncryptor : public TokenEncryptor {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when Chrome OS code migration is
-// done.
-namespace chromeos {
-using ::ash::CryptohomeTokenEncryptor;
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_SETTINGS_TOKEN_ENCRYPTOR_H_

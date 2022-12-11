@@ -1,26 +1,27 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {assertNotReached} from 'chrome://resources/js/assert.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {AutofillManagerProxy, PasswordEditDialogElement, PasswordListItemElement, PasswordMoveMultiplePasswordsToAccountDialogElement, PasswordsExportDialogElement, PasswordsSectionElement, PaymentsManagerProxy, PersonalDataChangedListener} from 'chrome://settings/lazy_load.js';
-import {MultiStoreExceptionEntry, MultiStorePasswordUiEntry, PasswordManagerProxy} from 'chrome://settings/settings.js';
+import {AutofillManagerProxy, PasswordEditDialogElement, PasswordListItemElement, PasswordMoveMultiplePasswordsToAccountDialogElement, PasswordsExportDialogElement, PasswordsImportDialogElement, PasswordsSectionElement, PaymentsManagerProxy, PersonalDataChangedListener} from 'chrome://settings/lazy_load.js';
 import {assertEquals} from 'chrome://webui-test/chai_assert.js';
+import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 
 import {TestPasswordManagerProxy} from './test_password_manager_proxy.js';
 
 // clang-format on
 
-export type PasswordEntryParams = {
-  url?: string,
-  username?: string,
-  federationText?: string,
-  id?: number,
-  frontendId?: number,
-  fromAccountStore?: boolean,
-};
+export interface PasswordEntryParams {
+  url?: string;
+  username?: string;
+  federationText?: string;
+  id?: number;
+  inAccountStore?: boolean;
+  inProfileStore?: boolean;
+  isAndroidCredential?: boolean;
+  note?: string;
+}
 
 /**
  * Creates a single item for the list of passwords, in the format sent by the
@@ -36,83 +37,39 @@ export function createPasswordEntry(params?: PasswordEntryParams):
   const url = params.url !== undefined ? params.url : 'www.foo.com';
   const username = params.username !== undefined ? params.username : 'user';
   const id = params.id !== undefined ? params.id : 42;
-  const frontendId = params.frontendId !== undefined ? params.frontendId : id;
-  const fromAccountStore = params.fromAccountStore || false;
+  // Fallback to device store if no parameter provided.
+  let storeType: chrome.passwordsPrivate.PasswordStoreSet =
+      chrome.passwordsPrivate.PasswordStoreSet.DEVICE;
+
+  if (params.inAccountStore && params.inProfileStore) {
+    storeType = chrome.passwordsPrivate.PasswordStoreSet.DEVICE_AND_ACCOUNT;
+  } else if (params.inAccountStore) {
+    storeType = chrome.passwordsPrivate.PasswordStoreSet.ACCOUNT;
+  } else if (params.inProfileStore) {
+    storeType = chrome.passwordsPrivate.PasswordStoreSet.DEVICE;
+  }
+  const note = params.note || '';
 
   return {
     urls: {
-      origin: 'http://' + url + '/login',
+      signonRealm: 'http://' + url + '/login',
       shown: url,
       link: 'http://' + url + '/login',
     },
     username: username,
     federationText: params.federationText,
     id: id,
-    frontendId: frontendId,
-    fromAccountStore: fromAccountStore,
+    storedIn: storeType,
+    isAndroidCredential: params.isAndroidCredential || false,
+    note: note,
+    password: '',
   };
 }
 
-export type MultyStorePasswordEntryParams = {
-  url?: string,
-  username?: string,
-  federationText?: string,
-  accountId?: number,
-  deviceId?: number,
-};
-
-/**
- * Creates a multi-store password item with the same mock data as
- * createPasswordEntry(), so can be used for verifying deduplication result.
- * At least one of |params.accountId| and |params.deviceId| must be set.
- */
-export function createMultiStorePasswordEntry(
-    params: MultyStorePasswordEntryParams): MultiStorePasswordUiEntry {
-  const dummyFrontendId = 42;
-  let deviceEntry, accountEntry;
-  if (params.deviceId !== undefined) {
-    deviceEntry = createPasswordEntry({
-      url: params.url,
-      username: params.username,
-      federationText: params.federationText,
-      id: params.deviceId,
-      frontendId: dummyFrontendId,
-      fromAccountStore: false
-    });
-  }
-  if (params.accountId !== undefined) {
-    accountEntry = createPasswordEntry({
-      url: params.url,
-      username: params.username,
-      federationText: params.federationText,
-      id: params.accountId,
-      frontendId: dummyFrontendId,
-      fromAccountStore: true
-    });
-  }
-
-  if (deviceEntry && accountEntry) {
-    const mergedEntry = new MultiStorePasswordUiEntry(deviceEntry);
-    mergedEntry.mergeInPlace(accountEntry);
-    return mergedEntry;
-  }
-  if (deviceEntry) {
-    return new MultiStorePasswordUiEntry(deviceEntry);
-  }
-  if (accountEntry) {
-    return new MultiStorePasswordUiEntry(accountEntry);
-  }
-
-  assertNotReached();
-  return new MultiStorePasswordUiEntry(createPasswordEntry());
+export interface ExceptionEntryParams {
+  url?: string;
+  id?: number;
 }
-
-export type ExceptionEntryParams = {
-  url?: string,
-  id?: number,
-  frontendId?: number,
-  fromAccountStore?: boolean,
-};
 
 /**
  * Creates a single item for the list of password exceptions. If no |id| is
@@ -125,68 +82,21 @@ export function createExceptionEntry(params?: ExceptionEntryParams):
   params = params || {};
   const url = params.url !== undefined ? params.url : 'www.foo.com';
   const id = params.id !== undefined ? params.id : 42;
-  const frontendId = params.frontendId !== undefined ? params.frontendId : id;
-  const fromAccountStore = params.fromAccountStore || false;
   return {
     urls: {
-      origin: 'http://' + url + '/login',
+      signonRealm: 'http://' + url + '/login',
       shown: url,
       link: 'http://' + url + '/login',
     },
     id: id,
-    frontendId: frontendId,
-    fromAccountStore: fromAccountStore,
   };
 }
 
-export type MultiStoreExceptionEntryParams = {
-  url?: string,
-  accountId?: number,
-  deviceId?: number,
-};
-
-/**
- * Creates a multi-store password item with the same mock data as
- * createExceptionEntry(), so it can be used for verifying deduplication result.
- * At least one of |accountId| and |deviceId| must be set.
- */
-export function createMultiStoreExceptionEntry(
-    params: MultiStoreExceptionEntryParams): MultiStoreExceptionEntry {
-  const dummyFrontendId = 42;
-  let deviceEntry, accountEntry;
-  if (params.deviceId !== undefined) {
-    deviceEntry = createExceptionEntry({
-      url: params.url,
-      id: params.deviceId,
-      frontendId: dummyFrontendId,
-      fromAccountStore: false
-    });
-  }
-  if (params.accountId !== undefined) {
-    accountEntry = createExceptionEntry({
-      url: params.url,
-      id: params.accountId,
-      frontendId: dummyFrontendId,
-      fromAccountStore: true
-    });
-  }
-
-  if (deviceEntry && accountEntry) {
-    const mergedEntry = new MultiStoreExceptionEntry(deviceEntry);
-    mergedEntry.mergeInPlace(accountEntry);
-    return mergedEntry;
-  }
-  if (deviceEntry) {
-    return new MultiStoreExceptionEntry(deviceEntry);
-  }
-  if (accountEntry) {
-    return new MultiStoreExceptionEntry(accountEntry);
-  }
-
-  assertNotReached();
-  return new MultiStoreExceptionEntry(createExceptionEntry());
+export interface MultiStoreExceptionEntryParams {
+  url?: string;
+  accountId?: number;
+  deviceId?: number;
 }
-
 
 /**
  * Creates a new fake address entry for testing.
@@ -200,18 +110,18 @@ export function createEmptyAddressEntry(): chrome.autofillPrivate.AddressEntry {
  */
 export function createAddressEntry(): chrome.autofillPrivate.AddressEntry {
   const fullName = 'John Doe';
-  const addressLines = patternMaker_('xxxx Main St', 10);
+  const addressLines = patternMaker('xxxx Main St', 10);
   return {
-    guid: makeGuid_(),
+    guid: makeGuid(),
     fullNames: [fullName],
     companyName: 'Google',
     addressLines: addressLines,
     addressLevel1: 'CA',
     addressLevel2: 'Venice',
-    postalCode: patternMaker_('xxxxx', 10),
+    postalCode: patternMaker('xxxxx', 10),
     countryCode: 'US',
-    phoneNumbers: [patternMaker_('(xxx) xxx-xxxx', 10)],
-    emailAddresses: [patternMaker_('userxxxx@gmail.com', 16)],
+    phoneNumbers: [patternMaker('(xxx) xxx-xxxx', 10)],
+    emailAddresses: [patternMaker('userxxxx@gmail.com', 16)],
     languageCode: 'EN-US',
     metadata: {
       isLocal: true,
@@ -241,18 +151,20 @@ export function createCreditCardEntry():
     chrome.autofillPrivate.CreditCardEntry {
   const cards = ['Visa', 'Mastercard', 'Discover', 'Card'];
   const card = cards[Math.floor(Math.random() * cards.length)];
-  const cardNumber = patternMaker_('xxxx xxxx xxxx xxxx', 10);
+  const cardNumber = patternMaker('xxxx xxxx xxxx xxxx', 10);
   return {
-    guid: makeGuid_(),
+    guid: makeGuid(),
     name: 'Jane Doe',
     cardNumber: cardNumber,
     expirationMonth: Math.ceil(Math.random() * 11).toString(),
     expirationYear: (2016 + Math.floor(Math.random() * 5)).toString(),
     network: `${card}_network`,
+    imageSrc: 'chrome://theme/IDR_AUTOFILL_CC_GENERIC',
     metadata: {
       isLocal: true,
       summaryLabel: card + ' ' +
           '****' + cardNumber.substr(-4),
+      summarySublabel: 'Jane Doe',
     },
   };
 }
@@ -262,34 +174,31 @@ export function createCreditCardEntry():
  */
 export function makeInsecureCredential(
     url: string, username: string,
-    id?: number): chrome.passwordsPrivate.InsecureCredential {
-  return {
-    id: id || 0,
-    formattedOrigin: url,
-    changePasswordUrl: `http://${url}/`,
-    username: username,
-    detailedOrigin: '',
-    isAndroidCredential: false,
-    signonRealm: '',
-  };
-}
-
-/**
- * Creates a new compromised credential.
- */
-export function makeCompromisedCredential(
-    url: string, username: string, type: chrome.passwordsPrivate.CompromiseType,
-    id?: number, elapsedMinSinceCompromise?: number):
-    chrome.passwordsPrivate.InsecureCredential {
-  const credential = makeInsecureCredential(url, username, id);
+    types?: chrome.passwordsPrivate.CompromiseType[], id?: number,
+    elapsedMinSinceCompromise?: number,
+    isMuted?: boolean): chrome.passwordsPrivate.PasswordUiEntry {
   elapsedMinSinceCompromise = elapsedMinSinceCompromise || 0;
-  credential.compromisedInfo = {
+  types = types || [];
+  const compromisedInfo = {
     compromiseTime: Date.now() - (elapsedMinSinceCompromise * 60000),
     elapsedTimeSinceCompromise: `${elapsedMinSinceCompromise} minutes ago`,
-    compromiseType: type,
-    isMuted: false,
+    compromiseTypes: types,
+    isMuted: isMuted ?? false,
   };
-  return credential;
+  return {
+    id: id || 0,
+    storedIn: chrome.passwordsPrivate.PasswordStoreSet.DEVICE,
+    changePasswordUrl: `http://${url}/`,
+    urls: {
+      signonRealm: `http://${url}/`,
+      shown: url,
+      link: `http://${url}/`,
+    },
+    username: username,
+    note: '',
+    isAndroidCredential: false,
+    compromisedInfo: types.length ? compromisedInfo : undefined,
+  };
 }
 
 /**
@@ -310,8 +219,8 @@ export function makePasswordCheckStatus(
 /**
  * Creates a new random GUID for testing.
  */
-function makeGuid_(): string {
-  return patternMaker_('xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 16);
+function makeGuid(): string {
+  return patternMaker('xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', 16);
 }
 
 /**
@@ -319,7 +228,7 @@ function makeGuid_(): string {
  * @param pattern The pattern that should be used as an input.
  * @param base The number base. ie: 16 for hex or 10 for decimal.
  */
-function patternMaker_(pattern: string, base: number): string {
+function patternMaker(pattern: string, base: number): string {
   return pattern.replace(/x/g, function() {
     return Math.floor(Math.random() * base).toString(base);
   });
@@ -358,8 +267,9 @@ export class PasswordSectionElementFactory {
       profile: {
         password_manager_leak_detection: {
           value: true,
-        }
+        },
       },
+      password_manager: {biometric_authentication_filling: {value: true}},
     };
     this.document.body.appendChild(passwordsSection);
     flush();
@@ -373,7 +283,7 @@ export class PasswordSectionElementFactory {
                              chrome.passwordsPrivate.PasswordUiEntry):
       PasswordListItemElement {
     const passwordListItem = this.document.createElement('password-list-item');
-    passwordListItem.entry = new MultiStorePasswordUiEntry(passwordEntry);
+    passwordListItem.entry = passwordEntry;
     this.document.body.appendChild(passwordListItem);
     flush();
     return passwordListItem;
@@ -383,8 +293,8 @@ export class PasswordSectionElementFactory {
    * Helper method used to create a password editing dialog.
    */
   createPasswordEditDialog(
-      passwordEntry: MultiStorePasswordUiEntry|null = null,
-      passwords?: MultiStorePasswordUiEntry[],
+      passwordEntry: chrome.passwordsPrivate.PasswordUiEntry|null = null,
+      passwords?: chrome.passwordsPrivate.PasswordUiEntry[],
       isAccountStoreUser: boolean = false): PasswordEditDialogElement {
     const passwordDialog = this.document.createElement('password-edit-dialog');
     passwordDialog.existingEntry = passwordEntry;
@@ -405,19 +315,26 @@ export class PasswordSectionElementFactory {
   /**
    * Helper method used to create an export passwords dialog.
    */
-  createExportPasswordsDialog(passwordManager: PasswordManagerProxy):
-      PasswordsExportDialogElement {
-    passwordManager.requestExportProgressStatus = callback => {
-      callback(chrome.passwordsPrivate.ExportProgressStatus.NOT_STARTED);
-    };
-    passwordManager.exportPasswords = (callback) => {
-      callback();
-    };
-
+  createExportPasswordsDialog(): PasswordsExportDialogElement {
     const dialog = this.document.createElement('passwords-export-dialog');
     this.document.body.appendChild(dialog);
     flush();
+    return dialog;
+  }
 
+  /**
+   * Helper method used to create a passwords import dialog.
+   */
+  createPasswordsImportDialog(
+      isUserSyncingPasswords: boolean = false,
+      isAccountStoreUser: boolean = false,
+      accountEmail: string = ''): PasswordsImportDialogElement {
+    const dialog = this.document.createElement('passwords-import-dialog');
+    dialog.isUserSyncingPasswords = isUserSyncingPasswords;
+    dialog.isAccountStoreUser = isAccountStoreUser;
+    dialog.accountEmail = accountEmail;
+    this.document.body.appendChild(dialog);
+    flush();
     return dialog;
   }
 }
@@ -440,8 +357,8 @@ export class PasswordDeviceSectionElementFactory {
    * Helper method used to create a move multiple password to the Google Account
    * dialog.
    */
-  createMoveMultiplePasswordsDialog(passwordsToMove:
-                                        MultiStorePasswordUiEntry[]):
+  createMoveMultiplePasswordsDialog(
+      passwordsToMove: chrome.passwordsPrivate.PasswordUiEntry[]):
       PasswordMoveMultiplePasswordsToAccountDialogElement {
     const moveDialog = this.document.createElement(
         'password-move-multiple-passwords-to-account-dialog');
@@ -462,9 +379,8 @@ export class AutofillManagerExpectations {
 /**
  * Test implementation
  */
-export class TestAutofillManager implements AutofillManagerProxy {
-  private actual_: AutofillManagerExpectations;
-
+export class TestAutofillManager extends TestBrowserProxy implements
+    AutofillManagerProxy {
   data: {
     addresses: chrome.autofillPrivate.AddressEntry[],
   };
@@ -473,7 +389,12 @@ export class TestAutofillManager implements AutofillManagerProxy {
       {setPersonalDataManagerListener: PersonalDataChangedListener|null};
 
   constructor() {
-    this.actual_ = new AutofillManagerExpectations();
+    super([
+      'getAddressList',
+      'removeAddress',
+      'removePersonalDataManagerListener',
+      'setPersonalDataManagerListener',
+    ]);
 
     // Set these to have non-empty data.
     this.data = {
@@ -487,34 +408,36 @@ export class TestAutofillManager implements AutofillManagerProxy {
   }
 
   setPersonalDataManagerListener(listener: PersonalDataChangedListener) {
-    this.actual_.listeningAddresses++;
+    this.methodCalled('setPersonalDataManagerListener');
     this.lastCallback.setPersonalDataManagerListener = listener;
   }
 
   removePersonalDataManagerListener(_listener: PersonalDataChangedListener) {
-    this.actual_.listeningAddresses--;
+    this.methodCalled('removePersonalDataManagerListener');
   }
 
-  getAddressList(
-      callback: (entries: chrome.autofillPrivate.AddressEntry[]) => void) {
-    this.actual_.requestedAddresses++;
-    callback(this.data.addresses);
+  getAddressList() {
+    this.methodCalled('getAddressList');
+    return Promise.resolve(this.data.addresses);
   }
 
   saveAddress(_address: chrome.autofillPrivate.AddressEntry) {}
 
   removeAddress(_guid: string) {
-    this.actual_.removeAddress++;
+    this.methodCalled('removeAddress');
   }
 
   /**
    * Verifies expectations.
    */
   assertExpectations(expected: AutofillManagerExpectations) {
-    const actual = this.actual_;
-    assertEquals(expected.requestedAddresses, actual.requestedAddresses);
-    assertEquals(expected.listeningAddresses, actual.listeningAddresses);
-    assertEquals(expected.removeAddress, actual.removeAddress);
+    assertEquals(
+        expected.requestedAddresses, this.getCallCount('getAddressList'));
+    assertEquals(
+        expected.listeningAddresses,
+        this.getCallCount('setPersonalDataManagerListener') -
+            this.getCallCount('removePersonalDataManagerListener'));
+    assertEquals(expected.removeAddress, this.getCallCount('removeAddress'));
   }
 }
 
@@ -523,13 +446,17 @@ export class PaymentsManagerExpectations {
   requestedCreditCards: number = 0;
   listeningCreditCards: number = 0;
   requestedUpiIds: number = 0;
+  removedCreditCards: number = 0;
+  clearedCachedCreditCards: number = 0;
+  addedVirtualCards: number = 0;
 }
 
 /**
  * Test implementation
  */
-export class TestPaymentsManager implements PaymentsManagerProxy {
-  private actual_: PaymentsManagerExpectations;
+export class TestPaymentsManager extends TestBrowserProxy implements
+    PaymentsManagerProxy {
+  private isUserVerifyingPlatformAuthenticatorAvailable_: boolean|null = null;
 
   data: {
     creditCards: chrome.autofillPrivate.CreditCardEntry[],
@@ -540,7 +467,15 @@ export class TestPaymentsManager implements PaymentsManagerProxy {
       {setPersonalDataManagerListener: PersonalDataChangedListener|null};
 
   constructor() {
-    this.actual_ = new PaymentsManagerExpectations();
+    super([
+      'setPersonalDataManagerListener',
+      'removePersonalDataManagerListener',
+      'getCreditCardList',
+      'getUpiIdList',
+      'clearCachedCreditCard',
+      'removeCreditCard',
+      'addVirtualCard',
+    ]);
 
     // Set these to have non-empty data.
     this.data = {
@@ -555,43 +490,70 @@ export class TestPaymentsManager implements PaymentsManagerProxy {
   }
 
   setPersonalDataManagerListener(listener: PersonalDataChangedListener) {
-    this.actual_.listeningCreditCards++;
+    this.methodCalled('setPersonalDataManagerListener');
     this.lastCallback.setPersonalDataManagerListener = listener;
   }
 
   removePersonalDataManagerListener(_listener: PersonalDataChangedListener) {
-    this.actual_.listeningCreditCards--;
+    this.methodCalled('removePersonalDataManagerListener');
   }
 
-  getCreditCardList(
-      callback: (entries: chrome.autofillPrivate.CreditCardEntry[]) => void) {
-    this.actual_.requestedCreditCards++;
-    callback(this.data.creditCards);
+  getCreditCardList() {
+    this.methodCalled('getCreditCardList');
+    return Promise.resolve(this.data.creditCards);
   }
 
-  getUpiIdList(callback: (entries: string[]) => void) {
-    this.actual_.requestedUpiIds++;
-    callback(this.data.upiIds);
+  getUpiIdList() {
+    this.methodCalled('getUpiIdList');
+    return Promise.resolve(this.data.upiIds);
   }
 
-  clearCachedCreditCard(_guid: string) {}
+  clearCachedCreditCard(_guid: string) {
+    this.methodCalled('clearCachedCreditCard');
+  }
 
   logServerCardLinkClicked() {}
 
   migrateCreditCards() {}
 
-  removeCreditCard(_guid: string) {}
+  removeCreditCard(_guid: string) {
+    this.methodCalled('removeCreditCard');
+  }
 
   saveCreditCard(_creditCard: chrome.autofillPrivate.CreditCardEntry) {}
 
-  setCreditCardFIDOAuthEnabledState(_enabled: boolean) {}
+  setCreditCardFidoAuthEnabledState(_enabled: boolean) {}
+
+  addVirtualCard(_cardId: string) {
+    this.methodCalled('addVirtualCard');
+  }
+
+  removeVirtualCard(_cardId: string) {}
+
+  setIsUserVerifyingPlatformAuthenticatorAvailable(available: boolean|null) {
+    this.isUserVerifyingPlatformAuthenticatorAvailable_ = available;
+  }
+
+  isUserVerifyingPlatformAuthenticatorAvailable() {
+    return Promise.resolve(this.isUserVerifyingPlatformAuthenticatorAvailable_);
+  }
 
   /**
    * Verifies expectations.
    */
   assertExpectations(expected: PaymentsManagerExpectations) {
-    const actual = this.actual_;
-    assertEquals(expected.requestedCreditCards, actual.requestedCreditCards);
-    assertEquals(expected.listeningCreditCards, actual.listeningCreditCards);
+    assertEquals(
+        expected.requestedCreditCards, this.getCallCount('getCreditCardList'));
+    assertEquals(
+        expected.listeningCreditCards,
+        this.getCallCount('setPersonalDataManagerListener') -
+            this.getCallCount('removePersonalDataManagerListener'));
+    assertEquals(
+        expected.removedCreditCards, this.getCallCount('removeCreditCard'));
+    assertEquals(
+        expected.clearedCachedCreditCards,
+        this.getCallCount('clearCachedCreditCard'));
+    assertEquals(
+        expected.addedVirtualCards, this.getCallCount('addVirtualCard'));
   }
 }

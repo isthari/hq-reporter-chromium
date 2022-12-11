@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
 #include "content/browser/loader/navigation_loader_interceptor.h"
-#include "content/browser/loader/single_request_url_loader_factory.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/fake_embedded_worker_instance_client.h"
 #include "content/browser/service_worker/fake_service_worker.h"
@@ -31,6 +30,7 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/test_data_directory.h"
 #include "services/network/public/cpp/features.h"
+#include "services/network/public/cpp/single_request_url_loader_factory.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "services/network/test/test_url_loader_client.h"
@@ -50,8 +50,8 @@ namespace content {
 namespace service_worker_main_resource_loader_unittest {
 
 void ReceiveRequestHandler(
-    SingleRequestURLLoaderFactory::RequestHandler* out_handler,
-    SingleRequestURLLoaderFactory::RequestHandler handler) {
+    network::SingleRequestURLLoaderFactory::RequestHandler* out_handler,
+    network::SingleRequestURLLoaderFactory::RequestHandler handler) {
   *out_handler = std::move(handler);
 }
 
@@ -290,7 +290,8 @@ class FetchEventServiceWorker : public FakeServiceWorker {
             .Run(blink::mojom::ServiceWorkerEventStatus::COMPLETED);
         break;
       case ResponseMode::kFallbackResponse:
-        response_callback->OnFallback(std::move(timing));
+        response_callback->OnFallback(/*request_body=*/absl::nullopt,
+                                      std::move(timing));
         std::move(finish_callback)
             .Run(blink::mojom::ServiceWorkerEventStatus::COMPLETED);
         break;
@@ -443,8 +444,8 @@ class ServiceWorkerMainResourceLoaderTest : public testing::Test {
         GetStorageControl(), version_->script_url(), {} /* headers */,
         "I'm the body", "I'm the meta data"));
     version_->script_cache_map()->SetResources(records);
-    version_->set_fetch_handler_existence(
-        ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
+    version_->set_fetch_handler_type(
+        ServiceWorkerVersion::FetchHandlerType::kNotSkippable);
     version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
     registration_->SetActiveVersion(version_);
 
@@ -501,8 +502,7 @@ class ServiceWorkerMainResourceLoaderTest : public testing::Test {
           /*is_parent_frame_secure=*/true, helper_->context()->AsWeakPtr(),
           &container_endpoints_);
       container_host_->UpdateUrls(
-          request->url, net::SiteForCookies::FromUrl(request->url),
-          url::Origin::Create(request->url),
+          request->url, url::Origin::Create(request->url),
           blink::StorageKey(url::Origin::Create(request->url)));
       container_host_->AddMatchingRegistration(registration_.get());
       container_host_->SetControllerRegistration(
@@ -641,7 +641,6 @@ TEST_F(ServiceWorkerMainResourceLoaderTest, NoActiveWorker) {
       &container_endpoints_);
   container_host_->UpdateUrls(
       GURL("https://example.com/"),
-      net::SiteForCookies::FromUrl(GURL("https://example.com/")),
       url::Origin::Create(GURL("https://example.com/")),
       blink::StorageKey(url::Origin::Create(GURL("https://example.com/"))));
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -194,6 +194,8 @@ class VIZ_HOST_EXPORT HostFrameSinkManager
                            std::unique_ptr<CopyOutputRequest> request);
 
   void Throttle(const std::vector<FrameSinkId>& ids, base::TimeDelta interval);
+  void StartThrottlingAllFrameSinks(base::TimeDelta interval);
+  void StopThrottlingAllFrameSinks();
 
   // Add/Remove an observer to receive notifications of when the host receives
   // new hit test data.
@@ -216,6 +218,13 @@ class VIZ_HOST_EXPORT HostFrameSinkManager
       const FrameSinkId& frame_sink_id);
 
   void UpdateDebugRendererSettings(const DebugRendererSettings& debug_settings);
+
+  // Starts the frame counting in Viz.
+  void StartFrameCountingForTest(base::TimeDelta bucket_size);
+
+  // Ends the frame counting in Viz thread and returns data to the client.
+  void StopFrameCountingForTest(
+      mojom::FrameSinkManager::StopFrameCountingForTestCallback callback);
 
   const DebugRendererSettings& debug_renderer_settings() const {
     return debug_renderer_settings_;
@@ -293,13 +302,13 @@ class VIZ_HOST_EXPORT HostFrameSinkManager
 
   const bool enable_sync_window_destruction_;
 
+  // Connections to/from FrameSinkManagerImpl.
+  mojo::Remote<mojom::FrameSinkManager> frame_sink_manager_remote_;
   // This will point to |frame_sink_manager_remote_| if using mojo or it may
   // point directly at FrameSinkManagerImpl in tests. Use this to make function
   // calls.
   raw_ptr<mojom::FrameSinkManager> frame_sink_manager_ = nullptr;
 
-  // Connections to/from FrameSinkManagerImpl.
-  mojo::Remote<mojom::FrameSinkManager> frame_sink_manager_remote_;
   mojo::Receiver<mojom::FrameSinkManagerClient> receiver_{this};
 
   // Per CompositorFrameSink data.

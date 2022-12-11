@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -178,7 +178,8 @@ TEST_F(SystemLogSourceDataCollectorAdaptorTest, CollectAndExportData) {
 
   std::map<base::FilePath, std::string> expected_contents;
   for (const auto& data : kTestData) {
-    expected_contents[output_dir.AppendASCII(data.data_source_name)] =
+    expected_contents[output_dir.AppendASCII(data.data_source_name)
+                          .AddExtension(FILE_PATH_LITERAL(".log"))] =
         data.test_logs_pii_redacted;
   }
   EXPECT_THAT(result_contents, ContainerEq(expected_contents));

@@ -1,21 +1,21 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/app_mode/web_app/web_kiosk_app_manager.h"
 
 #include <map>
+#include <memory>
 
-#include "ash/components/settings/cros_settings_names.h"
-#include "base/bind.h"
 #include "chrome/browser/ash/app_mode/app_session_ash.h"
 #include "chrome/browser/ash/app_mode/kiosk_cryptohome_remover.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/policy/core/device_local_account.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "components/prefs/pref_registry_simple.h"
+#include "url/gurl.h"
 
 namespace ash {
 
@@ -93,10 +93,23 @@ const WebKioskAppData* WebKioskAppManager::GetAppByAccountId(
 
 void WebKioskAppManager::UpdateAppByAccountId(
     const AccountId& account_id,
-    std::unique_ptr<WebAppInstallInfo> app_info) {
+    const WebAppInstallInfo& app_info) {
   for (auto& web_app : apps_) {
     if (web_app->account_id() == account_id) {
-      web_app->UpdateFromWebAppInfo(std::move(app_info));
+      web_app->UpdateFromWebAppInfo(app_info);
+      return;
+    }
+  }
+  NOTREACHED();
+}
+
+void WebKioskAppManager::UpdateAppByAccountId(const AccountId& account_id,
+                                              const std::string& title,
+                                              const GURL& start_url,
+                                              const IconBitmaps& icon_bitmaps) {
+  for (auto& web_app : apps_) {
+    if (web_app->account_id() == account_id) {
+      web_app->UpdateAppInfo(title, start_url, icon_bitmaps);
       return;
     }
   }
@@ -116,11 +129,14 @@ void WebKioskAppManager::AddAppForTesting(const AccountId& account_id,
 void WebKioskAppManager::InitSession(Browser* browser, Profile* profile) {
   LOG_IF(FATAL, app_session_) << "Kiosk session is already initialized.";
 
-  app_session_ = std::make_unique<AppSessionAsh>();
-  if (crosapi::browser_util::IsLacrosEnabledInWebKioskSession())
-    app_session_->InitForWebKioskWithLacros(profile);
-  else
-    app_session_->InitForWebKiosk(browser);
+  app_session_ = std::make_unique<AppSessionAsh>(profile);
+  if (crosapi::browser_util::IsLacrosEnabledInWebKioskSession()) {
+    // When Lacros is enabled, ash-side does not have a browser and should not
+    // pass any browser-related arguments.
+    app_session_->InitForWebKiosk(absl::nullopt);
+  } else {
+    app_session_->InitForWebKiosk(browser->app_name());
+  }
 
   NotifySessionInitialized();
 }
@@ -180,6 +196,12 @@ void WebKioskAppManager::UpdateAppsFromPolicy() {
     old_apps_to_remove.emplace_back(entry.second.get());
   ClearRemovedApps(old_apps_to_remove);
   NotifyKioskAppsChanged();
+}
+
+void WebKioskAppManager::StartObservingAppUpdate(Profile* profile,
+                                                 const AccountId& account_id) {
+  app_update_observer_ =
+      std::make_unique<WebKioskAppUpdateObserver>(profile, account_id);
 }
 
 }  // namespace ash

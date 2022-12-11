@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -187,7 +187,8 @@ bool SandboxBPF::StartSandbox(SeccompLevel seccomp_level, bool enable_ibpb) {
 }
 
 void SandboxBPF::SetProcFd(base::ScopedFD proc_fd) {
-  proc_fd_.swap(proc_fd);
+  if (proc_fd_.get() != proc_fd.get())
+    proc_fd_ = std::move(proc_fd);
 }
 
 // static

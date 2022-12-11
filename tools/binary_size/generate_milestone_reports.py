@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2018 The Chromium Authors. All rights reserved.
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Generate report files to view and/or compare (diff) milestones.
@@ -86,6 +86,18 @@ _DESIRED_VERSIONS = [
     '95.0.4638.7',
     '96.0.4664.6',
     '97.0.4692.9',
+    '98.0.4758.8',
+    '99.0.4844.7',
+    '100.0.4896.12',
+    '101.0.4951.20',
+    '102.0.5005.37',
+    '103.0.5060.9',
+    '104.0.5112.9',
+    '105.0.5195.7',
+    '106.0.5249.7',
+    '107.0.5304.14',
+    '108.0.5359.12',
+    '109.0.5414.8',
 ]
 
 
@@ -112,6 +124,8 @@ def _EnumerateReports():
       versions = [v for v in versions if _VersionMajor(v) >= 71]
     elif apk == 'TrichromeGoogle':
       versions = [v for v in versions if _VersionMajor(v) >= 88]
+    elif apk == 'ChromeModern.apk':
+      versions = [v for v in versions if _VersionMajor(v) <= 108]
 
     for version in versions:
       yield Report(cpu, apk, version)

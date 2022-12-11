@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "ash/accessibility/a11y_feature_type.h"
 #include "ash/ash_export.h"
 #include "ash/constants/ash_constants.h"
 #include "ash/public/cpp/accessibility_controller.h"
@@ -85,34 +86,10 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
                                                public SessionObserver,
                                                public TabletModeObserver {
  public:
-  enum FeatureType {
-    kAutoclick = 0,
-    kCaretHighlight,
-    kCursorColor,
-    kCursorHighlight,
-    kDictation,
-    kDockedMagnifier,
-    kFloatingMenu,
-    kFocusHighlight,
-    kFullscreenMagnifier,
-    kHighContrast,
-    kLargeCursor,
-    kLiveCaption,
-    kMonoAudio,
-    kSelectToSpeak,
-    kSpokenFeedback,
-    kStickyKeys,
-    kSwitchAccess,
-    kVirtualKeyboard,
-
-    kFeatureCount,
-    kNoConflictingFeature
-  };
-
   // Common interface for all features.
   class Feature {
    public:
-    Feature(FeatureType type,
+    Feature(A11yFeatureType type,
             const std::string& pref_name,
             const gfx::VectorIcon* icon,
             AccessibilityControllerImpl* controller);
@@ -120,7 +97,7 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
     Feature& operator=(Feature const&) = delete;
     virtual ~Feature();
 
-    FeatureType type() const { return type_; }
+    A11yFeatureType type() const { return type_; }
     // Tries to set the feature to |enabled| by setting the user pref.
     // Setting feature to be enabled can fail in following conditions:
     // - there is a higher priority pref(managed), which overrides this value.
@@ -133,13 +110,14 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
     const gfx::VectorIcon& icon() const;
 
     void UpdateFromPref();
-    void SetConflictingFeature(FeatureType feature);
+    void SetConflictingFeature(A11yFeatureType feature);
 
    protected:
-    const FeatureType type_;
+    const A11yFeatureType type_;
     // Some features cannot be enabled while others are on. When a conflicting
     // feature is enabled, we cannot enable current feature.
-    FeatureType conflicting_feature_ = FeatureType::kNoConflictingFeature;
+    A11yFeatureType conflicting_feature_ =
+        A11yFeatureType::kNoConflictingFeature;
     bool enabled_ = false;
     const std::string pref_name_;
     const gfx::VectorIcon* icon_;
@@ -162,7 +140,7 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
   // associated with accelerators.
   class FeatureWithDialog : public Feature {
    public:
-    FeatureWithDialog(FeatureType type,
+    FeatureWithDialog(A11yFeatureType type,
                       const std::string& pref_name,
                       const gfx::VectorIcon* icon,
                       const Dialog& dialog,
@@ -211,7 +189,9 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
   void AddObserver(AccessibilityObserver* observer);
   void RemoveObserver(AccessibilityObserver* observer);
 
-  Feature& GetFeature(FeatureType feature) const;
+  Feature& GetFeature(A11yFeatureType feature) const;
+
+  base::WeakPtr<AccessibilityControllerImpl> GetWeakPtr();
 
   // Getters for the corresponding features.
   Feature& autoclick() const;
@@ -252,8 +232,13 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
 
   PointScanController* GetPointScanController();
 
+  // Update the autoclick menu bounds and sticky keys overlay bounds if
+  // necessary. This may need to happen when the display work area changes, or
+  // if system UI regions change (like the virtual keyboard position).
+  void UpdateFloatingPanelBoundsIfNeeded();
+
   // Update the autoclick menu bounds if necessary. This may need to happen when
-  // the display work area changes, or if system ui regions change (like the
+  // the display work area changes, or if system UI regions change (like the
   // virtual keyboard position).
   void UpdateAutoclickMenuBoundsIfNeeded();
 
@@ -333,7 +318,7 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
 
   // Plays an earcon. Earcons are brief and distinctive sounds that indicate
   // that their mapped event has occurred. The |sound_key| enums can be found in
-  // ash/components/audio/sounds.h.
+  // chromeos/ash/components/audio/sounds.h.
   void PlayEarcon(Sound sound_key);
 
   // Initiates play of shutdown sound. Returns the TimeDelta duration.
@@ -346,9 +331,6 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
 
   // Toggle dictation.
   void ToggleDictation();
-
-  // Cancels all current and queued speech immediately.
-  void SilenceSpokenFeedback();
 
   // Called when we first detect two fingers are held down, which can be used to
   // toggle spoken feedback on some touch-only devices.
@@ -439,11 +421,6 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
   void DisablePolicyRecommendationRestorerForTesting() override;
   void SuspendSwitchAccessKeyHandling(bool suspend) override;
   void EnableChromeVoxVolumeSlideGesture() override;
-  void ShowConfirmationDialog(const std::u16string& title,
-                              const std::u16string& description,
-                              base::OnceClosure on_accept_callback,
-                              base::OnceClosure on_cancel_callback,
-                              base::OnceClosure on_close_callback) override;
   void UpdateDictationButtonOnSpeechRecognitionDownloadChanged(
       int download_progress) override;
   void ShowSpeechRecognitionDownloadNotificationForDictation(
@@ -455,6 +432,23 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
       const absl::optional<std::u16string>& text,
       const absl::optional<std::vector<DictationBubbleHintType>>& hints)
       override;
+  void SilenceSpokenFeedback() override;
+
+  // A confirmation dialog will be shown the first time an accessibility feature
+  // is enabled using the specified accelerator key sequence. Only one dialog
+  // will be shown at a time, and will not be shown again if the user has
+  // selected "accept" on a given dialog. The dialog was added to ensure that
+  // users would be aware of the shortcut they have just enabled, and to prevent
+  // users from accidentally triggering the feature. The dialog is currently
+  // shown when enabling the following features: high contrast, full screen
+  // magnifier, docked magnifier and screen rotation and when requested by the
+  // AccessibilityPrivate extension API. The shown dialog is stored as a weak
+  // pointer in the variable |confirmation_dialog_| below.
+  void ShowConfirmationDialog(const std::u16string& title,
+                              const std::u16string& description,
+                              base::OnceClosure on_accept_callback,
+                              base::OnceClosure on_cancel_callback,
+                              base::OnceClosure on_close_callback) override;
 
   // SessionObserver:
   void OnSigninScreenPrefServiceInitialized(PrefService* prefs) override;
@@ -486,16 +480,14 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
     return dictation_soda_download_progress_;
   }
 
-  DictationBubbleController* GetDictationBubbleControllerForTest() {
-    return dictation_bubble_controller_.get();
-  }
+  DictationBubbleController* GetDictationBubbleControllerForTest();
 
  private:
   // Populate |features_| with the feature of the correct type.
   void CreateAccessibilityFeatures();
 
   // Propagates the state of |feature| according to |feature->enabled()|.
-  void OnFeatureChanged(FeatureType feature);
+  void OnFeatureChanged(A11yFeatureType feature);
 
   // TabletModeObserver:
   void OnTabletModeStarted() override;
@@ -506,7 +498,7 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
   void ObservePrefs(PrefService* prefs);
 
   // Updates the actual feature status based on the prefs value.
-  void UpdateFeatureFromPref(FeatureType feature);
+  void UpdateFeatureFromPref(A11yFeatureType feature);
 
   void UpdateAutoclickDelayFromPref();
   void UpdateAutoclickEventTypeFromPref();
@@ -518,6 +510,10 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
   void UpdateLargeCursorFromPref();
   void UpdateLiveCaptionFromPref();
   void UpdateCursorColorFromPrefs();
+  void UpdateFilterGreyscaleFromPrefs();
+  void UpdateFilterSaturationFromPrefs();
+  void UpdateFilterSepiaFromPrefs();
+  void UpdateFilterHueRotationFromPrefs();
   void UpdateSwitchAccessKeyCodesFromPref(SwitchAccessCommand command);
   void UpdateSwitchAccessAutoScanEnabledFromPref();
   void UpdateSwitchAccessAutoScanSpeedFromPref();
@@ -541,7 +537,8 @@ class ASH_EXPORT AccessibilityControllerImpl : public AccessibilityController,
   // Client interface in chrome browser.
   AccessibilityControllerClient* client_ = nullptr;
 
-  std::unique_ptr<Feature> features_[kFeatureCount];
+  // Features are indexed by A11yFeatureType cast to int.
+  std::unique_ptr<Feature> features_[kA11yFeatureTypeCount];
 
   base::TimeDelta autoclick_delay_;
   int large_cursor_size_in_dip_ = kDefaultLargeCursorSize;

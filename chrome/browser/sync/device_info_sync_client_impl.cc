@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,10 @@
 
 #if BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/webauthn/android/cable_module_android.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/crosapi/browser_util.h"
 #endif
 
 namespace browser_sync {
@@ -51,8 +55,15 @@ std::string DeviceInfoSyncClientImpl::GetSigninScopedDeviceId() const {
 
 // syncer::DeviceInfoSyncClient:
 bool DeviceInfoSyncClientImpl::GetSendTabToSelfReceivingEnabled() const {
-  return send_tab_to_self::IsReceivingEnabledByUserOnThisDevice(
-      profile_->GetPrefs());
+  // TODO(crbug.com/1286405): Current logic allows to disable receiving tabs
+  // in Ash, while sending is still enabled - this seems to be the best solution
+  // for Lacros-Primary. Once Lacros-Only is the only available option, this
+  // should simply check whether SendTabToSelf datatype is enabled.
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  return !crosapi::browser_util::IsLacrosPrimaryBrowser();
+#else
+  return true;
+#endif
 }
 
 // syncer::DeviceInfoSyncClient:

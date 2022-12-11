@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include "ash/components/arc/mojom/file_system.mojom-forward.h"
 #include "base/callback_forward.h"
 #include "base/files/file_path.h"
-#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/arc/fileapi/arc_file_system_operation_runner.h"
@@ -54,7 +53,7 @@ class ArcDocumentsProviderRoot : public ArcFileSystemOperationRunner::Observer {
     bool supports_thumbnail;
     // Last modified time of the the file, returned in the COLUMN_LAST_MODIFIED
     // from the DocumentsProvider.queryDocument() and .queryChildDocuments(). If
-    // unknown, it's set to the Unix epoch time.
+    // unknown, it's set to the base::Time().
     base::Time last_modified;
     // Size of the file in bytes, returned in the COLUMN_SIZE from the
     // DocumentsProvider.queryDocument() and .queryChildDocuments(). If the
@@ -221,6 +220,9 @@ class ArcDocumentsProviderRoot : public ArcFileSystemOperationRunner::Observer {
   void GetRootSize(GetRootSizeCallback callback);
 
  private:
+  friend class ArcDocumentsProviderRootMapTest;
+  FRIEND_TEST_ALL_PREFIXES(ArcDocumentsProviderRootMapTest, Lookup);
+
   struct WatcherData;
   struct DirectoryCache;
 

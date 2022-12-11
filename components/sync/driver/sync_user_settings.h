@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,7 +27,8 @@ enum class SyncFirstSetupCompleteSource {
   ADVANCED_FLOW_INTERRUPTED_TURN_SYNC_ON = 2,
   ADVANCED_FLOW_INTERRUPTED_LEAVE_SYNC_OFF = 3,
   ENGINE_INITIALIZED_WITH_AUTO_START = 4,
-  kMaxValue = ENGINE_INITIALIZED_WITH_AUTO_START,
+  ANDROID_BACKUP_RESTORE = 5,
+  kMaxValue = ANDROID_BACKUP_RESTORE,
 };
 
 // This class encapsulates all the user-configurable bits of Sync.
@@ -61,8 +62,7 @@ class SyncUserSettings {
   virtual void SetSelectedTypes(bool sync_everything,
                                 UserSelectableTypeSet types) = 0;
   // Registered user selectable types are derived from registered model types.
-  // UserSelectableType is registered iff main corresponding  ModelType is
-  // registered.
+  // A UserSelectableType is registered if any of its ModelTypes is registered.
   virtual UserSelectableTypeSet GetRegisteredSelectableTypes() const = 0;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -74,6 +74,12 @@ class SyncUserSettings {
                                   UserSelectableOsTypeSet types) = 0;
   virtual UserSelectableOsTypeSet GetRegisteredSelectableOsTypes() const = 0;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // On Lacros, apps sync in the primary profile is controlled by the OS Sync
+  // settings.
+  virtual void SetAppsSyncEnabledByOs(bool apps_sync_enabled) = 0;
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
   // Encryption state.
   // Note that all of this state may only be queried or modified if the Sync

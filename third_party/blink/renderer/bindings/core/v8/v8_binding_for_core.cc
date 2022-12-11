@@ -39,9 +39,8 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_event_target.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_html_link_element.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_object_builder.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_script_runner.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_window.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_worker_global_scope.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_worklet_global_scope.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_xpath_ns_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/window_proxy.h"
 #include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
@@ -54,12 +53,14 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
+#include "third_party/blink/renderer/core/shadow_realm/shadow_realm_global_scope.h"
 #include "third_party/blink/renderer/core/typed_arrays/flexible_array_buffer_view.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/core/workers/worker_or_worklet_global_scope.h"
 #include "third_party/blink/renderer/core/workers/worklet_global_scope.h"
 #include "third_party/blink/renderer/core/xml/xpath_ns_resolver.h"
 #include "third_party/blink/renderer/platform/bindings/runtime_call_stats.h"
+#include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding_macros.h"
 #include "third_party/blink/renderer/platform/bindings/v8_object_constructor.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/traced_value.h"
@@ -534,7 +535,7 @@ double ToRestrictedDouble(v8::Isolate* isolate,
 static bool HasUnmatchedSurrogates(const String& string) {
   // By definition, 8-bit strings are confined to the Latin-1 code page and
   // have no surrogates, matched or otherwise.
-  if (string.IsEmpty() || string.Is8Bit())
+  if (string.empty() || string.Is8Bit())
     return false;
 
   const UChar* characters = string.Characters16();
@@ -694,13 +695,15 @@ ExecutionContext* ToExecutionContext(v8::Local<v8::Context> context) {
   if (global_proxy->InternalFieldCount() == 0)
     return nullptr;
 
-  const WrapperTypeInfo* wrapper_type_info = ToWrapperTypeInfo(global_proxy);
-  if (wrapper_type_info->Equals(V8Window::GetWrapperTypeInfo()))
-    return V8Window::ToImpl(global_proxy)->GetExecutionContext();
-  if (wrapper_type_info->IsSubclass(V8WorkerGlobalScope::GetWrapperTypeInfo()))
-    return V8WorkerGlobalScope::ToImpl(global_proxy)->GetExecutionContext();
-  if (wrapper_type_info->IsSubclass(V8WorkletGlobalScope::GetWrapperTypeInfo()))
-    return V8WorkletGlobalScope::ToImpl(global_proxy)->GetExecutionContext();
+  ScriptWrappable::TypeDispatcher dispatcher(ToScriptWrappable(global_proxy));
+  if (auto* x = dispatcher.ToMostDerived<DOMWindow>())
+    return x->GetExecutionContext();
+  if (auto* x = dispatcher.DowncastTo<WorkerGlobalScope>())
+    return x->GetExecutionContext();
+  if (auto* x = dispatcher.DowncastTo<WorkletGlobalScope>())
+    return x->GetExecutionContext();
+  if (auto* x = dispatcher.ToMostDerived<ShadowRealmGlobalScope>())
+    return x->GetExecutionContext();
 
   NOTREACHED();
   return nullptr;
@@ -718,16 +721,6 @@ LocalFrame* ToLocalFrameIfNotDetached(v8::Local<v8::Context> context) {
   // did return |frame| we could get in trouble because the frame could be
   // navigated to another security origin.
   return nullptr;
-}
-
-void ToFlexibleArrayBufferView(v8::Isolate* isolate,
-                               v8::Local<v8::Value> value,
-                               FlexibleArrayBufferView& result) {
-  if (!value->IsArrayBufferView()) {
-    result.Clear();
-    return;
-  }
-  result.SetContents(value.As<v8::ArrayBufferView>());
 }
 
 static ScriptState* ToScriptStateImpl(LocalFrame* frame,
@@ -752,8 +745,10 @@ v8::Local<v8::Context> ToV8Context(ExecutionContext* context,
       return ToV8Context(frame, world);
   } else if (auto* scope = DynamicTo<WorkerOrWorkletGlobalScope>(context)) {
     if (WorkerOrWorkletScriptController* script = scope->ScriptController()) {
-      if (script->GetScriptState()->ContextIsValid())
-        return script->GetScriptState()->GetContext();
+      if (ScriptState* script_state = script->GetScriptState()) {
+        if (script_state->ContextIsValid())
+          return script_state->GetContext();
+      }
     }
   }
   return v8::Local<v8::Context>();
@@ -807,8 +802,12 @@ ScriptState* ToScriptState(ExecutionContext* context, DOMWrapperWorld& world) {
   if (LocalDOMWindow* window = DynamicTo<LocalDOMWindow>(context)) {
     return ToScriptState(window->GetFrame(), world);
   } else if (auto* scope = DynamicTo<WorkerOrWorkletGlobalScope>(context)) {
-    if (WorkerOrWorkletScriptController* script = scope->ScriptController())
-      return script->GetScriptState();
+    if (WorkerOrWorkletScriptController* script = scope->ScriptController()) {
+      if (ScriptState* script_state = script->GetScriptState()) {
+        if (script_state->ContextIsValid())
+          return script_state;
+      }
+    }
   }
   return nullptr;
 }
@@ -953,6 +952,34 @@ v8::MicrotaskQueue* ToMicrotaskQueue(ExecutionContext* execution_context) {
 
 v8::MicrotaskQueue* ToMicrotaskQueue(ScriptState* script_state) {
   return ToMicrotaskQueue(ExecutionContext::From(script_state));
+}
+
+scheduler::EventLoop& ToEventLoop(ExecutionContext* execution_context) {
+  DCHECK(execution_context);
+  return *execution_context->GetAgent()->event_loop().get();
+}
+
+scheduler::EventLoop& ToEventLoop(ScriptState* script_state) {
+  return ToEventLoop(ExecutionContext::From(script_state));
+}
+
+bool IsInParallelAlgorithmRunnable(ExecutionContext* execution_context,
+                                   ScriptState* script_state) {
+  if (!execution_context || execution_context->IsContextDestroyed())
+    return false;
+
+  // It's possible that execution_context is the one of the
+  // document tree (i.e. the execution context of the document
+  // that the receiver object currently belongs to) and
+  // script_state is the one of the receiver object's creation
+  // context (i.e. the script state of the V8 context in which
+  // the receiver object was created). So, check the both contexts.
+  // TODO(yukishiino): Find the necessary and sufficient conditions of the
+  // runnability.
+  if (!script_state->ContextIsValid())
+    return false;
+
+  return true;
 }
 
 }  // namespace blink

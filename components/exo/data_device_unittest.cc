@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,15 +12,22 @@
 #include "ash/shell.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
+#include "chromeos/ui/base/window_properties.h"
 #include "components/exo/data_device_delegate.h"
 #include "components/exo/data_exchange_delegate.h"
 #include "components/exo/data_offer.h"
 #include "components/exo/data_offer_delegate.h"
+#include "components/exo/data_source.h"
+#include "components/exo/data_source_delegate.h"
+#include "components/exo/extended_drag_source.h"
 #include "components/exo/seat.h"
+#include "components/exo/shell_surface.h"
 #include "components/exo/surface.h"
+#include "components/exo/surface_delegate.h"
 #include "components/exo/test/exo_test_base.h"
 #include "components/exo/test/exo_test_data_exchange_delegate.h"
 #include "components/exo/test/exo_test_helper.h"
+#include "components/exo/test/shell_surface_builder.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
@@ -28,16 +35,6 @@
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/events/event.h"
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/ui/base/window_properties.h"
-#include "components/exo/data_source.h"
-#include "components/exo/data_source_delegate.h"
-#include "components/exo/extended_drag_source.h"
-#include "components/exo/shell_surface.h"
-#include "components/exo/surface_delegate.h"
-#include "components/exo/test/shell_surface_builder.h"
-#endif
 
 namespace exo {
 namespace {
@@ -187,17 +184,18 @@ TEST_F(DataDeviceTest, DataEventsDrop) {
   ASSERT_EQ(1u, delegate_.PopEvents(&events));
   EXPECT_EQ(DataEvent::kMotion, events[0]);
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&TestDataDeviceDelegate::DeleteDataOffer,
                                 base::Unretained(&delegate_), true));
 
-  DragOperation result = device_->OnPerformDrop();
-  EXPECT_EQ(DragOperation::kLink, result);
+  auto drop_cb = device_->GetDropCallback();
+  DragOperation output_drag_op;
+  std::move(drop_cb).Run(output_drag_op);
+  EXPECT_EQ(DragOperation::kLink, output_drag_op);
   ASSERT_EQ(1u, delegate_.PopEvents(&events));
   EXPECT_EQ(DataEvent::kDrop, events[0]);
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Helper class to plumb the ExtendedDragSource instance.
 class TestExtendedDragSourceDelegate : public ExtendedDragSource::Delegate {
  public:
@@ -280,16 +278,17 @@ TEST_F(DataDeviceTest, DataEventsPreventMotion) {
   other_surface->window()->GetToplevelWindow()->ClearProperty(
       chromeos::kCanAttachToAnotherWindowKey);
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&TestDataDeviceDelegate::DeleteDataOffer,
                                 base::Unretained(&delegate_), true));
 
-  DragOperation result = device_->OnPerformDrop();
-  EXPECT_EQ(DragOperation::kLink, result);
+  auto drop_cb = device_->GetDropCallback();
+  DragOperation output_drag_op;
+  std::move(drop_cb).Run(output_drag_op);
+  EXPECT_EQ(DragOperation::kLink, output_drag_op);
   ASSERT_EQ(1u, delegate_.PopEvents(&events));
   EXPECT_EQ(DataEvent::kDrop, events[0]);
 }
-#endif
 
 TEST_F(DataDeviceTest, DataEventsExit) {
   ui::DropTargetEvent event(data_, gfx::PointF(), gfx::PointF(),
@@ -317,10 +316,12 @@ TEST_F(DataDeviceTest, DeleteDataDeviceDuringDrop) {
                             ui::DragDropTypes::DRAG_MOVE);
   ui::Event::DispatcherApi(&event).set_target(surface_->window());
   device_->OnDragEntered(event);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindLambdaForTesting([&]() { device_.reset(); }));
-  DragOperation result = device_->OnPerformDrop();
-  EXPECT_EQ(DragOperation::kNone, result);
+  auto drop_cb = device_->GetDropCallback();
+  DragOperation output_drag_op;
+  std::move(drop_cb).Run(output_drag_op);
+  EXPECT_EQ(DragOperation::kNone, output_drag_op);
 }
 
 TEST_F(DataDeviceTest, DeleteDataOfferDuringDrag) {
@@ -340,7 +341,9 @@ TEST_F(DataDeviceTest, DeleteDataOfferDuringDrag) {
             device_->OnDragUpdated(event).drag_operation);
   EXPECT_EQ(0u, delegate_.PopEvents(&events));
 
-  device_->OnPerformDrop();
+  auto drop_cb = device_->GetDropCallback();
+  DragOperation output_drag_op;
+  std::move(drop_cb).Run(output_drag_op);
   EXPECT_EQ(0u, delegate_.PopEvents(&events));
 }
 
@@ -360,12 +363,14 @@ TEST_F(DataDeviceTest, DataOfferNotFinished) {
   ASSERT_EQ(1u, delegate_.PopEvents(&events));
   EXPECT_EQ(DataEvent::kMotion, events[0]);
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&TestDataDeviceDelegate::DeleteDataOffer,
                                 base::Unretained(&delegate_), false));
 
-  DragOperation result = device_->OnPerformDrop();
-  EXPECT_EQ(DragOperation::kNone, result);
+  auto drop_cb = device_->GetDropCallback();
+  DragOperation output_drag_op;
+  std::move(drop_cb).Run(output_drag_op);
+  EXPECT_EQ(DragOperation::kNone, output_drag_op);
   ASSERT_EQ(1u, delegate_.PopEvents(&events));
   EXPECT_EQ(DataEvent::kDrop, events[0]);
 }
@@ -385,7 +390,9 @@ TEST_F(DataDeviceTest, NotAcceptDataEventsForSurface) {
             device_->OnDragUpdated(event).drag_operation);
   EXPECT_EQ(0u, delegate_.PopEvents(&events));
 
-  device_->OnPerformDrop();
+  auto drop_cb = device_->GetDropCallback();
+  DragOperation output_drag_op;
+  std::move(drop_cb).Run(output_drag_op);
   EXPECT_EQ(0u, delegate_.PopEvents(&events));
 }
 
@@ -405,9 +412,9 @@ TEST_F(DataDeviceTest, DropCallback_Run) {
   ASSERT_EQ(1u, delegate_.PopEvents(&events));
   EXPECT_EQ(DataEvent::kMotion, events[0]);
 
-  auto drop_cb = device_->GetDropCallback(event);
+  auto drop_cb = device_->GetDropCallback();
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&TestDataDeviceDelegate::DeleteDataOffer,
                                 base::Unretained(&delegate_), true));
 
@@ -435,7 +442,7 @@ TEST_F(DataDeviceTest, DropCallback_Invalidated) {
   ASSERT_EQ(1u, delegate_.PopEvents(&events));
   EXPECT_EQ(DataEvent::kMotion, events[0]);
 
-  auto drop_cb = device_->GetDropCallback(event);
+  auto drop_cb = device_->GetDropCallback();
 
   delegate_.DeleteDataOffer(false);
 
@@ -462,7 +469,7 @@ TEST_F(DataDeviceTest, DropCallback_Reset) {
   ASSERT_EQ(1u, delegate_.PopEvents(&events));
   EXPECT_EQ(DataEvent::kMotion, events[0]);
 
-  auto drop_cb = device_->GetDropCallback(event);
+  auto drop_cb = device_->GetDropCallback();
   drop_cb.Reset();
 
   ASSERT_EQ(1u, delegate_.PopEvents(&events));

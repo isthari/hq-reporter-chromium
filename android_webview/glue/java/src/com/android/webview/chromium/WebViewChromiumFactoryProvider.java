@@ -1,10 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package com.android.webview.chromium;
 
-import android.annotation.TargetApi;
+import android.app.Application;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
@@ -31,7 +31,7 @@ import android.webkit.WebViewFactory;
 import android.webkit.WebViewFactoryProvider;
 import android.webkit.WebViewProvider;
 
-import androidx.annotation.IntDef;
+import androidx.annotation.RequiresApi;
 
 import org.chromium.android_webview.ApkType;
 import org.chromium.android_webview.AwBrowserContext;
@@ -55,8 +55,6 @@ import org.chromium.base.PackageUtils;
 import org.chromium.base.PathUtils;
 import org.chromium.base.StrictModeContext;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.annotations.VerifiesOnN;
-import org.chromium.base.annotations.VerifiesOnP;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.ScopedSysTraceEvent;
 import org.chromium.build.BuildConfig;
@@ -122,8 +120,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
      * This holds objects of classes that are defined in N and above to ensure that run-time class
      * verification does not occur until it is actually used for N and above.
      */
-    @TargetApi(Build.VERSION_CODES.N)
-    @VerifiesOnN
+    @RequiresApi(Build.VERSION_CODES.N)
     private static class ObjectHolderForN {
         public ServiceWorkerController mServiceWorkerController;
     }
@@ -132,8 +129,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
      * This holds objects of classes that are defined in P and above to ensure that run-time class
      * verification does not occur until it is actually used for P and above.
      */
-    @TargetApi(Build.VERSION_CODES.P)
-    @VerifiesOnP
+    @RequiresApi(Build.VERSION_CODES.P)
     private static class ObjectHolderForP {
         public TracingController mTracingController;
     }
@@ -150,7 +146,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         return mRunQueue;
     }
 
-    // We have a 4 second timeout to try to detect deadlocks to detect and aid in debuggin
+    // We have a 4 second timeout to try to detect deadlocks to detect and aid in debugging
     // deadlocks.
     // Do not call this method while on the UI thread!
     /* package */ void runVoidTaskOnUiThreadBlocking(Runnable r) {
@@ -179,11 +175,13 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
     // Initialization guarded by mAwInit.getLock()
     private Statics mStaticsAdapter;
 
-    @TargetApi(Build.VERSION_CODES.N)
+    private boolean mIsSafeModeEnabled;
+
+    @RequiresApi(Build.VERSION_CODES.N)
     private ObjectHolderForN mObjectHolderForN =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.N ? new ObjectHolderForN() : null;
 
-    @TargetApi(Build.VERSION_CODES.P)
+    @RequiresApi(Build.VERSION_CODES.P)
     private ObjectHolderForP mObjectHolderForP =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? new ObjectHolderForP() : null;
 
@@ -313,18 +311,22 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
 
             mAwInit = createAwInit();
             mWebViewDelegate = webViewDelegate;
-            Context ctx = webViewDelegate.getApplication().getApplicationContext();
+            Application application = webViewDelegate.getApplication();
+            Context ctx = application.getApplicationContext();
 
             // If the application context is DE, but we have credentials, use a CE context instead
             try (ScopedSysTraceEvent e2 = ScopedSysTraceEvent.scoped(
                          "WebViewChromiumFactoryProvider.checkStorage")) {
-                checkStorageIsNotDeviceProtected(webViewDelegate.getApplication());
+                checkStorageIsNotDeviceProtected(application);
             } catch (IllegalArgumentException e) {
-                assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
-                if (!GlueApiHelperForN.isUserUnlocked(ctx)) {
-                    throw e;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    if (!GlueApiHelperForN.isUserUnlocked(ctx)) {
+                        throw e;
+                    }
+                    ctx = GlueApiHelperForN.createCredentialProtectedStorageContext(ctx);
+                } else {
+                    assert false;
                 }
-                ctx = GlueApiHelperForN.createCredentialProtectedStorageContext(ctx);
             }
 
             // WebView needs to make sure to always use the wrapped application context.
@@ -357,6 +359,8 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
             }
 
             mAwInit.setUpResourcesOnBackgroundThread(packageId, ctx);
+
+            AndroidXProcessGlobalConfig.extractConfigFromApp(application.getClassLoader());
 
             try (ScopedSysTraceEvent e2 = ScopedSysTraceEvent.scoped(
                          "WebViewChromiumFactoryProvider.initCommandLine")) {
@@ -395,7 +399,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
             boolean isAppDebuggable = (applicationFlags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
             boolean isOsDebuggable = BuildInfo.isDebugAndroid();
             // Enable logging JS console messages in system logs only if the app is debuggable or
-            // it's a debugable android build.
+            // it's a debuggable android build.
             if (isAppDebuggable || isOsDebuggable) {
                 CommandLine cl = CommandLine.getInstance();
                 cl.appendSwitch(AwSwitches.WEBVIEW_LOG_JS_CONSOLE_MESSAGES);
@@ -432,14 +436,17 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
             BuildInfo.setBrowserPackageInfo(packageInfo);
             BuildInfo.setFirebaseAppId(
                     FirebaseConfig.getFirebaseAppIdForPackage(packageInfo.packageName));
-
+            AndroidXProcessGlobalConfig androidXConfig = AndroidXProcessGlobalConfig.getConfig();
             try (StrictModeContext ignored = StrictModeContext.allowDiskWrites()) {
                 try (ScopedSysTraceEvent e2 = ScopedSysTraceEvent.scoped(
                              "WebViewChromiumFactoryProvider.loadChromiumLibrary")) {
-                    String dataDirectorySuffix = null;
+                    String dataDirectorySuffix;
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         dataDirectorySuffix =
                                 GlueApiHelperForP.getDataDirectorySuffix(webViewDelegate);
+                    } else {
+                        // Try the AndroidX library version
+                        dataDirectorySuffix = androidXConfig.getDataDirectorySuffixOrNull();
                     }
                     AwBrowserProcess.loadLibrary(dataDirectorySuffix);
                 }
@@ -461,13 +468,13 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
             SafeModeController controller = SafeModeController.getInstance();
             controller.registerActions(BrowserSafeModeActionList.sList);
             long safeModeStart = SystemClock.elapsedRealtime();
-            boolean isSafeModeEnabled = controller.isSafeModeEnabled(webViewPackageName);
+            mIsSafeModeEnabled = controller.isSafeModeEnabled(webViewPackageName);
             long safeModeEnd = SystemClock.elapsedRealtime();
             RecordHistogram.recordTimesHistogram(
                     "Android.WebView.SafeMode.CheckStateBlockingTime", safeModeEnd - safeModeStart);
             RecordHistogram.recordBooleanHistogram(
-                    "Android.WebView.SafeMode.SafeModeEnabled", isSafeModeEnabled);
-            if (isSafeModeEnabled) {
+                    "Android.WebView.SafeMode.SafeModeEnabled", mIsSafeModeEnabled);
+            if (mIsSafeModeEnabled) {
                 try {
                     long safeModeQueryExecuteStart = SystemClock.elapsedRealtime();
                     Set<String> actions = controller.queryActions(webViewPackageName);
@@ -475,20 +482,14 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
                             actions.size());
                     RecordHistogram.recordCount100Histogram(
                             "Android.WebView.SafeMode.ActionsCount", actions.size());
-                    boolean success = controller.executeActions(actions);
+                    controller.executeActions(actions);
                     long safeModeQueryExecuteEnd = SystemClock.elapsedRealtime();
                     RecordHistogram.recordTimesHistogram(
                             "Android.WebView.SafeMode.QueryAndExecuteBlockingTime",
                             safeModeQueryExecuteEnd - safeModeQueryExecuteStart);
-                    if (success) {
-                        logSafeModeExecutionResult(SafeModeExecutionResult.SUCCESS);
-                    } else {
-                        logSafeModeExecutionResult(SafeModeExecutionResult.ACTION_FAILED);
-                    }
                 } catch (Throwable t) {
                     // Don't let SafeMode crash WebView. Instead just log the error.
                     Log.e(TAG, "WebViewSafeMode threw exception: ", t);
-                    logSafeModeExecutionResult(SafeModeExecutionResult.UNKNOWN_ERROR);
                 }
             }
 
@@ -508,31 +509,13 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
                 "Android.WebView.Startup.CreationTime.Stage1.FactoryInit",
                 SystemClock.uptimeMillis() - startTime);
 
-        /* TODO(torne): re-enable this once the API change is sorted out
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // TODO: Use the framework constants as indices in timestamps array.
-            startTime = mWebViewDelegate.getTimestamps()[0];
+            final long webviewLoadStart =
+                    mWebViewDelegate.getStartupTimestamps().getWebViewLoadStart();
             RecordHistogram.recordTimesHistogram(
                     "Android.WebView.Startup.CreationTime.TotalFactoryInitTime",
-                    SystemClock.uptimeMillis() - startTime);
+                    SystemClock.uptimeMillis() - webviewLoadStart);
         }
-        */
-    }
-
-    // These values are persisted to logs. Entries should not be renumbered and
-    // numeric values should never be reused.
-    @IntDef({SafeModeExecutionResult.SUCCESS, SafeModeExecutionResult.UNKNOWN_ERROR,
-            SafeModeExecutionResult.ACTION_FAILED})
-    private @interface SafeModeExecutionResult {
-        int SUCCESS = 0;
-        int UNKNOWN_ERROR = 1;
-        int ACTION_FAILED = 2;
-        int COUNT = 3;
-    }
-
-    private static void logSafeModeExecutionResult(@SafeModeExecutionResult int result) {
-        RecordHistogram.recordEnumeratedHistogram(
-                "Android.WebView.SafeMode.ExecutionResult", result, SafeModeExecutionResult.COUNT);
     }
 
     /* package */ static void checkStorageIsNotDeviceProtected(Context context) {
@@ -659,6 +642,10 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
                     public boolean isMultiProcessEnabled() {
                         return sharedStatics.isMultiProcessEnabled();
                     }
+
+                    public String getVariationsHeader() {
+                        return sharedStatics.getVariationsHeader();
+                    }
                 };
             }
         }
@@ -673,7 +660,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
     // Workaround for IME thread crashes on legacy OEM apps.
     private boolean shouldDisableThreadChecking(Context context) {
         String appName = context.getPackageName();
-        int versionCode = PackageUtils.getPackageVersion(context, appName);
+        int versionCode = PackageUtils.getPackageVersion(appName);
         int appTargetSdkVersion = context.getApplicationInfo().targetSdkVersion;
         if (versionCode == -1) return false;
 
@@ -713,6 +700,14 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         return shouldDisable;
     }
 
+    /**
+     * Returns the cached SafeMode state. This must only be called after initialize(), which is when
+     * the SafeMode state is cached.
+     */
+    public boolean isSafeModeEnabled() {
+        return mIsSafeModeEnabled;
+    }
+
     @Override
     public GeolocationPermissions getGeolocationPermissions() {
         return mAwInit.getGeolocationPermissions();
@@ -723,6 +718,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         return mAwInit.getCookieManager();
     }
 
+    @RequiresApi(Build.VERSION_CODES.N)
     @Override
     public ServiceWorkerController getServiceWorkerController() {
         synchronized (mAwInit.getLock()) {
@@ -786,6 +782,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         return mAwInit;
     }
 
+    @RequiresApi(Build.VERSION_CODES.P)
     @Override
     public TracingController getTracingController() {
         synchronized (mAwInit.getLock()) {
@@ -850,18 +847,15 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         });
     }
 
+    @RequiresApi(Build.VERSION_CODES.R)
     @Override
     public PacProcessor getPacProcessor() {
         return GlueApiHelperForR.getPacProcessor();
     }
 
+    @RequiresApi(Build.VERSION_CODES.R)
     @Override
     public PacProcessor createPacProcessor() {
         return GlueApiHelperForR.createPacProcessor();
-    }
-
-    boolean shouldEnableSimplifiedDarkMode() {
-        // TODO: Put the downstream implementation inline and remove this method.
-        return false;
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,10 @@
 #include <utility>
 
 #include "base/trace_event/trace_event.h"
+#include "net/base/connection_endpoint_metadata.h"
 #include "net/base/net_errors.h"
 #include "net/base/trace_constants.h"
+#include "net/dns/public/host_resolver_results.h"
 #include "net/dns/public/secure_dns_policy.h"
 #include "net/http/http_auth_controller.h"
 #include "net/http/http_proxy_connect_job.h"
@@ -134,10 +136,20 @@ scoped_refptr<SSLCertRequestInfo> ConnectJob::GetCertRequestInfo() {
   return nullptr;
 }
 
+void ConnectJob::set_done_closure(base::OnceClosure done_closure) {
+  done_closure_ = base::ScopedClosureRunner(std::move(done_closure));
+}
+
+absl::optional<HostResolverEndpointResult>
+ConnectJob::GetHostResolverEndpointResult() const {
+  return absl::nullopt;
+}
+
 void ConnectJob::SetSocket(std::unique_ptr<StreamSocket> socket,
                            absl::optional<std::set<std::string>> dns_aliases) {
   if (socket) {
-    net_log().AddEvent(NetLogEventType::CONNECT_JOB_SET_SOCKET);
+    net_log().AddEventReferencingSource(NetLogEventType::CONNECT_JOB_SET_SOCKET,
+                                        socket->NetLog().source());
     if (dns_aliases)
       socket->SetDnsAliases(std::move(dns_aliases.value()));
   }

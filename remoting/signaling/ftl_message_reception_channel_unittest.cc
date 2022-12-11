@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,11 @@
 #include "base/memory/weak_ptr.h"
 #include "base/notreached.h"
 #include "base/run_loop.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/bind.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/time/time.h"
 #include "remoting/base/protobuf_http_status.h"
 #include "remoting/base/scoped_protobuf_http_request.h"
 #include "remoting/proto/ftl/v1/ftl_messages.pb.h"
@@ -87,7 +88,7 @@ decltype(auto) StartStream(OnStreamOpenedLambda on_stream_opened,
       *optional_out_stream = fake_stream->GetWeakPtr();
     }
     auto on_stream_opened_cb = base::BindLambdaForTesting(on_stream_opened);
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(on_stream_opened_cb, std::move(on_channel_ready),
                        on_incoming_msg, std::move(on_channel_closed)));

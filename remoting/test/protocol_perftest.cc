@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,10 +16,9 @@
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "components/webrtc/thread_wrapper.h"
 #include "net/base/network_change_notifier.h"
 #include "net/test/test_data_directory.h"
@@ -295,9 +294,10 @@ class ProtocolPerfTest
     port_allocator_factory->socket_factory()->set_out_of_order_rate(
         GetParam().out_of_order_rate);
     scoped_refptr<protocol::TransportContext> transport_context(
-        new protocol::TransportContext(std::move(port_allocator_factory),
-                                       nullptr, nullptr, network_settings,
-                                       protocol::TransportRole::SERVER));
+        new protocol::TransportContext(
+            std::move(port_allocator_factory),
+            webrtc::ThreadWrapper::current()->SocketServer(), nullptr, nullptr,
+            network_settings, protocol::TransportRole::SERVER));
     std::unique_ptr<protocol::SessionManager> session_manager(
         new protocol::JingleSessionManager(host_signaling_.get()));
     session_manager->set_protocol_config(protocol_config_->Clone());
@@ -348,8 +348,8 @@ class ProtocolPerfTest
         protocol::NetworkSettings::NAT_TRAVERSAL_OUTGOING);
 
     // Initialize client.
-    client_context_ =
-        std::make_unique<ClientContext>(base::ThreadTaskRunnerHandle::Get());
+    client_context_ = std::make_unique<ClientContext>(
+        base::SingleThreadTaskRunner::GetCurrentDefault());
     client_context_->Start();
 
     std::unique_ptr<FakePortAllocatorFactory> port_allocator_factory(
@@ -362,9 +362,10 @@ class ProtocolPerfTest
     port_allocator_factory->socket_factory()->set_out_of_order_rate(
         GetParam().out_of_order_rate);
     scoped_refptr<protocol::TransportContext> transport_context(
-        new protocol::TransportContext(std::move(port_allocator_factory),
-                                       nullptr, nullptr, network_settings,
-                                       protocol::TransportRole::CLIENT));
+        new protocol::TransportContext(
+            std::move(port_allocator_factory),
+            webrtc::ThreadWrapper::current()->SocketServer(), nullptr, nullptr,
+            network_settings, protocol::TransportRole::CLIENT));
 
     protocol::ClientAuthenticationConfig client_auth_config;
     client_auth_config.host_id = kHostId;

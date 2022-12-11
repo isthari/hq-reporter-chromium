@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,12 +17,14 @@
 #include "components/safe_browsing/core/browser/referrer_chain_provider.h"
 #include "components/safe_browsing/core/browser/sync/sync_utils.h"
 #include "components/safe_browsing/core/browser/verdict_cache_manager.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
-#include "components/sync/driver/test_sync_service.h"
+#include "components/sync/test/test_sync_service.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/test/browser_task_environment.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
@@ -44,13 +46,15 @@ constexpr char kRealTimeLookupUrl[] =
 class MockReferrerChainProvider : public ReferrerChainProvider {
  public:
   virtual ~MockReferrerChainProvider() = default;
-  MOCK_METHOD3(IdentifyReferrerChainByWebContents,
-               AttributionResult(content::WebContents* web_contents,
+  MOCK_METHOD3(IdentifyReferrerChainByRenderFrameHost,
+               AttributionResult(content::RenderFrameHost* rfh,
                                  int user_gesture_count_limit,
                                  ReferrerChain* out_referrer_chain));
-  MOCK_METHOD4(IdentifyReferrerChainByEventURL,
+  MOCK_METHOD5(IdentifyReferrerChainByEventURL,
                AttributionResult(const GURL& event_url,
                                  SessionID event_tab_id,
+                                 const content::GlobalRenderFrameHostId&
+                                     event_outermost_main_frame_id,
                                  int user_gesture_count_limit,
                                  ReferrerChain* out_referrer_chain));
   MOCK_METHOD3(IdentifyReferrerChainByPendingEventURL,
@@ -74,10 +78,12 @@ class ChromeEnterpriseRealTimeUrlLookupServiceTest : public PlatformTest {
 
     content_setting_map_ = new HostContentSettingsMap(
         &test_pref_service_, false /* is_off_the_record */,
-        false /* store_last_modified */,
-        false /* restore_session */);
+        false /* store_last_modified */, false /* restore_session */,
+        false /*should_record_metrics*/);
     cache_manager_ = std::make_unique<VerdictCacheManager>(
-        nullptr, content_setting_map_.get());
+        /*history_service=*/nullptr, content_setting_map_.get(),
+        &test_pref_service_,
+        /*sync_observer=*/nullptr);
     referrer_chain_provider_ = std::make_unique<MockReferrerChainProvider>();
 
     TestingProfile::Builder builder;
@@ -242,6 +248,46 @@ TEST_F(ChromeEnterpriseRealTimeUrlLookupServiceTest,
 
   // Check the response is cached.
   EXPECT_NE(nullptr, GetCachedRealTimeUrlVerdict(url));
+}
+
+TEST_F(ChromeEnterpriseRealTimeUrlLookupServiceTest,
+       TestCanCheckSafeBrowsingHighConfidenceAllowlist_BypassAllowlistFeature) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitWithFeatures(
+      {safe_browsing::kRealTimeUrlLookupForEnterpriseAllowlistBypass}, {});
+  test_profile_->GetPrefs()->SetBoolean(prefs::kSafeBrowsingEnabled, true);
+  SetDMTokenForTesting(policy::DMToken::CreateValidTokenForTesting("dm_token"));
+
+  // Can check allowlist if SafeBrowsingEnterpriseRealTimeUrlCheckMode is
+  // disabled.
+  test_profile_->GetPrefs()->SetInteger(
+      prefs::kSafeBrowsingEnterpriseRealTimeUrlCheckMode,
+      REAL_TIME_CHECK_DISABLED);
+  EXPECT_TRUE(
+      enterprise_rt_service()->CanCheckSafeBrowsingHighConfidenceAllowlist());
+
+  // Bypass allowlist if the SafeBrowsingEnterpriseRealTimeUrlCheckMode pref is
+  // set.
+  test_profile_->GetPrefs()->SetInteger(
+      prefs::kSafeBrowsingEnterpriseRealTimeUrlCheckMode,
+      REAL_TIME_CHECK_FOR_MAINFRAME_ENABLED);
+  EXPECT_FALSE(
+      enterprise_rt_service()->CanCheckSafeBrowsingHighConfidenceAllowlist());
+}
+
+TEST_F(ChromeEnterpriseRealTimeUrlLookupServiceTest,
+       TestCanCheckSafeBrowsingHighConfidenceAllowlist_CheckAllowlist) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitWithFeatures(
+      {}, {safe_browsing::kRealTimeUrlLookupForEnterpriseAllowlistBypass});
+  test_profile_->GetPrefs()->SetBoolean(prefs::kSafeBrowsingEnabled, true);
+  SetDMTokenForTesting(policy::DMToken::CreateValidTokenForTesting("dm_token"));
+
+  test_profile_->GetPrefs()->SetInteger(
+      prefs::kSafeBrowsingEnterpriseRealTimeUrlCheckMode,
+      REAL_TIME_CHECK_FOR_MAINFRAME_ENABLED);
+  EXPECT_TRUE(
+      enterprise_rt_service()->CanCheckSafeBrowsingHighConfidenceAllowlist());
 }
 
 }  // namespace safe_browsing

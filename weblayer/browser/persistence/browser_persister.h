@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -137,10 +137,7 @@ class BrowserPersister : public sessions::CommandStorageManagerDelegate,
 
   std::vector<uint8_t> crypto_key_;
 
-  base::ScopedMultiSourceObservation<TabImpl,
-                                     TabImpl::DataObserver,
-                                     &TabImpl::AddDataObserver,
-                                     &TabImpl::RemoveDataObserver>
+  base::ScopedMultiSourceObservation<TabImpl, TabImpl::DataObserver>
       data_observations_{this};
 
   // True while asynchronously reading the state to restore.

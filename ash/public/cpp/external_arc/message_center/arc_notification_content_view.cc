@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "ash/public/cpp/external_arc/message_center/arc_notification_view.h"
 #include "ash/public/cpp/style/color_provider.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/system/message_center/ash_notification_control_button_factory.h"
 #include "ash/system/message_center/message_center_constants.h"
 #include "base/auto_reset.h"
 #include "base/metrics/histogram_macros.h"
@@ -129,9 +130,9 @@ class ArcNotificationContentView::EventForwarder : public ui::EventHandler {
              event->type() == ui::ET_GESTURE_SCROLL_UPDATE ||
              event->type() == ui::ET_GESTURE_SCROLL_END ||
              event->type() == ui::ET_GESTURE_SWIPE)) {
-          gfx::RectF rect(owner_->item_->GetSwipeInputRect());
-          owner_->surface_->GetContentWindow()->transform().TransformRect(
-              &rect);
+          gfx::RectF rect =
+              owner_->surface_->GetContentWindow()->transform().MapRect(
+                  gfx::RectF(owner_->item_->GetSwipeInputRect()));
           gfx::Point location = located_event->location();
           views::View::ConvertPointFromWidget(owner_, &location);
           bool contains = rect.Contains(gfx::PointF(location));
@@ -251,6 +252,13 @@ class ArcNotificationContentView::SlideHelper {
   bool slide_in_progress_ = false;
 };
 
+// static
+int ArcNotificationContentView::GetNotificationContentViewWidth() {
+  return features::IsNotificationsRefreshEnabled()
+             ? kNotificationInMessageCenterWidth
+             : message_center::kNotificationWidth;
+}
+
 ArcNotificationContentView::ArcNotificationContentView(
     ArcNotificationItem* item,
     const message_center::Notification& notification,
@@ -261,10 +269,10 @@ ArcNotificationContentView::ArcNotificationContentView(
       mouse_enter_exit_handler_(new MouseEnterExitHandler(this)),
       message_view_(message_view),
       control_buttons_view_(message_view),
-      notification_width_(features::IsNotificationsRefreshEnabled()
-                              ? kNotificationInMessageCenterWidth
-                              : message_center::kNotificationWidth) {
+      notification_width_(GetNotificationContentViewWidth()) {
   DCHECK(message_view);
+  control_buttons_view_.SetNotificationControlButtonFactory(
+      std::make_unique<AshNotificationControlButtonFactory>());
 
   // |notification_width_| must be 360 (or 344 for refreshed notifications),
   // since this value is separately defined in ArcNotificationWrapperView class
@@ -327,7 +335,7 @@ void ArcNotificationContentView::Update(
       notification.should_show_snooze_button());
   UpdateControlButtonsVisibility();
 
-  accessible_name_ = notification.accessible_name();
+  accessible_name_ = message_view_->CreateAccessibleName(notification);
   UpdateSnapshot();
 }
 
@@ -480,6 +488,15 @@ void ArcNotificationContentView::SetSurface(ArcNotificationSurface* surface) {
         activate_on_attach_ = false;
       }
     }
+  }
+
+  // Maybe this if-branch is not needed but if the refresh flag is disabled we
+  // don't have to call |SchedulePaint()| because the notification background is
+  // opaque. Let's keep this if-branch not to break any existing behavior.
+  if (ash::features::IsNotificationsRefreshEnabled()) {
+    // Setting/resetting |surface_| changes the visibility of the snapshot so we
+    // here request to paint.
+    SchedulePaint();
   }
 }
 
@@ -688,9 +705,6 @@ void ArcNotificationContentView::Layout() {
 }
 
 void ArcNotificationContentView::OnPaint(gfx::Canvas* canvas) {
-  if (ash::features::IsNotificationsRefreshEnabled())
-    return;
-
   views::NativeViewHost::OnPaint(canvas);
 
   SkScalar radii[8] = {top_radius_,    top_radius_,      // top-left
@@ -716,7 +730,9 @@ void ArcNotificationContentView::OnPaint(gfx::Canvas* canvas) {
     // area out of the surface.
     // TODO: This can be removed once both ARC and Chrome notifications have
     // smooth expansion animations.
-    canvas->DrawColor(SK_ColorWHITE);
+    canvas->DrawColor(ash::features::IsNotificationsRefreshEnabled()
+                          ? SK_ColorTRANSPARENT
+                          : SK_ColorWHITE);
   }
 }
 
@@ -816,7 +832,7 @@ void ArcNotificationContentView::GetAccessibleNodeData(
         l10n_util::GetStringUTF8(
             IDS_MESSAGE_NOTIFICATION_SETTINGS_BUTTON_ACCESSIBLE_NAME));
   }
-  node_data->SetName(accessible_name_);
+  node_data->SetNameChecked(accessible_name_);
 }
 
 void ArcNotificationContentView::OnAccessibilityEvent(ax::mojom::Event event) {
@@ -848,7 +864,7 @@ void ArcNotificationContentView::OnWindowDestroying(aura::Window* window) {
   SetSurface(nullptr);
 }
 
-void ArcNotificationContentView::OnWidgetClosing(views::Widget* widget) {
+void ArcNotificationContentView::OnWidgetDestroying(views::Widget* widget) {
   // Actually this code doesn't show copied surface. Since it looks it doesn't
   // work during closing. This just hides the surface and revails hidden
   // snapshot: https://crbug.com/890701.

@@ -1,10 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 GEN_INCLUDE([
-  'common.js', '../../common/testing/assert_additions.js',
-  '../../common/testing/e2e_test_base.js'
+  'common.js',
+  '../../common/testing/assert_additions.js',
+  '../../common/testing/e2e_test_base.js',
 ]);
 
 /**
@@ -17,11 +18,6 @@ ChromeVoxE2ETest = class extends E2ETestBase {
   testGenCppIncludes() {
     super.testGenCppIncludes();
     GEN(`
-  #include "ash/accessibility/accessibility_delegate.h"
-  #include "ash/shell.h"
-  #include "base/bind.h"
-  #include "base/callback.h"
-  #include "chrome/browser/ash/accessibility/accessibility_manager.h"
   #include "extensions/common/extension_l10n_util.h"
       `);
   }
@@ -39,6 +35,27 @@ ChromeVoxE2ETest = class extends E2ETestBase {
 
     super.testGenPreambleCommon(
         'kChromeVoxExtensionId', ChromeVoxE2ETest.prototype.failOnConsoleError);
+  }
+
+  /**@override */
+  async setUpDeferred() {
+    await super.setUpDeferred();
+
+    // Alphabetical based on file path.
+    await importModule(
+        'BrailleInterface',
+        '/chromevox/background/braille/braille_interface.js');
+    await importModule('ChromeVox', '/chromevox/background/chromevox.js');
+    await importModule(
+        'ChromeVoxState', '/chromevox/background/chromevox_state.js');
+    await importModule(
+        'NavBraille', '/chromevox/common/braille/nav_braille.js');
+    await importModule(
+        ['AbstractEarcons', 'Earcon'], '/chromevox/common/abstract_earcons.js');
+    await importModule('TtsInterface', '/chromevox/common/tts_interface.js');
+    await importModule('QueueMode', '/chromevox/common/tts_types.js');
+
+    await ChromeVoxState.ready();
   }
 };
 

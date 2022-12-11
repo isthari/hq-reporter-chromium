@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,8 @@
 #include <vector>
 
 #include "ash/components/arc/arc_features.h"
+#include "ash/components/arc/arc_prefs.h"
+#include "ash/components/arc/session/arc_vm_data_migration_status.h"
 #include "ash/components/arc/test/arc_util_test_support.h"
 #include "ash/constants/app_types.h"
 #include "base/base_switches.h"
@@ -18,10 +20,9 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
-#include "chromeos/dbus/upstart/fake_upstart_client.h"
+#include "chromeos/ash/components/dbus/upstart/fake_upstart_client.h"
 #include "components/account_id/account_id.h"
 #include "components/exo/shell_surface_util.h"
 #include "components/prefs/testing_pref_service.h"
@@ -62,8 +63,8 @@ class ScopedArcFeature {
 class ScopedRtVcpuFeature {
  public:
   ScopedRtVcpuFeature(bool dual_core_enabled, bool quad_core_enabled) {
-    std::vector<base::Feature> enabled_features;
-    std::vector<base::Feature> disabled_features;
+    std::vector<base::test::FeatureRef> enabled_features;
+    std::vector<base::test::FeatureRef> disabled_features;
 
     if (dual_core_enabled)
       enabled_features.push_back(kRtVcpuDualCore);
@@ -106,13 +107,14 @@ class FakeUser : public user_manager::User {
 
 class ArcUtilTest : public testing::Test {
  public:
-  ArcUtilTest() { chromeos::UpstartClient::InitializeFake(); }
+  ArcUtilTest() { ash::UpstartClient::InitializeFake(); }
   ArcUtilTest(const ArcUtilTest&) = delete;
   ArcUtilTest& operator=(const ArcUtilTest&) = delete;
   ~ArcUtilTest() override = default;
 
   void SetUp() override {
     run_loop_ = std::make_unique<base::RunLoop>();
+    prefs::RegisterProfilePrefs(profile_prefs_.registry());
     RemoveUpstartStartStopJobFailures();
   }
 
@@ -120,7 +122,7 @@ class ArcUtilTest : public testing::Test {
 
  protected:
   void InjectUpstartStartJobFailure(const std::string& job_name_to_fail) {
-    auto* upstart_client = chromeos::FakeUpstartClient::Get();
+    auto* upstart_client = ash::FakeUpstartClient::Get();
     upstart_client->set_start_job_cb(base::BindLambdaForTesting(
         [job_name_to_fail](const std::string& job_name,
                            const std::vector<std::string>& env) {
@@ -130,7 +132,7 @@ class ArcUtilTest : public testing::Test {
   }
 
   void InjectUpstartStopJobFailure(const std::string& job_name_to_fail) {
-    auto* upstart_client = chromeos::FakeUpstartClient::Get();
+    auto* upstart_client = ash::FakeUpstartClient::Get();
     upstart_client->set_stop_job_cb(base::BindLambdaForTesting(
         [job_name_to_fail](const std::string& job_name,
                            const std::vector<std::string>& env) {
@@ -140,7 +142,7 @@ class ArcUtilTest : public testing::Test {
   }
 
   void StartRecordingUpstartOperations() {
-    auto* upstart_client = chromeos::FakeUpstartClient::Get();
+    auto* upstart_client = ash::FakeUpstartClient::Get();
     upstart_client->set_start_job_cb(
         base::BindLambdaForTesting([this](const std::string& job_name,
                                           const std::vector<std::string>& env) {
@@ -163,17 +165,20 @@ class ArcUtilTest : public testing::Test {
     return upstart_operations_;
   }
 
+  PrefService* profile_prefs() { return &profile_prefs_; }
+
  private:
   void RemoveUpstartStartStopJobFailures() {
-    auto* upstart_client = chromeos::FakeUpstartClient::Get();
+    auto* upstart_client = ash::FakeUpstartClient::Get();
     upstart_client->set_start_job_cb(
-        chromeos::FakeUpstartClient::StartStopJobCallback());
+        ash::FakeUpstartClient::StartStopJobCallback());
     upstart_client->set_stop_job_cb(
-        chromeos::FakeUpstartClient::StartStopJobCallback());
+        ash::FakeUpstartClient::StartStopJobCallback());
   }
 
   std::unique_ptr<base::RunLoop> run_loop_;
   base::test::TaskEnvironment task_environment_;
+  TestingPrefServiceSimple profile_prefs_;
 
   // List of upstart operations recorded. When it's "start" the boolean is set
   // to true.
@@ -280,6 +285,12 @@ TEST_F(ArcUtilTest, IsArcVmEnabled) {
   EXPECT_TRUE(IsArcVmEnabled());
 }
 
+TEST_F(ArcUtilTest, GetArcAndroidSdkVersionAsInt) {
+  // Make sure that the function does not crash even when /etc/lsb-release is
+  // not available (e.g. unit tests) or corrupted.
+  EXPECT_EQ(kMaxArcVersion, GetArcAndroidSdkVersionAsInt());
+}
+
 TEST_F(ArcUtilTest, IsArcVmRtVcpuEnabled) {
   {
     ScopedRtVcpuFeature feature(false, false);
@@ -324,32 +335,26 @@ TEST_F(ArcUtilTest, IsArcVmDevConfIgnored) {
 }
 
 TEST_F(ArcUtilTest, GetArcVmUreadaheadMode) {
-  constexpr char kArcMemProfile4GbName[] = "4G";
-  constexpr char kArcMemProfile8GbName[] = "8G";
-  auto callback_disabled = base::BindRepeating(&GetSystemMemoryInfoForTesting,
-                                               kArcMemProfile4GbName);
-  auto callback_readahead = base::BindRepeating(&GetSystemMemoryInfoForTesting,
-                                                kArcMemProfile8GbName);
   auto* command_line = base::CommandLine::ForCurrentProcess();
 
   command_line->InitFromArgv({""});
-  EXPECT_EQ(ArcVmUreadaheadMode::READAHEAD,
-            GetArcVmUreadaheadMode(callback_readahead));
+  EXPECT_EQ(ArcVmUreadaheadMode::READAHEAD, GetArcVmUreadaheadMode());
 
   command_line->InitFromArgv({"", "--arc-disable-ureadahead"});
-  EXPECT_EQ(ArcVmUreadaheadMode::DISABLED,
-            GetArcVmUreadaheadMode(callback_readahead));
+  EXPECT_EQ(ArcVmUreadaheadMode::DISABLED, GetArcVmUreadaheadMode());
 
-  EXPECT_EQ(ArcVmUreadaheadMode::DISABLED,
-            GetArcVmUreadaheadMode(callback_disabled));
+  command_line->InitFromArgv(
+      {"", "--arc-disable-ureadahead", "--arcvm-ureadahead-mode=readahead"});
+  EXPECT_EQ(ArcVmUreadaheadMode::READAHEAD, GetArcVmUreadaheadMode());
+
+  command_line->InitFromArgv({"", "--arcvm-ureadahead-mode=readahead"});
+  EXPECT_EQ(ArcVmUreadaheadMode::READAHEAD, GetArcVmUreadaheadMode());
 
   command_line->InitFromArgv({"", "--arcvm-ureadahead-mode=generate"});
-  EXPECT_EQ(ArcVmUreadaheadMode::GENERATE,
-            GetArcVmUreadaheadMode(callback_readahead));
+  EXPECT_EQ(ArcVmUreadaheadMode::GENERATE, GetArcVmUreadaheadMode());
 
   command_line->InitFromArgv({"", "--arcvm-ureadahead-mode=disabled"});
-  EXPECT_EQ(ArcVmUreadaheadMode::DISABLED,
-            GetArcVmUreadaheadMode(callback_readahead));
+  EXPECT_EQ(ArcVmUreadaheadMode::DISABLED, GetArcVmUreadaheadMode());
 }
 
 TEST_F(ArcUtilTest, UreadaheadDefault) {
@@ -609,6 +614,79 @@ TEST_F(ArcUtilTest, GetArcWindowSessionId) {
     EXPECT_TRUE(task_or_session_id.has_value());
     EXPECT_EQ(task_or_session_id.value(), 200);
   }
+}
+
+TEST_F(ArcUtilTest, SetAndGetArcVmDataMigrationStatus) {
+  constexpr ArcVmDataMigrationStatus statuses[] = {
+      ArcVmDataMigrationStatus::kFinished,
+      ArcVmDataMigrationStatus::kStarted,
+      ArcVmDataMigrationStatus::kConfirmed,
+      ArcVmDataMigrationStatus::kNotified,
+      ArcVmDataMigrationStatus::kUnnotified,
+  };
+  for (const auto status : statuses) {
+    SetArcVmDataMigrationStatus(profile_prefs(), status);
+    EXPECT_EQ(status, GetArcVmDataMigrationStatus(profile_prefs()));
+  }
+}
+
+// Tests that ShouldUseVirtioBlkData() returns true when virtio-blk /data is
+// enabled via the kEnableVirtioBlkForData feature.
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_VirtioBlkForDataFeatureEnabled) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(kEnableVirtioBlkForData);
+  EXPECT_FALSE(base::FeatureList::IsEnabled(kEnableArcVmDataMigration));
+  EXPECT_TRUE(ShouldUseVirtioBlkData(profile_prefs()));
+}
+
+// Tests that ShouldUseVirtioBlkData() returns false when ARCVM /data is enabled
+// but the user has not been notified yet.
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Unnotified) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(kEnableArcVmDataMigration);
+  SetArcVmDataMigrationStatus(profile_prefs(),
+                              ArcVmDataMigrationStatus::kUnnotified);
+  EXPECT_FALSE(ShouldUseVirtioBlkData(profile_prefs()));
+}
+
+// Tests that ShouldUseVirtioBlkData() returns false when ARCVM /data is enabled
+// but the user has just been notified of its availability.
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Notified) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(kEnableArcVmDataMigration);
+  SetArcVmDataMigrationStatus(profile_prefs(),
+                              ArcVmDataMigrationStatus::kNotified);
+  EXPECT_FALSE(ShouldUseVirtioBlkData(profile_prefs()));
+}
+
+// Tests that ShouldUseVirtioBlkData() returns false when ARCVM /data is enabled
+// but the user has just confirmed the migration.
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Confirmed) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(kEnableArcVmDataMigration);
+  SetArcVmDataMigrationStatus(profile_prefs(),
+                              ArcVmDataMigrationStatus::kConfirmed);
+  EXPECT_FALSE(ShouldUseVirtioBlkData(profile_prefs()));
+}
+
+// Tests that ShouldUseVirtioBlkData() returns false when ARCVM /data is enabled
+// and the migration has started, but not finished yet.
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Started) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(kEnableArcVmDataMigration);
+  SetArcVmDataMigrationStatus(profile_prefs(),
+                              ArcVmDataMigrationStatus::kStarted);
+  EXPECT_FALSE(ShouldUseVirtioBlkData(profile_prefs()));
+}
+
+// Tests that ShouldUseVirtioBlkData() returns true when ARCVM /data is enabled
+// and the migration has finished.
+TEST_F(ArcUtilTest, ShouldUseVirtioBlkData_ArcVmDataMigration_Finished) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(kEnableArcVmDataMigration);
+  SetArcVmDataMigrationStatus(profile_prefs(),
+                              ArcVmDataMigrationStatus::kFinished);
+  EXPECT_TRUE(ShouldUseVirtioBlkData(profile_prefs()));
 }
 
 }  // namespace

@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,35 +7,61 @@
  * screen.
  */
 
-/* #js_imports_placeholder */
+import '//resources/cr_elements/cr_checkbox/cr_checkbox.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '../../components/common_styles/oobe_dialog_host_styles.m.js';
+
+import {assert, assertNotReached} from '//resources/js/assert.js';
+import {loadTimeData} from '//resources/js/load_time_data.m.js';
+import {html, mixinBehaviors, Polymer, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.m.js';
+import {MultiStepBehavior, MultiStepBehaviorInterface} from '../../components/behaviors/multi_step_behavior.m.js';
+import {OobeDialogHostBehavior} from '../../components/behaviors/oobe_dialog_host_behavior.m.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OobeTextButton} from '../../components/buttons/oobe_text_button.js';
+import {OobeAdaptiveDialog} from '../../components/dialogs/oobe_adaptive_dialog.js';
+import {OOBE_UI_STATE} from '../../components/display_manager_types.js';
+import {OobeAppsList} from '../../components/oobe_apps_list.js';
+
+
 
 /**
  * UI mode for the dialog.
  * @enum {string}
  */
- const RecommendAppsUiState = {
+const RecommendAppsUiState = {
   LOADING: 'loading',
   LIST: 'list',
 };
+
+const BLANK_PAGE_URL = 'about:blank';
 
 /**
  * @constructor
  * @extends {PolymerElement}
  * @implements {LoginScreenBehaviorInterface}
  * @implements {MultiStepBehaviorInterface}
+ * @implements {OobeI18nBehaviorInterface}
  */
-const RecommendAppsElementBase = Polymer.mixinBehaviors(
-  [OobeI18nBehavior, OobeDialogHostBehavior, LoginScreenBehavior, MultiStepBehavior],
-  Polymer.Element);
+const RecommendAppsElementBase = mixinBehaviors(
+    [
+      OobeI18nBehavior,
+      OobeDialogHostBehavior,
+      LoginScreenBehavior,
+      MultiStepBehavior,
+    ],
+    PolymerElement);
 
 /**
  * @typedef {{
- *   appsDialog:  OobeAdaptiveDialogElement,
+ *   appsDialog:  OobeAdaptiveDialog,
  *   appView:  WebView,
- *   installButton:  OobeTextButtonElement,
+ *   appsList: OobeAppsList,
+ *   installButton:  OobeTextButton,
  * }}
  */
- RecommendAppsElementBase.$;
+RecommendAppsElementBase.$;
 
 /**
  * @polymer
@@ -46,18 +72,20 @@ class RecommendAppsElement extends RecommendAppsElementBase {
     return 'recommend-apps-element';
   }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
-      appCount_: {
+      appsSelected_: {
         type: Number,
         value: 0,
       },
 
-      appsSelected_: {
-        type: Number,
-        value: 0,
+      appList_: {
+        type: Array,
+        value: [],
       },
     };
   }
@@ -68,8 +96,7 @@ class RecommendAppsElement extends RecommendAppsElementBase {
   }
 
   get EXTERNAL_API() {
-    return ['setWebview',
-            'loadAppList'];
+    return ['loadAppList'];
   }
 
   get UI_STEPS() {
@@ -78,10 +105,7 @@ class RecommendAppsElement extends RecommendAppsElementBase {
 
   ready() {
     super.ready();
-    this.initializeLoginScreen('RecommendAppsScreen', {
-      resetAllowed: true,
-    });
-    window.addEventListener('message', this.onMessage_.bind(this));
+    this.initializeLoginScreen('RecommendAppsScreen');
   }
 
   /**
@@ -90,8 +114,8 @@ class RecommendAppsElement extends RecommendAppsElementBase {
    */
   reset() {
     this.setUIStep(RecommendAppsUiState.LOADING);
-    this.appCount_ = 0;
     this.appsSelected_ = 0;
+    this.appList_ = [];
   }
 
   /**
@@ -112,91 +136,70 @@ class RecommendAppsElement extends RecommendAppsElementBase {
     return OOBE_UI_STATE.ONBOARDING;
   }
 
-  setWebview(contents) {
-    cr.ui.login.invokePolymerMethod(this.$.appsDialog, 'onBeforeShow');
-    this.$.appView.src =
-        'data:text/html;charset=utf-8,' + encodeURIComponent(contents);
+  onBeforeHide() {
+    this.appList_ = [];
+    return;
   }
 
   /**
    * Generates the contents in the webview.
-   * It is assumed that |loadAppList| is called only once after |setWebview|.
    */
   loadAppList(appList) {
-    this.appCount_ = appList.length;
-
-    const appListView = this.$.appView;
-    appListView.addEventListener('contentload', () => {
-      appListView.executeScript({file: 'recommend_app_list_view.js'}, () => {
-        appListView.contentWindow.postMessage('initialMessage', '*');
-
-        appList.forEach(function(app_data, index) {
-          const app = /** @type {OobeTypes.RecommendedAppsExpectedAppData} */ (app_data);
-          let generateItemScript = 'generateContents("' + app.icon + '", "' +
-              app.name + '", "' + app.package_name + '");';
-          const generateContents = {code: generateItemScript};
-          appListView.executeScript(generateContents);
-        });
-
-        const getNumOfSelectedAppsScript = 'sendNumberOfSelectedApps();';
-        appListView.executeScript({code: getNumOfSelectedAppsScript});
-
-        this.onFullyLoaded_();
-      });
+    const recommendAppsContainsAdsStr = this.i18n('recommendAppsContainsAds');
+    const recommendAppsInAppPurchasesStr =
+        this.i18n('recommendAppsInAppPurchases');
+    const recommendAppsWasInstalledStr = this.i18n('recommendAppsWasInstalled');
+    this.appList_ = appList.map(app => {
+      const tagList = [app.category];
+      if (app.contains_ads) {
+        tagList.push(recommendAppsContainsAdsStr);
+      }
+      if (app.in_app_purchases) {
+        tagList.push(recommendAppsInAppPurchasesStr);
+      }
+      if (app.was_installed) {
+        tagList.push(recommendAppsWasInstalledStr);
+      }
+      if (app.content_rating) {
+        tagList.push(app.content_rating);
+      }
+      return {
+        title: app.title,
+        icon_url: app.icon_url,
+        tags: tagList,
+        description: app.description,
+        package_name: app.package_name,
+        checked: false,
+      };
     });
+    return;
   }
 
   /**
    * Handles event when contents in the webview is generated.
    */
   onFullyLoaded_() {
-    const appListView = this.$.appView;
-    appListView.executeScript({code: 'getHeight();'}, function(result) {
-      appListView.setAttribute('style', 'height: ' + result + 'px');
-    });
     this.setUIStep(RecommendAppsUiState.LIST);
-    this.$.installButton.focus();
+    this.shadowRoot.querySelector('#appsList').focus();
   }
 
   /**
    * Handles Skip button click.
    */
   onSkip_() {
-    chrome.send('recommendAppsSkip');
+    this.userActed('recommendAppsSkip');
   }
 
   /**
    * Handles Install button click.
    */
   onInstall_() {
-    // Only start installation if there are apps to install.
-    if (this.appsSelected_ > 0) {
-      let appListView = this.$.appView;
-      appListView.executeScript(
-          {code: 'getSelectedPackages();'}, function(result) {
-            chrome.send('recommendAppsInstall', result[0]);
-          });
-    }
-  }
-
-  /**
-   * Handles the message sent from the WebView.
-   * @param {Event} event
-   */
-  onMessage_(event) {
-    let data =
-        /** @type {OobeTypes.RecommendedAppsSelectionEventData} */ (event.data);
-    if (data.type && (data.type === 'NUM_OF_SELECTED_APPS')) {
-      this.appsSelected_ = data.numOfSelected;
-    }
-  }
-
-  /**
-   * Handles Select all button click.
-   */
-  onSelectAll_() {
-    let appListView = this.$.appView;
-    appListView.executeScript({code: 'selectAll();'});
+    // Button should be disabled if nothing is selected.
+    assert(this.appsSelected_ > 0);
+    // Can't use this.$.appsList here as the element is in a <dom-if>.
+    const appsList = this.shadowRoot.querySelector('#appsList');
+    const packageNames = appsList.getSelectedApps();
+    this.userActed(['recommendAppsInstall', packageNames]);
   }
 
   canProceed_(appsSelected) {

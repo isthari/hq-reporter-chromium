@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,16 +15,19 @@
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
+#include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/gtest_util.h"
-#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/values.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browsing_data/chrome_browsing_data_remover_delegate.h"
 #include "chrome/browser/captive_portal/captive_portal_service_factory.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
+#include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/common/chrome_features.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
@@ -35,6 +38,7 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/policy/core/common/policy_pref_names.h"
 #include "components/search_engines/template_url_service.h"
+#include "components/services/storage/public/cpp/storage_prefs.h"
 #include "components/variations/variations_associated_data.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browsing_data_filter_builder.h"
@@ -42,8 +46,10 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/site_instance.h"
+#include "content/public/browser/site_isolation_policy.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/mock_render_process_host.h"
@@ -72,8 +78,10 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/webui/scanning/url_constants.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
+#include "chrome/browser/ash/system_web_apps/test_support/test_system_web_app_manager.h"
 #include "chrome/browser/policy/networking/policy_cert_service.h"
 #include "chrome/browser/policy/networking/policy_cert_service_factory.h"
+#include "chrome/browser/web_applications/web_app_provider.h"
 #include "components/user_manager/scoped_user_manager.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -82,18 +90,42 @@
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/web_applications/isolation_prefs_utils.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "content/public/browser/storage_partition_config.h"
 #include "third_party/blink/public/common/features.h"
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
-using content::BrowsingDataFilterBuilder;
-using testing::_;
-using testing::NotNull;
+using ::content::BrowsingDataFilterBuilder;
+using ::testing::_;
+using ::testing::IsFalse;
+using ::testing::IsTrue;
+using ::testing::NotNull;
+
 class ChromeContentBrowserClientTest : public testing::Test {
+ public:
+  ChromeContentBrowserClientTest()
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      : test_system_web_app_manager_creator_(base::BindRepeating(
+            &ChromeContentBrowserClientTest::CreateSystemWebAppManager,
+            base::Unretained(this)))
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+  {
+  }
+
  protected:
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  std::unique_ptr<KeyedService> CreateSystemWebAppManager(Profile* profile) {
+    // Unit tests need SWAs from production. Creates real SystemWebAppManager
+    // instead of `TestSystemWebAppManager::BuildDefault()` for
+    // `TestingProfile`.
+    auto swa_manager = std::make_unique<ash::SystemWebAppManager>(profile);
+    return swa_manager;
+  }
+  // The custom manager creator should be constructed before `TestingProfile`.
+  ash::TestSystemWebAppManagerCreator test_system_web_app_manager_creator_;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
   content::BrowserTaskEnvironment task_environment_;
   TestingProfile profile_;
 };
@@ -471,33 +503,6 @@ TEST_F(ChromeContentBrowserClientTest, HandleWebUIReverse) {
                                                              &profile_));
 }
 
-TEST_F(ChromeContentBrowserClientTest, RedirectSiteDataURL) {
-  base::test::ScopedFeatureList feature_list(
-      features::kConsolidatedSiteStorageControls);
-
-  TestChromeContentBrowserClient test_content_browser_client;
-  base::HistogramTester histogram_tester;
-  const std::string histogram_name = "Settings.AllSites.DeprecatedRedirect";
-
-  GURL settings_url = GURL(chrome::kChromeUISettingsURL);
-  settings_url = net::AppendQueryParameter(settings_url, "foo", "bar");
-
-  GURL::Replacements replacements;
-  replacements.SetPathStr(chrome::kChromeUISiteDataDeprecatedPath);
-  GURL site_data_url = settings_url.ReplaceComponents(replacements);
-
-  replacements.SetPathStr(chrome::kChromeUIAllSitesPath);
-  GURL all_sites_url = settings_url.ReplaceComponents(replacements);
-
-  test_content_browser_client.HandleWebUI(&site_data_url, &profile_);
-  EXPECT_EQ(all_sites_url, site_data_url);
-  histogram_tester.ExpectUniqueSample(histogram_name, true, 1);
-
-  test_content_browser_client.HandleWebUI(&all_sites_url, &profile_);
-  histogram_tester.ExpectBucketCount(histogram_name, false, 1);
-  histogram_tester.ExpectTotalCount(histogram_name, 2);
-}
-
 #if BUILDFLAG(IS_CHROMEOS)
 class ChromeContentSettingsRedirectTest
     : public ChromeContentBrowserClientTest {
@@ -516,9 +521,9 @@ TEST_F(ChromeContentSettingsRedirectTest, RedirectSettingsURL) {
   test_content_browser_client.HandleWebUI(&dest_url, &profile_);
   EXPECT_EQ(settings_url, dest_url);
 
-  base::Value list(base::Value::Type::LIST);
-  list.Append(policy::SystemFeature::kBrowserSettings);
-  testing_local_state_.Get()->Set(
+  base::Value::List list;
+  list.Append(static_cast<int>(policy::SystemFeature::kBrowserSettings));
+  testing_local_state_.Get()->SetUserPref(
       policy::policy_prefs::kSystemFeaturesDisableList, std::move(list));
 
   dest_url = settings_url;
@@ -534,9 +539,9 @@ TEST_F(ChromeContentSettingsRedirectTest, RedirectOSSettingsURL) {
   test_content_browser_client.HandleWebUI(&dest_url, &profile_);
   EXPECT_EQ(os_settings_url, dest_url);
 
-  base::Value list(base::Value::Type::LIST);
-  list.Append(policy::SystemFeature::kOsSettings);
-  testing_local_state_.Get()->Set(
+  base::Value::List list;
+  list.Append(static_cast<int>(policy::SystemFeature::kOsSettings));
+  testing_local_state_.Get()->SetUserPref(
       policy::policy_prefs::kSystemFeaturesDisableList, std::move(list));
 
   dest_url = os_settings_url;
@@ -557,9 +562,9 @@ TEST_F(ChromeContentSettingsRedirectTest, RedirectScanningAppURL) {
   test_content_browser_client.HandleWebUI(&dest_url, &profile_);
   EXPECT_EQ(scanning_app_url, dest_url);
 
-  base::Value list(base::Value::Type::LIST);
-  list.Append(policy::SystemFeature::kScanning);
-  testing_local_state_.Get()->Set(
+  base::Value::List list;
+  list.Append(static_cast<int>(policy::SystemFeature::kScanning));
+  testing_local_state_.Get()->SetUserPref(
       policy::policy_prefs::kSystemFeaturesDisableList, std::move(list));
 
   dest_url = scanning_app_url;
@@ -568,15 +573,17 @@ TEST_F(ChromeContentSettingsRedirectTest, RedirectScanningAppURL) {
 }
 
 TEST_F(ChromeContentSettingsRedirectTest, RedirectCameraAppURL) {
+  // This test needs `SystemWebAppType::CAMERA` (`CameraSystemAppDelegate`)
+  // registered in `SystemWebAppManager`.
   TestChromeContentBrowserClient test_content_browser_client;
   const GURL camera_app_url(ash::kChromeUICameraAppMainURL);
   GURL dest_url = camera_app_url;
   test_content_browser_client.HandleWebUI(&dest_url, &profile_);
   EXPECT_EQ(camera_app_url, dest_url);
 
-  base::Value list(base::Value::Type::LIST);
-  list.Append(policy::SystemFeature::kCamera);
-  testing_local_state_.Get()->Set(
+  base::Value::List list;
+  list.Append(static_cast<int>(policy::SystemFeature::kCamera));
+  testing_local_state_.Get()->SetUserPref(
       policy::policy_prefs::kSystemFeaturesDisableList, std::move(list));
 
   dest_url = camera_app_url;
@@ -591,9 +598,9 @@ TEST_F(ChromeContentSettingsRedirectTest, RedirectHelpURL) {
   test_content_browser_client.HandleWebUI(&dest_url, &profile_);
   EXPECT_EQ(GURL("chrome://settings/help"), dest_url);
 
-  base::Value list(base::Value::Type::LIST);
-  list.Append(policy::SystemFeature::kBrowserSettings);
-  testing_local_state_.Get()->Set(
+  base::Value::List list;
+  list.Append(static_cast<int>(policy::SystemFeature::kBrowserSettings));
+  testing_local_state_.Get()->SetUserPref(
       policy::policy_prefs::kSystemFeaturesDisableList, std::move(list));
 
   dest_url = help_url;
@@ -759,88 +766,41 @@ TEST_F(ChromeContentBrowserClientCaptivePortalBrowserTest,
 }
 #endif
 
-class ChromeContentBrowserClientRestrictedApiOriginTest
-    : public ChromeContentBrowserClientTest {
- protected:
-  bool IsAllowedRestrictedApiOrigin(const GURL& origin_url) {
-    return test_content_browser_client_.ShouldUrlUseApplicationIsolationLevel(
-        &profile_, origin_url);
-  }
-
- private:
-  TestChromeContentBrowserClient test_content_browser_client_;
-};
-
-TEST_F(ChromeContentBrowserClientRestrictedApiOriginTest, Default) {
-  GURL origin_url("https://www.bar.com");
-
-  EXPECT_FALSE(IsAllowedRestrictedApiOrigin(origin_url));
-}
-
-TEST_F(ChromeContentBrowserClientRestrictedApiOriginTest, AllowedOrigin) {
-  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kRestrictedApiOrigins,
-      "https://www.foo.com,https://www.bar.com");
-
-  GURL origin_url("https://www.bar.com");
-  EXPECT_TRUE(IsAllowedRestrictedApiOrigin(origin_url));
-}
-
-TEST_F(ChromeContentBrowserClientRestrictedApiOriginTest, ForbiddenOrigin) {
-  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kRestrictedApiOrigins,
-      "https://www.foo.com,https://www.bar.com");
-
-  GURL origin_url("https://www.not-allowed.com");
-  EXPECT_FALSE(IsAllowedRestrictedApiOrigin(origin_url));
-}
-
-TEST_F(ChromeContentBrowserClientRestrictedApiOriginTest, InvalidOrigin) {
-  std::string origin_string = "hdsdhdfhdh";
-  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kRestrictedApiOrigins, origin_string);
-
-  // Fails to convert into an origin, which leads to an empty origin.
-  GURL origin_url(origin_string);
-  EXPECT_FALSE(IsAllowedRestrictedApiOrigin(origin_url));
-}
-
-TEST_F(ChromeContentBrowserClientRestrictedApiOriginTest,
-       InvalidCommandLineOrigin) {
-  // Verifies user typo in the origin for the command line flag
-  // doesn't accidentally allow all origins.
-
-  std::string invalid_origin_string = "htps://www.app.com";
-  std::string valid_origin_string = "https://www.app.com";
-  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kRestrictedApiOrigins, invalid_origin_string);
-
-  GURL valid_origin_url(valid_origin_string);
-  EXPECT_FALSE(IsAllowedRestrictedApiOrigin(valid_origin_url));
-}
-
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 class ChromeContentBrowserClientStoragePartitionTest
     : public ChromeContentBrowserClientTest {
  public:
-  ChromeContentBrowserClientStoragePartitionTest()
-      : scoped_feature_list_(blink::features::kWebAppEnableIsolatedStorage) {}
+  void SetUp() override {
+    content::SiteIsolationPolicy::DisableFlagCachingForTesting();
+  }
 
  protected:
   static constexpr char kAppId[] = "appid";
-  static constexpr char kScope[] = "https://example.com";
+  static constexpr char kHttpsScope[] = "https://example.com";
+  static constexpr char kIsolatedAppScope[] =
+      "isolated-app://aerugqztij5biqquuk3mfwpsaibuegaqcitgfchwuosuofdjabzqaaac";
 
   content::StoragePartitionConfig CreateDefaultStoragePartitionConfig() {
     return content::StoragePartitionConfig::CreateDefault(&profile_);
   }
 
-  base::test::ScopedFeatureList scoped_feature_list_;
+  void RegisterAppIsolationState(const std::string& app_id,
+                                 const std::string& scope,
+                                 bool isolated) {
+    web_app::WebApp app(app_id);
+    app.SetScope(GURL(scope));
+    app.SetStorageIsolated(isolated);
+    web_app::RecordOrRemoveAppIsolationState(profile_.GetPrefs(), app);
+  }
 };
 // static
 constexpr char ChromeContentBrowserClientStoragePartitionTest::kAppId[];
-constexpr char ChromeContentBrowserClientStoragePartitionTest::kScope[];
+constexpr char ChromeContentBrowserClientStoragePartitionTest::kHttpsScope[];
+constexpr char
+    ChromeContentBrowserClientStoragePartitionTest::kIsolatedAppScope[];
 
-TEST_F(ChromeContentBrowserClientStoragePartitionTest, DefaultPartition) {
+TEST_F(ChromeContentBrowserClientStoragePartitionTest,
+       DefaultPartitionIsUsedForNormalSites) {
   TestChromeContentBrowserClient test_content_browser_client;
   content::StoragePartitionConfig config =
       test_content_browser_client.GetStoragePartitionConfigForSite(
@@ -849,113 +809,246 @@ TEST_F(ChromeContentBrowserClientStoragePartitionTest, DefaultPartition) {
   EXPECT_EQ(CreateDefaultStoragePartitionConfig(), config);
 }
 
-TEST_F(ChromeContentBrowserClientStoragePartitionTest, FeatureDisabled) {
-  scoped_feature_list_.Reset();
-
-  web_app::WebApp app(kAppId);
-  app.SetScope(GURL(kScope));
-  app.SetStorageIsolated(true);
-  web_app::RecordOrRemoveAppIsolationState(profile_.GetPrefs(), app);
+TEST_F(ChromeContentBrowserClientStoragePartitionTest,
+       DefaultPartitionIsUsedOnHttpsWhenIsolationDisabled) {
+  RegisterAppIsolationState(kAppId, kHttpsScope, /*isolated=*/true);
 
   TestChromeContentBrowserClient test_content_browser_client;
   content::StoragePartitionConfig config =
       test_content_browser_client.GetStoragePartitionConfigForSite(
-          &profile_, GURL(kScope));
+          &profile_, GURL(kHttpsScope));
 
   EXPECT_EQ(CreateDefaultStoragePartitionConfig(), config);
+  EXPECT_FALSE(
+      test_content_browser_client.ShouldUrlUseApplicationIsolationLevel(
+          &profile_, GURL(kHttpsScope),
+          /*origin_matches_flag=*/false));
 }
 
-TEST_F(ChromeContentBrowserClientStoragePartitionTest, NonIsolatedPWA) {
-  web_app::WebApp app(kAppId);
-  app.SetScope(GURL(kScope));
-  app.SetStorageIsolated(false);
-  web_app::RecordOrRemoveAppIsolationState(profile_.GetPrefs(), app);
+TEST_F(ChromeContentBrowserClientStoragePartitionTest,
+       DefaultPartitionIsUsedForNonIsolatedPWAs) {
+  RegisterAppIsolationState(kAppId, kHttpsScope, /*isolated=*/false);
 
   TestChromeContentBrowserClient test_content_browser_client;
   content::StoragePartitionConfig config =
       test_content_browser_client.GetStoragePartitionConfigForSite(
-          &profile_, GURL(kScope));
+          &profile_, GURL(kHttpsScope));
 
   EXPECT_EQ(CreateDefaultStoragePartitionConfig(), config);
+  EXPECT_FALSE(
+      test_content_browser_client.ShouldUrlUseApplicationIsolationLevel(
+          &profile_, GURL(kHttpsScope),
+          /*origin_matches_flag=*/false));
 }
 
-TEST_F(ChromeContentBrowserClientStoragePartitionTest, FeatureEnabled) {
-  web_app::WebApp app(kAppId);
-  app.SetScope(GURL(kScope));
-  app.SetStorageIsolated(true);
-  web_app::RecordOrRemoveAppIsolationState(profile_.GetPrefs(), app);
+TEST_F(ChromeContentBrowserClientStoragePartitionTest,
+       EnableIsolatedLevelForIsolatedAppSchemeWhenIsolatedAppFeatureIsEnabled) {
+  TestChromeContentBrowserClient test_content_browser_client;
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kIsolatedWebApps);
+
+  EXPECT_THAT(
+      test_content_browser_client.ShouldUrlUseApplicationIsolationLevel(
+          &profile_, GURL(kIsolatedAppScope), /*origin_matches_flag=*/false),
+      IsTrue());
+}
+
+TEST_F(
+    ChromeContentBrowserClientStoragePartitionTest,
+    DoNotEnableIsolatedLevelForIsolatedAppSchemeWhenIsolatedAppFeatureIsDisabled) {
+  TestChromeContentBrowserClient test_content_browser_client;
+
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(features::kIsolatedWebApps);
+
+  EXPECT_THAT(test_content_browser_client.ShouldUrlUseApplicationIsolationLevel(
+                  &profile_, GURL(kIsolatedAppScope),
+                  /*origin_matches_flag=*/false),
+              IsFalse());
+}
+
+TEST_F(ChromeContentBrowserClientStoragePartitionTest,
+       DoNotEnableIsolatedLevelForNonIsolatedApp) {
+  TestChromeContentBrowserClient test_content_browser_client;
+
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kIsolatedWebApps);
+
+  EXPECT_THAT(test_content_browser_client.ShouldUrlUseApplicationIsolationLevel(
+                  &profile_, GURL(kHttpsScope),
+                  /*origin_matches_flag=*/false),
+              IsFalse());
+}
+
+TEST_F(ChromeContentBrowserClientStoragePartitionTest,
+       DedicatedPartitionIsUsedForIsolatedHttpsApps) {
+  RegisterAppIsolationState(kAppId, kHttpsScope, /*isolated=*/true);
+
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kIsolatedWebApps);
+
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+      switches::kIsolatedAppOrigins, kHttpsScope);
 
   TestChromeContentBrowserClient test_content_browser_client;
   content::StoragePartitionConfig config =
       test_content_browser_client.GetStoragePartitionConfigForSite(
-          &profile_, GURL(kScope));
+          &profile_, GURL(kHttpsScope));
 
   auto expected_config = content::StoragePartitionConfig::Create(
       &profile_, /*partition_domain=*/kAppId, /*partition_name=*/"",
       /*in_memory=*/false);
   EXPECT_EQ(expected_config, config);
+  EXPECT_TRUE(test_content_browser_client.ShouldUrlUseApplicationIsolationLevel(
+      &profile_, GURL(kHttpsScope),
+      /*origin_matches_flag=*/true));
 }
 
-TEST_F(ChromeContentBrowserClientStoragePartitionTest, IsolationLevel_App) {
+TEST_F(ChromeContentBrowserClientStoragePartitionTest,
+       DefaultPartitionIsUsedWhenIsolationDisabled) {
+  TestChromeContentBrowserClient test_content_browser_client;
+  content::StoragePartitionConfig config =
+      test_content_browser_client.GetStoragePartitionConfigForSite(
+          &profile_, GURL(kIsolatedAppScope));
+
+  EXPECT_EQ(CreateDefaultStoragePartitionConfig(), config);
+  EXPECT_FALSE(
+      test_content_browser_client.ShouldUrlUseApplicationIsolationLevel(
+          &profile_, GURL(kIsolatedAppScope),
+          /*origin_matches_flag=*/false));
+}
+
+TEST_F(ChromeContentBrowserClientStoragePartitionTest,
+       DedicatedPartitionIsUsedForIsolatedApps) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(features::kIsolatedWebApps);
+
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kRestrictedApiOrigins, kScope);
+      switches::kIsolatedAppOrigins, kIsolatedAppScope);
 
   TestChromeContentBrowserClient test_content_browser_client;
-  bool isolated =
-      test_content_browser_client.ShouldUrlUseApplicationIsolationLevel(
-          &profile_, GURL(kScope));
+  content::StoragePartitionConfig config =
+      test_content_browser_client.GetStoragePartitionConfigForSite(
+          &profile_, GURL(kIsolatedAppScope));
 
-  EXPECT_TRUE(isolated);
+  auto expected_config = content::StoragePartitionConfig::Create(
+      &profile_, /*partition_domain=*/
+      "iwa-aerugqztij5biqquuk3mfwpsaibuegaqcitgfchwuosuofdjabzqaaac",
+      /*partition_name=*/"",
+      /*in_memory=*/false);
+  EXPECT_EQ(expected_config, config);
+  EXPECT_TRUE(test_content_browser_client.ShouldUrlUseApplicationIsolationLevel(
+      &profile_, GURL(kIsolatedAppScope),
+      /*origin_matches_flag=*/false));
 }
 
-TEST_F(ChromeContentBrowserClientStoragePartitionTest, IsolationLevel_NonApp) {
-  TestChromeContentBrowserClient test_content_browser_client;
-  bool isolated =
-      test_content_browser_client.ShouldUrlUseApplicationIsolationLevel(
-          &profile_, GURL(kScope));
-
-  EXPECT_FALSE(isolated);
-}
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
-class ChromeContentBrowserClientSwitchTest : public testing::Test {
+class ChromeContentBrowserClientSwitchTest
+    : public ChromeRenderViewHostTestHarness {
  public:
   ChromeContentBrowserClientSwitchTest()
-      : command_line_(base::CommandLine::NO_PROGRAM),
-        testing_local_state_(TestingBrowserProcess::GetGlobal()) {}
-
-  void SetUp() override {
-    command_line_.AppendSwitchASCII(switches::kProcessType,
-                                    switches::kRendererProcess);
-  }
+      : testing_local_state_(TestingBrowserProcess::GetGlobal()) {}
 
  protected:
-  base::CommandLine command_line_;
+  void AppendSwitchInCurrentProcess(const base::StringPiece& switch_string) {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(switch_string);
+  }
+
+  base::CommandLine FetchCommandLineSwitchesForRendererProcess() {
+    base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
+    command_line.AppendSwitchASCII(switches::kProcessType,
+                                   switches::kRendererProcess);
+
+    client_.AppendExtraCommandLineSwitches(&command_line, process()->GetID());
+    return command_line;
+  }
+
+ private:
   ScopedTestingLocalState testing_local_state_;
   ChromeContentBrowserClient client_;
-  content::BrowserTaskEnvironment task_environment_;
-  static const int kFakeChildProcessId = 1;
 };
 
-TEST_F(ChromeContentBrowserClientSwitchTest, WebSQLInThirdPartyContextDefault) {
-  client_.AppendExtraCommandLineSwitches(&command_line_, kFakeChildProcessId);
-  EXPECT_FALSE(command_line_.HasSwitch(
-      blink::switches::kWebSQLInThirdPartyContextEnabled));
+TEST_F(ChromeContentBrowserClientSwitchTest, WebSQLAccessDefault) {
+  base::CommandLine result = FetchCommandLineSwitchesForRendererProcess();
+  EXPECT_FALSE(result.HasSwitch(blink::switches::kWebSQLAccess));
+}
+
+TEST_F(ChromeContentBrowserClientSwitchTest, WebSQLAccessDisabled) {
+  profile()->GetPrefs()->SetBoolean(storage::kWebSQLAccess, false);
+  base::CommandLine result = FetchCommandLineSwitchesForRendererProcess();
+  EXPECT_FALSE(result.HasSwitch(blink::switches::kWebSQLAccess));
+}
+
+TEST_F(ChromeContentBrowserClientSwitchTest, WebSQLAccessEnabled) {
+  profile()->GetPrefs()->SetBoolean(storage::kWebSQLAccess, true);
+  base::CommandLine result = FetchCommandLineSwitchesForRendererProcess();
+  EXPECT_TRUE(result.HasSwitch(blink::switches::kWebSQLAccess));
 }
 
 TEST_F(ChromeContentBrowserClientSwitchTest,
-       WebSQLInThirdPartyContextDisabled) {
-  testing_local_state_.Get()->SetBoolean(
-      policy::policy_prefs::kWebSQLInThirdPartyContextEnabled, false);
-  client_.AppendExtraCommandLineSwitches(&command_line_, kFakeChildProcessId);
-  EXPECT_FALSE(command_line_.HasSwitch(
-      blink::switches::kWebSQLInThirdPartyContextEnabled));
+       WebSQLNonSecureContextEnabledDefault) {
+  base::CommandLine result = FetchCommandLineSwitchesForRendererProcess();
+  EXPECT_FALSE(
+      result.HasSwitch(blink::switches::kWebSQLNonSecureContextEnabled));
 }
 
-TEST_F(ChromeContentBrowserClientSwitchTest, WebSQLInThirdPartyContextEnabled) {
-  testing_local_state_.Get()->SetBoolean(
-      policy::policy_prefs::kWebSQLInThirdPartyContextEnabled, true);
-  client_.AppendExtraCommandLineSwitches(&command_line_, kFakeChildProcessId);
-  EXPECT_TRUE(command_line_.HasSwitch(
-      blink::switches::kWebSQLInThirdPartyContextEnabled));
+TEST_F(ChromeContentBrowserClientSwitchTest,
+       WebSQLNonSecureContextEnabledDisabled) {
+  profile()->GetPrefs()->SetBoolean(storage::kWebSQLNonSecureContextEnabled,
+                                    false);
+  base::CommandLine result = FetchCommandLineSwitchesForRendererProcess();
+  EXPECT_FALSE(
+      result.HasSwitch(blink::switches::kWebSQLNonSecureContextEnabled));
 }
+
+TEST_F(ChromeContentBrowserClientSwitchTest,
+       WebSQLNonSecureContextEnabledEnabled) {
+  profile()->GetPrefs()->SetBoolean(storage::kWebSQLNonSecureContextEnabled,
+                                    true);
+  base::CommandLine result = FetchCommandLineSwitchesForRendererProcess();
+  EXPECT_TRUE(
+      result.HasSwitch(blink::switches::kWebSQLNonSecureContextEnabled));
+}
+
+TEST_F(ChromeContentBrowserClientSwitchTest,
+       FileSystemSyncAccessHandleAsyncInterfaceEnabledDefault) {
+  base::CommandLine result = FetchCommandLineSwitchesForRendererProcess();
+  EXPECT_FALSE(result.HasSwitch(
+      switches::kFileSystemSyncAccessHandleAsyncInterfaceEnabled));
+}
+
+TEST_F(ChromeContentBrowserClientSwitchTest,
+       FileSystemSyncAccessHandleAsyncInterfaceEnabledDisabled) {
+  profile()->GetPrefs()->SetBoolean(
+      storage::kFileSystemSyncAccessHandleAsyncInterfaceEnabled, false);
+  base::CommandLine result = FetchCommandLineSwitchesForRendererProcess();
+  EXPECT_FALSE(result.HasSwitch(
+      switches::kFileSystemSyncAccessHandleAsyncInterfaceEnabled));
+}
+
+TEST_F(ChromeContentBrowserClientSwitchTest,
+       FileSystemSyncAccessHandleAsyncInterfaceEnabledEnabled) {
+  profile()->GetPrefs()->SetBoolean(
+      storage::kFileSystemSyncAccessHandleAsyncInterfaceEnabled, true);
+  base::CommandLine result = FetchCommandLineSwitchesForRendererProcess();
+  EXPECT_TRUE(result.HasSwitch(
+      switches::kFileSystemSyncAccessHandleAsyncInterfaceEnabled));
+}
+
+#if BUILDFLAG(IS_CHROMEOS)
+TEST_F(ChromeContentBrowserClientSwitchTest,
+       ShouldSetForceAppModeSwitchInRendererProcessIfItIsSetInCurrentProcess) {
+  AppendSwitchInCurrentProcess(switches::kForceAppMode);
+  base::CommandLine result = FetchCommandLineSwitchesForRendererProcess();
+  EXPECT_TRUE(result.HasSwitch(switches::kForceAppMode));
+}
+
+TEST_F(
+    ChromeContentBrowserClientSwitchTest,
+    ShouldNotSetForceAppModeSwitchInRendererProcessIfItIsUnsetInCurrentProcess) {
+  // We don't set the `kForceAppMode` flag in the current process.
+  base::CommandLine result = FetchCommandLineSwitchesForRendererProcess();
+  EXPECT_FALSE(result.HasSwitch(switches::kForceAppMode));
+}
+#endif  // BUILDFLAG(IS_CHROMEOS)

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -117,6 +117,8 @@ class ASH_EXPORT ToplevelWindowEventHandler
 
   // Returns true if there is a drag in progress.
   bool is_drag_in_progress() const { return window_resizer_.get() != nullptr; }
+
+  void CompleteDragForTesting(DragResult result) { CompleteDrag(result); }
 
  private:
   class ScopedWindowResizer;

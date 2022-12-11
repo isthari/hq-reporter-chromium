@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,7 +63,7 @@ class PrintSessionImpl : public mojom::PrintSessionHost,
   friend class content::WebContentsUserData<PrintSessionImpl>;
 
   // printing::mojom::PrintRenderer:
-  void CreatePreviewDocument(base::Value job_settings,
+  void CreatePreviewDocument(base::Value::Dict job_settings,
                              CreatePreviewDocumentCallback callback) override;
 
   // Called once the preview document has been created by ARC. The preview

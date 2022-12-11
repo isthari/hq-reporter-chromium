@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,7 @@ CONTENT_EXPORT void IsUVPlatformAuthenticatorAvailable(
 #elif BUILDFLAG(IS_WIN)
 CONTENT_EXPORT void IsUVPlatformAuthenticatorAvailable(
     IsUVPlatformAuthenticatorAvailableCallback);
-#elif BUILDFLAG(IS_CHROMEOS_ASH)
+#elif BUILDFLAG(IS_CHROMEOS)
 CONTENT_EXPORT void IsUVPlatformAuthenticatorAvailable(
     IsUVPlatformAuthenticatorAvailableCallback);
 #endif

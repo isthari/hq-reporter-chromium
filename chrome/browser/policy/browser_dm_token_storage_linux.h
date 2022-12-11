@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/single_thread_task_runner.h"
 
@@ -35,6 +34,8 @@ class BrowserDMTokenStorageLinux : public BrowserDMTokenStorage::Delegate {
   BrowserDMTokenStorage::StoreTask SaveDMTokenTask(
       const std::string& token,
       const std::string& client_id) override;
+  BrowserDMTokenStorage::StoreTask DeleteDMTokenTask(
+      const std::string& client_id) override;
   scoped_refptr<base::TaskRunner> SaveDMTokenTaskRunner() override;
 
   // Returns the content of "/etc/machine-id". Virtual for tests.
@@ -50,6 +51,8 @@ class BrowserDMTokenStorageLinux : public BrowserDMTokenStorage::Delegate {
   FRIEND_TEST_ALL_PREFIXES(BrowserDMTokenStorageLinuxTest,
                            InitDMTokenWithoutDirectory);
   FRIEND_TEST_ALL_PREFIXES(BrowserDMTokenStorageLinuxTest, SaveDMToken);
+  FRIEND_TEST_ALL_PREFIXES(BrowserDMTokenStorageLinuxTest, DeleteDMToken);
+  FRIEND_TEST_ALL_PREFIXES(BrowserDMTokenStorageLinuxTest, DeleteEmptyDMToken);
 };
 
 }  // namespace policy

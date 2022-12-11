@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -18,6 +18,8 @@ static_library("privacy_sandbox_prefs") {
 
 source_set("privacy_sandbox") {
   sources = [
+    "canonical_topic.cc",
+    "canonical_topic.h",
     "privacy_sandbox_features.cc",
     "privacy_sandbox_features.h",
     "privacy_sandbox_settings.cc",
@@ -26,12 +28,16 @@ source_set("privacy_sandbox") {
 
   deps = [
     ":privacy_sandbox_prefs",
+    "//components/browsing_topics/common:common",
     "//components/content_settings/core/browser",
     "//components/content_settings/core/common",
     "//components/keyed_service/core:core",
     "//components/pref_registry:pref_registry",
     "//components/prefs",
+    "//components/strings:components_strings_grit",
+    "//content/public/browser",
     "//net:net",
+    "//ui/base:base",
     "//url:url",
   ]
 
@@ -40,7 +46,10 @@ source_set("privacy_sandbox") {
 
 source_set("unit_tests") {
   testonly = true
-  sources = [ "privacy_sandbox_settings_unittest.cc" ]
+  sources = [
+    "canonical_topic_unittest.cc",
+    "privacy_sandbox_settings_unittest.cc",
+  ]
 
   deps = [
     ":privacy_sandbox",
@@ -49,7 +58,9 @@ source_set("unit_tests") {
     "//components/content_settings/core/browser:browser",
     "//components/content_settings/core/test:test_support",
     "//components/prefs:test_support",
+    "//components/strings:components_strings_grit",
     "//components/sync_preferences:test_support",
+    "//content/public/browser",
     "//content/test:test_support",
     "//net",
     "//testing/gtest",

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -275,7 +275,7 @@ class ReceiverTest : public ::testing::Test {
     mock_renderer_ = renderer.get();
     receiver_ = std::make_unique<Receiver>(
         receiver_renderer_handle_, sender_renderer_handle_, mock_controller_,
-        base::ThreadTaskRunnerHandle::Get(), std::move(renderer),
+        base::SingleThreadTaskRunner::GetCurrentDefault(), std::move(renderer),
         base::BindOnce(&ReceiverTest::OnAcquireRendererDone,
                        weak_factory_.GetWeakPtr()));
   }

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 
 #include <memory>
 
-#include "base/memory/ref_counted.h"
 #include "content/browser/loader/navigation_url_loader_delegate.h"
 #include "net/url_request/redirect_info.h"
 #include "services/network/public/mojom/url_response_head.mojom-forward.h"
@@ -60,7 +59,7 @@ class TestNavigationURLLoaderDelegate : public NavigationURLLoaderDelegate {
   // NavigationURLLoaderDelegate implementation.
   void OnRequestRedirected(
       const net::RedirectInfo& redirect_info,
-      const net::NetworkIsolationKey& network_isolation_key,
+      const net::NetworkAnonymizationKey& network_anonymization_key,
       network::mojom::URLResponseHeadPtr response) override;
   void OnResponseStarted(
       network::mojom::URLLoaderClientEndpointsPtr url_loader_client_endpoints,
@@ -69,7 +68,7 @@ class TestNavigationURLLoaderDelegate : public NavigationURLLoaderDelegate {
       GlobalRequestID request_id,
       bool is_download,
       blink::NavigationDownloadPolicy download_policy,
-      net::NetworkIsolationKey network_isolation_key,
+      net::NetworkAnonymizationKey network_anonymization_key,
       absl::optional<SubresourceLoaderParams> subresource_loader_params,
       EarlyHints early_hints) override;
   void OnRequestFailed(

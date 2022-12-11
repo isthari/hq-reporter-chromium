@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -116,7 +116,7 @@ void SharingBrowserTest::SetUpDevices(
 
   for (size_t i = 0; i < original_devices.size(); i++)
     AddDeviceInfo(*original_devices[i], i);
-  const std::map<sync_pb::SyncEnums_DeviceType, int> device_count_by_type =
+  const std::map<syncer::DeviceInfo::FormFactor, int> device_count_by_type =
       fake_device_info_tracker_.CountActiveDevicesByType();
   int total = 0;
   for (const auto& type_and_count : device_count_by_type)
@@ -152,7 +152,8 @@ void SharingBrowserTest::AddDeviceInfo(
           base::StrCat(
               {"testing_device_", base::NumberToString(fake_device_id)}),
           original_device.chrome_version(), original_device.sync_user_agent(),
-          original_device.device_type(),
+          original_device.device_type(), original_device.os_type(),
+          original_device.form_factor(),
           original_device.signin_scoped_device_id(), "Google",
           base::StrCat({"model", base::NumberToString(fake_device_id)}),
           original_device.full_hardware_class(),
@@ -185,7 +186,7 @@ std::unique_ptr<TestRenderViewContextMenu> SharingBrowserTest::InitContextMenu(
   params.writing_direction_right_to_left = 0;
 #endif
   auto menu = std::make_unique<TestRenderViewContextMenu>(
-      *web_contents_->GetMainFrame(), params);
+      *web_contents_->GetPrimaryMainFrame(), params);
   menu->Init();
   return menu;
 }

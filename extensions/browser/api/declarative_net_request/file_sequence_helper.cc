@@ -1,10 +1,9 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/browser/api/declarative_net_request/file_sequence_helper.h"
 
-#include <algorithm>
 #include <cstdint>
 #include <set>
 #include <utility>
@@ -20,6 +19,7 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -216,8 +216,8 @@ bool GetNewDynamicRules(const FileBackedRulesetSource& source,
     return false;
   }
 
-  size_t regex_rule_count = std::count_if(
-      new_rules->begin(), new_rules->end(),
+  size_t regex_rule_count = base::ranges::count_if(
+      *new_rules,
       [](const dnr_api::Rule& rule) { return !!rule.condition.regex_filter; });
   if (regex_rule_count > rule_limit.regex_rule_count) {
     *status = UpdateDynamicRulesStatus::kErrorRegexRuleCountExceeded;

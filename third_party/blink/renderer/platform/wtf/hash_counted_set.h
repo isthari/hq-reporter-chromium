@@ -21,6 +21,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_HASH_COUNTED_SET_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_HASH_COUNTED_SET_H_
 
+#include "base/check_op.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partition_allocator.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -31,7 +32,7 @@ namespace WTF {
 // the set. The iterators have fields ->key and ->value that return the set
 // members and their counts, respectively.
 template <typename Value,
-          typename HashFunctions = typename DefaultHash<Value>::Hash,
+          typename HashFunctions = DefaultHash<Value>,
           typename Traits = HashTraits<Value>,
           typename Allocator = PartitionAllocator>
 class HashCountedSet {
@@ -68,7 +69,7 @@ class HashCountedSet {
 
   unsigned size() const { return impl_.size(); }
   unsigned Capacity() const { return impl_.capacity(); }
-  bool IsEmpty() const { return impl_.IsEmpty(); }
+  bool empty() const { return impl_.empty(); }
 
   // Iterators iterate over pairs of values (called key) and counts (called
   // value).

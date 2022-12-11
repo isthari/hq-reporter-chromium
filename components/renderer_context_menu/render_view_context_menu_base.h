@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -124,6 +124,9 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
   content::WebContents* GetWebContents() const override;
   content::BrowserContext* GetBrowserContext() const override;
 
+  // May return nullptr if the frame was deleted while the menu was open.
+  content::RenderFrameHost* GetRenderFrameHost() const;
+
  protected:
   friend class RenderViewContextMenuTest;
   friend class RenderViewContextMenuPrefsTest;
@@ -149,7 +152,7 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
   virtual void RecordUsedItem(int id) = 0;
 
   // Increments histogram value for visible context menu item specified by |id|.
-  virtual void RecordShownItem(int id) = 0;
+  virtual void RecordShownItem(int id, bool is_submenu) = 0;
 
 #if BUILDFLAG(ENABLE_PLUGINS)
   virtual void HandleAuthorizeAllPlugins() = 0;
@@ -160,9 +163,7 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
 
   // TODO(oshima): Remove this.
   virtual void AppendPlatformEditableItems() {}
-
-  // May return nullptr if the frame was deleted while the menu was open.
-  content::RenderFrameHost* GetRenderFrameHost() const;
+  virtual void ExecOpenInReadAnything() = 0;
 
   bool IsCustomItemChecked(int id) const;
   bool IsCustomItemEnabled(int id) const;
@@ -182,8 +183,8 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
                                bool started_from_context_menu);
 
   content::ContextMenuParams params_;
-  const raw_ptr<content::WebContents> source_web_contents_;
-  const raw_ptr<content::BrowserContext> browser_context_;
+  const raw_ptr<content::WebContents, DanglingUntriaged> source_web_contents_;
+  const raw_ptr<content::BrowserContext, DanglingUntriaged> browser_context_;
 
   ui::SimpleMenuModel menu_model_;
 

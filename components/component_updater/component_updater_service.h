@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,6 +37,10 @@ class ComponentInstaller;
 class Configurator;
 struct CrxComponent;
 struct CrxUpdateItem;
+}
+
+namespace extensions {
+class AutotestPrivateLoadSmartDimComponentFunction;
 }
 
 namespace component_updater {
@@ -125,6 +129,10 @@ class ComponentUpdateService {
   // the observers are being notified.
   virtual void RemoveObserver(Observer* observer) = 0;
 
+  // Returns the last registered version for the component associated with
+  // |app_id|. Returns kNullVersion if no suitable version is found.
+  virtual base::Version GetRegisteredVersion(const std::string& app_id) = 0;
+
   // Add component to be checked for updates.
   virtual bool RegisterComponent(const ComponentRegistration& component) = 0;
 
@@ -193,12 +201,12 @@ class OnDemandUpdater {
  private:
   friend class OnDemandTester;
   friend class policy::ComponentUpdaterPolicyTest;
-  friend class SupervisedUserWhitelistInstaller;
   friend class ::ComponentsHandler;
   friend class ::PluginObserver;
   friend class SwReporterOnDemandFetcher;
   friend class SodaComponentInstallerPolicy;
   friend class SodaLanguagePackComponentInstallerPolicy;
+  friend class ::extensions::AutotestPrivateLoadSmartDimComponentFunction;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   friend class CrOSComponentInstaller;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)

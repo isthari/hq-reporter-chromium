@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "chrome/browser/ash/login/enrollment/enrollment_screen.h"
 #include "chrome/browser/ash/login/enrollment/enrollment_screen_view.h"
 #include "chrome/browser/ash/policy/enrollment/enrollment_config.h"
-#include "chrome/browser/policy/enrollment_status.h"
+#include "chrome/browser/ash/policy/enrollment/enrollment_status.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -16,7 +16,7 @@ namespace ash {
 
 class MockEnrollmentScreen : public EnrollmentScreen {
  public:
-  MockEnrollmentScreen(EnrollmentScreenView* view,
+  MockEnrollmentScreen(base::WeakPtr<EnrollmentScreenView> view,
                        const ScreenExitCallback& exit_callback);
   ~MockEnrollmentScreen() override;
 
@@ -29,10 +29,7 @@ class MockEnrollmentScreen : public EnrollmentScreen {
 class MockEnrollmentScreenView : public EnrollmentScreenView {
  public:
   MockEnrollmentScreenView();
-  virtual ~MockEnrollmentScreenView();
-
-  void Bind(EnrollmentScreen* screen) override;
-  void Unbind() override;
+  ~MockEnrollmentScreenView() override;
 
   MOCK_METHOD(void,
               SetEnrollmentConfig,
@@ -42,18 +39,15 @@ class MockEnrollmentScreenView : public EnrollmentScreenView {
               SetEnterpriseDomainInfo,
               (const std::string& manager, const std::u16string& device_type));
   MOCK_METHOD(void, SetFlowType, (FlowType flow_type));
+  MOCK_METHOD(void, SetGaiaButtonsType, (GaiaButtonsType buttons_type));
   MOCK_METHOD(void, Show, ());
   MOCK_METHOD(void, Hide, ());
   MOCK_METHOD(void, MockBind, (EnrollmentScreen * screen));
   MOCK_METHOD(void, MockUnbind, ());
   MOCK_METHOD(void, ShowSigninScreen, ());
-  MOCK_METHOD(void,
-              ShowUserError,
-              (UserErrorType error_type, const std::string& email));
+  MOCK_METHOD(void, ShowUserError, (const std::string& email));
   MOCK_METHOD(void, ShowEnrollmentDuringTrialNotAllowedError, ());
-  MOCK_METHOD(void,
-              ShowLicenseTypeSelectionScreen,
-              (const base::DictionaryValue&));
+  MOCK_METHOD(void, ShowSkipConfirmationDialog, ());
   MOCK_METHOD(void,
               ShowActiveDirectoryScreen,
               (const std::string& domain_join_config,
@@ -70,18 +64,8 @@ class MockEnrollmentScreenView : public EnrollmentScreenView {
   MOCK_METHOD(void, ShowOtherError, (EnterpriseEnrollmentHelper::OtherError));
   MOCK_METHOD(void, ShowEnrollmentStatus, (policy::EnrollmentStatus status));
   MOCK_METHOD(void, Shutdown, ());
-
- private:
-  EnrollmentScreen* screen_ = nullptr;
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::MockEnrollmentScreen;
-using ::ash::MockEnrollmentScreenView;
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_ENROLLMENT_MOCK_ENROLLMENT_SCREEN_H_

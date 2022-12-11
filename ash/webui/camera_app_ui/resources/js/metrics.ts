@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,19 @@ import * as loadTimeData from './models/load_time_data.js';
 import * as localStorage from './models/local_storage.js';
 import {ChromeHelper} from './mojo/chrome_helper.js';
 import * as state from './state.js';
+import {State} from './state.js';
 import {
+  AspectRatioSet,
   Facing,
+  LocalStorageKey,
   Mode,
   PerfEvent,
   PerfInformation,
+  PhotoResolutionLevel,
   Resolution,
+  VideoResolutionLevel,
 } from './type.js';
-import {GAHelperInterface} from './untrusted_ga_helper.js';
-import * as util from './util.js';
+import {getGAHelper} from './untrusted_scripts.js';
 import {WaitableEvent} from './waitable_event.js';
 
 /**
@@ -25,29 +29,27 @@ import {WaitableEvent} from './waitable_event.js';
  */
 const GA_ID = 'UA-134822711-1';
 
-let baseDimen: Map<number, string|number>|null = null;
+let baseDimen: Map<number, number|string>|null = null;
 
 const ready = new WaitableEvent();
 
-const gaHelper = util.createUntrustedJSModule<GAHelperInterface>(
-    '/js/untrusted_ga_helper.js');
-
 /**
  * Send the event to GA backend.
+ *
  * @param event The event to send.
  * @param dimen Optional object contains dimension information.
  */
 async function sendEvent(
     event: UniversalAnalytics.FieldsObject, dimen?: Map<number, unknown>) {
-  const assignDimension =
-      (e: UniversalAnalytics.FieldsObject, d: Map<number, unknown>) => {
-        for (const [key, value] of d.entries()) {
-          // The TypeScript definition for UniversalAnalytics.FieldsObject
-          // manually listed out dimension1 ~ dimension200, and TypeScript don't
-          // recognize accessing it using []. Force the type here.
-          (e as Record<string, unknown>)[`dimension${key}`] = value;
-        }
-      };
+  function assignDimension(
+      e: UniversalAnalytics.FieldsObject, d: Map<number, unknown>) {
+    for (const [key, value] of d.entries()) {
+      // The TypeScript definition for UniversalAnalytics.FieldsObject
+      // manually listed out dimension1 ~ dimension200, and TypeScript don't
+      // recognize accessing it using []. Force the type here.
+      (e as Record<string, unknown>)[`dimension${key}`] = value;
+    }
+  }
 
   assert(baseDimen !== null);
   assignDimension(event, baseDimen);
@@ -61,18 +63,19 @@ async function sendEvent(
   const canSendMetrics =
       await ChromeHelper.getInstance().isMetricsAndCrashReportingEnabled();
   if (canSendMetrics) {
-    (await gaHelper).sendGAEvent(event);
+    (await getGAHelper()).sendGAEvent(event);
   }
 }
 
 /**
  * Set if the metrics is enabled. Note that the metrics will only be sent if it
  * is enabled AND the logging consent option is enabled in OS settings.
+ *
  * @param enabled True if the metrics is enabled.
  */
 export async function setMetricsEnabled(enabled: boolean): Promise<void> {
   await ready.wait();
-  await (await gaHelper).setMetricsEnabled(GA_ID, enabled);
+  await (await getGAHelper()).setMetricsEnabled(GA_ID, enabled);
 }
 
 const SCHEMA_VERSION = 3;
@@ -121,6 +124,8 @@ enum MetricDimension {
   SCHEMA_VERSION = 31,
   LAUNCH_TYPE = 32,
   DOC_FIX_TYPE = 33,
+  RESOLUTION_LEVEL = 34,
+  ASPECT_RATIO_SET = 35,
 }
 
 /**
@@ -140,20 +145,20 @@ export async function initMetrics(): Promise<void> {
     }
     return match[1];
   })();
-  baseDimen = new Map<MetricDimension, string|number>([
+  baseDimen = new Map<MetricDimension, number|string>([
     [MetricDimension.BOARD, boardName],
     [MetricDimension.OS_VERSION, osVer],
     [MetricDimension.SCHEMA_VERSION, SCHEMA_VERSION],
   ]);
 
-  const GA_LOCAL_STORAGE_KEY = 'google-analytics.analytics.user-id';
-  const clientId = localStorage.getString(GA_LOCAL_STORAGE_KEY);
+  const clientId = localStorage.getString(LocalStorageKey.GA_USER_ID);
 
-  const setClientId = (id: string) => {
-    localStorage.set(GA_LOCAL_STORAGE_KEY, id);
-  };
+  function setClientId(id: string) {
+    localStorage.set(LocalStorageKey.GA_USER_ID, id);
+  }
 
-  await (await gaHelper).initGA(GA_ID, clientId, Comlink.proxy(setClientId));
+  await (await getGAHelper())
+      .initGA(GA_ID, clientId, Comlink.proxy(setClientId));
   ready.signal();
 }
 
@@ -254,22 +259,41 @@ export enum ShutterType {
  * Parameters of capture metrics event.
  */
 export interface CaptureEventParam {
-  /** Camera facing of the capture. */
+  /**
+   * Camera facing of the capture.
+   */
   facing: Facing;
-  /** Length of duration for captured motion result in milliseconds. */
+
+  /**
+   * Length of duration for captured motion result in milliseconds.
+   */
   duration?: number;
-  /** Capture resolution. */
+
+  /**
+   * Capture resolution.
+   */
   resolution: Resolution;
+
   intentResult?: IntentResultType;
   shutterType: ShutterType;
-  /** Whether the event is for video snapshot. */
+
+  /**
+   * Whether the event is for video snapshot.
+   */
   isVideoSnapshot?: boolean;
-  /** Whether the video have ever paused and resumed in the recording. */
+
+  /**
+   * Whether the video have ever paused and resumed in the recording.
+   */
   everPaused?: boolean;
+
   docResult?: DocResultType;
   docFixType?: DocFixType;
   gifResult?: GifResultType;
   recordType?: RecordType;
+
+  resolutionLevel: PhotoResolutionLevel|VideoResolutionLevel;
+  aspectRatioSet: AspectRatioSet;
 }
 
 /**
@@ -287,20 +311,23 @@ export function sendCaptureEvent({
   docFixType,
   recordType = RecordType.NOT_RECORDING,
   gifResult = GifResultType.NOT_GIF_RESULT,
+  resolutionLevel,
+  aspectRatioSet,
 }: CaptureEventParam): void {
-  const condState =
-      (states: state.StateUnion[], cond?: state.StateUnion, strict?: boolean):
-          string => {
-            // Return the first existing state among the given states only if
-            // there is no gate condition or the condition is met.
-            const prerequisite = !cond || state.get(cond);
-            if (strict && !prerequisite) {
-              return '';
-            }
-            return prerequisite && states.find((s) => state.get(s)) || 'n/a';
-          };
+  function condState(
+      states: state.StateUnion[],
+      cond?: state.StateUnion,
+      strict?: boolean,
+      ): string {
+    // Return the first existing state among the given states only if
+    // there is no gate condition or the condition is met.
+    const prerequisite = !cond || state.get(cond);
+    if (strict && !prerequisite) {
+      return '';
+    }
+    return prerequisite && states.find((s) => state.get(s)) || 'n/a';
+  }
 
-  const State = state.State;
   sendEvent(
       {
         eventCategory: 'capture',
@@ -337,6 +364,8 @@ export function sendCaptureEvent({
         [MetricDimension.GIF_RESULT, gifResult],
         [MetricDimension.DURATION, duration],
         [MetricDimension.DOC_FIX_TYPE, docFixType ?? ''],
+        [MetricDimension.RESOLUTION_LEVEL, resolutionLevel],
+        [MetricDimension.ASPECT_RATIO_SET, aspectRatioSet],
       ]));
 }
 
@@ -345,11 +374,19 @@ export function sendCaptureEvent({
  * Parameters for logging perf event.
  */
 interface PerfEventParam {
-  /** Target event type. */
+  /**
+   * Target event type.
+   */
   event: PerfEvent;
-  /** Duration of the event in ms. */
+
+  /**
+   * Duration of the event in ms.
+   */
   duration: number;
-  /** Optional information for the event. */
+
+  /**
+   * Optional information for the event.
+   */
   perfInfo?: PerfInformation;
 }
 
@@ -358,8 +395,8 @@ interface PerfEventParam {
  */
 export function sendPerfEvent({event, duration, perfInfo = {}}: PerfEventParam):
     void {
-  const resolution = perfInfo['resolution'] || '';
-  const facing = perfInfo['facing'] || '';
+  const resolution = perfInfo.resolution ?? '';
+  const facing = perfInfo.facing ?? '';
   sendEvent(
       {
         eventCategory: 'perf',
@@ -388,7 +425,9 @@ export interface IntentEventParam {
  */
 export function sendIntentEvent({intent, result}: IntentEventParam): void {
   const {mode, shouldHandleResult, shouldDownScale, isSecure} = intent;
-  const getBoolValue = (b: boolean) => b ? '1' : '0';
+  function getBoolValue(b: boolean) {
+    return b ? '1' : '0';
+  }
   sendEvent(
       {
         eventCategory: 'intent',
@@ -486,4 +525,76 @@ export function sendOpenPTZPanelEvent(
         [MetricDimension.SUPPORT_TILT, capabilities.tilt],
         [MetricDimension.SUPPORT_ZOOM, capabilities.zoom],
       ]));
+}
+
+/**
+ * TODO(b/223089758): Remove `DocResultType` and `DocFixType` and mark the
+ * dimensions as obsolete once multi-page document scanning feature is fully
+ * landed.
+ */
+export enum DocScanFixType {
+  NONE = 0,
+  CORNER = 0b1,
+  ROTATION = 0b10,
+}
+
+export enum DocScanResultActionType {
+  CANCEL = 'cancel',
+  SAVE_AS_PDF = 'save-as-pdf',
+  SAVE_AS_PHOTO = 'save-as-photo',
+  SHARE = 'share',
+}
+
+/**
+ * Sends the multi-page document scanning result event. The actions will either
+ * remove all pages (cancel) or generate files from pages (save/share).
+ */
+export function sendDocScanResultEvent(
+    action: DocScanResultActionType,
+    fixType: DocScanFixType,
+    fixCount: number,
+    ): void {
+  sendEvent(
+      {
+        eventCategory: 'doc-scan',
+        eventAction: action,
+        eventValue: fixCount,
+      },
+      new Map([
+        [MetricDimension.DOC_FIX_TYPE, fixType],
+      ]));
+}
+
+export enum DocScanActionType {
+  ADD_PAGE = 'add-page',
+  DELETE_PAGE = 'delete-page',
+  FIX = 'fix',
+}
+
+/**
+ * Sends the multi-page document scanning event.
+ */
+export function sendDocScanEvent(action: DocScanActionType): void {
+  sendEvent({
+    eventCategory: 'doc-scan',
+    eventAction: action,
+  });
+}
+
+export enum LowStorageActionType {
+  MANAGE_STORAGE_AUTO_STOP = 'manage-storage-auto-stop',
+  MANAGE_STORAGE_CANNOT_START = 'manage-storage-cannot-start',
+  SHOW_AUTO_STOP_DIALOG = 'show-auto-stop-dialog',
+  SHOW_CANNOT_START_DIALOG = 'show-cannot-start-dialog',
+  SHOW_WARNING_MSG = 'show-warning-msg',
+}
+
+/**
+ * Sends low-storage handling event.
+ */
+export function sendLowStorageEvent(action: LowStorageActionType): void {
+  sendEvent({
+    eventCategory: 'low-storage',
+    eventAction: action,
+  });
 }

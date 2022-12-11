@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,6 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "mojo/core/embedder/embedder.h"
-#include "net/url_request/url_fetcher.h"
 #include "remoting/base/auto_thread_task_runner.h"
 #include "remoting/base/breakpad.h"
 #include "remoting/base/gaia_oauth_client.h"
@@ -215,8 +214,6 @@ int Me2MeNativeMessagingHostMain(int argc, char** argv) {
       url_request_context_getter);
   std::unique_ptr<OAuthClient> oauth_client(
       new GaiaOAuthClient(url_loader_factory_owner.GetURLLoaderFactory()));
-
-  net::URLFetcher::SetIgnoreCertificateRequests(true);
 
   // Create the pairing registry.
   scoped_refptr<PairingRegistry> pairing_registry;

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -18,8 +18,6 @@
 #ifndef COMPONENTS_SIGNIN_INTERNAL_IDENTITY_MANAGER_PRIMARY_ACCOUNT_MANAGER_H_
 #define COMPONENTS_SIGNIN_INTERNAL_IDENTITY_MANAGER_PRIMARY_ACCOUNT_MANAGER_H_
 
-#include <memory>
-
 #include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
@@ -33,7 +31,6 @@
 class AccountTrackerService;
 class PrefRegistrySimple;
 class PrefService;
-class PrimaryAccountPolicyManager;
 class ProfileOAuth2TokenService;
 
 namespace signin_metrics {
@@ -59,11 +56,9 @@ class PrimaryAccountManager : public ProfileOAuth2TokenServiceObserver {
     kRemoveAllAccounts,
   };
 
-  PrimaryAccountManager(
-      SigninClient* client,
-      ProfileOAuth2TokenService* token_service,
-      AccountTrackerService* account_tracker_service,
-      std::unique_ptr<PrimaryAccountPolicyManager> policy_manager);
+  PrimaryAccountManager(SigninClient* client,
+                        ProfileOAuth2TokenService* token_service,
+                        AccountTrackerService* account_tracker_service);
 
   PrimaryAccountManager(const PrimaryAccountManager&) = delete;
   PrimaryAccountManager& operator=(const PrimaryAccountManager&) = delete;
@@ -131,6 +126,8 @@ class PrimaryAccountManager : public ProfileOAuth2TokenServiceObserver {
   void RemoveObserver(Observer* observer);
 
  private:
+  class ScopedPrefCommit;
+
   // Sets the primary account id, when the user has consented to sync.
   // If the user has consented for sync with the same account, then this method
   // is a no-op.
@@ -141,7 +138,8 @@ class PrimaryAccountManager : public ProfileOAuth2TokenServiceObserver {
 
   // Sets |primary_account_info_| and updates the associated preferences.
   void SetPrimaryAccountInternal(const CoreAccountInfo& account_info,
-                                 bool consented_to_sync);
+                                 bool consented_to_sync,
+                                 ScopedPrefCommit& scoped_pref_commit);
 
   // Starts the sign out process.
   void StartSignOut(signin_metrics::ProfileSignout signout_source_metric,
@@ -184,7 +182,6 @@ class PrimaryAccountManager : public ProfileOAuth2TokenServiceObserver {
   // this field.
   CoreAccountInfo primary_account_info_;
 
-  std::unique_ptr<PrimaryAccountPolicyManager> policy_manager_;
   base::ObserverList<Observer> observers_;
 };
 

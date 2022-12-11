@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -112,6 +112,10 @@ class LocationBarBubbleDelegateView : public views::BubbleDialogDelegateView,
  private:
   base::ScopedObservation<FullscreenController, FullscreenObserver>
       fullscreen_observation_{this};
+
+  // Use to track down potential UaF. See https://crbug.com/1304280. Remove this
+  // code when issue is fixed.
+  base::WeakPtr<FullscreenController> fullscreen_controller_;
 
   // A flag controlling bubble closure when the main frame navigates to a
   // different origin.

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,13 +26,5 @@ void WriteSystemLogs(
 
 }  // namespace system_logs_writer
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when Chrome OS code migration is
-// done.
-namespace chromeos {
-namespace system_logs_writer {
-using ::ash::system_logs_writer::WriteSystemLogs;
-}  // namespace system_logs_writer
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_SYSTEM_LOGS_SYSTEM_LOGS_WRITER_H_

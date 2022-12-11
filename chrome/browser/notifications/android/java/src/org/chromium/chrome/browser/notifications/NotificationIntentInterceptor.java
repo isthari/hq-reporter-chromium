@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -153,6 +153,12 @@ public class NotificationIntentInterceptor {
         intent.putExtra(EXTRA_CREATE_TIME, System.currentTimeMillis());
         if (intentType == IntentType.ACTION_INTENT) {
             intent.putExtra(EXTRA_ACTION_TYPE, intentId);
+        }
+
+        // This flag ensures the TrampolineActivity won't trigger ChromeActivity's auto enter
+        // picture-in-picture.
+        if (!shouldUseBroadcast && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION);
         }
 
         // This flag ensures the broadcast is delivered with foreground priority to speed up the

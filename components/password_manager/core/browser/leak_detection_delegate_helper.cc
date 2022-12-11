@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_scripts_fetcher.h"
 #include "components/password_manager/core/browser/password_store_interface.h"
+#include "components/password_manager/core/browser/psl_matching_helper.h"
 
 namespace password_manager {
 
@@ -25,7 +26,7 @@ LeakDetectionDelegateHelper::LeakDetectionDelegateHelper(
       scripts_fetcher_(scripts_fetcher),
       callback_(std::move(callback)) {
   DCHECK(profile_store_);
-  // |account_store_| and |scripts_fetcher_| may be null.
+  // `account_store_` and `scripts_fetcher_` may be null.
 }
 
 LeakDetectionDelegateHelper::~LeakDetectionDelegateHelper() = default;
@@ -66,9 +67,11 @@ void LeakDetectionDelegateHelper::OnGetPasswordStoreResults(
   barrier_closure_.Run();
 }
 
+// TODO (https://crbug.com/1386065): Remove this function and its usages
+// as part of APC removal.
 void LeakDetectionDelegateHelper::ScriptAvailabilityDetermined(
     bool script_is_available) {
-  script_is_available_ = script_is_available;
+  script_is_available_ = false;
 
   barrier_closure_.Run();
 }
@@ -76,29 +79,47 @@ void LeakDetectionDelegateHelper::ScriptAvailabilityDetermined(
 void LeakDetectionDelegateHelper::ProcessResults() {
   std::u16string canonicalized_username = CanonicalizeUsername(username_);
   std::vector<GURL> all_urls_with_leaked_credentials;
+  PasswordForm::Store in_stores = PasswordForm::Store::kNotSet;
+
+  // Returns true if the urls are identical or one is a PSL match of the other.
+  auto are_urls_equivalent = [](const GURL& url1, const GURL& url2) -> bool {
+    return url1 == url2 || IsPublicSuffixDomainMatch(url1.spec(), url2.spec());
+  };
+
   for (const auto& form : partial_results_) {
     if (CanonicalizeUsername(form->username_value) == canonicalized_username &&
         form->password_value == password_) {
       PasswordStoreInterface& store =
           form->IsUsingAccountStore() ? *account_store_ : *profile_store_;
-      PasswordForm form_to_update = *form.get();
-      form_to_update.password_issues.insert_or_assign(
-          InsecureType::kLeaked,
-          InsecurityMetadata(base::Time::Now(), IsMuted(false)));
-      store.UpdateLogin(form_to_update);
+      // crbug.com/1381203: It's very important not to touch already leaked
+      // passwords. It overwrites the date and leads to performance problems as
+      // called in the loop.
+      if (!form->password_issues.contains(InsecureType::kLeaked)) {
+        PasswordForm form_to_update = *form.get();
+        form_to_update.password_issues.insert_or_assign(
+            InsecureType::kLeaked,
+            InsecurityMetadata(base::Time::Now(), IsMuted(false)));
+        store.UpdateLogin(form_to_update);
+      }
       all_urls_with_leaked_credentials.push_back(form->url);
+
+      if (are_urls_equivalent(form->url, url_)) {
+        in_stores = in_stores | form->in_store;
+      }
     }
   }
 
-  IsSaved is_saved(
-      base::ranges::any_of(partial_results_, [this](const auto& form) {
-        return form->url == url_ && form->username_value == username_;
+  // Check if the password is reused on a different origin, or on the same
+  // origin with a different username.
+  IsReused is_reused(base::ranges::any_of(
+      partial_results_, [this, are_urls_equivalent](const auto& form) {
+        return form->password_value == password_ &&
+               (!are_urls_equivalent(form->url, url_) ||
+                form->username_value != username_);
       }));
-  IsReused is_reused(partial_results_.size() > (is_saved ? 1 : 0));
-  HasChangeScript has_change_script(script_is_available_);
 
-  std::move(callback_).Run(is_saved, is_reused, has_change_script,
-                           std::move(url_), std::move(username_),
+  std::move(callback_).Run(in_stores, is_reused, std::move(url_),
+                           std::move(username_),
                            std::move(all_urls_with_leaked_credentials));
 }
 

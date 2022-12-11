@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,6 +33,7 @@ class ScopedBoringsslBytes {
   ScopedBoringsslBytes() = default;
   ~ScopedBoringsslBytes() { OPENSSL_free(ptr_); }
 
+  bool is_valid() { return ptr_; }
   uint8_t** mutable_ptr() { return &ptr_; }
   size_t* mutable_len() { return &len_; }
 

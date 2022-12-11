@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -15,6 +15,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import xml.sax
 
 
@@ -32,6 +33,11 @@ def shell_join(cmd):
 def run(args, cwd=None):
     logging.debug(f'$ {shell_join(args)}')
     subprocess.check_call(args, cwd=cwd)
+
+
+def check_output(args, cwd=None):
+    logging.debug(f'$ {shell_join(args)}')
+    return subprocess.check_output(args, cwd=cwd, text=True)
 
 
 def run_node(args):
@@ -59,129 +65,39 @@ def build_preload_images_js(outdir):
         subprocess.check_call(cmd)
 
 
-def gen_files_are_hard_links(gen_dir):
-    cca_root = os.getcwd()
-
-    util_js = os.path.join(cca_root, 'js/util.ts')
-    util_js_in_gen = os.path.join(gen_dir, 'js/util.ts')
-    return os.stat(util_js).st_ino == os.stat(util_js_in_gen).st_ino
+CCA_OVERRIDE_PATH = '/etc/camera/cca'
+CCA_OVERRIDE_FEATURE = 'CCALocalOverride'
+CHROME_DEV_CONF_PATH = '/etc/chrome_dev.conf'
 
 
-def deploy(args):
-    root_dir = get_chromium_root()
-    cca_root = os.getcwd()
-    target_dir = os.path.join(get_chromium_root(), f'out_{args.board}/Release')
+def local_override_enabled(device):
+    chrome_dev_conf = check_output(
+        ['ssh', device, '--', 'cat', CHROME_DEV_CONF_PATH])
+    # This is a simple heuristic that is not 100% accurate, since this only
+    # matches the feature name which can be in other irrevelant position in the
+    # file. This should be fine though since this is only used for developers
+    # and it's not expected to have the exact string match outside of
+    # --enable-features added by this script.
+    return CCA_OVERRIDE_FEATURE in chrome_dev_conf
 
-    src_relative_dir = os.path.relpath(cca_root, root_dir)
-    gen_dir = os.path.join(target_dir, 'gen', src_relative_dir)
 
-    # Since CCA copy source to gen directory and place it together with other
-    # generated files for TypeScript compilation, and GN use hard links when
-    # possible to copy files from source to gen directory, we do a check here
-    # that the file in gen directory is indeed hard linked to the source file
-    # (which should be the case when the two directory are in the same file
-    # system), so we don't need to emulate what GN does here and skip copying
-    # the files, and just call tsc on the gen directory.
-    # TODO(pihsun): Support this case if there's some common scenario that
-    # would cause this.
-    assert gen_files_are_hard_links(gen_dir), (
-        'The generated files are not hard linked.')
-
-    build_preload_images_js(os.path.join(gen_dir, 'js'))
-
-    run_node([
-        'typescript/bin/tsc',
-        '--project',
-        os.path.join(gen_dir, 'js/tsconfig.json'),
-        # For better debugging experience on DUT.
-        '--inlineSourceMap',
-        '--inlineSources',
+def ensure_local_override_enabled(device, force):
+    if local_override_enabled(device):
+        return
+    run([
+        'ssh', device, '--',
+        f'echo "--enable-features={CCA_OVERRIDE_FEATURE}"' +
+        f' >> {CHROME_DEV_CONF_PATH}'
     ])
-
-    build_pak_cmd = [
-        'tools/grit/grit.py',
-        '-i',
-        os.path.join(gen_dir, '../ash_camera_app_resources.grd'),
-        'build',
-        '-o',
-        os.path.join(target_dir, 'gen/ash'),
-        '-f',
-        os.path.join(target_dir,
-                     'gen/tools/gritsettings/default_resource_ids'),
-        '-D',
-        f'SHARED_INTERMEDIATE_DIR={os.path.join(target_dir, "gen")}',
-        '-E',
-        f'root_src_dir={get_chromium_root()}',
-        '-E',
-        f'root_gen_dir={os.path.join(target_dir, "gen")}',
-    ]
-    # Since there is a constraint in grit.py which will replace ${root_gen_dir}
-    # in .grd file only if the script is executed in the parent directory of
-    # ${root_gen_dir}, execute the script in Chromium root as a workaround.
-    run(build_pak_cmd, get_chromium_root())
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        pak_util_script = os.path.join(get_chromium_root(),
-                                       'tools/grit/pak_util.py')
-        extract_resources_pak_cmd = [
-            pak_util_script,
-            'extract',
-            '--raw',
-            os.path.join(target_dir, 'resources.pak'),
-            '-o',
-            tmp_dir,
-        ]
-        run(extract_resources_pak_cmd)
-
-        extract_camera_pak_cmd = [
-            pak_util_script,
-            'extract',
-            '--raw',
-            os.path.join(target_dir, 'gen/ash/ash_camera_app_resources.pak'),
-            '-o',
-            tmp_dir,
-        ]
-        run(extract_camera_pak_cmd)
-
-        create_new_resources_pak_cmd = [
-            pak_util_script,
-            'create',
-            '-i',
-            tmp_dir,
-            os.path.join(target_dir, 'resources.pak'),
-        ]
-        run(create_new_resources_pak_cmd)
-
-    deploy_new_resources_pak_cmd = [
-        'rsync',
-        '--inplace',
-        os.path.join(target_dir, 'resources.pak'),
-        f'{args.device}:/opt/google/chrome/',
-    ]
-    run(deploy_new_resources_pak_cmd)
-
-
-def test(args):
-    assert 'CCAUI' not in args.device, (
-        'The first argument should be <device> instead of a test name pattern.'
-    )
-    cmd = ['cros_run_test', '--device', args.device, '--tast'] + args.pattern
-    run(cmd)
-
-
-def lint(args):
-    cmd = [
-        'eslint/bin/eslint.js',
-        'js',
-        '--resolve-plugins-relative-to',
-        os.path.join(get_chromium_root(), 'third_party/node'),
-    ]
-    if args.fix:
-        cmd.append('--fix')
-    try:
-        run_node(cmd)
-    except subprocess.CalledProcessError as e:
-        print('ESLint check failed, return code =', e.returncode)
+    if not force:
+        prompt = input('Need to restart UI for deploy to take effect, ' +
+                       'do it now? (y/N): ').lower()
+        if prompt != 'y':
+            print(
+                'Not restarting UI. ' +
+                '`restart ui` on DUT manually for the change to take effect.')
+            return
+    run(['ssh', device, '--', 'restart', 'ui'])
 
 
 def get_tsc_paths(board):
@@ -203,18 +119,143 @@ def get_tsc_paths(board):
     }
 
 
-def tsc(args):
+def generate_tsconfig(board):
     cca_root = os.getcwd()
+    # TODO(pihsun): This needs to be in sync with BUILD.gn, have some heuristic
+    # to get the dependency from there or from the generated tsconfig.json
+    # instead?
+    root_dir = get_chromium_root()
+    common_definitions = os.path.join(root_dir, 'tools/typescript/definitions')
 
     with open(os.path.join(cca_root, 'tsconfig_base.json')) as f:
         tsconfig = json.load(f)
 
     tsconfig['files'] = glob.glob('js/**/*.ts', recursive=True)
+    tsconfig['files'].append(os.path.join(common_definitions, 'pending.d.ts'))
     tsconfig['compilerOptions']['noEmit'] = True
-    tsconfig['compilerOptions']['paths'] = get_tsc_paths(args.board)
+    tsconfig['compilerOptions']['paths'] = get_tsc_paths(board)
 
     with open(os.path.join(cca_root, 'tsconfig.json'), 'w') as f:
         json.dump(tsconfig, f)
+
+
+# Use a fixed temporary output folder for deploy, so incremental compilation
+# works and deploy is faster.
+DEPLOY_OUTPUT_TEMP_DIR = '/tmp/cca-deploy-out'
+
+
+def deploy(args):
+    root_dir = get_chromium_root()
+    cca_root = os.getcwd()
+
+    os.makedirs(DEPLOY_OUTPUT_TEMP_DIR, exist_ok=True)
+    js_out_dir = os.path.join(DEPLOY_OUTPUT_TEMP_DIR, 'js')
+
+    generate_tsconfig(args.board)
+
+    run_node([
+        'typescript/bin/tsc',
+        '--outDir',
+        js_out_dir,
+        '--noEmit',
+        'false',
+        # Makes compilation faster
+        '--incremental',
+        # For better debugging experience on DUT.
+        '--inlineSourceMap',
+        '--inlineSources',
+        # Makes devtools show TypeScript source with better path
+        '--sourceRoot',
+        '/js/',
+        # For easier developing / test cycle.
+        '--noUnusedLocals',
+        'false',
+        '--noUnusedParameters',
+        'false',
+    ])
+
+    build_preload_images_js(js_out_dir)
+
+    deploy_new_tsc_files = [
+        'rsync',
+        '--recursive',
+        '--inplace',
+        '--delete',
+        '--mkpath',
+        '--exclude=tsconfig.tsbuildinfo',
+        # rsync by default use source file permission masked by target file
+        # system umask while transferring new files, and since workstation
+        # defaults to have file not readable by others, this makes deployed
+        # file not readable by Chrome.
+        # Set --chmod=a+rX to rsync to fix this ('a' so it won't be affected by
+        # local umask, +r for read and +X for executable bit on folder), and
+        # set --perms so existing files that might have the wrong permission
+        # will have their permission fixed.
+        '--perms',
+        '--chmod=a+rX',
+        f'{js_out_dir}/',
+        f'{args.device}:{CCA_OVERRIDE_PATH}/js/',
+    ]
+    run(deploy_new_tsc_files)
+
+    for dir in ['css', 'images', 'views', 'sounds']:
+        deploy_new_assets = [
+            'rsync',
+            '--recursive',
+            '--inplace',
+            '--delete',
+            '--mkpath',
+            '--perms',
+            '--chmod=a+rX',
+            f'{os.path.join(cca_root, dir)}/',
+            f'{args.device}:{CCA_OVERRIDE_PATH}/{dir}/',
+        ]
+        run(deploy_new_assets)
+
+    current_time = time.strftime('%F %T%z')
+    run([
+        'ssh',
+        args.device,
+        '--',
+        'printf',
+        '%s',
+        shlex.quote(
+            f'export const DEPLOYED_VERSION = "cca.py deploy {current_time}";'
+        ),
+        '>',
+        f'{CCA_OVERRIDE_PATH}/js/deployed_version.js',
+    ])
+
+    ensure_local_override_enabled(args.device, args.force)
+
+
+def test(args):
+    assert 'CCAUI' not in args.device, (
+        'The first argument should be <device> instead of a test name pattern.'
+    )
+    cmd = ['cros_run_test', '--device', args.device, '--tast'] + args.pattern
+    run(cmd)
+
+
+def lint(args):
+    cmd = [
+        'eslint/bin/eslint.js',
+        'js',
+        'eslint_plugin',
+        '.eslintrc.js',
+        '--resolve-plugins-relative-to',
+        os.path.join(get_chromium_root(), 'third_party/node'),
+    ]
+    if args.fix:
+        cmd.append('--fix')
+    try:
+        run_node(cmd)
+    except subprocess.CalledProcessError as e:
+        print('ESLint check failed, return code =', e.returncode)
+
+
+def tsc(args):
+    generate_tsconfig(args.board)
 
     try:
         run_node(['typescript/bin/tsc'])
@@ -284,6 +325,15 @@ def check_strings(args):
             print(f'    {", ".join(sorted(missing))}')
             returncode = 1
 
+    def check_all_name_lower_case(names, filename):
+        nonlocal returncode
+        hasUpper = [name for name in names if not name.islower()]
+        if hasUpper:
+            print(f'{filename} includes string name with upper case:')
+            for name in hasUpper:
+                print(f'    Incorrect name: {name}')
+            returncode = 1
+
     resources_h_strings = parse_resources_h()
     check_name_id_consistent(resources_h_strings, RESOURCES_H_PATH)
     resources_h_ids = set([id for (name, id) in resources_h_strings])
@@ -291,6 +341,12 @@ def check_strings(args):
     i18n_string_ts_strings = parse_i18n_string_ts()
     check_name_id_consistent(i18n_string_ts_strings, I18N_STRING_TS_PATH)
     i18n_string_ts_ids = set([id for (name, id) in i18n_string_ts_strings])
+
+    resources_h_names = set([name for (name, id) in resources_h_strings])
+    check_all_name_lower_case(resources_h_names, RESOURCES_H_PATH)
+
+    i18n_string_ts_names = set([name for (name, id) in i18n_string_ts_strings])
+    check_all_name_lower_case(i18n_string_ts_names, I18N_STRING_TS_PATH)
 
     camera_strings_grd_ids = parse_camera_strings_grd()
 
@@ -317,6 +373,9 @@ def parse_args(args):
                                           )
     deploy_parser.add_argument('board')
     deploy_parser.add_argument('device')
+    deploy_parser.add_argument('--force',
+                               help="Don't prompt for restarting Chrome.",
+                               action='store_true')
     deploy_parser.set_defaults(func=deploy)
 
     test_parser = subparsers.add_parser('test',

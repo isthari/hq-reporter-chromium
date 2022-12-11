@@ -15,7 +15,6 @@ On success, you will see a series of "PASS" messages, followed by "TEST COMPLETE
 -webkit-box-reflect: none
 -webkit-font-smoothing: auto
 -webkit-highlight: none
--webkit-hyphenate-character: auto
 -webkit-line-break: auto
 -webkit-line-clamp: none
 -webkit-locale: auto
@@ -51,7 +50,10 @@ align-content: normal
 align-items: normal
 align-self: auto
 alignment-baseline: auto
-animation-delay: 0s
+anchor-name: none
+anchor-scroll: none
+animation-delay-end: 0s
+animation-delay-start: 0s
 animation-direction: normal
 animation-duration: 0s
 animation-fill-mode: none
@@ -146,7 +148,7 @@ contain-intrinsic-inline-size: none
 contain-intrinsic-size: none
 contain-intrinsic-width: none
 container-name: none
-container-type: none
+container-type: normal
 content: normal
 cursor: auto
 cx: 0px
@@ -179,10 +181,12 @@ font-synthesis-small-caps: auto
 font-synthesis-style: auto
 font-synthesis-weight: auto
 font-variant: normal
+font-variant-alternates: normal
 font-variant-caps: normal
 font-variant-east-asian: normal
 font-variant-ligatures: normal
 font-variant-numeric: normal
+font-variant-position: normal
 font-weight: 400
 grid-auto-columns: auto
 grid-auto-flow: row
@@ -195,9 +199,12 @@ grid-template-areas: none
 grid-template-columns: none
 grid-template-rows: none
 height: 100px
+hyphenate-character: auto
+hyphenate-limit-chars: auto
 hyphens: manual
 image-orientation: from-image
 image-rendering: auto
+initial-letter: normal
 inline-size: 100px
 inset-block-end: auto
 inset-block-start: auto
@@ -212,7 +219,6 @@ letter-spacing: normal
 lighting-color: rgb(255, 255, 255)
 line-break: auto
 line-height: normal
-line-height-step: 0px
 list-style-image: none
 list-style-position: outside
 list-style-type: disc
@@ -242,6 +248,7 @@ min-width: 0px
 mix-blend-mode: normal
 object-fit: fill
 object-position: 50% 50%
+object-view-box: none
 offset-anchor: auto
 offset-distance: 0px
 offset-path: none
@@ -277,6 +284,7 @@ perspective: none
 perspective-origin: 0px 0px
 pointer-events: auto
 position: static
+position-fallback: none
 r: 0px
 resize: none
 right: auto
@@ -295,6 +303,8 @@ scroll-padding-block-end: auto
 scroll-padding-block-start: auto
 scroll-padding-inline-end: auto
 scroll-padding-inline-start: auto
+scroll-timeline-axis: block
+scroll-timeline-name: none
 scrollbar-gutter: auto
 scrollbar-width: auto
 shape-image-threshold: 0
@@ -326,13 +336,16 @@ text-emphasis-color: rgb(0, 0, 0)
 text-emphasis-position: over
 text-emphasis-style: none
 text-indent: 0px
-text-justify: auto
 text-overflow: clip
 text-rendering: auto
 text-shadow: none
 text-size-adjust: auto
 text-transform: none
 text-underline-position: auto
+toggle-group: none
+toggle-root: none
+toggle-trigger: none
+toggle-visibility: normal
 top: auto
 touch-action: auto
 transform: none
@@ -347,6 +360,9 @@ unicode-bidi: normal
 user-select: auto
 vector-effect: none
 vertical-align: baseline
+view-timeline-axis: block
+view-timeline-inset: 0px
+view-timeline-name: none
 visibility: visible
 white-space: normal
 widows: 2

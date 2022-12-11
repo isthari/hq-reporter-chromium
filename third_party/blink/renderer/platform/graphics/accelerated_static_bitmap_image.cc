@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,13 +57,14 @@ AcceleratedStaticBitmapImage::CreateFromCanvasMailbox(
     base::PlatformThreadRef context_thread_ref,
     scoped_refptr<base::SingleThreadTaskRunner> context_task_runner,
     viz::ReleaseCallback release_callback,
-    bool supports_display_compositing) {
+    bool supports_display_compositing,
+    bool is_overlay_candidate) {
   return base::AdoptRef(new AcceleratedStaticBitmapImage(
       mailbox, sync_token, shared_image_texture_id, sk_image_info,
       texture_target, is_origin_top_left, supports_display_compositing,
-      ImageOrientationEnum::kDefault, std::move(context_provider_wrapper),
-      context_thread_ref, std::move(context_task_runner),
-      std::move(release_callback)));
+      is_overlay_candidate, ImageOrientationEnum::kDefault,
+      std::move(context_provider_wrapper), context_thread_ref,
+      std::move(context_task_runner), std::move(release_callback)));
 }
 
 AcceleratedStaticBitmapImage::AcceleratedStaticBitmapImage(
@@ -74,6 +75,7 @@ AcceleratedStaticBitmapImage::AcceleratedStaticBitmapImage(
     GLenum texture_target,
     bool is_origin_top_left,
     bool supports_display_compositing,
+    bool is_overlay_candidate,
     const ImageOrientation& orientation,
     base::WeakPtr<WebGraphicsContext3DProviderWrapper> context_provider_wrapper,
     base::PlatformThreadRef context_thread_ref,
@@ -85,6 +87,7 @@ AcceleratedStaticBitmapImage::AcceleratedStaticBitmapImage(
       texture_target_(texture_target),
       is_origin_top_left_(is_origin_top_left),
       supports_display_compositing_(supports_display_compositing),
+      is_overlay_candidate_(is_overlay_candidate),
       context_provider_wrapper_(std::move(context_provider_wrapper)),
       mailbox_ref_(
           base::MakeRefCounted<MailboxRef>(sync_token,
@@ -103,8 +106,8 @@ AcceleratedStaticBitmapImage::~AcceleratedStaticBitmapImage() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 }
 
-gfx::Size AcceleratedStaticBitmapImage::SizeInternal() const {
-  return gfx::Size(sk_image_info_.width(), sk_image_info_.height());
+SkImageInfo AcceleratedStaticBitmapImage::GetSkImageInfoInternal() const {
+  return sk_image_info_;
 }
 
 scoped_refptr<StaticBitmapImage>
@@ -143,8 +146,10 @@ bool AcceleratedStaticBitmapImage::CopyToTexture(
       source_texture_id, 0, dest_target, dest_texture_id, dest_level,
       dest_point.x(), dest_point.y(), source_sub_rectangle.x(),
       source_sub_rectangle.y(), source_sub_rectangle.width(),
-      source_sub_rectangle.height(), unpack_flip_y ? GL_FALSE : GL_TRUE,
-      GL_FALSE, unpack_premultiply_alpha ? GL_FALSE : GL_TRUE);
+      source_sub_rectangle.height(), unpack_flip_y,
+      /*unpack_premultiply_alpha=*/GL_FALSE,
+      /*unpack_unmultiply_alpha=*/
+      unpack_premultiply_alpha ? GL_FALSE : GL_TRUE);
   dest_gl->EndSharedImageAccessDirectCHROMIUM(source_texture_id);
   dest_gl->DeleteTextures(1, &source_texture_id);
 
@@ -222,10 +227,13 @@ void AcceleratedStaticBitmapImage::Draw(cc::PaintCanvas* canvas,
     return;
   auto paint_image_decoding_mode =
       ToPaintImageDecodingMode(draw_options.decode_mode);
-  if (paint_image.decoding_mode() != paint_image_decoding_mode) {
-    paint_image = PaintImageBuilder::WithCopy(std::move(paint_image))
-                      .set_decoding_mode(paint_image_decoding_mode)
-                      .TakePaintImage();
+  if (paint_image.decoding_mode() != paint_image_decoding_mode ||
+      paint_image.may_be_lcp_candidate() != draw_options.may_be_lcp_candidate) {
+    paint_image =
+        PaintImageBuilder::WithCopy(std::move(paint_image))
+            .set_decoding_mode(paint_image_decoding_mode)
+            .set_may_be_lcp_candidate(draw_options.may_be_lcp_candidate)
+            .TakePaintImage();
   }
   StaticBitmapImage::DrawHelper(canvas, flags, dst_rect, src_rect, draw_options,
                                 paint_image);
@@ -275,9 +283,10 @@ void AcceleratedStaticBitmapImage::InitializeTextureBacking(
       context_provider_wrapper->ContextProvider()->RasterInterface();
   shared_ri->WaitSyncTokenCHROMIUM(mailbox_ref_->sync_token().GetConstData());
 
-  if (context_provider_wrapper->ContextProvider()
-          ->GetCapabilities()
-          .supports_oop_raster) {
+  const auto& capabilities =
+      context_provider_wrapper->ContextProvider()->GetCapabilities();
+
+  if (capabilities.supports_oop_raster) {
     DCHECK_EQ(shared_image_texture_id, 0u);
     skia_context_provider_wrapper_ = context_provider_wrapper;
     texture_backing_ = sk_make_sp<MailboxTextureBacking>(
@@ -308,7 +317,8 @@ void AcceleratedStaticBitmapImage::InitializeTextureBacking(
   texture_info.fTarget = texture_target_;
   texture_info.fID = shared_context_texture_id;
   texture_info.fFormat = viz::TextureStorageFormat(
-      viz::SkColorTypeToResourceFormat(sk_image_info_.colorType()));
+      viz::SkColorTypeToResourceFormat(sk_image_info_.colorType()),
+      capabilities.angle_rgbx_internal_format);
   GrBackendTexture backend_texture(sk_image_info_.width(),
                                    sk_image_info_.height(), GrMipMapped::kNo,
                                    texture_info);
@@ -383,14 +393,15 @@ scoped_refptr<StaticBitmapImage>
 AcceleratedStaticBitmapImage::ConvertToColorSpace(
     sk_sp<SkColorSpace> color_space,
     SkColorType color_type) {
+  SkImageInfo image_info = PaintImageForCurrentFrame().GetSkImageInfo();
   DCHECK(color_space);
   DCHECK(color_type == kRGBA_F16_SkColorType ||
-         color_type == kRGBA_8888_SkColorType);
+         color_type == kRGBA_8888_SkColorType ||
+         color_type == image_info.colorType());
 
   if (!ContextProviderWrapper())
     return nullptr;
 
-  SkImageInfo image_info = PaintImageForCurrentFrame().GetSkImageInfo();
   if (SkColorSpace::Equals(color_space.get(), image_info.colorSpace()) &&
       color_type == image_info.colorType()) {
     return this;

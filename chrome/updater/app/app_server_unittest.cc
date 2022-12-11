@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,15 +11,15 @@
 #include "base/files/file_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/message_loop/message_pump_type.h"
-#include "base/task/single_thread_task_executor.h"
-#include "base/task/thread_pool/thread_pool_instance.h"
+#include "base/test/task_environment.h"
+#include "build/build_config.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/prefs.h"
 #include "chrome/updater/update_service.h"
 #include "chrome/updater/update_service_internal.h"
 #include "chrome/updater/updater_scope.h"
 #include "chrome/updater/updater_version.h"
-#include "chrome/updater/util.h"
+#include "chrome/updater/util/util.h"
 #include "components/prefs/pref_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -55,18 +55,14 @@ class AppServerTest : public AppServer {
   ~AppServerTest() override = default;
 
  private:
-  void InitializeThreadPool() override {
-    // Do nothing, the test has already created the thread pool.
-  }
-
   void Shutdown0() { Shutdown(0); }
 };
 
 void ClearPrefs() {
   const UpdaterScope updater_scope = GetUpdaterScope();
   for (const absl::optional<base::FilePath>& path :
-       {GetBaseDirectory(updater_scope),
-        GetVersionedDirectory(updater_scope)}) {
+       {GetBaseDataDirectory(updater_scope),
+        GetVersionedDataDirectory(updater_scope)}) {
     ASSERT_TRUE(path);
     ASSERT_TRUE(
         base::DeleteFile(path->Append(FILE_PATH_LITERAL("prefs.json"))));
@@ -75,21 +71,10 @@ void ClearPrefs() {
 
 class AppServerTestCase : public testing::Test {
  public:
-  AppServerTestCase() : main_task_executor_(base::MessagePumpType::UI) {}
-  ~AppServerTestCase() override = default;
-
-  void SetUp() override {
-    base::ThreadPoolInstance::CreateAndStartWithDefaultParams("test");
-    ClearPrefs();
-  }
-
-  void TearDown() override {
-    base::ThreadPoolInstance::Get()->JoinForTesting();
-    base::ThreadPoolInstance::Set(nullptr);
-  }
+  void SetUp() override { ClearPrefs(); }
 
  private:
-  base::SingleThreadTaskExecutor main_task_executor_;
+  base::test::TaskEnvironment environment_;
 };
 
 }  // namespace

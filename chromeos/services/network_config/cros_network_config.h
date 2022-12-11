@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,34 +7,35 @@
 
 #include "base/containers/flat_map.h"
 #include "base/memory/weak_ptr.h"
-#include "chromeos/network/cellular_inhibitor.h"
-#include "chromeos/network/network_certificate_handler.h"
-#include "chromeos/network/network_profile_handler.h"
-#include "chromeos/network/network_state_handler_observer.h"
+#include "chromeos/ash/components/network/cellular_inhibitor.h"
+// TODO(https://crbug.com/1164001): move to forward declaration
+#include "chromeos/ash/components/network/managed_network_configuration_handler.h"
+#include "chromeos/ash/components/network/network_certificate_handler.h"
+// TODO(https://crbug.com/1164001): move to forward declaration
+#include "chromeos/ash/components/network/network_connection_handler.h"
+// TODO(https://crbug.com/1164001): move to forward declaration
+#include "chromeos/ash/components/network/network_device_handler.h"
+#include "chromeos/ash/components/network/network_policy_observer.h"
+#include "chromeos/ash/components/network/network_profile_handler.h"
+#include "chromeos/ash/components/network/network_state_handler_observer.h"
 #include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
 
-namespace base {
-class DictionaryValue;
-}  // namespace base
-
-namespace chromeos {
-
+namespace ash {
 class CellularESimProfileHandler;
-class ManagedNetworkConfigurationHandler;
-class NetworkConnectionHandler;
-class NetworkDeviceHandler;
 class NetworkStateHandler;
+}  // namespace ash
 
-namespace network_config {
+namespace chromeos::network_config {
 
 class CrosNetworkConfig : public mojom::CrosNetworkConfig,
                           public NetworkStateHandlerObserver,
                           public NetworkCertificateHandler::Observer,
-                          public CellularInhibitor::Observer {
+                          public CellularInhibitor::Observer,
+                          public NetworkPolicyObserver {
  public:
   // Constructs an instance of CrosNetworkConfig with default network subsystem
   // dependencies appropriate for a production environment.
@@ -46,7 +47,7 @@ class CrosNetworkConfig : public mojom::CrosNetworkConfig,
       NetworkStateHandler* network_state_handler,
       NetworkDeviceHandler* network_device_handler,
       CellularInhibitor* cellular_inhibitor,
-      CellularESimProfileHandler* cellular_esim_profile_handler,
+      ash::CellularESimProfileHandler* cellular_esim_profile_handler,
       ManagedNetworkConfigurationHandler* network_configuration_handler,
       NetworkConnectionHandler* network_connection_handler,
       NetworkCertificateHandler* network_certificate_handler,
@@ -107,6 +108,12 @@ class CrosNetworkConfig : public mojom::CrosNetworkConfig,
       bool auto_reset,
       mojom::UInt32ValuePtr day,
       SetTrafficCountersAutoResetCallback callback) override;
+  void CreateCustomApn(const std::string& network_guid,
+                       mojom::ApnPropertiesPtr apn) override;
+  void RemoveCustomApn(const std::string& network_guid,
+                       const std::string& apn_id) override;
+  void ModifyCustomApn(const std::string& network_guid,
+                       mojom::ApnPropertiesPtr apn) override;
 
   // static
   static mojom::TrafficCounterSource GetTrafficCounterEnumForTesting(
@@ -123,50 +130,40 @@ class CrosNetworkConfig : public mojom::CrosNetworkConfig,
                                  const std::string& service_path,
                                  absl::optional<base::Value> properties,
                                  absl::optional<std::string> error);
+  void SetPropertiesInternal(const std::string& guid,
+                             const NetworkState& network,
+                             base::Value::Dict onc,
+                             SetPropertiesCallback callback);
   void SetPropertiesSuccess(int callback_id);
   void SetPropertiesConfigureSuccess(int callback_id,
                                      const std::string& service_path,
                                      const std::string& guid);
   void SetPropertiesFailure(const std::string& guid,
                             int callback_id,
-                            const std::string& error_name,
-                            std::unique_ptr<base::DictionaryValue> error_data);
+                            const std::string& error_name);
   void ConfigureNetworkSuccess(int callback_id,
                                const std::string& service_path,
                                const std::string& guid);
-  void ConfigureNetworkFailure(
-      int callback_id,
-      const std::string& error_name,
-      std::unique_ptr<base::DictionaryValue> error_data);
+  void ConfigureNetworkFailure(int callback_id, const std::string& error_name);
   void ForgetNetworkSuccess(int callback_id);
   void ForgetNetworkFailure(const std::string& guid,
                             int callback_id,
-                            const std::string& error_name,
-                            std::unique_ptr<base::DictionaryValue> error_data);
+                            const std::string& error_name);
   void SetCellularSimStateSuccess(int callback_id);
-  void SetCellularSimStateFailure(
-      int callback_id,
-      const std::string& error_name,
-      std::unique_ptr<base::DictionaryValue> error_data);
+  void SetCellularSimStateFailure(int callback_id,
+                                  const std::string& error_name);
   void SelectCellularMobileNetworkSuccess(int callback_id);
-  void SelectCellularMobileNetworkFailure(
-      int callback_id,
-      const std::string& error_name,
-      std::unique_ptr<base::DictionaryValue> error_data);
-  void UpdateCustomAPNList(const NetworkState* network,
+  void SelectCellularMobileNetworkFailure(int callback_id,
+                                          const std::string& error_name);
+  void UpdateCustomApnList(const NetworkState* network,
                            const mojom::ConfigProperties* properties);
-  std::vector<mojom::ApnPropertiesPtr> GetCustomAPNList(
+  std::vector<mojom::ApnPropertiesPtr> GetCustomApnList(
       const std::string& guid);
 
   void StartConnectSuccess(int callback_id);
-  void StartConnectFailure(int callback_id,
-                           const std::string& error_name,
-                           std::unique_ptr<base::DictionaryValue> error_data);
+  void StartConnectFailure(int callback_id, const std::string& error_name);
   void StartDisconnectSuccess(int callback_id);
-  void StartDisconnectFailure(
-      int callback_id,
-      const std::string& error_name,
-      std::unique_ptr<base::DictionaryValue> error_data);
+  void StartDisconnectFailure(int callback_id, const std::string& error_name);
   void OnGetAlwaysOnVpn(GetAlwaysOnVpnCallback callback,
                         std::string mode,
                         std::string service_path);
@@ -187,18 +184,25 @@ class CrosNetworkConfig : public mojom::CrosNetworkConfig,
   void ScanCompleted(const DeviceState* device) override;
   void NetworkConnectionStateChanged(const NetworkState* network) override;
 
-  // NetworkCertificateHandler::Observer
+  // NetworkCertificateHandler::Observer:
   void OnCertificatesChanged() override;
 
   // CellularInhibitor::Observer:
   void OnInhibitStateChanged() override;
 
+  // NetworkPolicyObserver:
+  void PoliciesApplied(const std::string& userhash) override;
+  void OnManagedNetworkConfigurationHandlerShuttingDown() override;
+
   const std::string& GetServicePathFromGuid(const std::string& guid);
 
-  NetworkStateHandler* network_state_handler_;    // Unowned
-  NetworkDeviceHandler* network_device_handler_;  // Unowned
-  CellularInhibitor* cellular_inhibitor_;         // Unowned
-  CellularESimProfileHandler* cellular_esim_profile_handler_;  // Unowned
+  NetworkStateHandler* network_state_handler_;  // Unowned
+
+  NetworkStateHandlerScopedObservation network_state_handler_observer_{this};
+
+  NetworkDeviceHandler* network_device_handler_;                    // Unowned
+  CellularInhibitor* cellular_inhibitor_;                           // Unowned
+  ash::CellularESimProfileHandler* cellular_esim_profile_handler_;  // Unowned
   ManagedNetworkConfigurationHandler*
       network_configuration_handler_;                       // Unowned
   NetworkConnectionHandler* network_connection_handler_;    // Unowned
@@ -224,7 +228,6 @@ class CrosNetworkConfig : public mojom::CrosNetworkConfig,
   base::WeakPtrFactory<CrosNetworkConfig> weak_factory_{this};
 };
 
-}  // namespace network_config
-}  // namespace chromeos
+}  // namespace chromeos::network_config
 
 #endif  // CHROMEOS_SERVICES_NETWORK_CONFIG_CROS_NETWORK_CONFIG_H_

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@ import org.chromium.base.Callback;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.browser.feed.NtpListContentManager.FeedContent;
-import org.chromium.chrome.browser.feed.sections.SectionType;
 import org.chromium.chrome.browser.xsurface.FeedLaunchReliabilityLogger;
 import org.chromium.chrome.browser.xsurface.HybridListRenderer;
 import org.chromium.chrome.browser.xsurface.SurfaceScope;
@@ -20,23 +19,32 @@ import java.util.List;
 
 /** Interface used for interacting with the Stream library in order to render a stream of cards. */
 public interface Stream {
+    /**
+     * The mediator of multiple Streams.
+     */
+    public interface StreamsMediator {
+        /**
+         * Allows the switching to another Stream.
+         * @param streamKind The {@link StreamKind} of the stream to switch to.
+         */
+        void switchToStreamKind(@StreamKind int streamKind);
+
+        /**
+         * Request the immediate refresh of the contents of the active stream.
+         */
+        void refreshStream();
+    }
     /** Called when the Stream is no longer needed. */
     default void destroy() {}
 
     /** Returns the section type for this stream. */
-    @SectionType
-    int getSectionType();
+    @StreamKind
+    int getStreamKind();
 
     /**
      * @param scrollState Previous saved scroll state to restore to.
      */
     void restoreSavedInstanceState(FeedScrollState scrollState);
-
-    /**
-     * Record that visibility of the feed was toggled through the header menu. Note that
-     * bind() should be called separately when this happens.
-     */
-    default void toggledArticlesListVisible(boolean visible) {}
 
     /**
      * Notifies that the header count has changed. Headers are views added to the Recyclerview
@@ -61,7 +69,7 @@ public interface Stream {
     /**
      * Allow the container to trigger a refresh of the stream.
      *
-     * <p>Note: this will assume {@link RequestReason.HOST_REQUESTED}.
+     * <p>Note: this will assume {@link RequestReason.MANUAL_REFRESH}.
      */
     void triggerRefresh(Callback<Boolean> callback);
 
@@ -74,21 +82,6 @@ public interface Stream {
      * Called when the placeholder is shown and the first batch of articles are about to show.
      */
     void hidePlaceholder();
-
-    /** Record that user tapped ManageInterests. */
-    default void recordActionManageInterests() {}
-
-    /** Record that user tapped Manage Activity. */
-    default void recordActionManageActivity() {}
-
-    /** Record that user tapped Manage Reactions. */
-    default void recordActionManageReactions() {}
-
-    /** Record that user tapped Learn More. */
-    default void recordActionLearnMore() {}
-
-    /** Record that user tapped Manage. */
-    default void recordActionManage() {}
 
     /** Whether activity logging is enabled for this feed. */
     default boolean isActivityLoggingEnabled() {
@@ -122,7 +115,8 @@ public interface Stream {
      */
     void bind(RecyclerView view, NtpListContentManager manager, FeedScrollState savedInstanceState,
             SurfaceScope surfaceScope, HybridListRenderer renderer,
-            FeedLaunchReliabilityLogger launchReliabilityLogger, int headerCount);
+            FeedLaunchReliabilityLogger launchReliabilityLogger, int headerCount,
+            boolean shouldScrollToTop);
 
     /**
      * Unbinds the feed. Stops this feed from updating the RecyclerView.

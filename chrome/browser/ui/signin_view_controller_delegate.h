@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/observer_list_types.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "components/signin/public/base/signin_buildflags.h"
 #include "third_party/skia/include/core/SkColor.h"
 
@@ -49,7 +50,8 @@ class SigninViewControllerDelegate {
   // displays the sync confirmation dialog. The returned object should delete
   // itself when the window it's managing is closed.
   static SigninViewControllerDelegate* CreateSyncConfirmationDelegate(
-      Browser* browser);
+      Browser* browser,
+      bool is_signin_intercept = false);
 
   // Returns a platform-specific SigninViewControllerDelegate instance that
   // displays the modal sign in error dialog. The returned object should delete
@@ -65,13 +67,21 @@ class SigninViewControllerDelegate {
       Browser* browser,
       const CoreAccountId& account_id,
       signin_metrics::ReauthAccessPoint access_point);
+#endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
 
+#if BUILDFLAG(ENABLE_DICE_SUPPORT) || BUILDFLAG(IS_CHROMEOS_LACROS)
   // Returns a platform-specific SigninViewControllerDelegate instance that
   // displays the profile customization modal dialog. The returned object should
   // delete itself when the window it's managing is closed.
+  // If |is_local_profile_creation| is true, the profile customization will
+  // display the local profile creation version of the page.
+  // If |show_profile_switch_iph| is true, shows a profile switch IPH after the
+  // user completes the profile customization.
   static SigninViewControllerDelegate* CreateProfileCustomizationDelegate(
-      Browser* browser);
-#endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
+      Browser* browser,
+      bool is_local_profile_creation,
+      bool show_profile_switch_iph = false);
+#endif  // BUILDFLAG(ENABLE_DICE_SUPPORT) || BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
     BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -81,8 +91,10 @@ class SigninViewControllerDelegate {
   static SigninViewControllerDelegate* CreateEnterpriseConfirmationDelegate(
       Browser* browser,
       const AccountInfo& account_info,
+      bool force_new_profile,
+      bool show_link_data_option,
       SkColor profile_color,
-      base::OnceCallback<void(bool)> callback);
+      signin::SigninChoiceCallback callback);
 #endif
 
   void AddObserver(Observer* observer);

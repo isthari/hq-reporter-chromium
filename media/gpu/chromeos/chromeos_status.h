@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,6 @@ enum class ChromeosStatusCode : StatusCodeType {
 struct CroStatusTraits {
   using Codes = ChromeosStatusCode;
   static constexpr StatusGroupType Group() { return "ChromeosStatusCode"; }
-  static constexpr ChromeosStatusCode DefaultEnumValue() { return Codes::kOk; }
 };
 using CroStatus = TypedStatus<CroStatusTraits>;
 

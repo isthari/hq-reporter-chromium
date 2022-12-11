@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -79,12 +79,15 @@ class WebAppFrameToolbarView : public views::AccessiblePaneView,
   AvatarToolbarButton* GetAvatarToolbarButton() override;
   ToolbarButton* GetBackButton() override;
   ReloadButton* GetReloadButton() override;
+  IntentChipButton* GetIntentChipButton() override;
+  DownloadToolbarButtonView* GetDownloadButton() override;
 
   // views::ViewTargeterDelegate
   bool DoesIntersectRect(const View* target,
                          const gfx::Rect& rect) const override;
 
   void OnWindowControlsOverlayEnabledChanged();
+  void UpdateBorderlessModeEnabled();
   void SetWindowControlsOverlayToggleVisible(bool visible);
 
   WebAppNavigationButtonContainer* get_left_container_for_testing() {

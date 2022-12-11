@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,11 +15,9 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/bindings/async_flusher.h"
-#include "mojo/public/cpp/bindings/interface_ptr_info.h"
 #include "mojo/public/cpp/bindings/lib/interface_ptr_state.h"
 #include "mojo/public/cpp/bindings/pending_flush.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 
 namespace mojo {
@@ -69,8 +67,8 @@ class Remote {
 
   // Constructs a new Remote which is bound from |pending_remote| and which
   // schedules response callbacks and disconnection notifications on the default
-  // SequencedTaskRunner (i.e., base::SequencedTaskRunnerHandle::Get() at
-  // construction time).
+  // SequencedTaskRunner (i.e., base::SequencedTaskRunner::GetCurrentDefault()
+  // at construction time).
   explicit Remote(PendingRemote<Interface> pending_remote)
       : Remote(std::move(pending_remote), nullptr) {}
 
@@ -232,10 +230,12 @@ class Remote {
   // Binds this Remote, connecting it to a new PendingReceiver which is
   // returned for transmission to some Receiver which can bind it. The Remote
   // will schedule any response callbacks or disconnection notifications on the
-  // default SequencedTaskRunner (i.e. base::SequencedTaskRunnerHandle::Get() at
-  // the time of this call). Must only be called on an unbound Remote.
+  // default SequencedTaskRunner (i.e.
+  // base::SequencedTaskRunner::GetCurrentDefault() at the time of this call).
+  // Must only be called on an unbound Remote.
   [[nodiscard]] PendingReceiver<Interface> BindNewPipeAndPassReceiver() {
-    DCHECK(!is_bound()) << "Remote is already bound";
+    DCHECK(!is_bound()) << "Remote for " << Interface::Name_
+                        << " is already bound";
     return BindNewPipeAndPassReceiver(nullptr);
   }
 
@@ -245,7 +245,8 @@ class Remote {
   // owns this Remote.
   [[nodiscard]] PendingReceiver<Interface> BindNewPipeAndPassReceiver(
       scoped_refptr<base::SequencedTaskRunner> task_runner) {
-    DCHECK(!is_bound()) << "Remote is already bound";
+    DCHECK(!is_bound()) << "Remote for " << Interface::Name_
+                        << " is already bound";
     MessagePipe pipe;
     Bind(PendingRemote<Interface>(std::move(pipe.handle0), 0),
          std::move(task_runner));
@@ -255,10 +256,11 @@ class Remote {
   // Binds this Remote by consuming |pending_remote|, which must be valid. The
   // Remote will schedule any response callbacks or disconnection notifications
   // on the default SequencedTaskRunner (i.e.
-  // base::SequencedTaskRunnerHandle::Get() at the time of this call). Must only
-  // be called on an unbound Remote.
+  // base::SequencedTaskRunner::GetCurrentDefault() at the time of this call).
+  // Must only be called on an unbound Remote.
   void Bind(PendingRemote<Interface> pending_remote) {
-    DCHECK(!is_bound()) << "Remote is already bound";
+    DCHECK(!is_bound()) << "Remote for " << Interface::Name_
+                        << " is already bound";
     DCHECK(pending_remote.is_valid());
     Bind(std::move(pending_remote), nullptr);
   }
@@ -269,7 +271,8 @@ class Remote {
   // |task_runner| must run tasks on the same sequence that owns this Remote.
   void Bind(PendingRemote<Interface> pending_remote,
             scoped_refptr<base::SequencedTaskRunner> task_runner) {
-    DCHECK(!is_bound()) << "Remote is already bound";
+    DCHECK(!is_bound()) << "Remote for " << Interface::Name_
+                        << " is already bound";
     if (!pending_remote) {
       reset();
       return;
@@ -301,8 +304,9 @@ class Remote {
     CHECK(!internal_state_.has_pending_callbacks());
     State state;
     internal_state_.Swap(&state);
-    InterfacePtrInfo<Interface> info = state.PassInterface();
-    return PendingRemote<Interface>(info.PassHandle(), info.version());
+    internal::PendingRemoteState pending_state = state.Unbind();
+    return PendingRemote<Interface>(std::move(pending_state.pipe),
+                                    pending_state.version);
   }
 
   // Queries the max version that the receiving endpoint supports. Once a

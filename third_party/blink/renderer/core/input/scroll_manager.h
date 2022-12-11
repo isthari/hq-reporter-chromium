@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -69,14 +69,14 @@ class CORE_EXPORT ScrollManager : public GarbageCollected<ScrollManager>,
   // startNode - Optional. If provided, start chaining from the given node.
   //             If not, use the current focus or last clicked node.
   bool LogicalScroll(mojom::blink::ScrollDirection,
-                     ScrollGranularity,
+                     ui::ScrollGranularity,
                      Node* start_node,
                      Node* mouse_press_node);
 
   // Performs a logical scroll that chains, crossing frames, starting from
   // the given node or a reasonable default (focus/last clicked).
   bool BubblingScroll(mojom::blink::ScrollDirection,
-                      ScrollGranularity,
+                      ui::ScrollGranularity,
                       Node* starting_node,
                       Node* mouse_press_node);
 
@@ -153,9 +153,6 @@ class CORE_EXPORT ScrollManager : public GarbageCollected<ScrollManager>,
 
   uint32_t GetNonCompositedMainThreadScrollingReasons() const;
   void RecordScrollRelatedMetrics(WebGestureDevice) const;
-
-  WebGestureEvent SynthesizeGestureScrollBegin(
-      const WebGestureEvent& update_event);
 
   bool SnapAtGestureScrollEnd(const WebGestureEvent& end_event,
                               base::ScopedClosureRunner callback);

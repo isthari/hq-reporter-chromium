@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -248,7 +248,7 @@ void ServiceWorkerInstalledScriptsSender::RequestInstalledScript(
       owner_->script_cache_map()->LookupResourceId(script_url);
 
   if (resource_id == blink::mojom::kInvalidServiceWorkerResourceId) {
-    mojo::ReportBadMessage("Requested script was not installed.");
+    receiver_.ReportBadMessage("Requested script was not installed.");
     return;
   }
 

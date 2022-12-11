@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,16 +8,18 @@
 
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/memory/ref_counted_memory.h"
 #include "components/update_client/update_client.h"
 #include "extensions/browser/extension_api_frame_id_map.h"
 #include "extensions/browser/extension_error.h"
 #include "extensions/browser/updater/scoped_extension_updater_keep_alive.h"
+#include "extensions/common/permissions/permission_set.h"
 
 namespace extensions {
 
 namespace {
 
-ExtensionsBrowserClient* g_extension_browser_client = NULL;
+ExtensionsBrowserClient* g_extension_browser_client = nullptr;
 
 }  // namespace
 
@@ -134,5 +136,42 @@ void ExtensionsBrowserClient::NotifyExtensionApiTabExecuteScript(
     content::BrowserContext* context,
     const ExtensionId& extension_id,
     const std::string& code) const {}
+
+bool ExtensionsBrowserClient::IsExtensionTelemetryServiceEnabled(
+    content::BrowserContext* context) const {
+  return false;
+}
+
+void ExtensionsBrowserClient::NotifyExtensionRemoteHostContacted(
+    content::BrowserContext* context,
+    const ExtensionId& extension_id,
+    const GURL& url) const {}
+
+bool ExtensionsBrowserClient::IsUsbDeviceAllowedByPolicy(
+    content::BrowserContext* context,
+    const ExtensionId& extension_id,
+    int vendor_id,
+    int product_id) const {
+  return false;
+}
+
+void ExtensionsBrowserClient::GetFavicon(
+    content::BrowserContext* browser_context,
+    const Extension* extension,
+    const GURL& url,
+    base::CancelableTaskTracker* tracker,
+    base::OnceCallback<void(scoped_refptr<base::RefCountedMemory> bitmap_data)>
+        callback) const {}
+
+std::vector<content::BrowserContext*>
+ExtensionsBrowserClient::GetRelatedContextsForExtension(
+    content::BrowserContext* browser_context,
+    const Extension& extension) const {
+  return {browser_context};
+}
+
+void ExtensionsBrowserClient::AddAdditionalAllowedHosts(
+    const PermissionSet& desired_permissions,
+    PermissionSet* granted_permissions) const {}
 
 }  // namespace extensions

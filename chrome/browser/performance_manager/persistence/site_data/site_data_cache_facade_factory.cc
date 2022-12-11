@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,7 @@
 #include "base/run_loop.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/performance_manager/persistence/site_data/site_data_cache_facade.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/performance_manager/performance_manager_impl.h"
 #include "components/performance_manager/persistence/site_data/site_data_cache_factory.h"
 #include "components/performance_manager/public/performance_manager.h"
@@ -45,9 +43,10 @@ void SiteDataCacheFacadeFactory::DisassociateForTesting(Profile* profile) {
 }
 
 SiteDataCacheFacadeFactory::SiteDataCacheFacadeFactory()
-    : BrowserContextKeyedServiceFactory(
-          "SiteDataCacheFacadeFactory",
-          BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory("SiteDataCacheFacadeFactory",
+                                 ProfileSelections::BuildForRegularAndIncognito(
+                                     /*force_guest=*/true,
+                                     /*force_system=*/true)) {
   DependsOn(HistoryServiceFactory::GetInstance());
 }
 
@@ -56,11 +55,6 @@ SiteDataCacheFacadeFactory::~SiteDataCacheFacadeFactory() = default;
 KeyedService* SiteDataCacheFacadeFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
   return new SiteDataCacheFacade(context);
-}
-
-content::BrowserContext* SiteDataCacheFacadeFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextOwnInstanceInIncognito(context);
 }
 
 bool SiteDataCacheFacadeFactory::ServiceIsCreatedWithBrowserContext() const {

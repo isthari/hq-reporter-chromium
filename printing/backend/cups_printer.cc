@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,17 @@
 
 #include <cups/cups.h>
 
+#include <cstring>
 #include <string>
 #include <utility>
 
+#include "base/memory/raw_ptr.h"
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
 #include "printing/backend/cups_connection.h"
 #include "printing/backend/print_backend.h"
 #include "printing/backend/print_backend_consts.h"
+#include "printing/print_job_constants.h"
 
 namespace printing {
 
@@ -77,6 +80,12 @@ class CupsPrinterImpl : public CupsPrinter {
                             const char* value) const override {
     if (!EnsureDestInfo())
       return false;
+
+#if BUILDFLAG(IS_CHROMEOS)
+    // OAuth token passed to CUPS as IPP attribute, see b/200086039.
+    if (name && strcmp(name, kSettingChromeOSAccessOAuthToken) == 0)
+      return true;
+#endif
 
     int supported = cupsCheckDestSupported(cups_http_, destination_.get(),
                                            dest_info_.get(), name, value);
@@ -241,7 +250,7 @@ class CupsPrinterImpl : public CupsPrinter {
 
  private:
   // http connection owned by the CupsConnection which created this object
-  http_t* const cups_http_;
+  const raw_ptr<http_t> cups_http_;
 
   // information to identify a printer
   ScopedDestination destination_;

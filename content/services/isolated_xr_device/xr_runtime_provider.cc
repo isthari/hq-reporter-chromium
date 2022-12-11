@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "content/public/common/content_switches.h"
 #include "device/base/features.h"
@@ -105,7 +106,7 @@ void IsolatedXRRuntimeProvider::PollForDeviceChanges() {
 #endif
 
   // Schedule this function to run again later.
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&IsolatedXRRuntimeProvider::PollForDeviceChanges,
                      weak_ptr_factory_.GetWeakPtr()),

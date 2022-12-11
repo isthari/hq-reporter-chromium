@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,10 +55,9 @@ GeneratedResolveTimezoneByGeolocationOnOff::GetPrefObject() const {
 
   pref_object->key = pref_name_;
   pref_object->type = settings_api::PREF_TYPE_BOOLEAN;
-  pref_object->value =
-      std::make_unique<base::Value>(g_browser_process->platform_part()
-                                        ->GetTimezoneResolverManager()
-                                        ->TimeZoneResolverShouldBeRunning());
+  pref_object->value = base::Value(g_browser_process->platform_part()
+                                       ->GetTimezoneResolverManager()
+                                       ->TimeZoneResolverShouldBeRunning());
 
   UpdateTimeZonePrefControlledBy(pref_object.get());
 
@@ -72,7 +71,7 @@ SetPrefResult GeneratedResolveTimezoneByGeolocationOnOff::SetPref(
 
   // Check if preference is policy or primary-user controlled, and therefore
   // cannot deactivate automatic timezone.
-  if (chromeos::system::TimeZoneResolverManager::
+  if (ash::system::TimeZoneResolverManager::
           IsTimeZoneResolutionPolicyControlled() ||
       !profile_->IsSameOrParent(ProfileManager::GetPrimaryUserProfile())) {
     return SetPrefResult::PREF_NOT_MODIFIABLE;
@@ -87,9 +86,9 @@ SetPrefResult GeneratedResolveTimezoneByGeolocationOnOff::SetPref(
 
   profile_->GetPrefs()->SetInteger(
       ::prefs::kResolveTimezoneByGeolocationMethod,
-      static_cast<int>(new_value ? chromeos::system::TimeZoneResolverManager::
+      static_cast<int>(new_value ? ash::system::TimeZoneResolverManager::
                                        TimeZoneResolveMethod::IP_ONLY
-                                 : chromeos::system::TimeZoneResolverManager::
+                                 : ash::system::TimeZoneResolverManager::
                                        TimeZoneResolveMethod::DISABLED));
 
   return SetPrefResult::SUCCESS;

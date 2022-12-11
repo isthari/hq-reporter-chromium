@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +16,6 @@
 
 namespace {
 using password_manager::PasswordForm;
-using SavedPasswordsView =
-    password_manager::SavedPasswordsPresenter::SavedPasswordsView;
 
 PasswordForm ConvertJavaObjectToPasswordForm(
     JNIEnv* env,
@@ -53,19 +51,23 @@ PasswordStoreBridge::PasswordStoreBridge(
 
 PasswordStoreBridge::~PasswordStoreBridge() = default;
 
-void PasswordStoreBridge::InsertPasswordCredential(
+void PasswordStoreBridge::InsertPasswordCredentialForTesting(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& credential) {
-  password_store_->AddLogin(ConvertJavaObjectToPasswordForm(env, credential));
+  profile_store_->AddLogin(ConvertJavaObjectToPasswordForm(env, credential));
 }
 
 bool PasswordStoreBridge::EditPassword(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& credential,
     const base::android::JavaParamRef<jstring>& new_password) {
-  return saved_passwords_presenter_.EditPassword(
-      ConvertJavaObjectToPasswordForm(env, credential),
-      ConvertJavaStringToUTF16(env, new_password));
+  password_manager::CredentialUIEntry original_credential(
+      ConvertJavaObjectToPasswordForm(env, credential));
+  password_manager::CredentialUIEntry updated_credential = original_credential;
+  updated_credential.password = ConvertJavaStringToUTF16(env, new_password);
+  return saved_passwords_presenter_.EditSavedCredentials(original_credential,
+                                                         updated_credential) ==
+         password_manager::SavedPasswordsPresenter::EditResult::kSuccess;
 }
 
 jint PasswordStoreBridge::GetPasswordStoreCredentialsCount(JNIEnv* env) const {
@@ -81,45 +83,37 @@ void PasswordStoreBridge::GetAllCredentials(
     const auto& credential = credentials[i];
     Java_PasswordStoreBridge_insertCredential(
         env, java_credentials, i,
-        url::GURLAndroid::FromNativeGURL(env, credential.url),
-        base::android::ConvertUTF16ToJavaString(env, credential.username_value),
-        base::android::ConvertUTF16ToJavaString(env,
-                                                credential.password_value));
+        url::GURLAndroid::FromNativeGURL(env, credential.GetURL()),
+        base::android::ConvertUTF16ToJavaString(env, credential.username),
+        base::android::ConvertUTF16ToJavaString(env, credential.password));
   }
 }
 
 void PasswordStoreBridge::ClearAllPasswords(JNIEnv* env) {
-  password_store_->RemoveLoginsCreatedBetween(
-      base::Time(), base::Time::Max(),
-      base::BindOnce(&PasswordStoreBridge::OnPasswordStoreCleared,
-                     weak_factory_.GetWeakPtr()));
-}
-
-void PasswordStoreBridge::OnPasswordStoreCleared(bool success) {
-  if (success) {
-    saved_passwords_presenter_.Init();
-  }
+  profile_store_->RemoveLoginsCreatedBetween(base::Time(), base::Time::Max());
 }
 
 void PasswordStoreBridge::Destroy(JNIEnv* env) {
   delete this;
 }
 
-void PasswordStoreBridge::OnSavedPasswordsChanged(
-    SavedPasswordsView passwords) {
+void PasswordStoreBridge::OnSavedPasswordsChanged() {
   JNIEnv* env = base::android::AttachCurrentThread();
   // Notifies java counter side that a new set of credentials is available.
   Java_PasswordStoreBridge_passwordListAvailable(
-      env, java_bridge_, static_cast<int>(passwords.size()));
+      env, java_bridge_,
+      static_cast<int>(
+          saved_passwords_presenter_.GetSavedCredentials().size()));
 }
 
-void PasswordStoreBridge::OnEdited(const PasswordForm& form) {
+void PasswordStoreBridge::OnEdited(
+    const password_manager::CredentialUIEntry& credential) {
   JNIEnv* env = base::android::AttachCurrentThread();
   // Notifies java counter side that a credential has been edited.
   Java_PasswordStoreBridge_onEditCredential(
       env, java_bridge_,
       Java_PasswordStoreBridge_createPasswordStoreCredential(
-          env, url::GURLAndroid::FromNativeGURL(env, form.url),
-          base::android::ConvertUTF16ToJavaString(env, form.username_value),
-          base::android::ConvertUTF16ToJavaString(env, form.password_value)));
+          env, url::GURLAndroid::FromNativeGURL(env, credential.GetURL()),
+          base::android::ConvertUTF16ToJavaString(env, credential.username),
+          base::android::ConvertUTF16ToJavaString(env, credential.password)));
 }

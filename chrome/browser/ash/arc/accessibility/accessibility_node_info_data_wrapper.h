@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 namespace arc {
 
 class AXTreeSourceArc;
+class AccessibilityNodeInfoDataWrapperTest;
 
 // Wrapper class for an AccessibilityWindowInfoData.
 class AccessibilityNodeInfoDataWrapper : public AccessibilityInfoDataWrapper {
@@ -49,9 +50,24 @@ class AccessibilityNodeInfoDataWrapper : public AccessibilityInfoDataWrapper {
       std::vector<AccessibilityInfoDataWrapper*>* children) const override;
   int32_t GetWindowId() const override;
 
+  // Gets the node that the input node should come before.
+  // A.k.a Gets the node that should come after the input node.
+  // node.traversalBefore = other_node
+  AccessibilityInfoDataWrapper* GetTraversalBefore() const override;
+
+  // Gets the node that the input node should come after.
+  // A.k.a Gets the node that should come before the input node.
+  // node.traversalAfter = other_node
+  AccessibilityInfoDataWrapper* GetTraversalAfter() const override;
+
   mojom::AccessibilityNodeInfoData* node() { return node_ptr_; }
 
+ protected:
+  void PopulateChildrenOverride() override;
+
  private:
+  friend class arc::AccessibilityNodeInfoDataWrapperTest;
+
   bool GetProperty(mojom::AccessibilityBooleanProperty prop) const;
   bool GetProperty(mojom::AccessibilityIntProperty prop,
                    int32_t* out_value) const;
@@ -75,6 +91,7 @@ class AccessibilityNodeInfoDataWrapper : public AccessibilityInfoDataWrapper {
   void ComputeNameFromContentsInternal(std::vector<std::string>* names) const;
 
   bool IsClickable() const;
+  bool IsLongClickable() const;
   bool IsFocusable() const;
 
   bool IsScrollableContainer() const;

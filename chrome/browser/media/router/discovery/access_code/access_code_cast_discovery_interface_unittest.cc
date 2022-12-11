@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,13 @@
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
-#include "chrome/browser/endpoint_fetcher/endpoint_fetcher.h"
+#include "chrome/browser/media/router/discovery/access_code/access_code_cast_constants.h"
 #include "chrome/browser/media/router/discovery/access_code/access_code_test_util.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/endpoint_fetcher/endpoint_fetcher.h"
+#include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_environment.h"
 #include "content/public/test/browser_task_environment.h"
 #include "net/http/http_util.h"
@@ -56,9 +58,8 @@ const char kMockOAuthConsumerName[] = "mock_oauth_consumer_name";
 const char kMockScope[] = "mock_scope";
 const char kMockEndpoint[] = "https://my-endpoint.com";
 const char kHttpMethod[] = "POST";
-const char kContentType[] = "mock_content_type";
+const char kMockContentType[] = "mock_content_type";
 const char kEmail[] = "mock_email@gmail.com";
-const char kDiscoveryEndpointSwitch[] = "access-code-cast-url";
 const char kDefaultURL[] = "https://castedumessaging-pa.googleapis.com";
 
 const char kMalformedResponse[] = "{{{foo_device:::broken}}";
@@ -181,20 +182,25 @@ class AccessCodeCastDiscoveryInterfaceTest : public testing::Test {
     ASSERT_TRUE(profile_manager_.SetUp());
     Profile* profile = profile_manager()->CreateTestingProfile("foo_email");
 
-    AccessCodeCastDiscoveryInterface::EnableCommandLineSupportForTesting();
+    EnableCommandLineSupportForTesting();
 
     scoped_refptr<network::SharedURLLoaderFactory> test_url_loader_factory =
         base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
             &test_url_loader_factory_);
 
     endpoint_fetcher_ = std::make_unique<EndpointFetcher>(
-        kMockOAuthConsumerName, GURL(kMockEndpoint), kHttpMethod, kContentType,
-        std::vector<std::string>{kMockScope}, kMockTimeoutMs, kMockPostData,
-        TRAFFIC_ANNOTATION_FOR_TESTS, test_url_loader_factory,
+        kMockOAuthConsumerName, GURL(kMockEndpoint), kHttpMethod,
+        kMockContentType, std::vector<std::string>{kMockScope}, kMockTimeoutMs,
+        kMockPostData, TRAFFIC_ANNOTATION_FOR_TESTS, test_url_loader_factory,
         identity_test_env_.identity_manager());
 
-    discovery_interface_ = std::make_unique<AccessCodeCastDiscoveryInterface>(
-        profile, "123456", std::move(endpoint_fetcher_));
+    logger_ = std::make_unique<LoggerImpl>();
+
+    discovery_interface_ =
+        absl::WrapUnique(new AccessCodeCastDiscoveryInterface(
+            profile, "123456", logger_.get(),
+            identity_test_env_.identity_manager(),
+            std::move(endpoint_fetcher_)));
 
     in_process_data_decoder_ =
         std::make_unique<data_decoder::test::InProcessDataDecoder>();
@@ -239,9 +245,12 @@ class AccessCodeCastDiscoveryInterfaceTest : public testing::Test {
   }
 
   void SignIn() {
-    identity_test_env_.MakePrimaryAccountAvailable(kEmail,
-                                                   signin::ConsentLevel::kSync);
+    SetProfileConsent(signin::ConsentLevel::kSync);
     identity_test_env_.SetAutomaticIssueOfAccessTokens(true);
+  }
+
+  void SetProfileConsent(signin::ConsentLevel consent_level) {
+    identity_test_env_.MakePrimaryAccountAvailable(kEmail, consent_level);
   }
 
   MockEndpointFetcherCallback& endpoint_fetcher_callback() {
@@ -274,6 +283,7 @@ class AccessCodeCastDiscoveryInterfaceTest : public testing::Test {
   std::unique_ptr<EndpointFetcher> endpoint_fetcher_;
   std::unique_ptr<data_decoder::test::InProcessDataDecoder>
       in_process_data_decoder_;
+  std::unique_ptr<LoggerImpl> logger_;
 };
 
 TEST_F(AccessCodeCastDiscoveryInterfaceTest,
@@ -302,6 +312,18 @@ TEST_F(AccessCodeCastDiscoveryInterfaceTest, ServerError) {
 
   EXPECT_CALL(mock_callback,
               Run(Eq(absl::nullopt), AddSinkResultCode::SERVER_ERROR));
+
+  stub_interface()->ValidateDiscoveryAccessCode(mock_callback.Get());
+  base::RunLoop().RunUntilIdle();
+}
+
+TEST_F(AccessCodeCastDiscoveryInterfaceTest, SyncError) {
+  // Test to validate a fetch request without sync set for the account will
+  // return a SYNC_ERROR.
+  MockDiscoveryDeviceCallback mock_callback;
+  identity_test_env().RevokeSyncConsent();
+  EXPECT_CALL(mock_callback,
+              Run(Eq(absl::nullopt), AddSinkResultCode::PROFILE_SYNC_ERROR));
 
   stub_interface()->ValidateDiscoveryAccessCode(mock_callback.Get());
   base::RunLoop().RunUntilIdle();
@@ -442,7 +464,7 @@ TEST_F(AccessCodeCastDiscoveryInterfaceTest, CommandLineSwitch) {
             fetcher->GetUrlForTesting());
 
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  command_line->AppendSwitchASCII(kDiscoveryEndpointSwitch,
+  command_line->AppendSwitchASCII(switches::kDiscoveryEndpointSwitch,
                                   std::string(kMockEndpoint) + "/v1/receivers");
   fetcher = stub_interface()->CreateEndpointFetcher("foobar");
   EXPECT_EQ(std::string(kMockEndpoint) + "/v1/receivers/foobar",

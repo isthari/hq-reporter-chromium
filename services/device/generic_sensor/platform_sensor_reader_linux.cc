@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,10 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/timer/timer.h"
@@ -108,7 +106,7 @@ PollingSensorReader::BlockingTaskRunnerHelper::BlockingTaskRunnerHelper(
     base::WeakPtr<PollingSensorReader> polling_sensor_reader,
     const SensorInfoLinux& sensor_info)
     : polling_sensor_reader_(polling_sensor_reader),
-      owner_task_runner_(base::SequencedTaskRunnerHandle::Get()),
+      owner_task_runner_(base::SequencedTaskRunner::GetCurrentDefault()),
       sensor_info_(sensor_info) {
   // Detaches from the sequence on which this object was created. It will be
   // bound to its owning sequence when StartPolling() is called.
@@ -147,7 +145,7 @@ void PollingSensorReader::BlockingTaskRunnerHelper::PollForData() {
 
   SensorReading readings;
   DCHECK_LE(sensor_info_.device_reading_files.size(),
-            base::size(readings.raw.values));
+            std::size(readings.raw.values));
   int i = 0;
   for (const auto& path : sensor_info_.device_reading_files) {
     std::string new_read_value;

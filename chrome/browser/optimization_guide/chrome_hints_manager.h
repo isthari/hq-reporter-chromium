@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "chrome/browser/navigation_predictor/navigation_predictor_keyed_service.h"
 #include "components/optimization_guide/core/hints_manager.h"
 
+class OptimizationGuideLogger;
 class Profile;
 
 namespace optimization_guide {
@@ -24,7 +25,8 @@ class ChromeHintsManager : public HintsManager,
       optimization_guide::TabUrlProvider* tab_url_provider,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       std::unique_ptr<optimization_guide::PushNotificationManager>
-          push_notification_manager);
+          push_notification_manager,
+      OptimizationGuideLogger* optimization_guide_logger);
 
   ~ChromeHintsManager() override;
 

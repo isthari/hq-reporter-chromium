@@ -1,10 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/media/webrtc/webrtc_event_log_manager_remote.h"
 
-#include <algorithm>
 #include <iterator>
 #include <utility>
 
@@ -15,6 +14,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "chrome/common/chrome_switches.h"
@@ -328,10 +328,10 @@ void WebRtcRemoteEventLogManager::DisableForBrowserContext(
   //    In that case, some peer connections associated with this BrowserContext
   //    might still be active, or become active at a later time, but all
   //    logs must have already been stopped.
-  auto pred = [browser_context_id](decltype(active_logs_)::value_type& log) {
-    return log.first.browser_context_id == browser_context_id;
-  };
-  DCHECK(std::count_if(active_logs_.begin(), active_logs_.end(), pred) == 0u);
+  DCHECK(!base::Contains(active_logs_, browser_context_id,
+                         [](const decltype(active_logs_)::value_type& log) {
+                           return log.first.browser_context_id;
+                         }));
 #endif
 
   // Pending logs for this BrowserContext are no longer eligible for upload.
@@ -673,8 +673,7 @@ void WebRtcRemoteEventLogManager::ShutDownForTesting(base::OnceClosure reply) {
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
   weak_ptr_factory_->InvalidateWeakPtrs();
   weak_ptr_factory_.reset();
-  content::GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(std::move(reply)));
+  content::GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(reply));
 }
 
 bool WebRtcRemoteEventLogManager::AreLogParametersValid(
@@ -1217,16 +1216,16 @@ bool WebRtcRemoteEventLogManager::AdditionalActiveLogAllowed(
 
   // Limit over the number of pending logs (per BrowserContext). We count active
   // logs too, since they become pending logs once completed.
-  const size_t active_count = std::count_if(
-      active_logs_.begin(), active_logs_.end(),
-      [browser_context_id](const decltype(active_logs_)::value_type& log) {
-        return log.first.browser_context_id == browser_context_id;
-      });
-  const size_t pending_count = std::count_if(
-      pending_logs_.begin(), pending_logs_.end(),
-      [browser_context_id](const decltype(pending_logs_)::value_type& log) {
-        return log.browser_context_id == browser_context_id;
-      });
+  const size_t active_count =
+      base::ranges::count(active_logs_, browser_context_id,
+                          [](const decltype(active_logs_)::value_type& log) {
+                            return log.first.browser_context_id;
+                          });
+  const size_t pending_count =
+      base::ranges::count(pending_logs_, browser_context_id,
+                          [](const decltype(pending_logs_)::value_type& log) {
+                            return log.browser_context_id;
+                          });
   return active_count + pending_count < kMaxPendingRemoteBoundWebRtcEventLogs;
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,9 +48,11 @@ class BluetoothRemoteGATTDescriptor final : public ScriptWrappable {
  private:
   friend class DescriptorReadValueCallback;
 
-  BluetoothRemoteGATTServer* GetGatt() { return characteristic_->GetGatt(); }
-  mojom::blink::WebBluetoothService* GetService() {
-    return characteristic_->device_->GetBluetooth()->Service();
+  BluetoothRemoteGATTServer* GetGatt() const {
+    return characteristic_->GetGatt();
+  }
+  Bluetooth* GetBluetooth() const {
+    return characteristic_->device_->GetBluetooth();
   }
 
   void ReadValueCallback(ScriptPromiseResolver*,

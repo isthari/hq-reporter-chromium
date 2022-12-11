@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,11 @@
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/signin_screen_handler.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/tpm/install_attributes.h"
+#include "chromeos/ash/components/install_attributes/install_attributes.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/core/common/policy_switches.h"
 #include "components/policy/proto/device_management_backend.pb.h"
@@ -90,7 +90,7 @@ class BlockingLoginTest
       public content::NotificationObserver,
       public testing::WithParamInterface<BlockingLoginTestParam> {
  public:
-  BlockingLoginTest() : profile_added_(NULL) {}
+  BlockingLoginTest() : profile_added_(nullptr) {}
 
   BlockingLoginTest(const BlockingLoginTest&) = delete;
   BlockingLoginTest& operator=(const BlockingLoginTest&) = delete;

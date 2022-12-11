@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,7 @@ void LogNonReflectionUpdateFreshnessToUma(ModelType type,
       "Sync.NonReflectionUpdateFreshnessPossiblySkewed2", freshness,
       /*min=*/base::Milliseconds(100),
       /*max=*/base::Days(7),
-      /*bucket_count=*/50);
+      /*buckets=*/50);
 
   base::UmaHistogramCustomTimes(
       std::string("Sync.NonReflectionUpdateFreshnessPossiblySkewed2.") +
@@ -50,7 +50,7 @@ void LogNonReflectionUpdateFreshnessToUma(ModelType type,
       freshness,
       /*min=*/base::Milliseconds(100),
       /*max=*/base::Days(7),
-      /*bucket_count=*/50);
+      /*buckets=*/50);
 }
 
 }  // namespace syncer

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/containers/flat_map.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
+#include "base/time/time.h"
 #include "content/browser/devtools/devtools_background_services.pb.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/public/browser/content_browser_client.h"
@@ -172,7 +173,7 @@ class DevToolsBackgroundServicesContextTest
 
   void LogTestBackgroundServiceEvent(const std::string& log_message) {
     context_->LogBackgroundServiceEvent(
-        service_worker_registration_id_, origin_,
+        service_worker_registration_id_, blink::StorageKey(origin_),
         DevToolsBackgroundService::kBackgroundFetch, kEventName, kInstanceId,
         {{"key", log_message}});
   }
@@ -229,7 +230,8 @@ class DevToolsBackgroundServicesContextTest
           base::BindOnce(&DidRegisterServiceWorker,
                          &service_worker_registration_id,
                          run_loop.QuitClosure()),
-          /*requesting_frame_id=*/GlobalRenderFrameHostId());
+          /*requesting_frame_id=*/GlobalRenderFrameHostId(),
+          PolicyContainerPolicies());
 
       run_loop.Run();
     }

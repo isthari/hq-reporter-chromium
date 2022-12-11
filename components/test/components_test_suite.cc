@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,14 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/test/launcher/unit_test_launcher.h"
 #include "base/test/test_suite.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
+#include "components/breadcrumbs/core/breadcrumb_manager.h"
+#include "components/breadcrumbs/core/crash_reporter_breadcrumb_observer.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "mojo/core/embedder/embedder.h"
 #include "services/network/public/cpp/features.h"
@@ -30,7 +31,6 @@
 #include "content/public/common/content_client.h"
 #include "content/public/common/network_service_util.h"
 #include "content/public/test/content_test_suite_base.h"
-#include "content/public/test/test_content_client_initializer.h"
 #include "content/public/test/unittest_test_suite.h"
 #include "ui/gl/test/gl_surface_test_support.h"
 #endif
@@ -99,7 +99,7 @@ class ComponentsTestSuite : public base::TestSuite {
 
     ContentSettingsPattern::SetNonWildcardDomainNonPortSchemes(
         kNonWildcardDomainNonPortSchemes,
-        base::size(kNonWildcardDomainNonPortSchemes));
+        std::size(kNonWildcardDomainNonPortSchemes));
   }
 
   void Shutdown() override {
@@ -117,28 +117,24 @@ class ComponentsUnitTestEventListener : public testing::EmptyTestEventListener {
       const ComponentsUnitTestEventListener&) = delete;
   ~ComponentsUnitTestEventListener() override = default;
 
-  void OnTestStart(const testing::TestInfo& test_info) override {
 #if BUILDFLAG(IS_IOS)
+  void OnTestStart(const testing::TestInfo& test_info) override {
     ios_initializer_.reset(new IosComponentsTestInitializer());
-#else
-    content_initializer_ =
-        std::make_unique<content::TestContentClientInitializer>();
-#endif
   }
+#endif
 
   void OnTestEnd(const testing::TestInfo& test_info) override {
+    breadcrumbs::BreadcrumbManager::GetInstance().ResetForTesting();
+    breadcrumbs::CrashReporterBreadcrumbObserver::GetInstance()
+        .ResetForTesting();
 #if BUILDFLAG(IS_IOS)
     ios_initializer_.reset();
-#else
-    content_initializer_.reset();
 #endif
   }
 
- private:
 #if BUILDFLAG(IS_IOS)
+ private:
   std::unique_ptr<IosComponentsTestInitializer> ios_initializer_;
-#else
-  std::unique_ptr<content::TestContentClientInitializer> content_initializer_;
 #endif
 };
 
@@ -147,13 +143,13 @@ class ComponentsUnitTestEventListener : public testing::EmptyTestEventListener {
 base::RunTestSuiteCallback GetLaunchCallback(int argc, char** argv) {
 #if !BUILDFLAG(IS_IOS)
   auto test_suite = std::make_unique<content::UnitTestTestSuite>(
-      new ComponentsTestSuite(argc, argv));
+      new ComponentsTestSuite(argc, argv),
+      base::BindRepeating(
+          content::UnitTestTestSuite::CreateTestContentClients));
 #else
   auto test_suite = std::make_unique<ComponentsTestSuite>(argc, argv);
 #endif
 
-  // The listener will set up common test environment for all components unit
-  // tests.
   testing::TestEventListeners& listeners =
       testing::UnitTest::GetInstance()->listeners();
   listeners.Append(new ComponentsUnitTestEventListener());

@@ -1,21 +1,47 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /**
- * @fileoverview Polymer element to handle Gaia authentication. Encapsulates
- * authenticator.js and SAML notice handling.
+ * @fileoverview Polymer element to handle Gaia authentication (Gaia webview,
+ * action buttons, back button events, Gaia dialog beign shown, SAML UI).
+ * Encapsulates authenticator.js and SAML notice handling.
+ *
+ * Events:
+ *   identifierentered: Fired after user types their email.
+ *   loadabort: Fired on the webview error.
+ *   ready: Fired when the webview (not necessarily Gaia) is loaded first time.
+ *   showview: Message from Gaia meaning Gaia UI is ready to be shown.
+ *   startenrollment: User action to start enterprise enrollment.
+ *   closesaml: User closes the dialog on the SAML page.
+ *   backcancel: User presses back button when there is no history in Gaia page.
  */
 
-/* #js_imports_placeholder */
+import '//resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import '//resources/cr_elements/icons.html.js';
+import '//resources/cr_elements/cr_shared_style.css.js';
+import './buttons/oobe_back_button.js';
+import './buttons/oobe_text_button.js';
+import './common_styles/oobe_common_styles.m.js';
+import './common_styles/oobe_dialog_host_styles.m.js';
+import './dialogs/oobe_content_dialog.js';
+
+import {sendWithPromise} from '//resources/js/cr.m.js';
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {Authenticator, AuthFlow} from '../../../gaia_auth_host/authenticator.js';
+
+import {OobeDialogHostBehavior} from './behaviors/oobe_dialog_host_behavior.m.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from './behaviors/oobe_i18n_behavior.js';
+import {OobeTypes} from './oobe_types.js';
 
 /**
  * @constructor
  * @extends {PolymerElement}
  * @implements {OobeI18nBehaviorInterface}
  */
-const GaiaDialogBase = Polymer.mixinBehaviors(
-    [OobeI18nBehavior, OobeDialogHostBehavior], Polymer.Element);
+const GaiaDialogBase =
+    mixinBehaviors([OobeI18nBehavior, OobeDialogHostBehavior], PolymerElement);
 
 const CHROMEOS_GAIA_PASSWORD_METRIC = 'ChromeOS.Gaia.PasswordFlow';
 
@@ -27,7 +53,9 @@ class GaiaDialog extends GaiaDialogBase {
     return 'gaia-dialog';
   }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -41,12 +69,20 @@ class GaiaDialog extends GaiaDialogBase {
       },
 
       /**
-       * Current auth flow. See cr.login.Authenticator.AuthFlow
+       * Current auth flow. See AuthFlow
        */
       authFlow: {
         type: Number,
         value: 0,
         notify: true,
+      },
+
+      /**
+       * Type of bottom buttons.
+       */
+      gaiaDialogButtonsType: {
+        type: String,
+        value: OobeTypes.GaiaDialogButtonsType.DEFAULT,
       },
 
       /**
@@ -130,7 +166,7 @@ class GaiaDialog extends GaiaDialogBase {
        */
       primaryActionButtonEnabled_: {
         type: Boolean,
-        value: true,
+        value: false,
       },
 
       /**
@@ -148,7 +184,7 @@ class GaiaDialog extends GaiaDialogBase {
        */
       secondaryActionButtonEnabled_: {
         type: Boolean,
-        value: true,
+        value: false,
       },
 
       /**
@@ -168,24 +204,13 @@ class GaiaDialog extends GaiaDialogBase {
        */
       isPopUpOverlayVisible_: {
         type: Boolean,
-        computed: 'showOverlay_(navigationEnabled, isSamlSsoVisible)'
-      },
-
-      /**
-       * Whether the redirect to default IdP without interstitial step is
-       * enabled.
-       * @private {boolean}
-       */
-      flagRedirectToDefaultIdPEnabled_: {
-        type: Boolean,
-        value: loadTimeData.getBoolean('isRedirectToDefaultIdPEnabled'),
+        computed: 'showOverlay_(navigationEnabled, isSamlSsoVisible)',
       },
 
       isSamlBackButtonHidden_: {
         type: Boolean,
-        computed: 'isSamlBackButtonHidden(isDefaultSsoProvider, isClosable,' +
-            'flagRedirectToDefaultIdPEnabled_)',
-      }
+        computed: 'isSamlBackButtonHidden(isDefaultSsoProvider, isClosable)',
+      },
     };
   }
 
@@ -198,15 +223,9 @@ class GaiaDialog extends GaiaDialogBase {
      * @private
      */
     this.clickPrimaryActionButtonForTesting_ = false;
+
     /**
-     * Emulate click on the primary action button when it is visible and
-     * enabled.
-     * @type {boolean}
-     * @private
-     */
-    this.clickPrimaryActionButtonForTesting_ = false;
-    /**
-     * @type {!cr.login.Authenticator|undefined}
+     * @type {!Authenticator|undefined}
      * @private
      */
     this.authenticator_ = undefined;
@@ -220,7 +239,7 @@ class GaiaDialog extends GaiaDialogBase {
   ready() {
     super.ready();
     const webview = /** @type {!WebView} */ (this.$['signin-frame']);
-    this.authenticator_ = new cr.login.Authenticator(webview);
+    this.authenticator_ = new Authenticator(webview);
     /**
      * Event listeners for the events triggered by the authenticator.
      */
@@ -274,13 +293,13 @@ class GaiaDialog extends GaiaDialogBase {
         this.maybeClickPrimaryActionButtonForTesting_();
       },
       'videoEnabledChange': (e) => {
-        this.videoEnabled = e.newValue;
+        this.videoEnabled = e.detail.newValue;
       },
       'authFlowChange': (e) => {
-        this.authFlow = e.newValue;
+        this.authFlow = e.detail.newValue;
       },
       'authDomainChange': (e) => {
-        this.authDomain = e.newValue;
+        this.authDomain = e.detail.newValue;
       },
       'dialogShown': (e) => {
         this.navigationEnabled = false;
@@ -301,8 +320,9 @@ class GaiaDialog extends GaiaDialogBase {
       },
       'apiPasswordAdded': (e) => {
         // Only record the metric for Gaia flow without 3rd-party SAML IdP.
-        if (this.authFlow !== cr.login.Authenticator.AuthFlow.DEFAULT)
+        if (this.authFlow !== AuthFlow.DEFAULT) {
           return;
+        }
         chrome.send(
             'metricsHandler:recordBooleanHistogram',
             [CHROMEOS_GAIA_PASSWORD_METRIC, false]);
@@ -310,7 +330,7 @@ class GaiaDialog extends GaiaDialogBase {
       },
       'authCompleted': (e) => {
         // Only record the metric for Gaia flow without 3rd-party SAML IdP.
-        if (this.authFlow === cr.login.Authenticator.AuthFlow.DEFAULT) {
+        if (this.authFlow === AuthFlow.DEFAULT) {
           chrome.send(
               'metricsHandler:recordBooleanHistogram',
               [CHROMEOS_GAIA_PASSWORD_METRIC, true]);
@@ -321,12 +341,12 @@ class GaiaDialog extends GaiaDialogBase {
       },
     };
 
-    for (let eventName in authenticatorEventListeners) {
+    for (const eventName in authenticatorEventListeners) {
       this.authenticator_.addEventListener(
           eventName, authenticatorEventListeners[eventName].bind(this));
     }
 
-    cr.sendWithPromise('getIsSshConfigured')
+    sendWithPromise('getIsSshConfigured')
         .then(this.updateSshWarningVisibility.bind(this));
   }
 
@@ -353,12 +373,14 @@ class GaiaDialog extends GaiaDialogBase {
   }
 
   maybeClickPrimaryActionButtonForTesting_() {
-    if (!this.clickPrimaryActionButtonForTesting_)
+    if (!this.clickPrimaryActionButtonForTesting_) {
       return;
+    }
 
     const button = this.$['primary-action-button'];
-    if (button.hidden || button.disabled)
+    if (button.hidden || button.disabled) {
       return;
+    }
 
     this.clickPrimaryActionButtonForTesting_ = false;
     button.click();
@@ -411,6 +433,34 @@ class GaiaDialog extends GaiaDialogBase {
   }
 
   /**
+   * Handles clicks on Kiosk enrollment button.
+   * @private
+   */
+  onKioskButtonClicked_() {
+    this.setLicenseType_(OobeTypes.LicenseType.KIOSK);
+    this.onPrimaryActionButtonClicked_();
+  }
+
+  /**
+   * Handles clicks on Kiosk enrollment button.
+   * @private
+   */
+  onEnterpriseButtonClicked_() {
+    this.setLicenseType_(OobeTypes.LicenseType.ENTERPRISE);
+    this.onPrimaryActionButtonClicked_();
+  }
+
+  /**
+   * @param {number} licenseType - license to use.
+   * @private
+   */
+  setLicenseType_(licenseType) {
+    this.dispatchEvent(new CustomEvent(
+        'licensetypeselected',
+        {bubbles: true, composed: true, detail: licenseType}));
+  }
+
+  /**
    * Whether the button is enabled.
    * @param {boolean} navigationEnabled - whether navigation in general is
    * enabled.
@@ -435,14 +485,10 @@ class GaiaDialog extends GaiaDialogBase {
    * Whether the back button on SAML screen is hidden.
    * @param {boolean} isDefaultSsoProvider - whether it is default SAML page.
    * @param {boolean} isClosable - whether the form can be closed.
-   * @param {boolean} flagRedirectToDefaultIdPEnabled - whether redirect to
-   *     default IdP is enabled.
    * @private
    */
-  isSamlBackButtonHidden(
-      isDefaultSsoProvider, isClosable, flagRedirectToDefaultIdPEnabled) {
-    return !flagRedirectToDefaultIdPEnabled ||
-        isDefaultSsoProvider && !isClosable;
+  isSamlBackButtonHidden(isDefaultSsoProvider, isClosable) {
+    return isDefaultSsoProvider && !isClosable;
   }
 
   /**
@@ -453,6 +499,46 @@ class GaiaDialog extends GaiaDialogBase {
    */
   showOverlay_(navigationEnabled, isSamlSsoVisible) {
     return !navigationEnabled || isSamlSsoVisible;
+  }
+
+  /**
+   * Whether default navigation (original, as gaia has) is shown.
+   * @param {boolean} canGoBack
+   * @param {string} gaiaDialogButtonsType
+   * @return {boolean}
+   * @private
+   */
+  isDefaultNavigationShown_(canGoBack, gaiaDialogButtonsType) {
+    return !canGoBack ||
+        gaiaDialogButtonsType == OobeTypes.GaiaDialogButtonsType.DEFAULT;
+  }
+
+  /**
+   * Whether Enterprise navigation is shown. Two buttons: primary for
+   * Enterprise enrollment and secondary for Kiosk enrollment.
+   * @param {boolean} canGoBack
+   * @param {string} gaiaDialogButtonsType
+   * @return {boolean}
+   * @private
+   */
+  isEnterpriseNavigationShown_(canGoBack, gaiaDialogButtonsType) {
+    return canGoBack &&
+        gaiaDialogButtonsType ==
+        OobeTypes.GaiaDialogButtonsType.ENTERPRISE_PREFERRED;
+  }
+
+  /**
+   * Whether Kiosk navigation is shown. Two buttons: primary for
+   * Kiosk enrollment and secondary for Enterprise enrollment.
+   * @param {boolean} canGoBack
+   * @param {string} gaiaDialogButtonsType
+   * @return {boolean}
+   * @private
+   */
+  isKioskNavigationShown_(canGoBack, gaiaDialogButtonsType) {
+    return canGoBack &&
+        gaiaDialogButtonsType ==
+        OobeTypes.GaiaDialogButtonsType.KIOSK_PREFERRED;
   }
 }
 

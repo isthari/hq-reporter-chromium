@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -249,6 +249,24 @@ TEST_F(OmahaAttributesHandlerUnitTest, KeepDisabledWhenMalwareRemoved) {
   // cleared, but it is no longer blocklisted (instead just disabled).
   EXPECT_TRUE(state_tester.ExpectDisabledWithSingleReason(
       kTestExtensionId, disable_reason::DISABLE_GREYLIST));
+}
+
+TEST_F(OmahaAttributesHandlerUnitTest, ExtensionUninstalledBeforeNotified) {
+  InitializeGoodInstalledExtensionService();
+  service()->Init();
+
+  ExtensionStateTester state_tester(profile());
+
+  EXPECT_TRUE(state_tester.ExpectEnabled(kTestExtensionId));
+
+  service()->UninstallExtension(kTestExtensionId, UNINSTALL_REASON_FOR_TESTING,
+                                nullptr);
+
+  base::Value attributes(base::Value::Type::DICTIONARY);
+  attributes.SetBoolKey("_malware", true);
+  // kTestExtensionId is already uninstalled. Performing action on it should
+  // not crash. Regression test for https://crbug.com/1305490.
+  service()->PerformActionBasedOnOmahaAttributes(kTestExtensionId, attributes);
 }
 
 }  // namespace extensions

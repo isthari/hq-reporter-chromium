@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/callback_helpers.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/no_destructor.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "components/heap_profiling/multi_process/client_connection_manager.h"
 #include "components/services/heap_profiling/heap_profiling_service.h"
@@ -130,7 +131,7 @@ void Supervisor::RequestTraceWithHeapDump(TraceFinishedCallback callback,
 
   if (content::TracingController::GetInstance()->IsTracing()) {
     DLOG(ERROR) << "Requesting heap dump when tracing has already started.";
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), false, std::string()));
     return;
   }

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -178,7 +178,7 @@ public class OmahaBase {
     public @UpdateStatus int checkForUpdates() {
         // Since this update check is synchronous and blocking on the network
         // connection, it should not be run on the UI thread.
-        assert !ThreadUtils.runningOnUiThread();
+        ThreadUtils.assertOnBackgroundThread();
         Log.i(TAG,
                 "OmahaBase::checkForUpdates(): Current version String: \"" + getInstalledVersion()
                         + "\"");
@@ -319,7 +319,7 @@ public class OmahaBase {
      * @return version currently installed on the device.
      */
     protected String getInstalledVersion() {
-        return VersionNumberGetter.getInstance().getCurrentlyUsedVersion(getContext());
+        return VersionNumberGetter.getInstance().getCurrentlyUsedVersion();
     }
 
     protected boolean generateAndPostRequest(long currentTimestamp, String sessionID) {

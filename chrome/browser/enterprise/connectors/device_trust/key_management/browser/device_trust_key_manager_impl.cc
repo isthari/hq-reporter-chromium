@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,13 @@
 #include "base/containers/span.h"
 #include "base/notreached.h"
 #include "base/task/bind_post_task.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "chrome/browser/enterprise/connectors/device_trust/key_management/browser/key_rotation_launcher.h"
 #include "chrome/browser/enterprise/connectors/device_trust/key_management/browser/metrics_utils.h"
 #include "chrome/browser/enterprise/connectors/device_trust/key_management/core/signing_key_pair.h"
+#include "chrome/browser/enterprise/connectors/device_trust/key_management/core/signing_key_util.h"
 #include "crypto/unexportable_key.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -129,8 +129,11 @@ DeviceTrustKeyManagerImpl::GetLoadedKeyMetadata() const {
     return absl::nullopt;
   }
 
-  return DeviceTrustKeyManagerImpl::KeyMetadata{key_pair_->trust_level(),
-                                                key_pair_->key()->Algorithm()};
+  const auto& spki_bytes = key_pair_->key()->GetSubjectPublicKeyInfo();
+  return DeviceTrustKeyManagerImpl::KeyMetadata{
+      key_pair_->trust_level(), key_pair_->key()->Algorithm(),
+      std::string(spki_bytes.begin(), spki_bytes.end()),
+      sync_key_response_code_};
 }
 
 void DeviceTrustKeyManagerImpl::AddPendingRequest(
@@ -150,7 +153,7 @@ void DeviceTrustKeyManagerImpl::LoadKey(bool create_on_fail) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   state_ = InitializationState::kLoadingKey;
   background_task_runner_->PostTaskAndReplyWithResult(
-      FROM_HERE, base::BindOnce(&SigningKeyPair::LoadPersistedKey),
+      FROM_HERE, base::BindOnce(&LoadPersistedKey),
       base::BindOnce(&DeviceTrustKeyManagerImpl::OnKeyLoaded,
                      weak_factory_.GetWeakPtr(), create_on_fail));
 }
@@ -162,8 +165,15 @@ void DeviceTrustKeyManagerImpl::OnKeyLoaded(
 
   if (loaded_key_pair && !loaded_key_pair->is_empty()) {
     key_pair_ = std::move(loaded_key_pair);
+
+    // Kick off key synchronization in the background as non-blocking.
+    key_rotation_launcher_->SynchronizePublicKey(
+        *key_pair_,
+        base::BindOnce(&DeviceTrustKeyManagerImpl::OnSynchronizationFinished,
+                       weak_factory_.GetWeakPtr()));
   } else {
     key_pair_.reset();
+    sync_key_response_code_ = absl::nullopt;
   }
 
   state_ = InitializationState::kDefault;
@@ -192,6 +202,11 @@ void DeviceTrustKeyManagerImpl::OnKeyLoaded(
   // successfully answered to. If a key was not loaded, then might as well
   // respond with a failure instead of keeping them waiting even longer.
   ResumePendingCallbacks();
+}
+
+void DeviceTrustKeyManagerImpl::OnSynchronizationFinished(
+    absl::optional<int> response_code) {
+  sync_key_response_code_ = response_code;
 }
 
 void DeviceTrustKeyManagerImpl::StartKeyRotationInner(

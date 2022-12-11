@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,12 +34,13 @@ class AutofillProvider : public content::WebContentsUserData<AutofillProvider> {
   static bool is_download_manager_disabled_for_testing();
   static void set_is_download_manager_disabled_for_testing();
 
-  virtual void OnAskForValuesToFill(AndroidAutofillManager* manager,
-                                    int32_t id,
-                                    const FormData& form,
-                                    const FormFieldData& field,
-                                    const gfx::RectF& bounding_box,
-                                    bool autoselect_first_suggestion) = 0;
+  virtual void OnAskForValuesToFill(
+      AndroidAutofillManager* manager,
+      const FormData& form,
+      const FormFieldData& field,
+      const gfx::RectF& bounding_box,
+      AutoselectFirstSuggestion autoselect_first_suggestion,
+      FormElementWasClicked form_element_was_clicked) = 0;
 
   virtual void OnTextFieldDidChange(AndroidAutofillManager* manager,
                                     const FormData& form,
@@ -88,8 +89,8 @@ class AutofillProvider : public content::WebContentsUserData<AutofillProvider> {
   virtual void Reset(AndroidAutofillManager* manager) = 0;
 
   void FillOrPreviewForm(AndroidAutofillManager* manager,
-                         int requestId,
-                         const FormData& formData);
+                         const FormData& formData,
+                         const url::Origin& triggered_origin);
 
   // Notifies the renderer should accept the datalist suggestion given by
   // |value| and fill the input field indified by |field_id|.

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,6 @@
 #include "base/callback.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -32,8 +30,9 @@
 #include "chrome/browser/ash/settings/stats_reporting_controller.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/webui/chromeos/login/eula_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
+#include "chrome/browser/ui/webui/ash/login/eula_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/network_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/installer/util/google_update_settings.h"
 #include "chrome/test/base/interactive_test_utils.h"
@@ -59,6 +58,7 @@ const test::UIPath kUsageStats = {"oobe-eula-md", "usageStats"};
 const test::UIPath kAdditionalTermsLink = {"oobe-eula-md", "additionalTerms"};
 const test::UIPath kAdditionalTermsDialog = {"oobe-eula-md", "additionalToS"};
 const test::UIPath kLearnMoreLink = {"oobe-eula-md", "learnMore"};
+const test::UIPath kBackButton = {"oobe-eula-md", "backButton"};
 
 const char kRemoraRequisition[] = "remora";
 
@@ -120,11 +120,12 @@ class EulaTest : public OobeBaseTest {
         };
 
     base::RunLoop runloop;
-    base::PostTaskAndReplyWithResult(
-        GoogleUpdateSettings::CollectStatsConsentTaskRunner(), FROM_HERE,
-        base::BindOnce(&GoogleUpdateSettings::GetCollectStatsConsent),
-        base::BindOnce(on_get_collect_stats_consent_callback,
-                       runloop.QuitClosure(), &consented));
+    GoogleUpdateSettings::CollectStatsConsentTaskRunner()
+        ->PostTaskAndReplyWithResult(
+            FROM_HERE,
+            base::BindOnce(&GoogleUpdateSettings::GetCollectStatsConsent),
+            base::BindOnce(on_get_collect_stats_consent_callback,
+                           runloop.QuitClosure(), &consented));
     runloop.Run();
 
     return consented;
@@ -281,7 +282,7 @@ IN_PROC_BROWSER_TEST_F(EulaTest, LearnMore) {
           1)));
 }
 
-#if BUILDFLAG(IS_CHROMEOS) && defined(NDEBUG)
+#if defined(NDEBUG)
 #define MAYBE_AdditionalToS DISABLED_AdditionalToS
 #else
 #define MAYBE_AdditionalToS AdditionalToS
@@ -341,6 +342,12 @@ IN_PROC_BROWSER_TEST_F(EulaTest, SkippedEula) {
   EXPECT_FALSE(g_browser_process->local_state()->GetBoolean(
       metrics::prefs::kMetricsReportingEnabled));
   EXPECT_FALSE(GetGoogleCollectStatsConsent());
+}
+
+IN_PROC_BROWSER_TEST_F(EulaTest, ClickBack) {
+  ShowEulaScreen();
+  test::OobeJS().ClickOnPath(kBackButton);
+  OobeScreenWaiter(NetworkScreenView::kScreenId).Wait();
 }
 
 }  // namespace

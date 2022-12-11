@@ -6,6 +6,7 @@
 <translation id="1127811143501539442">{DAYS,plural, =1{1 ថ្ងៃមុន}other{# ថ្ងៃមុន}}</translation>
 <translation id="1156623771253174079">{SECONDS,plural, =1{1 នាទី​មុន}other{# នាទី​មុន}}</translation>
 <translation id="1169783199079129864">{MINUTES,plural, =1{1 ន}other{# ន}}</translation>
+<translation id="1181037720776840403">ដកចេញ</translation>
 <translation id="1243314992276662751">ទាញឡើង</translation>
 <translation id="1266864766717917324">មិនអាចចែករំលែក <ph name="CONTENT_TYPE" /> បានទេ</translation>
 <translation id="1269641567813814718">Win</translation>
@@ -62,7 +63,6 @@
 <translation id="2666092431469916601">ខាងលើ</translation>
 <translation id="2701330563083355633">បាន​ចែករំលែក​ពី <ph name="DEVICE_NAME" /></translation>
 <translation id="271033894570825754">ថ្មី</translation>
-<translation id="2743387203779672305">ចម្លងទៅផ្ទាំងឃ្លីបបត</translation>
 <translation id="2824719307700604149">{YEARS,plural, =1{1 ឆ្នាំមុន}other{# ឆ្នាំមុន}}</translation>
 <translation id="2878511608894704031">លុបទាំងអស់</translation>
 <translation id="2907671656515444832">{DAYS,plural, =1{1 ថ្ងៃទៀត}other{# ថ្ងៃទៀត}}</translation>
@@ -94,12 +94,14 @@
 <translation id="3889424535448813030">សញ្ញាព្រួញទៅស្តាំ</translation>
 <translation id="3897092660631435901">ម៉ឺនុយ</translation>
 <translation id="3909791450649380159">កាត់</translation>
+<translation id="3924145049010392604">Meta</translation>
 <translation id="3990502903496589789">ចុងខាងស្តាំ</translation>
 <translation id="3994749195054421561">បានតម្រៀប​ជួរឈរ <ph name="COLUMN_NAME" /> តាមលំដាប់​ឡើង។</translation>
+<translation id="4031910098617850788">F5</translation>
 <translation id="40579289237549812">{UNREAD_NOTIFICATIONS,plural, =1{ការជូន​ដំណឹងមិន​ទាន់អាន 1}other{ការជូន​ដំណឹងមិន​ទាន់អាន #}}</translation>
-<translation id="4250229828105606438">ថតអេក្រង់</translation>
 <translation id="4266252015790371705">{MONTHS,plural, =1{1 ខែមុន}other{# ខែមុន}}</translation>
 <translation id="4289300219472526559">ចាប់ផ្តើមនិយាយ</translation>
+<translation id="4289540628985791613">ទិដ្ឋភាពទូទៅ</translation>
 <translation id="4306392492252714209">លុបចេញពី​ឃ្លីបបត។</translation>
 <translation id="4491109536499578614">រូបភាព</translation>
 <translation id="4565377596337484307">លាក់​ពាក្យ​សម្ងាត់</translation>
@@ -203,7 +205,6 @@
 <translation id="8730621377337864115">រួចរាល់</translation>
 <translation id="8772073294905169192">{HOURS,plural, =1{1 ម៉}other{# ម៉}}</translation>
 <translation id="8798099450830957504">លំនាំដើម</translation>
-<translation id="883911313571074303">ដាក់​ចំណារ​លើ​រូបភាព</translation>
 <translation id="8841375032071747811">ប៊ូតុង​ថយក្រោយ</translation>
 <translation id="8867568208303837180">កំពុងផ្ញើ...</translation>
 <translation id="8876215549894133151">ទម្រង់៖</translation>

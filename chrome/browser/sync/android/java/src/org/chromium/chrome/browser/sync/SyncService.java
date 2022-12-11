@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,6 +66,7 @@ public abstract class SyncService {
      */
     @VisibleForTesting
     public static void resetForTests() {
+        ThreadUtils.assertOnUiThread();
         sInitialized = false;
         sSyncService = null;
     }
@@ -140,36 +141,31 @@ public abstract class SyncService {
      *
      * This is affected by whether sync is on.
      *
-     * @return Set of active data types.
+     * @return ModelType set of active data types.
      */
     public abstract Set<Integer> getActiveDataTypes();
 
     /**
-     * Gets the set of data types that the user has chosen to enable. This
-     * corresponds to the native GetSelectedTypes() / UserSelectableTypeSet, but
-     * every UserSelectableType is mapped to the corresponding canonical
-     * ModelType.
-     * TODO(crbug.com/985290): Expose UserSelectableType to Java and return that
-     * instead.
+     * Gets the set of types that the user has selected.
      *
      * NOTE: This returns "all types" by default, even if the user has never
      *       enabled Sync, or if only Sync-the-transport is running.
      *
-     * @return Set of chosen types.
+     * @return UserSelectableType set of selected types.
      */
-    public abstract Set<Integer> getChosenDataTypes();
+    public abstract Set<Integer> getSelectedTypes();
 
     public abstract boolean hasKeepEverythingSynced();
 
     /**
-     * Enables syncing for the passed data types.
+     * Enables syncing for the passed types.
      *
      * @param syncEverything Set to true if the user wants to sync all data types
      *                       (including new data types we add in the future).
      * @param enabledTypes   The set of types to enable. Ignored (can be null) if
      *                       syncEverything is true.
      */
-    public abstract void setChosenDataTypes(boolean syncEverything, Set<Integer> enabledTypes);
+    public abstract void setSelectedTypes(boolean syncEverything, Set<Integer> enabledTypes);
 
     public abstract void setFirstSetupComplete(int syncFirstSetupCompleteSource);
 
@@ -310,7 +306,9 @@ public abstract class SyncService {
     public abstract boolean shouldOfferTrustedVaultOptIn();
 
     /**
-     * @return Whether sync is enabled to sync urls or open tabs with a non custom passphrase.
+     * @return Whether sync is enabled to sync urls with a non custom passphrase.
+     * TODO(crbug.com/1396310): Rename method to reflect that it returns true with TrustedVault
+     * passphrase.
      */
     public abstract boolean isSyncingUrlsWithKeystorePassphrase();
 
@@ -332,10 +330,4 @@ public abstract class SyncService {
      */
     @VisibleForTesting
     public abstract void getAllNodes(Callback<JSONArray> callback);
-
-    /**
-     * TODO(crbug.com/949504): Remove and do this directly in native code.
-     */
-    @VisibleForTesting
-    public abstract long getNativeSyncServiceImplForTest();
 }

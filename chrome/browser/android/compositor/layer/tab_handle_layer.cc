@@ -1,15 +1,18 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/android/compositor/layer/tab_handle_layer.h"
 
+#include "base/feature_list.h"
 #include "base/i18n/rtl.h"
+#include "base/metrics/field_trial_params.h"
 #include "cc/layers/layer.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/resources/scoped_ui_resource.h"
 #include "chrome/browser/android/compositor/decoration_title.h"
 #include "chrome/browser/android/compositor/layer_title_cache.h"
+#include "chrome/browser/flags/android/chrome_feature_list.h"
 #include "ui/android/resources/nine_patch_resource.h"
 #include "ui/android/resources/resource_manager.h"
 #include "ui/base/l10n/l10n_util_android.h"
@@ -25,6 +28,7 @@ scoped_refptr<TabHandleLayer> TabHandleLayer::Create(
 void TabHandleLayer::SetProperties(
     int id,
     ui::Resource* close_button_resource,
+    ui::Resource* divider_resource,
     ui::NinePatchResource* tab_handle_resource,
     ui::NinePatchResource* tab_handle_outline_resource,
     bool foreground,
@@ -35,17 +39,35 @@ void TabHandleLayer::SetProperties(
     float width,
     float height,
     float content_offset_x,
+    float divider_offset_x,
+    float bottom_offset_y,
     float close_button_alpha,
+    float divider_alpha,
     bool is_loading,
     float spinner_rotation,
-    float brightness) {
-  if (brightness != brightness_ || foreground != foreground_) {
+    float brightness,
+    float opacity) {
+  if (brightness != brightness_ || foreground != foreground_ ||
+      opacity != opacity_) {
     brightness_ = brightness;
     foreground_ = foreground;
-    cc::FilterOperations filters;
-    if (brightness_ != 1.0f && !foreground_)
-      filters.Append(cc::FilterOperation::CreateBrightnessFilter(brightness_));
-    layer_->SetFilters(filters);
+    opacity_ = opacity;
+
+    // With the Tab Strip Redesign (TSR), inactive tabs no longer have a visible
+    // container. To achieve the same dimming effect, we need to set the opacity
+    // rather than adding a brightness filter. We can't swap to simply setting
+    // the opacity when TSR is disabled, because then, the tab containers can
+    // be seen overlapping. (See https://crbug.com/1373632).
+    if (base::FeatureList::IsEnabled(chrome::android::kTabStripRedesign)) {
+      tab_->SetOpacity(brightness_);
+    } else {
+      cc::FilterOperations filters;
+      if (brightness_ != 1.0f) {
+        filters.Append(
+            cc::FilterOperation::CreateBrightnessFilter(brightness_));
+      }
+      layer_->SetFilters(filters);
+    }
   }
 
   float original_x = x;
@@ -76,7 +98,7 @@ void TabHandleLayer::SetProperties(
     y = y - (margin_height - height);
     height = margin_height;
   }
-  gfx::Size tab_bounds(width, height);
+  gfx::Size tab_bounds(width, height - bottom_offset_y);
 
   layer_->SetPosition(gfx::PointF(x, y));
   DecorationTitle* title_layer = nullptr;
@@ -87,12 +109,12 @@ void TabHandleLayer::SetProperties(
     title_layer->setOpacity(1.0f);
     unsigned expected_children = 4;
     title_layer_ = title_layer->layer();
-    if (layer_->children().size() < expected_children) {
-      layer_->AddChild(title_layer_);
-    } else if (layer_->children()[expected_children - 1]->id() !=
+    if (tab_->children().size() < expected_children) {
+      tab_->AddChild(title_layer_);
+    } else if (tab_->children()[expected_children - 1]->id() !=
                title_layer_->id()) {
-      layer_->ReplaceChild((layer_->children()[expected_children - 1]).get(),
-                           title_layer_);
+      tab_->ReplaceChild((tab_->children()[expected_children - 1]).get(),
+                         title_layer_);
     }
     title_layer->SetUIResourceIds();
   } else if (title_layer_.get()) {
@@ -106,6 +128,7 @@ void TabHandleLayer::SetProperties(
   decoration_tab_->SetBounds(tab_bounds);
   decoration_tab_->SetBorder(
       tab_handle_resource->Border(decoration_tab_->bounds()));
+  decoration_tab_->SetOpacity(opacity_);
 
   tab_outline_->SetUIResourceId(
       tab_handle_outline_resource->ui_resource()->id());
@@ -128,7 +151,29 @@ void TabHandleLayer::SetProperties(
   const float padding_right = tab_handle_resource->size().width() -
                               tab_handle_resource->padding().right();
   const float padding_left = tab_handle_resource->padding().x();
-  const float close_width = close_button_->bounds().width();
+
+  float close_width = close_button_->bounds().width();
+  // For the min_tab_width experiments, if close button is not shown, fill
+  // the remaining space with the title text
+  if (base::FeatureList::IsEnabled(chrome::android::kTabStripImprovements)) {
+    if (close_button_alpha == 0.f) {
+      close_width = 0.f;
+    }
+  }
+
+  if (divider_alpha == 0.f) {
+    divider_->SetIsDrawable(false);
+  } else {
+    divider_->SetIsDrawable(true);
+    divider_->SetUIResourceId(divider_resource->ui_resource()->id());
+    divider_->SetBounds(divider_resource->size());
+    int divider_y = (tab_handle_resource->padding().y() + height) / 2 -
+                    divider_->bounds().height() / 2;
+    int divider_x = is_rtl ? width - divider_offset_x : divider_offset_x;
+    divider_->SetPosition(gfx::PointF(divider_x, divider_y));
+    divider_->SetOpacity(divider_alpha);
+  }
+
   if (title_layer) {
     int title_y = tab_handle_resource->padding().y() / 2 + height / 2 -
                   title_layer->size().height() / 2;
@@ -176,16 +221,27 @@ scoped_refptr<cc::Layer> TabHandleLayer::layer() {
 TabHandleLayer::TabHandleLayer(LayerTitleCache* layer_title_cache)
     : layer_title_cache_(layer_title_cache),
       layer_(cc::Layer::Create()),
+      tab_(cc::Layer::Create()),
       close_button_(cc::UIResourceLayer::Create()),
+      divider_(cc::UIResourceLayer::Create()),
       decoration_tab_(cc::NinePatchLayer::Create()),
       tab_outline_(cc::NinePatchLayer::Create()),
       brightness_(1.0f),
       foreground_(false) {
   decoration_tab_->SetIsDrawable(true);
-  tab_outline_->SetIsDrawable(true);
-  layer_->AddChild(decoration_tab_);
-  layer_->AddChild(tab_outline_);
-  layer_->AddChild(close_button_);
+  // Show tab outline when TabStripRedesign is NOT enabled
+  if (!base::FeatureList::IsEnabled(chrome::android::kTabStripRedesign)) {
+    tab_outline_->SetIsDrawable(true);
+  }
+
+  tab_->AddChild(decoration_tab_);
+  tab_->AddChild(tab_outline_);
+  tab_->AddChild(close_button_);
+
+  // The divider is added as a separate child so its opacity can be controlled
+  // separately from the other tab items.
+  layer_->AddChild(tab_);
+  layer_->AddChild(divider_);
 }
 
 TabHandleLayer::~TabHandleLayer() {

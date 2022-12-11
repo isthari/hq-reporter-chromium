@@ -1,4 +1,4 @@
-# Copyright 2014 The Chromium Authors. All rights reserved.
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -56,10 +56,8 @@ component("gfx") {
     "break_list.h",
     "color_analysis.cc",
     "color_analysis.h",
-    "color_conversion_sk_filter_cache.cc",
-    "color_conversion_sk_filter_cache.h",
-    "color_transform.cc",
-    "color_transform.h",
+    "color_conversions.cc",
+    "color_conversions.h",
     "decorated_text.cc",
     "decorated_text.h",
     "delegated_ink_metadata.cc",
@@ -95,6 +93,7 @@ component("gfx") {
     "image/image.h",
     "image/image_family.cc",
     "image/image_family.h",
+    "image/image_internal.h",
     "image/image_platform.h",
     "image/image_png_rep.cc",
     "image/image_png_rep.h",
@@ -132,6 +131,7 @@ component("gfx") {
     "text_elider.h",
     "text_utils.cc",
     "text_utils.h",
+    "ubidi_deleter.h",
     "ui_gfx_exports.cc",
     "utf16_indexing.cc",
     "utf16_indexing.h",
@@ -144,6 +144,8 @@ component("gfx") {
   ]
   if (is_android) {
     sources += [
+      "android/achoreographer_compat.cc",
+      "android/achoreographer_compat.h",
       "android/android_surface_control_compat.cc",
       "android/android_surface_control_compat.h",
       "android/java_bitmap.cc",
@@ -157,6 +159,7 @@ component("gfx") {
       "font_fallback_linux.cc",
       "font_fallback_linux.h",
       "font_render_params_linux.cc",
+      "font_render_params_linux.h",
       "linux/fontconfig_util.cc",
       "linux/fontconfig_util.h",
     ]
@@ -164,8 +167,6 @@ component("gfx") {
   if (is_mac) {
     sources += [
       "ca_layer_result.h",
-      "canvas_paint_mac.h",
-      "canvas_paint_mac.mm",
       "decorated_text_mac.h",
       "decorated_text_mac.mm",
       "font_fallback_mac.mm",
@@ -180,8 +181,6 @@ component("gfx") {
       "mac/nswindow_frame_controls.mm",
       "mac/scoped_cocoa_disable_screen_updates.h",
       "mac/scoped_cocoa_disable_screen_updates.mm",
-      "path_mac.h",
-      "path_mac.mm",
       "platform_font_mac.h",
       "platform_font_mac.mm",
       "scoped_cg_context_save_gstate_mac.h",
@@ -248,7 +247,6 @@ component("gfx") {
       "canvas.cc",
       "canvas.h",
       "canvas_skia.cc",
-      "canvas_skia_paint.h",
       "image/canvas_image_source.cc",
       "image/canvas_image_source.h",
       "image/image_generic.cc",
@@ -311,8 +309,6 @@ component("gfx") {
     sources += [
       "platform_font_skia.cc",
       "platform_font_skia.h",
-      "skia_font_delegate.cc",
-      "skia_font_delegate.h",
     ]
   }
 
@@ -372,6 +368,7 @@ component("gfx") {
   if (is_win) {
     libs = [
       "setupapi.lib",
+      "dwmapi.lib",
       "dwrite.lib",
     ]
     deps += [ "//components/crash/core/common" ]
@@ -387,6 +384,9 @@ component("gfx") {
   }
 
   # Linux.
+  if (is_linux) {
+    deps += [ "//ui/linux:linux_ui" ]
+  }
   if (is_linux || is_chromeos) {
     deps += [ "//third_party/fontconfig" ]
   }
@@ -415,11 +415,17 @@ component("gfx") {
 
 component("color_space") {
   sources = [
+    "color_conversion_sk_filter_cache.cc",
+    "color_conversion_sk_filter_cache.h",
     "color_space.cc",
     "color_space.h",
     "color_space_export.h",
+    "color_transform.cc",
+    "color_transform.h",
     "display_color_spaces.cc",
     "display_color_spaces.h",
+    "hdr_metadata.cc",
+    "hdr_metadata.h",
     "hdr_static_metadata.cc",
     "hdr_static_metadata.h",
     "icc_profile.cc",
@@ -437,6 +443,7 @@ component("color_space") {
     "//build:chromeos_buildflags",
     "//skia:skcms",
     "//ui/gfx:buffer_types",
+    "//ui/gfx/geometry:geometry_skia",
   ]
   public_deps = [
     "//base",
@@ -444,6 +451,8 @@ component("color_space") {
   ]
   if (is_mac) {
     sources += [
+      "hdr_metadata_mac.h",
+      "hdr_metadata_mac.mm",
       "mac/display_icc_profiles.cc",
       "mac/display_icc_profiles.h",
     ]
@@ -543,8 +552,6 @@ source_set("memory_buffer_sources") {
     "gpu_fence.h",
     "gpu_fence_handle.cc",
     "gpu_fence_handle.h",
-    "hdr_metadata.cc",
-    "hdr_metadata.h",
     "native_pixmap.h",
     "overlay_priority_hint.h",
     "overlay_transform.h",
@@ -650,10 +657,17 @@ static_library("test_support") {
   if (is_mac) {
     sources += [ "image/image_unittest_util_mac.mm" ]
   }
+  if (use_fuzzing_engine) {
+    sources += [
+      "geometry/test/fuzzer_util.cc",
+      "geometry/test/fuzzer_util.h",
+    ]
+  }
 
   public_deps = [ ":gfx" ]
 
   deps = [
+    ":gfx_export",
     "//base",
     "//base/test:test_support",
     "//skia",
@@ -670,27 +684,6 @@ static_library("test_support") {
   }
 }
 
-if (is_mac) {
-  component("gfx_io_surface_hdr_metadata") {
-    sources = [
-      "mac/io_surface_hdr_metadata.cc",
-      "mac/io_surface_hdr_metadata.h",
-    ]
-    defines = [ "IS_GFX_IO_SURFACE_HDR_METADATA_IMPL" ]
-
-    # This is a separate component from the other sources because it depends on
-    # the mojo serialize and deserialize methods.
-    deps = [
-      ":gfx",
-      "//ui/gfx/mojom:mojom",
-    ]
-    frameworks = [
-      "CoreFoundation.framework",
-      "IOSurface.framework",
-    ]
-  }
-}
-
 test("gfx_unittests") {
   sources = [
     "animation/keyframe/keyframe_animation_unittest.cc",
@@ -698,6 +691,8 @@ test("gfx_unittests") {
     "font_names_testing.cc",
     "font_names_testing.h",
     "font_unittest.cc",
+    "geometry/linear_gradient_unittest.cc",
+    "geometry/mask_filter_info_unittest.cc",
     "geometry/rrect_f_unittest.cc",
     "geometry/transform_operations_unittest.cc",
     "geometry/transform_unittest.cc",
@@ -710,11 +705,11 @@ test("gfx_unittests") {
     "text_elider_unittest.cc",
     "text_utils_unittest.cc",
   ]
+  if (is_linux) {
+    sources += [ "font_render_params_linux_unittest.cc" ]
+  }
   if (is_linux || is_chromeos) {
-    sources += [
-      "font_fallback_linux_unittest.cc",
-      "font_render_params_linux_unittest.cc",
-    ]
+    sources += [ "font_fallback_linux_unittest.cc" ]
   }
   if (is_mac) {
     sources += [
@@ -722,7 +717,6 @@ test("gfx_unittests") {
       "image/image_mac_unittest.mm",
       "mac/coordinate_conversion_unittest.mm",
       "mac/io_surface_unittest.cc",
-      "path_mac_unittest.mm",
       "platform_font_mac_unittest.mm",
       "range/range_mac_unittest.mm",
     ]
@@ -760,6 +754,7 @@ test("gfx_unittests") {
       "codec/jpeg_codec_unittest.cc",
       "codec/png_codec_unittest.cc",
       "color_analysis_unittest.cc",
+      "color_conversions_unittest.cc",
       "color_space_unittest.cc",
       "color_transform_unittest.cc",
       "color_utils_unittest.cc",
@@ -850,10 +845,6 @@ test("gfx_unittests") {
     deps += [ "//ui/resources:ui_test_pak_bundle_data" ]
   }
 
-  if (is_mac) {
-    deps += [ ":gfx_io_surface_hdr_metadata" ]
-  }
-
   if (is_android) {
     deps += [ "//ui/android:ui_java" ]
   }
@@ -904,6 +895,10 @@ test("gfx_unittests") {
     ]
   }
 
+  if (is_linux) {
+    deps += [ "//ui/linux:test_support" ]
+  }
+
   if (is_linux || is_chromeos) {
     sources += [
       "linux/fontconfig_util_unittest.cc",
@@ -914,6 +909,8 @@ test("gfx_unittests") {
 
   if (is_fuchsia) {
     deps += [ "//skia:test_fonts" ]
+    additional_manifest_fragments =
+        [ "//build/config/fuchsia/test/test_fonts.shard.test-cml" ]
   }
 }
 

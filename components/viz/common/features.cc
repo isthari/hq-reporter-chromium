@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,133 +33,118 @@ const char kDynamicSchedulerPercentile[] = "percentile";
 
 namespace features {
 
-// Enables the use of power hint APIs on Android.
-const base::Feature kAdpf{"Adpf", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kEnableOverlayPrioritization,
+             "EnableOverlayPrioritization",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-// Target duration used for power hint on Android.
-const base::FeatureParam<int> kAdpfTargetDurationMs{&kAdpf,
-                                                    "AdpfTargetDurationMs", 12};
-
-const base::Feature kEnableOverlayPrioritization {
-  "EnableOverlayPrioritization",
-#if BUILDFLAG(USE_CHROMEOS_PROTECTED_MEDIA)
-      base::FEATURE_ENABLED_BY_DEFAULT
+BASE_FEATURE(kUseMultipleOverlays,
+             "UseMultipleOverlays",
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+             base::FEATURE_ENABLED_BY_DEFAULT
 #else
-      base::FEATURE_DISABLED_BY_DEFAULT
+             base::FEATURE_DISABLED_BY_DEFAULT
 #endif
-};
-
-const base::Feature kUseMultipleOverlays{"UseMultipleOverlays",
-                                         base::FEATURE_DISABLED_BY_DEFAULT};
+);
 const char kMaxOverlaysParam[] = "max_overlays";
 
-const base::Feature kDelegatedCompositing{"DelegatedCompositing",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kSimpleFrameRateThrottling{
-    "SimpleFrameRateThrottling", base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Use the SkiaRenderer.
-const base::Feature kUseSkiaRenderer {
-  "UseSkiaRenderer",
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID) ||           \
-    BUILDFLAG(IS_CHROMEOS_LACROS) || BUILDFLAG(IS_LINUX) || \
-    BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_MAC)
-      base::FEATURE_ENABLED_BY_DEFAULT
+BASE_FEATURE(kDelegatedCompositing,
+             "DelegatedCompositing",
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+             base::FEATURE_ENABLED_BY_DEFAULT
 #else
-      base::FEATURE_DISABLED_BY_DEFAULT
+             base::FEATURE_DISABLED_BY_DEFAULT
 #endif
-};
+);
 
-// Kill-switch to disable de-jelly, even if flags/properties indicate it should
-// be enabled.
-const base::Feature kDisableDeJelly{"DisableDeJelly",
-                                    base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kVideoDetectorIgnoreNonVideos,
+             "VideoDetectorIgnoreNonVideos",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-// On platform and configuration where viz controls the allocation of frame
-// buffers (ie SkiaOutputDeviceBufferQueue is used), allocate and release frame
-// buffers on demand.
-const base::Feature kDynamicBufferQueueAllocation{
-    "DynamicBufferQueueAllocation", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kSimpleFrameRateThrottling,
+             "SimpleFrameRateThrottling",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 #if BUILDFLAG(IS_ANDROID)
 // When wide color gamut content from the web is encountered, promote our
 // display to wide color gamut if supported.
-const base::Feature kDynamicColorGamut{"DynamicColorGamut",
-                                       base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kDynamicColorGamut,
+             "DynamicColorGamut",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 #endif
-
-// Uses glClear to composite solid color quads whenever possible.
-const base::Feature kFastSolidColorDraw{"FastSolidColorDraw",
-                                        base::FEATURE_DISABLED_BY_DEFAULT};
 
 // Submit CompositorFrame from SynchronousLayerTreeFrameSink directly to viz in
 // WebView.
-const base::Feature kVizFrameSubmissionForWebView{
-    "VizFrameSubmissionForWebView", base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kUsePreferredIntervalForVideo{
-  "UsePreferredIntervalForVideo",
-#if BUILDFLAG(IS_ANDROID)
-      base::FEATURE_DISABLED_BY_DEFAULT
-#else
-      base::FEATURE_ENABLED_BY_DEFAULT
-#endif
-};
+BASE_FEATURE(kVizFrameSubmissionForWebView,
+             "VizFrameSubmissionForWebView",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 // Whether we should use the real buffers corresponding to overlay candidates in
 // order to do a pageflip test rather than allocating test buffers.
-const base::Feature kUseRealBuffersForPageFlipTest{
-    "UseRealBuffersForPageFlipTest", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kUseRealBuffersForPageFlipTest,
+             "UseRealBuffersForPageFlipTest",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 #if BUILDFLAG(IS_FUCHSIA)
 // Enables SkiaOutputDeviceBufferQueue instead of Vulkan swapchain on Fuchsia.
-const base::Feature kUseSkiaOutputDeviceBufferQueue{
-    "UseSkiaOutputDeviceBufferQueue", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kUseSkiaOutputDeviceBufferQueue,
+             "UseSkiaOutputDeviceBufferQueue",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 #endif
 
 // Whether we should log extra debug information to webrtc native log.
-const base::Feature kWebRtcLogCapturePipeline{
-    "WebRtcLogCapturePipeline", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kWebRtcLogCapturePipeline,
+             "WebRtcLogCapturePipeline",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 #if BUILDFLAG(IS_WIN)
 // Enables swap chains to call SetPresentDuration to request DWM/OS to reduce
 // vsync.
-const base::Feature kUseSetPresentDuration{"UseSetPresentDuration",
-                                           base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kUseSetPresentDuration,
+             "UseSetPresentDuration",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 #endif  // BUILDFLAG(IS_WIN)
 
 // Enables platform supported delegated ink trails instead of Skia backed
 // delegated ink trails.
-const base::Feature kUsePlatformDelegatedInk{"UsePlatformDelegatedInk",
-                                             base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kUsePlatformDelegatedInk,
+             "UsePlatformDelegatedInk",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 // Used to debug Android WebView Vulkan composite. Composite to an intermediate
 // buffer and draw the intermediate buffer to the secondary command buffer.
-const base::Feature kWebViewVulkanIntermediateBuffer{
-    "WebViewVulkanIntermediateBuffer", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kWebViewVulkanIntermediateBuffer,
+             "WebViewVulkanIntermediateBuffer",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 #if BUILDFLAG(IS_ANDROID)
 // Hardcoded as disabled for WebView to have a different default for
 // UseSurfaceLayerForVideo from chrome.
-const base::Feature kUseSurfaceLayerForVideoDefault{
-    "UseSurfaceLayerForVideoDefault", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kUseSurfaceLayerForVideoDefault,
+             "UseSurfaceLayerForVideoDefault",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+
+BASE_FEATURE(kWebViewNewInvalidateHeuristic,
+             "WebViewNewInvalidateHeuristic",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 // Historically media on android hardcoded SRGB color space because of lack of
 // color space support in surface control. This controls if we want to use real
 // color space in DisplayCompositor.
-const base::Feature kUseRealVideoColorSpaceForDisplay{
-    "UseRealVideoColorSpaceForDisplay", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kUseRealVideoColorSpaceForDisplay,
+             "UseRealVideoColorSpaceForDisplay",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 #endif
 
 // Used by CC to throttle frame production of older surfaces. Used by the
 // Browser to batch SurfaceSync calls sent to the Renderer for properties can
 // change in close proximity to each other.
-const base::Feature kSurfaceSyncThrottling{"SurfaceSyncThrottling",
-                                           base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kSurfaceSyncThrottling,
+             "SurfaceSyncThrottling",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kDrawPredictedInkPoint{"DrawPredictedInkPoint",
-                                           base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kDrawPredictedInkPoint,
+             "DrawPredictedInkPoint",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 const char kDraw1Point12Ms[] = "1-pt-12ms";
 const char kDraw2Points6Ms[] = "2-pt-6ms";
 const char kDraw1Point6Ms[] = "1-pt-6ms";
@@ -171,15 +156,18 @@ const char kPredictorLinear2[] = "linear-2";
 const char kPredictorLsq[] = "lsq";
 
 // Used by Viz to parameterize adjustments to scheduler deadlines.
-const base::Feature kDynamicSchedulerForDraw{"DynamicSchedulerForDraw",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kDynamicSchedulerForDraw,
+             "DynamicSchedulerForDraw",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 // User to parameterize adjustments to clients' deadlines.
-const base::Feature kDynamicSchedulerForClients{
-    "DynamicSchedulerForClients", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kDynamicSchedulerForClients,
+             "DynamicSchedulerForClients",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 #if BUILDFLAG(IS_MAC)
-const base::Feature kMacCAOverlayQuad{"MacCAOverlayQuads",
-                                      base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kMacCAOverlayQuad,
+             "MacCAOverlayQuads",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 // The maximum supported overlay quad number on Mac CALayerOverlay.
 // The default is set to -1. When MaxNum is < 0, the default in CALayerOverlay
 // will be used instead.
@@ -187,17 +175,59 @@ const base::FeatureParam<int> kMacCAOverlayQuadMaxNum{
     &kMacCAOverlayQuad, "MacCAOverlayQuadMaxNum", -1};
 #endif
 
-bool IsAdpfEnabled() {
-  // TODO(crbug.com/1157620): Limit this to correct android version.
-  return base::FeatureList::IsEnabled(kAdpf);
-}
+#if BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_OZONE)
+BASE_FEATURE(kCanSkipRenderPassOverlay,
+             "CanSkipRenderPassOverlay",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+#endif
 
-bool IsClipPrewalkDamageEnabled() {
-  static constexpr base::Feature kClipPrewalkDamage{
-      "ClipPrewalkDamage", base::FEATURE_DISABLED_BY_DEFAULT};
+// TODO(crbug.com/1357744): Solve the vulkan flakiness issue before enabling
+// this on Linux.
+BASE_FEATURE(kAllowUndamagedNonrootRenderPassToSkip,
+             "AllowUndamagedNonrootRenderPassToSkip",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-  return base::FeatureList::IsEnabled(kClipPrewalkDamage);
-}
+// Whether to:
+// - Perform periodic inactive frame culling.
+// - Cull *all* frames in case of critical memory pressure, rather than keeping
+//   one.
+BASE_FEATURE(kAggressiveFrameCulling,
+             "AggressiveFrameCulling",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+// If enabled, do not rely on surface garbage collection to happen
+// periodically, but trigger it eagerly, to avoid missing calls.
+BASE_FEATURE(kEagerSurfaceGarbageCollection,
+             "EagerSurfaceGarbageCollection",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+// Only applies when a caller has requested a custom BeginFrame rate via the
+// Throttle() API in frame_sink_manager.mojom. If enabled, parameters related
+// to the BeginFrame rate are overridden in viz to reflect the throttled rate
+// before being circulated in the system. The most notable are the interval and
+// deadline in BeginFrameArgs. If disabled, these parameters reflect the default
+// vsync rate (the behavior at the time this feature was created.)
+BASE_FEATURE(kOverrideThrottledFrameRateParams,
+             "OverrideThrottledFrameRateParams",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+// Used to gate calling SetPurgeable on OutputPresenter::Image from
+// SkiaOutputDeviceBufferQueue.
+BASE_FEATURE(kBufferQueueImageSetPurgeable,
+             "BufferQueueImageSetPurgeable",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+// On platforms using SkiaOutputDeviceBufferQueue, when this is true
+// SkiaRenderer will allocate and maintain a buffer queue of images for the root
+// render pass, instead of SkiaOutputDeviceBufferQueue itself.
+BASE_FEATURE(kRendererAllocatesImages,
+             "RendererAllocatesImages",
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_CHROMEOS_ASH)
+             base::FEATURE_ENABLED_BY_DEFAULT
+#else
+             base::FEATURE_DISABLED_BY_DEFAULT
+#endif
+);
 
 bool IsOverlayPrioritizationEnabled() {
   return base::FeatureList::IsEnabled(kEnableOverlayPrioritization);
@@ -210,36 +240,14 @@ bool IsDelegatedCompositingEnabled() {
 // If a synchronous IPC should used when destroying windows. This exists to test
 // the impact of removing the sync IPC.
 bool IsSyncWindowDestructionEnabled() {
-  static constexpr base::Feature kSyncWindowDestruction{
-      "SyncWindowDestruction", base::FEATURE_ENABLED_BY_DEFAULT};
+  static BASE_FEATURE(kSyncWindowDestruction, "SyncWindowDestruction",
+                      base::FEATURE_ENABLED_BY_DEFAULT);
 
   return base::FeatureList::IsEnabled(kSyncWindowDestruction);
 }
 
 bool IsSimpleFrameRateThrottlingEnabled() {
   return base::FeatureList::IsEnabled(kSimpleFrameRateThrottling);
-}
-
-bool IsUsingSkiaRenderer() {
-#if BUILDFLAG(IS_ANDROID)
-  // We don't support KitKat. Check for it before looking at the feature flag
-  // so that KitKat doesn't show up in Control or Enabled experiment group.
-  if (base::android::BuildInfo::GetInstance()->sdk_int() <=
-      base::android::SDK_VERSION_KITKAT)
-    return false;
-#endif
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  // TODO(https://crbug.com/1145180): SkiaRenderer isn't supported on Chrome
-  // OS boards that still use the legacy video decoder.
-  auto* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(
-          switches::kPlatformDisallowsChromeOSDirectVideoDecoder))
-    return false;
-#endif
-
-  return base::FeatureList::IsEnabled(kUseSkiaRenderer) ||
-         features::IsUsingVulkan();
 }
 
 #if BUILDFLAG(IS_ANDROID)
@@ -253,16 +261,8 @@ bool IsDynamicColorGamutEnabled() {
 }
 #endif
 
-bool IsUsingFastPathForSolidColorQuad() {
-  return base::FeatureList::IsEnabled(kFastSolidColorDraw);
-}
-
 bool IsUsingVizFrameSubmissionForWebView() {
   return base::FeatureList::IsEnabled(kVizFrameSubmissionForWebView);
-}
-
-bool IsUsingPreferredIntervalForVideo() {
-  return base::FeatureList::IsEnabled(kUsePreferredIntervalForVideo);
 }
 
 bool ShouldUseRealBuffersForPageFlipTest() {
@@ -309,15 +309,23 @@ bool ShouldUsePlatformDelegatedInk() {
   return base::FeatureList::IsEnabled(kUsePlatformDelegatedInk);
 }
 
-#if BUILDFLAG(IS_ANDROID)
 bool UseSurfaceLayerForVideo() {
+#if BUILDFLAG(IS_ANDROID)
+  // SurfaceLayer video should work fine with new heuristic.
+  if (base::FeatureList::IsEnabled(kWebViewNewInvalidateHeuristic))
+    return true;
+
   // Allow enabling UseSurfaceLayerForVideo if webview is using surface control.
   if (::features::IsAndroidSurfaceControlEnabled()) {
     return true;
   }
   return base::FeatureList::IsEnabled(kUseSurfaceLayerForVideoDefault);
+#else
+  return true;
+#endif
 }
 
+#if BUILDFLAG(IS_ANDROID)
 bool UseRealVideoColorSpaceForDisplay() {
   // We need Android S for proper color space support in SurfaceControl.
   if (base::android::BuildInfo::GetInstance()->sdk_int() <
@@ -369,7 +377,19 @@ int MaxOverlaysConsidered() {
   }
 
   return base::GetFieldTrialParamByFeatureAsInt(kUseMultipleOverlays,
-                                                kMaxOverlaysParam, 2);
+                                                kMaxOverlaysParam, 8);
+}
+
+bool ShouldVideoDetectorIgnoreNonVideoFrames() {
+  return base::FeatureList::IsEnabled(kVideoDetectorIgnoreNonVideos);
+}
+
+bool ShouldOverrideThrottledFrameRateParams() {
+  return base::FeatureList::IsEnabled(kOverrideThrottledFrameRateParams);
+}
+
+bool ShouldRendererAllocateImages() {
+  return base::FeatureList::IsEnabled(kRendererAllocatesImages);
 }
 
 }  // namespace features

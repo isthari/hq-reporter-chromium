@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/task_type.h"
@@ -28,7 +29,6 @@
 
 #if BUILDFLAG(IS_ANDROID)
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/renderer/platform/mojo/mojo_helper.h"
 #endif  // BUILDFLAG(IS_ANDROID)
 
 #undef atan2  // to use std::atan2 instead of wtf_atan2
@@ -170,7 +170,7 @@ void MediaControlsOrientationLockDelegate::MaybeListenToDeviceOrientation() {
   Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
       monitor_.BindNewPipeAndPassReceiver(
           GetDocument().GetTaskRunner(TaskType::kMediaElementEvent)));
-  monitor_->IsAutoRotateEnabledByUser(WTF::Bind(
+  monitor_->IsAutoRotateEnabledByUser(WTF::BindOnce(
       &MediaControlsOrientationLockDelegate::GotIsAutoRotateEnabledByUser,
       WrapPersistent(this)));
 #else
@@ -419,7 +419,7 @@ void MediaControlsOrientationLockDelegate::
       // fully unlock to
       // device::mojom::blink::ScreenOrientationLockType::DEFAULT once
       // fullscreen is exited.
-      WTF::Bind(
+      WTF::BindOnce(
           &MediaControlsOrientationLockDelegate::ChangeLockToAnyOrientation,
           WrapPersistent(this)),
       kLockToAnyDelay);

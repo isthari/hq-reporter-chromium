@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "ash/constants/ash_switches.h"
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
@@ -138,7 +139,7 @@ bool PowerNotificationController::MaybeShowUsbChargerNotification() {
   // Check if the notification needs to be created.
   if (show && !usb_charger_was_connected_ && !usb_notification_dismissed_) {
     bool on_battery = PowerStatus::Get()->IsBatteryPresent();
-    std::unique_ptr<Notification> notification = CreateSystemNotification(
+    std::unique_ptr<Notification> notification = CreateSystemNotificationPtr(
         message_center::NOTIFICATION_TYPE_SIMPLE, kUsbNotificationId,
         l10n_util::GetStringUTF16(
             on_battery ? IDS_ASH_STATUS_TRAY_LOW_POWER_CHARGER_TITLE
@@ -153,7 +154,9 @@ bool PowerNotificationController::MaybeShowUsbChargerNotification() {
                       PowerStatus::Get()->GetPreferredMinimumPower(), 0)),
         std::u16string(), GURL(),
         message_center::NotifierId(
-            message_center::NotifierType::SYSTEM_COMPONENT, kNotifierPower),
+            message_center::NotifierType::SYSTEM_COMPONENT, kNotifierPower,
+            on_battery ? NotificationCatalogName::kLowPowerCharger
+                       : NotificationCatalogName::kLowPowerAdapter),
         message_center::RichNotificationData(),
         new UsbNotificationDelegate(this), kNotificationLowPowerChargerIcon,
         message_center::SystemNotificationWarningLevel::WARNING);

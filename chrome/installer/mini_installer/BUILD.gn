@@ -1,4 +1,4 @@
-# Copyright 2015 The Chromium Authors. All rights reserved.
+# Copyright 2015 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -143,7 +143,7 @@ action("mini_installer_archive") {
     "--resource_file_path",
     rebase_path(packed_files_rc_file, root_build_dir),
     "--target_arch=$current_cpu",
-    "--distribution=_${branding_path_component}",
+    "--distribution=_${branding_path_product}",
     "--output_dir",
     rebase_path(root_out_dir, root_build_dir),
     "--chrome_runtime_deps",
@@ -317,7 +317,7 @@ if (!(is_component_build && is_debug && target_cpu == "x86") &&
       "--out",
       "$target_name.exe",
       "--path_7za",
-      "../../third_party/lzma_sdk/Executable",
+      "../../third_party/lzma_sdk/bin/win64",
     ]
     deps = [
       ":mini_installer",

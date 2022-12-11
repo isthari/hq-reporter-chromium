@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/safe_ref.h"
 #include "base/supports_user_data.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/frame_type.h"
@@ -25,13 +26,18 @@
 #include "net/dns/public/resolve_error_info.h"
 #include "net/http/http_response_info.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
-#include "services/network/public/cpp/resource_request_body.h"
+#include "services/network/public/mojom/web_sandbox_flags.mojom-forward.h"
 #include "third_party/blink/public/common/navigation/impression.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/loader/referrer.mojom.h"
-#include "third_party/blink/public/mojom/loader/transferrable_url_loader.mojom.h"
+#include "third_party/blink/public/mojom/loader/transferrable_url_loader.mojom-forward.h"
+#include "third_party/blink/public/mojom/navigation/navigation_initiator_activation_and_ad_status.mojom.h"
 #include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 #include "ui/base/page_transition_types.h"
+
+#if BUILDFLAG(IS_ANDROID)
+#include "base/android/scoped_java_ref.h"
+#endif
 
 class GURL;
 
@@ -41,7 +47,12 @@ class HttpResponseHeaders;
 class ProxyServer;
 }  // namespace net
 
+namespace perfetto::protos::pbzero {
+class NavigationHandle;
+}  // namespace perfetto::protos::pbzero
+
 namespace content {
+class CommitDeferringCondition;
 struct GlobalRenderFrameHostId;
 struct GlobalRequestID;
 class NavigationEntry;
@@ -105,7 +116,15 @@ class CONTENT_EXPORT NavigationHandle : public base::SupportsUserData {
   // additional frame trees for prerendering pages in addition to the primary
   // frame tree (holding the page currently shown to the user). The return
   // value remains constant over the navigation lifetime.
+  // See docs/frame_trees.md for more details.
   virtual bool IsInPrimaryMainFrame() const = 0;
+
+  // Whether the navigation is taking place in a main frame which does not have
+  // an outer document. For example, this will return true for the primary main
+  // frame and for a prerendered main frame, but false for a <fencedframe>. See
+  // documentation for `RenderFrameHost::GetParentOrOuterDocument()` for more
+  // details.
+  virtual bool IsInOutermostMainFrame() = 0;
 
   // Prerender2:
   // Whether the navigation is taking place in the main frame of the
@@ -117,10 +136,15 @@ class CONTENT_EXPORT NavigationHandle : public base::SupportsUserData {
   // constant over the navigation lifetime.
   virtual bool IsInPrerenderedMainFrame() = 0;
 
-  // Prerender2
+  // Prerender2:
   // Returns true if this navigation will activate a prerendered page. It is
   // only meaningful to call this after BeginNavigation().
-  virtual bool IsPrerenderedPageActivation() = 0;
+  virtual bool IsPrerenderedPageActivation() const = 0;
+
+  // FencedFrame:
+  // Returns true if the navigation is taking place in a frame in a fenced frame
+  // tree.
+  virtual bool IsInFencedFrameTree() const = 0;
 
   // Returns the type of the frame in which this navigation is taking place.
   virtual FrameType GetNavigatingFrameType() const = 0;
@@ -139,6 +163,13 @@ class CONTENT_EXPORT NavigationHandle : public base::SupportsUserData {
   //  * navigations via browser UI: Ctrl-R, refresh/forward/back/home buttons
   //  * any other "explicit" URL navigations, e.g. bookmarks
   virtual bool IsRendererInitiated() = 0;
+
+  // The navigation initiator's user activation and ad status.
+  //
+  // TODO(yaoxia): this will be used for recording a page load UKM
+  // (https://crrev.com/c/4080612).
+  virtual blink::mojom::NavigationInitiatorActivationAndAdStatus
+  GetNavigationInitiatorActivationAndAdStatus() = 0;
 
   // Whether the previous document in this frame was same-origin with the new
   // one created by this navigation.
@@ -256,7 +287,10 @@ class CONTENT_EXPORT NavigationHandle : public base::SupportsUserData {
   // changes that occur during navigation.) This can only be accessed after a
   // response has been delivered for processing, or after the navigation fails
   // with an error page.
-  virtual RenderFrameHost* GetRenderFrameHost() = 0;
+  //
+  // Note that null will be returned for downloads and/or 204 responses, because
+  // they don't commit a new document into a renderer process.
+  virtual RenderFrameHost* GetRenderFrameHost() const = 0;
 
   // Returns the id of the RenderFrameHost this navigation is committing from.
   // In case a navigation happens within the same RenderFrameHost,
@@ -276,7 +310,7 @@ class CONTENT_EXPORT NavigationHandle : public base::SupportsUserData {
   // * reference fragment navigations
   // * pushState/replaceState
   // * same page history navigation
-  virtual bool IsSameDocument() = 0;
+  virtual bool IsSameDocument() const = 0;
 
   // Whether the navigation has encountered a server redirect or not.
   virtual bool WasServerRedirect() = 0;
@@ -292,13 +326,13 @@ class CONTENT_EXPORT NavigationHandle : public base::SupportsUserData {
   // This returns true for either successful commits or error pages that
   // replace the previous page (distinguished by |IsErrorPage|), and false for
   // errors that leave the user on the previous page.
-  virtual bool HasCommitted() = 0;
+  virtual bool HasCommitted() const = 0;
 
   // Whether the navigation committed an error page.
   //
   // DO NOT use this before the navigation commit. It would always return false.
   // You can use it from WebContentsObserver::DidFinishNavigation().
-  virtual bool IsErrorPage() = 0;
+  virtual bool IsErrorPage() const = 0;
 
   // Not all committed subframe navigations (i.e., !IsInMainFrame &&
   // HasCommitted) end up causing a change of the current NavigationEntry. For
@@ -318,12 +352,14 @@ class CONTENT_EXPORT NavigationHandle : public base::SupportsUserData {
   // Returns true if the browser history should be updated. Otherwise only
   // the session history will be updated. E.g., on unreachable urls or other
   // navigations that the users may not think of as navigations (such as
-  // happens with 'history.replaceState()').
+  // happens with 'history.replaceState()'), or navigations in non-primary frame
+  // trees or portals that should not appear in history.
   virtual bool ShouldUpdateHistory() = 0;
 
   // The previous main frame URL that the user was on. This may be empty if
-  // there was no last committed entry.
-  virtual const GURL& GetPreviousMainFrameURL() = 0;
+  // there was no last committed entry. It is only valid to call this for
+  // navigations in the primary main frame itself or its subframes.
+  virtual const GURL& GetPreviousPrimaryMainFrameURL() = 0;
 
   // Returns the remote address of the socket which fetched this resource.
   virtual net::IPEndPoint GetSocketAddress() = 0;
@@ -513,8 +549,10 @@ class CONTENT_EXPORT NavigationHandle : public base::SupportsUserData {
   // Whether this navigation is for PDF content in a PDF-specific renderer.
   virtual bool IsPdf() = 0;
 
+  using TraceProto = perfetto::protos::pbzero::NavigationHandle;
   // Write a representation of this object into a trace.
-  virtual void WriteIntoTrace(perfetto::TracedValue context) = 0;
+  virtual void WriteIntoTrace(
+      perfetto::TracedProto<TraceProto> context) const = 0;
 
   // Sets an overall request timeout for this navigation, which will cause the
   // navigation to fail if it expires before the navigation commits. This is
@@ -524,10 +562,17 @@ class CONTENT_EXPORT NavigationHandle : public base::SupportsUserData {
   // will be ignored (they won't reset the timeout) and will return `false`.
   virtual bool SetNavigationTimeout(base::TimeDelta timeout) = 0;
 
+  // Configures whether a Cookie header added to this request should not be
+  // overwritten by the network service.
+  virtual void SetAllowCookiesFromBrowser(bool allow_cookies_from_browser) = 0;
+
   // Prerender2:
   // Used for metrics.
   virtual PrerenderTriggerType GetPrerenderTriggerType() = 0;
   virtual std::string GetPrerenderEmbedderHistogramSuffix() = 0;
+
+  // Returns a SafeRef to this handle.
+  virtual base::SafeRef<NavigationHandle> GetSafeRef() = 0;
 
   // Testing methods ----------------------------------------------------------
   //
@@ -546,6 +591,21 @@ class CONTENT_EXPORT NavigationHandle : public base::SupportsUserData {
   // Returns whether this navigation is currently deferred.
   virtual bool IsDeferredForTesting() = 0;
   virtual bool IsCommitDeferringConditionDeferredForTesting() = 0;
+
+#if BUILDFLAG(IS_ANDROID)
+  // Returns a reference to NavigationHandle Java counterpart.
+  virtual const base::android::JavaRef<jobject>& GetJavaNavigationHandle() = 0;
+#endif
+
+  // Returns the CommitDeferringCondition that is currently preventing this
+  // navigation from committing, or nullptr if the navigation isn't currently
+  // blocked on a CommitDeferringCondition.
+  virtual CommitDeferringCondition* GetCommitDeferringConditionForTesting() = 0;
+
+  // Returns true if the navigation is a reload due to the existing document
+  // represented by the FrameTreeNode being previously discarded by the browser.
+  // This can be used as soon as the navigation begins.
+  virtual bool ExistingDocumentWasDiscarded() const = 0;
 };
 
 }  // namespace content

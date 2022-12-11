@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,12 +28,14 @@
 #include "ash/shell.h"
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/test/bind.h"
+#include "base/test/scoped_run_loop_timeout.h"
 #include "base/threading/scoped_blocking_call.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
 #include "chromeos/dbus/power/power_manager_client.h"
@@ -64,16 +66,16 @@ class TestAmbientPhotoCacheImpl : public AmbientPhotoCache {
                        : base::StringPrintf("test_image_%i", download_count_));
     download_count_++;
     // Pretend to respond asynchronously.
-    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, base::BindOnce(std::move(callback), std::move(data)),
-        base::Milliseconds(1));
+        photo_download_delay_);
   }
 
   void DownloadPhotoToFile(const std::string& url,
                            int cache_index,
                            base::OnceCallback<void(bool)> callback) override {
     if (!download_data_) {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(callback), /*success=*/false));
       return;
     }
@@ -84,7 +86,7 @@ class TestAmbientPhotoCacheImpl : public AmbientPhotoCache {
     files_.insert(
         std::pair<int, ::ambient::PhotoCacheEntry>(cache_index, cache_entry));
 
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), /*success=*/true));
   }
 
@@ -99,7 +101,7 @@ class TestAmbientPhotoCacheImpl : public AmbientPhotoCache {
     decoded_image_.reset();
 
     // Pretend to respond asynchronously.
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), image));
   }
 
@@ -111,17 +113,16 @@ class TestAmbientPhotoCacheImpl : public AmbientPhotoCache {
     std::move(callback).Run();
   }
 
-  void ReadPhotoCache(int cache_index,
-                      ::ambient::PhotoCacheEntry* cache_entry,
-                      base::OnceCallback<void()> callback) override {
+  void ReadPhotoCache(
+      int cache_index,
+      base::OnceCallback<void(::ambient::PhotoCacheEntry)> callback) override {
     auto it = files_.find(cache_index);
     if (it == files_.end()) {
-      std::move(callback).Run();
+      std::move(callback).Run(::ambient::PhotoCacheEntry());
       return;
     }
 
-    *cache_entry = it->second;
-    std::move(callback).Run();
+    std::move(callback).Run(it->second);
   }
 
   void Clear() override {
@@ -143,6 +144,10 @@ class TestAmbientPhotoCacheImpl : public AmbientPhotoCache {
 
   void SetDecodedPhoto(const gfx::ImageSkia& image) { decoded_image_ = image; }
 
+  void SetPhotoDownloadDelay(base::TimeDelta delay) {
+    photo_download_delay_ = delay;
+  }
+
   const std::map<int, ::ambient::PhotoCacheEntry>& get_files() {
     return files_;
   }
@@ -159,6 +164,8 @@ class TestAmbientPhotoCacheImpl : public AmbientPhotoCache {
   absl::optional<gfx::ImageSkia> decoded_image_;
 
   std::map<int, ::ambient::PhotoCacheEntry> files_;
+
+  base::TimeDelta photo_download_delay_ = base::Milliseconds(1);
 };
 
 AmbientAshTestBase::AmbientAshTestBase()
@@ -204,10 +211,29 @@ void AmbientAshTestBase::SetAmbientAnimationTheme(AmbientAnimationTheme theme) {
 void AmbientAshTestBase::ShowAmbientScreen() {
   // The widget will be destroyed in |AshTestBase::TearDown()|.
   ambient_controller()->ShowUi();
-  // The UI only shows when images are downloaded to avoid showing blank screen.
-  FastForwardToNextImage();
-  // Flush the message loop to finish all async calls.
-  base::RunLoop().RunUntilIdle();
+
+  static constexpr base::TimeDelta kTimeout = base::Seconds(10);
+  base::test::ScopedRunLoopTimeout loop_timeout(FROM_HERE, kTimeout);
+  base::RunLoop run_loop;
+  task_environment()->GetMainThreadTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&AmbientAshTestBase::SpinWaitForAmbientViewAvailable,
+                     base::Unretained(this), run_loop.QuitClosure()));
+  run_loop.Run();
+}
+
+void AmbientAshTestBase::SpinWaitForAmbientViewAvailable(
+    const base::RepeatingClosure& quit_closure) {
+  if (GetContainerView()) {
+    quit_closure.Run();
+  } else {
+    static constexpr base::TimeDelta kPollingPeriod = base::Milliseconds(250);
+    task_environment()->GetMainThreadTaskRunner()->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&AmbientAshTestBase::SpinWaitForAmbientViewAvailable,
+                       base::Unretained(this), quit_closure),
+        kPollingPeriod);
+  }
 }
 
 void AmbientAshTestBase::HideAmbientScreen() {
@@ -239,6 +265,14 @@ void AmbientAshTestBase::SimulateSystemSuspendAndWait(
 void AmbientAshTestBase::SimulateSystemResumeAndWait() {
   chromeos::FakePowerManagerClient::Get()->SendSuspendDone();
   base::RunLoop().RunUntilIdle();
+}
+
+void AmbientAshTestBase::SimulatePowerButtonClick() {
+  chromeos::FakePowerManagerClient::Get()->SendPowerButtonEvent(
+      true, task_environment()->NowTicks());
+  FastForwardTiny();
+  chromeos::FakePowerManagerClient::Get()->SendPowerButtonEvent(
+      false, task_environment()->NowTicks());
 }
 
 void AmbientAshTestBase::SetScreenIdleStateAndWait(bool is_screen_dimmed,
@@ -473,6 +507,10 @@ AmbientPhotoCache* AmbientAshTestBase::photo_cache() {
   return photo_controller()->get_photo_cache_for_testing();
 }
 
+AmbientWeatherController* AmbientAshTestBase::weather_controller() {
+  return ambient_controller()->ambient_weather_controller();
+}
+
 std::vector<AmbientContainerView*> AmbientAshTestBase::GetContainerViews() {
   std::vector<AmbientContainerView*> result;
   for (auto* ctrl : RootWindowController::root_window_controllers()) {
@@ -553,6 +591,13 @@ void AmbientAshTestBase::SetDecodePhotoImage(const gfx::ImageSkia& image) {
       photo_controller()->get_photo_cache_for_testing());
 
   photo_cache->SetDecodedPhoto(image);
+}
+
+void AmbientAshTestBase::SetPhotoDownloadDelay(base::TimeDelta delay) {
+  auto* photo_cache = static_cast<TestAmbientPhotoCacheImpl*>(
+      photo_controller()->get_photo_cache_for_testing());
+
+  photo_cache->SetPhotoDownloadDelay(delay);
 }
 
 }  // namespace ash

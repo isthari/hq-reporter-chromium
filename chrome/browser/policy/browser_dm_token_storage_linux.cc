@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,8 +19,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/syslog_logging.h"
-#include "base/task/post_task.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
@@ -60,12 +58,22 @@ bool GetDmTokenFilePath(base::FilePath* token_file_path,
 bool StoreDMTokenInUserDataDir(const std::string& token,
                                const std::string& client_id) {
   base::FilePath token_file_path;
-  if (!GetDmTokenFilePath(&token_file_path, client_id, true)) {
+  if (!GetDmTokenFilePath(&token_file_path, client_id, /*create_dir=*/true)) {
     NOTREACHED();
     return false;
   }
 
   return base::ImportantFileWriter::WriteFileAtomically(token_file_path, token);
+}
+
+bool DeleteDMTokenFromUserDataDir(const std::string& client_id) {
+  base::FilePath token_file_path;
+  if (!GetDmTokenFilePath(&token_file_path, client_id, /*create_dir=*/false)) {
+    NOTREACHED();
+    return false;
+  }
+
+  return base::DeleteFile(token_file_path);
 }
 
 }  // namespace
@@ -159,6 +167,11 @@ BrowserDMTokenStorage::StoreTask BrowserDMTokenStorageLinux::SaveDMTokenTask(
     const std::string& token,
     const std::string& client_id) {
   return base::BindOnce(&StoreDMTokenInUserDataDir, token, client_id);
+}
+
+BrowserDMTokenStorage::StoreTask BrowserDMTokenStorageLinux::DeleteDMTokenTask(
+    const std::string& client_id) {
+  return base::BindOnce(&DeleteDMTokenFromUserDataDir, client_id);
 }
 
 scoped_refptr<base::TaskRunner>

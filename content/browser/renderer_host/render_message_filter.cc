@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "base/numerics/safe_math.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
@@ -70,6 +69,7 @@
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 #include "base/linux_util.h"
 #include "base/threading/platform_thread.h"
+#include "content/public/browser/child_process_launcher_utils.h"
 #endif
 
 namespace content {
@@ -124,15 +124,19 @@ void RenderMessageFilter::GenerateFrameRoutingID(
   int32_t routing_id = render_widget_helper_->GetNextRoutingID();
   auto frame_token = blink::LocalFrameToken();
   auto devtools_frame_token = base::UnguessableToken::Create();
-  render_widget_helper_->StoreNextFrameRoutingID(routing_id, frame_token,
-                                                 devtools_frame_token);
-  std::move(callback).Run(routing_id, frame_token, devtools_frame_token);
+  auto document_token = blink::DocumentToken();
+  render_widget_helper_->StoreNextFrameRoutingID(
+      routing_id, frame_token, devtools_frame_token, document_token);
+  std::move(callback).Run(routing_id, frame_token, devtools_frame_token,
+                          document_token);
 }
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-void RenderMessageFilter::SetThreadPriorityOnFileThread(
+void RenderMessageFilter::SetThreadTypeOnLauncherThread(
     base::PlatformThreadId ns_tid,
-    base::ThreadPriority priority) {
+    base::ThreadType thread_type) {
+  DCHECK(CurrentlyOnProcessLauncherTaskRunner());
+
   bool ns_pid_supported = false;
   pid_t peer_tid = base::FindThreadID(peer_pid(), ns_tid, &ns_pid_supported);
   if (peer_tid == -1) {
@@ -146,20 +150,21 @@ void RenderMessageFilter::SetThreadPriorityOnFileThread(
     return;
   }
 
-  base::PlatformThread::SetThreadPriority(peer_pid(), peer_tid, priority);
+  base::PlatformThread::SetThreadType(peer_pid(), peer_tid, thread_type);
 }
 #endif
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-void RenderMessageFilter::SetThreadPriority(int32_t ns_tid,
-                                            base::ThreadPriority priority) {
-  constexpr base::TaskTraits kTraits = {
-      base::MayBlock(), base::TaskPriority::USER_BLOCKING,
-      base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN};
-  base::ThreadPool::PostTask(
-      FROM_HERE, kTraits,
-      base::BindOnce(&RenderMessageFilter::SetThreadPriorityOnFileThread, this,
-                     static_cast<base::PlatformThreadId>(ns_tid), priority));
+void RenderMessageFilter::SetThreadType(int32_t ns_tid,
+                                        base::ThreadType thread_type) {
+  // Post this task to process launcher task runner. All thread type changes
+  // (nice value, c-group setting) of renderer process would be performed on the
+  // same sequence as renderer process priority changes, to guarantee that
+  // there's no race of c-group manipulations.
+  GetProcessLauncherTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&RenderMessageFilter::SetThreadTypeOnLauncherThread, this,
+                     static_cast<base::PlatformThreadId>(ns_tid), thread_type));
 }
 #endif
 

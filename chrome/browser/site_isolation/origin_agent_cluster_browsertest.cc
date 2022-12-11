@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/network_session_configurator/common/network_switches.h"
 #include "components/page_load_metrics/browser/page_load_metrics_test_waiter.h"
+#include "components/variations/active_field_trials.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
@@ -120,21 +121,6 @@ class OriginAgentClusterBrowserTest : public InProcessBrowserTest {
     std::string origin_list =
         https_server()->GetURL("isolated.foo.com", "/").spec();
     command_line->AppendSwitchASCII(switches::kIsolateOrigins, origin_list);
-
-    // To keep the tests easier to reason about, turn off both the spare
-    // renderer process and process reuse for subframes in different
-    // BrowsingInstances.
-    if (enable_origin_agent_cluster_) {
-      feature_list_.InitWithFeatures(
-          /* enable_features */ {features::kOriginIsolationHeader,
-                                 features::kDisableProcessReuse},
-          /* disable_features */ {features::kSpareRendererForSitePerProcess});
-    } else {
-      feature_list_.InitWithFeatures(
-          /* enable_features */ {features::kDisableProcessReuse},
-          /* disable_features */ {features::kOriginIsolationHeader,
-                                  features::kSpareRendererForSitePerProcess});
-    }
   }
 
   void SetUpOnMainThread() override {
@@ -151,7 +137,22 @@ class OriginAgentClusterBrowserTest : public InProcessBrowserTest {
  protected:
   explicit OriginAgentClusterBrowserTest(bool enable_oac)
       : https_server_(net::EmbeddedTestServer::TYPE_HTTPS),
-        enable_origin_agent_cluster_(enable_oac) {}
+        enable_origin_agent_cluster_(enable_oac) {
+    // To keep the tests easier to reason about, turn off both the spare
+    // renderer process and process reuse for subframes in different
+    // BrowsingInstances.
+    if (enable_origin_agent_cluster_) {
+      feature_list_.InitWithFeatures(
+          /* enable_features */ {features::kOriginIsolationHeader,
+                                 features::kDisableProcessReuse},
+          /* disable_features */ {features::kSpareRendererForSitePerProcess});
+    } else {
+      feature_list_.InitWithFeatures(
+          /* enable_features */ {features::kDisableProcessReuse},
+          /* disable_features */ {features::kOriginIsolationHeader,
+                                  features::kSpareRendererForSitePerProcess});
+    }
+  }
 
  private:
   std::unique_ptr<net::test_server::HttpResponse> HandleResponse(
@@ -216,6 +217,28 @@ IN_PROC_BROWSER_TEST_F(OriginAgentClusterBrowserTest, Navigations) {
   EXPECT_TRUE(NavigateIframeToURL(web_contents, "test", origin_keyed_url));
 
   web_feature_waiter->Wait();
+}
+
+IN_PROC_BROWSER_TEST_F(OriginAgentClusterBrowserTest,
+                       SyntheticTrialActivation) {
+  const std::string kSyntheticTrialName =
+      "ProcessIsolatedOriginAgentClusterActive";
+  const std::string kSyntheticTrialGroup = "Enabled";
+
+  GURL start_url(https_server()->GetURL("foo.com", "/iframe.html"));
+  GURL origin_keyed_url(
+      https_server()->GetURL("origin-keyed.foo.com", "/origin_key_me"));
+
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), start_url));
+  // We won't have an active synthetic trial until we navigate to
+  // `origin_keyed_url`.
+  EXPECT_FALSE(variations::HasSyntheticTrial(kSyntheticTrialName));
+  EXPECT_TRUE(NavigateIframeToURL(web_contents, "test", origin_keyed_url));
+  EXPECT_TRUE(variations::IsInSyntheticTrialGroup(kSyntheticTrialName,
+                                                  kSyntheticTrialGroup));
 }
 
 IN_PROC_BROWSER_TEST_F(OriginAgentClusterBrowserTest,
@@ -374,7 +397,7 @@ IN_PROC_BROWSER_TEST_F(OriginAgentClusterBrowserTest,
   EXPECT_TRUE(NavigateIframeToURL(web_contents, "test", cmd_line_isolated_url));
 
   // Make sure we got two SiteInstances.
-  auto* main_frame = web_contents->GetMainFrame();
+  auto* main_frame = web_contents->GetPrimaryMainFrame();
   auto* child_frame = ChildFrameAt(main_frame, 0);
   EXPECT_NE(main_frame->GetSiteInstance(), child_frame->GetSiteInstance());
 
@@ -403,7 +426,7 @@ IN_PROC_BROWSER_TEST_F(OriginAgentClusterBrowserTest,
   EXPECT_TRUE(NavigateIframeToURL(web_contents, "test", cmd_line_isolated_url));
 
   // Make sure we got two SiteInstances.
-  auto* main_frame = web_contents->GetMainFrame();
+  auto* main_frame = web_contents->GetPrimaryMainFrame();
   auto* child_frame = ChildFrameAt(main_frame, 0);
   EXPECT_NE(main_frame->GetSiteInstance(), child_frame->GetSiteInstance());
 
@@ -432,7 +455,7 @@ IN_PROC_BROWSER_TEST_F(OriginAgentClusterBrowserTest,
   EXPECT_TRUE(NavigateIframeToURL(web_contents, "test", cmd_line_isolated_url));
 
   // Make sure we got two SiteInstances.
-  auto* main_frame = web_contents->GetMainFrame();
+  auto* main_frame = web_contents->GetPrimaryMainFrame();
   auto* child_frame = ChildFrameAt(main_frame, 0);
   EXPECT_NE(main_frame->GetSiteInstance(), child_frame->GetSiteInstance());
 
@@ -460,7 +483,7 @@ IN_PROC_BROWSER_TEST_F(OriginAgentClusterBrowserTest,
   EXPECT_TRUE(NavigateIframeToURL(web_contents, "test", cmd_line_isolated_url));
 
   // Make sure we got two SiteInstances.
-  auto* main_frame = web_contents->GetMainFrame();
+  auto* main_frame = web_contents->GetPrimaryMainFrame();
   auto* child_frame = ChildFrameAt(main_frame, 0);
   EXPECT_NE(main_frame->GetSiteInstance(), child_frame->GetSiteInstance());
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,9 @@
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "chromecast/base/cast_features.h"
@@ -63,8 +64,7 @@ size_t next_id = 0;
 // Remove the given CastWebContents pointer from the global instance vector.
 void RemoveCastWebContents(CastWebContents* instance) {
   auto& all_cast_web_contents = CastWebContents::GetAll();
-  auto it = std::find(all_cast_web_contents.begin(),
-                      all_cast_web_contents.end(), instance);
+  auto it = base::ranges::find(all_cast_web_contents, instance);
   if (it != all_cast_web_contents.end()) {
     all_cast_web_contents.erase(it);
   }
@@ -93,11 +93,8 @@ std::vector<CastWebContents*>& CastWebContents::GetAll() {
 CastWebContents* CastWebContents::FromWebContents(
     content::WebContents* web_contents) {
   auto& all_cast_web_contents = CastWebContents::GetAll();
-  auto it =
-      std::find_if(all_cast_web_contents.begin(), all_cast_web_contents.end(),
-                   [&web_contents](const auto* cast_web_contents) {
-                     return cast_web_contents->web_contents() == web_contents;
-                   });
+  auto it = base::ranges::find(all_cast_web_contents, web_contents,
+                               &CastWebContents::web_contents);
   if (it == all_cast_web_contents.end()) {
     return nullptr;
   }
@@ -157,14 +154,14 @@ CastWebContentsImpl::CastWebContentsImpl(content::WebContents* web_contents,
       stop_notified_(false),
       notifying_(false),
       last_error_(net::OK),
-      task_runner_(base::SequencedTaskRunnerHandle::Get()),
+      task_runner_(base::SequencedTaskRunner::GetCurrentDefault()),
       weak_factory_(this) {
   DCHECK(web_contents_);
   DCHECK(web_contents_->GetController().IsInitialNavigation());
   DCHECK(!web_contents_->IsLoading());
-  DCHECK(web_contents_->GetMainFrame());
+  DCHECK(web_contents_->GetPrimaryMainFrame());
 
-  main_process_host_ = web_contents_->GetMainFrame()->GetProcess();
+  main_process_host_ = web_contents_->GetPrimaryMainFrame()->GetProcess();
   DCHECK(main_process_host_);
   main_process_host_->AddObserver(this);
 
@@ -176,10 +173,12 @@ CastWebContentsImpl::CastWebContentsImpl(content::WebContents* web_contents,
   // CastWebContents created in |InnerWebContentsCreated()| callback will use
   // the private ctor with |parent| specified which allows sharing the same
   // manager, so that the whole Cast session applies the same rules.
-  if (!parent_cast_web_contents_) {
-    url_rewrite_rules_manager_.emplace();
+  if (params_->enable_url_rewrite_rules) {
+    if (!parent_cast_web_contents_) {
+      url_rewrite_rules_manager_.emplace();
+    }
+    url_rewrite_rules_manager()->AddWebContents(web_contents_);
   }
-  url_rewrite_rules_manager()->AddWebContents(web_contents_);
 
   if (params_->enabled_for_dev) {
     LOG(INFO) << "Enabling dev console for CastWebContentsImpl";
@@ -201,7 +200,7 @@ CastWebContentsImpl::CastWebContentsImpl(content::WebContents* web_contents,
       switches::kCastAppBackgroundColor, SK_ColorBLACK));
 
   if (params_->enable_webui_bindings_permission) {
-    web_contents_->GetMainFrame()->AllowBindings(
+    web_contents_->GetPrimaryMainFrame()->AllowBindings(
         content::BINDINGS_POLICY_WEB_UI | content::BINDINGS_POLICY_MOJO_WEB_UI);
   }
 }
@@ -258,6 +257,7 @@ void CastWebContentsImpl::SetInterfacesForRenderer(
 
 void CastWebContentsImpl::SetUrlRewriteRules(
     url_rewrite::mojom::UrlRequestRewriteRulesPtr rules) {
+  DCHECK(params_->enable_url_rewrite_rules);
   if (!url_rewrite_rules_manager()->OnRulesUpdated(std::move(rules))) {
     LOG(ERROR) << "URL rewrite rules update failed.";
   }
@@ -407,11 +407,11 @@ void CastWebContentsImpl::ExecuteJavaScript(
     base::OnceCallback<void(base::Value)> callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!web_contents_ || closing_ || !main_frame_loaded_ ||
-      !web_contents_->GetMainFrame())
+      !web_contents_->GetPrimaryMainFrame())
     return;
 
-  web_contents_->GetMainFrame()->ExecuteJavaScript(javascript,
-                                                   std::move(callback));
+  web_contents_->GetPrimaryMainFrame()->ExecuteJavaScript(javascript,
+                                                          std::move(callback));
 }
 
 void CastWebContentsImpl::ConnectToBindingsService(
@@ -450,12 +450,12 @@ void CastWebContentsImpl::SetEnabledForRemoteDebugging(bool enabled) {
 }
 
 void CastWebContentsImpl::GetMainFramePid(GetMainFramePidCallback cb) {
-  if (!web_contents_ || !web_contents_->GetMainFrame()) {
+  if (!web_contents_ || !web_contents_->GetPrimaryMainFrame()) {
     std::move(cb).Run(base::kNullProcessHandle);
     return;
   }
 
-  auto* rph = web_contents_->GetMainFrame()->GetProcess();
+  auto* rph = web_contents_->GetPrimaryMainFrame()->GetProcess();
   if (!rph || rph->GetProcess().Handle() == base::kNullProcessHandle) {
     std::move(cb).Run(base::kNullProcessHandle);
     return;
@@ -747,7 +747,7 @@ void CastWebContentsImpl::DidFinishLoad(
     const GURL& validated_url) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (page_state_ != PageState::LOADING || !web_contents_ ||
-      render_frame_host != web_contents_->GetMainFrame()) {
+      render_frame_host != web_contents_->GetPrimaryMainFrame()) {
     return;
   }
 
@@ -864,9 +864,17 @@ void CastWebContentsImpl::NotifyPageState() {
     for (auto& observer : observers_) {
       observer->PageStopped(page_state_, last_error_);
     }
+    // Notifies the local observers.
+    for (Observer& observer : sync_observers_) {
+      observer.PageStopped(page_state_, last_error_);
+    }
   } else {
     for (auto& observer : observers_) {
       observer->PageStateChanged(page_state_);
+    }
+    // Notifies the local observers.
+    for (Observer& observer : sync_observers_) {
+      observer.PageStateChanged(page_state_);
     }
   }
   notifying_ = false;
@@ -876,7 +884,8 @@ void CastWebContentsImpl::ResourceLoadComplete(
     content::RenderFrameHost* render_frame_host,
     const content::GlobalRequestID& request_id,
     const blink::mojom::ResourceLoadInfo& resource_load_info) {
-  if (!web_contents_ || render_frame_host != web_contents_->GetMainFrame())
+  if (!web_contents_ ||
+      render_frame_host != web_contents_->GetPrimaryMainFrame())
     return;
   int net_error = resource_load_info.net_error;
   if (net_error == net::OK)
@@ -991,6 +1000,11 @@ void CastWebContentsImpl::MediaStartedPlaying(
   for (auto& observer : observers_) {
     observer->MediaPlaybackChanged(true /* media_playing */);
   }
+
+  // Notifies the local observers.
+  for (Observer& observer : sync_observers_) {
+    observer.MediaPlaybackChanged(true /* media_playing */);
+  }
 }
 
 void CastWebContentsImpl::MediaStoppedPlaying(
@@ -1001,6 +1015,11 @@ void CastWebContentsImpl::MediaStoppedPlaying(
   metrics::CastMetricsHelper::GetInstance()->LogMediaPause();
   for (auto& observer : observers_) {
     observer->MediaPlaybackChanged(false /* media_playing */);
+  }
+
+  // Notifies the local observers.
+  for (Observer& observer : sync_observers_) {
+    observer.MediaPlaybackChanged(false /* media_playing */);
   }
 }
 

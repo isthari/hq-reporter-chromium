@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/time/clock.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/./ui/tabs/tab_enums.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/notifications/notification_interactive_uitest_support.h"
@@ -34,6 +35,7 @@
 #include "components/history/core/browser/history_service.h"
 #include "components/infobars/content/content_infobar_manager.h"
 #include "components/permissions/permission_uma_util.h"
+#include "components/permissions/permission_util.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
@@ -456,7 +458,7 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestCloseTabWithPermissionRequestUI) {
   content::WebContentsDestroyedWatcher destroyed_watcher(
       browser()->tab_strip_model()->GetWebContentsAt(0));
   browser()->tab_strip_model()->CloseWebContentsAt(0,
-                                                   TabStripModel::CLOSE_NONE);
+                                                   TabCloseTypes::CLOSE_NONE);
   destroyed_watcher.Wait();
 }
 
@@ -469,7 +471,8 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestCrashRendererNotificationRemain) {
       browser(), GURL("about:blank"), WindowOpenDisposition::NEW_BACKGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_TAB);
   browser()->tab_strip_model()->ActivateTabAt(
-      0, {TabStripModel::GestureType::kOther});
+      0, TabStripUserGestureDetails(
+             TabStripUserGestureDetails::GestureType::kOther));
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetTestPageURL()));
   CreateSimpleNotification(browser(), true);
   ASSERT_EQ(1, GetNotificationCount());
@@ -553,8 +556,8 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestNotificationValidIcon) {
 
   auto* notification = *notifications.rbegin();
 
-  EXPECT_EQ(100, notification->icon().Width());
-  EXPECT_EQ(100, notification->icon().Height());
+  EXPECT_EQ(100, notification->icon().Size().width());
+  EXPECT_EQ(100, notification->icon().Size().height());
 }
 
 IN_PROC_BROWSER_TEST_F(NotificationsTest, TestNotificationInvalidIcon) {
@@ -706,6 +709,8 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestShouldDisplayMultiFullscreen) {
   ASSERT_TRUE(
       other_browser->exclusive_access_manager()->context()->IsFullscreen());
 
+  ui_test_utils::BrowserActivationWaiter waiter(other_browser);
+  waiter.WaitForActivation();
   ASSERT_FALSE(browser()->window()->IsActive());
   ASSERT_TRUE(other_browser->window()->IsActive());
 

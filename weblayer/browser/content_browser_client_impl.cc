@@ -1,9 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "weblayer/browser/content_browser_client_impl.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/command_line.h"
@@ -34,7 +35,6 @@
 #include "components/page_load_metrics/browser/metrics_navigation_throttle.h"
 #include "components/page_load_metrics/browser/metrics_web_contents_observer.h"
 #include "components/performance_manager/embedder/performance_manager_registry.h"
-#include "components/permissions/quota_permission_context_impl.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service_factory.h"
@@ -52,6 +52,7 @@
 #include "components/subresource_filter/content/browser/ruleset_version.h"
 #include "components/user_prefs/user_prefs.h"
 #include "components/variations/service/variations_service.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/client_certificate_delegate.h"
@@ -79,6 +80,7 @@
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
+#include "third_party/blink/public/common/permissions/permission_utils.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -256,7 +258,7 @@ void AllowEmptyOriginIdCB(base::OnceCallback<void(bool)> callback) {
 void CreateMediaDrmStorage(
     content::RenderFrameHost* render_frame_host,
     mojo::PendingReceiver<::media::mojom::MediaDrmStorage> receiver) {
-  DCHECK(render_frame_host);
+  CHECK(render_frame_host);
 
   if (render_frame_host->GetLastCommittedOrigin().opaque()) {
     DVLOG(1) << __func__ << ": Unique origin.";
@@ -266,7 +268,7 @@ void CreateMediaDrmStorage(
   // The object will be deleted on connection error, or when the frame navigates
   // away.
   new cdm::MediaDrmStorageImpl(
-      render_frame_host, base::BindRepeating(&CreateOriginId),
+      *render_frame_host, base::BindRepeating(&CreateOriginId),
       base::BindRepeating(&AllowEmptyOriginIdCB), std::move(receiver));
 }
 #endif  // BUILDFLAG(IS_ANDROID)
@@ -308,13 +310,12 @@ ContentBrowserClientImpl::~ContentBrowserClientImpl() = default;
 
 std::unique_ptr<content::BrowserMainParts>
 ContentBrowserClientImpl::CreateBrowserMainParts(
-    content::MainFunctionParams parameters) {
+    bool /* is_integration_test */) {
   // This should be called after CreateFeatureListAndFieldTrials(), which
   // creates |local_state_|.
   DCHECK(local_state_);
   std::unique_ptr<BrowserMainPartsImpl> browser_main_parts =
-      std::make_unique<BrowserMainPartsImpl>(params_, std::move(parameters),
-                                             std::move(local_state_));
+      std::make_unique<BrowserMainPartsImpl>(params_, std::move(local_state_));
 
   return browser_main_parts;
 }
@@ -334,6 +335,7 @@ content::AllowServiceWorkerResult ContentBrowserClientImpl::AllowServiceWorker(
     const absl::optional<url::Origin>& top_frame_origin,
     const GURL& script_url,
     content::BrowserContext* context) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   return embedder_support::AllowServiceWorker(
       scope, site_for_cookies, top_frame_origin,
       CookieSettingsFactory::GetForBrowserContext(context).get(),
@@ -391,12 +393,12 @@ bool ContentBrowserClientImpl::AllowWorkerWebLocks(
       url, CookieSettingsFactory::GetForBrowserContext(browser_context).get());
 }
 
-content::WebContentsViewDelegate*
+std::unique_ptr<content::WebContentsViewDelegate>
 ContentBrowserClientImpl::GetWebContentsViewDelegate(
     content::WebContents* web_contents) {
   performance_manager::PerformanceManagerRegistry::GetInstance()
       ->MaybeCreatePageNodeForWebContents(web_contents);
-  return new WebContentsViewDelegateImpl(web_contents);
+  return std::make_unique<WebContentsViewDelegateImpl>(web_contents);
 }
 
 bool ContentBrowserClientImpl::CanShutdownGpuProcessNowOnIOThread() {
@@ -420,11 +422,15 @@ void ContentBrowserClientImpl::LogWebFeatureForCurrentPage(
 }
 
 std::string ContentBrowserClientImpl::GetProduct() {
-  return embedder_support::GetProduct();
+  return version_info::GetProductNameAndVersionForUserAgent();
 }
 
 std::string ContentBrowserClientImpl::GetUserAgent() {
   return embedder_support::GetUserAgent();
+}
+
+std::string ContentBrowserClientImpl::GetFullUserAgent() {
+  return embedder_support::GetFullUserAgent();
 }
 
 std::string ContentBrowserClientImpl::GetReducedUserAgent() {
@@ -460,10 +466,10 @@ void ContentBrowserClientImpl::ConfigureNetworkContextParams(
   context_params->accept_language = GetAcceptLangs(context);
   if (!context->IsOffTheRecord()) {
     context_params->file_paths = network::mojom::NetworkContextFilePaths::New();
-    context_params->file_paths->data_path = context->GetPath();
+    context_params->file_paths->data_directory = context->GetPath();
     context_params->file_paths->cookie_database_name =
         base::FilePath(FILE_PATH_LITERAL("Cookies"));
-    context_params->http_cache_path =
+    context_params->http_cache_directory =
         ProfileImpl::GetCachePath(context).Append(FILE_PATH_LITERAL("Cache"));
   }
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -869,23 +875,26 @@ void ContentBrowserClientImpl::
   // TODO(https://crbug.com/1265864): Move the registry logic below to a
   // dedicated file to ensure security review coverage.
   // TODO(lingqi): Swap the parameters so that lambda functions are not needed.
-  associated_registry.AddInterface(base::BindRepeating(
-      [](content::RenderFrameHost* render_frame_host,
-         mojo::PendingAssociatedReceiver<autofill::mojom::AutofillDriver>
-             receiver) {
-        autofill::ContentAutofillDriverFactory::BindAutofillDriver(
-            std::move(receiver), render_frame_host);
-      },
-      &render_frame_host));
-  associated_registry.AddInterface(base::BindRepeating(
-      [](content::RenderFrameHost* render_frame_host,
-         mojo::PendingAssociatedReceiver<autofill::mojom::PasswordManagerDriver>
-             receiver) {
-        PasswordManagerDriverFactory::BindPasswordManagerDriver(
-            std::move(receiver), render_frame_host);
-      },
-      &render_frame_host));
-  associated_registry.AddInterface(base::BindRepeating(
+  associated_registry.AddInterface<autofill::mojom::AutofillDriver>(
+      base::BindRepeating(
+          [](content::RenderFrameHost* render_frame_host,
+             mojo::PendingAssociatedReceiver<autofill::mojom::AutofillDriver>
+                 receiver) {
+            autofill::ContentAutofillDriverFactory::BindAutofillDriver(
+                std::move(receiver), render_frame_host);
+          },
+          &render_frame_host));
+  associated_registry.AddInterface<autofill::mojom::PasswordManagerDriver>(
+      base::BindRepeating(
+          [](content::RenderFrameHost* render_frame_host,
+             mojo::PendingAssociatedReceiver<
+                 autofill::mojom::PasswordManagerDriver> receiver) {
+            PasswordManagerDriverFactory::BindPasswordManagerDriver(
+                std::move(receiver), render_frame_host);
+          },
+          &render_frame_host));
+  associated_registry.AddInterface<
+      content_capture::mojom::ContentCaptureReceiver>(base::BindRepeating(
       [](content::RenderFrameHost* render_frame_host,
          mojo::PendingAssociatedReceiver<
              content_capture::mojom::ContentCaptureReceiver> receiver) {
@@ -893,15 +902,17 @@ void ContentBrowserClientImpl::
             std::move(receiver), render_frame_host);
       },
       &render_frame_host));
-  associated_registry.AddInterface(base::BindRepeating(
-      [](content::RenderFrameHost* render_frame_host,
-         mojo::PendingAssociatedReceiver<
-             page_load_metrics::mojom::PageLoadMetrics> receiver) {
-        page_load_metrics::MetricsWebContentsObserver::BindPageLoadMetrics(
-            std::move(receiver), render_frame_host);
-      },
-      &render_frame_host));
-  associated_registry.AddInterface(base::BindRepeating(
+  associated_registry.AddInterface<page_load_metrics::mojom::PageLoadMetrics>(
+      base::BindRepeating(
+          [](content::RenderFrameHost* render_frame_host,
+             mojo::PendingAssociatedReceiver<
+                 page_load_metrics::mojom::PageLoadMetrics> receiver) {
+            page_load_metrics::MetricsWebContentsObserver::BindPageLoadMetrics(
+                std::move(receiver), render_frame_host);
+          },
+          &render_frame_host));
+  associated_registry.AddInterface<
+      security_interstitials::mojom::InterstitialCommands>(base::BindRepeating(
       [](content::RenderFrameHost* render_frame_host,
          mojo::PendingAssociatedReceiver<
              security_interstitials::mojom::InterstitialCommands> receiver) {
@@ -909,7 +920,8 @@ void ContentBrowserClientImpl::
             BindInterstitialCommands(std::move(receiver), render_frame_host);
       },
       &render_frame_host));
-  associated_registry.AddInterface(base::BindRepeating(
+  associated_registry.AddInterface<
+      subresource_filter::mojom::SubresourceFilterHost>(base::BindRepeating(
       [](content::RenderFrameHost* render_frame_host,
          mojo::PendingAssociatedReceiver<
              subresource_filter::mojom::SubresourceFilterHost> receiver) {
@@ -932,8 +944,9 @@ void ContentBrowserClientImpl::ExposeInterfacesToRenderer(
         mojo::MakeSelfOwnedReceiver(std::make_unique<SpellCheckHostImpl>(),
                                     std::move(receiver));
       };
-  registry->AddInterface(base::BindRepeating(create_spellcheck_host),
-                         content::GetUIThreadTaskRunner({}));
+  registry->AddInterface<spellcheck::mojom::SpellCheckHost>(
+      base::BindRepeating(create_spellcheck_host),
+      content::GetUIThreadTaskRunner({}));
 
   if (base::FeatureList::IsEnabled(features::kWebLayerSafeBrowsing) &&
       IsSafebrowsingSupported()) {
@@ -969,11 +982,6 @@ void ContentBrowserClientImpl::RenderProcessWillLaunch(
       /*force_to_support_secure_codecs*/ false));
 #endif
   PageSpecificContentSettingsDelegate::InitializeRenderer(host);
-}
-
-scoped_refptr<content::QuotaPermissionContext>
-ContentBrowserClientImpl::CreateQuotaPermissionContext() {
-  return base::MakeRefCounted<permissions::QuotaPermissionContextImpl>();
 }
 
 void ContentBrowserClientImpl::CreateFeatureListAndFieldTrials() {
@@ -1047,7 +1055,7 @@ void ContentBrowserClientImpl::AppendExtraCommandLineSwitches(
         embedder_support::kOriginTrialPublicKey,
     };
     command_line->CopySwitchesFrom(browser_command_line, kSwitchNames,
-                                   base::size(kSwitchNames));
+                                   std::size(kSwitchNames));
   }
 }
 
@@ -1174,6 +1182,16 @@ ContentBrowserClientImpl::CreateSpeechRecognitionManagerDelegate() {
   return new WebLayerSpeechRecognitionManagerDelegate();
 }
 
+bool ContentBrowserClientImpl::ShouldSandboxNetworkService() {
+#if BUILDFLAG(IS_WIN)
+  // Weblayer ConfigureNetworkContextParams does not support data migration
+  // required for network sandbox to be enabled on Windows.
+  return false;
+#else
+  return ContentBrowserClient::ShouldSandboxNetworkService();
+#endif  // BUILDFLAG(IS_WIN)
+}
+
 #if BUILDFLAG(ENABLE_ARCORE)
 content::XrIntegrationClient*
 ContentBrowserClientImpl::GetXrIntegrationClient() {
@@ -1204,7 +1222,6 @@ bool ContentBrowserClientImpl::IsClipboardPasteAllowed(
     content::RenderFrameHost* render_frame_host) {
   DCHECK(render_frame_host);
 
-  const GURL& url = render_frame_host->GetLastCommittedOrigin().GetURL();
   content::BrowserContext* browser_context =
       render_frame_host->GetBrowserContext();
   DCHECK(browser_context);
@@ -1212,9 +1229,8 @@ bool ContentBrowserClientImpl::IsClipboardPasteAllowed(
   content::PermissionController* permission_controller =
       browser_context->GetPermissionController();
   blink::mojom::PermissionStatus status =
-      permission_controller->GetPermissionStatusForFrame(
-          content::PermissionType::CLIPBOARD_READ_WRITE, render_frame_host,
-          url);
+      permission_controller->GetPermissionStatusForCurrentDocument(
+          blink::PermissionType::CLIPBOARD_READ_WRITE, render_frame_host);
 
   if (!render_frame_host->HasTransientUserActivation() &&
       status != blink::mojom::PermissionStatus::GRANTED) {

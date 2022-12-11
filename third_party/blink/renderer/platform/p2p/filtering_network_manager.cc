@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,9 +48,6 @@ FilteringNetworkManager::FilteringNetworkManager(
 
 FilteringNetworkManager::~FilteringNetworkManager() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  // This helps to catch the case if permission never comes back.
-  if (!start_updating_time_.is_null())
-    ReportMetrics(false);
 }
 
 base::WeakPtr<FilteringNetworkManager> FilteringNetworkManager::GetWeakPtr() {
@@ -68,8 +65,8 @@ void FilteringNetworkManager::StartUpdating() {
   DCHECK(started_permission_check_);
   DCHECK(network_manager_for_signaling_thread_);
 
-  if (start_updating_time_.is_null()) {
-    start_updating_time_ = base::TimeTicks::Now();
+  if (!start_updating_called_) {
+    start_updating_called_ = true;
     network_manager_for_signaling_thread_->SignalNetworksChanged.connect(
         this, &FilteringNetworkManager::OnNetworksChanged);
   }
@@ -96,14 +93,18 @@ void FilteringNetworkManager::StopUpdating() {
   --start_count_;
 }
 
-void FilteringNetworkManager::GetNetworks(NetworkList* networks) const {
+std::vector<const rtc::Network*> FilteringNetworkManager::GetNetworks() const {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  networks->clear();
+  std::vector<const rtc::Network*> networks;
 
-  if (enumeration_permission() == ENUMERATION_ALLOWED)
-    NetworkManagerBase::GetNetworks(networks);
+  if (enumeration_permission() == ENUMERATION_ALLOWED) {
+    for (const rtc::Network* network : GetNetworksInternal()) {
+      networks.push_back(const_cast<rtc::Network*>(network));
+    }
+  }
 
-  VLOG(3) << "GetNetworks() returns " << networks->size() << " networks.";
+  VLOG(3) << "GetNetworks() returns " << networks.size() << " networks.";
+  return networks;
 }
 
 webrtc::MdnsResponderInterface* FilteringNetworkManager::GetMdnsResponder()
@@ -134,10 +135,12 @@ void FilteringNetworkManager::CheckPermission() {
   // Request for media permission asynchronously.
   media_permission_->HasPermission(
       media::MediaPermission::AUDIO_CAPTURE,
-      WTF::Bind(&FilteringNetworkManager::OnPermissionStatus, GetWeakPtr()));
+      WTF::BindOnce(&FilteringNetworkManager::OnPermissionStatus,
+                    GetWeakPtr()));
   media_permission_->HasPermission(
       media::MediaPermission::VIDEO_CAPTURE,
-      WTF::Bind(&FilteringNetworkManager::OnPermissionStatus, GetWeakPtr()));
+      WTF::BindOnce(&FilteringNetworkManager::OnPermissionStatus,
+                    GetWeakPtr()));
 }
 
 void FilteringNetworkManager::OnPermissionStatus(bool granted) {
@@ -175,32 +178,23 @@ void FilteringNetworkManager::OnNetworksChanged() {
 
   // Copy and merge the networks. Fire a signal if the permission status is
   // known.
-  NetworkList networks;
-  network_manager_for_signaling_thread_->GetNetworks(&networks);
-  NetworkList copied_networks;
+  std::vector<const rtc::Network*> networks =
+      network_manager_for_signaling_thread_->GetNetworks();
+  std::vector<std::unique_ptr<rtc::Network>> copied_networks;
   copied_networks.reserve(networks.size());
-  for (rtc::Network* network : networks) {
+  for (const rtc::Network* network : networks) {
     auto copied_network = std::make_unique<rtc::Network>(*network);
     copied_network->set_default_local_address_provider(this);
     copied_network->set_mdns_responder_provider(this);
-    copied_networks.push_back(copied_network.release());
+    copied_networks.push_back(std::move(copied_network));
   }
   bool changed;
-  MergeNetworkList(copied_networks, &changed);
+  MergeNetworkList(std::move(copied_networks), &changed);
   // We wait until our permission status is known before firing a network
   // change signal, so that the listener(s) don't miss out on receiving a
   // full network list.
   if (changed && GetIPPermissionStatus() != blink::PERMISSION_UNKNOWN)
     FireEventIfStarted();
-}
-
-void FilteringNetworkManager::ReportMetrics(bool report_start_latency) {
-  if (report_start_latency) {
-    blink::ReportTimeToUpdateNetworkList(base::TimeTicks::Now() -
-                                         start_updating_time_);
-  }
-
-  ReportIPPermissionStatus(GetIPPermissionStatus());
 }
 
 blink::IPPermissionStatus FilteringNetworkManager::GetIPPermissionStatus()
@@ -222,15 +216,13 @@ void FilteringNetworkManager::FireEventIfStarted() {
   if (!start_count_)
     return;
 
-  if (!sent_first_update_)
-    ReportMetrics(true);
-
   // Post a task to avoid reentrancy.
   //
   // TODO(crbug.com/787254): Use Frame-based TaskRunner here.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, WTF::Bind(&FilteringNetworkManager::SendNetworksChangedSignal,
-                           GetWeakPtr()));
+      FROM_HERE,
+      WTF::BindOnce(&FilteringNetworkManager::SendNetworksChangedSignal,
+                    GetWeakPtr()));
 
   sent_first_update_ = true;
 }

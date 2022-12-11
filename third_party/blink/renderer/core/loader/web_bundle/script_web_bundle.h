@@ -1,15 +1,18 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_WEB_BUNDLE_SCRIPT_WEB_BUNDLE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_WEB_BUNDLE_SCRIPT_WEB_BUNDLE_H_
 
+#include "third_party/abseil-cpp/absl/types/variant.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/loader/web_bundle/script_web_bundle_error.h"
 #include "third_party/blink/renderer/core/loader/web_bundle/script_web_bundle_rule.h"
 #include "third_party/blink/renderer/core/script/script_element_base.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/loader/fetch/subresource_web_bundle.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -31,8 +34,8 @@ class CORE_EXPORT ScriptWebBundle final
     : public GarbageCollected<ScriptWebBundle>,
       public SubresourceWebBundle {
  public:
-  static ScriptWebBundle* CreateOrReuseInline(ScriptElementBase&,
-                                              const String& inline_text);
+  static absl::variant<ScriptWebBundle*, ScriptWebBundleError>
+  CreateOrReuseInline(ScriptElementBase&, const String& inline_text);
 
   ScriptWebBundle(ScriptElementBase& element,
                   Document& element_document,
@@ -59,6 +62,11 @@ class CORE_EXPORT ScriptWebBundle final
   class ReleaseResourceTask;
 
  private:
+  // Returns true if the bundle's URL and |element_document_|'s frame have the
+  // same origin. Note: Since a redirect is not supported yet, this check is
+  // done by checking the bundle's URL specified in ScriptWebBundleRule.
+  bool IsSameOriginBundle() const;
+
   bool will_be_released_ = false;
   // We store both |element_| and |element_document_| here,
   // because we need |element_| for dispatching load/error events

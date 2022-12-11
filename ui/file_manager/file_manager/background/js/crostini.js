@@ -1,8 +1,8 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/js/assert.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 
 import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
@@ -17,8 +17,9 @@ import {VolumeManager} from '../../externs/volume_manager.js';
 export class CrostiniImpl {
   constructor() {
     /**
-     * True if VM is enabled.
-     * @private {Object<boolean>}
+     * Map of VM name to container name to if it's enabled. False or undefined
+     * means not enabled.
+     * @private {!Object<!Object<boolean>>}
      */
     this.enabled_ = {};
 
@@ -38,10 +39,11 @@ export class CrostiniImpl {
    * Must be done after loadTimeData is available.
    */
   initEnabled() {
-    this.enabled_[CrostiniImpl.DEFAULT_VM] =
-        loadTimeData.getBoolean('CROSTINI_ENABLED');
-    this.enabled_[CrostiniImpl.PLUGIN_VM] =
-        loadTimeData.getBoolean('PLUGIN_VM_ENABLED');
+    const guests = /** @type {!Array<!Object<string>>} */ (
+        loadTimeData.getValue('VMS_FOR_SHARING'));
+    for (const guest of guests) {
+      this.setEnabled(guest.vmName, guest.containerName, true);
+    }
     chrome.fileManagerPrivate.onCrostiniChanged.addListener(
         this.onCrostiniChanged_.bind(this));
   }
@@ -55,21 +57,26 @@ export class CrostiniImpl {
   }
 
   /**
-   * Set whether the specified VM is enabled.
+   * Set whether the specified Guest is enabled.
    * @param {string} vmName
+   * @param {string} containerName
    * @param {boolean} enabled
    */
-  setEnabled(vmName, enabled) {
-    this.enabled_[vmName] = enabled;
+  setEnabled(vmName, containerName, enabled) {
+    if (!this.enabled_[vmName]) {
+      this.enabled_[vmName] = {};
+    }
+    this.enabled_[vmName][containerName] = enabled;
   }
 
   /**
-   * Returns true if crostini is enabled.
+   * Returns true if the specified VM is enabled.
    * @param {string} vmName
    * @return {boolean}
    */
   isEnabled(vmName) {
-    return this.enabled_[vmName];
+    return (!!this.enabled_[vmName]) &&
+        Object.values(this.enabled_[vmName]).includes(true);
   }
 
   /**
@@ -142,10 +149,10 @@ export class CrostiniImpl {
   onCrostiniChanged_(event) {
     switch (event.eventType) {
       case chrome.fileManagerPrivate.CrostiniEventType.ENABLE:
-        this.setEnabled(event.vmName, true);
+        this.setEnabled(event.vmName, event.containerName, true);
         break;
       case chrome.fileManagerPrivate.CrostiniEventType.DISABLE:
-        this.setEnabled(event.vmName, false);
+        this.setEnabled(event.vmName, event.containerName, false);
         break;
       case chrome.fileManagerPrivate.CrostiniEventType.SHARE:
         for (const entry of event.entries) {
@@ -194,7 +201,7 @@ export class CrostiniImpl {
    * @return {boolean}
    */
   canSharePath(vmName, entry, persist) {
-    if (!this.enabled_[vmName]) {
+    if (!this.isEnabled(vmName)) {
       return false;
     }
 
@@ -272,6 +279,7 @@ CrostiniImpl.VALID_ROOT_TYPES_FOR_SHARE = new Map([
   [VolumeManagerCommon.RootType.SHARED_DRIVE, 'TeamDrive'],
   [VolumeManagerCommon.RootType.DRIVE_SHARED_WITH_ME, 'SharedWithMe'],
   [VolumeManagerCommon.RootType.CROSTINI, 'Crostini'],
+  [VolumeManagerCommon.RootType.GUEST_OS, 'GuestOs'],
   [VolumeManagerCommon.RootType.ARCHIVE, 'Archive'],
   [VolumeManagerCommon.RootType.SMB, 'SMB'],
 ]);

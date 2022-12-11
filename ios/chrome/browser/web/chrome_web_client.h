@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,12 +51,17 @@ class ChromeWebClient : public web::WebClient {
                         int64_t navigation_id,
                         base::OnceCallback<void(NSString*)> callback) override;
   UIView* GetWindowedContainer() override;
-  bool EnableLongPressAndForceTouchHandling() const override;
   bool EnableLongPressUIContextMenu() const override;
   web::UserAgentType GetDefaultUserAgent(web::WebState* web_state,
-                                         const GURL& url) override;
+                                         const GURL& url) const override;
+  void LogDefaultUserAgent(web::WebState* web_state,
+                           const GURL& url) const override;
   bool RestoreSessionFromCache(web::WebState* web_state) const override;
   void CleanupNativeRestoreURLs(web::WebState* web_state) const override;
+  void WillDisplayMediaCapturePermissionPrompt(
+      web::WebState* web_state) const override;
+  bool IsPointingToSameDocument(const GURL& url1,
+                                const GURL& url2) const override;
 
  private:
   // Reference to a view that is attached to a window.

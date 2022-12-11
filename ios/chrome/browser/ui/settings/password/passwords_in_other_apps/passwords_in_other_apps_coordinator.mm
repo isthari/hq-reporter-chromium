@@ -1,10 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/password/passwords_in_other_apps/passwords_in_other_apps_coordinator.h"
 
 #import "base/check.h"
+#import "ios/chrome/browser/ui/settings/password/passwords_in_other_apps/histograms.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_in_other_apps/passwords_in_other_apps_mediator.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_in_other_apps/passwords_in_other_apps_view_controller.h"
 
@@ -52,11 +53,13 @@
 
   [self.baseNavigationController pushViewController:self.viewController
                                            animated:YES];
+  RecordEventOnUMA(PasswordsInOtherAppsActionOpen);
 }
 
 - (void)stop {
   self.mediator = nil;
   self.viewController = nil;
+  RecordEventOnUMA(PasswordsInOtherAppsActionDismiss);
 }
 
 #pragma mark - PasswordsInOtherAppsPresenter

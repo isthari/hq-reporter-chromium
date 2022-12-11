@@ -1,21 +1,19 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/autofill/cells/cvc_item.h"
 
-#import <MaterialComponents/MaterialTypography.h>
-
 #import "base/feature_list.h"
 #import "build/branding_buildflags.h"
 #import "components/autofill/core/common/autofill_features.h"
 #import "components/grit/components_scaled_resources.h"
-#include "components/strings/grit/components_strings.h"
+#import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/public/provider/chrome/browser/ui_utils/ui_utils_api.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -113,8 +111,8 @@ const CGFloat kGooglePayBadgeHeight = 22;
     UIView* contentView = self.contentView;
 
     _instructionsTextLabel = [[UILabel alloc] init];
-    _instructionsTextLabel.font =
-        [[MDCTypography fontLoader] mediumFontOfSize:14];
+    _instructionsTextLabel.font = [UIFont systemFontOfSize:14
+                                                    weight:UIFontWeightMedium];
     _instructionsTextLabel.textColor = [UIColor colorNamed:kTextSecondaryColor];
     _instructionsTextLabel.numberOfLines = 0;
     _instructionsTextLabel.lineBreakMode = NSLineBreakByWordWrapping;
@@ -135,7 +133,7 @@ const CGFloat kGooglePayBadgeHeight = 22;
     [contentView addSubview:googlePayBadge];
 
     _errorLabel = [[UILabel alloc] init];
-    _errorLabel.font = [[MDCTypography fontLoader] regularFontOfSize:12];
+    _errorLabel.font = [UIFont systemFontOfSize:12 weight:UIFontWeightRegular];
     _errorLabel.textColor = [UIColor colorNamed:kRedColor];
     _errorLabel.numberOfLines = 0;
     _errorLabel.lineBreakMode = NSLineBreakByWordWrapping;
@@ -190,7 +188,7 @@ const CGFloat kGooglePayBadgeHeight = 22;
 
     _buttonForNewCard = [UIButton buttonWithType:UIButtonTypeCustom];
     _buttonForNewCard.titleLabel.font =
-        [[MDCTypography fontLoader] regularFontOfSize:12];
+        [UIFont systemFontOfSize:12 weight:UIFontWeightRegular];
     [_buttonForNewCard
         setTitle:l10n_util::GetNSString(IDS_AUTOFILL_CARD_UNMASK_NEW_CARD_LINK)
         forState:UIControlStateNormal];

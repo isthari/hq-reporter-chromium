@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "build/build_config.h"
@@ -459,7 +458,8 @@ bool ContentSettingBlockedImageModel::UpdateAndGetVisibility(
   // If a content type is blocked by default and was accessed, display the
   // content blocked page action.
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   if (!content_settings)
     return false;
 
@@ -516,7 +516,8 @@ ContentSettingGeolocationImageModel::ContentSettingGeolocationImageModel()
 bool ContentSettingGeolocationImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   set_should_auto_open_bubble(false);
   if (!content_settings)
     return false;
@@ -649,7 +650,8 @@ ContentSettingMIDISysExImageModel::ContentSettingMIDISysExImageModel()
 bool ContentSettingMIDISysExImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   if (!content_settings)
     return false;
 
@@ -714,7 +716,8 @@ ContentSettingClipboardReadWriteImageModel::
 bool ContentSettingClipboardReadWriteImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   if (!content_settings)
     return false;
   ContentSettingsType content_type = ContentSettingsType::CLIPBOARD_READ_WRITE;
@@ -739,7 +742,8 @@ bool ContentSettingMediaImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
   set_should_auto_open_bubble(false);
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   if (!content_settings)
     return false;
   state_ = content_settings->GetMicrophoneCameraState();
@@ -936,8 +940,8 @@ ContentSettingSensorsImageModel::ContentSettingSensorsImageModel()
 
 bool ContentSettingSensorsImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
-  auto* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+  auto* content_settings = PageSpecificContentSettings::GetForFrame(
+      web_contents->GetPrimaryMainFrame());
   if (!content_settings)
     return false;
 
@@ -979,7 +983,8 @@ ContentSettingPopupImageModel::ContentSettingPopupImageModel()
 bool ContentSettingPopupImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   if (!content_settings || !content_settings->IsContentBlocked(content_type()))
     return false;
   set_icon(kWebIcon, vector_icons::kBlockedBadgeIcon);
@@ -1080,9 +1085,6 @@ ContentSettingImageModel::CreateBubbleModel(
     ContentSettingBubbleModel::Delegate* delegate,
     content::WebContents* web_contents) {
   DCHECK(web_contents);
-  UMA_HISTOGRAM_ENUMERATION(
-      "ContentSettings.ImagePressed", image_type(),
-      ContentSettingImageModel::ImageType::NUM_IMAGE_TYPES);
   return CreateBubbleModelImpl(delegate, web_contents);
 }
 

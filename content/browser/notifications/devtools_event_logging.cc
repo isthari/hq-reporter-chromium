@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "content/public/browser/devtools_background_services_context.h"
 #include "content/public/browser/notification_database_data.h"
 #include "content/public/browser/storage_partition.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 #include "url/gurl.h"
 
@@ -57,13 +58,14 @@ DevToolsCallback GetDevToolsCallback(BrowserContext* browser_context,
   if (!devtools_context)
     return DevToolsCallback();
 
+  url::Origin origin = url::Origin::Create(data.origin);
+
   // Passing the |devtools_context| as base::Unretained is safe as the callback
   // is executed synchronously.
   auto base_callback = base::BindOnce(
       &DevToolsBackgroundServicesContext::LogBackgroundServiceEvent,
       base::Unretained(devtools_context), data.service_worker_registration_id,
-      url::Origin::Create(data.origin),
-      DevToolsBackgroundService::kNotifications);
+      blink::StorageKey(origin), DevToolsBackgroundService::kNotifications);
 
   return base::BindOnce(
       [](DevToolsBaseCallback callback, const std::string& notification_id,

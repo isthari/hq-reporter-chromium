@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,9 @@
 #include "third_party/blink/renderer/core/input/boundary_event_dispatcher.h"
 #include "third_party/blink/renderer/core/input/touch_event_manager.h"
 #include "third_party/blink/renderer/core/page/touch_adjustment.h"
+#include "third_party/blink/renderer/core/paint/paint_layer_scrollable_area.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
 namespace blink {
 
@@ -66,6 +67,9 @@ class CORE_EXPORT PointerEventManager final
       const Vector<WebMouseEvent>& coalesced_events,
       const Vector<WebMouseEvent>& predicted_events);
 
+  void SendEffectivePanActionAtPointer(const WebPointerEvent& event,
+                                       const Node* node_at_pointer);
+
   // Resets the internal state of this object.
   void Clear();
 
@@ -112,6 +116,8 @@ class CORE_EXPORT PointerEventManager final
   // properties if exists otherwise s_invalidId.
   int GetPointerEventId(
       const WebPointerProperties& web_pointer_properties) const;
+
+  Element* CurrentTouchDownElement();
 
  private:
   class EventTargetAttributes : public GarbageCollected<EventTargetAttributes> {
@@ -243,10 +249,18 @@ class CORE_EXPORT PointerEventManager final
   // filtering on the given event.
   bool ShouldFilterEvent(PointerEvent* pointer_event);
 
+  bool HandleScrollbarTouchDrag(const WebPointerEvent&, Scrollbar*);
+
+  bool HandleResizerDrag(const WebPointerEvent&,
+                         const event_handling_util::PointerEventTarget&);
+
   // NOTE: If adding a new field to this class please ensure that it is
   // cleared in |PointerEventManager::clear()|.
 
   const Member<LocalFrame> frame_;
+
+  WeakMember<PaintLayerScrollableArea> resize_scrollable_area_;
+  LayoutSize offset_from_resize_corner_;
 
   // Prevents firing mousedown, mousemove & mouseup in-between a canceled
   // pointerdown and next pointerup/pointercancel.
@@ -285,6 +299,8 @@ class CORE_EXPORT PointerEventManager final
   bool skip_touch_filter_all_ = false;
 
   Member<GestureManager> gesture_manager_;
+
+  WeakMember<Scrollbar> captured_scrollbar_;
 };
 
 }  // namespace blink

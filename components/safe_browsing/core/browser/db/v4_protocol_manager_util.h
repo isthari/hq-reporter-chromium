@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -180,9 +180,12 @@ enum SBThreatType {
   SB_THREAT_TYPE_HIGH_CONFIDENCE_ALLOWLIST = 24,
 
   // List of URLs that should shown an accuracy tip.
-  SB_THREAT_TYPE_ACCURACY_TIPS = 25,
+  // DEPRECATED: SB_THREAT_TYPE_ACCURACY_TIPS = 25,
 
-  SB_THREAT_TYPE_MAX = SB_THREAT_TYPE_ACCURACY_TIPS,
+  // Managed policy indicated to warn a navigation.
+  SB_THREAT_TYPE_MANAGED_POLICY = 26,
+
+  SB_THREAT_TYPE_MAX = SB_THREAT_TYPE_MANAGED_POLICY,
 };
 
 using SBThreatTypeSet = base::flat_set<SBThreatType>;
@@ -235,7 +238,6 @@ ListIdentifier GetChromeExtMalwareId();
 ListIdentifier GetChromeUrlApiId();
 ListIdentifier GetChromeUrlClientIncidentId();
 ListIdentifier GetIpMalwareId();
-ListIdentifier GetUrlAccuracyTipsId();
 ListIdentifier GetUrlBillingId();
 ListIdentifier GetUrlCsdDownloadAllowlistId();
 ListIdentifier GetUrlCsdAllowlistId();
@@ -301,9 +303,16 @@ enum V4OperationResult {
   // Identical operation already pending.
   ALREADY_PENDING_ERROR = 6,
 
+  // A network error that can be retried without backoff (e.g.
+  // NETWORK_DISCONNECTED).
+  RETRIABLE_NETWORK_ERROR = 7,
+
+  // An HTTP error code that can be retried without backoff.
+  RETRIABLE_HTTP_ERROR = 8,
+
   // Memory space for histograms is determined by the max.  ALWAYS
   // ADD NEW VALUES BEFORE THIS ONE.
-  OPERATION_RESULT_MAX = 7
+  OPERATION_RESULT_MAX = 9
 };
 
 // A class that provides static methods related to the Pver4 protocol.

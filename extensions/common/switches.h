@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,6 +31,7 @@ extern const char kLoadExtension[];
 extern const char kLoadSigninProfileTestExtension[];
 extern const char kLoadGuestModeTestExtension[];
 #endif
+extern const char kOffscreenDocumentTesting[];
 extern const char kSetExtensionThrottleTestParams[];
 extern const char kShowComponentExtensionOptions[];
 extern const char kTraceAppSource[];

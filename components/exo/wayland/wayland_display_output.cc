@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@ base::TimeDelta kDeleteTaskDelay = base::Seconds(3);
 void DoDelete(WaylandDisplayOutput* output, int retry_count) {
   if (retry_count > 0 && output->output_counts() > 0) {
     // Try a few times to give a client chance to release it.
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, base::BindOnce(&DoDelete, output, retry_count - 1),
         kDeleteTaskDelay);
   } else {
@@ -49,7 +49,7 @@ void WaylandDisplayOutput::OnDisplayRemoved() {
   if (global_)
     wl_global_remove(global_);
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, base::BindOnce(&DoDelete, this, /*retry_count=*/3),
       kDeleteTaskDelay);
 }

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/callback.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "components/permissions/permission_request_enums.h"
 #include "components/permissions/permission_uma_util.h"
 
 #if !BUILDFLAG(IS_ANDROID)
@@ -55,7 +56,7 @@ bool PermissionsClient::IsCookieDeletionDisabled(
 #endif
 
 void PermissionsClient::GetUkmSourceId(content::BrowserContext* browser_context,
-                                       const content::WebContents* web_contents,
+                                       content::WebContents* web_contents,
                                        const GURL& requesting_origin,
                                        GetUkmSourceIdCallback callback) {
   std::move(callback).Run(absl::nullopt);
@@ -81,6 +82,8 @@ void PermissionsClient::OnPromptResolved(
     PermissionAction action,
     const GURL& origin,
     PermissionPromptDisposition prompt_disposition,
+    PermissionPromptDispositionReason prompt_disposition_reason,
+    PermissionRequestGestureType gesture_type,
     absl::optional<QuietUiReason> quiet_ui_reason) {}
 
 absl::optional<bool>
@@ -112,8 +115,8 @@ absl::optional<GURL> PermissionsClient::OverrideCanonicalOrigin(
   return absl::nullopt;
 }
 
-bool PermissionsClient::DoOriginsMatchNewTabPage(const GURL& requesting_origin,
-                                                 const GURL& embedding_origin) {
+bool PermissionsClient::DoURLsMatchNewTabPage(const GURL& requesting_origin,
+                                              const GURL& embedding_origin) {
   return false;
 }
 
@@ -148,6 +151,9 @@ PermissionsClient::MaybeCreateMessageUI(
 void PermissionsClient::RepromptForAndroidPermissions(
     content::WebContents* web_contents,
     const std::vector<ContentSettingsType>& content_settings_types,
+    const std::vector<ContentSettingsType>& filtered_content_settings_types,
+    const std::vector<std::string>& required_permissions,
+    const std::vector<std::string>& optional_permissions,
     PermissionsUpdatedCallback callback) {
   std::move(callback).Run(false);
 }

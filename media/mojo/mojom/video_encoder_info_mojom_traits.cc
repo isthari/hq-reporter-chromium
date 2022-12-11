@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,6 +28,10 @@ bool StructTraits<
   out->has_trusted_rate_controller = data.has_trusted_rate_controller();
   out->is_hardware_accelerated = data.is_hardware_accelerated();
   out->supports_simulcast = data.supports_simulcast();
+  out->reports_average_qp = data.reports_average_qp();
+  out->apply_alignment_to_all_simulcast_layers =
+      data.apply_alignment_to_all_simulcast_layers();
+  out->requested_resolution_alignment = data.requested_resolution_alignment();
 
   if (!data.ReadImplementationName(&out->implementation_name))
     return false;

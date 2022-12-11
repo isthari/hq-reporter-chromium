@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,8 +25,7 @@ class SaveAddressProfileInfobarModalInteractionHandler
 
   // InfobarModalInteractionHandler:
   void PerformMainAction(InfoBarIOS* infobar) override;
-  // Prevent the call to InfobarDismissed.
-  void InfobarVisibilityChanged(InfoBarIOS* infobar, bool visible) override {}
+  void InfobarVisibilityChanged(InfoBarIOS* infobar, bool visible) override;
 
   // Instructs the handler that the user has edited and then saved the profile.
   virtual void SaveEditedProfile(InfoBarIOS* infobar,
@@ -41,7 +40,7 @@ class SaveAddressProfileInfobarModalInteractionHandler
   std::unique_ptr<InfobarModalOverlayRequestCallbackInstaller>
   CreateModalInstaller() override;
 
-  // Returns the SaveAddressProfile delegate from |infobar|.
+  // Returns the SaveAddressProfile delegate from `infobar`.
   autofill::AutofillSaveUpdateAddressProfileDelegateIOS* GetInfoBarDelegate(
       InfoBarIOS* infobar);
 };

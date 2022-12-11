@@ -1,4 +1,4 @@
-// Copyright 2017 The Crashpad Authors. All rights reserved.
+// Copyright 2017 The Crashpad Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,9 @@
 #include <stddef.h>
 #include <time.h>
 
+#include <iterator>
+
 #include "base/check.h"
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "build/build_config.h"
 
@@ -61,8 +62,7 @@ void TimeZone(const timeval& snapshot_time,
     static constexpr int kMonthDeltas[] =
         {0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6,
          7, -7, 8, -8, 9, -9, 10, -10, 11, -11, 12, -12};
-    for (size_t index = 0;
-         index < base::size(kMonthDeltas) && !found_transition;
+    for (size_t index = 0; index < std::size(kMonthDeltas) && !found_transition;
          ++index) {
       // Look at a day of each month at local noon. Set tm_isdst to -1 to avoid
       // giving mktime() any hints about whether to consider daylight saving

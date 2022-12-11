@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/webui/web_ui_impl.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/web_ui_controller.h"
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 #include "base/callback_helpers.h"
@@ -21,7 +22,6 @@
 #include "components/crash/content/browser/error_reporting/javascript_error_report.h"  // nogncheck
 #include "components/crash/content/browser/error_reporting/js_error_report_processor.h"  // nogncheck
 #include "content/public/browser/web_contents.h"
-#include "content/public/browser/web_ui_controller.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/url_constants.h"
 #include "url/gurl.h"
@@ -54,18 +54,6 @@ WebUIMainFrameObserver::WebUIMainFrameObserver(WebUIImpl* web_ui,
     : WebContentsObserver(contents), web_ui_(web_ui) {}
 
 WebUIMainFrameObserver::~WebUIMainFrameObserver() = default;
-
-void WebUIMainFrameObserver::DidFinishNavigation(
-    NavigationHandle* navigation_handle) {
-  // Only disallow JavaScript on cross-document navigations in the main frame.
-  if (!navigation_handle->IsInPrimaryMainFrame() ||
-      !navigation_handle->HasCommitted() ||
-      navigation_handle->IsSameDocument()) {
-    return;
-  }
-
-  web_ui_->DisallowJavascriptOnAllHandlers();
-}
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 void WebUIMainFrameObserver::OnDidAddMessageToConsole(
@@ -181,6 +169,7 @@ void WebUIMainFrameObserver::ReadyToCommitNavigation(
 }
 
 void WebUIMainFrameObserver::PrimaryPageChanged(Page& page) {
+  web_ui_->DisallowJavascriptOnAllHandlers();
   web_ui_->GetController()->WebUIPrimaryPageChanged(page);
 }
 

@@ -1,4 +1,4 @@
-# Copyright (c) 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -20,6 +20,8 @@ TEST_FAILURE_LABEL = 'FAILURE'
 TEST_SKIPPED_LABEL = 'SKIPPED'
 TEST_TIMEOUT_LABEL = 'TIMEOUT'
 TEST_WARNING_LABEL = 'WARNING'
+
+DID_NOT_COMPLETE = 'Did not complete.'
 
 
 class GTestResult(object):
@@ -126,13 +128,13 @@ class GTestResult(object):
     for test, log_lines in self._failed_tests.items():
       # A test with no output would have crashed. No output is replaced
       # by the GTestLogParser by a sentence indicating non-completion.
-      if 'Did not complete.' in log_lines:
+      if DID_NOT_COMPLETE in log_lines:
         self._crashed = True
         self._crashed_test = test
 
     # A test marked as flaky may also have crashed the app.
     for test, log_lines in self._flaked_tests.items():
-      if 'Did not complete.' in log_lines:
+      if DID_NOT_COMPLETE in log_lines:
         self._crashed = True
         self._crashed_test = test
 
@@ -200,7 +202,7 @@ class GTestLogParser(object):
     self._retry_message = re.compile('RETRYING FAILED TESTS:')
     self.retrying_failed = False
 
-    self._compiled_tests_file_path = re.compile(
+    self._compiled_tests_file_path_re = re.compile(
         '.*Wrote compiled tests to file: (\S+)')
 
     self.TEST_STATUS_MAP = {
@@ -210,6 +212,9 @@ class GTestLogParser(object):
         'timeout': TEST_TIMEOUT_LABEL,
         'warning': TEST_WARNING_LABEL
     }
+
+    self.compiled_tests_file_path = None
+    self._tests_loc_map = {}
 
   def GetCurrentTest(self):
     return self._current_test
@@ -337,9 +342,17 @@ class GTestLogParser(object):
     Called at the end to add unfinished tests and crash status for
         self._result_collection.
     """
+    # Remaining logs after crash before exit.
+    raw_remaining_logs = self._failure_description
     for test in self.RunningTests():
+      self._test_status[test][1].extend(
+          ['Potential test logs from crash until the end of test program:'])
+      self._test_status[test][1].extend(raw_remaining_logs)
       self._result_collection.add_test_result(
-          TestResult(test, TestStatus.CRASH, test_log='Did not complete.'))
+          TestResult(
+              test,
+              TestStatus.CRASH,
+              test_log='\n'.join(self._test_status[test][1])))
       self._result_collection.crashed = True
 
     if not self.completed:
@@ -468,7 +481,7 @@ class GTestLogParser(object):
                   TestStatus.ABORT,
                   test_log='\n'.join(self._failure_description)))
       test_name = results.group(1)
-      self._test_status[test_name] = ('started', ['Did not complete.'])
+      self._test_status[test_name] = ('started', [DID_NOT_COMPLETE])
       self._current_test = test_name
       if self.retrying_failed:
         self._failure_description = self._test_status[test_name][1]
@@ -562,7 +575,11 @@ class GTestLogParser(object):
       logs = self._failure_description + ['Killed (timed out).']
       self._test_status[test_name] = ('timeout', logs)
       self._result_collection.add_test_result(
-          TestResult(test_name, TestStatus.ABORT, test_log='\n'.join(logs)))
+          TestResult(
+              test_name,
+              TestStatus.ABORT,
+              test_log='\n'.join(logs),
+          ))
       self._failure_description = []
       self._current_test = ''
       return
@@ -574,34 +591,11 @@ class GTestLogParser(object):
       return
 
     # Is it the line containing path to the compiled tests json file?
-    results = self._compiled_tests_file_path.match(line)
+    results = self._compiled_tests_file_path_re.match(line)
     if results:
-      path = results.group(1)
-      LOGGER.info('Compiled tests json file path: %s' % path)
-      try:
-        # TODO(crbug.com/1091345): Read the file when running on device.
-        with open(path) as f:
-          disabled_tests_from_json = []
-          compiled_tests = json.load(f)
-          for single_test in compiled_tests:
-            test_case_name = single_test.get('test_case_name')
-            test_name = single_test.get('test_name')
-            if test_case_name and test_name and test_name.startswith(
-                'DISABLED_'):
-              full_test_name = str('%s/%s' % (test_case_name, test_name))
-              disabled_tests_from_json.append(full_test_name)
-              self._result_collection.add_test_result(
-                  TestResult(
-                      test_name,
-                      TestStatus.SKIP,
-                      expected_status=TestStatus.SKIP,
-                      test_log='Test disabled.'))
-          self._disabled_tests_from_compiled_tests_file = (
-              disabled_tests_from_json)
-      except Exception as e:
-        LOGGER.warning(
-            'Error when finding disabled tests in compiled tests json file: %s'
-            % e)
+      self.compiled_tests_file_path = results.group(1)
+      LOGGER.info('Compiled tests json file path: %s' %
+                  self.compiled_tests_file_path)
       return
 
     # Random line: if we're in a test, collect it for the failure description.
@@ -628,3 +622,47 @@ class GTestLogParser(object):
         self._parsing_failures = False
     elif line.startswith('Failing tests:'):
       self._parsing_failures = True
+
+  def ParseAndPopulateTestResultLocations(self, test_repo,
+                                          output_disabled_tests):
+    try:
+      # TODO(crbug.com/1091345): Read the file when running on device.
+      # Parse compiled test file first. If output_disabled_tests is true,
+      # then include disabled tests in the test results.
+      if self.compiled_tests_file_path == None:
+        return
+      with open(self.compiled_tests_file_path) as f:
+        disabled_tests_from_json = []
+        compiled_tests = json.load(f)
+        for single_test in compiled_tests:
+          test_case_name = single_test.get('test_case_name')
+          test_name = single_test.get('test_name')
+          test_file = single_test.get('file')
+          test_file = test_file.replace('../../', '//')
+          full_test_name = str('%s.%s' % (test_case_name, test_name))
+          self._tests_loc_map[full_test_name] = test_file
+          if test_case_name and test_name and test_name.startswith('DISABLED_'):
+            if output_disabled_tests:
+              test_loc = {'repo': test_repo, 'fileName': test_file}
+              disabled_tests_from_json.append(full_test_name)
+              self._result_collection.add_test_result(
+                  TestResult(
+                      full_test_name,
+                      TestStatus.SKIP,
+                      expected_status=TestStatus.SKIP,
+                      test_log='Test disabled.',
+                      test_loc=test_loc))
+        self._disabled_tests_from_compiled_tests_file = (
+            disabled_tests_from_json)
+
+      # Populate location info for test results in result collections
+      for test_result in self._result_collection.test_results:
+        test_file = self._tests_loc_map.get(test_result.name, None)
+        if test_file:
+          test_loc = {'repo': test_repo, 'fileName': test_file}
+          test_result.test_loc = test_loc
+    except Exception as e:
+      LOGGER.warning(
+          'Error when finding disabled tests in compiled tests json file: %s' %
+          e)
+    return

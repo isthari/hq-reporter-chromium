@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,12 +24,14 @@ class PageInfoAboutThisSiteContentView : public views::View, public PageInfoUI {
   ~PageInfoAboutThisSiteContentView() override;
 
  private:
+  [[nodiscard]] std::unique_ptr<views::View> CreateDescriptionLabel(
+      const page_info::proto::SiteInfo& info);
   [[nodiscard]] std::unique_ptr<views::View> CreateSourceLabel(
       const page_info::proto::SiteInfo& info);
   void SourceLinkClicked(const ui::Event& event);
 
-  raw_ptr<PageInfo> presenter_;
-  raw_ptr<ChromePageInfoUiDelegate> ui_delegate_;
+  raw_ptr<PageInfo, DanglingUntriaged> presenter_;
+  raw_ptr<ChromePageInfoUiDelegate, DanglingUntriaged> ui_delegate_;
   page_info::proto::SiteInfo info_;
 };
 

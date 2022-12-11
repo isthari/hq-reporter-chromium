@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 
 #include "base/containers/flat_map.h"
 #include "base/memory/scoped_refptr.h"
+#include "components/update_client/buildflags.h"
 #include "components/update_client/configurator.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -19,6 +20,7 @@ class PrefService;
 
 namespace base {
 class Version;
+class FilePath;
 }  // namespace base
 
 namespace crx_file {
@@ -39,6 +41,12 @@ class ExternalConstants;
 class PolicyService;
 class UpdaterPrefs;
 
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+inline constexpr const char* kCrxCachePath = "crx_cache";
+#endif
+
+// This class is free-threaded. Its instance is shared by multiple sequences and
+// it can't be mutated.
 class Configurator : public update_client::Configurator {
  public:
   Configurator(scoped_refptr<UpdaterPrefs> prefs,
@@ -76,6 +84,9 @@ class Configurator : public update_client::Configurator {
   GetProtocolHandlerFactory() const override;
   absl::optional<bool> IsMachineExternallyManaged() const override;
   update_client::UpdaterStateProvider GetUpdaterStateProvider() const override;
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+  absl::optional<base::FilePath> GetCrxCachePath() const override;
+#endif
 
   int ServerKeepAliveSeconds() const;
   scoped_refptr<PolicyService> GetPolicyService() const;

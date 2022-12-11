@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/safe_browsing/chrome_user_population_helper.h"
 #include "chrome/browser/safe_browsing/safe_browsing_navigation_observer_manager_factory.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "components/prefs/pref_service.h"
@@ -60,8 +59,6 @@ void TriggerCreator::MaybeCreateTriggersForWebContents(
         web_contents, trigger_manager, profile->GetPrefs(), url_loader_factory,
         HistoryServiceFactory::GetForProfile(
             profile, ServiceAccessType::EXPLICIT_ACCESS),
-        base::BindRepeating(&safe_browsing::GetUserPopulationForProfile,
-                            profile),
         SafeBrowsingNavigationObserverManagerFactory::GetForBrowserContext(
             profile));
   }
@@ -74,8 +71,6 @@ void TriggerCreator::MaybeCreateTriggersForWebContents(
         web_contents, trigger_manager, profile->GetPrefs(), url_loader_factory,
         HistoryServiceFactory::GetForProfile(
             profile, ServiceAccessType::EXPLICIT_ACCESS),
-        base::BindRepeating(&safe_browsing::GetUserPopulationForProfile,
-                            profile),
         SafeBrowsingNavigationObserverManagerFactory::GetForBrowserContext(
             profile),
         monitor_mode);

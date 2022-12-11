@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_SYSTEM_BRIGHTNESS_UNIFIED_BRIGHTNESS_SLIDER_CONTROLLER_H_
 #define ASH_SYSTEM_BRIGHTNESS_UNIFIED_BRIGHTNESS_SLIDER_CONTROLLER_H_
 
+#include "ash/constants/quick_settings_catalogs.h"
 #include "ash/system/unified/unified_slider_view.h"
 #include "base/memory/scoped_refptr.h"
 
@@ -27,10 +28,17 @@ class UnifiedBrightnessSliderController : public UnifiedSliderListener {
 
   // UnifiedSliderListener:
   views::View* CreateView() override;
+  QsSliderCatalogName GetCatalogName() override;
   void SliderValueChanged(views::Slider* sender,
                           float value,
                           float old_value,
                           views::SliderChangeReason reason) override;
+
+  // We don't let the screen brightness go lower than this when it's being
+  // adjusted via the slider.  Otherwise, if the user doesn't know about the
+  // brightness keys, they may turn the backlight off and not know how to turn
+  // it back on.
+  static constexpr double kMinBrightnessPercent = 5.0;
 
  private:
   scoped_refptr<UnifiedSystemTrayModel> model_;

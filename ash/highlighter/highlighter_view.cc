@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include "ash/highlighter/highlighter_gesture_util.h"
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/timer/timer.h"
 #include "base/trace_event/trace_event.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -37,9 +37,9 @@ constexpr int kStrokeScaleDurationMs = 300;
 
 gfx::Rect InflateDamageRect(const gfx::Rect& r) {
   gfx::Rect inflated = r;
-  inflated.Inset(
-      -kOutsetForAntialiasing - static_cast<int>(kPenTipWidth / 2 + 1),
-      -kOutsetForAntialiasing - static_cast<int>(kPenTipHeight / 2 + 1));
+  inflated.Inset(gfx::Insets::VH(
+      -kOutsetForAntialiasing - static_cast<int>(kPenTipHeight / 2 + 1),
+      -kOutsetForAntialiasing - static_cast<int>(kPenTipWidth / 2 + 1)));
   return inflated;
 }
 
@@ -207,7 +207,7 @@ void HighlighterView::ScheduleUpdateBuffer() {
     return;
 
   pending_update_buffer_ = true;
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&HighlighterView::UpdateBuffer,
                                 weak_ptr_factory_.GetWeakPtr()));
 }

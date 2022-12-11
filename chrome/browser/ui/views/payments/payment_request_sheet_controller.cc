@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,12 @@
 #include "base/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/views/payments/payment_request_dialog_view.h"
 #include "chrome/browser/ui/views/payments/payment_request_views_util.h"
 #include "components/payments/content/payment_request.h"
 #include "components/strings/grit/components_strings.h"
+#include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
@@ -23,6 +25,8 @@
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
+#include "ui/views/controls/button/image_button.h"
+#include "ui/views/controls/button/image_button_factory.h"
 #include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/focus/focus_search.h"
@@ -180,7 +184,7 @@ class BorderedScrollView : public views::ScrollView {
 
   BorderedScrollView() {
     SetBackground(
-        views::CreateThemedSolidBackground(this, ui::kColorDialogBackground));
+        views::CreateThemedSolidBackground(ui::kColorDialogBackground));
   }
 
   bool GetTopBorder() const { return GetVisibleRect().y() > 0; }
@@ -199,7 +203,7 @@ class BorderedScrollView : public views::ScrollView {
     SetBorder(views::CreateBorderPainter(
         std::make_unique<BorderedScrollViewBorderPainter>(
             GetColorProvider()->GetColor(ui::kColorSeparator), this),
-        gfx::Insets(1, 0)));
+        gfx::Insets::VH(1, 0)));
   }
 };
 
@@ -207,6 +211,29 @@ BEGIN_METADATA(BorderedScrollView, views::ScrollView)
 ADD_READONLY_PROPERTY_METADATA(bool, TopBorder)
 ADD_READONLY_PROPERTY_METADATA(bool, BottomBorder)
 END_METADATA
+
+class PaymentRequestBackArrowButton : public views::ImageButton {
+ public:
+  explicit PaymentRequestBackArrowButton(
+      views::Button::PressedCallback back_arrow_callback)
+      : views::ImageButton(back_arrow_callback) {
+    ConfigureVectorImageButton(this);
+    constexpr int kBackArrowSize = 16;
+    SetSize(gfx::Size(kBackArrowSize, kBackArrowSize));
+    SetFocusBehavior(views::View::FocusBehavior::ALWAYS);
+    SetID(static_cast<int>(DialogViewID::BACK_BUTTON));
+    SetAccessibleName(l10n_util::GetStringUTF16(IDS_PAYMENTS_BACK));
+  }
+
+  void OnThemeChanged() override {
+    views::View::OnThemeChanged();
+    const auto* const cp = GetColorProvider();
+    views::SetImageFromVectorIconWithColor(
+        this, vector_icons::kBackArrowIcon,
+        cp->GetColor(kColorPaymentsRequestBackArrowButtonIcon),
+        cp->GetColor(kColorPaymentsRequestBackArrowButtonIconDisabled));
+  }
+};
 
 }  // namespace internal
 
@@ -246,7 +273,7 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
                   sheet_view->SetID(static_cast<int>(sheet_id));
 
                 sheet_view->SetBackground(views::CreateThemedSolidBackground(
-                    sheet_view, ui::kColorDialogBackground));
+                    ui::kColorDialogBackground));
 
                 // Paint the sheets to layers, otherwise the MD buttons (which
                 // do paint to a layer) won't do proper clipping.
@@ -257,16 +284,7 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
               views::Builder<views::View>()
                   .CopyAddressTo(&header_view_)
                   .CustomConfigure(base::BindOnce(
-                      [](PaymentRequestSheetController* controller,
-                         views::View* view) {
-                        PopulateSheetHeaderView(
-                            controller->ShouldShowHeaderBackArrow(),
-                            controller->CreateHeaderContentView(view),
-                            base::BindRepeating(&PaymentRequestSheetController::
-                                                    BackButtonPressed,
-                                                base::Unretained(controller)),
-                            view, controller->GetHeaderBackground(view));
-                      },
+                      &PaymentRequestSheetController::PopulateSheetHeaderView,
                       base::Unretained(this))),
               views::Builder<views::View>()
                   .CopyAddressTo(&header_content_separator_container_)
@@ -304,7 +322,6 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateView() {
                                             ->SetFillsBoundsOpaquely(true);
                                         content_view->SetBackground(
                                             views::CreateThemedSolidBackground(
-                                                content_view,
                                                 ui::kColorDialogBackground));
                                       })))))
           .Build();
@@ -335,11 +352,7 @@ void PaymentRequestSheetController::UpdateHeaderView() {
     return;
 
   header_view_->RemoveAllChildViews();
-  PopulateSheetHeaderView(
-      ShouldShowHeaderBackArrow(), CreateHeaderContentView(header_view_),
-      base::BindRepeating(&PaymentRequestSheetController::BackButtonPressed,
-                          base::Unretained(this)),
-      header_view_, GetHeaderBackground(header_view_));
+  PopulateSheetHeaderView(header_view_);
   header_view_->InvalidateLayout();
   header_view_->SchedulePaint();
 }
@@ -375,11 +388,7 @@ bool PaymentRequestSheetController::ShouldShowPrimaryButton() {
 }
 
 std::u16string PaymentRequestSheetController::GetPrimaryButtonLabel() {
-  const bool continue_button =
-      state()->selected_app() &&
-      state()->selected_app()->type() != PaymentApp::Type::AUTOFILL;
-  return l10n_util::GetStringUTF16(
-      continue_button ? IDS_PAYMENTS_CONTINUE_BUTTON : IDS_PAYMENTS_PAY_BUTTON);
+  return l10n_util::GetStringUTF16(IDS_PAYMENTS_CONTINUE_BUTTON);
 }
 
 PaymentRequestSheetController::ButtonCallback
@@ -427,6 +436,37 @@ PaymentRequestSheetController::CreateExtraFooterView() {
   return nullptr;
 }
 
+void PaymentRequestSheetController::PopulateSheetHeaderView(
+    views::View* container) {
+  DCHECK_EQ(container, header_view_);
+
+  container->SetBackground(GetHeaderBackground(header_view_));
+  views::BoxLayout* layout =
+      container->SetLayoutManager(std::make_unique<views::BoxLayout>());
+  layout->set_cross_axis_alignment(
+      views::BoxLayout::CrossAxisAlignment::kCenter);
+  // Need some spacing if the optional back arrow presents.
+  constexpr int kPaddingBetweenArrowAndTitle = 8;
+  layout->set_between_child_spacing(kPaddingBetweenArrowAndTitle);
+
+  constexpr int kVerticalInset = 14;
+  constexpr int kHeaderHorizontalInset = 16;
+  container->SetBorder(views::CreateEmptyBorder(
+      gfx::Insets::TLBR(kVerticalInset, kHeaderHorizontalInset, kVerticalInset,
+                        kHeaderHorizontalInset)));
+
+  if (ShouldShowHeaderBackArrow()) {
+    container->AddChildView(
+        std::make_unique<internal::PaymentRequestBackArrowButton>(
+            base::BindRepeating(
+                &PaymentRequestSheetController::BackButtonPressed,
+                base::Unretained(this))));
+  }
+
+  layout->SetFlexForView(
+      container->AddChildView(CreateHeaderContentView(header_view_)), 1);
+}
+
 std::unique_ptr<views::View>
 PaymentRequestSheetController::CreateHeaderContentView(
     views::View* header_view) {
@@ -441,8 +481,7 @@ PaymentRequestSheetController::CreateHeaderContentView(
 
 std::unique_ptr<views::Background>
 PaymentRequestSheetController::GetHeaderBackground(views::View* header_view) {
-  return views::CreateThemedSolidBackground(header_view,
-                                            ui::kColorDialogBackground);
+  return views::CreateThemedSolidBackground(ui::kColorDialogBackground);
 }
 
 std::unique_ptr<views::View> PaymentRequestSheetController::CreateFooterView() {
@@ -452,7 +491,7 @@ std::unique_ptr<views::View> PaymentRequestSheetController::CreateFooterView() {
 
   auto container =
       views::Builder<views::TableLayoutView>()
-          .SetBorder(views::CreateEmptyBorder(gfx::Insets(16)))
+          .SetBorder(views::CreateEmptyBorder(16))
           .AddColumn(views::LayoutAlignment::kStart,
                      views::LayoutAlignment::kCenter,
                      views::TableLayout::kFixedSize,

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,13 @@ import android.content.Context;
 import android.graphics.Bitmap;
 
 import androidx.annotation.DrawableRes;
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.LocaleUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.supplier.Supplier;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.omnibox.OmniboxSuggestionType;
 import org.chromium.chrome.browser.omnibox.R;
 import org.chromium.chrome.browser.omnibox.UrlBarEditingTextStateProvider;
@@ -37,6 +41,9 @@ public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
     private final SuggestionHost mSuggestionHost;
     private final UrlBarEditingTextStateProvider mUrlBarEditingTextProvider;
     private final Supplier<ImageFetcher> mImageFetcherSupplier;
+    private boolean mOmniBoxAnswerColorReversal;
+    private boolean mOmniBoxAnswerColorReversalAppliesToFinanceOnly;
+    private @Nullable String mColorReversalCountryList;
 
     /**
      * @param context An Android context.
@@ -45,11 +52,32 @@ public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
     public AnswerSuggestionProcessor(Context context, SuggestionHost suggestionHost,
             UrlBarEditingTextStateProvider editingTextProvider,
             Supplier<ImageFetcher> imageFetcherSupplier) {
-        super(context, suggestionHost);
+        super(context, suggestionHost, null);
         mSuggestionHost = suggestionHost;
         mPendingAnswerRequestUrls = new HashMap<>();
         mUrlBarEditingTextProvider = editingTextProvider;
         mImageFetcherSupplier = imageFetcherSupplier;
+    }
+
+    /**
+     * Evaluates whether the current locale uses "green" or "red" color to indicate
+     * growth, allowing locale-adjusted representation of stock market changes.
+     */
+    @Override
+    public void onNativeInitialized() {
+        super.onNativeInitialized();
+        mOmniBoxAnswerColorReversal =
+                ChromeFeatureList.isEnabled(ChromeFeatureList.SUGGESTION_ANSWERS_COLOR_REVERSE);
+
+        mColorReversalCountryList = ChromeFeatureList.getFieldTrialParamByFeature(
+                ChromeFeatureList.SUGGESTION_ANSWERS_COLOR_REVERSE,
+                "omnibox_answer_color_reversal_countries");
+
+        mOmniBoxAnswerColorReversalAppliesToFinanceOnly =
+                ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
+                        ChromeFeatureList.SUGGESTION_ANSWERS_COLOR_REVERSE,
+                        "omnibox_answer_color_reversal_finance_only",
+                        /* default= */ true);
     }
 
     @Override
@@ -122,8 +150,13 @@ public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
      */
     private void setStateForSuggestion(
             PropertyModel model, AutocompleteMatch suggestion, int position) {
-        AnswerText[] details = AnswerTextNewLayout.from(
-                getContext(), suggestion, mUrlBarEditingTextProvider.getTextWithoutAutocomplete());
+        @AnswerType
+        int answerType = suggestion.getAnswer() == null ? AnswerType.INVALID
+                                                        : suggestion.getAnswer().getType();
+        boolean suggestionTextColorReversal = checkColorReversalRequired(answerType);
+        AnswerText[] details = AnswerTextNewLayout.from(getContext(), suggestion,
+                mUrlBarEditingTextProvider.getTextWithoutAutocomplete(),
+                suggestionTextColorReversal);
 
         model.set(AnswerSuggestionViewProperties.TEXT_LINE_1_TEXT, details[0].mText);
         model.set(AnswerSuggestionViewProperties.TEXT_LINE_2_TEXT, details[1].mText);
@@ -144,6 +177,45 @@ public class AnswerSuggestionProcessor extends BaseSuggestionViewProcessor {
 
         setTabSwitchOrRefineAction(model, suggestion, position);
         maybeFetchAnswerIcon(model, suggestion);
+    }
+
+    /**
+     * Checks if we need to apply color reversion on the answer suggestion.
+     * @param answerType The type of a suggested answer.
+     */
+    @VisibleForTesting
+    public boolean checkColorReversalRequired(@AnswerType int answerType) {
+        boolean isFinanceAnswer = answerType == AnswerType.FINANCE;
+        // Flag disabled.
+        if (!mOmniBoxAnswerColorReversal) return false;
+        // Country not eligible.
+        if (!isCountryEligibleForColorReversal()) return false;
+        // Flag enabled for finance only, but answer type is not finance.
+        if (mOmniBoxAnswerColorReversalAppliesToFinanceOnly && !isFinanceAnswer) return false;
+        // All other cases.
+        return true;
+    }
+
+    /**
+     * Returns whether a given country is eligible for Answer color reversal.
+     * Note: this call does not verify the flag state.
+     */
+    @VisibleForTesting
+    /* package */ boolean isCountryEligibleForColorReversal() {
+        return mColorReversalCountryList != null
+                && mColorReversalCountryList.contains(LocaleUtils.getDefaultLocaleString());
+    }
+
+    /** Returns whether Omnibox answer color reversal is enabled. */
+    @VisibleForTesting
+    /* package */ boolean isOmniboxAnswerColorReversalEnabledForTesting() {
+        return mOmniBoxAnswerColorReversal;
+    }
+
+    /** Returns whether Omnibox answer color reversal is enabled to finance answer only. */
+    @VisibleForTesting
+    /* package */ boolean isOmniboxAnswerColorReversalAppliedToFinanceOnlyForTesting() {
+        return mOmniBoxAnswerColorReversalAppliesToFinanceOnly;
     }
 
     /**

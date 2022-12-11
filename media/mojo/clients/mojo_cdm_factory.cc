@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,13 @@
 #include "base/location.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "media/base/content_decryption_module.h"
 #include "media/base/key_systems.h"
 #include "media/cdm/aes_decryptor.h"
 #include "media/mojo/clients/mojo_cdm.h"
 #include "media/mojo/mojom/content_decryption_module.mojom.h"
 #include "media/mojo/mojom/interface_factory.mojom.h"
+#include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
@@ -25,6 +25,7 @@ namespace media {
 namespace {
 
 void OnCdmCreated(
+    const CdmConfig& cdm_config,
     const SessionMessageCB& session_message_cb,
     const SessionClosedCB& session_closed_cb,
     const SessionKeysChangeCB& session_keys_change_cb,
@@ -43,8 +44,8 @@ void OnCdmCreated(
 
   std::move(cdm_created_cb)
       .Run(base::MakeRefCounted<MojoCdm>(
-               std::move(remote), std::move(cdm_context), session_message_cb,
-               session_closed_cb, session_keys_change_cb,
+               std::move(remote), std::move(cdm_context), cdm_config,
+               session_message_cb, session_closed_cb, session_keys_change_cb,
                session_expiration_update_cb),
            "");
 }
@@ -77,16 +78,21 @@ void MojoCdmFactory::Create(
     scoped_refptr<ContentDecryptionModule> cdm(
         new AesDecryptor(session_message_cb, session_closed_cb,
                          session_keys_change_cb, session_expiration_update_cb));
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(cdm_created_cb), cdm, ""));
     return;
   }
 
+  // Use `mojo::WrapCallbackWithDefaultInvokeIfNotRun()` in case the CDM process
+  // crashes.
   interface_factory_->CreateCdm(
       cdm_config,
-      base::BindOnce(&OnCdmCreated, session_message_cb, session_closed_cb,
-                     session_keys_change_cb, session_expiration_update_cb,
-                     std::move(cdm_created_cb)));
+      mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+          base::BindOnce(&OnCdmCreated, cdm_config, session_message_cb,
+                         session_closed_cb, session_keys_change_cb,
+                         session_expiration_update_cb,
+                         std::move(cdm_created_cb)),
+          mojo::NullRemote(), nullptr, "disconnection error"));
 }
 
 }  // namespace media

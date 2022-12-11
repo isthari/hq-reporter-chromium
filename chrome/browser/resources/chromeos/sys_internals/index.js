@@ -1,10 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {sendWithPromise} from 'chrome://resources/js/cr.m.js';
-import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
-import {$} from 'chrome://resources/js/util.m.js';
+import {PromiseResolver} from 'chrome://resources/ash/common/promise_resolver.js';
+import {$} from 'chrome://resources/ash/common/util.js';
 
 import {CPU_COLOR_SET, INFO_PAGE_PRECISION, MEMORY_COLOR_SET, PAGE_HASH, UNITBASE_MEMORY, UNITBASE_NUMBER_PER_SECOND, UNITS_MEMORY, UNITS_NUMBER_PER_SECOND, UPDATE_PERIOD, ZRAM_COLOR_SET} from './constants.js';
 import {UnitLabelAlign} from './line_chart/constants.js';
@@ -167,8 +167,9 @@ function initChart() {
  * update the system information.
  */
 function startUpdateRequests() {
-  if (window.DONT_SEND_UPDATE_REQUEST)
+  if (window.DONT_SEND_UPDATE_REQUEST) {
     return;
+  }
 
   const doUpdate = function() {
     sendWithPromise('getSysInfo').then(function(data) {
@@ -253,8 +254,9 @@ function updateCpuData(cpus, timestamp) {
  * @param {!Array<!SysInfoApiCpuResult>} cpus
  */
 function initCpuDataSeries(cpus) {
-  if (cpus.length == 0)
+  if (cpus.length == 0) {
     return;
+  }
   dataSeries.cpus = [];
   for (let i = 0; i < cpus.length; ++i) {
     const colorIdx = i % CPU_COLOR_SET.length;
@@ -358,8 +360,9 @@ export function getDiffPerSecAndUpdateCounter(name, newValue, timestamp) {
 
   /* If oldTimeStamp is -1, it means that this is the first value of the
    * counter. */
-  if (oldTimeStamp == -1)
+  if (oldTimeStamp == -1) {
     return 0;
+  }
 
   /**
    * The time increments, in seconds.
@@ -496,8 +499,9 @@ const /** number */ RIGHT = UnitLabelAlign.RIGHT;
  */
 function setupCPUPage() {
   /* This function is async so we need to check the page is still CPU page. */
-  if (location.hash != PAGE_HASH.CPU)
+  if (location.hash != PAGE_HASH.CPU) {
     return;
+  }
 
   const /** Array<!DataSeries> */ cpuDataSeries = dataSeries.cpus;
   const /** number */ UNITBASE_NO_CARRY = 1;

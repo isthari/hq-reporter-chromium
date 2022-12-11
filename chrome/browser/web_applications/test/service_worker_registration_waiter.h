@@ -1,10 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_WEB_APPLICATIONS_TEST_SERVICE_WORKER_REGISTRATION_WAITER_H_
 #define CHROME_BROWSER_WEB_APPLICATIONS_TEST_SERVICE_WORKER_REGISTRATION_WAITER_H_
 
+#include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "content/public/browser/service_worker_context_observer.h"
@@ -30,7 +31,8 @@ class ServiceWorkerRegistrationWaiter
       const ServiceWorkerRegistrationWaiter&) = delete;
   ~ServiceWorkerRegistrationWaiter() override;
 
-  void AwaitRegistration();
+  void AwaitRegistration(
+      const base::Location& location = base::Location::Current());
 
  private:
   // content::ServiceWorkerContextObserver:

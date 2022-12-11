@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,6 +42,7 @@ NSString* const kTabGridEditAddToButtonIdentifier =
 NSString* const kTabGridEditShareButtonIdentifier =
     @"kTabGridEditShareButtonIdentifier";
 NSString* const kTabGridSearchBarIdentifier = @"kTabGridSearchBarIdentifier";
+NSString* const kTabGridSearchTextFieldIdentifierPrefix = @"kSearchTextId_";
 NSString* const kTabGridScrimIdentifier = @"kTabGridScrimIdentifier";
 
 // The color of the text buttons in the toolbars.
@@ -83,3 +84,6 @@ const CGFloat kThumbStripSlideInHeight = 40.0f;
 // The distance travelled by the thumb strip's plus sign button during the
 // slide-out animation of the transition from Peeked to Revealed state.
 const CGFloat kThumbStripPlusSignButtonSlideOutDistance = 400.0f;
+
+// Alpha of the background color of the toolbar.
+const CGFloat kToolbarBackgroundAlpha = 0.75;

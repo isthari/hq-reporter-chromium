@@ -1,11 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/frame/wide_frame_view.h"
 #include <memory>
 
-#include "ash/frame/header_view.h"
 #include "ash/frame/non_client_frame_view_ash.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/screen_util.h"
@@ -17,6 +16,7 @@
 #include "base/metrics/user_metrics.h"
 #include "chromeos/ui/frame/caption_buttons/frame_caption_button_container_view.h"
 #include "chromeos/ui/frame/default_frame_header.h"
+#include "chromeos/ui/frame/header_view.h"
 #include "chromeos/ui/frame/immersive/immersive_fullscreen_controller.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_targeter.h"
@@ -32,7 +32,7 @@ using ::chromeos::ImmersiveFullscreenController;
 
 class WideFrameTargeter : public aura::WindowTargeter {
  public:
-  explicit WideFrameTargeter(HeaderView* header_view)
+  explicit WideFrameTargeter(chromeos::HeaderView* header_view)
       : header_view_(header_view) {}
 
   WideFrameTargeter(const WideFrameTargeter&) = delete;
@@ -59,7 +59,7 @@ class WideFrameTargeter : public aura::WindowTargeter {
   }
 
  private:
-  HeaderView* header_view_;
+  chromeos::HeaderView* header_view_;
 };
 
 }  // namespace
@@ -102,7 +102,7 @@ WideFrameView::WideFrameView(views::Widget* target)
   // Use the HeaderView itself as a frame view because WideFrameView is
   // is the frame only.
   header_view_ = AddChildView(
-      std::make_unique<HeaderView>(target, /*frame view=*/nullptr));
+      std::make_unique<chromeos::HeaderView>(target, /*frame view=*/nullptr));
   header_view_->Init();
   GetTargetHeaderView()->SetShouldPaintHeader(false);
   header_view_->set_context_menu_controller(
@@ -143,7 +143,7 @@ WideFrameView::~WideFrameView() {
   if (widget_)
     widget_->CloseNow();
   if (target_) {
-    HeaderView* target_header_view = GetTargetHeaderView();
+    chromeos::HeaderView* target_header_view = GetTargetHeaderView();
     target_header_view->SetShouldPaintHeader(true);
     target_header_view->GetFrameHeader()->UpdateFrameHeaderKey();
     target_->GetNativeWindow()->RemoveObserver(this);
@@ -180,6 +180,15 @@ void WideFrameView::OnWindowDestroying(aura::Window* window) {
 
 void WideFrameView::OnDisplayMetricsChanged(const display::Display& display,
                                             uint32_t changed_metrics) {
+  aura::Window* target_window = target_->GetNativeWindow();
+  // The target window is detached from the tree when the window is being moved
+  // to another desks, or another display, and it may trigger the display
+  // metrics change if the target window is in fullscreen. Do not try to layout
+  // in this case. The it'll be layout when the window is added back.
+  // (crbug.com/1267128)
+  if (!target_window->GetRootWindow())
+    return;
+
   display::Screen* screen = display::Screen::GetScreen();
   if (screen->GetDisplayNearestWindow(target_->GetNativeWindow()).id() !=
           display.id() ||
@@ -191,8 +200,7 @@ void WideFrameView::OnDisplayMetricsChanged(const display::Display& display,
   // Ignore if this is called when the targe window state is nor proper
   // state. This can happen when switching the state to other states, in which
   // case, the wide frame will be removed.
-  if (!WindowState::Get(target_->GetNativeWindow())
-           ->IsMaximizedOrFullscreenOrPinned()) {
+  if (!WindowState::Get(target_window)->IsMaximizedOrFullscreenOrPinned()) {
     return;
   }
 
@@ -240,7 +248,7 @@ bool WideFrameView::ShouldShowContextMenu(
       gfx::Rect(point_in_header_coords, gfx::Size(1, 1)));
 }
 
-HeaderView* WideFrameView::GetTargetHeaderView() {
+chromeos::HeaderView* WideFrameView::GetTargetHeaderView() {
   auto* frame_view = static_cast<NonClientFrameViewAsh*>(
       target_->non_client_view()->frame_view());
   return frame_view->GetHeaderView();

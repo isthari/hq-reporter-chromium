@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,33 +24,35 @@ void DeviceIdMap::RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(kDeviceIdMapPref);
 }
 
-DeviceIdMap::DeviceIdMap() {
-  device::BluetoothAdapterFactory::Get()->GetAdapter(base::BindOnce(
-      &DeviceIdMap::OnGetAdapter, weak_ptr_factory_.GetWeakPtr()));
-}
+DeviceIdMap::DeviceIdMap(scoped_refptr<device::BluetoothAdapter> adapter)
+    : bluetooth_adapter_(adapter) {}
 
 DeviceIdMap::~DeviceIdMap() = default;
 
-void DeviceIdMap::SaveModelIdForDevice(scoped_refptr<Device> device) {
+bool DeviceIdMap::SaveModelIdForDevice(scoped_refptr<Device> device) {
   // In some cases, BLE and classic address can map to different devices (with
   // the same model ID) so we want to capture both device ID -> model ID
   // records.
+  bool did_save = false;
   absl::optional<const std::string> ble_device_id =
       GetDeviceIdForAddress(device->ble_address);
   if (ble_device_id) {
+    did_save = true;
     device_id_to_model_id_[ble_device_id.value()] = device->metadata_id;
   }
 
   absl::optional<const std::string> classic_address = device->classic_address();
   if (!classic_address) {
-    return;
+    return did_save;
   }
 
   absl::optional<const std::string> classic_device_id =
       GetDeviceIdForAddress(classic_address.value());
   if (classic_device_id) {
+    did_save = true;
     device_id_to_model_id_[classic_device_id.value()] = device->metadata_id;
   }
+  return did_save;
 }
 
 bool DeviceIdMap::PersistRecordsForDevice(scoped_refptr<Device> device) {
@@ -94,8 +96,8 @@ bool DeviceIdMap::PersistDeviceIdRecord(const std::string& device_id) {
     return false;
   }
 
-  DictionaryPrefUpdate device_id_map_dict(local_state, kDeviceIdMapPref);
-  if (!device_id_map_dict->SetStringKey(device_id, model_id)) {
+  ScopedDictPrefUpdate device_id_map_dict(local_state, kDeviceIdMapPref);
+  if (!device_id_map_dict->Set(device_id, model_id)) {
     QP_LOG(WARNING)
         << __func__
         << ": Failed to persist device ID -> model ID record for device ID: " +
@@ -112,8 +114,8 @@ bool DeviceIdMap::EvictDeviceIdRecord(const std::string& device_id) {
     return false;
   }
 
-  DictionaryPrefUpdate device_id_map_dict(local_state, kDeviceIdMapPref);
-  if (!device_id_map_dict->RemoveKey(device_id)) {
+  ScopedDictPrefUpdate device_id_map_dict(local_state, kDeviceIdMapPref);
+  if (!device_id_map_dict->Remove(device_id)) {
     QP_LOG(WARNING) << __func__
                     << ": Failed to evict device ID -> model ID record from "
                        "prefs for device ID: " +
@@ -146,14 +148,20 @@ bool DeviceIdMap::HasPersistedRecordsForModelId(const std::string& model_id) {
     return false;
   }
 
-  const base::Value* device_id_map_dict =
-      local_state->GetDictionary(kDeviceIdMapPref);
+  const base::Value::Dict& device_id_map_dict =
+      local_state->GetDict(kDeviceIdMapPref);
   for (std::pair<const std::string&, const base::Value&> record :
-       device_id_map_dict->DictItems()) {
+       device_id_map_dict) {
     if (record.second.GetString() == model_id)
       return true;
   }
   return false;
+}
+
+void DeviceIdMap::RefreshCacheForTest() {
+  QP_LOG(INFO) << __func__;
+  device_id_to_model_id_.clear();
+  LoadPersistedRecordsFromPrefs();
 }
 
 void DeviceIdMap::LoadPersistedRecordsFromPrefs() {
@@ -164,17 +172,12 @@ void DeviceIdMap::LoadPersistedRecordsFromPrefs() {
     return;
   }
 
-  const base::Value* device_id_map_dict =
-      local_state->GetDictionary(kDeviceIdMapPref);
+  const base::Value::Dict& device_id_map_dict =
+      local_state->GetDict(kDeviceIdMapPref);
   for (std::pair<const std::string&, const base::Value&> record :
-       device_id_map_dict->DictItems()) {
+       device_id_map_dict) {
     device_id_to_model_id_[record.first] = record.second.GetString();
   }
-}
-
-void DeviceIdMap::OnGetAdapter(
-    scoped_refptr<device::BluetoothAdapter> adapter) {
-  bluetooth_adapter_ = adapter;
 }
 
 absl::optional<const std::string> DeviceIdMap::GetDeviceIdForAddress(

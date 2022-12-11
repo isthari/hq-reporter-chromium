@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,28 @@
  * Authenticate user screens.
  */
 
-/* #js_imports_placeholder */
+import '//resources/cr_elements/cr_toggle/cr_toggle.js';
+import '//resources/cr_elements/icons.html.js';
+import '//resources/cr_elements/md_select.css.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '../../components/oobe_icons.m.js';
+import '../../components/buttons/oobe_back_button.js';
+import '../../components/buttons/oobe_next_button.js';
+import '../../components/buttons/oobe_text_button.js';
+import '../../components/common_styles/oobe_common_styles.m.js';
+import '../../components/common_styles/oobe_dialog_host_styles.m.js';
+
+import {I18nBehavior} from '//resources/ash/common/i18n_behavior.js';
+import {loadTimeData} from '//resources/js/load_time_data.m.js';
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.m.js';
+import {MultiStepBehavior, MultiStepBehaviorInterface} from '../../components/behaviors/multi_step_behavior.m.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OobeAdaptiveDialog} from '../../components/dialogs/oobe_adaptive_dialog.js';
+import {OobeA11yOption} from '../../components/oobe_a11y_option.js';
+import {getSelectedTitle, getSelectedValue, SelectListType, setupSelect} from '../../components/oobe_select.js';
+
 
 // The definitions below (JoinConfigType, ActiveDirectoryErrorState) are
 // used in enterprise_enrollment.js as well.
@@ -17,14 +38,14 @@
  *             computer_ou: ?string, encryption_types: ?string,
  *             computer_name_validation_regex: ?string}}
  */
-/* #export */ var JoinConfigType;
+export var JoinConfigType;
 
 // Possible error states of the screen. Must be in the same order as
 // ActiveDirectoryErrorState enum values. Used in enterprise_enrollment
 /**
  * @enum {number}
  */
-/* #export */ const ActiveDirectoryErrorState = {
+export const ActiveDirectoryErrorState = {
   NONE: 0,
   MACHINE_NAME_INVALID: 1,
   MACHINE_NAME_TOO_LONG: 2,
@@ -34,7 +55,7 @@
 };
 
 // Used by enterprise_enrollment.js
-/* #export */ const ADLoginStep = {
+export const ADLoginStep = {
   UNLOCK: 'unlock',
   CREDS: 'creds',
 };
@@ -54,13 +75,12 @@ var EncryptionSelectListType;
  * @implements {MultiStepBehaviorInterface}
  * @implements {OobeI18nBehaviorInterface}
  */
-const OfflineAdLoginBase = Polymer.mixinBehaviors(
-    [OobeI18nBehavior, MultiStepBehavior, LoginScreenBehavior],
-    Polymer.Element);
+const OfflineAdLoginBase = mixinBehaviors(
+    [OobeI18nBehavior, MultiStepBehavior, LoginScreenBehavior], PolymerElement);
 
 /**
  * @typedef {{
- *   marketingOptInOverviewDialog:  OobeAdaptiveDialogElement,
+ *   marketingOptInOverviewDialog:  OobeAdaptiveDialog,
  *   chromebookUpdatesOption:  CrToggleElement,
  *   a11yNavButtonToggle:  OobeA11yOption,
  * }}
@@ -75,7 +95,9 @@ class OfflineAdLogin extends OfflineAdLoginBase {
     return 'offline-ad-login-element';
   }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -114,7 +136,7 @@ class OfflineAdLogin extends OfflineAdLoginBase {
       /**
        * ID of localized welcome message on top of the UI.
        */
-      adWelcomeMessageKey: String,
+      adWelcomeMessageKey: {type: String, value: 'loginWelcomeMessage'},
       /**
        * Error message for the machine name input.
        */
@@ -125,7 +147,7 @@ class OfflineAdLogin extends OfflineAdLoginBase {
       errorState: {
         type: Number,
         value: ActiveDirectoryErrorState.NONE,
-        observer: 'errorStateObserver_'
+        observer: 'errorStateObserver_',
       },
       /**
        * Whether machine name input should be invalid.
@@ -133,7 +155,7 @@ class OfflineAdLogin extends OfflineAdLoginBase {
       machineNameInvalid: {
         type: Boolean,
         value: false,
-        observer: 'machineNameInvalidObserver_'
+        observer: 'machineNameInvalidObserver_',
       },
       /**
        * Whether username input should be invalid.
@@ -146,7 +168,7 @@ class OfflineAdLogin extends OfflineAdLoginBase {
       authPasswordInvalid: {
         type: Boolean,
         value: false,
-        observer: 'authPasswordInvalidObserver_'
+        observer: 'authPasswordInvalidObserver_',
       },
       /**
        * Whether unlock password input should be invalid.
@@ -154,7 +176,7 @@ class OfflineAdLogin extends OfflineAdLoginBase {
       unlockPasswordInvalid: {
         type: Boolean,
         value: false,
-        observer: 'unlockPasswordInvalidObserver_'
+        observer: 'unlockPasswordInvalidObserver_',
       },
 
       /**
@@ -258,20 +280,17 @@ class OfflineAdLogin extends OfflineAdLoginBase {
     if (this.isDomainJoin) {
       this.setupEncList();
     } else {
-      this.initializeLoginScreen('ActiveDirectoryLoginScreen', {
-        resetAllowed: true,
-      });
+      this.initializeLoginScreen('ActiveDirectoryLoginScreen');
     }
   }
 
   onBeforeShow(data) {
     if (data) {
       this.realm = data['realm'];
-      if ('emailDomain' in data)
+      if ('emailDomain' in data) {
         this.userRealm = '@' + data['emailDomain'];
+      }
     }
-    if (!this.adWelcomeMessageKey)
-      this.adWelcomeMessageKey = 'loginWelcomeMessage';
     this.focus();
   }
 
@@ -320,8 +339,9 @@ class OfflineAdLogin extends OfflineAdLoginBase {
   }
 
   errorStateObserver_() {
-    if (this.errorStateLocked_)
+    if (this.errorStateLocked_) {
       return;
+    }
     // Prevent updateErrorStateOnInputInvalidStateChange_ from changing
     // errorState.
     this.errorStateLocked_ = true;
@@ -336,8 +356,9 @@ class OfflineAdLogin extends OfflineAdLoginBase {
         this.errorState == ActiveDirectoryErrorState.BAD_UNLOCK_PASSWORD;
 
     // Clear password.
-    if (this.errorState == ActiveDirectoryErrorState.NONE)
+    if (this.errorState == ActiveDirectoryErrorState.NONE) {
       this.$.passwordInput.value = '';
+    }
     this.errorStateLocked_ = false;
   }
 
@@ -372,27 +393,32 @@ class OfflineAdLogin extends OfflineAdLoginBase {
 
   /** @private */
   onSubmit_() {
-    if (this.disabled)
+    if (this.disabled) {
       return;
+    }
 
     if (this.isDomainJoin) {
       this.machineNameInvalid = !this.$.machineNameInput.validate();
-      if (this.machineNameInvalid)
+      if (this.machineNameInvalid) {
         return;
+      }
     }
 
     this.userInvalid = !this.$.userInput.validate();
-    if (this.userInvalid)
+    if (this.userInvalid) {
       return;
+    }
 
     this.authPasswordInvalid = !this.$.passwordInput.validate();
-    if (this.authPasswordInvalid)
+    if (this.authPasswordInvalid) {
       return;
+    }
 
     var user = /** @type {string} */ (this.$.userInput.value);
     const password = /** @type {string} / */ (this.$.passwordInput.value);
-    if (!user.includes('@') && this.userRealm)
+    if (!user.includes('@') && this.userRealm) {
       user += this.userRealm;
+    }
 
     if (this.isDomainJoin) {
       const msg = {
@@ -406,7 +432,7 @@ class OfflineAdLogin extends OfflineAdLoginBase {
           'authCompleted', {bubbles: true, composed: true, detail: msg}));
     } else {
       this.loading = true;
-      chrome.send('completeAdAuthentication', [user, password]);
+      this.userActed(['completeAdAuthentication', user, password]);
     }
   }
 
@@ -465,8 +491,9 @@ class OfflineAdLogin extends OfflineAdLoginBase {
 
   /** @private */
   onBackToUnlock_() {
-    if (this.disabled)
+    if (this.disabled) {
       return;
+    }
     this.setUIStep(ADLoginStep.UNLOCK);
     this.focus();
   }
@@ -481,8 +508,9 @@ class OfflineAdLogin extends OfflineAdLoginBase {
 
   /** @private */
   onJoinConfigSelected_(value) {
-    if (this.selectedConfigOption_ == this.joinConfigOptions_[value])
+    if (this.selectedConfigOption_ == this.joinConfigOptions_[value]) {
       return;
+    }
     this.errorState = ActiveDirectoryErrorState.NONE;
     this.previousSelectedConfigOption_ = this.selectedConfigOption_;
     this.selectedConfigOption_ = this.joinConfigOptions_[value];
@@ -526,12 +554,14 @@ class OfflineAdLogin extends OfflineAdLoginBase {
    * @private
    */
   calculateInputValue_(inputElementId, key, option) {
-    if (option && key in option)
+    if (option && key in option) {
       return option[key];
+    }
 
     if (this.previousSelectedConfigOption_ &&
-        key in this.previousSelectedConfigOption_)
+        key in this.previousSelectedConfigOption_) {
       return '';
+    }
 
     // No changes.
     return this.$[inputElementId].value;
@@ -558,22 +588,24 @@ class OfflineAdLogin extends OfflineAdLoginBase {
   }
 
   getMachineNameError_(locale, errorState) {
-    if (errorState == ActiveDirectoryErrorState.MACHINE_NAME_TOO_LONG)
-      return this.i18nDynamic(locale, 'adJoinErrorMachineNameTooLong');
+    if (errorState == ActiveDirectoryErrorState.MACHINE_NAME_TOO_LONG) {
+      return this.i18n('adJoinErrorMachineNameTooLong');
+    }
     if (errorState == ActiveDirectoryErrorState.MACHINE_NAME_INVALID) {
       if (this.machineNameInputPattern_) {
-        return this.i18nDynamic(locale, 'adJoinErrorMachineNameInvalidFormat');
+        return this.i18n('adJoinErrorMachineNameInvalidFormat');
       }
     }
-    return this.i18nDynamic(locale, 'adJoinErrorMachineNameInvalid');
+    return this.i18n('adJoinErrorMachineNameInvalid');
   }
 
   onKeydownUnlockPassword_(e) {
     if (e.key == 'Enter') {
-      if (this.$.unlockPasswordInput.value.length == 0)
+      if (this.$.unlockPasswordInput.value.length == 0) {
         this.onSkipClicked_();
-      else
+      } else {
         this.onUnlockPasswordEntered_();
+      }
     }
     this.errorState = ActiveDirectoryErrorState.NONE;
   }
@@ -588,8 +620,9 @@ class OfflineAdLogin extends OfflineAdLoginBase {
 
   onKeydownUserInput_(e) {
     this.errorState = ActiveDirectoryErrorState.NONE;
-    if (e.key == 'Enter')
+    if (e.key == 'Enter') {
       this.switchTo_('passwordInput') || this.onSubmit_();
+    }
   }
 
   userNameObserver_() {
@@ -605,8 +638,9 @@ class OfflineAdLogin extends OfflineAdLoginBase {
 
   onKeydownAuthPasswordInput_(e) {
     this.errorState = ActiveDirectoryErrorState.NONE;
-    if (e.key == 'Enter')
+    if (e.key == 'Enter') {
       this.onSubmit_();
+    }
   }
 
   switchTo_(inputId) {
@@ -637,21 +671,24 @@ class OfflineAdLogin extends OfflineAdLoginBase {
   }
 
   setErrorState_(isInvalid, error) {
-    if (this.errorStateLocked_)
+    if (this.errorStateLocked_) {
       return;
+    }
     this.errorStateLocked_ = true;
-    if (isInvalid)
+    if (isInvalid) {
       this.errorState = error;
-    else
+    } else {
       this.errorState = ActiveDirectoryErrorState.NONE;
+    }
     this.errorStateLocked_ = false;
   }
 
   disabledObserver_(disabled) {
-    if (disabled)
+    if (disabled) {
       this.$.credsStep.classList.add('full-disabled');
-    else
+    } else {
       this.$.credsStep.classList.remove('full-disabled');
+    }
   }
 }
 

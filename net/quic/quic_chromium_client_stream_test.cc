@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/cxx17_backports.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
@@ -19,24 +18,23 @@
 #include "net/quic/quic_chromium_client_session.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_with_task_environment.h"
-#include "net/third_party/quiche/src/quic/core/crypto/null_encrypter.h"
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_session_base.h"
-#include "net/third_party/quiche/src/quic/core/http/quic_spdy_client_stream.h"
-#include "net/third_party/quiche/src/quic/core/http/spdy_utils.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/crypto_test_utils.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_config_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_connection_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_spdy_session_peer.h"
-#include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/quiche/quic/core/crypto/null_encrypter.h"
+#include "net/third_party/quiche/src/quiche/quic/core/http/quic_spdy_client_session_base.h"
+#include "net/third_party/quiche/src/quiche/quic/core/http/quic_spdy_client_stream.h"
+#include "net/third_party/quiche/src/quiche/quic/core/http/spdy_utils.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_utils.h"
+#include "net/third_party/quiche/src/quiche/quic/test_tools/crypto_test_utils.h"
+#include "net/third_party/quiche/src/quiche/quic/test_tools/quic_config_peer.h"
+#include "net/third_party/quiche/src/quiche/quic/test_tools/quic_connection_peer.h"
+#include "net/third_party/quiche/src/quiche/quic/test_tools/quic_spdy_session_peer.h"
+#include "net/third_party/quiche/src/quiche/quic/test_tools/quic_test_utils.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using testing::_;
 using testing::Return;
 
-namespace net {
-namespace test {
+namespace net::test {
 namespace {
 
 class MockQuicClientSessionBase : public quic::QuicSpdyClientSessionBase {
@@ -106,7 +104,7 @@ class MockQuicClientSessionBase : public quic::QuicSpdyClientSessionBase {
       spdy::Http2HeaderBlock headers,
       bool fin,
       const spdy::SpdyStreamPrecedence& precedence,
-      quic::QuicReferenceCountedPointer<quic::QuicAckListenerInterface>
+      quiche::QuicheReferenceCountedPointer<quic::QuicAckListenerInterface>
           ack_listener) override {
     return WriteHeadersOnHeadersStreamMock(id, headers, fin, precedence,
                                            std::move(ack_listener));
@@ -116,7 +114,7 @@ class MockQuicClientSessionBase : public quic::QuicSpdyClientSessionBase {
                       const spdy::Http2HeaderBlock& headers,
                       bool fin,
                       const spdy::SpdyStreamPrecedence& precedence,
-                      const quic::QuicReferenceCountedPointer<
+                      const quiche::QuicheReferenceCountedPointer<
                           quic::QuicAckListenerInterface>& ack_listener));
   MOCK_METHOD1(OnHeadersHeadOfLineBlocking, void(quic::QuicTime::Delta delta));
 
@@ -159,7 +157,7 @@ MockQuicClientSessionBase::MockQuicClientSessionBase(
       .WillByDefault(testing::Return(quic::QuicConsumedData(0, false)));
 }
 
-MockQuicClientSessionBase::~MockQuicClientSessionBase() {}
+MockQuicClientSessionBase::~MockQuicClientSessionBase() = default;
 
 class QuicChromiumClientStreamTest
     : public ::testing::TestWithParam<quic::ParsedQuicVersion>,
@@ -283,8 +281,8 @@ class QuicChromiumClientStreamTest
     if (!version_.HasIetfQuicFrames()) {
       return "";
     }
-    quic::QuicBuffer buffer = quic::HttpEncoder::SerializeDataFrameHeader(
-        body_len, quic::SimpleBufferAllocator::Get());
+    quiche::QuicheBuffer buffer = quic::HttpEncoder::SerializeDataFrameHeader(
+        body_len, quiche::SimpleBufferAllocator::Get());
     return std::string(buffer.data(), buffer.size());
   }
 
@@ -334,7 +332,7 @@ TEST_P(QuicChromiumClientStreamTest, Handle) {
   handle_->OnFinRead();
 
   const char kData1[] = "hello world";
-  const size_t kDataLen = base::size(kData1);
+  const size_t kDataLen = std::size(kData1);
 
   // All data written.
   std::string header = ConstructDataHeader(kDataLen);
@@ -750,7 +748,7 @@ TEST_P(QuicChromiumClientStreamTest, ReadAfterTrailersReceivedButNotDelivered) {
 TEST_P(QuicChromiumClientStreamTest, WriteStreamData) {
   testing::InSequence seq;
   const char kData1[] = "hello world";
-  const size_t kDataLen = base::size(kData1);
+  const size_t kDataLen = std::size(kData1);
 
   // All data written.
   if (version_.HasIetfQuicFrames()) {
@@ -770,7 +768,7 @@ TEST_P(QuicChromiumClientStreamTest, WriteStreamData) {
 TEST_P(QuicChromiumClientStreamTest, WriteStreamDataAsync) {
   testing::InSequence seq;
   const char kData1[] = "hello world";
-  const size_t kDataLen = base::size(kData1);
+  const size_t kDataLen = std::size(kData1);
 
   // No data written.
   EXPECT_CALL(session_,
@@ -942,7 +940,7 @@ TEST_P(QuicChromiumClientStreamTest, HeadersAndDataBeforeHandle) {
   base::RunLoop().RunUntilIdle();
 
   // Now explicitly read the data.
-  int data_len = base::size(data) - 1;
+  int data_len = std::size(data) - 1;
   scoped_refptr<IOBuffer> buffer = base::MakeRefCounted<IOBuffer>(data_len + 1);
   ASSERT_EQ(data_len, stream2->Read(buffer.get(), data_len + 1));
   EXPECT_EQ(absl::string_view(data),
@@ -1180,5 +1178,4 @@ TEST_P(QuicChromiumClientStreamTest, TrailersAfterEarlyHintsWithoutRead) {
 }
 
 }  // namespace
-}  // namespace test
-}  // namespace net
+}  // namespace net::test

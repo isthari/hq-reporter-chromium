@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "build/build_config.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/image_model.h"
 #include "ui/strings/grit/ui_strings.h"
 
 ConfirmInfoBarDelegate::~ConfirmInfoBarDelegate() = default;
@@ -41,6 +42,7 @@ int ConfirmInfoBarDelegate::GetButtons() const {
 
 std::u16string ConfirmInfoBarDelegate::GetButtonLabel(
     InfoBarButton button) const {
+  DCHECK(button == BUTTON_OK || button == BUTTON_CANCEL);
   return l10n_util::GetStringUTF16((button == BUTTON_OK) ? IDS_APP_OK
                                                          : IDS_APP_CANCEL);
 }
@@ -48,6 +50,15 @@ std::u16string ConfirmInfoBarDelegate::GetButtonLabel(
 ui::ImageModel ConfirmInfoBarDelegate::GetButtonImage(
     InfoBarButton button) const {
   return ui::ImageModel();
+}
+
+bool ConfirmInfoBarDelegate::GetButtonEnabled(InfoBarButton button) const {
+  return true;
+}
+
+std::u16string ConfirmInfoBarDelegate::GetButtonTooltip(
+    InfoBarButton button) const {
+  return std::u16string();
 }
 
 bool ConfirmInfoBarDelegate::OKButtonTriggersUACPrompt() const {
@@ -65,6 +76,11 @@ bool ConfirmInfoBarDelegate::Accept() {
 }
 
 bool ConfirmInfoBarDelegate::Cancel() {
+  return true;
+}
+
+bool ConfirmInfoBarDelegate::ExtraButtonPressed() {
+  NOTREACHED() << "Method must be overridden.";
   return true;
 }
 

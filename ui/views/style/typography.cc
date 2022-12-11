@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,7 @@
 #include "ui/views/layout/layout_provider.h"
 #include "ui/views/style/typography_provider.h"
 
-namespace views {
-namespace style {
+namespace views::style {
 namespace {
 
 void ValidateContextAndStyle(int context, int style) {
@@ -43,5 +42,4 @@ int GetLineHeight(int context, int style) {
                                                                       style);
 }
 
-}  // namespace style
-}  // namespace views
+}  // namespace views::style

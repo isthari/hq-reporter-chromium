@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,11 @@
 
 #include <set>
 
+#include "ash/constants/ash_features.h"
 #include "base/bind.h"
 #include "base/memory/raw_ptr.h"
+#include "base/observer_list.h"
+#include "build/chromeos_buildflags.h"
 #include "content/browser/renderer_host/render_widget_host_delegate.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_aura.h"
@@ -25,6 +28,7 @@
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/touch_selection/touch_handle_drawable_aura.h"
+#include "ui/touch_selection/touch_selection_magnifier_runner.h"
 #include "ui/touch_selection/touch_selection_menu_runner.h"
 
 namespace content {
@@ -268,7 +272,8 @@ void TouchSelectionControllerClientAura::ShowQuickMenu() {
 
   aura::Window* parent = rwhva_->GetNativeView();
   ui::TouchSelectionMenuRunner::GetInstance()->OpenMenu(
-      active_menu_client_, ConvertRectToScreen(parent, anchor_rect),
+      active_menu_client_->GetWeakPtr(),
+      ConvertRectToScreen(parent, anchor_rect),
       gfx::ToRoundedSize(max_handle_size), parent->GetToplevelWindow());
 }
 
@@ -290,6 +295,21 @@ void TouchSelectionControllerClientAura::UpdateQuickMenu() {
       ShowQuickMenu();
     else
       quick_menu_timer_.Reset();
+  }
+}
+
+void TouchSelectionControllerClientAura::ShowMagnifier(
+    const gfx::PointF& position) {
+  if (auto* magnifier_runner =
+          ui::TouchSelectionMagnifierRunner::GetInstance()) {
+    magnifier_runner->ShowMagnifier(rwhva_->GetNativeView(), position);
+  }
+}
+
+void TouchSelectionControllerClientAura::CloseMagnifier() {
+  if (auto* magnifier_runner =
+          ui::TouchSelectionMagnifierRunner::GetInstance()) {
+    magnifier_runner->CloseMagnifier();
   }
 }
 
@@ -381,6 +401,7 @@ void TouchSelectionControllerClientAura::OnSelectionEvent(
     case ui::INSERTION_HANDLE_DRAG_STOPPED:
       handle_drag_in_progress_ = false;
       UpdateQuickMenu();
+      CloseMagnifier();
       break;
     case ui::SELECTION_HANDLES_MOVED:
     case ui::INSERTION_HANDLE_MOVED:
@@ -400,7 +421,10 @@ void TouchSelectionControllerClientAura::InternalClient::OnSelectionEvent(
 
 void TouchSelectionControllerClientAura::OnDragUpdate(
     const ui::TouchSelectionDraggable::Type type,
-    const gfx::PointF& position) {}
+    const gfx::PointF& position) {
+  DCHECK(handle_drag_in_progress_);
+  ShowMagnifier(position);
+}
 
 void TouchSelectionControllerClientAura::InternalClient::OnDragUpdate(
     const ui::TouchSelectionDraggable::Type type,
@@ -449,6 +473,11 @@ bool TouchSelectionControllerClientAura::IsCommandIdEnabled(
           ui::ClipboardBuffer::kCopyPaste, &data_dst, &result);
       return editable && !result.empty();
     }
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    case ui::TouchEditable::kSelectAll:
+      return readable && base::FeatureList::IsEnabled(
+                             ash::features::kTouchTextEditingRedesign);
+#endif
     default:
       return false;
   }
@@ -470,6 +499,9 @@ void TouchSelectionControllerClientAura::ExecuteCommand(int command_id,
       break;
     case ui::TouchEditable::kPaste:
       host_delegate->Paste();
+      break;
+    case ui::TouchEditable::kSelectAll:
+      host_delegate->SelectAll();
       break;
     default:
       NOTREACHED();

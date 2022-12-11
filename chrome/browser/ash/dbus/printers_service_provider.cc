@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,7 @@ PrintersServiceProvider::~PrintersServiceProvider() = default;
 void PrintersServiceProvider::Start(
     scoped_refptr<dbus::ExportedObject> exported_object) {
   exported_object_ = exported_object;
-  auto* proxy = chromeos::CupsPrintersManagerFactory::GetInstance()->GetProxy();
+  auto* proxy = CupsPrintersManagerFactory::GetInstance()->GetProxy();
   DCHECK(proxy);
   printers_manager_observation_.Observe(proxy);
 }

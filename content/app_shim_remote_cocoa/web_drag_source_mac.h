@@ -1,18 +1,18 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CONTENT_APP_SHIM_REMOTE_COCOA_WEB_DRAG_SOURCE_MAC_H_
 #define CONTENT_APP_SHIM_REMOTE_COCOA_WEB_DRAG_SOURCE_MAC_H_
 
+#include "base/memory/raw_ptr.h"
+
 #import <Cocoa/Cocoa.h>
 
 #include <memory>
 
 #include "base/files/file_path.h"
-#include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_nsobject.h"
-#include "base/memory/weak_ptr.h"
 #include "content/common/content_export.h"
 #include "url/gurl.h"
 
@@ -20,11 +20,9 @@ namespace content {
 struct DropData;
 }  // namespace content
 
-namespace remote_cocoa {
-namespace mojom {
+namespace remote_cocoa::mojom {
 class WebContentsNSViewHost;
-}  // namespace mojom
-}  // namespace remote_cocoa
+}  // namespace remote_cocoa::mojom
 
 // A class that handles tracking and event processing for a drag and drop
 // originating from the content area.
@@ -33,7 +31,7 @@ CONTENT_EXPORT
  @private
   // The host through which to communicate with the WebContentsImpl. Owns
   // |self| and resets |host_| via clearHostAndWebContentsView.
-  remote_cocoa::mojom::WebContentsNSViewHost* _host;
+  raw_ptr<remote_cocoa::mojom::WebContentsNSViewHost> _host;
 
   // The view from which the drag was initiated. Weak reference.
   // An instance of this class may outlive |contentsView_|. The destructor of
@@ -64,8 +62,9 @@ CONTENT_EXPORT
   // The URL to download from for a drag-out download.
   GURL _downloadURL;
 
-  // The file UTI associated with the file drag, if any.
-  base::ScopedCFTypeRef<CFStringRef> _fileUTI;
+  // The file type associated with the file drag, if any. TODO(macOS 11): Change
+  // to a UTType object.
+  base::scoped_nsobject<NSString> _fileUTType;
 }
 
 // Initialize a WebDragSource object for a drag (originating on the given

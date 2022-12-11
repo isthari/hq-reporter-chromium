@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,15 @@
 #define CHROME_BROWSER_ASH_WEB_APPLICATIONS_PERSONALIZATION_APP_PERSONALIZATION_APP_THEME_PROVIDER_IMPL_H_
 
 #include "ash/public/cpp/style/color_mode_observer.h"
-#include "ash/public/cpp/style/color_provider.h"
+#include "ash/style/color_palette_controller.h"
+#include "ash/style/dark_light_mode_controller_impl.h"
 #include "ash/webui/personalization_app/personalization_app_theme_provider.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/skia/include/core/SkColor.h"
 
 class Profile;
 
@@ -18,8 +22,10 @@ namespace content {
 class WebUI;
 }  // namespace content
 
+namespace ash::personalization_app {
+
 class PersonalizationAppThemeProviderImpl
-    : public ash::PersonalizationAppThemeProvider,
+    : public PersonalizationAppThemeProvider,
       ash::ColorModeObserver {
  public:
   explicit PersonalizationAppThemeProviderImpl(content::WebUI* web_ui);
@@ -43,16 +49,39 @@ class PersonalizationAppThemeProviderImpl
 
   void SetColorModePref(bool dark_mode_enabled) override;
 
+  void SetColorModeAutoScheduleEnabled(bool enabled) override;
+
+  void IsDarkModeEnabled(IsDarkModeEnabledCallback callback) override;
+
+  void SetColorScheme(ColorScheme color_scheme) override;
+
+  void SetStaticColor(SkColor static_color) override;
+
+  void IsColorModeAutoScheduleEnabled(
+      IsColorModeAutoScheduleEnabledCallback callback) override;
+
   // ash::ColorModeObserver:
   void OnColorModeChanged(bool dark_mode_enabled) override;
 
+  void GetStaticColor(GetStaticColorCallback callback) override;
+
  private:
-  content::WebUI* const web_ui_ = nullptr;
+  bool IsColorModeAutoScheduleEnabled();
+
+  // Notify webUI the current state of color mode auto scheduler.
+  void NotifyColorModeAutoScheduleChanged();
+
+  void OnStaticColorChanged(absl::optional<SkColor> color);
 
   // Pointer to profile of user that opened personalization SWA. Not owned.
-  Profile* const profile_ = nullptr;
+  raw_ptr<Profile> const profile_ = nullptr;
 
-  base::ScopedObservation<ash::ColorProvider, ash::ColorModeObserver>
+  PrefChangeRegistrar pref_change_registrar_;
+
+  std::unique_ptr<ColorPaletteController> color_palette_controller_;
+
+  base::ScopedObservation<ash::DarkLightModeControllerImpl,
+                          ash::ColorModeObserver>
       color_mode_observer_{this};
 
   mojo::Receiver<ash::personalization_app::mojom::ThemeProvider>
@@ -61,5 +90,7 @@ class PersonalizationAppThemeProviderImpl
   mojo::Remote<ash::personalization_app::mojom::ThemeObserver>
       theme_observer_remote_;
 };
+
+}  // namespace ash::personalization_app
 
 #endif  // CHROME_BROWSER_ASH_WEB_APPLICATIONS_PERSONALIZATION_APP_PERSONALIZATION_APP_THEME_PROVIDER_IMPL_H_

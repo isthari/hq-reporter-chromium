@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,16 +24,13 @@ class PrefService;
 namespace ash {
 namespace attestation {
 class AttestationFlow;
-}  // namespace attestation
+}
+class InstallAttributes;
 }  // namespace ash
 
 namespace enterprise_management {
 class PolicyData;
 }  // namespace enterprise_management
-
-namespace chromeos {
-class InstallAttributes;
-}  // namespace chromeos
 
 namespace policy {
 
@@ -51,7 +48,6 @@ class DeviceLocalAccountPolicyService;
 class DeviceNamePolicyHandler;
 class DeviceNetworkConfigurationUpdaterAsh;
 class DeviceWiFiAllowedHandler;
-struct EnrollmentConfig;
 class MinimumVersionPolicyHandler;
 class MinimumVersionPolicyHandlerDelegateImpl;
 class ProxyPolicyProvider;
@@ -133,6 +129,9 @@ class BrowserPolicyConnectorAsh : public ChromeBrowserPolicyConnector,
   // Returns the obfuscated customer's ID or an empty string if it not set.
   std::string GetObfuscatedCustomerID() const;
 
+  // Returns whether device is enrolled in Kiosk SKU.
+  bool IsKioskEnrolled() const;
+
   // Returns the organization logo URL or an empty string if it is not set.
   std::string GetCustomerLogoURL() const;
 
@@ -142,13 +141,8 @@ class BrowserPolicyConnectorAsh : public ChromeBrowserPolicyConnector,
   // For other OSes the function will always return DEVICE_MODE_CONSUMER.
   DeviceMode GetDeviceMode() const;
 
-  // Delegates to chromeos::InstallAttributes::Get()
-  chromeos::InstallAttributes* GetInstallAttributes() const;
-
-  // Get the enrollment configuration for the device as decided by various
-  // factors. See DeviceCloudPolicyInitializer::GetPrescribedEnrollmentConfig()
-  // for details.
-  EnrollmentConfig GetPrescribedEnrollmentConfig() const;
+  // Delegates to `ash::InstallAttributes::Get()`.
+  ash::InstallAttributes* GetInstallAttributes() const;
 
   // May be nullptr, e.g. for devices managed by Active Directory.
   DeviceCloudPolicyManagerAsh* GetDeviceCloudPolicyManager() const {
@@ -243,7 +237,7 @@ class BrowserPolicyConnectorAsh : public ChromeBrowserPolicyConnector,
 
   // DeviceCloudPolicyManagerAsh::Observer:
   void OnDeviceCloudPolicyManagerConnected() override;
-  void OnDeviceCloudPolicyManagerDisconnected() override;
+  void OnDeviceCloudPolicyManagerGotRegistry() override;
 
   // TODO(crbug.com/1187628): Combine the following two functions into one to
   // simplify the API.
@@ -256,7 +250,7 @@ class BrowserPolicyConnectorAsh : public ChromeBrowserPolicyConnector,
 
  protected:
   // ChromeBrowserPolicyConnector:
-  std::vector<std::unique_ptr<policy::ConfigurationPolicyProvider>>
+  std::vector<std::unique_ptr<ConfigurationPolicyProvider>>
   CreatePolicyProviders() override;
 
  private:
@@ -303,7 +297,7 @@ class BrowserPolicyConnectorAsh : public ChromeBrowserPolicyConnector,
       tpm_auto_update_mode_policy_handler_;
   std::unique_ptr<DeviceScheduledUpdateChecker>
       device_scheduled_update_checker_;
-  std::vector<std::unique_ptr<policy::DeviceCloudExternalDataPolicyHandler>>
+  std::vector<std::unique_ptr<DeviceCloudExternalDataPolicyHandler>>
       device_cloud_external_data_policy_handlers_;
   std::unique_ptr<SystemProxyHandler> system_proxy_handler_;
   std::unique_ptr<AdbSideloadingAllowanceModePolicyHandler>

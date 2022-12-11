@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,23 +6,25 @@
  * @fileoverview 'settings-signout-dialog' is a dialog that allows the
  * user to turn off sync and sign out of Chromium.
  */
-import '//resources/cr_elements/cr_button/cr_button.m.js';
-import '//resources/cr_elements/cr_checkbox/cr_checkbox.m.js';
-import '//resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import '//resources/cr_elements/cr_expand_button/cr_expand_button.m.js';
-import '//resources/cr_elements/shared_style_css.m.js';
-import '//resources/cr_elements/shared_vars_css.m.js';
+import '//resources/cr_elements/cr_button/cr_button.js';
+import '//resources/cr_elements/cr_checkbox/cr_checkbox.js';
+import '//resources/cr_elements/cr_dialog/cr_dialog.js';
+import '//resources/cr_elements/cr_expand_button/cr_expand_button.js';
+import '//resources/cr_elements/cr_shared_style.css.js';
+import '//resources/cr_elements/cr_shared_vars.css.js';
 import '//resources/polymer/v3_0/iron-collapse/iron-collapse.js';
 import '//resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
-import '../settings_shared_css.js';
+import '../settings_shared.css.js';
 
-import {CrDialogElement} from '//resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import {WebUIListenerMixin} from '//resources/js/web_ui_listener_mixin.js';
-import {html, microTask, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrDialogElement} from '//resources/cr_elements/cr_dialog/cr_dialog.js';
+import {WebUiListenerMixin} from '//resources/cr_elements/web_ui_listener_mixin.js';
+import {sanitizeInnerHtml} from '//resources/js/parse_html_subset.js';
+import {microTask, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {loadTimeData} from '../i18n_setup.js';
 
 import {ProfileInfoBrowserProxyImpl} from './profile_info_browser_proxy.js';
+import {getTemplate} from './signout_dialog.html.js';
 import {SyncBrowserProxyImpl, SyncStatus} from './sync_browser_proxy.js';
 
 export interface SettingsSignoutDialogElement {
@@ -32,7 +34,7 @@ export interface SettingsSignoutDialogElement {
   };
 }
 
-const SettingsSignoutDialogElementBase = WebUIListenerMixin(PolymerElement);
+const SettingsSignoutDialogElementBase = WebUiListenerMixin(PolymerElement);
 
 export class SettingsSignoutDialogElement extends
     SettingsSignoutDialogElementBase {
@@ -41,7 +43,7 @@ export class SettingsSignoutDialogElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -78,12 +80,12 @@ export class SettingsSignoutDialogElement extends
   private deleteProfileWarningVisible_: boolean;
   private deleteProfileWarning_: string;
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
-    this.addWebUIListener(
+    this.addWebUiListener(
         'profile-stats-count-ready', this.handleProfileStatsCount_.bind(this));
-    // <if expr="not chromeos">
+    // <if expr="not chromeos_ash">
     ProfileInfoBrowserProxyImpl.getInstance().getProfileStatsCount();
     // </if>
     microTask.run(() => {
@@ -124,20 +126,21 @@ export class SettingsSignoutDialogElement extends
     }
   }
 
-  // <if expr="not chromeos">
-  private getDisconnectExplanationHtml_(domain: string): string {
+  // <if expr="not chromeos_ash">
+  private getDisconnectExplanationHtml_(domain: string): TrustedHTML {
     if (domain) {
-      return loadTimeData.getStringF(
-          'syncDisconnectManagedProfileExplanation',
-          '<span id="managed-by-domain-name">' + domain + '</span>');
+      return sanitizeInnerHtml(loadTimeData.getStringF(
+          'syncDisconnectManagedProfileExplanation', `<span>${domain}</span>`));
     }
-    return loadTimeData.getString('syncDisconnectExplanation');
+    return sanitizeInnerHtml(
+        loadTimeData.getString('syncDisconnectExplanation'));
   }
   // </if>
 
-  // <if expr="chromeos">
-  private getDisconnectExplanationHtml_(_domain: string): string {
-    return loadTimeData.getString('syncDisconnectExplanation');
+  // <if expr="chromeos_ash">
+  private getDisconnectExplanationHtml_(_domain: string): TrustedHTML {
+    return sanitizeInnerHtml(
+        loadTimeData.getString('syncDisconnectExplanation'));
   }
   // </if>
 
@@ -147,14 +150,24 @@ export class SettingsSignoutDialogElement extends
 
   private onDisconnectConfirm_() {
     this.$.dialog.close();
-    // <if expr="not chromeos">
+    // <if expr="not chromeos_ash">
     const deleteProfile = !!this.syncStatus!.domain || this.deleteProfile_;
     SyncBrowserProxyImpl.getInstance().signOut(deleteProfile);
     // </if>
-    // <if expr="chromeos">
+    // <if expr="chromeos_ash">
     // Chrome OS users are always signed-in, so just turn off sync.
     SyncBrowserProxyImpl.getInstance().turnOffSync();
     // </if>
+  }
+
+  private isDeleteProfileFooterVisible_(): boolean {
+    // <if expr="chromeos_lacros">
+    if (!loadTimeData.getBoolean('isSecondaryUser')) {
+      // Profile deletion is not allowed for the main profile.
+      return false;
+    }
+    // </if>
+    return !this.syncStatus!.domain;
   }
 }
 

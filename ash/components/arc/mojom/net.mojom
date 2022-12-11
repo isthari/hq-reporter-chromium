@@ -1,8 +1,8 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Next MinVersion: 17
+// Next MinVersion: 25
 
 // This file defines the mojo interface between the ARC networking stack and
 // Chrome OS. There are three different groups of interactions:
@@ -59,7 +59,7 @@ enum ConnectionStateType {
 
   // The network is active and ready for IP traffic, but a captive portal is
   // known to prevent access to the Internet. This corresponds to
-  // shill::ConnectState.kStatePortal
+  // shill::ConnectState.kStateRedirectFound
   PORTAL = 3,
 
   // The network is active and ready for IP traffic, and there is no known
@@ -121,6 +121,23 @@ struct PasspointCredentials {
 
   // Package name of the App that provided these credentials.
   string package_name@7;
+
+  // Friendly name of the home service provider.
+  [MinVersion=22] string? friendly_name@8;
+
+  // The time this subscription will expire or minimum value of 64-bit int to
+  // indicate unset value. It is in the format of number of milliseconds since
+  // January 1, 1970, 00:00:00 GMT.
+  [MinVersion=22] int64 subscription_expiration_time_ms@9;
+};
+
+// Values to be used to remove matching Passpoint credentials.
+struct PasspointRemovalProperties {
+  // Home service provider fully qualified domain name.
+  string? fqdn@0;
+
+  // Package name of the app that created the credentials.
+  string? package_name@1;
 };
 
 // The EAP method that will be used when connecting to a 802.1x WiFi network or
@@ -253,9 +270,6 @@ struct IPConfiguration {
 
   // IP family for that configuration
   IPAddressType type;
-
-  // URL of the HTTP proxy to use for that network.
-  string web_proxy_auto_discovery_url;
 };
 
 // The subset of wireless security protocols that Android defines in
@@ -303,9 +317,9 @@ struct WiFi {
   // The type of wireless security protocol used by this network.
   SecurityType security;
 
-  // The current RSSI of this network. Updates for this value are not sent to
-  // ARC for connected WiFi networks and should be considered precise only for
-  // scanning results.
+  // The current signal strength of this network. Updates for this value are not
+  // sent to ARC for connected WiFi networks and should be considered precise
+  // only for scanning results.
   int32 signal_strength;
 
   // True if the network represents a Passpoint network.
@@ -313,6 +327,11 @@ struct WiFi {
 
   // Fully qualified domain name (FQDN) of a Passpoint configuration.
   [MinVersion=16] string? fqdn;
+
+  // The current RSSI (Received Signal Strength Indicator) in dBm of this
+  // network. This is typically between -90 and -20 dBm. Unknown value
+  // is represented as -32768 dBm (int16 min value).
+  [MinVersion=23] int16 rssi;
 };
 
 // The physical network types exposed to ARC by the host,
@@ -421,6 +440,35 @@ struct NetworkConfiguration {
   // True if the network has been autodetected by the platform as a metered
   // network or if the user explicitly marked the network as metered in the UI.
   [MinVersion=14] bool is_metered;
+
+  // Routes of destinations for the host network in CIDR format. If null/empty,
+  // all (both IPv4 and IPv6) destinations are assumed to go through the host
+  // network. As long as there is at least one destination in the list,
+  // regardless of IPv4 or IPv6 family, then no default destinations for any
+  // IPv* family are assumed anymore.
+  //
+  // For example:
+  //   [ ] => Implies 0.0.0.0/0 and ::/0
+  //   [ 10.8.0.5/32 ] => 10.8.0.5/32 for IPv4, no IPv6
+  //   [ 2001:DB8::/32 ] => 2001:DB8::/32 for IPv6, no IPv4
+  //   [ 10.8.0.5/32, ::/0 ] => 10.8.0.5/32 for IPv4, all IPv6
+  //   [ 2001:DB88::/32, 0.0.0.0/0 ] => 2001::DB8::/32 for IPv6, all IPv4
+  //
+  // If the same destination is present in include_routes and exclude_routes,
+  // then exclude_routes will take precedence and the destination will be
+  // excluded from the host network.
+  [MinVersion=15] array<string>? include_routes;
+
+  // Routes of destinations to exclude for the host network in CIDR format. If
+  // null/empty, it is assumed no destinations are excluded. If the same
+  // destination is present in include_routes and exclude_routes, then
+  // exclude_routes will take precedence and the destination will be excluded
+  // from the host network.
+  [MinVersion=15] array<string>? exclude_routes;
+
+  // IPv4 and IPv6 addresses of DNS proxy. When this field is not empty ARC
+  // overrides the network DNS addresses with these addresses.
+  [MinVersion=19] array<string>? dns_proxy_addresses;
 };
 
 // Describes a Wifi network configuration that ARC has requested the host to
@@ -451,6 +499,74 @@ struct WifiConfiguration {
   // Set of EAP credentials used to connect to a network that matched these
   // credentials.
   [MinVersion=16] EapCredentials? eap@8;
+
+  // Indicates if the App has expressed an explicit opinion about the
+  // meteredness of this network.
+  [MinVersion=20] MeteredOverride metered_override@9;
+
+  // The proxy configuration of this object.
+  [MinVersion=20] ArcProxyInfo? http_proxy@10;
+
+  // Static IPv4 configuration of the network
+  [MinVersion=20] StaticIpv4Configuration? static_ipv4_config@11;
+
+  // List of domains to search when resolving host names on this
+  // link, in priority order.
+  [MinVersion=20] array<string>? domains@12;
+
+    // DNS server IP addresses included in the configuration
+  [MinVersion=20] array<string>? dns_servers@13;
+};
+
+[Extensible]
+enum MeteredOverride {
+  // No metered override
+  [Default] kNone = 0,
+
+  // Override network to be metered
+  kMetered = 1,
+
+  // Override network to be unmetered
+  kNotmetered = 2,
+};
+
+// Static Ipv4 configuration
+struct StaticIpv4Configuration {
+  // Static IPv4 address included in the configuration
+  string? ipv4_addr@0;
+
+  // Static IPv4 address of the gateway included in the configuration
+  string? gateway_ipv4_addr@1;
+
+  // Prefix length of the network
+  int32 prefix_length@2;
+};
+
+// For ProxyInfo, we have 2 options to set up proxy:
+// 1. a direct configuration: host, port, and exclusion_list are
+// used and pac_url is ignored
+// 2. a PAC URL configuration: only pac_url
+// is used and other fields are ignored.
+union ArcProxyInfo {
+  ManualProxyConfig manual_proxy@0;
+  PacUrlProxyConfig pac_url_proxy@1;
+};
+
+struct PacUrlProxyConfig {
+  // PAC script download URL for that network.
+  url.mojom.Url pac_url@0;
+};
+
+struct ManualProxyConfig {
+  // The host IP address of this proxy
+  string host@0;
+
+  // The port of this proxy
+  int32 port@1;
+
+  // When configured to use a Direct Proxy this returns the list of hosts
+  // for which the proxy is ignored.
+  array<string> exclusion_list@2;
 };
 
 // Response object sent back to ARC when it queries existing networks on
@@ -492,6 +608,12 @@ struct AndroidVpnConfiguration {
 
   // A list of search domains for DNS resolution.
   array<string> domains@8;
+
+  // The proxy configuration provided by the Android VPN when running
+  // on ARC R or later. Android only allows manual proxy configurations
+  // by IP address and port. PAC URL configurations are not supported.
+  // On ARC P, Android VPNs cannot specify a proxy configuration.
+  [MinVersion=21] ArcProxyInfo? http_proxy@9;
 };
 
 // Result object that is returned to the caller of the ARC DNS
@@ -533,8 +655,23 @@ struct ArcPingTestResult {
   int64 duration_ms;
 };
 
-// Next Method ID: 16
+// Chrome flags that should be passed into ARC via NetInstance::SetUpFlag().
+[Extensible]
+enum Flag {
+  [Default] UNKNOWN  = 0,
+
+  // Chrome Finch flag kEnableArcHostVpn. If true, ARC should start the
+  // ArcHostVpn service when a builtin VPN client is started. This flag value
+  // can be toggled at any time, but ARC will only use the latest value when a
+  // builtin VPN network is detected and sent to ARC as part of an
+  // ActiveNetworksChanged call.
+  ENABLE_ARC_HOST_VPN = 1,
+};
+
+// Next Method ID: 18
 // IDs 3 and 9 are missing as they belonged to deprecated methods.
+// Mojo interface exposed by the Chrome browser process for
+// networking/WiFi/VPN, ARC is the client.
 interface NetHost {
   // Sends a request to get enabled / disabled status of WiFi.
   GetWifiEnabledState@1() => (bool is_enabled);
@@ -596,14 +733,26 @@ interface NetHost {
   // platform.
   [MinVersion=16] AddPasspointCredentials@14(PasspointCredentials credentials);
 
-  // Removes all PasspointCredentials blocks provided by an Android App.
+  // Removes all PasspointCredentials blocks that match all property of
+  // |properties|.
   // Calling this will also revoke all associated WiFi Services provisioned
   // with the credentials blocks.
-  [MinVersion=16] RemovePasspointCredentials@15(string package_name);
+  // ARC calls this function whenever an app is removed regardless of whether
+  // the app has configured Passpoint.
+  [MinVersion=17] RemovePasspointCredentials@16(
+      PasspointRemovalProperties properties);
+
+  // Disconnects the current ChromeOS VPN network if one exists. If ChromeOS has
+  // a network that represents an Android VPN, the network doesn't count as a
+  // ChromeOS VPN network and won't be disconnected. If the default network
+  // isn't a ChromeOS VPN network, then nothing happens.
+  [MinVersion=18] DisconnectHostVpn@17();
 };
 
-// Next Method ID: 11
+// Next Method ID: 12
 // IDs 0 and 2 are missing as they belonged to deprecated method.
+// Mojo interface exposed by ARC for networking/WiFi/VPN, the Chrome
+// browser process is the client.
 interface NetInstance {
   // Establishes full-duplex communication with the host.
   [MinVersion=8] Init@6(pending_remote<NetHost> host_remote) => ();
@@ -649,4 +798,7 @@ interface NetInstance {
   // name |transport_name|.
   [MinVersion=15] PingTest@10(string transport_name, string ip_address)
       => (ArcPingTestResult result);
+
+  // Pass a Chrome flag value into ARC.
+  [MinVersion=24] SetUpFlag@11(Flag flag, bool value);
 };

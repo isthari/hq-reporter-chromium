@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,9 +23,7 @@
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_message.h"
-#include "ipc/ipc_message_macros.h"
 #include "remoting/base/logging.h"
-#include "remoting/host/chromoting_messages.h"
 #include "remoting/host/client_session_details.h"
 #include "remoting/host/security_key/security_key_ipc_constants.h"
 #include "remoting/host/security_key/security_key_ipc_server.h"

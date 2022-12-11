@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,9 @@ extern const char kAccountAppsAvailability[];
 
 COMPONENT_EXPORT(ACCOUNT_MANAGER_CORE)
 extern const char kIsAvailableInArcKey[];
+
+COMPONENT_EXPORT(ACCOUNT_MANAGER_CORE)
+extern const char kSecondaryGoogleAccountUsage[];
 
 }  // namespace prefs
 }  // namespace account_manager

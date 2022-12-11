@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,13 @@
 #include "base/containers/flat_map.h"
 #include "base/json/json_reader.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/values.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/arc/policy/arc_policy_bridge.h"
 #include "chrome/browser/ash/arc/policy/arc_policy_util.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_service.h"
@@ -176,11 +176,11 @@ void ArcForceInstalledAppsObserver::OnPolicyUpdated(
   if (ns.domain != policy::POLICY_DOMAIN_CHROME)
     return;
   const base::Value* const arc_policy =
-      current.GetValue(policy::key::kArcPolicy);
+      current.GetValue(policy::key::kArcPolicy, base::Value::Type::STRING);
   tracking_packages_.clear();
 
   // Track packages only if ArcPolicy is set.
-  if (arc_policy && arc_policy->is_string()) {
+  if (arc_policy) {
     // Get the required packages from ArcPolicy.
     auto required_packages =
         arc::policy_util::GetRequestedPackagesFromArcPolicy(
@@ -227,7 +227,7 @@ PolicyComplianceObserver::PolicyComplianceObserver(
   auto last_report = arc_policy_bridge->get_arc_policy_compliance_report();
   if (last_report.empty())
     return;
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&PolicyComplianceObserver::ProcessInitialComplianceReport,
                      weak_ptr_factory_.GetWeakPtr(), std::move(last_report)));

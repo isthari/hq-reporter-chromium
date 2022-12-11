@@ -36,6 +36,8 @@
 
 #include <utility>
 
+#include "base/check_op.h"
+#include "base/notreached.h"
 #include "cc/paint/paint_canvas.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
 #include "third_party/blink/renderer/platform/graphics/image.h"
@@ -122,8 +124,6 @@ inline SkPoint FloatPointToSkPoint(const gfx::PointF& point) {
 }
 
 SkMatrix PLATFORM_EXPORT AffineTransformToSkMatrix(const AffineTransform&);
-SkMatrix PLATFORM_EXPORT
-TransformationMatrixToSkMatrix(const TransformationMatrix&);
 
 bool NearlyIntegral(float value);
 

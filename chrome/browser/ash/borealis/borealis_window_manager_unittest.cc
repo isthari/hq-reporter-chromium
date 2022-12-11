@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,10 +47,7 @@ class BorealisWindowManagerTest : public ChromeAshTestBase {
   }
 
   std::string GetBorealisClientId() {
-    std::string borealis_client_suffix;
-    EXPECT_TRUE(
-        base::Base64Decode(kBorealisClientSuffix, &borealis_client_suffix));
-    return std::string(kBorealisWindowPrefix) + borealis_client_suffix;
+    return std::string(kBorealisWindowPrefix) + kBorealisClientSuffix;
   }
 
  private:
@@ -74,7 +71,7 @@ TEST_F(BorealisWindowManagerTest, BorealisWindowHasCorrectId) {
   BorealisWindowManager window_manager(profile());
   std::unique_ptr<aura::Window> window =
       MakeWindow("org.chromium.borealis.xprop.456789");
-  CreateFakeApp(profile(), "some_app", "borealis/456789");
+  CreateFakeApp(profile(), "some_app", "steam://rungameid/456789");
   EXPECT_EQ(window_manager.GetShelfAppId(window.get()), FakeAppId("some_app"));
 }
 
@@ -82,7 +79,7 @@ TEST_F(BorealisWindowManagerTest, MismatchedWindowHasDifferentId) {
   BorealisWindowManager window_manager(profile());
   std::unique_ptr<aura::Window> window =
       MakeWindow("org.chromium.borealis.xprop.2468");
-  CreateFakeApp(profile(), "some_app", "borealis/456789");
+  CreateFakeApp(profile(), "some_app", "steam://rungameid/456789");
   EXPECT_NE(window_manager.GetShelfAppId(window.get()), FakeAppId("some_app"));
 }
 
@@ -210,7 +207,7 @@ TEST_F(BorealisWindowManagerTest, AnonymousObserverNotCalledForKnownApp) {
   vm_tools::apps::ApplicationList list;
   list.set_vm_name("vm");
   list.set_container_name("container");
-  list.set_vm_type(vm_tools::apps::ApplicationList_VmType_BOREALIS);
+  list.set_vm_type(vm_tools::apps::BOREALIS);
   vm_tools::apps::App* app = list.add_apps();
   app->set_desktop_file_id("foo.desktop");
   app->mutable_name()->add_values()->set_value("foo");
@@ -261,11 +258,8 @@ TEST_F(BorealisWindowManagerTest, DontMinimizeWhenActiveWindowIsNotFullscreen) {
 
 TEST_F(BorealisWindowManagerTest,
        DontMinimizeWhenActiveWindowIsBorealisClient) {
-  std::string fullscreen_client_id;
-  EXPECT_TRUE(
-      base::Base64Decode(kFullscreenClientShellId, &fullscreen_client_id));
   std::unique_ptr<views::Widget> active_widget =
-      SetupMinimizeTest(fullscreen_client_id);
+      SetupMinimizeTest(kFullscreenClientShellId);
 
   std::string new_window_id = GetBorealisClientId();
 

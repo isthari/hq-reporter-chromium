@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,10 @@
 #include "base/cancelable_callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
+#include "base/timer/timer.h"
 #include "chrome/browser/ash/authpolicy/authpolicy_helper.h"
 #include "chrome/browser/ash/login/enrollment/enrollment_screen_view.h"
 #include "chrome/browser/ash/login/enrollment/enterprise_enrollment_helper.h"
-// TODO(https://crbug.com/1164001): move to forward declaration
-#include "chrome/browser/ash/login/screen_manager.h"
 #include "chrome/browser/ash/login/screens/base_screen.h"
 #include "chrome/browser/ash/login/wizard_context.h"
 #include "chrome/browser/ash/policy/active_directory/active_directory_join_delegate.h"
@@ -34,6 +33,9 @@ class ElapsedTimer;
 }
 
 namespace ash {
+
+class ScreenManager;
+
 namespace test {
 class EnrollmentHelperMixin;
 }
@@ -51,14 +53,15 @@ class EnrollmentScreen
     BACK,
     SKIPPED_FOR_TESTS,
     TPM_ERROR,
-    TPM_DBUS_ERROR
+    TPM_DBUS_ERROR,
+    BACK_TO_AUTO_ENROLLMENT_CHECK,
   };
 
   static std::string GetResultString(Result result);
 
   using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
   using TpmStatusCallback = chromeos::TpmManagerClient::TakeOwnershipCallback;
-  EnrollmentScreen(EnrollmentScreenView* view,
+  EnrollmentScreen(base::WeakPtr<EnrollmentScreenView> view,
                    const ScreenExitCallback& exit_callback);
 
   EnrollmentScreen(const EnrollmentScreen&) = delete;
@@ -68,15 +71,12 @@ class EnrollmentScreen
 
   static EnrollmentScreen* Get(ScreenManager* manager);
 
-  // Called when `view` has been destroyed. If this instance is destroyed before
-  // the `view` it should call view->Unbind().
-  void OnViewDestroyed(EnrollmentScreenView* view);
-
   // Setup how this screen will handle enrollment.
   void SetEnrollmentConfig(const policy::EnrollmentConfig& enrollment_config);
 
   // EnrollmentScreenView::Controller implementation:
   void OnLoginDone(const std::string& user,
+                   int license_type,
                    const std::string& auth_code) override;
   void OnRetry() override;
   void OnCancel() override;
@@ -89,6 +89,9 @@ class EnrollmentScreen
   void OnDeviceAttributeProvided(const std::string& asset_id,
                                  const std::string& location) override;
   void OnIdentifierEntered(const std::string& email) override;
+
+  // Shows skip enrollment dialogue confiromation for license packaged devices.
+  void ShowSkipEnrollmentDialogue();
 
   // EnterpriseEnrollmentHelper::EnrollmentStatusConsumer implementation:
   void OnAuthError(const GoogleServiceAuthError& error) override;
@@ -107,7 +110,7 @@ class EnrollmentScreen
   void OnBrowserRestart();
 
   // Used for testing.
-  EnrollmentScreenView* GetView() { return view_; }
+  EnrollmentScreenView* GetView() { return view_.get(); }
 
   void set_exit_callback_for_testing(const ScreenExitCallback& callback) {
     exit_callback_ = callback;
@@ -124,17 +127,17 @@ class EnrollmentScreen
 
  protected:
   // BaseScreen:
-  bool MaybeSkip(WizardContext* context) override;
+  bool MaybeSkip(WizardContext& context) override;
   void ShowImpl() override;
   void HideImpl() override;
   bool HandleAccelerator(LoginAcceleratorAction action) override;
-  void OnUserAction(const std::string& action_id) override;
+  void OnUserAction(const base::Value::List& args) override;
 
   // Expose the exit_callback to test screen overrides.
   ScreenExitCallback* exit_callback() { return &exit_callback_; }
 
  private:
-  friend class ZeroTouchEnrollmentScreenUnitTest;
+  friend class EnrollmentScreenUnitTest;
   friend class AutomaticReenrollmentScreenUnitTest;
   friend class test::EnrollmentHelperMixin;
 
@@ -142,12 +145,10 @@ class EnrollmentScreen
   FRIEND_TEST_ALL_PREFIXES(ForcedAttestationAuthEnrollmentScreenTest,
                            TestCancel);
   FRIEND_TEST_ALL_PREFIXES(MultiAuthEnrollmentScreenTest, TestCancel);
-  FRIEND_TEST_ALL_PREFIXES(ZeroTouchEnrollmentScreenUnitTest, Retry);
-  FRIEND_TEST_ALL_PREFIXES(ZeroTouchEnrollmentScreenUnitTest, TestSuccess);
-  FRIEND_TEST_ALL_PREFIXES(ZeroTouchEnrollmentScreenUnitTest,
-                           DoNotRetryOnTopOfUser);
-  FRIEND_TEST_ALL_PREFIXES(ZeroTouchEnrollmentScreenUnitTest,
-                           DoNotRetryAfterSuccess);
+  FRIEND_TEST_ALL_PREFIXES(EnrollmentScreenUnitTest,
+                           ZeroTouchFlowShouldNotRetryOnTopOfUser);
+  FRIEND_TEST_ALL_PREFIXES(EnrollmentScreenUnitTest,
+                           ZeroTouchFlowShouldNotRetryAfterSuccess);
 
   // The authentication mechanisms that this class can use.
   enum Auth {
@@ -230,11 +231,20 @@ class EnrollmentScreen
   // to reboot the device.
   void CheckInstallAttributesState();
 
-  EnrollmentScreenView* view_;
+  // Updates the local variable, according to the existence of the Chromad
+  // migration flag file.
+  void UpdateChromadMigrationOobeFlow(bool exists);
+
+  // Indicates whether this is an automatic enrollment as part of Zero-Touch
+  // Hands Off flow or Chromad Migration.
+  bool IsAutomaticEnrollmentFlow();
+
+  base::WeakPtr<EnrollmentScreenView> view_;
   ScreenExitCallback exit_callback_;
   absl::optional<TpmStatusCallback> tpm_ownership_callback_for_testing_;
   policy::EnrollmentConfig config_;
   policy::EnrollmentConfig enrollment_config_;
+  policy::LicenseType license_type_to_use_ = policy::LicenseType::kEnterprise;
 
   // 'Current' and 'Next' authentication mechanisms to be used.
   Auth current_auth_ = AUTH_OAUTH;
@@ -249,6 +259,14 @@ class EnrollmentScreen
   int install_state_retries_ = 0;
   // Timer for install attribute to resolve.
   base::OneShotTimer wait_state_timer_;
+
+  // This local flag should be true if the OOBE flow is operating as part of the
+  // Chromad to cloud device migration. If so, "Enterprise enrollment complete"
+  // screen should be skipped.
+  bool is_chromad_migration_oobe_flow_ = false;
+
+  // Whether the ongoing flow belongs to an enterprise rollback.
+  bool is_rollback_flow_ = false;
 
   std::string enrolling_user_domain_;
   std::unique_ptr<base::ElapsedTimer> elapsed_timer_;
@@ -268,17 +286,5 @@ class EnrollmentScreen
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::EnrollmentScreen;
-}
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace ash {
-using ::chromeos::EnrollmentScreen;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_ENROLLMENT_ENROLLMENT_SCREEN_H_

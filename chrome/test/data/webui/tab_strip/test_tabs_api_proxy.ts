@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@ export function createTab(override?: Partial<Tab>): Tab {
         blocked: false,
         crashed: false,
         faviconUrl: undefined,
+        activeFaviconUrl: undefined,
         groupId: undefined,
         id: -1,
         index: -1,
@@ -36,7 +37,6 @@ export class TestTabsApiProxy extends TestBrowserProxy implements TabsApiProxy {
   private groupVisualData_: {[key: string]: TabGroupVisualData} = {};
   private tabs_: Tab[] = [];
   private thumbnailRequestCounts_: Map<number, number>;
-  private colors_: {[key: string]: string} = {};
   private layout_: {[key: string]: string} = {};
   private visible_: boolean = false;
 
@@ -52,7 +52,6 @@ export class TestTabsApiProxy extends TestBrowserProxy implements TabsApiProxy {
       'setThumbnailTracked',
       'ungroupTab',
       'closeContainer',
-      'getColors',
       'getLayout',
       'isVisible',
       'observeThemeChanges',
@@ -151,11 +150,6 @@ export class TestTabsApiProxy extends TestBrowserProxy implements TabsApiProxy {
     this.methodCalled('ungroupTab', [tabId]);
   }
 
-  getColors() {
-    this.methodCalled('getColors');
-    return Promise.resolve({colors: this.colors_});
-  }
-
   getLayout() {
     this.methodCalled('getLayout');
     return Promise.resolve({layout: this.layout_});
@@ -164,10 +158,6 @@ export class TestTabsApiProxy extends TestBrowserProxy implements TabsApiProxy {
   isVisible() {
     this.methodCalled('isVisible');
     return this.visible_;
-  }
-
-  setColors(colors: {[key: string]: string}) {
-    this.colors_ = colors;
   }
 
   setLayout(layout: {[key: string]: string}) {

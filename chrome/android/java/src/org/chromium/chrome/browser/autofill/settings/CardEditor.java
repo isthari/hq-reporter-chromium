@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@ import android.util.Pair;
 
 import androidx.annotation.Nullable;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.base.task.BackgroundOnlyAsyncTask;
@@ -24,14 +23,14 @@ import org.chromium.chrome.browser.autofill.PersonalDataManager;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
 import org.chromium.chrome.browser.autofill.prefeditor.EditorBase;
-import org.chromium.chrome.browser.autofill.prefeditor.EditorFieldModel;
-import org.chromium.chrome.browser.autofill.prefeditor.EditorFieldModel.EditorFieldValidator;
-import org.chromium.chrome.browser.autofill.prefeditor.EditorFieldModel.EditorValueIconGenerator;
 import org.chromium.chrome.browser.autofill.prefeditor.EditorModel;
-import org.chromium.chrome.browser.autofill.settings.AutofillProfileBridge.DropdownKeyValue;
 import org.chromium.chrome.browser.payments.AutofillAddress;
 import org.chromium.chrome.browser.payments.AutofillPaymentInstrument;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
+import org.chromium.components.autofill.prefeditor.EditorFieldModel;
+import org.chromium.components.autofill.prefeditor.EditorFieldModel.DropdownKeyValue;
+import org.chromium.components.autofill.prefeditor.EditorFieldModel.EditorFieldValidator;
+import org.chromium.components.autofill.prefeditor.EditorFieldModel.EditorValueIconGenerator;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.components.payments.BasicCardUtils;
 import org.chromium.components.payments.MethodStrings;
@@ -220,7 +219,7 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> implements
             boolean isBComplete = AutofillAddress.checkAddressCompletionStatus(
                                           b, AutofillAddress.CompletenessCheckType.NORMAL)
                     == AutofillAddress.CompletionStatus.COMPLETE;
-            return ApiCompatibilityUtils.compareBoolean(isBComplete, isAComplete);
+            return Boolean.compare(isBComplete, isAComplete);
         });
 
         mCardIssuerNetworks = new HashMap<>();
@@ -414,10 +413,11 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> implements
             addLocalCardInputs(editor, card, calendar);
         } else {
             // Display some information about the server card.
-            editor.addField(EditorFieldModel.createLabel(card.getObfuscatedNumber(), card.getName(),
-                    mContext.getString(R.string.payments_credit_card_expiration_date_abbr,
-                            card.getMonth(), card.getYear()),
-                    card.getIssuerIconDrawableId()));
+            editor.addField(
+                    EditorFieldModel.createLabel(card.getNetworkAndLastFourDigits(), card.getName(),
+                            mContext.getString(R.string.payments_credit_card_expiration_date_abbr,
+                                    card.getMonth(), card.getYear()),
+                            card.getIssuerIconDrawableId()));
         }
 
         // Always show the billing address dropdown.
@@ -828,7 +828,7 @@ public class CardEditor extends EditorBase<AutofillPaymentInstrument> implements
         // website. The obfuscated number and the icon are displayed in the user interface.
         CreditCard displayableCard = pdm.getCreditCardForNumber(card.getNumber());
         card.setBasicCardIssuerNetwork(displayableCard.getBasicCardIssuerNetwork());
-        card.setObfuscatedNumber(displayableCard.getObfuscatedNumber());
+        card.setNetworkAndLastFourDigits(displayableCard.getNetworkAndLastFourDigits());
         card.setIssuerIconDrawableId(displayableCard.getIssuerIconDrawableId());
 
         if (!isNewCard) {

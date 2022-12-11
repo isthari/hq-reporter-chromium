@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <tuple>
 
-#include "ash/public/cpp/presentation_time_recorder.h"
 #include "ash/public/cpp/test/test_desks_templates_delegate.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shelf/shelf.h"
@@ -22,8 +21,10 @@
 #include "ash/wm/overview/scoped_overview_transform_window.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller_test_api.h"
 #include "ash/wm/window_preview_view.h"
+#include "components/app_constants/constants.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/compositor/layer.h"
+#include "ui/compositor/presentation_time_recorder.h"
 #include "ui/compositor/test/test_utils.h"
 #include "ui/gfx/geometry/transform_util.h"
 #include "ui/views/accessibility/view_accessibility.h"
@@ -79,29 +80,23 @@ SplitViewController* OverviewTestBase::GetSplitViewController() {
 }
 
 gfx::Rect OverviewTestBase::GetTransformedBounds(aura::Window* window) {
-  gfx::Rect bounds_in_screen = window->layer()->bounds();
-  wm::ConvertRectToScreen(window->parent(), &bounds_in_screen);
-  gfx::RectF bounds(bounds_in_screen);
-  gfx::Transform transform(gfx::TransformAboutPivot(
-      gfx::ToFlooredPoint(bounds.origin()), window->layer()->transform()));
-  transform.TransformRect(&bounds);
-  return ToStableSizeRoundedRect(bounds);
+  gfx::RectF bounds(window->layer()->bounds());
+  wm::TranslateRectToScreen(window->parent(), &bounds);
+  const gfx::Transform transform =
+      gfx::TransformAboutPivot(bounds.origin(), window->layer()->transform());
+  return ToStableSizeRoundedRect(transform.MapRect(bounds));
 }
 
 gfx::Rect OverviewTestBase::GetTransformedTargetBounds(aura::Window* window) {
-  gfx::Rect bounds_in_screen = window->layer()->GetTargetBounds();
-  wm::ConvertRectToScreen(window->parent(), &bounds_in_screen);
-  gfx::RectF bounds(bounds_in_screen);
-  gfx::Transform transform(
-      gfx::TransformAboutPivot(gfx::ToFlooredPoint(bounds.origin()),
-                               window->layer()->GetTargetTransform()));
-  transform.TransformRect(&bounds);
-  return ToStableSizeRoundedRect(bounds);
+  gfx::RectF bounds(window->layer()->GetTargetBounds());
+  wm::TranslateRectToScreen(window->parent(), &bounds);
+  const gfx::Transform transform = gfx::TransformAboutPivot(
+      bounds.origin(), window->layer()->GetTargetTransform());
+  return ToStableSizeRoundedRect(transform.MapRect(bounds));
 }
 
 gfx::Rect OverviewTestBase::GetTransformedBoundsInRootWindow(
     aura::Window* window) {
-  gfx::RectF bounds = gfx::RectF(gfx::SizeF(window->bounds().size()));
   aura::Window* root = window->GetRootWindow();
   CHECK(window->layer());
   CHECK(root->layer());
@@ -110,8 +105,7 @@ gfx::Rect OverviewTestBase::GetTransformedBoundsInRootWindow(
                                                      &transform)) {
     return gfx::Rect();
   }
-  transform.TransformRect(&bounds);
-  return gfx::ToEnclosingRect(bounds);
+  return transform.MapRect(gfx::Rect(window->bounds().size()));
 }
 
 OverviewItem* OverviewTestBase::GetDropTarget(int grid_index) {
@@ -168,15 +162,6 @@ void OverviewTestBase::CheckWindowAndCloseButtonInScreen(
 void OverviewTestBase::SetUp() {
   AshTestBase::SetUp();
 
-  // Set the created model as the one shell will reference.
-  EXPECT_TRUE(desk_model_temp_dir_.CreateUniqueTempDir());
-  desk_model_ = std::make_unique<desks_storage::LocalDeskDataManager>(
-      desk_model_temp_dir_.GetPath());
-  desk_model_->EnsureCacheIsLoaded();
-  static_cast<TestDesksTemplatesDelegate*>(
-      Shell::Get()->desks_templates_delegate())
-      ->set_desk_model(desk_model_.get());
-
   aura::Env::GetInstance()->set_throttle_input_on_resize_for_testing(false);
   shelf_view_test_api_ = std::make_unique<ShelfViewTestAPI>(
       GetPrimaryShelf()->GetShelfViewForTesting());
@@ -184,12 +169,14 @@ void OverviewTestBase::SetUp() {
   ScopedOverviewTransformWindow::SetImmediateCloseForTests(
       /*immediate=*/true);
   OverviewWallpaperController::SetDisableChangeWallpaperForTest(true);
-  PresentationTimeRecorder::SetReportPresentationTimeImmediatelyForTest(true);
+  ui::PresentationTimeRecorder::SetReportPresentationTimeImmediatelyForTest(
+      true);
 }
 
 void OverviewTestBase::TearDown() {
   OverviewWallpaperController::SetDisableChangeWallpaperForTest(false);
-  PresentationTimeRecorder::SetReportPresentationTimeImmediatelyForTest(false);
+  ui::PresentationTimeRecorder::SetReportPresentationTimeImmediatelyForTest(
+      false);
   trace_names_.clear();
   AshTestBase::TearDown();
 }

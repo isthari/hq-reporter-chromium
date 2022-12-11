@@ -32,13 +32,18 @@
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/remote_frame.h"
 #include "third_party/blink/renderer/core/frame/remote_frame_view.h"
+#include "third_party/blink/renderer/core/html/fenced_frame/html_fenced_frame_element.h"
 #include "third_party/blink/renderer/core/html/html_frame_element_base.h"
 #include "third_party/blink/renderer/core/html/html_plugin_element.h"
+#include "third_party/blink/renderer/core/layout/geometry/physical_offset.h"
 #include "third_party/blink/renderer/core/layout/hit_test_result.h"
+#include "third_party/blink/renderer/core/layout/layout_replaced.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/paint/embedded_content_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
+#include "third_party/blink/renderer/platform/transforms/affine_transform.h"
 #include "ui/gfx/geometry/point_conversions.h"
+#include "ui/gfx/geometry/point_f.h"
 
 namespace blink {
 
@@ -90,6 +95,55 @@ EmbeddedContentView* LayoutEmbeddedContent::GetEmbeddedContentView() const {
   return nullptr;
 }
 
+const absl::optional<PhysicalSize> LayoutEmbeddedContent::FrozenFrameSize()
+    const {
+  // The `<fencedframe>` element can freeze the child frame size when navigated.
+  if (const auto* fenced_frame = DynamicTo<HTMLFencedFrameElement>(GetNode()))
+    return fenced_frame->FrozenFrameSize();
+
+  return absl::nullopt;
+}
+
+AffineTransform LayoutEmbeddedContent::EmbeddedContentTransform() const {
+  auto frozen_size = FrozenFrameSize();
+  if (!frozen_size) {
+    const PhysicalOffset content_box_offset = PhysicalContentBoxOffset();
+    return AffineTransform().Translate(content_box_offset.left,
+                                       content_box_offset.top);
+  }
+
+  AffineTransform translate_and_scale;
+  auto replaced_rect = ReplacedContentRect();
+  translate_and_scale.Translate(replaced_rect.X(), replaced_rect.Y());
+  translate_and_scale.Scale(replaced_rect.Width() / frozen_size->width,
+                            replaced_rect.Height() / frozen_size->height);
+  return translate_and_scale;
+}
+
+PhysicalOffset LayoutEmbeddedContent::EmbeddedContentFromBorderBox(
+    const PhysicalOffset& offset) const {
+  gfx::PointF point(offset);
+  return PhysicalOffset::FromPointFRound(
+      EmbeddedContentTransform().Inverse().MapPoint(point));
+}
+
+gfx::PointF LayoutEmbeddedContent::EmbeddedContentFromBorderBox(
+    const gfx::PointF& point) const {
+  return EmbeddedContentTransform().Inverse().MapPoint(point);
+}
+
+PhysicalOffset LayoutEmbeddedContent::BorderBoxFromEmbeddedContent(
+    const PhysicalOffset& offset) const {
+  gfx::PointF point(offset);
+  return PhysicalOffset::FromPointFRound(
+      EmbeddedContentTransform().MapPoint(point));
+}
+
+gfx::Rect LayoutEmbeddedContent::BorderBoxFromEmbeddedContent(
+    const gfx::Rect& rect) const {
+  return EmbeddedContentTransform().MapRect(rect);
+}
+
 PaintLayerType LayoutEmbeddedContent::LayerTypeRequired() const {
   NOT_DESTROYED();
   PaintLayerType type = LayoutReplaced::LayerTypeRequired();
@@ -98,29 +152,40 @@ PaintLayerType LayoutEmbeddedContent::LayerTypeRequired() const {
   return kForcedPaintLayer;
 }
 
+bool LayoutEmbeddedContent::PointOverResizer(
+    const HitTestResult& result,
+    const HitTestLocation& location,
+    const PhysicalOffset& accumulated_offset) const {
+  NOT_DESTROYED();
+  if (const auto* scrollable_area = GetScrollableArea()) {
+    const HitTestRequest::HitTestRequestType hit_type =
+        result.GetHitTestRequest().GetType();
+    const blink::ResizerHitTestType resizer_type =
+        hit_type & HitTestRequest::kTouchEvent ? kResizerForTouch
+                                               : kResizerForPointer;
+    return scrollable_area->IsAbsolutePointInResizeControl(
+        ToRoundedPoint(location.Point() - accumulated_offset), resizer_type);
+  }
+  return false;
+}
+
 bool LayoutEmbeddedContent::NodeAtPointOverEmbeddedContentView(
     HitTestResult& result,
     const HitTestLocation& hit_test_location,
     const PhysicalOffset& accumulated_offset,
-    HitTestAction action) {
+    HitTestPhase phase) {
   NOT_DESTROYED();
   bool had_result = result.InnerNode();
   bool inside = LayoutReplaced::NodeAtPoint(result, hit_test_location,
-                                            accumulated_offset, action);
+                                            accumulated_offset, phase);
 
   // Check to see if we are really over the EmbeddedContentView itself (and not
   // just in the border/padding area or the resizer area).
   if ((inside || hit_test_location.IsRectBasedTest()) && !had_result &&
       result.InnerNode() == GetNode()) {
     bool is_over_content_view =
-        PhysicalContentBoxRect().Contains(result.LocalPoint());
-    if (is_over_content_view) {
-      if (const auto* scrollable_area = GetScrollableArea()) {
-        if (scrollable_area->IsLocalPointInResizeControl(
-                ToRoundedPoint(result.LocalPoint()), kResizerForPointer))
-          is_over_content_view = false;
-      }
-    }
+        PhysicalContentBoxRect().Contains(result.LocalPoint()) &&
+        !result.IsOverResizer();
     result.SetIsOverEmbeddedContentView(is_over_content_view);
   }
   return inside;
@@ -130,14 +195,17 @@ bool LayoutEmbeddedContent::NodeAtPoint(
     HitTestResult& result,
     const HitTestLocation& hit_test_location,
     const PhysicalOffset& accumulated_offset,
-    HitTestAction action) {
+    HitTestPhase phase) {
   NOT_DESTROYED();
   auto* local_frame_view = DynamicTo<LocalFrameView>(ChildFrameView());
-  bool skip_contents = (result.GetHitTestRequest().GetStopNode() == this ||
-                        !result.GetHitTestRequest().AllowsChildFrameContent());
+  bool skip_contents =
+      (result.GetHitTestRequest().GetStopNode() == this ||
+       !result.GetHitTestRequest().AllowsChildFrameContent() ||
+       PointOverResizer(result, hit_test_location, accumulated_offset));
+
   if (!local_frame_view || skip_contents) {
     return NodeAtPointOverEmbeddedContentView(result, hit_test_location,
-                                              accumulated_offset, action);
+                                              accumulated_offset, phase);
   }
 
   // A hit test can never hit an off-screen element; only off-screen iframes are
@@ -150,13 +218,13 @@ bool LayoutEmbeddedContent::NodeAtPoint(
       local_frame_view->GetFrame().GetDocument()->Lifecycle().GetState() <
           DocumentLifecycle::kPrePaintClean) {
     return NodeAtPointOverEmbeddedContentView(result, hit_test_location,
-                                              accumulated_offset, action);
+                                              accumulated_offset, phase);
   }
 
   DCHECK_GE(GetDocument().Lifecycle().GetState(),
             DocumentLifecycle::kPrePaintClean);
 
-  if (action == kHitTestForeground) {
+  if (phase == HitTestPhase::kForeground) {
     auto* child_layout_view = local_frame_view->GetLayoutView();
 
     if (VisibleToHitTestRequest(result.GetHitTestRequest()) &&
@@ -199,7 +267,7 @@ bool LayoutEmbeddedContent::NodeAtPoint(
         bool point_over_embedded_content_view =
             NodeAtPointOverEmbeddedContentView(
                 point_over_embedded_content_view_result, hit_test_location,
-                accumulated_offset, action);
+                accumulated_offset, phase);
         if (point_over_embedded_content_view)
           return true;
         result = point_over_embedded_content_view_result;
@@ -209,7 +277,7 @@ bool LayoutEmbeddedContent::NodeAtPoint(
   }
 
   return NodeAtPointOverEmbeddedContentView(result, hit_test_location,
-                                            accumulated_offset, action);
+                                            accumulated_offset, phase);
 }
 
 void LayoutEmbeddedContent::StyleDidChange(StyleDifference diff,
@@ -218,12 +286,8 @@ void LayoutEmbeddedContent::StyleDidChange(StyleDifference diff,
   LayoutReplaced::StyleDidChange(diff, old_style);
   const ComputedStyle& new_style = StyleRef();
 
-  bool was_inert = old_style && old_style->IsInert();
-  bool is_inert = new_style.IsInert();
-  if (was_inert != is_inert) {
-    if (Frame* frame = GetFrameOwnerElement()->ContentFrame())
-      frame->SetIsInert(is_inert);
-  }
+  if (Frame* frame = GetFrameOwnerElement()->ContentFrame())
+    frame->UpdateInertIfPossible();
 
   if (EmbeddedContentView* embedded_content_view = GetEmbeddedContentView()) {
     if (new_style.Visibility() != EVisibility::kVisible) {
@@ -252,7 +316,8 @@ void LayoutEmbeddedContent::StyleDidChange(StyleDifference diff,
 void LayoutEmbeddedContent::UpdateLayout() {
   NOT_DESTROYED();
   DCHECK(NeedsLayout());
-  UpdateAfterLayout();
+  if (!RuntimeEnabledFeatures::LayoutNGUnifyUpdateAfterLayoutEnabled())
+    UpdateAfterLayout();
   ClearNeedsLayout();
 }
 
@@ -276,13 +341,31 @@ CursorDirective LayoutEmbeddedContent::GetCursor(const PhysicalOffset& point,
   return LayoutReplaced::GetCursor(point, cursor);
 }
 
-PhysicalRect LayoutEmbeddedContent::ReplacedContentRect() const {
+PhysicalRect LayoutEmbeddedContent::ReplacedContentRectFrom(
+    const LayoutSize size,
+    const NGPhysicalBoxStrut& border_padding) const {
   NOT_DESTROYED();
-  PhysicalRect content_rect = PhysicalContentBoxRect();
+  PhysicalRect content_rect = PhysicalContentBoxRectFrom(size, border_padding);
+
   // IFrames set as the root scroller should get their size from their parent.
+  // When scrolling starts so as to hide the URL bar, IFRAME wouldn't resize to
+  // match the now expanded size of the viewport until the scrolling stops. This
+  // makes sure the |ReplacedContentRect| matches the expanded viewport even
+  // before IFRAME resizes, for clipping to work correctly.
   if (ChildFrameView() && View() && IsEffectiveRootScroller()) {
     content_rect.offset = PhysicalOffset();
     content_rect.size = View()->ViewRect().size;
+  }
+
+  if (const absl::optional<PhysicalSize> frozen_size = FrozenFrameSize()) {
+    // TODO(kojii): Setting the `offset` to non-zero values breaks
+    // hit-testing/inputs. Even different size is suspicious, as the input
+    // system forwards mouse events to the child frame even when the mouse is
+    // outside of the child frame. Revisit this when the input system supports
+    // different |ReplacedContentRect| from |PhysicalContentBoxRect|.
+    LayoutSize frozen_layout_size = frozen_size->ToLayoutSize();
+    content_rect =
+        ComputeReplacedContentRect(size, border_padding, &frozen_layout_size);
   }
 
   // We don't propagate sub-pixel into sub-frame layout, in other words, the
@@ -314,11 +397,6 @@ void LayoutEmbeddedContent::UpdateOnEmbeddedContentViewChange() {
   // tree so setting the flags ensures the required updates.
   SetNeedsPaintPropertyUpdate();
   SetShouldDoFullPaintInvalidation();
-  // Showing/hiding the embedded content view and changing the view between null
-  // and non-null affect compositing (see: PaintLayerCompositor::CanBeComposited
-  // and RootShouldAlwaysComposite).
-  if (HasLayer())
-    Layer()->SetNeedsCompositingInputsUpdate();
 }
 
 void LayoutEmbeddedContent::UpdateGeometry(

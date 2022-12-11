@@ -42,8 +42,17 @@ test(() => {
 }, 'Parsing max() is successful');
 
 test(() => {
-  const expected = new CSSMathMax(CSS.px(10), new CSSMathMin(CSS.percent(10), CSS.px(20)));
+  const expected = new CSSMathClamp(CSS.px(10), CSS.percent(10), CSS.px(20));
   assert_style_value_equals(expected, CSSNumericValue.parse('clamp(10px, 10%, 20px)'));
 }, 'Parsing clamp() is successful');
 
+test(() => {
+  const expected = new CSSMathSum(...[1, 2, 3].map(x => new CSSMathMin(CSS.number(x))));
+  assert_style_value_equals(expected, CSSNumericValue.parse('min(1) + min(2) + min(3)'));
+}, 'Parsing sum of multiple min() is successful');
+
+test(() => {
+  const expected = new CSSMathProduct(...[1, 2, 3].map(x => new CSSMathMin(CSS.number(x))));
+  assert_style_value_equals(expected, CSSNumericValue.parse('min(1) * min(2) * min(3)'));
+}, 'Parsing product of multiple min() is successful');
 </script>

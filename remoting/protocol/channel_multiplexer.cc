@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,13 +16,11 @@
 #include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "net/base/net_errors.h"
 #include "remoting/protocol/message_serialization.h"
 #include "remoting/protocol/p2p_stream_socket.h"
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 namespace {
 const int kChannelIdUnknown = -1;
@@ -391,7 +389,7 @@ void ChannelMultiplexer::DoCreatePendingChannels() {
   // separate task to connect other channels. This is necessary because the
   // callback may destroy the multiplexer or somehow else modify
   // |pending_channels_| list (e.g. call CancelChannelCreation()).
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&ChannelMultiplexer::DoCreatePendingChannels,
                                 weak_factory_.GetWeakPtr()));
 
@@ -418,7 +416,7 @@ ChannelMultiplexer::MuxChannel* ChannelMultiplexer::GetOrCreateChannel(
 
 void ChannelMultiplexer::OnBaseChannelError(int error) {
   for (auto it = channels_.begin(); it != channels_.end(); ++it) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&ChannelMultiplexer::NotifyBaseChannelError,
                        weak_factory_.GetWeakPtr(), it->second->name(), error));
@@ -473,5 +471,4 @@ void ChannelMultiplexer::DoWrite(
                 traffic_annotation);
 }
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

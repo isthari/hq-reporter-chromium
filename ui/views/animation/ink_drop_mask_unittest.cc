@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,7 +35,10 @@ TEST(InkDropMaskTest, PathInkDropMaskPaintsTriangle) {
   EXPECT_EQ(1u, list->num_paint_ops()) << list->ToString();
 
   sk_sp<cc::PaintRecord> record = list->ReleaseAsRecord();
-  const auto* draw_op = record->GetOpAtForTesting<cc::DrawPathOp>(0);
+  const auto* draw_record_op = record->GetOpAtForTesting<cc::DrawRecordOp>(0);
+  ASSERT_NE(nullptr, draw_record_op);
+  const auto* draw_op =
+      draw_record_op->record->GetOpAtForTesting<cc::DrawPathOp>(0);
   ASSERT_NE(nullptr, draw_op);
   ASSERT_EQ(3, draw_op->path.countPoints());
 

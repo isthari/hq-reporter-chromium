@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,16 +10,16 @@
 #include "base/gtest_prod_util.h"
 #include "base/strings/string_piece.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/chrome_browser_field_trials_mobile.h"
 #include "chrome/browser/metrics/metrics_reporting_state.h"
 #include "chrome/common/metrics.mojom.h"
 #include "components/metrics/metrics_service_accessor.h"
 #include "components/variations/synthetic_trials.h"
 #include "ppapi/buildflags/buildflags.h"
 
-class BreadcrumbsStatus;
+class BrowserProcessImpl;
 class ChromeMetricsServiceClient;
 class ChromePasswordManagerClient;
+class ChromeProcessSingleton;
 class HttpsFirstModeService;
 class NavigationMetricsRecorder;
 class PrefService;
@@ -27,16 +27,11 @@ class Profile;
 
 namespace {
 class CrashesDOMHandler;
-class FlashDOMHandler;
 }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 class ChromeCameraAppUIDelegate;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-
-namespace autofill_assistant {
-class AssistantFieldTrialUtilChrome;
-}  // namespace autofill_assistant
 
 namespace domain_reliability {
 class DomainReliabilityServiceFactory;
@@ -45,8 +40,7 @@ class DomainReliabilityServiceFactory;
 namespace extensions {
 class ChromeGuestViewManagerDelegate;
 class ChromeMetricsPrivateDelegate;
-class FileManagerPrivateIsUMAEnabledFunction;
-}
+}  // namespace extensions
 
 namespace first_run {
 class FirstRunMasterPrefsVariationsSeedTest;
@@ -55,11 +49,7 @@ class FirstRunMasterPrefsVariationsSeedTest;
 namespace metrics {
 class ChromeOSPerUserMetricsBrowserTestBase;
 class UkmConsentParamBrowserTest;
-}
-
-namespace heap_profiling {
-class BackgroundProfilingTriggers;
-}
+}  // namespace metrics
 
 namespace welcome {
 void JoinOnboardingGroup(Profile* profile);
@@ -70,7 +60,6 @@ class ChromeCleanerControllerDelegate;
 class ChromeSafeBrowsingUIManagerDelegate;
 class DownloadUrlSBClient;
 class IncidentReportingService;
-class SafeBrowsingService;
 
 namespace internal {
 class ReporterRunner;
@@ -81,8 +70,11 @@ namespace settings {
 class MetricsReportingHandler;
 }
 
+namespace segmentation_platform {
+class FieldTrialRegisterImpl;
+}
+
 namespace feed {
-class FeedServiceBridge;
 class FeedServiceDelegateImpl;
 class WebFeedSubscriptionCoordinator;
 }  // namespace feed
@@ -115,10 +107,7 @@ class ChromeMetricsServiceAccessor : public metrics::MetricsServiceAccessor {
   static void SetMetricsAndCrashReportingForTesting(const bool* value);
 
  private:
-  friend class autofill_assistant::AssistantFieldTrialUtilChrome;
   friend class ::CrashesDOMHandler;
-  friend class ::FlashDOMHandler;
-  friend class BreadcrumbsStatus;
   friend class ChromeBrowserFieldTrials;
   // For ClangPGO.
   friend class ChromeBrowserMainExtraPartsMetrics;
@@ -126,16 +115,14 @@ class ChromeMetricsServiceAccessor : public metrics::MetricsServiceAccessor {
   friend class ChromeBrowserMainParts;
   friend class ChromeContentBrowserClient;
   friend class ChromeMetricsServicesManagerClient;
-  friend class DataReductionProxyChromeSettings;
   friend class domain_reliability::DomainReliabilityServiceFactory;
   friend class extensions::ChromeGuestViewManagerDelegate;
   friend class extensions::ChromeMetricsPrivateDelegate;
-  friend class extensions::FileManagerPrivateIsUMAEnabledFunction;
   friend void ChangeMetricsReportingStateWithReply(
       bool,
-      OnMetricsReportingCallbackType);
+      OnMetricsReportingCallbackType,
+      ChangeMetricsReportingStateCalledFrom);
   friend void ApplyMetricsReportingPolicy();
-  friend class heap_profiling::BackgroundProfilingTriggers;
   friend class settings::MetricsReportingHandler;
   friend class UmaSessionStats;
   friend class safe_browsing::ChromeCleanerControllerDelegate;
@@ -143,18 +130,19 @@ class ChromeMetricsServiceAccessor : public metrics::MetricsServiceAccessor {
   friend class safe_browsing::DownloadUrlSBClient;
   friend class safe_browsing::IncidentReportingService;
   friend class safe_browsing::internal::ReporterRunner;
-  friend class safe_browsing::SafeBrowsingService;
+  friend class segmentation_platform::FieldTrialRegisterImpl;
   friend class ChromeMetricsServiceClient;
   friend class ChromePasswordManagerClient;
+  friend class ChromeProcessSingleton;
   friend void welcome::JoinOnboardingGroup(Profile* profile);
   friend class NavigationMetricsRecorder;
   friend class ChromeBrowserMainExtraPartsGpu;
   friend class Browser;
+  friend class BrowserProcessImpl;
   friend class OptimizationGuideKeyedService;
   friend class WebUITabStripFieldTrial;
   friend class feed::FeedServiceDelegateImpl;
   friend class browser_sync::DeviceInfoSyncClientImpl;
-  friend class feed::FeedServiceBridge;
   friend class feed::WebFeedSubscriptionCoordinator;
   friend class HttpsFirstModeService;
   friend class webauthn::authenticator::IsMetricsAndCrashReportingEnabled;
@@ -175,6 +163,8 @@ class ChromeMetricsServiceAccessor : public metrics::MetricsServiceAccessor {
   friend class metrics::UkmConsentParamBrowserTest;
   friend class ClonedInstallClientIdResetBrowserTest;
   friend class metrics::ChromeOSPerUserMetricsBrowserTestBase;
+  friend class SampledOutClientIdSavedBrowserTest;
+  friend class MetricsInternalsUIBrowserTest;
   FRIEND_TEST_ALL_PREFIXES(ChromeMetricsServiceAccessorTest,
                            MetricsReportingEnabled);
   FRIEND_TEST_ALL_PREFIXES(ChromeMetricsServicesManagerClientTest,

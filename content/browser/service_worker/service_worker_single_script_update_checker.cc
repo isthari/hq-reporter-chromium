@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "content/browser/loader/browser_initiated_resource_request.h"
 #include "content/browser/service_worker/service_worker_cache_writer.h"
@@ -25,6 +27,7 @@
 #include "net/cookies/site_for_cookies.h"
 #include "net/http/http_response_info.h"
 #include "services/network/public/cpp/net_adapters.h"
+#include "services/network/public/cpp/record_ontransfersizeupdate_utils.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/mojom/early_hints.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
@@ -125,7 +128,7 @@ ServiceWorkerSingleScriptUpdateChecker::ServiceWorkerSingleScriptUpdateChecker(
       time_since_last_check_(time_since_last_check),
       network_watcher_(FROM_HERE,
                        mojo::SimpleWatcher::ArmingPolicy::MANUAL,
-                       base::SequencedTaskRunnerHandle::Get()),
+                       base::SequencedTaskRunner::GetCurrentDefault()),
       callback_(std::move(callback)) {
   DCHECK(browser_context);
 
@@ -181,7 +184,8 @@ ServiceWorkerSingleScriptUpdateChecker::ServiceWorkerSingleScriptUpdateChecker(
       network::SharedURLLoaderFactory::Create(loader_factory->Clone()),
       std::move(throttles), GlobalRequestID::MakeBrowserInitiated().request_id,
       options, &resource_request, network_client_remote_.get(),
-      kUpdateCheckTrafficAnnotation, base::ThreadTaskRunnerHandle::Get());
+      kUpdateCheckTrafficAnnotation,
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   DCHECK_EQ(network_loader_state_,
             ServiceWorkerUpdatedScriptLoader::LoaderState::kNotStarted);
   network_loader_state_ =
@@ -198,7 +202,8 @@ void ServiceWorkerSingleScriptUpdateChecker::OnReceiveEarlyHints(
 
 void ServiceWorkerSingleScriptUpdateChecker::OnReceiveResponse(
     network::mojom::URLResponseHeadPtr response_head,
-    mojo::ScopedDataPipeConsumerHandle consumer) {
+    mojo::ScopedDataPipeConsumerHandle consumer,
+    absl::optional<mojo_base::BigBuffer> cached_metadata) {
   TRACE_EVENT_WITH_FLOW0(
       "ServiceWorker",
       "ServiceWorkerSingleScriptUpdateChecker::OnReceiveResponse", this,
@@ -238,16 +243,34 @@ void ServiceWorkerSingleScriptUpdateChecker::OnReceiveResponse(
         response_head->parsed_headers
             ? response_head->parsed_headers->cross_origin_embedder_policy
             : network::CrossOriginEmbedderPolicy();
+
+    if (!GetContentClient()
+             ->browser()
+             ->ShouldServiceWorkerInheritPolicyContainerFromCreator(
+                 script_url_)) {
+      policy_container_host_ = base::MakeRefCounted<PolicyContainerHost>(
+          // TODO(https://crbug.com/1366920): Ensure parsed headers are
+          // available
+          response_head->parsed_headers
+              // This does not parse the referrer policy, which will be
+              // updated in ServiceWorkerGlobalScope::Initialize
+              ? PolicyContainerPolicies(script_url_, response_head.get(),
+                                        nullptr)
+              : PolicyContainerPolicies());
+    }
   }
 
-  network_loader_state_ =
-      ServiceWorkerUpdatedScriptLoader::LoaderState::kWaitingForBody;
   network_accessed_ = response_head->network_accessed;
 
   WriteHeaders(std::move(response_head));
 
-  if (consumer)
-    OnStartLoadingResponseBody(std::move(consumer));
+  if (!consumer)
+    return;
+
+  network_consumer_ = std::move(consumer);
+  network_loader_state_ =
+      ServiceWorkerUpdatedScriptLoader::LoaderState::kLoadingBody;
+  MaybeStartNetworkConsumerHandleWatcher();
 }
 
 void ServiceWorkerSingleScriptUpdateChecker::OnReceiveRedirect(
@@ -277,26 +300,11 @@ void ServiceWorkerSingleScriptUpdateChecker::OnUploadProgress(
   NOTREACHED();
 }
 
-void ServiceWorkerSingleScriptUpdateChecker::OnReceiveCachedMetadata(
-    mojo_base::BigBuffer data) {}
-
 void ServiceWorkerSingleScriptUpdateChecker::OnTransferSizeUpdated(
-    int32_t transfer_size_diff) {}
-
-void ServiceWorkerSingleScriptUpdateChecker::OnStartLoadingResponseBody(
-    mojo::ScopedDataPipeConsumerHandle consumer) {
-  TRACE_EVENT_WITH_FLOW0(
-      "ServiceWorker",
-      "ServiceWorkerSingleScriptUpdateChecker::OnStartLoadingResponseBody",
-      this, TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT);
-
-  DCHECK_EQ(network_loader_state_,
-            ServiceWorkerUpdatedScriptLoader::LoaderState::kWaitingForBody);
-
-  network_consumer_ = std::move(consumer);
-  network_loader_state_ =
-      ServiceWorkerUpdatedScriptLoader::LoaderState::kLoadingBody;
-  MaybeStartNetworkConsumerHandleWatcher();
+    int32_t transfer_size_diff) {
+  network::RecordOnTransferSizeUpdatedUMA(
+      network::OnTransferSizeUpdatedFrom::
+          kServiceWorkerSingleScriptUpdateChecker);
 }
 
 void ServiceWorkerSingleScriptUpdateChecker::OnComplete(
@@ -317,13 +325,13 @@ void ServiceWorkerSingleScriptUpdateChecker::OnComplete(
   }
 
   DCHECK(previous_loader_state ==
-             ServiceWorkerUpdatedScriptLoader::LoaderState::kWaitingForBody ||
+             ServiceWorkerUpdatedScriptLoader::LoaderState::kLoadingHeader ||
          previous_loader_state ==
              ServiceWorkerUpdatedScriptLoader::LoaderState::kLoadingBody);
 
   // Response body is empty.
   if (previous_loader_state ==
-      ServiceWorkerUpdatedScriptLoader::LoaderState::kWaitingForBody) {
+      ServiceWorkerUpdatedScriptLoader::LoaderState::kLoadingHeader) {
     DCHECK_EQ(body_writer_state_,
               ServiceWorkerUpdatedScriptLoader::WriterState::kNotStarted);
     body_writer_state_ =
@@ -442,7 +450,7 @@ void ServiceWorkerSingleScriptUpdateChecker::OnWriteHeadersComplete(
 void ServiceWorkerSingleScriptUpdateChecker::
     MaybeStartNetworkConsumerHandleWatcher() {
   if (network_loader_state_ ==
-      ServiceWorkerUpdatedScriptLoader::LoaderState::kWaitingForBody) {
+      ServiceWorkerUpdatedScriptLoader::LoaderState::kLoadingHeader) {
     TRACE_EVENT_WITH_FLOW1("ServiceWorker",
                            "ServiceWorkerSingleScriptUpdateChecker::"
                            "MaybeStartNetworkConsumerHandleWatcher",
@@ -450,7 +458,7 @@ void ServiceWorkerSingleScriptUpdateChecker::
                            TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT,
                            "state", "wait for the body");
 
-    // OnStartLoadingResponseBody() or OnComplete() will continue the sequence.
+    // OnReceiveResponse() or OnComplete() will continue the sequence.
     return;
   }
   if (header_writer_state_ !=

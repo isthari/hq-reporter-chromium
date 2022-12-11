@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
@@ -90,10 +90,10 @@ ServiceDiscardableManager::ServiceDiscardableManager(
                             : DiscardableCacheSizeLimit()) {
   // In certain cases, ThreadTaskRunnerHandle isn't set (Android Webview).
   // Don't register a dump provider in these cases.
-  if (base::ThreadTaskRunnerHandle::IsSet()) {
+  if (base::SingleThreadTaskRunner::HasCurrentDefault()) {
     base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
         this, "gpu::ServiceDiscardableManager",
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 }
 
@@ -164,7 +164,7 @@ void ServiceDiscardableManager::InsertLockedTexture(
   }
 
   total_size_ += texture_size;
-  entries_.Put({texture_id, texture_manager},
+  entries_.Put(GpuDiscardableEntryKey{texture_id, texture_manager},
                GpuDiscardableEntry{handle, texture_size});
   EnforceCacheSizeLimit(cache_size_limit_);
 }

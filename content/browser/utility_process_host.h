@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/environment.h"
-#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/launch.h"
 #include "build/build_config.h"
@@ -23,7 +22,8 @@
 #include "sandbox/policy/mojom/sandbox.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-#if BUILDFLAG(IS_CHROMECAST)
+// TODO(crbug.com/1328879): Remove this when fixing the bug.
+#if BUILDFLAG(IS_CASTOS) || BUILDFLAG(IS_CAST_ANDROID)
 #include "base/callback.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #endif
@@ -93,7 +93,8 @@ class CONTENT_EXPORT UtilityProcessHost
   // Starts the utility process.
   bool Start();
 
-#if BUILDFLAG(IS_CHROMECAST)
+// TODO(crbug.com/1328879): Remove this method when fixing the bug.
+#if BUILDFLAG(IS_CASTOS) || BUILDFLAG(IS_CAST_ANDROID)
   // Instructs the utility process to run an instance of the named service,
   // bound to |service_pipe|. This is DEPRECATED and should never be used.
   using RunServiceDeprecatedCallback =
@@ -166,7 +167,8 @@ class CONTENT_EXPORT UtilityProcessHost
   };
   LaunchState launch_state_ = LaunchState::kLaunchInProgress;
 
-#if BUILDFLAG(IS_CHROMECAST)
+// TODO(crbug.com/1328879): Remove this when fixing the bug.
+#if BUILDFLAG(IS_CASTOS) || BUILDFLAG(IS_CAST_ANDROID)
   // Collection of callbacks to be run once the process is actually started (or
   // fails to start).
   std::vector<RunServiceDeprecatedCallback> pending_run_service_callbacks_;

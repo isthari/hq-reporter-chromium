@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -419,7 +419,7 @@ class ExtensionBrowserTest : virtual public InProcessBrowserTest {
 #endif
 
   // The default profile to be used.
-  raw_ptr<Profile> profile_;
+  raw_ptr<Profile, DanglingUntriaged> profile_;
 
   // Cache cache implementation.
   std::unique_ptr<ExtensionCacheFake> test_extension_cache_;

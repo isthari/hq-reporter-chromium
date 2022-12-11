@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -96,7 +96,7 @@ class FakeInterfaceFactory : public media::mojom::InterfaceFactory {
   void BindRequest(mojo::ScopedMessagePipeHandle handle) {
     receiver_.Bind(mojo::PendingReceiver<media::mojom::InterfaceFactory>(
         std::move(handle)));
-    receiver_.set_disconnect_handler(WTF::Bind(
+    receiver_.set_disconnect_handler(WTF::BindOnce(
         &FakeInterfaceFactory::OnConnectionError, base::Unretained(this)));
   }
 
@@ -117,7 +117,9 @@ class FakeInterfaceFactory : public media::mojom::InterfaceFactory {
 
   // Stub out other mojom::InterfaceFactory interfaces.
   void CreateVideoDecoder(
-      mojo::PendingReceiver<media::mojom::VideoDecoder> receiver) override {}
+      mojo::PendingReceiver<media::mojom::VideoDecoder> receiver,
+      mojo::PendingRemote<media::stable::mojom::StableVideoDecoder>
+          dst_video_decoder) override {}
   void CreateDefaultRenderer(
       const std::string& audio_device_id,
       mojo::PendingReceiver<media::mojom::Renderer> receiver) override {}
@@ -148,7 +150,10 @@ class FakeInterfaceFactory : public media::mojom::InterfaceFactory {
       mojo::PendingRemote<media::mojom::MediaLog> media_log_remote,
       mojo::PendingReceiver<media::mojom::Renderer> receiver,
       mojo::PendingReceiver<media::mojom::MediaFoundationRendererExtension>
-          renderer_extension_receiver) override {}
+          renderer_extension_receiver,
+      mojo::PendingRemote<
+          ::media::mojom::MediaFoundationRendererClientExtension>
+          client_extension_remote) override {}
 #endif  // BUILDFLAG(IS_WIN)
 
  private:
@@ -211,8 +216,8 @@ class AudioDecoderBrokerTest : public testing::Test {
                            media::DecoderStatus::Codes::kOk))));
     decoder_broker_->Initialize(
         config, nullptr /* cdm_context */,
-        WTF::Bind(&AudioDecoderBrokerTest::OnInitWithClosure,
-                  WTF::Unretained(this), run_loop.QuitClosure()),
+        WTF::BindOnce(&AudioDecoderBrokerTest::OnInitWithClosure,
+                      WTF::Unretained(this), run_loop.QuitClosure()),
         WTF::BindRepeating(&AudioDecoderBrokerTest::OnOutput,
                            WTF::Unretained(this)),
         media::WaitingCB());
@@ -226,8 +231,8 @@ class AudioDecoderBrokerTest : public testing::Test {
     base::RunLoop run_loop;
     EXPECT_CALL(*this, OnDecodeDone(HasStatusCode(expected_status)));
     decoder_broker_->Decode(
-        buffer, WTF::Bind(&AudioDecoderBrokerTest::OnDecodeDoneWithClosure,
-                          WTF::Unretained(this), run_loop.QuitClosure()));
+        buffer, WTF::BindOnce(&AudioDecoderBrokerTest::OnDecodeDoneWithClosure,
+                              WTF::Unretained(this), run_loop.QuitClosure()));
     run_loop.Run();
     testing::Mock::VerifyAndClearExpectations(this);
   }
@@ -236,8 +241,8 @@ class AudioDecoderBrokerTest : public testing::Test {
     base::RunLoop run_loop;
     EXPECT_CALL(*this, OnResetDone());
     decoder_broker_->Reset(
-        WTF::Bind(&AudioDecoderBrokerTest::OnResetDoneWithClosure,
-                  WTF::Unretained(this), run_loop.QuitClosure()));
+        WTF::BindOnce(&AudioDecoderBrokerTest::OnResetDoneWithClosure,
+                      WTF::Unretained(this), run_loop.QuitClosure()));
     run_loop.Run();
     testing::Mock::VerifyAndClearExpectations(this);
   }
@@ -300,18 +305,24 @@ TEST_F(AudioDecoderBrokerTest, Decode_NoMojoDecoder) {
   InitializeDecoder(MakeVorbisConfig());
   EXPECT_EQ(GetDecoderType(), media::AudioDecoderType::kFFmpeg);
 
-  DecodeBuffer(media::ReadTestDataFile("vorbis-packet-0"));
-  DecodeBuffer(media::ReadTestDataFile("vorbis-packet-1"));
-  DecodeBuffer(media::ReadTestDataFile("vorbis-packet-2"));
+  DecodeBuffer(
+      media::ReadTestDataFile("vorbis-packet-0", base::Milliseconds(0)));
+  DecodeBuffer(
+      media::ReadTestDataFile("vorbis-packet-1", base::Milliseconds(1)));
+  DecodeBuffer(
+      media::ReadTestDataFile("vorbis-packet-2", base::Milliseconds(2)));
   DecodeBuffer(media::DecoderBuffer::CreateEOSBuffer());
   // 2, not 3, because the first frame doesn't generate an output.
   ASSERT_EQ(2U, output_buffers_.size());
 
   ResetDecoder();
 
-  DecodeBuffer(media::ReadTestDataFile("vorbis-packet-0"));
-  DecodeBuffer(media::ReadTestDataFile("vorbis-packet-1"));
-  DecodeBuffer(media::ReadTestDataFile("vorbis-packet-2"));
+  DecodeBuffer(
+      media::ReadTestDataFile("vorbis-packet-0", base::Milliseconds(0)));
+  DecodeBuffer(
+      media::ReadTestDataFile("vorbis-packet-1", base::Milliseconds(1)));
+  DecodeBuffer(
+      media::ReadTestDataFile("vorbis-packet-2", base::Milliseconds(2)));
   DecodeBuffer(media::DecoderBuffer::CreateEOSBuffer());
   // 2 more than last time.
   ASSERT_EQ(4U, output_buffers_.size());

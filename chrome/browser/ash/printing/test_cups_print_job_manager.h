@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 
 class Profile;
 
-namespace chromeos {
+namespace ash {
 
 class TestCupsPrintJobManager : public CupsPrintJobManager {
  public:
@@ -36,6 +36,6 @@ class TestCupsPrintJobManager : public CupsPrintJobManager {
   void CompletePrintJob(CupsPrintJob* job);
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_TEST_CUPS_PRINT_JOB_MANAGER_H_

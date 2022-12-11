@@ -1,4 +1,4 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -47,6 +47,11 @@ _SECTION_SORT_ORDER = {
     models.SECTION_OTHER: 6,
 }
 
+# Keys in build config for old .size files.
+_LEGACY_METADATA_BUILD_CONFIG_KEYS = (models.BUILD_CONFIG_GIT_REVISION,
+                                      models.BUILD_CONFIG_GN_ARGS,
+                                      models.BUILD_CONFIG_OUT_DIRECTORY)
+
 # Ensure each |models.SECTION_*| (except |SECTION_MULTIPLE|) has an entry.
 assert len(_SECTION_SORT_ORDER) + 1 == len(models.SECTION_NAME_TO_SECTION)
 
@@ -83,7 +88,62 @@ class _Writer:
     logging.debug('File size with %s: %d' % (desc, size))
 
 
-def SortSymbols(raw_symbols, check_already_mostly_sorted=True):
+def _SortKey(s):
+  # size_without_padding so that "** symbol gap" sorts before other symbols
+  # with same address (necessary for correctness within CalculatePadding()).
+  return (
+      _SECTION_SORT_ORDER[s.section_name],
+      s.IsOverhead(),
+      s.address,
+      # Only use size_without_padding for native symbols (that have
+      # addresses) since padding-only symbols must come first for
+      # correctness.
+      # DEX also has 0-size symbols (for nested classes, not sure why)
+      # and we don't want to sort them differently since they don't have
+      # any padding either.
+      s.address and s.size_without_padding > 0,
+      s.full_name.startswith('**'),
+      s.full_name,
+      s.object_path)
+
+
+def _DescribeSymbolSortOrder(syms):
+  return ''.join('%r: %r\n' % (_SortKey(s), s) for s in syms)
+
+
+def LogUnsortedSymbols(raw_symbols):
+  """Logs the number of symbols that are not sorted.
+
+  Also logs the first few such symbols and their sort keys.
+
+  Returns:
+    The number of unsorted symbols.
+  """
+  logging.debug('Looking for out-of-order symbols (num_symbols=%d)',
+                len(raw_symbols))
+  sort_keys = [_SortKey(s) for s in raw_symbols]
+  count = sum(
+      int(sort_keys[i] > sort_keys[i + 1]) for i in range(len(raw_symbols) - 1))
+  logging.info('Out of %d symbols, %d were out-of-order.', len(raw_symbols),
+               count)
+
+  # Log them if > 1% are out-of-order and it's not a tiny sample.
+  if len(raw_symbols) > 1000 and count / len(raw_symbols) > .01:
+    NUM_TO_LOG = 10
+    logging.warning('Showing the first %d out-of-order symbols.', NUM_TO_LOG)
+    num_reported = 0
+    for i in range(len(raw_symbols) - 1):
+      if sort_keys[i] > sort_keys[i + 1]:
+        num_reported += 1
+        logging.warning('\n%d) %s\n%d) %s\n', i,
+                        _DescribeSymbolSortOrder(raw_symbols[i:i + 1]), i + 1,
+                        _DescribeSymbolSortOrder(raw_symbols[i + 1:i + 2]))
+        if num_reported == NUM_TO_LOG:
+          break
+  return count
+
+
+def SortSymbols(raw_symbols):
   """Sorts the given symbols in the order that they should be archived in.
 
   The sort order is chosen such that:
@@ -94,32 +154,7 @@ def SortSymbols(raw_symbols, check_already_mostly_sorted=True):
 
   Args:
     raw_symbols: List of symbols to sort.
-    check_already_mostly_sorted: Whether to assert that there are a low number
-        of out-of-order elements in raw_symbols. Older .size files are not
-        properly sorted, this check makes sense only for "supersize archive".
   """
-
-  def sort_key(s):
-    # size_without_padding so that "** symbol gap" sorts before other symbols
-    # with same address (necessary for correctness within CalculatePadding()).
-    return (
-        _SECTION_SORT_ORDER[s.section_name],
-        s.IsOverhead(),
-        s.address,
-        # Only use size_without_padding for native symbols (that have
-        # addresses) since padding-only symbols must come first for
-        # correctness.
-        # DEX also has 0-size symbols (for nested classes, not sure why)
-        # and we don't want to sort them differently since they don't have
-        # any padding either.
-        s.address and s.size_without_padding > 0,
-        s.full_name.startswith('**'),
-        s.full_name,
-        s.object_path)
-
-  def describe(syms):
-    return ''.join('%r: %r\n' % (s, sort_key(s)) for s in syms)
-
   logging.debug('Sorting %d symbols', len(raw_symbols))
 
   # Sort aliases first to make raw_symbols quicker to sort.
@@ -133,32 +168,17 @@ def SortSymbols(raw_symbols, check_already_mostly_sorted=True):
     if s.aliases:
       expected = raw_symbols[i:i + num_aliases]
       assert s.aliases == expected, 'Aliases out of order:\n{}\n{}'.format(
-          describe(s.aliases), describe(expected))
+          _DescribeSymbolSortOrder(s.aliases),
+          _DescribeSymbolSortOrder(expected))
 
-      s.aliases.sort(key=sort_key)
+      s.aliases.sort(key=_SortKey)
       raw_symbols[i:i + num_aliases] = s.aliases
       i += num_aliases
     else:
       i += 1
 
-  if check_already_mostly_sorted:
-    count = sum(
-        int(sort_key(raw_symbols[i]) > sort_key(raw_symbols[i + 1]))
-        for i in range(len(raw_symbols) - 1))
-    logging.debug('Number of out-of-order symbols: %d', count)
-    if count > 20:
-      logging.error('Number of out-of-order symbols: %d', count)
-      logging.error('Showing first 10')
-      num_reported = 0
-      for i in range(len(raw_symbols) - 1):
-        if sort_key(raw_symbols[i]) > sort_key(raw_symbols[i + 1]):
-          num_reported += 1
-          logging.error('\n%s', describe(raw_symbols[i:i + 2]))
-          if num_reported == 10:
-            break
-
   # Python's sort() is faster when the input list is already mostly sorted.
-  raw_symbols.sort(key=sort_key)
+  raw_symbols.sort(key=_SortKey)
 
 
 def CalculatePadding(raw_symbols):
@@ -257,6 +277,7 @@ def _SaveSizeInfoToFile(size_info,
   fields = {
       'has_components': True,
       'has_padding': include_padding,
+      'has_disassembly': True
   }
 
   if has_multi_containers:
@@ -350,8 +371,12 @@ def _SaveSizeInfoToFile(size_info,
   w.LogSize('component indices')
 
   prev_aliases = None
+  symbols_with_disassembly = []
+  disassembly_idx = 0
   for group in symbol_group_by_segment:
     for symbol in group:
+      if symbol.disassembly:
+        symbols_with_disassembly.append((disassembly_idx, symbol.disassembly))
       w.WriteString(symbol.full_name)
       if symbol.aliases and symbol.aliases is not prev_aliases:
         w.WriteString('\t0%x' % symbol.num_aliases)
@@ -359,7 +384,14 @@ def _SaveSizeInfoToFile(size_info,
       if symbol.flags:
         w.WriteString('\t%x' % symbol.flags)
       w.WriteBytes(b'\n')
+      disassembly_idx += 1
   w.LogSize('names (final)')  # For libchrome: adds 3.5mb.
+
+  w.WriteNumberList(x[0] for x in symbols_with_disassembly)
+  for _, disassembly in symbols_with_disassembly:
+    disassembly_bytes = disassembly.encode('utf-8')
+    w.WriteBytes(b'%d\n' % len(disassembly_bytes))
+    w.WriteBytes(disassembly_bytes)
 
 
 def _ReadLine(file_iter):
@@ -431,7 +463,7 @@ def _LoadSizeInfoFromFile(file_obj, size_path):
     build_config = {}
     metadata = fields.get('metadata')
     if metadata:
-      for key in models.BUILD_CONFIG_KEYS:
+      for key in _LEGACY_METADATA_BUILD_CONFIG_KEYS:
         if key in metadata:
           build_config[key] = metadata[key]
           del metadata[key]
@@ -444,6 +476,7 @@ def _LoadSizeInfoFromFile(file_obj, size_path):
 
   has_components = fields.get('has_components', False)
   has_padding = fields.get('has_padding', False)
+  has_disassembly = fields.get('has_disassembly', False)
 
   # Eat empty line.
   _ReadLine(lines)
@@ -553,6 +586,7 @@ def _LoadSizeInfoFromFile(file_obj, size_path):
       component = components[cur_component_indices[i]] if has_components else ''
       new_sym.component = component
       new_sym.flags = flags
+      new_sym.disassembly = ''
       # Derived.
       if cur_paddings:
         new_sym.padding = cur_paddings[i]
@@ -580,6 +614,15 @@ def _LoadSizeInfoFromFile(file_obj, size_path):
   if not has_padding:
     CalculatePadding(raw_symbols)
 
+  # Get disassmebly if it exists.
+  if has_disassembly:
+    idx_disassembly = _ReadValuesFromLine(lines, split=' ')
+    if len(idx_disassembly) > 0 and idx_disassembly[0] != '':
+      for elem in idx_disassembly:
+        elem = int(elem)
+        diss_len = int(_ReadLine(lines))
+        diss_text = lines.read(diss_len)
+        raw_symbols[elem].disassembly = diss_text
   return models.SizeInfo(build_config,
                          containers,
                          raw_symbols,
@@ -607,20 +650,18 @@ def SaveSizeInfo(size_info,
   if os.environ.get('SUPERSIZE_MEASURE_GZIP') == '1':
     # Doing serialization and Gzip together.
     with _OpenGzipForWrite(path, file_obj=file_obj) as f:
-      _SaveSizeInfoToFile(
-          size_info,
-          f,
-          include_padding=include_padding,
-          sparse_symbols=sparse_symbols)
+      _SaveSizeInfoToFile(size_info,
+                          f,
+                          include_padding=include_padding,
+                          sparse_symbols=sparse_symbols)
   else:
     # Doing serizliation and Gzip separately.
     # This turns out to be faster. On Python 3: 40s -> 14s.
     bytesio = io.BytesIO()
-    _SaveSizeInfoToFile(
-        size_info,
-        bytesio,
-        include_padding=include_padding,
-        sparse_symbols=sparse_symbols)
+    _SaveSizeInfoToFile(size_info,
+                        bytesio,
+                        include_padding=include_padding,
+                        sparse_symbols=sparse_symbols)
 
     logging.debug('Serialization complete. Gzipping...')
     with _OpenGzipForWrite(path, file_obj=file_obj) as f:
@@ -650,13 +691,12 @@ def SaveDeltaSizeInfo(delta_size_info, path, file_obj=None):
   before_size_file = io.BytesIO()
   after_size_file = io.BytesIO()
 
-  after_promise = parallel.CallOnThread(
-      SaveSizeInfo,
-      delta_size_info.after,
-      '',
-      file_obj=after_size_file,
-      include_padding=True,
-      sparse_symbols=after_symbols)
+  after_promise = parallel.CallOnThread(SaveSizeInfo,
+                                        delta_size_info.after,
+                                        '',
+                                        file_obj=after_size_file,
+                                        include_padding=True,
+                                        sparse_symbols=after_symbols)
   SaveSizeInfo(
       delta_size_info.before,
       '',

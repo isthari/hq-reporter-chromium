@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -146,7 +146,7 @@ void GpuVideoAcceleratorFactoriesImpl::BindOnTaskRunner(
   interface_factory_.Bind(std::move(interface_factory_remote));
   vea_provider_.Bind(std::move(vea_provider_remote));
 
-  if (context_provider_->BindToCurrentThread() !=
+  if (context_provider_->BindToCurrentSequence() !=
       gpu::ContextResult::kSuccess) {
     OnDecoderSupportFailed();
     OnEncoderSupportFailed();
@@ -162,15 +162,6 @@ void GpuVideoAcceleratorFactoriesImpl::BindOnTaskRunner(
                      base::Unretained(this)));
 
   if (video_encode_accelerator_enabled_) {
-    {
-      // TODO(crbug.com/709631): This should be removed.
-      base::AutoLock lock(supported_profiles_lock_);
-      supported_vea_profiles_ =
-          media::GpuVideoAcceleratorUtil::ConvertGpuToMediaEncodeProfiles(
-              gpu_channel_host_->gpu_info()
-                  .video_encode_accelerator_supported_profiles);
-    }
-
     vea_provider_.set_disconnect_handler(base::BindOnce(
         &GpuVideoAcceleratorFactoriesImpl::OnEncoderSupportFailed,
         base::Unretained(this)));
@@ -183,17 +174,21 @@ void GpuVideoAcceleratorFactoriesImpl::BindOnTaskRunner(
   }
 
 #if BUILDFLAG(ENABLE_MOJO_VIDEO_DECODER)
-  // Note: This is a bit of a hack, since we don't specify the implementation
-  // before asking for the map of supported configs.  We do this because it
-  // (a) saves an ipc call, and (b) makes the return of those configs atomic.
-  interface_factory_->CreateVideoDecoder(
-      video_decoder_.BindNewPipeAndPassReceiver());
-  video_decoder_.set_disconnect_handler(
-      base::BindOnce(&GpuVideoAcceleratorFactoriesImpl::OnDecoderSupportFailed,
-                     base::Unretained(this)));
-  video_decoder_->GetSupportedConfigs(base::BindOnce(
-      &GpuVideoAcceleratorFactoriesImpl::OnSupportedDecoderConfigs,
-      base::Unretained(this)));
+  if (video_decode_accelerator_enabled_) {
+    // Note: This is a bit of a hack, since we don't specify the implementation
+    // before asking for the map of supported configs.  We do this because it
+    // (a) saves an ipc call, and (b) makes the return of those configs atomic.
+    interface_factory_->CreateVideoDecoder(
+        video_decoder_.BindNewPipeAndPassReceiver(), /*dst_video_decoder=*/{});
+    video_decoder_.set_disconnect_handler(base::BindOnce(
+        &GpuVideoAcceleratorFactoriesImpl::OnDecoderSupportFailed,
+        base::Unretained(this)));
+    video_decoder_->GetSupportedConfigs(base::BindOnce(
+        &GpuVideoAcceleratorFactoriesImpl::OnSupportedDecoderConfigs,
+        base::Unretained(this)));
+  } else {
+    OnDecoderSupportFailed();
+  }
 #else
   OnDecoderSupportFailed();
 #endif  // BUILDFLAG(ENABLE_MOJO_VIDEO_DECODER)
@@ -327,7 +322,10 @@ media::GpuVideoAcceleratorFactories::Supported
 GpuVideoAcceleratorFactoriesImpl::IsDecoderConfigSupported(
     const media::VideoDecoderConfig& config) {
   // There is no support for alpha channel hardware decoding yet.
-  if (config.alpha_mode() == media::VideoDecoderConfig::AlphaMode::kHasAlpha) {
+  // HEVC is the codec that only has platform hardware decoder support, and
+  // macOS currently support HEVC with alpha, so don't block HEVC here.
+  if (config.alpha_mode() == media::VideoDecoderConfig::AlphaMode::kHasAlpha &&
+      config.codec() != media::VideoCodec::kHEVC) {
     DVLOG(1) << "Alpha transparency formats are not supported.";
     return Supported::kFalse;
   }
@@ -367,7 +365,7 @@ GpuVideoAcceleratorFactoriesImpl::CreateVideoDecoder(
 
   mojo::PendingRemote<media::mojom::VideoDecoder> video_decoder;
   interface_factory_->CreateVideoDecoder(
-      video_decoder.InitWithNewPipeAndPassReceiver());
+      video_decoder.InitWithNewPipeAndPassReceiver(), /*dst_video_decoder=*/{});
   return std::make_unique<media::MojoVideoDecoder>(
       task_runner_, this, media_log, std::move(video_decoder),
       std::move(request_overlay_info_cb), rendering_color_space_);
@@ -433,7 +431,7 @@ GpuVideoAcceleratorFactoriesImpl::VideoFrameOutputFormat(
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
   if (CheckContextLost())
     return media::GpuVideoAcceleratorFactories::OutputFormat::UNDEFINED;
-#if BUILDFLAG(IS_CHROMEOS_ASH) && defined(USE_OZONE)
+#if BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(IS_OZONE)
   // TODO(sugoi): This configuration is currently used only for testing ChromeOS
   // on Linux and doesn't support hardware acceleration. OSMesa did not support
   // any hardware acceleration here, so this was never an issue, but SwiftShader
@@ -487,8 +485,15 @@ GpuVideoAcceleratorFactoriesImpl::VideoFrameOutputFormat(
       !capabilities.image_ycbcr_420v_disabled_for_video_frames) {
     return media::GpuVideoAcceleratorFactories::OutputFormat::NV12_SINGLE_GMB;
   }
-  if (capabilities.texture_rg)
+  if (capabilities.texture_rg) {
+#if BUILDFLAG(IS_WIN)
+    // Windows supports binding single shmem GMB as separate shared images. We
+    // prefer single GMB because it makes dcomp overlay code simpler.
+    return media::GpuVideoAcceleratorFactories::OutputFormat::NV12_SINGLE_GMB;
+#else
     return media::GpuVideoAcceleratorFactories::OutputFormat::NV12_DUAL_GMB;
+#endif
+  }
   return media::GpuVideoAcceleratorFactories::OutputFormat::UNDEFINED;
 }
 
@@ -524,6 +529,13 @@ GpuVideoAcceleratorFactoriesImpl::GetVideoEncodeAcceleratorSupportedProfiles() {
 viz::RasterContextProvider*
 GpuVideoAcceleratorFactoriesImpl::GetMediaContextProvider() {
   return CheckContextLost() ? nullptr : context_provider_.get();
+}
+
+const gpu::Capabilities*
+GpuVideoAcceleratorFactoriesImpl::ContextCapabilities() {
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  return CheckContextLost() ? nullptr
+                            : &(context_provider_->ContextCapabilities());
 }
 
 void GpuVideoAcceleratorFactoriesImpl::SetRenderingColorSpace(

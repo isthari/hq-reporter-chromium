@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -119,7 +119,7 @@ class TooltipBrowserTest : public InProcessBrowserTest {
         browser(), embedded_test_server()->GetURL("a.com", relative_url)));
     web_contents_ = browser()->tab_strip_model()->GetActiveWebContents();
     rwhv_ = web_contents_->GetRenderWidgetHostView();
-    content::WaitForHitTestData(web_contents_->GetMainFrame());
+    content::WaitForHitTestData(web_contents_->GetPrimaryMainFrame());
   }
 
   void LoadCrossSitePageIntoFrame(const std::string& relative_url,
@@ -137,7 +137,7 @@ class TooltipBrowserTest : public InProcessBrowserTest {
   }
 
   RenderFrameHost* GetChildRenderFrameHost(size_t index) {
-    return ChildFrameAt(web_contents_->GetMainFrame(), index);
+    return ChildFrameAt(web_contents_->GetPrimaryMainFrame(), index);
   }
 
   bool SkipTestForOldWinVersion() const {
@@ -179,8 +179,8 @@ class TooltipBrowserTest : public InProcessBrowserTest {
 
  private:
   std::unique_ptr<ui::test::EventGenerator> event_generator_ = nullptr;
-  raw_ptr<RenderWidgetHostView> rwhv_ = nullptr;
-  raw_ptr<WebContents> web_contents_ = nullptr;
+  raw_ptr<RenderWidgetHostView, DanglingUntriaged> rwhv_ = nullptr;
+  raw_ptr<WebContents, DanglingUntriaged> web_contents_ = nullptr;
 
   std::unique_ptr<TooltipControllerTestHelper> helper_;
   std::unique_ptr<TooltipWidgetMonitor> tooltip_monitor_ = nullptr;
@@ -329,8 +329,8 @@ IN_PROC_BROWSER_TEST_F(TooltipBrowserTest, MAYBE_HideTooltipOnKeyPress) {
   EXPECT_FALSE(helper()->IsTooltipVisible());
 }
 
-#if BUILDFLAG(IS_CHROMEOS)
-// https://crbug.com/1212403. Flaky on linux-chromeos-rel.
+#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN)
+// https://crbug.com/1212403. Flaky on linux-chromeos-rel, windows.
 #define MAYBE_ScriptFocusHidesKeyboardTriggeredTooltip \
   DISABLED_ScriptFocusHidesKeyboardTriggeredTooltip
 #else

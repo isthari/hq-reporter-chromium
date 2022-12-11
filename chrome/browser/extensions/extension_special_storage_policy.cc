@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -144,33 +144,19 @@ bool ExtensionSpecialStoragePolicy::IsStorageUnlimited(const GURL& origin) {
 bool ExtensionSpecialStoragePolicy::IsStorageSessionOnly(const GURL& origin) {
   if (!cookie_settings_)
     return false;
-  return cookie_settings_->IsCookieSessionOnly(origin);
-}
-
-network::DeleteCookiePredicate
-ExtensionSpecialStoragePolicy::CreateDeleteCookieOnExitPredicate() {
-  if (!cookie_settings_)
-    return network::DeleteCookiePredicate();
-  // Fetch the list of cookies related content_settings and bind it
-  // to CookieSettings::ShouldDeleteCookieOnExit to avoid fetching it on
-  // every call.
-  ContentSettingsForOneType entries;
-  cookie_settings_->GetCookieSettings(&entries);
-  return base::BindRepeating(
-      &content_settings::CookieSettings::ShouldDeleteCookieOnExit,
-      cookie_settings_, std::move(entries));
+  return cookie_settings_->IsCookieSessionOnly(
+      origin, content_settings::CookieSettings::QueryReason::kSiteStorage);
 }
 
 bool ExtensionSpecialStoragePolicy::HasSessionOnlyOrigins() {
   if (!cookie_settings_)
     return false;
-  if (cookie_settings_->GetDefaultCookieSetting(NULL) ==
+  if (cookie_settings_->GetDefaultCookieSetting(nullptr) ==
       CONTENT_SETTING_SESSION_ONLY)
     return true;
-  ContentSettingsForOneType entries;
-  cookie_settings_->GetCookieSettings(&entries);
-  for (size_t i = 0; i < entries.size(); ++i) {
-    if (entries[i].GetContentSetting() == CONTENT_SETTING_SESSION_ONLY)
+  for (const ContentSettingPatternSource& entry :
+       cookie_settings_->GetCookieSettings()) {
+    if (entry.GetContentSetting() == CONTENT_SETTING_SESSION_ONLY)
       return true;
   }
   return false;

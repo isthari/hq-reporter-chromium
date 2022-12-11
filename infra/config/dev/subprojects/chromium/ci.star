@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -26,6 +26,22 @@ luci.bucket(
     ],
 )
 
+luci.bucket(
+    name = "ci.shadow",
+    shadows = "ci",
+    constraints = luci.bucket_constraints(
+        pools = ["luci.chromium.ci"],
+        service_accounts = ["chromium-ci-builder-dev@chops-service-accounts.iam.gserviceaccount.com"],
+    ),
+    bindings = [
+        luci.binding(
+            roles = "role/buildbucket.creator",
+            groups = "mdb/chrome-troopers",
+        ),
+    ],
+    dynamic = True,
+)
+
 luci.gitiles_poller(
     name = "chromium-gitiles-trigger",
     bucket = "ci",
@@ -45,7 +61,7 @@ defaults.builderless.set(None)
 defaults.cpu.set(cpu.X86_64)
 defaults.executable.set("recipe:swarming/staging")
 defaults.execution_timeout.set(3 * time.hour)
-defaults.os.set(os.LINUX_BIONIC_SWITCH_TO_DEFAULT)
+defaults.os.set(os.LINUX_DEFAULT)
 defaults.service_account.set(
     "chromium-ci-builder-dev@chops-service-accounts.iam.gserviceaccount.com",
 )
@@ -70,7 +86,25 @@ def ci_builder(*, name, resultdb_bigquery_exports = None, **kwargs):
     )
 
 ci_builder(
-    name = "android-marshmallow-arm64-rel-swarming",
+    name = "android-pie-arm64-rel-swarming",
+    builder_spec = builder_config.builder_spec(
+        gclient_config = builder_config.gclient_config(
+            config = "chromium",
+            apply_configs = [
+                "android",
+            ],
+        ),
+        chromium_config = builder_config.chromium_config(
+            config = "android",
+            build_config = builder_config.build_config.RELEASE,
+            target_bits = 64,
+            target_platform = builder_config.target_platform.ANDROID,
+            target_arch = builder_config.target_arch.ARM,
+        ),
+        android_config = builder_config.android_config(
+            config = "main_builder_mb",
+        ),
+    ),
 )
 
 ci_builder(
@@ -92,7 +126,7 @@ ci_builder(
 ci_builder(
     name = "mac-arm-rel-swarming",
     cpu = cpu.ARM64,
-    os = os.MAC_11,
+    os = os.MAC_DEFAULT,
 )
 
 ci_builder(
@@ -104,23 +138,5 @@ ci_builder(
 ci_builder(
     name = "win11-rel-swarming",
     os = os.WINDOWS_11,
-    goma_enable_ats = True,
-)
-
-## builders using swarming staging instance
-
-def ci_builder_staging(**kwargs):
-    return ci_builder(
-        swarming_host = "chromium-swarm-staging.appspot.com",
-        **kwargs
-    )
-
-ci_builder_staging(
-    name = "linux-rel-swarming-staging",
-)
-
-ci_builder_staging(
-    name = "win-rel-swarming-staging",
-    os = os.WINDOWS_DEFAULT,
     goma_enable_ats = True,
 )

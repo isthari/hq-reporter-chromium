@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "base/compiler_specific.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/devtools/device/devtools_android_bridge.h"
 #include "chrome/browser/devtools/device/tcp_device_provider.h"
 #include "chrome/browser/devtools/remote_debugging_server.h"
@@ -64,7 +64,7 @@ class PortForwardingTest: public InProcessBrowserTest {
     void PortStatusChanged(const ForwardingStatus& status) override {
       if (status.empty() && skip_empty_devices_)
         return;
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
     }
 
@@ -101,8 +101,8 @@ IN_PROC_BROWSER_TEST_F(PortForwardingTest,
   prefs->SetBoolean(prefs::kDevToolsPortForwardingEnabled, true);
 
   base::DictionaryValue config;
-  config.SetString(
-      forwarding_port, original_url.host() + ":" + original_url.port());
+  config.SetStringKey(forwarding_port,
+                      original_url.host() + ":" + original_url.port());
   prefs->Set(prefs::kDevToolsPortForwardingConfig, config);
 
   Listener wait_for_port_forwarding(profile);
@@ -163,8 +163,8 @@ IN_PROC_BROWSER_TEST_F(PortForwardingDisconnectTest, DisconnectOnRelease) {
   prefs->SetBoolean(prefs::kDevToolsPortForwardingEnabled, true);
 
   base::DictionaryValue config;
-  config.SetString(
-      forwarding_port, original_url.host() + ":" + original_url.port());
+  config.SetStringKey(forwarding_port,
+                      original_url.host() + ":" + original_url.port());
   prefs->Set(prefs::kDevToolsPortForwardingConfig, config);
 
   std::unique_ptr<Listener> wait_for_port_forwarding(new Listener(profile));
@@ -174,9 +174,9 @@ IN_PROC_BROWSER_TEST_F(PortForwardingDisconnectTest, DisconnectOnRelease) {
 
   self_provider->set_release_callback_for_test(base::BindOnce(
       base::IgnoreResult(&base::SingleThreadTaskRunner::PostTask),
-      base::ThreadTaskRunnerHandle::Get(), FROM_HERE,
+      base::SingleThreadTaskRunner::GetCurrentDefault(), FROM_HERE,
       run_loop.QuitWhenIdleClosure()));
   wait_for_port_forwarding.reset();
 
-  content::RunThisRunLoop(&run_loop);
+  run_loop.Run();
 }

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,10 @@
 #include "ash/frame_throttler/frame_throttling_controller.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
+#include "ash/root_window_controller.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
+#include "ash/system/tray/tray_background_view.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_cycle/window_cycle_controller.h"
@@ -19,6 +21,7 @@
 #include "ash/wm/window_util.h"
 #include "base/check.h"
 #include "base/location.h"
+#include "base/ranges/algorithm.h"
 #include "ui/aura/scoped_window_targeter.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_targeter.h"
@@ -87,12 +90,28 @@ aura::Window* GetRootWindowForCycleView() {
 
 }  // namespace
 
-WindowCycleList::WindowCycleList(const WindowList& windows)
+WindowCycleList::WindowCycleList(const WindowList& windows, bool same_app_only)
     : windows_(windows) {
   if (!ShouldShowUi())
     Shell::Get()->mru_window_tracker()->SetIgnoreActivations(true);
 
   active_window_before_window_cycle_ = window_util::GetActiveWindow();
+
+  if (same_app_only && windows_.size() > 1) {
+    WindowCycleController::WindowList same_app_window_list;
+    const std::string* const mru_window_app_id =
+        windows_.front()->GetProperty(kAppIDKey);
+    if (mru_window_app_id) {
+      windows_.erase(base::ranges::remove_if(
+                         windows_.begin(), windows_.end(),
+                         [&mru_window_app_id](aura::Window* window) {
+                           const auto* const app_id =
+                               window->GetProperty(kAppIDKey);
+                           return !app_id || *app_id != *mru_window_app_id;
+                         }),
+                     windows_.end());
+    }
+  }
 
   for (auto* window : windows_)
     window->AddObserver(this);
@@ -273,7 +292,7 @@ void WindowCycleList::SetDisableInitialDelayForTesting(bool disabled) {
 void WindowCycleList::OnWindowDestroying(aura::Window* window) {
   window->RemoveObserver(this);
 
-  WindowList::iterator i = std::find(windows_.begin(), windows_.end(), window);
+  WindowList::iterator i = base::ranges::find(windows_, window);
   // TODO(oshima): Change this back to DCHECK once crbug.com/483491 is fixed.
   CHECK(i != windows_.end());
   int removed_index = static_cast<int>(i - windows_.begin());
@@ -331,6 +350,15 @@ void WindowCycleList::InitWindowCycleView() {
   if (cycle_view_)
     return;
   aura::Window* root_window = GetRootWindowForCycleView();
+
+  // Close any tray bubbles that are opened before creating the cycle view.
+  StatusAreaWidget* status_area_widget =
+      RootWindowController::ForWindow(root_window)->GetStatusAreaWidget();
+  for (TrayBackgroundView* tray_button : status_area_widget->tray_buttons()) {
+    if (tray_button->is_active())
+      tray_button->CloseBubble();
+  }
+
   cycle_view_ = new WindowCycleView(root_window, windows_);
   const bool is_interactive_alt_tab_mode_allowed =
       Shell::Get()->window_cycle_controller()->IsInteractiveAltTabModeAllowed();
@@ -410,7 +438,7 @@ void WindowCycleList::Scroll(int offset) {
     // When there is only one window, we should give feedback to the user. If
     // the window is minimized, we should also show it.
     if (windows_.size() == 1)
-      ::wm::AnimateWindow(windows_[0], ::wm::WINDOW_ANIMATION_TYPE_BOUNCE);
+      wm::AnimateWindow(windows_[0], wm::WINDOW_ANIMATION_TYPE_BOUNCE);
     return;
   }
 
@@ -439,7 +467,7 @@ int WindowCycleList::GetOffsettedWindowIndex(int offset) const {
 }
 
 int WindowCycleList::GetIndexOfWindow(aura::Window* window) const {
-  auto target_window = std::find(windows_.begin(), windows_.end(), window);
+  auto target_window = base::ranges::find(windows_, window);
   DCHECK(target_window != windows_.end());
   return std::distance(windows_.begin(), target_window);
 }

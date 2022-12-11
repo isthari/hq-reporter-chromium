@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -129,7 +129,7 @@ TEST(VariableExpanderTest, EdgeCases) {
 
 TEST(VariableExpanderTest, ExpandValueSucceeds) {
   base::Value root(base::Value::Type::DICTIONARY);
-  base::ListValue list;
+  base::Value list(base::Value::Type::LIST);
   list.Append(base::Value(123));
   list.Append(base::Value("${machine_name}"));
   list.Append(base::Value(true));
@@ -140,7 +140,7 @@ TEST(VariableExpanderTest, ExpandValueSucceeds) {
   VariableExpander expander({{"machine_name", "chromebook"}});
   EXPECT_TRUE(expander.ExpandValue(&root));
 
-  base::Value::ConstListView expanded_list = root.FindKey("list")->GetList();
+  const base::Value::List& expanded_list = root.FindKey("list")->GetList();
   EXPECT_EQ(expanded_list[0].GetInt(), 123);
   EXPECT_EQ(expanded_list[1].GetString(), "chromebook");
   EXPECT_EQ(expanded_list[2].GetBool(), true);

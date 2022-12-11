@@ -1,9 +1,9 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
 import {beforeNextRender, dedupingMixin, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {BaseMixin} from '../base_mixin.js';
@@ -11,7 +11,7 @@ import {SettingsIdleLoadElement} from '../controls/settings_idle_load.js';
 import {ensureLazyLoaded} from '../ensure_lazy_loaded.js';
 import {loadTimeData} from '../i18n_setup.js';
 import {routes} from '../route.js';
-import {MinimumRoutes, Route, Router} from '../router.js';
+import {Route, Router} from '../router.js';
 // clang-format on
 
 /**
@@ -33,7 +33,7 @@ export enum RouteState {
 }
 
 let guestTopLevelRoute = routes.SEARCH;
-// <if expr="chromeos">
+// <if expr="chromeos_ash">
 guestTopLevelRoute = routes.PRIVACY;
 // </if>
 
@@ -44,7 +44,7 @@ function classifyRoute(route: Route|null): RouteState {
   if (!route) {
     return RouteState.INITIAL;
   }
-  const routes = Router.getInstance().getRoutes() as MinimumRoutes;
+  const routes = Router.getInstance().getRoutes();
   if (route === routes.BASIC) {
     return RouteState.TOP_LEVEL;
   }
@@ -94,11 +94,12 @@ export const MainPageMixin = dedupingMixin(
             return new Map([
               [RouteState.INITIAL, allStates],
               [
-                RouteState.DIALOG, new Set([
+                RouteState.DIALOG,
+                new Set([
                   RouteState.SECTION,
                   RouteState.SUBPAGE,
                   RouteState.TOP_LEVEL,
-                ])
+                ]),
               ],
               [RouteState.SECTION, allStates],
               [RouteState.SUBPAGE, allStates],
@@ -107,7 +108,7 @@ export const MainPageMixin = dedupingMixin(
           })();
         }
 
-        connectedCallback() {
+        override connectedCallback() {
           this.scroller =
               this.domHost ? this.domHost.parentElement : document.body;
 
@@ -124,8 +125,8 @@ export const MainPageMixin = dedupingMixin(
         }
 
         private shouldExpandAdvanced_(route: Route): boolean {
-          const routes = Router.getInstance().getRoutes() as MinimumRoutes;
-          return this.tagName === 'SETTINGS-BASIC-PAGE' && routes.ADVANCED &&
+          const routes = Router.getInstance().getRoutes();
+          return this.tagName === 'SETTINGS-BASIC-PAGE' && !!routes.ADVANCED &&
               routes.ADVANCED.contains(route);
         }
 
@@ -169,8 +170,7 @@ export const MainPageMixin = dedupingMixin(
          * event is fired (necessary to avoid flashing). Callers are responsible
          * for firing a 'show-container' event.
          */
-        private ensureSectionsForRoute_(route: Route):
-            Promise<Array<HTMLElement>> {
+        private ensureSectionsForRoute_(route: Route): Promise<HTMLElement[]> {
           const sections = this.querySettingsSections_(route.section);
           if (sections.length > 0) {
             return Promise.resolve(sections);
@@ -288,6 +288,8 @@ export const MainPageMixin = dedupingMixin(
           return [classifyRoute(oldRoute), classifyRoute(newRoute)];
         }
 
+        // TODO(dpapad): Figure out why adding the |override| keyword here
+        // throws an error.
         currentRouteChanged(newRoute: Route, oldRoute: Route|null) {
           const transition = this.getStateTransition_(newRoute, oldRoute);
           if (transition === null) {
@@ -308,8 +310,12 @@ export const MainPageMixin = dedupingMixin(
               // Case when navigating from '/?search=foo' to '/' (clearing
               // search results).
               this.switchToSections_(TOP_LEVEL_EQUIVALENT_ROUTE);
+            } else if (newState === RouteState.DIALOG) {
+              // Case when user clicks "Reset all settings" from within the
+              // settings-reset-profile-banner to navigate to
+              // /resetProfileSettings.
+              this.switchToSections_(newRoute);
             }
-            // Nothing to do here for the case of RouteState.DIALOG.
             return;
           }
 
@@ -353,6 +359,12 @@ export const MainPageMixin = dedupingMixin(
               // sub-subpage entry point.
             } else if (newState === RouteState.TOP_LEVEL) {
               this.enterMainPage_(oldRoute!);
+            } else if (newState === RouteState.DIALOG) {
+              // The only known cases currently for such a transition are from
+              // 1) /synceSetup to /signOut
+              // 2) /synceSetup to /clearBrowserData using the "back" arrow
+              this.enterMainPage_(oldRoute!);
+              this.switchToSections_(newRoute);
             }
             return;
           }
@@ -397,8 +409,7 @@ export const MainPageMixin = dedupingMixin(
         /*
          * @param sectionName Section name of the element to get.
          */
-        private querySettingsSections_(sectionName: string):
-            Array<HTMLElement> {
+        private querySettingsSections_(sectionName: string): HTMLElement[] {
           const result = [];
           const section = this.getSection(sectionName);
 

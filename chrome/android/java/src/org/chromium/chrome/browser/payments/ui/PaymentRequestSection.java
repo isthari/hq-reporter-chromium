@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,6 +36,7 @@ import androidx.gridlayout.widget.GridLayout;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.ChromeSemanticColorUtils;
 import org.chromium.components.autofill.EditableOption;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.components.browser_ui.widget.DualControlLayout;
@@ -43,6 +44,7 @@ import org.chromium.components.browser_ui.widget.TintedDrawable;
 import org.chromium.components.browser_ui.widget.animation.Interpolators;
 import org.chromium.ui.HorizontalListDividerDrawable;
 import org.chromium.ui.UiUtils;
+import org.chromium.ui.base.ViewUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -168,10 +170,8 @@ public abstract class PaymentRequestSection extends LinearLayout implements View
         setGravity(Gravity.CENTER_VERTICAL);
 
         // Set the styling of the view.
-        mUnfocusedBackgroundColor =
-                ApiCompatibilityUtils.getColor(getResources(), R.color.payment_request_bg);
-        mFocusedBackgroundColor = ApiCompatibilityUtils.getColor(
-                getResources(), R.color.payments_section_edit_background);
+        mUnfocusedBackgroundColor = ChromeSemanticColorUtils.getPaymentRequestBg(context);
+        mFocusedBackgroundColor = getContext().getColor(R.color.payments_section_edit_background);
         mLargeSpacing =
                 getResources().getDimensionPixelSize(R.dimen.editor_dialog_section_large_spacing);
         mVerticalSpacing =
@@ -502,7 +502,7 @@ public abstract class PaymentRequestSection extends LinearLayout implements View
         if (oldMargin != newMargin) {
             ((ViewGroup.MarginLayoutParams) mTitleView.getLayoutParams()).bottomMargin =
                     newMargin;
-            requestLayout();
+            ViewUtils.requestLayout(this, "PaymentRequestSection.UpdateControlLayout");
         }
     }
 
@@ -610,8 +610,7 @@ public abstract class PaymentRequestSection extends LinearLayout implements View
             LinearLayout.LayoutParams updatedLayoutParams = new LinearLayout.LayoutParams(
                     LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
             mUpdatedView.setTextAlignment(TEXT_ALIGNMENT_TEXT_END);
-            mUpdatedView.setTextColor(ApiCompatibilityUtils.getColor(
-                    context.getResources(), R.color.google_green_600));
+            mUpdatedView.setTextColor(context.getColor(R.color.google_green_600));
             MarginLayoutParamsCompat.setMarginStart(updatedLayoutParams,
                     context.getResources().getDimensionPixelSize(
                             R.dimen.editor_dialog_section_small_spacing));
@@ -1269,7 +1268,8 @@ public abstract class PaymentRequestSection extends LinearLayout implements View
                 params.height = LayoutParams.WRAP_CONTENT;
                 params.bottomMargin = getContext().getResources().getDimensionPixelSize(
                         R.dimen.payments_section_checking_spacing);
-                mCheckingProgress.requestLayout();
+                ViewUtils.requestLayout(
+                        mCheckingProgress, "PaymentRequestSection.OptionRow.setSpinnerVisibility");
             } else {
                 if (mCheckingProgress.getParent() == null) return;
 

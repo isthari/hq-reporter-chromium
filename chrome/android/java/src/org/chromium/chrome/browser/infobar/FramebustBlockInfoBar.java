@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -74,9 +74,7 @@ public class FramebustBlockInfoBar extends InfoBar {
         schemeView.setText(scheme);
 
         TextView urlView = ellipsizerView.findViewById(R.id.url_minus_scheme);
-        // Handle adjusting the text to workaround Android crashes when ellipsizing on old versions.
-        // TODO(donnd): remove this class when older versions of Android are no longer supported.
-        ((TextViewEllipsizerSafe) urlView).setTextSafely(textToEllipsize);
+        urlView.setText(textToEllipsize);
 
         ellipsizerView.setOnClickListener(view -> onLinkClicked());
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,11 +39,11 @@ namespace translate {
 
 // Enables or disables using the most recent target language as the default
 // target language option.
-extern const base::Feature kTranslateRecentTarget;
+BASE_DECLARE_FEATURE(kTranslateRecentTarget);
 
 // This allows the user to disable translate by using the
 // `--disable-features=Translate` command-line flag.
-extern const base::Feature kTranslate;
+BASE_DECLARE_FEATURE(kTranslate);
 
 // Whether to migrate the obsolete always-translate languages pref to the new
 // pref during object construction as a fix for crbug/1291356, which had
@@ -52,10 +52,10 @@ extern const base::Feature kTranslate;
 // language values from the obsolete pref without conflicting with any values in
 // the new pref that may have been added.
 //
-// TODO(crbug/1291356): This base::Feature only exists to allow a less risky
+// TODO(crbug/1303963): This base::Feature only exists to allow a less risky
 // merge into iOS M98. This base::Feature should be removed once it's no longer
 // relevant and the enabled behavior should become the only behavior.
-extern const base::Feature kMigrateAlwaysTranslateLanguagesFix;
+BASE_DECLARE_FEATURE(kMigrateAlwaysTranslateLanguagesFix);
 
 // Minimum number of times the user must accept a translation before we show
 // a shortcut to the "Always Translate" functionality.
@@ -80,8 +80,6 @@ constexpr int kNeverTranslateShortcutMinimumDenials = 2;
 #else
 constexpr int kNeverTranslateShortcutMinimumDenials = 3;
 #endif
-
-class TranslateAcceptLanguages;
 
 // This class holds various info about a language, that are related to Translate
 // Preferences and Language Settings.
@@ -113,7 +111,6 @@ class TranslatePrefs {
   // TODO(crbug.com/524927): Remove kPrefNeverPromptSites after
   // 3 milestones (M74).
   static const char kPrefNeverPromptSitesDeprecated[];
-  static const char kPrefNeverPromptSitesWithTime[];
   static const char kPrefTranslateDeniedCount[];
   static const char kPrefTranslateIgnoredCount[];
   static const char kPrefTranslateAcceptedCount[];
@@ -152,11 +149,11 @@ class TranslatePrefs {
   // the rest of the code.
   static std::string MapPreferenceName(const std::string& pref_name);
 
-  // Checks if the "offer translate" (i.e. automatic translate bubble) feature
-  // is enabled.
+  // Returns true if the "offer translate" pref is enabled (i.e. allowing for
+  // automatic Full Page Translate bubbles).
   bool IsOfferTranslateEnabled() const;
 
-  // Checks if translate is allowed by policy.
+  // Returns true if Translate is allowed by policy.
   bool IsTranslateAllowedByPolicy() const;
 
   // Sets the country that the application is run in. Determined by the
@@ -177,8 +174,8 @@ class TranslatePrefs {
   void BlockLanguage(base::StringPiece source_language);
   void UnblockLanguage(base::StringPiece source_language);
   // Returns the languages that should be blocked by default as a
-  // base::(List)Value.
-  static base::Value GetDefaultBlockedLanguages();
+  // base::Value::List.
+  static base::Value::List GetDefaultBlockedLanguages();
   void ResetBlockedLanguagesToDefault();
   // Prevent empty blocked languages by resetting them to the default value.
   // (crbug.com/902354)
@@ -322,8 +319,7 @@ class TranslatePrefs {
   // Gets the user selected language list from language settings.
   void GetUserSelectedLanguageList(std::vector<std::string>* languages) const;
 
-  bool CanTranslateLanguage(TranslateAcceptLanguages* accept_languages,
-                            base::StringPiece language);
+  bool CanTranslateLanguage(base::StringPiece language);
   bool ShouldAutoTranslate(base::StringPiece source_language,
                            std::string* target_language);
   // True if the detailed language settings are enabled for this user.
@@ -360,10 +356,6 @@ class TranslatePrefs {
   static void RegisterProfilePrefsForMigration(
       user_prefs::PrefRegistrySyncable* registry);
 
-  static void MigrateObsoleteProfilePrefs(PrefService* pref_service);
-
-  static void ClearObsoleteProfilePrefs(PrefService* pref_service);
-
  private:
   FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest,
                            UpdateLanguageListFeatureEnabled);
@@ -382,6 +374,7 @@ class TranslatePrefs {
   FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, MoveLanguageDown);
   FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, ResetBlockedLanguagesToDefault);
   FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, MigrateNeverPromptSites);
+  FRIEND_TEST_ALL_PREFIXES(TranslatePrefsTest, SiteNeverPromptList);
   friend class TranslatePrefsTest;
 
   void ClearNeverPromptSiteList();
@@ -391,6 +384,8 @@ class TranslatePrefs {
   bool IsValueOnNeverPromptList(const char* pref_id,
                                 base::StringPiece value) const;
   void AddValueToNeverPromptList(const char* pref_id, base::StringPiece value);
+  // Used for testing. The public version passes in base::Time::Now()
+  void AddSiteToNeverPromptList(base::StringPiece site, base::Time time);
   void RemoveValueFromNeverPromptList(const char* pref_id,
                                       base::StringPiece value);
   size_t GetListSize(const char* pref_id) const;

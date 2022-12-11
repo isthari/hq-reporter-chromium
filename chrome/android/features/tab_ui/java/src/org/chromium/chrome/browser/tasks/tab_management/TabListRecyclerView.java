@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.tasks.tab_management;
 
-import static org.chromium.chrome.features.start_surface.StartSurfaceLayout.ZOOMING_DURATION;
+import static org.chromium.chrome.features.start_surface.TabSwitcherAndStartSurfaceLayout.ZOOMING_DURATION;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -14,7 +14,6 @@ import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.Resources;
-import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
@@ -30,6 +29,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.recyclerview.widget.DefaultItemAnimator;
@@ -37,10 +37,10 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.chromium.base.Log;
-import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.tab_ui.R;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.interpolators.BakedBezierInterpolator;
 import org.chromium.ui.modelutil.SimpleRecyclerViewAdapter;
 import org.chromium.ui.resources.dynamics.DynamicResourceLoader;
@@ -150,6 +150,8 @@ class TabListRecyclerView
     private ImageView mShadowImageView;
     private int mShadowTopOffset;
     private TabListOnScrollListener mScrollListener;
+    // It is null when gts-tab animation is disabled or switching from Start surface to GTS.
+    @Nullable
     private RecyclerView.ItemAnimator mOriginalAnimator;
 
     /**
@@ -170,7 +172,7 @@ class TabListRecyclerView
         mListener = listener;
     }
 
-    void prepareOverview() {
+    void prepareTabSwitcherView() {
         endAllAnimations();
 
         registerDynamicView();
@@ -204,7 +206,12 @@ class TabListRecyclerView
                 mFadeInAnimator = null;
                 mListener.finishedShowing();
                 // Restore the original value.
-                setItemAnimator(mOriginalAnimator);
+                // TODO(crbug.com/1315676): Remove the null check after decoupling Start surface
+                // layout and grid tab switcher layout.
+                if (mOriginalAnimator != null) {
+                    setItemAnimator(mOriginalAnimator);
+                    mOriginalAnimator = null;
+                }
                 setShadowVisibility(computeVerticalScrollOffset() > 0);
                 if (mDynamicView != null) {
                     mDynamicView.dropCachedBitmap();
@@ -212,7 +219,8 @@ class TabListRecyclerView
                 }
                 // TODO(crbug.com/972157): remove this band-aid after we know why GTS is invisible.
                 if (TabUiFeatureUtilities.isTabToGtsAnimationEnabled()) {
-                    requestLayout();
+                    ViewUtils.requestLayout(TabListRecyclerView.this,
+                            "TabListRecyclerView.startShowing.AnimatorListenerAdapter.onAnimationEnd");
                 }
             }
         });
@@ -223,18 +231,12 @@ class TabListRecyclerView
         if (mShadowImageView == null) {
             Context context = getContext();
             mShadowImageView = new ImageView(context);
-            boolean themeRefactorEnabled =
-                    CachedFeatureFlags.isEnabled(ChromeFeatureList.THEME_REFACTOR_ANDROID);
-            Drawable drawable =
-                    context.getDrawable(themeRefactorEnabled ? R.drawable.toolbar_hairline
-                                                             : R.drawable.modern_toolbar_shadow);
+            Drawable drawable = context.getDrawable(R.drawable.toolbar_hairline);
             mShadowImageView.setImageDrawable(drawable);
             mShadowImageView.setScaleType(ImageView.ScaleType.FIT_XY);
             mShadowImageView.setTag(SHADOW_VIEW_TAG);
             Resources res = context.getResources();
-            int shadowHeight =
-                    res.getDimensionPixelSize(themeRefactorEnabled ? R.dimen.toolbar_hairline_height
-                                                                   : R.dimen.toolbar_shadow_height);
+            int shadowHeight = res.getDimensionPixelSize(R.dimen.toolbar_hairline_height);
             if (getParent() instanceof FrameLayout) {
                 // Add shadow for grid tab switcher.
                 FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
@@ -333,9 +335,9 @@ class TabListRecyclerView
             }
 
             @Override
-            public Bitmap getBitmap() {
+            public void triggerBitmapCapture() {
                 long startTime = SystemClock.elapsedRealtime();
-                Bitmap bitmap = super.getBitmap();
+                super.triggerBitmapCapture();
                 long elapsed = SystemClock.elapsedRealtime() - startTime;
                 if (elapsed == 0) elapsed = 1;
 
@@ -349,7 +351,6 @@ class TabListRecyclerView
                 mSuppressedUntil = SystemClock.elapsedRealtime() + suppressedFor;
                 Log.d(TAG, "DynamicView: spent %dms on getBitmap, suppress updating for %dms.",
                         elapsed, suppressedFor);
-                return bitmap;
             }
         };
         mDynamicView.setDownsamplingScale(getDownsamplingScale());
@@ -492,6 +493,63 @@ class TabListRecyclerView
         // Get the relative position.
         componentRect.offset(-recyclerViewRect.left, -recyclerViewRect.top);
         return componentRect;
+    }
+
+    /**
+     * A structure for holding the a recycler view position and offset.
+     */
+    public static class RecyclerViewPosition {
+        private int mPosition;
+        private int mOffset;
+
+        /**
+         * @param position The position of the first visible item in the recyclerView.
+         * @param offset The scroll offset of the recyclerView;
+         */
+        public RecyclerViewPosition(int position, int offset) {
+            mPosition = position;
+            mOffset = offset;
+        }
+
+        /**
+         * @return the position of the first visible item in the RecyclerView.
+         */
+        public int getPosition() {
+            return mPosition;
+        }
+
+        /**
+         * @return the offset from the first item in the RecyclerView.
+         */
+        public int getOffset() {
+            return mOffset;
+        }
+    }
+
+    /**
+     * @return the position and offset of the first visible element in the list.
+     */
+    @NonNull
+    RecyclerViewPosition getRecyclerViewPosition() {
+        GridLayoutManager layoutManager = (GridLayoutManager) getLayoutManager();
+        int position = layoutManager.findFirstVisibleItemPosition();
+        int offset = 0;
+        if (position != RecyclerView.NO_POSITION) {
+            View firstVisibleView = layoutManager.findViewByPosition(position);
+            if (firstVisibleView != null) {
+                offset = firstVisibleView.getTop();
+            }
+        }
+        return new RecyclerViewPosition(position, offset);
+    }
+
+    /**
+     * @param recyclerViewPosition the position and offset to scroll the recycler view to.
+     */
+    void setRecyclerViewPosition(@NonNull RecyclerViewPosition recyclerViewPosition) {
+        ((GridLayoutManager) getLayoutManager())
+                .scrollToPositionWithOffset(
+                        recyclerViewPosition.getPosition(), recyclerViewPosition.getOffset());
     }
 
     /**

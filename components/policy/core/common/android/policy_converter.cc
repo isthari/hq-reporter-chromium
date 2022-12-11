@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,7 @@ namespace policy {
 namespace android {
 
 PolicyConverter::PolicyConverter(const Schema* policy_schema)
-    : policy_schema_(policy_schema), policy_bundle_(new PolicyBundle) {
+    : policy_schema_(policy_schema) {
   JNIEnv* env = base::android::AttachCurrentThread();
   java_obj_.Reset(
       env,
@@ -43,9 +43,9 @@ PolicyConverter::~PolicyConverter() {
                                          java_obj_);
 }
 
-std::unique_ptr<PolicyBundle> PolicyConverter::GetPolicyBundle() {
-  std::unique_ptr<PolicyBundle> filled_bundle(std::move(policy_bundle_));
-  policy_bundle_ = std::make_unique<PolicyBundle>();
+PolicyBundle PolicyConverter::GetPolicyBundle() {
+  PolicyBundle filled_bundle = std::move(policy_bundle_);
+  policy_bundle_ = PolicyBundle();
   return filled_bundle;
 }
 
@@ -113,7 +113,6 @@ absl::optional<base::Value> PolicyConverter::ConvertValueToSchema(
       return base::Value();
 
     case base::Value::Type::BOOLEAN: {
-      std::string string_value;
       if (value.is_string()) {
         const std::string& string_value = value.GetString();
         if (string_value.compare("true") == 0)
@@ -198,9 +197,9 @@ void PolicyConverter::SetPolicyValue(const std::string& key,
     // Do not set list/dictionary policies that are sent as empty strings from
     // the UEM. This is common on Android when the UEM pushes the policy with
     // managed configurations.
-    policy_bundle_->Get(ns).Set(key, POLICY_LEVEL_MANDATORY,
-                                POLICY_SCOPE_MACHINE, POLICY_SOURCE_PLATFORM,
-                                std::move(converted_value), nullptr);
+    policy_bundle_.Get(ns).Set(key, POLICY_LEVEL_MANDATORY,
+                               POLICY_SCOPE_MACHINE, POLICY_SOURCE_PLATFORM,
+                               std::move(converted_value), nullptr);
   }
 }
 

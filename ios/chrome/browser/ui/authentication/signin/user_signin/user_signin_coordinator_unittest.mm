@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,11 @@
 #import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/main/test_browser.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/chrome/browser/signin/authentication_service_fake.h"
+#import "ios/chrome/browser/signin/fake_authentication_service_delegate.h"
 #import "ios/chrome/browser/ui/authentication/signin/user_signin/logging/user_signin_logger.h"
 #import "ios/chrome/browser/ui/authentication/signin/user_signin/user_signin_coordinator.h"
 #import "ios/chrome/browser/ui/authentication/signin/user_signin/user_signin_view_controller.h"
-#include "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/gmock/include/gmock/gmock.h"
 #import "testing/platform_test.h"
@@ -56,11 +56,12 @@ class UserSigninCoordinatorTest : public PlatformTest {
     TestChromeBrowserState::Builder builder;
     builder.AddTestingFactory(
         AuthenticationServiceFactory::GetInstance(),
-        base::BindRepeating(
-            &AuthenticationServiceFake::CreateAuthenticationService));
+        AuthenticationServiceFactory::GetDefaultFactory());
     browser_state_ = builder.Build();
+    AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
+        browser_state_.get(),
+        std::make_unique<FakeAuthenticationServiceDelegate>());
     browser_ = std::make_unique<TestBrowser>(browser_state_.get());
-
     SetupLoggerMock();
     SetupUserSigninViewControllerMock();
     SetupBaseViewControllerMock();
@@ -87,6 +88,8 @@ class UserSigninCoordinatorTest : public PlatformTest {
     logger_mock_ = OCMStrictClassMock([UserSigninLogger class]);
     OCMStub([logger_mock_ promoAction])
         .andReturn(signin_metrics::PromoAction::PROMO_ACTION_WITH_DEFAULT);
+    OCMStub([logger_mock_ accessPoint])
+        .andReturn(signin_metrics::AccessPoint::ACCESS_POINT_SIGNIN_PROMO);
     OCMExpect([logger_mock_ logSigninStarted]);
   }
 
@@ -112,7 +115,6 @@ class UserSigninCoordinatorTest : public PlatformTest {
     user_signin_view_controller_mock_ =
         OCMStrictClassMock([UserSigninViewController class]);
     OCMExpect([user_signin_view_controller_mock_ setDelegate:[OCMArg any]]);
-    OCMExpect([user_signin_view_controller_mock_ setUseFirstRunSkipButton:NO]);
     OCMExpect([user_signin_view_controller_mock_
         setModalPresentationStyle:UIModalPresentationFormSheet]);
     // Method not used on iOS 12.

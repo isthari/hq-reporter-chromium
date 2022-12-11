@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,13 +42,11 @@
 
 namespace {
 
-// Return true if either non prefix or split autocompletion is enabled.
-bool RichAutocompletionEitherNonPrefixOrSplitEnabled() {
+// Return true if either non-prefix autocompletion is enabled.
+bool RichAutocompletionEitherNonPrefixEnabled() {
   return OmniboxFieldTrial::kRichAutocompletionAutocompleteNonPrefixAll.Get() ||
          OmniboxFieldTrial::
-             kRichAutocompletionAutocompleteNonPrefixShortcutProvider.Get() ||
-         OmniboxFieldTrial::kRichAutocompletionSplitTitleCompletion.Get() ||
-         OmniboxFieldTrial::kRichAutocompletionSplitUrlCompletion.Get();
+             kRichAutocompletionAutocompleteNonPrefixShortcutProvider.Get();
 }
 
 }  // namespace
@@ -263,11 +261,6 @@ void OmniboxView::CloseOmniboxPopup() {
     model_->StopAutocomplete();
 }
 
-void OmniboxView::StartPrefetch(const AutocompleteInput& input) {
-  if (model_)
-    model_->autocomplete_controller()->StartPrefetch(input);
-}
-
 bool OmniboxView::IsImeShowingPopup() const {
   // Default to claiming that the IME is not showing a popup, since hiding the
   // omnibox dropdown is a bad user experience when we don't know for sure that
@@ -290,7 +283,7 @@ void OmniboxView::GetState(State* state) {
   state->keyword = model()->keyword();
   state->is_keyword_selected = model()->is_keyword_selected();
   GetSelectionBounds(&state->sel_start, &state->sel_end);
-  if (RichAutocompletionEitherNonPrefixOrSplitEnabled())
+  if (RichAutocompletionEitherNonPrefixEnabled())
     state->all_sel_length = GetAllSelectionsLength();
 }
 
@@ -324,7 +317,7 @@ OmniboxView::StateChanges OmniboxView::GetStateChanges(const State& before,
   state_changes.just_deleted_text =
       before.text.length() > after.text.length() &&
       after.sel_start <= std::min(before.sel_start, before.sel_end);
-  if (RichAutocompletionEitherNonPrefixOrSplitEnabled()) {
+  if (RichAutocompletionEitherNonPrefixEnabled()) {
     state_changes.just_deleted_text =
         state_changes.just_deleted_text &&
         after.sel_start <=

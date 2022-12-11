@@ -30,9 +30,11 @@
 #include "base/synchronization/lock.h"
 #include "net/nqe/effective_connection_type.h"
 #include "net/nqe/network_quality_estimator_params.h"
+#include "services/network/public/cpp/client_hints.h"
 #include "third_party/blink/public/common/client_hints/client_hints.h"
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
@@ -322,7 +324,7 @@ void NetworkStateNotifier::NotifyObserversOnTaskRunner(
 
   observer_list->iterating = false;
 
-  if (!observer_list->zeroed_observers.IsEmpty())
+  if (!observer_list->zeroed_observers.empty())
     CollectZeroedObservers(*map, observer_list, std::move(task_runner));
 }
 
@@ -377,7 +379,7 @@ void NetworkStateNotifier::RemoveObserverFromMap(
     observer_list->zeroed_observers.push_back(index);
   }
 
-  if (!observer_list->iterating && !observer_list->zeroed_observers.IsEmpty())
+  if (!observer_list->iterating && !observer_list->zeroed_observers.empty())
     CollectZeroedObservers(map, observer_list, std::move(task_runner));
 }
 
@@ -410,7 +412,7 @@ void NetworkStateNotifier::CollectZeroedObservers(
 
   list->zeroed_observers.clear();
 
-  if (list->observers.IsEmpty()) {
+  if (list->observers.empty()) {
     base::AutoLock locker(lock_);
     map.erase(task_runner);  // deletes list
   }
@@ -419,8 +421,9 @@ void NetworkStateNotifier::CollectZeroedObservers(
 // static
 String NetworkStateNotifier::EffectiveConnectionTypeToString(
     WebEffectiveConnectionType type) {
-  DCHECK_GT(kWebEffectiveConnectionTypeMappingCount, static_cast<size_t>(type));
-  return kWebEffectiveConnectionTypeMapping[static_cast<int>(type)];
+  DCHECK_GT(network::kWebEffectiveConnectionTypeMappingCount,
+            static_cast<size_t>(type));
+  return network::kWebEffectiveConnectionTypeMapping[static_cast<int>(type)];
 }
 
 double NetworkStateNotifier::GetRandomMultiplier(const String& host) const {

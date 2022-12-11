@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,11 +20,11 @@
 #include "mojo/public/cpp/bindings/union_traits.h"
 #include "net/base/request_priority.h"
 #include "net/url_request/referrer_policy.h"
+#include "services/network/public/cpp/cookie_manager_shared_mojom_traits.h"
 #include "services/network/public/cpp/data_element.h"
 #include "services/network/public/cpp/network_isolation_key_mojom_traits.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/resource_request_body.h"
-#include "services/network/public/cpp/site_for_cookies_mojom_traits.h"
 #include "services/network/public/mojom/chunked_data_pipe_getter.mojom.h"
 #include "services/network/public/mojom/client_security_state.mojom-forward.h"
 #include "services/network/public/mojom/cookie_access_observer.mojom-forward.h"
@@ -64,6 +64,10 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE)
   static bool has_user_activation(
       const network::ResourceRequest::TrustedParams& trusted_params) {
     return trusted_params.has_user_activation;
+  }
+  static bool allow_cookies_from_browser(
+      const network::ResourceRequest::TrustedParams& trusted_params) {
+    return trusted_params.allow_cookies_from_browser;
   }
   static mojo::PendingRemote<network::mojom::CookieAccessObserver>
   cookie_observer(
@@ -210,9 +214,6 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE)
       const network::ResourceRequest& request) {
     return request.priority;
   }
-  static bool is_external_request(const network::ResourceRequest& request) {
-    return request.is_external_request;
-  }
   static network::mojom::CorsPreflightPolicy cors_preflight_policy(
       const network::ResourceRequest& request) {
     return request.cors_preflight_policy;
@@ -254,6 +255,9 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE)
   static bool keepalive(const network::ResourceRequest& request) {
     return request.keepalive;
   }
+  static bool browsing_topics(const network::ResourceRequest& request) {
+    return request.browsing_topics;
+  }
   static bool has_user_gesture(const network::ResourceRequest& request) {
     return request.has_user_gesture;
   }
@@ -266,8 +270,8 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE)
   static bool do_not_prompt_for_login(const network::ResourceRequest& request) {
     return request.do_not_prompt_for_login;
   }
-  static bool is_main_frame(const network::ResourceRequest& request) {
-    return request.is_main_frame;
+  static bool is_outermost_main_frame(const network::ResourceRequest& request) {
+    return request.is_outermost_main_frame;
   }
   static int32_t transition_type(const network::ResourceRequest& request) {
     return request.transition_type;
@@ -305,18 +309,11 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE)
       const network::ResourceRequest& request) {
     return request.devtools_stack_id;
   }
-  static bool is_signed_exchange_prefetch_cache_enabled(
-      const network::ResourceRequest& request) {
-    return request.is_signed_exchange_prefetch_cache_enabled;
-  }
   static bool is_fetch_like_api(const network::ResourceRequest& request) {
     return request.is_fetch_like_api;
   }
   static bool is_favicon(const network::ResourceRequest& request) {
     return request.is_favicon;
-  }
-  static bool obey_origin_policy(const network::ResourceRequest& request) {
-    return request.obey_origin_policy;
   }
   static network::mojom::RequestDestination original_destination(
       const network::ResourceRequest& request) {

@@ -1,12 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/signin/resized_avatar_cache.h"
 
 #import "base/values.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
 #import "ios/chrome/browser/signin/signin_util.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
 #import "testing/gtest_mac.h"
 #import "testing/platform_test.h"
@@ -24,18 +24,18 @@ class ResizedAvatarCacheTest : public PlatformTest {
         ios::FakeChromeIdentityService::GetInstanceFromChromeProvider();
     resized_avatar_cache_ = [[ResizedAvatarCache alloc]
         initWithIdentityAvatarSize:IdentityAvatarSize::TableViewIcon];
-    identity1_ = [FakeChromeIdentity identityWithEmail:@"test1@email.com"
+    identity1_ = [FakeSystemIdentity identityWithEmail:@"test1@email.com"
                                                 gaiaID:@"gaiaID1"
                                                   name:@"Test Name1"];
-    identity2_ = [FakeChromeIdentity identityWithEmail:@"test2@email.com"
+    identity2_ = [FakeSystemIdentity identityWithEmail:@"test2@email.com"
                                                 gaiaID:@"gaiaID2"
                                                   name:@"Test Name2"];
   }
 
   ios::FakeChromeIdentityService* identity_service_ = nil;
   ResizedAvatarCache* resized_avatar_cache_ = nil;
-  ChromeIdentity* identity1_ = nil;
-  ChromeIdentity* identity2_ = nil;
+  id<SystemIdentity> identity1_ = nil;
+  id<SystemIdentity> identity2_ = nil;
 };
 
 // Tests that the default avatar is the same between 2 identities.

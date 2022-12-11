@@ -32,7 +32,6 @@
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_linked_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/linked_hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/pod_free_list_arena.h"
 #include "third_party/blink/renderer/platform/wtf/pod_interval_tree.h"
@@ -183,7 +182,7 @@ class FloatingObject : public GarbageCollected<FloatingObject> {
 struct FloatingObjectHashFunctions {
   STATIC_ONLY(FloatingObjectHashFunctions);
   static unsigned GetHash(FloatingObject* key) {
-    return DefaultHash<LayoutBox*>::Hash::GetHash(key->GetLayoutObject());
+    return DefaultHash<LayoutBox*>::GetHash(key->GetLayoutObject());
   }
   static unsigned GetHash(const Member<FloatingObject>& key) {
     return GetHash(key.Get());
@@ -201,7 +200,7 @@ struct FloatingObjectHashFunctions {
 struct FloatingObjectHashTranslator {
   STATIC_ONLY(FloatingObjectHashTranslator);
   static unsigned GetHash(LayoutBox* key) {
-    return DefaultHash<LayoutBox*>::Hash::GetHash(key);
+    return DefaultHash<LayoutBox*>::GetHash(key);
   }
   static bool Equal(FloatingObject* a, LayoutBox* b) {
     return a->GetLayoutObject() == b;

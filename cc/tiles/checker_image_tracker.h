@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CC_TILES_CHECKER_IMAGE_TRACKER_H_
 #define CC_TILES_CHECKER_IMAGE_TRACKER_H_
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -141,7 +142,7 @@ class CC_EXPORT CheckerImageTracker {
     bool use_dark_mode = false;
     PaintFlags::FilterQuality filter_quality = PaintFlags::FilterQuality::kNone;
     SkSize scale = SkSize::MakeEmpty();
-    gfx::ColorSpace color_space;
+    TargetColorParams target_color_params;
     size_t frame_index = PaintImage::kDefaultFrameIndex;
   };
 

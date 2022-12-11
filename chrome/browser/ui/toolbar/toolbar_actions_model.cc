@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,12 +15,12 @@
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/observer_list.h"
 #include "base/one_shot_event.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_management.h"
 #include "chrome/browser/extensions/extension_message_bubble_controller.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
@@ -33,17 +33,16 @@
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_model_factory.h"
 #include "components/prefs/pref_service.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_source.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/extension_util.h"
-#include "extensions/browser/notification_types.h"
+#include "extensions/browser/permissions_manager.h"
 #include "extensions/browser/pref_names.h"
 #include "extensions/browser/unloaded_extension_reason.h"
 #include "extensions/common/extension_set.h"
 #include "extensions/common/manifest_constants.h"
+#include "extensions/common/permissions/permissions_data.h"
 
 ToolbarActionsModel::ToolbarActionsModel(
     Profile* profile,
@@ -67,10 +66,6 @@ ToolbarActionsModel::ToolbarActionsModel(
       extensions::pref_names::kPinnedExtensions,
       base::BindRepeating(&ToolbarActionsModel::UpdatePinnedActionIds,
                           base::Unretained(this)));
-
-  notification_registrar_.Add(
-      this, extensions::NOTIFICATION_EXTENSION_PERMISSIONS_UPDATED,
-      content::Source<Profile>(profile_.get()));
 }
 
 ToolbarActionsModel::~ToolbarActionsModel() {}
@@ -134,19 +129,18 @@ void ToolbarActionsModel::OnExtensionManagementSettingsChanged() {
   UpdatePinnedActionIds();
 }
 
-void ToolbarActionsModel::Observe(int type,
-                                  const content::NotificationSource& source,
-                                  const content::NotificationDetails& details) {
-  DCHECK_EQ(extensions::NOTIFICATION_EXTENSION_PERMISSIONS_UPDATED, type);
-
-  const extensions::ExtensionId& extension_id =
-      content::Details<extensions::UpdatedExtensionPermissionsInfo>(details)
-          ->extension->id();
-
-  if (HasAction(extension_id)) {
+void ToolbarActionsModel::OnExtensionPermissionsUpdated(
+    const extensions::Extension& extension,
+    const extensions::PermissionSet& permissions,
+    extensions::PermissionsManager::UpdateReason reason) {
+  if (HasAction(extension.id())) {
     for (Observer& observer : observers_)
-      observer.OnToolbarActionUpdated(extension_id);
+      observer.OnToolbarActionUpdated(extension.id());
   }
+}
+
+void ToolbarActionsModel::Shutdown() {
+  permissions_manager_observation_.Reset();
 }
 
 void ToolbarActionsModel::RemovePref(const ActionId& action_id) {
@@ -154,8 +148,7 @@ void ToolbarActionsModel::RemovePref(const ActionId& action_id) {
   // the active pinned set.
   DCHECK(!IsActionPinned(action_id));
   auto stored_pinned_actions = extension_prefs_->GetPinnedExtensions();
-  auto iter = std::find(stored_pinned_actions.begin(),
-                        stored_pinned_actions.end(), action_id);
+  auto iter = base::ranges::find(stored_pinned_actions, action_id);
   if (iter != stored_pinned_actions.end()) {
     stored_pinned_actions.erase(iter);
     extension_prefs_->SetPinnedExtensions(stored_pinned_actions);
@@ -170,6 +163,8 @@ void ToolbarActionsModel::OnReady() {
   // taken from prefs.
   extension_registry_observation_.Observe(extension_registry_.get());
   extension_action_observation_.Observe(extension_action_api_.get());
+  permissions_manager_observation_.Observe(
+      extensions::PermissionsManager::Get(profile_));
 
   auto* management =
       extensions::ExtensionManagementFactory::GetForBrowserContext(profile_);
@@ -233,6 +228,21 @@ const std::u16string ToolbarActionsModel::GetExtensionName(
       extension_registry_->enabled_extensions().GetByID(action_id)->name());
 }
 
+bool ToolbarActionsModel::IsRestrictedUrl(const GURL& url) const {
+  // We consider a site to be restricted if it's restricted for every
+  // extension in the toolbar. This can vary based on the extensions
+  // installed - if the user has an extension that can execute script
+  // everywhere and has an icon in the toolbar (like the non-ChromeOS version
+  // of ChromeVox), then otherwise-restricted sites may not be.
+  // If nay extension has access, we want to properly message that (since
+  // saying "No extensions can run..." is inaccurate). Other extensions
+  // will still be properly attributed in UI.
+  return base::ranges::all_of(action_ids(), [this, url](ActionId id) {
+    return GetExtensionById(id)->permissions_data()->IsRestrictedUrl(
+        url, /*error=*/nullptr);
+  });
+}
+
 bool ToolbarActionsModel::IsActionPinned(const ActionId& action_id) const {
   return base::Contains(pinned_action_ids_, action_id);
 }
@@ -258,8 +268,8 @@ void ToolbarActionsModel::MovePinnedAction(const ActionId& action_id,
   DCHECK(!profile_->IsOffTheRecord())
       << "Changing action position is disallowed in incognito.";
 
-  auto current_position_on_toolbar = std::find(
-      pinned_action_ids_.begin(), pinned_action_ids_.end(), action_id);
+  auto current_position_on_toolbar =
+      base::ranges::find(pinned_action_ids_, action_id);
   DCHECK(current_position_on_toolbar != pinned_action_ids_.end());
   size_t current_index_on_toolbar =
       current_position_on_toolbar - pinned_action_ids_.begin();
@@ -325,13 +335,13 @@ void ToolbarActionsModel::MovePinnedAction(const ActionId& action_id,
   auto stored_pinned_actions = extension_prefs_->GetPinnedExtensions();
   const bool move_to_end =
       non_force_pinned_neighbor == pinned_action_ids_.end();
-  auto target_position = move_to_end ? stored_pinned_actions.end()
-                                     : std::find(stored_pinned_actions.begin(),
-                                                 stored_pinned_actions.end(),
-                                                 *non_force_pinned_neighbor);
+  auto target_position = move_to_end
+                             ? stored_pinned_actions.end()
+                             : base::ranges::find(stored_pinned_actions,
+                                                  *non_force_pinned_neighbor);
 
-  auto current_position_in_prefs = std::find(
-      stored_pinned_actions.begin(), stored_pinned_actions.end(), action_id);
+  auto current_position_in_prefs =
+      base::ranges::find(stored_pinned_actions, action_id);
   DCHECK(current_position_in_prefs != stored_pinned_actions.end());
 
   // Rotate |action_id| to be in the target position.

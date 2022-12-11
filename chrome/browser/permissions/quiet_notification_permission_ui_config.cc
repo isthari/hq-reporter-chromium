@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -148,4 +148,12 @@ bool QuietNotificationPermissionUiConfig::
   return base::GetFieldTrialParamByFeatureAsBool(
       features::kQuietNotificationPrompts,
       kEnableAbusiveContentTriggeredRequestWarning, true /* default */);
+}
+
+// static
+bool QuietNotificationPermissionUiConfig::
+    IsDisruptiveBehaviorRequestBlockingEnabled() {
+  return base::FeatureList::IsEnabled(features::kQuietNotificationPrompts) &&
+         base::FeatureList::IsEnabled(
+             features::kDisruptiveNotificationPermissionRevocation);
 }

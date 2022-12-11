@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,15 +16,17 @@ class TestImageFactory : public gpu::ImageFactory {
   ~TestImageFactory() override;
 
   TestImageFactory& operator=(const TestImageFactory&) = delete;
-
+#if BUILDFLAG(IS_MAC)
   // Overridden from gpu::ImageFactory:
   scoped_refptr<gl::GLImage> CreateImageForGpuMemoryBuffer(
       gfx::GpuMemoryBufferHandle handle,
       const gfx::Size& size,
       gfx::BufferFormat format,
+      const gfx::ColorSpace& color_space,
       gfx::BufferPlane plane,
       int client_id,
       gpu::SurfaceHandle surface_handle) override;
+#endif
 };
 
 }  // namespace viz

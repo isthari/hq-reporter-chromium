@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@
 #include "chrome/browser/ui/android/tab_model/tab_model_list.h"
 #include "components/blocked_content/android/popup_blocked_infobar_delegate.h"
 #include "components/blocked_content/android/popup_blocked_message_delegate.h"
+#include "components/messages/android/message_dispatcher_bridge.h"
 #include "components/messages/android/messages_feature.h"
 #endif
 
@@ -55,7 +56,7 @@ ChromePopupNavigationDelegate::NavigateWithGesture(
   if (params_.navigated_or_inserted_contents &&
       params_.disposition == WindowOpenDisposition::NEW_POPUP) {
     content::RenderFrameHost* host =
-        params_.navigated_or_inserted_contents->GetMainFrame();
+        params_.navigated_or_inserted_contents->GetPrimaryMainFrame();
     DCHECK(host);
     mojo::AssociatedRemote<chrome::mojom::ChromeRenderFrame> client;
     host->GetRemoteAssociatedInterfaces()->GetInterface(&client);
@@ -71,19 +72,29 @@ void ChromePopupNavigationDelegate::OnPopupBlocked(
 #if BUILDFLAG(IS_ANDROID)
   bool is_created = false;
   if (messages::IsPopupBlockedMessagesUiEnabled()) {
-    blocked_content::PopupBlockedMessageDelegate::CreateForWebContents(
-        web_contents);
-    blocked_content::PopupBlockedMessageDelegate*
-        popup_blocked_message_delegate =
-            blocked_content::PopupBlockedMessageDelegate::FromWebContents(
-                web_contents);
-    is_created = popup_blocked_message_delegate->ShowMessage(
-        total_popups_blocked_on_page,
-        HostContentSettingsMapFactory::GetForProfile(
-            web_contents->GetBrowserContext()),
-        base::BindOnce(
-            &content_settings::RecordPopupsAction,
-            content_settings::POPUPS_ACTION_CLICKED_ALWAYS_SHOW_ON_MOBILE));
+    messages::MessageDispatcherBridge* message_dispatcher_bridge =
+        messages::MessageDispatcherBridge::Get();
+
+    // It is possible that an initial navigation results in a blocked popup
+    // before the //chrome-level initialization of the messages infrastructure
+    // has run. Short-circuit out in that case to prevent a crash when
+    // PopupBlockedMessageDelegate tries to map the resource ID via
+    // MessageDispatcherBridge. crbug.com/1308214
+    if (message_dispatcher_bridge->IsMessagesEnabledForEmbedder()) {
+      blocked_content::PopupBlockedMessageDelegate::CreateForWebContents(
+          web_contents);
+      blocked_content::PopupBlockedMessageDelegate*
+          popup_blocked_message_delegate =
+              blocked_content::PopupBlockedMessageDelegate::FromWebContents(
+                  web_contents);
+      is_created = popup_blocked_message_delegate->ShowMessage(
+          total_popups_blocked_on_page,
+          HostContentSettingsMapFactory::GetForProfile(
+              web_contents->GetBrowserContext()),
+          base::BindOnce(
+              &content_settings::RecordPopupsAction,
+              content_settings::POPUPS_ACTION_CLICKED_ALWAYS_SHOW_ON_MOBILE));
+    }
   } else {
     // Should replace existing popup infobars, with an updated count of how many
     // popups have been blocked.

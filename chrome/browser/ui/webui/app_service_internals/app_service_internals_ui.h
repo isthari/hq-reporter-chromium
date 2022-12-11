@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,6 +28,8 @@ class AppServiceInternalsUI : public ui::MojoWebUIController {
   WEB_UI_CONTROLLER_TYPE_DECL();
 
   raw_ptr<Profile> profile_;
+  std::unique_ptr<mojom::app_service_internals::AppServiceInternalsPageHandler>
+      handler_;
 };
 
 #endif  // CHROME_BROWSER_UI_WEBUI_APP_SERVICE_INTERNALS_APP_SERVICE_INTERNALS_UI_H_

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "components/services/storage/public/cpp/buckets/bucket_locator.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -73,6 +74,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) QuotaTemporaryStorageEvictor {
 
   void StartEvictionTimerWithDelay(int64_t delay_ms);
   void ConsiderEviction();
+  void OnEvictedExpiredBuckets(blink::mojom::QuotaStatusCode status);
   void OnGotEvictionRoundInfo(blink::mojom::QuotaStatusCode status,
                               const QuotaSettings& settings,
                               int64_t available_space,

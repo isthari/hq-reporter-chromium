@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -131,176 +131,17 @@ consoles.list_view(
 exec("./try/presubmit.star")
 exec("./try/tryserver.blink.star")
 exec("./try/tryserver.chromium.star")
+exec("./try/tryserver.chromium.accessibility.star")
 exec("./try/tryserver.chromium.android.star")
 exec("./try/tryserver.chromium.angle.star")
 exec("./try/tryserver.chromium.chromiumos.star")
+exec("./try/tryserver.chromium.cft.star")
 exec("./try/tryserver.chromium.dawn.star")
+exec("./try/tryserver.chromium.fuchsia.star")
 exec("./try/tryserver.chromium.linux.star")
 exec("./try/tryserver.chromium.mac.star")
 exec("./try/tryserver.chromium.packager.star")
 exec("./try/tryserver.chromium.rust.star")
+exec("./try/tryserver.chromium.tricium.star")
 exec("./try/tryserver.chromium.updater.star")
 exec("./try/tryserver.chromium.win.star")
-
-# Used for listing chrome trybots in chromium's commit-queue.cfg without also
-# adding them to chromium's cr-buildbucket.cfg. Note that the recipe these
-# builders run allow only known roller accounts when triggered via the CQ.
-def chrome_internal_verifier(
-        *,
-        builder,
-        **kwargs):
-    branches.cq_tryjob_verifier(
-        builder = "{}:try/{}".format(settings.chrome_project, builder),
-        cq_group = "cq",
-        includable_only = True,
-        owner_whitelist = [
-            "googlers",
-            "project-chromium-robot-committers",
-        ],
-        **kwargs
-    )
-
-chrome_internal_verifier(
-    builder = "android-internal-binary-size",
-)
-
-chrome_internal_verifier(
-    builder = "android-internal-rel",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-betty-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-betty-pi-arc-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-eve-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-eve-compile-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-kevin-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-kevin-compile-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-octopus-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "chromeos-octopus-compile-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "fuchsia-fyi-astro",
-)
-
-chrome_internal_verifier(
-    builder = "ipad-device",
-)
-
-chrome_internal_verifier(
-    builder = "iphone-device",
-)
-
-chrome_internal_verifier(
-    builder = "lacros-amd64-generic-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "lacros-amd64-generic-chrome-skylab",
-)
-
-chrome_internal_verifier(
-    builder = "lacros-arm-generic-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "lacros-arm-generic-chrome-skylab",
-)
-
-chrome_internal_verifier(
-    builder = "linux-chrome",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "linux-chrome-stable",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "linux-chromeos-chrome",
-)
-
-chrome_internal_verifier(
-    builder = "linux-nearby-chrome-fyi",
-)
-
-chrome_internal_verifier(
-    builder = "linux-pgo",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "mac-chrome",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "mac-chrome-stable",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "mac-arm-pgo",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "mac-pgo",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "test-o-emulator",
-)
-
-chrome_internal_verifier(
-    builder = "win-chrome",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "win-chrome-stable",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "win32-pgo",
-    branch_selector = branches.STANDARD_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "win64-chrome",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "win64-chrome-stable",
-    branch_selector = branches.DESKTOP_EXTENDED_STABLE_MILESTONE,
-)
-
-chrome_internal_verifier(
-    builder = "win64-pgo",
-    branch_selector = branches.STANDARD_MILESTONE,
-)

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/media_router/media_router_ui_service.h"
 #include "chrome/browser/ui/media_router/media_router_ui_service_factory.h"
 #include "chrome/browser/ui/toolbar/media_router_contextual_menu.h"
@@ -96,24 +97,21 @@ class CastToolbarButtonTest : public ChromeViewsTestBase {
     auto context_menu = std::make_unique<MediaRouterContextualMenu>(
         browser_.get(), false, &context_menu_observer_);
 
-    // Button needs to be in a widget to be able to access ThemeProvider.
+    // Button needs to be in a widget to be able to access ColorProvider.
     widget_ = CreateTestWidget();
     button_ = widget_->SetContentsView(std::make_unique<CastToolbarButton>(
         browser_.get(), media_router, std::move(context_menu)));
 
     const ui::ColorProvider* color_provider = button_->GetColorProvider();
-    idle_icon_ = gfx::Image(
-        gfx::CreateVectorIcon(vector_icons::kMediaRouterIdleIcon,
-                              button_->GetThemeProvider()->GetColor(
-                                  ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON)));
+    idle_icon_ = gfx::Image(gfx::CreateVectorIcon(
+        vector_icons::kMediaRouterIdleIcon,
+        color_provider->GetColor(kColorToolbarButtonIcon)));
     warning_icon_ = gfx::Image(gfx::CreateVectorIcon(
         vector_icons::kMediaRouterWarningIcon,
-        color_provider->GetColor(ui::kColorAlertMediumSeverity)));
-    error_icon_ = gfx::Image(gfx::CreateVectorIcon(
-        vector_icons::kMediaRouterErrorIcon,
-        color_provider->GetColor(ui::kColorAlertHighSeverity)));
+        color_provider->GetColor(kColorMediaRouterIconWarning)));
     active_icon_ = gfx::Image(gfx::CreateVectorIcon(
-        vector_icons::kMediaRouterActiveIcon, gfx::kGoogleBlue500));
+        vector_icons::kMediaRouterActiveIcon,
+        color_provider->GetColor(kColorMediaRouterIconActive)));
   }
 
   void TearDown() override {
@@ -139,7 +137,6 @@ class CastToolbarButtonTest : public ChromeViewsTestBase {
 
   gfx::Image idle_icon_;
   gfx::Image warning_icon_;
-  gfx::Image error_icon_;
   gfx::Image active_icon_;
 
   const std::vector<MediaRoute> local_display_route_list_ = {
@@ -169,10 +166,6 @@ TEST_F(CastToolbarButtonTest, UpdateIssues) {
       Issue(IssueInfo("title warning", IssueInfo::Action::LEARN_MORE,
                       IssueInfo::Severity::WARNING)));
   EXPECT_TRUE(gfx::test::AreImagesEqual(warning_icon_, GetIcon()));
-
-  button_->OnIssue(Issue(IssueInfo("title fatal", IssueInfo::Action::DISMISS,
-                                   IssueInfo::Severity::FATAL)));
-  EXPECT_TRUE(gfx::test::AreImagesEqual(error_icon_, GetIcon()));
 
   button_->OnIssuesCleared();
   EXPECT_TRUE(gfx::test::AreImagesEqual(idle_icon_, GetIcon()));

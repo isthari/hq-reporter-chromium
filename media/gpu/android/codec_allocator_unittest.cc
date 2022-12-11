@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,12 +13,13 @@
 #include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/memory/raw_ptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/test/task_environment.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/time/tick_clock.h"
+#include "base/time/time.h"
 #include "media/base/android/mock_media_codec_bridge.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -37,7 +38,7 @@ class CodecAllocatorTest : public testing::Test {
     tick_clock_.Advance(base::Seconds(1));
     allocator_ = new CodecAllocator(
         base::BindRepeating(&MockMediaCodecBridge::CreateVideoDecoder),
-        base::SequencedTaskRunnerHandle::Get());
+        base::SequencedTaskRunner::GetCurrentDefault());
     allocator_->tick_clock_ = &tick_clock_;
   }
 

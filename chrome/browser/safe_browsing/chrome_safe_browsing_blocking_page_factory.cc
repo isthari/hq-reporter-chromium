@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "chrome/browser/interstitials/chrome_settings_page_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/chrome_controller_client.h"
-#include "chrome/browser/safe_browsing/chrome_user_population_helper.h"
 #include "chrome/browser/safe_browsing/safe_browsing_metrics_collector_factory.h"
 #include "chrome/browser/safe_browsing/safe_browsing_navigation_observer_manager_factory.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
@@ -69,7 +68,6 @@ ChromeSafeBrowsingBlockingPageFactory::CreateSafeBrowsingPage(
       display_options, should_trigger_reporting,
       HistoryServiceFactory::GetForProfile(profile,
                                            ServiceAccessType::EXPLICIT_ACCESS),
-      base::BindRepeating(&safe_browsing::GetUserPopulationForProfile, profile),
       SafeBrowsingNavigationObserverManagerFactory::GetForBrowserContext(
           web_contents->GetBrowserContext()),
       SafeBrowsingMetricsCollectorFactory::GetForProfile(profile),

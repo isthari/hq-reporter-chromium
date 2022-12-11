@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/bind.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_functions.h"
+#include "chrome/browser/ash/input_method/suggestion_enums.h"
 #include "chromeos/services/machine_learning/public/cpp/service_connection.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -15,15 +16,15 @@ namespace ash {
 namespace input_method {
 namespace {
 
-using ::chromeos::ime::TextSuggestion;
-using ::chromeos::ime::TextSuggestionMode;
-using ::chromeos::ime::TextSuggestionType;
 using ::chromeos::machine_learning::mojom::MultiWordExperimentGroup;
 using ::chromeos::machine_learning::mojom::NextWordCompletionCandidate;
 using ::chromeos::machine_learning::mojom::TextSuggesterQuery;
 using ::chromeos::machine_learning::mojom::TextSuggesterResultPtr;
 using ::chromeos::machine_learning::mojom::TextSuggesterSpec;
 using ::chromeos::machine_learning::mojom::TextSuggestionCandidatePtr;
+using ime::AssistiveSuggestion;
+using ime::AssistiveSuggestionMode;
+using ime::AssistiveSuggestionType;
 
 constexpr size_t kMaxNumberCharsSent = 100;
 
@@ -40,26 +41,26 @@ MultiWordExperimentGroup GetExperimentGroup(const std::string& finch_trial) {
 }
 
 chromeos::machine_learning::mojom::TextSuggestionMode ToTextSuggestionModeMojom(
-    TextSuggestionMode suggestion_mode) {
+    AssistiveSuggestionMode suggestion_mode) {
   switch (suggestion_mode) {
-    case TextSuggestionMode::kCompletion:
+    case AssistiveSuggestionMode::kCompletion:
       return chromeos::machine_learning::mojom::TextSuggestionMode::kCompletion;
-    case TextSuggestionMode::kPrediction:
+    case AssistiveSuggestionMode::kPrediction:
       return chromeos::machine_learning::mojom::TextSuggestionMode::kPrediction;
   }
 }
 
-absl::optional<TextSuggestion> ToTextSuggestion(
+absl::optional<AssistiveSuggestion> ToAssistiveSuggestion(
     const TextSuggestionCandidatePtr& candidate,
-    const TextSuggestionMode& suggestion_mode) {
+    const AssistiveSuggestionMode& suggestion_mode) {
   if (!candidate->is_multi_word()) {
     // TODO(crbug/1146266): Handle emoji suggestions
     return absl::nullopt;
   }
 
-  return TextSuggestion{.mode = suggestion_mode,
-                        .type = TextSuggestionType::kMultiWord,
-                        .text = candidate->get_multi_word()->text};
+  return AssistiveSuggestion{.mode = suggestion_mode,
+                             .type = AssistiveSuggestionType::kMultiWord,
+                             .text = candidate->get_multi_word()->text};
 }
 
 std::string TrimText(const std::string& text) {
@@ -69,16 +70,46 @@ std::string TrimText(const std::string& text) {
              : text;
 }
 
+MultiWordSuggestionType ToSuggestionType(
+    const ime::AssistiveSuggestionMode& suggestion_mode) {
+  switch (suggestion_mode) {
+    case ime::AssistiveSuggestionMode::kCompletion:
+      return MultiWordSuggestionType::kCompletion;
+    case ime::AssistiveSuggestionMode::kPrediction:
+      return MultiWordSuggestionType::kPrediction;
+    default:
+      return MultiWordSuggestionType::kUnknown;
+  }
+}
+
 void RecordRequestLatency(base::TimeDelta delta) {
   base::UmaHistogramTimes(
       "InputMethod.Assistive.CandidateGenerationTime.MultiWord", delta);
+}
+
+void RecordPrecedingTextLength(size_t text_length) {
+  base::UmaHistogramCounts1000(
+      "InputMethod.Assistive.MultiWord.PrecedingTextLength", text_length);
+}
+
+void RecordRequestCandidates(
+    const ime::AssistiveSuggestionMode& suggestion_mode) {
+  base::UmaHistogramEnumeration(
+      "InputMethod.Assistive.MultiWord.RequestCandidates",
+      ToSuggestionType(suggestion_mode));
+}
+
+void RecordCandidatesGenerated(AssistiveSuggestionMode suggestion_mode) {
+  base::UmaHistogramEnumeration(
+      "InputMethod.Assistive.MultiWord.CandidatesGenerated",
+      ToSuggestionType(suggestion_mode));
 }
 
 }  // namespace
 
 SuggestionsServiceClient::SuggestionsServiceClient() {
   std::string field_trial = base::GetFieldTrialParamValueByFeature(
-      chromeos::features::kAssistMultiWord, "group");
+      features::kAssistMultiWord, "group");
   auto spec = TextSuggesterSpec::New(GetExperimentGroup(field_trial));
 
   chromeos::machine_learning::ServiceConnection::GetInstance()
@@ -99,13 +130,16 @@ void SuggestionsServiceClient::OnTextSuggesterLoaded(
 
 void SuggestionsServiceClient::RequestSuggestions(
     const std::string& preceding_text,
-    const ime::TextSuggestionMode& suggestion_mode,
-    const std::vector<ime::TextCompletionCandidate>& completion_candidates,
+    const ime::AssistiveSuggestionMode& suggestion_mode,
+    const std::vector<ime::DecoderCompletionCandidate>& completion_candidates,
     RequestSuggestionsCallback callback) {
   if (!IsAvailable()) {
     std::move(callback).Run({});
     return;
   }
+
+  RecordPrecedingTextLength(preceding_text.size());
+  RecordRequestCandidates(suggestion_mode);
 
   auto query = TextSuggesterQuery::New();
   query->text = TrimText(preceding_text);
@@ -128,13 +162,16 @@ void SuggestionsServiceClient::RequestSuggestions(
 void SuggestionsServiceClient::OnSuggestionsReturned(
     base::TimeTicks time_request_was_made,
     RequestSuggestionsCallback callback,
-    TextSuggestionMode suggestion_mode_requested,
+    AssistiveSuggestionMode suggestion_mode_requested,
     chromeos::machine_learning::mojom::TextSuggesterResultPtr result) {
-  std::vector<TextSuggestion> suggestions;
+  std::vector<AssistiveSuggestion> suggestions;
+
+  if (result->candidates.size() > 0)
+    RecordCandidatesGenerated(suggestion_mode_requested);
 
   for (const auto& candidate : result->candidates) {
     auto suggestion =
-        ToTextSuggestion(std::move(candidate), suggestion_mode_requested);
+        ToAssistiveSuggestion(std::move(candidate), suggestion_mode_requested);
     if (suggestion) {
       // Drop any unknown suggestions
       suggestions.push_back(suggestion.value());

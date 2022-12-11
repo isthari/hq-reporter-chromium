@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,6 +53,10 @@ class SaveCardOfferBubbleViews : public SaveCardBubbleViews,
 
   std::unique_ptr<views::View> CreateRequestExpirationDateView();
   std::unique_ptr<views::View> CreateUploadExplanationView();
+
+  // Method to check if the save card ui experiment is enabled where one of the
+  // 3 experimental save card bubble UI treatments are shown.
+  bool IsSaveCardUiExperimentEnabled();
 
   void LinkClicked(const GURL& url);
 

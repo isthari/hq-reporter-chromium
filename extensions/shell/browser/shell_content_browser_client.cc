@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,6 @@
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
-#include "components/guest_view/browser/guest_view_message_filter.h"
 #include "components/nacl/common/buildflags.h"
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -35,7 +33,7 @@
 #include "extensions/browser/extension_protocols.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_web_contents_observer.h"
-#include "extensions/browser/guest_view/extensions_guest_view_message_filter.h"
+#include "extensions/browser/guest_view/extensions_guest_view.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
 #include "extensions/browser/process_map.h"
 #include "extensions/browser/url_loader_factory_manager.h"
@@ -93,10 +91,9 @@ content::BrowserContext* ShellContentBrowserClient::GetBrowserContext() {
 }
 
 std::unique_ptr<content::BrowserMainParts>
-ShellContentBrowserClient::CreateBrowserMainParts(
-    content::MainFunctionParams parameters) {
-  auto browser_main_parts = CreateShellBrowserMainParts(std::move(parameters),
-                                                        browser_main_delegate_);
+ShellContentBrowserClient::CreateBrowserMainParts(bool is_integration_test) {
+  auto browser_main_parts =
+      CreateShellBrowserMainParts(browser_main_delegate_, is_integration_test);
 
   browser_main_parts_ = browser_main_parts.get();
 
@@ -109,9 +106,6 @@ void ShellContentBrowserClient::RenderProcessWillLaunch(
   BrowserContext* browser_context = browser_main_parts_->browser_context();
   host->AddFilter(
       new ExtensionMessageFilter(render_process_id, browser_context));
-  host->AddFilter(
-      new ExtensionsGuestViewMessageFilter(
-          render_process_id, browser_context));
   host->AddFilter(
       new MessagingAPIMessageFilter(render_process_id, browser_context));
   // PluginInfoMessageFilter is not required because app_shell does not have
@@ -234,22 +228,29 @@ void ShellContentBrowserClient::ExposeInterfacesToRenderer(
     service_manager::BinderRegistry* registry,
     blink::AssociatedInterfaceRegistry* associated_registry,
     content::RenderProcessHost* render_process_host) {
-  associated_registry->AddInterface(base::BindRepeating(
+  associated_registry->AddInterface<mojom::EventRouter>(base::BindRepeating(
       &EventRouter::BindForRenderer, render_process_host->GetID()));
+  associated_registry->AddInterface<guest_view::mojom::GuestViewHost>(
+      base::BindRepeating(&ExtensionsGuestView::CreateForComponents,
+                          render_process_host->GetID()));
+  associated_registry->AddInterface<extensions::mojom::GuestView>(
+      base::BindRepeating(&ExtensionsGuestView::CreateForExtensions,
+                          render_process_host->GetID()));
 }
 
 void ShellContentBrowserClient::
     RegisterAssociatedInterfaceBindersForRenderFrameHost(
         content::RenderFrameHost& render_frame_host,
         blink::AssociatedInterfaceRegistry& associated_registry) {
-  associated_registry.AddInterface(base::BindRepeating(
-      [](content::RenderFrameHost* render_frame_host,
-         mojo::PendingAssociatedReceiver<extensions::mojom::LocalFrameHost>
-             receiver) {
-        ExtensionWebContentsObserver::BindLocalFrameHost(std::move(receiver),
-                                                         render_frame_host);
-      },
-      &render_frame_host));
+  associated_registry.AddInterface<extensions::mojom::LocalFrameHost>(
+      base::BindRepeating(
+          [](content::RenderFrameHost* render_frame_host,
+             mojo::PendingAssociatedReceiver<extensions::mojom::LocalFrameHost>
+                 receiver) {
+            ExtensionWebContentsObserver::BindLocalFrameHost(
+                std::move(receiver), render_frame_host);
+          },
+          &render_frame_host));
 }
 
 std::vector<std::unique_ptr<content::NavigationThrottle>>
@@ -348,10 +349,10 @@ bool ShellContentBrowserClient::WillCreateURLLoaderFactory(
 bool ShellContentBrowserClient::HandleExternalProtocol(
     const GURL& url,
     content::WebContents::Getter web_contents_getter,
-    int child_id,
     int frame_tree_node_id,
     content::NavigationUIData* navigation_data,
-    bool is_main_frame,
+    bool is_primary_main_frame,
+    bool is_in_fenced_frame_tree,
     network::mojom::WebSandboxFlags sandbox_flags,
     ui::PageTransition page_transition,
     bool has_user_gesture,
@@ -383,10 +384,10 @@ std::string ShellContentBrowserClient::GetUserAgent() {
 
 std::unique_ptr<ShellBrowserMainParts>
 ShellContentBrowserClient::CreateShellBrowserMainParts(
-    content::MainFunctionParams parameters,
-    ShellBrowserMainDelegate* browser_main_delegate) {
-  return std::make_unique<ShellBrowserMainParts>(std::move(parameters),
-                                                 browser_main_delegate);
+    ShellBrowserMainDelegate* browser_main_delegate,
+    bool is_integration_test) {
+  return std::make_unique<ShellBrowserMainParts>(browser_main_delegate,
+                                                 is_integration_test);
 }
 
 void ShellContentBrowserClient::AppendRendererSwitches(
@@ -400,15 +401,14 @@ void ShellContentBrowserClient::AppendRendererSwitches(
       switches::kExtensionProcess,
   };
   command_line->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
-                                 kSwitchNames, base::size(kSwitchNames));
+                                 kSwitchNames, std::size(kSwitchNames));
 
 #if BUILDFLAG(ENABLE_NACL)
   static const char* const kNaclSwitchNames[] = {
       ::switches::kEnableNaClDebug,
   };
   command_line->CopySwitchesFrom(*base::CommandLine::ForCurrentProcess(),
-                                 kNaclSwitchNames,
-                                 base::size(kNaclSwitchNames));
+                                 kNaclSwitchNames, std::size(kNaclSwitchNames));
 #endif  // BUILDFLAG(ENABLE_NACL)
 }
 

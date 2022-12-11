@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,7 @@ import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.share.long_screenshots.bitmap_generation.EntryManager;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.ui.test.util.DummyUiActivity;
+import org.chromium.ui.test.util.BlankUiTestActivity;
 
 /** Tests for the LongScreenshotsMediator. */
 @RunWith(ChromeJUnit4ClassRunner.class)
@@ -38,8 +38,8 @@ public class LongScreenshotsMediatorTest {
     private LongScreenshotsMediator mMediator;
 
     @Rule
-    public BaseActivityTestRule<DummyUiActivity> mActivityTestRule =
-            new BaseActivityTestRule<>(DummyUiActivity.class);
+    public BaseActivityTestRule<BlankUiTestActivity> mActivityTestRule =
+            new BaseActivityTestRule<>(BlankUiTestActivity.class);
 
     @Mock
     private View mView;
@@ -65,13 +65,6 @@ public class LongScreenshotsMediatorTest {
 
         // Instantiate the object under test.
         mMediator = new LongScreenshotsMediator(mActivity, mManager);
-    }
-
-    @Test
-    @MediumTest
-    public void testShowAreaSelectionDone() {
-        mMediator.showAreaSelectionDialog(mBitmap);
-        Assert.assertTrue(mMediator.getDialog().isShowing());
     }
 
     @Test

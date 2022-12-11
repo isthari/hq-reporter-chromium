@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,14 @@
 #include <memory>
 
 #include "ash/ash_export.h"
-#include "ash/public/cpp/ambient/ambient_animation_theme.h"
+#include "ash/constants/ambient_animation_theme.h"
 #include "base/containers/flat_map.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/strings/string_piece.h"
+
+namespace cc {
+class SkottieWrapper;
+}  // namespace cc
 
 namespace gfx {
 class ImageSkia;
@@ -31,17 +36,25 @@ class ASH_EXPORT AmbientAnimationStaticResources {
  public:
   // Creates an AmbientAnimationStaticResources instance that loads resources
   // for the given |theme|. Returns nullptr if |theme| is not supported.
+  //
+  // If |serializable| is true, GetSkottieWrapper() will return an animation
+  // that can be used for out-of-process rasterization in the graphics pipeline.
+  // If false, resource creation is cheaper and uses less memory but cannot be
+  // used for OOP rasterization.
   static std::unique_ptr<AmbientAnimationStaticResources> Create(
-      AmbientAnimationTheme theme);
+      AmbientAnimationTheme theme,
+      bool serializable);
 
   virtual ~AmbientAnimationStaticResources() = default;
 
-  // Returns the Lottie animation json data for this theme. The returned
-  // StringPiece points to data owned by the AmbientAnimationStaticResources
-  // instance. This method can never fail.
+  // Returns the Lottie animation for this theme. The returned pointer is never
+  // null and always points to a valid |cc::SkottieWrapper| instance. This
+  // method can never fail and is cheap to call multiple times (a new animation
+  // is not re-created every time this is called).
   // TODO(esum): Add an argument where the caller specifies whether to load the
   // "portrait" or "landscape" version of this animation theme.
-  virtual base::StringPiece GetLottieData() const = 0;
+  virtual const scoped_refptr<cc::SkottieWrapper>& GetSkottieWrapper()
+      const = 0;
 
   // Returns the image to use for a static asset in the animation, identified by
   // the |asset_id|. The |asset_id| is a string identifier specified when the
@@ -51,6 +64,9 @@ class ASH_EXPORT AmbientAnimationStaticResources {
   // Returns an empty ImageSkia instance if the |asset_id| is unknown.
   virtual gfx::ImageSkia GetStaticImageAsset(
       base::StringPiece asset_id) const = 0;
+
+  // Returns the AmbientAnimationTheme that the static resources belong to.
+  virtual AmbientAnimationTheme GetAmbientAnimationTheme() const = 0;
 };
 
 }  // namespace ash

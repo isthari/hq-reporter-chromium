@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 import 'chrome://extensions/extensions.js';
 
 import {ExtensionsManagerElement, navigation, Page, Service} from 'chrome://extensions/extensions.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
 import {assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
 import {TestService} from './test_service.js';
@@ -33,7 +32,7 @@ suite(extension_manager_unit_tests.suiteName, function() {
   const testActivities = {activities: []};
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     service = new TestService();
     Service.setInstance(service);
@@ -61,8 +60,7 @@ suite(extension_manager_unit_tests.suiteName, function() {
   }
 
   test(
-      assert(extension_manager_unit_tests.TestNames.UpdateFromActivityLog),
-      function() {
+      extension_manager_unit_tests.TestNames.UpdateFromActivityLog, function() {
         service.testActivities = testActivities;
 
         const extension = createExtensionInfo();

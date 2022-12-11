@@ -1,4 +1,4 @@
-# Copyright 2018 The Chromium Authors. All rights reserved.
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -26,7 +26,10 @@ generate_stubs("libva_stubs") {
   sigs += [ "va_drm.sigs" ]
 
   output_name = "va_stubs"
-  deps = [ "//base" ]
+  deps = [
+    "//base",
+    "//media/gpu:buildflags",
+  ]
 }
 
 source_set("vaapi") {
@@ -55,7 +58,6 @@ source_set("vaapi") {
     "vaapi_picture.h",
     "vaapi_picture_factory.cc",
     "vaapi_picture_factory.h",
-    "vaapi_status.h",
     "vaapi_video_decode_accelerator.cc",
     "vaapi_video_decode_accelerator.h",
     "vaapi_video_decoder.cc",
@@ -77,7 +79,7 @@ source_set("vaapi") {
     "vp9_vaapi_video_encoder_delegate.cc",
     "vp9_vaapi_video_encoder_delegate.h",
   ]
-  if (enable_platform_hevc_decoding) {
+  if (enable_hevc_parser_and_hw_decoder) {
     sources += [
       "h265_vaapi_video_decoder_delegate.cc",
       "h265_vaapi_video_decoder_delegate.h",
@@ -91,6 +93,7 @@ source_set("vaapi") {
 
   deps = [
     ":common",
+    ":vaapi_status",
     "//base",
     "//build:chromeos_buildflags",
     "//gpu/config",
@@ -140,13 +143,14 @@ source_set("vaapi") {
     sources += [
       "vaapi_picture_native_pixmap_angle.cc",
       "vaapi_picture_native_pixmap_angle.h",
-      "vaapi_picture_tfp.cc",
-      "vaapi_picture_tfp.h",
     ]
   }
 
   if (use_ozone) {
-    deps += [ "//ui/ozone" ]
+    deps += [
+      "//media/gpu:buffer_validation",
+      "//ui/ozone",
+    ]
     sources += [
       "vaapi_picture_native_pixmap_ozone.cc",
       "vaapi_picture_native_pixmap_ozone.h",
@@ -159,6 +163,19 @@ source_set("vaapi") {
       "vaapi_picture_native_pixmap_egl.h",
     ]
   }
+}
+
+# The vaapi status functionality is in its own source set so that it can be
+# depended on without pulling the //media/gpu/vaapi:vaapi target.
+source_set("vaapi_status") {
+  sources = [ "vaapi_status.h" ]
+
+  visibility = [
+    ":vaapi",
+    "//media/mojo/mojom/stable:*",
+  ]
+
+  deps = [ "//media" ]
 }
 
 source_set("common") {
@@ -188,6 +205,7 @@ source_set("common") {
     "//third_party/libyuv",
     "//ui/base:features",
     "//ui/gfx:memory_buffer",
+    "//ui/gfx/linux:drm",
     "//ui/gl",
   ]
   if (use_ozone) {
@@ -323,6 +341,7 @@ test("vaapi_unittest") {
     "//build:chromeos_buildflags",
     "//gpu",
     "//media/gpu/test:helpers",
+    "//media/gpu/vaapi/test/fake_libva_driver:fake_drv_video",
     "//testing/gtest",
     "//third_party/minigbm",
     "//ui/gfx/linux:gbm",
@@ -334,6 +353,10 @@ test("vaapi_unittest") {
       ":jpeg_decoder_unit_test",
       ":webp_decoder_unit_test",
     ]
+  }
+
+  if (use_ozone && is_linux) {
+    deps += [ "//ui/ozone" ]
   }
 }
 
@@ -349,6 +372,12 @@ executable("decode_test") {
     "test/av1_decoder.cc",
     "test/av1_decoder.h",
     "test/decode.cc",
+    "test/h264_decoder.cc",
+    "test/h264_decoder.h",
+    "test/h264_dpb.cc",
+    "test/h264_dpb.h",
+    "test/h264_vaapi_wrapper.cc",
+    "test/h264_vaapi_wrapper.h",
     "test/macros.h",
     "test/scoped_va_config.cc",
     "test/scoped_va_config.h",
@@ -365,14 +394,27 @@ executable("decode_test") {
     "test/vp9_decoder.cc",
     "test/vp9_decoder.h",
   ]
+
+  if (enable_platform_hevc) {
+    sources += [
+      "test/h265_decoder.cc",
+      "test/h265_decoder.h",
+      "test/h265_dpb.cc",
+      "test/h265_dpb.h",
+      "test/h265_vaapi_wrapper.cc",
+      "test/h265_vaapi_wrapper.h",
+    ]
+  }
+
   deps = [
     ":libva_stubs",
     "//base",
+    "//build/config/linux/libdrm",
     "//media",
     "//media:test_support",
     "//media/gpu:common",
     "//media/parsers:parsers",
-    "//third_party/libgav1:libgav1",
+    "//third_party/libgav1:libgav1_parser",
     "//third_party/libyuv",
     "//ui/gfx/codec:codec",
     "//ui/gfx/geometry",

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,14 +12,32 @@ namespace blink {
 
 struct NGFlexBreakTokenData final : NGBlockBreakTokenData {
   NGFlexBreakTokenData(const NGBlockBreakTokenData* break_token_data,
-                       const Vector<NGFlexLine>& flex_lines,
-                       LayoutUnit intrinsic_block_size)
+                       const HeapVector<NGFlexLine>& flex_lines,
+                       const Vector<EBreakBetween>& row_break_between,
+                       const HeapVector<Member<LayoutBox>>& oof_children,
+                       LayoutUnit intrinsic_block_size,
+                       bool broke_before_row)
       : NGBlockBreakTokenData(kFlexBreakTokenData, break_token_data),
         flex_lines(flex_lines),
-        intrinsic_block_size(intrinsic_block_size) {}
+        row_break_between(row_break_between),
+        oof_children(oof_children),
+        intrinsic_block_size(intrinsic_block_size),
+        broke_before_row(broke_before_row) {}
 
-  Vector<NGFlexLine> flex_lines;
+  void Trace(Visitor* visitor) const override {
+    visitor->Trace(flex_lines);
+    visitor->Trace(oof_children);
+    NGBlockBreakTokenData::Trace(visitor);
+  }
+
+  HeapVector<NGFlexLine> flex_lines;
+  Vector<EBreakBetween> row_break_between;
+  HeapVector<Member<LayoutBox>> oof_children;
   LayoutUnit intrinsic_block_size;
+  // |broke_before_row| is only used in the case of row flex containers. If this
+  // is true, that means that the next row to be processed had broken before,
+  // as represented by a break before its first child.
+  bool broke_before_row = false;
 };
 
 template <>

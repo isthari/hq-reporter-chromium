@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,17 +10,6 @@
 #include "base/component_export.h"
 
 namespace ash {
-
-enum class DeviceType {
-  kChromebase,
-  kChromebit,
-  kChromebook,
-  kChromebox,
-  kUnknown,  // Unknown fallback device.
-};
-
-// Returns the current device type, e.g,, Chromebook, Chromebox.
-COMPONENT_EXPORT(ASH_CONSTANTS) DeviceType GetDeviceType();
 
 // Returns the name of current device for Bluetooth. |bluetooth_address| is
 // so it can be used (after hashing) to create a more identifiable device name,
@@ -36,8 +25,6 @@ COMPONENT_EXPORT(ASH_CONSTANTS) bool IsGoogleBrandedDevice();
 // TODO(https://crbug.com/1164001): remove after the Chrome OS source code
 // directory migration is finished.
 namespace chromeos {
-using ::ash::DeviceType;
-using ::ash::GetDeviceType;
 using ::ash::IsGoogleBrandedDevice;
 }  // namespace chromeos
 

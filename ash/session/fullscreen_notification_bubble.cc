@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/location.h"
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
+#include "base/timer/timer.h"
 #include "components/fullscreen_control/subtle_notification_view.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/aura/window.h"
@@ -40,7 +41,7 @@ FullscreenNotificationBubble::FullscreenNotificationBubble()
 
   // Set the text displayed in the bubble, including the keyboard key.
   view_->UpdateContent(l10n_util::GetStringFUTF16(
-      IDS_FULLSCREEN_PRESS_ESC_TO_EXIT_FULLSCREEN,
+      IDS_FULLSCREEN_PRESS_TO_EXIT_FULLSCREEN,
       l10n_util::GetStringUTF16(IDS_APP_FULLSCREEN_KEY)));
 
   // The view used to parent the bubble widget

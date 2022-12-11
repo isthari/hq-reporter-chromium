@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -82,6 +82,10 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
   void SetDragImage(const gfx::ImageSkia& image,
                     const gfx::Vector2d& image_offset);
 
+  ui::mojom::DragEventSource event_source() {
+    return current_drag_event_source_;
+  }
+
   // Sets the `closure` that will be executed as a replacement of
   // inner event loop. A test can use this closure to generate events, or
   // take other actions that should happen during the drag and drop, and
@@ -136,11 +140,17 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
   // Helper method to start drag widget flying back animation.
   void StartCanceledAnimation(base::TimeDelta animation_duration);
 
-  // Helper method to forward |pending_log_tap_| event to |drag_source_window_|.
+  // Helper methods to forward |pending_log_tap_| event to
+  // |drag_source_window_|.
+  void ScheduleForwardPendingLongTap();
   void ForwardPendingLongTap();
 
-  // Helper method to reset everything.
+  // Helper method to reset most of the state, except state that could be used
+  // during async operations of cancellation (including cancel animation and
+  // posting task to dispatch long tap event).
   void Cleanup();
+
+  void CleanupPendingLongTap();
 
   // Helper method to perform the drop if allowed by
   // DataTransferPolicyController. If it's run, `drag_cancel` will be replaced.
@@ -164,6 +174,9 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
 
   // Used when processing a Chrome tab drag from a WebUI tab strip.
   std::unique_ptr<TabDragDropDelegate> tab_drag_drop_delegate_;
+
+  // Used when processing a normal drag and drop with touch.
+  std::unique_ptr<DragDropCaptureDelegate> touch_drag_drop_delegate_;
 
   // Window that is currently under the drag cursor.
   aura::Window* drag_window_ = nullptr;
@@ -189,7 +202,7 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
   base::OnceClosure quit_closure_;
 
   // If non-null, a drag is active which required a capture window.
-  DragDropCaptureDelegate* capture_delegate_;
+  DragDropCaptureDelegate* capture_delegate_ = nullptr;
 
   ui::mojom::DragEventSource current_drag_event_source_ =
       ui::mojom::DragEventSource::kMouse;
@@ -197,6 +210,10 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
   // Holds a synthetic long tap event to be sent to the |drag_source_window_|.
   // See comment in OnGestureEvent() on why we need this.
   std::unique_ptr<ui::Event> pending_long_tap_;
+  // Set to true during async operations of cancellation (including cancel
+  // animation and posting task to dispatch long tap event), indicating that a
+  // long tap event will be dispatched.
+  bool will_forward_long_tap_ = false;
 
   gfx::Point start_location_;
   gfx::Point current_location_;
@@ -206,9 +223,7 @@ class ASH_EXPORT DragDropController : public aura::client::DragDropClient,
 
   ToplevelWindowDragDelegate* toplevel_window_drag_delegate_ = nullptr;
 
-  // Weak ptr for async drop callbacks to be invalidated if a new drag starts.
-  base::WeakPtrFactory<DragDropController> drop_weak_factory_{this};
-
+  // Weak ptr for async callbacks to be invalidated if a new drag starts.
   base::WeakPtrFactory<DragDropController> weak_factory_{this};
 };
 

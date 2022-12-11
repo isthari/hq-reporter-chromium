@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include <algorithm>
 #include <atomic>
 #include <tuple>
 #include <utility>
@@ -18,6 +17,7 @@
 #include "base/lazy_instance.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_math.h"
+#include "base/ranges/algorithm.h"
 #include "base/threading/sequence_local_storage_slot.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_id_helper.h"
@@ -35,7 +35,7 @@ base::LazyInstance<
     base::SequenceLocalStorageSlot<internal::MessageDispatchContext*>>::Leaky
     g_sls_message_dispatch_context = LAZY_INSTANCE_INITIALIZER;
 
-void DoNotifyBadMessage(Message message, const std::string& error) {
+void DoNotifyBadMessage(Message message, base::StringPiece error) {
   message.NotifyBadMessage(error);
 }
 
@@ -289,8 +289,7 @@ Message::Message(base::span<const uint8_t> payload,
     std::ignore = handle.release();
 
   payload_buffer_ = internal::Buffer(buffer, payload.size(), payload.size());
-  std::copy(payload.begin(), payload.end(),
-            static_cast<uint8_t*>(payload_buffer_.data()));
+  base::ranges::copy(payload, static_cast<uint8_t*>(payload_buffer_.data()));
   transferable_ = true;
   serialized_ = true;
 }
@@ -425,7 +424,7 @@ ScopedMessageHandle Message::TakeMojoMessage() {
   return handle;
 }
 
-void Message::NotifyBadMessage(const std::string& error) {
+void Message::NotifyBadMessage(base::StringPiece error) {
   DCHECK(handle_.is_valid());
   mojo::NotifyBadMessage(handle_.get(), error);
 }
@@ -591,7 +590,7 @@ bool PassThroughFilter::Accept(Message* message) {
   return true;
 }
 
-void ReportBadMessage(const std::string& error) {
+void ReportBadMessage(base::StringPiece error) {
   internal::MessageDispatchContext* context =
       internal::MessageDispatchContext::current();
   DCHECK(context);

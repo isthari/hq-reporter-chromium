@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,12 +13,12 @@
 #include "base/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "content/public/browser/permission_controller.h"
-#include "content/public/browser/permission_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/permissions/permission_utils.h"
 #include "url/gurl.h"
 
+using blink::PermissionType;
 using blink::mojom::PermissionStatus;
-using content::PermissionType;
 
 namespace android_webview {
 

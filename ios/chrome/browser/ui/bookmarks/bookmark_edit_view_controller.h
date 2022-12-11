@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #ifndef IOS_CHROME_BROWSER_UI_BOOKMARKS_BOOKMARK_EDIT_VIEW_CONTROLLER_H_
@@ -6,12 +6,13 @@
 
 #import <UIKit/UIKit.h>
 
+#import "ios/chrome/browser/ui/keyboard/key_command_actions.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_controller.h"
 
 @class BookmarkEditViewController;
 @class BookmarkFolderViewController;
-@protocol BrowserCommands;
 class Browser;
+@protocol SnackbarCommands;
 
 namespace bookmarks {
 class BookmarkNode;
@@ -20,11 +21,11 @@ class BookmarkNode;
 @protocol BookmarkEditViewControllerDelegate
 
 // Called when the edited bookmark is set for deletion.
-// If the delegate returns |YES|, all nodes matching the URL of |bookmark| will
+// If the delegate returns `YES`, all nodes matching the URL of `bookmark` will
 // be deleted.
-// If the delegate returns |NO|, only |bookmark| will be deleted.
+// If the delegate returns `NO`, only `bookmark` will be deleted.
 // If the delegate doesn't implement this method, the default behavior is to
-// delete all nodes matching the URL of |bookmark|.
+// delete all nodes matching the URL of `bookmark`.
 - (BOOL)bookmarkEditor:(BookmarkEditViewController*)controller
     shoudDeleteAllOccurencesOfBookmark:(const bookmarks::BookmarkNode*)bookmark;
 
@@ -44,12 +45,16 @@ class BookmarkNode;
 // accordingly depending on whether the bookmark and folder it is editing
 // changes underneath it.
 @interface BookmarkEditViewController
-    : ChromeTableViewController <UIAdaptivePresentationControllerDelegate>
+    : ChromeTableViewController <KeyCommandActions,
+                                 UIAdaptivePresentationControllerDelegate>
 
 @property(nonatomic, weak) id<BookmarkEditViewControllerDelegate> delegate;
 
+// Snackbar commands handler.
+@property(nonatomic, weak) id<SnackbarCommands> snackbarCommandsHandler;
+
 // Designated initializer.
-// |bookmark|: mustn't be NULL at initialization time. It also mustn't be a
+// `bookmark`: mustn't be NULL at initialization time. It also mustn't be a
 //             folder.
 - (instancetype)initWithBookmark:(const bookmarks::BookmarkNode*)bookmark
                          browser:(Browser*)browser NS_DESIGNATED_INITIALIZER;
@@ -57,9 +62,6 @@ class BookmarkNode;
 
 // Called before the instance is deallocated.
 - (void)shutdown;
-
-// Closes the edit view as if close button was pressed.
-- (void)dismiss;
 
 @end
 

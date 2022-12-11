@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/time/time.h"
-#include "media/mojo/mojom/speech_recognition_service.mojom.h"
+#include "media/mojo/mojom/speech_recognition.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 // Requires cleanup. See crbug.com/800374.

@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,6 +53,8 @@ class AssistantVoiceSearchConsentController
             @Nullable ModalDialogManager modalDialogManager,
             @NonNull Callback<Boolean> completionCallback) {
         AssistantVoiceSearchConsentUi consentUi;
+        assert (!ChromeFeatureList.isEnabled(
+                ChromeFeatureList.ASSISTANT_NON_PERSONALIZED_VOICE_SEARCH));
 
         if (ChromeFeatureList.isEnabled(ChromeFeatureList.ASSISTANT_CONSENT_MODAL)) {
             // If the modal manager isn't available, bail out of the consent flow and fallback to

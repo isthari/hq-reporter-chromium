@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/logging.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/invalidation/public/invalidation_util.h"
 #include "components/invalidation/public/topic_invalidation_map.h"
 #include "components/prefs/pref_service.h"
@@ -79,7 +80,7 @@ void FCMInvalidationListener::InvalidationReceived(
   Invalidation inv =
       Invalidation::Init(*expected_public_topic, version, payload);
   inv.SetAckHandler(weak_factory_.GetWeakPtr(),
-                    base::ThreadTaskRunnerHandle::Get());
+                    base::SingleThreadTaskRunner::GetCurrentDefault());
   DVLOG(1) << "Received invalidation with version " << inv.version() << " for "
            << *expected_public_topic;
 
@@ -166,9 +167,10 @@ void FCMInvalidationListener::DoSubscriptionUpdate() {
       continue;
     }
 
-    unacked.second.ExportInvalidations(weak_factory_.GetWeakPtr(),
-                                       base::ThreadTaskRunnerHandle::Get(),
-                                       &topic_invalidation_map);
+    unacked.second.ExportInvalidations(
+        weak_factory_.GetWeakPtr(),
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
+        &topic_invalidation_map);
   }
 
   // There's no need to run these through DispatchInvalidations(); they've
@@ -178,8 +180,7 @@ void FCMInvalidationListener::DoSubscriptionUpdate() {
 }
 
 void FCMInvalidationListener::RequestDetailedStatus(
-    const base::RepeatingCallback<void(const base::DictionaryValue&)>& callback)
-    const {
+    const base::RepeatingCallback<void(base::Value::Dict)>& callback) const {
   network_channel_->RequestDetailedStatus(callback);
   callback.Run(CollectDebugData());
 }
@@ -241,17 +242,17 @@ void FCMInvalidationListener::OnSubscriptionChannelStateChanged(
   EmitStateChange();
 }
 
-base::DictionaryValue FCMInvalidationListener::CollectDebugData() const {
-  base::DictionaryValue status =
+base::Value::Dict FCMInvalidationListener::CollectDebugData() const {
+  base::Value::Dict status =
       per_user_topic_subscription_manager_->CollectDebugData();
-  status.SetString("InvalidationListener.FCM-channel-state",
-                   FcmChannelStateToString(fcm_network_state_));
-  status.SetString(
+  status.SetByDottedPath("InvalidationListener.FCM-channel-state",
+                         FcmChannelStateToString(fcm_network_state_));
+  status.SetByDottedPath(
       "InvalidationListener.Subscription-channel-state",
       SubscriptionChannelStateToString(subscription_channel_state_));
   for (const auto& topic : interested_topics_) {
-    if (!status.HasKey(topic.first)) {
-      status.SetString(topic.first, "Unsubscribed");
+    if (!status.Find(topic.first)) {
+      status.Set(topic.first, "Unsubscribed");
     }
   }
   return status;

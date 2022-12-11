@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -88,7 +88,7 @@ struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::UserAgentOverrideDataView,
     return data.ua_string_override;
   }
 
-  static const absl::optional<::blink::UserAgentMetadata> ua_metadata_override(
+  static const absl::optional<::blink::UserAgentMetadata>& ua_metadata_override(
       const ::blink::UserAgentOverride& data) {
     return data.ua_metadata_override;
   }

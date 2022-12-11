@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,7 +58,7 @@ TEST_F(SupervisedUserProviderTest, GeolocationTest) {
   EXPECT_CALL(mock_observer_,
               OnContentSettingChanged(_, _, ContentSettingsType::GEOLOCATION));
   service_.SetLocalSetting(supervised_users::kGeolocationDisabled,
-                           std::make_unique<base::Value>(true));
+                           base::Value(true));
 
   rule_iterator =
       provider_->GetRuleIterator(ContentSettingsType::GEOLOCATION, false);
@@ -74,7 +74,7 @@ TEST_F(SupervisedUserProviderTest, GeolocationTest) {
   EXPECT_CALL(mock_observer_,
               OnContentSettingChanged(_, _, ContentSettingsType::GEOLOCATION));
   service_.SetLocalSetting(supervised_users::kGeolocationDisabled,
-                           std::make_unique<base::Value>(false));
+                           base::Value(false));
 
   rule_iterator =
       provider_->GetRuleIterator(ContentSettingsType::GEOLOCATION, false);
@@ -84,16 +84,7 @@ TEST_F(SupervisedUserProviderTest, GeolocationTest) {
 TEST_F(SupervisedUserProviderTest, CookiesTest) {
   std::unique_ptr<RuleIterator> rule_iterator =
       provider_->GetRuleIterator(ContentSettingsType::COOKIES, false);
-  EXPECT_FALSE(rule_iterator);
 
-  // Allow cookies everywhere.
-  EXPECT_CALL(mock_observer_,
-              OnContentSettingChanged(_, _, ContentSettingsType::COOKIES));
-  service_.SetLocalSetting(supervised_users::kCookiesAlwaysAllowed,
-                           std::make_unique<base::Value>(true));
-
-  rule_iterator =
-      provider_->GetRuleIterator(ContentSettingsType::COOKIES, false);
   ASSERT_TRUE(rule_iterator->HasNext());
   Rule rule = rule_iterator->Next();
   EXPECT_FALSE(rule_iterator->HasNext());
@@ -106,7 +97,7 @@ TEST_F(SupervisedUserProviderTest, CookiesTest) {
   EXPECT_CALL(mock_observer_,
               OnContentSettingChanged(_, _, ContentSettingsType::COOKIES));
   service_.SetLocalSetting(supervised_users::kCookiesAlwaysAllowed,
-                           std::make_unique<base::Value>(false));
+                           base::Value(false));
 
   rule_iterator =
       provider_->GetRuleIterator(ContentSettingsType::COOKIES, false);
@@ -128,7 +119,7 @@ TEST_F(SupervisedUserProviderTest, CameraMicTest) {
   EXPECT_CALL(mock_observer_, OnContentSettingChanged(
                                   _, _, ContentSettingsType::MEDIASTREAM_MIC));
   service_.SetLocalSetting(supervised_users::kCameraMicDisabled,
-                           std::make_unique<base::Value>(true));
+                           base::Value(true));
 
   rule_iterator = provider_->GetRuleIterator(
       ContentSettingsType::MEDIASTREAM_CAMERA, false);
@@ -157,7 +148,7 @@ TEST_F(SupervisedUserProviderTest, CameraMicTest) {
   EXPECT_CALL(mock_observer_, OnContentSettingChanged(
                                   _, _, ContentSettingsType::MEDIASTREAM_MIC));
   service_.SetLocalSetting(supervised_users::kCameraMicDisabled,
-                           std::make_unique<base::Value>(false));
+                           base::Value(false));
 
   rule_iterator = provider_->GetRuleIterator(
       ContentSettingsType::MEDIASTREAM_CAMERA, false);

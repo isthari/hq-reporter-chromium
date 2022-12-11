@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,10 @@ import {FirmwareUpdate, UpdateState} from 'chrome://accessory-update/firmware_up
 import {mojoString16ToString} from 'chrome://accessory-update/mojo_utils.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
-import {flushTasks, isVisible} from '../../test_util.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
+
+import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
+import {isVisible} from '../test_util.js';
 
 export function firmwareUpdateDialogTest() {
   /** @type {?FirmwareUpdateDialogElement} */
@@ -21,7 +23,7 @@ export function firmwareUpdateDialogTest() {
     updateDialogElement.update = fakeFirmwareUpdate;
     updateDialogElement.installationProgress = {
       percentage: 0,
-      state: UpdateState.kIdle
+      state: UpdateState.kIdle,
     };
     document.body.appendChild(updateDialogElement);
   });
@@ -45,6 +47,14 @@ export function firmwareUpdateDialogTest() {
   function clickDoneButton() {
     updateDialogElement.shadowRoot.querySelector('#updateDoneButton').click();
     return flushTasks();
+  }
+
+  /**
+   * @suppress {visibility}
+   * @param {boolean} inflight
+   */
+  function setIsInitiallyInflight(inflight) {
+    updateDialogElement.isInitiallyInflight_ = inflight;
   }
 
   test('DialogStateUpdatesCorrectly', async () => {
@@ -157,5 +167,23 @@ export function firmwareUpdateDialogTest() {
     // No percentage progress bar.
     assertFalse(
         !!updateDialogElement.shadowRoot.querySelector('#updateProgressBar'));
+  });
+
+  test('ProgressBarAppears', async () => {
+    // Simulate update inflight, but restarting. Idle state during inflight
+    // is equivalent as a restart phase.
+    setIsInitiallyInflight(/*inflight=*/ true);
+    await flushTasks();
+    await setInstallationProgress(0, UpdateState.kIdle);
+    assertTrue(
+        updateDialogElement.shadowRoot.querySelector('#updateDialog').open);
+    assertTrue(!!updateDialogElement.shadowRoot.querySelector(
+        '#indeterminateProgressBar'));
+
+    // Set inflight to false, expect no progress bar.
+    setIsInitiallyInflight(/*inflight=*/ false);
+    await flushTasks();
+    assertFalse(!!updateDialogElement.shadowRoot.querySelector(
+        '#indeterminateProgressBar'));
   });
 }

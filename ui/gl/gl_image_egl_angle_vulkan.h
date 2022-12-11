@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,9 @@ class GL_EXPORT GLImageEGLAngleVulkan : public GLImageEGL {
   GLImageEGLAngleVulkan(const GLImageEGLAngleVulkan&) = delete;
   GLImageEGLAngleVulkan& operator=(const GLImageEGLAngleVulkan&) = delete;
 
-  bool Initialize(VkImage image, const VkImageCreateInfo* create_info);
+  bool Initialize(VkImage image,
+                  const VkImageCreateInfo* create_info,
+                  unsigned int internal_format);
 
  protected:
   ~GLImageEGLAngleVulkan() override;

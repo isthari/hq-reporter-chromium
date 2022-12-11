@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,11 @@ void RegisterLocalStatePrefs(PrefRegistrySimple* registry);
 
 // This function registers Lacros-related profile specific prefs.
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
+
+// Registers prefs used by extension-controlled prefs. In lacros, these prefs
+// hold the computed value across all extensions, which is then sent to ash.
+void RegisterExtensionControlledAshPrefs(
+    user_prefs::PrefRegistrySyncable* registry);
 
 }  // namespace lacros_prefs
 

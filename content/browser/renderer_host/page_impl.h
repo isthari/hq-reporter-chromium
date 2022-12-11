@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,12 @@
 #include <set>
 #include <vector>
 
+#include "base/memory/raw_ref.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "cc/input/browser_controls_state.h"
 #include "content/browser/fenced_frame/fenced_frame_url_mapping.h"
+#include "content/browser/renderer_host/stored_page.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/page.h"
 #include "services/metrics/public/cpp/ukm_source.h"
@@ -22,13 +24,13 @@
 #include "third_party/blink/public/mojom/favicon/favicon_url.mojom.h"
 #include "third_party/blink/public/mojom/frame/text_autosizer_page_info.mojom.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/base/ime/mojom/virtual_keyboard_types.mojom.h"
 #include "url/gurl.h"
 
 namespace content {
 
 class PageDelegate;
 class RenderFrameHostImpl;
-class RenderViewHostImpl;
 
 // This implements the Page interface that is exposed to embedders of content,
 // and adds things only visible to content.
@@ -48,7 +50,9 @@ class CONTENT_EXPORT PageImpl : public Page {
   base::WeakPtr<Page> GetWeakPtr() override;
   bool IsPageScaleFactorOne() override;
 
-  void UpdateManifestUrl(const GURL& manifest_url);
+  base::WeakPtr<PageImpl> GetWeakPtrImpl();
+
+  virtual void UpdateManifestUrl(const GURL& manifest_url);
 
   RenderFrameHostImpl& GetMainDocument() const;
 
@@ -90,6 +94,8 @@ class CONTENT_EXPORT PageImpl : public Page {
   // Notifies the page's color scheme was inferred.
   void DidInferColorScheme(blink::mojom::PreferredColorScheme color_scheme);
 
+  void NotifyPageBecameCurrent();
+
   absl::optional<SkColor> theme_color() const {
     return main_document_theme_color_;
   }
@@ -124,10 +130,6 @@ class CONTENT_EXPORT PageImpl : public Page {
     return last_main_document_source_id_;
   }
 
-  const base::UnguessableToken& anonymous_iframes_nonce() const {
-    return anonymous_iframes_nonce_;
-  }
-
   // Sets the start time of the prerender activation navigation for this page.
   // TODO(falken): Plumb NavigationRequest to
   // RenderFrameHostManager::CommitPending and remove this.
@@ -138,7 +140,7 @@ class CONTENT_EXPORT PageImpl : public Page {
   // documents from prerendered to activated. Tells the corresponding
   // RenderFrameHostImpls that the renderer will be activating their documents.
   void ActivateForPrerendering(
-      std::set<RenderViewHostImpl*>& render_view_hosts_to_activate);
+      StoredPage::RenderViewHostImplSafeRefSet& render_view_hosts_to_activate);
 
   // Prerender2:
   // Dispatches load events that were deferred to be dispatched after
@@ -153,23 +155,25 @@ class CONTENT_EXPORT PageImpl : public Page {
                                   cc::BrowserControlsState current,
                                   bool animate);
 
+  float GetPageScaleFactor() const;
+
   void set_load_progress(double load_progress) {
     load_progress_ = load_progress;
   }
   double load_progress() const { return load_progress_; }
 
-  void set_page_scale_factor(float scale) { page_scale_factor_ = scale; }
-  float page_scale_factor() const { return page_scale_factor_; }
+  void NotifyVirtualKeyboardOverlayRect(const gfx::Rect& keyboard_rect);
 
-  void set_virtual_keyboard_overlays_content(bool vk_overlays_content) {
-    virtual_keyboard_overlays_content_ = vk_overlays_content;
-  }
-  bool virtual_keyboard_overlays_content() const {
-    return virtual_keyboard_overlays_content_;
+  void SetVirtualKeyboardMode(ui::mojom::VirtualKeyboardMode mode);
+  ui::mojom::VirtualKeyboardMode virtual_keyboard_mode() const {
+    return virtual_keyboard_mode_;
   }
 
   const std::string& GetEncoding() { return canonical_encoding_; }
   void UpdateEncoding(const std::string& encoding_name);
+
+  // Returns the keyboard layout mapping.
+  base::flat_map<std::string, std::string> GetKeyboardLayoutMap();
 
  private:
   void DidActivateAllRenderViewsForPrerendering();
@@ -236,7 +240,7 @@ class CONTENT_EXPORT PageImpl : public Page {
 
   // This class is owned by the main RenderFrameHostImpl and it's safe to keep a
   // reference to it.
-  RenderFrameHostImpl& main_document_;
+  const raw_ref<RenderFrameHostImpl> main_document_;
 
   // SourceId of the navigation in this page's main frame. Note that a same
   // document navigation is the only case where this source id can change, since
@@ -245,16 +249,11 @@ class CONTENT_EXPORT PageImpl : public Page {
 
   // This page is owned by the RenderFrameHostImpl, which in turn does not
   // outlive the delegate (the contents).
-  PageDelegate& delegate_;
+  const raw_ref<PageDelegate> delegate_;
 
   // Stores information from the main frame's renderer that needs to be shared
   // with OOPIF renderers.
   blink::mojom::TextAutosizerPageInfo text_autosizer_page_info_;
-
-  // Nonce to be used for initializing the storage key and the network isolation
-  // key of anonymous iframes which are children of this page's document.
-  const base::UnguessableToken anonymous_iframes_nonce_ =
-      base::UnguessableToken::Create();
 
   // Prerender2: The start time of the activation navigation for prerendering,
   // which is passed to the renderer process, and will be accessible in the
@@ -264,17 +263,9 @@ class CONTENT_EXPORT PageImpl : public Page {
   // RenderFrameHostManager::CommitPending and remove this.
   absl::optional<base::TimeTicks> activation_start_time_for_prerendering_;
 
-  // The most recent page scale factor sent by the main frame's renderer.
-  // Note that the renderer uses a different mechanism to persist its page
-  // scale factor when performing session history navigations (see
-  // blink::PageState).
-  float page_scale_factor_ = 1.f;
-
-  // If true, then the Virtual keyboard rectangle that occludes the content is
-  // sent to the VirtualKeyboard API where it fires overlaygeometrychange JS
-  // event notifying the web authors that Virtual keyboard has occluded the
-  // content.
-  bool virtual_keyboard_overlays_content_ = false;
+  // The resizing mode requested by Blink for the virtual keyboard.
+  ui::mojom::VirtualKeyboardMode virtual_keyboard_mode_ =
+      ui::mojom::VirtualKeyboardMode::kUnset;
 
   // The last reported character encoding, not canonicalized.
   std::string last_reported_encoding_;

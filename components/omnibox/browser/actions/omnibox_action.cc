@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,8 +31,6 @@ OmniboxAction::LabelStrings::LabelStrings(const LabelStrings&) = default;
 
 OmniboxAction::LabelStrings::~LabelStrings() = default;
 
-// =============================================================================
-
 namespace base {
 namespace trace_event {
 size_t EstimateMemoryUsage(const OmniboxAction::LabelStrings& self) {
@@ -45,6 +43,12 @@ size_t EstimateMemoryUsage(const OmniboxAction::LabelStrings& self) {
 }
 }  // namespace trace_event
 }  // namespace base
+
+// =============================================================================
+
+bool OmniboxAction::Client::OpenJourneys(const std::string& query) {
+  return false;
+}
 
 // =============================================================================
 
@@ -89,10 +93,6 @@ const gfx::VectorIcon& OmniboxAction::GetVectorIcon() const {
 }
 #endif
 
-SkColor OmniboxAction::GetVectorIconColor() const {
-  return SK_ColorTRANSPARENT;
-}
-
 size_t OmniboxAction::EstimateMemoryUsage() const {
   size_t total = 0;
   total += base::trace_event::EstimateMemoryUsage(url_);
@@ -123,5 +123,6 @@ void OmniboxAction::OpenURL(OmniboxAction::ExecutionContext& context,
            /*match_type=*/AutocompleteMatchType::URL_WHAT_YOU_TYPED,
            context.match_selection_timestamp_,
            /*destination_url_entered_without_scheme=*/false, u"",
-           AutocompleteMatch(), AutocompleteMatch());
+           AutocompleteMatch(), AutocompleteMatch(),
+           IDNA2008DeviationCharacter::kNone);
 }

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -36,6 +37,7 @@
 #include "content/public/common/content_features.h"
 #include "gpu/config/gpu_info.h"
 #include "media/audio/audio_manager.h"
+#include "media/base/media_switches.h"
 #include "media/webrtc/webrtc_features.h"
 #include "net/base/ip_address.h"
 #include "net/base/network_change_notifier.h"
@@ -72,8 +74,14 @@ std::string Format(const std::string& message,
                    base::Time start_time) {
   int32_t interval_ms =
       static_cast<int32_t>((timestamp - start_time).InMilliseconds());
-  return base::StringPrintf("[%03d:%03d] %s", interval_ms / 1000,
-                            interval_ms % 1000, message.c_str());
+  // Log start time (current time). We don't use base/i18n/time_formatting.h
+  // here because we don't want the format of the current locale.
+  base::Time::Exploded now = {0};
+  base::Time::Now().LocalExplode(&now);
+  return base::StringPrintf("[%03d:%03d, %02d:%02d:%02d.%03d] %s",
+                            interval_ms / 1000, interval_ms % 1000, now.hour,
+                            now.minute, now.second, now.millisecond,
+                            message.c_str());
 }
 
 std::string FormatMetaDataAsLogMessage(const WebRtcLogMetaDataMap& meta_data) {
@@ -113,7 +121,9 @@ std::string IPAddressToSensitiveString(const net::IPAddress& address) {
       sensitive_address = net::IPAddress(stripped).ToString();
       break;
     }
-    default: { break; }
+    default: {
+      break;
+    }
   }
   return sensitive_address;
 #else
@@ -370,7 +380,7 @@ void WebRtcTextLogHandler::FireGenericDoneCallback(
 
   if (error_message.empty()) {
     DCHECK(success);
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), success, error_message));
     return;
   }
@@ -399,7 +409,7 @@ void WebRtcTextLogHandler::FireGenericDoneCallback(
       base::StrCat({error_message, ". State=", state_string(), ". Channel is ",
                     channel_is_closing_ ? "" : "not ", "closing."});
 
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback), success, error_message_with_state));
 }
@@ -476,8 +486,11 @@ void WebRtcTextLogHandler::OnGetNetworkInterfaceListFinish(
 #if BUILDFLAG(IS_MAC)
   computer_model = base::mac::GetModelIdentifier();
 #elif BUILDFLAG(IS_CHROMEOS_ASH)
-  chromeos::system::StatisticsProvider::GetInstance()->GetMachineStatistic(
-      chromeos::system::kHardwareClassKey, &computer_model);
+  if (const absl::optional<base::StringPiece> computer_model_statistic =
+          chromeos::system::StatisticsProvider::GetInstance()
+              ->GetMachineStatistic(chromeos::system::kHardwareClassKey)) {
+    computer_model = std::string(computer_model_statistic.value());
+  }
 #endif
   LogToCircularBuffer("Computer model: " + computer_model);
 
@@ -510,6 +523,24 @@ void WebRtcTextLogHandler::OnGetNetworkInterfaceListFinish(
            features::kAudioServiceLaunchOnStartup),
        ", Sandbox=",
        enabled_or_disabled_bool_string(IsAudioServiceSandboxEnabled())}));
+
+#if BUILDFLAG(CHROME_WIDE_ECHO_CANCELLATION)
+  if (media::IsChromeWideEchoCancellationEnabled()) {
+    LogToCircularBuffer(base::StrCat(
+        {"ChromeWideEchoCancellation : Enabled", ", processing_fifo_size = ",
+         NumberToString(
+             media::kChromeWideEchoCancellationProcessingFifoSize.Get()),
+         ", minimize_resampling = ",
+         media::kChromeWideEchoCancellationMinimizeResampling.Get() ? "true"
+                                                                    : "false",
+         ", allow_all_sample_rates = ",
+         media::kChromeWideEchoCancellationAllowAllSampleRates.Get()
+             ? "true"
+             : "false"}));
+  } else {
+    LogToCircularBuffer("ChromeWideEchoCancellation : Disabled");
+  }
+#endif
 
   // Audio manager
   // On some platforms, this can vary depending on build flags and failure
@@ -545,10 +576,11 @@ void WebRtcTextLogHandler::OnGetNetworkInterfaceListFinish(
 
   // TODO(darin): Change SetLogMessageCallback to run on the UI thread.
 
-  auto log_message_callback = base::BindRepeating(
-      &ForwardMessageViaTaskRunner, base::SequencedTaskRunnerHandle::Get(),
-      base::BindRepeating(&WebRtcTextLogHandler::LogMessage,
-                          weak_factory_.GetWeakPtr()));
+  auto log_message_callback =
+      base::BindRepeating(&ForwardMessageViaTaskRunner,
+                          base::SequencedTaskRunner::GetCurrentDefault(),
+                          base::BindRepeating(&WebRtcTextLogHandler::LogMessage,
+                                              weak_factory_.GetWeakPtr()));
   content::GetIOThreadTaskRunner({})->PostTask(
       FROM_HERE,
       base::BindOnce(&content::WebRtcLog::SetLogMessageCallback,

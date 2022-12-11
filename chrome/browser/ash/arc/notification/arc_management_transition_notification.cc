@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/arc/notification/arc_management_transition_notification.h"
 
 #include "ash/components/arc/arc_prefs.h"
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "base/bind.h"
 #include "chrome/app/vector_icons/vector_icons.h"
@@ -103,22 +104,22 @@ void ShowManagementTransitionNotification(Profile* profile) {
          transition == ArcManagementTransition::UNMANAGED_TO_MANAGED);
 
   message_center::NotifierId notifier_id(
-      message_center::NotifierType::SYSTEM_COMPONENT, kNotifierId);
+      message_center::NotifierType::SYSTEM_COMPONENT, kNotifierId,
+      ash::NotificationCatalogName::kManagementTransition);
   notifier_id.profile_id =
       multi_user_util::GetAccountIdFromProfile(profile).GetUserEmail();
 
-  std::unique_ptr<message_center::Notification> notification =
-      ash::CreateSystemNotification(
-          message_center::NOTIFICATION_TYPE_SIMPLE,
-          kManagementTransitionNotificationId,
-          l10n_util::GetStringUTF16(IDS_ARC_CHILD_TRANSITION_TITLE),
-          l10n_util::GetStringUTF16(IDS_ARC_CHILD_TRANSITION_MESSAGE),
-          l10n_util::GetStringUTF16(IDS_ARC_NOTIFICATION_DISPLAY_SOURCE),
-          GURL(), notifier_id, message_center::RichNotificationData(),
-          new NotificationDelegate(profile), GetNotificationIcon(transition),
-          message_center::SystemNotificationWarningLevel::NORMAL);
+  message_center::Notification notification = ash::CreateSystemNotification(
+      message_center::NOTIFICATION_TYPE_SIMPLE,
+      kManagementTransitionNotificationId,
+      l10n_util::GetStringUTF16(IDS_ARC_CHILD_TRANSITION_TITLE),
+      l10n_util::GetStringUTF16(IDS_ARC_CHILD_TRANSITION_MESSAGE),
+      l10n_util::GetStringUTF16(IDS_ARC_NOTIFICATION_DISPLAY_SOURCE), GURL(),
+      notifier_id, message_center::RichNotificationData(),
+      new NotificationDelegate(profile), GetNotificationIcon(transition),
+      message_center::SystemNotificationWarningLevel::NORMAL);
   NotificationDisplayService::GetForProfile(profile)->Display(
-      NotificationHandler::Type::TRANSIENT, *notification,
+      NotificationHandler::Type::TRANSIENT, notification,
       /*metadata=*/nullptr);
 }
 

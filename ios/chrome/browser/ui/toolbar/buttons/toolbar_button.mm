@@ -1,13 +1,15 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
 
-#include "base/check.h"
+#import "base/check.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/ui/util/util_swift.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -70,14 +72,22 @@ const CGFloat kSpotlightCornerRadius = 7;
   [self setHiddenForCurrentStateAndSizeClass];
 }
 
+- (void)setIphHighlighted:(BOOL)iphHighlighted {
+  if (iphHighlighted == _iphHighlighted)
+    return;
+
+  _iphHighlighted = iphHighlighted;
+  [self updateTintColor];
+  [self updateSpotlightView];
+}
+
 - (void)setSpotlighted:(BOOL)spotlighted {
   if (spotlighted == _spotlighted)
     return;
 
   _spotlighted = spotlighted;
-  self.spotlightView.hidden = !spotlighted;
-  [self setNeedsLayout];
-  [self layoutIfNeeded];
+  [self updateTintColor];
+  [self updateSpotlightView];
 }
 
 - (void)setDimmed:(BOOL)dimmed {
@@ -89,17 +99,10 @@ const CGFloat kSpotlightCornerRadius = 7;
 
   if (dimmed) {
     self.alpha = kToolbarDimmedButtonAlpha;
-    if (_spotlightView) {
-      self.spotlightView.backgroundColor =
-          self.toolbarConfiguration.dimmedButtonsSpotlightColor;
-    }
   } else {
     self.alpha = 1;
-    if (_spotlightView) {
-      self.spotlightView.backgroundColor =
-          self.toolbarConfiguration.buttonsSpotlightColor;
-    }
   }
+  [self updateSpotlightView];
 }
 
 - (UIControlState)state {
@@ -114,10 +117,8 @@ const CGFloat kSpotlightCornerRadius = 7;
   _toolbarConfiguration = toolbarConfiguration;
   if (!toolbarConfiguration)
     return;
-
-  self.tintColor = toolbarConfiguration.buttonsTintColor;
-  _spotlightView.backgroundColor =
-      self.toolbarConfiguration.buttonsSpotlightColor;
+  [self updateTintColor];
+  [self updateSpotlightView];
 }
 
 #pragma mark - Subclassing
@@ -158,7 +159,38 @@ const CGFloat kSpotlightCornerRadius = 7;
     NamedGuide* guide = [NamedGuide guideWithName:self.guideName view:self];
     if (guide.constrainedView != self)
       guide.constrainedView = self;
+
+    [self.layoutGuideCenter referenceView:self underName:self.guideName];
   }
+}
+
+// Updates the spotlight view's appearance according to the current state.
+- (void)updateSpotlightView {
+  self.spotlightView.hidden = !self.iphHighlighted && !self.spotlighted;
+
+  // IPH Highlight color takes precendence over spotlight color if both states
+  // are set.
+  if (self.iphHighlighted) {
+    self.spotlightView.backgroundColor =
+        self.toolbarConfiguration.buttonsIPHHighlightColor;
+  } else if (self.spotlighted) {
+    self.spotlightView.backgroundColor =
+        self.dimmed ? self.toolbarConfiguration.dimmedButtonsSpotlightColor
+                    : self.toolbarConfiguration.buttonsSpotlightColor;
+  } else {
+    // The view should always be hidden in this state, but reset to default
+    // color just in case.
+    self.spotlightView.backgroundColor =
+        self.toolbarConfiguration.buttonsSpotlightColor;
+  }
+}
+
+// Updates the tint color according to the current state.
+- (void)updateTintColor {
+  self.tintColor =
+      (self.iphHighlighted)
+          ? self.toolbarConfiguration.buttonsTintColorIPHHighlighted
+          : self.toolbarConfiguration.buttonsTintColor;
 }
 
 @end

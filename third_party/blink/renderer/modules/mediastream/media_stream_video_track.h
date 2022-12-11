@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
+#include "base/timer/timer.h"
 #include "third_party/blink/public/platform/modules/mediastream/secure_display_link_tracker.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_sink.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_track.h"
@@ -85,24 +86,33 @@ class MODULES_EXPORT MediaStreamVideoTrack : public MediaStreamTrackPlatform {
   void SetContentHint(
       WebMediaStreamTrack::ContentHintType content_hint) override;
   void StopAndNotify(base::OnceClosure callback) override;
-  void GetSettings(MediaStreamTrackPlatform::Settings& settings) override;
+  void GetSettings(MediaStreamTrackPlatform::Settings& settings) const override;
   MediaStreamTrackPlatform::CaptureHandle GetCaptureHandle() override;
+  void AddCropVersionCallback(uint32_t crop_version,
+                              base::OnceClosure callback) override;
+  void RemoveCropVersionCallback(uint32_t crop_version) override;
 
   // Add |sink| to receive state changes on the main render thread and video
-  // frames in the |callback| method on the IO-thread.
+  // frames in the |callback| method on the video task runner.
   // |callback| will be reset on the render thread.
   void AddSink(WebMediaStreamSink* sink,
                const VideoCaptureDeliverFrameCB& callback,
                MediaStreamVideoSink::IsSecure is_secure,
-               MediaStreamVideoSink::UsesAlpha uses_alpha);
+               MediaStreamVideoSink::UsesAlpha uses_alpha) override;
+  // Sets |sink|'s dropped frame notification callback which will receive calls
+  // on the video task runner. |callback| will be reset on the render thread.
+  // Note: the method needs to be called after a sink has been added.
+  void SetSinkNotifyFrameDroppedCallback(
+      WebMediaStreamSink* sink,
+      const VideoCaptureNotifyFrameDroppedCB& callback);
   void RemoveSink(WebMediaStreamSink* sink);
 
   // Returns the number of currently connected sinks.
   size_t CountSinks() const;
 
-  // Adds |callback| for encoded frame output on the IO thread. The function
-  // will cause generation of a keyframe from the source.
-  // Encoded sinks are not secure.
+  // Adds |callback| for encoded frame output on the video task runner. The
+  // function will cause generation of a keyframe from the source. Encoded sinks
+  // are not secure.
   void AddEncodedSink(WebMediaStreamSink* sink, EncodedVideoFrameCB callback);
 
   // Removes encoded callbacks associated with |sink|.
@@ -182,6 +192,10 @@ class MODULES_EXPORT MediaStreamVideoTrack : public MediaStreamTrackPlatform {
     is_screencast_ = is_screencast;
   }
 
+  MediaStreamTrackPlatform::StreamType Type() const override {
+    return MediaStreamTrackPlatform::StreamType::kVideo;
+  }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(MediaStreamRemoteVideoSourceTest, StartTrack);
   FRIEND_TEST_ALL_PREFIXES(MediaStreamRemoteVideoSourceTest, RemoteTrackStop);
@@ -204,7 +218,7 @@ class MODULES_EXPORT MediaStreamVideoTrack : public MediaStreamTrackPlatform {
   Vector<WebMediaStreamSink*> encoded_sinks_;
 
   // |FrameDeliverer| is an internal helper object used for delivering video
-  // frames on the IO-thread using callbacks to all registered tracks.
+  // frames on the video task runner using callbacks to all registered tracks.
   class FrameDeliverer;
   scoped_refptr<FrameDeliverer> frame_deliverer_;
 

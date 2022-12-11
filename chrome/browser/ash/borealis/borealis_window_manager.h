@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,6 +48,9 @@ class BorealisWindowManager : public apps::InstanceRegistry::Observer {
   // Determines if a newly created window should be minimized on creation.
   // TODO(b/210569001): this is intended to be a temporary solution.
   static bool ShouldNewWindowBeMinimized(const std::string& window_id);
+
+  // Returns true when the given |app_id| is for an anonymous borealis app.
+  static bool IsAnonymousAppId(const std::string& app_id);
 
   // An observer for tracking the creation and deletion of anonymous windows.
   class AnonymousAppObserver : public base::CheckedObserver {

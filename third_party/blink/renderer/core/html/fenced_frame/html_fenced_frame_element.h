@@ -1,12 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FENCED_FRAME_HTML_FENCED_FRAME_ELEMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_FENCED_FRAME_HTML_FENCED_FRAME_ELEMENT_H_
 
+#include "base/notreached.h"
+#include "third_party/blink/public/common/fenced_frame/fenced_frame_utils.h"
+#include "third_party/blink/public/mojom/fenced_frame/fenced_frame.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/node.h"
+#include "third_party/blink/renderer/core/html/fenced_frame/fenced_frame_config.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
 #include "third_party/blink/renderer/core/resize_observer/resize_observer.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -24,6 +28,7 @@ class KURL;
 // - Passing --enable-features=FencedFrames
 class CORE_EXPORT HTMLFencedFrameElement : public HTMLFrameOwnerElement {
   DEFINE_WRAPPERTYPEINFO();
+  using PassKey = base::PassKey<HTMLFencedFrameElement>;
 
  public:
   // For a while there will be two underlying implementations of Fenced Frames:
@@ -45,9 +50,16 @@ class CORE_EXPORT HTMLFencedFrameElement : public HTMLFrameOwnerElement {
     virtual ~FencedFrameDelegate();
     void Trace(Visitor* visitor) const;
 
-    virtual void DidGetInserted() = 0;
     virtual void Navigate(const KURL&) = 0;
-    virtual void DidGetRemoved() {}
+    // This method is used to clean up all state in preparation for destruction,
+    // even though the destruction may happen arbitrarily later during garbage
+    // collection.
+    virtual void Dispose() {}
+
+    virtual void AttachLayoutTree() {}
+    virtual bool SupportsFocus() { return false; }
+    virtual void FreezeFrameSize() {}
+    virtual void DidChangeFramePolicy(const FramePolicy& frame_policy) {}
 
    protected:
     HTMLFencedFrameElement& GetElement() const { return *outer_element_; }
@@ -65,24 +77,21 @@ class CORE_EXPORT HTMLFencedFrameElement : public HTMLFrameOwnerElement {
   FrameOwnerElementType OwnerType() const override {
     return FrameOwnerElementType::kFencedframe;
   }
-  ParsedPermissionsPolicy ConstructContainerPolicy() const override {
-    NOTREACHED();
-    return ParsedPermissionsPolicy();
-  }
+  ParsedPermissionsPolicy ConstructContainerPolicy() const override;
+  void SetCollapsed(bool) override;
+  void DidChangeContainerPolicy() override;
 
   // HTMLElement overrides.
   bool IsHTMLFencedFrameElement() const final { return true; }
 
-  // TODO(kojii): Currently followings members are valid only when non-MPArch.
-  // They may better be moved to |FencedFrameDelegate| once how to achieve the
-  // desired layout behavior on MPArch has been determined.
+  // See the documentation above `mode_`.
+  mojom::blink::FencedFrameMode GetMode() const { return mode_; }
 
   // The frame size is "frozen" when the `src` attribute is set.
   // The frozen state is kept in this element so that it can survive across
   // reattaches.
-  const absl::optional<PhysicalSize>& FrozenFrameSize() const {
-    return frozen_frame_size_;
-  }
+  // The size is in layout size (i.e., DSF multiplied.)
+  const absl::optional<PhysicalSize> FrozenFrameSize() const;
   // True if the frame size should be frozen when the next resize completed.
   // When `src` is set but layout is not completed yet, the frame size is frozen
   // after the first layout.
@@ -96,10 +105,25 @@ class CORE_EXPORT HTMLFencedFrameElement : public HTMLFrameOwnerElement {
   // while keeping the inner frame size unchanged.
   HTMLIFrameElement* InnerIFrameElement() const;
 
+  FencedFrameConfig* config() const { return config_; }
+  void setConfig(FencedFrameConfig* config);
+  // Web-exposed API that returns whether an opaque-ads fenced frame would be
+  // allowed to be created in the current active document of this node.
+  // Checks the following criteria:
+  // - Not trying to load in a default mode fenced frame tree
+  // - All of the sandbox/allow flags required to load a fenced frame are set
+  //   in the embedder. See: blink::kFencedFrameMandatoryUnsandboxedFlags
+  // - No CSP headers are in place that will stop the fenced frame from loading
+  // - No CSPEE is applied to this or an ancestor frame
+  static bool canLoadOpaqueURL(ScriptState*);
+
  private:
   // This method will only navigate the underlying frame if the element
-  // `isConnected()`.
-  void Navigate();
+  // `isConnected()`. It will be deferred if the page is currently prerendering.
+  void Navigate(const KURL& url);
+
+  // Delegate creation will be deferred if the page is currently prerendering.
+  void CreateDelegateAndNavigate();
 
   // Node overrides.
   Node::InsertionNotificationRequest InsertedInto(ContainerNode&) override;
@@ -114,13 +138,24 @@ class CORE_EXPORT HTMLFencedFrameElement : public HTMLFrameOwnerElement {
       const QualifiedName&,
       const AtomicString&,
       MutableCSSPropertyValueSet*) override;
+  bool LayoutObjectIsNeeded(const ComputedStyle&) const override;
   LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
   void AttachLayoutTree(AttachContext& context) override;
   bool SupportsFocus() const override;
 
   void FreezeFrameSize();
+  void FreezeFrameSize(const PhysicalSize&);
+
+  // Given a size `requested_size`, return the nearest allowed fenced frame
+  // size. Note that size restrictions only apply to top-level opaque-ads
+  // fenced frames.
+  // NB: `requested_size` should be in logical/CSS units, NOT physical units.
+  // The returned size is also in logical/CSS units.
+  // TODO(crbug.com/1123606): remove this once we bind size to opaque URLs.
+  PhysicalSize CoerceFrameSize(const PhysicalSize& requested_size);
 
   void StartResizeObserver();
+  void StopResizeObserver();
   void OnResize(const PhysicalRect& content_box);
   void UpdateInnerStyleOnFrozenInternalFrame();
 
@@ -131,14 +166,39 @@ class CORE_EXPORT HTMLFencedFrameElement : public HTMLFrameOwnerElement {
 
   // The underlying <fencedframe> implementation that we delegate all of the
   // important bits to. See the comment above this class declaration.
+  // Note: This is null when the document is sandboxed without
+  // `kFencedFrameMandatoryUnsandboxedFlags`.
   Member<FencedFrameDelegate> frame_delegate_;
   Member<ResizeObserver> resize_observer_;
-  // See |FrozenFrameSize| above.
+  Member<FencedFrameConfig> config_;
+  // See |FrozenFrameSize| above. Stored in CSS pixel (without DSF multiplied.)
   absl::optional<PhysicalSize> frozen_frame_size_;
   absl::optional<PhysicalRect> content_rect_;
   bool should_freeze_frame_size_on_next_layout_ = false;
+  bool collapsed_by_client_ = false;
+  // This represents the element's `mode` attribute. We store it here instead of
+  // always reading it off of the element, because after the first navigation it
+  // is effectively frozen. Like the frozen size of the frame, it survives
+  // element reattachments too. We maintain the `freeze_mode_attribute_`
+  // variable below so we can know when to reject updates to `mode_`.
+  mojom::blink::FencedFrameMode mode_ = mojom::blink::FencedFrameMode::kDefault;
+  bool freeze_mode_attribute_ = false;
+  // Used to track if the Blink.FencedFrame.IsFrameResizedAfterSizeFrozen
+  // histogram has already been logged for this fenced frame if its size was
+  // set after being frozen. This ensures that multiple logs don't happen
+  // for one fenced frame if it's constantly being resized.
+  bool size_set_after_freeze_ = false;
+  // Attributes that are modeled off of their iframe equivalents
+  AtomicString allow_;
 
+  friend class FencedFrameMPArchDelegate;
+  friend class FencedFrameShadowDOMDelegate;
   friend class ResizeObserverDelegate;
+  FRIEND_TEST_ALL_PREFIXES(HTMLFencedFrameElementTest,
+                           FreezeSizePageZoomFactor);
+  FRIEND_TEST_ALL_PREFIXES(HTMLFencedFrameElementTest, CoerceFrameSizeTest);
+  FRIEND_TEST_ALL_PREFIXES(HTMLFencedFrameElementTest,
+                           HistogramTestResizeAfterFreeze);
 };
 
 // Type casting. Custom since adoption could lead to an HTMLFencedFrameElement

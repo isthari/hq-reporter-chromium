@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,13 @@
 
 #include <numeric>
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/system/media/unified_media_controls_container.h"
 #include "ash/system/message_center/ash_message_center_lock_screen_controller.h"
-#include "ash/system/message_center/unified_message_center_view.h"
+#include "ash/system/notification_center/notification_center_view.h"
 #include "ash/system/tray/interacted_by_tap_recorder.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/system/unified/detailed_view_controller.h"
@@ -192,8 +193,12 @@ UnifiedSystemTrayView::UnifiedSystemTrayView(
 
   auto add_layered_child = [](views::View* parent, views::View* child) {
     parent->AddChildView(child);
-    child->SetPaintToLayer();
-    child->layer()->SetFillsBoundsOpaquely(false);
+    // In dark light mode, we switch TrayBubbleView to use a textured layer
+    // instead of solid color layer, so no need to create an extra layer here.
+    if (!features::IsDarkLightModeEnabled()) {
+      child->SetPaintToLayer();
+      child->layer()->SetFillsBoundsOpaquely(false);
+    }
   };
 
   SessionControllerImpl* session_controller =
@@ -257,8 +262,6 @@ void UnifiedSystemTrayView::AddFeaturePodButton(FeaturePodButton* button) {
 }
 
 void UnifiedSystemTrayView::AddSliderView(views::View* slider_view) {
-  slider_view->SetPaintToLayer();
-  slider_view->layer()->SetFillsBoundsOpaquely(false);
   sliders_container_->AddChildView(slider_view);
 }
 
@@ -281,15 +284,17 @@ void UnifiedSystemTrayView::ShowMediaControls() {
     PreferredSizeChanged();
 }
 
-void UnifiedSystemTrayView::SetDetailedView(views::View* detailed_view) {
+void UnifiedSystemTrayView::SetDetailedView(
+    std::unique_ptr<views::View> detailed_view) {
   auto system_tray_size = system_tray_container_->GetPreferredSize();
   system_tray_container_->SetVisible(false);
 
   detailed_view_container_->RemoveAllChildViews();
-  detailed_view_container_->AddChildView(detailed_view);
+  views::View* view =
+      detailed_view_container_->AddChildView(std::move(detailed_view));
   detailed_view_container_->SetVisible(true);
   detailed_view_container_->SetPreferredSize(system_tray_size);
-  detailed_view->InvalidateLayout();
+  view->InvalidateLayout();
   Layout();
 }
 

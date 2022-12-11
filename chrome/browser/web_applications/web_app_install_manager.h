@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,13 +14,14 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
+#include "base/types/pass_key.h"
 #include "base/values.h"
-#include "chrome/browser/web_applications/os_integration_manager.h"
+#include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
 #include "chrome/browser/web_applications/web_app_id.h"
 #include "chrome/browser/web_applications/web_app_install_manager_observer.h"
 #include "chrome/browser/web_applications/web_app_install_params.h"
 #include "chrome/browser/web_applications/web_app_install_utils.h"
-#include "chrome/browser/web_applications/web_app_sync_install_delegate.h"
 #include "chrome/browser/web_applications/web_app_url_loader.h"
 
 class Profile;
@@ -29,111 +30,45 @@ namespace content {
 class WebContents;
 }
 
+namespace webapps {
+enum class InstallResultCode;
+}
+
 namespace web_app {
 
-enum class InstallResultCode;
-class WebAppInstallFinalizer;
-class OsIntegrationManager;
+class WebAppCommandManager;
 class WebAppDataRetriever;
+class WebAppInstallFinalizer;
 class WebAppInstallTask;
 class WebAppRegistrar;
+class OsIntegrationManager;
+class WebAppSyncBridge;
+class WebAppTranslationManager;
+class WebAppIconManager;
 
 // TODO(loyso): Unify the API and merge similar InstallWebAppZZZZ functions.
-class WebAppInstallManager final : public SyncInstallDelegate {
+class WebAppInstallManager {
  public:
   explicit WebAppInstallManager(Profile* profile);
   WebAppInstallManager(const WebAppInstallManager&) = delete;
   WebAppInstallManager& operator=(const WebAppInstallManager&) = delete;
-  ~WebAppInstallManager() override;
+  virtual ~WebAppInstallManager();
 
   void Start();
   void Shutdown();
 
   void SetSubsystems(WebAppRegistrar* registrar,
                      OsIntegrationManager* os_integration_manager,
-                     WebAppInstallFinalizer* finalizer);
-
-  // Loads |web_app_url| in a new WebContents and determines whether it has a
-  // valid manifest. Calls |callback| with results.
-  void LoadWebAppAndCheckManifest(const GURL& web_app_url,
-                                  webapps::WebappInstallSource install_source,
-                                  WebAppManifestCheckCallback callback);
-
-  // Checks a WebApp installability (service worker check optional), retrieves
-  // manifest and icons and then performs the actual installation.
-  void InstallWebAppFromManifest(content::WebContents* contents,
-                                 bool bypass_service_worker_check,
-                                 webapps::WebappInstallSource install_source,
-                                 WebAppInstallDialogCallback dialog_callback,
-                                 OnceInstallCallback callback);
-
-  // Infers WebApp info from the blink renderer process and then retrieves a
-  // manifest in a way similar to |InstallWebAppFromManifest|. If the manifest
-  // is incomplete or missing, the inferred info is used. |force_shortcut_app|
-  // forces the creation of a shortcut app instead of a PWA even if installation
-  // is available.
-  void InstallWebAppFromManifestWithFallback(
-      content::WebContents* contents,
-      bool force_shortcut_app,
-      webapps::WebappInstallSource install_source,
-      WebAppInstallDialogCallback dialog_callback,
-      OnceInstallCallback callback);
-
-  void InstallSubApp(const AppId& parent_app_id,
-                     const GURL& install_url,
-                     OnceInstallCallback callback);
-
-  // Starts a background web app installation process for a given
-  // |web_contents|.
-  void InstallWebAppWithParams(content::WebContents* web_contents,
-                               const WebAppInstallParams& install_params,
-                               webapps::WebappInstallSource install_source,
-                               OnceInstallCallback callback);
-
-  // Starts a web app installation process using prefilled
-  // |web_application_info| which holds all the data needed for installation.
-  // This doesn't fetch a manifest and doesn't perform all required steps for
-  // External installed apps: use |ExternallyManagedAppManager::Install|
-  // instead.
-  //
-  // The web app can be simultaneously installed from multiple sources.
-  // If the web app already exists and `overwrite_existing_manifest_fields` is
-  // false then manifest fields in `web_application_info` are treated only as
-  // fallback manifest values. If `overwrite_existing_manifest_fields` is true
-  // then the existing web app manifest fields will be overwritten.
-  // If `web_application_info` contains data freshly fetched from the web app's
-  // site then `overwrite_existing_manifest_fields` should be true.
-  void InstallWebAppFromInfo(
-      std::unique_ptr<WebAppInstallInfo> web_application_info,
-      bool overwrite_existing_manifest_fields,
-      ForInstallableSite for_installable_site,
-      webapps::WebappInstallSource install_source,
-      OnceInstallCallback callback);
-
-  void InstallWebAppFromInfo(
-      std::unique_ptr<WebAppInstallInfo> web_application_info,
-      bool overwrite_existing_manifest_fields,
-      ForInstallableSite for_installable_site,
-      const absl::optional<WebAppInstallParams>& install_params,
-      webapps::WebappInstallSource install_source,
-      OnceInstallCallback callback);
+                     WebAppCommandManager* command_manager,
+                     WebAppInstallFinalizer* finalizer,
+                     WebAppIconManager* icon_manager,
+                     WebAppSyncBridge* sync_bridge,
+                     WebAppTranslationManager* translation_manager);
 
   // Returns whether the an installation is already running with the
   // same web contents.
   bool IsInstallingForWebContents(
       const content::WebContents* web_contents) const;
-
-  // Returns the number of running web app installations.
-  std::size_t GetInstallTaskCountForTesting() const;
-
-  // For the new USS-based system only. SyncInstallDelegate:
-  void InstallWebAppsAfterSync(std::vector<WebApp*> web_apps,
-                               RepeatingInstallCallback callback) override;
-  void UninstallWithoutRegistryUpdateFromSync(
-      const std::vector<AppId>& web_apps,
-      RepeatingUninstallCallback callback) override;
-  void RetryIncompleteUninstalls(
-      const std::vector<AppId>& apps_to_uninstall) override;
 
   virtual void AddObserver(WebAppInstallManagerObserver* observer);
   virtual void RemoveObserver(WebAppInstallManagerObserver* observer);
@@ -148,17 +83,19 @@ class WebAppInstallManager final : public SyncInstallDelegate {
 
   // Collects icon read/write errors (unbounded) if the |kRecordWebAppDebugInfo|
   // flag is enabled to be used by: chrome://web-app-internals
-  using ErrorLog = base::Value::ListStorage;
+  using ErrorLog = base::Value::List;
   const ErrorLog* error_log() const { return error_log_.get(); }
 
   using DataRetrieverFactory =
       base::RepeatingCallback<std::unique_ptr<WebAppDataRetriever>()>;
-  void SetDataRetrieverFactoryForTesting(
-      DataRetrieverFactory data_retriever_factory);
 
-  void SetUrlLoaderForTesting(std::unique_ptr<WebAppUrlLoader> url_loader);
   bool has_web_contents_for_testing() const { return web_contents_ != nullptr; }
   std::set<AppId> GetEnqueuedInstallAppIdsForTesting();
+
+  // TODO(crbug.com/1322974): migrate loggign to WebAppCommandManager after all
+  // tasks are migrated to the command system.
+  void TakeCommandErrorLog(base::PassKey<WebAppCommandManager>,
+                           base::Value log);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(WebAppInstallManagerTest,
@@ -166,19 +103,7 @@ class WebAppInstallManager final : public SyncInstallDelegate {
 
   base::WeakPtr<WebAppInstallManager> GetWeakPtr();
 
-  void EnqueueInstallAppFromSync(
-      const AppId& sync_app_id,
-      std::unique_ptr<WebAppInstallInfo> web_application_info,
-      OnceInstallCallback callback);
   bool IsAppIdAlreadyEnqueued(const AppId& app_id) const;
-
-  // On failure will attempt a fallback install only loading icon URLs.
-  void LoadAndInstallWebAppFromManifestWithFallbackCompleted_ForAppSync(
-      const AppId& sync_app_id,
-      std::unique_ptr<WebAppInstallInfo> web_application_info,
-      OnceInstallCallback callback,
-      const AppId& web_app_id,
-      InstallResultCode code);
 
   void EnqueueTask(std::unique_ptr<WebAppInstallTask> task,
                    base::OnceClosure start_task);
@@ -189,18 +114,11 @@ class WebAppInstallManager final : public SyncInstallDelegate {
   void OnInstallTaskCompleted(WebAppInstallTask* task,
                               OnceInstallCallback callback,
                               const AppId& app_id,
-                              InstallResultCode code);
+                              webapps::InstallResultCode code);
   void OnQueuedTaskCompleted(WebAppInstallTask* task,
                              OnceInstallCallback callback,
                              const AppId& app_id,
-                             InstallResultCode code);
-
-  void OnLoadWebAppAndCheckManifestCompleted(
-      WebAppInstallTask* task,
-      WebAppManifestCheckCallback callback,
-      std::unique_ptr<content::WebContents> web_contents,
-      const AppId& app_id,
-      InstallResultCode code);
+                             webapps::InstallResultCode code);
 
   content::WebContents* EnsureWebContentsCreated();
 
@@ -208,7 +126,7 @@ class WebAppInstallManager final : public SyncInstallDelegate {
   // FIFO. This is a subset of |tasks_|.
   struct PendingTask {
     PendingTask();
-    PendingTask(PendingTask&&);
+    PendingTask(PendingTask&&) noexcept;
     ~PendingTask();
 
     raw_ptr<const WebAppInstallTask> task = nullptr;
@@ -234,10 +152,13 @@ class WebAppInstallManager final : public SyncInstallDelegate {
   std::unique_ptr<WebAppUrlLoader> url_loader_;
 
   raw_ptr<WebAppRegistrar> registrar_ = nullptr;
-  raw_ptr<OsIntegrationManager> os_integration_manager_ = nullptr;
+  raw_ptr<OsIntegrationManager, DanglingUntriaged> os_integration_manager_ =
+      nullptr;
   raw_ptr<WebAppInstallFinalizer> finalizer_ = nullptr;
-
-  bool disable_web_app_sync_install_for_testing_ = false;
+  raw_ptr<WebAppCommandManager, DanglingUntriaged> command_manager_ = nullptr;
+  raw_ptr<WebAppSyncBridge> sync_bridge_ = nullptr;
+  raw_ptr<WebAppTranslationManager> translation_manager_ = nullptr;
+  raw_ptr<WebAppIconManager> icon_manager_ = nullptr;
 
   // All owned tasks.
   using Tasks = base::flat_set<std::unique_ptr<WebAppInstallTask>,

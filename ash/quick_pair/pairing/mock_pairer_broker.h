@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,11 +26,16 @@ class MockPairerBroker : public PairerBroker {
   ~MockPairerBroker() override;
 
   MOCK_METHOD(void, PairDevice, (scoped_refptr<Device>), (override));
+  MOCK_METHOD(bool, IsPairing, (), (override));
+  MOCK_METHOD(void, StopPairing, (), (override));
 
   void AddObserver(Observer* observer) override;
   void RemoveObserver(Observer* observer) override;
+  void NotifyPairingStart(scoped_refptr<Device> device);
+  void NotifyHandshakeComplete(scoped_refptr<Device> device);
   void NotifyDevicePaired(scoped_refptr<Device> device);
   void NotifyPairFailure(scoped_refptr<Device> device, PairFailure failure);
+  void NotifyPairComplete(scoped_refptr<Device> device);
   void NotifyAccountKeyWrite(scoped_refptr<Device> device,
                              absl::optional<AccountKeyFailure> error);
 

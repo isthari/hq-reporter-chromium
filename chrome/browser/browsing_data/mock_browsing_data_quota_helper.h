@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,11 +21,11 @@ class MockBrowsingDataQuotaHelper : public BrowsingDataQuotaHelper {
       delete;
 
   void StartFetching(FetchResultCallback callback) override;
-  void RevokeHostQuota(const std::string& host) override;
+  void DeleteHostData(const std::string& host,
+                      blink::mojom::StorageType type) override;
 
   void AddHost(const std::string& host,
                int64_t temporary_usage,
-               int64_t persistent_usage,
                int64_t syncable_usage);
   void AddQuotaSamples();
   void Notify();

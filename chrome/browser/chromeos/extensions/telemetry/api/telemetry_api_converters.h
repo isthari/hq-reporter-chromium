@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,11 @@
 #include <utility>
 #include <vector>
 
-#include "ash/webui/telemetry_extension_ui/mojom/probe_service.mojom.h"
 #include "base/check.h"
 #include "chrome/common/chromeos/extensions/api/telemetry.h"
+#include "chromeos/crosapi/mojom/probe_service.mojom.h"
+#include "chromeos/services/network_config/public/mojom/network_types.mojom-forward.h"
+#include "chromeos/services/network_health/public/mojom/network_health.mojom-forward.h"
 
 namespace chromeos {
 
@@ -26,18 +28,56 @@ namespace unchecked {
 // whether input pointer is nullptr.
 
 chromeos::api::os_telemetry::CpuCStateInfo UncheckedConvertPtr(
-    ash::health::mojom::CpuCStateInfoPtr input);
+    crosapi::mojom::ProbeCpuCStateInfoPtr input);
 
 chromeos::api::os_telemetry::LogicalCpuInfo UncheckedConvertPtr(
-    ash::health::mojom::LogicalCpuInfoPtr input);
+    crosapi::mojom::ProbeLogicalCpuInfoPtr input);
 
 chromeos::api::os_telemetry::PhysicalCpuInfo UncheckedConvertPtr(
-    ash::health::mojom::PhysicalCpuInfoPtr input);
+    crosapi::mojom::ProbePhysicalCpuInfoPtr input);
+
+// Note: Battery's serial number is not converted in this function because it is
+// guarded by a permission.
+chromeos::api::os_telemetry::BatteryInfo UncheckedConvertPtr(
+    crosapi::mojom::ProbeBatteryInfoPtr input);
+
+chromeos::api::os_telemetry::NetworkInfo UncheckedConvertPtr(
+    chromeos::network_health::mojom::NetworkPtr input);
+
+chromeos::api::os_telemetry::NonRemovableBlockDeviceInfo UncheckedConvertPtr(
+    crosapi::mojom::ProbeNonRemovableBlockDeviceInfoPtr);
+
+chromeos::api::os_telemetry::OsVersionInfo UncheckedConvertPtr(
+    crosapi::mojom::ProbeOsVersionPtr input);
+
+chromeos::api::os_telemetry::StatefulPartitionInfo UncheckedConvertPtr(
+    crosapi::mojom::ProbeStatefulPartitionInfoPtr input);
+
+chromeos::api::os_telemetry::TpmVersion UncheckedConvertPtr(
+    crosapi::mojom::ProbeTpmVersionPtr input);
+
+chromeos::api::os_telemetry::TpmStatus UncheckedConvertPtr(
+    crosapi::mojom::ProbeTpmStatusPtr input);
+
+chromeos::api::os_telemetry::TpmDictionaryAttack UncheckedConvertPtr(
+    crosapi::mojom::ProbeTpmDictionaryAttackPtr input);
+
+chromeos::api::os_telemetry::TpmInfo UncheckedConvertPtr(
+    crosapi::mojom::ProbeTpmInfoPtr input);
 
 }  // namespace unchecked
 
 chromeos::api::os_telemetry::CpuArchitectureEnum Convert(
-    ash::health::mojom::CpuArchitectureEnum input);
+    crosapi::mojom::ProbeCpuArchitectureEnum input);
+
+chromeos::api::os_telemetry::NetworkState Convert(
+    chromeos::network_health::mojom::NetworkState input);
+
+chromeos::api::os_telemetry::NetworkType Convert(
+    chromeos::network_config::mojom::NetworkType input);
+
+chromeos::api::os_telemetry::TpmGSCVersion Convert(
+    crosapi::mojom::ProbeTpmGSCVersion input);
 
 template <class OutputT, class InputT>
 std::vector<OutputT> ConvertPtrVector(std::vector<InputT> input) {

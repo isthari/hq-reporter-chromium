@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,12 +15,16 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
-#include "chrome/browser/web_applications/os_integration_manager.h"
+#include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
+#include "chrome/browser/web_applications/user_display_mode.h"
+#include "chrome/browser/web_applications/web_app_callback_app_identity.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_ui_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
@@ -38,11 +42,17 @@
 namespace web_app {
 
 WebAppControllerBrowserTest::WebAppControllerBrowserTest()
-    : https_server_(net::EmbeddedTestServer::TYPE_HTTPS) {
+    // TODO(crbug.com/1378355): Fix the manifest update process by ensuring
+    // during test installs, an app is installed from the manifest so that the
+    // identity update dialog is not triggered after navigation. This will
+    // ensure removal of update_dialog_scope_.
+    : https_server_(net::EmbeddedTestServer::TYPE_HTTPS),
+      update_dialog_scope_(SetIdentityUpdateDialogActionForTesting(
+          AppIdentityUpdate::kSkipped)) {
   os_hooks_suppress_.emplace();
   scoped_feature_list_.InitWithFeatures({}, {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-    features::kWebAppsCrosapi, chromeos::features::kLacrosPrimary,
+    features::kWebAppsCrosapi, ash::features::kLacrosPrimary,
 #endif
         predictors::kSpeculativePreconnectFeature
   });
@@ -64,7 +74,7 @@ AppId WebAppControllerBrowserTest::InstallPWA(const GURL& start_url) {
   auto web_app_info = std::make_unique<WebAppInstallInfo>();
   web_app_info->start_url = start_url;
   web_app_info->scope = start_url.GetWithoutFilename();
-  web_app_info->user_display_mode = DisplayMode::kStandalone;
+  web_app_info->user_display_mode = UserDisplayMode::kStandalone;
   web_app_info->title = u"A Web App";
   return web_app::test::InstallWebApp(profile(), std::move(web_app_info));
 }
@@ -72,6 +82,10 @@ AppId WebAppControllerBrowserTest::InstallPWA(const GURL& start_url) {
 AppId WebAppControllerBrowserTest::InstallWebApp(
     std::unique_ptr<WebAppInstallInfo> web_app_info) {
   return web_app::test::InstallWebApp(profile(), std::move(web_app_info));
+}
+
+void WebAppControllerBrowserTest::UninstallWebApp(const AppId& app_id) {
+  web_app::test::UninstallWebApp(profile(), app_id);
 }
 
 Browser* WebAppControllerBrowserTest::LaunchWebAppBrowser(const AppId& app_id) {
@@ -112,8 +126,8 @@ content::WebContents* WebAppControllerBrowserTest::OpenWindow(
   EXPECT_EQ(
       content::PAGE_TYPE_NORMAL,
       new_contents->GetController().GetLastCommittedEntry()->GetPageType());
-  EXPECT_EQ(contents->GetMainFrame()->GetSiteInstance(),
-            new_contents->GetMainFrame()->GetSiteInstance());
+  EXPECT_EQ(contents->GetPrimaryMainFrame()->GetSiteInstance(),
+            new_contents->GetPrimaryMainFrame()->GetSiteInstance());
 
   return new_contents;
 }
@@ -150,18 +164,18 @@ WebAppControllerBrowserTest::NavigateInNewWindowAndAwaitInstallabilityCheck(
 
 absl::optional<AppId> WebAppControllerBrowserTest::FindAppWithUrlInScope(
     const GURL& url) {
-  return provider().registrar().FindAppWithUrlInScope(url);
+  return provider().registrar_unsafe().FindAppWithUrlInScope(url);
 }
 
 content::WebContents* WebAppControllerBrowserTest::OpenApplication(
     const AppId& app_id) {
   ui_test_utils::UrlLoadObserver url_observer(
-      provider().registrar().GetAppStartUrl(app_id),
+      provider().registrar_unsafe().GetAppStartUrl(app_id),
       content::NotificationService::AllSources());
 
   apps::AppLaunchParams params(
-      app_id, apps::mojom::LaunchContainer::kLaunchContainerWindow,
-      WindowOpenDisposition::NEW_WINDOW, apps::mojom::LaunchSource::kFromTest);
+      app_id, apps::LaunchContainer::kLaunchContainerWindow,
+      WindowOpenDisposition::NEW_WINDOW, apps::LaunchSource::kFromTest);
   content::WebContents* contents =
       apps::AppServiceProxyFactory::GetForProfile(profile())
           ->BrowserAppLauncher()
@@ -182,8 +196,11 @@ const char* WebAppControllerBrowserTest::GetInstallableAppName() {
 void WebAppControllerBrowserTest::SetUp() {
   https_server_.AddDefaultHandlers(GetChromeTestDataDir());
   webapps::TestAppBannerManagerDesktop::SetUp();
-
   InProcessBrowserTest::SetUp();
+}
+
+void WebAppControllerBrowserTest::TearDown() {
+  InProcessBrowserTest::TearDown();
 }
 
 void WebAppControllerBrowserTest::SetUpInProcessBrowserTestFixture() {

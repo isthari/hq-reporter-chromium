@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@ package org.chromium.chrome.browser.feed;
 
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
@@ -19,6 +20,7 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import androidx.appcompat.widget.AppCompatTextView;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.test.filters.SmallTest;
 
@@ -31,6 +33,7 @@ import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.chrome.browser.xsurface.ListLayoutHelper;
 
 import java.util.Arrays;
 
@@ -184,5 +187,32 @@ public class NativeViewListRendererTest {
         TextView v = new AppCompatTextView(mContext);
         v.setText(text);
         return new NtpListContentManager.NativeViewContent(0, v.toString(), v);
+    }
+
+    @Test
+    public void testGetListLayoutHelper() {
+        mManager.addContents(0,
+                Arrays.asList(new NtpListContentManager.FeedContent[] {
+                        createContent("1"), createContent("2"), createContent("3")}));
+        mRenderer.bind(mManager);
+
+        ListLayoutHelper helper = mRenderer.getListLayoutHelper();
+        LinearLayoutManager expectedLayoutManager =
+                (LinearLayoutManager) mRenderer.getListViewForTest().getLayoutManager();
+        assertEquals(expectedLayoutManager.findFirstVisibleItemPosition(),
+                helper.findFirstVisibleItemPosition());
+        assertEquals(expectedLayoutManager.findLastVisibleItemPosition(),
+                helper.findLastVisibleItemPosition());
+    }
+
+    @Test
+    public void testLayoutHelperSetColumnCount() {
+        mManager.addContents(0,
+                Arrays.asList(new NtpListContentManager.FeedContent[] {
+                        createContent("1"), createContent("2"), createContent("3")}));
+        mRenderer.bind(mManager);
+
+        boolean res = mRenderer.getListLayoutHelper().setColumnCount(3);
+        assertFalse("Failed to set column count.", res);
     }
 }

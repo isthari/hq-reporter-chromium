@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,7 @@ TtsVoices::TtsVoices() = default;
 TtsVoices::~TtsVoices() = default;
 
 //  static
-bool TtsVoices::Parse(base::Value::ConstListView tts_voices,
+bool TtsVoices::Parse(const base::Value::List& tts_voices,
                       TtsVoices* out_voices,
                       std::u16string* error,
                       Extension* extension) {
@@ -139,13 +139,14 @@ TtsEngineManifestHandler::~TtsEngineManifestHandler() = default;
 bool TtsEngineManifestHandler::Parse(Extension* extension,
                                      std::u16string* error) {
   auto info = std::make_unique<TtsVoices>();
-  const base::DictionaryValue* tts_dict = nullptr;
-  if (!extension->manifest()->GetDictionary(keys::kTtsEngine, &tts_dict)) {
+  const base::Value::Dict* tts_dict =
+      extension->manifest()->available_values_dict().FindDict(keys::kTtsEngine);
+  if (!tts_dict) {
     *error = errors::kInvalidTts;
     return false;
   }
 
-  const base::Value* tts_voices = tts_dict->FindKey(keys::kTtsVoices);
+  const base::Value* tts_voices = tts_dict->Find(keys::kTtsVoices);
   if (!tts_voices)
     return true;
 
@@ -158,7 +159,7 @@ bool TtsEngineManifestHandler::Parse(Extension* extension,
     return false;
 
   const base::Value* tts_engine_sample_rate =
-      tts_dict->FindKey(keys::kTtsEngineSampleRate);
+      tts_dict->Find(keys::kTtsEngineSampleRate);
   if (tts_engine_sample_rate) {
     if (!tts_engine_sample_rate->GetIfInt()) {
       *error = errors::kInvalidTtsSampleRateFormat;
@@ -176,7 +177,7 @@ bool TtsEngineManifestHandler::Parse(Extension* extension,
   }
 
   const base::Value* tts_engine_buffer_size =
-      tts_dict->FindKey(keys::kTtsEngineBufferSize);
+      tts_dict->Find(keys::kTtsEngineBufferSize);
   if (tts_engine_buffer_size) {
     if (!tts_engine_buffer_size->GetIfInt()) {
       *error = errors::kInvalidTtsBufferSizeFormat;

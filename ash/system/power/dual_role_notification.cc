@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <memory>
 #include <set>
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "ash/public/cpp/system_tray_client.h"
 #include "ash/resources/vector_icons/vector_icons.h"
@@ -132,12 +133,13 @@ std::unique_ptr<Notification> DualRoleNotification::CreateNotification() {
             Shell::Get()->system_tray_model()->client()->ShowPowerSettings();
           }));
 
-  std::unique_ptr<Notification> notification = CreateSystemNotification(
+  std::unique_ptr<Notification> notification = CreateSystemNotificationPtr(
       message_center::NOTIFICATION_TYPE_SIMPLE, kDualRoleNotificationId, title,
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_DUAL_ROLE_MESSAGE),
       std::u16string(), GURL(),
       message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
-                                 kNotifierDualRole),
+                                 kNotifierDualRole,
+                                 NotificationCatalogName::kDualRole),
       message_center::RichNotificationData(), std::move(delegate),
       kNotificationChargingUsbCIcon,
       message_center::SystemNotificationWarningLevel::NORMAL);

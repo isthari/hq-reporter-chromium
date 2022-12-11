@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include "base/check.h"
 #include "base/immediate_crash.h"
 #include "base/no_destructor.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/services/storage/filesystem_proxy_factory.h"
 #include "components/services/storage/public/mojom/test_api.test-mojom.h"
 #include "components/services/storage/test_api_stubs.h"
@@ -60,7 +60,7 @@ class TestApiImpl : public mojom::TestApi {
   }
 
   // mojom::TestApi implementation:
-  void CrashNow() override { IMMEDIATE_CRASH(); }
+  void CrashNow() override { base::ImmediateCrash(); }
 
   void ForceLeveldbDatabaseCompaction(
       const std::string& name,
@@ -70,10 +70,11 @@ class TestApiImpl : public mojom::TestApi {
     // SequencedTaskRunnerHandle they can use for scheduling.
     base::ThreadPool::CreateSequencedTaskRunner(
         {base::MayBlock(), base::WithBaseSyncPrimitives()})
-        ->PostTask(FROM_HERE,
-                   base::BindOnce(&CreateAndCompactDatabase, name,
-                                  base::SequencedTaskRunnerHandle::Get(),
-                                  std::move(callback)));
+        ->PostTask(
+            FROM_HERE,
+            base::BindOnce(&CreateAndCompactDatabase, name,
+                           base::SequencedTaskRunner::GetCurrentDefault(),
+                           std::move(callback)));
   }
 
  private:

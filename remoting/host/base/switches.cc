@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,6 +28,10 @@ const char kProcessTypeXSessionChooser[] = "xsession_chooser";
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 
 const char kEvaluateCapabilitySwitchName[] = "evaluate-type";
+
+#if BUILDFLAG(IS_LINUX)
+const char kEnableUtempter[] = "enable-utempter";
+#endif
 
 #if BUILDFLAG(IS_WIN)
 const char kEvaluateD3D[] = "d3d-support";

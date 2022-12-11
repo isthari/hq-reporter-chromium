@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 
   SDK.targetManager.observeTargets({
     targetAdded: async function(target) {
+      if (!target.model(SDK.ResourceTreeModel)) return;
       target.model(SDK.ResourceTreeModel).agent.setLifecycleEventsEnabled(true);
       let loadedModels = 0;
       target.model(SDK.ResourceTreeModel).addEventListener(SDK.ResourceTreeModel.Events.LifecycleEvent, async (event) => {

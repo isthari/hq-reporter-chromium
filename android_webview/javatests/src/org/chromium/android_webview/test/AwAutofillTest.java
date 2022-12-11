@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Matrix;
 import android.graphics.Rect;
@@ -33,6 +32,7 @@ import android.view.WindowManager;
 import android.view.autofill.AutofillId;
 import android.view.autofill.AutofillValue;
 
+import androidx.annotation.RequiresApi;
 import androidx.test.filters.SmallTest;
 
 import org.junit.After;
@@ -50,9 +50,10 @@ import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisableIf;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.MetricsUtils;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.components.autofill.AutofillHintsServiceTestHelper;
@@ -84,7 +85,7 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(AwJUnit4ClassRunner.class)
 @MinAndroidSdkLevel(Build.VERSION_CODES.O)
-@SuppressLint("NewApi")
+@RequiresApi(Build.VERSION_CODES.O)
 public class AwAutofillTest {
     public static final boolean DEBUG = false;
     public static final String TAG = "AutofillTest";
@@ -1111,6 +1112,57 @@ public class AwAutofillTest {
     }
 
     /**
+     * Tests that a frame-transcending form is filled correctly.
+     */
+    @Test
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    @CommandLineFlags.Add({"enable-features=AutofillAcrossIframes"})
+    public void testCrossFrameAutofill() throws Throwable {
+        final String data = "<html><body><form>"
+                + "<input autocomplete=cc-name>"
+                + "<iframe srcdoc='<input autocomplete=cc-number>'></iframe>"
+                + "<iframe srcdoc='<input autocomplete=cc-exp>'></iframe>"
+                + "<iframe srcdoc='<input autocomplete=cc-csc>'></iframe>"
+                + "</form></body></html>";
+        loadUrlSync(mWebServer.setResponse(FILE, data, null));
+        int cnt = 0;
+        executeJavaScriptAndWaitForResult(
+                "window.frames[0].document.body.firstElementChild.select();");
+        dispatchDownAndUpKeyEvents(KeyEvent.KEYCODE_A);
+        cnt += waitForCallbackAndVerifyTypes(cnt,
+                new Integer[] {AUTOFILL_CANCEL, AUTOFILL_VIEW_ENTERED, AUTOFILL_SESSION_STARTED,
+                        AUTOFILL_VIEW_EXITED, AUTOFILL_VIEW_ENTERED, AUTOFILL_VALUE_CHANGED});
+
+        invokeOnProvideAutoFillVirtualStructure();
+        TestViewStructure viewStructure = mTestValues.testViewStructure;
+        assertNotNull(viewStructure);
+
+        // Autofill form and verify filled values.
+        SparseArray<AutofillValue> values = new SparseArray<AutofillValue>();
+        values.append(viewStructure.getChild(0).getId(), AutofillValue.forText("Barack Obama"));
+        values.append(viewStructure.getChild(1).getId(), AutofillValue.forText("4444333322221111"));
+        values.append(viewStructure.getChild(2).getId(), AutofillValue.forText("12 / 2035"));
+        values.append(viewStructure.getChild(3).getId(), AutofillValue.forText("123"));
+        invokeAutofill(values);
+        waitForCallbackAndVerifyTypes(cnt,
+                new Integer[] {AUTOFILL_VALUE_CHANGED, AUTOFILL_VALUE_CHANGED,
+                        AUTOFILL_VALUE_CHANGED, AUTOFILL_VALUE_CHANGED});
+
+        assertEquals("\"Barack Obama\"",
+                executeJavaScriptAndWaitForResult("document.forms[0].elements[0].value;"));
+        assertEquals("\"4444333322221111\"",
+                executeJavaScriptAndWaitForResult(
+                        "window.frames[0].document.body.firstElementChild.value;"));
+        assertEquals("\"12 / 2035\"",
+                executeJavaScriptAndWaitForResult(
+                        "window.frames[1].document.body.firstElementChild.value;"));
+        assertEquals("\"123\"",
+                executeJavaScriptAndWaitForResult(
+                        "window.frames[2].document.body.firstElementChild.value;"));
+    }
+
+    /**
      * This test is verifying that a user interacting with a form after reloading a webpage
      * triggers a new autofill session rather than continuing a session that was started before the
      * reload. This is necessary to ensure that autofill is properly triggered in this case (see
@@ -1253,6 +1305,76 @@ public class AwAutofillTest {
         assertEquals(2, values.size());
         assertEquals("a", values.get(0).second.getTextValue());
         assertEquals("b", values.get(1).second.getTextValue());
+        assertEquals(SubmissionSource.FORM_SUBMISSION, mSubmissionSource);
+    }
+
+    /**
+     * Tests that when a multi-frame form is submitted in a subframe, we register the submission of
+     * the overall form.
+     */
+    @Test
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    @CommandLineFlags.Add({"enable-features=AutofillAcrossIframes"})
+    public void testCrossFrameCommit() throws Throwable {
+        // The only reason we use a <form> inside the iframe is that this makes it easiest to
+        // trigger a form submission in that frame.
+        // TODO(crbug.com/1385768): Need to set the "id" so GetSimilarFieldIndex() doesn't confuse
+        // the fields.
+        final String data = "<html><head></head><body><form>"
+                + "<input id=name>"
+                + "<iframe srcdoc='<form action=arbitrary.html method=GET>"
+                + "                <input id=num></form>'></iframe>"
+                + "<iframe srcdoc='<input id=exp>'></iframe>"
+                + "<iframe srcdoc='<input id=csc>'></iframe>"
+                + "</form></body></html>";
+        loadUrlSync(mWebServer.setResponse(FILE, data, null));
+        int cnt = 0;
+        // Fill name field.
+        executeJavaScriptAndWaitForResult("document.forms[0].elements[0].select();");
+        dispatchDownAndUpKeyEvents(KeyEvent.KEYCODE_A);
+        cnt += waitForCallbackAndVerifyTypes(cnt,
+                new Integer[] {AUTOFILL_CANCEL, AUTOFILL_VIEW_ENTERED, AUTOFILL_SESSION_STARTED,
+                        AUTOFILL_VALUE_CHANGED});
+        invokeOnProvideAutoFillVirtualStructure();
+        // Fill number field.
+        executeJavaScriptAndWaitForResult(
+                "window.frames[0].document.forms[0].elements[0].select();");
+        cnt += waitForCallbackAndVerifyTypes(cnt,
+                new Integer[] {
+                        AUTOFILL_VIEW_EXITED, AUTOFILL_VIEW_ENTERED, AUTOFILL_VALUE_CHANGED});
+        dispatchDownAndUpKeyEvents(KeyEvent.KEYCODE_B);
+        cnt += waitForCallbackAndVerifyTypes(cnt, new Integer[] {AUTOFILL_VALUE_CHANGED});
+        clearChangedValues();
+        // Fill expiration date field.
+        executeJavaScriptAndWaitForResult(
+                "window.frames[1].document.body.firstElementChild.select();");
+        dispatchDownAndUpKeyEvents(KeyEvent.KEYCODE_C);
+        cnt += waitForCallbackAndVerifyTypes(cnt,
+                new Integer[] {
+                        AUTOFILL_VIEW_EXITED, AUTOFILL_VIEW_ENTERED, AUTOFILL_VALUE_CHANGED});
+        cnt += waitForCallbackAndVerifyTypes(cnt, new Integer[] {AUTOFILL_VALUE_CHANGED});
+        clearChangedValues();
+        // Fill CVC field.
+        executeJavaScriptAndWaitForResult(
+                "window.frames[2].document.body.firstElementChild.select();");
+        dispatchDownAndUpKeyEvents(KeyEvent.KEYCODE_D);
+        cnt += waitForCallbackAndVerifyTypes(cnt,
+                new Integer[] {
+                        AUTOFILL_VIEW_EXITED, AUTOFILL_VIEW_ENTERED, AUTOFILL_VALUE_CHANGED});
+        cnt += waitForCallbackAndVerifyTypes(cnt, new Integer[] {AUTOFILL_VALUE_CHANGED});
+        clearChangedValues();
+        // Submit a form in the subframe.
+        executeJavaScriptAndWaitForResult("window.frames[0].document.forms[0].submit();");
+        waitForCallbackAndVerifyTypes(cnt,
+                new Integer[] {AUTOFILL_VALUE_CHANGED, AUTOFILL_VALUE_CHANGED,
+                        AUTOFILL_VALUE_CHANGED, AUTOFILL_VALUE_CHANGED, AUTOFILL_COMMIT});
+        ArrayList<Pair<Integer, AutofillValue>> values = getChangedValues();
+        assertEquals(4, values.size());
+        assertEquals("a", values.get(0).second.getTextValue());
+        assertEquals("b", values.get(1).second.getTextValue());
+        assertEquals("c", values.get(2).second.getTextValue());
+        assertEquals("d", values.get(3).second.getTextValue());
         assertEquals(SubmissionSource.FORM_SUBMISSION, mSubmissionSource);
     }
 
@@ -1975,7 +2097,7 @@ public class AwAutofillTest {
     }
 
     @Test
-    @FlakyTest(message = "https://crbug.com/1161326")
+    @DisabledTest(message = "https://crbug.com/1161326")
     @SmallTest
     @Feature({"AndroidWebView"})
     public void testUMANoServerPrediction() throws Throwable {
@@ -1986,7 +2108,7 @@ public class AwAutofillTest {
     }
 
     @Test
-    @FlakyTest(message = "https://crbug.com/1161326")
+    @DisabledTest(message = "https://crbug.com/1161326")
     @SmallTest
     @Feature({"AndroidWebView"})
     public void testUMAServerPredictionArriveBeforeSessionStart() throws Throwable {
@@ -2303,6 +2425,90 @@ public class AwAutofillTest {
                 viewStructure.getChild(1).getHtmlInfo().getAttribute(
                         "crowdsourcing-predictions-autofill-hints"));
         // Binder will not be set if the prediction already arrives.
+        IBinder binder = viewStructure.getExtras().getBinder("AUTOFILL_HINTS_SERVICE");
+        assertNull(binder);
+    }
+
+    /**
+     * Tests that server predictions are mapped to the fields of a cross-frame form.
+     */
+    @Test
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    @CommandLineFlags.Add({"enable-features=AutofillAcrossIframes"})
+    public void testCrossFrameServerPredictionArrivesBeforeAutofillStart() throws Throwable {
+        final String data = "<html><head></head><body><form>"
+                + "<input id=name>"
+                + "<iframe srcdoc='<form action=arbitrary.html method=GET>"
+                + "                <input id=num autocomplete=cc-number></form>'"
+                + "        sandbox></iframe>"
+                + "<iframe srcdoc='<input id=exp>'></iframe>"
+                + "<iframe srcdoc='<input id=csc>'></iframe>"
+                + "</form></body></html>";
+        final String url = mWebServer.setResponse(FILE, data, null);
+        loadUrlSync(url);
+        TestThreadUtils.runOnUiThreadBlocking(
+                ()
+                        -> AutofillProviderTestHelper
+                                   .simulateMainFramePredictionsAutofillServerResponseForTesting(
+                                           mAwContents.getWebContents(),
+                                           new String[] {"name", "num", "exp", "csc"},
+                                           new int[][] {{/*CREDIT_CARD_NAME_FULL*/ 51},
+                                                   {/*CREDIT_CARD_NUMBER*/ 52},
+                                                   {/*CREDIT_CARD_EXP_DATE_2_DIGIT_YEAR*/ 56,
+                                                           /*CREDIT_CARD_EXP_DATE_4_DIGIT_YEAR*/
+                                                           57},
+                                                   {/*CREDIT_CARD_VERIFICATION_CODE*/ 59}}));
+
+        int cnt = 0;
+        executeJavaScriptAndWaitForResult("document.forms[0].elements[0].select();");
+        dispatchDownAndUpKeyEvents(KeyEvent.KEYCODE_A);
+
+        cnt += waitForCallbackAndVerifyTypes(cnt,
+                new Integer[] {AUTOFILL_CANCEL, AUTOFILL_VIEW_ENTERED, AUTOFILL_SESSION_STARTED,
+                        AUTOFILL_VALUE_CHANGED});
+
+        invokeOnProvideAutoFillVirtualStructure();
+        TestViewStructure viewStructure = mTestValues.testViewStructure;
+        assertNotNull(viewStructure);
+        assertEquals(4, viewStructure.getChildCount());
+        // Name field.
+        assertEquals("CREDIT_CARD_NAME_FULL",
+                viewStructure.getChild(0).getHtmlInfo().getAttribute(
+                        "crowdsourcing-autofill-hints"));
+        assertEquals("CREDIT_CARD_NAME_FULL",
+                viewStructure.getChild(0).getHtmlInfo().getAttribute("computed-autofill-hints"));
+        assertEquals("CREDIT_CARD_NAME_FULL",
+                viewStructure.getChild(0).getHtmlInfo().getAttribute(
+                        "crowdsourcing-predictions-autofill-hints"));
+        // Number field.
+        assertEquals("CREDIT_CARD_NUMBER",
+                viewStructure.getChild(1).getHtmlInfo().getAttribute(
+                        "crowdsourcing-autofill-hints"));
+        assertEquals("HTML_TYPE_CREDIT_CARD_NUMBER",
+                viewStructure.getChild(1).getHtmlInfo().getAttribute("computed-autofill-hints"));
+        assertEquals("CREDIT_CARD_NUMBER",
+                viewStructure.getChild(1).getHtmlInfo().getAttribute(
+                        "crowdsourcing-predictions-autofill-hints"));
+        // Expiration date field.
+        assertEquals("CREDIT_CARD_EXP_DATE_2_DIGIT_YEAR",
+                viewStructure.getChild(2).getHtmlInfo().getAttribute(
+                        "crowdsourcing-autofill-hints"));
+        assertEquals("CREDIT_CARD_EXP_DATE_2_DIGIT_YEAR",
+                viewStructure.getChild(2).getHtmlInfo().getAttribute("computed-autofill-hints"));
+        assertEquals("CREDIT_CARD_EXP_DATE_2_DIGIT_YEAR,CREDIT_CARD_EXP_DATE_4_DIGIT_YEAR",
+                viewStructure.getChild(2).getHtmlInfo().getAttribute(
+                        "crowdsourcing-predictions-autofill-hints"));
+        // CVC field.
+        assertEquals("CREDIT_CARD_VERIFICATION_CODE",
+                viewStructure.getChild(3).getHtmlInfo().getAttribute(
+                        "crowdsourcing-autofill-hints"));
+        assertEquals("CREDIT_CARD_VERIFICATION_CODE",
+                viewStructure.getChild(3).getHtmlInfo().getAttribute("computed-autofill-hints"));
+        assertEquals("CREDIT_CARD_VERIFICATION_CODE",
+                viewStructure.getChild(3).getHtmlInfo().getAttribute(
+                        "crowdsourcing-predictions-autofill-hints"));
+        // Binder is not set if the prediction has already arrived.
         IBinder binder = viewStructure.getExtras().getBinder("AUTOFILL_HINTS_SERVICE");
         assertNull(binder);
     }

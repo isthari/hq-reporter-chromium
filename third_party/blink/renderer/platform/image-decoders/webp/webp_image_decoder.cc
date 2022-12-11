@@ -36,6 +36,7 @@
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/core/SkData.h"
 
 #if defined(ARCH_CPU_BIG_ENDIAN)
@@ -196,6 +197,10 @@ WEBPImageDecoder::~WEBPImageDecoder() {
   Clear();
 }
 
+const AtomicString& WEBPImageDecoder::MimeType() const {
+  DEFINE_STATIC_LOCAL(const AtomicString, webp_mime_type, ("image/webp"));
+  return webp_mime_type;
+}
 void WEBPImageDecoder::Clear() {
   WebPDemuxDelete(demux_);
   demux_ = nullptr;
@@ -317,7 +322,7 @@ bool WEBPImageDecoder::UpdateDemuxer() {
   if (IsAllDataReceived() && !consolidated_data_) {
     consolidated_data_ = data_->GetAsSkData();
   } else {
-    buffer_.ReserveCapacity(base::checked_cast<wtf_size_t>(data_->size()));
+    buffer_.reserve(base::checked_cast<wtf_size_t>(data_->size()));
     while (buffer_.size() < data_->size()) {
       const char* segment;
       const size_t bytes = data_->GetSomeData(segment, buffer_.size());

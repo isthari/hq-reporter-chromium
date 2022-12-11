@@ -1,10 +1,11 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_CANVAS_RENDERING_CONTEXT_2D_STATE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_CANVAS_RENDERING_CONTEXT_2D_STATE_H_
 
+#include "base/types/pass_key.h"
 #include "cc/paint/paint_flags.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/core/css/css_value.h"
@@ -13,7 +14,7 @@
 #include "third_party/blink/renderer/platform/fonts/font_selector_client.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_filter.h"
-#include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
+#include "third_party/blink/renderer/platform/transforms/affine_transform.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
@@ -23,6 +24,8 @@ namespace blink {
 class BaseRenderingContext2D;
 class CanvasRenderingContext2D;
 class CanvasFilter;
+class CanvasGradient;
+class CanvasPattern;
 class CanvasStyle;
 class CSSValue;
 class Element;
@@ -83,10 +86,9 @@ class CanvasRenderingContext2DState final
   void SetLineDashOffset(double);
   double LineDashOffset() const { return line_dash_offset_; }
 
-  void SetTransform(const TransformationMatrix&);
+  void SetTransform(const AffineTransform&);
   void ResetTransform();
-  TransformationMatrix GetTransform() const { return transform_; }
-  AffineTransform GetAffineTransform() const;
+  AffineTransform GetTransform() const { return transform_; }
   bool IsTransformInvertible() const { return is_transform_invertible_; }
 
   void ClipPath(const SkPath&, AntiAliasingMode);
@@ -100,6 +102,7 @@ class CanvasRenderingContext2DState final
   }
 
   void SetFont(const FontDescription&, FontSelector*);
+  bool IsFontDirtyForFilter() const;
   const Font& GetFont() const;
   const FontDescription& GetFontDescription() const;
   inline bool HasRealizedFont() const { return realized_font_; }
@@ -130,9 +133,15 @@ class CanvasRenderingContext2DState final
   void ClearResolvedFilter();
   void ValidateFilterState() const;
 
+  void SetStrokeColor(RGBA32 color);
+  void SetStrokePattern(CanvasPattern* pattern);
+  void SetStrokeGradient(CanvasGradient* gradient);
   void SetStrokeStyle(CanvasStyle*);
   CanvasStyle* StrokeStyle() const { return stroke_style_.Get(); }
 
+  void SetFillColor(RGBA32 color);
+  void SetFillPattern(CanvasPattern* pattern);
+  void SetFillGradient(CanvasGradient* gradient);
   void SetFillStyle(CanvasStyle*);
   CanvasStyle* FillStyle() const { return fill_style_.Get(); }
 
@@ -249,6 +258,8 @@ class CanvasRenderingContext2DState final
   sk_sp<PaintFilter>& ShadowAndForegroundImageFilter() const;
 
  private:
+  using PassKey = base::PassKey<CanvasRenderingContext2DState>;
+
   void UpdateLineDash() const;
   void UpdateStrokeStyle() const;
   void UpdateFillStyle() const;
@@ -279,7 +290,7 @@ class CanvasRenderingContext2DState final
   mutable sk_sp<PaintFilter> shadow_and_foreground_image_filter_;
 
   double global_alpha_;
-  TransformationMatrix transform_;
+  AffineTransform transform_;
   Vector<double> line_dash_;
   double line_dash_offset_;
 
@@ -322,6 +333,8 @@ class CanvasRenderingContext2DState final
   bool is_transform_invertible_ : 1;
   bool has_clip_ : 1;
   bool has_complex_clip_ : 1;
+  bool letter_spacing_is_set_ : 1;
+  bool word_spacing_is_set_ : 1;
   mutable bool fill_style_dirty_ : 1;
   mutable bool stroke_style_dirty_ : 1;
   mutable bool line_dash_dirty_ : 1;
@@ -335,7 +348,7 @@ class CanvasRenderingContext2DState final
 };
 
 ALWAYS_INLINE bool CanvasRenderingContext2DState::ShouldDrawShadows() const {
-  return AlphaChannel(shadow_color_) &&
+  return SkColorGetA(shadow_color_) &&
          (shadow_blur_ || !shadow_offset_.IsZero());
 }
 

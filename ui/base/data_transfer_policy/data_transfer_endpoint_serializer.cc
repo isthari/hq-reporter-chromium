@@ -1,10 +1,9 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/base/data_transfer_policy/data_transfer_endpoint_serializer.h"
 
-#include <optional>
 #include <string>
 
 #include "base/containers/fixed_flat_map.h"
@@ -22,7 +21,7 @@ namespace {
 
 // JSON Keys
 constexpr char kEndpointTypeKey[] = "endpoint_type";
-constexpr char kUrlOriginKey[] = "url_origin";
+constexpr char kUrlKey[] = "url";
 
 // Endpoint Type Strings
 constexpr char kDefaultString[] = "default";
@@ -64,7 +63,7 @@ std::string EndpointTypeToString(EndpointType type) {
   }
 }
 
-std::optional<EndpointType> EndpointStringToType(
+absl::optional<EndpointType> EndpointStringToType(
     const std::string& endpoint_string) {
   static constexpr auto kEndpointStringToTypeMap =
       base::MakeFixedFlatMap<base::StringPiece, ui::EndpointType>({
@@ -95,10 +94,10 @@ std::string ConvertDataTransferEndpointToJson(const DataTransferEndpoint& dte) {
 
   encoded_dte.SetStringKey(kEndpointTypeKey, EndpointTypeToString(dte.type()));
 
-  const url::Origin* origin = dte.GetOrigin();
+  const GURL* url = dte.GetURL();
 
-  if (origin)
-    encoded_dte.SetStringKey(kUrlOriginKey, origin->Serialize());
+  if (url && url->is_valid())
+    encoded_dte.SetStringKey(kUrlKey, url->spec());
 
   std::string json;
   base::JSONWriter::Write(encoded_dte, &json);
@@ -114,12 +113,12 @@ std::unique_ptr<DataTransferEndpoint> ConvertJsonToDataTransferEndpoint(
 
   const std::string* endpoint_type =
       dte_dictionary->FindStringKey(kEndpointTypeKey);
-  const std::string* url_string = dte_dictionary->FindStringKey(kUrlOriginKey);
+  const std::string* url_string = dte_dictionary->FindStringKey(kUrlKey);
 
   if (url_string) {
-    url::Origin origin = url::Origin::Create(GURL(*url_string));
+    GURL url = GURL(*url_string);
 
-    return std::make_unique<DataTransferEndpoint>(origin);
+    return std::make_unique<DataTransferEndpoint>(url);
   }
 
   if (endpoint_type && *endpoint_type != kUrlString) {

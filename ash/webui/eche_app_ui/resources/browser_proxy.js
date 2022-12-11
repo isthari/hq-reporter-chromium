@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,12 @@ let urlParams = window.location.hash ?
     new URLSearchParams(window.location.hash.substring(1)) :
     new URLSearchParams(window.location.search.substring(1));
 urlParams = urlParams.toString();
-document.getElementsByTagName('iframe')[0].src = mainUrl;
+
+let iframeUrl = mainUrl;
 if (urlParams) {
-    document.getElementsByTagName('iframe')[0].src = mainUrl + '?' + urlParams;
+  iframeUrl = mainUrl + '?' + urlParams;
 }
+document.getElementsByTagName('iframe')[0].src = iframeUrl;
 
 // Returns a remote for SignalingMessageExchanger interface which sends messages
 // to the browser.
@@ -42,6 +44,14 @@ systemInfo.setSystemInfoObserver(
 
 const notificationGenerator =
     ash.echeApp.mojom.NotificationGenerator.getRemote();
+
+const displayStreamHandler = ash.echeApp.mojom.DisplayStreamHandler.getRemote();
+
+const streamActionObserverRouter =
+    new ash.echeApp.mojom.StreamActionObserverCallbackRouter();
+// Set up a message pipe to the browser process to monitor stream action.
+displayStreamHandler.setStreamActionObserver(
+    streamActionObserverRouter.$.bindNewPipeAndPassRemote());
 
 /**
  * A pipe through which we can send messages to the guest frame.
@@ -79,13 +89,9 @@ const notificationGenerator =
  guestMessagePipe.registerHandler(Message.CLOSE_WINDOW, async () => {
    const info = /** @type {!SystemInfo} */ (await systemInfo.getSystemInfo());
    const systemInfoJson = JSON.parse(JSON.stringify(info));
-   const debugMode = JSON.parse(systemInfoJson.systemInfo)['debug_mode'];
-   if (debugMode) {
-     console.log('echeapi debug on, browser_proxy.js window.close block');
-   } else {
-     console.log('echeapi browser_proxy.js window.close');
-     window.close();
-   }
+   console.log('echeapi browser_proxy.js window.close');
+   displayStreamHandler.onStreamStatusChanged(
+       ash.echeApp.mojom.StreamStatus.kStreamStatusStopped);
  });
 
  // Register GET_SYSTEM_INFO pipes for wrapping getSystemInfo async api call.
@@ -115,21 +121,48 @@ const notificationGenerator =
            Message.TABLET_MODE, {/** @type {boolean} */ isTabletMode});
      });
 
+ // Add Android network info listener and send result via pipes.
+ systemInfoObserverRouter.onAndroidDeviceNetworkInfoChanged.addListener(
+     (isDifferentNetwork, androidDeviceOnCellular) => {
+       console.log(
+           'echeapi browser_proxy.js onAndroidDeviceNetworkInfoChanged');
+       guestMessagePipe.sendMessage(Message.TABLET_MODE, {
+         /** @type {boolean} */ isDifferentNetwork,
+         /** @type {boolean} */ androidDeviceOnCellular,
+       });
+     });
+
+ // Add stream action listener and send result via pipes.
+ streamActionObserverRouter.onStreamAction.addListener((action) => {
+   console.log(`echeapi browser_proxy.js OnStreamAction ${action}`);
+   guestMessagePipe.sendMessage(
+       Message.STREAM_ACTION, {/** @type {number} */ action});
+ });
+
  guestMessagePipe.registerHandler(
      Message.SHOW_NOTIFICATION, async (message) => {
        // The C++ layer uses std::u16string, which use 16 bit characters. JS
        // strings support either 8 or 16 bit characters, and must be converted
        // to an array of 16 bit character codes that match std::u16string.
        const titleArray = {
-         data: Array.from(message.title, c => c.charCodeAt())
+         data: Array.from(message.title, c => c.charCodeAt()),
        };
        const messageArray = {
-         data: Array.from(message.message, c => c.charCodeAt())
+         data: Array.from(message.message, c => c.charCodeAt()),
        };
        console.log('echeapi browser_proxy.js showNotification');
        notificationGenerator.showNotification(
            titleArray, messageArray, message.notificationType);
      });
+
+ guestMessagePipe.registerHandler(Message.SHOW_TOAST, async (message) => {
+   // The C++ layer uses std::u16string, which use 16 bit characters. JS
+   // strings support either 8 or 16 bit characters, and must be converted
+   // to an array of 16 bit character codes that match std::u16string.
+   const textArray = {data: Array.from(message.text, c => c.charCodeAt())};
+   console.log('echeapi browser_proxy.js showToast');
+   notificationGenerator.showToast(textArray);
+ });
 
  guestMessagePipe.registerHandler(
      Message.TIME_HISTOGRAM_MESSAGE, async (message) => {
@@ -148,6 +181,13 @@ const notificationGenerator =
            histogramData.maxValue);
      });
 
+ // Register START_STREAMING pipes.
+ guestMessagePipe.registerHandler(Message.START_STREAMING, async () => {
+   console.log('echeapi browser_proxy.js startStreaming');
+   displayStreamHandler.onStreamStatusChanged(
+       ash.echeApp.mojom.StreamStatus.kStreamStatusStarted);
+ });
+
  // We can't access hash change event inside iframe so parse the notification
  // info from the anchor part of the url when hash is changed and send them to
  // untrusted section via message pipes.
@@ -165,3 +205,17 @@ const notificationGenerator =
  }
 
 window.onhashchange = locationHashChanged;
+
+if ('virtualKeyboard' in navigator) {
+  navigator['virtualKeyboard'].overlaysContent = true;
+  navigator['virtualKeyboard'].addEventListener('geometrychange', (event) => {
+    const {x, y, width, height} = event.target['boundingRect'];
+    console.log('Virtual keyboard geometry:', x, y, width, height);
+    const isVirtualKeyboardEnabled = width > 0 && height > 0;
+    guestMessagePipe.sendMessage(
+        Message.IS_VIRTUAL_KEYBOARD_ENABLED,
+        {/** @type {boolean} */ isVirtualKeyboardEnabled});
+  });
+} else {
+  console.log('virtual keyboard is not supported!');
+}

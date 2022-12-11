@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -189,11 +189,11 @@ class SafetyCheckHandler
 
   // Handles triggering the safety check from the frontend (by user pressing a
   // button).
-  void HandlePerformSafetyCheck(const base::ListValue* args);
+  void HandlePerformSafetyCheck(const base::Value::List& args);
 
   // Handles updating the safety check parent display string to show how long
   // ago the safety check last ran.
-  void HandleGetParentRanDisplayString(const base::ListValue* args);
+  void HandleGetParentRanDisplayString(const base::Value::List& args);
 
   // Triggers an update check and invokes OnUpdateCheckResult once results
   // are available.
@@ -281,9 +281,7 @@ class SafetyCheckHandler
                         password_manager::IsLeaked is_leaked) override;
 
   // InsecureCredentialsManager::Observer implementation.
-  void OnInsecureCredentialsChanged(
-      password_manager::InsecureCredentialsManager::CredentialsView credentials)
-      override;
+  void OnInsecureCredentialsChanged() override;
 
   // SettingsPageUIHandler implementation.
   void OnJavascriptAllowed() override;

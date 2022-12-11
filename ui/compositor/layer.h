@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "base/auto_reset.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
@@ -20,6 +21,7 @@
 #include "cc/layers/content_layer_client.h"
 #include "cc/layers/surface_layer.h"
 #include "cc/layers/texture_layer_client.h"
+#include "cc/paint/filter_operation.h"
 #include "components/viz/common/resources/transferable_resource.h"
 #include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -40,6 +42,7 @@ class TextureLayer;
 namespace gfx {
 class RoundedCornersF;
 class Transform;
+class LinearGradient;
 }  // namespace gfx
 
 namespace viz {
@@ -121,6 +124,11 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   void SetCompositor(Compositor* compositor,
                      scoped_refptr<cc::Layer> root_layer);
   void ResetCompositor();
+
+  // These should be private, but they're used by HideHelper, which needs to
+  // do part but not all of what SetCompositor/ResetCompositor do.
+  void SetCompositorForAnimatorsInTree(Compositor* compositor);
+  void ResetCompositorForAnimatorsInTree(Compositor* compositor);
 
   LayerDelegate* delegate() { return delegate_; }
   void set_delegate(LayerDelegate* delegate) { delegate_ = delegate; }
@@ -244,14 +252,14 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   void SetLayerBlur(float blur_sigma);
 
   // Saturate all pixels of this layer by this amount.
-  // This effect will get "combined" with the inverted,
-  // brightness and grayscale setting.
+  // The effect of invert, brightness, greyscale, saturate, sepia, and
+  // custom color matrix settings are combined.
   float layer_saturation() const { return layer_saturation_; }
   void SetLayerSaturation(float saturation);
 
   // Change the brightness of all pixels from this layer by this amount.
-  // This effect will get "combined" with the inverted, saturate
-  // and grayscale setting.
+  // The effect of invert, brightness, greyscale, saturate, sepia, and
+  // custom color matrix settings are combined.
   float layer_brightness() const { return layer_brightness_; }
   void SetLayerBrightness(float brightness);
 
@@ -260,14 +268,38 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   float GetTargetBrightness() const;
 
   // Change the grayscale of all pixels from this layer by this amount.
-  // This effect will get "combined" with the inverted, saturate
-  // and brightness setting.
+  // The effect of invert, brightness, greyscale, saturate, sepia, and
+  // custom color matrix settings are combined.
   float layer_grayscale() const { return layer_grayscale_; }
   void SetLayerGrayscale(float grayscale);
 
   // Return the target grayscale if animator is running, or the current
   // grayscale otherwise.
   float GetTargetGrayscale() const;
+
+  // Applies a sepia filter to all pixels from this layer by this amount.
+  // Amounts may be between 0 (no change) and 1 (completely sepia).
+  // The effect of invert, brightness, greyscale, saturate, sepia, and
+  // custom color matrix settings are combined.
+  void SetLayerSepia(float amount);
+  float layer_sepia() const { return layer_sepia_; }
+
+  // Applies a hue rotation by this amount.
+  // Amounts may be between 0 (no change) and 359 (completely rotated).
+  // Amounts over 359 will wrap back to 0.
+  // The effect of invert, brightness, greyscale, saturate, sepia, and
+  // custom color matrix settings are combined.
+  void SetLayerHueRotation(float amount);
+  float layer_hue_rotation() const { return layer_hue_rotation_; }
+
+  // Applies a custom color filter to all pixels from this layer with the given
+  // matrix. This effect will get "combined" with the invert, saturate and
+  // brightness setting.
+  void SetLayerCustomColorMatrix(const cc::FilterOperation::Matrix& matrix);
+  const cc::FilterOperation::Matrix* GetLayerCustomColorMatrix() const;
+  bool LayerHasCustomColorMatrix() const;
+  // If a custom layer color matrix was set, this clears it.
+  void ClearLayerCustomColorMatrix();
 
   // Zoom the background by a factor of |zoom|. The effect is blended along the
   // edge across |inset| pixels.
@@ -318,6 +350,12 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   void SetRoundedCornerRadius(const gfx::RoundedCornersF& corner_radii);
   const gfx::RoundedCornersF& rounded_corner_radii() const {
     return cc_layer_->corner_radii();
+  }
+
+  // Gets/sets a gradient mask that is applied to the clip bounds on the layer
+  void SetGradientMask(const gfx::LinearGradient& linear_gradient);
+  const gfx::LinearGradient& gradient_mask() const {
+    return cc_layer_->gradient_mask();
   }
 
   // If set to true, this layer would not trigger a render surface (if possible)
@@ -535,11 +573,13 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   }
 
  private:
+  // TODO(https://crbug.com/1242749): temporary while tracking down crash.
+  friend class Compositor;
   friend class LayerOwner;
   class LayerMirror;
   class SubpixelPositionOffsetCache;
 
-  void CollectAnimators(std::vector<scoped_refptr<LayerAnimator> >* animators);
+  void CollectAnimators(std::vector<scoped_refptr<LayerAnimator>>* animators);
 
   // Stacks |child| above or below |other|.  Helper method for StackAbove() and
   // StackBelow().
@@ -577,6 +617,8 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   void SetRoundedCornersFromAnimation(
       const gfx::RoundedCornersF& rounded_corners,
       PropertyChangeReason reason) override;
+  void SetGradientMaskFromAnimation(const gfx::LinearGradient& gradient_mask,
+                                    PropertyChangeReason reason) override;
   void ScheduleDrawForAnimation() override;
   const gfx::Rect& GetBoundsForAnimation() const override;
   gfx::Transform GetTransformForAnimation() const override;
@@ -587,6 +629,7 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   SkColor GetColorForAnimation() const override;
   gfx::Rect GetClipRectForAnimation() const override;
   gfx::RoundedCornersF GetRoundedCornersForAnimation() const override;
+  const gfx::LinearGradient& GetGradientMaskForAnimation() const override;
   float GetDeviceScaleFactor() const override;
   Layer* GetLayer() override;
   cc::Layer* GetCcLayer() const override;
@@ -613,9 +656,6 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   // released by an animation observer. Returns false when it happens and
   // callers should take cautions as well. Otherwise returns true.
   [[nodiscard]] bool SwitchToLayer(scoped_refptr<cc::Layer> new_layer);
-
-  void SetCompositorForAnimatorsInTree(Compositor* compositor);
-  void ResetCompositorForAnimatorsInTree(Compositor* compositor);
 
   void OnMirrorDestroyed(LayerMirror* mirror);
 
@@ -706,6 +746,9 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   float layer_grayscale_;
   bool layer_inverted_;
   float layer_blur_sigma_;
+  float layer_sepia_;
+  float layer_hue_rotation_;
+  std::unique_ptr<cc::FilterOperation::Matrix> layer_custom_color_matrix_;
 
   // The associated mask layer with this layer.
   raw_ptr<Layer> layer_mask_;
@@ -726,7 +769,7 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
 
   std::string name_;
 
-  raw_ptr<LayerDelegate> delegate_;
+  raw_ptr<LayerDelegate, DanglingUntriaged> delegate_;
 
   base::ObserverList<LayerObserver>::Unchecked observer_list_;
 
@@ -781,10 +824,9 @@ class COMPOSITOR_EXPORT Layer : public LayerAnimationDelegate,
   // layer.
   unsigned trilinear_filtering_request_;
 
-  // TODO(crbug.com/1172694): Remove once the root cause is identified.
-#if defined(ADDRESS_SANITIZER)
-  bool destroyed_ = false;
-#endif
+  // TODO(https://crbug.com/1242749): temporary while tracking down crash.
+  bool in_send_damaged_rects_ = false;
+  bool sending_damaged_rects_for_descendants_ = false;
 
   base::WeakPtrFactory<Layer> weak_ptr_factory_{this};
 };

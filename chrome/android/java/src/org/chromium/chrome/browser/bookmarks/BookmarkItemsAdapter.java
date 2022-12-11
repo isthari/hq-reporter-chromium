@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,23 +20,18 @@ import androidx.recyclerview.widget.RecyclerView.ViewHolder;
 
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkItem;
-import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkModelObserver;
 import org.chromium.chrome.browser.bookmarks.BookmarkListEntry.ViewType;
 import org.chromium.chrome.browser.bookmarks.BookmarkRow.Location;
-import org.chromium.chrome.browser.commerce.shopping_list.ShoppingFeatures;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
-import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkMeta;
-import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkType;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.subscriptions.CommerceSubscriptionsServiceFactory;
-import org.chromium.chrome.browser.subscriptions.SubscriptionsManager;
 import org.chromium.chrome.browser.sync.SyncService;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.ui.signin.PersonalizedSigninPromoView;
-import org.chromium.chrome.browser.ui.signin.SigninPromoController.SyncPromoState;
+import org.chromium.chrome.browser.ui.signin.SyncPromoController.SyncPromoState;
 import org.chromium.components.bookmarks.BookmarkId;
+import org.chromium.components.bookmarks.BookmarkItem;
 import org.chromium.components.bookmarks.BookmarkType;
 import org.chromium.components.browser_ui.util.GlobalDiscardableReferencePool;
 import org.chromium.components.browser_ui.widget.dragreorder.DragReorderableListAdapter;
@@ -47,6 +42,7 @@ import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.image_fetcher.ImageFetcher;
 import org.chromium.components.image_fetcher.ImageFetcherConfig;
 import org.chromium.components.image_fetcher.ImageFetcherFactory;
+import org.chromium.components.power_bookmarks.PowerBookmarkMeta;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +50,7 @@ import java.util.List;
 /**
  * BaseAdapter for {@link RecyclerView}. It manages bookmarks to list there.
  */
-class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
+public class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
         implements BookmarkUIObserver, SyncService.SyncStateChangedListener {
     private static final int MAXIMUM_NUMBER_OF_SEARCH_RESULTS = 500;
     private static final String EMPTY_QUERY = null;
@@ -76,8 +72,6 @@ class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
 
     // Keep track of the currently highlighted bookmark - used for "show in folder" action.
     private BookmarkId mHighlightedBookmark;
-
-    private SubscriptionsManager mSubscriptionsManager;
 
     private BookmarkModelObserver mBookmarkModelObserver = new BookmarkModelObserver() {
         @Override
@@ -136,11 +130,6 @@ class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
                         GlobalDiscardableReferencePool.getReferencePool());
         mCommerceSubscriptionsServiceFactory = new CommerceSubscriptionsServiceFactory();
         mSnackbarManager = snackbarManager;
-
-        if (ShoppingFeatures.isShoppingListEnabled()) {
-            mSubscriptionsManager = mCommerceSubscriptionsServiceFactory.getForLastUsedProfile()
-                                            .getSubscriptionsManager();
-        }
     }
 
     /**
@@ -161,7 +150,7 @@ class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
     private void filterForPriceTrackingCategory(List<BookmarkId> bookmarks) {
         for (int i = bookmarks.size() - 1; i >= 0; i--) {
             PowerBookmarkMeta meta = mDelegate.getModel().getPowerBookmarkMeta(bookmarks.get(i));
-            if (meta == null || meta.getType() != PowerBookmarkType.SHOPPING
+            if (meta == null || !meta.hasShoppingSpecifics()
                     || !meta.getShoppingSpecifics().getIsPriceTracked()) {
                 bookmarks.remove(i);
                 continue;
@@ -256,8 +245,7 @@ class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
                 if (BookmarkFeatures.isBookmarksVisualRefreshEnabled()) {
                     vh = createViewHolderHelper(parent, R.layout.power_bookmark_shopping_item_row);
                     ((PowerBookmarkShoppingItemRow) vh.itemView)
-                            .init(mImageFetcher, mDelegate.getModel(), mSubscriptionsManager,
-                                    mSnackbarManager);
+                            .init(mImageFetcher, mDelegate.getModel(), mSnackbarManager);
                 } else {
                     vh = createViewHolderHelper(parent, R.layout.bookmark_item_row);
                 }
@@ -326,11 +314,7 @@ class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
 
     private void bindSectionHeaderViewHolder(View view, BookmarkListEntry listItem) {
         TextView title = view.findViewById(R.id.title);
-        TextView description = view.findViewById(R.id.description);
         title.setText(listItem.getHeaderTitle());
-        description.setText(listItem.getHeaderDescription());
-        description.setVisibility(
-                TextUtils.isEmpty(listItem.getHeaderDescription()) ? View.GONE : View.VISIBLE);
         if (listItem.getSectionHeaderData().topPadding > 0) {
             title.setPaddingRelative(title.getPaddingStart(),
                     listItem.getSectionHeaderData().topPadding, title.getPaddingEnd(),
@@ -403,15 +387,14 @@ class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
 
         if (BookmarkId.SHOPPING_FOLDER.equals(folder)) {
             mDelegate.getSelectableListLayout().setEmptyViewText(
-                    R.string.tracked_products_empty_list_title, R.string.bookmark_no_result);
+                    R.string.tracked_products_empty_list_title);
         } else if (folder.getType() == BookmarkType.READING_LIST) {
             TrackerFactory.getTrackerForProfile(Profile.getLastUsedRegularProfile())
                     .notifyEvent(EventConstants.READ_LATER_BOOKMARK_FOLDER_OPENED);
             mDelegate.getSelectableListLayout().setEmptyViewText(
-                    R.string.reading_list_empty_list_title, R.string.bookmark_no_result);
+                    R.string.reading_list_empty_list_title);
         } else {
-            mDelegate.getSelectableListLayout().setEmptyViewText(
-                    R.string.bookmarks_folder_empty, R.string.bookmark_no_result);
+            mDelegate.getSelectableListLayout().setEmptyViewText(R.string.bookmarks_folder_empty);
         }
     }
 
@@ -434,7 +417,7 @@ class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
     /**
      * Refresh the list of bookmarks within the currently visible folder.
      */
-    void refresh() {
+    public void refresh() {
         // Tell the RecyclerView to update its elements.
         if (mElements != null) notifyDataSetChanged();
     }
@@ -444,7 +427,7 @@ class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
      *
      * @param query The query text to search for.
      */
-    void search(String query) {
+    public void search(String query) {
         mSearchText = query.trim();
         List<BookmarkId> result =
                 mDelegate.getModel().searchBookmarks(mSearchText, MAXIMUM_NUMBER_OF_SEARCH_RESULTS);
@@ -592,7 +575,7 @@ class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
     private int getBookmarkItemEndIndex() {
         int endIndex = mElements.size() - 1;
         BookmarkItem bookmarkItem = mElements.get(endIndex).getBookmarkItem();
-        if (bookmarkItem == null || !bookmarkItem.isMovable()) {
+        if (bookmarkItem == null || !BookmarkUtils.isMovable(bookmarkItem)) {
             endIndex--;
         }
         return endIndex;
@@ -616,8 +599,7 @@ class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
         return isReorderable(getItemByHolder(viewHolder));
     }
 
-    @VisibleForTesting
-    BookmarkId getIdByPosition(int position) {
+    public BookmarkId getIdByPosition(int position) {
         BookmarkListEntry entry = getItemByPosition(position);
         if (entry == null || entry.getBookmarkItem() == null) return null;
         return entry.getBookmarkItem().getId();
@@ -648,7 +630,7 @@ class BookmarkItemsAdapter extends DragReorderableListAdapter<BookmarkListEntry>
     }
 
     @VisibleForTesting
-    void simulateSignInForTests() {
+    public void simulateSignInForTests() {
         syncStateChanged();
         onFolderStateSet(mCurrentFolder);
     }

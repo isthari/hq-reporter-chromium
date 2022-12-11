@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,11 @@
 import 'chrome://extensions/extensions.js';
 
 import {ExtensionsPackDialogAlertElement, ExtensionsPackDialogElement, PackDialogDelegate} from 'chrome://extensions/extensions.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
+import {PromiseResolver} from 'chrome://resources/js/promise_resolver.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {eventToPromise, flushTasks} from 'chrome://webui-test/test_util.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
+import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
 import {isElementVisible} from './test_util.js';
 
@@ -65,14 +65,14 @@ suite(extension_pack_dialog_tests.suiteName, function() {
   let mockDelegate: MockDelegate;
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     mockDelegate = new MockDelegate();
     packDialog = document.createElement('extensions-pack-dialog');
     packDialog.delegate = mockDelegate;
     document.body.appendChild(packDialog);
   });
 
-  test(assert(extension_pack_dialog_tests.TestNames.Interaction), function() {
+  test(extension_pack_dialog_tests.TestNames.Interaction, function() {
     const dialogElement = packDialog.$.dialog.getNative();
 
     assertTrue(isElementVisible(dialogElement));
@@ -109,7 +109,7 @@ suite(extension_pack_dialog_tests.suiteName, function() {
     });
   });
 
-  test(assert(extension_pack_dialog_tests.TestNames.PackSuccess), function() {
+  test(extension_pack_dialog_tests.TestNames.PackSuccess, function() {
     const dialogElement = packDialog.$.dialog.getNative();
     let packDialogAlert: ExtensionsPackDialogAlertElement;
     let alertElement: HTMLDialogElement;
@@ -122,7 +122,7 @@ suite(extension_pack_dialog_tests.suiteName, function() {
       item_path: '',
       pem_path: '',
       override_flags: 0,
-      status: chrome.developerPrivate.PackStatus.SUCCESS
+      status: chrome.developerPrivate.PackStatus.SUCCESS,
     };
 
     packDialog.$.rootDirBrowse.click();
@@ -158,7 +158,7 @@ suite(extension_pack_dialog_tests.suiteName, function() {
         });
   });
 
-  test(assert(extension_pack_dialog_tests.TestNames.PackError), function() {
+  test(extension_pack_dialog_tests.TestNames.PackError, function() {
     const dialogElement = packDialog.$.dialog.getNative();
     let packDialogAlert: ExtensionsPackDialogAlertElement;
     let alertElement: HTMLDialogElement;
@@ -171,7 +171,7 @@ suite(extension_pack_dialog_tests.suiteName, function() {
       item_path: '',
       pem_path: '',
       override_flags: 0,
-      status: chrome.developerPrivate.PackStatus.ERROR
+      status: chrome.developerPrivate.PackStatus.ERROR,
     };
 
     packDialog.$.rootDirBrowse.click();
@@ -201,7 +201,7 @@ suite(extension_pack_dialog_tests.suiteName, function() {
     });
   });
 
-  test(assert(extension_pack_dialog_tests.TestNames.PackWarning), function() {
+  test(extension_pack_dialog_tests.TestNames.PackWarning, function() {
     const dialogElement = packDialog.$.dialog.getNative();
     let packDialogAlert: ExtensionsPackDialogAlertElement;
     let alertElement: HTMLDialogElement;

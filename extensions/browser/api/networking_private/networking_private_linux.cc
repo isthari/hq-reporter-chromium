@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/observer_list.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -82,12 +83,12 @@ bool GuidToSsid(const std::string& guid, std::string* ssid) {
 
 // Iterates over the map cloning the contained networks to a
 // list then returns the list.
-std::unique_ptr<base::ListValue> CopyNetworkMapToList(
+base::Value::List CopyNetworkMapToList(
     const NetworkingPrivateLinux::NetworkMap& network_map) {
-  auto network_list = std::make_unique<base::ListValue>();
+  base::Value::List network_list;
 
   for (const auto& network : network_map) {
-    network_list->Append(network.second.Clone());
+    network_list.Append(network.second.Clone());
   }
 
   return network_list;
@@ -601,41 +602,47 @@ void NetworkingPrivateLinux::SelectCellularMobileNetwork(
                      std::move(failure_callback));
 }
 
-base::Value NetworkingPrivateLinux::GetEnabledNetworkTypes() {
+void NetworkingPrivateLinux::GetEnabledNetworkTypes(
+    EnabledNetworkTypesCallback callback) {
   base::Value network_list(base::Value::Type::LIST);
   network_list.Append(::onc::network_type::kWiFi);
-  return network_list;
+  std::move(callback).Run(
+      base::Value::ToUniquePtrValue(std::move(network_list)));
 }
 
-std::unique_ptr<NetworkingPrivateDelegate::DeviceStateList>
-NetworkingPrivateLinux::GetDeviceStateList() {
+void NetworkingPrivateLinux::GetDeviceStateList(
+    DeviceStateListCallback callback) {
   std::unique_ptr<DeviceStateList> device_state_list(new DeviceStateList);
   std::unique_ptr<api::networking_private::DeviceStateProperties> properties(
       new api::networking_private::DeviceStateProperties);
   properties->type = api::networking_private::NETWORK_TYPE_WIFI;
   properties->state = api::networking_private::DEVICE_STATE_TYPE_ENABLED;
   device_state_list->push_back(std::move(properties));
-  return device_state_list;
+  std::move(callback).Run(std::move(device_state_list));
 }
 
-base::Value NetworkingPrivateLinux::GetGlobalPolicy() {
-  return {};
+void NetworkingPrivateLinux::GetGlobalPolicy(GetGlobalPolicyCallback callback) {
+  std::move(callback).Run(base::Value::ToUniquePtrValue({}));
 }
 
-base::Value NetworkingPrivateLinux ::GetCertificateLists() {
-  return {};
+void NetworkingPrivateLinux ::GetCertificateLists(
+    GetCertificateListsCallback callback) {
+  std::move(callback).Run(base::Value::ToUniquePtrValue({}));
 }
 
-bool NetworkingPrivateLinux::EnableNetworkType(const std::string& type) {
-  return false;
+void NetworkingPrivateLinux::EnableNetworkType(const std::string& type,
+                                               BoolCallback callback) {
+  std::move(callback).Run(false);
 }
 
-bool NetworkingPrivateLinux::DisableNetworkType(const std::string& type) {
-  return false;
+void NetworkingPrivateLinux::DisableNetworkType(const std::string& type,
+                                                BoolCallback callback) {
+  std::move(callback).Run(false);
 }
 
-bool NetworkingPrivateLinux::RequestScan(const std::string& /* type */) {
-  return GetNetworksForScanRequest();
+void NetworkingPrivateLinux::RequestScan(const std::string& /* type */,
+                                         BoolCallback callback) {
+  std::move(callback).Run(GetNetworksForScanRequest());
 }
 
 void NetworkingPrivateLinux::AddObserver(
@@ -652,33 +659,31 @@ void NetworkingPrivateLinux::OnAccessPointsFound(
     std::unique_ptr<NetworkMap> network_map,
     NetworkListCallback success_callback,
     FailureCallback failure_callback) {
-  std::unique_ptr<base::ListValue> network_list =
-      CopyNetworkMapToList(*network_map);
+  base::Value::List network_list = CopyNetworkMapToList(*network_map);
   // Give ownership to the member variable.
   network_map_.swap(network_map);
-  SendNetworkListChangedEvent(*network_list);
+  SendNetworkListChangedEvent(network_list);
   std::move(success_callback).Run(std::move(network_list));
 }
 
 void NetworkingPrivateLinux::OnAccessPointsFoundViaScan(
     std::unique_ptr<NetworkMap> network_map) {
-  std::unique_ptr<base::ListValue> network_list =
-      CopyNetworkMapToList(*network_map);
+  base::Value::List network_list = CopyNetworkMapToList(*network_map);
   // Give ownership to the member variable.
   network_map_.swap(network_map);
-  SendNetworkListChangedEvent(*network_list);
+  SendNetworkListChangedEvent(network_list);
 }
 
 void NetworkingPrivateLinux::SendNetworkListChangedEvent(
-    const base::Value& network_list) {
+    const base::Value::List& network_list) {
   GuidList guidsForEventCallback;
 
-  for (const auto& network : network_list.GetList()) {
-    const base::DictionaryValue* dict = nullptr;
-    if (network.GetAsDictionary(&dict)) {
-      if (const std::string* guid = dict->FindStringKey(kAccessPointInfoGuid)) {
-        guidsForEventCallback.push_back(*guid);
-      }
+  for (const auto& network : network_list) {
+    if (!network.is_dict())
+      continue;
+    if (const std::string* guid =
+            network.GetDict().FindString(kAccessPointInfoGuid)) {
+      guidsForEventCallback.push_back(*guid);
     }
   }
 

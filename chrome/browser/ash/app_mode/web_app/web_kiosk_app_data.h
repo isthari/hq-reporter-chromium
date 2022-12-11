@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@
 #include <memory>
 #include <string>
 
+#include "base/values.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_data_base.h"
+#include "chrome/browser/web_applications/web_app_install_info.h"
 #include "components/account_id/account_id.h"
 #include "ui/gfx/image/image_skia.h"
 #include "url/gurl.h"
@@ -18,6 +20,8 @@ struct WebAppInstallInfo;
 namespace ash {
 
 class KioskAppDataDelegate;
+
+extern const int kWebKioskIconSize;
 
 class WebKioskAppData : public KioskAppDataBase {
  public:
@@ -56,7 +60,11 @@ class WebKioskAppData : public KioskAppDataBase {
   // update.
   void SetStatus(Status status, bool notify = true);
 
-  void UpdateFromWebAppInfo(std::unique_ptr<WebAppInstallInfo> app_info);
+  void UpdateFromWebAppInfo(const WebAppInstallInfo& app_info);
+
+  void UpdateAppInfo(const std::string& title,
+                     const GURL& start_url,
+                     const IconBitmaps& icon_bitmaps);
 
   void SetOnLoadedCallbackForTesting(base::OnceClosure callback);
 
@@ -68,18 +76,20 @@ class WebKioskAppData : public KioskAppDataBase {
   class IconFetcher;
   void OnDidDownloadIcon(const SkBitmap& icon);
 
-  bool LoadLaunchUrlFromDictionary(const base::Value& dict);
+  bool LoadLaunchUrlFromDictionary(const base::Value::Dict& dict);
 
   // Returns the icon url of the icon that was being provided during previous
   // session.
-  GURL GetLastIconUrl(const base::Value& dict) const;
+  GURL GetLastIconUrl(const base::Value::Dict& dict) const;
 
   KioskAppDataDelegate* delegate_;  // not owned.
   Status status_;
   const GURL install_url_;  // installation url.
   GURL launch_url_;         // app launch url.
 
-  GURL icon_url_;  // Url of the icon in case nothing is cached.
+  // Url for loading the app icon in case the app has not been installed earlier
+  // and a user opened the App menu in the login screen.
+  GURL icon_url_;
   // Used to download icon from |icon_url_|.
   std::unique_ptr<IconFetcher> icon_fetcher_;
 
@@ -89,11 +99,5 @@ class WebKioskAppData : public KioskAppDataBase {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when the //chrome/browser/chromeos
-// source code migration is finished.
-namespace chromeos {
-using ::ash::WebKioskAppData;
-}
 
 #endif  // CHROME_BROWSER_ASH_APP_MODE_WEB_APP_WEB_KIOSK_APP_DATA_H_

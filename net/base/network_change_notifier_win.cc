@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,14 +13,11 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/win/windows_version.h"
 #include "net/base/winsock_init.h"
@@ -71,7 +68,7 @@ class NetworkCostManagerEventSink
   NetworkCostManagerEventSink(INetworkCostManager* cost_manager,
                               const CostChangedCallback& callback)
       : network_cost_manager_(cost_manager), cost_changed_callback_(callback) {}
-  ~NetworkCostManagerEventSink() override {}
+  ~NetworkCostManagerEventSink() override = default;
 
   // INetworkCostManagerEvents members
   IFACEMETHODIMP CostChanged(_In_ DWORD cost,
@@ -120,11 +117,10 @@ NetworkChangeNotifierWin::NetworkChangeNotifierWin()
       blocking_task_runner_(
           base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()})),
       last_computed_connection_type_(RecomputeCurrentConnectionType()),
-      last_computed_connection_cost_(ConnectionCost::CONNECTION_COST_UNKNOWN),
       last_announced_offline_(last_computed_connection_type_ ==
                               CONNECTION_NONE),
       sequence_runner_for_registration_(
-          base::SequencedTaskRunnerHandle::Get()) {
+          base::SequencedTaskRunner::GetCurrentDefault()) {
   memset(&addr_overlapped_, 0, sizeof addr_overlapped_);
   addr_overlapped_.hEvent = WSACreateEvent();
 }
@@ -275,8 +271,8 @@ void NetworkChangeNotifierWin::RecomputeCurrentConnectionTypeOnBlockingSequence(
     base::OnceCallback<void(ConnectionType)> reply_callback) const {
   // Unretained is safe in this call because this object owns the thread and the
   // thread is stopped in this object's destructor.
-  base::PostTaskAndReplyWithResult(
-      blocking_task_runner_.get(), FROM_HERE,
+  blocking_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&NetworkChangeNotifierWin::RecomputeCurrentConnectionType),
       std::move(reply_callback));
 }
@@ -446,7 +442,7 @@ void NetworkChangeNotifierWin::WatchForAddressChange() {
   if (!WatchForAddressChangeInternal()) {
     ++sequential_failures_;
 
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&NetworkChangeNotifierWin::WatchForAddressChange,
                        weak_factory_.GetWeakPtr()),

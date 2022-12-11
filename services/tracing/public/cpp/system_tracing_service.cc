@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/bind.h"
 #include "base/check.h"
 #include "base/notreached.h"
+#include "base/task/sequenced_task_runner.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "services/tracing/public/cpp/perfetto/perfetto_traced_process.h"
 #include "services/tracing/public/cpp/system_tracing_service.h"
@@ -31,7 +32,7 @@ class UnixSocketEventListener : public UnixSocket::EventListener {
 
   explicit UnixSocketEventListener(OpenProducerSocketCallback callback)
       : callback_(std::move(callback)),
-        callback_sequence_(base::SequencedTaskRunnerHandle::Get()) {}
+        callback_sequence_(base::SequencedTaskRunner::GetCurrentDefault()) {}
   ~UnixSocketEventListener() override = default;
 
   void Connect() {

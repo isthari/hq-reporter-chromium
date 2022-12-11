@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "build/build_config.h"
 #include "content/browser/background_sync/background_sync_launcher.h"
@@ -70,24 +71,26 @@ void BackgroundSyncContextImpl::Shutdown() {
 
 void BackgroundSyncContextImpl::CreateOneShotSyncService(
     const url::Origin& origin,
+    RenderProcessHost* render_process_host,
     mojo::PendingReceiver<blink::mojom::OneShotBackgroundSyncService>
         receiver) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(background_sync_manager_);
   one_shot_sync_services_.insert(
-      std::make_unique<OneShotBackgroundSyncServiceImpl>(this, origin,
-                                                         std::move(receiver)));
+      std::make_unique<OneShotBackgroundSyncServiceImpl>(
+          this, origin, render_process_host, std::move(receiver)));
 }
 
 void BackgroundSyncContextImpl::CreatePeriodicSyncService(
     const url::Origin& origin,
+    RenderProcessHost* render_process_host,
     mojo::PendingReceiver<blink::mojom::PeriodicBackgroundSyncService>
         receiver) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(background_sync_manager_);
   periodic_sync_services_.insert(
-      std::make_unique<PeriodicBackgroundSyncServiceImpl>(this, origin,
-                                                          std::move(receiver)));
+      std::make_unique<PeriodicBackgroundSyncServiceImpl>(
+          this, origin, render_process_host, std::move(receiver)));
 }
 
 void BackgroundSyncContextImpl::OneShotSyncServiceHadConnectionError(
@@ -170,8 +173,8 @@ void BackgroundSyncContextImpl::FireBackgroundSyncEvents(
     base::OnceClosure done_closure) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!background_sync_manager_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  std::move(done_closure));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(done_closure));
     return;
   }
 

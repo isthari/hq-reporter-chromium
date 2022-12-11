@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,8 @@
 #include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/search_engines/chrome_template_url_service_client.h"
 #include "chrome/test/base/testing_profile.h"
@@ -68,6 +68,17 @@ void RemoveManagedDefaultSearchPreferences(TestingProfile* profile) {
       DefaultSearchManager::kDefaultSearchProviderDataPrefName);
 }
 
+void SetRecommendedDefaultSearchPreferences(const TemplateURLData& data,
+                                            bool enabled,
+                                            TestingProfile* profile) {
+  auto dict = TemplateURLDataToDictionary(data);
+  dict->SetBoolean(DefaultSearchManager::kDisabledByPolicy, !enabled);
+
+  profile->GetTestingPrefService()->SetRecommendedPref(
+      DefaultSearchManager::kDefaultSearchProviderDataPrefName,
+      std::move(dict));
+}
+
 std::unique_ptr<TemplateURL> CreateTestTemplateURL(
     const std::u16string& keyword,
     const std::string& url,
@@ -106,14 +117,15 @@ TemplateURLServiceTestUtil::TemplateURLServiceTestUtil(
 
   scoped_refptr<WebDatabaseService> web_database_service =
       new WebDatabaseService(profile_->GetPath().AppendASCII("webdata"),
-                             base::ThreadTaskRunnerHandle::Get(),
-                             base::ThreadTaskRunnerHandle::Get());
+                             base::SingleThreadTaskRunner::GetCurrentDefault(),
+                             base::SingleThreadTaskRunner::GetCurrentDefault());
   web_database_service->AddTable(
       std::unique_ptr<WebDatabaseTable>(new KeywordTable()));
   web_database_service->LoadDatabase();
 
   web_data_service_ = new KeywordWebDataService(
-      web_database_service.get(), base::ThreadTaskRunnerHandle::Get());
+      web_database_service.get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   web_data_service_->Init(base::NullCallback());
 
   ResetModel(false);

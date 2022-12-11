@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -126,8 +126,6 @@ class RenderbufferAttachment
                          GLint /* layer */) const override {
     return false;
   }
-
-  bool EmulatingRGB() const override { return false; }
 
  protected:
   ~RenderbufferAttachment() override = default;
@@ -302,10 +300,6 @@ class TextureAttachment
                          GLint level, GLint layer) const override {
     return texture == texture_ref_.get() &&
         level == level_ && layer == layer_;
-  }
-
-  bool EmulatingRGB() const override {
-    return texture_ref_->texture()->EmulatingRGB();
   }
 
  protected:
@@ -654,10 +648,6 @@ GLenum Framebuffer::GetReadBufferInternalFormat() const {
     return 0;
   }
   const Attachment* attachment = it->second.get();
-  if (attachment->EmulatingRGB()) {
-    DCHECK_EQ(static_cast<GLenum>(GL_RGBA), attachment->internal_format());
-    return GL_RGB;
-  }
   return attachment->internal_format();
 }
 

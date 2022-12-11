@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,13 +17,14 @@
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/share/share_submenu_model.h"
-#include "chrome/browser/ui/send_tab_to_self/send_tab_to_self_sub_menu_model.h"
+#include "chrome/browser/ui/autofill/autofill_context_menu_manager.h"
 #include "components/custom_handlers/protocol_handler_registry.h"
 #include "components/renderer_context_menu/context_menu_content_type.h"
 #include "components/renderer_context_menu/render_view_context_menu_base.h"
 #include "components/renderer_context_menu/render_view_context_menu_observer.h"
 #include "components/renderer_context_menu/render_view_context_menu_proxy.h"
+#include "components/search_engines/template_url.h"
+#include "components/services/screen_ai/buildflags/buildflags.h"
 #include "content/public/browser/context_menu_params.h"
 #include "extensions/buildflags/buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
@@ -49,7 +50,6 @@ class LinkToTextMenuObserver;
 class PrintPreviewContextMenuObserver;
 class Profile;
 class QuickAnswersMenuObserver;
-class SharedClipboardContextMenuObserver;
 class SpellingMenuObserver;
 class SpellingOptionsSubMenuObserver;
 
@@ -77,11 +77,13 @@ namespace ui {
 class DataTransferEndpoint;
 }
 
-namespace web_app {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+namespace ash {
 class SystemWebAppDelegate;
 }
+#endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 namespace policy {
 class DlpRulesManager;
 }  // namespace policy
@@ -126,11 +128,28 @@ class RenderViewContextMenu
       base::OnceCallback<void(content::RenderFrameHost*,
                               blink::mojom::PluginActionType)> cb);
 
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  lens::LensRegionSearchController* GetLensRegionSearchControllerForTesting() {
+    return lens_region_search_controller_.get();
+  }
+#endif
+
  protected:
   Profile* GetProfile() const;
 
-  // This may return nullptr (e.g. for WebUI dialogs).
-  Browser* GetBrowser() const;
+  // This may return nullptr (e.g. for WebUI dialogs). Virtual to allow tests to
+  // override.
+  virtual Browser* GetBrowser() const;
+
+  // Returns the correct IDC for the Search by Image context menu string
+  int GetSearchForImageIdc() const;
+
+  // Returns the correct IDC for the Region Search context menu string
+  int GetRegionSearchIdc() const;
+
+  // Returns the correct provider name for the Search by Image context menu
+  // string
+  std::u16string GetImageSearchProviderName(const TemplateURL* provider) const;
 
   // Returns a (possibly truncated) version of the current selection text
   // suitable for putting in the title of a menu item.
@@ -152,7 +171,7 @@ class RenderViewContextMenu
   // hold escape to exit exclusive access mode.
   bool IsPressAndHoldEscRequiredToExitFullscreen() const;
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   virtual const policy::DlpRulesManager* GetDlpRulesManager() const;
 #endif
 
@@ -182,7 +201,7 @@ class RenderViewContextMenu
 
   // RenderViewContextMenuBase:
   void InitMenu() override;
-  void RecordShownItem(int id) override;
+  void RecordShownItem(int id, bool is_submenu) override;
 #if BUILDFLAG(ENABLE_PLUGINS)
   void HandleAuthorizeAllPlugins() override;
 #endif
@@ -191,9 +210,16 @@ class RenderViewContextMenu
   // Gets the extension (if any) associated with the WebContents that we're in.
   const extensions::Extension* GetExtension() const;
 
-  // Queries the translate service to obtain the user's transate target
-  // language.
-  std::string GetTargetLanguage() const;
+  // Queries the Translate service to obtain the user's Translate target
+  // language and returns the language name in its same locale.
+  // On an already translated page, full page translation uses the current page
+  // language as the target language while partial translation uses the last
+  // used target language. |is_full_page_translation| controls the desired
+  // outcome.
+  std::u16string GetTargetLanguageDisplayName(
+      bool is_full_page_translation) const;
+
+  bool IsInProgressiveWebApp() const;
 
   void AppendDeveloperItems();
   void AppendDevtoolsForUnpackedExtensions();
@@ -212,10 +238,16 @@ class RenderViewContextMenu
   void AppendExitFullscreenItem();
   void AppendCopyItem();
   void AppendLinkToTextItems();
+#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+  void AppendPdfOcrItem();
+#endif
   void AppendPrintItem();
+  void AppendPartialTranslateItem();
   void AppendMediaRouterItem();
+  void AppendReadAnythingItem();
   void AppendRotationItems();
-  void AppendEditableItems();
+  void AppendSpellingAndSearchSuggestionItems();
+  void AppendOtherEditableItems();
   void AppendLanguageSettings();
   void AppendSpellingSuggestionItems();
   // Returns true if the items were appended. This might not happen in all
@@ -231,14 +263,18 @@ class RenderViewContextMenu
   void AppendSearchWebForImageItems();
   void AppendProtocolHandlerSubMenu();
   void AppendPasswordItems();
-  void AppendPictureInPictureItem();
   void AppendSharingItems();
 #if !BUILDFLAG(IS_FUCHSIA)
   void AppendClickToCallItem();
 #endif
-  void AppendSharedClipboardItem();
   void AppendRegionSearchItem();
-  void AppendQRCodeGeneratorItem(bool for_image, bool draw_icon);
+  void AppendLiveCaptionItem();
+  bool AppendFollowUnfollowItem();
+  void AppendSendTabToSelfItem(bool add_separator);
+  void AppendUserNotesItems();
+  bool AppendQRCodeGeneratorItem(bool for_image,
+                                 bool draw_icon,
+                                 bool add_separator);
 
   std::unique_ptr<ui::DataTransferEndpoint> CreateDataEndpoint(
       bool notify_if_restricted) const;
@@ -261,10 +297,12 @@ class RenderViewContextMenu
   bool IsQRCodeGeneratorEnabled() const;
   bool IsRouteMediaEnabled() const;
   bool IsOpenLinkOTREnabled() const;
-  bool IsSearchWebForEnabled() const;
+  bool IsOpenLinkAllowedByDlp(const GURL& link_url) const;
   bool IsRegionSearchEnabled() const;
+  bool IsAddANoteEnabled() const;
 
   // Command execution functions.
+  void ExecSearchWebInSidePanel(const GURL& url);
   void ExecOpenWebApp();
   void ExecProtocolHandler(int event_flags, int handler_index);
   void ExecOpenLinkInProfile(int profile_index);
@@ -276,6 +314,7 @@ class RenderViewContextMenu
   void ExecCopyLinkText();
   void ExecCopyImageAt();
   void ExecSearchLensForImage();
+  void ExecAddANote();
   void ExecRegionSearch(int event_flags,
                         bool is_google_default_search_provider);
   void ExecSearchWebForImage();
@@ -284,6 +323,7 @@ class RenderViewContextMenu
   void ExecMute();
   void ExecLoop();
   void ExecControls();
+  void ExecLiveCaption();
   void ExecRotateCW();
   void ExecRotateCCW();
   void ExecReloadPackagedApp();
@@ -291,9 +331,15 @@ class RenderViewContextMenu
   void ExecPrint();
   void ExecRouteMedia();
   void ExecTranslate();
+  void ExecPartialTranslate();
   void ExecLanguageSettings(int event_flags);
   void ExecProtocolHandlerSettings(int event_flags);
   void ExecPictureInPicture();
+  // Implemented in RenderViewContextMenuViews.
+  void ExecOpenInReadAnything() override {}
+#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+  void ExecRunPdfOcr();
+#endif
 
   void MediaPlayerActionAt(const gfx::Point& location,
                            const blink::mojom::MediaPlayerAction& action);
@@ -308,6 +354,16 @@ class RenderViewContextMenu
   // ProtocolHandlerRegistry::Observer:
   void OnProtocolHandlerRegistryChanged() override;
 
+  // Cleans |link_to_text_menu_observer_|. It is useful to clean unused
+  // resources as |RenderViewContextMenu| gets destroyed only with next context
+  // menu is opened.
+  void OnLinkToTextMenuCompleted();
+
+  // Whether or not translation on this page can be triggered. This method
+  // checks multiple criteria, e.g. whether translation is disabled by a policy
+  // or whether the current page can be translated.
+  bool CanTranslate(bool menu_logging);
+
   // The destination URL to use if the user tries to search for or navigate to
   // a text selection.
   GURL selection_navigation_url_;
@@ -320,7 +376,8 @@ class RenderViewContextMenu
   // - The submenu containing the installed protocol handlers.
   ui::SimpleMenuModel protocol_handler_submenu_model_;
   // - The registry with the protocols.
-  raw_ptr<custom_handlers::ProtocolHandlerRegistry> protocol_handler_registry_;
+  raw_ptr<custom_handlers::ProtocolHandlerRegistry, DanglingUntriaged>
+      protocol_handler_registry_;
   // - The observation of the registry.
   base::ScopedObservation<custom_handlers::ProtocolHandlerRegistry,
                           custom_handlers::ProtocolHandlerRegistry::Observer>
@@ -351,9 +408,7 @@ class RenderViewContextMenu
   // An observer that handles smart text selection action items.
   std::unique_ptr<RenderViewContextMenuObserver>
       start_smart_selection_action_menu_observer_;
-#endif
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // An observer that generate Quick answers queries.
   std::unique_ptr<QuickAnswersMenuObserver> quick_answers_menu_observer_;
 #endif
 
@@ -367,25 +422,16 @@ class RenderViewContextMenu
   // In the case of a MimeHandlerView this will point to the WebContents that
   // embeds the MimeHandlerViewGuest. Otherwise this will be the same as
   // |source_web_contents_|.
-  const raw_ptr<content::WebContents> embedder_web_contents_;
-
-  // Send tab to self submenu.
-  std::unique_ptr<send_tab_to_self::SendTabToSelfSubMenuModel>
-      send_tab_to_self_sub_menu_model_;
-
-  // Sharing submenu, if present.
-  std::unique_ptr<share::ShareSubmenuModel> share_submenu_model_;
+  const raw_ptr<content::WebContents, DanglingUntriaged> embedder_web_contents_;
 
   // Click to call menu observer.
   std::unique_ptr<ClickToCallContextMenuObserver>
       click_to_call_context_menu_observer_;
 
-  // Shared clipboard menu observer.
-  std::unique_ptr<SharedClipboardContextMenuObserver>
-      shared_clipboard_context_menu_observer_;
-
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // The system app (if any) associated with the WebContents we're in.
-  raw_ptr<const web_app::SystemWebAppDelegate> system_app_ = nullptr;
+  raw_ptr<const ash::SystemWebAppDelegate> system_app_ = nullptr;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   // A one-time callback that will be called the next time a plugin action is
   // executed from a given render frame.
@@ -401,6 +447,11 @@ class RenderViewContextMenu
   std::unique_ptr<lens::LensRegionSearchController>
       lens_region_search_controller_;
 #endif
+
+  // Responsible for handling autofill related context menu items.
+  autofill::AutofillContextMenuManager autofill_context_menu_manager_;
+
+  base::WeakPtrFactory<RenderViewContextMenu> weak_pointer_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_RENDERER_CONTEXT_MENU_RENDER_VIEW_CONTEXT_MENU_H_

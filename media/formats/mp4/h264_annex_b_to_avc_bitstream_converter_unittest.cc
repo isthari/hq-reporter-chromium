@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,7 +53,7 @@ TEST(H264AnnexBToAvcBitstreamConverterTest, Success) {
 
     auto status =
         converter.ConvertChunk(input, output, &config_changed, &desired_size);
-    ASSERT_EQ(status.code(), StatusCode::kH264BufferTooSmall);
+    ASSERT_EQ(status.code(), MP4Status::Codes::kBufferTooSmall);
     output.resize(desired_size);
 
     status = converter.ConvertChunk(input, output, &config_changed, nullptr);
@@ -132,7 +132,8 @@ TEST(H264AnnexBToAvcBitstreamConverterTest, Failure) {
   std::vector<uint8_t> output(input.size());
 
   auto status = converter.ConvertChunk(input, output, nullptr, nullptr);
-  ASSERT_EQ(status.code(), StatusCode::kH264ParsingError);
+
+  ASSERT_EQ(status.code(), MP4Status::Codes::kInvalidSPS);
 }
 
 }  // namespace media

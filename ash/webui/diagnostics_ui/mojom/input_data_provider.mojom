@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -61,9 +61,11 @@ enum TopRowKey {
   kScreenBrightnessDown,
   kScreenBrightnessUp,
   kPrivacyScreenToggle,
+  kMicrophoneMute,
   kVolumeMute,
   kVolumeDown,
   kVolumeUp,
+  kKeyboardBacklightToggle,
   kKeyboardBacklightDown,
   kKeyboardBacklightUp,
   kNextTrack,
@@ -71,6 +73,13 @@ enum TopRowKey {
   kPlayPause,
   kScreenMirror,
   kDelete,
+};
+
+enum TopRightKey {
+  kUnknown,
+  kPower,
+  kLock,
+  kControlPanel,
 };
 
 // Describes a connected keyboard.
@@ -81,12 +90,18 @@ struct KeyboardInfo {
   string name;
   PhysicalLayout physical_layout;
   MechanicalLayout mechanical_layout;
+  // For internal keyboards, the region code of the device (from which the
+  // visual layout can be determined).
+  string? region_code;
   NumberPadPresence number_pad_present;
   // List of ChromeOS specific action keys in the top row. This list excludes
   // the left-most Escape key, and right-most key (usually Power/Lock).
   // If a keyboard has F11-F15 keys beyond the rightmost action key, they may
   // not be included in this list (even as kNone).
   array<TopRowKey> top_row_keys;
+  // For CrOS keyboards, the glyph shown on the key at the far right end of the
+  // top row. This data may not be completely reliable.
+  TopRightKey top_right_key;
   // Only applicable to CrOS keyboards.
   bool has_assistant_key;
 };
@@ -129,17 +144,6 @@ interface KeyboardObserver {
   OnKeyEventsResumed();
 };
 
-// Describes the glyphs that appear on a single key.
-struct KeyGlyphSet {
-  // Glyph if pressed without modifiers. Displayed in the centre or on the lower
-  // half of the key.
-  string main_glyph;
-
-  // Glyph if pressed with Shift. Displayed in the upper half. Null if it's just
-  // the main glyph in upper-case.
-  string? shift_glyph;
-};
-
 enum TouchDeviceType {
   kDirect,   // e.g. touchscreens, drawing tablets with screens.
   kPointer,  // e.g. touchpads, drawing tablets without displays.
@@ -152,6 +156,33 @@ struct TouchDeviceInfo {
   ConnectionType connection_type;
   TouchDeviceType type;
   string name;
+  // Indicates if the device is testable or not. e.g. a laptop is connecting
+  // to an external display. While the lid is closed and the internal display
+  // is off, the internal touchscreen would be untestable.
+  bool testable;
+};
+
+// Implemented by clients that wish to be updated when the internal display
+// is on or off.
+interface InternalDisplayPowerStateObserver {
+  // Called when the internal display power state changed, `is_display_on`
+  // indicates the just applied display state.
+  OnInternalDisplayPowerStateChanged(bool is_display_on);
+};
+
+// Implemented by clients that wish to be notified when the tablet mode is
+// changed.
+interface TabletModeObserver {
+  // OnTabletModeChanged calls are triggered when dsiplay mode has changed
+  // between clamshell mode and tablet mode.
+  OnTabletModeChanged(bool is_tablet_mode);
+};
+
+// Implemented by clients that wish to be notified when the lid state changes.
+interface LidStateObserver {
+  // OnLidStateChanged calls are triggered when the lid of the device opens or
+  // closes.
+  OnLidStateChanged(bool is_lid_open);
 };
 
 // Implemented by clients that wish to be updated when input devices are
@@ -189,11 +220,32 @@ interface InputDataProvider {
   // key events to the observer when that window is visible and has focus.
   ObserveKeyEvents(uint32 id, pending_remote<KeyboardObserver> observer);
 
-  // Returns the visual layout for the keyboard with the given ID. For external
-  // keyboards where we can't be sure of their layout, this will default to the
-  // system layout.
-  //
-  // The layout is represented as a map from the evdev code of a key to a
-  // KeyGlyphSet describing its glyphs.
-  GetKeyboardVisualLayout(uint32 id) => (map<uint32, KeyGlyphSet> layout);
+  // Registers an observer for tablet mode changes and returns tablet mode
+  // initial state.
+  ObserveTabletMode(pending_remote<TabletModeObserver> observer) =>
+    (bool is_tablet_mode);
+
+  // Registers an observer for lid state changes and returns lid initial state.
+  ObserveLidState(pending_remote<LidStateObserver> observer) =>
+    (bool is_lid_open);
+
+  // Registers an observer for changes to the internal display power state.
+  ObserveInternalDisplayPowerState(
+    pending_remote<InternalDisplayPowerStateObserver> observer);
+
+  // When touchscreen tester is launched, the Diagnostics app should be moved
+  // to the correct testing touchscreen. `evdev_id` is the evdev id of the
+  // testing touchscreen.
+  MoveAppToTestingScreen(uint32 evdev_id);
+
+  // When touchscreen tester is closed, the Diagnostics app should be moved
+  // back to previous screen, only if it was moved to a different screen when
+  // the tester was launched.
+  MoveAppBackToPreviousScreen();
+
+  // While the user launches touchscreen tester, enable A11y touch exploration
+  // passthrough so canvas can receive web touch events. Disable it when the
+  // user exits the tester. `enabled` is a boolean indicating the just applied
+  // state.
+  SetA11yTouchPassthrough(bool enabled);
 };

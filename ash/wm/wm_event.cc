@@ -1,14 +1,21 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/wm/wm_event.h"
+
+#include "ash/wm/window_positioning_utils.h"
 
 namespace ash {
 
 WMEvent::WMEvent(WMEventType type) : type_(type) {
   DCHECK(IsWorkspaceEvent() || IsCompoundEvent() || IsBoundsEvent() ||
          IsTransitionEvent());
+}
+
+WMEvent::WMEvent(WMEventType type, float snap_ratio)
+    : type_(type), snap_ratio_(snap_ratio) {
+  DCHECK(IsSnapEvent());
 }
 
 WMEvent::~WMEvent() = default;
@@ -69,7 +76,6 @@ bool WMEvent::IsTransitionEvent() const {
     case WM_EVENT_NORMAL:
     case WM_EVENT_MAXIMIZE:
     case WM_EVENT_MINIMIZE:
-    case WM_EVENT_TOGGLE_FLOATING:
     case WM_EVENT_FULLSCREEN:
     case WM_EVENT_SNAP_PRIMARY:
     case WM_EVENT_SNAP_SECONDARY:
@@ -78,10 +84,28 @@ bool WMEvent::IsTransitionEvent() const {
     case WM_EVENT_PIN:
     case WM_EVENT_TRUSTED_PIN:
     case WM_EVENT_PIP:
+    case WM_EVENT_FLOAT:
       return true;
     default:
       break;
   }
+  return false;
+}
+
+bool WMEvent::IsSnapEvent() const {
+  switch (type_) {
+    case WM_EVENT_SNAP_PRIMARY:
+    case WM_EVENT_SNAP_SECONDARY:
+    case WM_EVENT_CYCLE_SNAP_PRIMARY:
+    case WM_EVENT_CYCLE_SNAP_SECONDARY:
+      return true;
+    default:
+      break;
+  }
+  return false;
+}
+
+bool WMEvent::IsSnapInfoAvailable() const {
   return false;
 }
 
@@ -107,6 +131,36 @@ SetBoundsWMEvent::SetBoundsWMEvent(const gfx::Rect& requested_bounds,
       animate_(false) {}
 
 SetBoundsWMEvent::~SetBoundsWMEvent() = default;
+
+WindowSnapWMEvent::WindowSnapWMEvent(WMEventType type) : WMEvent(type) {
+  DCHECK(IsSnapEvent());
+}
+
+WindowSnapWMEvent::WindowSnapWMEvent(WMEventType type,
+                                     WindowSnapWMEvent::SnapRatio snap_ratio)
+    : WMEvent(type), snap_ratio_(snap_ratio) {
+  DCHECK(IsSnapEvent());
+}
+
+WindowSnapWMEvent::~WindowSnapWMEvent() = default;
+
+float WindowSnapWMEvent::GetFloatValueForSnapRatio(
+    WindowSnapWMEvent::SnapRatio snap_ratio) {
+  switch (snap_ratio) {
+    case WindowSnapWMEvent::SnapRatio::kOneThirdSnapRatio:
+      return kOneThirdSnapRatio;
+    case WindowSnapWMEvent::SnapRatio::kDefaultSnapRatio:
+      return kDefaultSnapRatio;
+    case WindowSnapWMEvent::SnapRatio::kTwoThirdSnapRatio:
+      return kTwoThirdSnapRatio;
+    default:
+      return kDefaultSnapRatio;
+  }
+}
+
+bool WindowSnapWMEvent::IsSnapInfoAvailable() const {
+  return true;
+}
 
 DisplayMetricsChangedWMEvent::DisplayMetricsChangedWMEvent(int changed_metrics)
     : WMEvent(WM_EVENT_DISPLAY_BOUNDS_CHANGED),

@@ -1,9 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "remoting/host/continue_window.h"
 
 #import <Cocoa/Cocoa.h>
@@ -20,7 +21,7 @@
  @private
   base::scoped_nsobject<NSMutableArray> _shades;
   base::scoped_nsobject<NSAlert> _continue_alert;
-  remoting::ContinueWindow* _continue_window;
+  raw_ptr<remoting::ContinueWindow> _continue_window;
 }
 
 - (instancetype)initWithWindow:(remoting::ContinueWindow*)continue_window;
@@ -103,11 +104,11 @@ std::unique_ptr<HostWindow> HostWindow::CreateContinueWindow() {
   _shades.reset([[NSMutableArray alloc] initWithCapacity:[screens count]]);
   for (NSScreen *screen in screens) {
     NSWindow* shade =
-      [[[NSWindow alloc] initWithContentRect:[screen frame]
-                                   styleMask:NSBorderlessWindowMask
-                                     backing:NSBackingStoreBuffered
-                                       defer:NO
-                                      screen:screen] autorelease];
+        [[[NSWindow alloc] initWithContentRect:[screen frame]
+                                     styleMask:NSWindowStyleMaskBorderless
+                                       backing:NSBackingStoreBuffered
+                                         defer:NO
+                                        screen:screen] autorelease];
     [shade setReleasedWhenClosed:NO];
     [shade setAlphaValue:0.8];
     [shade setOpaque:NO];

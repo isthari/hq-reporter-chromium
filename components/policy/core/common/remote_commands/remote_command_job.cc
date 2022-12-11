@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,9 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/strings/stringprintf.h"
 #include "base/syslog_logging.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace policy {
 
@@ -15,6 +17,34 @@ namespace {
 
 constexpr base::TimeDelta kDefaultCommandTimeout = base::Minutes(10);
 constexpr base::TimeDelta kDefaultCommandExpirationTime = base::Minutes(10);
+
+std::string ToString(enterprise_management::RemoteCommand::Type type) {
+#define CASE(_name)                                 \
+  case enterprise_management::RemoteCommand::_name: \
+    return #_name;
+
+  switch (type) {
+    CASE(COMMAND_ECHO_TEST);
+    CASE(DEVICE_REBOOT);
+    CASE(DEVICE_SCREENSHOT);
+    CASE(DEVICE_SET_VOLUME);
+    CASE(DEVICE_FETCH_STATUS);
+    CASE(USER_ARC_COMMAND);
+    CASE(DEVICE_WIPE_USERS);
+    CASE(DEVICE_START_CRD_SESSION);
+    CASE(DEVICE_REMOTE_POWERWASH);
+    CASE(DEVICE_REFRESH_ENTERPRISE_MACHINE_CERTIFICATE);
+    CASE(DEVICE_GET_AVAILABLE_DIAGNOSTIC_ROUTINES);
+    CASE(DEVICE_RUN_DIAGNOSTIC_ROUTINE);
+    CASE(DEVICE_GET_DIAGNOSTIC_ROUTINE_UPDATE);
+    CASE(BROWSER_CLEAR_BROWSING_DATA);
+    CASE(DEVICE_RESET_EUICC);
+    CASE(BROWSER_ROTATE_ATTESTATION_CREDENTIAL);
+    CASE(FETCH_CRD_AVAILABILITY_INFO);
+  }
+  return base::StringPrintf("Unknown type %i", type);
+#undef CASE
+}
 
 }  // namespace
 
@@ -61,8 +91,9 @@ bool RemoteCommandJob::Init(
     return false;
   }
 
-  SYSLOG(INFO) << "Remote command type " << command.type() << " with id "
-               << command.command_id() << " initialized.";
+  SYSLOG(INFO) << "Remote command type " << ToString(command.type()) << " ("
+               << command.type() << ")"
+               << " with id " << command.command_id() << " initialized.";
 
   status_ = NOT_STARTED;
   return true;
@@ -133,10 +164,11 @@ std::unique_ptr<std::string> RemoteCommandJob::GetResultPayload() const {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(status_ == SUCCEEDED || status_ == FAILED);
 
-  if (!result_payload_)
+  if (!result_payload_.has_value()) {
     return nullptr;
+  }
 
-  return result_payload_->Serialize();
+  return std::make_unique<std::string>(std::move(result_payload_).value());
 }
 
 RemoteCommandJob::RemoteCommandJob() : status_(NOT_INITIALIZED) {}
@@ -153,7 +185,7 @@ void RemoteCommandJob::TerminateImpl() {}
 
 void RemoteCommandJob::OnCommandExecutionFinishedWithResult(
     bool succeeded,
-    std::unique_ptr<RemoteCommandJob::ResultPayload> result_payload) {
+    absl::optional<std::string> result_payload) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_EQ(RUNNING, status_);
   status_ = succeeded ? SUCCEEDED : FAILED;

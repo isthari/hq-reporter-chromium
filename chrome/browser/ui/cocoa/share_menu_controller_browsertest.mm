@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -220,7 +220,8 @@ IN_PROC_BROWSER_TEST_F(ShareMenuControllerTest, MenuHasKeyEquivalent) {
   base::scoped_nsobject<NSMenu> menu([[NSMenu alloc] initWithTitle:@"Share"]);
   EXPECT_EQ([menu numberOfItems], 0);
   NSEvent* event = cocoa_test_event_utils::KeyEventWithKeyCode(
-      'i', 'i', NSKeyDown, NSCommandKeyMask | NSShiftKeyMask);
+      'i', 'i', NSEventTypeKeyDown,
+      NSEventModifierFlagCommand | NSEventModifierFlagShift);
   id ignored_target;
   SEL ignored_action;
   EXPECT_FALSE([controller_ menuHasKeyEquivalent:menu

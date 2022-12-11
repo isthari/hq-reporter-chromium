@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,11 +19,35 @@ class HostContentSettingsMap;
 
 namespace privacy_sandbox_test_util {
 
-class MockPrivacySandboxObserver : public PrivacySandboxSettings::Observer {
+class MockPrivacySandboxObserver
+    : public privacy_sandbox::PrivacySandboxSettings::Observer {
  public:
   MockPrivacySandboxObserver();
   ~MockPrivacySandboxObserver();
-  MOCK_METHOD1(OnFlocDataAccessibleSinceUpdated, void(bool));
+  MOCK_METHOD(void, OnTopicsDataAccessibleSinceUpdated, (), (override));
+  MOCK_METHOD1(OnTrustTokenBlockingChanged, void(bool));
+  MOCK_METHOD1(OnFirstPartySetsEnabledChanged, void(bool));
+};
+
+class MockPrivacySandboxSettingsDelegate
+    : public privacy_sandbox::PrivacySandboxSettings::Delegate {
+ public:
+  MockPrivacySandboxSettingsDelegate();
+  ~MockPrivacySandboxSettingsDelegate() override;
+  void SetUpIsPrivacySandboxRestrictedResponse(bool restricted) {
+    ON_CALL(*this, IsPrivacySandboxRestricted).WillByDefault([=]() {
+      return restricted;
+    });
+  }
+
+  void SetUpIsIncognitoProfileResponse(bool incognito) {
+    ON_CALL(*this, IsIncognitoProfile).WillByDefault([=]() {
+      return incognito;
+    });
+  }
+
+  MOCK_METHOD(bool, IsPrivacySandboxRestricted, (), (const, override));
+  MOCK_METHOD(bool, IsIncognitoProfile, (), (const, override));
 };
 
 // Define an additional content setting value to simulate an unmanaged default
@@ -35,6 +59,14 @@ struct CookieContentSettingException {
   std::string secondary_pattern;
   ContentSetting content_setting;
 };
+
+// Sets up non-managed cookie preferences and content settings based on provided
+// parameters.
+void SetupMinimialTestStateForM1(
+    sync_preferences::TestingPrefServiceSyncable* testing_pref_service,
+    HostContentSettingsMap* map,
+    ContentSetting default_cookie_setting,
+    const std::vector<CookieContentSettingException>& user_cookie_exceptions);
 
 // Sets up preferences and content settings based on provided parameters.
 void SetupTestState(

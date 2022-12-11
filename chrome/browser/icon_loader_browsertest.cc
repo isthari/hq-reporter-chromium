@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,12 +38,9 @@ class TestIconLoader {
   bool TryLoadIcon(const base::FilePath& file_path,
                    IconLoader::IconSize size,
                    float scale) {
-    // |loader| is self deleting. |this| will live as long as the
-    // test.
-    auto* loader = IconLoader::Create(
+    IconLoader::LoadIcon(
         file_path, size, scale,
         base::BindOnce(&TestIconLoader::OnIconLoaded, base::Unretained(this)));
-    loader->Start();
     return true;
   }
 

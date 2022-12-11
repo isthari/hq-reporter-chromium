@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,7 @@
 #include "base/test/gmock_callback_support.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "media/base/data_buffer.h"
 #include "media/base/limits.h"
 #include "media/base/media_switches.h"
@@ -89,13 +89,14 @@ class VideoRendererImplTest : public testing::Test {
         false, base::Seconds(1.0 / 60),
         base::BindRepeating(&MockCB::FrameReceived,
                             base::Unretained(&mock_cb_)),
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
 
     renderer_ = std::make_unique<VideoRendererImpl>(
-        base::ThreadTaskRunnerHandle::Get(), null_video_sink_.get(),
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
+        null_video_sink_.get(),
         base::BindRepeating(&VideoRendererImplTest::CreateVideoDecodersForTest,
                             base::Unretained(this)),
-        true, &media_log_, nullptr);
+        true, &media_log_, nullptr, 0);
     renderer_->SetTickClockForTesting(&tick_clock_);
     null_video_sink_->set_tick_clock_for_testing(&tick_clock_);
     time_source_.SetTickClockForTesting(&tick_clock_);
@@ -142,7 +143,7 @@ class VideoRendererImplTest : public testing::Test {
                       bool low_delay,
                       bool expect_success) {
     if (low_delay)
-      demuxer_stream->set_liveness(DemuxerStream::LIVENESS_LIVE);
+      demuxer_stream->set_liveness(StreamLiveness::kLive);
     EXPECT_CALL(mock_cb_, OnWaiting(_)).Times(0);
     EXPECT_CALL(mock_cb_, OnAudioConfigChange(_)).Times(0);
     EXPECT_CALL(mock_cb_, OnStatisticsUpdate(_)).Times(AnyNumber());
@@ -610,6 +611,7 @@ TEST_F(VideoRendererImplTest, DecodeError_DuringStartPlayingFrom) {
   Initialize();
   QueueFrames("error");
   EXPECT_CALL(mock_cb_, OnError(HasStatusCode(PIPELINE_ERROR_DECODE)));
+  EXPECT_CALL(mock_cb_, OnFallback(HasStatusCode(PIPELINE_ERROR_DECODE)));
   StartPlayingFrom(0);
   Destroy();
 }
@@ -1179,12 +1181,14 @@ class VideoRendererImplAsyncAddFrameReadyTest : public VideoRendererImplTest {
  public:
   void InitializeWithMockGpuMemoryBufferVideoFramePool() {
     renderer_ = std::make_unique<VideoRendererImpl>(
-        base::ThreadTaskRunnerHandle::Get(), null_video_sink_.get(),
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
+        null_video_sink_.get(),
         base::BindRepeating(&VideoRendererImplAsyncAddFrameReadyTest::
                                 CreateVideoDecodersForTest,
                             base::Unretained(this)),
         true, &media_log_,
-        std::make_unique<MockGpuMemoryBufferVideoFramePool>(&frame_ready_cbs_));
+        std::make_unique<MockGpuMemoryBufferVideoFramePool>(&frame_ready_cbs_),
+        0);
     VideoRendererImplTest::Initialize();
   }
 

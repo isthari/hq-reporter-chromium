@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,7 +54,7 @@ class CONTENT_EXPORT CursorManager {
 
   // The view currently underneath the cursor, which corresponds to the cursor
   // currently displayed.
-  raw_ptr<RenderWidgetHostViewBase> view_under_cursor_;
+  raw_ptr<RenderWidgetHostViewBase, DanglingUntriaged> view_under_cursor_;
 
   // The root view is the target for DisplayCursor calls whenever the active
   // cursor needs to change.

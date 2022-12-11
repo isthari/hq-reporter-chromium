@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,6 +28,9 @@ class ContentTestSuiteBase : public base::TestSuite {
 
   // Registers renderer/utility/gpu processes to run in-thread.
   static void RegisterInProcessThreads();
+
+  // Initializes ResourceBundle using Content Shell's PAK file.
+  static void InitializeResourceBundle();
 
  protected:
   ContentTestSuiteBase(int argc, char** argv);

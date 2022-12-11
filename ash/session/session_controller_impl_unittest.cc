@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,8 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/test/bind.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/user_manager/user_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -447,7 +448,8 @@ TEST_F(SessionControllerImplWithShellTest,
 
     // Mark a running unlock animation.
     base::RunLoop run_loop;
-    controller()->RunUnlockAnimation(run_loop.QuitClosure());
+    controller()->RunUnlockAnimation(base::BindLambdaForTesting(
+        [&run_loop](bool aborted) { run_loop.Quit(); }));
     run_loop.Run();
     EXPECT_EQ(test_case.expect_blocked_after_unlock_animation,
               controller()->IsUserSessionBlocked())
@@ -669,7 +671,7 @@ class CanSwitchUserTest : public AshTestBase {
   // The passed |action| type parameter defines the outcome (which will be
   // checked) and the action the user will choose.
   void SwitchUser(ActionType action) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&CloseMessageBox, action));
     Shell::Get()->session_controller()->CanSwitchActiveUser(base::BindOnce(
         &CanSwitchUserTest::SwitchCallback, base::Unretained(this)));

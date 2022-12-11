@@ -1,21 +1,20 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_PLATFORM_KEYS_EXTENSION_KEY_PERMISSIONS_SERVICE_FACTORY_H_
 #define CHROME_BROWSER_PLATFORM_KEYS_EXTENSION_KEY_PERMISSIONS_SERVICE_FACTORY_H_
 
-#include "base/callback_forward.h"
-#include "memory"
+#include <memory>
 
+#include "base/callback_forward.h"
 #include "extensions/common/extension_id.h"
 
 namespace content {
 class BrowserContext;
 }
 
-namespace chromeos {
-namespace platform_keys {
+namespace chromeos::platform_keys {
 
 class ExtensionKeyPermissionsService;
 
@@ -40,7 +39,6 @@ class ExtensionKeyPermissionsServiceFactory {
   ~ExtensionKeyPermissionsServiceFactory();
 };
 
-}  // namespace platform_keys
-}  // namespace chromeos
+}  // namespace chromeos::platform_keys
 
 #endif  // CHROME_BROWSER_PLATFORM_KEYS_EXTENSION_KEY_PERMISSIONS_SERVICE_FACTORY_H_

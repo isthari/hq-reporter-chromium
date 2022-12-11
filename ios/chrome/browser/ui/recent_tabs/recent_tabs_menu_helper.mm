@@ -1,12 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/recent_tabs/recent_tabs_menu_helper.h"
 
 #import "base/ios/ios_util.h"
-#include "base/metrics/histogram_functions.h"
-#include "base/metrics/histogram_macros.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/metrics/histogram_macros.h"
 #import "ios/chrome/browser/net/crurl.h"
 #import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
 #import "ios/chrome/browser/ui/menu/browser_action_factory.h"
@@ -14,7 +14,7 @@
 #import "ios/chrome/browser/ui/menu/tab_context_menu_delegate.h"
 #import "ios/chrome/browser/ui/recent_tabs/recent_tabs_menu_provider.h"
 #import "ios/chrome/browser/ui/recent_tabs/recent_tabs_presentation_delegate.h"
-#include "ios/chrome/browser/ui/recent_tabs/synced_sessions.h"
+#import "ios/chrome/browser/ui/recent_tabs/synced_sessions.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_url_item.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -65,11 +65,11 @@
     RecentTabsContextMenuHelper* strongSelf = weakSelf;
 
     // Record that this context menu was shown to the user.
-    RecordMenuShown(MenuScenario::kRecentTabsEntry);
+    RecordMenuShown(MenuScenarioHistogram::kRecentTabsEntry);
 
     BrowserActionFactory* actionFactory = [[BrowserActionFactory alloc]
         initWithBrowser:strongSelf.browser
-               scenario:MenuScenario::kRecentTabsEntry];
+               scenario:MenuScenarioHistogram::kRecentTabsEntry];
 
     NSMutableArray<UIMenuElement*>* menuElements =
         [[NSMutableArray alloc] init];
@@ -129,10 +129,10 @@
         RecentTabsContextMenuHelper* strongSelf = weakSelf;
 
         // Record that this context menu was shown to the user.
-        RecordMenuShown(MenuScenario::kRecentTabsHeader);
+        RecordMenuShown(MenuScenarioHistogram::kRecentTabsHeader);
 
         ActionFactory* actionFactory = [[ActionFactory alloc]
-            initWithScenario:MenuScenario::kRecentTabsHeader];
+            initWithScenario:MenuScenarioHistogram::kRecentTabsHeader];
 
         NSMutableArray<UIMenuElement*>* menuElements =
             [[NSMutableArray alloc] init];

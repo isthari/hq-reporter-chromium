@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,8 @@
 #include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
-#include "base/task/task_runner_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/offline_pages/offline_page_model_factory.h"
@@ -512,7 +510,7 @@ void OfflinePageRequestHandler::Start() {
     return;
   }
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&OfflinePageRequestHandler::StartAsync,
                                 weak_ptr_factory_.GetWeakPtr()));
 }
@@ -677,8 +675,9 @@ OfflinePageRequestHandler::GetAccessEntryPoint() const {
   ui::PageTransition transition =
       static_cast<ui::PageTransition>(delegate_->GetPageTransition());
   if (ui::PageTransitionCoreTypeIs(transition, ui::PAGE_TRANSITION_LINK)) {
-    return PageTransitionGetQualifier(transition) ==
-                   static_cast<int>(ui::PAGE_TRANSITION_FROM_API)
+    return ui::PageTransitionTypeIncludingQualifiersIs(
+               PageTransitionGetQualifier(transition),
+               ui::PAGE_TRANSITION_FROM_API)
                ? AccessEntryPoint::CCT
                : AccessEntryPoint::LINK;
   } else if (ui::PageTransitionCoreTypeIs(transition,
@@ -755,8 +754,8 @@ void OfflinePageRequestHandler::FinalizeDigestOnBackground(
   // Delegate to background task runner to finalize the hash to get the digest
   // since it is time consuming. Once it is done, |digest_finalized_callback|
   // will be called with the digest.
-  base::PostTaskAndReplyWithResult(
-      file_task_runner_.get(), FROM_HERE,
+  file_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&ThreadSafeArchiveValidator::Finish, archive_validator_),
       std::move(digest_finalized_callback));
 }

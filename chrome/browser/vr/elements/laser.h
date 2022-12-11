@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,7 +53,7 @@ class Laser : public UiElement {
   // data binding flow since that would result in a frame of latency. Opacity
   // changes, however, are not latency sensitive and are bound in the usual way
   // (they also do not update due to input).
-  raw_ptr<Model> model_;
+  raw_ptr<Model, DanglingUntriaged> model_;
 };
 
 }  // namespace vr

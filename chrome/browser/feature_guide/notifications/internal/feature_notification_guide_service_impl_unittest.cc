@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "chrome/browser/notifications/scheduler/test/mock_notification_schedule_service.h"
 #include "components/feature_engagement/test/mock_tracker.h"
 #include "components/optimization_guide/proto/models.pb.h"
+#include "components/segmentation_platform/public/input_context.h"
 #include "components/segmentation_platform/public/segment_selection_result.h"
 #include "components/segmentation_platform/public/segmentation_platform_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -97,7 +98,7 @@ class TestSegmentationPlatformService
                               SegmentSelectionCallback callback) override {
     segmentation_platform::SegmentSelectionResult result;
     result.is_ready = true;
-    result.segment = optimization_guide::proto::OptimizationTarget::
+    result.segment = segmentation_platform::proto::SegmentId::
         OPTIMIZATION_TARGET_SEGMENTATION_CHROME_LOW_USER_ENGAGEMENT;
     std::move(callback).Run(result);
   }
@@ -105,14 +106,19 @@ class TestSegmentationPlatformService
       const std::string& segmentation_key) override {
     segmentation_platform::SegmentSelectionResult result;
     result.is_ready = true;
-    result.segment = optimization_guide::proto::OptimizationTarget::
+    result.segment = segmentation_platform::proto::SegmentId::
         OPTIMIZATION_TARGET_SEGMENTATION_CHROME_LOW_USER_ENGAGEMENT;
     return result;
   }
+  void GetSelectedSegmentOnDemand(
+      const std::string& segmentation_key,
+      scoped_refptr<segmentation_platform::InputContext> input_context,
+      SegmentSelectionCallback callback) override {}
   void EnableMetrics(bool signal_collection_allowed) override {}
   segmentation_platform::ServiceProxy* GetServiceProxy() override {
     return nullptr;
   }
+  bool IsPlatformInitialized() override { return true; }
 };
 
 class FeatureNotificationGuideServiceImplTest : public testing::Test {

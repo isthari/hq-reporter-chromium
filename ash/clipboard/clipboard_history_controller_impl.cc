@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,27 +19,30 @@
 #include "ash/constants/ash_features.h"
 #include "ash/display/display_util.h"
 #include "ash/public/cpp/clipboard_image_model_factory.h"
-#include "ash/public/cpp/style/scoped_light_mode_as_default.h"
 #include "ash/public/cpp/window_tree_host_lookup.h"
-#include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
+#include "ash/style/color_util.h"
 #include "ash/wm/window_util.h"
+#include "base/barrier_closure.h"
 #include "base/bind.h"
-#include "base/json/values_util.h"
-#include "base/location.h"
+#include "base/callback_forward.h"
+#include "base/check_op.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/ranges/algorithm.h"
+#include "base/metrics/user_metrics.h"
+#include "base/notreached.h"
+#include "base/one_shot_event.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/synchronization/lock.h"
+#include "base/task/bind_post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/unguessable_token.h"
 #include "base/values.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/accelerators/accelerator.h"
-#include "ui/base/clipboard/clipboard_constants.h"
 #include "ui/base/clipboard/clipboard_data.h"
 #include "ui/base/clipboard/clipboard_non_backed.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
@@ -47,16 +50,13 @@
 #include "ui/base/ime/input_method.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/models/image_model.h"
-#include "ui/base/models/menu_separator_types.h"
 #include "ui/base/models/simple_menu_model.h"
-#include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/web_ui_util.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes_posix.h"
 #include "ui/events/types/event_type.h"
 #include "ui/gfx/geometry/rect.h"
-#include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/menu/menu_controller.h"
 
 namespace ash {
@@ -78,22 +78,71 @@ ui::ClipboardNonBacked* GetClipboard() {
   return clipboard;
 }
 
-// Serially encodes bitmaps in |bitmaps_to_be_encoded| to PNGs.
-// This function should run on a background thread.
-// |bitmaps_to_be_encoded| maps ClipboardHistoryItem IDs to their corresponding
-// bitmaps which need to be encoded. Returns a map of ClipboardHistoryItem
-// IDs to encoded PNGs.
-// TODO(crbug.com/1277000): Rather than encoding serially, consider posting each
-// encoding as a task.
-std::map<base::UnguessableToken, std::vector<uint8_t>> EncodeBitmapsToPNG(
-    std::map<base::UnguessableToken, SkBitmap> bitmaps_to_be_encoded) {
-  std::map<base::UnguessableToken, std::vector<uint8_t>> encoded_pngs;
-  base::ranges::for_each(bitmaps_to_be_encoded, [&](const auto& id_and_bitmap) {
-    encoded_pngs.emplace(
-        id_and_bitmap.first,
-        ui::ClipboardData::EncodeBitmapData(id_and_bitmap.second));
-  });
-  return encoded_pngs;
+// Encodes `bitmap` and maps the corresponding ClipboardHistoryItem ID, `id, to
+// the resulting PNG in `encoded_pngs`. This function should run on a background
+// thread.
+void EncodeBitmapToPNG(
+    base::OnceClosure barrier_callback,
+    std::map<base::UnguessableToken, std::vector<uint8_t>>* const encoded_pngs,
+    base::UnguessableToken id,
+    SkBitmap bitmap) {
+  auto png = ui::ClipboardData::EncodeBitmapData(bitmap);
+
+  // Don't acquire the lock until after the image encoding has finished.
+  static base::NoDestructor<base::Lock> map_lock;
+  base::AutoLock lock(*map_lock);
+
+  encoded_pngs->emplace(id, std::move(png));
+  std::move(barrier_callback).Run();
+}
+
+// Emits a user action indicating that the clipboard history item at menu index
+// `command_id` was pasted.
+void RecordMenuIndexPastedUserAction(int command_id) {
+  // Per guidance in user_metrics.h, use string literals for action names.
+  switch (command_id) {
+    case 1:
+      base::RecordAction(
+          base::UserMetricsAction("Ash_ClipboardHistory_PastedItem1"));
+      break;
+    case 2:
+      base::RecordAction(
+          base::UserMetricsAction("Ash_ClipboardHistory_PastedItem2"));
+      break;
+    case 3:
+      base::RecordAction(
+          base::UserMetricsAction("Ash_ClipboardHistory_PastedItem3"));
+      break;
+    case 4:
+      base::RecordAction(
+          base::UserMetricsAction("Ash_ClipboardHistory_PastedItem4"));
+      break;
+    case 5:
+      base::RecordAction(
+          base::UserMetricsAction("Ash_ClipboardHistory_PastedItem5"));
+      break;
+    default:
+      NOTREACHED();
+  }
+}
+
+using ClipboardHistoryPasteType =
+    ClipboardHistoryControllerImpl::ClipboardHistoryPasteType;
+bool IsPlainTextPaste(ClipboardHistoryPasteType paste_type) {
+  switch (paste_type) {
+    case ClipboardHistoryPasteType::kPlainTextAccelerator:
+    case ClipboardHistoryPasteType::kPlainTextKeystroke:
+    case ClipboardHistoryPasteType::kPlainTextMouse:
+    case ClipboardHistoryPasteType::kPlainTextTouch:
+    case ClipboardHistoryPasteType::kPlainTextVirtualKeyboard:
+      return true;
+    case ClipboardHistoryPasteType::kRichTextAccelerator:
+    case ClipboardHistoryPasteType::kRichTextKeystroke:
+    case ClipboardHistoryPasteType::kRichTextMouse:
+    case ClipboardHistoryPasteType::kRichTextTouch:
+    case ClipboardHistoryPasteType::kRichTextVirtualKeyboard:
+      return false;
+  }
 }
 
 }  // namespace
@@ -230,33 +279,37 @@ void ClipboardHistoryControllerImpl::Shutdown() {
   nudge_controller_.reset();
 }
 
-void ClipboardHistoryControllerImpl::AddObserver(
-    ClipboardHistoryController::Observer* observer) const {
-  observers_.AddObserver(observer);
-}
-
-void ClipboardHistoryControllerImpl::RemoveObserver(
-    ClipboardHistoryController::Observer* observer) const {
-  observers_.RemoveObserver(observer);
-}
-
 bool ClipboardHistoryControllerImpl::IsMenuShowing() const {
   return context_menu_ && context_menu_->IsRunning();
 }
 
-void ClipboardHistoryControllerImpl::ShowMenuByAccelerator() {
+void ClipboardHistoryControllerImpl::ToggleMenuShownByAccelerator() {
   if (IsMenuShowing()) {
-    ExecuteSelectedMenuItem(ui::EF_COMMAND_DOWN);
+    // Before hiding the menu, paste the selected menu item, or the first item
+    // if none is selected.
+    PasteMenuItemData(context_menu_->GetSelectedMenuItemCommand().value_or(
+                          clipboard_history_util::kFirstItemCommandId),
+                      ClipboardHistoryPasteType::kRichTextAccelerator);
     return;
   }
 
-  if (ClipboardHistoryUtil::IsEnabledInCurrentMode() && IsEmpty()) {
+  if (clipboard_history_util::IsEnabledInCurrentMode() && IsEmpty()) {
     nudge_controller_->ShowNudge(ClipboardNudgeType::kZeroStateNudge);
     return;
   }
 
   ShowMenu(CalculateAnchorRect(), ui::MENU_SOURCE_KEYBOARD,
            crosapi::mojom::ClipboardHistoryControllerShowSource::kAccelerator);
+}
+
+void ClipboardHistoryControllerImpl::AddObserver(
+    ClipboardHistoryController::Observer* observer) {
+  observers_.AddObserver(observer);
+}
+
+void ClipboardHistoryControllerImpl::RemoveObserver(
+    ClipboardHistoryController::Observer* observer) {
+  observers_.RemoveObserver(observer);
 }
 
 void ClipboardHistoryControllerImpl::ShowMenu(
@@ -297,7 +350,7 @@ void ClipboardHistoryControllerImpl::ShowMenu(
               return;
 
             controller_weak_ptr->context_menu_->SelectMenuItemWithCommandId(
-                ClipboardHistoryUtil::kFirstItemCommandId);
+                clipboard_history_util::kFirstItemCommandId);
             if (controller_weak_ptr->initial_item_selected_callback_for_test_) {
               controller_weak_ptr->initial_item_selected_callback_for_test_
                   .Run();
@@ -306,7 +359,7 @@ void ClipboardHistoryControllerImpl::ShowMenu(
           weak_ptr_factory_.GetWeakPtr()));
 
   for (auto& observer : observers_)
-    observer.OnClipboardHistoryMenuShown(show_source);
+    observer.OnClipboardHistoryMenuShown();
 }
 
 gfx::Rect ClipboardHistoryControllerImpl::GetMenuBoundsInScreenForTest() const {
@@ -319,13 +372,14 @@ void ClipboardHistoryControllerImpl::GetHistoryValuesForTest(
                    std::move(callback));
 }
 
-bool ClipboardHistoryControllerImpl::ShouldShowNewFeatureBadge() const {
-  return chromeos::features::IsClipboardHistoryContextMenuNudgeEnabled() &&
-         nudge_controller_->ShouldShowNewFeatureBadge();
+void ClipboardHistoryControllerImpl::BlockGetHistoryValuesForTest() {
+  get_history_values_blocker_for_test_.reset();
+  get_history_values_blocker_for_test_ = std::make_unique<base::OneShotEvent>();
 }
 
-void ClipboardHistoryControllerImpl::MarkNewFeatureBadgeShown() {
-  nudge_controller_->MarkNewFeatureBadgeShown();
+void ClipboardHistoryControllerImpl::ResumeGetHistoryValuesForTest() {
+  DCHECK(get_history_values_blocker_for_test_);
+  get_history_values_blocker_for_test_->Signal();
 }
 
 void ClipboardHistoryControllerImpl::OnScreenshotNotificationCreated() {
@@ -333,7 +387,7 @@ void ClipboardHistoryControllerImpl::OnScreenshotNotificationCreated() {
 }
 
 bool ClipboardHistoryControllerImpl::CanShowMenu() const {
-  return !IsEmpty() && ClipboardHistoryUtil::IsEnabledInCurrentMode();
+  return !IsEmpty() && clipboard_history_util::IsEnabledInCurrentMode();
 }
 
 bool ClipboardHistoryControllerImpl::IsEmpty() const {
@@ -346,11 +400,6 @@ ClipboardHistoryControllerImpl::CreateScopedPause() {
       clipboard_history_.get());
 }
 
-// TODO(crbug.com/1272798): If there are multiple calls in a row to
-// GetHistoryValues, the same bitmaps may be encoded to PNG multiple times which
-// is a resource waste. The ClipboardHistoryControllerImpl should track the ids
-// of ClipboardHistoryItems for which there is a pending encoding task and avoid
-// scheduling a duplicate encoding task for these items.
 void ClipboardHistoryControllerImpl::GetHistoryValues(
     const std::set<std::string>& item_id_filter,
     GetHistoryValuesCallback callback) const {
@@ -365,8 +414,8 @@ void ClipboardHistoryControllerImpl::GetHistoryValues(
       continue;
     }
 
-    if (ash::ClipboardHistoryUtil::CalculateDisplayFormat(item.data()) ==
-        ash::ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kPng) {
+    if (clipboard_history_util::CalculateDisplayFormat(item.data()) ==
+        clipboard_history_util::DisplayFormat::kPng) {
       const auto& maybe_png = item.data().maybe_png();
       if (!maybe_png.has_value()) {
         // The clipboard contains an image which has not yet been encoded to a
@@ -379,13 +428,30 @@ void ClipboardHistoryControllerImpl::GetHistoryValues(
     }
   }
 
-  // Encode images on a background thread.
-  base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE,
-      base::BindOnce(&EncodeBitmapsToPNG, std::move(bitmaps_to_be_encoded)),
-      base::BindOnce(
-          &ClipboardHistoryControllerImpl::GetHistoryValuesWithEncodedPNGs,
-          weak_ptr_factory_.GetWeakPtr(), item_id_filter, std::move(callback)));
+  // Map of ClipboardHistoryItem ID to its encoded PNG. Since encoding images
+  // may happen on separate threads, a lock is used to ensure thread-safe
+  // insertion into `encoded_pngs`.
+  auto encoded_pngs = std::make_unique<
+      std::map<base::UnguessableToken, std::vector<uint8_t>>>();
+  auto* encoded_pngs_ptr = encoded_pngs.get();
+
+  // Post back to this sequence once all images have been encoded.
+  base::RepeatingClosure barrier = base::BarrierClosure(
+      bitmaps_to_be_encoded.size(),
+      base::BindPostTask(
+          base::SequencedTaskRunner::GetCurrentDefault(),
+          base::BindOnce(
+              &ClipboardHistoryControllerImpl::GetHistoryValuesWithEncodedPNGs,
+              weak_ptr_factory_.GetMutableWeakPtr(), item_id_filter,
+              std::move(callback), std::move(encoded_pngs))));
+
+  // Encode images on background threads.
+  for (auto id_and_bitmap : bitmaps_to_be_encoded) {
+    base::ThreadPool::PostTask(
+        FROM_HERE, base::BindOnce(&EncodeBitmapToPNG, barrier, encoded_pngs_ptr,
+                                  std::move(id_and_bitmap.first),
+                                  std::move(id_and_bitmap.second)));
+  }
 
   if (!new_bitmap_to_write_while_encoding_for_test_.isNull()) {
     ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
@@ -397,8 +463,30 @@ void ClipboardHistoryControllerImpl::GetHistoryValues(
 void ClipboardHistoryControllerImpl::GetHistoryValuesWithEncodedPNGs(
     const std::set<std::string>& item_id_filter,
     GetHistoryValuesCallback callback,
-    std::map<base::UnguessableToken, std::vector<uint8_t>> encoded_pngs) {
+    std::unique_ptr<std::map<base::UnguessableToken, std::vector<uint8_t>>>
+        encoded_pngs) {
+  // If a test is performing some work that must be done before history values
+  // are returned, wait to run this function until that work is finished.
+  if (get_history_values_blocker_for_test_ &&
+      !get_history_values_blocker_for_test_->is_signaled()) {
+    get_history_values_blocker_for_test_->Post(
+        FROM_HERE,
+        base::BindOnce(
+            &ClipboardHistoryControllerImpl::GetHistoryValuesWithEncodedPNGs,
+            weak_ptr_factory_.GetWeakPtr(), item_id_filter, std::move(callback),
+            std::move(encoded_pngs)));
+    return;
+  }
+
   base::Value item_results(base::Value::Type::LIST);
+  DCHECK(encoded_pngs);
+
+  // Check after asynchronous PNG encoding finishes to make sure we have not
+  // entered a state where clipboard history is disabled, e.g., a locked screen.
+  if (!clipboard_history_util::IsEnabledInCurrentMode()) {
+    std::move(callback).Run(std::move(item_results));
+    return;
+  }
 
   bool all_images_encoded = true;
   // Get the clipboard data for each clipboard history item.
@@ -411,15 +499,15 @@ void ClipboardHistoryControllerImpl::GetHistoryValuesWithEncodedPNGs(
     }
 
     base::Value item_value(base::Value::Type::DICTIONARY);
-    switch (ash::ClipboardHistoryUtil::CalculateDisplayFormat(item.data())) {
-      case ash::ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kPng: {
+    switch (clipboard_history_util::CalculateDisplayFormat(item.data())) {
+      case clipboard_history_util::DisplayFormat::kPng: {
         if (!item.data().maybe_png().has_value()) {
           // The clipboard contains an image which has not yet been encoded to a
           // PNG. Hopefully we just finished encoding and the PNG can be found
           // in `encoded_pngs`, otherwise this item was added while other PNGs
           // were being encoded.
-          auto png_it = encoded_pngs.find(item.id());
-          if (png_it == encoded_pngs.end()) {
+          auto png_it = encoded_pngs->find(item.id());
+          if (png_it == encoded_pngs->end()) {
             // Can't find the encoded PNG. We'll need to restart
             // GetHistoryValues from the top, but allow this for loop to finish
             // to let PNGs we've already encoded get set to their appropriate
@@ -439,7 +527,7 @@ void ClipboardHistoryControllerImpl::GetHistoryValuesWithEncodedPNGs(
         }
         break;
       }
-      case ash::ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kHtml: {
+      case clipboard_history_util::DisplayFormat::kHtml: {
         const SkBitmap& bitmap =
             *(resource_manager_->GetImageModel(item).GetImage().ToSkBitmap());
         item_value.SetKey(kImageDataKey,
@@ -447,18 +535,25 @@ void ClipboardHistoryControllerImpl::GetHistoryValuesWithEncodedPNGs(
         item_value.SetKey(kFormatDataKey, base::Value(kHtmlFormat));
         break;
       }
-      case ash::ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kText:
+      case clipboard_history_util::DisplayFormat::kText:
         item_value.SetKey(kTextDataKey, base::Value(item.data().text()));
         item_value.SetKey(kFormatDataKey, base::Value(kTextFormat));
         break;
-      case ash::ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kFile: {
+      case clipboard_history_util::DisplayFormat::kFile: {
         std::string file_name =
             base::UTF16ToUTF8(resource_manager_->GetLabel(item));
         item_value.SetKey(kTextDataKey, base::Value(file_name));
-        ScopedLightModeAsDefault scoped_light_mode_as_default;
+        ui::ImageModel image_model =
+            clipboard_history_util::GetIconForFileClipboardItem(item,
+                                                                file_name);
+        // TODO(b/252366283): Refactor so we don't use the RootWindow from
+        // Shell.
+        const ui::ColorProvider* color_provider =
+            ColorUtil::GetColorProviderSourceForWindow(
+                Shell::Get()->GetPrimaryRootWindow())
+                ->GetColorProvider();
         std::string data_url = webui::GetBitmapDataUrl(
-            *ClipboardHistoryUtil::GetIconForFileClipboardItem(item, file_name)
-                 .bitmap());
+            *image_model.Rasterize(color_provider).bitmap());
         item_value.SetKey(kImageDataKey, base::Value(data_url));
         item_value.SetKey(kFormatDataKey, base::Value(kFileFormat));
         break;
@@ -498,12 +593,12 @@ bool ClipboardHistoryControllerImpl::PasteClipboardItemById(
 
   for (const auto& item : history()->GetItems()) {
     if (item.id().ToString() == item_id) {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(
               &ClipboardHistoryControllerImpl::PasteClipboardHistoryItem,
               weak_ptr_factory_.GetWeakPtr(), active_window, item,
-              /*paste_plain_text=*/false));
+              ClipboardHistoryPasteType::kRichTextVirtualKeyboard));
       return true;
     }
   }
@@ -547,37 +642,53 @@ void ClipboardHistoryControllerImpl::OnOperationConfirmed(bool copy) {
   static int confirmed_paste_count = 0;
 
   // Here we assume that a paste operation from the clipboard history menu never
-  // interleaves with a copy operation or a paste operation from other ways (
-  // including pressing the ctrl-v accelerator or clicking a context menu
-  // option). In other words, when `pastes_to_be_confirmed_` is positive, it
-  // means that the incoming operation should be a paste from clipboard history.
-  // It should be held in most cases given that the clipboard history menu is
-  // always closed after one paste and it usually takes relatively long time for
-  // a user to conduct the next copy or paste. For this metric, we are tolerable
-  // of a small portion of erroneous recordings.
-
-  // When `pastes_to_be_confirmed_` is positive, `copy` should be
-  // false in most cases based on the assumption above. But theoretically
-  // `copy` could be true.
+  // interleaves with a user-initiated copy or paste operation from another
+  // source, such as pressing the ctrl-v accelerator or clicking a context menu
+  // option. In other words, when `pastes_to_be_confirmed_` is positive, the
+  // next confirmed operation is expected to be a paste from clipboard history.
+  // This assumption should hold in most cases given that the clipboard history
+  // menu is always closed after one paste, and it usually takes a relatively
+  // long time for a user to perform the next copy or paste. For this metric, we
+  // tolerate a small margin of error.
   if (pastes_to_be_confirmed_ > 0 && !copy) {
     ++confirmed_paste_count;
     --pastes_to_be_confirmed_;
   } else {
-    // Reset if the assumption is not held for some reasons.
-    DCHECK_LE(0, pastes_to_be_confirmed_);
-    if (pastes_to_be_confirmed_ > 0)
-      pastes_to_be_confirmed_ = 0;
-
-    DCHECK_LE(0, confirmed_paste_count);
-    if (confirmed_paste_count) {
+    // Note that both copies and pastes from the standard clipboard cause the
+    // clipboard history consecutive paste count to be emitted and reset.
+    if (confirmed_paste_count > 0) {
       base::UmaHistogramCounts100("Ash.ClipboardHistory.ConsecutivePastes",
                                   confirmed_paste_count);
       confirmed_paste_count = 0;
     }
+
+    if (copy) {
+      // Record copy actions once they are confirmed, rather than when clipboard
+      // data first changes, to allow multiple data changes to be debounced into
+      // a single copy operation. This ensures that each user-initiated copy is
+      // recorded only once. See `ClipboardHistory::OnDataChanged()` for further
+      // explanation.
+      base::RecordAction(base::UserMetricsAction("Ash_Clipboard_CopiedItem"));
+    } else {
+      // Pastes from clipboard history are already recorded in
+      // `PasteMenuItemData()`. Here, we record just pastes from the standard
+      // clipboard, to see how standard clipboard pastes interleave with
+      // clipboard history pastes.
+      base::RecordAction(base::UserMetricsAction("Ash_Clipboard_PastedItem"));
+    }
+
+    // Verify that this operation did not interleave with a clipboard history
+    // paste.
+    DCHECK_EQ(pastes_to_be_confirmed_, 0);
+    // Whether or not the non-interleaving assumption has held, always reset
+    // `pastes_to_be_confirmed_` to prevent standard clipboard pastes from
+    // possibly being counted as clipboard history pastes, which could
+    // significantly affect the clipboard history consecutive pastes metric.
+    pastes_to_be_confirmed_ = 0;
   }
 
   if (confirmed_operation_callback_for_test_)
-    confirmed_operation_callback_for_test_.Run();
+    confirmed_operation_callback_for_test_.Run(/*success=*/true);
 }
 
 void ClipboardHistoryControllerImpl::OnCachedImageModelUpdated(
@@ -586,29 +697,42 @@ void ClipboardHistoryControllerImpl::OnCachedImageModelUpdated(
     observer.OnClipboardHistoryItemsUpdated(menu_item_ids);
 }
 
-void ClipboardHistoryControllerImpl::ExecuteSelectedMenuItem(int event_flags) {
-  DCHECK(IsMenuShowing());
-
-  auto command = context_menu_->GetSelectedMenuItemCommand();
-
-  // If no menu item is currently selected, we'll fallback to the first item.
-  PasteMenuItemData(command.value_or(ClipboardHistoryUtil::kFirstItemCommandId),
-                    event_flags);
-}
-
 void ClipboardHistoryControllerImpl::ExecuteCommand(int command_id,
                                                     int event_flags) {
   DCHECK(context_menu_);
 
-  DCHECK_GE(command_id, ClipboardHistoryUtil::kFirstItemCommandId);
-  DCHECK_LE(command_id, ClipboardHistoryUtil::kMaxItemCommandId);
+  DCHECK_GE(command_id, clipboard_history_util::kFirstItemCommandId);
+  DCHECK_LE(command_id, clipboard_history_util::kMaxItemCommandId);
 
-  using Action = ClipboardHistoryUtil::Action;
+  using Action = clipboard_history_util::Action;
   Action action = context_menu_->GetActionForCommandId(command_id);
   switch (action) {
     case Action::kPaste:
-      PasteMenuItemData(command_id, event_flags & ui::EF_SHIFT_DOWN);
-      return;
+      // Create a scope for the variables used in this case so that they can be
+      // deallocated from the stack.
+      {
+        bool paste_plain_text = event_flags & ui::EF_SHIFT_DOWN;
+        // There are no specific flags that indicate a paste triggered by a
+        // keystroke, so assume by default that keystroke was the event source
+        // and then check for the other known possibilities. This assumption may
+        // cause pastes from unknown sources to be incorrectly captured as
+        // keystroke pastes, but we do not expect such cases to significantly
+        // alter metrics.
+        ClipboardHistoryPasteType paste_type =
+            paste_plain_text ? ClipboardHistoryPasteType::kPlainTextKeystroke
+                             : ClipboardHistoryPasteType::kRichTextKeystroke;
+        if (event_flags & ui::EF_MOUSE_BUTTON) {
+          paste_type = paste_plain_text
+                           ? ClipboardHistoryPasteType::kPlainTextMouse
+                           : ClipboardHistoryPasteType::kRichTextMouse;
+        } else if (event_flags & ui::EF_FROM_TOUCH) {
+          paste_type = paste_plain_text
+                           ? ClipboardHistoryPasteType::kPlainTextTouch
+                           : ClipboardHistoryPasteType::kRichTextTouch;
+        }
+        PasteMenuItemData(command_id, paste_type);
+        return;
+      }
     case Action::kDelete:
       DeleteItemWithCommandId(command_id);
       return;
@@ -624,11 +748,18 @@ void ClipboardHistoryControllerImpl::ExecuteCommand(int command_id,
   }
 }
 
-void ClipboardHistoryControllerImpl::PasteMenuItemData(int command_id,
-                                                       bool paste_plain_text) {
+void ClipboardHistoryControllerImpl::PasteMenuItemData(
+    int command_id,
+    ClipboardHistoryPasteType paste_type) {
+  // Record the paste item's history list index in a histogram to get a
+  // distribution of where in the list users paste from.
   UMA_HISTOGRAM_ENUMERATION(
       "Ash.ClipboardHistory.ContextMenu.MenuOptionSelected", command_id,
-      ClipboardHistoryUtil::kMaxCommandId);
+      clipboard_history_util::kCommandIdBoundary);
+  // Record the paste item's history list index as a user action to analyze
+  // usage patterns, e.g., how frequently the same index is pasted multiple
+  // times in a row.
+  RecordMenuIndexPastedUserAction(command_id);
 
   // Deactivate ClipboardImageModelFactory prior to pasting to ensure that any
   // modifications to the clipboard for HTML rendering purposes are reversed.
@@ -646,102 +777,162 @@ void ClipboardHistoryControllerImpl::PasteMenuItemData(int command_id,
   const ClipboardHistoryItem& selected_item =
       context_menu_->GetItemFromCommandId(command_id);
 
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&ClipboardHistoryControllerImpl::PasteClipboardHistoryItem,
                      weak_ptr_factory_.GetWeakPtr(), active_window,
-                     selected_item, paste_plain_text));
+                     selected_item, paste_type));
 }
 
 void ClipboardHistoryControllerImpl::PasteClipboardHistoryItem(
     aura::Window* intended_window,
     ClipboardHistoryItem item,
-    bool paste_plain_text) {
-  // It's possible that the window could change after posting the
-  // PasteClipboardHistoryItem task is scheduled.
-  if (!intended_window || intended_window != window_util::GetActiveWindow())
+    ClipboardHistoryPasteType paste_type) {
+  // It's possible that the window could change or we could enter a disabled
+  // mode after posting the `PasteClipboardHistoryItem()` task.
+  if (!intended_window || intended_window != window_util::GetActiveWindow() ||
+      !clipboard_history_util::IsEnabledInCurrentMode()) {
+    if (confirmed_operation_callback_for_test_)
+      confirmed_operation_callback_for_test_.Run(/*success=*/false);
     return;
-
-  auto* clipboard = GetClipboard();
-  std::unique_ptr<ui::ClipboardData> original_data;
-
-  // If necessary, replace the clipboard's |original_data| temporarily so that
-  // we can paste the selected history item.
-  ui::DataTransferEndpoint data_dst(ui::EndpointType::kClipboardHistory);
-  const auto* current_clipboard_data = clipboard->GetClipboardData(&data_dst);
-  if (paste_plain_text || !current_clipboard_data ||
-      *current_clipboard_data != item.data()) {
-    std::unique_ptr<ui::ClipboardData> temp_data;
-    if (paste_plain_text) {
-      // When the shift key is pressed, we only paste plain text.
-      temp_data = std::make_unique<ui::ClipboardData>();
-      temp_data->set_text(item.data().text());
-      ui::DataTransferEndpoint* data_src = item.data().source();
-      if (data_src) {
-        temp_data->set_source(
-            std::make_unique<ui::DataTransferEndpoint>(*data_src));
-      }
-    } else {
-      temp_data = std::make_unique<ui::ClipboardData>(item.data());
-    }
-
-    // Pause clipboard history when manipulating the clipboard for a paste.
-    ScopedClipboardHistoryPauseImpl scoped_pause(clipboard_history_.get());
-    original_data = clipboard->WriteClipboardData(std::move(temp_data));
   }
 
-  ui::KeyEvent control_press(/*type=*/ui::ET_KEY_PRESSED, ui::VKEY_CONTROL,
-                             ui::EF_NONE);
+  // Get information about the data to be pasted.
+  bool paste_plain_text = IsPlainTextPaste(paste_type);
+  auto* clipboard = GetClipboard();
+  ui::DataTransferEndpoint data_dst(ui::EndpointType::kClipboardHistory);
+  const auto* current_clipboard_data = clipboard->GetClipboardData(&data_dst);
+
+  // Clipboard history pastes are performed by temporarily writing data to the
+  // system clipboard, if necessary, and then issuing a standard paste.
+  // Determine the data we should temporarily write to the clipboard, if any, so
+  // that we can paste the selected history item.
+  std::unique_ptr<ui::ClipboardData> data_to_paste;
+  if (paste_plain_text) {
+    data_to_paste = std::make_unique<ui::ClipboardData>();
+    data_to_paste->set_commit_time(item.data().commit_time());
+    data_to_paste->set_text(item.data().text());
+    ui::DataTransferEndpoint* data_src = item.data().source();
+    if (data_src) {
+      data_to_paste->set_source(
+          std::make_unique<ui::DataTransferEndpoint>(*data_src));
+    }
+  } else if (!current_clipboard_data ||
+             *current_clipboard_data != item.data()) {
+    data_to_paste = std::make_unique<ui::ClipboardData>(item.data());
+  }
+
+  // Pausing clipboard history while manipulating the clipboard prevents the
+  // paste item from being added to clipboard history. In cases where we
+  // actually want the paste item to end up at the top of history, we accomplish
+  // that by specifying that reorders on paste can go through. Plain text pastes
+  // can cause reorders, but only in the buffer restoration step, as the plain
+  // text data that reaches clipboard history cannot reliably identify the item
+  // that should be reordered. In all cases, reorders should only be allowed
+  // when the experimental behavior is enabled.
+  using PauseBehavior = clipboard_history_util::PauseBehavior;
+  auto pause_behavior =
+      !paste_plain_text && features::IsClipboardHistoryReorderEnabled()
+          ? PauseBehavior::kAllowReorderOnPaste
+          : PauseBehavior::kDefault;
+  std::unique_ptr<ui::ClipboardData> replaced_data;
+  // If necessary, replace the clipboard's current data before issuing a paste.
+  if (data_to_paste) {
+    ScopedClipboardHistoryPauseImpl scoped_pause(clipboard_history_.get(),
+                                                 pause_behavior);
+    replaced_data =
+        GetClipboard()->WriteClipboardData(std::move(data_to_paste));
+  }
+
   auto* host = GetWindowTreeHostForDisplay(
       display::Screen::GetScreen()->GetDisplayForNewWindows().id());
   DCHECK(host);
-  host->DeliverEventToSink(&control_press);
+
+  ++pastes_to_be_confirmed_;
+
+  ui::KeyEvent ctrl_press(ui::ET_KEY_PRESSED, ui::VKEY_CONTROL, ui::EF_NONE);
+  host->DeliverEventToSink(&ctrl_press);
 
   ui::KeyEvent v_press(ui::ET_KEY_PRESSED, ui::VKEY_V, ui::EF_CONTROL_DOWN);
   host->DeliverEventToSink(&v_press);
 
-  ui::KeyEvent v_release(/*type=*/ui::ET_KEY_RELEASED, ui::VKEY_V,
-                         ui::EF_CONTROL_DOWN);
+  ui::KeyEvent v_release(ui::ET_KEY_RELEASED, ui::VKEY_V, ui::EF_CONTROL_DOWN);
   host->DeliverEventToSink(&v_release);
 
-  ui::KeyEvent control_release(/*type=*/ui::ET_KEY_RELEASED, ui::VKEY_CONTROL,
-                               ui::EF_NONE);
-  host->DeliverEventToSink(&control_release);
+  ui::KeyEvent ctrl_release(ui::ET_KEY_RELEASED, ui::VKEY_CONTROL, ui::EF_NONE);
+  host->DeliverEventToSink(&ctrl_release);
 
-  ++pastes_to_be_confirmed_;
+  base::UmaHistogramEnumeration("Ash.ClipboardHistory.PasteType", paste_type);
 
   for (auto& observer : observers_)
     observer.OnClipboardHistoryPasted();
 
-  // `original_data` only exists if the clipboard was modified.
-  if (!original_data)
+  // If the clipboard was not changed or we intend for clipboard history to
+  // remain reordered after the paste, then we are done modifying the clipboard
+  // buffer.
+  if (!replaced_data || pause_behavior == PauseBehavior::kAllowReorderOnPaste)
     return;
 
+  // `currently_pasting_` only needs to be set when clipboard history and the
+  // clipboard buffer are not in a consistent state for subsequent pastes.
   currently_pasting_ = true;
 
-  // Replace the original item back on top of the clipboard. Some apps take a
-  // long time to receive the paste event, also some apps will read from the
-  // clipboard multiple times per paste. Wait a bit before replacing the item
-  // back onto the clipboard.
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  // We only reach this point if the clipboard needs to be overwritten again,
+  // either because we issued a plain text paste or because we pasted a
+  // clipboard history item whose data was not originally on the clipboard and
+  // reorder behavior is disabled. To know what data should go on the clipboard
+  // and how that update should affect clipboard history, we check which of
+  // three possible states currently applies:
+  //
+  //   1. the buffer is populated with a plain text version of the clipboard's
+  //      original data, so the original data should be restored with clipboard
+  //      history paused,
+  //   2. the buffer is populated with a plain text version of a different
+  //      clipboard history item's data and reorder behavior is enabled, so the
+  //      pasted item's full data should replace the clipboard data while
+  //      signaling a reorder to clipboard history, or
+  //   3. the buffer is populated with a different clipboard history item's full
+  //      data and reorder behavior is disabled, so the clipboard's original
+  //      data should be restored with clipboard history paused.
+  //
+  // Note that the buffer cannot hold a different clipboard history item's full
+  // data with reorder behavior enabled, because in that case we would have
+  // already allowed the clipboard history modification to go through as a
+  // reorder during the pre-paste clipboard overwrite.
+  pause_behavior = features::IsClipboardHistoryReorderEnabled() &&
+                           item.data() != *replaced_data
+                       ? PauseBehavior::kAllowReorderOnPaste
+                       : PauseBehavior::kDefault;
+  auto data_to_restore = pause_behavior == PauseBehavior::kAllowReorderOnPaste
+                             ? std::make_unique<ui::ClipboardData>(item.data())
+                             : std::move(replaced_data);
+
+  // Replace the clipboard data. Some apps take a long time to receive the paste
+  // event, and some apps will read from the clipboard multiple times per paste.
+  // Wait a bit before writing `data_to_restore` back to the clipboard.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(
           [](const base::WeakPtr<ClipboardHistoryControllerImpl>& weak_ptr,
-             std::unique_ptr<ui::ClipboardData> original_data) {
-            // When restoring the original item back on top of the clipboard we
-            // need to pause clipboard history. Failure to do so will result in
-            // the original item being re-recorded when this restoration step
-            // should actually be opaque to the user.
+             std::unique_ptr<ui::ClipboardData> data_to_restore,
+             PauseBehavior pause_behavior) {
             std::unique_ptr<ScopedClipboardHistoryPauseImpl> scoped_pause;
             if (weak_ptr) {
               weak_ptr->currently_pasting_ = false;
+              // When restoring the original clipboard content, pause clipboard
+              // history to avoid committing data already at the top of the
+              // clipboard history list. When restoring an item not originally
+              // at the top of the clipboard history list, do not pause history
+              // entirely, but do pause metrics so that the reorder is not
+              // erroneously interpreted as a copy event.
               scoped_pause = std::make_unique<ScopedClipboardHistoryPauseImpl>(
-                  weak_ptr->clipboard_history_.get());
+                  weak_ptr->clipboard_history_.get(), pause_behavior);
             }
-            GetClipboard()->WriteClipboardData(std::move(original_data));
+            GetClipboard()->WriteClipboardData(std::move(data_to_restore));
           },
-          weak_ptr_factory_.GetWeakPtr(), std::move(original_data)),
-      base::Milliseconds(200));
+          weak_ptr_factory_.GetWeakPtr(), std::move(data_to_restore),
+          pause_behavior),
+      buffer_restoration_delay_for_test_.value_or(base::Milliseconds(200)));
 }
 
 void ClipboardHistoryControllerImpl::DeleteSelectedMenuItemIfAny() {
@@ -779,7 +970,7 @@ void ClipboardHistoryControllerImpl::DeleteItemWithCommandId(int command_id) {
 
 void ClipboardHistoryControllerImpl::DeleteClipboardHistoryItem(
     const ClipboardHistoryItem& item) {
-  ClipboardHistoryUtil::RecordClipboardHistoryItemDeleted(item);
+  clipboard_history_util::RecordClipboardHistoryItemDeleted(item);
   clipboard_history_->RemoveItemForId(item.id());
 }
 
@@ -790,7 +981,7 @@ void ClipboardHistoryControllerImpl::AdvancePseudoFocus(bool reverse) {
 
 gfx::Rect ClipboardHistoryControllerImpl::CalculateAnchorRect() const {
   display::Display display = display::Screen::GetScreen()->GetPrimaryDisplay();
-  auto* host = ash::GetWindowTreeHostForDisplay(display.id());
+  auto* host = GetWindowTreeHostForDisplay(display.id());
 
   // Some web apps render the caret in an IFrame, and we will not get the
   // bounds in that case.

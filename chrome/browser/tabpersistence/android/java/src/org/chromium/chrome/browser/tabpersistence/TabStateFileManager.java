@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -222,7 +222,7 @@ public class TabStateFileManager {
         }
     }
 
-    public static byte[] getContentStateByteArray(ByteBuffer buffer) {
+    public static byte[] getContentStateByteArray(final ByteBuffer buffer) {
         byte[] contentsStateBytes = new byte[buffer.limit()];
         buffer.rewind();
         buffer.get(contentsStateBytes);
@@ -242,7 +242,9 @@ public class TabStateFileManager {
         // Create the byte array from contentsState before opening the FileOutputStream, in case
         // contentsState.buffer is an instance of MappedByteBuffer that is mapped to
         // the tab state file.
-        byte[] contentsStateBytes = getContentStateByteArray(state.contentsState.buffer());
+        // Use local ByteBuffer (backed by same byte[] to mitigate crbug.com/1297894)
+        byte[] contentsStateBytes =
+                getContentStateByteArray(state.contentsState.buffer().asReadOnlyBuffer());
 
         DataOutputStream dataOutputStream = null;
         FileOutputStream fileOutputStream = null;

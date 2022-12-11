@@ -1,24 +1,24 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
+import {PromiseResolver} from 'chrome://resources/ash/common/promise_resolver.js';
 import {FakeShimlessRmaService} from 'chrome://shimless-rma/fake_shimless_rma_service.js';
 import {setShimlessRmaServiceForTesting} from 'chrome://shimless-rma/mojo_interface_provider.js';
 import {ShimlessRma} from 'chrome://shimless-rma/shimless_rma.js';
-import {FinalizationStatus} from 'chrome://shimless-rma/shimless_rma_types.js';
-import {WrapupFinalizePage} from 'chrome://shimless-rma/wrapup_finalize_page.js';
+import {FinalizationError, FinalizationStatus, RmadErrorCode} from 'chrome://shimless-rma/shimless_rma_types.js';
+import {FINALIZATION_ERROR_CODE_PREFIX, WrapupFinalizePage} from 'chrome://shimless-rma/wrapup_finalize_page.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 
-import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
-import {flushTasks} from '../../test_util.js';
+import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
 
-export function wrapupFinalizePageTest() {
+suite('wrapupFinalizePageTest', function() {
   /**
    * ShimlessRma is needed to handle the 'transition-state' event used
    * when handling calibration overall progress signals.
    * @type {?ShimlessRma}
    */
-  let shimless_rma_component = null;
+  let shimlessRmaComponent = null;
 
   /** @type {?WrapupFinalizePage} */
   let component = null;
@@ -26,18 +26,15 @@ export function wrapupFinalizePageTest() {
   /** @type {?FakeShimlessRmaService} */
   let service = null;
 
-  suiteSetup(() => {
+  setup(() => {
+    document.body.innerHTML = '';
     service = new FakeShimlessRmaService();
     setShimlessRmaServiceForTesting(service);
   });
 
-  setup(() => {
-    document.body.innerHTML = '';
-  });
-
   teardown(() => {
-    shimless_rma_component.remove();
-    shimless_rma_component = null;
+    shimlessRmaComponent.remove();
+    shimlessRmaComponent = null;
     component.remove();
     component = null;
     service.reset();
@@ -49,10 +46,10 @@ export function wrapupFinalizePageTest() {
   function initializeFinalizePage() {
     assertFalse(!!component);
 
-    shimless_rma_component =
+    shimlessRmaComponent =
         /** @type {!ShimlessRma} */ (document.createElement('shimless-rma'));
-    assertTrue(!!shimless_rma_component);
-    document.body.appendChild(shimless_rma_component);
+    assertTrue(!!shimlessRmaComponent);
+    document.body.appendChild(shimlessRmaComponent);
 
     component = /** @type {!WrapupFinalizePage} */ (
         document.createElement('wrapup-finalize-page'));
@@ -69,95 +66,80 @@ export function wrapupFinalizePageTest() {
     assertFalse(manualEnableComponent.hidden);
   });
 
-  test('FinalizationIncompleteDisablesNext', async () => {
-    await initializeFinalizePage();
-
-    let savedResult;
-    let savedError;
-    component.onNextButtonClick()
-        .then((result) => savedResult = result)
-        .catch((error) => savedError = error);
-    await flushTasks();
-
-    assertTrue(savedError instanceof Error);
-    assertEquals(savedError.message, 'Finalization is not complete.');
-    assertEquals(savedResult, undefined);
-  });
-
-  test('FinalizationCompleteEnablesNext', async () => {
+  test('FinalizationCompleteAutoTransitions', async () => {
     const resolver = new PromiseResolver();
     await initializeFinalizePage();
-    service.triggerFinalizationObserver(FinalizationStatus.kComplete, 1.0, 0);
-    await flushTasks();
+
+    let callCount = 0;
     service.finalizationComplete = () => {
-      return resolver.promise;
-    };
-
-    let expectedResult = {foo: 'bar'};
-    let savedResult;
-    component.onNextButtonClick().then((result) => savedResult = result);
-    // Resolve to a distinct result to confirm it was not modified.
-    resolver.resolve(expectedResult);
-    await flushTasks();
-
-    assertDeepEquals(savedResult, expectedResult);
-  });
-
-  test('FinalizationFailedBlockingRetry', async () => {
-    const resolver = new PromiseResolver();
-    await initializeFinalizePage();
-
-    const retryButton =
-        component.shadowRoot.querySelector('#retryFinalizationButton');
-    assertTrue(retryButton.hidden);
-
-    let callCount = 0;
-    service.retryFinalization = () => {
       callCount++;
       return resolver.promise;
     };
     service.triggerFinalizationObserver(
-        FinalizationStatus.kFailedBlocking, 1.0, 0);
+        FinalizationStatus.kComplete, 1.0, FinalizationError.kUnknown, 0);
     await flushTasks();
 
-    assertFalse(retryButton.hidden);
-    retryButton.click();
-
-    await flushTasks();
     assertEquals(1, callCount);
   });
 
-  test('FinalizationFailedNonBlockingRetry', async () => {
-    const resolver = new PromiseResolver();
+  test('AllErrorsTriggerFatalHardwareErrorEvent', async () => {
     await initializeFinalizePage();
 
-    const retryButton =
-        component.shadowRoot.querySelector('#retryFinalizationButton');
-    assertTrue(retryButton.hidden);
+    let hardwareErrorEventFired = false;
+    let expectedFinalizationError;
 
-    let callCount = 0;
-    service.retryFinalization = () => {
-      callCount++;
-      return resolver.promise;
+    const eventHandler = (event) => {
+      hardwareErrorEventFired = true;
+      assertEquals(
+          RmadErrorCode.kFinalizationFailed, event.detail.rmadErrorCode);
+      assertEquals(
+          FINALIZATION_ERROR_CODE_PREFIX + expectedFinalizationError,
+          event.detail.fatalErrorCode);
     };
+
+    component.addEventListener('fatal-hardware-error', eventHandler);
+
+    expectedFinalizationError = FinalizationError.kCannotEnableHardwareWp;
     service.triggerFinalizationObserver(
-        FinalizationStatus.kFailedNonBlocking, 1.0, 0);
+        FinalizationStatus.kFailedBlocking, 0.0, expectedFinalizationError, 0);
     await flushTasks();
+    assertTrue(hardwareErrorEventFired);
 
-    assertFalse(retryButton.hidden);
-    retryButton.click();
-
+    hardwareErrorEventFired = false;
+    expectedFinalizationError = FinalizationError.kCannotEnableSoftwareWp;
+    service.triggerFinalizationObserver(
+        FinalizationStatus.kFailedBlocking, 0.0, expectedFinalizationError, 0);
     await flushTasks();
-    assertEquals(1, callCount);
-  });
+    assertTrue(hardwareErrorEventFired);
 
-  test('FinalizationRetryButtonDisabled', async () => {
-    await initializeFinalizePage();
+    hardwareErrorEventFired = false;
+    expectedFinalizationError = FinalizationError.kCr50;
+    service.triggerFinalizationObserver(
+        FinalizationStatus.kFailedBlocking, 0.0, expectedFinalizationError, 0);
+    await flushTasks();
+    assertTrue(hardwareErrorEventFired);
 
-    const retryButton =
-        component.shadowRoot.querySelector('#retryFinalizationButton');
-    assertFalse(retryButton.disabled);
-    component.allButtonsDisabled = true;
-    assertTrue(retryButton.disabled);
+    hardwareErrorEventFired = false;
+    expectedFinalizationError = FinalizationError.kGbb;
+    service.triggerFinalizationObserver(
+        FinalizationStatus.kFailedBlocking, 0.0, expectedFinalizationError, 0);
+    await flushTasks();
+    assertTrue(hardwareErrorEventFired);
+
+    hardwareErrorEventFired = false;
+    expectedFinalizationError = FinalizationError.kUnknown;
+    service.triggerFinalizationObserver(
+        FinalizationStatus.kFailedBlocking, 0.0, expectedFinalizationError, 0);
+    await flushTasks();
+    assertTrue(hardwareErrorEventFired);
+
+    hardwareErrorEventFired = false;
+    expectedFinalizationError = FinalizationError.kInternal;
+    service.triggerFinalizationObserver(
+        FinalizationStatus.kFailedBlocking, 0.0, expectedFinalizationError, 0);
+    await flushTasks();
+    assertTrue(hardwareErrorEventFired);
+
+    component.removeEventListener('fatal-hardware-error', eventHandler);
   });
-}
+});

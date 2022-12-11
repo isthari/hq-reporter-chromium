@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,15 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/engagement/site_engagement_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
+#include "chrome/browser/optimization_guide/optimization_guide_keyed_service.h"
+#include "chrome/browser/optimization_guide/optimization_guide_keyed_service_factory.h"
 #include "chrome/browser/optimization_guide/page_content_annotations_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "components/history_clusters/core/history_clusters_service.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/optimization_guide/content/browser/page_content_annotations_service.h"
+#include "components/optimization_guide/core/new_optimization_guide_decider.h"
 #include "components/site_engagement/content/site_engagement_service.h"
 #include "content/public/browser/storage_partition.h"
 
@@ -33,13 +35,15 @@ HistoryClustersServiceFactory& HistoryClustersServiceFactory::GetInstance() {
 }
 
 HistoryClustersServiceFactory::HistoryClustersServiceFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "HistoryClustersService",
-          BrowserContextDependencyManager::GetInstance()) {
+          // Give incognito its own isolated service.
+          ProfileSelections::BuildForRegularAndIncognito()) {
   DependsOn(HistoryServiceFactory::GetInstance());
-  DependsOn(TemplateURLServiceFactory::GetInstance());
   DependsOn(PageContentAnnotationsServiceFactory::GetInstance());
   DependsOn(site_engagement::SiteEngagementServiceFactory::GetInstance());
+  DependsOn(TemplateURLServiceFactory::GetInstance());
+  DependsOn(OptimizationGuideKeyedServiceFactory::GetInstance());
 }
 
 HistoryClustersServiceFactory::~HistoryClustersServiceFactory() = default;
@@ -59,13 +63,8 @@ KeyedService* HistoryClustersServiceFactory::BuildServiceInstanceFor(
                                 ->GetURLLoaderFactoryForBrowserProcess();
   return new history_clusters::HistoryClustersService(
       g_browser_process->GetApplicationLocale(), history_service,
-      TemplateURLServiceFactory::GetForProfile(profile),
       PageContentAnnotationsServiceFactory::GetForProfile(profile),
-      url_loader_factory, site_engagement::SiteEngagementService::Get(profile));
-}
-
-content::BrowserContext* HistoryClustersServiceFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  // Give incognito its own isolated service.
-  return context;
+      url_loader_factory, site_engagement::SiteEngagementService::Get(profile),
+      TemplateURLServiceFactory::GetForProfile(profile),
+      OptimizationGuideKeyedServiceFactory::GetForProfile(profile));
 }

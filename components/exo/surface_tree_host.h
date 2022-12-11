@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -61,6 +61,10 @@ class SurfaceTreeHost : public SurfaceDelegate,
   void DidPresentCompositorFrame(uint32_t presentation_token,
                                  const gfx::PresentationFeedback& feedback);
 
+  // Sets the scale factor for all buffers associated with this surface. This
+  // affects all future commits.
+  void SetScaleFactor(float scale_factor);
+
   aura::Window* host_window() { return host_window_.get(); }
   const aura::Window* host_window() const { return host_window_.get(); }
 
@@ -114,6 +118,8 @@ class SurfaceTreeHost : public SurfaceDelegate,
   void SetInitialWorkspace(const char* initial_workspace) override {}
   void Pin(bool trusted) override {}
   void Unpin() override {}
+  void SetSystemModal(bool system_modal) override {}
+  SecurityDelegate* GetSecurityDelegate() override;
 
   // display::DisplayObserver:
   void OnDisplayMetricsChanged(const display::Display& display,
@@ -126,8 +132,14 @@ class SurfaceTreeHost : public SurfaceDelegate,
     client_submits_surfaces_in_pixel_coordinates_ = enabled;
   }
 
+  void SetSecurityDelegate(SecurityDelegate* security_delegate);
+
  protected:
   void UpdateDisplayOnTree();
+
+  // Call this after a buffer has been committed but before a compositor frame
+  // has been submitted.
+  void DidCommit();
 
   // Call this to submit a compositor frame.
   void SubmitCompositorFrame();
@@ -150,6 +162,10 @@ class SurfaceTreeHost : public SurfaceDelegate,
 
   void HandleContextLost();
 
+  // If the client has submitted a scale factor, we use that. Otherwise we use
+  // the host window's layer's scale factor.
+  float GetScaleFactor();
+
   Surface* root_surface_ = nullptr;
 
   // Position of root surface relative to topmost, leftmost sub-surface. The
@@ -171,6 +187,14 @@ class SurfaceTreeHost : public SurfaceDelegate,
   base::flat_map<uint32_t, PresentationCallbacks>
       active_presentation_callbacks_;
 
+  // When a client calls set_scale_factor they're actually setting the scale
+  // factor for all future commits.
+  absl::optional<float> pending_scale_factor_;
+
+  // This is the client-set scale factor that is being used for the current
+  // buffer.
+  absl::optional<float> scale_factor_;
+
   viz::FrameTokenGenerator next_token_;
 
   scoped_refptr<viz::ContextProvider> context_provider_;
@@ -180,6 +204,8 @@ class SurfaceTreeHost : public SurfaceDelegate,
   int64_t display_id_ = display::kInvalidDisplayId;
 
   bool client_submits_surfaces_in_pixel_coordinates_ = false;
+
+  SecurityDelegate* security_delegate_ = nullptr;
 
   base::WeakPtrFactory<SurfaceTreeHost> weak_ptr_factory_{this};
 };

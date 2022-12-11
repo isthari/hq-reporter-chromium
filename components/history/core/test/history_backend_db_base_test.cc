@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/history/core/browser/download_constants.h"
 #include "components/history/core/browser/download_row.h"
 #include "components/history/core/browser/history_backend.h"
@@ -31,6 +30,7 @@ class BackendDelegate : public HistoryBackend::Delegate {
       : history_test_(history_test) {}
 
   // HistoryBackend::Delegate implementation.
+  bool CanAddURL(const GURL& url) const override { return true; }
   void NotifyProfileError(sql::InitStatus init_status,
                           const std::string& diagnostics) override {
     history_test_->last_profile_error_ = init_status;
@@ -43,10 +43,8 @@ class BackendDelegate : public HistoryBackend::Delegate {
   }
   void NotifyFaviconsChanged(const std::set<GURL>& page_urls,
                              const GURL& icon_url) override {}
-  void NotifyURLVisited(ui::PageTransition transition,
-                        const URLRow& row,
-                        const RedirectList& redirects,
-                        base::Time visit_time) override {}
+  void NotifyURLVisited(const URLRow& url_row,
+                        const VisitRow& visit_row) override {}
   void NotifyURLsModified(const URLRows& changed_urls) override {}
   void NotifyURLsDeleted(DeletionInfo deletion_info) override {}
   void NotifyKeywordSearchTermUpdated(const URLRow& row,
@@ -85,7 +83,7 @@ void HistoryBackendDBBaseTest::TearDown() {
 void HistoryBackendDBBaseTest::CreateBackendAndDatabase() {
   backend_ = base::MakeRefCounted<HistoryBackend>(
       std::make_unique<BackendDelegate>(this), nullptr,
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   backend_->Init(false,
                  TestHistoryDatabaseParamsForPath(history_dir_));
   db_ = backend_->db_.get();
@@ -96,7 +94,7 @@ void HistoryBackendDBBaseTest::CreateBackendAndDatabase() {
 void HistoryBackendDBBaseTest::CreateBackendAndDatabaseAllowFail() {
   backend_ = base::MakeRefCounted<HistoryBackend>(
       std::make_unique<BackendDelegate>(this), nullptr,
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   backend_->Init(false,
                  TestHistoryDatabaseParamsForPath(history_dir_));
   db_ = backend_->db_.get();
@@ -128,6 +126,7 @@ bool HistoryBackendDBBaseTest::AddDownload(uint32_t id,
   download.url_chain.push_back(GURL("foo-url"));
   download.referrer_url = GURL("http://referrer.example.com/");
   download.site_url = GURL("http://site-url.example.com");
+  download.embedder_download_data = "embedder_download_data";
   download.tab_url = GURL("http://tab-url.example.com/");
   download.tab_referrer_url = GURL("http://tab-referrer-url.example.com/");
   download.http_method = std::string();
@@ -147,7 +146,6 @@ bool HistoryBackendDBBaseTest::AddDownload(uint32_t id,
   download.transient = true;
   download.by_ext_id = "by_ext_id";
   download.by_ext_name = "by_ext_name";
-  download.reroute_info_serialized = "";
   return db_->CreateDownload(download);
 }
 

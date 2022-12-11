@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/paint/display_item_list.h"
 #include "cc/trees/layer_tree_frame_sink.h"
@@ -34,6 +34,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/views/widget/widget.h"
 
@@ -208,7 +209,8 @@ class ViewTreeHostRootView::LayerTreeViewTreeFrameSinkHolder
     if (delete_pending_)
       return;
     delete_pending_ = true;
-    base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+    base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                  this);
   }
 
   ViewTreeHostRootView* view_;
@@ -344,7 +346,7 @@ void ViewTreeHostRootView::Paint() {
   int stride = resource->gpu_memory_buffer->stride(0);
   std::unique_ptr<SkCanvas> canvas =
       SkCanvas::MakeRasterDirect(info, data, stride);
-  canvas->setMatrix(static_cast<SkMatrix>(rotate_transform_.matrix()));
+  canvas->setMatrix(gfx::TransformToFlattenedSkMatrix(rotate_transform_));
   display_item_list->Raster(canvas.get());
 
   {
@@ -366,7 +368,7 @@ void ViewTreeHostRootView::SchedulePaintInRect(const gfx::Rect& rect) {
   pending_paint_ = true;
 
   if (!pending_compositor_frame_ack_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&ViewTreeHostRootView::Paint,
                                   weak_ptr_factory_.GetWeakPtr()));
   }
@@ -387,8 +389,8 @@ void ViewTreeHostRootView::UpdateSurface(const gfx::Rect& damage_rect,
 
   if (!damage_rect.IsEmpty()) {
     frame_sink_holder_->DamageExportedResources();
-    for (auto& resource : returned_resources_)
-      resource->damaged = true;
+    for (auto& returned_resource : returned_resources_)
+      returned_resource->damaged = true;
   }
 
   if (!pending_compositor_frame_ack_)
@@ -426,8 +428,8 @@ void ViewTreeHostRootView::SubmitCompositorFrame() {
         resource->context_provider->SharedImageInterface();
     if (resource->mailbox.IsZero()) {
       DCHECK(!resource->sync_token.HasData());
-      const uint32_t usage =
-          gpu::SHARED_IMAGE_USAGE_DISPLAY | gpu::SHARED_IMAGE_USAGE_SCANOUT;
+      const uint32_t usage = gpu::SHARED_IMAGE_USAGE_DISPLAY_READ |
+                             gpu::SHARED_IMAGE_USAGE_SCANOUT;
       gpu::GpuMemoryBufferManager* gmb_manager =
           aura::Env::GetInstance()
               ->context_factory()
@@ -442,18 +444,14 @@ void ViewTreeHostRootView::SubmitCompositorFrame() {
     resource->damaged = false;
   }
 
-  viz::TransferableResource transferable_resource;
+  viz::TransferableResource transferable_resource =
+      viz::TransferableResource::MakeGpu(
+          resource->mailbox, GL_LINEAR, GL_TEXTURE_2D, resource->sync_token,
+          buffer_size_, viz::RGBA_8888, is_overlay_candidate_);
   transferable_resource.id = id_generator_.GenerateNextId();
-  transferable_resource.format = viz::RGBA_8888;
-  transferable_resource.filter = GL_LINEAR;
-  transferable_resource.size = buffer_size_;
-  transferable_resource.mailbox_holder = gpu::MailboxHolder(
-      resource->mailbox, resource->sync_token, GL_TEXTURE_2D);
-  transferable_resource.is_overlay_candidate = is_overlay_candidate_;
 
-  gfx::Transform buffer_to_target_transform;
-  bool rv = rotate_transform_.GetInverse(&buffer_to_target_transform);
-  DCHECK(rv);
+  gfx::Transform buffer_to_target_transform =
+      rotate_transform_.GetCheckedInverse();
 
   const viz::CompositorRenderPassId kRenderPassId{1};
   auto render_pass = viz::CompositorRenderPass::Create();
@@ -490,7 +488,7 @@ void ViewTreeHostRootView::SubmitCompositorFrame() {
       quad_state, quad_rect, quad_rect,
       /*needs_blending=*/true, transferable_resource.id,
       /*premultiplied_alpha=*/true, uv_crop.origin(), uv_crop.bottom_right(),
-      SK_ColorTRANSPARENT, vertex_opacity,
+      SkColors::kTransparent, vertex_opacity,
       /*y_flipped=*/false,
       /*nearest_neighbor=*/false,
       /*secure_output_only=*/false, gfx::ProtectedVideoType::kClear);
@@ -511,7 +509,7 @@ void ViewTreeHostRootView::DidReceiveCompositorFrameAck() {
   pending_compositor_frame_ack_ = false;
 
   if (pending_resource_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&ViewTreeHostRootView::SubmitPendingCompositorFrame,
                        weak_ptr_factory_.GetWeakPtr()));

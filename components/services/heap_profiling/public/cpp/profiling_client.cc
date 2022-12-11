@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,13 @@
 #include <unordered_set>
 #include <vector>
 
+#include "base/allocator/buildflags.h"
 #include "base/bind.h"
 #include "base/debug/stack_trace.h"
-#include "base/lazy_instance.h"
+#include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/sampling_heap_profiler/poisson_allocation_sampler.h"
 #include "base/sampling_heap_profiler/sampling_heap_profiler.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/trace_event/heap_profiler_allocation_context_tracker.h"
 #include "base/trace_event/malloc_dump_provider.h"
@@ -31,7 +31,7 @@
 #endif
 
 #if BUILDFLAG(IS_APPLE)
-#include "base/allocator/allocator_interception_mac.h"
+#include "base/allocator/partition_allocator/shim/allocator_interception_mac.h"
 #endif
 
 namespace heap_profiling {
@@ -49,14 +49,16 @@ void ProfilingClient::StartProfiling(mojom::ProfilingParamsPtr params,
   if (started_profiling_)
     return;
   started_profiling_ = true;
-  base::trace_event::MallocDumpProvider::GetInstance()->DisableMetrics();
 
-#if BUILDFLAG(IS_APPLE)
+#if BUILDFLAG(IS_APPLE) && !BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
   // On macOS, this call is necessary to shim malloc zones that were created
   // after startup. This cannot be done during shim initialization because the
   // task scheduler has not yet been initialized.
-  base::allocator::PeriodicallyShimNewMallocZones();
-#endif
+  //
+  // Wth PartitionAlloc, the shims are already in place, calling this leads to
+  // an infinite loop.
+  allocator_shim::PeriodicallyShimNewMallocZones();
+#endif  // BUILDFLAG(IS_APPLE) && !BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 
 #if BUILDFLAG(IS_ANDROID) && BUILDFLAG(CAN_UNWIND_WITH_CFI_TABLE) && \
     defined(OFFICIAL_BUILD)
@@ -87,10 +89,21 @@ void ProfilingClient::StartProfiling(mojom::ProfilingParamsPtr params,
 namespace {
 
 bool g_initialized_ = false;
-base::LazyInstance<base::Lock>::Leaky g_on_init_allocator_shim_lock_;
-base::LazyInstance<base::OnceClosure>::Leaky g_on_init_allocator_shim_callback_;
-base::LazyInstance<scoped_refptr<base::TaskRunner>>::Leaky
-    g_on_init_allocator_shim_task_runner_;
+
+base::Lock& GetOnInitAllocatorShimLock() {
+  static base::NoDestructor<base::Lock> instance;
+  return *instance;
+}
+
+base::OnceClosure& GetOnInitAllocatorShimCallback() {
+  static base::NoDestructor<base::OnceClosure> instance;
+  return *instance;
+}
+
+scoped_refptr<base::TaskRunner>& GetOnInitAllocatorShimTaskRunner() {
+  static base::NoDestructor<scoped_refptr<base::TaskRunner>> instance;
+  return *instance;
+}
 
 // In NATIVE stack mode, whether to insert stack names into the backtraces.
 bool g_include_thread_names = false;
@@ -118,12 +131,12 @@ void InitAllocationRecorder(mojom::ProfilingParamsPtr params) {
 
 // Notifies the test clients that allocation hooks have been initialized.
 void AllocatorHooksHaveBeenInitialized() {
-  base::AutoLock lock(g_on_init_allocator_shim_lock_.Get());
+  base::AutoLock lock(GetOnInitAllocatorShimLock());
   g_initialized_ = true;
-  if (!g_on_init_allocator_shim_callback_.Get())
+  if (!GetOnInitAllocatorShimCallback())
     return;
-  g_on_init_allocator_shim_task_runner_.Get()->PostTask(
-      FROM_HERE, std::move(*g_on_init_allocator_shim_callback_.Pointer()));
+  GetOnInitAllocatorShimTaskRunner()->PostTask(
+      FROM_HERE, std::move(GetOnInitAllocatorShimCallback()));
 }
 
 mojom::AllocatorType ConvertType(
@@ -148,11 +161,11 @@ void InitTLSSlot() {
 bool SetOnInitAllocatorShimCallbackForTesting(
     base::OnceClosure callback,
     scoped_refptr<base::TaskRunner> task_runner) {
-  base::AutoLock lock(g_on_init_allocator_shim_lock_.Get());
+  base::AutoLock lock(GetOnInitAllocatorShimLock());
   if (g_initialized_)
     return true;
-  g_on_init_allocator_shim_callback_.Get() = std::move(callback);
-  g_on_init_allocator_shim_task_runner_.Get() = task_runner;
+  GetOnInitAllocatorShimCallback() = std::move(callback);
+  GetOnInitAllocatorShimTaskRunner() = task_runner;
   return false;
 }
 

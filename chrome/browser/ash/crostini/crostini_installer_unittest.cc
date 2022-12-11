@@ -1,16 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/crostini/crostini_installer.h"
 
-#include "ash/components/disks/disk_mount_manager.h"
-#include "ash/components/disks/mock_disk_mount_manager.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
-#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/ash/crostini/ansible/ansible_management_test_helper.h"
@@ -23,14 +19,18 @@
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/cicerone/cicerone_client.h"
-#include "chromeos/dbus/cicerone/fake_cicerone_client.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/concierge/concierge_service.pb.h"
-#include "chromeos/dbus/concierge/fake_concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/dlcservice/dlcservice_client.h"
-#include "chromeos/dbus/seneschal/seneschal_client.h"
+#include "chromeos/ash/components/dbus/chunneld/chunneld_client.h"
+#include "chromeos/ash/components/dbus/cicerone/cicerone_client.h"
+#include "chromeos/ash/components/dbus/cicerone/fake_cicerone_client.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_service.pb.h"
+#include "chromeos/ash/components/dbus/concierge/fake_concierge_client.h"
+#include "chromeos/ash/components/dbus/debug_daemon/debug_daemon_client.h"
+#include "chromeos/ash/components/dbus/dlcservice/dlcservice_client.h"
+#include "chromeos/ash/components/dbus/seneschal/seneschal_client.h"
+#include "chromeos/ash/components/dbus/spaced/fake_spaced_client.h"
+#include "chromeos/ash/components/disks/disk_mount_manager.h"
+#include "chromeos/ash/components/disks/mock_disk_mount_manager.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -63,20 +63,19 @@ class CrostiniInstallerTest : public testing::Test {
     MOCK_METHOD0(OnCanceled, void());
   };
 
-  class WaitingFakeConciergeClient : public chromeos::FakeConciergeClient {
+  class WaitingFakeConciergeClient : public ash::FakeConciergeClient {
    public:
-    explicit WaitingFakeConciergeClient(chromeos::FakeCiceroneClient* client)
-        : chromeos::FakeConciergeClient(client) {}
+    explicit WaitingFakeConciergeClient(ash::FakeCiceroneClient* client)
+        : ash::FakeConciergeClient(client) {}
 
-    void StartTerminaVm(
+    void StartVm(
         const vm_tools::concierge::StartVmRequest& request,
         chromeos::DBusMethodCallback<vm_tools::concierge::StartVmResponse>
             callback) override {
-      chromeos::FakeConciergeClient::StartTerminaVm(request,
-                                                    std::move(callback));
+      ash::FakeConciergeClient::StartVm(request, std::move(callback));
       if (quit_closure_) {
-        base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                      std::move(quit_closure_));
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+            FROM_HERE, std::move(quit_closure_));
       }
     }
 
@@ -84,7 +83,7 @@ class CrostiniInstallerTest : public testing::Test {
       base::RunLoop loop;
       quit_closure_ = loop.QuitClosure();
       loop.Run();
-      EXPECT_GE(start_termina_vm_call_count(), 1);
+      EXPECT_GE(start_vm_call_count(), 1);
     }
 
    private:
@@ -103,8 +102,7 @@ class CrostiniInstallerTest : public testing::Test {
     vm_tools::cicerone::OsRelease os_release;
     os_release.set_id("debian");
     os_release.set_version_id("10");
-    chromeos::FakeCiceroneClient::Get()->set_lxd_container_os_release(
-        os_release);
+    ash::FakeCiceroneClient::Get()->set_lxd_container_os_release(os_release);
   }
 
   void SetUp() override {
@@ -118,14 +116,17 @@ class CrostiniInstallerTest : public testing::Test {
             base::FilePath("/install/path"), base::FilePath("/mount/path")));
     browser_part_.InitializeCrosComponentManager(component_manager_);
 
-    chromeos::DlcserviceClient::InitializeFake();
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::CiceroneClient::InitializeFake();
+    ash::DlcserviceClient::InitializeFake();
+    ash::ChunneldClient::InitializeFake();
+    ash::CiceroneClient::InitializeFake();
+    ash::DebugDaemonClient::InitializeFake();
+    ash::FakeSpacedClient::InitializeFake();
+
     SetOSRelease();
     waiting_fake_concierge_client_ =
-        new WaitingFakeConciergeClient(chromeos::FakeCiceroneClient::Get());
+        new WaitingFakeConciergeClient(ash::FakeCiceroneClient::Get());
 
-    chromeos::SeneschalClient::InitializeFake();
+    ash::SeneschalClient::InitializeFake();
 
     disk_mount_manager_mock_ = new ash::disks::MockDiskMountManager;
     ash::disks::DiskMountManager::InitializeForTesting(
@@ -154,11 +155,13 @@ class CrostiniInstallerTest : public testing::Test {
     profile_.reset();
 
     ash::disks::MockDiskMountManager::Shutdown();
-    chromeos::SeneschalClient::Shutdown();
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::CiceroneClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
-    chromeos::DlcserviceClient::Shutdown();
+    ash::SeneschalClient::Shutdown();
+    ash::DebugDaemonClient::Shutdown();
+    ash::ConciergeClient::Shutdown();
+    ash::CiceroneClient::Shutdown();
+    ash::ChunneldClient::Shutdown();
+    ash::DlcserviceClient::Shutdown();
+    ash::FakeSpacedClient::Shutdown();
 
     browser_part_.ShutdownCrosComponentManager();
     component_manager_.reset();
@@ -232,8 +235,19 @@ TEST_F(CrostiniInstallerTest, InstallFlow) {
 }
 
 TEST_F(CrostiniInstallerTest, InstallFlowWithAnsibleInfra) {
+  MockAnsibleManagementService* mock_ansible_management_service =
+      AnsibleManagementTestHelper::SetUpMockAnsibleManagementService(
+          profile_.get());
   AnsibleManagementTestHelper test_helper(profile_.get());
   test_helper.SetUpAnsibleInfra();
+
+  EXPECT_CALL(*mock_ansible_management_service, ConfigureContainer).Times(1);
+  ON_CALL(*mock_ansible_management_service, ConfigureContainer)
+      .WillByDefault([](const guest_os::GuestId& conatiner_id,
+                        base::FilePath playbook,
+                        base::OnceCallback<void(bool success)> callback) {
+        std::move(callback).Run(true);
+      });
 
   double last_progress = 0.0;
   auto greater_equal_last_progress = Truly(
@@ -249,9 +263,6 @@ TEST_F(CrostiniInstallerTest, InstallFlowWithAnsibleInfra) {
       .After(expectation_set);
 
   Install();
-
-  task_environment_.RunUntilIdle();
-  test_helper.SendSucceededApplySignal();
 
   task_environment_.RunUntilIdle();
   histogram_tester_.ExpectUniqueSample(
@@ -358,11 +369,19 @@ TEST_F(CrostiniInstallerTest, InstallerError) {
 }
 
 TEST_F(CrostiniInstallerTest, InstallerErrorWhileConfiguring) {
+  MockAnsibleManagementService* mock_ansible_management_service =
+      AnsibleManagementTestHelper::SetUpMockAnsibleManagementService(
+          profile_.get());
   AnsibleManagementTestHelper test_helper(profile_.get());
   test_helper.SetUpAnsibleInfra();
-  test_helper.SetUpAnsibleInstallation(
-      vm_tools::cicerone::InstallLinuxPackageResponse::FAILED);
 
+  EXPECT_CALL(*mock_ansible_management_service, ConfigureContainer).Times(1);
+  ON_CALL(*mock_ansible_management_service, ConfigureContainer)
+      .WillByDefault([](const guest_os::GuestId& container_id,
+                        base::FilePath playbook,
+                        base::OnceCallback<void(bool success)> callback) {
+        std::move(callback).Run(false);
+      });
   Expectation expect_progresses =
       EXPECT_CALL(mock_callbacks_, OnProgress(_, _)).Times(AnyNumber());
   // |OnProgress()| should not happens after |OnFinished()|

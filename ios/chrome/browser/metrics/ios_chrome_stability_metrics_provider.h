@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,12 +49,9 @@ class IOSChromeStabilityMetricsProvider : public metrics::MetricsProvider,
 
   ~IOSChromeStabilityMetricsProvider() override;
 
-  // metrics::MetricsDataProvider:
+  // metrics::MetricsProvider:
   void OnRecordingEnabled() override;
   void OnRecordingDisabled() override;
-  void ProvideStabilityMetrics(
-      metrics::SystemProfileProto* system_profile_proto) override;
-  void ClearSavedStabilityMetrics() override;
 
   // web::GlobalWebStateObserver:
   void WebStateDidStartLoading(web::WebState* web_state) override;

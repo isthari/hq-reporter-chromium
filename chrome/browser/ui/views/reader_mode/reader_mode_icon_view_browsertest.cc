@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,7 +65,7 @@ class ReaderModeIconViewBrowserTest : public InProcessBrowserTest {
     return https_server_secure_.get();
   }
 
-  raw_ptr<PageActionIconView> reader_mode_icon_;
+  raw_ptr<PageActionIconView, DanglingUntriaged> reader_mode_icon_;
   std::unique_ptr<net::EmbeddedTestServer> https_server_secure_;
 
  private:

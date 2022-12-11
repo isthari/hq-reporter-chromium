@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,7 +64,7 @@ ChromeAppBannerManagerAndroid::ParamsToPerformInstallableWebAppCheck() {
 void ChromeAppBannerManagerAndroid::OnDidPerformInstallableWebAppCheck(
     const InstallableData& data) {
   if (data.NoBlockingErrors())
-    WebApkUkmRecorder::RecordWebApkableVisit(data.manifest_url);
+    WebApkUkmRecorder::RecordWebApkableVisit(*data.manifest_url);
 
   AppBannerManagerAndroid::OnDidPerformInstallableWebAppCheck(data);
 }

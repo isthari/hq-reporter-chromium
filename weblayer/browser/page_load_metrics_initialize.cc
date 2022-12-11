@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,6 +50,10 @@ class PageLoadMetricsEmbedder
     return NoStatePrefetchContentsFromWebContents(web_contents);
   }
   bool IsExtensionUrl(const GURL& url) override { return false; }
+  bool IsSidePanel(content::WebContents* web_contents) override {
+    // The side panel is not supported in WebLayer so this always returns false.
+    return false;
+  }
   page_load_metrics::PageLoadMetricsMemoryTracker*
   GetMemoryTrackerForBrowserContext(
       content::BrowserContext* browser_context) override {

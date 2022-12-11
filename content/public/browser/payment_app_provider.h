@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -91,6 +91,15 @@ class CONTENT_EXPORT PaymentAppProvider {
   // to abort payment request.
   virtual void OnClosingOpenedWindow(
       payments::mojom::PaymentEventResponseType reason) = 0;
+
+  // A test-only method for installing a service worker based payment app.
+  // Invokes the `callback` when done.
+  virtual void InstallPaymentAppForTesting(
+      const SkBitmap& app_icon,
+      const GURL& service_worker_javascript_file_url,
+      const GURL& service_worker_scope,
+      const std::string& payment_method_identifier,
+      base::OnceCallback<void(bool success)> callback) = 0;
 
  protected:
   virtual ~PaymentAppProvider() = default;

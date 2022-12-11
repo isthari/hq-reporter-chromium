@@ -1,10 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.tasks.tab_management;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ObserverList;
 import org.chromium.base.metrics.RecordHistogram;
@@ -20,14 +21,15 @@ import java.lang.annotation.RetentionPolicy;
  */
 public class MessageService {
     @IntDef({MessageType.TAB_SUGGESTION, MessageType.IPH, MessageType.PRICE_MESSAGE,
-            MessageType.ALL})
+            MessageType.INCOGNITO_REAUTH_PROMO_MESSAGE, MessageType.ALL})
     @Retention(RetentionPolicy.SOURCE)
     public @interface MessageType {
         int FOR_TESTING = 0;
         int TAB_SUGGESTION = 1;
         int IPH = 2;
         int PRICE_MESSAGE = 3;
-        int ALL = 4;
+        int INCOGNITO_REAUTH_PROMO_MESSAGE = 4;
+        int ALL = 5;
     }
 
     /**
@@ -107,6 +109,11 @@ public class MessageService {
      */
     public void removeObserver(MessageObserver observer) {
         mObservers.removeObserver(observer);
+    }
+
+    @VisibleForTesting
+    protected ObserverList<MessageObserver> getObserversForTesting() {
+        return mObservers;
     }
 
     /**

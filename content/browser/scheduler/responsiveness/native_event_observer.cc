@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,7 +58,7 @@ void NativeEventObserver::OnWindowEventDispatcherStartedProcessing(
 void NativeEventObserver::OnWindowEventDispatcherFinishedProcessingEvent(
     aura::WindowEventDispatcher* dispatcher) {
   EventInfo& info = events_being_processed_.back();
-  did_run_event_callback_.Run(info.unique_id);
+  did_run_event_callback_.Run(info.unique_id.get());
   events_being_processed_.pop_back();
 }
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)

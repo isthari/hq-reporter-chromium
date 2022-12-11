@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,32 +9,29 @@
 
 #include "base/system/sys_info.h"
 #include "base/time/time.h"
+#include "base/values.h"
 #include "chrome/browser/enterprise/connectors/device_trust/signals/decorators/common/signals_decorator.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-
-class PrefService;
 
 namespace enterprise_connectors {
 
 // Definition of the SignalsDecorator common to all platforms.
 class CommonSignalsDecorator : public SignalsDecorator {
  public:
-  CommonSignalsDecorator(PrefService* local_state, PrefService* profile_prefs);
+  CommonSignalsDecorator();
   ~CommonSignalsDecorator() override;
 
   // SignalsDecorator:
-  void Decorate(SignalsType& signals, base::OnceClosure done_closure) override;
+  void Decorate(base::Value::Dict& signals,
+                base::OnceClosure done_closure) override;
 
  private:
-  void OnHardwareInfoRetrieved(SignalsType& signals,
+  void OnHardwareInfoRetrieved(base::Value::Dict& signals,
                                base::TimeTicks start_time,
                                base::OnceClosure done_closure,
                                base::SysInfo::HardwareInfo hardware_info);
 
-  void UpdateFromCache(SignalsType& signals);
-
-  PrefService* local_state_;
-  PrefService* profile_prefs_;
+  void UpdateFromCache(base::Value::Dict& signals);
 
   // These two signals are fetched asynchronously and their collection can
   // involve expensive operations such as reading from disk. Since these signals

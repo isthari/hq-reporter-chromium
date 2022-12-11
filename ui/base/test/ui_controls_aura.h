@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,7 +55,7 @@ class UIControlsAura {
 
 #if BUILDFLAG(IS_WIN)
   virtual bool SendTouchEvents(int action, int num, int x, int y) = 0;
-#elif BUILDFLAG(IS_CHROMEOS_ASH)
+#elif BUILDFLAG(IS_CHROMEOS)
   virtual bool SendTouchEvents(int action, int id, int x, int y) = 0;
   virtual bool SendTouchEventsNotifyWhenDone(int action,
                                              int id,

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,7 +55,8 @@ scoped_refptr<StaticBitmapImage> CreateBitmap() {
       mailbox, GenTestSyncToken(100), 0, SkImageInfo::MakeN32Premul(100, 100),
       GL_TEXTURE_2D, true, SharedGpuContext::ContextProviderWrapper(),
       base::PlatformThread::CurrentRef(),
-      base::MakeRefCounted<base::NullTaskRunner>(), base::DoNothing());
+      base::MakeRefCounted<base::NullTaskRunner>(), base::DoNothing(),
+      /*supports_display_compositing=*/true, /*is_overlay_candidate=*/true);
 }
 
 class AcceleratedStaticBitmapImageTest : public Test {

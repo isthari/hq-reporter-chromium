@@ -1,9 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {BookmarksAppElement, BookmarksCommandManagerElement, BrowserProxyImpl, Command, IncognitoAvailability} from 'chrome://bookmarks/bookmarks.js';
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
 import {TestBookmarksBrowserProxy} from './test_browser_proxy.js';
@@ -41,7 +41,7 @@ suite('Bookmarks policies', function() {
     // load the config.
     await Promise.all([
       testBrowserProxy.whenCalled('getIncognitoAvailability'),
-      store.waitForAction('set-incognito-availability')
+      store.waitForAction('set-incognito-availability'),
     ]);
 
     assertEquals(
@@ -61,7 +61,7 @@ suite('Bookmarks policies', function() {
     const commandManager = BookmarksCommandManagerElement.getInstance();
     await Promise.all([
       testBrowserProxy.whenCalled('getCanEditBookmarks'),
-      store.waitForAction('set-can-edit')
+      store.waitForAction('set-can-edit'),
     ]);
     assertFalse(store.data.prefs.canEdit);
     assertFalse(commandManager.canExecute(Command.DELETE, new Set(['11'])));

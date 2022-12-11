@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/vr/keyboard_delegate_for_testing.h"
 
 #include <algorithm>
+#include <ostream>
 
 #include "base/check.h"
 #include "base/notreached.h"

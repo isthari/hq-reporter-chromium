@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,10 @@
 #include <memory>
 
 #include "base/callback.h"
+#include "base/cancelable_callback.h"
 #include "base/feature_list.h"
-#include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/signin_features.h"
 #include "chrome/browser/themes/theme_service.h"
@@ -16,6 +18,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "components/signin/public/base/signin_metrics.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "google_apis/gaia/core_account_id.h"
@@ -29,11 +32,16 @@ class ForcedProfileSwitchInterceptionHandle
   explicit ForcedProfileSwitchInterceptionHandle(
       base::OnceCallback<void(SigninInterceptionResult)> callback) {
     DCHECK(callback);
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(std::move(callback),
+    cancelable_callback_.Reset(std::move(callback));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(cancelable_callback_.callback(),
                                   SigninInterceptionResult::kAccepted));
   }
   ~ForcedProfileSwitchInterceptionHandle() override = default;
+
+ private:
+  base::CancelableOnceCallback<void(SigninInterceptionResult)>
+      cancelable_callback_;
 };
 
 class ForcedEnterpriseSigninInterceptionHandle
@@ -44,39 +52,58 @@ class ForcedEnterpriseSigninInterceptionHandle
       const DiceWebSigninInterceptor::Delegate::BubbleParameters&
           bubble_parameters,
       base::OnceCallback<void(SigninInterceptionResult)> callback)
-      : browser_(browser), callback_(std::move(callback)) {
+      : browser_(browser->AsWeakPtr()),
+        profile_creation_required_by_policy_(
+            bubble_parameters.interception_type ==
+            DiceWebSigninInterceptor::SigninInterceptionType::
+                kEnterpriseForced),
+        show_link_data_option_(bubble_parameters.show_link_data_option),
+        callback_(std::move(callback)) {
     DCHECK(browser_);
     DCHECK(callback_);
-    ShowEnterpriseProfileInterceptionDialog(
+    browser_->signin_view_controller()->ShowModalEnterpriseConfirmationDialog(
         bubble_parameters.intercepted_account,
-        bubble_parameters.profile_highlight_color);
+        profile_creation_required_by_policy_, show_link_data_option_,
+        bubble_parameters.profile_highlight_color,
+        base::BindOnce(&ForcedEnterpriseSigninInterceptionHandle::
+                           OnEnterpriseInterceptionDialogClosed,
+                       weak_ptr_factory_.GetWeakPtr()));
   }
 
   ~ForcedEnterpriseSigninInterceptionHandle() override {
-    browser_->signin_view_controller()->CloseModalSignin();
+    if (browser_)
+      browser_->signin_view_controller()->CloseModalSignin();
     if (callback_)
       std::move(callback_).Run(SigninInterceptionResult::kDeclined);
   }
 
  private:
-  void ShowEnterpriseProfileInterceptionDialog(const AccountInfo& account_info,
-                                               SkColor profile_color) {
-    browser_->signin_view_controller()->ShowModalEnterpriseConfirmationDialog(
-        account_info, profile_color,
-        base::BindOnce(&ForcedEnterpriseSigninInterceptionHandle::
-                           OnEnterpriseInterceptionDialogClosed,
-                       base::Unretained(this)));
+  void OnEnterpriseInterceptionDialogClosed(signin::SigninChoice result) {
+    switch (result) {
+      case signin::SIGNIN_CHOICE_NEW_PROFILE:
+        std::move(callback_).Run(SigninInterceptionResult::kAccepted);
+        break;
+      case signin::SIGNIN_CHOICE_CONTINUE:
+        DCHECK(!profile_creation_required_by_policy_ || show_link_data_option_);
+        std::move(callback_).Run(
+            SigninInterceptionResult::kAcceptedWithExistingProfile);
+        break;
+      case signin::SIGNIN_CHOICE_CANCEL:
+        std::move(callback_).Run(SigninInterceptionResult::kDeclined);
+        break;
+      case signin::SIGNIN_CHOICE_SIZE:
+      default:
+        NOTREACHED();
+        break;
+    }
   }
 
-  void OnEnterpriseInterceptionDialogClosed(bool create_profile) {
-    if (!create_profile)
-      browser_->signin_view_controller()->CloseModalSignin();
-    std::move(callback_).Run(create_profile
-                                 ? SigninInterceptionResult::kAccepted
-                                 : SigninInterceptionResult::kDeclined);
-  }
-  raw_ptr<Browser> browser_;
+  base::WeakPtr<Browser> browser_;
+  const bool profile_creation_required_by_policy_;
+  const bool show_link_data_option_;
   base::OnceCallback<void(SigninInterceptionResult)> callback_;
+  base::WeakPtrFactory<ForcedEnterpriseSigninInterceptionHandle>
+      weak_ptr_factory_{this};
 };
 
 }  // namespace
@@ -102,7 +129,10 @@ DiceWebSigninInterceptorDelegate::ShowSigninInterceptionBubble(
   }
 
   if (bubble_parameters.interception_type ==
-      DiceWebSigninInterceptor::SigninInterceptionType::kEnterpriseForced) {
+          DiceWebSigninInterceptor::SigninInterceptionType::kEnterpriseForced ||
+      bubble_parameters.interception_type ==
+          DiceWebSigninInterceptor::SigninInterceptionType::
+              kEnterpriseAcceptManagement) {
     return std::make_unique<ForcedEnterpriseSigninInterceptionHandle>(
         chrome::FindBrowserWithWebContents(web_contents), bubble_parameters,
         std::move(callback));

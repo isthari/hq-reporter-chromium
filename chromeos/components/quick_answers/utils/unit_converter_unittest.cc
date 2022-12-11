@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -113,7 +113,7 @@ TEST_F(UnitConverterTest, GetPossibleUnitsWithKnownCategoryShouldSuccess) {
 
   auto* units = converter->GetPossibleUnitsForCategory(kMassCategory);
   EXPECT_EQ(units->GetList().size(), 1u);
-  auto* unit = &(units->GetList())[0];
+  auto* unit = &units->GetList()[0];
   EXPECT_EQ(unit->FindDoublePath(kConversionRateAPath), kKilogramRateA);
   EXPECT_EQ(*unit->FindStringPath(kNamePath), kKilogramName);
 }

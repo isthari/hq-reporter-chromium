@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "components/session_manager/core/session_manager_observer.h"
 
@@ -103,7 +104,7 @@ class ArcDataSnapshotdManager final
    public:
     // Creates new snapshot with current parameters.
     explicit SnapshotInfo(bool is_last);
-    SnapshotInfo(const base::Value* value, bool is_last);
+    SnapshotInfo(const base::Value::Dict& value, bool is_last);
     SnapshotInfo(const SnapshotInfo&) = delete;
     SnapshotInfo& operator=(const SnapshotInfo&) = delete;
     ~SnapshotInfo();
@@ -118,7 +119,7 @@ class ArcDataSnapshotdManager final
         bool is_last);
 
     // Syncs stored snapshot info to dictionaty |value|.
-    void Sync(base::Value* value);
+    void Sync(base::Value::Dict& value);
 
     // Returns true if snapshot is expired.
     bool IsExpired() const;

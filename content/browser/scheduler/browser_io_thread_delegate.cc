@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,7 +48,7 @@ class BrowserIOThreadDelegate::TLSMultiplexer : public base::TaskObserver {
     }
   }
 
-  raw_ptr<base::TaskExecutor> io_task_executor_ = nullptr;
+  raw_ptr<base::TaskExecutor, DanglingUntriaged> io_task_executor_ = nullptr;
   std::vector<base::TaskExecutor*> previous_executors_;
 };
 

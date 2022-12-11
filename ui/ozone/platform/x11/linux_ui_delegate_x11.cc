@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,6 +25,13 @@ void LinuxUiDelegateX11::SetTransientWindowForParent(
   // parent_window might be dead if there was a top-down window close
   if (parent_window)
     parent_window->SetTransientWindow(static_cast<x11::Window>(transient));
+}
+
+bool LinuxUiDelegateX11::ExportWindowHandle(
+    gfx::AcceleratedWidget window_id,
+    base::OnceCallback<void(std::string)> callback) {
+  std::move(callback).Run(base::StringPrintf("x11:%#x", window_id));
+  return true;
 }
 
 }  // namespace ui

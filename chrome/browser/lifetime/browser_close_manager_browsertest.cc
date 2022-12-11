@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,7 @@
 #include "chrome/browser/download/download_core_service.h"
 #include "chrome/browser/download/download_core_service_factory.h"
 #include "chrome/browser/download/download_prefs.h"
-#include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/application_lifetime_desktop.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
@@ -37,6 +37,7 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_switches.h"
@@ -152,7 +153,7 @@ class TabRestoreServiceChangesObserver
     service_ = nullptr;
   }
 
-  raw_ptr<sessions::TabRestoreService> service_ = nullptr;
+  raw_ptr<sessions::TabRestoreService, DanglingUntriaged> service_ = nullptr;
   size_t changes_count_ = 0;
 };
 
@@ -223,18 +224,18 @@ class TestDownloadManagerDelegate : public ChromeDownloadManagerDelegate {
     return true;
   }
 
-  static void SetDangerous(
-      content::DownloadTargetCallback callback,
-      const base::FilePath& target_path,
-      download::DownloadItem::TargetDisposition disp,
-      download::DownloadDangerType danger_type,
-      download::DownloadItem::MixedContentStatus mcs,
-      const base::FilePath& intermediate_path,
-      absl::optional<download::DownloadSchedule> download_schedule,
-      download::DownloadInterruptReason reason) {
+  static void SetDangerous(content::DownloadTargetCallback callback,
+                           const base::FilePath& target_path,
+                           download::DownloadItem::TargetDisposition disp,
+                           download::DownloadDangerType danger_type,
+                           download::DownloadItem::MixedContentStatus mcs,
+                           const base::FilePath& intermediate_path,
+                           const base::FilePath& display_name,
+                           const std::string& mime_type,
+                           download::DownloadInterruptReason reason) {
     std::move(callback).Run(target_path, disp,
                             download::DOWNLOAD_DANGER_TYPE_DANGEROUS_URL, mcs,
-                            intermediate_path, download_schedule, reason);
+                            intermediate_path, display_name, mime_type, reason);
   }
 };
 
@@ -316,7 +317,7 @@ class BrowserCloseManagerBrowserTest : public InProcessBrowserTest {
   }
 
   void WaitForAllBrowsersToClose() {
-    for (size_t i = 0U; i < browsers_.size(); ++i)
+    while (!BrowserList::GetInstance()->empty())
       ui_test_utils::WaitForBrowserToClose();
   }
 
@@ -378,8 +379,8 @@ IN_PROC_BROWSER_TEST_F(BrowserCloseManagerBrowserTest, PRE_TestSessionRestore) {
   cancel_observer.Wait();
   EXPECT_FALSE(browser_shutdown::IsTryingToQuit());
 
-  browser()->tab_strip_model()
-      ->CloseWebContentsAt(1, TabStripModel::CLOSE_USER_GESTURE);
+  browser()->tab_strip_model()->CloseWebContentsAt(
+      1, TabCloseTypes::CLOSE_USER_GESTURE);
   content::TestNavigationObserver navigation_observer(
       browser()->tab_strip_model()->GetActiveWebContents(), 1);
   ASSERT_NO_FATAL_FAILURE(NavigateToURLWithDisposition(
@@ -1093,7 +1094,7 @@ IN_PROC_BROWSER_TEST_F(BrowserCloseManagerBrowserTest,
     if (!base::PathExists(path))
       ASSERT_TRUE(base::CreateDirectory(path));
     other_profile =
-        Profile::CreateProfile(path, NULL, Profile::CREATE_MODE_SYNCHRONOUS);
+        Profile::CreateProfile(path, nullptr, Profile::CREATE_MODE_SYNCHRONOUS);
   }
   Profile* other_profile_ptr = other_profile.get();
   profile_manager->RegisterTestingProfile(std::move(other_profile), true);

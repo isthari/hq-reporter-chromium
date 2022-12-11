@@ -5,6 +5,7 @@
   <owner>tby@chromium.org</owner>
   <id>per-project</id>
   <scope>profile</scope>
+  <key-rotation>90</key-rotation>
   <summary>
     Project for recording CrOSActions.
   </summary>
@@ -194,6 +195,7 @@
   <owner>tby@chromium.org</owner>
   <id>per-project</id>
   <scope>profile</scope>
+  <key-rotation>90</key-rotation>
   <summary>
     See event summary.
   </summary>
@@ -225,7 +227,7 @@
     <metric name="ProviderType" type="int">
       <summary>
         Which type of search provider the launched result was created by. This comes
-        from the RankingItemType enum.
+        from the AppListSearchResultType enum.
       </summary>
     </metric>
     <metric name="Score" type="int">
@@ -258,6 +260,7 @@
   <owner>pdyson@chromium.org</owner>
   <id>per-project</id>
   <scope>device</scope>
+  <key-rotation>90</key-rotation>
   <summary>
     Project for recording events to monitor the creation of Neutrino Devices.
   </summary>
@@ -383,6 +386,7 @@
   <owner>tby@chromium.org</owner>
   <id>per-project</id>
   <scope>device</scope>
+  <key-rotation>90</key-rotation>
   <summary>
     Structured Metrics is a logging framework for events. This project is used
     for monitoring the framework itself.
@@ -403,10 +407,40 @@
   </event>
 </project>
 
+<project name="CrOSEvents">
+  <owner>jongahn@chromium.org</owner>
+  <id>per-project</id>
+  <scope>device</scope>
+  <key-rotation>120</key-rotation>
+  <summary>
+    Project used to record a sequence of events that are related to each other.
+  </summary>
+
+  <event name="Test1">
+    <summary>
+      Test event used for unit tests to ensure that the code-gen for the event
+      sequence project is working properly.
+    </summary>
+    <metric name="Metric1" type="double">
+      <summary>
+        Test metric1
+      </summary>
+    </metric>
+  </event>
+
+  <event name="NoMetricsEvent">
+    <summary>
+      Test event for events without metrics.
+    </summary>
+
+  </event>
+</project>
+
 <project name="TestProjectOne">
   <owner>tby@chromium.org</owner>
   <id>per-project</id>
   <scope>profile</scope>
+  <key-rotation>90</key-rotation>
   <summary>
     Project for unit testing, do not use.
   </summary>
@@ -432,6 +466,7 @@
   <owner>tby@chromium.org</owner>
   <id>per-project</id>
   <scope>profile</scope>
+  <key-rotation>90</key-rotation>
   <summary>
     Project for unit testing, do not use.
   </summary>
@@ -463,6 +498,7 @@
   <owner>tby@chromium.org</owner>
   <id>uma</id>
   <scope>profile</scope>
+  <key-rotation>90</key-rotation>
   <summary>
     Project for unit testing, do not use.
   </summary>
@@ -483,6 +519,7 @@
   <owner>tby@chromium.org</owner>
   <id>per-project</id>
   <scope>device</scope>
+  <key-rotation>90</key-rotation>
   <summary>
     Project for unit testing, do not use.
   </summary>
@@ -503,6 +540,7 @@
   <owner>tby@chromium.org</owner>
   <id>none</id>
   <scope>profile</scope>
+  <key-rotation>90</key-rotation>
   <summary>
     Project for unit testing, do not use.
   </summary>
@@ -514,6 +552,27 @@
     <metric name="TestMetricSix" type="raw-string">
       <summary>
         A unhashed string value.
+      </summary>
+    </metric>
+  </event>
+</project>
+
+<project name="TestProjectSix">
+  <owner>andrewbregger@google.com</owner>
+  <id>none</id>
+  <scope>profile</scope>
+  <key-rotation>90</key-rotation>
+  <summary>
+    Project for unit testing, do not use.
+  </summary>
+
+  <event name="TestEventSeven">
+    <summary>
+      Event for unit testing, do not use.
+    </summary>
+    <metric name="TestMetricSeven" type="double">
+      <summary>
+        A floating point value.
       </summary>
     </metric>
   </event>

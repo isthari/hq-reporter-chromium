@@ -1,16 +1,20 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/quick_answers/ui/user_consent_view.h"
 
 #include "base/bind.h"
-#include "chrome/browser/ash/accessibility/accessibility_manager.h"
+#include "base/command_line.h"
 #include "chrome/browser/ui/quick_answers/quick_answers_ui_controller.h"
+#include "chromeos/components/quick_answers/public/cpp/quick_answers_state.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "components/vector_icons/vector_icons.h"
+#include "content/public/common/content_switches.h"
 #include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/display/screen.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -32,46 +36,32 @@
 
 namespace quick_answers {
 
-using ::ash::AccessibilityManager;
-
 namespace {
 
 // Main view (or common) specs.
 constexpr int kMarginDip = 10;
 constexpr int kLineHeightDip = 20;
 constexpr int kContentSpacingDip = 8;
-constexpr gfx::Insets kMainViewInsets = {16, 12, 16, 16};
-constexpr gfx::Insets kContentInsets = {0, 12, 0, 0};
-// TODO(b/190554570): Use semantic color for quick answers related views.
-constexpr SkColor kMainViewBgColor = SK_ColorWHITE;
+constexpr auto kMainViewInsets = gfx::Insets::TLBR(16, 12, 16, 16);
+constexpr auto kContentInsets = gfx::Insets::TLBR(0, 12, 0, 0);
 
 // Google icon.
 constexpr int kGoogleIconSizeDip = 16;
 
-// Title text.
-constexpr SkColor kTitleTextColor = gfx::kGoogleGrey900;
+// Text font size delta.
 constexpr int kTitleFontSizeDelta = 2;
-
-// Description text.
-constexpr SkColor kDescTextColor = gfx::kGoogleGrey700;
 constexpr int kDescFontSizeDelta = 1;
 
 // Buttons common.
 constexpr int kButtonSpacingDip = 8;
-constexpr gfx::Insets kButtonBarInsets = {8, 0, 0, 0};
-constexpr gfx::Insets kButtonInsets = {6, 16, 6, 16};
+constexpr auto kButtonBarInsets = gfx::Insets::TLBR(8, 0, 0, 0);
+constexpr auto kButtonInsets = gfx::Insets::TLBR(6, 16, 6, 16);
 constexpr int kButtonFontSizeDelta = 1;
 
 // Compact buttons layout.
 constexpr int kCompactButtonLayoutThreshold = 200;
-constexpr gfx::Insets kCompactButtonInsets = {6, 12, 6, 12};
+constexpr auto kCompactButtonInsets = gfx::Insets::TLBR(6, 12, 6, 12);
 constexpr int kCompactButtonFontSizeDelta = 0;
-
-// Manage-Settings button.
-constexpr SkColor kSettingsButtonTextColor = gfx::kGoogleBlue600;
-
-// Accept button.
-constexpr SkColor kAcceptButtonTextColor = gfx::kGoogleGrey200;
 
 int GetActualLabelWidth(int anchor_view_width) {
   return anchor_view_width - kMainViewInsets.width() - kContentInsets.width() -
@@ -84,11 +74,9 @@ bool ShouldUseCompactButtonLayout(int anchor_view_width) {
 
 // Create and return a simple label with provided specs.
 std::unique_ptr<views::Label> CreateLabel(const std::u16string& text,
-                                          const SkColor color,
                                           int font_size_delta) {
   auto label = std::make_unique<views::Label>(text);
   label->SetAutoColorReadabilityEnabled(false);
-  label->SetEnabledColor(color);
   label->SetLineHeight(kLineHeightDip);
   label->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
   label->SetFontList(
@@ -102,11 +90,9 @@ class CustomizedLabelButton : public views::MdTextButton {
  public:
   CustomizedLabelButton(PressedCallback callback,
                         const std::u16string& text,
-                        const SkColor color,
                         bool is_compact)
       : MdTextButton(std::move(callback), text) {
     SetCustomPadding(is_compact ? kCompactButtonInsets : kButtonInsets);
-    SetEnabledTextColors(color);
     label()->SetLineHeight(kLineHeightDip);
     label()->SetFontList(
         views::Label::GetDefaultFontList()
@@ -130,23 +116,24 @@ class CustomizedLabelButton : public views::MdTextButton {
 // UserConsentView
 // -------------------------------------------------------------
 
-UserConsentView::UserConsentView(const gfx::Rect& anchor_view_bounds,
-                                 const std::u16string& intent_type,
-                                 const std::u16string& intent_text,
-                                 QuickAnswersUiController* ui_controller)
+UserConsentView::UserConsentView(
+    const gfx::Rect& anchor_view_bounds,
+    const std::u16string& intent_type,
+    const std::u16string& intent_text,
+    base::WeakPtr<QuickAnswersUiController> controller)
     : anchor_view_bounds_(anchor_view_bounds),
       event_handler_(this),
-      ui_controller_(ui_controller),
+      controller_(std::move(controller)),
       focus_search_(this,
                     base::BindRepeating(&UserConsentView::GetFocusableViews,
                                         base::Unretained(this))) {
   if (intent_type.empty() || intent_text.empty()) {
-    title_ = l10n_util::GetStringUTF16(
-        IDS_ASH_QUICK_ANSWERS_USER_NOTICE_VIEW_TITLE_TEXT);
+    title_text_ = l10n_util::GetStringUTF16(
+        IDS_QUICK_ANSWERS_USER_NOTICE_VIEW_TITLE_TEXT);
   } else {
-    title_ = l10n_util::GetStringFUTF16(
-        IDS_ASH_QUICK_ANSWERS_USER_CONSENT_VIEW_TITLE_TEXT_WITH_INTENT,
-        intent_type, intent_text);
+    title_text_ = l10n_util::GetStringFUTF16(
+        IDS_QUICK_ANSWERS_USER_CONSENT_VIEW_TITLE_TEXT_WITH_INTENT, intent_type,
+        intent_text);
   }
 
   InitLayout();
@@ -164,7 +151,7 @@ UserConsentView::UserConsentView(const gfx::Rect& anchor_view_bounds,
 
   // Read out user-consent text if screen-reader is active.
   GetViewAccessibility().AnnounceText(l10n_util::GetStringUTF16(
-      IDS_ASH_QUICK_ANSWERS_USER_NOTICE_VIEW_A11Y_INFO_ALERT_TEXT));
+      IDS_QUICK_ANSWERS_USER_NOTICE_VIEW_A11Y_INFO_ALERT_TEXT));
 }
 
 UserConsentView::~UserConsentView() = default;
@@ -182,9 +169,20 @@ gfx::Size UserConsentView::CalculatePreferredSize() const {
 void UserConsentView::OnFocus() {
   // Unless screen-reader mode is enabled, transfer the focus to an actionable
   // button, otherwise retain to read out its contents.
-  if (AccessibilityManager::Get()->IsSpokenFeedbackEnabled()) {
+  if (QuickAnswersState::Get()->spoken_feedback_enabled()) {
     no_thanks_button_->RequestFocus();
   }
+}
+
+void UserConsentView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+
+  SetBackground(views::CreateSolidBackground(
+      GetColorProvider()->GetColor(ui::kColorPrimaryBackground)));
+  title_->SetEnabledColor(
+      GetColorProvider()->GetColor(ui::kColorLabelForeground));
+  desc_->SetEnabledColor(
+      GetColorProvider()->GetColor(ui::kColorLabelForegroundSecondary));
 }
 
 views::FocusTraversable* UserConsentView::GetPaneFocusTraversable() {
@@ -193,18 +191,17 @@ views::FocusTraversable* UserConsentView::GetPaneFocusTraversable() {
 
 void UserConsentView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->role = ax::mojom::Role::kDialog;
-  node_data->SetName(title_);
-  auto desc = l10n_util::GetStringFUTF8(
-      IDS_ASH_QUICK_ANSWERS_USER_NOTICE_VIEW_A11Y_INFO_DESC_TEMPLATE,
-      l10n_util::GetStringUTF16(
-          IDS_ASH_QUICK_ANSWERS_USER_CONSENT_VIEW_DESC_TEXT));
-  node_data->SetDescription(desc);
+  node_data->SetName(title_text_);
+  auto desc_text = l10n_util::GetStringFUTF8(
+      IDS_QUICK_ANSWERS_USER_NOTICE_VIEW_A11Y_INFO_DESC_TEMPLATE,
+      l10n_util::GetStringUTF16(IDS_QUICK_ANSWERS_USER_CONSENT_VIEW_DESC_TEXT));
+  node_data->SetDescription(desc_text);
 }
 
 std::vector<views::View*> UserConsentView::GetFocusableViews() {
   std::vector<views::View*> focusable_views;
   // The view itself is not included in focus loop, unless screen-reader is on.
-  if (AccessibilityManager::Get()->IsSpokenFeedbackEnabled()) {
+  if (QuickAnswersState::Get()->spoken_feedback_enabled()) {
     focusable_views.push_back(this);
   }
   focusable_views.push_back(no_thanks_button_);
@@ -220,7 +217,6 @@ void UserConsentView::UpdateAnchorViewBounds(
 
 void UserConsentView::InitLayout() {
   SetLayoutManager(std::make_unique<views::FillLayout>());
-  SetBackground(views::CreateSolidBackground(kMainViewBgColor));
 
   // Main-view Layout.
   main_view_ = AddChildView(std::make_unique<views::View>());
@@ -234,7 +230,7 @@ void UserConsentView::InitLayout() {
   auto* google_icon =
       main_view_->AddChildView(std::make_unique<views::ImageView>());
   google_icon->SetBorder(views::CreateEmptyBorder(
-      (kLineHeightDip - kGoogleIconSizeDip) / 2, 0, 0, 0));
+      gfx::Insets::TLBR((kLineHeightDip - kGoogleIconSizeDip) / 2, 0, 0, 0)));
   google_icon->SetImage(gfx::CreateVectorIcon(vector_icons::kGoogleColorIcon,
                                               kGoogleIconSizeDip,
                                               gfx::kPlaceholderColor));
@@ -253,27 +249,25 @@ void UserConsentView::InitContent() {
       .SetIgnoreDefaultMainAxisMargins(true)
       .SetInteriorMargin(kContentInsets)
       .SetCollapseMargins(true)
-      .SetDefault(views::kMarginsKey, gfx::Insets(/*top=*/0, /*left=*/0,
-                                                  /*bottom=*/kContentSpacingDip,
-                                                  /*right=*/0));
+      .SetDefault(views::kMarginsKey,
+                  gfx::Insets::TLBR(0, 0, kContentSpacingDip, 0));
 
   // Title.
-  auto* title = content_->AddChildView(
-      CreateLabel(title_, kTitleTextColor, kTitleFontSizeDelta));
+  title_ =
+      content_->AddChildView(CreateLabel(title_text_, kTitleFontSizeDelta));
   // Set the maximum width of the label to the width it would need to be for the
   // UserConsentView to be the same width as the anchor, so its preferred size
   // will be calculated correctly.
   int maximum_width = GetActualLabelWidth(anchor_view_bounds_.width());
-  title->SetMaximumWidthSingleLine(maximum_width);
+  title_->SetMaximumWidthSingleLine(maximum_width);
 
   // Description.
-  auto* desc = content_->AddChildView(
-      CreateLabel(l10n_util::GetStringUTF16(
-                      IDS_ASH_QUICK_ANSWERS_USER_CONSENT_VIEW_DESC_TEXT),
-                  kDescTextColor, kDescFontSizeDelta));
-  desc->SetMultiLine(true);
+  desc_ = content_->AddChildView(CreateLabel(
+      l10n_util::GetStringUTF16(IDS_QUICK_ANSWERS_USER_CONSENT_VIEW_DESC_TEXT),
+      kDescFontSizeDelta));
+  desc_->SetMultiLine(true);
 
-  desc->SetMaximumWidth(maximum_width);
+  desc_->SetMaximumWidth(maximum_width);
 
   // Button bar.
   InitButtonBar();
@@ -290,16 +284,14 @@ void UserConsentView::InitButtonBar() {
       .SetMainAxisAlignment(views::LayoutAlignment::kEnd)
       .SetCollapseMargins(true)
       .SetDefault(views::kMarginsKey,
-                  gfx::Insets(/*top=*/0, /*left=*/0, /*bottom=*/0,
-                              /*right=*/kButtonSpacingDip));
+                  gfx::Insets::TLBR(0, 0, 0, kButtonSpacingDip));
 
   // No thanks button.
   auto no_thanks_button = std::make_unique<CustomizedLabelButton>(
       base::BindRepeating(&QuickAnswersUiController::OnUserConsentResult,
-                          base::Unretained(ui_controller_), false),
+                          controller_, false),
       l10n_util::GetStringUTF16(
-          IDS_ASH_QUICK_ANSWERS_USER_CONSENT_VIEW_NO_THANKS_BUTTON),
-      kSettingsButtonTextColor,
+          IDS_QUICK_ANSWERS_USER_CONSENT_VIEW_NO_THANKS_BUTTON),
       ShouldUseCompactButtonLayout(anchor_view_bounds_.width()));
   no_thanks_button_ = button_bar->AddChildView(std::move(no_thanks_button));
 
@@ -307,16 +299,16 @@ void UserConsentView::InitButtonBar() {
   auto allow_button = std::make_unique<CustomizedLabelButton>(
       base::BindRepeating(
           [](QuickAnswersPreTargetHandler* handler,
-             QuickAnswersUiController* controller) {
+             base::WeakPtr<QuickAnswersUiController> controller) {
             // When user consent is accepted, QuickAnswersView will be
             // displayed instead of dismissing the menu.
             handler->set_dismiss_anchor_menu_on_view_closed(false);
-            controller->OnUserConsentResult(true);
+            if (controller)
+              controller->OnUserConsentResult(true);
           },
-          &event_handler_, ui_controller_),
+          &event_handler_, controller_),
       l10n_util::GetStringUTF16(
-          IDS_ASH_QUICK_ANSWERS_USER_CONSENT_VIEW_ALLOW_BUTTON),
-      kAcceptButtonTextColor,
+          IDS_QUICK_ANSWERS_USER_CONSENT_VIEW_ALLOW_BUTTON),
       ShouldUseCompactButtonLayout(anchor_view_bounds_.width()));
   allow_button->SetProminent(true);
   allow_button_ = button_bar->AddChildView(std::move(allow_button));
@@ -331,10 +323,15 @@ void UserConsentView::InitWidget() {
   params.z_order = ui::ZOrderLevel::kFloatingUIElement;
 
   // Parent the widget to the owner of the menu.
-  auto* active_menu_controller = views::MenuController::GetActiveInstance();
-  DCHECK(active_menu_controller && active_menu_controller->owner());
-  params.parent = active_menu_controller->owner()->GetNativeView();
-  params.child = true;
+  // Skip the logic for browser tests since the menu controller is not
+  // available.
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kBrowserTest)) {
+    auto* active_menu_controller = views::MenuController::GetActiveInstance();
+    DCHECK(active_menu_controller && active_menu_controller->owner());
+    params.parent = active_menu_controller->owner()->GetNativeView();
+    params.child = true;
+  }
 
   views::Widget* widget = new views::Widget();
   widget->Init(std::move(params));

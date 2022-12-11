@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -98,11 +97,11 @@ void OverrideDirPnaclComponent(const base::FilePath& base_path) {
 base::DictionaryValue* ReadJSONManifest(const base::FilePath& manifest_path) {
   JSONFileValueDeserializer deserializer(manifest_path);
   std::string error;
-  std::unique_ptr<base::Value> root = deserializer.Deserialize(NULL, &error);
+  std::unique_ptr<base::Value> root = deserializer.Deserialize(nullptr, &error);
   if (!root.get())
-    return NULL;
+    return nullptr;
   if (!root->is_dict())
-    return NULL;
+    return nullptr;
   return static_cast<base::DictionaryValue*>(root.release());
 }
 
@@ -111,16 +110,16 @@ base::DictionaryValue* ReadPnaclManifest(const base::FilePath& unpack_path) {
   base::FilePath manifest_path =
       GetPlatformDir(unpack_path).AppendASCII("pnacl_public_pnacl_json");
   if (!base::PathExists(manifest_path))
-    return NULL;
+    return nullptr;
   return ReadJSONManifest(manifest_path);
 }
 
 // Check that the component's manifest is for PNaCl, and check the
 // PNaCl manifest indicates this is the correct arch-specific package.
-bool CheckPnaclComponentManifest(const base::Value& manifest,
+bool CheckPnaclComponentManifest(const base::Value::Dict& manifest,
                                  const base::DictionaryValue& pnacl_manifest) {
   // Make sure we have the right |manifest| file.
-  const std::string* name = manifest.FindStringKey("name");
+  const std::string* name = manifest.FindString("name");
   if (!name || !base::IsStringASCII(*name)) {
     LOG(WARNING) << "'name' field is missing from manifest!";
     return false;
@@ -134,7 +133,7 @@ bool CheckPnaclComponentManifest(const base::Value& manifest,
     return false;
   }
 
-  const std::string* proposed_version = manifest.FindStringKey("version");
+  const std::string* proposed_version = manifest.FindString("version");
   if (!proposed_version || !base::IsStringASCII(*proposed_version)) {
     LOG(WARNING) << "'version' field is missing from manifest!";
     return false;
@@ -147,13 +146,13 @@ bool CheckPnaclComponentManifest(const base::Value& manifest,
   }
 
   // Now check the |pnacl_manifest|.
-  std::string arch;
-  if (!pnacl_manifest.GetStringASCII("pnacl-arch", &arch)) {
+  const std::string* arch = pnacl_manifest.FindStringKey("pnacl-arch");
+  if (!arch || !base::IsStringASCII(*arch)) {
     LOG(WARNING) << "'pnacl-arch' field is missing from pnacl-manifest!";
     return false;
   }
-  if (arch.compare(UpdateQueryParams::GetNaclArch()) != 0) {
-    LOG(WARNING) << "'pnacl-arch' field in manifest is invalid (" << arch
+  if (arch->compare(UpdateQueryParams::GetNaclArch()) != 0) {
+    LOG(WARNING) << "'pnacl-arch' field in manifest is invalid (" << *arch
                  << " vs " << UpdateQueryParams::GetNaclArch() << ")";
     return false;
   }
@@ -176,14 +175,14 @@ class PnaclComponentInstallerPolicy : public ComponentInstallerPolicy {
   bool SupportsGroupPolicyEnabledComponentUpdates() const override;
   bool RequiresNetworkEncryption() const override;
   update_client::CrxInstaller::Result OnCustomInstall(
-      const base::Value& manifest,
+      const base::Value::Dict& manifest,
       const base::FilePath& install_dir) override;
   void OnCustomUninstall() override;
-  bool VerifyInstallation(const base::Value& manifest,
+  bool VerifyInstallation(const base::Value::Dict& manifest,
                           const base::FilePath& install_dir) const override;
   void ComponentReady(const base::Version& version,
                       const base::FilePath& install_dir,
-                      base::Value manifest) override;
+                      base::Value::Dict manifest) override;
   base::FilePath GetRelativeInstallDir() const override;
   void GetHash(std::vector<uint8_t>* hash) const override;
   std::string GetName() const override;
@@ -204,7 +203,7 @@ bool PnaclComponentInstallerPolicy::RequiresNetworkEncryption() const {
 
 update_client::CrxInstaller::Result
 PnaclComponentInstallerPolicy::OnCustomInstall(
-    const base::Value& manifest,
+    const base::Value::Dict& manifest,
     const base::FilePath& install_dir) {
   return update_client::CrxInstaller::Result(0);  // Nothing custom here.
 }
@@ -212,11 +211,11 @@ PnaclComponentInstallerPolicy::OnCustomInstall(
 void PnaclComponentInstallerPolicy::OnCustomUninstall() {}
 
 bool PnaclComponentInstallerPolicy::VerifyInstallation(
-    const base::Value& manifest,
+    const base::Value::Dict& manifest,
     const base::FilePath& install_dir) const {
   std::unique_ptr<base::DictionaryValue> pnacl_manifest(
       ReadPnaclManifest(install_dir));
-  if (pnacl_manifest == NULL) {
+  if (pnacl_manifest == nullptr) {
     LOG(WARNING) << "Failed to read pnacl manifest.";
     return false;
   }
@@ -226,7 +225,7 @@ bool PnaclComponentInstallerPolicy::VerifyInstallation(
 void PnaclComponentInstallerPolicy::ComponentReady(
     const base::Version& version,
     const base::FilePath& install_dir,
-    base::Value manifest) {
+    base::Value::Dict manifest) {
   CheckVersionCompatiblity(version);
   base::ThreadPool::PostTask(
       FROM_HERE, {base::TaskPriority::BEST_EFFORT, base::MayBlock()},

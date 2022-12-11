@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/location.h"
 #include "base/strings/string_util.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "storage/browser/file_system/external_mount_points.h"
 #include "storage/browser/file_system/file_observers.h"
 #include "storage/browser/file_system/file_system_context.h"
@@ -109,7 +108,8 @@ base::FilePath GetSyncFileSystemDir(const base::FilePath& profile_base_dir) {
 }
 
 void RunSoon(const base::Location& from_here, base::OnceClosure callback) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(from_here, std::move(callback));
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      from_here, std::move(callback));
 }
 
 }  // namespace sync_file_system

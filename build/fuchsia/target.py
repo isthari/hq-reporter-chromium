@@ -1,4 +1,4 @@
-# Copyright 2018 The Chromium Authors. All rights reserved.
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -73,8 +73,6 @@ class Target(object):
     self._log_listener_proc = None
     self._dry_run = False
     self._started = False
-    self._ffx_path = os.path.join(common.SDK_ROOT, 'tools',
-                                  common.GetHostArchFromPlatform(), 'ffx')
     self._log_manager = LogManager(logs_dir)
     self._ffx_runner = ffx_session.FfxRunner(self._log_manager)
 
@@ -90,11 +88,22 @@ class Target(object):
   def __enter__(self):
     return self
   def __exit__(self, exc_type, exc_val, exc_tb):
-    self.Stop()
+    try:
+      self.Stop()
+    finally:
+      # Stop the ffx daemon, since the target device is going / has gone away.
+      # This ensures that the daemon does not become "hung" if the target device
+      # stops responding to network I/O (e.g., due to emulator instance
+      # teardown). The daemon will be automatically restarted by the next `ffx`
+      # call.
+      self._ffx_runner.daemon_stop()
+      # Stop the log manager only after the last use of _ffx_runner.
+      self._log_manager.Stop()
 
   def Start(self):
     """Handles the instantiation and connection process for the Fuchsia
     target instance."""
+    raise NotImplementedError()
 
   def IsStarted(self):
     """Returns True if the Fuchsia target instance is ready to accept
@@ -111,7 +120,6 @@ class Target(object):
       self._symbolizer_proc.kill()
     if self._log_listener_proc:
       self._log_listener_proc.kill()
-    self._log_manager.Stop()
 
   def IsNewInstance(self):
     """Returns True if the connected target instance is newly provisioned."""
@@ -166,9 +174,7 @@ class Target(object):
 
     Returns the exit code of the command.
     """
-    logging.debug('running \'%s\'.', ' '.join(command))
-    return self.GetCommandRunner().RunCommand(command, silent,
-                                              timeout_secs=timeout_secs)
+    return self.GetCommandRunner().RunCommand(command, silent, timeout_secs)
 
   def EnsureIsolatedPathsExist(self, for_package, for_realms):
     """Ensures that the package's isolated /data and /tmp exist."""
@@ -178,50 +184,6 @@ class Target(object):
           _MapIsolatedPathsForPackage(for_package, 0,
                                       for_realms)(isolated_directory)
       ])
-
-  def PutFile(self,
-              source,
-              dest,
-              recursive=False,
-              for_package=None,
-              for_realms=()):
-    """Copies a file from the local filesystem to the target filesystem.
-
-    source: The path of the file being copied.
-    dest: The path on the remote filesystem which will be copied to.
-    recursive: If true, performs a recursive copy.
-    for_package: If specified, isolated paths in the |dest| are mapped to their
-                 obsolute paths for the package, on the target. This currently
-                 affects the /data and /tmp directories.
-    for_realms: If specified, identifies the sub-realm of 'sys' under which
-                isolated paths (see |for_package|) are stored.
-    """
-    assert type(source) is str
-    self.PutFiles([source], dest, recursive, for_package, for_realms)
-
-  def PutFiles(self,
-               sources,
-               dest,
-               recursive=False,
-               for_package=None,
-               for_realms=()):
-    """Copies files from the local filesystem to the target filesystem.
-
-    sources: List of local file paths to copy from, or a single path.
-    dest: The path on the remote filesystem which will be copied to.
-    recursive: If true, performs a recursive copy.
-    for_package: If specified, /data in the |dest| is mapped to the package's
-                 isolated /data location.
-    for_realms: If specified, identifies the sub-realm of 'sys' under which
-                isolated paths (see |for_package|) are stored.
-    """
-    assert type(sources) is tuple or type(sources) is list
-    if for_package:
-      self.EnsureIsolatedPathsExist(for_package, for_realms)
-      dest = _MapIsolatedPathsForPackage(for_package, 0, for_realms)(dest)
-    logging.debug('copy local:%s => remote:%s', sources, dest)
-    self.GetCommandRunner().RunScp(sources, dest, remote_cmd.COPY_TO_TARGET,
-                                   recursive)
 
   def GetFile(self,
               source,
@@ -348,7 +310,7 @@ class Target(object):
         logging.info('Installing %s...', package_name)
         return_code = self.RunCommand(
             ['pkgctl', 'resolve',
-             _GetPackageUri(package_name), '>/dev/null'],
+             _GetPackageUri(package_name)],
             timeout_secs=_INSTALL_TIMEOUT_SECS)
         if return_code != 0:
           raise Exception(
@@ -364,24 +326,14 @@ class Target(object):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE)
         pkgctl_out, pkgctl_err = pkgctl.communicate()
+        pkgctl_out = pkgctl_out.strip()
 
         # Read the expected version from the meta.far Merkel hash file alongside
         # the package's FAR.
         meta_far_path = os.path.join(os.path.dirname(package_path), 'meta.far')
-        meta_far_merkel = subprocess.check_output(
+        meta_far_merkle = subprocess.check_output(
             [common.GetHostToolPathFromPlatform('merkleroot'),
              meta_far_path]).split()[0]
-        if pkgctl_out != meta_far_merkel:
+        if pkgctl_out != meta_far_merkle:
           raise Exception('Hash mismatch for %s after resolve (%s vs %s).' %
-                          (package_name, pkgctl_out, meta_far_merkel))
-
-  def RunFFXCommand(self, ffx_args, **kwargs):
-    """Automatically gets the FFX path and runs FFX based on the
-    arguments provided. Extra args can be added to be used with Popen.
-
-    ffx_args: The arguments for a ffx command.
-    kwargs: A dictionary of parameters to be passed to subprocess.Popen().
-
-    Returns a Popen object for the command."""
-    command = [self._ffx_path] + ffx_args
-    return subprocess.Popen(command, **kwargs)
+                          (package_name, pkgctl_out, meta_far_merkle))

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,14 +35,13 @@
 #include "chrome/browser/memory/memory_kills_monitor.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit_external.h"
-#include "chrome/browser/resource_coordinator/tab_manager_stats_collector.h"
 #include "chrome/browser/resource_coordinator/utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/memory/pressure/system_memory_pressure_evaluator.h"
+#include "chromeos/ash/components/dbus/debug_daemon/debug_daemon_client.h"
+#include "chromeos/ash/components/memory/pressure/system_memory_pressure_evaluator.h"
 #include "components/device_event_log/device_event_log.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
@@ -218,7 +217,7 @@ class TabManagerDelegate::FocusedProcess {
 // Target memory to free is the amount which brings available
 // memory back to the margin.
 int TabManagerDelegate::MemoryStat::TargetMemoryToFreeKB() {
-  auto* monitor = chromeos::memory::SystemMemoryPressureEvaluator::Get();
+  auto* monitor = ash::memory::SystemMemoryPressureEvaluator::Get();
   if (monitor) {
     return monitor->GetCachedReclaimTargetKB();
   } else {
@@ -281,7 +280,7 @@ void TabManagerDelegate::OnBrowserSetLastActive(Browser* browser) {
     return;
 
   base::ProcessHandle pid =
-      contents->GetMainFrame()->GetProcess()->GetProcess().Handle();
+      contents->GetPrimaryMainFrame()->GetProcess()->GetProcess().Handle();
   AdjustFocusedTabScore(pid);
 }
 
@@ -524,8 +523,8 @@ bool TabManagerDelegate::KillTab(LifecycleUnit* lifecycle_unit,
   return did_discard;
 }
 
-chromeos::DebugDaemonClient* TabManagerDelegate::GetDebugDaemonClient() {
-  return chromeos::DBusThreadManager::Get()->GetDebugDaemonClient();
+ash::DebugDaemonClient* TabManagerDelegate::GetDebugDaemonClient() {
+  return ash::DebugDaemonClient::Get();
 }
 
 void TabManagerDelegate::LowMemoryKillImpl(

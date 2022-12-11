@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@ import org.chromium.weblayer_private.FragmentHostingRemoteFragmentImpl;
 import org.chromium.weblayer_private.R;
 import org.chromium.weblayer_private.interfaces.IMediaRouteDialogFragment;
 import org.chromium.weblayer_private.interfaces.IRemoteFragment;
-import org.chromium.weblayer_private.interfaces.IRemoteFragmentClient;
 import org.chromium.weblayer_private.interfaces.StrictModeWorkaround;
 
 import java.lang.ref.WeakReference;
@@ -43,8 +42,8 @@ public class MediaRouteDialogFragmentImpl extends FragmentHostingRemoteFragmentI
         }
     }
 
-    public MediaRouteDialogFragmentImpl(IRemoteFragmentClient remoteFragmentClient) {
-        super(remoteFragmentClient);
+    public MediaRouteDialogFragmentImpl() {
+        super();
         sInstanceForTest = new WeakReference<MediaRouteDialogFragmentImpl>(this);
     }
 

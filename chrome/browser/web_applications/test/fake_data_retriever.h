@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,8 @@
 #include "chrome/browser/web_applications/web_app_data_retriever.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/browser/web_applications/web_app_install_utils.h"
+#include "components/webapps/browser/installable/installable_params.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom-forward.h"
 #include "url/gurl.h"
 
@@ -33,9 +35,10 @@ class FakeDataRetriever : public WebAppDataRetriever {
   void CheckInstallabilityAndRetrieveManifest(
       content::WebContents* web_contents,
       bool bypass_service_worker_check,
-      CheckInstallabilityCallback callback) override;
+      CheckInstallabilityCallback callback,
+      absl::optional<webapps::InstallableParams> params) override;
   void GetIcons(content::WebContents* web_contents,
-                const std::vector<GURL>& icon_urls,
+                base::flat_set<GURL> icon_urls,
                 bool skip_page_favicons,
                 GetIconsCallback callback) override;
 
@@ -51,7 +54,7 @@ class FakeDataRetriever : public WebAppDataRetriever {
   void SetIcons(IconsMap icons_map);
   using GetIconsDelegate =
       base::RepeatingCallback<IconsMap(content::WebContents* web_contents,
-                                       const std::vector<GURL>& icon_urls,
+                                       const base::flat_set<GURL>& icon_urls,
                                        bool skip_page_favicons)>;
   void SetGetIconsDelegate(GetIconsDelegate get_icons_delegate);
 

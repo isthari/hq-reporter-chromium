@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,9 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
-#include "build/chromeos_buildflags.h"
+#include "base/run_loop.h"
 #include "chrome/browser/ash/accessibility/accessibility_test_utils.h"
+#include "chrome/browser/ash/accessibility/magnification_manager.h"
 #include "chrome/browser/ash/login/session/user_session_manager.h"
 #include "chrome/browser/ash/login/test/guest_session_mixin.h"
 #include "chrome/browser/ash/login/test/logged_in_user_mixin.h"
@@ -20,10 +21,14 @@
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/braille_display_private/mock_braille_controller.h"
+#include "chrome/browser/extensions/component_loader.h"
+#include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/prefs/pref_service_syncable_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_test_util.h"
 #include "chrome/browser/supervised_user/supervised_user_constants.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
@@ -51,9 +56,7 @@ namespace ash {
 
 namespace {
 
-using ::content::BrowserThread;
-using ::extensions::api::braille_display_private::BrailleObserver;
-using ::extensions::api::braille_display_private::DisplayState;
+using ::extensions::api::accessibility_private::DlcType;
 using ::extensions::api::braille_display_private::KeyEvent;
 using ::extensions::api::braille_display_private::MockBrailleController;
 using input_method::InputMethodDescriptors;
@@ -196,6 +199,14 @@ bool IsSelectToSpeakEnabled() {
   return AccessibilityManager::Get()->IsSelectToSpeakEnabled();
 }
 
+void SetSwitchAccessEnabled(bool enabled) {
+  AccessibilityManager::Get()->SetSwitchAccessEnabled(enabled);
+}
+
+void SetMagnifierEnabled(bool enabled) {
+  MagnificationManager::Get()->SetMagnifierEnabled(enabled);
+}
+
 void SetDictationEnabled(bool enabled) {
   AccessibilityManager::Get()->SetDictationEnabled(enabled);
 }
@@ -268,9 +279,9 @@ void SetSelectToSpeakEnabledPref(bool enabled) {
 
 bool IsBrailleImeEnabled() {
   InputMethodManager* imm = InputMethodManager::Get();
-  std::unique_ptr<InputMethodDescriptors> descriptors =
+  InputMethodDescriptors descriptors =
       imm->GetActiveIMEState()->GetEnabledInputMethods();
-  for (const auto& descriptor : *descriptors) {
+  for (const auto& descriptor : descriptors) {
     if (descriptor.id() == extension_ime_util::kBrailleImeEngineId)
       return true;
   }
@@ -293,15 +304,15 @@ void UninstallSodaForTesting() {
 }
 
 void ClearDictationOfflineNudgePref(const std::string& locale) {
-  DictionaryPrefUpdate update(GetActiveUserPrefs(),
+  ScopedDictPrefUpdate update(GetActiveUserPrefs(),
                               prefs::kAccessibilityDictationLocaleOfflineNudge);
-  update.Get()->RemovePath(locale);
+  update->RemoveByDottedPath(locale);
 }
 
 absl::optional<bool> GetDictationOfflineNudgePref(const std::string& locale) {
-  const base::Value* offline_nudges = GetActiveUserPrefs()->GetDictionary(
+  const base::Value::Dict& offline_nudges = GetActiveUserPrefs()->GetDict(
       prefs::kAccessibilityDictationLocaleOfflineNudge);
-  return offline_nudges->FindBoolPath(locale);
+  return offline_nudges.FindBool(locale);
 }
 
 void AssertSodaNotificationShownForDictation(
@@ -332,7 +343,7 @@ void AssertSodaNotificationShownForDictation(
 void AssertMessageCenterEmpty() {
   message_center::NotificationList::Notifications notifications =
       message_center::MessageCenter::Get()->GetVisibleNotifications();
-  ASSERT_EQ(0, notifications.size());
+  ASSERT_EQ(0u, notifications.size());
 }
 
 void ClearMessageCenter() {
@@ -367,9 +378,7 @@ class AccessibilityManagerTest : public MixinBasedInProcessBrowserTest {
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     scoped_feature_list_.InitWithFeatures(
-        {::features::kExperimentalAccessibilityDictationOffline,
-         ash::features::kOnDeviceSpeechRecognition},
-        {});
+        {features::kOnDeviceSpeechRecognition}, {});
     MixinBasedInProcessBrowserTest::SetUpCommandLine(command_line);
   }
 
@@ -387,6 +396,13 @@ class AccessibilityManagerTest : public MixinBasedInProcessBrowserTest {
   void TriggerDictationChangedBySystem() {
     AccessibilityManager::Get()->OnDictationChanged(
         /*triggered_by_user=*/false);
+  }
+
+  void WaitForEnhancedNetworkTtsLoad() {
+    base::RunLoop runner;
+    AccessibilityManager::Get()->enhanced_network_tts_waiter_for_test_ =
+        runner.QuitClosure();
+    runner.Run();
   }
 
   int default_autoclick_delay() const { return default_autoclick_delay_; }
@@ -407,6 +423,10 @@ class AccessibilityManagerTest : public MixinBasedInProcessBrowserTest {
 
   bool IsChromeVoxPanelActive() {
     return AccessibilityManager::Get()->chromevox_panel_ != nullptr;
+  }
+
+  base::FilePath TtsDlcTypeToPath(DlcType dlc) {
+    return AccessibilityManager::Get()->TtsDlcTypeToPath(dlc);
   }
 
  protected:
@@ -744,6 +764,52 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest, AccessibilityMenuVisibility) {
   EXPECT_FALSE(ShouldShowAccessibilityMenu());
 }
 
+IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest,
+                       EnhancedNetworkVoicesExtensionLoadedWhenNeeded) {
+  extensions::ComponentLoader* component_loader =
+      extensions::ExtensionSystem::Get(browser()->profile())
+          ->extension_service()
+          ->component_loader();
+
+  // Not loaded yet.
+  EXPECT_FALSE(
+      component_loader->Exists(extension_misc::kEnhancedNetworkTtsExtensionId));
+
+  SetSelectToSpeakEnabled(true);
+  // Loaded the first time Select to Speak is enabled because the user hasn't
+  // seen the dialog yet, and voices are needed immediately after the dialog is
+  // accepted.
+  WaitForEnhancedNetworkTtsLoad();
+  EXPECT_TRUE(
+      component_loader->Exists(extension_misc::kEnhancedNetworkTtsExtensionId));
+
+  // Unloaded with Select to Speak turned off.
+  SetSelectToSpeakEnabled(false);
+  EXPECT_FALSE(
+      component_loader->Exists(extension_misc::kEnhancedNetworkTtsExtensionId));
+
+  // Pretend the dialog was shown but the user didn't accept it by changing the
+  // pref that the dialog was shown but not the pref to enable the voices.
+  SetSelectToSpeakEnabled(true);
+  browser()->profile()->GetPrefs()->SetBoolean(
+      prefs::kAccessibilitySelectToSpeakEnhancedVoicesDialogShown, true);
+  EXPECT_FALSE(
+      component_loader->Exists(extension_misc::kEnhancedNetworkTtsExtensionId));
+
+  // Pretend the user turned on the network voices setting.
+  browser()->profile()->GetPrefs()->SetBoolean(
+      prefs::kAccessibilitySelectToSpeakEnhancedNetworkVoices, true);
+  WaitForEnhancedNetworkTtsLoad();
+  EXPECT_TRUE(
+      component_loader->Exists(extension_misc::kEnhancedNetworkTtsExtensionId));
+
+  // Now the admin disallows network voices by policy.
+  browser()->profile()->GetPrefs()->SetBoolean(
+      prefs::kAccessibilityEnhancedNetworkVoicesInSelectToSpeakAllowed, false);
+  EXPECT_FALSE(
+      component_loader->Exists(extension_misc::kEnhancedNetworkTtsExtensionId));
+}
+
 // Ensures that the ChromeVox panel stays in sync with ChromeVox's enabled
 // state. The panel should only be created if ChromeVox is enabled and if there
 // is no existing panel.
@@ -768,6 +834,30 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest, ChromeVoxPanel) {
   SetSpokenFeedbackEnabled(false);
   ASSERT_FALSE(IsSpokenFeedbackEnabled());
   ASSERT_FALSE(IsChromeVoxPanelActive());
+}
+
+IN_PROC_BROWSER_TEST_F(AccessibilityManagerTest, TtsDlcTypeToPath) {
+  EXPECT_EQ(
+      base::FilePath("/run/imageloader/tts-es-es/package/root/voice.zvoice"),
+      TtsDlcTypeToPath(DlcType::DLC_TYPE_TTSESES));
+  EXPECT_EQ(
+      base::FilePath("/run/imageloader/tts-es-us/package/root/voice.zvoice"),
+      TtsDlcTypeToPath(DlcType::DLC_TYPE_TTSESUS));
+  EXPECT_EQ(
+      base::FilePath("/run/imageloader/tts-fr-fr/package/root/voice.zvoice"),
+      TtsDlcTypeToPath(DlcType::DLC_TYPE_TTSFRFR));
+  EXPECT_EQ(
+      base::FilePath("/run/imageloader/tts-hi-in/package/root/voice.zvoice"),
+      TtsDlcTypeToPath(DlcType::DLC_TYPE_TTSHIIN));
+  EXPECT_EQ(
+      base::FilePath("/run/imageloader/tts-nl-nl/package/root/voice.zvoice"),
+      TtsDlcTypeToPath(DlcType::DLC_TYPE_TTSNLNL));
+  EXPECT_EQ(
+      base::FilePath("/run/imageloader/tts-pt-br/package/root/voice.zvoice"),
+      TtsDlcTypeToPath(DlcType::DLC_TYPE_TTSPTBR));
+  EXPECT_EQ(
+      base::FilePath("/run/imageloader/tts-sv-se/package/root/voice.zvoice"),
+      TtsDlcTypeToPath(DlcType::DLC_TYPE_TTSSVSE));
 }
 
 class AccessibilityManagerSodaTest : public AccessibilityManagerTest {
@@ -803,6 +893,7 @@ class AccessibilityManagerSodaTest : public AccessibilityManagerTest {
   }
 
   speech::LanguageCode en_us() { return speech::LanguageCode::kEnUs; }
+  speech::LanguageCode fr_fr() { return speech::LanguageCode::kFrFr; }
 
   const std::u16string en_us_display_name() {
     return u"English (United States)";
@@ -823,7 +914,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
   // The nudge should not be requested to be shown because this was a
   // user-initiated change.
   EXPECT_FALSE(GetDictationOfflineNudgePref("en-US"));
-  speech::SodaInstaller::GetInstance()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   EXPECT_FALSE(IsSodaDownloading());
   // The nudge was never shown.
   EXPECT_FALSE(GetDictationOfflineNudgePref("en-US"));
@@ -843,9 +935,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
   // The nudge should be shown when SODA download finishes.
   EXPECT_FALSE(GetDictationOfflineNudgePref("en-US").value());
   speech::SodaInstaller::GetInstance()->NotifySodaInstalledForTesting();
-  speech::SodaInstaller::GetInstance()
-      ->NotifyOnSodaLanguagePackInstalledForTesting(
-          speech::LanguageCode::kEnUs);
+  speech::SodaInstaller::GetInstance()->NotifySodaInstalledForTesting(en_us());
   EXPECT_FALSE(IsSodaDownloading());
   EXPECT_TRUE(GetDictationOfflineNudgePref("en-US").value());
   // No notifications were shown.
@@ -878,7 +968,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
   ClearDictationOfflineNudgePref("en-US");
   EnableDictationTriggeredByUser(/*soda_uninstalled_first=*/true);
   EXPECT_TRUE(IsSodaDownloading());
-  speech::SodaInstaller::GetInstance()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   EXPECT_FALSE(IsSodaDownloading());
   EXPECT_TRUE(GetDictationOfflineNudgePref("en-US").value());
   UninstallSodaForTesting();
@@ -887,7 +978,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
   // The second time the same language downloads, the nudge is not shown again.
   EnableDictationTriggeredByUser(/*soda_uninstalled_first=*/false);
   EXPECT_TRUE(IsSodaDownloading());
-  speech::SodaInstaller::GetInstance()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   EXPECT_FALSE(IsSodaDownloading());
   // Unchanged.
   EXPECT_TRUE(GetDictationOfflineNudgePref("en-US").value());
@@ -895,7 +987,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
 
 IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
                        SodaInstalledBeforeDictationEnabled) {
-  speech::SodaInstaller::GetInstance()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   ClearDictationOfflineNudgePref("en-US");
   EnableDictationTriggeredByUser(/*soda_uninstalled_first=*/false);
 
@@ -922,7 +1015,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
   // enabled. This mocks selecting a new locale from settings.
   SetDictationLocale("en-US");
   EXPECT_TRUE(IsSodaDownloading());
-  speech::SodaInstaller::GetInstance()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   EXPECT_FALSE(IsSodaDownloading());
   // The nudge was never shown because this was a user-initiated change.
   EXPECT_FALSE(GetDictationOfflineNudgePref("en-US"));
@@ -938,11 +1032,11 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
                        SucceededNotificationCase1) {
   // For this test, pretend that the Dictation locale is fr-FR.
   g_browser_process->SetApplicationLocale("fr-FR");
-  speech::LanguageCode fr_fr = speech::LanguageCode::kFrFr;
   SetDictationEnabled(true);
   soda_installer()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   AssertMessageCenterEmpty();
-  soda_installer()->NotifyOnSodaLanguagePackInstalledForTesting(fr_fr);
+  soda_installer()->NotifySodaInstalledForTesting(fr_fr());
   AssertSodaNotificationShownForDictation(u"français (France)",
                                           /*success=*/true);
 }
@@ -952,7 +1046,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
 IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
                        SucceededNotificationCase2) {
   SetDictationEnabled(true);
-  soda_installer()->NotifyOnSodaLanguagePackInstalledForTesting(en_us());
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   AssertMessageCenterEmpty();
   soda_installer()->NotifySodaInstalledForTesting();
   AssertSodaNotificationShownForDictation(en_us_display_name(),
@@ -974,7 +1068,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
 IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
                        SodaFailedNotificationLanguageError) {
   SetDictationEnabled(true);
-  soda_installer()->NotifyOnSodaLanguagePackErrorForTesting(en_us());
+  soda_installer()->NotifySodaErrorForTesting(en_us());
   AssertSodaNotificationShownForDictation(en_us_display_name(),
                                           /*success=*/false);
 }
@@ -984,7 +1078,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
 IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
                        LanguageInstalledBinaryFails) {
   SetDictationEnabled(true);
-  soda_installer()->NotifyOnSodaLanguagePackInstalledForTesting(en_us());
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   AssertMessageCenterEmpty();
   soda_installer()->NotifySodaErrorForTesting();
   AssertSodaNotificationShownForDictation(en_us_display_name(),
@@ -997,11 +1091,11 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
                        BinaryInstalledLanguageFails) {
   // For this test, pretend that the Dictation locale is fr-FR.
   g_browser_process->SetApplicationLocale("fr-FR");
-  speech::LanguageCode fr_fr = speech::LanguageCode::kFrFr;
   SetDictationEnabled(true);
   soda_installer()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   AssertMessageCenterEmpty();
-  soda_installer()->NotifyOnSodaLanguagePackErrorForTesting(fr_fr);
+  soda_installer()->NotifySodaErrorForTesting(fr_fr());
   AssertSodaNotificationShownForDictation(u"français (France)",
                                           /*success=*/false);
 }
@@ -1011,13 +1105,13 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
 IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
                        SodaFailedNotificationNotShownTwice) {
   SetDictationEnabled(true);
-  soda_installer()->NotifyOnSodaLanguagePackErrorForTesting(en_us());
+  soda_installer()->NotifySodaErrorForTesting(en_us());
   AssertSodaNotificationShownForDictation(en_us_display_name(),
                                           /*success=*/false);
   ClearMessageCenter();
 
   // No second message is shown on additional failures.
-  soda_installer()->NotifyOnSodaLanguagePackErrorForTesting(en_us());
+  soda_installer()->NotifySodaErrorForTesting(en_us());
   AssertMessageCenterEmpty();
   soda_installer()->NotifySodaErrorForTesting();
   AssertMessageCenterEmpty();
@@ -1028,7 +1122,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
 IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
                        SodaFailedNotificationShownOncePerDownload) {
   SetDictationEnabled(true);
-  soda_installer()->NotifyOnSodaLanguagePackErrorForTesting(en_us());
+  soda_installer()->NotifySodaErrorForTesting(en_us());
   AssertSodaNotificationShownForDictation(en_us_display_name(),
                                           /*success=*/false);
   SetDictationEnabled(false);
@@ -1039,7 +1133,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
 
   // A fresh attempt at Dictation means another chance to show an error message.
   SetDictationEnabled(true);
-  soda_installer()->NotifyOnSodaLanguagePackErrorForTesting(en_us());
+  soda_installer()->NotifySodaErrorForTesting(en_us());
   AssertSodaNotificationShownForDictation(en_us_display_name(),
                                           /*success=*/false);
 }
@@ -1049,7 +1143,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
 IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest, NotTriggeredByUser) {
   EnableDictationTriggeredByUser(/*soda_uninstalled_first=*/false);
   soda_installer()->NotifySodaInstalledForTesting();
-  soda_installer()->NotifyOnSodaLanguagePackInstalledForTesting(en_us());
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   AssertMessageCenterEmpty();
 }
 
@@ -1061,7 +1155,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest, WrongLanguage) {
   SetDictationEnabled(true);
   soda_installer()->NotifySodaInstalledForTesting();
   AssertMessageCenterEmpty();
-  soda_installer()->NotifyOnSodaLanguagePackInstalledForTesting(en_us());
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   AssertMessageCenterEmpty();
 }
 
@@ -1076,7 +1170,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerSodaTest,
   // enabled. This mocks selecting a new locale from settings.
   SetDictationLocale("en-US");
   soda_installer()->NotifySodaInstalledForTesting();
-  soda_installer()->NotifyOnSodaLanguagePackInstalledForTesting(en_us());
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
 
   // The notification should have been shown.
   AssertSodaNotificationShownForDictation(en_us_display_name(),
@@ -1097,22 +1191,20 @@ IN_PROC_BROWSER_TEST_F(
 
   // The API will not be called if the language pack differs from the Dictation
   // locale.
-  soda_installer()->NotifyOnSodaLanguagePackProgressForTesting(
-      30, speech::LanguageCode::kFrFr);
+  soda_installer()->NotifySodaProgressForTesting(30, fr_fr());
   EXPECT_EQ(0, test_api->GetDictationSodaDownloadProgress());
   // The API will be called if the language pack matches the Dictation locale.
-  soda_installer()->NotifyOnSodaLanguagePackProgressForTesting(
-      50, speech::LanguageCode::kEnUs);
+  soda_installer()->NotifySodaProgressForTesting(50, en_us());
   EXPECT_EQ(50, test_api->GetDictationSodaDownloadProgress());
   // If SODA download fails, the API will be called with a value of 0.
   soda_installer()->NotifySodaErrorForTesting();
   EXPECT_EQ(0, test_api->GetDictationSodaDownloadProgress());
   // Reset to a non-zero value.
-  soda_installer()->NotifyOnSodaLanguagePackProgressForTesting(
-      70, speech::LanguageCode::kEnUs);
+  soda_installer()->NotifySodaProgressForTesting(70, en_us());
   EXPECT_EQ(70, test_api->GetDictationSodaDownloadProgress());
   // If SODA download succeeds, the API will be called with a value of 100.
   soda_installer()->NotifySodaInstalledForTesting();
+  soda_installer()->NotifySodaInstalledForTesting(en_us());
   EXPECT_EQ(100, test_api->GetDictationSodaDownloadProgress());
 }
 
@@ -1124,7 +1216,7 @@ enum DictationDialogTestVariant {
 
 class AccessibilityManagerDictationDialogTest
     : public AccessibilityManagerTest,
-      public ::testing::WithParamInterface<DictationDialogTestVariant> {
+      public WithParamInterface<DictationDialogTestVariant> {
  protected:
   AccessibilityManagerDictationDialogTest()
       : disable_animations_(
@@ -1149,22 +1241,16 @@ class AccessibilityManagerDictationDialogTest
     locale_ = "it-IT";
     command_line->AppendSwitchASCII(::switches::kLang, locale_);
 
-    std::vector<base::Feature> enabled_features;
-    std::vector<base::Feature> disabled_features;
+    std::vector<base::test::FeatureRef> enabled_features;
+    std::vector<base::test::FeatureRef> disabled_features;
     if (GetParam() == DictationDialogTestVariant::kOfflineEnabledAndAvailable) {
-      enabled_features.push_back(
-          ::features::kExperimentalAccessibilityDictationOffline);
-      enabled_features.push_back(ash::features::kOnDeviceSpeechRecognition);
+      enabled_features.push_back(features::kOnDeviceSpeechRecognition);
     } else if (GetParam() ==
                DictationDialogTestVariant::kOfflineEnabledAndUnavailable) {
-      // Offline dictation is enabled but SODA isn't available on this device.
-      enabled_features.push_back(
-          ::features::kExperimentalAccessibilityDictationOffline);
-      disabled_features.push_back(ash::features::kOnDeviceSpeechRecognition);
+      // SODA isn't available on this device.
+      disabled_features.push_back(features::kOnDeviceSpeechRecognition);
     } else {
-      disabled_features.push_back(
-          ::features::kExperimentalAccessibilityDictationOffline);
-      disabled_features.push_back(ash::features::kOnDeviceSpeechRecognition);
+      disabled_features.push_back(features::kOnDeviceSpeechRecognition);
     }
     scoped_feature_list_.InitWithFeatures(enabled_features, disabled_features);
     MixinBasedInProcessBrowserTest::SetUpCommandLine(command_line);
@@ -1307,10 +1393,12 @@ class AccessibilityManagerLoginTest : public OobeBaseTest {
   }
 
   void StartUserSession(const AccountId& account_id) {
-    ProfileHelper::GetProfileByUserIdHashForTest(
-        user_manager::UserManager::Get()
-            ->FindUser(account_id)
-            ->username_hash());
+    profiles::testing::CreateProfileSync(
+        g_browser_process->profile_manager(),
+        ProfileHelper::GetProfilePathByUserIdHash(
+            user_manager::UserManager::Get()
+                ->FindUser(account_id)
+                ->username_hash()));
 
     auto* session_manager = session_manager::SessionManager::Get();
     session_manager->NotifyUserProfileLoaded(account_id);
@@ -1343,12 +1431,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityManagerLoginTest, BrailleOnLoginScreen) {
   EXPECT_TRUE(IsSpokenFeedbackEnabled());
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#define MAYBE_Login DISABLED_Login
-#else
-#define MAYBE_Login Login
-#endif
-IN_PROC_BROWSER_TEST_F(AccessibilityManagerLoginTest, MAYBE_Login) {
+IN_PROC_BROWSER_TEST_F(AccessibilityManagerLoginTest, DISABLED_Login) {
   WaitForSigninScreen();
   EXPECT_FALSE(IsLargeCursorEnabled());
   EXPECT_FALSE(IsSpokenFeedbackEnabled());
@@ -1503,7 +1586,7 @@ IN_PROC_BROWSER_TEST_P(AccessibilityManagerUserTypeTest, BrailleWhenLoggedIn) {
   // activated.
   KeyEvent event;
   event.command = extensions::api::braille_display_private::KEY_COMMAND_DOTS;
-  event.braille_dots = std::make_unique<int>(0);
+  event.braille_dots = 0;
   braille_controller_.GetObserver()->OnBrailleKeyEvent(event);
   EXPECT_TRUE(IsBrailleImeCurrent());
 
@@ -1519,6 +1602,43 @@ IN_PROC_BROWSER_TEST_P(AccessibilityManagerUserTypeTest, BrailleWhenLoggedIn) {
   SetBrailleDisplayAvailability(true);
   EXPECT_TRUE(IsSpokenFeedbackEnabled());
   EXPECT_TRUE(IsBrailleImeEnabled());
+}
+
+class AccessibilityManagerWithAccessibilityServiceTest
+    : public AccessibilityManagerTest {
+ public:
+  AccessibilityManagerWithAccessibilityServiceTest() = default;
+  AccessibilityManagerWithAccessibilityServiceTest(
+      const AccessibilityManagerWithAccessibilityServiceTest&) = delete;
+  AccessibilityManagerWithAccessibilityServiceTest& operator=(
+      const AccessibilityManagerWithAccessibilityServiceTest&) = delete;
+  ~AccessibilityManagerWithAccessibilityServiceTest() override = default;
+
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    scoped_feature_list_.InitAndEnableFeature(
+        ::features::kAccessibilityService);
+    MixinBasedInProcessBrowserTest::SetUpCommandLine(command_line);
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(AccessibilityManagerWithAccessibilityServiceTest,
+                       Constructs) {
+  // The service will be constructed and start receiving accessibility events
+  // when a subset of features are enabled. This simple test ensures that there
+  // are no crashes when setting up the service and toggling features.
+  SetSpokenFeedbackEnabled(true);
+  SetSelectToSpeakEnabled(true);
+  SetSwitchAccessEnabled(true);
+  SetAutoclickEnabled(true);
+  SetDictationEnabled(true);
+  SetMagnifierEnabled(true);
+
+  SetSpokenFeedbackEnabled(false);
+  SetSelectToSpeakEnabled(false);
+  SetSwitchAccessEnabled(false);
+  SetAutoclickEnabled(false);
+  SetDictationEnabled(false);
+  SetMagnifierEnabled(false);
 }
 
 }  // namespace ash

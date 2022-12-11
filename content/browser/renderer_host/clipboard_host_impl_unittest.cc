@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
 #include "content/browser/renderer_host/clipboard_host_impl.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_renderer_host.h"
@@ -38,7 +39,6 @@
 #include "ui/gfx/image/image_unittest_util.h"
 #include "ui/gfx/skia_util.h"
 #include "url/gurl.h"
-#include "url/origin.h"
 
 namespace ui {
 class DataTransferEndpoint;
@@ -51,7 +51,7 @@ namespace {
 class FakeClipboardHostImpl : public ClipboardHostImpl {
  public:
   FakeClipboardHostImpl(
-      RenderFrameHost* render_frame_host,
+      RenderFrameHost& render_frame_host,
       mojo::PendingReceiver<blink::mojom::ClipboardHost> receiver)
       : ClipboardHostImpl(render_frame_host, std::move(receiver)) {}
 
@@ -60,13 +60,12 @@ class FakeClipboardHostImpl : public ClipboardHostImpl {
       const ui::ClipboardFormatType& data_type,
       std::string data) override {}
 
-  void CompleteRequest(const ui::ClipboardSequenceNumberToken& seqno) {
-    FinishPasteIfContentAllowed(
-        seqno, ClipboardHostImpl::ClipboardPasteContentAllowed(true));
+  void CompleteRequest(const ui::ClipboardSequenceNumberToken& seqno,
+                       const std::string& data) {
+    FinishPasteIfContentAllowed(seqno, data);
   }
 
   using ClipboardHostImpl::CleanupObsoleteRequests;
-  using ClipboardHostImpl::ClipboardPasteContentAllowed;
   using ClipboardHostImpl::is_paste_allowed_requests_for_testing;
   using ClipboardHostImpl::kIsPasteContentAllowedRequestTooOld;
   using ClipboardHostImpl::PasteIfPolicyAllowed;
@@ -111,7 +110,7 @@ class ClipboardHostImplTest : public RenderViewHostTestHarness {
   void SetUp() override {
     RenderViewHostTestHarness::SetUp();
     SetContents(CreateTestWebContents());
-    ClipboardHostImpl::Create(web_contents()->GetMainFrame(),
+    ClipboardHostImpl::Create(web_contents()->GetPrimaryMainFrame(),
                               remote_.BindNewPipeAndPassReceiver());
   }
 
@@ -184,13 +183,9 @@ TEST_F(ClipboardHostImplTest, IsPasteContentAllowedRequest_AddCallback) {
 
   // First call to AddCallback should return true, the next false.
   EXPECT_TRUE(request.AddCallback(base::BindLambdaForTesting(
-      [&count](ClipboardHostImpl::ClipboardPasteContentAllowed allowed) {
-        ++count;
-      })));
+      [&count](const absl::optional<std::string>& data) { ++count; })));
   EXPECT_FALSE(request.AddCallback(base::BindLambdaForTesting(
-      [&count](ClipboardHostImpl::ClipboardPasteContentAllowed allowed) {
-        ++count;
-      })));
+      [&count](const absl::optional<std::string>& data) { ++count; })));
 
   // In both cases, the callbacks should not be called since the request is
   // not complete.
@@ -203,24 +198,22 @@ TEST_F(ClipboardHostImplTest, IsPasteContentAllowedRequest_Complete) {
 
   // Add a callback.  It should not fire right away.
   request.AddCallback(base::BindLambdaForTesting(
-      [&count](ClipboardHostImpl::ClipboardPasteContentAllowed allowed) {
+      [&count](const absl::optional<std::string>& data) {
         ++count;
-        ASSERT_EQ(ClipboardHostImpl::ClipboardPasteContentAllowed(true),
-                  allowed);
+        ASSERT_EQ(data.value(), "data");
       }));
   EXPECT_EQ(0, count);
 
   // Complete the request.  Callback should fire.  Whether paste is allowed
   // or not is not important.
-  request.Complete(ClipboardHostImpl::ClipboardPasteContentAllowed(true));
+  request.Complete("data");
   EXPECT_EQ(1, count);
 
   // Adding a new callback after completion invokes it immediately.
   request.AddCallback(base::BindLambdaForTesting(
-      [&count](ClipboardHostImpl::ClipboardPasteContentAllowed allowed) {
+      [&count](const absl::optional<std::string>& data) {
         ++count;
-        ASSERT_EQ(ClipboardHostImpl::ClipboardPasteContentAllowed(true),
-                  allowed);
+        ASSERT_EQ(data.value(), "data");
       }));
   EXPECT_EQ(2, count);
 }
@@ -242,7 +235,7 @@ TEST_F(ClipboardHostImplTest, IsPasteContentAllowedRequest_IsObsolete) {
 
   // A request is obsolete once it is too old and has no callbacks.
   // Whether paste is allowed or not is not important.
-  request.Complete(ClipboardHostImpl::ClipboardPasteContentAllowed(true));
+  request.Complete("data");
   EXPECT_TRUE(request.IsObsolete(
       request.time() + ClipboardHostImpl::kIsPasteContentAllowedRequestTooOld +
       base::Microseconds(1)));
@@ -296,8 +289,9 @@ class ClipboardHostImplScanTest : public RenderViewHostTestHarness {
   void SetUp() override {
     RenderViewHostTestHarness::SetUp();
     SetContents(CreateTestWebContents());
-    fake_clipboard_host_impl_ = new FakeClipboardHostImpl(
-        web_contents()->GetMainFrame(), remote_.BindNewPipeAndPassReceiver());
+    fake_clipboard_host_impl_ =
+        new FakeClipboardHostImpl(*web_contents()->GetPrimaryMainFrame(),
+                                  remote_.BindNewPipeAndPassReceiver());
   }
 
   ~ClipboardHostImplScanTest() override {
@@ -330,10 +324,7 @@ TEST_F(ClipboardHostImplScanTest, PasteIfPolicyAllowed_EmptyData) {
       ui::ClipboardBuffer::kCopyPaste, ui::ClipboardFormatType::PlainTextType(),
       "",
       base::BindLambdaForTesting(
-          [&count](
-              FakeClipboardHostImpl::ClipboardPasteContentAllowed allowed) {
-            ++count;
-          }));
+          [&count](const absl::optional<std::string>& data) { ++count; }));
 
   EXPECT_EQ(
       0u,
@@ -347,9 +338,7 @@ TEST_F(ClipboardHostImplScanTest, PerformPasteIfContentAllowed) {
   clipboard_host_impl()->PerformPasteIfContentAllowed(
       sequence_number, ui::ClipboardFormatType::PlainTextType(), "data",
       base::BindLambdaForTesting(
-          [&count](ClipboardHostImpl::ClipboardPasteContentAllowed allowed) {
-            ++count;
-          }));
+          [&count](const absl::optional<std::string>& data) { ++count; }));
 
   EXPECT_EQ(
       1u,
@@ -358,7 +347,7 @@ TEST_F(ClipboardHostImplScanTest, PerformPasteIfContentAllowed) {
 
   // Completing the request invokes the callback.  The request will
   // remain pending until it is cleaned up.
-  clipboard_host_impl()->CompleteRequest(sequence_number);
+  clipboard_host_impl()->CompleteRequest(sequence_number, "data");
   EXPECT_EQ(
       1u,
       clipboard_host_impl()->is_paste_allowed_requests_for_testing().size());
@@ -371,7 +360,7 @@ TEST_F(ClipboardHostImplScanTest, CleanupObsoleteScanRequests) {
   clipboard_host_impl()->PerformPasteIfContentAllowed(
       sequence_number, ui::ClipboardFormatType::PlainTextType(), "data",
       base::DoNothing());
-  clipboard_host_impl()->CompleteRequest(sequence_number);
+  clipboard_host_impl()->CompleteRequest(sequence_number, "data");
   EXPECT_EQ(
       1u,
       clipboard_host_impl()->is_paste_allowed_requests_for_testing().size());
@@ -394,11 +383,10 @@ TEST_F(ClipboardHostImplScanTest, IsPastePolicyAllowed_NoController) {
   clipboard_host_impl()->PasteIfPolicyAllowed(
       ui::ClipboardBuffer::kCopyPaste, ui::ClipboardFormatType::PlainTextType(),
       "data",
-      base::BindLambdaForTesting(
-          [&is_policy_callback_called](
-              FakeClipboardHostImpl::ClipboardPasteContentAllowed allowed) {
-            is_policy_callback_called = true;
-          }));
+      base::BindLambdaForTesting([&is_policy_callback_called](
+                                     const absl::optional<std::string>& data) {
+        is_policy_callback_called = true;
+      }));
   base::RunLoop().RunUntilIdle();
 
   EXPECT_EQ(
@@ -407,7 +395,8 @@ TEST_F(ClipboardHostImplScanTest, IsPastePolicyAllowed_NoController) {
   EXPECT_FALSE(is_policy_callback_called);
 
   clipboard_host_impl()->CompleteRequest(
-      system_clipboard()->GetSequenceNumber(ui::ClipboardBuffer::kCopyPaste));
+      system_clipboard()->GetSequenceNumber(ui::ClipboardBuffer::kCopyPaste),
+      "data");
 
   EXPECT_TRUE(is_policy_callback_called);
 }
@@ -429,11 +418,10 @@ TEST_F(ClipboardHostImplScanTest, IsPastePolicyAllowed_NotAllowed) {
   clipboard_host_impl()->PasteIfPolicyAllowed(
       ui::ClipboardBuffer::kCopyPaste, ui::ClipboardFormatType::PlainTextType(),
       "data",
-      base::BindLambdaForTesting(
-          [&is_policy_callback_called](
-              FakeClipboardHostImpl::ClipboardPasteContentAllowed allowed) {
-            is_policy_callback_called = true;
-          }));
+      base::BindLambdaForTesting([&is_policy_callback_called](
+                                     const absl::optional<std::string>& data) {
+        is_policy_callback_called = true;
+      }));
   base::RunLoop().RunUntilIdle();
   testing::Mock::VerifyAndClearExpectations(&policy_controller);
 
@@ -461,11 +449,10 @@ TEST_F(ClipboardHostImplScanTest, IsPastePolicyAllowed_Allowed) {
   clipboard_host_impl()->PasteIfPolicyAllowed(
       ui::ClipboardBuffer::kCopyPaste, ui::ClipboardFormatType::PlainTextType(),
       "data",
-      base::BindLambdaForTesting(
-          [&is_policy_callback_called](
-              FakeClipboardHostImpl::ClipboardPasteContentAllowed allowed) {
-            is_policy_callback_called = true;
-          }));
+      base::BindLambdaForTesting([&is_policy_callback_called](
+                                     const absl::optional<std::string>& data) {
+        is_policy_callback_called = true;
+      }));
   base::RunLoop().RunUntilIdle();
   testing::Mock::VerifyAndClearExpectations(&policy_controller);
 
@@ -477,12 +464,13 @@ TEST_F(ClipboardHostImplScanTest, IsPastePolicyAllowed_Allowed) {
   EXPECT_FALSE(is_policy_callback_called);
 
   clipboard_host_impl()->CompleteRequest(
-      system_clipboard()->GetSequenceNumber(ui::ClipboardBuffer::kCopyPaste));
+      system_clipboard()->GetSequenceNumber(ui::ClipboardBuffer::kCopyPaste),
+      "data");
 
   EXPECT_TRUE(is_policy_callback_called);
 }
 
-TEST_F(ClipboardHostImplScanTest, MainFrameOrigin) {
+TEST_F(ClipboardHostImplScanTest, MainFrameURL) {
   GURL gurl1("https://example.com");
   GURL gurl2("http://test.org");
   GURL gurl3("http://google.com");
@@ -501,7 +489,7 @@ TEST_F(ClipboardHostImplScanTest, MainFrameOrigin) {
   // `FakeClipboardHostImpl` is a `DocumentService` and manages its own
   // lifetime.
   raw_ptr<FakeClipboardHostImpl> fake_clipboard_host_impl_grandchild =
-      new FakeClipboardHostImpl(grandchild_rfh,
+      new FakeClipboardHostImpl(*grandchild_rfh,
                                 remote_grandchild.BindNewPipeAndPassReceiver());
 
   // Policy controller accepts the paste request.
@@ -514,8 +502,7 @@ TEST_F(ClipboardHostImplScanTest, MainFrameOrigin) {
                    content::RenderFrameHost* rfh,
                    base::OnceCallback<void(bool)> callback) {
             ASSERT_TRUE(data_dst);
-            EXPECT_TRUE(data_dst->GetOrigin()->IsSameOriginWith(
-                url::Origin::Create(gurl1)));
+            EXPECT_EQ(*data_dst->GetURL(), gurl1);
             std::move(callback).Run(true);
           }));
 
@@ -523,11 +510,10 @@ TEST_F(ClipboardHostImplScanTest, MainFrameOrigin) {
   fake_clipboard_host_impl_grandchild->PasteIfPolicyAllowed(
       ui::ClipboardBuffer::kCopyPaste, ui::ClipboardFormatType::PlainTextType(),
       "data",
-      base::BindLambdaForTesting(
-          [&is_policy_callback_called](
-              FakeClipboardHostImpl::ClipboardPasteContentAllowed allowed) {
-            is_policy_callback_called = true;
-          }));
+      base::BindLambdaForTesting([&is_policy_callback_called](
+                                     const absl::optional<std::string>& data) {
+        is_policy_callback_called = true;
+      }));
   base::RunLoop().RunUntilIdle();
   testing::Mock::VerifyAndClearExpectations(&policy_controller);
 
@@ -539,7 +525,8 @@ TEST_F(ClipboardHostImplScanTest, MainFrameOrigin) {
   EXPECT_FALSE(is_policy_callback_called);
 
   fake_clipboard_host_impl_grandchild->CompleteRequest(
-      system_clipboard()->GetSequenceNumber(ui::ClipboardBuffer::kCopyPaste));
+      system_clipboard()->GetSequenceNumber(ui::ClipboardBuffer::kCopyPaste),
+      "data");
 
   EXPECT_TRUE(is_policy_callback_called);
 }

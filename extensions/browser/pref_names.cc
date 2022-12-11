@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,16 +43,15 @@ const char kNativeMessagingBlocklist[] = "native_messaging.blacklist";
 const char kNativeMessagingAllowlist[] = "native_messaging.whitelist";
 const char kNativeMessagingUserLevelHosts[] =
     "native_messaging.user_level_hosts";
+const char kManifestV2Availability[] = "extensions.manifest_v2";
 const char kPinnedExtensions[] = "extensions.pinned_extensions";
 const char kStorageGarbageCollect[] = "extensions.storage.garbagecollect";
-const char kToolbar[] = "extensions.toolbar";
 const char kDeletedComponentExtensions[] =
     "extensions.deleted_component_extensions";
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_FUCHSIA)
 extern const char kChromeAppsEnabled[] = "extensions.chrome_apps_enabled";
 #endif
-const char kU2fSecurityKeyApiEnabled[] =
-    "extensions.u2f_security_key_api_enabled";
 
 const char kPrefPreferences[] = "preferences";
 const char kPrefIncognitoPreferences[] = "incognito_preferences";

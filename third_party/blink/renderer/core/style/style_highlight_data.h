@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/types/pass_key.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/style/computed_style_constants.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
@@ -31,6 +32,9 @@ class CORE_EXPORT StyleHighlightData final
 
   bool operator==(const StyleHighlightData&) const;
 
+  const ComputedStyle* Style(
+      PseudoId,
+      const AtomicString& pseudo_argument = g_null_atom) const;
   const ComputedStyle* Selection() const;
   const ComputedStyle* TargetText() const;
   const ComputedStyle* SpellingError() const;

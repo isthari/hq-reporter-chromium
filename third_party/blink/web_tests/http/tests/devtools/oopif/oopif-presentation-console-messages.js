@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
   await TestRunner.showPanel('console');
 
   function dumpMessage(prefix, message, url) {
+    url = url.replace(/VM[0-9]+/, 'VM#');
     TestRunner.addResult(`Line Message was ${prefix}: ${url} ${
         message.level()} '${message.text()}':${message.lineNumber()}:${
         message.columnNumber()}`);

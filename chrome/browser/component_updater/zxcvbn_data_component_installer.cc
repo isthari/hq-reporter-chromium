@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,6 @@
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "base/version.h"
@@ -96,7 +95,7 @@ constexpr std::array<uint8_t, 32> kZxcvbnDataPublicKeySha256 = {
 }  // namespace
 
 bool ZxcvbnDataComponentInstallerPolicy::VerifyInstallation(
-    const base::Value& manifest,
+    const base::Value::Dict& manifest,
     const base::FilePath& install_dir) const {
   return base::ranges::all_of(kFileNames, [&](const auto& file_name) {
     return base::PathExists(install_dir.Append(file_name));
@@ -114,7 +113,7 @@ bool ZxcvbnDataComponentInstallerPolicy::RequiresNetworkEncryption() const {
 
 update_client::CrxInstaller::Result
 ZxcvbnDataComponentInstallerPolicy::OnCustomInstall(
-    const base::Value& manifest,
+    const base::Value::Dict& manifest,
     const base::FilePath& install_dir) {
   return update_client::CrxInstaller::Result(update_client::InstallError::NONE);
 }
@@ -124,7 +123,7 @@ void ZxcvbnDataComponentInstallerPolicy::OnCustomUninstall() {}
 void ZxcvbnDataComponentInstallerPolicy::ComponentReady(
     const base::Version& version,
     const base::FilePath& install_dir,
-    base::Value manifest) {
+    base::Value::Dict manifest) {
   DVLOG(1) << "Zxcvbn Data Component ready, version " << version.GetString()
            << " in " << install_dir;
 

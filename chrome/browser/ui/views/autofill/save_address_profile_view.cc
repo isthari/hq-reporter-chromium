@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,11 +14,13 @@
 #include "chrome/browser/ui/hats/hats_service.h"
 #include "chrome/browser/ui/hats/hats_service_factory.h"
 #include "chrome/browser/ui/views/accessibility/theme_tracking_non_accessible_image_view.h"
+#include "chrome/browser/ui/views/autofill/autofill_bubble_utils.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/autofill/core/browser/autofill_address_util.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/field_types.h"
+#include "components/autofill/core/browser/geo/address_i18n.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/vector_icons/vector_icons.h"
@@ -46,7 +48,7 @@ constexpr int kIconSize = 16;
 // RECIPIENT type.
 ServerFieldType AddressFieldToServerFieldTypeWithHonorificPrefix(
     ::i18n::addressinput::AddressField address_field) {
-  ServerFieldType type = autofill::AddressFieldToServerFieldType(address_field);
+  ServerFieldType type = autofill::i18n::TypeForField(address_field);
   return type == NAME_FULL ? NAME_FULL_WITH_HONORIFIC_PREFIX : type;
 }
 
@@ -77,10 +79,8 @@ void AddAddressSection(views::View* parent_view,
       .SetCollapseMargins(true)
       .SetDefault(
           views::kMarginsKey,
-          gfx::Insets(
-              /*vertical=*/0,
-              /*horizontal=*/ChromeLayoutProvider::Get()->GetDistanceMetric(
-                  views::DISTANCE_RELATED_CONTROL_HORIZONTAL)));
+          gfx::Insets::VH(0, ChromeLayoutProvider::Get()->GetDistanceMetric(
+                                 views::DISTANCE_RELATED_CONTROL_HORIZONTAL)));
   row->AddChildView(std::move(icon_view));
   row->AddChildView(std::move(view));
 }
@@ -128,7 +128,8 @@ std::unique_ptr<views::View> CreateStreetAddressView(
       .SetCollapseMargins(true)
       .SetDefault(views::kMarginsKey, gfx::Insets());
 
-  const AutofillType kCountryCode(HTML_TYPE_COUNTRY_CODE, HTML_MODE_NONE);
+  const AutofillType kCountryCode(HtmlFieldType::kCountryCode,
+                                  HtmlFieldMode::kNone);
   const std::u16string& country_code = profile.GetInfo(kCountryCode, locale);
 
   std::vector<std::vector<::i18n::addressinput::AddressUiComponent>> components;
@@ -210,8 +211,6 @@ SaveAddressProfileView::SaveAddressProfileView(
     SaveUpdateAddressProfileBubbleController* controller)
     : LocationBarBubbleDelegateView(anchor_view, web_contents),
       controller_(controller) {
-  DCHECK(base::FeatureList::IsEnabled(
-      features::kAutofillAddressProfileSavePrompt));
   // Since this is a save prompt, original profile must not be set. Otherwise,
   // it would have been an update prompt.
   DCHECK(!controller_->GetOriginalProfile());
@@ -248,15 +247,9 @@ SaveAddressProfileView::SaveAddressProfileView(
           views::MinimumFlexSizeRule::kPreferredSnapToMinimum,
           views::MaximumFlexSizeRule::kUnbounded));
 
-  edit_button_ = AddChildView(views::CreateVectorImageButtonWithNativeTheme(
-      base::BindRepeating(
-          &SaveUpdateAddressProfileBubbleController::OnEditButtonClicked,
-          base::Unretained(controller_)),
-      vector_icons::kEditIcon, kIconSize));
-  edit_button_->SetAccessibleName(l10n_util::GetStringUTF16(
-      IDS_AUTOFILL_SAVE_ADDRESS_PROMPT_EDIT_BUTTON_TOOLTIP));
-  edit_button_->SetTooltipText(l10n_util::GetStringUTF16(
-      IDS_AUTOFILL_SAVE_ADDRESS_PROMPT_EDIT_BUTTON_TOOLTIP));
+  edit_button_ = AddChildView(CreateEditButton(base::BindRepeating(
+      &SaveUpdateAddressProfileBubbleController::OnEditButtonClicked,
+      base::Unretained(controller_))));
 
   address_components_view_
       ->SetLayoutManager(std::make_unique<views::FlexLayout>())
@@ -266,10 +259,9 @@ SaveAddressProfileView::SaveAddressProfileView(
       .SetCollapseMargins(true)
       .SetDefault(
           views::kMarginsKey,
-          gfx::Insets(
-              /*vertical=*/ChromeLayoutProvider::Get()->GetDistanceMetric(
-                  DISTANCE_CONTROL_LIST_VERTICAL),
-              /*horizontal=*/0));
+          gfx::Insets::VH(ChromeLayoutProvider::Get()->GetDistanceMetric(
+                              DISTANCE_CONTROL_LIST_VERTICAL),
+                          0));
 
   const std::string locale = g_browser_process->GetApplicationLocale();
   const AutofillProfile& profile = controller_->GetProfileToSave();
@@ -379,22 +371,23 @@ void SaveAddressProfileView::AlignIcons() {
     // Set views::kMarginsKey for flex layout to center the icon vertically with
     // the text in front of it. Label line height are guaranteed to be bigger
     // than kIconSize.
-    icon_view->SetProperty(views::kMarginsKey,
-                           gfx::Insets((label_line_height - kIconSize) / 2, 0));
+    icon_view->SetProperty(
+        views::kMarginsKey,
+        gfx::Insets::VH((label_line_height - kIconSize) / 2, 0));
   }
 
   int edit_button_height = edit_button_->GetPreferredSize().height();
   int height_difference = (edit_button_height - label_line_height) / 2;
   if (height_difference > 0) {
     // We need to push the `address_components_view` down.
-    address_components_view_->SetProperty(views::kMarginsKey,
-                                          gfx::Insets(height_difference, 0));
+    address_components_view_->SetProperty(
+        views::kMarginsKey, gfx::Insets::VH(height_difference, 0));
     edit_button_->SetProperty(views::kMarginsKey, gfx::Insets());
   } else {
     // We need to push the `edit_button` down.
     address_components_view_->SetProperty(views::kMarginsKey, gfx::Insets());
     edit_button_->SetProperty(views::kMarginsKey,
-                              gfx::Insets(-height_difference, 0));
+                              gfx::Insets::VH(-height_difference, 0));
   }
 }
 

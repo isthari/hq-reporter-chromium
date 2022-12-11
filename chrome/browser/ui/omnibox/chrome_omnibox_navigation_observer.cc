@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -294,8 +294,6 @@ void ChromeOmniboxNavigationObserver::DidFinishNavigation(
                         navigation_handle->GetWebContents()->GetVisibleURL())) {
     ChromeOmniboxClient::OnSuccessfulNavigation(profile_, text_, match_);
   }
-
-  ChromeOmniboxClient::OnFinishedNavigation(profile_);
 
   if (navigation_handle->GetResponseHeaders()->response_code() == 404) {
     On404();

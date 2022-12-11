@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,7 +46,7 @@ class LaunchAppUserChoiceDialogView : public views::DialogDelegateView {
 
   void Init();
 
-  static void SetDefaultRememberSelectionForTesting(bool remember_state);
+  static void SetDefaultRememberSelectionForTesting(bool remember_selection);
 
  protected:
   virtual std::unique_ptr<views::View> CreateAboveAppInfoView() = 0;

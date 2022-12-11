@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,8 +44,8 @@ TEST(WebDragDataTest, items) {
     metadata.length = 1234;
     KURL url(
         "filesystem:http://example.com/isolated/hash/visible-non-native-file");
-    data_object->Add(
-        File::CreateForFileSystemFile(url, metadata, File::kIsUserVisible));
+    data_object->Add(File::CreateForFileSystemFile(
+        url, metadata, File::kIsUserVisible, BlobDataHandle::Create()));
   }
 
   // Not user visible file system URL file.
@@ -55,8 +55,8 @@ TEST(WebDragDataTest, items) {
     KURL url(
         "filesystem:http://example.com/isolated/hash/"
         "not-visible-non-native-file");
-    data_object->Add(
-        File::CreateForFileSystemFile(url, metadata, File::kIsNotUserVisible));
+    data_object->Add(File::CreateForFileSystemFile(
+        url, metadata, File::kIsNotUserVisible, BlobDataHandle::Create()));
   }
 
   WebDragData data = data_object->ToWebDragData();

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -106,8 +106,9 @@ public class AuthenticatorSelectionDialog implements AuthenticatorOptionsAdapter
                         .with(ModalDialogProperties.CONTROLLER, mModalDialogController)
                         .with(ModalDialogProperties.CUSTOM_VIEW, view)
                         .with(ModalDialogProperties.TITLE,
-                                mContext.getResources().getString(
-                                        R.string.autofill_payments_authenticator_selection_dialog_title))
+                                mContext.getResources().getString(authenticatorOptions.size() > 1
+                                                ? R.string.autofill_card_auth_selection_dialog_title_multiple_options
+                                                : R.string.autofill_payments_authenticator_selection_dialog_title))
                         .with(ModalDialogProperties.TITLE_ICON,
                                 ResourcesCompat.getDrawable(mContext.getResources(),
                                         R.drawable.google_pay_with_divider, mContext.getTheme()))

@@ -139,11 +139,19 @@ class PLATFORM_EXPORT ShapeResult : public RefCounted<ShapeResult> {
       float position,
       unsigned start_index,
       unsigned length);
+  // The first glyph has |width| advance, and other glyphs have 0 advance.
   static scoped_refptr<ShapeResult> CreateForSpaces(const Font* font,
                                                     TextDirection direction,
                                                     unsigned start_index,
                                                     unsigned length,
                                                     float width);
+  // Each of glyphs has |per_glyph_width| advance.
+  static scoped_refptr<ShapeResult> CreateForSpacesWithPerGlyphWidth(
+      const Font* font,
+      TextDirection direction,
+      unsigned start_index,
+      unsigned length,
+      float per_glyph_width);
   static scoped_refptr<ShapeResult> CreateForStretchyMathOperator(
       const Font*,
       TextDirection,
@@ -161,6 +169,7 @@ class PLATFORM_EXPORT ShapeResult : public RefCounted<ShapeResult> {
   LayoutUnit SnappedWidth() const { return LayoutUnit::FromFloatCeil(width_); }
   unsigned NumCharacters() const { return num_characters_; }
   unsigned NumGlyphs() const { return num_glyphs_; }
+  const SimpleFontData* PrimaryFont() const { return primary_font_.get(); }
 
   // TODO(eae): Remove start_x and return value once ShapeResultBuffer has been
   // removed.
@@ -466,7 +475,6 @@ class PLATFORM_EXPORT ShapeResult : public RefCounted<ShapeResult> {
   void ComputeGlyphPositions(ShapeResult::RunInfo*,
                              unsigned start_glyph,
                              unsigned num_glyphs,
-                             unsigned start_cluster,
                              hb_buffer_t*);
   // Inserts as many glyphs as possible as a RunInfo, and sets
   // |next_start_glyph| to the start index of the remaining glyphs to be
@@ -525,6 +533,13 @@ class PLATFORM_EXPORT ShapeResult : public RefCounted<ShapeResult> {
   friend class ShapeResultTest;
   friend class StretchyOperatorShaper;
 
+  static scoped_refptr<ShapeResult> CreateForSpacesInternal(
+      const Font* font,
+      TextDirection direction,
+      unsigned start_index,
+      unsigned length,
+      float total_width,
+      float per_glyph_width);
   template <bool has_non_zero_glyph_offsets>
   float ForEachGlyphImpl(float initial_advance,
                          GlyphCallback,

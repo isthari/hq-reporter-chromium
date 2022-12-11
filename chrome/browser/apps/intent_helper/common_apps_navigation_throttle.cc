@@ -1,15 +1,23 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/apps/intent_helper/common_apps_navigation_throttle.h"
 
+#include <memory>
 #include <sstream>
 #include <string>
 #include <utility>
 
 #include "ash/webui/projector_app/public/cpp/projector_app_constants.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_forward.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/values_equivalent.h"
+#include "base/memory/weak_ptr.h"
+#include "base/task/sequenced_task_runner_helpers.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/tick_clock.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
@@ -21,18 +29,22 @@
 #include "chrome/browser/apps/intent_helper/metrics/intent_handling_metrics.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/policy/system_features_disable_list_policy_handler.h"
+#include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
+#include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/web_applications/web_app_launch_utils.h"
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_id_constants.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_tab_helper.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/grit/browser_resources.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
+#include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/policy/core/common/policy_pref_names.h"
 #include "components/prefs/pref_service.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
@@ -50,23 +62,20 @@ using ThrottleCheckResult = content::NavigationThrottle::ThrottleCheckResult;
 
 // TODO(crbug.com/1251490 ) Update to make disabled page works in Lacros.
 std::string GetAppDisabledErrorPage() {
-  base::DictionaryValue strings;
+  base::Value::Dict strings;
 
-  strings.SetString(
-      "disabledPageHeader",
-      l10n_util::GetStringUTF16(IDS_CHROME_URLS_DISABLED_PAGE_HEADER));
-  strings.SetString(
-      "disabledPageTitle",
-      l10n_util::GetStringUTF16(IDS_CHROME_URLS_DISABLED_PAGE_TITLE));
-  strings.SetString(
-      "disabledPageMessage",
-      l10n_util::GetStringUTF16(IDS_CHROME_URLS_DISABLED_PAGE_MESSAGE));
+  strings.Set("disabledPageHeader",
+              l10n_util::GetStringUTF16(IDS_CHROME_URLS_DISABLED_PAGE_HEADER));
+  strings.Set("disabledPageTitle",
+              l10n_util::GetStringUTF16(IDS_CHROME_URLS_DISABLED_PAGE_TITLE));
+  strings.Set("disabledPageMessage",
+              l10n_util::GetStringUTF16(IDS_CHROME_URLS_DISABLED_PAGE_MESSAGE));
   std::string html =
       ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
           IDR_CHROME_URLS_DISABLED_PAGE_HTML);
   const std::string& app_locale = g_browser_process->GetApplicationLocale();
   webui::SetLoadTimeDataDefaults(app_locale, &strings);
-  return webui::GetI18nTemplateHtml(html, &strings);
+  return webui::GetI18nTemplateHtml(html, strings);
 }
 
 bool IsAppDisabled(const std::string& app_id) {
@@ -84,7 +93,7 @@ bool IsAppDisabled(const std::string& app_id) {
 // Usually we want to only capture navigations from clicking a link. For a
 // subset of apps, we want to capture typing into the omnibox as well.
 bool ShouldOnlyCaptureLinks(const std::vector<std::string>& app_ids) {
-  for (auto app_id : app_ids) {
+  for (const auto& app_id : app_ids) {
     if (app_id == ash::kChromeUITrustedProjectorSwaAppId)
       return false;
   }
@@ -96,7 +105,7 @@ bool IsSystemWebApp(Profile* profile, const std::string& app_id) {
   apps::AppServiceProxyFactory::GetForProfile(profile)
       ->AppRegistryCache()
       .ForOneApp(app_id, [&is_system_web_app](const apps::AppUpdate& update) {
-        if (update.InstallReason() == apps::mojom::InstallReason::kSystem) {
+        if (update.InstallReason() == apps::InstallReason::kSystem) {
           is_system_web_app = true;
         }
       });
@@ -114,10 +123,8 @@ GURL RedirectUrlIfSwa(Profile* profile,
 
   // Projector:
   if (app_id == ash::kChromeUITrustedProjectorSwaAppId &&
-      url.DeprecatedGetOriginAsURL() ==
-          GURL(ash::kChromeUIUntrustedProjectorPwaUrl)
-              .DeprecatedGetOriginAsURL()) {
-    std::string override_url = ash::kChromeUITrustedProjectorAppUrl;
+      url.GetWithEmptyPath() == GURL(ash::kChromeUIUntrustedProjectorPwaUrl)) {
+    std::string override_url = ash::kChromeUITrustedProjectorUrl;
     if (url.path().length() > 1)
       override_url += url.path().substr(1);
     std::stringstream ss;
@@ -126,6 +133,11 @@ GURL RedirectUrlIfSwa(Profile* profile,
     // TODO(b/211787536): Remove the timestamp after we update the trusted URL
     // to match the user's navigations through the post message api.
     ss << override_url << "?timestamp=" << clock->NowTicks();
+
+    if (url.has_query()) {
+      ss << '&' << url.query();
+    }
+
     GURL result(ss.str());
     DCHECK(result.is_valid());
     return result;
@@ -136,11 +148,11 @@ GURL RedirectUrlIfSwa(Profile* profile,
   return url;
 }
 
-IntentHandlingMetrics::Platform GetMetricsPlatform(mojom::AppType app_type) {
+IntentHandlingMetrics::Platform GetMetricsPlatform(AppType app_type) {
   switch (app_type) {
-    case mojom::AppType::kArc:
+    case AppType::kArc:
       return IntentHandlingMetrics::Platform::ARC;
-    case mojom::AppType::kWeb:
+    case AppType::kWeb:
       return IntentHandlingMetrics::Platform::PWA;
     default:
       NOTREACHED();
@@ -205,7 +217,7 @@ bool CommonAppsNavigationThrottle::ShouldCancelNavigation(
   auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile);
 
   std::vector<std::string> app_ids =
-      proxy->GetAppIdsForUrl(url, /*exclude_browser=*/true);
+      proxy->GetAppIdsForUrl(url, /*exclude_browsers=*/true);
 
   if (app_ids.empty())
     return false;
@@ -214,26 +226,25 @@ bool CommonAppsNavigationThrottle::ShouldCancelNavigation(
     return false;
 
   absl::optional<std::string> preferred_app_id =
-      proxy->PreferredApps().FindPreferredAppForUrl(url);
+      proxy->PreferredAppsList().FindPreferredAppForUrl(url);
   if (!preferred_app_id.has_value() ||
       !base::Contains(app_ids, preferred_app_id.value())) {
     return false;
   }
 
   // Only automatically launch supported app types.
-  apps::mojom::AppType app_type =
+  auto app_type =
       proxy->AppRegistryCache().GetAppType(preferred_app_id.value());
-  if (app_type != apps::mojom::AppType::kArc &&
-      app_type != apps::mojom::AppType::kWeb &&
+  if (app_type != AppType::kArc && app_type != AppType::kWeb &&
       !IsSystemWebApp(profile, preferred_app_id.value())) {
     return false;
   }
 
   // Don't capture if already inside the target app scope.
-  if (app_type == apps::mojom::AppType::kWeb) {
-    auto* tab_helper = web_app::WebAppTabHelper::FromWebContents(web_contents);
-    if (tab_helper && tab_helper->GetAppId() == preferred_app_id.value())
-      return false;
+  if (app_type == AppType::kWeb &&
+      base::ValuesEquivalent(web_app::WebAppTabHelper::GetAppId(web_contents),
+                             &preferred_app_id.value())) {
+    return false;
   }
 
   // If this is a prerender navigation that would otherwise launch an app, we
@@ -245,26 +256,68 @@ bool CommonAppsNavigationThrottle::ShouldCancelNavigation(
   if (handle->IsInPrerenderedMainFrame())
     return true;
 
-  auto launch_source = navigate_from_link()
-                           ? apps::mojom::LaunchSource::kFromLink
-                           : apps::mojom::LaunchSource::kFromOmnibox;
+  // Browser & profile keep-alives must be used to keep the browser & profile
+  // alive because the old window is required to be closed before the new app is
+  // launched, which will destroy the profile & browser if it is the last
+  // window.
+  // Why close the tab first? The way web contents currently work, closing a tab
+  // in a window will re-activate that window if there are more tabs there. So
+  // if we wait until after the launch completes to close the tab, then it will
+  // cause the old window to come to the front hiding the newly launched app
+  // window.
+  std::unique_ptr<ScopedKeepAlive> browser_keep_alive;
+  std::unique_ptr<ScopedProfileKeepAlive> profile_keep_alive;
+  const GURL& last_committed_url = web_contents->GetLastCommittedURL();
+  if (!last_committed_url.is_valid() || last_committed_url.IsAboutBlank() ||
+      // After clicking a link in various apps (eg gchat), a blank redirect page
+      // is left behind. Remove it to clean up. WasInitiatedByLinkClick()
+      // returns false for links clicked from apps.
+      !handle->WasInitiatedByLinkClick()) {
+    browser_keep_alive = std::make_unique<ScopedKeepAlive>(
+        KeepAliveOrigin::APP_LAUNCH, KeepAliveRestartOption::ENABLED);
+    if (!profile->IsOffTheRecord()) {
+      profile_keep_alive = std::make_unique<ScopedProfileKeepAlive>(
+          profile, ProfileKeepAliveOrigin::kAppWindow);
+    }
+    web_contents->ClosePage();
+  }
+
+  auto launch_source = navigate_from_link() ? LaunchSource::kFromLink
+                                            : LaunchSource::kFromOmnibox;
   GURL redirected_url =
       RedirectUrlIfSwa(profile, preferred_app_id.value(), url, clock_);
-  proxy->LaunchAppWithUrl(
-      preferred_app_id.value(),
-      GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerWindow,
-                    WindowOpenDisposition::NEW_WINDOW,
-                    /*prefer_container=*/true),
-      redirected_url, launch_source,
-      apps::MakeWindowInfo(display::kDefaultDisplayId));
-
-  const GURL& last_committed_url = web_contents->GetLastCommittedURL();
-  if (!last_committed_url.is_valid() || last_committed_url.IsAboutBlank())
-    web_contents->ClosePage();
+  // The tab may have been closed, which runs async and causes the browser
+  // window to be refocused. Post a task to launch the app to ensure launching
+  // happens after the tab closed, otherwise the opened app window might be
+  // inactivated.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &AppServiceProxy::LaunchAppWithUrl, proxy->GetWeakPtr(),
+          preferred_app_id.value(),
+          GetEventFlags(WindowOpenDisposition::NEW_WINDOW,
+                        /*prefer_container=*/true),
+          redirected_url, launch_source,
+          std::make_unique<WindowInfo>(display::kDefaultDisplayId),
+          base::BindOnce(
+              [](std::unique_ptr<ScopedKeepAlive> browser_keep_alive,
+                 std::unique_ptr<ScopedProfileKeepAlive> profile_keep_alive,
+                 LaunchResult&&) {
+                // Note: This function currently only serves to own the "keep
+                // alive" objects until the launch is complete.
+              },
+              std::move(browser_keep_alive), std::move(profile_keep_alive))));
 
   IntentHandlingMetrics::RecordPreferredAppLinkClickMetrics(
       GetMetricsPlatform(app_type));
   return true;
+}
+
+bool CommonAppsNavigationThrottle::ShouldOverrideUrlLoadingForOfficeExperiment(
+    const GURL& previous_url,
+    const GURL& current_url) {
+  return apps::ShouldOverrideUrlLoadingForOfficeExperiment(previous_url,
+                                                           current_url);
 }
 
 bool CommonAppsNavigationThrottle::ShouldShowDisablePage(
@@ -276,9 +329,9 @@ bool CommonAppsNavigationThrottle::ShouldShowDisablePage(
       Profile::FromBrowserContext(web_contents->GetBrowserContext());
   std::vector<std::string> app_ids =
       apps::AppServiceProxyFactory::GetForProfile(profile)->GetAppIdsForUrl(
-          url, /*exclude_browser=*/true, /*exclude_browser_tab_apps=*/false);
+          url, /*exclude_browsers=*/true, /*exclude_browser_tab_apps=*/false);
 
-  for (auto app_id : app_ids) {
+  for (const auto& app_id : app_ids) {
     if (IsAppDisabled(app_id)) {
       return true;
     }

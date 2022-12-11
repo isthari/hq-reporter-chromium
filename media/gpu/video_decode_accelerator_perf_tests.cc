@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,16 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
+#include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "media/base/media_switches.h"
 #include "media/base/test_data_util.h"
 #include "media/gpu/buildflags.h"
 #include "media/gpu/test/video.h"
+#include "media/gpu/test/video_player/decoder_listener.h"
+#include "media/gpu/test/video_player/decoder_wrapper.h"
 #include "media/gpu/test/video_player/frame_renderer_dummy.h"
-#include "media/gpu/test/video_player/video_decoder_client.h"
-#include "media/gpu/test/video_player/video_player.h"
 #include "media/gpu/test/video_player/video_player_test_environment.h"
 #include "sandbox/linux/services/resource_limits.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -32,15 +34,17 @@ namespace {
 constexpr const char* usage_msg =
     R"(usage: video_decode_accelerator_perf_tests
            [-v=<level>] [--vmodule=<config>] [--output_folder]
-           ([--use-legacy]|[--use_vd]|[--use_vd_vda]) [--linear_output]
+           ([--use-legacy]|[--use_vd_vda]) [--linear_output]
+           [--use-gl=<backend>] [--ozone-platform=<platform>]
            [--disable_vaapi_lock]
            [--gtest_help] [--help]
            [<video path>] [<video metadata path>]
 )";
 
 // Video decoder perf tests help message.
-constexpr const char* help_msg =
-    R"""(Run the video decode accelerator performance tests on the video
+const std::string help_msg =
+    std::string(
+        R"""(Run the video decode accelerator performance tests on the video
 specified by <video path>. If no <video path> is given the default
 "test-25fps.h264" video will be used.
 
@@ -57,8 +61,6 @@ The following arguments are supported:
                         performance metrics, if not specified results
                         will be stored in the current working directory.
   --use-legacy          use the legacy VDA-based video decoders.
-  --use_vd              use the new VD-based video decoders.
-                        (enabled by default)
   --use_vd_vda          use the new VD-based video decoders with a
                         wrapper that translates to the VDA interface,
                         used to test interaction with older components
@@ -68,13 +70,27 @@ The following arguments are supported:
                         processor internally. This flag only works in
                         conjunction with --use_vd_vda.
                         Disabled by default.
+  --use-gl              specify which GPU backend to use, possible values
+                        include desktop (GLX), egl (GLES w/ ANGLE), and
+                        swiftshader (software rendering)
+  --ozone-platform      specify which Ozone platform to use, possible values
+                        depend on build configuration but normally include
+                        x11, drm, wayland, and headless
   --disable_vaapi_lock  disable the global VA-API lock if applicable,
                         i.e., only on devices that use the VA-API with a libva
                         backend that's known to be thread-safe and only in
                         portions of the Chrome stack that should be able to
                         deal with the absence of the lock
-                        (not the VaapiVideoDecodeAccelerator).
-
+                        (not the VaapiVideoDecodeAccelerator).)""") +
+#if defined(ARCH_CPU_ARM_FAMILY)
+    R"""(
+  --disable-libyuv      use hw format conversion instead of libYUV.
+                        libYUV will be used by default, unless the
+                        video decoder format is not supported;
+                        in that case the code will try to use the
+                        v4l2 image processor.)""" +
+#endif  // defined(ARCH_CPU_ARM_FAMILY)
+    R"""(
   --gtest_help          display the gtest help and exit.
   --help                display this help and exit.
 )""";
@@ -84,6 +100,8 @@ media::test::VideoPlayerTestEnvironment* g_env;
 // Default output folder used to store performance metrics.
 constexpr const base::FilePath::CharType* kDefaultOutputFolder =
     FILE_PATH_LITERAL("perf_metrics");
+
+constexpr base::TimeDelta kMultipleDecodersTimeout = base::Seconds(120);
 
 // Struct storing various time-related statistics.
 struct PerformanceTimeStats {
@@ -163,7 +181,7 @@ class PerformanceEvaluator : public VideoFrameProcessor {
 
   // Frame renderer used to get the dropped frame rate, owned by the creator of
   // the performance evaluator.
-  const FrameRendererDummy* const frame_renderer_;
+  const raw_ptr<const FrameRendererDummy> frame_renderer_;
 };
 
 void PerformanceEvaluator::ProcessVideoFrame(
@@ -247,7 +265,7 @@ void PerformanceEvaluator::WriteMetricsToFile() const {
   output_folder_path = base::MakeAbsoluteFilePath(output_folder_path);
 
   // Write performance metrics to json.
-  base::Value metrics(base::Value::Type::DICTIONARY);
+  base::Value metrics(base::Value::Type::DICT);
   metrics.SetKey(
       "FramesDecoded",
       base::Value(base::checked_cast<int>(perf_metrics_.frames_decoded_)));
@@ -320,9 +338,10 @@ class VideoDecoderTest : public ::testing::Test {
   // which the video player will simulate rendering frames, if 0 no rendering is
   // simulated. The |vsync_rate| is used during simulated rendering, if 0 Vsync
   // is disabled.
-  std::unique_ptr<VideoPlayer> CreateVideoPlayer(const Video* video,
-                                                 uint32_t render_frame_rate = 0,
-                                                 uint32_t vsync_rate = 0) {
+  std::unique_ptr<DecoderListener> CreateDecoderListener(
+      const Video* video,
+      uint32_t render_frame_rate = 0,
+      uint32_t vsync_rate = 0) {
     LOG_ASSERT(video);
 
     // Create dummy frame renderer, simulates rendering at specified frame rate.
@@ -342,13 +361,12 @@ class VideoDecoderTest : public ::testing::Test {
     frame_processors.push_back(std::move(performance_evaluator));
 
     // Use the new VD-based video decoders if requested.
-    VideoDecoderClientConfig config;
+    DecoderWrapperConfig config;
     config.implementation = g_env->GetDecoderImplementation();
     config.linear_output = g_env->ShouldOutputLinearBuffers();
 
-    auto video_player = VideoPlayer::Create(
-        config, g_env->GetGpuMemoryBufferFactory(), std::move(frame_renderer),
-        std::move(frame_processors));
+    auto video_player = DecoderListener::Create(
+        config, std::move(frame_renderer), std::move(frame_processors));
     LOG_ASSERT(video_player);
     LOG_ASSERT(video_player->Initialize(video));
 
@@ -358,7 +376,7 @@ class VideoDecoderTest : public ::testing::Test {
     return video_player;
   }
 
-  PerformanceEvaluator* performance_evaluator_;
+  raw_ptr<PerformanceEvaluator> performance_evaluator_;
 };
 
 }  // namespace
@@ -367,7 +385,7 @@ class VideoDecoderTest : public ::testing::Test {
 // will decode a video as fast as possible, and gives an idea about the maximum
 // output of the decoder.
 TEST_F(VideoDecoderTest, MeasureUncappedPerformance) {
-  auto tvp = CreateVideoPlayer(g_env->Video());
+  auto tvp = CreateDecoderListener(g_env->Video());
 
   performance_evaluator_->StartMeasuring();
   tvp->Play();
@@ -383,7 +401,8 @@ TEST_F(VideoDecoderTest, MeasureUncappedPerformance) {
 // will simulate rendering the video at its actual frame rate, and will
 // calculate the number of frames that were dropped. Vsync is enabled at 60 FPS.
 TEST_F(VideoDecoderTest, MeasureCappedPerformance) {
-  auto tvp = CreateVideoPlayer(g_env->Video(), g_env->Video()->FrameRate(), 60);
+  auto tvp =
+      CreateDecoderListener(g_env->Video(), g_env->Video()->FrameRate(), 60);
 
   performance_evaluator_->StartMeasuring();
   tvp->Play();
@@ -400,29 +419,22 @@ TEST_F(VideoDecoderTest, MeasureCappedPerformance) {
 // created decoder. We should instead keep track of multiple evaluators, and
 // then decide how to aggregate/report those metrics.
 // Play multiple videos simultaneously from start to finish.
-TEST_F(VideoDecoderTest,
-       MeasureUncappedPerformance_MultipleConcurrentDecoders) {
+TEST_F(VideoDecoderTest, MeasureUncappedPerformance_TenConcurrentDecoders) {
   // Set RLIMIT_NOFILE soft limit to its hard limit value.
   if (sandbox::ResourceLimits::AdjustCurrent(
           RLIMIT_NOFILE, std::numeric_limits<long long int>::max())) {
     DPLOG(ERROR) << "Unable to increase soft limit of RLIMIT_NOFILE";
   }
 
-// The minimal number of concurrent decoders we expect to be supported on
-// platforms.
-#if defined(USE_VAAPI)
-  constexpr size_t kMinSupportedConcurrentDecoders =
-      VaapiVideoDecoder::kMaxNumOfInstances;
-#elif defined(USE_V4L2_CODEC)
-  constexpr size_t kMinSupportedConcurrentDecoders = 10;
-#else
-  constexpr size_t kMinSupportedConcurrentDecoders = 10;
-#endif
+  constexpr size_t kNumConcurrentDecoders = 10;
 
-  std::vector<std::unique_ptr<VideoPlayer>> players(
-      kMinSupportedConcurrentDecoders);
-  for (auto&& player : players)
-    player = CreateVideoPlayer(g_env->Video());
+  std::vector<std::unique_ptr<DecoderListener>> players(kNumConcurrentDecoders);
+  for (auto&& player : players) {
+    player = CreateDecoderListener(g_env->Video());
+    // Increase the timeout for older machines that cannot decode as
+    // efficiently.
+    player->SetEventWaitTimeout(kMultipleDecodersTimeout);
+  }
 
   performance_evaluator_->StartMeasuring();
 
@@ -465,16 +477,23 @@ int main(int argc, char** argv) {
   // Parse command line arguments.
   base::FilePath::StringType output_folder = media::test::kDefaultOutputFolder;
   bool use_legacy = false;
-  bool use_vd = false;
   bool use_vd_vda = false;
   bool linear_output = false;
-  std::vector<base::Feature> disabled_features;
+  std::vector<base::test::FeatureRef> disabled_features;
+  std::vector<base::test::FeatureRef> enabled_features;
+
+#if defined(ARCH_CPU_ARM_FAMILY)
+  enabled_features.push_back(media::kPreferLibYuvImageProcessor);
+#endif  // defined(ARCH_CPU_ARM_FAMILY)
+
   media::test::DecoderImplementation implementation =
       media::test::DecoderImplementation::kVD;
   base::CommandLine::SwitchMap switches = cmd_line->GetSwitches();
   for (base::CommandLine::SwitchMap::const_iterator it = switches.begin();
        it != switches.end(); ++it) {
     if (it->first.find("gtest_") == 0 ||               // Handled by GoogleTest
+        it->first == "ozone-platform" ||               // Handled by Chrome
+        it->first == "use-gl" ||                       // Handled by Chrome
         it->first == "v" || it->first == "vmodule") {  // Handled by Chrome
       continue;
     }
@@ -484,9 +503,6 @@ int main(int argc, char** argv) {
     } else if (it->first == "use-legacy") {
       use_legacy = true;
       implementation = media::test::DecoderImplementation::kVDA;
-    } else if (it->first == "use_vd") {
-      use_vd = true;
-      implementation = media::test::DecoderImplementation::kVD;
     } else if (it->first == "use_vd_vda") {
       use_vd_vda = true;
       implementation = media::test::DecoderImplementation::kVDVDA;
@@ -494,6 +510,10 @@ int main(int argc, char** argv) {
       linear_output = true;
     } else if (it->first == "disable_vaapi_lock") {
       disabled_features.push_back(media::kGlobalVaapiLock);
+#if defined(ARCH_CPU_ARM_FAMILY)
+    } else if (it->first == "disable-libyuv") {
+      enabled_features.clear();
+#endif  // defined(ARCH_CPU_ARM_FAMILY)
     } else {
       std::cout << "unknown option: --" << it->first << "\n"
                 << media::test::usage_msg;
@@ -501,18 +521,8 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (use_legacy && use_vd) {
-    std::cout << "--use-legacy and --use_vd cannot be enabled together.\n"
-              << media::test::usage_msg;
-    return EXIT_FAILURE;
-  }
   if (use_legacy && use_vd_vda) {
     std::cout << "--use-legacy and --use_vd_vda cannot be enabled together.\n"
-              << media::test::usage_msg;
-    return EXIT_FAILURE;
-  }
-  if (use_vd && use_vd_vda) {
-    std::cout << "--use_vd and --use_vd_vda cannot be enabled together.\n"
               << media::test::usage_msg;
     return EXIT_FAILURE;
   }
@@ -535,8 +545,8 @@ int main(int argc, char** argv) {
           video_path, video_metadata_path, /*validator_type=*/
           media::test::VideoPlayerTestEnvironment::ValidatorType::kNone,
           implementation, linear_output, base::FilePath(output_folder),
-          media::test::FrameOutputConfig(),
-          /*enabled_features=*/{}, disabled_features);
+          media::test::FrameOutputConfig(), enabled_features,
+          disabled_features);
   if (!test_environment)
     return EXIT_FAILURE;
 

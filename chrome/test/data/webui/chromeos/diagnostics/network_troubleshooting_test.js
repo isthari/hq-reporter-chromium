@@ -1,16 +1,19 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {TroubleshootingInfo} from 'chrome://diagnostics/diagnostics_types.js';
-import {NetworkTroubleshootingElement} from 'chrome://diagnostics/network_troubleshooting.js';
+import 'chrome://diagnostics/strings.m.js';
+import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
 
-import {assertFalse, assertTrue} from '../../chai_assert.js';
-import {flushTasks, isVisible} from '../../test_util.js';
+import {NetworkTroubleshootingElement} from 'chrome://diagnostics/network_troubleshooting.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
+
+import {assertFalse, assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
+import {isVisible} from '../test_util.js';
 
 import * as dx_utils from './diagnostics_test_utils.js';
 
-export function networkTroubleshootingTestSuite() {
+suite('networkTroubleshootingTestSuite', function() {
   /** @type {?NetworkTroubleshootingElement} */
   let networkTroubleshootingElement = null;
 
@@ -44,10 +47,7 @@ export function networkTroubleshootingTestSuite() {
     return flushTasks();
   }
 
-  /**
-   * @param {!TroubleshootingInfo} info
-   * @return {!Promise}
-   */
+  /** @return {!Promise} */
   function initializeNetworkTroubleshooting(info) {
     assertFalse(!!networkTroubleshootingElement);
 
@@ -81,7 +81,6 @@ export function networkTroubleshootingTestSuite() {
   });
 
   test('IsLoggedInFalseThenLinkTextHidden', () => {
-    /** @type {TroubleshootingInfo} */
     const troubleShootingInfo = {
       header: 'header',
       linkText: 'linkText',
@@ -97,4 +96,4 @@ export function networkTroubleshootingTestSuite() {
           assertFalse(isVisible(getLinkTextElement()));
         });
   });
-}
+});

@@ -1,13 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "gin/array_buffer.h"
 #include "gin/public/isolate_holder.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -18,7 +19,7 @@ class DOMArrayBufferTest : public testing::Test {
     gin::IsolateHolder::Initialize(gin::IsolateHolder::kStrictMode,
                                    gin::ArrayBufferAllocator::SharedInstance());
     isolate_holder_ = std::make_unique<gin::IsolateHolder>(
-        base::ThreadTaskRunnerHandle::Get(),
+        scheduler::GetSingleThreadTaskRunnerForTesting(),
         gin::IsolateHolder::IsolateType::kBlinkWorkerThread);
   }
 

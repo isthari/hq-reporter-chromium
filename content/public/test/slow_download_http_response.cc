@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,8 @@
 
 #include "base/bind.h"
 #include "base/strings/string_split.h"
-#include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
-#include "base/threading/thread_task_runner_handle.h"
 
 namespace content {
 
@@ -28,7 +27,7 @@ SlowDownloadHttpResponse::HandleSlowDownloadRequest(
     const net::test_server::HttpRequest& request) {
   if (request.relative_url ==
       SlowDownloadHttpResponse::kFinishSlowResponseUrl) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, std::move(g_finish_last_request));
     return std::make_unique<net::test_server::BasicHttpResponse>();
   }
@@ -61,7 +60,7 @@ base::StringPairs SlowDownloadHttpResponse::ResponseHeaders() {
   response.emplace_back("Content-type", "application/octet-stream");
   response.emplace_back("Cache-Control", "max-age=0");
 
-  if (base::LowerCaseEqualsASCII(kKnownSizeUrl, url_)) {
+  if (base::EqualsCaseInsensitiveASCII(kKnownSizeUrl, url_)) {
     response.emplace_back(
         "Content-Length",
         base::NumberToString(kFirstResponsePartSize + kSecondResponsePartSize));

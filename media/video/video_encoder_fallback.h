@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,7 @@ class MEDIA_EXPORT VideoEncoderFallback : public VideoEncoder {
                        CreateFallbackCB create_fallback_cb);
   ~VideoEncoderFallback() override;
 
-  // VideoDecoder implementation.
+  // VideoEncoder implementation.
   void Initialize(VideoCodecProfile profile,
                   const Options& options,
                   OutputCB output_cb,

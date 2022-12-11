@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -61,15 +61,11 @@ public class ChromeGcmListenerServiceImpl extends ChromeGcmListenerService.Impl 
     @Override
     public void onMessageSent(String msgId) {
         Log.d(TAG, "Message sent successfully. Message id: %s", msgId);
-        GcmUma.recordGcmUpstreamHistogram(
-                ContextUtils.getApplicationContext(), GcmUma.UMA_UPSTREAM_SUCCESS);
     }
 
     @Override
     public void onSendError(String msgId, Exception error) {
         Log.w(TAG, "Error in sending message. Message id: %s", msgId, error);
-        GcmUma.recordGcmUpstreamHistogram(
-                ContextUtils.getApplicationContext(), GcmUma.UMA_UPSTREAM_SEND_FAILED);
     }
 
     @Override
@@ -91,11 +87,11 @@ public class ChromeGcmListenerServiceImpl extends ChromeGcmListenerService.Impl 
 
     /**
      * Returns if we deliver the GCMMessage with a background service by calling
-     * Context#startService. This will only work if Android has put us in a whitelist to allow
+     * Context#startService. This will only work if Android has put us in an allowlist to allow
      * background services to be started.
      */
     private static boolean maybeBypassScheduler(GCMMessage message) {
-        // Android only puts us on a whitelist for high priority messages.
+        // Android only puts us on an allowlist for high priority messages.
         if (message.getOriginalPriority() != GCMMessage.Priority.HIGH) {
             return false;
         }
@@ -113,7 +109,7 @@ public class ChromeGcmListenerServiceImpl extends ChromeGcmListenerService.Impl 
             context.startService(intent);
             return true;
         } catch (IllegalStateException e) {
-            // Failed to start service, maybe we're not whitelisted? Fallback to using
+            // Failed to start service, maybe we're not allowed? Fallback to using
             // BackgroundTaskScheduler to start Chrome.
             Log.e(TAG, "Could not start background service", e);
             return false;

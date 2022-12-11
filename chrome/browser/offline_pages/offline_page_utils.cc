@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/net/net_error_tab_helper.h"
@@ -131,7 +130,8 @@ content::WebContents* GetWebContentsByFrameID(int render_process_id,
 content::WebContents::Getter GetWebContentsGetter(
     content::WebContents* web_contents) {
   // The FrameTreeNode ID should be used to access the WebContents.
-  int frame_tree_node_id = web_contents->GetMainFrame()->GetFrameTreeNodeId();
+  int frame_tree_node_id =
+      web_contents->GetPrimaryMainFrame()->GetFrameTreeNodeId();
   if (frame_tree_node_id != content::RenderFrameHost::kNoFrameTreeNodeId) {
     return base::BindRepeating(content::WebContents::FromFrameTreeNodeId,
                                frame_tree_node_id);
@@ -141,8 +141,8 @@ content::WebContents::Getter GetWebContentsGetter(
   // the WebContents.
   return base::BindRepeating(
       &GetWebContentsByFrameID,
-      web_contents->GetMainFrame()->GetProcess()->GetID(),
-      web_contents->GetMainFrame()->GetRoutingID());
+      web_contents->GetPrimaryMainFrame()->GetProcess()->GetID(),
+      web_contents->GetPrimaryMainFrame()->GetRoutingID());
 }
 
 void AcquireFileAccessPermissionDoneForScheduleDownload(
@@ -188,7 +188,7 @@ void OfflinePageUtils::SelectPagesWithCriteria(
   OfflinePageModel* offline_page_model =
       OfflinePageModelFactory::GetForKey(key);
   if (!offline_page_model) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(std::move(callback), std::vector<OfflinePageItem>()));
     return;

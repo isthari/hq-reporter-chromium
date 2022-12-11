@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,25 @@
 
 #include <string>
 
+#include "base/containers/flat_set.h"
+#include "base/memory/weak_ptr.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/optimization_guide/core/optimization_guide_decision.h"
 #include "components/optimization_guide/core/optimization_metadata.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "url/origin.h"
 
 class GURL;
+class TemplateURLService;
 
 namespace page_info {
 namespace proto {
 class SiteInfo;
 }
+
+static const char AboutThisSiteRenderModeParameterName[] = "ilrm";
+static const char AboutThisSiteRenderModeParameterValue[] = "minimal";
 
 // Provides "About this site" information for a web site. It includes short
 // description about the website (from external source, usually from Wikipedia),
@@ -36,7 +43,24 @@ class AboutThisSiteService : public KeyedService {
     virtual ~Client() = default;
   };
 
-  explicit AboutThisSiteService(std::unique_ptr<Client> client);
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  // Keep in sync with AboutThisSiteInteraction in enums.xml
+  enum class AboutThisSiteInteraction {
+    kNotShown = 0,
+    kShownWithDescription = 1,
+    kShownWithoutDescription = 2,
+    kClickedWithDescription = 3,
+    kClickedWithoutDescription = 4,
+    kOpenedDirectlyFromSidePanel = 5,
+    kNotShownNonGoogleDSE = 6,
+
+    kMaxValue = kNotShownNonGoogleDSE,
+  };
+
+  explicit AboutThisSiteService(std::unique_ptr<Client> client,
+                                TemplateURLService* template_url_service,
+                                bool allow_missing_description);
   ~AboutThisSiteService() override;
 
   AboutThisSiteService(const AboutThisSiteService&) = delete;
@@ -47,8 +71,17 @@ class AboutThisSiteService : public KeyedService {
       const GURL& url,
       ukm::SourceId source_id) const;
 
+  static void OnAboutThisSiteRowClicked(bool with_description);
+  static void OnOpenedDirectlyFromSidePanel();
+
+  base::WeakPtr<AboutThisSiteService> GetWeakPtr();
+
  private:
   std::unique_ptr<Client> client_;
+  raw_ptr<TemplateURLService> template_url_service_;
+  const bool allow_missing_description_;
+
+  base::WeakPtrFactory<AboutThisSiteService> weak_ptr_factory_{this};
 };
 
 }  // namespace page_info

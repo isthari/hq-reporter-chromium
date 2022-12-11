@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <string>
 #include <vector>
 
 #include "base/barrier_closure.h"
@@ -27,20 +28,23 @@
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/support_tool/data_collector.h"
+#include "chrome/browser/support_tool/support_packet_metadata.h"
 #include "components/feedback/pii_types.h"
 #include "components/feedback/redaction_tool.h"
+#include "data_collector_utils.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/zlib/google/zip.h"
 
 // Zip archieves the contents of `src_path` into `target_path`. Adds ".zip"
-// extension to target file path. Returns true on success, false otherwise.
-bool ZipOutput(base::FilePath src_path, base::FilePath target_path) {
+// extension to target file path. Returns the path of zip archive on success, an
+// empty path otherwise.
+base::FilePath ZipOutput(base::FilePath src_path, base::FilePath target_path) {
   base::FilePath zip_path = target_path.AddExtension(FILE_PATH_LITERAL(".zip"));
   if (!zip::Zip(src_path, zip_path, true)) {
     LOG(ERROR) << "Couldn't zip files";
-    return false;
+    return base::FilePath();
   }
-  return true;
+  return zip_path;
 }
 
 // Creates a unique temp directory to store the output files. The caller is
@@ -56,7 +60,15 @@ base::FilePath CreateTempDirForOutput() {
 }
 
 SupportToolHandler::SupportToolHandler()
-    : task_runner_for_redaction_tool_(
+    : SupportToolHandler(/*case_id=*/std::string(),
+                         /*email_address=*/std::string(),
+                         /*issue_description=*/std::string()) {}
+
+SupportToolHandler::SupportToolHandler(std::string case_id,
+                                       std::string email_address,
+                                       std::string issue_description)
+    : metadata_(case_id, email_address, issue_description),
+      task_runner_for_redaction_tool_(
           base::ThreadPool::CreateSequencedTaskRunner(
               {base::TaskPriority::USER_VISIBLE,
                base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})),
@@ -78,10 +90,17 @@ void SupportToolHandler::CleanUp() {
         FROM_HERE,
         {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
          base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
-        base::BindOnce(base::GetDeletePathRecursivelyCallback(),
-                       std::move(temp_dir_)));
+        base::GetDeletePathRecursivelyCallback(std::move(temp_dir_)));
     temp_dir_.clear();
   }
+}
+
+const std::string& SupportToolHandler::GetCaseId() {
+  return metadata_.GetCaseId();
+}
+
+const base::Time& SupportToolHandler::GetDataCollectionTimestamp() {
+  return data_collection_timestamp_;
 }
 
 void SupportToolHandler::AddDataCollector(
@@ -104,6 +123,8 @@ void SupportToolHandler::CollectSupportData(
       data_collectors_.size(),
       base::BindOnce(&SupportToolHandler::OnAllDataCollected,
                      weak_ptr_factory_.GetWeakPtr()));
+
+  data_collection_timestamp_ = base::Time::NowFromSystemTime();
 
   for (auto& data_collector : data_collectors_) {
     // DataCollectors will use `redaction_tool_container_` on
@@ -130,16 +151,26 @@ void SupportToolHandler::OnDataCollected(
   std::move(barrier_closure).Run();
 }
 
+void SupportToolHandler::AddDetectedPII(const PIIMap& pii_map) {
+  MergePIIMaps(detected_pii_, pii_map);
+}
+
 void SupportToolHandler::OnAllDataCollected() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   for (auto& data_collector : data_collectors_) {
-    const PIIMap& collected = data_collector->GetDetectedPII();
-    for (auto& pii_data : collected) {
-      detected_pii_[pii_data.first].insert(pii_data.second.begin(),
-                                           pii_data.second.end());
-    }
+    AddDetectedPII(data_collector->GetDetectedPII());
   }
 
+  metadata_.InsertErrors(collected_errors_);
+
+  metadata_.PopulateMetadataContents(
+      data_collection_timestamp_, data_collectors_,
+      base::BindOnce(&SupportToolHandler::OnMetadataContentsPopulated,
+                     weak_ptr_factory_.GetWeakPtr()));
+}
+
+void SupportToolHandler::OnMetadataContentsPopulated() {
+  AddDetectedPII(metadata_.GetPII());
   std::move(on_data_collection_done_callback_)
       .Run(detected_pii_, collected_errors_);
 }
@@ -172,7 +203,8 @@ void SupportToolHandler::ExportIntoTempDir(
     collected_errors_.insert(
         {SupportToolErrorCode::kDataExportError,
          "Failed to create temporary directory for output."});
-    std::move(on_data_export_done_callback_).Run(collected_errors_);
+    std::move(on_data_export_done_callback_)
+        .Run(base::FilePath(), collected_errors_);
     return;
   }
 
@@ -181,7 +213,8 @@ void SupportToolHandler::ExportIntoTempDir(
   base::RepeatingClosure export_data_barrier_closure = base::BarrierClosure(
       data_collectors_.size(),
       base::BindOnce(&SupportToolHandler::OnAllDataCollectorsDoneExporting,
-                     weak_ptr_factory_.GetWeakPtr(), temp_dir_, target_path));
+                     weak_ptr_factory_.GetWeakPtr(), temp_dir_, target_path,
+                     pii_types_to_keep));
 
   for (auto& data_collector : data_collectors_) {
     data_collector->ExportCollectedDataWithPII(
@@ -205,22 +238,35 @@ void SupportToolHandler::OnDataCollectorDoneExporting(
 
 void SupportToolHandler::OnAllDataCollectorsDoneExporting(
     base::FilePath tmp_path,
-    base::FilePath path) {
+    base::FilePath target_path,
+    std::set<feedback::PIIType> pii_types_to_keep) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // Archive the contents in the `tmp_path` into `path` in a zip file.
+  metadata_.InsertErrors(collected_errors_);
+  metadata_.WriteMetadataFile(
+      tmp_path, pii_types_to_keep,
+      base::BindOnce(&SupportToolHandler::OnMetadataFileWritten,
+                     weak_ptr_factory_.GetWeakPtr(), tmp_path, target_path));
+}
+
+void SupportToolHandler::OnMetadataFileWritten(base::FilePath tmp_path,
+                                               base::FilePath target_path) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Archive the contents in the `tmp_path` into `target_path` in a zip file.
   base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::MayBlock()}, base::BindOnce(&ZipOutput, tmp_path, path),
+      FROM_HERE, {base::MayBlock()},
+      base::BindOnce(&ZipOutput, tmp_path, target_path),
       base::BindOnce(&SupportToolHandler::OnDataExportDone,
                      weak_ptr_factory_.GetWeakPtr()));
 }
 
-void SupportToolHandler::OnDataExportDone(bool success) {
+void SupportToolHandler::OnDataExportDone(base::FilePath exported_path) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Clean-up the temporary directory after exporting the data.
   CleanUp();
-  if (!success) {
+  if (exported_path.empty()) {
     collected_errors_.insert({SupportToolErrorCode::kDataExportError,
                               "Failed to archive the output files."});
   }
-  std::move(on_data_export_done_callback_).Run(collected_errors_);
+  std::move(on_data_export_done_callback_)
+      .Run(exported_path, collected_errors_);
 }

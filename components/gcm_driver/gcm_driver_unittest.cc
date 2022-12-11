@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,10 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/run_loop.h"
 #include "base/task/current_thread.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/threading/thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/gcm_driver/crypto/gcm_decryption_result.h"
 #include "components/gcm_driver/crypto/gcm_encryption_provider.h"
 #include "components/gcm_driver/crypto/gcm_encryption_result.h"
@@ -23,7 +23,6 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
 #include "crypto/ec_private_key.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_test_util.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
@@ -148,20 +147,19 @@ void GCMDriverBaseTest::PumpIOLoop() {
 }
 
 void GCMDriverBaseTest::CreateDriver() {
-  scoped_refptr<net::URLRequestContextGetter> request_context =
-      new net::TestURLRequestContextGetter(io_thread_.task_runner());
   GCMClient::ChromeBuildInfo chrome_build_info;
   chrome_build_info.product_category_for_subtypes = "com.chrome.macosx";
   driver_ = std::make_unique<GCMDriverDesktop>(
       std::make_unique<FakeGCMClientFactory>(
-          base::ThreadTaskRunnerHandle::Get(), io_thread_.task_runner()),
+          base::SingleThreadTaskRunner::GetCurrentDefault(),
+          io_thread_.task_runner()),
       chrome_build_info, &prefs_, temp_dir_.GetPath(),
       /*remove_account_mappings_with_email_key=*/true, base::DoNothing(),
       base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
           &test_url_loader_factory_),
       network::TestNetworkConnectionTracker::GetInstance(),
-      base::ThreadTaskRunnerHandle::Get(), io_thread_.task_runner(),
-      task_environment_.GetMainThreadTaskRunner());
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
+      io_thread_.task_runner(), task_environment_.GetMainThreadTaskRunner());
 }
 
 void GCMDriverBaseTest::ShutdownDriver() {

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,7 +48,7 @@ class WebApkInstallQueue
   Profile* profile_;
   base::circular_deque<std::unique_ptr<WebApkInstallTask>> pending_installs_;
   std::unique_ptr<WebApkInstallTask> current_install_;
-  bool connection_ready_;
+  bool connection_ready_ = false;
 
   base::WeakPtrFactory<WebApkInstallQueue> weak_ptr_factory_{this};
 };

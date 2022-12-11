@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,6 +77,7 @@ const char kMetricUserRemoteCommandReceived[] =
 // Enterprise.UserRemoteCommand.Executed.BrowserClearBrowsingData
 // Enterprise.UserRemoteCommand.Executed.DeviceResetEuicc
 // Enterprise.UserRemoteCommand.Executed.BrowserRotateAttestationCredential
+// Enterprise.UserRemoteCommand.Executed.FetchCrdAvailabilityInfo
 const char kMetricUserRemoteCommandExecutedTemplate[] =
     "Enterprise.UserRemoteCommand.Executed.%s";
 
@@ -100,6 +101,7 @@ const char kMetricDeviceRemoteCommandReceived[] =
 // Enterprise.DeviceRemoteCommand.Executed.BrowserClearBrowsingData
 // Enterprise.DeviceRemoteCommand.Executed.DeviceResetEuicc
 // Enterprise.DeviceRemoteCommand.Executed.BrowserRotateAttestationCredential
+// Enterprise.DeviceRemoteCommand.Executed.FetchCrdAvailabilityInfo
 const char kMetricDeviceRemoteCommandExecutedTemplate[] =
     "Enterprise.DeviceRemoteCommand.Executed.%s";
 
@@ -123,6 +125,7 @@ const char kMetricCBCMRemoteCommandReceived[] =
 // Enterprise.CBCMRemoteCommand.Executed.BrowserClearBrowsingData
 // Enterprise.CBCMRemoteCommand.Executed.DeviceResetEuicc
 // Enterprise.CBCMRemoteCommand.Executed.BrowserRotateAttestationCredential
+// Enterprise.CBCMRemoteCommand.Executed.FetchCrdAvailabilityInfo
 const char kMetricCBCMRemoteCommandExecutedTemplate[] =
     "Enterprise.CBCMRemoteCommand.Executed.%s";
 
@@ -140,7 +143,6 @@ const char kUMAHashDanceProtocolTime[] =
     "Enterprise.AutoEnrollmentProtocolTime";
 const char kUMAHashDanceBucketDownloadTime[] =
     "Enterprise.AutoEnrollmentBucketDownloadTime";
-const char kUMAHashDanceExtraTime[] = "Enterprise.AutoEnrollmentExtraTime";
 const char kUMAHashDanceRequestStatus[] =
     "Enterprise.AutoEnrollmentRequestStatus";
 const char kUMAHashDanceNetworkErrorCode[] =

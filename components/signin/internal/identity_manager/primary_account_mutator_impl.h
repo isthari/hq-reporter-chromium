@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,16 +42,18 @@ class PrimaryAccountMutatorImpl : public PrimaryAccountMutator {
 
  private:
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-  // Returns true if revoking the sync consent should instead clear the primary
-  // account.
-  bool RevokeConsentShouldClearPrimaryAccount() const;
+  // Returns true if transitioning from Sync to Signin consent level is allowed
+  // for this platform / configuration.
+  bool CanTransitionFromSyncToSigninConsentLevel() const;
 #endif
 
   // Pointers to the services used by the PrimaryAccountMutatorImpl. They
   // *must* outlive this instance.
-  raw_ptr<AccountTrackerService> account_tracker_ = nullptr;
-  raw_ptr<ProfileOAuth2TokenService> token_service_ = nullptr;
-  raw_ptr<PrimaryAccountManager> primary_account_manager_ = nullptr;
+  raw_ptr<AccountTrackerService, DanglingUntriaged> account_tracker_ = nullptr;
+  raw_ptr<ProfileOAuth2TokenService, DanglingUntriaged> token_service_ =
+      nullptr;
+  raw_ptr<PrimaryAccountManager, DanglingUntriaged> primary_account_manager_ =
+      nullptr;
   raw_ptr<PrefService> pref_service_ = nullptr;
   signin::AccountConsistencyMethod account_consistency_;
 };

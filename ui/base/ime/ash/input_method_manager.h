@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@
 #include <string>
 #include <vector>
 
-#include "ash/services/ime/public/mojom/ime_service.mojom.h"
 #include "base/component_export.h"
 #include "base/memory/ref_counted.h"
+#include "chromeos/ash/services/ime/public/mojom/ime_service.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "ui/base/ime/ash/ime_keyset.h"
 #include "ui/base/ime/ash/input_method_descriptor.h"
@@ -22,8 +22,7 @@
 class Profile;
 
 namespace ui {
-class IMEEngineHandlerInterface;
-class VirtualKeyboardController;
+class TextInputMethod;
 }  // namespace ui
 
 namespace ash {
@@ -139,7 +138,7 @@ class COMPONENT_EXPORT(UI_BASE_IME_ASH) InputMethodManager {
     virtual void AddInputMethodExtension(
         const std::string& extension_id,
         const InputMethodDescriptors& descriptors,
-        ui::IMEEngineHandlerInterface* instance) = 0;
+        ui::TextInputMethod* instance) = 0;
 
     // Removes an input method extension.
     virtual void RemoveInputMethodExtension(
@@ -174,7 +173,7 @@ class COMPONENT_EXPORT(UI_BASE_IME_ASH) InputMethodManager {
         const std::vector<std::string>& initial_layouts) = 0;
 
     // Filters current state layouts and leaves only suitable for lock screen.
-    virtual void EnableLockScreenLayouts() = 0;
+    virtual void DisableNonLockScreenLayouts() = 0;
 
     // Returns a list of descriptors for all Input Method Extensions.
     virtual void GetInputMethodExtensions(InputMethodDescriptors* result) = 0;
@@ -183,14 +182,13 @@ class COMPONENT_EXPORT(UI_BASE_IME_ASH) InputMethodManager {
     // methods, sorted in ascending order of their localized full display names,
     // according to the lexicographical order defined by the current system
     // locale (aka. display language).
-    virtual std::unique_ptr<InputMethodDescriptors>
+    virtual InputMethodDescriptors
     GetEnabledInputMethodsSortedByLocalizedDisplayNames() const = 0;
 
     // Returns enabled input methods, including extension input methods.
     // Although presented as a list, the result is NOT sorted in any specific
     // order; the ordering is arbitrary and undefined.
-    virtual std::unique_ptr<InputMethodDescriptors> GetEnabledInputMethods()
-        const = 0;
+    virtual InputMethodDescriptors GetEnabledInputMethods() const = 0;
 
     // Returns IDs of enabled input methods, including extension input methods.
     // Although presented as a list, the result is NOT sorted in any specific
@@ -233,25 +231,29 @@ class COMPONENT_EXPORT(UI_BASE_IME_ASH) InputMethodManager {
     // Gets the descriptor of the input method which is currently selected.
     virtual InputMethodDescriptor GetCurrentInputMethod() const = 0;
 
-    // Updates the list of enabled input method IDs, and then starts or stops
-    // the system input method framework as needed.
+    // Updates the list of enabled input method IDs (checking that they are
+    // valid and allowed by policy), and then starts or stops the system input
+    // method framework as needed.
     virtual bool ReplaceEnabledInputMethods(
         const std::vector<std::string>& new_enabled_input_method_ids) = 0;
 
-    // Sets the currently allowed input methods (e.g. due to policy). Invalid
+    // Sets the currently allowed input methods due to policy. Invalid
     // input method ids are ignored. Passing an empty vector means that all
-    // input methods are allowed, which is the default.  When
-    // |enable_allowed_input_menthods| is true, the allowed input methods are
-    // also automatically enabled.
+    // input methods are allowed, which is the default.
+    // Automatically enables allowed methods in Kiosk sessions if the vector is
+    // non-empty.
     virtual bool SetAllowedInputMethods(
-        const std::vector<std::string>& allowed_input_method_ids,
-        bool enable_allowed_input_methods) = 0;
+        const std::vector<std::string>& allowed_input_method_ids) = 0;
 
     // Returns IDs of currently allowed input methods, as set by
-    // SetAllowedInputMethodIds. An empty vector means that all input methods
+    // `SetAllowedInputMethods()`. An empty vector means that all input methods
     // are allowed.
     virtual const std::vector<std::string>& GetAllowedInputMethodIds()
         const = 0;
+
+    // Returns the first hardware input method that is allowed or the first
+    // allowed input method, if no hardware input method is allowed.
+    virtual std::string GetAllowedFallBackKeyboardLayout() const = 0;
 
     // Methods related to custom input view of the input method.
     // Enables custom input view of the current (active) input method.
@@ -310,8 +312,7 @@ class COMPONENT_EXPORT(UI_BASE_IME_ASH) InputMethodManager {
 
   // Connects a receiver to the InputEngineManager instance.
   virtual void ConnectInputEngineManager(
-      mojo::PendingReceiver<chromeos::ime::mojom::InputEngineManager>
-          receiver) = 0;
+      mojo::PendingReceiver<ime::mojom::InputEngineManager> receiver) = 0;
 
   virtual bool IsISOLevel5ShiftUsedByCurrentInputMethod() const = 0;
 
@@ -376,9 +377,6 @@ class COMPONENT_EXPORT(UI_BASE_IME_ASH) InputMethodManager {
   // Notifies when any of the extra inputs (emoji, handwriting, voice) enabled
   // status has changed.
   virtual void NotifyObserversImeExtraInputStateChange() = 0;
-
-  // Gets the implementation of the keyboard controller.
-  virtual ui::VirtualKeyboardController* GetVirtualKeyboardController() = 0;
 
   // Notifies an input method extension is added or removed.
   virtual void NotifyInputMethodExtensionAdded(

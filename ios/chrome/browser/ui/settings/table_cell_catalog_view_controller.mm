@@ -1,10 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/table_cell_catalog_view_controller.h"
 
-#include "base/mac/foundation_util.h"
+#import "base/mac/foundation_util.h"
 #import "ios/chrome/browser/net/crurl.h"
 #import "ios/chrome/browser/signin/constants.h"
 #import "ios/chrome/browser/signin/signin_util.h"
@@ -13,6 +13,7 @@
 #import "ios/chrome/browser/ui/authentication/cells/table_view_signin_promo_item.h"
 #import "ios/chrome/browser/ui/autofill/cells/autofill_edit_item.h"
 #import "ios/chrome/browser/ui/icons/chrome_icon.h"
+#import "ios/chrome/browser/ui/icons/symbols.h"
 #import "ios/chrome/browser/ui/settings/cells/account_sign_in_item.h"
 #import "ios/chrome/browser/ui/settings/cells/copied_to_chrome_item.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_check_cell.h"
@@ -28,6 +29,7 @@
 #import "ios/chrome/browser/ui/table_view/cells/table_view_link_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_multi_detail_text_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_switch_item.h"
+#import "ios/chrome/browser/ui/table_view/cells/table_view_tabs_search_suggested_history_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_button_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
@@ -35,12 +37,12 @@
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 #import "ios/chrome/browser/ui/table_view/table_view_model.h"
 #import "ios/chrome/browser/ui/table_view/table_view_utils.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/image_util.h"
 #import "ios/public/provider/chrome/browser/signin/signin_resources_api.h"
-#include "url/gurl.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -63,11 +65,15 @@ typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeTextButton,
   ItemTypeURLNoMetadata,
   ItemTypeTextAccessoryImage,
+  ItemTypeSearchHistorySuggestedItem,
   ItemTypeTextAccessoryNoImage,
   ItemTypeTextEditItem,
+  ItemTypeURLWithActivityIndicator,
+  ItemTypeURLWithActivityIndicatorStopped,
   ItemTypeURLWithTimestamp,
   ItemTypeURLWithSize,
   ItemTypeURLWithSupplementalText,
+  ItemTypeURLWithThirdRowText,
   ItemTypeURLWithBadgeImage,
   ItemTypeTextSettingsDetail,
   ItemTypeLinkFooter,
@@ -126,6 +132,15 @@ typedef NS_ENUM(NSInteger, ItemType) {
   [model setHeader:textHeaderFooterItem
       forSectionWithIdentifier:SectionIdentifierText];
 
+  TableViewDetailIconItem* symbolItem =
+      [[TableViewDetailIconItem alloc] initWithType:ItemTypeTextSettingsDetail];
+  symbolItem.text = @"Detail Icon using custom background";
+  symbolItem.iconImage = DefaultSymbolWithPointSize(kSettingsFilledSymbol, 18);
+  symbolItem.iconBackgroundColor = UIColorFromRGB(0xFBBC04);
+  symbolItem.iconTintColor = UIColor.whiteColor;
+  symbolItem.iconCornerRadius = 7;
+  [model addItem:symbolItem toSectionWithIdentifier:SectionIdentifierText];
+
   TableViewTextItem* textItem =
       [[TableViewTextItem alloc] initWithType:ItemTypeText];
   textItem.text = @"Simple Text Cell";
@@ -143,6 +158,12 @@ typedef NS_ENUM(NSInteger, ItemType) {
   textImageItem.title = @"Image Item with History Image";
   textImageItem.image = [UIImage imageNamed:@"show_history"];
   [model addItem:textImageItem toSectionWithIdentifier:SectionIdentifierText];
+
+  TableViewTabsSearchSuggestedHistoryItem* searchHistorySuggestedItem =
+      [[TableViewTabsSearchSuggestedHistoryItem alloc]
+          initWithType:ItemTypeSearchHistorySuggestedItem];
+  [model addItem:searchHistorySuggestedItem
+      toSectionWithIdentifier:SectionIdentifierText];
 
   TableViewImageItem* textImageItem2 =
       [[TableViewImageItem alloc] initWithType:ItemTypeTextAccessoryImage];
@@ -226,17 +247,35 @@ typedef NS_ENUM(NSInteger, ItemType) {
   [model addItem:noDetailTextItem
       toSectionWithIdentifier:SectionIdentifierText];
 
+  TableViewDetailTextItem* chevronAccessorySymbolItem =
+      [[TableViewDetailTextItem alloc] initWithType:ItemTypeDetailText];
+  chevronAccessorySymbolItem.text = @"Text on first line.";
+  chevronAccessorySymbolItem.accessorySymbol =
+      TableViewDetailTextCellAccessorySymbolChevron;
+  [model addItem:chevronAccessorySymbolItem
+      toSectionWithIdentifier:SectionIdentifierText];
+
+  TableViewDetailTextItem* externalLinkAccessorySymbolItem =
+      [[TableViewDetailTextItem alloc] initWithType:ItemTypeDetailText];
+  externalLinkAccessorySymbolItem.text = @"Text on first line.";
+  externalLinkAccessorySymbolItem.detailText = @"Detail item on second line";
+  externalLinkAccessorySymbolItem.accessorySymbol =
+      TableViewDetailTextCellAccessorySymbolExternalLink;
+  [model addItem:externalLinkAccessorySymbolItem
+      toSectionWithIdentifier:SectionIdentifierText];
+
   TableViewDetailIconItem* detailIconItem =
       [[TableViewDetailIconItem alloc] initWithType:ItemTypeTextSettingsDetail];
   detailIconItem.text = @"Detail Icon Item Cell";
-  detailIconItem.iconImageName = @"settings_article_suggestions";
+  detailIconItem.iconImage =
+      [UIImage imageNamed:@"settings_article_suggestions"];
   detailIconItem.detailText = @"Short";
   [model addItem:detailIconItem toSectionWithIdentifier:SectionIdentifierText];
 
   TableViewDetailIconItem* detailIconItemVerticalTextLayout =
       [[TableViewDetailIconItem alloc] initWithType:ItemTypeTextSettingsDetail];
-  detailIconItemVerticalTextLayout.iconImageName =
-      @"settings_article_suggestions";
+  detailIconItemVerticalTextLayout.iconImage =
+      [UIImage imageNamed:@"settings_article_suggestions"];
   detailIconItemVerticalTextLayout.text = @"Detail Icon Item Cell";
   detailIconItemVerticalTextLayout.detailText = @"Short subtitle";
   detailIconItemVerticalTextLayout.textLayoutConstraintAxis =
@@ -390,7 +429,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
           initWithType:ItemTypeTableViewInfoButtonWithImage];
   tableViewInfoButtonItemWithLeadingImage.text = @"Info button item";
   tableViewInfoButtonItemWithLeadingImage.statusText = @"Status";
-  tableViewInfoButtonItemWithLeadingImage.image =
+  tableViewInfoButtonItemWithLeadingImage.iconImage =
       [UIImage imageNamed:@"settings_article_suggestions"];
   [model addItem:tableViewInfoButtonItemWithLeadingImage
       toSectionWithIdentifier:SectionIdentifierSettings];
@@ -436,7 +475,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   checkFinishedWithLeadingImage.detailText =
       @"This is very long description of check item. Another line of "
       @"description.";
-  checkFinishedWithLeadingImage.leadingImage = [[ChromeIcon infoIcon]
+  checkFinishedWithLeadingImage.leadingIcon = [[ChromeIcon infoIcon]
       imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
   checkFinishedWithLeadingImage.enabled = YES;
   checkFinishedWithLeadingImage.indicatorHidden = YES;
@@ -461,7 +500,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   checkDisabledWithLeadingImage.detailText =
       @"This is very long description of check item. Another line of "
       @"description.";
-  checkDisabledWithLeadingImage.leadingImage = [[ChromeIcon infoIcon]
+  checkDisabledWithLeadingImage.leadingIcon = [[ChromeIcon infoIcon]
       imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
   checkDisabledWithLeadingImage.enabled = NO;
   [model addItem:checkDisabledWithLeadingImage
@@ -590,6 +629,33 @@ typedef NS_ENUM(NSInteger, ItemType) {
   item.URL = [[CrURL alloc] initWithGURL:GURL("https://photos.google.com/")];
   item.badgeImage = [UIImage imageNamed:@"table_view_cell_check_mark"];
   [model addItem:item toSectionWithIdentifier:SectionIdentifierURL];
+
+  item =
+      [[TableViewURLItem alloc] initWithType:ItemTypeURLWithActivityIndicator];
+  item.title = @"Sent Request to Server";
+  item.URL = [[CrURL alloc] initWithGURL:GURL("https://started.spinner.com/")];
+  [model addItem:item toSectionWithIdentifier:SectionIdentifierURL];
+
+  item = [[TableViewURLItem alloc]
+      initWithType:ItemTypeURLWithActivityIndicatorStopped];
+  item.title = @"Received Response from Server";
+  item.URL = [[CrURL alloc] initWithGURL:GURL("https://stopped.spinner.com/")];
+  [model addItem:item toSectionWithIdentifier:SectionIdentifierURL];
+
+  item = [[TableViewURLItem alloc] initWithType:ItemTypeURLWithThirdRowText];
+  item.title = @"Web Channel with 3rd Row Text";
+  item.URL =
+      [[CrURL alloc] initWithGURL:GURL("https://blog.google/products/chrome/")];
+  item.thirdRowText = @"Unavailable";
+  [model addItem:item toSectionWithIdentifier:SectionIdentifierURL];
+
+  item = [[TableViewURLItem alloc] initWithType:ItemTypeURLWithThirdRowText];
+  item.title = @"Web Channel with 3rd Row Red Text";
+  item.URL =
+      [[CrURL alloc] initWithGURL:GURL("https://blog.google/products/chrome/")];
+  item.thirdRowText = @"Unavailable";
+  item.thirdRowTextColor = UIColor.redColor;
+  [model addItem:item toSectionWithIdentifier:SectionIdentifierURL];
 }
 
 #pragma mark - Actions
@@ -654,6 +720,23 @@ typedef NS_ENUM(NSInteger, ItemType) {
     [checkCell.infoButton addTarget:self
                              action:@selector(didTapCheckInfoButton:)
                    forControlEvents:UIControlEventTouchUpInside];
+  } else if (itemType == ItemTypeSearchHistorySuggestedItem) {
+    TableViewTabsSearchSuggestedHistoryCell* searchHistoryCell =
+        base::mac::ObjCCastStrict<TableViewTabsSearchSuggestedHistoryCell>(
+            cell);
+    [searchHistoryCell updateHistoryResultsCount:7];
+  } else if (itemType == ItemTypeURLWithActivityIndicator) {
+    TableViewURLCell* URLCell =
+        base::mac::ObjCCastStrict<TableViewURLCell>(cell);
+    [URLCell startAnimatingActivityIndicator];
+  } else if (itemType == ItemTypeURLWithActivityIndicatorStopped) {
+    TableViewURLCell* URLCell =
+        base::mac::ObjCCastStrict<TableViewURLCell>(cell);
+    [URLCell startAnimatingActivityIndicator];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC),
+                   dispatch_get_main_queue(), ^{
+                     [URLCell stopAnimatingActivityIndicator];
+                   });
   }
   return cell;
 }

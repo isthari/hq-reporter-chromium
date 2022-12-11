@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,6 +41,8 @@ class MEDIA_EXPORT VpxVideoEncoder : public VideoEncoder {
   void DrainOutputs(int temporal_id,
                     base::TimeDelta ts,
                     gfx::ColorSpace color_space);
+
+  void UpdateEncoderColorSpace();
 
   using vpx_codec_unique_ptr =
       std::unique_ptr<vpx_codec_ctx_t, void (*)(vpx_codec_ctx_t*)>;

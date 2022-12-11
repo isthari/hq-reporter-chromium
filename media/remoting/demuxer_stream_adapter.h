@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/video_decoder_config.h"
@@ -63,7 +64,7 @@ class DemuxerStreamAdapter {
   //                   be shut down.
   DemuxerStreamAdapter(
       scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
-      scoped_refptr<base::SingleThreadTaskRunner> media_task_runner,
+      scoped_refptr<base::SequencedTaskRunner> media_task_runner,
       const std::string& name,
       DemuxerStream* demuxer_stream,
       const openscreen::WeakPtr<openscreen::cast::RpcMessenger>& rpc_messenger,
@@ -131,11 +132,15 @@ class DemuxerStreamAdapter {
   // Callback function when a fatal runtime error occurs.
   void OnFatalError(StopTrigger stop_trigger);
 
-  // Helper to deregister the renderer from the RPC messenger.
+  // Helpers to register/deregister the adapter with the RPC messenger. These
+  // must be called on the media thread to dereference the weak pointer to
+  // this, which if contains a valid RPC messenger pointer will result in a
+  // jump to the main thread.
+  void RegisterForRpcMessaging();
   void DeregisterFromRpcMessaging();
 
   const scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
-  const scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
+  const scoped_refptr<base::SequencedTaskRunner> media_task_runner_;
 
   // Name of demuxer stream. Debug only.
   const std::string name_;

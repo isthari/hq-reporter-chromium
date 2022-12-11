@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -104,7 +104,7 @@ class PaintPreviewTabServiceTest : public ChromeRenderViewHostTestHarness {
 
   void OverrideInterface(MockPaintPreviewRecorder* recorder) {
     blink::AssociatedInterfaceProvider* remote_interfaces =
-        web_contents()->GetMainFrame()->GetRemoteAssociatedInterfaces();
+        web_contents()->GetPrimaryMainFrame()->GetRemoteAssociatedInterfaces();
     remote_interfaces->OverrideBinderForTesting(
         mojom::PaintPreviewRecorder::Name_,
         base::BindRepeating(&MockPaintPreviewRecorder::BindRequest,

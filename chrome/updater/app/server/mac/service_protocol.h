@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,6 +31,9 @@
 - (void)getVersionWithReply:
     (void (^_Nonnull)(NSString* _Nullable version))reply;
 
+// Fetches policies from device management.
+- (void)fetchPoliciesWithReply:(void (^_Nullable)(int))reply;
+
 // Checks for updates and returns the result in the reply block.
 - (void)checkForUpdatesWithUpdateState:
             (CRUUpdateStateObserver* _Nonnull)updateState
@@ -42,12 +45,29 @@
 
 // Checks for update of a given app, with specified priority. Sends repeated
 // updates of progress and returns the result in the reply block.
-- (void)checkForUpdateWithAppID:(NSString* _Nonnull)appID
+- (void)checkForUpdateWithAppId:(NSString* _Nonnull)appId
+               installDataIndex:(NSString* _Nullable)installDataIndex
                        priority:(CRUPriorityWrapper* _Nonnull)priority
         policySameVersionUpdate:
             (CRUPolicySameVersionUpdateWrapper* _Nonnull)policySameVersionUpdate
                     updateState:(CRUUpdateStateObserver* _Nonnull)updateState
                           reply:(void (^_Nonnull)(int rc))reply;
+
+// Installs the given app.
+- (void)installWithAppId:(NSString* _Nonnull)appId
+               brandCode:(NSString* _Nullable)brandCode
+               brandPath:(NSString* _Nullable)brandPath
+                     tag:(NSString* _Nullable)ap
+                 version:(NSString* _Nullable)version
+    existenceCheckerPath:(NSString* _Nullable)existenceCheckerPath
+       clientInstallData:(NSString* _Nullable)clientInstallData
+        installDataIndex:(NSString* _Nullable)installDataIndex
+                priority:(CRUPriorityWrapper* _Nonnull)priority
+             updateState:(CRUUpdateStateObserver* _Nonnull)updateState
+                   reply:(void (^_Nonnull)(int rc))reply;
+
+// Cancels any in-progress installations for the app ID.
+- (void)cancelInstallsWithAppId:(NSString* _Nonnull)appId;
 
 // Registers app and returns the result in the reply block.
 - (void)registerForUpdatesWithAppId:(NSString* _Nullable)appId
@@ -62,18 +82,14 @@
 - (void)getAppStatesWithReply:
     (void (^_Nonnull)(CRUAppStatesWrapper* _Nullable apps))reply;
 
-@end
-
-// Protocol for the XPC update service internal tasks of the Updater.
-@protocol CRUUpdateServicingInternal <NSObject>
-
-// Performs the task (activate service, uninstall service, or no-op) that is
-// relevant to the state of the Updater.
-- (void)performTasksWithReply:(void (^_Nullable)(void))reply;
-
-// Performs the task that is relevant to the state of the Updater.
-// Does not perform an UpdateCheck.
-- (void)performInitializeUpdateServiceWithReply:(void (^_Nullable)(void))reply;
+- (void)runInstallerWithAppId:(NSString* _Nonnull)appId
+                installerPath:(NSString* _Nonnull)installerPath
+                  installArgs:(NSString* _Nullable)installArgs
+                  installData:(NSString* _Nullable)installData
+              installSettings:(NSString* _Nullable)installSettings
+                  updateState:(CRUUpdateStateObserver* _Nonnull)updateState
+                        reply:(void (^_Nonnull)(
+                                  updater::UpdateService::Result rc))reply;
 
 @end
 
@@ -82,10 +98,6 @@ namespace updater {
 // Constructs an NSXPCInterface for a connection using CRUUpdateServicing
 // and CRUUpdateStateObserving protocols.
 NSXPCInterface* _Nonnull GetXPCUpdateServicingInterface();
-
-// Constructs an NSXPCInterface for a connection using
-// CRUUpdateServicingInternal protocol.
-NSXPCInterface* _Nonnull GetXPCUpdateServicingInternalInterface();
 
 }  // namespace updater
 

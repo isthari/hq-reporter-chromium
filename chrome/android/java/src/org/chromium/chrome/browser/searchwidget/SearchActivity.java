@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,29 +8,36 @@ import android.app.Activity;
 import android.app.SearchManager;
 import android.content.Intent;
 import android.graphics.Rect;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.app.ActivityOptionsCompat;
 
+import org.chromium.base.BuildInfo;
 import org.chromium.base.Callback;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
 import org.chromium.base.jank_tracker.DummyJankTracker;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.ObservableSupplierImpl;
+import org.chromium.base.supplier.OneshotSupplierImpl;
 import org.chromium.blink.mojom.DisplayMode;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.WebContentsFactory;
 import org.chromium.chrome.browser.app.omnibox.OmniboxPedalDelegateImpl;
 import org.chromium.chrome.browser.app.tabmodel.TabWindowManagerSingleton;
+import org.chromium.chrome.browser.back_press.BackPressManager;
 import org.chromium.chrome.browser.contextmenu.ContextMenuPopulatorFactory;
+import org.chromium.chrome.browser.crash.ChromePureJavaExceptionReporter;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.init.AsyncInitializationActivity;
@@ -38,9 +45,11 @@ import org.chromium.chrome.browser.init.SingleWindowKeyboardVisibilityDelegate;
 import org.chromium.chrome.browser.locale.LocaleManager;
 import org.chromium.chrome.browser.omnibox.BackKeyBehaviorDelegate;
 import org.chromium.chrome.browser.omnibox.LocationBarCoordinator;
+import org.chromium.chrome.browser.omnibox.OmniboxFeatures;
 import org.chromium.chrome.browser.omnibox.OverrideUrlLoadingDelegate;
 import org.chromium.chrome.browser.omnibox.SearchEngineLogoUtils;
 import org.chromium.chrome.browser.omnibox.UrlFocusChangeListener;
+import org.chromium.chrome.browser.omnibox.suggestions.OmniboxSuggestionsDropdownScrollListener;
 import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionHandler;
 import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManagerImpl;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -54,7 +63,9 @@ import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager.SnackbarManageable;
 import org.chromium.chrome.browser.ui.native_page.NativePage;
 import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityConstants;
+import org.chromium.chrome.browser.ui.system.StatusBarColorController;
 import org.chromium.components.browser_ui.modaldialog.AppModalPresenter;
+import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.util.BrowserControlsVisibilityDelegate;
 import org.chromium.components.external_intents.ExternalNavigationHandler;
 import org.chromium.components.url_formatter.UrlFormatter;
@@ -71,7 +82,8 @@ import java.lang.ref.WeakReference;
 
 /** Queries the user's default search engine and shows autocomplete suggestions. */
 public class SearchActivity extends AsyncInitializationActivity
-        implements SnackbarManageable, BackKeyBehaviorDelegate, UrlFocusChangeListener {
+        implements SnackbarManageable, BackKeyBehaviorDelegate, UrlFocusChangeListener,
+                   OmniboxSuggestionsDropdownScrollListener {
     // Shared with other org.chromium.chrome.browser.searchwidget classes.
     protected static final String TAG = "searchwidget";
 
@@ -116,6 +128,7 @@ public class SearchActivity extends AsyncInitializationActivity
 
     /** Main content view. */
     private ViewGroup mContentView;
+    private View mAnchorView;
 
     /** Whether the user is now allowed to perform searches. */
     private boolean mIsActivityUsable;
@@ -177,15 +190,33 @@ public class SearchActivity extends AsyncInitializationActivity
         // Build the search box.
         mSearchBox = (SearchActivityLocationBarLayout) mContentView.findViewById(
                 R.id.search_location_bar);
-        View anchorView = mContentView.findViewById(R.id.toolbar);
+        mAnchorView = mContentView.findViewById(R.id.toolbar);
+        updateAnchorViewLayout();
+
+        // Create status bar color controller and assign to search activity.
+        if (OmniboxFeatures.shouldMatchToolbarAndStatusBarColor()) {
+            // Update the status bar's color based on the toolbar color.
+            Drawable anchorViewBackground = mAnchorView.getBackground();
+            if (anchorViewBackground instanceof ColorDrawable) {
+                int anchorViewColor = ((ColorDrawable) anchorViewBackground).getColor();
+                StatusBarColorController.setStatusBarColor(this.getWindow(), anchorViewColor);
+            }
+        }
+
         OverrideUrlLoadingDelegate overrideUrlLoadingDelegate =
                 (String url, @PageTransition int transition, String postDataType, byte[] postData,
                         boolean incognito) -> {
             loadUrl(url, transition, postDataType, postData);
             return true;
         };
+
+        BackPressManager backPressManager = null;
+        if (BackPressManager.isEnabled() || BuildInfo.isAtLeastT()) {
+            backPressManager = new BackPressManager();
+            getOnBackPressedDispatcher().addCallback(this, backPressManager.getCallback());
+        }
         // clang-format off
-        mLocationBarCoordinator = new LocationBarCoordinator(mSearchBox, anchorView,
+        mLocationBarCoordinator = new LocationBarCoordinator(mSearchBox, mAnchorView,
                 mProfileSupplier, PrivacyPreferencesManagerImpl.getInstance(),
                 mSearchBoxDataProvider, null, new WindowDelegate(getWindow()), getWindowAndroid(),
                 /*activityTabSupplier=*/() -> null, getModalDialogManagerSupplier(),
@@ -197,9 +228,11 @@ public class SearchActivity extends AsyncInitializationActivity
                 /*saveOfflineButtonState=*/(tab) -> false, /*omniboxUma*/(url, transition) -> {},
                 TabWindowManagerSingleton::getInstance, /*bookmarkState=*/(url) -> false,
                 VoiceToolbarButtonController::isToolbarMicEnabled, new DummyJankTracker(),
-                /*ExploreIconState*/(pixelSize, callback) ->{},
-                /*userEducationHelper=*/null, /*merchantTrustSignalsCoordinatorSupplier=*/null,
-                new OmniboxPedalDelegateImpl(this));
+                /*merchantTrustSignalsCoordinatorSupplier=*/null,
+                new OmniboxPedalDelegateImpl(this, new OneshotSupplierImpl<>(),
+                        getModalDialogManagerSupplier()), null,
+                ChromePureJavaExceptionReporter::reportJavaException, backPressManager,
+                /*OmniboxSuggestionsDropdownScrollListener=*/this);
         // clang-format on
         mLocationBarCoordinator.setUrlBarFocusable(true);
         mLocationBarCoordinator.setShouldShowMicButtonWhenUnfocused(true);
@@ -494,6 +527,16 @@ public class SearchActivity extends AsyncInitializationActivity
                 cancelSearch();
             }
         });
+
+        if (OmniboxFeatures.shouldShowModernizeVisualUpdate(this)) {
+            View toolbarView = contentView.findViewById(R.id.toolbar);
+            final int edgePadding =
+                    getResources().getDimensionPixelOffset(R.dimen.toolbar_edge_padding_modern);
+            toolbarView.setPaddingRelative(edgePadding, toolbarView.getPaddingTop(), edgePadding,
+                    toolbarView.getPaddingBottom());
+            toolbarView.setBackground(new ColorDrawable(ChromeColors.getSurfaceColor(
+                    this, R.dimen.omnibox_suggestion_dropdown_bg_elevation)));
+        }
         return contentView;
     }
 
@@ -531,7 +574,71 @@ public class SearchActivity extends AsyncInitializationActivity
         sDelegate = delegate;
     }
 
+    @VisibleForTesting
+    public View getAnchorViewForTesting() {
+        return mAnchorView;
+    }
+
     LocationBarCoordinator getLocationBarCoordinatorForTesting() {
         return mLocationBarCoordinator;
+    }
+
+    /**
+     * Increase the toolbar vertical height and bottom padding if the omnibox phase 2 feature is
+     * enabled.
+     */
+    private void updateAnchorViewLayout() {
+        if (!OmniboxFeatures.shouldShowModernizeVisualUpdate(mAnchorView.getContext())) {
+            return;
+        }
+
+        var layoutParams = mAnchorView.getLayoutParams();
+        int heightIncrease = getResources().getDimensionPixelSize(
+                OmniboxFeatures.shouldShowActiveColorOnOmnibox()
+                        ? R.dimen.toolbar_url_focus_height_increase_active_color
+                        : R.dimen.toolbar_url_focus_height_increase_no_active_color);
+        layoutParams.height = getResources().getDimensionPixelSize(R.dimen.toolbar_height_no_shadow)
+                + heightIncrease;
+        mAnchorView.setLayoutParams(layoutParams);
+
+        // Apply extra bottom padding for no active-color treatments.
+        if (!OmniboxFeatures.shouldShowActiveColorOnOmnibox()) {
+            int bottomPadding =
+                    getResources().getDimensionPixelSize(R.dimen.toolbar_url_focus_bottom_padding);
+            mAnchorView.setPaddingRelative(mAnchorView.getPaddingStart(),
+                    mAnchorView.getPaddingTop(), mAnchorView.getPaddingEnd(), bottomPadding);
+        }
+    }
+
+    /**
+     * Apply the color to locationbar's and toolbar's background.
+     */
+    private void applyColor(@ColorInt int color) {
+        if (!OmniboxFeatures.shouldShowModernizeVisualUpdate(SearchActivity.this)
+                || OmniboxFeatures.shouldShowActiveColorOnOmnibox()) {
+            return;
+        }
+
+        Drawable locationbarBackground =
+                mContentView.findViewById(R.id.search_location_bar).getBackground();
+        Drawable toolbarBackground = mContentView.findViewById(R.id.toolbar).getBackground();
+        locationbarBackground.setTint(color);
+        toolbarBackground.setTint(color);
+
+        if (OmniboxFeatures.shouldMatchToolbarAndStatusBarColor()) {
+            StatusBarColorController.setStatusBarColor(this.getWindow(), color);
+        }
+    }
+
+    @Override
+    public void onSuggestionDropdownScroll() {
+        applyColor(ChromeColors.getSurfaceColor(
+                SearchActivity.this, R.dimen.toolbar_text_box_elevation));
+    }
+
+    @Override
+    public void onSuggestionDropdownOverscrolledToTop() {
+        applyColor(ChromeColors.getSurfaceColor(
+                SearchActivity.this, R.dimen.omnibox_suggestion_dropdown_bg_elevation));
     }
 }

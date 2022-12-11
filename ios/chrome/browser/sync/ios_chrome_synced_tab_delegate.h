@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,8 +36,6 @@ class IOSChromeSyncedTabDelegate
   int GetCurrentEntryIndex() const override;
   int GetEntryCount() const override;
   GURL GetVirtualURLAtIndex(int i) const override;
-  GURL GetFaviconURLAtIndex(int i) const override;
-  ui::PageTransition GetTransitionAtIndex(int i) const override;
   std::string GetPageLanguageAtIndex(int i) const override;
   void GetSerializedNavigationAtIndex(
       int i,
@@ -60,7 +58,7 @@ class IOSChromeSyncedTabDelegate
   // Storage must be used if slim navigation is enabled and the tab has not be
   // displayed.
   // If the session storage must be used and was not fetched yet, bet it from
-  // |web_state_|.
+  // `web_state_`.
   bool GetSessionStorageIfNeeded() const;
 
   web::WebState* web_state_;

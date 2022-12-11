@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "chrome/browser/ash/borealis/infra/expected.h"
 
 // TODO(b/172501195): Make these available outside namespace borealis.
@@ -38,6 +38,12 @@ namespace borealis {
 template <typename S, typename T, typename E>
 class Transition {
  public:
+  using InitialState = S;
+
+  using FinalState = T;
+
+  using ErrorState = E;
+
   using Result = Expected<std::unique_ptr<T>, E>;
 
   using OnCompleteSignature = void(Result);
@@ -65,7 +71,7 @@ class Transition {
   void Succeed(std::unique_ptr<T> terminating_instance) {
     if (!callback_)
       return;
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback_),
                                   Result(std::move(terminating_instance))));
   }
@@ -76,7 +82,7 @@ class Transition {
   void Fail(E error) {
     if (!callback_)
       return;
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback_),
                                   Result::Unexpected(std::move(error))));
   }

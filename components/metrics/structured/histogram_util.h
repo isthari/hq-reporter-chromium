@@ -1,10 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_METRICS_STRUCTURED_HISTOGRAM_UTIL_H_
 #define COMPONENTS_METRICS_STRUCTURED_HISTOGRAM_UTIL_H_
-
 #include "components/prefs/persistent_pref_store.h"
 
 namespace metrics {
@@ -68,6 +67,17 @@ void LogNumEventsInUpload(int num_events);
 
 // Logs that an event was recorded using the mojo API.
 void LogIsEventRecordedUsingMojo(bool used_mojo_api);
+
+// Logs the number of events that were recorded before device and user
+// cryptographic keys have been loaded to hash events. These events will be kept
+// in memory.
+void LogNumEventsRecordedBeforeInit(int num_events);
+
+// Logs the number of files processed per external metrics scan.
+void LogNumFilesPerExternalMetricsScan(int num_files);
+
+// Logs the file size of an event.
+void LogEventFileSizeKB(int64_t file_size_kb);
 
 }  // namespace structured
 }  // namespace metrics

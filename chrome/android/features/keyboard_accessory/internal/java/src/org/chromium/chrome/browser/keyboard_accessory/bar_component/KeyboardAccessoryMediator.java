@@ -1,25 +1,28 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.keyboard_accessory.bar_component;
 
+import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.ANIMATION_LISTENER;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.BAR_ITEMS;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.BOTTOM_OFFSET_PX;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.DISABLE_ANIMATIONS_FOR_TESTING;
+import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.HAS_SUGGESTIONS;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.KEYBOARD_TOGGLE_VISIBLE;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.OBFUSCATED_CHILD_AT_CALLBACK;
+import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SHEET_OPENER_ITEM;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SHEET_TITLE;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SHOW_KEYBOARD_CALLBACK;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SHOW_SWIPING_IPH;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SKIP_CLOSING_ANIMATION;
-import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.TAB_LAYOUT_ITEM;
 import static org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.VISIBLE;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.Px;
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.TraceEvent;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.keyboard_accessory.AccessoryAction;
 import org.chromium.chrome.browser.keyboard_accessory.AccessorySheetTrigger;
@@ -28,7 +31,7 @@ import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAcce
 import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryCoordinator.VisibilityDelegate;
 import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.AutofillBarItem;
 import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.BarItem;
-import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.TabLayoutBarItem;
+import org.chromium.chrome.browser.keyboard_accessory.bar_component.KeyboardAccessoryProperties.SheetOpenerBarItem;
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData;
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData.Action;
 import org.chromium.chrome.browser.keyboard_accessory.data.Provider;
@@ -62,7 +65,7 @@ class KeyboardAccessoryMediator
 
     KeyboardAccessoryMediator(PropertyModel model, VisibilityDelegate visibilityDelegate,
             TabSwitchingDelegate tabSwitcher,
-            KeyboardAccessoryTabLayoutCoordinator.TabLayoutCallbacks tabLayoutCallbacks) {
+            KeyboardAccessoryTabLayoutCoordinator.SheetOpenerCallbacks sheetOpenerCallbacks) {
         mModel = model;
         mVisibilityDelegate = visibilityDelegate;
         mTabSwitcher = tabSwitcher;
@@ -70,9 +73,10 @@ class KeyboardAccessoryMediator
         // Add mediator as observer so it can use model changes as signal for accessory visibility.
         mModel.set(OBFUSCATED_CHILD_AT_CALLBACK, this::onSuggestionObfuscatedAt);
         mModel.set(SHOW_KEYBOARD_CALLBACK, this::closeSheet);
-        mModel.set(TAB_LAYOUT_ITEM, new TabLayoutBarItem(tabLayoutCallbacks));
+        mModel.set(SHEET_OPENER_ITEM, new SheetOpenerBarItem(sheetOpenerCallbacks));
+        mModel.set(ANIMATION_LISTENER, mVisibilityDelegate::onBarFadeInAnimationEnd);
         if (ChromeFeatureList.isEnabled(ChromeFeatureList.AUTOFILL_KEYBOARD_ACCESSORY)) {
-            mModel.get(BAR_ITEMS).add(mModel.get(TAB_LAYOUT_ITEM));
+            mModel.get(BAR_ITEMS).add(mModel.get(SHEET_OPENER_ITEM));
         }
         mModel.addObserver(this);
     }
@@ -94,22 +98,35 @@ class KeyboardAccessoryMediator
             List<BarItem> retainedItems = collectItemsToRetain(AccessoryAction.AUTOFILL_SUGGESTION);
             retainedItems.addAll(toBarItems(suggestions, delegate));
             if (ChromeFeatureList.isEnabled(ChromeFeatureList.AUTOFILL_KEYBOARD_ACCESSORY)) {
-                retainedItems.add(retainedItems.size(), mModel.get(TAB_LAYOUT_ITEM));
+                retainedItems.add(retainedItems.size(), mModel.get(SHEET_OPENER_ITEM));
             }
             mModel.get(BAR_ITEMS).set(retainedItems);
+            mModel.set(HAS_SUGGESTIONS, barHasSuggestions());
         };
+    }
+
+    private boolean barHasSuggestions() {
+        for (BarItem barItem : mModel.get(BAR_ITEMS)) {
+            if (barItem.getViewType() == BarItem.Type.SUGGESTION) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
     public void onItemAvailable(
             @AccessoryAction int typeId, KeyboardAccessoryData.Action[] actions) {
+        TraceEvent.begin("KeyboardAccessoryMediator#onItemAvailable");
         assert typeId != DEFAULT_TYPE : "Did not specify which Action type has been updated.";
         List<BarItem> retainedItems = collectItemsToRetain(typeId);
         retainedItems.addAll(0, toBarItems(actions));
         if (ChromeFeatureList.isEnabled(ChromeFeatureList.AUTOFILL_KEYBOARD_ACCESSORY)) {
-            retainedItems.add(retainedItems.size(), mModel.get(TAB_LAYOUT_ITEM));
+            retainedItems.add(retainedItems.size(), mModel.get(SHEET_OPENER_ITEM));
         }
         mModel.get(BAR_ITEMS).set(retainedItems);
+        mModel.set(HAS_SUGGESTIONS, barHasSuggestions());
+        TraceEvent.end("KeyboardAccessoryMediator#onItemAvailable");
     }
 
     private List<BarItem> collectItemsToRetain(@AccessoryAction int actionType) {
@@ -256,10 +273,11 @@ class KeyboardAccessoryMediator
             return;
         }
         if (propertyKey == BOTTOM_OFFSET_PX || propertyKey == SHOW_KEYBOARD_CALLBACK
-                || propertyKey == TAB_LAYOUT_ITEM || propertyKey == SHEET_TITLE
+                || propertyKey == SHEET_OPENER_ITEM || propertyKey == SHEET_TITLE
                 || propertyKey == SKIP_CLOSING_ANIMATION
                 || propertyKey == DISABLE_ANIMATIONS_FOR_TESTING
-                || propertyKey == OBFUSCATED_CHILD_AT_CALLBACK || propertyKey == SHOW_SWIPING_IPH) {
+                || propertyKey == OBFUSCATED_CHILD_AT_CALLBACK || propertyKey == SHOW_SWIPING_IPH
+                || propertyKey == HAS_SUGGESTIONS || propertyKey == ANIMATION_LISTENER) {
             return;
         }
         assert false : "Every property update needs to be handled explicitly!";
@@ -337,10 +355,6 @@ class KeyboardAccessoryMediator
             return FeatureConstants.KEYBOARD_ACCESSORY_PASSWORD_FILLING_FEATURE;
         }
         if (containsCreditCardInfo(suggestion)) {
-            if (!suggestion.getItemTag().isEmpty()) {
-                // Prefer showing a linked cashback over the general IPH.
-                return FeatureConstants.KEYBOARD_ACCESSORY_PAYMENT_OFFER_FEATURE;
-            }
             return FeatureConstants.KEYBOARD_ACCESSORY_PAYMENT_FILLING_FEATURE;
         }
         if (containsAddressInfo(suggestion)) {

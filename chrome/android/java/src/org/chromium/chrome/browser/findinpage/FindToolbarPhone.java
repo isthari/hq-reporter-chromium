@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,15 +63,14 @@ public class FindToolbarPhone extends FindToolbar {
         }
         mFindQuery.setTextColor(
                 AppCompatResources.getColorStateList(getContext(), queryTextColorId));
-        mFindQuery.setHintTextColor(
-                ApiCompatibilityUtils.getColor(getContext().getResources(), queryHintTextColorId));
+        mFindQuery.setHintTextColor(getContext().getColor(queryHintTextColorId));
     }
 
     @Override
     protected int getStatusColor(boolean failed, boolean incognito) {
         if (incognito) {
             final int colorResourceId = failed ? R.color.default_red_light : R.color.white_alpha_50;
-            return ApiCompatibilityUtils.getColor(getContext().getResources(), colorResourceId);
+            return getContext().getColor(colorResourceId);
         }
         return super.getStatusColor(failed, incognito);
     }

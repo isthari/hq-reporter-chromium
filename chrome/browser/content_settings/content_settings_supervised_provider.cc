@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -72,16 +72,16 @@ std::unique_ptr<RuleIterator> SupervisedProvider::GetRuleIterator(
 }
 
 void SupervisedProvider::OnSupervisedSettingsAvailable(
-    const base::DictionaryValue* settings) {
+    const base::Value::Dict& settings) {
   std::vector<ContentSettingsType> to_notify;
   // Entering locked scope to update content settings.
   {
     base::AutoLock auto_lock(lock_);
     for (const auto& entry : kContentSettingsFromSupervisedSettingsMap) {
       ContentSetting new_setting = CONTENT_SETTING_DEFAULT;
-      if (settings && settings->FindKey(entry.setting_name)) {
-        DCHECK(settings->FindKey(entry.setting_name)->is_bool());
-        if (settings->FindBoolKey(entry.setting_name).value_or(false))
+      if (settings.Find(entry.setting_name)) {
+        DCHECK(settings.Find(entry.setting_name)->is_bool());
+        if (settings.FindBool(entry.setting_name).value_or(false))
           new_setting = entry.content_setting;
       }
       if (new_setting != value_map_.GetContentSetting(entry.content_type)) {

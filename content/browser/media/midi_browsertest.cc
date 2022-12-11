@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,11 +59,22 @@ class MidiBrowserTest : public ContentBrowserTest {
   std::unique_ptr<net::EmbeddedTestServer> https_test_server_;
 };
 
-IN_PROC_BROWSER_TEST_F(MidiBrowserTest, RequestMIDIAccess) {
+// TODO(https://crbug.com/1302995): MidiManager has no Fuchsia implementation.
+#if BUILDFLAG(IS_FUCHSIA)
+#define MAYBE_RequestMIDIAccess DISABLED_RequestMIDIAccess
+#else
+#define MAYBE_RequestMIDIAccess RequestMIDIAccess
+#endif
+IN_PROC_BROWSER_TEST_F(MidiBrowserTest, MAYBE_RequestMIDIAccess) {
   NavigateAndCheckResult("/midi/request_midi_access.html");
 }
 
-IN_PROC_BROWSER_TEST_F(MidiBrowserTest, SubscribeAll) {
+#if BUILDFLAG(IS_FUCHSIA)
+#define MAYBE_SubscribeAll DISABLED_SubscribeAll
+#else
+#define MAYBE_SubscribeAll SubscribeAll
+#endif
+IN_PROC_BROWSER_TEST_F(MidiBrowserTest, MAYBE_SubscribeAll) {
   NavigateAndCheckResult("/midi/subscribe_all.html");
 }
 

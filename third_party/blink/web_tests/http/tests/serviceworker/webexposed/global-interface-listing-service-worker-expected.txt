@@ -10,6 +10,7 @@ interface AbortPaymentEvent : ExtendableEvent
     method respondWith
 interface AbortSignal : EventTarget
     static method abort
+    static method timeout
     attribute @@toStringTag
     getter aborted
     getter onabort
@@ -76,6 +77,21 @@ interface ByteLengthQueuingStrategy
     getter highWaterMark
     getter size
     method constructor
+interface CSPViolationReportBody : ReportBody
+    attribute @@toStringTag
+    getter blockedURL
+    getter columnNumber
+    getter disposition
+    getter documentURL
+    getter effectiveDirective
+    getter lineNumber
+    getter originalPolicy
+    getter referrer
+    getter sample
+    getter sourceFile
+    getter statusCode
+    method constructor
+    method toJSON
 interface CSSSkewX : CSSTransformComponent
     attribute @@toStringTag
     getter ax
@@ -173,10 +189,25 @@ interface CookieStoreManager
     method getSubscriptions
     method subscribe
     method unsubscribe
+interface CoopAccessViolationReportBody : ReportBody
+    attribute @@toStringTag
+    getter columnNumber
+    getter lineNumber
+    getter openeeURL
+    getter openerURL
+    getter otherDocumentURL
+    getter property
+    getter sourceFile
+    getter type
+    method constructor
+    method toJSON
 interface CountQueuingStrategy
     attribute @@toStringTag
     getter highWaterMark
     getter size
+    method constructor
+interface CropTarget
+    attribute @@toStringTag
     method constructor
 interface Crypto
     attribute @@toStringTag
@@ -400,6 +431,26 @@ interface DecompressionStream
     getter readable
     getter writable
     method constructor
+interface DeprecationReportBody : ReportBody
+    attribute @@toStringTag
+    getter anticipatedRemoval
+    getter columnNumber
+    getter id
+    getter lineNumber
+    getter message
+    getter sourceFile
+    method constructor
+    method toJSON
+interface DocumentPolicyViolationReportBody : ReportBody
+    attribute @@toStringTag
+    getter columnNumber
+    getter disposition
+    getter featureId
+    getter lineNumber
+    getter message
+    getter sourceFile
+    method constructor
+    method toJSON
 interface ErrorEvent : Event
     attribute @@toStringTag
     getter colno
@@ -421,7 +472,6 @@ interface Event
     getter currentTarget
     getter defaultPrevented
     getter eventPhase
-    getter path
     getter returnValue
     getter srcElement
     getter target
@@ -486,7 +536,6 @@ interface FetchEvent : ExtendableEvent
     getter preloadResponse
     getter request
     getter resultingClientId
-    method addPerformanceEntry
     method constructor
     method respondWith
 interface File : Blob
@@ -550,6 +599,7 @@ interface FileSystemHandle
     getter kind
     getter name
     method constructor
+    method getUniqueId
     method isSameEntry
     method move
     method queryPermission
@@ -667,6 +717,7 @@ interface IDBIndex
     getter name
     getter objectStore
     getter unique
+    method batchGetAll
     method constructor
     method count
     method get
@@ -696,6 +747,7 @@ interface IDBObjectStore
     getter name
     getter transaction
     method add
+    method batchGetAll
     method clear
     method constructor
     method count
@@ -773,10 +825,18 @@ interface ImageData
     getter storageFormat
     getter width
     method constructor
-    method getSettings
 interface InstallEvent : ExtendableEvent
     attribute @@toStringTag
     method constructor
+interface InterventionReportBody : ReportBody
+    attribute @@toStringTag
+    getter columnNumber
+    getter id
+    getter lineNumber
+    getter message
+    getter sourceFile
+    method constructor
+    method toJSON
 interface Lock
     attribute @@toStringTag
     getter mode
@@ -792,37 +852,6 @@ interface MediaCapabilities
     method constructor
     method decodingInfo
     method encodingInfo
-interface MediaStreamTrack : EventTarget
-    attribute @@toStringTag
-    getter contentHint
-    getter enabled
-    getter id
-    getter kind
-    getter label
-    getter muted
-    getter oncapturehandlechange
-    getter onended
-    getter onmute
-    getter onunmute
-    getter readyState
-    method applyConstraints
-    method clone
-    method constructor
-    method getCapabilities
-    method getCaptureHandle
-    method getConstraints
-    method getSettings
-    method stop
-    setter contentHint
-    setter enabled
-    setter oncapturehandlechange
-    setter onended
-    setter onmute
-    setter onunmute
-interface MediaStreamTrackGenerator : MediaStreamTrack
-    attribute @@toStringTag
-    getter writable
-    method constructor
 interface MessageChannel
     attribute @@toStringTag
     getter port1
@@ -1161,6 +1190,7 @@ interface PerformanceEntry
     getter duration
     getter entryType
     getter name
+    getter navigationId
     getter startTime
     method constructor
     method toJSON
@@ -1189,7 +1219,9 @@ interface PerformanceResourceTiming : PerformanceEntry
     attribute @@toStringTag
     getter connectEnd
     getter connectStart
+    getter contentType
     getter decodedBodySize
+    getter deliveryType
     getter domainLookupEnd
     getter domainLookupStart
     getter encodedBodySize
@@ -1198,14 +1230,15 @@ interface PerformanceResourceTiming : PerformanceEntry
     getter nextHopProtocol
     getter redirectEnd
     getter redirectStart
+    getter renderBlockingStatus
     getter requestStart
     getter responseEnd
     getter responseStart
+    getter responseStatus
     getter secureConnectionStart
     getter serverTiming
     getter transferSize
     getter workerStart
-    getter workerTiming
     method constructor
     method toJSON
 interface PerformanceServerTiming
@@ -1239,6 +1272,16 @@ interface Permissions
     method request
     method requestAll
     method revoke
+interface PermissionsPolicyViolationReportBody : ReportBody
+    attribute @@toStringTag
+    getter columnNumber
+    getter disposition
+    getter featureId
+    getter lineNumber
+    getter message
+    getter sourceFile
+    method constructor
+    method toJSON
 interface PromiseRejectionEvent : Event
     attribute @@toStringTag
     getter promise
@@ -1325,6 +1368,17 @@ interface ReadableStreamDefaultReader
     method constructor
     method read
     method releaseLock
+interface Report
+    attribute @@toStringTag
+    getter body
+    getter type
+    getter url
+    method constructor
+    method toJSON
+interface ReportBody
+    attribute @@toStringTag
+    method constructor
+    method toJSON
 interface ReportingObserver
     attribute @@toStringTag
     method constructor
@@ -1378,7 +1432,6 @@ interface Response
     method text
 interface Scheduler
     attribute @@toStringTag
-    getter currentTaskSignal
     method constructor
     method postTask
 interface SecurityPolicyViolationEvent : Event
@@ -1433,10 +1486,14 @@ interface ServiceWorkerRegistration : EventTarget
     setter onupdatefound
 interface StorageBucket
     attribute @@toStringTag
+    getter caches
+    getter indexedDB
+    getter locks
     method constructor
     method durability
     method estimate
     method expires
+    method getDirectory
     method persisted
     method setExpires
 interface StorageBucketManager
@@ -1546,17 +1603,27 @@ interface TransformStream
     getter readable
     getter writable
     method constructor
+interface TransformStreamDefaultController
+    attribute @@toStringTag
+    getter desiredSize
+    method constructor
+    method enqueue
+    method error
+    method terminate
 interface TrustedHTML
+    static method fromLiteral
     attribute @@toStringTag
     method constructor
     method toJSON
     method toString
 interface TrustedScript
+    static method fromLiteral
     attribute @@toStringTag
     method constructor
     method toJSON
     method toString
 interface TrustedScriptURL
+    static method fromLiteral
     attribute @@toStringTag
     method constructor
     method toJSON
@@ -2207,9 +2274,11 @@ interface WebGL2RenderingContext
     attribute WAIT_FAILED
     attribute ZERO
     getter canvas
+    getter drawingBufferColorSpace
     getter drawingBufferFormat
     getter drawingBufferHeight
     getter drawingBufferWidth
+    getter unpackColorSpace
     method activeTexture
     method attachShader
     method beginQuery
@@ -2438,6 +2507,8 @@ interface WebGL2RenderingContext
     method vertexAttribPointer
     method viewport
     method waitSync
+    setter drawingBufferColorSpace
+    setter unpackColorSpace
 interface WebGLActiveInfo
     attribute @@toStringTag
     getter name
@@ -2758,9 +2829,11 @@ interface WebGLRenderingContext
     attribute VIEWPORT
     attribute ZERO
     getter canvas
+    getter drawingBufferColorSpace
     getter drawingBufferFormat
     getter drawingBufferHeight
     getter drawingBufferWidth
+    getter unpackColorSpace
     method activeTexture
     method attachShader
     method bindAttribLocation
@@ -2901,6 +2974,8 @@ interface WebGLRenderingContext
     method vertexAttrib4fv
     method vertexAttribPointer
     method viewport
+    setter drawingBufferColorSpace
+    setter unpackColorSpace
 interface WebGLSampler
     attribute @@toStringTag
     method constructor
@@ -3003,8 +3078,8 @@ interface WindowClient : Client
     method navigate
 interface WorkerGlobalScope : EventTarget
     attribute @@toStringTag
-    getter addressSpace
     getter caches
+    getter crossOriginEmbedderPolicy
     getter crossOriginIsolated
     getter crypto
     getter fonts

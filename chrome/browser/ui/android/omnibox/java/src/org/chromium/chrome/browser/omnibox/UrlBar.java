@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@ import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.accessibility.AccessibilityEvent;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.TextView;
@@ -41,7 +42,9 @@ import org.chromium.base.SysUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.compat.ApiHelperForO;
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.chrome.browser.back_press.BackPressManager;
 import org.chromium.components.browser_ui.share.ShareHelper;
+import org.chromium.components.browser_ui.util.FirstDrawDetector;
 import org.chromium.ui.KeyboardVisibilityDelegate;
 import org.chromium.ui.base.WindowDelegate;
 
@@ -61,7 +64,12 @@ public abstract class UrlBar extends AutocompleteEditText {
     private static final int MAX_DISPLAYABLE_LENGTH = 4000;
     private static final int MAX_DISPLAYABLE_LENGTH_LOW_END = 1000;
 
-    private boolean mFirstDrawComplete;
+    // Stylus handwriting: Setting this ime option instructs stylus writing service to restrict
+    // capturing writing events slightly outside the Url bar area. This is needed to prevent stylus
+    // handwriting in inputs in web content area that are very close to url bar area, from being
+    // committed to Url bar's Edit text. Ex: google.com search field.
+    private static final String IME_OPTION_RESTRICT_STYLUS_WRITING_AREA =
+            "restrictDirectWritingArea=true";
 
     /**
      * The text direction of the URL or query: LAYOUT_DIRECTION_LOCALE, LAYOUT_DIRECTION_LTR, or
@@ -98,6 +106,7 @@ public abstract class UrlBar extends AutocompleteEditText {
     private int mPreviousScrollResultXPosition;
     private float mPreviousScrollFontSize;
     private boolean mPreviousScrollWasRtl;
+    private CharSequence mVisibleTextPrefixHint;
 
     // Used as a hint to indicate the text may contain an ellipsize span.  This will be true if an
     // ellispize span was applied the last time the text changed.  A true value here does not
@@ -206,6 +215,14 @@ public abstract class UrlBar extends AutocompleteEditText {
         // the first draw.
         setFocusable(false);
         setFocusableInTouchMode(false);
+        // Use a global draw instead of View#onDraw in case this View is not visible.
+        FirstDrawDetector.waitForFirstDraw(this, () -> {
+            // We have now avoided the first draw problem (see the comments above) so we want to
+            // make the URL bar focusable so that touches etc. activate it.
+            setFocusable(mAllowFocus);
+            setFocusableInTouchMode(mAllowFocus);
+        });
+
         setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI
                 | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
 
@@ -240,10 +257,9 @@ public abstract class UrlBar extends AutocompleteEditText {
                     }
                 }, ThreadUtils.getUiThreadHandler());
         mGestureDetector.setOnDoubleTapListener(null);
-        mKeyboardHideHelper = new KeyboardHideHelper(this, new Runnable() {
-            @Override
-            public void run() {
-                if (mUrlBarDelegate != null) mUrlBarDelegate.backKeyPressed();
+        mKeyboardHideHelper = new KeyboardHideHelper(this, () -> {
+            if (mUrlBarDelegate != null && !BackPressManager.isEnabled()) {
+                mUrlBarDelegate.backKeyPressed();
             }
         });
 
@@ -273,6 +289,10 @@ public abstract class UrlBar extends AutocompleteEditText {
         mTextContextMenuDelegate = delegate;
     }
 
+    /**
+     * When predictive back gesture is enabled, keycode_back will not be sent from Android OS
+     * starting from T. {@link LocationBarMediator} will intercept the back press instead.
+     */
     @Override
     public boolean onKeyPreIme(int keyCode, KeyEvent event) {
         if (KeyEvent.KEYCODE_BACK == keyCode && event.getAction() == KeyEvent.ACTION_UP) {
@@ -304,6 +324,12 @@ public abstract class UrlBar extends AutocompleteEditText {
         fixupTextDirection();
     }
 
+    @Override
+    public void onFinishInflate() {
+        super.onFinishInflate();
+        setPrivateImeOptions(IME_OPTION_RESTRICT_STYLUS_WRITING_AREA);
+    }
+
     /**
      * Sets whether this {@link UrlBar} should be focusable.
      */
@@ -311,6 +337,14 @@ public abstract class UrlBar extends AutocompleteEditText {
         mAllowFocus = allowFocus;
         setFocusable(allowFocus);
         setFocusableInTouchMode(allowFocus);
+    }
+
+    /**
+     * Sends an accessibility event to the URL bar to request accessibility focus on it (e.g. for
+     * TalkBack).
+     */
+    public void requestAccessibilityFocus() {
+        sendAccessibilityEvent(AccessibilityEvent.TYPE_VIEW_FOCUSED);
     }
 
     /**
@@ -467,16 +501,6 @@ public abstract class UrlBar extends AutocompleteEditText {
     @Override
     public void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-
-        if (!mFirstDrawComplete) {
-            mFirstDrawComplete = true;
-
-            // We have now avoided the first draw problem (see the comment in
-            // the constructor) so we want to make the URL bar focusable so that
-            // touches etc. activate it.
-            setFocusable(mAllowFocus);
-            setFocusableInTouchMode(mAllowFocus);
-        }
 
         // Notify listeners if the URL's direction has changed.
         updateUrlDirection();
@@ -651,6 +675,30 @@ public abstract class UrlBar extends AutocompleteEditText {
     }
 
     /**
+     * Return a hint of the currently visible text displayed on screen.
+     *
+     * The hint represents the substring of the full text from the first character to the last
+     * visible character displayed on screen. Depending on the length of this prefix, not all of the
+     * characters will e displayed on screen.
+     *
+     * This will null if:
+     * <ul>
+     *     <li>The width constraints have changed since the hint was calculated.</li>
+     *     <li>The hint could not be correctly calculated.</li>
+     *     <li>The visible text is narrower than the viewport.</li>
+     * </ul>
+     */
+    @Nullable
+    public CharSequence getVisibleTextPrefixHint() {
+        if (getVisibleMeasuredViewportWidth() != mPreviousScrollViewWidth) return null;
+        return mVisibleTextPrefixHint;
+    }
+
+    private int getVisibleMeasuredViewportWidth() {
+        return getMeasuredWidth() - (getPaddingLeft() + getPaddingRight());
+    }
+
+    /**
      * Scrolls the omnibox text to a position determined by the current scroll type.
      *
      * @see #setScrollState(int, int)
@@ -685,7 +733,7 @@ public abstract class UrlBar extends AutocompleteEditText {
         float currentTextSize = getTextSize();
         boolean currentIsRtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
 
-        int measuredWidth = getMeasuredWidth() - (getPaddingLeft() + getPaddingRight());
+        int measuredWidth = getVisibleMeasuredViewportWidth();
         if (scrollType == mPreviousScrollType && TextUtils.equals(text, mPreviousScrollText)
                 && measuredWidth == mPreviousScrollViewWidth
                 // Font size is float but it changes in discrete range (eg small font, big font),
@@ -720,6 +768,10 @@ public abstract class UrlBar extends AutocompleteEditText {
      * Scrolls the omnibox text to show the very beginning of the text entered.
      */
     private void scrollToBeginning() {
+        // Clearly the visible text hint as this path is not used for normal browser navigation.
+        // If that changes in the future, update this to actually calculate the visible text hints.
+        mVisibleTextPrefixHint = null;
+
         Editable text = getText();
         float scrollPos = 0f;
         if (TextUtils.isEmpty(text)) {
@@ -745,12 +797,13 @@ public abstract class UrlBar extends AutocompleteEditText {
      */
     private void scrollToTLD() {
         Editable url = getText();
-        int measuredWidth = getMeasuredWidth() - (getPaddingLeft() + getPaddingRight());
+        int measuredWidth = getVisibleMeasuredViewportWidth();
+        int urlTextLength = url.length();
 
         Layout textLayout = getLayout();
         assert getLayout().getLineCount() == 1;
-        final int originEndIndex = Math.min(mOriginEndIndex, url.length());
-        if (mOriginEndIndex > url.length()) {
+        final int originEndIndex = Math.min(mOriginEndIndex, urlTextLength);
+        if (mOriginEndIndex > urlTextLength) {
             // If discovered locally, please update crbug.com/859219 with the steps to reproduce.
             assert false : "Attempting to scroll past the end of the URL: " + url + ", end index: "
                            + mOriginEndIndex;
@@ -758,7 +811,7 @@ public abstract class UrlBar extends AutocompleteEditText {
         float endPointX = textLayout.getPrimaryHorizontal(originEndIndex);
         // Compare the position offset of the last character and the character prior to determine
         // the LTR-ness of the final component of the URL.
-        float priorToEndPointX = url.length() == 1
+        float priorToEndPointX = urlTextLength == 1
                 ? 0
                 : textLayout.getPrimaryHorizontal(Math.max(0, originEndIndex - 1));
 
@@ -766,8 +819,51 @@ public abstract class UrlBar extends AutocompleteEditText {
         if (priorToEndPointX < endPointX) {
             // LTR
             scrollPos = Math.max(0, endPointX - measuredWidth);
+            if (endPointX > measuredWidth) {
+                // To avoid issues where a small portion of the character following originEndIndex
+                // is visible on screen, be more conservative and extend the visual hint by an
+                // additional character (this was not reproducible locally at time of authoring, but
+                // the complexities of font rendering / measurement suggest a conservative approach
+                // at the start).
+                //
+                // While this approach uses an additional character to ensure a conservative and
+                // more reliable hint signal, this could also use pixel based padding to get the
+                // visible character XX pixels past the end of the viewport. Potentially, utilizing
+                // both the additional character and pixel based padding and using the more
+                // conservative of the two could be done if this current approach is not always
+                // reliable.
+                mVisibleTextPrefixHint =
+                        url.subSequence(0, Math.min(originEndIndex + 1, urlTextLength));
+            } else {
+                int finalVisibleCharIndex = textLayout.getOffsetForHorizontal(0, measuredWidth);
+                if (finalVisibleCharIndex == urlTextLength
+                        && textLayout.getPrimaryHorizontal(finalVisibleCharIndex)
+                                <= measuredWidth) {
+                    // Only store the visibility hint if the text is wider than the viewport. Text
+                    // narrower than the viewport is not a useful hint because a consumer would not
+                    // understand if a subsequent character would be visible on screen or not.
+                    //
+                    // If issues arise where text that is very close to the visible viewport is
+                    // causing issues with the reliability of visible hint, consider checking that
+                    // the measured text is greater than the measured width plus a small additional
+                    // padding.
+                    mVisibleTextPrefixHint = null;
+                } else {
+                    // To avoid issues where a small portion of the character following
+                    // finalVisibleCharIndex is visible on screen, be more conservative and extend
+                    // the visual hint by an additional character. In testing,
+                    // getOffsetForHorizontal returns the last fully visible character on screen.
+                    // By extending the offset by an additional character, the risk is of having
+                    // visual artifacts from the subsequence character on screen is mitigated.
+                    mVisibleTextPrefixHint =
+                            url.subSequence(0, Math.min(finalVisibleCharIndex + 1, urlTextLength));
+                }
+            }
         } else {
             // RTL
+            // Clear the visible text hint due to the complexities of Bi-Di text handling. If RTL or
+            // Bi-Di URLs become more prevalant, update this to correctly calculate the hint.
+            mVisibleTextPrefixHint = null;
 
             // To handle BiDirectional text, search backward from the two existing offsets to find
             // the first LTR character.  Ensure the final RTL component of the domain is visible
@@ -806,8 +902,8 @@ public abstract class UrlBar extends AutocompleteEditText {
             scrollDisplayTextInternal(mScrollType);
         } else if (mPreviousWidth != (right - left)) {
             scrollDisplayTextInternal(mScrollType);
-            mPreviousWidth = right - left;
         }
+        mPreviousWidth = right - left;
     }
 
     @Override
@@ -834,6 +930,11 @@ public abstract class UrlBar extends AutocompleteEditText {
         if (DEBUG) Log.i(TAG, "setText -- text: %s", text);
         super.setText(text, type);
         fixupTextDirection();
+
+        if (mVisibleTextPrefixHint != null
+                && (text == null || TextUtils.indexOf(text, mVisibleTextPrefixHint) != 0)) {
+            mVisibleTextPrefixHint = null;
+        }
     }
 
     private void limitDisplayableLength() {

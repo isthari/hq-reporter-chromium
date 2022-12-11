@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,6 +42,7 @@ class Feature {
     WEBUI_CONTEXT,
     WEBUI_UNTRUSTED_CONTEXT,
     LOCK_SCREEN_EXTENSION_CONTEXT,
+    OFFSCREEN_EXTENSION_CONTEXT,
   };
 
   // The platforms the feature is supported in.
@@ -143,12 +144,24 @@ class Feature {
     return IsAvailableToContext(extension, context, url, GetCurrentPlatform(),
                                 context_id);
   }
-  virtual Availability IsAvailableToContext(const Extension* extension,
-                                            Context context,
-                                            const GURL& url,
-                                            Platform platform,
-                                            int context_id) const = 0;
 
+  Availability IsAvailableToContext(const Extension* extension,
+                                    Context context,
+                                    const GURL& url,
+                                    Platform platform,
+                                    int context_id) const {
+    return IsAvailableToContextImpl(extension, context, url, platform,
+                                    context_id, true);
+  }
+
+  Availability IsAvailableToContextIgnoringDevMode(const Extension* extension,
+                                                   Context context,
+                                                   const GURL& url,
+                                                   Platform platform,
+                                                   int context_id) const {
+    return IsAvailableToContextImpl(extension, context, url, platform,
+                                    context_id, false);
+  }
   // Returns true if the feature is available to the current environment,
   // without needing to know information about an Extension or any other
   // contextual information. Typically used when the Feature is purely
@@ -164,6 +177,16 @@ class Feature {
   virtual bool IsIdInAllowlist(const HashedExtensionId& hashed_id) const = 0;
 
  protected:
+  friend class SimpleFeature;
+  friend class ComplexFeature;
+  virtual Availability IsAvailableToContextImpl(
+      const Extension* extension,
+      Context context,
+      const GURL& url,
+      Platform platform,
+      int context_id,
+      bool check_developer_mode) const = 0;
+
   std::string name_;
   std::string alias_;
   std::string source_;

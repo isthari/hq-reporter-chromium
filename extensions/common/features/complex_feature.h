@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,17 +38,20 @@ class ComplexFeature : public Feature {
                                      int manifest_version,
                                      Platform platform,
                                      int context_id) const override;
-  Availability IsAvailableToContext(const Extension* extension,
-                                    Context context,
-                                    const GURL& url,
-                                    Platform platform,
-                                    int context_id) const override;
   Availability IsAvailableToEnvironment(int context_id) const override;
   bool IsIdInBlocklist(const HashedExtensionId& hashed_id) const override;
   bool IsIdInAllowlist(const HashedExtensionId& hashed_id) const override;
 
  protected:
   // Feature:
+  Availability IsAvailableToContextImpl(
+      const Extension* extension,
+      Context context,
+      const GURL& url,
+      Platform platform,
+      int context_id,
+      bool check_developer_mode) const override;
+
   bool IsInternal() const override;
 
  private:

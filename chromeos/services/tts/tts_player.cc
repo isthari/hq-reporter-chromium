@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@ TtsPlayer::TtsPlayer(
     mojo::PendingRemote<media::mojom::AudioStreamFactory> factory,
     const media::AudioParameters& params)
     : output_device_(std::move(factory), params, this, std::string()),
-      task_runner_(base::ThreadTaskRunnerHandle::Get()) {}
+      task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()) {}
 
 TtsPlayer::~TtsPlayer() = default;
 

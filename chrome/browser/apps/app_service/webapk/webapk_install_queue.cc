@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,16 +12,15 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/apps/app_service/webapk/webapk_install_task.h"
 #include "chrome/browser/profiles/profile.h"
 
 namespace apps {
 
 // Queue of WebApks to be installed or updated.
-WebApkInstallQueue::WebApkInstallQueue(Profile* profile)
-    : profile_(profile), connection_ready_(false) {
+WebApkInstallQueue::WebApkInstallQueue(Profile* profile) : profile_(profile) {
   arc::ArcServiceManager* arc_service_manager = arc::ArcServiceManager::Get();
   DCHECK(arc_service_manager);
   arc_service_manager->arc_bridge_service()->webapk()->AddObserver(this);
@@ -41,7 +40,7 @@ void WebApkInstallQueue::InstallOrUpdate(const std::string& app_id) {
 }
 
 void WebApkInstallQueue::PostMaybeStartNext() {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&WebApkInstallQueue::MaybeStartNext,
                                 weak_ptr_factory_.GetWeakPtr()));
 }

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -91,7 +91,7 @@ class PolicyRecommendationRestorerTest : public NoSessionAshTestBase {
     EXPECT_TRUE(pref->HasUserSetting());
     const base::Value* value = pref->GetValue();
     ASSERT_TRUE(value);
-    EXPECT_TRUE(expected_value.Equals(value));
+    EXPECT_EQ(expected_value, *value);
   }
 
   void VerifyPrefsFollowUser() const {
@@ -117,7 +117,7 @@ class PolicyRecommendationRestorerTest : public NoSessionAshTestBase {
     EXPECT_FALSE(pref->HasUserSetting());
     const base::Value* value = pref->GetValue();
     ASSERT_TRUE(value);
-    EXPECT_TRUE(expected_value.Equals(value));
+    EXPECT_EQ(expected_value, *value);
   }
 
   void VerifyPrefsFollowRecommendation() const {

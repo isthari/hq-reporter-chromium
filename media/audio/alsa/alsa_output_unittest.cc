@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@
 #include "media/audio/mock_audio_source_callback.h"
 #include "media/audio/test_audio_thread.h"
 #include "media/base/audio_timestamp_helper.h"
+#include "media/base/channel_layout.h"
 #include "media/base/data_buffer.h"
 #include "media/base/seekable_buffer.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -94,8 +95,10 @@ class AlsaPcmOutputStreamTest : public testing::Test {
 
   AlsaPcmOutputStream* CreateStream(ChannelLayout layout,
                                     int32_t samples_per_packet) {
-    AudioParameters params(kTestFormat, layout, kTestSampleRate,
-                           samples_per_packet);
+    AudioParameters params(
+        kTestFormat,
+        ChannelLayoutConfig(layout, ChannelLayoutToChannelCount(layout)),
+        kTestSampleRate, samples_per_packet);
     return new AlsaPcmOutputStream(kTestDeviceName,
                                    params,
                                    &mock_alsa_wrapper_,
@@ -382,7 +385,8 @@ TEST_F(AlsaPcmOutputStreamTest, StartStop) {
   EXPECT_CALL(mock_alsa_wrapper_, PcmDelay(kFakeHandle, _))
       .WillRepeatedly(DoAll(SetArgPointee<1>(0), Return(0)));
   EXPECT_CALL(mock_callback,
-              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(), 0, _))
+              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(),
+                         AudioGlitchInfo(), _))
       .WillRepeatedly(DoAll(ClearBuffer(), Return(kTestFramesPerPacket)));
   EXPECT_CALL(mock_alsa_wrapper_, PcmWritei(kFakeHandle, _, _))
       .WillRepeatedly(Return(kTestFramesPerPacket));
@@ -545,7 +549,8 @@ TEST_F(AlsaPcmOutputStreamTest, BufferPacket) {
 
   // Return a partially filled packet.
   EXPECT_CALL(mock_callback,
-              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(), 0, _))
+              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(),
+                         AudioGlitchInfo(), _))
       .WillOnce(DoAll(ClearBuffer(), Return(kTestFramesPerPacket / 2)));
 
   bool source_exhausted;
@@ -575,7 +580,8 @@ TEST_F(AlsaPcmOutputStreamTest, BufferPacket_Negative) {
   EXPECT_CALL(mock_alsa_wrapper_, PcmAvailUpdate(_))
       .WillRepeatedly(Return(0));  // Buffer is full.
   EXPECT_CALL(mock_callback,
-              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(), 0, _))
+              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(),
+                         AudioGlitchInfo(), _))
       .WillOnce(DoAll(ClearBuffer(), Return(kTestFramesPerPacket / 2)));
 
   bool source_exhausted;
@@ -603,7 +609,8 @@ TEST_F(AlsaPcmOutputStreamTest, BufferPacket_Underrun) {
   EXPECT_CALL(mock_alsa_wrapper_, PcmAvailUpdate(_))
       .WillRepeatedly(Return(0));  // Buffer is full.
   EXPECT_CALL(mock_callback,
-              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(), 0, _))
+              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(),
+                         AudioGlitchInfo(), _))
       .WillOnce(DoAll(ClearBuffer(), Return(kTestFramesPerPacket / 2)));
 
   bool source_exhausted;

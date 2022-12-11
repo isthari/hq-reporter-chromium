@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,10 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/component_updater/cros_component_manager.h"
-#include "chromeos/dbus/upstart/upstart_client.h"
+#include "chromeos/ash/components/dbus/upstart/upstart_client.h"
 #include "components/component_updater/component_updater_service.h"
 
 namespace crosapi {
@@ -29,19 +30,27 @@ class BrowserLoader {
   // Constructor for testing.
   BrowserLoader(scoped_refptr<component_updater::CrOSComponentManager> manager,
                 component_updater::ComponentUpdateService* updater,
-                chromeos::UpstartClient* upstart_client);
+                ash::UpstartClient* upstart_client);
 
   BrowserLoader(const BrowserLoader&) = delete;
   BrowserLoader& operator=(const BrowserLoader&) = delete;
 
   virtual ~BrowserLoader();
 
+  // Returns true if the browser loader will try to load stateful lacros-chrome
+  // builds from the component manager. This may return false if the user
+  // specifies the lacros-chrome binary on the command line or the user has
+  // forced the lacros selection to rootfs.
+  // If this returns false subsequent loads of lacros-chrome will never load
+  // a newer lacros-chrome version and update checking can be skipped.
+  static bool WillLoadStatefulComponentBuilds();
+
   // Starts to load lacros-chrome binary or the rootfs lacros-chrome binary.
   // |callback| is called on completion with the path to the lacros-chrome on
   // success, or an empty filepath on failure, and the loaded lacros selection
   // which is either 'rootfs' or 'stateful'.
-  using LoadCompletionCallback =
-      base::OnceCallback<void(const base::FilePath&, LacrosSelection)>;
+  using LoadCompletionCallback = base::OnceCallback<
+      void(const base::FilePath&, LacrosSelection, base::Version)>;
   virtual void Load(LoadCompletionCallback callback);
 
   // Starts to unload lacros-chrome binary.
@@ -91,6 +100,10 @@ class BrowserLoader {
   void OnLoadComplete(LoadCompletionCallback callback,
                       component_updater::CrOSComponentManager::Error error,
                       const base::FilePath& path);
+  void FinishOnLoadComplete(LoadCompletionCallback callback,
+                            const base::FilePath& path,
+                            LacrosSelection selection,
+                            bool lacros_binary_exists);
 
   // Unloading hops threads. This is called after we check whether Lacros was
   // installed and maybe clean up the user directory.
@@ -108,8 +121,15 @@ class BrowserLoader {
   component_updater::ComponentUpdateService* const component_update_service_;
 
   // Pointer held to `UpstartClient` for testing purposes.
-  // Otherwise, the lifetime is the same as `chromeos::UpstartClient::Get()`.
-  chromeos::UpstartClient* const upstart_client_;
+  // Otherwise, the lifetime is the same as `ash::UpstartClient::Get()`.
+  ash::UpstartClient* const upstart_client_;
+
+  // Time when the lacros component was loaded.
+  base::TimeTicks lacros_start_load_time_;
+
+  // The bundled rootfs lacros-chrome binary version. This is set after the
+  // first async call that checks the installed rootfs lacros version number.
+  absl::optional<base::Version> rootfs_lacros_version_;
 
   base::WeakPtrFactory<BrowserLoader> weak_factory_{this};
 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,7 @@ namespace {
 
 int RunHelper(base::TestSuite* testSuite) {
   base::MessagePumpType pump_type = base::MessagePumpType::IO;
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   pump_type = base::MessagePumpType::UI;
 #endif
   base::SingleThreadTaskExecutor executor(pump_type);

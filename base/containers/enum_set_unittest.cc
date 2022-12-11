@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -232,11 +232,28 @@ TEST_F(EnumSetTest, HasAll) {
   EXPECT_TRUE(enums3.HasAll(enums3));
 }
 
+TEST_F(EnumSetTest, HasAny) {
+  const TestEnumSet enums1(TestEnum::TEST_4, TestEnum::TEST_5);
+  const TestEnumSet enums2(TestEnum::TEST_3, TestEnum::TEST_4);
+  const TestEnumSet enums3(TestEnum::TEST_1, TestEnum::TEST_2);
+  EXPECT_TRUE(enums1.HasAny(enums1));
+  EXPECT_TRUE(enums1.HasAny(enums2));
+  EXPECT_FALSE(enums1.HasAny(enums3));
+
+  EXPECT_TRUE(enums2.HasAny(enums1));
+  EXPECT_TRUE(enums2.HasAny(enums2));
+  EXPECT_FALSE(enums2.HasAny(enums3));
+
+  EXPECT_FALSE(enums3.HasAny(enums1));
+  EXPECT_FALSE(enums3.HasAny(enums2));
+  EXPECT_TRUE(enums3.HasAny(enums3));
+}
+
 TEST_F(EnumSetTest, Iterators) {
   const TestEnumSet enums1(TestEnum::TEST_4, TestEnum::TEST_5);
   TestEnumSet enums2;
-  for (TestEnumSet::Iterator it = enums1.begin(); it != enums1.end(); it++) {
-    enums2.Put(*it);
+  for (TestEnum e : enums1) {
+    enums2.Put(e);
   }
   EXPECT_EQ(enums2, enums1);
 }

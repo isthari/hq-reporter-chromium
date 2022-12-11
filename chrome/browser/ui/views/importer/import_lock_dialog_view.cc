@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,8 @@
 #include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/importer/importer_lock_dialog.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
@@ -55,7 +53,7 @@ ImportLockDialogView::ImportLockDialogView(
 
   auto done_callback = [](ImportLockDialogView* dialog, bool accepted) {
     if (dialog->callback_) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(dialog->callback_), accepted));
     }
   };
@@ -79,7 +77,6 @@ ImportLockDialogView::ImportLockDialogView(
   description_label->SetMultiLine(true);
   description_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   AddChildView(description_label);
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::IMPORT_LOCK);
 }
 
 ImportLockDialogView::~ImportLockDialogView() = default;

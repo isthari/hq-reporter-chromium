@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -1535,7 +1535,7 @@ LayoutListItem DIV id="mc"
 LayoutNGListItem DIV id="mc"
   +--LayoutMultiColumnFlowThread (anonymous)
   |  +--LayoutNGOutsideListMarker ::marker
-  |  |  +--LayoutText (anonymous) "\u2022 "
+  |  |  +--LayoutTextFragment (anonymous) ("\u2022 ")
   +--LayoutMultiColumnSet (anonymous)
 )DUMP",
               ToSimpleLayoutTree(container));
@@ -1698,7 +1698,8 @@ TEST_F(MultiColumnRenderingTest, LegacyMulticolWithMathMLAndAbspos) {
   // Disable LayoutNGBlockFragmentation, so that multicol uses legacy layout.
   ScopedLayoutNGBlockFragmentationForTest layout_ng_block_fragmentation(false);
 
-  // Enable MathML, which forces LayoutNG even in legacy multicol.
+  // Enable MathML. This will not actually create MathML objects, since we're
+  // inside legacy multicol. But at the very least it shouldn't crash.
   ScopedMathMLCoreForTest mathml_core(true);
   ScopedLayoutNGForTest layout_ng(true);
 
@@ -1710,17 +1711,29 @@ TEST_F(MultiColumnRenderingTest, LegacyMulticolWithMathMLAndAbspos) {
       "<mtext style='position: fixed'></mtext>"
       "</math>"
       "</section>");
+}
 
-  Element* multicol = GetDocument().QuerySelector("section");
-  EXPECT_EQ(R"DUMP(
-LayoutBlockFlow SECTION style="position: relative; column-count: 1"
-  +--LayoutMultiColumnFlowThread (anonymous)
-  |  +--LayoutNGMathMLBlock math
-  |  |  +--LayoutNGMathMLBlockFlow mtext style="position: absolute"
-  |  |  +--LayoutNGMathMLBlockFlow mtext style="position: fixed"
-  +--LayoutMultiColumnSet (anonymous)
-)DUMP",
-            ToSimpleLayoutTree(*multicol->GetLayoutObject()));
+TEST_F(MultiColumnRenderingTest, LegacyMulticolWithTHeadContainingFixedpos) {
+  // Disable LayoutNGBlockFragmentation, so that multicol uses legacy layout.
+  ScopedLayoutNGBlockFragmentationForTest layout_ng_block_fragmentation(false);
+
+  // Enable MathML. This will not actually create MathML objects, since we're
+  // inside legacy multicol. But at the very least it shouldn't crash.
+  ScopedMathMLCoreForTest mathml_core(true);
+  ScopedLayoutNGForTest layout_ng(true);
+
+  // The table-header-group is a LayoutTableSection and contains position:fixed
+  // due to transform. But LayoutTableSection is not a LayoutBlock, so the
+  // ContainingBlock() of the fixed element is the anonymous LayoutTable.
+  // This combination should not crash.
+  SetBodyContent(
+      "<div style='column-count: 1'>"
+      "<div style='display: table-header-group; transform: scale(1)'>"
+      "<math style='position: absolute'>"
+      "<mtext style='position: fixed'></mtext>"
+      "</math>"
+      "</div>"
+      "</div>");
 }
 
 }  // anonymous namespace

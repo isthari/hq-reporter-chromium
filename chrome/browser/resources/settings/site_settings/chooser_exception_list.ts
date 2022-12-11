@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,19 +7,20 @@
  * 'chooser-exception-list' shows a list of chooser exceptions for a given
  * chooser type.
  */
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 import 'chrome://resources/polymer/v3_0/paper-tooltip/paper-tooltip.js';
-import '../settings_shared_css.js';
+import '../settings_shared.css.js';
 import '../i18n_setup.js';
 import './chooser_exception_list_entry.js';
 
-import {I18nMixin} from 'chrome://resources/js/i18n_mixin.js';
-import {ListPropertyUpdateMixin} from 'chrome://resources/js/list_property_update_mixin.js';
-import {WebUIListenerMixin} from 'chrome://resources/js/web_ui_listener_mixin.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {ListPropertyUpdateMixin} from 'chrome://resources/cr_elements/list_property_update_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
 import {PaperTooltipElement} from 'chrome://resources/polymer/v3_0/paper-tooltip/paper-tooltip.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
+import {getTemplate} from './chooser_exception_list.html.js';
 import {ChooserType, ContentSettingsTypes} from './constants.js';
 import {SiteSettingsMixin} from './site_settings_mixin.js';
 import {ChooserException, RawChooserException, SiteException} from './site_settings_prefs_browser_proxy.js';
@@ -31,7 +32,7 @@ export interface ChooserExceptionListElement {
 }
 
 const ChooserExceptionListElementBase = ListPropertyUpdateMixin(
-    SiteSettingsMixin(WebUIListenerMixin(I18nMixin(PolymerElement))));
+    SiteSettingsMixin(WebUiListenerMixin(I18nMixin(PolymerElement))));
 
 export class ChooserExceptionListElement extends
     ChooserExceptionListElementBase {
@@ -40,7 +41,7 @@ export class ChooserExceptionListElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -76,21 +77,21 @@ export class ChooserExceptionListElement extends
     };
   }
 
-  chooserExceptions: Array<ChooserException>;
+  chooserExceptions: ChooserException[];
   chooserType: ChooserType;
   private emptyListMessage_: string;
   private hasIncognito_: boolean;
   private tooltipText_: string;
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
-    this.addWebUIListener(
+    this.addWebUiListener(
         'contentSettingChooserPermissionChanged',
         (category: ContentSettingsTypes, chooserType: ChooserType) => {
           this.objectWithinChooserTypeChanged_(category, chooserType);
         });
-    this.addWebUIListener(
+    this.addWebUiListener(
         'onIncognitoStatusChanged',
         (hasIncognito: boolean) =>
             this.onIncognitoStatusChanged_(hasIncognito));
@@ -194,7 +195,7 @@ export class ChooserExceptionListElement extends
   /**
    * Process the chooser exception list returned from the native layer.
    */
-  private processExceptions_(exceptionList: Array<RawChooserException>) {
+  private processExceptions_(exceptionList: RawChooserException[]) {
     const exceptions = exceptionList.map(exception => {
       const sites = exception.sites.map(site => this.expandSiteException(site));
       return Object.assign(exception, {sites});

@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright 2019 The Chromium Authors. All rights reserved.
-     Use of this source code is governed by a BSD-style license that can be
-     found in the LICENSE file. -->
+<!--
+Copyright 2019 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
 
 <org.chromium.chrome.browser.toolbar.top.StartSurfaceToolbarView
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -12,15 +14,6 @@
     android:layout_height="@dimen/toolbar_height_no_shadow"
     android:clickable="true"
     android:visibility="gone">
-
-    <org.chromium.chrome.browser.toolbar.HomeButton
-        android:id="@+id/home_button_on_tab_switcher"
-        style="@style/ToolbarButton"
-        android:layout_centerVertical="true"
-        android:contentDescription="@string/accessibility_toolbar_btn_home"
-        android:src="@drawable/btn_toolbar_home"
-        android:visibility="gone"
-        app:tint="@color/default_icon_color_tint_list" />
 
     <ViewStub
         android:id="@+id/incognito_tabs_stub"

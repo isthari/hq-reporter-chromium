@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,11 +41,14 @@ class QuickPairMetricsLogger : public PairerBroker::Observer,
 
  private:
   // PairerBroker::Observer
+  void OnPairingStart(scoped_refptr<Device> device) override;
+  void OnHandshakeComplete(scoped_refptr<Device> device) override;
   void OnDevicePaired(scoped_refptr<Device> device) override;
-  void OnPairFailure(scoped_refptr<Device> device,
-                     PairFailure failure) override;
   void OnAccountKeyWrite(scoped_refptr<Device> device,
                          absl::optional<AccountKeyFailure> error) override;
+  void OnPairingComplete(scoped_refptr<Device> device) override;
+  void OnPairFailure(scoped_refptr<Device> device,
+                     PairFailure failure) override;
 
   // UIBroker::Observer
   void OnDiscoveryAction(scoped_refptr<Device> device,

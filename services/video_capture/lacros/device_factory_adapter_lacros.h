@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,10 +38,18 @@ class DeviceFactoryAdapterLacros : public DeviceFactory {
   void CreateDevice(const std::string& device_id,
                     mojo::PendingReceiver<mojom::Device> device_receiver,
                     CreateDeviceCallback callback) override;
+  void CreateDeviceInProcess(const std::string& device_id,
+                             CreateDeviceInProcessCallback callback) override;
+  void CreateDeviceInternal(
+      const std::string& device_id,
+      absl::optional<mojo::PendingReceiver<mojom::Device>> device_receiver,
+      absl::optional<CreateDeviceCallback> create_callback,
+      absl::optional<CreateDeviceInProcessCallback> create_in_process_callback,
+      bool create_in_process);
+  void StopDeviceInProcess(const std::string device_id) override;
   void AddSharedMemoryVirtualDevice(
       const media::VideoCaptureDeviceInfo& device_info,
       mojo::PendingRemote<mojom::Producer> producer,
-      bool send_buffer_handles_to_producer_as_raw_file_descriptors,
       mojo::PendingReceiver<mojom::SharedMemoryVirtualDevice>
           virtual_device_receiver) override;
   void AddTextureVirtualDevice(

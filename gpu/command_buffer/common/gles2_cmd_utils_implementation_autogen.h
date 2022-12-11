@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -613,10 +613,6 @@ static const GLES2Util::EnumToString enum_to_string_table[] = {
         "GL_RELATIVE_SMOOTH_QUADRATIC_CURVE_TO_NV",
     },
     {
-        0x1,
-        "GL_CA_LAYER_EDGE_LEFT_CHROMIUM",
-    },
-    {
         0x10,
         "GL_SMOOTH_CUBIC_CURVE_TO_NV",
     },
@@ -861,10 +857,6 @@ static const GLES2Util::EnumToString enum_to_string_table[] = {
         "GL_EXTENSIONS",
     },
     {
-        0x2,
-        "GL_CA_LAYER_EDGE_RIGHT_CHROMIUM",
-    },
-    {
         0x20,
         "GL_GLYPH_VERTICAL_BEARING_X_BIT_NV",
     },
@@ -965,20 +957,12 @@ static const GLES2Util::EnumToString enum_to_string_table[] = {
         "GL_CONTEXT_LOST",
     },
     {
-        0x4,
-        "GL_CA_LAYER_EDGE_BOTTOM_CHROMIUM",
-    },
-    {
         0x40,
         "GL_GLYPH_VERTICAL_BEARING_Y_BIT_NV",
     },
     {
         0x40000000,
         "GL_MULTISAMPLE_BUFFER_BIT6_QCOM",
-    },
-    {
-        0x6000,
-        "GL_SCANOUT_CHROMIUM",
     },
     {
         0x6003,
@@ -1035,10 +1019,6 @@ static const GLES2Util::EnumToString enum_to_string_table[] = {
     {
         0x78FD,
         "GL_RGB_YCBCR_P010_CHROMIUM",
-    },
-    {
-        0x8,
-        "GL_CA_LAYER_EDGE_TOP_CHROMIUM",
     },
     {
         0x80,
@@ -3909,6 +3889,10 @@ static const GLES2Util::EnumToString enum_to_string_table[] = {
         "GL_LAST_VERTEX_CONVENTION_OES",
     },
     {
+        0x8E4F,
+        "GL_PROVOKING_VERTEX_ANGLE",
+    },
+    {
         0x8E50,
         "GL_SAMPLE_LOCATION_NV",
     },
@@ -5299,30 +5283,6 @@ static const GLES2Util::EnumToString enum_to_string_table[] = {
     {
         0x9244,
         "GL_BIND_GENERATES_RESOURCE_CHROMIUM",
-    },
-    {
-        0x9245,
-        "GL_OVERLAY_TRANSFORM_NONE_CHROMIUM",
-    },
-    {
-        0x9246,
-        "GL_OVERLAY_TRANSFORM_FLIP_HORIZONTAL_CHROMIUM",
-    },
-    {
-        0x9247,
-        "GL_OVERLAY_TRANSFORM_FLIP_VERTICAL_CHROMIUM",
-    },
-    {
-        0x9248,
-        "GL_OVERLAY_TRANSFORM_ROTATE_90_CHROMIUM",
-    },
-    {
-        0x9249,
-        "GL_OVERLAY_TRANSFORM_ROTATE_180_CHROMIUM",
-    },
-    {
-        0x924A,
-        "GL_OVERLAY_TRANSFORM_ROTATE_270_CHROMIUM",
     },
     {
         0x9250,
@@ -6790,6 +6750,10 @@ static const GLES2Util::EnumToString enum_to_string_table[] = {
         "GL_FRAMEBUFFER_FETCH_NONCOHERENT_QCOM",
     },
     {
+        0x96BA,
+        "GL_RGBX8_ANGLE",
+    },
+    {
         0xC0,
         "GL_SHARED_EDGE_NV",
     },
@@ -6884,7 +6848,7 @@ std::string GLES2Util::GetStringAttachment(uint32_t value) {
       {GL_DEPTH_STENCIL_ATTACHMENT, "GL_DEPTH_STENCIL_ATTACHMENT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringAttachmentQuery(uint32_t value) {
@@ -6898,7 +6862,7 @@ std::string GLES2Util::GetStringAttachmentQuery(uint32_t value) {
       {GL_STENCIL_EXT, "GL_STENCIL_EXT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBackbufferAttachment(uint32_t value) {
@@ -6908,7 +6872,7 @@ std::string GLES2Util::GetStringBackbufferAttachment(uint32_t value) {
       {GL_STENCIL_EXT, "GL_STENCIL_EXT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBlitFilter(uint32_t value) {
@@ -6917,7 +6881,7 @@ std::string GLES2Util::GetStringBlitFilter(uint32_t value) {
       {GL_LINEAR, "GL_LINEAR"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBufferMode(uint32_t value) {
@@ -6926,7 +6890,7 @@ std::string GLES2Util::GetStringBufferMode(uint32_t value) {
       {GL_SEPARATE_ATTRIBS, "GL_SEPARATE_ATTRIBS"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBufferParameter(uint32_t value) {
@@ -6937,7 +6901,7 @@ std::string GLES2Util::GetStringBufferParameter(uint32_t value) {
       {GL_BUFFER_MAPPED, "GL_BUFFER_MAPPED"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBufferParameter64(uint32_t value) {
@@ -6947,7 +6911,7 @@ std::string GLES2Util::GetStringBufferParameter64(uint32_t value) {
       {GL_BUFFER_MAP_OFFSET, "GL_BUFFER_MAP_OFFSET"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBufferTarget(uint32_t value) {
@@ -6962,7 +6926,7 @@ std::string GLES2Util::GetStringBufferTarget(uint32_t value) {
       {GL_UNIFORM_BUFFER, "GL_UNIFORM_BUFFER"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBufferUsage(uint32_t value) {
@@ -6978,7 +6942,7 @@ std::string GLES2Util::GetStringBufferUsage(uint32_t value) {
       {GL_DYNAMIC_COPY, "GL_DYNAMIC_COPY"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBufferfi(uint32_t value) {
@@ -6986,7 +6950,7 @@ std::string GLES2Util::GetStringBufferfi(uint32_t value) {
       {GL_DEPTH_STENCIL, "GL_DEPTH_STENCIL"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBufferfv(uint32_t value) {
@@ -6995,7 +6959,7 @@ std::string GLES2Util::GetStringBufferfv(uint32_t value) {
       {GL_DEPTH, "GL_DEPTH"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBufferiv(uint32_t value) {
@@ -7004,7 +6968,7 @@ std::string GLES2Util::GetStringBufferiv(uint32_t value) {
       {GL_STENCIL, "GL_STENCIL"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringBufferuiv(uint32_t value) {
@@ -7012,7 +6976,7 @@ std::string GLES2Util::GetStringBufferuiv(uint32_t value) {
       {GL_COLOR, "GL_COLOR"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringCapability(uint32_t value) {
@@ -7030,15 +6994,7 @@ std::string GLES2Util::GetStringCapability(uint32_t value) {
       {GL_PRIMITIVE_RESTART_FIXED_INDEX, "GL_PRIMITIVE_RESTART_FIXED_INDEX"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
-}
-
-std::string GLES2Util::GetStringClientBufferUsage(uint32_t value) {
-  static const EnumToString string_table[] = {
-      {GL_SCANOUT_CHROMIUM, "GL_SCANOUT_CHROMIUM"},
-  };
-  return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringCmpFunction(uint32_t value) {
@@ -7049,7 +7005,7 @@ std::string GLES2Util::GetStringCmpFunction(uint32_t value) {
       {GL_GEQUAL, "GL_GEQUAL"},   {GL_ALWAYS, "GL_ALWAYS"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringCompressedTextureFormat(uint32_t value) {
@@ -7064,7 +7020,7 @@ std::string GLES2Util::GetStringCoverageModulationComponents(uint32_t value) {
       {GL_NONE, "GL_NONE"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringDrawMode(uint32_t value) {
@@ -7078,7 +7034,7 @@ std::string GLES2Util::GetStringDrawMode(uint32_t value) {
       {GL_TRIANGLES, "GL_TRIANGLES"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringDstBlendFactor(uint32_t value) {
@@ -7100,7 +7056,7 @@ std::string GLES2Util::GetStringDstBlendFactor(uint32_t value) {
       {GL_SRC_ALPHA_SATURATE, "GL_SRC_ALPHA_SATURATE"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringEquation(uint32_t value) {
@@ -7112,7 +7068,7 @@ std::string GLES2Util::GetStringEquation(uint32_t value) {
       {GL_MAX, "GL_MAX"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringFaceMode(uint32_t value) {
@@ -7121,7 +7077,7 @@ std::string GLES2Util::GetStringFaceMode(uint32_t value) {
       {GL_CCW, "GL_CCW"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringFaceType(uint32_t value) {
@@ -7131,7 +7087,7 @@ std::string GLES2Util::GetStringFaceType(uint32_t value) {
       {GL_FRONT_AND_BACK, "GL_FRONT_AND_BACK"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringFramebufferAttachmentParameter(uint32_t value) {
@@ -7164,7 +7120,7 @@ std::string GLES2Util::GetStringFramebufferAttachmentParameter(uint32_t value) {
        "GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringFramebufferParameter(uint32_t value) {
@@ -7178,7 +7134,7 @@ std::string GLES2Util::GetStringFramebufferTarget(uint32_t value) {
       {GL_READ_FRAMEBUFFER, "GL_READ_FRAMEBUFFER"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringGLState(uint32_t value) {
@@ -7364,7 +7320,7 @@ std::string GLES2Util::GetStringGLState(uint32_t value) {
       {GL_UNPACK_SKIP_ROWS, "GL_UNPACK_SKIP_ROWS"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringGetMaxIndexType(uint32_t value) {
@@ -7374,7 +7330,7 @@ std::string GLES2Util::GetStringGetMaxIndexType(uint32_t value) {
       {GL_UNSIGNED_INT, "GL_UNSIGNED_INT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringGetTexParamTarget(uint32_t value) {
@@ -7385,7 +7341,7 @@ std::string GLES2Util::GetStringGetTexParamTarget(uint32_t value) {
       {GL_TEXTURE_3D, "GL_TEXTURE_3D"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringHintMode(uint32_t value) {
@@ -7395,7 +7351,7 @@ std::string GLES2Util::GetStringHintMode(uint32_t value) {
       {GL_DONT_CARE, "GL_DONT_CARE"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringHintTarget(uint32_t value) {
@@ -7407,7 +7363,7 @@ std::string GLES2Util::GetStringHintTarget(uint32_t value) {
        "GL_FRAGMENT_SHADER_DERIVATIVE_HINT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringImageInternalFormat(uint32_t value) {
@@ -7420,7 +7376,7 @@ std::string GLES2Util::GetStringImageInternalFormat(uint32_t value) {
       {GL_RGBA, "GL_RGBA"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringIndexType(uint32_t value) {
@@ -7430,7 +7386,7 @@ std::string GLES2Util::GetStringIndexType(uint32_t value) {
       {GL_UNSIGNED_INT, "GL_UNSIGNED_INT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringIndexedBufferTarget(uint32_t value) {
@@ -7439,7 +7395,7 @@ std::string GLES2Util::GetStringIndexedBufferTarget(uint32_t value) {
       {GL_UNIFORM_BUFFER, "GL_UNIFORM_BUFFER"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringIndexedGLState(uint32_t value) {
@@ -7461,7 +7417,7 @@ std::string GLES2Util::GetStringIndexedGLState(uint32_t value) {
       {GL_COLOR_WRITEMASK, "GL_COLOR_WRITEMASK"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringIndexedStringType(uint32_t value) {
@@ -7469,7 +7425,7 @@ std::string GLES2Util::GetStringIndexedStringType(uint32_t value) {
       {GL_EXTENSIONS, "GL_EXTENSIONS"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringInternalFormatParameter(uint32_t value) {
@@ -7478,7 +7434,7 @@ std::string GLES2Util::GetStringInternalFormatParameter(uint32_t value) {
       {GL_SAMPLES, "GL_SAMPLES"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringMapBufferAccess(uint32_t value) {
@@ -7491,7 +7447,7 @@ std::string GLES2Util::GetStringMapBufferAccess(uint32_t value) {
       {GL_MAP_UNSYNCHRONIZED_BIT, "GL_MAP_UNSYNCHRONIZED_BIT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringPixelStore(uint32_t value) {
@@ -7508,7 +7464,7 @@ std::string GLES2Util::GetStringPixelStore(uint32_t value) {
       {GL_UNPACK_SKIP_IMAGES, "GL_UNPACK_SKIP_IMAGES"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringPixelType(uint32_t value) {
@@ -7531,7 +7487,7 @@ std::string GLES2Util::GetStringPixelType(uint32_t value) {
       {GL_FLOAT_32_UNSIGNED_INT_24_8_REV, "GL_FLOAT_32_UNSIGNED_INT_24_8_REV"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringProgramParameter(uint32_t value) {
@@ -7554,7 +7510,7 @@ std::string GLES2Util::GetStringProgramParameter(uint32_t value) {
        "GL_TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringQueryObjectParameter(uint32_t value) {
@@ -7565,7 +7521,7 @@ std::string GLES2Util::GetStringQueryObjectParameter(uint32_t value) {
        "GL_QUERY_RESULT_AVAILABLE_NO_FLUSH_CHROMIUM_EXT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringQueryParameter(uint32_t value) {
@@ -7573,7 +7529,7 @@ std::string GLES2Util::GetStringQueryParameter(uint32_t value) {
       {GL_CURRENT_QUERY_EXT, "GL_CURRENT_QUERY_EXT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringQueryTarget(uint32_t value) {
@@ -7595,7 +7551,7 @@ std::string GLES2Util::GetStringQueryTarget(uint32_t value) {
        "GL_PROGRAM_COMPLETION_QUERY_CHROMIUM"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringReadBuffer(uint32_t value) {
@@ -7620,7 +7576,7 @@ std::string GLES2Util::GetStringReadBuffer(uint32_t value) {
       {GL_COLOR_ATTACHMENT15, "GL_COLOR_ATTACHMENT15"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringReadPixelFormat(uint32_t value) {
@@ -7636,7 +7592,7 @@ std::string GLES2Util::GetStringReadPixelFormat(uint32_t value) {
       {GL_RGBA_INTEGER, "GL_RGBA_INTEGER"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringReadPixelType(uint32_t value) {
@@ -7655,7 +7611,7 @@ std::string GLES2Util::GetStringReadPixelType(uint32_t value) {
       {GL_UNSIGNED_INT_2_10_10_10_REV, "GL_UNSIGNED_INT_2_10_10_10_REV"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringRenderBufferFormat(uint32_t value) {
@@ -7696,7 +7652,7 @@ std::string GLES2Util::GetStringRenderBufferFormat(uint32_t value) {
       {GL_DEPTH32F_STENCIL8, "GL_DEPTH32F_STENCIL8"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringRenderBufferParameter(uint32_t value) {
@@ -7713,7 +7669,7 @@ std::string GLES2Util::GetStringRenderBufferParameter(uint32_t value) {
       {GL_RENDERBUFFER_SAMPLES, "GL_RENDERBUFFER_SAMPLES"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringRenderBufferTarget(uint32_t value) {
@@ -7721,7 +7677,7 @@ std::string GLES2Util::GetStringRenderBufferTarget(uint32_t value) {
       {GL_RENDERBUFFER, "GL_RENDERBUFFER"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringResetStatus(uint32_t value) {
@@ -7731,7 +7687,7 @@ std::string GLES2Util::GetStringResetStatus(uint32_t value) {
       {GL_UNKNOWN_CONTEXT_RESET_ARB, "GL_UNKNOWN_CONTEXT_RESET_ARB"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringSamplerParameter(uint32_t value) {
@@ -7747,7 +7703,7 @@ std::string GLES2Util::GetStringSamplerParameter(uint32_t value) {
       {GL_TEXTURE_COMPARE_FUNC, "GL_TEXTURE_COMPARE_FUNC"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringShaderBinaryFormat(uint32_t value) {
@@ -7765,7 +7721,7 @@ std::string GLES2Util::GetStringShaderParameter(uint32_t value) {
        "GL_TRANSLATED_SHADER_SOURCE_LENGTH_ANGLE"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringShaderPrecision(uint32_t value) {
@@ -7775,7 +7731,7 @@ std::string GLES2Util::GetStringShaderPrecision(uint32_t value) {
       {GL_MEDIUM_INT, "GL_MEDIUM_INT"}, {GL_HIGH_INT, "GL_HIGH_INT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringShaderType(uint32_t value) {
@@ -7784,7 +7740,7 @@ std::string GLES2Util::GetStringShaderType(uint32_t value) {
       {GL_FRAGMENT_SHADER, "GL_FRAGMENT_SHADER"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringSharedImageAccessMode(uint32_t value) {
@@ -7797,7 +7753,7 @@ std::string GLES2Util::GetStringSharedImageAccessMode(uint32_t value) {
        "GL_SHARED_IMAGE_ACCESS_MODE_READ_CHROMIUM"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringSrcBlendFactor(uint32_t value) {
@@ -7819,7 +7775,7 @@ std::string GLES2Util::GetStringSrcBlendFactor(uint32_t value) {
       {GL_SRC_ALPHA_SATURATE, "GL_SRC_ALPHA_SATURATE"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringStencilOp(uint32_t value) {
@@ -7830,7 +7786,7 @@ std::string GLES2Util::GetStringStencilOp(uint32_t value) {
       {GL_DECR_WRAP, "GL_DECR_WRAP"}, {GL_INVERT, "GL_INVERT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringStringType(uint32_t value) {
@@ -7842,7 +7798,7 @@ std::string GLES2Util::GetStringStringType(uint32_t value) {
       {GL_EXTENSIONS, "GL_EXTENSIONS"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringSyncCondition(uint32_t value) {
@@ -7850,7 +7806,7 @@ std::string GLES2Util::GetStringSyncCondition(uint32_t value) {
       {GL_SYNC_GPU_COMMANDS_COMPLETE, "GL_SYNC_GPU_COMMANDS_COMPLETE"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringSyncParameter(uint32_t value) {
@@ -7861,7 +7817,7 @@ std::string GLES2Util::GetStringSyncParameter(uint32_t value) {
       {GL_SYNC_FLAGS, "GL_SYNC_FLAGS"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTexture3DTarget(uint32_t value) {
@@ -7870,7 +7826,7 @@ std::string GLES2Util::GetStringTexture3DTarget(uint32_t value) {
       {GL_TEXTURE_2D_ARRAY, "GL_TEXTURE_2D_ARRAY"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureBindTarget(uint32_t value) {
@@ -7881,7 +7837,7 @@ std::string GLES2Util::GetStringTextureBindTarget(uint32_t value) {
       {GL_TEXTURE_2D_ARRAY, "GL_TEXTURE_2D_ARRAY"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureCompareFunc(uint32_t value) {
@@ -7892,7 +7848,7 @@ std::string GLES2Util::GetStringTextureCompareFunc(uint32_t value) {
       {GL_ALWAYS, "GL_ALWAYS"}, {GL_NEVER, "GL_NEVER"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureCompareMode(uint32_t value) {
@@ -7901,7 +7857,7 @@ std::string GLES2Util::GetStringTextureCompareMode(uint32_t value) {
       {GL_COMPARE_REF_TO_TEXTURE, "GL_COMPARE_REF_TO_TEXTURE"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureDepthRenderableInternalFormat(
@@ -7914,7 +7870,7 @@ std::string GLES2Util::GetStringTextureDepthRenderableInternalFormat(
       {GL_DEPTH32F_STENCIL8, "GL_DEPTH32F_STENCIL8"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureFboTarget(uint32_t value) {
@@ -7928,7 +7884,7 @@ std::string GLES2Util::GetStringTextureFboTarget(uint32_t value) {
       {GL_TEXTURE_CUBE_MAP_NEGATIVE_Z, "GL_TEXTURE_CUBE_MAP_NEGATIVE_Z"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureFormat(uint32_t value) {
@@ -7948,7 +7904,7 @@ std::string GLES2Util::GetStringTextureFormat(uint32_t value) {
       {GL_DEPTH_STENCIL, "GL_DEPTH_STENCIL"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureInternalFormat(uint32_t value) {
@@ -8014,7 +7970,7 @@ std::string GLES2Util::GetStringTextureInternalFormat(uint32_t value) {
       {GL_DEPTH32F_STENCIL8, "GL_DEPTH32F_STENCIL8"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureInternalFormatStorage(uint32_t value) {
@@ -8080,7 +8036,7 @@ std::string GLES2Util::GetStringTextureInternalFormatStorage(uint32_t value) {
       {GL_DEPTH32F_STENCIL8, "GL_DEPTH32F_STENCIL8"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureMagFilterMode(uint32_t value) {
@@ -8089,7 +8045,7 @@ std::string GLES2Util::GetStringTextureMagFilterMode(uint32_t value) {
       {GL_LINEAR, "GL_LINEAR"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureMinFilterMode(uint32_t value) {
@@ -8102,7 +8058,7 @@ std::string GLES2Util::GetStringTextureMinFilterMode(uint32_t value) {
       {GL_LINEAR_MIPMAP_LINEAR, "GL_LINEAR_MIPMAP_LINEAR"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureParameter(uint32_t value) {
@@ -8122,7 +8078,7 @@ std::string GLES2Util::GetStringTextureParameter(uint32_t value) {
       {GL_TEXTURE_WRAP_R, "GL_TEXTURE_WRAP_R"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureSizedColorRenderableInternalFormat(
@@ -8158,7 +8114,7 @@ std::string GLES2Util::GetStringTextureSizedColorRenderableInternalFormat(
       {GL_RGBA32I, "GL_RGBA32I"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureSizedTextureFilterableInternalFormat(
@@ -8191,7 +8147,7 @@ std::string GLES2Util::GetStringTextureSizedTextureFilterableInternalFormat(
       {GL_R16_EXT, "GL_R16_EXT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureSrgbDecodeExt(uint32_t value) {
@@ -8200,7 +8156,7 @@ std::string GLES2Util::GetStringTextureSrgbDecodeExt(uint32_t value) {
       {GL_SKIP_DECODE_EXT, "GL_SKIP_DECODE_EXT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureStencilRenderableInternalFormat(
@@ -8211,7 +8167,7 @@ std::string GLES2Util::GetStringTextureStencilRenderableInternalFormat(
       {GL_DEPTH32F_STENCIL8, "GL_DEPTH32F_STENCIL8"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureSwizzle(uint32_t value) {
@@ -8220,7 +8176,7 @@ std::string GLES2Util::GetStringTextureSwizzle(uint32_t value) {
       {GL_ALPHA, "GL_ALPHA"}, {GL_ZERO, "GL_ZERO"},   {GL_ONE, "GL_ONE"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureTarget(uint32_t value) {
@@ -8234,7 +8190,7 @@ std::string GLES2Util::GetStringTextureTarget(uint32_t value) {
       {GL_TEXTURE_CUBE_MAP_NEGATIVE_Z, "GL_TEXTURE_CUBE_MAP_NEGATIVE_Z"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureUnsizedInternalFormat(uint32_t value) {
@@ -8246,7 +8202,7 @@ std::string GLES2Util::GetStringTextureUnsizedInternalFormat(uint32_t value) {
       {GL_RGBA, "GL_RGBA"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureUsage(uint32_t value) {
@@ -8255,7 +8211,7 @@ std::string GLES2Util::GetStringTextureUsage(uint32_t value) {
       {GL_FRAMEBUFFER_ATTACHMENT_ANGLE, "GL_FRAMEBUFFER_ATTACHMENT_ANGLE"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTextureWrapMode(uint32_t value) {
@@ -8265,7 +8221,7 @@ std::string GLES2Util::GetStringTextureWrapMode(uint32_t value) {
       {GL_REPEAT, "GL_REPEAT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTransformFeedbackBindTarget(uint32_t value) {
@@ -8273,7 +8229,7 @@ std::string GLES2Util::GetStringTransformFeedbackBindTarget(uint32_t value) {
       {GL_TRANSFORM_FEEDBACK, "GL_TRANSFORM_FEEDBACK"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringTransformFeedbackPrimitiveMode(uint32_t value) {
@@ -8283,7 +8239,7 @@ std::string GLES2Util::GetStringTransformFeedbackPrimitiveMode(uint32_t value) {
       {GL_TRIANGLES, "GL_TRIANGLES"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringUniformBlockParameter(uint32_t value) {
@@ -8300,7 +8256,7 @@ std::string GLES2Util::GetStringUniformBlockParameter(uint32_t value) {
        "GL_UNIFORM_BLOCK_REFERENCED_BY_FRAGMENT_SHADER"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringUniformParameter(uint32_t value) {
@@ -8315,7 +8271,7 @@ std::string GLES2Util::GetStringUniformParameter(uint32_t value) {
       {GL_UNIFORM_IS_ROW_MAJOR, "GL_UNIFORM_IS_ROW_MAJOR"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringVertexAttribIType(uint32_t value) {
@@ -8325,7 +8281,7 @@ std::string GLES2Util::GetStringVertexAttribIType(uint32_t value) {
       {GL_INT, "GL_INT"},     {GL_UNSIGNED_INT, "GL_UNSIGNED_INT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringVertexAttribType(uint32_t value) {
@@ -8342,7 +8298,7 @@ std::string GLES2Util::GetStringVertexAttribType(uint32_t value) {
       {GL_UNSIGNED_INT_2_10_10_10_REV, "GL_UNSIGNED_INT_2_10_10_10_REV"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringVertexAttribute(uint32_t value) {
@@ -8359,7 +8315,7 @@ std::string GLES2Util::GetStringVertexAttribute(uint32_t value) {
       {GL_VERTEX_ATTRIB_ARRAY_DIVISOR, "GL_VERTEX_ATTRIB_ARRAY_DIVISOR"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringVertexPointer(uint32_t value) {
@@ -8367,7 +8323,7 @@ std::string GLES2Util::GetStringVertexPointer(uint32_t value) {
       {GL_VERTEX_ATTRIB_ARRAY_POINTER, "GL_VERTEX_ATTRIB_ARRAY_POINTER"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 std::string GLES2Util::GetStringWindowRectanglesMode(uint32_t value) {
@@ -8376,7 +8332,7 @@ std::string GLES2Util::GetStringWindowRectanglesMode(uint32_t value) {
       {GL_EXCLUSIVE_EXT, "GL_EXCLUSIVE_EXT"},
   };
   return GLES2Util::GetQualifiedEnumString(string_table,
-                                           base::size(string_table), value);
+                                           std::size(string_table), value);
 }
 
 #endif  // GPU_COMMAND_BUFFER_COMMON_GLES2_CMD_UTILS_IMPLEMENTATION_AUTOGEN_H_

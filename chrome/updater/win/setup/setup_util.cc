@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,35 +7,44 @@
 #include <regstr.h>
 #include <shlobj.h>
 #include <windows.h>
+#include <wrl/client.h>
+#include <wrl/implements.h>
 
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "base/callback_helpers.h"
+#include "base/check.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/containers/contains.h"
-#include "base/containers/flat_map.h"
-#include "base/containers/flat_set.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
+#include "base/path_service.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/synchronization/waitable_event.h"
+#include "base/task/thread_pool.h"
+#include "base/threading/thread_restrictions.h"
+#include "base/win/registry.h"
 #include "base/win/win_util.h"
-#include "build/branding_buildflags.h"
 #include "chrome/installer/util/install_service_work_item.h"
-#include "chrome/installer/util/install_util.h"
+#include "chrome/installer/util/registry_util.h"
 #include "chrome/installer/util/work_item_list.h"
+#include "chrome/updater/app/server/win/com_classes.h"
 #include "chrome/updater/app/server/win/updater_idl.h"
 #include "chrome/updater/app/server/win/updater_internal_idl.h"
 #include "chrome/updater/app/server/win/updater_legacy_idl.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/updater_scope.h"
-#include "chrome/updater/util.h"
+#include "chrome/updater/util/util.h"
+#include "chrome/updater/util/win_util.h"
 #include "chrome/updater/win/task_scheduler.h"
 #include "chrome/updater/win/win_constants.h"
-#include "chrome/updater/win/win_util.h"
 
 namespace updater {
 namespace {
@@ -103,26 +112,65 @@ void UnregisterWakeTask(UpdaterScope scope) {
   }
 
   task_scheduler->DeleteTask(task_name.c_str());
+  VLOG(1) << "UnregisterWakeTask succeeded: " << task_name;
 }
 
-std::vector<IID> GetSideBySideInterfaces() {
-  return {
-      __uuidof(IUpdaterInternal),
-      __uuidof(IUpdaterInternalCallback),
-  };
+std::vector<IID> GetSideBySideInterfaces(UpdaterScope scope) {
+  switch (scope) {
+    case UpdaterScope::kUser:
+      return {
+          __uuidof(IUpdaterInternalUser),
+          __uuidof(IUpdaterInternalCallbackUser),
+      };
+    case UpdaterScope::kSystem:
+      return {
+          __uuidof(IUpdaterInternalSystem),
+          __uuidof(IUpdaterInternalCallbackSystem),
+      };
+  }
 }
 
-std::vector<IID> GetActiveInterfaces() {
-  return {
-    __uuidof(IUpdateState), __uuidof(IUpdater), __uuidof(IUpdaterObserver),
-        __uuidof(IUpdaterRegisterAppCallback), __uuidof(IUpdaterCallback),
+std::vector<IID> GetActiveInterfaces(UpdaterScope scope) {
+  return JoinVectors(
+      [&scope]() -> std::vector<IID> {
+        switch (scope) {
+          case UpdaterScope::kUser:
+            return {
+                __uuidof(IUpdateStateUser),
+                __uuidof(IUpdaterUser),
+                __uuidof(ICompleteStatusUser),
+                __uuidof(IUpdaterObserverUser),
+                __uuidof(IUpdaterCallbackUser),
+            };
+          case UpdaterScope::kSystem:
+            return {
+                __uuidof(IUpdateStateSystem),
+                __uuidof(IUpdaterSystem),
+                __uuidof(ICompleteStatusSystem),
+                __uuidof(IUpdaterObserverSystem),
+                __uuidof(IUpdaterCallbackSystem),
+            };
+        }
+      }(),
+      {
+          // legacy interfaces.
+          __uuidof(IAppBundleWeb),
+          __uuidof(IAppWeb),
+          __uuidof(IAppCommandWeb),
+          __uuidof(ICurrentState),
+          __uuidof(IGoogleUpdate3Web),
+          __uuidof(IPolicyStatus),
+          __uuidof(IPolicyStatus2),
+          __uuidof(IPolicyStatus3),
+          __uuidof(IPolicyStatusValue),
+          __uuidof(IProcessLauncher),
+          __uuidof(IProcessLauncher2),
+      });
+}
 
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-        __uuidof(IAppBundleWeb), __uuidof(IAppWeb), __uuidof(ICompleteStatus),
-        __uuidof(ICurrentState), __uuidof(IGoogleUpdate3Web),
-        __uuidof(IProcessLauncher), __uuidof(IProcessLauncher2),
-#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  };
+std::vector<IID> GetInterfaces(bool is_internal, UpdaterScope scope) {
+  return is_internal ? GetSideBySideInterfaces(scope)
+                     : GetActiveInterfaces(scope);
 }
 
 std::vector<CLSID> GetSideBySideServers(UpdaterScope scope) {
@@ -138,22 +186,22 @@ std::vector<CLSID> GetActiveServers(UpdaterScope scope) {
   switch (scope) {
     case UpdaterScope::kUser:
       return {
-        __uuidof(UpdaterUserClass),
-
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-            __uuidof(GoogleUpdate3WebUserClass)
-#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
+          __uuidof(UpdaterUserClass),
+          __uuidof(GoogleUpdate3WebUserClass),
+          __uuidof(PolicyStatusUserClass),
       };
     case UpdaterScope::kSystem:
       return {
-        __uuidof(UpdaterSystemClass),
-
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-            __uuidof(GoogleUpdate3WebSystemClass),
-            __uuidof(ProcessLauncherClass)
-#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
+          __uuidof(UpdaterSystemClass),
+          __uuidof(GoogleUpdate3WebSystemClass),
+          __uuidof(PolicyStatusSystemClass),
+          __uuidof(ProcessLauncherClass),
       };
   }
+}
+
+std::vector<CLSID> GetServers(bool is_internal, UpdaterScope scope) {
+  return is_internal ? GetSideBySideServers(scope) : GetActiveServers(scope);
 }
 
 void AddInstallComInterfaceWorkItems(HKEY root,
@@ -231,7 +279,26 @@ void AddInstallServerWorkItems(HKEY root,
       run_com_server_command.GetCommandLineString(), true);
 }
 
-// Adds work items to register the COM Service with Windows.
+void AddComServerWorkItems(const base::FilePath& com_server_path,
+                           bool is_internal,
+                           WorkItemList* list) {
+  DCHECK(list);
+  if (com_server_path.empty()) {
+    LOG(DFATAL) << "com_server_path is invalid.";
+    return;
+  }
+
+  for (const auto& clsid : GetServers(is_internal, UpdaterScope::kUser)) {
+    AddInstallServerWorkItems(HKEY_CURRENT_USER, clsid, com_server_path,
+                              is_internal, list);
+  }
+
+  for (const auto& iid : GetInterfaces(is_internal, UpdaterScope::kUser)) {
+    AddInstallComInterfaceWorkItems(HKEY_CURRENT_USER, com_server_path, iid,
+                                    list);
+  }
+}
+
 void AddComServiceWorkItems(const base::FilePath& com_service_path,
                             bool internal_service,
                             WorkItemList* list) {
@@ -245,7 +312,7 @@ void AddComServiceWorkItems(const base::FilePath& com_service_path,
   // This assumes the COM service runs elevated and in the system updater scope.
   base::CommandLine com_service_command(com_service_path);
   com_service_command.AppendSwitch(kSystemSwitch);
-  com_service_command.AppendSwitch(kComServiceSwitch);
+  com_service_command.AppendSwitch(kWindowsServiceSwitch);
   com_service_command.AppendSwitchASCII(
       kServerServiceSwitch, internal_service
                                 ? kServerUpdateServiceInternalSwitchValue
@@ -253,17 +320,18 @@ void AddComServiceWorkItems(const base::FilePath& com_service_path,
   com_service_command.AppendSwitch(kEnableLoggingSwitch);
   com_service_command.AppendSwitchASCII(kLoggingModuleSwitch,
                                         kLoggingModuleSwitchValue);
+
+  base::CommandLine com_switch(base::CommandLine::NO_PROGRAM);
+  com_switch.AppendSwitch(kComServiceSwitch);
+
   list->AddWorkItem(new installer::InstallServiceWorkItem(
       GetServiceName(internal_service).c_str(),
-      GetServiceDisplayName(internal_service).c_str(), com_service_command,
-      UPDATER_KEY,
-      internal_service ? GetSideBySideServers(UpdaterScope::kSystem)
-                       : GetActiveServers(UpdaterScope::kSystem),
-      {}));
+      GetServiceDisplayName(internal_service).c_str(), SERVICE_AUTO_START,
+      com_service_command, com_switch, UPDATER_KEY,
+      GetServers(internal_service, UpdaterScope::kSystem), {}));
 
-  const std::vector<GUID> com_interfaces_to_install =
-      internal_service ? GetSideBySideInterfaces() : GetActiveInterfaces();
-  for (const auto& iid : com_interfaces_to_install) {
+  for (const auto& iid :
+       GetInterfaces(internal_service, UpdaterScope::kSystem)) {
     AddInstallComInterfaceWorkItems(HKEY_LOCAL_MACHINE, com_service_path, iid,
                                     list);
   }
@@ -296,50 +364,42 @@ std::wstring GetComTypeLibResourceIndex(REFIID iid) {
   constexpr wchar_t kUpdaterInternalIndex[] = L"2";
   constexpr wchar_t kUpdaterLegacyIndex[] = L"3";
 
-  static const std::unordered_map<IID, const wchar_t*> kTypeLibIndexes = {
-      // Updater typelib.
-      {__uuidof(ICompleteStatus), kUpdaterIndex},
-      {__uuidof(IUpdater), kUpdaterIndex},
-      {__uuidof(IUpdaterObserver), kUpdaterIndex},
-      {__uuidof(IUpdaterRegisterAppCallback), kUpdaterIndex},
-      {__uuidof(IUpdateState), kUpdaterIndex},
-      {__uuidof(IUpdaterCallback), kUpdaterIndex},
+  static const base::NoDestructor<std::unordered_map<IID, const wchar_t*>>
+      kTypeLibIndexes{{
+          // Updater typelib.
+          {__uuidof(ICompleteStatusUser), kUpdaterIndex},
+          {__uuidof(ICompleteStatusSystem), kUpdaterIndex},
+          {__uuidof(IUpdaterUser), kUpdaterIndex},
+          {__uuidof(IUpdaterSystem), kUpdaterIndex},
+          {__uuidof(IUpdaterObserverUser), kUpdaterIndex},
+          {__uuidof(IUpdaterObserverSystem), kUpdaterIndex},
+          {__uuidof(IUpdateStateUser), kUpdaterIndex},
+          {__uuidof(IUpdateStateSystem), kUpdaterIndex},
+          {__uuidof(IUpdaterCallbackUser), kUpdaterIndex},
+          {__uuidof(IUpdaterCallbackSystem), kUpdaterIndex},
 
-      // Updater internal typelib.
-      {__uuidof(IUpdaterInternal), kUpdaterInternalIndex},
-      {__uuidof(IUpdaterInternalCallback), kUpdaterInternalIndex},
+          // Updater internal typelib.
+          {__uuidof(IUpdaterInternalUser), kUpdaterInternalIndex},
+          {__uuidof(IUpdaterInternalSystem), kUpdaterInternalIndex},
+          {__uuidof(IUpdaterInternalCallbackUser), kUpdaterInternalIndex},
+          {__uuidof(IUpdaterInternalCallbackSystem), kUpdaterInternalIndex},
 
-      // Updater legacy typelib.
-      {__uuidof(IAppBundleWeb), kUpdaterLegacyIndex},
-      {__uuidof(IAppWeb), kUpdaterLegacyIndex},
-      {__uuidof(ICurrentState), kUpdaterLegacyIndex},
-      {__uuidof(IGoogleUpdate3Web), kUpdaterLegacyIndex},
-      {__uuidof(IProcessLauncher), kUpdaterLegacyIndex},
-      {__uuidof(IProcessLauncher2), kUpdaterLegacyIndex},
-  };
-  auto index = kTypeLibIndexes.find(iid);
-  return index != kTypeLibIndexes.end() ? index->second : L"";
-}
-
-std::vector<base::FilePath> ParseFilesFromDeps(const base::FilePath& deps) {
-  constexpr size_t kDepsFileSizeMax = 0x4000;  // 16KB.
-  std::string contents;
-  if (!base::ReadFileToStringWithMaxSize(deps, &contents, kDepsFileSizeMax))
-    return {};
-  const base::flat_set<const wchar_t*, CaseInsensitiveASCIICompare>
-      exclude_extensions = {L".pdb", L".js"};
-  std::vector<base::FilePath> result;
-  for (const auto& line :
-       base::SplitString(contents, "\r\n", base::TRIM_WHITESPACE,
-                         base::SPLIT_WANT_NONEMPTY)) {
-    const auto filename =
-        base::FilePath(base::ASCIIToWide(line)).NormalizePathSeparators();
-    if (!base::Contains(exclude_extensions,
-                        filename.FinalExtension().c_str())) {
-      result.push_back(filename);
-    }
-  }
-  return result;
+          // Updater legacy typelib.
+          {__uuidof(IAppBundleWeb), kUpdaterLegacyIndex},
+          {__uuidof(IAppWeb), kUpdaterLegacyIndex},
+          {__uuidof(IAppCommandWeb), kUpdaterLegacyIndex},
+          {__uuidof(ICurrentState), kUpdaterLegacyIndex},
+          {__uuidof(IGoogleUpdate3Web), kUpdaterLegacyIndex},
+          {__uuidof(IPolicyStatus), kUpdaterLegacyIndex},
+          {__uuidof(IPolicyStatus2), kUpdaterLegacyIndex},
+          {__uuidof(IPolicyStatus3), kUpdaterLegacyIndex},
+          {__uuidof(IPolicyStatusValue), kUpdaterLegacyIndex},
+          {__uuidof(IProcessLauncher), kUpdaterLegacyIndex},
+          {__uuidof(IProcessLauncher2), kUpdaterLegacyIndex},
+      }};
+  auto index = kTypeLibIndexes->find(iid);
+  CHECK(index != kTypeLibIndexes->end());
+  return index->second;
 }
 
 void RegisterUserRunAtStartup(const std::wstring& run_value_name,
@@ -356,8 +416,8 @@ void RegisterUserRunAtStartup(const std::wstring& run_value_name,
 bool UnregisterUserRunAtStartup(const std::wstring& run_value_name) {
   VLOG(1) << __func__;
 
-  return InstallUtil::DeleteRegistryValue(HKEY_CURRENT_USER, REGSTR_PATH_RUN, 0,
-                                          run_value_name);
+  return installer::DeleteRegistryValue(HKEY_CURRENT_USER, REGSTR_PATH_RUN, 0,
+                                        run_value_name);
 }
 
 }  // namespace updater

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file.h"
 #include "base/json/json_reader.h"
 #include "base/location.h"
@@ -19,7 +18,6 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
 
@@ -116,7 +114,7 @@ void NativeMessagingReader::Core::ReadMessage() {
 
     std::string message_json(message_length, '\0');
     read_result =
-        read_stream_.ReadAtCurrentPos(base::data(message_json), message_length);
+        read_stream_.ReadAtCurrentPos(std::data(message_json), message_length);
     if (read_result != static_cast<int>(message_length)) {
       LOG(ERROR) << "Failed to read message body, read returned "
                  << read_result;
@@ -152,9 +150,9 @@ NativeMessagingReader::NativeMessagingReader(base::File file)
       base::Thread::Options(base::MessagePumpType::IO, /*size=*/0));
 
   read_task_runner_ = reader_thread_.task_runner();
-  core_ = std::make_unique<Core>(std::move(file),
-                                 base::ThreadTaskRunnerHandle::Get(),
-                                 read_task_runner_, weak_factory_.GetWeakPtr());
+  core_ = std::make_unique<Core>(
+      std::move(file), base::SingleThreadTaskRunner::GetCurrentDefault(),
+      read_task_runner_, weak_factory_.GetWeakPtr());
 }
 
 NativeMessagingReader::~NativeMessagingReader() {

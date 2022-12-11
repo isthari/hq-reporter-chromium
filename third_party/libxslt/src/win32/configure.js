@@ -139,20 +139,6 @@ function discoverVersion()
 	var fso, cf, vf, ln, s, m;
 	fso = new ActiveXObject("Scripting.FileSystemObject");
 	verCvs = "";
-	if (useCvsVer && fso.FileExists("..\\CVS\\Entries")) {
-		cf = fso.OpenTextFile("..\\CVS\\Entries", 1);
-		while (cf.AtEndOfStream != true) {
-			ln = cf.ReadLine();
-			s = new String(ln);
-			if (s.search(/^\/ChangeLog\//) != -1) {
-				var iDot = s.indexOf(".");
-				var iSlash = s.indexOf("/", iDot);
-				verCvs = "CVS" + s.substring(iDot + 1, iSlash);
-				break;
-			}
-		}
-		cf.Close();
-	}
 	cf = fso.OpenTextFile(configFile, 1);
 	if (compiler == "msvc")
 		versionFile = ".\\config.msvc";
@@ -265,8 +251,8 @@ function configureExslt()
 	while (ofi.AtEndOfStream != true) {
 		ln = ofi.ReadLine();
 		s = new String(ln);
-		if (s.search(/\@VERSION\@/) != -1) {
-			of.WriteLine(s.replace(/\@VERSION\@/, 
+		if (s.search(/\@LIBEXSLT_VERSION\@/) != -1) {
+			of.WriteLine(s.replace(/\@LIBEXSLT_VERSION\@/, 
 				verMajorExslt + "." + verMinorExslt + "." + verMicroExslt));
 		} else if (s.search(/\@LIBEXSLT_VERSION_NUMBER\@/) != -1) {
 			of.WriteLine(s.replace(/\@LIBEXSLT_VERSION_NUMBER\@/, 
@@ -489,7 +475,7 @@ txtOut += "-------------------------\n";
 txtOut += "          Compiler: " + compiler + "\n";
 if (compiler == "msvc")
 	txtOut += "  C-Runtime option: " + cruntime + "\n";
-	txtOut += "    Embed Manifest: " + boolToStr(vcmanifest) + "\n";
+txtOut += "    Embed Manifest: " + boolToStr(vcmanifest) + "\n";
 txtOut += "     Debug symbols: " + boolToStr(buildDebug) + "\n";
 txtOut += "   Static xsltproc: " + boolToStr(buildStatic) + "\n";
 txtOut += "    Install prefix: " + buildPrefix + "\n";

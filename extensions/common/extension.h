@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,9 @@
 
 #include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 
-#include "base/auto_reset.h"
 #include "base/files/file_path.h"
 #include "base/guid.h"
 #include "base/memory/raw_ptr.h"
@@ -22,7 +20,6 @@
 #include "extensions/common/extension_guid.h"
 #include "extensions/common/extension_id.h"
 #include "extensions/common/extension_resource.h"
-#include "extensions/common/hashed_extension_id.h"
 #include "extensions/common/install_warning.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/mojom/manifest.mojom-shared.h"
@@ -35,12 +32,12 @@
 #endif
 
 namespace base {
+class DictAdapterForMigration;
 class DictionaryValue;
-class Version;
 }
 
 namespace extensions {
-class PermissionSet;
+class HashedExtensionId;
 class PermissionsData;
 class PermissionsParser;
 
@@ -74,7 +71,7 @@ class Extension final : public base::RefCountedThreadSafe<Extension> {
   // the extension. Related to base::SupportsUserData, but with an immutable
   // thread-safe interface to match Extension.
   struct ManifestData {
-    virtual ~ManifestData() {}
+    virtual ~ManifestData() = default;
   };
 
   // Do not change the order of entries or remove entries in this list
@@ -159,20 +156,22 @@ class Extension final : public base::RefCountedThreadSafe<Extension> {
   Extension(const Extension&) = delete;
   Extension& operator=(const Extension&) = delete;
 
-  static scoped_refptr<Extension> Create(const base::FilePath& path,
-                                         mojom::ManifestLocation location,
-                                         const base::DictionaryValue& value,
-                                         int flags,
-                                         std::string* error);
+  static scoped_refptr<Extension> Create(
+      const base::FilePath& path,
+      mojom::ManifestLocation location,
+      const base::DictAdapterForMigration& value,
+      int flags,
+      std::string* error);
 
   // In a few special circumstances, we want to create an Extension and give it
   // an explicit id. Most consumers should just use the other Create() method.
-  static scoped_refptr<Extension> Create(const base::FilePath& path,
-                                         mojom::ManifestLocation location,
-                                         const base::DictionaryValue& value,
-                                         int flags,
-                                         const ExtensionId& explicit_id,
-                                         std::string* error);
+  static scoped_refptr<Extension> Create(
+      const base::FilePath& path,
+      mojom::ManifestLocation location,
+      const base::DictAdapterForMigration& value,
+      int flags,
+      const ExtensionId& explicit_id,
+      std::string* error);
 
   // Valid schemes for web extent URLPatterns.
   static const int kValidWebExtentSchemes;
@@ -270,7 +269,8 @@ class Extension final : public base::RefCountedThreadSafe<Extension> {
 
   const base::FilePath& path() const { return path_; }
   const GURL& url() const { return extension_url_; }
-  const url::Origin& origin() const { return extension_origin_; }
+  const GURL& dynamic_url() const { return dynamic_url_; }
+  url::Origin origin() const { return extension_origin_; }
   mojom::ManifestLocation location() const;
   const ExtensionId& id() const;
   const HashedExtensionId& hashed_id() const;
@@ -440,6 +440,9 @@ class Extension final : public base::RefCountedThreadSafe<Extension> {
   url::Origin extension_origin_;
   GURL extension_url_;
 
+  // The base extension url for the extension using guid.
+  GURL dynamic_url_;
+
   // The extension's version.
   base::Version version_;
 
@@ -509,29 +512,6 @@ struct ExtensionInfo {
   ExtensionId extension_id;
   base::FilePath extension_path;
   mojom::ManifestLocation extension_location;
-};
-
-// The details sent for EXTENSION_PERMISSIONS_UPDATED notifications.
-struct UpdatedExtensionPermissionsInfo {
-  enum Reason {
-    ADDED,    // The permissions were added to the extension.
-    REMOVED,  // The permissions were removed from the extension.
-    POLICY,   // The policy that affects permissions was updated.
-  };
-
-  Reason reason;
-
-  // The extension who's permissions have changed.
-  raw_ptr<const Extension> extension;
-
-  // The permissions that have changed. For Reason::ADDED, this would contain
-  // only the permissions that have added, and for Reason::REMOVED, this would
-  // only contain the removed permissions.
-  const PermissionSet& permissions;
-
-  UpdatedExtensionPermissionsInfo(const Extension* extension,
-                                  const PermissionSet& permissions,
-                                  Reason reason);
 };
 
 }  // namespace extensions

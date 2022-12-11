@@ -1,6 +1,11 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include <stdint.h>
 
@@ -15,8 +20,8 @@
 #include "base/task/current_thread.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -43,6 +48,7 @@
 #include "content/test/did_commit_navigation_interceptor.h"
 #include "net/base/filename_util.h"
 #include "net/dns/mock_host_resolver.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/page/page_visibility_state.mojom-shared.h"
@@ -51,14 +57,35 @@
 #include "ui/display/display_switches.h"
 #include "ui/gfx/geometry/size_conversions.h"
 
+#if defined(USE_AURA)
+#include "content/browser/renderer_host/delegated_frame_host.h"
+#include "content/browser/renderer_host/render_widget_host_view_aura.h"
+#endif
+
 #if BUILDFLAG(IS_ANDROID)
 #include "content/browser/renderer_host/render_widget_host_view_android.h"
 #include "ui/android/delegated_frame_host_android.h"
 #endif
 
+#if BUILDFLAG(IS_MAC)
+#include "content/browser/renderer_host/browser_compositor_view_mac.h"
+#include "content/browser/renderer_host/delegated_frame_host.h"
+#include "content/browser/renderer_host/test_render_widget_host_view_mac_factory.h"
+#include "content/public/browser/context_factory.h"
+#include "third_party/blink/public/common/page/content_to_visible_time_reporter.h"
+#include "ui/compositor/compositor.h"
+#include "ui/compositor/layer.h"
+#include "ui/compositor/recyclable_compositor_mac.h"
+#endif
+
 namespace content {
 
 namespace {
+
+using ::testing::AssertionFailure;
+using ::testing::AssertionResult;
+using ::testing::AssertionSuccess;
+using ::testing::PrintToString;
 
 // Convenience macro: Short-circuit a pass for the tests where platform support
 // for forced-compositing mode (or disabled-compositing mode) is lacking.
@@ -108,7 +135,7 @@ class RenderWidgetHostViewBrowserTest : public ContentBrowserTest {
 
   RenderViewHost* GetRenderViewHost() const {
     RenderViewHost* const rvh =
-        shell()->web_contents()->GetMainFrame()->GetRenderViewHost();
+        shell()->web_contents()->GetPrimaryMainFrame()->GetRenderViewHost();
     CHECK(rvh);
     return rvh;
   }
@@ -146,7 +173,7 @@ class RenderWidgetHostViewBrowserTest : public ContentBrowserTest {
   // call stack.
   static void GiveItSomeTime() {
     base::RunLoop run_loop;
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(250));
     run_loop.Run();
   }
@@ -218,6 +245,24 @@ class NoCompositingRenderWidgetHostViewBrowserTest
   }
 };
 
+// Ensures that kBackForwardCache is always enabled to ensure that a new RWH is
+// created on navigation.
+class PaintHoldingRenderWidgetHostViewBrowserTest
+    : public NoCompositingRenderWidgetHostViewBrowserTest {
+ public:
+  PaintHoldingRenderWidgetHostViewBrowserTest() {
+    scoped_feature_list_.InitWithFeaturesAndParameters(
+        {{{features::kBackForwardCache}, {}}},
+        // Allow BackForwardCache for all devices regardless of their memory.
+        {features::kBackForwardCacheMemoryControls});
+  }
+
+  ~PaintHoldingRenderWidgetHostViewBrowserTest() override = default;
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
 // When creating the first RenderWidgetHostViewBase, the CompositorFrameSink can
 // change. When this occurs we need to evict the current frame, and recreate
 // surfaces. This tests that when frame eviction occurs while the
@@ -245,6 +290,57 @@ IN_PROC_BROWSER_TEST_F(NoCompositingRenderWidgetHostViewBrowserTest,
   // can generically test all eviction paths. However this should only be for
   // top level renderers. Currently the FrameEvict implementations are platform
   // dependent so we can't have a single generic test.
+}
+
+// Tests that when navigating to a new page the old page content continues to be
+// shown until the new page content is ready or content rendering timeout fires.
+IN_PROC_BROWSER_TEST_F(PaintHoldingRenderWidgetHostViewBrowserTest,
+                       PaintHoldingOnNavigation) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+  // Creates the initial RenderWidgetHostViewBase, and connects to a
+  // CompositorFrameSink.
+  EXPECT_TRUE(NavigateToURL(
+      shell(), embedded_test_server()->GetURL("/page_with_animation.html")));
+
+  RenderWidgetHostViewBase* first_view = GetRenderWidgetHostView();
+  EXPECT_TRUE(first_view);
+  viz::SurfaceId first_surface_id = first_view->GetCurrentSurfaceId();
+  EXPECT_TRUE(first_surface_id.is_valid());
+
+  // Perform a navigation to a new page. This will use a new render widget when
+  // BackForwardCache is enabled.
+  EXPECT_TRUE(NavigateToURL(
+      shell(), embedded_test_server()->GetURL("/page_with_blur.html")));
+
+  RenderWidgetHostViewBase* second_view = GetRenderWidgetHostView();
+  EXPECT_TRUE(second_view);
+  viz::SurfaceId second_surface_id = second_view->GetCurrentSurfaceId();
+  EXPECT_TRUE(second_surface_id.is_valid());
+
+  // After navigation there should be a new view with a different FrameSinkId.
+  EXPECT_NE(first_view, second_view);
+  EXPECT_NE(first_surface_id.frame_sink_id(),
+            second_surface_id.frame_sink_id());
+
+#if defined(USE_AURA)
+  DelegatedFrameHost* dfh = static_cast<RenderWidgetHostViewAura*>(second_view)
+                                ->GetDelegatedFrameHost();
+  EXPECT_TRUE(dfh->HasPrimarySurface());
+  EXPECT_TRUE(dfh->HasFallbackSurface());
+
+  // The view after navigation should have a fallback SurfaceId that corresponds
+  // to the SurfaceId from before navigation. This shows the old content after
+  // navigation until either new content is ready or content rending timeout
+  // fires.
+  viz::SurfaceId fallback_surface_id = dfh->GetFallbackSurfaceIdForTesting();
+  EXPECT_TRUE(first_surface_id.IsSameOrNewerThan(fallback_surface_id));
+  EXPECT_NE(fallback_surface_id.frame_sink_id(),
+            second_surface_id.frame_sink_id());
+#endif
+
+  // The render widget should have it's content rendering timeout timer after
+  // navigating to the new page so the fallback content is eventually cleared.
+  EXPECT_TRUE(GetRenderWidgetHost()->IsContentRenderingTimeoutRunning());
 }
 
 // TODO(jonross): Update Mac to also invalidate its viz::LocalSurfaceIds when
@@ -420,7 +516,7 @@ IN_PROC_BROWSER_TEST_F(NoCompositingRenderWidgetHostViewBrowserTest,
   // Notify that this pending commit has no RenderFrameHost with which to get a
   // Fallback Surface. This should evict the Fallback Surface.
   web_contents->NotifySwappedFromRenderManagerWithoutFallbackContent(
-      web_contents->GetMainFrame());
+      web_contents->GetPrimaryMainFrame());
   EXPECT_FALSE(rwhvb->HasFallbackSurface());
 
   // Actually complete a navigation once we've removed the Fallback Surface.
@@ -524,8 +620,8 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewBrowserTestBase,
     CommitBeforeSwapAckSentHelper commit_helper(web_contents,
                                                 frame_observer.get());
     EXPECT_TRUE(WaitForLoadStop(web_contents));
-    EXPECT_NE(web_contents->GetMainFrame()->GetProcess(),
-              new_web_contents->GetMainFrame()->GetProcess());
+    EXPECT_NE(web_contents->GetPrimaryMainFrame()->GetProcess(),
+              new_web_contents->GetPrimaryMainFrame()->GetProcess());
   }
 
   // Go back and verify that the renderer continues to draw new frames.
@@ -533,10 +629,10 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewBrowserTestBase,
   // Stop observing before we destroy |web_contents| in WaitForLoadStop.
   frame_observer.reset();
   EXPECT_TRUE(WaitForLoadStop(web_contents));
-  EXPECT_EQ(web_contents->GetMainFrame()->GetProcess(),
-            new_web_contents->GetMainFrame()->GetProcess());
+  EXPECT_EQ(web_contents->GetPrimaryMainFrame()->GetProcess(),
+            new_web_contents->GetPrimaryMainFrame()->GetProcess());
   MainThreadFrameObserver observer(
-      web_contents->GetMainFrame()->GetRenderViewHost()->GetWidget());
+      web_contents->GetPrimaryMainFrame()->GetRenderViewHost()->GetWidget());
   for (int i = 0; i < 5; ++i)
     observer.Wait();
 }
@@ -571,7 +667,7 @@ class CompositingRenderWidgetHostViewBrowserTest
   }
 
   bool SetUpSourceSurface(const char* wait_message) override {
-    content::DOMMessageQueue message_queue;
+    content::DOMMessageQueue message_queue(shell()->web_contents());
     EXPECT_TRUE(NavigateToURL(shell(), TestUrl()));
     if (wait_message != nullptr) {
       std::string result(wait_message);
@@ -625,14 +721,8 @@ IN_PROC_BROWSER_TEST_P(CompositingRenderWidgetHostViewBrowserTest,
 
 // Tests that the callback passed to CopyFromSurface is always called, even
 // when the RenderWidgetHostView is deleting in the middle of an async copy.
-//
-// TODO(miu): On some bots (e.g., ChromeOS and Cast Shell), this test fails
-// because the RunLoop quits before its QuitClosure() is run. This is because
-// the call to WebContents::Close() leads to something that makes the current
-// thread's RunLoop::Delegate constantly report "should quit." We'll need to
-// find a better way of testing this functionality.
 IN_PROC_BROWSER_TEST_P(CompositingRenderWidgetHostViewBrowserTest,
-                       DISABLED_CopyFromSurface_CallbackDespiteDelete) {
+                       CopyFromSurface_CallbackDespiteDelete) {
   SET_UP_SURFACE_OR_PASS_TEST(nullptr);
 
   base::RunLoop run_loop;
@@ -642,6 +732,8 @@ IN_PROC_BROWSER_TEST_P(CompositingRenderWidgetHostViewBrowserTest,
                      base::Unretained(this), run_loop.QuitClosure()));
   shell()->web_contents()->Close();
   run_loop.Run();
+  while (callback_invoke_count() == 0)
+    GiveItSomeTime();
 
   EXPECT_EQ(1, callback_invoke_count());
 }
@@ -1038,7 +1130,8 @@ INSTANTIATE_TEST_SUITE_P(
     kTestCompositingModes);
 
 class RenderWidgetHostViewPresentationFeedbackBrowserTest
-    : public NoCompositingRenderWidgetHostViewBrowserTest {
+    : public NoCompositingRenderWidgetHostViewBrowserTest,
+      public ::testing::WithParamInterface<bool> {
  public:
   RenderWidgetHostViewPresentationFeedbackBrowserTest(
       const RenderWidgetHostViewPresentationFeedbackBrowserTest&) = delete;
@@ -1046,7 +1139,11 @@ class RenderWidgetHostViewPresentationFeedbackBrowserTest
       const RenderWidgetHostViewPresentationFeedbackBrowserTest&) = delete;
 
  protected:
-  RenderWidgetHostViewPresentationFeedbackBrowserTest() = default;
+  RenderWidgetHostViewPresentationFeedbackBrowserTest() {
+    features_.InitWithFeatureState(blink::features::kTabSwitchMetrics2,
+                                   GetParam());
+  }
+
   ~RenderWidgetHostViewPresentationFeedbackBrowserTest() override = default;
 
   void SetUpOnMainThread() override {
@@ -1062,29 +1159,43 @@ class RenderWidgetHostViewPresentationFeedbackBrowserTest
     // Start with the widget hidden.
     rwhvb->Hide();
 
-    // Set a VisibleTimeRequest that will be sent the first time the widget
-    // becomes visible.
+#if BUILDFLAG(IS_MAC)
+    // On Mac, DelegatedFrameHost only behaves the same as on other platforms
+    // when it has no parent UI layer.
+    ASSERT_FALSE(
+        GetBrowserCompositor()->DelegatedFrameHostGetLayer()->parent());
+#endif
+  }
+
+  // Set a VisibleTimeRequest that will be sent the first time the widget
+  // becomes visible. The default parameters request a tab switch measurement.
+  AssertionResult CreateVisibleTimeRequest(
+      bool show_reason_tab_switching = true,
+      bool show_reason_bfcache_restore = false) {
     VisibleTimeRequestTrigger* request_trigger =
-        rwhvb->host()->GetVisibleTimeRequestTrigger();
-    ASSERT_TRUE(request_trigger);
-    request_trigger->UpdateRequest(base::TimeTicks::Now(),
-                                   /*destination_is_loaded=*/true,
-                                   /*show_reason_tab_switching=*/true,
-                                   /*show_reason_unoccluded=*/false,
-                                   /*show_reason_bfcache_restore=*/false);
+        GetRenderWidgetHostView()->host()->GetVisibleTimeRequestTrigger();
+    if (!request_trigger) {
+      return AssertionFailure() << "GetVisibleTimeRequestTrigger returned null";
+    }
+    request_trigger->UpdateRequest(
+        base::TimeTicks::Now(), /*destination_is_loaded=*/true,
+        show_reason_tab_switching, show_reason_bfcache_restore);
+    return AssertionSuccess();
   }
 
   enum class HistogramToExpect {
     kTotalSwitchDuration,
     kTotalIncompleteSwitchDuration,
+    kNothing,  // Expect no tab switch histogram to be logged.
   };
 
-  ::testing::AssertionResult WaitForPresentationFeedback(
+  AssertionResult WaitForPresentationFeedback(
       HistogramToExpect histogram_to_expect) {
     // If TabSwitchMetrics2 is enabled, both Browser.Tabs.TotalSwitchDuration.*
-    // and Browser.Tabs.TotalSwitchDuration2.* will be logged.
+    // and Browser.Tabs.TotalSwitchDuration2.* will be logged, along with an
+    // unsuffixed aggregate Browser.Tabs.TotalSwitchDuration2.
     const size_t expected_histogram_count =
-        base::FeatureList::IsEnabled(blink::features::kTabSwitchMetrics2) ? 2
+        base::FeatureList::IsEnabled(blink::features::kTabSwitchMetrics2) ? 3
                                                                           : 1;
 
     // Expect one of Browser.Tabs.TotalSwitchDuration.* or
@@ -1094,99 +1205,155 @@ class RenderWidgetHostViewPresentationFeedbackBrowserTest
     // HistogramTest API makes it easier to count the number of samples for any
     // suffix of TotalSwitchDuration than to check the exact histogram values
     // for each possible suffix of TabSwitchResult.
-    const char* expected_prefix;
-    const char* unexpected_prefix;
+    const char* expected_prefix = nullptr;
+    std::vector<std::string> unexpected_prefixes;
     switch (histogram_to_expect) {
       case HistogramToExpect::kTotalSwitchDuration:
         expected_prefix = "Browser.Tabs.TotalSwitchDuration";
-        unexpected_prefix = "Browser.Tabs.TotalIncompleteSwitchDuration";
+        unexpected_prefixes.push_back(
+            "Browser.Tabs.TotalIncompleteSwitchDuration");
         break;
       case HistogramToExpect::kTotalIncompleteSwitchDuration:
         expected_prefix = "Browser.Tabs.TotalIncompleteSwitchDuration";
-        unexpected_prefix = "Browser.Tabs.TotalSwitchDuration";
+        unexpected_prefixes.push_back("Browser.Tabs.TotalSwitchDuration");
+        break;
+      case HistogramToExpect::kNothing:
+        unexpected_prefixes.push_back("Browser.Tabs.TotalSwitchDuration");
+        unexpected_prefixes.push_back(
+            "Browser.Tabs.TotalIncompleteSwitchDuration");
         break;
     }
 
+    // The full action_timeout is excessively long when expecting nothing to be
+    // logged.
+    const base::TimeDelta timeout =
+        histogram_to_expect == HistogramToExpect::kNothing
+            ? base::Seconds(1)
+            : TestTimeouts::action_timeout();
+
     // Wait for the expected histograms (only) to be logged.
     const base::TimeTicks start_time = base::TimeTicks::Now();
-    while (base::TimeTicks::Now() - start_time <
-           TestTimeouts::action_timeout()) {
+    while (base::TimeTicks::Now() - start_time < timeout) {
       GiveItSomeTime();
 
-      if (!histogram_tester_.GetTotalCountsForPrefix(unexpected_prefix)
-               .empty()) {
-        return ::testing::AssertionFailure()
-               << "Unexpected histogram " << unexpected_prefix
-               << ". All histograms: "
-               << ::testing::PrintToString(
-                      histogram_tester_.GetTotalCountsForPrefix(
-                          "Browser.Tabs."));
+      for (const std::string& unexpected_prefix : unexpected_prefixes) {
+        if (!histogram_tester_.GetTotalCountsForPrefix(unexpected_prefix)
+                 .empty()) {
+          return AssertionFailure()
+                 << "Unexpected histogram " << unexpected_prefix
+                 << ". All histograms: "
+                 << PrintToString(histogram_tester_.GetTotalCountsForPrefix(
+                        "Browser.Tabs."));
+        }
       }
-      if (histogram_tester_.GetTotalCountsForPrefix(expected_prefix).size() ==
-          expected_histogram_count) {
-        return ::testing::AssertionSuccess();
+      if (expected_prefix &&
+          histogram_tester_.GetTotalCountsForPrefix(expected_prefix).size() ==
+              expected_histogram_count) {
+        return AssertionSuccess();
       }
     }
 
-    return ::testing::AssertionFailure()
-           << "Timed out waiting for " << expected_prefix
-           << ". All histograms: "
-           << ::testing::PrintToString(
-                  histogram_tester_.GetTotalCountsForPrefix("Browser.Tabs."));
+    if (expected_prefix) {
+      return AssertionFailure()
+             << "Timed out waiting for " << expected_prefix
+             << ". All histograms: "
+             << PrintToString(
+                    histogram_tester_.GetTotalCountsForPrefix("Browser.Tabs."));
+    }
+
+    // Expected nothing, got nothing.
+    return AssertionSuccess();
   }
 
+#if BUILDFLAG(IS_MAC)
+  // Helpers for parent layer tests.
+
+  // Holds a ui::Layer with its own compositor to be set as parent layer during
+  // tests. This must be destroyed before tearing down the test harness so that
+  // the ContentBrowserTest environment doesn't have any references to the
+  // ui::Layer during destruction.
+  class ScopedParentLayer {
+   public:
+    ScopedParentLayer(BrowserCompositorMac* browser_compositor)
+        : browser_compositor_(browser_compositor) {
+      recyclable_compositor_ = std::make_unique<ui::RecyclableCompositorMac>(
+          content::GetContextFactory());
+      layer_.SetCompositorForTesting(recyclable_compositor_->compositor());
+    }
+
+    ~ScopedParentLayer() {
+      browser_compositor_->SetParentUiLayer(nullptr);
+      layer_.ResetCompositor();
+      recyclable_compositor_.reset();
+    }
+
+    ui::Layer* layer() { return &layer_; }
+
+   private:
+    raw_ptr<BrowserCompositorMac> browser_compositor_;
+    ui::Layer layer_{ui::LAYER_SOLID_COLOR};
+    std::unique_ptr<ui::RecyclableCompositorMac> recyclable_compositor_;
+  };
+
+  BrowserCompositorMac* GetBrowserCompositor() const {
+    return GetBrowserCompositorMacForTesting(GetRenderWidgetHostView());
+  }
+#endif
+
+  base::test::ScopedFeatureList features_;
   base::HistogramTester histogram_tester_;
 };
 
-IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewPresentationFeedbackBrowserTest,
+// Alias for tests that will only pass if blink::features::kTabSwitchMetrics2 is
+// enabled, because the original tab switch metric implementation didn't cover
+// all corner cases.
+using RenderWidgetHostViewPresentationFeedbackMetrics2BrowserTest =
+    RenderWidgetHostViewPresentationFeedbackBrowserTest;
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         RenderWidgetHostViewPresentationFeedbackBrowserTest,
+                         ::testing::Bool());
+
+INSTANTIATE_TEST_SUITE_P(
+    Metrics2Only,
+    RenderWidgetHostViewPresentationFeedbackMetrics2BrowserTest,
+    ::testing::Values(true));
+
+IN_PROC_BROWSER_TEST_P(RenderWidgetHostViewPresentationFeedbackBrowserTest,
                        Show) {
+  ASSERT_TRUE(CreateVisibleTimeRequest());
   GetRenderWidgetHostView()->ShowWithVisibility(PageVisibilityState::kVisible);
   EXPECT_TRUE(
       WaitForPresentationFeedback(HistogramToExpect::kTotalSwitchDuration));
 }
 
-IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewPresentationFeedbackBrowserTest,
+IN_PROC_BROWSER_TEST_P(RenderWidgetHostViewPresentationFeedbackBrowserTest,
                        ShowThenHide) {
   // Browser.Tabs.TotalIncompleteSwitchDuration.* is logged when the widget
   // is hidden before presenting a frame.
+  ASSERT_TRUE(CreateVisibleTimeRequest());
   GetRenderWidgetHostView()->ShowWithVisibility(PageVisibilityState::kVisible);
   GetRenderWidgetHostView()->Hide();
   EXPECT_TRUE(WaitForPresentationFeedback(
       HistogramToExpect::kTotalIncompleteSwitchDuration));
 }
 
-IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewPresentationFeedbackBrowserTest,
-                       HiddenButPainting) {
-  if (!base::FeatureList::IsEnabled(blink::features::kTabSwitchMetrics2)) {
-    GTEST_SKIP() << "Visibility changes with a hidden capturer are only "
-                    "handled when TabSwitchMetrics2 is enabled";
-  }
-
+IN_PROC_BROWSER_TEST_P(
+    RenderWidgetHostViewPresentationFeedbackMetrics2BrowserTest,
+    HiddenButPainting) {
   // Browser.Tabs.* is not logged if the page becomes "visible" due to a hidden
   // capturer.
+  ASSERT_TRUE(CreateVisibleTimeRequest());
   GetRenderWidgetHostView()->ShowWithVisibility(
       PageVisibilityState::kHiddenButPainting);
-
-  // The full action_timeout is excessively long for the expected path.
-  const base::TimeTicks start_time = base::TimeTicks::Now();
-  while (base::TimeTicks::Now() - start_time < base::Seconds(1)) {
-    GiveItSomeTime();
-    ASSERT_TRUE(
-        histogram_tester_.GetTotalCountsForPrefix("Browser.Tabs.").empty())
-        << "Unexpected histogram Browser.Tabs. All histograms: "
-        << ::testing::PrintToString(
-               histogram_tester_.GetTotalCountsForPrefix("Browser.Tabs."));
-  }
+  EXPECT_TRUE(WaitForPresentationFeedback(HistogramToExpect::kNothing));
 }
 
-IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewPresentationFeedbackBrowserTest,
-                       ShowWhileCapturing) {
-  if (!base::FeatureList::IsEnabled(blink::features::kTabSwitchMetrics2)) {
-    GTEST_SKIP() << "Visibility changes with a hidden capturer are only "
-                    "handled when TabSwitchMetrics2 is enabled";
-  }
-
+IN_PROC_BROWSER_TEST_P(
+    RenderWidgetHostViewPresentationFeedbackMetrics2BrowserTest,
+    ShowWhileCapturing) {
   // Frame is captured and then becomes visible.
+  ASSERT_TRUE(CreateVisibleTimeRequest());
   GetRenderWidgetHostView()->ShowWithVisibility(
       PageVisibilityState::kHiddenButPainting);
   GetRenderWidgetHostView()->ShowWithVisibility(PageVisibilityState::kVisible);
@@ -1194,21 +1361,87 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewPresentationFeedbackBrowserTest,
       WaitForPresentationFeedback(HistogramToExpect::kTotalSwitchDuration));
 }
 
-IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewPresentationFeedbackBrowserTest,
-                       HideWhileCapturing) {
-  if (!base::FeatureList::IsEnabled(blink::features::kTabSwitchMetrics2)) {
-    GTEST_SKIP() << "Visibility changes with a hidden capturer are only "
-                    "handled when TabSwitchMetrics2 is enabled";
-  }
-
+IN_PROC_BROWSER_TEST_P(
+    RenderWidgetHostViewPresentationFeedbackMetrics2BrowserTest,
+    HideWhileCapturing) {
   // Capture starts and frame becomes "hidden" before a render frame is
   // presented.
+  ASSERT_TRUE(CreateVisibleTimeRequest());
   GetRenderWidgetHostView()->ShowWithVisibility(PageVisibilityState::kVisible);
   GetRenderWidgetHostView()->ShowWithVisibility(
       PageVisibilityState::kHiddenButPainting);
   EXPECT_TRUE(WaitForPresentationFeedback(
       HistogramToExpect::kTotalIncompleteSwitchDuration));
 }
+
+IN_PROC_BROWSER_TEST_P(RenderWidgetHostViewPresentationFeedbackBrowserTest,
+                       ShowWithoutTabSwitchRequest) {
+  ASSERT_TRUE(CreateVisibleTimeRequest(/*show_reason_tab_switching=*/false,
+                                       /*show_reason_bfcache_restore=*/true));
+  // Browser.Tabs.* is not logged if not requested.
+  GetRenderWidgetHostView()->ShowWithVisibility(PageVisibilityState::kVisible);
+  EXPECT_TRUE(WaitForPresentationFeedback(HistogramToExpect::kNothing));
+}
+
+IN_PROC_BROWSER_TEST_P(
+    RenderWidgetHostViewPresentationFeedbackMetrics2BrowserTest,
+    ShowThenHideWithoutTabSwitchRequest) {
+  ASSERT_TRUE(CreateVisibleTimeRequest(/*show_reason_tab_switching=*/false,
+                                       /*show_reason_bfcache_restore=*/true));
+  // Browser.Tabs.* is not logged if not requested.
+  GetRenderWidgetHostView()->ShowWithVisibility(PageVisibilityState::kVisible);
+  GetRenderWidgetHostView()->Hide();
+  EXPECT_TRUE(WaitForPresentationFeedback(HistogramToExpect::kNothing));
+}
+
+#if BUILDFLAG(IS_MAC)
+
+// The default tests do not set a parent UI layer, so the BrowserCompositorMac
+// state is always HasNoCompositor when the RWHV is hidden, or HasOwnCompositor
+// when the RWHV is visible. These tests add a parent layer to make sure that
+// presentation feedback is logged when the state is UseParentLayerCompositor.
+
+// TODO(https://crbug.com/1164477): These tests don't match the behaviour of the
+// browser. In production the kTotalSwitchDuration histograms are logged but in
+// this test, the presentation time request is swallowed during the
+// UseParentLayerCompositor state. Need to find out what's wrong with the test
+// setup.
+
+IN_PROC_BROWSER_TEST_P(
+    RenderWidgetHostViewPresentationFeedbackMetrics2BrowserTest,
+    DISABLED_ShowWithParentLayer) {
+  ASSERT_TRUE(CreateVisibleTimeRequest());
+  ScopedParentLayer parent_layer(GetBrowserCompositor());
+  GetBrowserCompositor()->SetParentUiLayer(parent_layer.layer());
+  GetRenderWidgetHostView()->ShowWithVisibility(PageVisibilityState::kVisible);
+  EXPECT_TRUE(
+      WaitForPresentationFeedback(HistogramToExpect::kTotalSwitchDuration));
+}
+
+IN_PROC_BROWSER_TEST_P(
+    RenderWidgetHostViewPresentationFeedbackMetrics2BrowserTest,
+    DISABLED_ShowThenAddParentLayer) {
+  ASSERT_TRUE(CreateVisibleTimeRequest());
+  GetRenderWidgetHostView()->ShowWithVisibility(PageVisibilityState::kVisible);
+  ScopedParentLayer parent_layer(GetBrowserCompositor());
+  GetBrowserCompositor()->SetParentUiLayer(parent_layer.layer());
+  EXPECT_TRUE(
+      WaitForPresentationFeedback(HistogramToExpect::kTotalSwitchDuration));
+}
+
+IN_PROC_BROWSER_TEST_P(
+    RenderWidgetHostViewPresentationFeedbackMetrics2BrowserTest,
+    DISABLED_ShowThenRemoveParentLayer) {
+  ASSERT_TRUE(CreateVisibleTimeRequest());
+  ScopedParentLayer parent_layer(GetBrowserCompositor());
+  GetBrowserCompositor()->SetParentUiLayer(parent_layer.layer());
+  GetRenderWidgetHostView()->ShowWithVisibility(PageVisibilityState::kVisible);
+  GetBrowserCompositor()->SetParentUiLayer(nullptr);
+  EXPECT_TRUE(
+      WaitForPresentationFeedback(HistogramToExpect::kTotalSwitchDuration));
+}
+
+#endif  // BUILDFLAG(IS_MAC)
 
 #endif  // !BUILDFLAG(IS_ANDROID)
 

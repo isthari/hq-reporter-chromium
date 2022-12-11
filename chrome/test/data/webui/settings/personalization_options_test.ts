@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@ import {SettingsPersonalizationOptionsElement} from 'chrome://settings/lazy_load
 import {PrivacyPageVisibility} from 'chrome://settings/page_visibility.js';
 import {loadTimeData, PrivacyPageBrowserProxyImpl, StatusAction, SyncBrowserProxyImpl} from 'chrome://settings/settings.js';
 import {assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-// <if expr="not chromeos and not lacros">
+// <if expr="not is_chromeos">
 import {eventToPromise, isVisible} from 'chrome://webui-test/test_util.js';
 
 // </if>
@@ -30,11 +30,12 @@ suite('PersonalizationOptionsTests_AllBuilds', function() {
     loadTimeData.overrideValues({
       driveSuggestAvailable: true,
       signinAvailable: true,
+      changePriceEmailNotificationsEnabled: true,
     });
   });
 
   function buildTestElement() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     testElement = document.createElement('settings-personalization-options');
     testElement.prefs = {
       signin: {
@@ -44,6 +45,7 @@ suite('PersonalizationOptionsTests_AllBuilds', function() {
       profile: {password_manager_leak_detection: {value: true}},
       safebrowsing:
           {enabled: {value: true}, scout_reporting_enabled: {value: true}},
+      price_tracking: {email_notifications_enabled: {value: false}},
     };
     testElement.pageVisibility = customPageVisibility;
     document.body.appendChild(testElement);
@@ -68,21 +70,21 @@ suite('PersonalizationOptionsTests_AllBuilds', function() {
 
     testElement.syncStatus = {
       signedIn: true,
-      statusAction: StatusAction.NO_ACTION
+      statusAction: StatusAction.NO_ACTION,
     };
     flush();
     assertTrue(!!testElement.shadowRoot!.querySelector('#driveSuggestControl'));
 
     testElement.syncStatus = {
       signedIn: true,
-      statusAction: StatusAction.REAUTHENTICATE
+      statusAction: StatusAction.REAUTHENTICATE,
     };
     flush();
     assertFalse(
         !!testElement.shadowRoot!.querySelector('#driveSuggestControl'));
   });
 
-  // <if expr="not chromeos and not lacros">
+  // <if expr="not is_chromeos">
   test('signinAllowedToggle', function() {
     const toggle = testElement.$.signinAllowedToggle;
     assertTrue(isVisible(toggle));
@@ -225,6 +227,23 @@ suite('PersonalizationOptionsTests_AllBuilds', function() {
         testElement.shadowRoot!.querySelector('#searchSuggestToggle')));
   });
   // </if>
+
+  test('priceEmailNotificationsToggleHidden', function() {
+    loadTimeData.overrideValues(
+        {'changePriceEmailNotificationsEnabled': false});
+    buildTestElement();  // Rebuild the element after modifying loadTimeData.
+
+    assertFalse(!!testElement.shadowRoot!.querySelector(
+        '#priceEmailNotificationsToggle'));
+
+    testElement.syncStatus = {
+      signedIn: true,
+      statusAction: StatusAction.NO_ACTION,
+    };
+    flush();
+    assertFalse(!!testElement.shadowRoot!.querySelector(
+        '#priceEmailNotificationsToggle'));
+  });
 });
 
 suite('PersonalizationOptionsTests_OfficialBuild', function() {
@@ -234,7 +253,7 @@ suite('PersonalizationOptionsTests_OfficialBuild', function() {
   setup(function() {
     testBrowserProxy = new TestPrivacyPageBrowserProxy();
     PrivacyPageBrowserProxyImpl.setInstance(testBrowserProxy);
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     testElement = document.createElement('settings-personalization-options');
     document.body.appendChild(testElement);
   });
@@ -243,24 +262,32 @@ suite('PersonalizationOptionsTests_OfficialBuild', function() {
     testElement.remove();
   });
 
+  // On ChromeOS Ash, the spellcheck toggle is in OS Settings, not browser
+  // settings. TODO (https://www.crbug.com/1396704): Add this test in the OS
+  // settings test for the OS version of personalization options, once OS
+  // Settings supports TypeScript tests.
+  // <if expr="not chromeos_ash">
   test('Spellcheck toggle', function() {
     testElement.prefs = {
       profile: {password_manager_leak_detection: {value: true}},
       safebrowsing:
           {enabled: {value: true}, scout_reporting_enabled: {value: true}},
-      spellcheck: {dictionaries: {value: ['en-US']}}
+      spellcheck: {dictionaries: {value: ['en-US']}},
     };
     flush();
-    assertFalse(testElement.$.spellCheckControl.hidden);
+    const shadowRoot = testElement.shadowRoot!;
+    assertFalse(
+        shadowRoot.querySelector<HTMLElement>('#spellCheckControl')!.hidden);
 
     testElement.prefs = {
       profile: {password_manager_leak_detection: {value: true}},
       safebrowsing:
           {enabled: {value: true}, scout_reporting_enabled: {value: true}},
-      spellcheck: {dictionaries: {value: []}}
+      spellcheck: {dictionaries: {value: []}},
     };
     flush();
-    assertTrue(testElement.$.spellCheckControl.hidden);
+    assertTrue(
+        shadowRoot.querySelector<HTMLElement>('#spellCheckControl')!.hidden);
 
     testElement.prefs = {
       profile: {password_manager_leak_detection: {value: true}},
@@ -269,11 +296,38 @@ suite('PersonalizationOptionsTests_OfficialBuild', function() {
       browser: {enable_spellchecking: {value: false}},
       spellcheck: {
         dictionaries: {value: ['en-US']},
-        use_spelling_service: {value: false}
-      }
+        use_spelling_service: {value: false},
+      },
     };
     flush();
-    testElement.$.spellCheckControl.click();
+    shadowRoot.querySelector<HTMLElement>('#spellCheckControl')!.click();
     assertTrue(testElement.prefs.spellcheck.use_spelling_service.value);
   });
+  // </if>
+
+  // Only the spellcheck link is shown on Chrome OS in Browser settings.
+  // <if expr="chromeos_ash">
+  test('Spellcheck link', function() {
+    testElement.prefs = {
+      profile: {password_manager_leak_detection: {value: true}},
+      safebrowsing:
+          {enabled: {value: true}, scout_reporting_enabled: {value: true}},
+      spellcheck: {dictionaries: {value: ['en-US']}},
+    };
+    flush();
+    const shadowRoot = testElement.shadowRoot!;
+    assertFalse(
+        shadowRoot.querySelector<HTMLElement>('#spellCheckLink')!.hidden);
+
+    testElement.prefs = {
+      profile: {password_manager_leak_detection: {value: true}},
+      safebrowsing:
+          {enabled: {value: true}, scout_reporting_enabled: {value: true}},
+      spellcheck: {dictionaries: {value: []}},
+    };
+    flush();
+    assertTrue(
+        shadowRoot.querySelector<HTMLElement>('#spellCheckLink')!.hidden);
+  });
+  // </if>
 });

@@ -1,10 +1,9 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/password_manager/core/browser/password_manager_util.h"
 
-#include <algorithm>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -17,16 +16,19 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/logging/log_manager.h"
 #include "components/autofill/core/browser/ui/popup_item_ids.h"
 #include "components/autofill/core/common/password_generation_util.h"
-#include "components/password_manager/core/browser/android_affiliation/affiliation_utils.h"
+#include "components/password_manager/core/browser/affiliation/affiliation_utils.h"
 #include "components/password_manager/core/browser/credentials_cleaner.h"
 #include "components/password_manager/core/browser/credentials_cleaner_runner.h"
 #include "components/password_manager/core/browser/http_credentials_cleaner.h"
 #include "components/password_manager/core/browser/old_google_credentials_cleaner.h"
+#include "components/password_manager/core/browser/password_bubble_experiment.h"
 #include "components/password_manager/core/browser/password_feature_manager.h"
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_generation_frame_helper.h"
@@ -108,15 +110,15 @@ void TrimUsernameOnlyCredentials(
                 });
 
   // Set "skip_zero_click" on federated credentials.
-  std::for_each(android_credentials->begin(), android_credentials->end(),
-                [](const std::unique_ptr<PasswordForm>& form) {
-                  if (form->scheme == PasswordForm::Scheme::kUsernameOnly)
-                    form->skip_zero_click = true;
-                });
+  base::ranges::for_each(
+      *android_credentials, [](const std::unique_ptr<PasswordForm>& form) {
+        if (form->scheme == PasswordForm::Scheme::kUsernameOnly)
+          form->skip_zero_click = true;
+      });
 }
 
-bool IsLoggingActive(const password_manager::PasswordManagerClient* client) {
-  const autofill::LogManager* log_manager = client->GetLogManager();
+bool IsLoggingActive(password_manager::PasswordManagerClient* client) {
+  autofill::LogManager* log_manager = client->GetLogManager();
   return log_manager && log_manager->IsLoggingActive();
 }
 
@@ -136,12 +138,13 @@ bool ManualPasswordGenerationEnabled(
 
 bool ShowAllSavedPasswordsContextMenuEnabled(
     password_manager::PasswordManagerDriver* driver) {
-  password_manager::PasswordManager* password_manager =
+  password_manager::PasswordManagerInterface* password_manager =
       driver ? driver->GetPasswordManager() : nullptr;
   if (!password_manager)
     return false;
 
-  password_manager::PasswordManagerClient* client = password_manager->client();
+  password_manager::PasswordManagerClient* client =
+      password_manager->GetClient();
   if (!client ||
       !client->IsFillingFallbackEnabled(driver->GetLastCommittedURL()))
     return false;
@@ -150,7 +153,12 @@ bool ShowAllSavedPasswordsContextMenuEnabled(
 }
 
 void UserTriggeredManualGenerationFromContextMenu(
-    password_manager::PasswordManagerClient* password_manager_client) {
+    password_manager::PasswordManagerClient* password_manager_client,
+    autofill::AutofillClient* autofill_client) {
+  if (autofill_client) {
+    autofill_client->HideAutofillPopup(
+        autofill::PopupHidingReason::kOverlappingWithPasswordGenerationPopup);
+  }
   if (!password_manager_client->GetPasswordFeatureManager()
            ->ShouldShowAccountStorageOptIn()) {
     password_manager_client->GeneratePassword(PasswordGenerationType::kManual);
@@ -205,7 +213,7 @@ void RemoveUselessCredentials(
   if (cleaning_tasks_runner->HasPendingTasks()) {
     // The runner will delete itself once the clearing tasks are done, thus we
     // are releasing ownership here.
-    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(
             &password_manager::CredentialsCleanerRunner::StartCleaning,
@@ -306,7 +314,8 @@ const PasswordForm* FindFormByUsername(
 
 const PasswordForm* GetMatchForUpdating(
     const PasswordForm& submitted_form,
-    const std::vector<const PasswordForm*>& credentials) {
+    const std::vector<const PasswordForm*>& credentials,
+    bool username_updated_in_bubble) {
   // This is the case for the credential management API. It should not depend on
   // form managers. Once that's the case, this should be turned into a DCHECK.
   // TODO(crbug/947030): turn it into a DCHECK.
@@ -348,6 +357,12 @@ const PasswordForm* GetMatchForUpdating(
       return stored_match;
   }
 
+  // If the user manually changed the username value: consider this at this
+  // point of the heuristic a new credential (didn't match other
+  // passwords/usernames).
+  if (username_updated_in_bubble)
+    return nullptr;
+
   // Last try. The submitted form had no username but a password. Assume that
   // it's an existing credential.
   return credentials.empty() ? nullptr : credentials.front();
@@ -374,13 +389,42 @@ PasswordForm MakeNormalizedBlocklistedForm(
   return result;
 }
 
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
+bool ShouldBiometricAuthenticationForFillingToggleBeVisible(
+    const PrefService* local_state) {
+  return local_state->GetBoolean(
+             password_manager::prefs::kHadBiometricsAvailable) &&
+         base::FeatureList::IsEnabled(
+             password_manager::features::kBiometricAuthenticationForFilling);
+}
+
+bool ShouldShowBiometricAuthenticationBeforeFillingPromo(
+    password_manager::PasswordManagerClient* client) {
+  return client && client->GetBiometricAuthenticator() &&
+         client->GetBiometricAuthenticator()->CanAuthenticate(
+             device_reauth::BiometricAuthRequester::kAutofillSuggestion) &&
+         base::FeatureList::IsEnabled(
+             password_manager::features::kBiometricAuthenticationForFilling) &&
+         !client->GetPrefs()->GetBoolean(
+             password_manager::prefs::kBiometricAuthenticationBeforeFilling);
+}
+#endif  // BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
+
 bool CanUseBiometricAuth(device_reauth::BiometricAuthenticator* authenticator,
-                         device_reauth::BiometricAuthRequester requester) {
-  return authenticator &&
-         authenticator->CanAuthenticate(requester) ==
-             device_reauth::BiometricsAvailability::kAvailable &&
+                         device_reauth::BiometricAuthRequester requester,
+                         password_manager::PasswordManagerClient* client) {
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
+  if (!client || !client->GetLocalStatePrefs() || !client->GetPrefs() ||
+      !authenticator) {
+    return false;
+  }
+  return client->GetPasswordFeatureManager()
+      ->IsBiometricAuthenticationBeforeFillingEnabled();
+#else
+  return authenticator && authenticator->CanAuthenticate(requester) &&
          base::FeatureList::IsEnabled(
              password_manager::features::kBiometricTouchToFill);
+#endif
 }
 
 GURL StripAuthAndParams(const GURL& gurl) {
@@ -408,7 +452,9 @@ GURL ConstructGURLWithScheme(const std::string& url) {
 }
 
 bool IsValidPasswordURL(const GURL& url) {
-  return url.is_valid() && url.SchemeIsHTTPOrHTTPS();
+  return url.is_valid() &&
+         (url.SchemeIsHTTPOrHTTPS() ||
+          password_manager::IsValidAndroidFacetURI(url.spec()));
 }
 
 std::string GetSignonRealm(const GURL& url) {
@@ -419,6 +465,38 @@ std::string GetSignonRealm(const GURL& url) {
   rep.ClearRef();
   rep.SetPathStr("");
   return url.ReplaceComponents(rep).spec();
+}
+
+#if BUILDFLAG(IS_IOS)
+bool IsCredentialProviderEnabledOnStartup(const PrefService* prefs) {
+  return prefs->GetBoolean(
+      password_manager::prefs::kCredentialProviderEnabledOnStartup);
+}
+
+void SetCredentialProviderEnabledOnStartup(PrefService* prefs, bool enabled) {
+  prefs->SetBoolean(
+      password_manager::prefs::kCredentialProviderEnabledOnStartup, enabled);
+}
+#endif
+
+bool IsNumeric(char16_t c) {
+  return '0' <= c && c <= '9';
+}
+
+bool IsLetter(char16_t c) {
+  return IsLowercaseLetter(c) || IsUppercaseLetter(c);
+}
+
+bool IsLowercaseLetter(char16_t c) {
+  return 'a' <= c && c <= 'z';
+}
+
+bool IsUppercaseLetter(char16_t c) {
+  return 'A' <= c && c <= 'Z';
+}
+
+bool IsSpecialSymbol(char16_t c) {
+  return base::Contains(kSpecialSymbols, c);
 }
 
 }  // namespace password_manager_util

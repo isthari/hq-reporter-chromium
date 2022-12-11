@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <errno.h>
 #include <sys/socket.h>
 
-#include <algorithm>
 #include <atomic>
 #include <limits>
 #include <memory>
@@ -15,11 +14,14 @@
 
 #include "base/bind.h"
 #include "base/containers/queue.h"
+#include "base/cpu_reduction_experiment.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_pump_for_io.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/process/current_process.h"
+#include "base/ranges/algorithm.h"
 #include "base/synchronization/lock.h"
 #include "base/task/current_thread.h"
 #include "base/task/task_runner.h"
@@ -153,10 +155,18 @@ void ChannelPosix::ShutDownImpl() {
 }
 
 void ChannelPosix::Write(MessagePtr message) {
-  UMA_HISTOGRAM_COUNTS_100000("Mojo.Channel.WriteMessageSize",
-                              message->data_num_bytes());
-  UMA_HISTOGRAM_COUNTS_100("Mojo.Channel.WriteMessageHandles",
-                           message->NumHandlesForTransit());
+  bool log_histograms = true;
+#if !defined(MOJO_CORE_SHARED_LIBRARY)
+  log_histograms = base::ShouldLogHistogramForCpuReductionExperiment();
+#endif
+  if (log_histograms) {
+    UMA_HISTOGRAM_COUNTS_100000("Mojo.Channel.WriteMessageSize",
+                                message->data_num_bytes());
+    UMA_HISTOGRAM_COUNTS_100("Mojo.Channel.WriteMessageHandles",
+                             message->NumHandlesForTransit());
+  }
+
+  MaybeLogHistogramForIPCMetrics(MessageType::kSent);
 
   bool write_error = false;
   {
@@ -193,15 +203,23 @@ bool ChannelPosix::GetReadPlatformHandles(const void* payload,
                                           bool* deferred) {
   if (num_handles > std::numeric_limits<uint16_t>::max())
     return false;
-  if (incoming_fds_.size() < num_handles)
-    return true;
 
-  handles->resize(num_handles);
-  for (size_t i = 0; i < num_handles; ++i) {
-    handles->at(i) = PlatformHandle(std::move(incoming_fds_.front()));
-    incoming_fds_.pop_front();
+  return GetReadPlatformHandlesForIpcz(num_handles, *handles);
+}
+
+bool ChannelPosix::GetReadPlatformHandlesForIpcz(
+    size_t num_handles,
+    std::vector<PlatformHandle>& handles) {
+  if (incoming_fds_.size() < num_handles) {
+    return true;
   }
 
+  DCHECK(handles.empty());
+  handles.reserve(num_handles);
+  while (num_handles--) {
+    handles.emplace_back(std::move(incoming_fds_.front()));
+    incoming_fds_.pop_front();
+  }
   return true;
 }
 
@@ -667,9 +685,7 @@ bool ChannelPosix::CloseHandles(const int* fds, size_t num_fds) {
   if (!num_fds)
     return false;
 
-  auto start = std::find_if(
-      fds_to_close_.begin(), fds_to_close_.end(),
-      [&fds](const base::ScopedFD& fd) { return fd.get() == fds[0]; });
+  auto start = base::ranges::find(fds_to_close_, fds[0], &base::ScopedFD::get);
   if (start == fds_to_close_.end())
     return false;
 

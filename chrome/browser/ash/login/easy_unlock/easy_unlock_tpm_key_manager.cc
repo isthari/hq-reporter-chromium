@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
@@ -118,7 +117,7 @@ void SignDataOnWorkerThread(
     return;
   }
 
-  crypto::ScopedSECItem sign_result(SECITEM_AllocItem(NULL, NULL, 0));
+  crypto::ScopedSECItem sign_result(SECITEM_AllocItem(nullptr, nullptr, 0));
   if (SEC_SignData(sign_result.get(),
                    reinterpret_cast<const unsigned char*>(data.data()),
                    data.size(), private_key.get(),
@@ -197,8 +196,8 @@ void EasyUnlockTpmKeyManager::ResetLocalStateForUser(
   if (!local_state)
     return;
 
-  DictionaryPrefUpdate update(local_state, prefs::kEasyUnlockLocalStateTpmKeys);
-  update->RemoveKey(account_id.GetUserEmail());
+  ScopedDictPrefUpdate update(local_state, prefs::kEasyUnlockLocalStateTpmKeys);
+  update->Remove(account_id.GetUserEmail());
 }
 
 EasyUnlockTpmKeyManager::EasyUnlockTpmKeyManager(
@@ -238,7 +237,7 @@ bool EasyUnlockTpmKeyManager::PrepareTpmKey(bool check_private_key,
     content::GetIOThreadTaskRunner({})->PostTask(
         FROM_HERE,
         base::BindOnce(&EnsureUserTPMInitializedOnIOThread, username_hash_,
-                       base::ThreadTaskRunnerHandle::Get(),
+                       base::SingleThreadTaskRunner::GetCurrentDefault(),
                        std::move(on_user_tpm_ready)));
   }
 
@@ -249,7 +248,7 @@ bool EasyUnlockTpmKeyManager::StartGetSystemSlotTimeoutMs(size_t timeout_ms) {
   if (StartedCreatingTpmKeys())
     return false;
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&EasyUnlockTpmKeyManager::OnTpmKeyCreated,
                      get_tpm_slot_weak_ptr_factory_.GetWeakPtr(),
@@ -262,11 +261,9 @@ std::string EasyUnlockTpmKeyManager::GetPublicTpmKey(
     const AccountId& account_id) {
   if (!local_state_)
     return std::string();
-  const base::Value* dict =
-      local_state_->GetDictionary(prefs::kEasyUnlockLocalStateTpmKeys);
-  const std::string* key = nullptr;
-  if (dict)
-    key = dict->FindStringKey(account_id.GetUserEmail());
+  const base::Value::Dict& dict =
+      local_state_->GetDict(prefs::kEasyUnlockLocalStateTpmKeys);
+  const std::string* key = dict.FindString(account_id.GetUserEmail());
   std::string decoded;
   base::Base64Decode(key ? *key : std::string(), &decoded);
   return decoded;
@@ -287,9 +284,10 @@ void EasyUnlockTpmKeyManager::SignUsingTpmKey(
       weak_ptr_factory_.GetWeakPtr(), key, data, std::move(callback));
 
   content::GetIOThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(&GetSystemSlotOnIOThread,
-                                base::ThreadTaskRunnerHandle::Get(),
-                                std::move(sign_with_system_slot)));
+      FROM_HERE,
+      base::BindOnce(&GetSystemSlotOnIOThread,
+                     base::SingleThreadTaskRunner::GetCurrentDefault(),
+                     std::move(sign_with_system_slot)));
 }
 
 bool EasyUnlockTpmKeyManager::StartedCreatingTpmKeys() const {
@@ -304,9 +302,9 @@ void EasyUnlockTpmKeyManager::SetKeyInLocalState(const AccountId& account_id,
 
   std::string encoded;
   base::Base64Encode(value, &encoded);
-  DictionaryPrefUpdate update(local_state_,
+  ScopedDictPrefUpdate update(local_state_,
                               prefs::kEasyUnlockLocalStateTpmKeys);
-  update->SetStringKey(account_id.GetUserEmail(), encoded);
+  update->Set(account_id.GetUserEmail(), encoded);
 }
 
 void EasyUnlockTpmKeyManager::OnUserTPMInitialized(
@@ -318,9 +316,10 @@ void EasyUnlockTpmKeyManager::OnUserTPMInitialized(
                      get_tpm_slot_weak_ptr_factory_.GetWeakPtr(), public_key);
 
   content::GetIOThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce(&GetSystemSlotOnIOThread,
-                                base::ThreadTaskRunnerHandle::Get(),
-                                std::move(create_key_with_system_slot)));
+      FROM_HERE,
+      base::BindOnce(&GetSystemSlotOnIOThread,
+                     base::SingleThreadTaskRunner::GetCurrentDefault(),
+                     std::move(create_key_with_system_slot)));
 }
 
 void EasyUnlockTpmKeyManager::CreateKeyInSystemSlot(
@@ -345,7 +344,8 @@ void EasyUnlockTpmKeyManager::CreateKeyInSystemSlot(
       FROM_HERE,
       {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(&CreateTpmKeyPairOnWorkerThread, std::move(system_slot),
-                     public_key, base::ThreadTaskRunnerHandle::Get(),
+                     public_key,
+                     base::SingleThreadTaskRunner::GetCurrentDefault(),
                      base::BindOnce(&EasyUnlockTpmKeyManager::OnTpmKeyCreated,
                                     weak_ptr_factory_.GetWeakPtr())));
 }
@@ -367,7 +367,7 @@ void EasyUnlockTpmKeyManager::SignDataWithSystemSlot(
       {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
       base::BindOnce(
           &SignDataOnWorkerThread, std::move(system_slot), public_key, data,
-          base::ThreadTaskRunnerHandle::Get(),
+          base::SingleThreadTaskRunner::GetCurrentDefault(),
           base::BindOnce(&EasyUnlockTpmKeyManager::OnDataSigned,
                          weak_ptr_factory_.GetWeakPtr(), std::move(callback))));
 }

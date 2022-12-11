@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/files/scoped_file.h"
 #include "base/guid.h"
 #include "base/strings/string_util.h"
-#include "base/system/sys_info.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_drive_image_download_service.h"
@@ -28,7 +27,9 @@
 #include "chrome/browser/download/background_download_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_key.h"
-#include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
+#include "chromeos/ash/components/dbus/debug_daemon/debug_daemon_client.h"
+#include "chromeos/ash/components/dbus/dlcservice/dlcservice.pb.h"
+#include "chromeos/ash/components/dbus/spaced/spaced_client.h"
 #include "components/download/public/background_service/background_download_service.h"
 #include "components/download/public/background_service/download_metadata.h"
 #include "components/prefs/pref_service.h"
@@ -54,10 +55,10 @@ constexpr int64_t kDownloadSizeFallbackEstimate = 15LL * kBytesPerGigabyte;
 constexpr char kFailureReasonHistogram[] = "PluginVm.SetupFailureReason";
 constexpr char kSetupTimeHistogram[] = "PluginVm.SetupTime";
 
-constexpr char kHomeDirectory[] = "/home";
+constexpr char kHomeDirectory[] = "/home/chronos/user";
 
-chromeos::ConciergeClient* GetConciergeClient() {
-  return chromeos::ConciergeClient::Get();
+ash::ConciergeClient* GetConciergeClient() {
+  return ash::ConciergeClient::Get();
 }
 
 constexpr char kIsoSignature[] = "CD001";
@@ -78,6 +79,16 @@ bool IsIsoImage(const base::FilePath& image) {
     }
   }
   return false;
+}
+
+absl::optional<base::ScopedFD> PrepareFD(const base::FilePath& image) {
+  base::File file(image, base::File::FLAG_OPEN | base::File::FLAG_READ);
+  if (!file.IsValid()) {
+    LOG(ERROR) << "Failed to open " << image.value();
+    return absl::nullopt;
+  }
+
+  return base::ScopedFD(file.TakePlatformFile());
 }
 
 PluginVmSetupResult BucketForCancelledInstall(
@@ -303,8 +314,8 @@ bool PluginVmInstaller::VerifyDownload(
   }
   const base::Value* plugin_vm_image_hash_ptr =
       profile_->GetPrefs()
-          ->GetDictionary(prefs::kPluginVmImage)
-          ->FindKey(prefs::kPluginVmImageHashKeyName);
+          ->GetDict(prefs::kPluginVmImage)
+          .Find(prefs::kPluginVmImageHashKeyName);
   if (!plugin_vm_image_hash_ptr) {
     LOG(ERROR) << "Hash of PluginVm image is not specified";
     return false;
@@ -432,24 +443,21 @@ void PluginVmInstaller::CheckDiskSpace() {
   DCHECK_EQ(installing_state_, InstallingState::kCheckingForExistingVm);
   UpdateInstallingState(InstallingState::kCheckingDiskSpace);
 
-  base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::MayBlock()},
-      base::BindOnce(&base::SysInfo::AmountOfFreeDiskSpace,
-                     base::FilePath(kHomeDirectory)),
-      base::BindOnce(&PluginVmInstaller::OnAvailableDiskSpace,
-                     weak_ptr_factory_.GetWeakPtr()));
+  ash::SpacedClient::Get()->GetFreeDiskSpace(
+      kHomeDirectory, base::BindOnce(&PluginVmInstaller::OnAvailableDiskSpace,
+                                     weak_ptr_factory_.GetWeakPtr()));
 }
 
-void PluginVmInstaller::OnAvailableDiskSpace(int64_t bytes) {
+void PluginVmInstaller::OnAvailableDiskSpace(absl::optional<int64_t> bytes) {
   if (state_ == State::kCancelling) {
     CancelFinished();
     return;
   }
 
   if (free_disk_space_for_testing_ != -1)
-    bytes = free_disk_space_for_testing_;
+    bytes = absl::optional<int64_t>(free_disk_space_for_testing_);
 
-  if (bytes < RequiredFreeDiskSpace()) {
+  if (!bytes.has_value() || bytes.value() < RequiredFreeDiskSpace()) {
     InstallFailed(FailureReason::INSUFFICIENT_DISK_SPACE);
     return;
   }
@@ -467,8 +475,10 @@ void PluginVmInstaller::StartDlcDownload() {
     return;
   }
 
-  chromeos::DlcserviceClient::Get()->Install(
-      "pita",
+  dlcservice::InstallRequest install_request;
+  install_request.set_id(kPitaDlc);
+  ash::DlcserviceClient::Get()->Install(
+      install_request,
       base::BindOnce(&PluginVmInstaller::OnDlcDownloadCompleted,
                      weak_ptr_factory_.GetWeakPtr()),
       base::BindRepeating(&PluginVmInstaller::OnDlcDownloadProgressUpdated,
@@ -484,7 +494,7 @@ void PluginVmInstaller::OnDlcDownloadProgressUpdated(double progress) {
 }
 
 void PluginVmInstaller::OnDlcDownloadCompleted(
-    const chromeos::DlcserviceClient::InstallResult& install_result) {
+    const ash::DlcserviceClient::InstallResult& install_result) {
   DCHECK_EQ(installing_state_, InstallingState::kDownloadingDlc);
   if (state_ == State::kCancelling) {
     CancelFinished();
@@ -605,19 +615,16 @@ void PluginVmInstaller::StartImport() {
   UpdateInstallingState(InstallingState::kImporting);
   UpdateProgress(/*state_progress=*/0);
 
-  base::ThreadPool::PostTaskAndReply(
+  base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {base::TaskPriority::USER_VISIBLE, base::MayBlock()},
-      base::BindOnce(&PluginVmInstaller::DetectImageType,
-                     base::Unretained(this)),
+      base::BindOnce(&IsIsoImage, downloaded_image_),
       base::BindOnce(&PluginVmInstaller::OnImageTypeDetected,
                      weak_ptr_factory_.GetWeakPtr()));
 }
 
-void PluginVmInstaller::DetectImageType() {
-  creating_new_vm_ = IsIsoImage(downloaded_image_);
-}
+void PluginVmInstaller::OnImageTypeDetected(bool is_iso_image) {
+  creating_new_vm_ = is_iso_image;
 
-void PluginVmInstaller::OnImageTypeDetected() {
   if (!GetConciergeClient()->IsDiskImageProgressSignalConnected()) {
     LOG(ERROR) << "Disk image progress signal is not connected";
     OnImported(FailureReason::SIGNAL_NOT_CONNECTED);
@@ -628,24 +635,9 @@ void PluginVmInstaller::OnImageTypeDetected() {
 
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {base::TaskPriority::USER_VISIBLE, base::MayBlock()},
-      base::BindOnce(&PluginVmInstaller::PrepareFD, base::Unretained(this)),
+      base::BindOnce(&PrepareFD, downloaded_image_),
       base::BindOnce(&PluginVmInstaller::OnFDPrepared,
                      weak_ptr_factory_.GetWeakPtr()));
-}
-
-absl::optional<base::ScopedFD> PluginVmInstaller::PrepareFD() {
-  // In case import has been cancelled meantime.
-  if (state_ != State::kInstalling)
-    return absl::nullopt;
-
-  base::File file(downloaded_image_,
-                  base::File::FLAG_OPEN | base::File::FLAG_READ);
-  if (!file.IsValid()) {
-    LOG(ERROR) << "Failed to open " << downloaded_image_.value();
-    return absl::nullopt;
-  }
-
-  return base::ScopedFD(file.TakePlatformFile());
 }
 
 void PluginVmInstaller::OnFDPrepared(absl::optional<base::ScopedFD> maybeFd) {
@@ -956,8 +948,8 @@ std::string PluginVmInstaller::GetInstallingStateName(InstallingState state) {
 
 GURL PluginVmInstaller::GetPluginVmImageDownloadUrl() {
   const base::Value* url_ptr = profile_->GetPrefs()
-                                   ->GetDictionary(prefs::kPluginVmImage)
-                                   ->FindKey(prefs::kPluginVmImageUrlKeyName);
+                                   ->GetDict(prefs::kPluginVmImage)
+                                   .Find(prefs::kPluginVmImageUrlKeyName);
   if (!url_ptr) {
     LOG(ERROR) << "Url to PluginVm image is not specified";
     return GURL();

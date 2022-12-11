@@ -30,12 +30,10 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/loader/resource/image_resource.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_content.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_observer.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/prefinalizer.h"
-#include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
 namespace blink {
@@ -63,6 +61,10 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
     // document, or when DOM mutations trigger a new load. Starts loading if a
     // load hasn't already been started.
     kUpdateNormal,
+    // This is the behavior when the update is triggered by the lazy loading
+    // mechanism. We can't update synchronously, because doing so may invalidate
+    // style, which is forbidden from lazy load callbacks.
+    kUpdateFromMicrotask,
     // This should be the update behavior when the resource was changed (via
     // 'src', 'srcset' or 'sizes'). Starts a new load even if a previous load of
     // the same resource have failed, to match Firefox's behavior.
@@ -136,7 +138,7 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
 
   bool HasPendingError() const { return pending_error_event_.IsActive(); }
 
-  bool HadError() const { return !failed_load_url_.IsEmpty(); }
+  bool HadError() const { return !failed_load_url_.empty(); }
 
   bool GetImageAnimationPolicy(mojom::blink::ImageAnimationPolicy&) final;
 
@@ -144,11 +146,13 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
 
   // force_blocking ensures that the image will block the load event.
   void LoadDeferredImage(network::mojom::ReferrerPolicy,
-                         bool force_blocking = false);
+                         bool force_blocking = false,
+                         bool update_from_microtask = false);
 
  protected:
   void ImageChanged(ImageResourceContent*, CanDeferInvalidation) override;
   void ImageNotifyFinished(ImageResourceContent*) override;
+  ResourcePriority ComputeResourcePriority() const override;
 
  private:
   class Task;
@@ -186,7 +190,7 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
   void DispatchPendingLoadEvent(std::unique_ptr<IncrementLoadEventDelayCount>);
   void DispatchPendingErrorEvent(std::unique_ptr<IncrementLoadEventDelayCount>);
 
-  LayoutImageResource* GetLayoutImageResource();
+  LayoutImageResource* GetLayoutImageResource() const;
   void UpdateLayoutObject();
 
   // Note: SetImage.*() are not a simple setter.

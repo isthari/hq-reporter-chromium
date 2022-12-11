@@ -35,6 +35,8 @@
 #include "third_party/blink/renderer/core/layout/geometry/flex_offset.h"
 #include "third_party/blink/renderer/core/layout/layout_block.h"
 #include "third_party/blink/renderer/core/layout/order_iterator.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 
 namespace blink {
 
@@ -125,7 +127,7 @@ class CORE_EXPORT LayoutFlexibleBox : public LayoutBlock {
   bool HitTestChildren(HitTestResult&,
                        const HitTestLocation&,
                        const PhysicalOffset& accumulated_offset,
-                       HitTestAction) override;
+                       HitTestPhase) override;
 
   void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
   void RemoveChild(LayoutObject*) override;

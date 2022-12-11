@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,7 +36,7 @@ class MODULES_EXPORT MediaStreamRendererFactory {
   virtual scoped_refptr<WebMediaStreamVideoRenderer> GetVideoRenderer(
       const WebMediaStream& web_stream,
       const WebMediaStreamVideoRenderer::RepaintCB& repaint_cb,
-      scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+      scoped_refptr<base::SequencedTaskRunner> video_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> main_render_task_runner);
 
   virtual scoped_refptr<WebMediaStreamAudioRenderer> GetAudioRenderer(

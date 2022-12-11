@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,31 @@
  */
 
 
-/* #js_imports_placeholder */
+import '//resources/cr_elements/cr_checkbox/cr_checkbox.js';
+import '//resources/js/action_link.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '//resources/polymer/v3_0/paper-styles/color.js';
+import '../../components/oobe_icons.m.js';
+import '../../components/common_styles/oobe_common_styles.m.js';
+import '../../components/common_styles/oobe_dialog_host_styles.m.js';
+import '../../components/dialogs/oobe_loading_dialog.js';
+
+import {loadTimeData} from '//resources/js/load_time_data.m.js';
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.m.js';
+import {MultiStepBehavior, MultiStepBehaviorInterface} from '../../components/behaviors/multi_step_behavior.m.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OobeTextButton} from '../../components/buttons/oobe_text_button.js';
+import {OobeAdaptiveDialog} from '../../components/dialogs/oobe_adaptive_dialog.js';
+import {OobeModalDialog} from '../../components/dialogs/oobe_modal_dialog.js';
+import {OOBE_UI_STATE} from '../../components/display_manager_types.js';
+import {getSelectedValue} from '../../components/oobe_select.js';
+import {OobeTypes} from '../../components/oobe_types.js';
+import {ContentType, WebViewHelper} from '../../components/web_view_helper.js';
+import {CLEAR_ANCHORS_CONTENT_SCRIPT, WebViewLoader} from '../../components/web_view_loader.js';
+import {Oobe} from '../../cr_ui.js';
+
 
 // Enum that describes the current state of the Arc Terms Of Service screen
 const ArcTosState = {
@@ -18,42 +42,50 @@ const ArcTosState = {
 };
 
 /**
+ * Timeout to load online ToS.
+ * @type {number}
+ */
+const ONLINE_LOAD_TIMEOUT_IN_MS = 10000;
+
+/**
  * @constructor
  * @extends {PolymerElement}
  * @implements {LoginScreenBehaviorInterface}
  * @implements {MultiStepBehaviorInterface}
  * @implements {OobeI18nBehaviorInterface}
  */
- const ArcTermsOfserviceBase = Polymer.mixinBehaviors(
-  [OobeI18nBehavior, MultiStepBehavior, LoginScreenBehavior],
-  Polymer.Element);
+const ArcTermsOfserviceBase = mixinBehaviors(
+    [OobeI18nBehavior, MultiStepBehavior, LoginScreenBehavior], PolymerElement);
 
 /**
  * @typedef {{
- *   arcBackupRestoreChildPopup: OobeModalDialogElement,
- *   arcBackupRestorePopup: OobeModalDialogElement,
- *   arcLocationServicePopup: OobeModalDialogElement,
- *   arcMetricsPopup: OobeModalDialogElement,
- *   arcTosAcceptButton: OobeTextButtonElement,
- *   arcTosDialog: OobeAdaptiveDialogElement,
- *   arcTosNextButton: OobeTextButtonElement,
- *   arcTosOverlayPrivacyPolicy: OobeModalDialogElement,
+ *   arcBackupRestoreChildPopup: OobeModalDialog,
+ *   arcBackupRestorePopup: OobeModalDialog,
+ *   arcLocationServicePopup: OobeModalDialog,
+ *   arcMetricsPopup: OobeModalDialog,
+ *   arcTosAcceptButton: OobeTextButton,
+ *   arcTosDialog: OobeAdaptiveDialog,
+ *   arcTosNextButton: OobeTextButton,
+ *   arcTosOverlayPrivacyPolicy: OobeModalDialog,
  *   arcTosOverlayWebview: WebView,
- *   arcTosRetryButton: OobeTextButtonElement,
+ *   arcTosRetryButton: OobeTextButton,
  *   arcTosView: WebView,
- *   arcPaiPopup: OobeModalDialogElement,
+ *   arcPaiPopup: OobeModalDialog,
  * }}
  */
- ArcTermsOfserviceBase.$;
+ArcTermsOfserviceBase.$;
 
 /**
  * @polymer
  */
 class ArcTermsOfService extends ArcTermsOfserviceBase {
-  
-  static get is() { return 'arc-tos-element'; }
+  static get is() {
+    return 'arc-tos-element';
+  }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -186,40 +218,42 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
      * Flag indicating if screen was shown.
      * @private {boolean}
      */
-     this.is_shown_ = false;
+    this.is_shown_ = false;
 
     /**
      * Last focused element when overlay is shown. Used to resume focus when
      * overlay is dismissed.
      * @private {Object|null}
      */
-     this.lastFocusedElement_ = null;
+    this.lastFocusedElement_ = null;
 
-     this.countryCode_ = null;
-     this.language_ = null;
-     this.pageReady_ = false;
+    this.countryCode_ = null;
+    this.language_ = null;
+    this.pageReady_ = false;
 
     /**
      * The hostname of the url where the terms of service will be fetched.
      * Overwritten by tests to load terms of service from local test server.
      */
-     this.termsOfServiceHostName_ = 'https://play.google.com';
+    this.termsOfServiceHostName_ = 'https://play.google.com';
 
     this.termsError = false;
-    this.usingOfflineTerms_ = false;
+    this.usingOfflineTermsForTesting_ = false;
     this.tosContent_ = '';
     this.reloadsLeftForTesting_ = undefined;
   }
 
   get EXTERNAL_API() {
-    return ['setMetricsMode',
-            'setBackupAndRestoreMode',
-            'setLocationServicesMode',
-            'loadPlayStoreToS',
-            'setArcManaged',
-            'setupForDemoMode',
-            'clearDemoMode',
-            'setTosForTesting'];
+    return [
+      'setMetricsMode',
+      'setBackupAndRestoreMode',
+      'setLocationServicesMode',
+      'loadPlayStoreToS',
+      'setArcManaged',
+      'setupForDemoMode',
+      'clearDemoMode',
+      'setTosForTesting',
+    ];
   }
 
   defaultUIStep() {
@@ -233,9 +267,7 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
   /** @override */
   ready() {
     super.ready();
-    this.initializeLoginScreen('ArcTermsOfServiceScreen', {
-      resetAllowed: true,
-    });
+    this.initializeLoginScreen('ArcTermsOfServiceScreen');
 
     if (loadTimeData.valueExists('arcTosHostNameForTesting')) {
       this.setTosHostNameForTesting_(
@@ -273,13 +305,16 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
    * @private
    */
   applyOobeConfiguration_() {
-    if (this.configuration_applied_)
+    if (this.configuration_applied_) {
       return;
+    }
     var configuration = Oobe.getInstance().getOobeConfiguration();
-    if (!configuration)
+    if (!configuration) {
       return;
-    if (this.arcTosButtonsDisabled)
+    }
+    if (this.arcTosButtonsDisabled) {
       return;
+    }
     if (configuration.arcTosAutoAccept) {
       this.onAccept_();
     }
@@ -294,10 +329,12 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
   buttonsDisabledStateChanged_(newValue, oldValue) {
     // Trigger applyOobeConfiguration_ if buttons are enabled and dialog is
     // visible.
-    if (this.arcTosButtonsDisabled)
+    if (this.arcTosButtonsDisabled) {
       return;
-    if (!this.is_shown_)
+    }
+    if (!this.is_shown_) {
       return;
+    }
     window.setTimeout(this.applyOobeConfiguration_.bind(this), 0);
   }
 
@@ -330,10 +367,6 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
     this.pageReady_ = true;
 
     var termsView = this.$.arcTosView;
-    var requestFilter = {urls: ['<all_urls>'], types: ['main_frame']};
-
-    termsView.request.onErrorOccurred.addListener(
-        this.onTermsViewErrorOccurred.bind(this), requestFilter);
 
     // Open links from webview in overlay dialog.
     var self = this;
@@ -345,17 +378,17 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
     termsView.addContentScripts([{
       name: 'postProcess',
       matches: [this.getTermsOfServiceHostNameForMatchPattern_() + '/*'],
-      css: {files: ['playstore.css']},
-      js: {files: ['playstore.js']},
-      run_at: 'document_end'
+      css: {files: ['arc_support/playstore.css']},
+      js: {files: ['arc_support/playstore.js']},
+      run_at: 'document_end',
     }]);
 
     var overlayUrl = this.$.arcTosOverlayWebview;
     overlayUrl.addContentScripts([{
       name: 'postProcess',
       matches: ['https://support.google.com/*'],
-      css: {files: ['overlay.css']},
-      run_at: 'document_end'
+      css: {files: ['arc_support/overlay.css']},
+      run_at: 'document_end',
     }]);
   }
 
@@ -364,13 +397,17 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
    * @param {string} targetUrl to show in overlay webview.
    */
   showUrlOverlay(targetUrl) {
-    if (this.usingOfflineTerms_) {
+    if (this.usingOfflineTermsForTesting_) {
       const TERMS_URL = 'chrome://terms/arc/privacy_policy';
       WebViewHelper.loadUrlContentToWebView(
           this.$.arcTosOverlayWebview, TERMS_URL,
-          WebViewHelper.ContentType.PDF);
+          ContentType.PDF);
     } else {
-      this.$.arcTosOverlayWebview.src = targetUrl;
+      const overlayWebview = this.$.arcTosOverlayWebview;
+      if (this.isDemoModeSetup_()) {
+        this.setClearAnchorScriptForWebview_(overlayWebview);
+      }
+      overlayWebview.src = targetUrl;
     }
 
     this.lastFocusedElement_ = this.shadowRoot.activeElement;
@@ -447,7 +484,7 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
 
     if (this.language_ && this.language_ == language && this.countryCode_ &&
         this.countryCode_ == countryCode && this.uiStep != ArcTosState.ERROR &&
-        !this.usingOfflineTerms_ && this.tosContent_) {
+        !this.usingOfflineTermsForTesting_ && this.tosContent_) {
       this.enableButtons_(true);
       return;
     }
@@ -467,7 +504,7 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
       name: 'preProcess',
       matches: [this.getTermsOfServiceHostNameForMatchPattern_() + '/*'],
       js: {code: scriptSetParameters},
-      run_at: 'document_start'
+      run_at: 'document_start',
     }]);
 
     // Try to use currently loaded document first.
@@ -482,6 +519,9 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
         }
       });
     } else {
+      if (this.isDemoModeSetup_()) {
+        this.setClearAnchorScriptForWebview_(termsView);
+      }
       this.reloadPlayStoreToS();
     }
   }
@@ -492,7 +532,7 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
    */
   setTosForTesting(terms) {
     this.tosContent_ = terms;
-    this.usingOfflineTerms_ = true;
+    this.usingOfflineTermsForTesting_ = true;
     this.setTermsViewContentLoadedState_();
   }
 
@@ -505,16 +545,16 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
     this.termsOfServiceHostName_ = hostname;
     this.reloadsLeftForTesting_ = 1;
 
-    // Enable loading content script 'playstore.js' when fetching ToS from
-    // the test server.
+    // Enable loading content script 'arc_support/playstore.js' when fetching
+    // ToS from the test server.
     var termsView = this.$.arcTosView;
     termsView.removeContentScripts(['postProcess']);
     termsView.addContentScripts([{
       name: 'postProcess',
       matches: [this.getTermsOfServiceHostNameForMatchPattern_() + '/*'],
-      css: {files: ['playstore.css']},
-      js: {files: ['playstore.js']},
-      run_at: 'document_end'
+      css: {files: ['arc_support/playstore.css']},
+      js: {files: ['arc_support/playstore.js']},
+      run_at: 'document_end',
     }]);
   }
 
@@ -539,8 +579,10 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
 
     this.enableButtons_(false);
     chrome.send('arcTermsOfServiceAccept', [
-      this.backupRestore, this.locationService, this.reviewSettings,
-      this.tosContent_
+      this.backupRestore,
+      this.locationService,
+      this.reviewSettings,
+      this.tosContent_,
     ]);
   }
 
@@ -559,14 +601,34 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
    */
   reloadPlayStoreToS() {
     if (this.reloadsLeftForTesting_ !== undefined) {
-      if (this.reloadsLeftForTesting_ <= 0)
+      if (this.reloadsLeftForTesting_ <= 0) {
         return;
+      }
       --this.reloadsLeftForTesting_;
     }
     this.termsError = false;
-    this.usingOfflineTerms_ = false;
-    var termsView = this.$.arcTosView;
-    termsView.src = this.termsOfServiceHostName_ + '/about/play-terms.html';
+    this.usingOfflineTermsForTesting_ = false;
+
+    const loadFailureCallback = () => {
+      // If in demo mode fallback to offline Terms of Service copy.
+      if (this.isDemoModeSetup_() && this.usingOfflineTermsForTesting_) {
+        const TERMS_URL = 'chrome://terms/arc/terms';
+        const webView = this.$.arcTosView;
+        WebViewHelper.loadUrlContentToWebView(
+            webView, TERMS_URL, ContentType.HTML);
+        return;
+      }
+      this.showError_();
+    };
+
+    const termsView = this.$.arcTosView;
+    const tosLoader = new WebViewLoader(
+        termsView, ONLINE_LOAD_TIMEOUT_IN_MS, loadFailureCallback,
+        this.isDemoModeSetup_() /* clear_anchors */, false /* inject_css */);
+
+    const tosUrl = this.termsOfServiceHostName_ + '/about/play-terms.html';
+    tosLoader.setUrl(tosUrl);
+
     this.setUIStep(ArcTosState.LOADING);
     this.enableButtons_(false);
   }
@@ -606,14 +668,20 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
     }
 
     var termsView = this.$.arcTosView;
-    if (this.usingOfflineTerms_) {
-      // Process offline ToS. Scripts added to web view by addContentScripts()
-      // are not executed when using data url.
+
+    if (this.usingOfflineTermsForTesting_) {
+      // Process offline ToS for testing. Scripts added to web view by
+      // addContentScripts() are not executed when using data url.
       this.tosContent_ = termsView.src;
       var setParameters =
           `document.body.classList.add('large-view', 'offline-terms');`;
-      termsView.executeScript({code: setParameters});
-      termsView.insertCSS({file: 'playstore.css'});
+      termsView.executeScript({code: setParameters}, () => {
+        if (chrome.runtime.lastError) {
+          console.error(
+              'Set parameteters failed: ' + chrome.runtime.lastError.message);
+        }
+      });
+      termsView.insertCSS({file: 'arc_support/playstore.css'});
       this.setTermsViewContentLoadedState_();
     } else {
       // Process online ToS.
@@ -652,24 +720,9 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
     this.setUIStep(ArcTosState.LOADED);
     this.enableButtons_(true);
     this.showFullDialog = false;
-    if (this.is_shown_)
+    if (this.is_shown_) {
       this.$.arcTosNextButton.focus();
-  }
-
-  /**
-   * Handles event when terms view cannot be loaded.
-   */
-  onTermsViewErrorOccurred(details) {
-    // If in demo mode fallback to offline Terms of Service copy.
-    if (this.isDemoModeSetup_()) {
-      this.usingOfflineTerms_ = true;
-      const TERMS_URL = 'chrome://terms/arc/terms';
-      var webView = this.$.arcTosView;
-      WebViewHelper.loadUrlContentToWebView(
-          webView, TERMS_URL, WebViewHelper.ContentType.HTML);
-      return;
     }
-    this.showError_();
   }
 
   /**
@@ -815,6 +868,26 @@ class ArcTermsOfService extends ArcTermsOfserviceBase {
   getDialogTitle_(locale, isChild) {
     return isChild ? this.i18n('arcTermsOfServiceScreenHeadingForChild') :
                      this.i18n('arcTermsOfServiceScreenHeading');
+  }
+
+  /**
+   * Set up a script for webview to clear anchor of the page after loading.
+   */
+  setClearAnchorScriptForWebview_(webview) {
+    webview.addContentScripts([{
+      name: 'clearAnchors',
+      matches: ['<all_urls>'],
+      js: CLEAR_ANCHORS_CONTENT_SCRIPT,
+    }]);
+    webview.addEventListener('contentload', () => {
+      webview.executeScript(CLEAR_ANCHORS_CONTENT_SCRIPT, () => {
+        if (chrome.runtime.lastError) {
+          console.error(
+              'Clear anchors script failed: ' +
+              chrome.runtime.lastError.message);
+        }
+      });
+    });
   }
 }
 

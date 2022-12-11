@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,7 @@ void PrintTo(DrawQuad::Material material, ::std::ostream* os);
 testing::Matcher<const DrawQuad*> IsSolidColorQuad();
 
 // Matches a SolidColorDrawQuad with |expected_color|.
-testing::Matcher<const DrawQuad*> IsSolidColorQuad(SkColor expected_color);
+testing::Matcher<const DrawQuad*> IsSolidColorQuad(SkColor4f expected_color);
 
 // Matches a TextureDrawQuad.
 testing::Matcher<const DrawQuad*> IsTextureQuad();

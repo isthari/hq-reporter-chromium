@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,9 @@
 #include "base/bind.h"
 #include "base/json/json_writer.h"
 #include "base/syslog_logging.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
-#include "chromeos/services/cros_healthd/public/cpp/service_connection.h"
+#include "chromeos/ash/services/cros_healthd/public/cpp/service_connection.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 
 namespace policy {
@@ -25,42 +25,22 @@ namespace {
 // String constant identifying the routines field in the result payload.
 constexpr char kRoutinesFieldName[] = "routines";
 
-}  // namespace
-
-class DeviceCommandGetAvailableRoutinesJob::Payload
-    : public RemoteCommandJob::ResultPayload {
- public:
-  explicit Payload(
-      const std::vector<chromeos::cros_healthd::mojom::DiagnosticRoutineEnum>&
-          available_routines);
-  Payload(const Payload&) = delete;
-  Payload& operator=(const Payload&) = delete;
-  ~Payload() override = default;
-
-  // RemoteCommandJob::ResultPayload:
-  std::unique_ptr<std::string> Serialize() override;
-
- private:
-  std::vector<chromeos::cros_healthd::mojom::DiagnosticRoutineEnum>
-      available_routines_;
-};
-
-DeviceCommandGetAvailableRoutinesJob::Payload::Payload(
-    const std::vector<chromeos::cros_healthd::mojom::DiagnosticRoutineEnum>&
-        available_routines)
-    : available_routines_(available_routines) {}
-
-std::unique_ptr<std::string>
-DeviceCommandGetAvailableRoutinesJob::Payload::Serialize() {
-  std::string payload;
-  base::Value root_dict(base::Value::Type::DICTIONARY);
-  base::Value routine_list(base::Value::Type::LIST);
-  for (const auto& routine : available_routines_)
+std::string CreatePayload(
+    const std::vector<ash::cros_healthd::mojom::DiagnosticRoutineEnum>&
+        available_routines) {
+  base::Value::Dict root_dict;
+  base::Value::List routine_list;
+  for (const auto& routine : available_routines) {
     routine_list.Append(static_cast<int>(routine));
-  root_dict.SetPath(kRoutinesFieldName, std::move(routine_list));
+  }
+  root_dict.Set(kRoutinesFieldName, std::move(routine_list));
+
+  std::string payload;
   base::JSONWriter::Write(root_dict, &payload);
-  return std::make_unique<std::string>(std::move(payload));
+  return payload;
 }
+
+}  // namespace
 
 DeviceCommandGetAvailableRoutinesJob::DeviceCommandGetAvailableRoutinesJob() =
     default;
@@ -77,7 +57,8 @@ void DeviceCommandGetAvailableRoutinesJob::RunImpl(
     CallbackWithResult failed_callback) {
   SYSLOG(INFO) << "Executing GetAvailableRoutines command.";
 
-  chromeos::cros_healthd::ServiceConnection::GetInstance()
+  ash::cros_healthd::ServiceConnection::GetInstance()
+      ->GetDiagnosticsService()
       ->GetAvailableRoutines(base::BindOnce(
           &DeviceCommandGetAvailableRoutinesJob::OnCrosHealthdResponseReceived,
           weak_ptr_factory_.GetWeakPtr(), std::move(succeeded_callback),
@@ -87,18 +68,18 @@ void DeviceCommandGetAvailableRoutinesJob::RunImpl(
 void DeviceCommandGetAvailableRoutinesJob::OnCrosHealthdResponseReceived(
     CallbackWithResult succeeded_callback,
     CallbackWithResult failed_callback,
-    const std::vector<chromeos::cros_healthd::mojom::DiagnosticRoutineEnum>&
+    const std::vector<ash::cros_healthd::mojom::DiagnosticRoutineEnum>&
         available_routines) {
   if (available_routines.empty()) {
     SYSLOG(ERROR) << "No routines received from cros_healthd.";
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(std::move(failed_callback), nullptr));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(failed_callback), absl::nullopt));
     return;
   }
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(succeeded_callback),
-                                std::make_unique<Payload>(available_routines)));
+                                CreatePayload(available_routines)));
 }
 
 }  // namespace policy

@@ -1,14 +1,8 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/platform/bindings/parkable_string.h"
-#include "base/time/time.h"
-
-// parkable_string.h is a widely included header and its size impacts build
-// time. Try not to raise this limit unless necessary. See
-// https://chromium.googlesource.com/chromium/src/+/HEAD/docs/wmax_tokens.md
-#pragma clang max_tokens_here 760000
 
 #include "base/allocator/partition_allocator/oom.h"
 #include "base/allocator/partition_allocator/partition_alloc.h"
@@ -20,6 +14,7 @@
 #include "base/process/memory.h"
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "base/timer/elapsed_timer.h"
 #include "base/trace_event/typed_macros.h"
 #include "third_party/blink/public/common/features.h"
@@ -33,6 +28,8 @@
 #include "third_party/blink/renderer/platform/scheduler/public/worker_pool.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_std.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/sanitizers.h"
@@ -103,10 +100,9 @@ void AsanPoisonString(const String& string) {
 #if defined(ADDRESS_SANITIZER)
   if (string.IsNull())
     return;
-  // Since |string| is not deallocated, it remains in the per-thread
-  // AtomicStringTable, where its content can be accessed for equality
-  // comparison for instance, triggering a poisoned memory access.
-  // See crbug.com/883344 for an example.
+  // Since |string| is not deallocated, it remains in the AtomicStringTable,
+  // where its content can be accessed for equality comparison for instance,
+  // triggering a poisoned memory access. See crbug.com/883344 for an example.
   if (string.Impl()->IsAtomic())
     return;
 
@@ -129,9 +125,10 @@ class NullableCharBuffer final {
 
  public:
   explicit NullableCharBuffer(size_t size) {
-    data_ =
-        reinterpret_cast<char*>(WTF::Partitions::BufferPartition()->AllocFlags(
-            base::PartitionAllocReturnNull, size, "NullableCharBuffer"));
+    data_ = reinterpret_cast<char*>(
+        WTF::Partitions::BufferPartition()->AllocWithFlags(
+            partition_alloc::AllocFlags::kReturnNull, size,
+            "NullableCharBuffer"));
     size_ = size;
   }
 
@@ -646,13 +643,16 @@ void ParkableStringImpl::PostBackgroundCompressionTask() {
   // |string_|'s data should not be touched except in the compression task.
   AsanPoisonString(string_);
   metadata_->background_task_in_progress_ = true;
+  auto& manager = ParkableStringManager::Instance();
+  DCHECK(manager.task_runner()->BelongsToCurrentThread());
   // |params| keeps |this| alive until |OnParkingCompleteOnMainThread()|.
   auto params = std::make_unique<BackgroundTaskParams>(
       this, string_.Bytes(), string_.CharactersSizeInBytes(),
-      Thread::Current()->GetTaskRunner());
+      manager.task_runner());
   worker_pool::PostTask(
-      FROM_HERE, CrossThreadBindOnce(&ParkableStringImpl::CompressInBackground,
-                                     std::move(params)));
+      FROM_HERE, {base::TaskPriority::BEST_EFFORT},
+      CrossThreadBindOnce(&ParkableStringImpl::CompressInBackground,
+                          std::move(params)));
 }
 
 // static
@@ -796,12 +796,13 @@ void ParkableStringImpl::PostBackgroundWritingTask() {
   DCHECK(!metadata_->background_task_in_progress_);
   DCHECK_EQ(State::kParked, metadata_->state_);
   auto& manager = ParkableStringManager::Instance();
+  DCHECK(manager.task_runner()->BelongsToCurrentThread());
   auto& data_allocator = manager.data_allocator();
   if (!has_on_disk_data() && data_allocator.may_write()) {
     metadata_->background_task_in_progress_ = true;
     auto params = std::make_unique<BackgroundTaskParams>(
         this, metadata_->compressed_->data(), metadata_->compressed_->size(),
-        Thread::Current()->GetTaskRunner());
+        manager.task_runner());
     worker_pool::PostTask(
         FROM_HERE, {base::MayBlock()},
         CrossThreadBindOnce(&ParkableStringImpl::WriteToDiskInBackground,
@@ -862,7 +863,12 @@ void ParkableStringImpl::OnWritingCompleteOnMainThread(
   ParkableStringManager::Instance().RecordDiskWriteTime(writing_time);
 }
 
-ParkableString::ParkableString(scoped_refptr<StringImpl>&& impl) {
+ParkableString::ParkableString(scoped_refptr<StringImpl>&& impl)
+    : ParkableString(std::move(impl), nullptr) {}
+
+ParkableString::ParkableString(
+    scoped_refptr<StringImpl>&& impl,
+    std::unique_ptr<ParkableStringImpl::SecureDigest> digest) {
   if (!impl) {
     impl_ = nullptr;
     return;
@@ -870,7 +876,8 @@ ParkableString::ParkableString(scoped_refptr<StringImpl>&& impl) {
 
   bool is_parkable = ParkableStringManager::ShouldPark(*impl);
   if (is_parkable) {
-    impl_ = ParkableStringManager::Instance().Add(std::move(impl));
+    impl_ = ParkableStringManager::Instance().Add(std::move(impl),
+                                                  std::move(digest));
   } else {
     impl_ = ParkableStringImpl::MakeNonParkable(std::move(impl));
   }

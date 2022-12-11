@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,29 +10,33 @@
 #include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "chrome/browser/ash/net/network_health/network_health_service.h"
-#include "chromeos/network/network_event_log.h"
+#include "chrome/browser/ash/net/network_health/network_health_manager.h"
+#include "chromeos/ash/components/network/network_event_log.h"
 #include "content/public/browser/browser_thread.h"
 
 namespace system_logs {
 
 namespace {
 
-constexpr char kNetworkHealthSnapshotEntry[] = "network-health-snapshot";
 constexpr char kNetworkDiagnosticsEntry[] = "network-diagnostics";
 
 std::string FormatNetworkHealth(
     const chromeos::network_health::mojom::NetworkHealthStatePtr&
         network_health,
-    bool scrub) {
+    bool scrub,
+    bool include_guid_when_not_scrub) {
   std::ostringstream output;
 
   for (const auto& net : network_health->networks) {
     if (scrub) {
-      output << "Name: " << chromeos::NetworkGuidId(net->guid.value_or("N/A"))
+      output << "Name: " << ash::NetworkGuidId(net->guid.value_or("N/A"))
              << "\n";
     } else {
       output << "Name: " << net->name.value_or("N/A") << "\n";
+    }
+
+    if (!scrub && include_guid_when_not_scrub) {
+      output << "GUID: " << net->guid.value_or("N/A") << "\n";
     }
 
     output << "Type: " << net->type << "\n";
@@ -97,52 +101,52 @@ std::string GetProblemsString(
   using chromeos::network_diagnostics::mojom::RoutineProblems;
   std::string problemsStr;
   switch (problems->which()) {
-    case RoutineProblems::Tag::LAN_CONNECTIVITY_PROBLEMS:
+    case RoutineProblems::Tag::kLanConnectivityProblems:
       problemsStr = ProblemsToStr(problems->get_lan_connectivity_problems());
       break;
-    case RoutineProblems::Tag::SIGNAL_STRENGTH_PROBLEMS:
+    case RoutineProblems::Tag::kSignalStrengthProblems:
       problemsStr = ProblemsToStr(problems->get_signal_strength_problems());
       break;
-    case RoutineProblems::Tag::GATEWAY_CAN_BE_PINGED_PROBLEMS:
+    case RoutineProblems::Tag::kGatewayCanBePingedProblems:
       problemsStr =
           ProblemsToStr(problems->get_gateway_can_be_pinged_problems());
       break;
-    case RoutineProblems::Tag::HAS_SECURE_WIFI_CONNECTION_PROBLEMS:
+    case RoutineProblems::Tag::kHasSecureWifiConnectionProblems:
       problemsStr =
           ProblemsToStr(problems->get_has_secure_wifi_connection_problems());
       break;
-    case RoutineProblems::Tag::DNS_RESOLVER_PRESENT_PROBLEMS:
+    case RoutineProblems::Tag::kDnsResolverPresentProblems:
       problemsStr =
           ProblemsToStr(problems->get_dns_resolver_present_problems());
       break;
-    case RoutineProblems::Tag::DNS_LATENCY_PROBLEMS:
+    case RoutineProblems::Tag::kDnsLatencyProblems:
       problemsStr = ProblemsToStr(problems->get_dns_latency_problems());
       break;
-    case RoutineProblems::Tag::DNS_RESOLUTION_PROBLEMS:
+    case RoutineProblems::Tag::kDnsResolutionProblems:
       problemsStr = ProblemsToStr(problems->get_dns_resolution_problems());
       break;
-    case RoutineProblems::Tag::CAPTIVE_PORTAL_PROBLEMS:
+    case RoutineProblems::Tag::kCaptivePortalProblems:
       problemsStr = ProblemsToStr(problems->get_captive_portal_problems());
       break;
-    case RoutineProblems::Tag::HTTP_FIREWALL_PROBLEMS:
+    case RoutineProblems::Tag::kHttpFirewallProblems:
       problemsStr = ProblemsToStr(problems->get_http_firewall_problems());
       break;
-    case RoutineProblems::Tag::HTTPS_FIREWALL_PROBLEMS:
+    case RoutineProblems::Tag::kHttpsFirewallProblems:
       problemsStr = ProblemsToStr(problems->get_https_firewall_problems());
       break;
-    case RoutineProblems::Tag::HTTPS_LATENCY_PROBLEMS:
+    case RoutineProblems::Tag::kHttpsLatencyProblems:
       problemsStr = ProblemsToStr(problems->get_https_latency_problems());
       break;
-    case RoutineProblems::Tag::VIDEO_CONFERENCING_PROBLEMS:
+    case RoutineProblems::Tag::kVideoConferencingProblems:
       problemsStr = ProblemsToStr(problems->get_video_conferencing_problems());
       break;
-    case RoutineProblems::Tag::ARC_HTTP_PROBLEMS:
+    case RoutineProblems::Tag::kArcHttpProblems:
       problemsStr = ProblemsToStr(problems->get_arc_http_problems());
       break;
-    case RoutineProblems::Tag::ARC_DNS_RESOLUTION_PROBLEMS:
+    case RoutineProblems::Tag::kArcDnsResolutionProblems:
       problemsStr = ProblemsToStr(problems->get_arc_dns_resolution_problems());
       break;
-    case RoutineProblems::Tag::ARC_PING_PROBLEMS:
+    case RoutineProblems::Tag::kArcPingProblems:
       problemsStr = ProblemsToStr(problems->get_arc_ping_problems());
       break;
   }
@@ -150,6 +154,8 @@ std::string GetProblemsString(
 }
 
 }  // namespace
+
+const char kNetworkHealthSnapshotEntry[] = "network-health-snapshot";
 
 std::string FormatNetworkDiagnosticResults(
     const base::flat_map<
@@ -172,11 +178,14 @@ std::string FormatNetworkDiagnosticResults(
   return output.str();
 }
 
-NetworkHealthSource::NetworkHealthSource(bool scrub)
-    : SystemLogsSource("NetworkHealth"), scrub_(scrub) {
-  ash::network_health::NetworkHealthService::GetInstance()->BindHealthReceiver(
+NetworkHealthSource::NetworkHealthSource(bool scrub,
+                                         bool include_guid_when_not_scrub)
+    : SystemLogsSource("NetworkHealth"),
+      scrub_(scrub),
+      include_guid_when_not_scrub_(include_guid_when_not_scrub) {
+  ash::network_health::NetworkHealthManager::GetInstance()->BindHealthReceiver(
       network_health_service_.BindNewPipeAndPassReceiver());
-  ash::network_health::NetworkHealthService::GetInstance()
+  ash::network_health::NetworkHealthManager::GetInstance()
       ->BindDiagnosticsReceiver(
           network_diagnostics_service_.BindNewPipeAndPassReceiver());
 }
@@ -197,7 +206,8 @@ void NetworkHealthSource::Fetch(SysLogsSourceCallback callback) {
 
 void NetworkHealthSource::OnNetworkHealthReceived(
     chromeos::network_health::mojom::NetworkHealthStatePtr network_health) {
-  network_health_response_ = FormatNetworkHealth(network_health, scrub_);
+  network_health_response_ =
+      FormatNetworkHealth(network_health, scrub_, include_guid_when_not_scrub_);
   CheckIfDone();
 }
 

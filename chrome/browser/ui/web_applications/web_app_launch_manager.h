@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "base/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 class Browser;
@@ -53,20 +53,22 @@ class WebAppLaunchManager {
       const base::FilePath& current_directory,
       const absl::optional<GURL>& url_handler_launch_url,
       const absl::optional<GURL>& protocol_handler_launch_url,
+      const absl::optional<GURL>& file_launch_url,
       const std::vector<base::FilePath>& launch_files,
       base::OnceCallback<void(Browser* browser,
-                              apps::mojom::LaunchContainer container)>
-          callback);
+                              apps::LaunchContainer container)> callback);
 
   static void SetOpenApplicationCallbackForTesting(
       OpenApplicationCallback callback);
+
+  // Created temporarily while this class is migrated to the command system.
+  static OpenApplicationCallback& GetOpenApplicationCallbackForTesting();
 
  private:
   virtual void LaunchWebApplication(
       apps::AppLaunchParams&& params,
       base::OnceCallback<void(Browser* browser,
-                              apps::mojom::LaunchContainer container)>
-          callback);
+                              apps::LaunchContainer container)> callback);
 
   const raw_ptr<Profile> profile_;
   const raw_ptr<WebAppProvider> provider_;

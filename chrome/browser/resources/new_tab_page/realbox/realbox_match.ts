@@ -1,20 +1,25 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import './realbox_icon.js';
 import './realbox_action.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import 'chrome://resources/cr_elements/cr_icons_css.m.js';
-import 'chrome://resources/cr_elements/hidden_style_css.m.js';
+import './realbox_dropdown_shared_style.css.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/cr_icons.css.js';
+import 'chrome://resources/cr_elements/cr_hidden_style.css.js';
 
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {sanitizeInnerHtml} from 'chrome://resources/js/parse_html_subset.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {loadTimeData} from '../i18n_setup.js';
-import {ACMatchClassification, AutocompleteMatch, PageHandlerRemote} from '../realbox.mojom-webui.js';
+import {ACMatchClassification, AutocompleteMatch, NavigationPredictor, PageHandlerInterface} from '../omnibox.mojom-webui.js';
 import {decodeString16, mojoTimeTicks} from '../utils.js';
 
 import {RealboxBrowserProxy} from './realbox_browser_proxy.js';
+import {RealboxIconElement} from './realbox_icon.js';
+import {getTemplate} from './realbox_match.html.js';
+
 
 // clang-format off
 /**
@@ -22,7 +27,7 @@ import {RealboxBrowserProxy} from './realbox_browser_proxy.js';
  * field.
  * See components/omnibox/browser/autocomplete_match.h.
  */
-enum ACMatchClassificationStyle {
+enum AcMatchClassificationStyle {
   NONE = 0,
   URL =   1 << 0,  // A URL.
   MATCH = 1 << 1,  // A match for the user's search term.
@@ -30,10 +35,27 @@ enum ACMatchClassificationStyle {
 }
 // clang-format on
 
+const ENTITY_MATCH_TYPE: string = 'search-suggest-entity';
+
+export interface RealboxMatchElement {
+  $: {
+    icon: RealboxIconElement,
+    contents: HTMLElement,
+    description: HTMLElement,
+    remove: HTMLElement,
+    separator: HTMLElement,
+    'focus-indicator': HTMLElement,
+  };
+}
+
 // Displays an autocomplete match similar to those in the Omnibox.
-class RealboxMatchElement extends PolymerElement {
+export class RealboxMatchElement extends PolymerElement {
   static get is() {
     return 'ntp-realbox-match';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -55,6 +77,25 @@ class RealboxMatchElement extends PolymerElement {
       hasImage: {
         type: Boolean,
         computed: `computeHasImage_(match)`,
+        reflectToAttribute: true,
+      },
+
+      /**
+       * Whether the match is an entity suggestion (with or without an image).
+       */
+      isEntitySuggestion: {
+        type: Boolean,
+        computed: `computeIsEntitySuggestion_(match)`,
+        reflectToAttribute: true,
+      },
+
+      /**
+       * Whether the match should be rendered in a two-row layout. Currently
+       * limited to matches that feature an image, calculator, and answers.
+       */
+      isRichSuggestion: {
+        type: Boolean,
+        computed: `computeIsRichSuggestion_(match)`,
         reflectToAttribute: true,
       },
 
@@ -117,30 +158,31 @@ class RealboxMatchElement extends PolymerElement {
     };
   }
 
-  ariaLabel: string;
+  override ariaLabel: string;
   hasImage: boolean;
   match: AutocompleteMatch;
   matchIndex: number;
   private actionIsVisible_: boolean;
-  private contentsHtml_: string;
-  private descriptionHtml_: string;
+  private contentsHtml_: TrustedHTML;
+  private descriptionHtml_: TrustedHTML;
   private removeButtonAriaLabel_: string;
   private removeButtonTitle_: string;
   private separatorText_: string;
   private tailSuggestPrefix_: string;
 
-  private pageHandler_: PageHandlerRemote;
+  private pageHandler_: PageHandlerInterface;
 
   constructor() {
     super();
     this.pageHandler_ = RealboxBrowserProxy.getInstance().handler;
   }
 
-  ready() {
+  override ready() {
     super.ready();
 
     this.addEventListener('click', (event) => this.onMatchClick_(event));
     this.addEventListener('focusin', () => this.onMatchFocusin_());
+    this.addEventListener('mousedown', () => this.onMatchMouseDown_());
   }
 
   //============================================================================
@@ -195,6 +237,11 @@ class RealboxMatchElement extends PolymerElement {
     }));
   }
 
+  private onMatchMouseDown_() {
+    this.pageHandler_.onNavigationLikely(
+        this.matchIndex, NavigationPredictor.kMouseDown);
+  }
+
   private onRemoveButtonClick_(e: MouseEvent) {
     if (e.button !== 0) {
       // Only handle main (generally left) button presses.
@@ -226,9 +273,13 @@ class RealboxMatchElement extends PolymerElement {
     return decodeString16(this.match.a11yLabel);
   }
 
-  private computeContentsHtml_(): string {
+  private sanitizeInnerHtml_(html: string): TrustedHTML {
+    return sanitizeInnerHtml(html, {attrs: ['class']});
+  }
+
+  private computeContentsHtml_(): TrustedHTML {
     if (!this.match) {
-      return '';
+      return window.trustedTypes!.emptyHTML;
     }
     const match = this.match;
     // `match.answer.firstLine` is generated by appending an optional additional
@@ -240,29 +291,33 @@ class RealboxMatchElement extends PolymerElement {
     const matchContents =
         match.answer ? match.answer.firstLine : match.contents;
     return match.swapContentsAndDescription ?
-        this.renderTextWithClassifications_(
-                decodeString16(match.description), match.descriptionClass)
-            .innerHTML :
-        this.renderTextWithClassifications_(
-                decodeString16(matchContents), match.contentsClass)
-            .innerHTML;
+        this.sanitizeInnerHtml_(
+            this.renderTextWithClassifications_(
+                    decodeString16(match.description), match.descriptionClass)
+                .innerHTML) :
+        this.sanitizeInnerHtml_(
+            this.renderTextWithClassifications_(
+                    decodeString16(matchContents), match.contentsClass)
+                .innerHTML);
   }
 
-  private computeDescriptionHtml_(): string {
+  private computeDescriptionHtml_(): TrustedHTML {
     if (!this.match) {
-      return '';
+      return window.trustedTypes!.emptyHTML;
     }
     const match = this.match;
     if (match.answer) {
-      return decodeString16(match.answer.secondLine);
+      return this.sanitizeInnerHtml_(decodeString16(match.answer.secondLine));
     }
     return match.swapContentsAndDescription ?
-        this.renderTextWithClassifications_(
-                decodeString16(match.contents), match.contentsClass)
-            .innerHTML :
-        this.renderTextWithClassifications_(
-                decodeString16(match.description), match.descriptionClass)
-            .innerHTML;
+        this.sanitizeInnerHtml_(
+            this.renderTextWithClassifications_(
+                    decodeString16(match.contents), match.contentsClass)
+                .innerHTML) :
+        this.sanitizeInnerHtml_(
+            this.renderTextWithClassifications_(
+                    decodeString16(match.description), match.descriptionClass)
+                .innerHTML);
   }
 
   private computeTailSuggestPrefix_(): string {
@@ -280,6 +335,14 @@ class RealboxMatchElement extends PolymerElement {
 
   private computeHasImage_(): boolean {
     return this.match && !!this.match.imageUrl;
+  }
+
+  private computeIsEntitySuggestion_(): boolean {
+    return this.match && this.match.type === ENTITY_MATCH_TYPE;
+  }
+
+  private computeIsRichSuggestion_(): boolean {
+    return this.match && this.match.isRichSuggestion;
   }
 
   private computeActionIsVisible_(): boolean {
@@ -300,19 +363,19 @@ class RealboxMatchElement extends PolymerElement {
   }
 
   /**
-   * Decodes the ACMatchClassificationStyle enteries encoded in the given
+   * Decodes the AcMatchClassificationStyle enteries encoded in the given
    * ACMatchClassification style field, maps each entry to a CSS
    * class and returns them.
    */
-  private convertClassificationStyleToCSSClasses_(style: number): string[] {
+  private convertClassificationStyleToCssClasses_(style: number): string[] {
     const classes = [];
-    if (style & ACMatchClassificationStyle.DIM) {
+    if (style & AcMatchClassificationStyle.DIM) {
       classes.push('dim');
     }
-    if (style & ACMatchClassificationStyle.MATCH) {
+    if (style & AcMatchClassificationStyle.MATCH) {
       classes.push('match');
     }
-    if (style & ACMatchClassificationStyle.URL) {
+    if (style & AcMatchClassificationStyle.URL) {
       classes.push('url');
     }
     return classes;
@@ -339,7 +402,7 @@ class RealboxMatchElement extends PolymerElement {
         .map(({offset, style}, index) => {
           const next = classifications[index + 1] || {offset: text.length};
           const subText = text.substring(offset, next.offset);
-          const classes = this.convertClassificationStyleToCSSClasses_(style);
+          const classes = this.convertClassificationStyleToCssClasses_(style);
           return this.createSpanWithClasses_(subText, classes);
         })
         .reduce((container, currentElement) => {
@@ -347,9 +410,11 @@ class RealboxMatchElement extends PolymerElement {
           return container;
         }, document.createElement('span'));
   }
+}
 
-  static get template() {
-    return html`{__html_template__}`;
+declare global {
+  interface HTMLElementTagNameMap {
+    'ntp-realbox-match': RealboxMatchElement;
   }
 }
 

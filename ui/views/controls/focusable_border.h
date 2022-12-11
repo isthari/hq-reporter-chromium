@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/color/color_id.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/views/border.h"
 #include "ui/views/view.h"
 
 namespace gfx {
 class Canvas;
-class Insets;
 }  // namespace gfx
 
 namespace views {
@@ -22,6 +22,9 @@ class VIEWS_EXPORT FocusableBorder : public Border {
  public:
   static constexpr float kCornerRadiusDp = 2.f;
 
+  // TODO(crbug.com/1392549): Replace placeholder corner radius value.
+  static constexpr float kChromeRefresh2023CornerRadiusDp = 30.f;
+
   FocusableBorder();
 
   FocusableBorder(const FocusableBorder&) = delete;
@@ -30,8 +33,7 @@ class VIEWS_EXPORT FocusableBorder : public Border {
   ~FocusableBorder() override;
 
   // Sets the insets of the border.
-  void SetInsets(int top, int left, int bottom, int right);
-  void SetInsets(int vertical, int horizontal);
+  void SetInsets(const gfx::Insets& insets);
 
   // Sets the color id to use for this border. When unsupplied, the color will
   // depend on the focus state.

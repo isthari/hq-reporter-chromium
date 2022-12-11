@@ -1,8 +1,8 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Next MinVersion: 19
+// Next MinVersion: 23
 
 module arc.mojom;
 
@@ -11,7 +11,7 @@ import "ash/components/arc/mojom/gfx.mojom";
 // Represents the type of text input field currently focused.
 [Extensible]
 enum TextInputType {
-  NONE,
+  [Default] NONE,
   TEXT,
   PASSWORD,
   SEARCH,
@@ -38,6 +38,16 @@ enum SegmentStyle {
   DEFAULT,
   EMPHASIZED,
   NONE,
+};
+
+[Extensible]
+enum CursorCoordinateSpace {
+  // (0, 0) is the top-left of the main display.
+  SCREEN,
+  // (0, 0) is the top-left of the current display.
+  DISPLAY,
+  // (0, 0) is the top-left of the notification display.
+  NOTIFICATION,
 };
 
 // Represents a single segment of text currently composed by IME.
@@ -68,9 +78,12 @@ struct KeyEventData {
   // It should be one of evdev codes (i.e. KEY_* defines)
   // in <linux/input-event-codes.h>.
   [MinVersion=16] uint32 scan_code;
+  [MinVersion=20] bool is_alt_gr_down;
+  [MinVersion=23] bool is_repeat;
 };
 
-// Next method ID: 5, 8
+// Deprecated method IDs: 1, 4, 5, 6
+// Next method ID: 10
 interface ImeHost {
   // Notifies Chrome that the text input focus is changed.
   // Each bit of the bitmask |flags| corresponds to TEXT_INPUT_FLAG_*.
@@ -79,14 +92,13 @@ interface ImeHost {
       [MinVersion=10] bool is_personalized_learning_allowed,
       [MinVersion=11] int32 flags);
 
-  // Notifies Chrome that the cursor poisition has changed.
+  // Notifies Chrome that the cursor position has changed.
   //
-  // |rect| describes the coordinates in physical pixels.
-  // If |is_screen_coordinates| is set to true, its origin (0,0) is the top-left
-  // of the primary display. Otherwise it is the top-left of the window that has
-  // the IME focus.
-  OnCursorRectChanged@1(Rect rect,
-                        [MinVersion=8] bool is_screen_coordinates);
+  // |rect| describes the coordinates in physical pixels in the given
+  // coordinates.
+  [MinVersion=19] OnCursorRectChanged@8(
+      Rect rect,
+      CursorCoordinateSpace coordinateSpace);
 
   // Notifies Chrome that the current composition is canceled.
   [MinVersion=1] OnCancelComposition@2();
@@ -97,23 +109,20 @@ interface ImeHost {
   // Notifies Chrome that the cursor position has changed and
   // also sends surrounding text.
   //
-  // |rect| describes the coordinates in physical pixels.
-  // If |is_screen_coordinates| is set to true, its origin (0,0) is the top-left
-  // of the primary display. Otherwise it is the top-left of the window that has
-  // the IME focus.
+  // |rect| describes the coordinates in physical pixels in the given
+  // coordinates.
   //
   // |text_range|, |text_in_range| and |selection_range| are piggy-backed
   // into this method because Chrome OS IME tries to retrieve these information
   // synchronously, so we need to update them all at once to keep consistency.
-  [MinVersion=5] OnCursorRectChangedWithSurroundingText@4(
+  [MinVersion=19] OnCursorRectChangedWithSurroundingText@9(
       Rect rect,              // The cursor position.
       Range text_range,       // The range of |text_in_range| in the current
                                   // text in the editor.
       string text_in_range,       // The text around the cursor.
       Range selection_range,  // The range of the selected text
                                   // in the current text in the editor.
-      [MinVersion=8] bool is_screen_coordinates  // Whether or not the |rect|
-                                                 // are in screen coordinates.
+      CursorCoordinateSpace coordinateSpace  // The coordinate space of |rect|.
       );
 
   // Sends a key event to Chrome to pass it to the Chrome OS IME.
@@ -123,13 +132,17 @@ interface ImeHost {
 
 // Represents a text input field that is hosted inside ARC++, allowing Chrome OS
 // browser process to manipulate text within Android apps.
-// Next method ID: 0, 9
+// Deprecated method IDs: 0
+// Next method ID: 9
 interface ImeInstance {
   // Establishes full-duplex communication with the host.
   [MinVersion=6] Init@6(pending_remote<ImeHost> host_remote) => ();
 
   // Sets composition text and attributes requested by the host IME.
-  SetCompositionText@1(string text, array<CompositionSegment> segments);
+  SetCompositionText@1(
+      string text,
+      array<CompositionSegment> segments,
+      [MinVersion=21] Range? selection_range);
 
   // Sets selection text and attributes requested by the host IME.
   [MinVersion=12] SetSelectionText@7(Range selection);
@@ -144,8 +157,8 @@ interface ImeInstance {
   // end of the text). If |new_cursor_position| <= 0, then it is relative to the
   // start (0 being the beginning of the text).
   InsertText@3(
-     string text,
-     [MinVersion=17] int32 new_cursor_position);
+      string text,
+      [MinVersion=17] int32 new_cursor_position);
 
   // Informs the virtual keyboard availability and bounds on screen is changing.
   // |is_available| whether a virtual keyboard is visible or not.

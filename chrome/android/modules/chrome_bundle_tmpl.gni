@@ -1,11 +1,12 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import("//base/android/linker/config.gni")
 import("//build/config/android/config.gni")
-import("//build/util/version.gni")
 import("//chrome/android/modules/chrome_feature_module_tmpl.gni")
+import("//chrome/version.gni")
+import("//components/crash/android/silent_java_assert_reporting.gni")
 import("//components/module_installer/android/module_desc_java.gni")
 
 # Instantiates a Chrome-specific app bundle.
@@ -114,8 +115,30 @@ template("chrome_bundle") {
                              ])
       module_desc = _module_desc
       version_name = chrome_version_name
-      uncompress_shared_libraries =
-          invoker.is_monochrome_or_trichrome || chromium_linker_supported
+
+      if (defined(invoker.expected_android_manifest_template)) {
+        expected_android_manifest =
+            string_replace(invoker.expected_android_manifest_template,
+                           "SPLIT_NAME",
+                           _module_desc.name)
+      }
+      if (defined(invoker.expected_android_manifest_base_template)) {
+        if (defined(_module_desc.ignore_base_manifest_expectations) &&
+            _module_desc.ignore_base_manifest_expectations) {
+          # Remove ".diff" since it's not actually a diff.
+          expected_android_manifest =
+              string_replace(expected_android_manifest, ".diff", "")
+        } else {
+          expected_android_manifest_base =
+              string_replace(invoker.expected_android_manifest_base_template,
+                             "SPLIT_NAME",
+                             _module_desc.name)
+        }
+      }
+
+      if (enable_silent_java_assert_reporting) {
+        custom_assertion_handler = crash_reporting_assertion_handler
+      }
 
       # Each module needs a unique resource package ID so that we don't have ID
       # collisions between feature modules.
@@ -156,22 +179,26 @@ template("chrome_bundle") {
                              "keystore_password",
                              "keystore_path",
                              "lint_baseline_file",
+                             "lint_jar_path",
                              "lint_min_sdk_version",
                              "lint_suppressions_file",
                              "lint_suppressions_dep",
                              "min_sdk_version",
                              "proguard_android_sdk_dep",
+                             "rotation_config",
                              "static_library_provider",
-                             "static_library_synchronized_proguard",
                              "version_code",
                            ])
     command_line_flags_file = "chrome-command-line"
     proguard_enabled = !is_java_debug
     enable_language_splits = true
     extra_modules = _extra_modules
-    system_image_locale_allowlist = locales - android_bundle_only_locales
+    system_image_locale_allowlist = platform_pak_locales - extended_locales
     is_multi_abi = _is_multi_abi
     validate_services = _enable_chrome_module
+    if (enable_silent_java_assert_reporting) {
+      custom_assertion_handler = crash_reporting_assertion_handler
+    }
 
     # For this to be respected, it must also be set on the base module target.
     strip_unused_resources = is_official_build
@@ -180,5 +207,16 @@ template("chrome_bundle") {
     # testing easier. This removes the need to manually specify, e.g.,
     # "-m dev_ui" on every install or run.
     default_modules_for_testing = [ "dev_ui" ]
+  }
+
+  if (defined(invoker.expected_android_manifest_template)) {
+    group("${target_name}_validate_manifests") {
+      deps = [
+        ":${_bundle_target_name}__base_bundle_module_validate_android_manifest",
+      ]
+      foreach(_module_desc, _module_descs) {
+        deps += [ ":${_bundle_target_name}__${_module_desc.name}_bundle_module_validate_android_manifest" ]
+      }
+    }
   }
 }

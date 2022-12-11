@@ -1,8 +1,9 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/quick_pair/pairing/pairer_broker_impl.h"
+
 #include <memory>
 
 #include "ash/quick_pair/common/account_key_failure.h"
@@ -13,6 +14,7 @@
 #include "ash/quick_pair/common/protocol.h"
 #include "ash/quick_pair/fast_pair_handshake/fast_pair_handshake_lookup.h"
 #include "ash/quick_pair/pairing/fast_pair/fast_pair_pairer.h"
+#include "ash/quick_pair/pairing/fast_pair/fast_pair_pairer_impl.h"
 #include "ash/quick_pair/pairing/fast_pair/fast_pair_unpair_handler.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
@@ -61,6 +63,26 @@ void PairerBrokerImpl::PairDevice(scoped_refptr<Device> device) {
   }
 }
 
+void PairerBrokerImpl::EraseHandshakeAndFromPairers(
+    scoped_refptr<Device> device) {
+  // |fast_pair_pairers_| and its children objects depend on the handshake
+  // instance. Shut them down before destroying the handshake.
+  pair_failure_counts_.erase(device->ble_address);
+  fast_pair_pairers_.erase(device->ble_address);
+  FastPairHandshakeLookup::GetInstance()->Erase(device);
+}
+
+bool PairerBrokerImpl::IsPairing() {
+  // We are guaranteed to not be pairing when the following two maps are
+  // empty.
+  return !fast_pair_pairers_.empty() || !pair_failure_counts_.empty();
+}
+
+void PairerBrokerImpl::StopPairing() {
+  fast_pair_pairers_.clear();
+  pair_failure_counts_.clear();
+}
+
 void PairerBrokerImpl::PairFastPairDevice(scoped_refptr<Device> device) {
   if (base::Contains(fast_pair_pairers_, device->ble_address)) {
     QP_LOG(WARNING) << __func__ << ": Already pairing device" << device;
@@ -72,9 +94,15 @@ void PairerBrokerImpl::PairFastPairDevice(scoped_refptr<Device> device) {
 
   QP_LOG(INFO) << __func__ << ": " << device;
 
+  for (auto& observer : observers_) {
+    observer.OnPairingStart(device);
+  }
+
   DCHECK(adapter_);
-  fast_pair_pairers_[device->ble_address] = std::make_unique<FastPairPairer>(
+  fast_pair_pairers_[device->ble_address] = FastPairPairerImpl::Factory::Create(
       adapter_, device,
+      base::BindOnce(&PairerBrokerImpl::OnFastPairHandshakeComplete,
+                     weak_pointer_factory_.GetWeakPtr()),
       base::BindOnce(&PairerBrokerImpl::OnFastPairDevicePaired,
                      weak_pointer_factory_.GetWeakPtr()),
       base::BindOnce(&PairerBrokerImpl::OnFastPairPairingFailure,
@@ -83,6 +111,14 @@ void PairerBrokerImpl::PairFastPairDevice(scoped_refptr<Device> device) {
                      weak_pointer_factory_.GetWeakPtr()),
       base::BindOnce(&PairerBrokerImpl::OnFastPairProcedureComplete,
                      weak_pointer_factory_.GetWeakPtr()));
+}
+
+void PairerBrokerImpl::OnFastPairHandshakeComplete(
+    scoped_refptr<Device> device) {
+  QP_LOG(INFO) << __func__ << ": Device=" << device;
+  for (auto& observer : observers_) {
+    observer.OnHandshakeComplete(device);
+  }
 }
 
 void PairerBrokerImpl::OnFastPairDevicePaired(scoped_refptr<Device> device) {
@@ -111,9 +147,7 @@ void PairerBrokerImpl::OnFastPairPairingFailure(scoped_refptr<Device> device,
       observer.OnPairFailure(device, failure);
     }
 
-    FastPairHandshakeLookup::GetInstance()->Erase(device);
-    pair_failure_counts_.erase(device->ble_address);
-    fast_pair_pairers_.erase(device->ble_address);
+    EraseHandshakeAndFromPairers(device);
     return;
   }
 
@@ -124,13 +158,33 @@ void PairerBrokerImpl::OnFastPairPairingFailure(scoped_refptr<Device> device,
 void PairerBrokerImpl::OnAccountKeyFailure(scoped_refptr<Device> device,
                                            AccountKeyFailure failure) {
   QP_LOG(INFO) << __func__ << ": Device=" << device << ", Failure=" << failure;
+
+  for (auto& observer : observers_) {
+    observer.OnAccountKeyWrite(device, failure);
+  }
+
+  EraseHandshakeAndFromPairers(device);
 }
 
 void PairerBrokerImpl::OnFastPairProcedureComplete(
     scoped_refptr<Device> device) {
   QP_LOG(INFO) << __func__ << ": Device=" << device;
-  fast_pair_pairers_.erase(device->ble_address);
-  FastPairHandshakeLookup::GetInstance()->Erase(device);
+
+  for (auto& observer : observers_) {
+    observer.OnPairingComplete(device);
+  }
+
+  // If we get to this point in the flow for the initial and retroactive pairing
+  // scenarios, this means that the account key has successfully been written
+  // to these devices.
+  if (device->protocol == Protocol::kFastPairInitial ||
+      device->protocol == Protocol::kFastPairRetroactive) {
+    for (auto& observer : observers_) {
+      observer.OnAccountKeyWrite(device, /*error=*/absl::nullopt);
+    }
+  }
+
+  EraseHandshakeAndFromPairers(device);
 }
 
 }  // namespace quick_pair

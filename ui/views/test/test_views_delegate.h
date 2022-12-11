@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
 #include "ui/views/layout/layout_provider.h"
 #include "ui/views/views_delegate.h"
@@ -66,7 +67,7 @@ class TestViewsDelegate : public ViewsDelegate {
 
  private:
 #if BUILDFLAG(IS_MAC)
-  ui::ContextFactory* context_factory_ = nullptr;
+  raw_ptr<ui::ContextFactory> context_factory_ = nullptr;
 #endif
   bool use_desktop_native_widgets_ = false;
   bool use_transparent_windows_ = false;

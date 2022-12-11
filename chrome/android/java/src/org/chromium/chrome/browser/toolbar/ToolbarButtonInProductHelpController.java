@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,13 @@ import android.view.View;
 
 import androidx.annotation.NonNull;
 
+import org.chromium.base.TraceEvent;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.PostTask;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.bookmarks.PowerBookmarkUtils;
-import org.chromium.chrome.browser.commerce.shopping_list.ShoppingFeatures;
+import org.chromium.chrome.browser.commerce.ShoppingFeatures;
 import org.chromium.chrome.browser.download.DownloadUtils;
 import org.chromium.chrome.browser.feature_engagement.ScreenshotMonitor;
 import org.chromium.chrome.browser.feature_engagement.ScreenshotMonitorDelegate;
@@ -31,6 +32,7 @@ import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.CurrentTabObserver;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarFeatures;
 import org.chromium.chrome.browser.translate.TranslateBridge;
 import org.chromium.chrome.browser.translate.TranslateUtils;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuCoordinator;
@@ -100,12 +102,17 @@ public class ToolbarButtonInProductHelpController
         mPageLoadObserver = new CurrentTabObserver(tabSupplier, new EmptyTabObserver() {
             @Override
             public void onPageLoadFinished(Tab tab, GURL url) {
-                if (tab.isShowingErrorPage()) {
-                    handleIPHForErrorPageShown(tab);
-                    return;
-                }
+                // Part of scroll jank investigation http://crbug.com/1311003. Will remove
+                // TraceEvent after the investigation is complete.
+                try (TraceEvent te = TraceEvent.scoped(
+                             "ToolbarButtonInProductHelpController::onPageLoadFinished")) {
+                    if (tab.isShowingErrorPage()) {
+                        handleIPHForErrorPageShown(tab);
+                        return;
+                    }
 
-                handleIPHForSuccessfulPageLoad(tab);
+                    handleIPHForSuccessfulPageLoad(tab);
+                }
             }
 
             private void handleIPHForSuccessfulPageLoad(final Tab tab) {
@@ -148,7 +155,8 @@ public class ToolbarButtonInProductHelpController
      */
     private void showPriceTrackingIPH(Tab tab) {
         if (!ShoppingFeatures.isShoppingListEnabled()
-                || !PowerBookmarkUtils.isPriceTrackingEligible(tab)) {
+                || !PowerBookmarkUtils.isPriceTrackingEligible(tab)
+                || AdaptiveToolbarFeatures.isContextualPageActionUiEnabled()) {
             return;
         }
 

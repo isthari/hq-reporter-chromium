@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/containers/flat_map.h"
 #include "base/logging.h"
 #include "base/values.h"
 #include "net/base/sys_addrinfo.h"
-#include "net/log/net_log_capture_mode.h"
 
 namespace net {
 
@@ -41,6 +38,9 @@ AddressList::AddressList(const IPEndPoint& endpoint,
   push_back(endpoint);
 }
 
+AddressList::AddressList(std::vector<IPEndPoint> endpoints)
+    : endpoints_(std::move(endpoints)) {}
+
 // static
 AddressList AddressList::CreateFromIPAddress(const IPAddress& address,
                                              uint16_t port) {
@@ -52,8 +52,8 @@ AddressList AddressList::CreateFromIPAddressList(
     const IPAddressList& addresses,
     std::vector<std::string> aliases) {
   AddressList list;
-  for (auto iter = addresses.begin(); iter != addresses.end(); ++iter) {
-    list.push_back(IPEndPoint(*iter, 0));
+  for (const auto& address : addresses) {
+    list.push_back(IPEndPoint(address, 0));
   }
   list.SetDnsAliases(std::move(aliases));
   return list;
@@ -116,19 +116,19 @@ void AddressList::AppendDnsAliases(std::vector<std::string> aliases) {
 }
 
 base::Value AddressList::NetLogParams() const {
-  base::Value dict(base::Value::Type::DICTIONARY);
+  base::Value::Dict dict;
 
-  base::Value address_list(base::Value::Type::LIST);
+  base::Value::List address_list;
   for (const auto& ip_endpoint : *this)
     address_list.Append(ip_endpoint.ToString());
-  dict.SetKey("address_list", std::move(address_list));
+  dict.Set("address_list", std::move(address_list));
 
-  base::Value alias_list(base::Value::Type::LIST);
+  base::Value::List alias_list;
   for (const std::string& alias : dns_aliases_)
     alias_list.Append(alias);
-  dict.SetKey("aliases", std::move(alias_list));
+  dict.Set("aliases", std::move(alias_list));
 
-  return dict;
+  return base::Value(std::move(dict));
 }
 
 void AddressList::Deduplicate() {

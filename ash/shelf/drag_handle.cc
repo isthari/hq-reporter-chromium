@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,21 +6,27 @@
 
 #include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/constants/ash_features.h"
+#include "ash/controls/contextual_tooltip.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/session/session_controller_impl.h"
-#include "ash/shelf/contextual_tooltip.h"
 #include "ash/shelf/shelf_layout_manager.h"
+#include "ash/shelf/shelf_navigation_widget.h"
 #include "ash/shelf/shelf_observer.h"
 #include "ash/shelf/shelf_widget.h"
+#include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/ash_color_id.h"
+#include "ash/system/status_area_widget.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/timer/timer.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/wm/core/coordinate_conversion.h"
 
 namespace ash {
@@ -67,7 +73,7 @@ constexpr base::TimeDelta kShowNudgeDelay = base::Seconds(2);
 // This class is deleted after OnImplicitAnimationsCompleted() is called.
 class HideNudgeObserver : public ui::ImplicitAnimationObserver {
  public:
-  HideNudgeObserver(ContextualNudge* drag_handle_nudge)
+  explicit HideNudgeObserver(ContextualNudge* drag_handle_nudge)
       : drag_handle_nudge_(drag_handle_nudge) {}
   ~HideNudgeObserver() override = default;
 
@@ -79,7 +85,7 @@ class HideNudgeObserver : public ui::ImplicitAnimationObserver {
   }
 
  private:
-  ContextualNudge* drag_handle_nudge_;
+  ContextualNudge* const drag_handle_nudge_;
 };
 
 }  // namespace
@@ -196,11 +202,6 @@ void DragHandle::HideDragHandleNudge(
     contextual_tooltip::HandleGesturePerformed(
         Shell::Get()->session_controller()->GetLastActiveUserPrefService(),
         contextual_tooltip::TooltipType::kInAppToHome);
-  } else {
-    // HandleGesturePerformed will also call MaybeLogNudgeDismissedMetrics so we
-    // do not need to call it separately for kPerformedGesture.
-    contextual_tooltip::MaybeLogNudgeDismissedMetrics(
-        contextual_tooltip::TooltipType::kInAppToHome, reason);
   }
 
   HideDragHandleNudgeHelper(/*hidden_by_tap=*/reason ==
@@ -232,8 +233,7 @@ void DragHandle::SetWindowDragFromShelfInProgress(bool gesture_in_progress) {
 }
 
 void DragHandle::UpdateColor() {
-  layer()->SetColor(AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kShelfHandleColor));
+  layer()->SetColor(GetColorProvider()->GetColor(kColorAshShelfHandleColor));
 }
 
 void DragHandle::OnGestureEvent(ui::GestureEvent* event) {
@@ -254,18 +254,20 @@ gfx::Rect DragHandle::GetAnchorBoundsInScreen() const {
   // anchor for contextual nudges, and their bounds are set relative to the
   // handle bounds without transform (for example, for in-app to home nudge both
   // drag handle and the nudge will have non-indentity, identical transforms).
-  gfx::Point origin_in_screen = anchor_bounds.origin();
-  layer()->transform().TransformPointReverse(&origin_in_screen);
+  gfx::PointF origin(anchor_bounds.origin());
+  gfx::PointF origin_in_screen =
+      layer()->transform().InverseMapPoint(origin).value_or(origin);
 
   // If the parent widget has a transform set, it should be ignored as well (the
   // transform is set during shelf widget animations, and will animate to
   // identity transform), so the nudge bounds are set relative to the target
   // shelf bounds.
   aura::Window* const widget_window = GetWidget()->GetNativeWindow();
-  origin_in_screen += widget_window->bounds().origin().OffsetFromOrigin();
+  origin_in_screen +=
+      gfx::Vector2dF(widget_window->bounds().origin().OffsetFromOrigin());
   wm::ConvertPointToScreen(widget_window->parent(), &origin_in_screen);
 
-  anchor_bounds.set_origin(origin_in_screen);
+  anchor_bounds.set_origin(gfx::ToRoundedPoint(origin_in_screen));
   return anchor_bounds;
 }
 
@@ -281,8 +283,20 @@ void DragHandle::GetAccessibleNodeData(ui::AXNodeData* node_data) {
     case HotseatState::kHidden:
       accessible_name = l10n_util::GetStringUTF16(
           IDS_ASH_DRAG_HANDLE_HOTSEAT_SHOW_ACCESSIBLE_NAME);
+
+      // When the hotseat is kHidden, the focus traversal should go to the
+      // status area as the next focus and the navigation area as the previous
+      // focus.
+      GetViewAccessibility().OverrideNextFocus(shelf_->GetStatusAreaWidget());
+      GetViewAccessibility().OverridePreviousFocus(
+          shelf_->shelf_widget()->navigation_widget());
       break;
     case HotseatState::kExtended:
+      // When the hotseat is kExtended, the focus traversal should go to the
+      // hotseat as both the next and previous focus.
+      GetViewAccessibility().OverrideNextFocus(shelf_->hotseat_widget());
+      GetViewAccessibility().OverridePreviousFocus(shelf_->hotseat_widget());
+
       // The name should be empty when the hotseat is extended but we cannot
       // hide it.
       if (force_show_hotseat_resetter_)
@@ -343,6 +357,11 @@ void DragHandle::ButtonPressed() {
     shelf_->hotseat_widget()->set_manually_extended(false);
     force_show_hotseat_resetter_.RunAndReset();
   }
+
+  // The accessibility focus order depends on the hotseat state, and pressing
+  // the drag handle changes the hotseat state. So, send an accessibility
+  // notification in order to recompute the focus order.
+  NotifyAccessibilityEvent(ax::mojom::Event::kStateChanged, true);
 }
 
 void DragHandle::OnImplicitAnimationsCompleted() {
@@ -355,8 +374,6 @@ void DragHandle::ShowDragHandleTooltip() {
   drag_handle_nudge_ = new ContextualNudge(
       this, nullptr /*parent_window*/, ContextualNudge::Position::kTop,
       gfx::Insets(), l10n_util::GetStringUTF16(IDS_ASH_DRAG_HANDLE_NUDGE),
-      AshColorProvider::Get()->GetContentLayerColor(
-          AshColorProvider::ContentLayerType::kTextColorPrimary),
       base::BindRepeating(&DragHandle::HandleTapOnNudge,
                           weak_factory_.GetWeakPtr()));
   drag_handle_nudge_->GetWidget()->Show();

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "base/bind.h"
 #include "base/i18n/time_formatting.h"
@@ -43,28 +44,26 @@ constexpr char kTimeLimitOverrideUpdatedId[] = "time-limit-override-updated";
 constexpr char kTimeLimitNotifierId[] = "family-link";
 
 void ShowNotification(std::u16string title,
+                      const NotificationCatalogName& catalog_name,
                       std::u16string message,
                       const std::string& notification_id,
                       content::BrowserContext* context) {
   message_center::RichNotificationData option_fields;
   option_fields.fullscreen_visibility =
       message_center::FullscreenVisibility::OVER_USER;
-  std::unique_ptr<message_center::Notification> notification =
-      ash::CreateSystemNotification(
-          message_center::NOTIFICATION_TYPE_SIMPLE, notification_id, title,
-          message,
-          l10n_util::GetStringUTF16(IDS_TIME_LIMIT_NOTIFICATION_DISPLAY_SOURCE),
-          GURL(),
-          message_center::NotifierId(
-              message_center::NotifierType::SYSTEM_COMPONENT,
-              kTimeLimitNotifierId),
-          option_fields,
-          base::MakeRefCounted<message_center::NotificationDelegate>(),
-          chromeos::kNotificationSupervisedUserIcon,
-          message_center::SystemNotificationWarningLevel::NORMAL);
+  message_center::Notification notification = CreateSystemNotification(
+      message_center::NOTIFICATION_TYPE_SIMPLE, notification_id, title, message,
+      l10n_util::GetStringUTF16(IDS_TIME_LIMIT_NOTIFICATION_DISPLAY_SOURCE),
+      GURL(),
+      message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
+                                 kTimeLimitNotifierId, catalog_name),
+      option_fields,
+      base::MakeRefCounted<message_center::NotificationDelegate>(),
+      chromeos::kNotificationSupervisedUserIcon,
+      message_center::SystemNotificationWarningLevel::NORMAL);
   NotificationDisplayService::GetForProfile(
       Profile::FromBrowserContext(context))
-      ->Display(NotificationHandler::Type::TRANSIENT, *notification,
+      ->Display(NotificationHandler::Type::TRANSIENT, notification,
                 /*metadata=*/nullptr);
 }
 
@@ -87,13 +86,16 @@ void TimeLimitNotifier::MaybeScheduleLockNotifications(
   UnscheduleNotifications();
 
   int title_id;
+  NotificationCatalogName catalog_name;
   switch (limit_type) {
     case LimitType::kScreenTime:
       title_id = IDS_SCREEN_TIME_NOTIFICATION_TITLE;
+      catalog_name = NotificationCatalogName::kScreenTimeLimit;
       break;
     case LimitType::kBedTime:
     case LimitType::kOverride:
       title_id = IDS_BED_TIME_NOTIFICATION_TITLE;
+      catalog_name = NotificationCatalogName::kBedtimeLimit;
       break;
   }
 
@@ -102,14 +104,14 @@ void TimeLimitNotifier::MaybeScheduleLockNotifications(
   if (remaining_time >= kWarningNotificationTimeout) {
     warning_notification_timer_.Start(
         FROM_HERE, remaining_time - kWarningNotificationTimeout,
-        base::BindOnce(&ShowNotification, title,
+        base::BindOnce(&ShowNotification, title, catalog_name,
                        RemainingTimeString(kWarningNotificationTimeout),
                        kTimeLimitLockNotificationId, context_));
   }
   if (remaining_time >= kExitNotificationTimeout) {
     exit_notification_timer_.Start(
         FROM_HERE, remaining_time - kExitNotificationTimeout,
-        base::BindOnce(&ShowNotification, title,
+        base::BindOnce(&ShowNotification, title, catalog_name,
                        RemainingTimeString(kExitNotificationTimeout),
                        kTimeLimitLockNotificationId, context_));
   }
@@ -121,18 +123,21 @@ void TimeLimitNotifier::ShowPolicyUpdateNotification(
   int title_id;
   std::u16string message;
   std::string notification_id;
+  NotificationCatalogName catalog_name;
   switch (limit_type) {
     case LimitType::kScreenTime:
       title_id = IDS_TIME_LIMIT_UPDATED_NOTIFICATION_TITLE;
       message = l10n_util::GetStringUTF16(
           IDS_SCREEN_TIME_UPDATED_NOTIFICATION_MESSAGE);
       notification_id = kTimeLimitScreenTimeUpdatedId;
+      catalog_name = NotificationCatalogName::kScreenTimeLimitUpdated;
       break;
     case LimitType::kBedTime:
       title_id = IDS_TIME_LIMIT_UPDATED_NOTIFICATION_TITLE;
       message =
           l10n_util::GetStringUTF16(IDS_BEDTIME_UPDATED_NOTIFICATION_MESSAGE);
       notification_id = kTimeLimitBedtimeUpdatedId;
+      catalog_name = NotificationCatalogName::kBedtimeUpdated;
       break;
     case LimitType::kOverride:
       if (!lock_time)
@@ -142,9 +147,10 @@ void TimeLimitNotifier::ShowPolicyUpdateNotification(
           IDS_OVERRIDE_WITH_DURATION_UPDATED_NOTIFICATION_MESSAGE,
           base::TimeFormatTimeOfDay(lock_time.value()));
       notification_id = kTimeLimitOverrideUpdatedId;
+      catalog_name = NotificationCatalogName::kTimeLimitOverride;
       break;
   }
-  ShowNotification(l10n_util::GetStringUTF16(title_id), message,
+  ShowNotification(l10n_util::GetStringUTF16(title_id), catalog_name, message,
                    notification_id, context_);
 }
 

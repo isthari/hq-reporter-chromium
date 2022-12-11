@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,8 @@
 
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/task/post_task.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "media/base/media_log.h"
 #include "media/base/video_frame.h"
@@ -22,7 +22,7 @@
 #include "media/gpu/gpu_video_decode_accelerator_factory.h"
 #include "media/gpu/macros.h"
 #include "media/gpu/test/video.h"
-#include "media/gpu/test/video_player/frame_renderer.h"
+#include "media/gpu/test/video_player/frame_renderer_dummy.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
@@ -43,21 +43,19 @@ TestVDAVideoDecoder::TestVDAVideoDecoder(
     bool use_vd_vda,
     OnProvidePictureBuffersCB on_provide_picture_buffers_cb,
     const gfx::ColorSpace& target_color_space,
-    FrameRenderer* const frame_renderer,
-    gpu::GpuMemoryBufferFactory* gpu_memory_buffer_factory,
+    FrameRendererDummy* const frame_renderer,
     bool linear_output)
     : use_vd_vda_(use_vd_vda),
       on_provide_picture_buffers_cb_(std::move(on_provide_picture_buffers_cb)),
       target_color_space_(target_color_space),
       frame_renderer_(frame_renderer),
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
-      gpu_memory_buffer_factory_(gpu_memory_buffer_factory),
       linear_output_(linear_output),
 #endif  // BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
       decode_start_timestamps_(kTimestampCacheSize) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(vda_wrapper_sequence_checker_);
 
-  vda_wrapper_task_runner_ = base::ThreadTaskRunnerHandle::Get();
+  vda_wrapper_task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
 
   weak_this_ = weak_this_factory_.GetWeakPtr();
 }
@@ -94,18 +92,7 @@ void TestVDAVideoDecoder::Initialize(const VideoDecoderConfig& config,
 
   // Create decoder factory.
   std::unique_ptr<GpuVideoDecodeAcceleratorFactory> decoder_factory;
-  bool hasGLContext = frame_renderer_->GetGLContext() != nullptr;
   GpuVideoDecodeGLClient gl_client;
-  if (hasGLContext) {
-    gl_client.get_context = base::BindRepeating(
-        &FrameRenderer::GetGLContext, base::Unretained(frame_renderer_));
-    gl_client.make_context_current = base::BindRepeating(
-        &FrameRenderer::AcquireGLContext, base::Unretained(frame_renderer_));
-    gl_client.bind_image = base::BindRepeating(
-        [](uint32_t, uint32_t, const scoped_refptr<gl::GLImage>&, bool) {
-          return true;
-        });
-  }
   decoder_factory = GpuVideoDecodeAcceleratorFactory::Create(gl_client);
 
   if (!decoder_factory) {
@@ -132,7 +119,7 @@ void TestVDAVideoDecoder::Initialize(const VideoDecoderConfig& config,
     vda_config.is_deferred_initialization_allowed = true;
     decoder_ = media::VdVideoDecodeAccelerator::Create(
         base::BindRepeating(&media::VideoDecoderPipeline::Create), this,
-        vda_config, base::SequencedTaskRunnerHandle::Get());
+        vda_config, base::SequencedTaskRunner::GetCurrentDefault());
 #endif  // BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
   } else {
     DVLOGF(2) << "Use original VDA";
@@ -245,8 +232,8 @@ void TestVDAVideoDecoder::ProvidePictureBuffersWithVisibleRect(
 
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
     video_frame = CreateGpuMemoryBufferVideoFrame(
-        gpu_memory_buffer_factory_, format, dimensions, visible_rect,
-        visible_rect.size(), base::TimeDelta(),
+        format, dimensions, visible_rect, visible_rect.size(),
+        base::TimeDelta(),
         linear_output_ ? gfx::BufferUsage::SCANOUT_CPU_READ_WRITE
                        : gfx::BufferUsage::SCANOUT_VDA_WRITE);
 #endif  // BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)

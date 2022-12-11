@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,12 +15,13 @@
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "components/invalidation/impl/invalidation_switches.h"
 #include "components/invalidation/public/invalidation_util.h"
+#include "components/sync/base/features.h"
 #include "components/sync/base/invalidation_adapter.h"
 #include "components/sync/base/legacy_directory_deletion.h"
+#include "components/sync/base/sync_invalidation_adapter.h"
 #include "components/sync/driver/configure_context.h"
 #include "components/sync/driver/glue/sync_engine_impl.h"
 #include "components/sync/driver/model_type_controller.h"
-#include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/engine/cycle/sync_cycle_snapshot.h"
 #include "components/sync/engine/data_type_activation_response.h"
 #include "components/sync/engine/engine_components_factory.h"
@@ -28,7 +29,6 @@
 #include "components/sync/engine/net/http_post_provider_factory.h"
 #include "components/sync/engine/sync_manager.h"
 #include "components/sync/engine/sync_manager_factory.h"
-#include "components/sync/invalidations/switches.h"
 #include "components/sync/model/forwarding_model_type_controller_delegate.h"
 #include "components/sync/nigori/nigori_model_type_processor.h"
 #include "components/sync/nigori/nigori_storage_impl.h"
@@ -47,30 +47,15 @@ namespace {
 const base::FilePath::CharType kNigoriStorageFilename[] =
     FILE_PATH_LITERAL("Nigori.bin");
 
-class SyncInvalidationAdapter : public SyncInvalidation {
- public:
-  explicit SyncInvalidationAdapter(const std::string& payload)
-      : payload_(payload) {}
-  ~SyncInvalidationAdapter() override = default;
+void RecordInvalidationPerModelType(ModelType type) {
+  UMA_HISTOGRAM_ENUMERATION("Sync.InvalidationPerModelType",
+                            ModelTypeHistogramValue(type));
+}
 
-  bool IsUnknownVersion() const override { return true; }
-
-  const std::string& GetPayload() const override { return payload_; }
-
-  int64_t GetVersion() const override {
-    // TODO(crbug.com/1102322): implement versions. This method is not called
-    // until IsUnknownVersion() returns true.
-    NOTREACHED();
-    return 0;
-  }
-
-  void Acknowledge() override { NOTIMPLEMENTED(); }
-
-  void Drop() override { NOTIMPLEMENTED(); }
-
- private:
-  const std::string payload_;
-};
+void RecordIncomingInvalidationStatus(
+    SyncEngineBackend::IncomingInvalidationStatus status) {
+  UMA_HISTOGRAM_ENUMERATION("Sync.IncomingInvalidationStatus", status);
+}
 
 }  // namespace
 
@@ -169,14 +154,19 @@ void SyncEngineBackend::DoOnIncomingInvalidation(
     ModelType type;
     if (!NotificationTypeToRealModelType(topic, &type)) {
       DLOG(WARNING) << "Notification has invalid topic: " << topic;
+      RecordIncomingInvalidationStatus(
+          IncomingInvalidationStatus::kUnknownModelType);
     } else {
-      UMA_HISTOGRAM_ENUMERATION("Sync.InvalidationPerModelType",
-                                ModelTypeHistogramValue(type));
+      RecordInvalidationPerModelType(type);
       invalidation::SingleTopicInvalidationSet invalidation_set =
           invalidation_map.ForTopic(topic);
       for (invalidation::Invalidation invalidation : invalidation_set) {
-        RecordRedundantInvalidationsMetric(invalidation, type);
+        // Topic-based invalidations contain only one data type, hence this
+        // metric should be recorded for each incoming invalidation to represent
+        // all incoming messages.
+        RecordIncomingInvalidationStatus(IncomingInvalidationStatus::kSuccess);
 
+        RecordRedundantInvalidationsMetric(invalidation, type);
         std::unique_ptr<SyncInvalidation> inv_adapter(
             new InvalidationAdapter(invalidation));
         sync_manager_->OnIncomingInvalidation(type, std::move(inv_adapter));
@@ -283,9 +273,11 @@ void SyncEngineBackend::DoStartSyncing(base::Time last_poll_time) {
 }
 
 void SyncEngineBackend::DoSetEncryptionPassphrase(
-    const std::string& passphrase) {
+    const std::string& passphrase,
+    const KeyDerivationParams& key_derivation_params) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  sync_manager_->GetEncryptionHandler()->SetEncryptionPassphrase(passphrase);
+  sync_manager_->GetEncryptionHandler()->SetEncryptionPassphrase(
+      passphrase, key_derivation_params);
 }
 
 void SyncEngineBackend::DoAddTrustedVaultDecryptionKeys(
@@ -311,7 +303,6 @@ void SyncEngineBackend::DoInitialProcessControlTypes() {
 
   host_.Call(FROM_HERE,
              &SyncEngineImpl::HandleInitializationSuccessOnFrontendLoop,
-             sync_manager_->GetDebugInfoListener(),
              sync_manager_->GetModelTypeConnectorProxy(),
              sync_manager_->birthday(), sync_manager_->bag_of_chips());
 }
@@ -455,30 +446,56 @@ void SyncEngineBackend::DoOnInvalidatorClientIdChange(
   sync_manager_->UpdateInvalidationClientId(client_id);
 }
 
-void SyncEngineBackend::DoOnInvalidationReceived(const std::string& payload) {
+void SyncEngineBackend::DoOnStandaloneInvalidationReceived(
+    const std::string& payload,
+    const ModelTypeSet& interested_data_types) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(base::FeatureList::IsEnabled(switches::kSyncSendInterestedDataTypes) &&
-         base::FeatureList::IsEnabled(switches::kUseSyncInvalidations));
+  DCHECK(base::FeatureList::IsEnabled(kSyncSendInterestedDataTypes) &&
+         base::FeatureList::IsEnabled(kUseSyncInvalidations));
+  const IncomingInvalidationStatus status =
+      DoOnStandaloneInvalidationReceivedImpl(payload, interested_data_types);
+  RecordIncomingInvalidationStatus(status);
+}
 
+SyncEngineBackend::IncomingInvalidationStatus
+SyncEngineBackend::DoOnStandaloneInvalidationReceivedImpl(
+    const std::string& payload,
+    const ModelTypeSet& interested_data_types) {
   sync_pb::SyncInvalidationsPayload payload_message;
-  // TODO(crbug.com/1119804): Track parsing failures in a histogram.
   if (!payload_message.ParseFromString(payload)) {
-    return;
+    return IncomingInvalidationStatus::kPayloadParseFailed;
   }
+
+  bool contains_valid_model_type = false;
+
+  std::vector<int> field_numbers;
+  field_numbers.reserve(payload_message.data_type_invalidations_size());
   for (const auto& data_type_invalidation :
        payload_message.data_type_invalidations()) {
-    const int field_number = data_type_invalidation.data_type_id();
-    ModelType model_type = GetModelTypeFromSpecificsFieldNumber(field_number);
-    if (!IsRealDataType(model_type)) {
-      DLOG(WARNING) << "Unknown field number " << field_number;
+    field_numbers.push_back(data_type_invalidation.data_type_id());
+  }
+  for (auto model_type :
+       GetModelTypeSetFromSpecificsFieldNumberList(field_numbers)) {
+    if (!interested_data_types.Has(model_type)) {
+      // Filter out invalidations for unsubscribed data types.
       continue;
     }
 
-    // TODO(crbug.com/1119798): Use only enabled data types.
+    contains_valid_model_type = true;
+    RecordInvalidationPerModelType(model_type);
+    absl::optional<int64_t> version;
+    if (payload_message.has_version()) {
+      version = payload_message.version();
+    }
     std::unique_ptr<SyncInvalidation> inv_adapter =
-        std::make_unique<SyncInvalidationAdapter>(payload_message.hint());
+        std::make_unique<SyncInvalidationAdapter>(payload_message.hint(),
+                                                  version);
     sync_manager_->OnIncomingInvalidation(model_type, std::move(inv_adapter));
   }
+  if (contains_valid_model_type) {
+    return IncomingInvalidationStatus::kSuccess;
+  }
+  return IncomingInvalidationStatus::kUnknownModelType;
 }
 
 void SyncEngineBackend::DoOnActiveDevicesChanged(

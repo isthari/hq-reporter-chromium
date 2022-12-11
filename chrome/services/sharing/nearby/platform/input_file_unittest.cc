@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -108,7 +108,7 @@ TEST_F(InputFileTest, TestRead_Valid_ChunkLargerThanFileSize) {
 }
 
 TEST_F(InputFileTest, TestRead_Valid_LargeFileSize) {
-  // 100MB. 1GB does pass, but tcmalloc complains about a large alloc.
+  // 100MB
   CreateValidInputFile(kTestDataSize * 100);
   VerifyRead(kChunkSize);
 }

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@ class DeviceCommandRebootJob : public RemoteCommandJob {
   DeviceCommandRebootJob(const DeviceCommandRebootJob&) = delete;
   DeviceCommandRebootJob& operator=(const DeviceCommandRebootJob&) = delete;
 
-  ~DeviceCommandRebootJob() override;
+  ~DeviceCommandRebootJob() override = default;
 
   // RemoteCommandJob:
   enterprise_management::RemoteCommand_Type GetType() const override;

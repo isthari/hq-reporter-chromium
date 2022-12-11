@@ -1,10 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/updater/mac/privileged_helper/service.h"
 
+#include "base/memory/raw_ptr.h"
+
 #import <Foundation/Foundation.h>
+#include <Security/Security.h>
+
+#include <unistd.h>
 
 #include <string>
 #include <utility>
@@ -14,25 +19,27 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
+#include "base/mac/foundation_util.h"
+#include "base/mac/mac_util.h"
+#include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/process/launch.h"
 #include "base/strings/strcat.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/mac/privileged_helper/server.h"
 #include "chrome/updater/mac/privileged_helper/service_protocol.h"
 #include "chrome/updater/updater_branding.h"
-#include "chrome/updater/util.h"
+#include "chrome/updater/util/util.h"
 
 @interface PrivilegedHelperServiceImpl
     : NSObject <PrivilegedHelperServiceProtocol> {
-  updater::PrivilegedHelperService* _service;
+  raw_ptr<updater::PrivilegedHelperService> _service;
   scoped_refptr<updater::PrivilegedHelperServer> _server;
   scoped_refptr<base::SequencedTaskRunner> _callbackRunner;
 }
@@ -111,8 +118,9 @@
 namespace updater {
 namespace {
 
-constexpr base::FilePath::CharType kFrameworksPath[] = FILE_PATH_LITERAL(
-    "Contents/Frameworks/" BROWSER_NAME_STRING " Framework.framework/Helpers");
+constexpr base::FilePath::CharType kFrameworksPath[] =
+    FILE_PATH_LITERAL("Contents/Frameworks/" BROWSER_PRODUCT_NAME_STRING
+                      " Framework.framework/Helpers");
 constexpr base::FilePath::CharType kProductBundleName[] =
     FILE_PATH_LITERAL(PRODUCT_FULLNAME_STRING ".app");
 constexpr int kPermissionsMask = base::FILE_PERMISSION_USER_MASK |
@@ -125,24 +133,39 @@ constexpr int kSuccess = 0;
 constexpr int kFailedToInstall = -1;
 constexpr int kFailedToAlterBrowserOwnership = -2;
 constexpr int kFailedToConfirmPermissionChanges = -3;
-}
+constexpr int kFailedToCreateTempDir = -4;
+constexpr int kFailedToCopyToTempDir = -5;
+constexpr int kFailedToVerifyUpdater = -6;
 
-PrivilegedHelperService::PrivilegedHelperService()
-    : main_task_runner_(base::SequencedTaskRunnerHandle::Get()) {}
+int InstallUpdater(const base::FilePath& browser_path) {
+  std::string user_temp_dir(PATH_MAX, std::string::value_type());
+  size_t len = confstr(_CS_DARWIN_USER_TEMP_DIR, user_temp_dir.data(),
+                       user_temp_dir.size());
+  if (len > user_temp_dir.size() || len == 0) {
+    return kFailedToCreateTempDir;
+  }
+  user_temp_dir.resize(len);
 
-PrivilegedHelperService::~PrivilegedHelperService() = default;
+  base::ScopedTempDir temp_dir;
+  if (!temp_dir.CreateUniqueTempDirUnderPath(base::FilePath(user_temp_dir))) {
+    return kFailedToCreateTempDir;
+  }
 
-void PrivilegedHelperService::SetupSystemUpdater(
-    const std::string& browser_path,
-    base::OnceCallback<void(int)> result) {
-  // Get the updater path via the browser path.
-  base::FilePath updater_path_exec_path = base::FilePath(browser_path)
-                                              .Append(kFrameworksPath)
-                                              .Append(kProductBundleName)
-                                              .Append("Contents/MacOS")
-                                              .Append(PRODUCT_FULLNAME_STRING);
+  if (!base::CopyDirectory(base::FilePath(browser_path)
+                               .Append(kFrameworksPath)
+                               .Append(kProductBundleName),
+                           temp_dir.GetPath(), true)) {
+    return kFailedToCopyToTempDir;
+  }
 
-  base::CommandLine command(updater_path_exec_path);
+  if (!VerifyUpdaterSignature(temp_dir.GetPath().Append(kProductBundleName))) {
+    return kFailedToVerifyUpdater;
+  }
+
+  base::CommandLine command(temp_dir.GetPath()
+                                .Append(kProductBundleName)
+                                .Append("Contents/MacOS")
+                                .Append(PRODUCT_FULLNAME_STRING));
   command.AppendSwitch(kInstallSwitch);
   command.AppendSwitch(kSystemSwitch);
   command.AppendSwitch(
@@ -151,19 +174,56 @@ void PrivilegedHelperService::SetupSystemUpdater(
   std::string output;
   int exit_code = 0;
   if (!base::GetAppOutputWithExitCode(command, &output, &exit_code)) {
-    VLOG(0) << "Something went wrong with installing the updater: "
-            << updater_path_exec_path;
-    main_task_runner_->PostTask(
-        FROM_HERE, base::BindOnce(std::move(result), kFailedToInstall));
-    return;
+    return kFailedToInstall;
   }
 
   if (exit_code) {
     VLOG(0) << "Output from attempting to install system-level updater: "
             << output;
     VLOG(0) << "Exit code: " << exit_code;
-    main_task_runner_->PostTask(FROM_HERE,
-                                base::BindOnce(std::move(result), exit_code));
+  }
+  return exit_code;
+}
+
+}  // namespace
+
+bool VerifyUpdaterSignature(const base::FilePath& updater_app_bundle) {
+  base::ScopedCFTypeRef<SecRequirementRef> requirement;
+  base::ScopedCFTypeRef<SecStaticCodeRef> code;
+  base::ScopedCFTypeRef<CFErrorRef> errors;
+  if (SecStaticCodeCreateWithPath(
+          base::mac::NSToCFCast(base::mac::FilePathToNSURL(updater_app_bundle)),
+          kSecCSDefaultFlags, code.InitializeInto()) != errSecSuccess) {
+    return false;
+  }
+  if (SecRequirementCreateWithString(
+          CFSTR("identifier \"" MAC_BUNDLE_IDENTIFIER_STRING
+                "\" and certificate leaf[subject.OU] "
+                "= " MAC_TEAM_IDENTIFIER_STRING),
+          kSecCSDefaultFlags, requirement.InitializeInto()) != errSecSuccess) {
+    return false;
+  }
+  if (SecStaticCodeCheckValidityWithErrors(
+          code, kSecCSCheckAllArchitectures | kSecCSCheckNestedCode,
+          requirement, errors.InitializeInto()) != errSecSuccess) {
+    return false;
+  }
+  return true;
+}
+
+PrivilegedHelperService::PrivilegedHelperService()
+    : main_task_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {}
+
+PrivilegedHelperService::~PrivilegedHelperService() = default;
+
+void PrivilegedHelperService::SetupSystemUpdater(
+    const std::string& browser_path,
+    base::OnceCallback<void(int)> result) {
+  // Get the updater path via the browser path.
+  const int install_result = InstallUpdater(base::FilePath(browser_path));
+  if (install_result != kSuccess) {
+    main_task_runner_->PostTask(
+        FROM_HERE, base::BindOnce(std::move(result), install_result));
     return;
   }
 
@@ -172,6 +232,8 @@ void PrivilegedHelperService::SetupSystemUpdater(
   chown_cmd.AppendArg("root:wheel");
   chown_cmd.AppendArg(browser_path);
 
+  int exit_code = 0;
+  std::string output;
   if (!base::GetAppOutputWithExitCode(chown_cmd, &output, &exit_code)) {
     VLOG(0) << "Something went wrong with altering the browser ownership: "
             << browser_path;

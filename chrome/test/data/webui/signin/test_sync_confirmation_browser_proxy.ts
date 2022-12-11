@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@ export class TestSyncConfirmationBrowserProxy extends TestBrowserProxy
       'goToSettings',
       'initializedWithSize',
       'requestAccountInfo',
+      'getSyncBenefitsList',
     ]);
   }
 
@@ -35,5 +36,10 @@ export class TestSyncConfirmationBrowserProxy extends TestBrowserProxy
 
   requestAccountInfo() {
     this.methodCalled('requestAccountInfo');
+  }
+
+  getSyncBenefitsList() {
+    this.methodCalled('getSyncBenefitsList');
+    return Promise.resolve([]);
   }
 }

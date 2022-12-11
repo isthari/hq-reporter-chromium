@@ -41,7 +41,8 @@ namespace blink {
 class ImageInputType final : public BaseButtonInputType {
  public:
   explicit ImageInputType(HTMLInputElement&);
-  void CustomStyleForLayoutObject(ComputedStyle& style) override;
+  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject(
+      scoped_refptr<ComputedStyle> original_style) override;
 
  private:
   void CountUsage() override;
@@ -50,6 +51,7 @@ class ImageInputType final : public BaseButtonInputType {
   void AppendToFormData(FormData&) const override;
   String ResultForDialogSubmit() const override;
   bool SupportsValidation() const override;
+  ControlPart AutoAppearance() const override;
   LayoutObject* CreateLayoutObject(const ComputedStyle&,
                                    LegacyLayout) const override;
   void HandleDOMActivateEvent(Event&) override;
@@ -77,6 +79,13 @@ class ImageInputType final : public BaseButtonInputType {
   gfx::Point click_location_;
 
   bool use_fallback_content_;
+};
+
+template <>
+struct DowncastTraits<ImageInputType> {
+  static bool AllowFrom(const InputType& type) {
+    return type.IsImageInputType();
+  }
 };
 
 }  // namespace blink

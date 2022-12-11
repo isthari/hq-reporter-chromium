@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,7 +33,7 @@ class PersonalDataManagerFinishedProfileTasksWaiter
 
   ~PersonalDataManagerFinishedProfileTasksWaiter() override;
 
-  // Blocks until |OnPersonalDataFinishedProfileTasks| is invoked at the end of
+  // Blocks until `OnPersonalDataFinishedProfileTasks` is invoked at the end of
   // the asynchronous modification on the PersonalDataManager.
   void Wait();
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,7 +48,7 @@ CreateProfilePolicyConnectorForBrowserContext(
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   Profile* const profile = Profile::FromBrowserContext(context);
-  if (ash::ProfileHelper::IsRegularProfile(profile)) {
+  if (ash::ProfileHelper::IsUserProfile(profile)) {
     user = ash::ProfileHelper::Get()->GetUserByProfile(profile);
     CHECK(user);
   }

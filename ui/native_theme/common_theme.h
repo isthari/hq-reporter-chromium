@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,12 +15,6 @@ namespace ui {
 class ColorProvider;
 
 // Drawing code that is common for all platforms.
-
-// Gets the appropriate alert severity color for light / dark mode.
-// TODO(tluk): Create unique color ids for each use of the alert severity colors
-// and update this function to take the background color over which the alert
-// color is to be used.
-SkColor NATIVE_THEME_EXPORT GetAlertSeverityColor(ColorId color_id, bool dark);
 
 void NATIVE_THEME_EXPORT CommonThemePaintMenuItemBackground(
     const NativeTheme* theme,

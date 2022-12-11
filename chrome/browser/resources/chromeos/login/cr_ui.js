@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,25 +8,22 @@
  * shared between all *two* screens here.
  */
 
-// #import {assert} from 'chrome://resources/js/assert.m.js';
-// #import {i18nTemplate} from 'chrome://resources/js/i18n_template_no_process.m.js';
-// #import {$} from 'chrome://resources/js/util.m.js';
-// #import {addSingletonGetter, sendWithPromise} from 'chrome://resources/js/cr.m.js';
+import {assert} from 'chrome://resources/js/assert.js';
+import {$} from 'chrome://resources/ash/common/util.js';
+import {sendWithPromise} from 'chrome://resources/js/cr.m.js';
+import {addSingletonGetter} from 'chrome://resources/ash/common/cr_deprecated.js';
 
-// #import {DisplayManager} from './display_manager.m.js';
-// #import {DISPLAY_TYPE} from './components/display_manager_types.m.js';
-// #import {DemoModeTestHelper} from './demo_mode_test_helper.m.js';
-// #import {loadTimeData} from './i18n_setup.js';
-// #import {OobeTypes} from './components/oobe_types.m.js';
+import {DisplayManager} from './display_manager.js';
+import {DISPLAY_TYPE} from './components/display_manager_types.js';
+import {loadTimeData} from './i18n_setup.js';
+import {OobeTypes} from './components/oobe_types.js';
 
-cr.define('cr.ui', function() {
-  /* #ignore */ var DisplayManager = cr.ui.login.DisplayManager;
 
   /**
    * Out of box controller. It manages initialization of screens,
    * transitions, error messages display.
    */
-  /* #export */ class Oobe extends DisplayManager {
+  export class Oobe extends DisplayManager {
     /**
      * OOBE initialization coordination. Used by tests to wait for OOBE
      * to fully load when using the HTLImports polyfill.
@@ -48,24 +45,10 @@ cr.define('cr.ui', function() {
     }
 
     /**
-     * Called when focus is returned from ash::SystemTray.
-     * @param {boolean} reverse Is focus returned in reverse order?
+     * Handle the cancel accelerator.
      */
-    static focusReturned(reverse) {
-      const screen = Oobe.getInstance().currentScreen;
-      if (screen && screen.onFocusReturned) {
-        screen.onFocusReturned(reverse);
-      }
-    }
-
-    /**
-     * Handle accelerators. These are passed from native code instead of a JS
-     * event handler in order to make sure that embedded iframes cannot swallow
-     * them.
-     * @param {string} name Accelerator name.
-     */
-    static handleAccelerator(name) {
-      Oobe.getInstance().handleAccelerator(name);
+    static handleCancel() {
+      Oobe.getInstance().handleCancel();
     }
 
     /**
@@ -78,19 +61,10 @@ cr.define('cr.ui', function() {
     }
 
     /**
-     * Updates missing API keys message visibility.
-     * @param {boolean} show True if the message should be visible.
+     * Toggles system info visibility.
      */
-    static showAPIKeysNotice(show) {
-      $('api-keys-notice-container').hidden = !show;
-    }
-
-    /**
-     * Updates version label visibility.
-     * @param {boolean} show True if version label should be visible.
-     */
-    static showVersion(show) {
-      Oobe.getInstance().showVersion(show);
+    static toggleSystemInfo() {
+      Oobe.getInstance().toggleSystemInfo();
     }
 
     /**
@@ -103,7 +77,6 @@ cr.define('cr.ui', function() {
         document.body.classList.add('oobe-display');
       } else {
         document.body.classList.remove('oobe-display');
-        Oobe.getInstance().prepareForLoginDisplay_();
       }
     }
 
@@ -120,44 +93,6 @@ cr.define('cr.ui', function() {
      */
     static setVirtualKeyboardShown(shown) {
       Oobe.getInstance().virtualKeyboardShown = shown;
-    }
-
-    /**
-     * Shows signin UI.
-     * @param {string} opt_email An optional email for signin UI.
-     */
-    static showSigninUI(opt_email) {
-      Oobe.getInstance().showSigninUI(opt_email);
-    }
-
-    /**
-     * Resets sign-in input fields.
-     * @param {boolean} forceOnline Whether online sign-in should be forced.
-     * If |forceOnline| is false previously used sign-in type will be used.
-     */
-    static resetSigninUI(forceOnline) {
-      Oobe.getInstance().resetSigninUI(forceOnline);
-    }
-
-    /**
-     * Show user-pods.
-     */
-    static showUserPods() {
-      if (Oobe.getInstance().showingViewsLogin) {
-        chrome.send('hideOobeDialog');
-        return;
-      }
-      this.showSigninUI("");
-      this.resetSigninUI(true);
-    }
-
-    /**
-     * Sets the current size of the client area (display size).
-     * @param {number} width client area width
-     * @param {number} height client area height
-     */
-    static setClientAreaSize(width, height) {
-      Oobe.getInstance().setClientAreaSize(width, height);
     }
 
     /**
@@ -179,29 +114,6 @@ cr.define('cr.ui', function() {
      */
     static setDialogSize(width, height) {
       Oobe.getInstance().setDialogSize(width, height);
-    }
-
-    /**
-     * Sets the hint for calculating OOBE dialog margins.
-     * @param {OobeTypes.DialogPaddingMode} mode
-     */
-    static setDialogPaddingMode(mode) {
-      Oobe.getInstance().setDialogPaddingMode(mode);
-    }
-
-    /**
-     * Sets the number of users on the views login screen.
-     * @param {number} userCount The number of users.
-     */
-    static setLoginUserCount(userCount) {
-      Oobe.getInstance().setLoginUserCount(userCount);
-    }
-
-    /**
-     * Skip to login screen for telemetry.
-     */
-    static skipToLoginForTesting() {
-      chrome.send('skipToLoginForTesting');
     }
 
     /**
@@ -228,51 +140,31 @@ cr.define('cr.ui', function() {
         }
       }
 
-      chrome.send('skipToLoginForTesting');
+      chrome.send('OobeTestApi.skipToLoginForTesting');
 
       if (!enterpriseEnroll) {
         chrome.send('completeLogin', [gaia_id, username, password, false]);
       } else {
         waitForOobeScreen('gaia-signin', function() {
           // TODO(crbug.com/1100910): migrate logic to dedicated test api.
-          chrome.send('toggleEnrollmentScreen');
+          chrome.send('OobeTestApi.advanceToScreen', ['enterprise-enrollment']);
           chrome.send('toggleFakeEnrollment');
         });
 
         waitForOobeScreen('enterprise-enrollment', function() {
-          chrome.send('oauthEnrollCompleteLogin', [username]);
+          chrome.send(
+              'oauthEnrollCompleteLogin',
+              [username, OobeTypes.LicenseType.ENTERPRISE]);
         });
       }
     }  // loginForTesting
 
     /**
-     * Guest login for telemetry.
-     */
-    static guestLoginForTesting() {
-      this.skipToLoginForTesting();
-      chrome.send('launchIncognito');
-    }
-
-    /**
-     * Gaia login screen for telemetry.
-     */
-    static addUserForTesting() {
-      this.skipToLoginForTesting();
-      chrome.send('addUser');
-    }
-
-    /**
      * Shows the add user dialog. Used in browser tests.
      */
     static showAddUserForTesting() {
-      chrome.send('showAddUser');
-    }
-
-    /**
-     * Hotrod requisition for telemetry.
-     */
-    static remoraRequisitionForTesting() {
-      chrome.send('WelcomeScreen.setDeviceRequisition', ['remora']);
+      // TODO(crbug.com/1100910): migrate logic to dedicated test api.
+      chrome.send('OobeTestApi.showGaiaDialog');
     }
 
     /**
@@ -280,7 +172,7 @@ cr.define('cr.ui', function() {
      */
     static switchToEnterpriseEnrollmentForTesting() {
       // TODO(crbug.com/1100910): migrate logic to dedicated test api.
-      chrome.send('toggleEnrollmentScreen');
+      chrome.send('OobeTestApi.advanceToScreen', ['enterprise-enrollment']);
     }
 
     /**
@@ -308,24 +200,6 @@ cr.define('cr.ui', function() {
       }
 
       return step === OobeTypes.EnrollmentStep.SUCCESS;
-    }
-
-    /**
-     * Starts online demo mode setup for telemetry. Is used in autotests.
-     */
-    static setUpOnlineDemoModeForTesting() {
-      DemoModeTestHelper.setUp('online');
-    }
-
-    /**
-     * Get the primary display's name.
-     *
-     * Same as the displayInfo.name parameter returned by
-     * chrome.system.display.getInfo(), but unlike chrome.system it's available
-     * during OOBE.
-     */
-    static getPrimaryDisplayNameForTesting() {
-      return cr.sendWithPromise('getPrimaryDisplayNameForTesting');
     }
 
     /**
@@ -361,10 +235,37 @@ cr.define('cr.ui', function() {
     static reloadContent(data) {
       // Reload global local strings, process DOM tree again.
       loadTimeData.overrideValues(data);
-      i18nTemplate.process(document, loadTimeData);
+      Oobe.updateDocumentLocalizedStrings();
 
       // Update localized content of the screens.
       Oobe.getInstance().updateLocalizedContent_();
+    }
+
+    /**
+     * Update localized strings in tags that are used at the `document` level.
+     * These strings are used outside of a Polymer Element and cannot leverage
+     * I18nBehavior for it.
+     */
+    static updateDocumentLocalizedStrings() {
+      // Update attributes used in the <html> tag.
+      const attrToStrMap = {
+        lang: 'language',
+        dir: 'textdirection',
+        highlight: 'highlightStrength',
+      };
+      for (const [attribute, stringName] of Object.entries(attrToStrMap)) {
+        const localizedString = loadTimeData.getValue(stringName);
+        document.documentElement.setAttribute(attribute, localizedString);
+      }
+
+      const missingApiId = 'missingAPIKeysNotice';
+      if (!loadTimeData.valueExists(missingApiId)) {
+        return;
+      }
+      // Update this standalone div in the main document.
+      const apiKeysNoticeDiv = $('api-keys-notice');
+      apiKeysNoticeDiv.textContent = loadTimeData.getValue(missingApiId);
+      $('api-keys-notice-container').hidden = false;
     }
 
     /**
@@ -397,9 +298,5 @@ cr.define('cr.ui', function() {
    */
   Oobe.readyForTesting = false;
 
-  cr.addSingletonGetter(Oobe);
+  addSingletonGetter(Oobe);
 
-  // #cr_define_end
-  // Export
-  return {Oobe: Oobe};
-});

@@ -68,23 +68,13 @@ class PLATFORM_EXPORT GenericFontFamilySettings {
   bool UpdateFantasy(const AtomicString&, UScriptCode = USCRIPT_COMMON);
   const AtomicString& Fantasy(UScriptCode = USCRIPT_COMMON) const;
 
+  bool UpdateMath(const AtomicString&, UScriptCode = USCRIPT_COMMON);
+  const AtomicString& Math(UScriptCode = USCRIPT_COMMON) const;
+
   // Only called by InternalSettings to clear font family maps.
   void Reset();
 
   GenericFontFamilySettings& operator=(const GenericFontFamilySettings&);
-
-  // Returns a new instance with String instead of AtomicString objects.
-  // This allows GenericFontFamilySettings to be sent from one thread to
-  // another, since AtomicStrings can't be shared cross-threads.
-  // Before using it, call it MakeAtomic() on the final thread, to bring back
-  // the AtomicStrings.
-  void IsolatedCopyTo(GenericFontFamilySettings& dest) const;
-
-  bool IsIsolated() const { return isolated_copy_.get(); }
-
-  // Transform an IsolatedCopy GenericFontFamilySettings into a regular
-  // GenericFontFamilySettings.
-  void MakeAtomic();
 
  private:
   // UScriptCode uses -1 and 0 for UScriptInvalidCode and UScriptCommon.
@@ -97,10 +87,7 @@ class PLATFORM_EXPORT GenericFontFamilySettings {
     static bool IsDeletedValue(int value) { return value == -3; }
   };
 
-  typedef HashMap<int,
-                  AtomicString,
-                  DefaultHash<int>::Hash,
-                  UScriptCodeHashTraits>
+  typedef HashMap<int, AtomicString, DefaultHash<int>, UScriptCodeHashTraits>
       ScriptFontFamilyMap;
 
   void SetGenericFontFamilyMap(ScriptFontFamilyMap&,
@@ -115,9 +102,7 @@ class PLATFORM_EXPORT GenericFontFamilySettings {
   ScriptFontFamilyMap sans_serif_font_family_map_;
   ScriptFontFamilyMap cursive_font_family_map_;
   ScriptFontFamilyMap fantasy_font_family_map_;
-
-  typedef Vector<std::pair<int, String>> IsolatedCopyVector;
-  std::unique_ptr<IsolatedCopyVector[]> isolated_copy_;
+  ScriptFontFamilyMap math_font_family_map_;
 };
 
 }  // namespace blink

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,12 +12,11 @@
 #include "components/signin/public/identity_manager/identity_test_environment.h"
 #include "components/sync/base/pref_names.h"
 #include "components/sync/driver/data_type_manager_impl.h"
-#include "components/sync/driver/fake_data_type_controller.h"
-#include "components/sync/driver/fake_sync_api_component_factory.h"
-#include "components/sync/driver/sync_client_mock.h"
-#include "components/sync/driver/sync_driver_switches.h"
-#include "components/sync/driver/sync_service_impl_bundle.h"
-#include "components/sync/test/engine/fake_sync_engine.h"
+#include "components/sync/test/fake_data_type_controller.h"
+#include "components/sync/test/fake_sync_api_component_factory.h"
+#include "components/sync/test/fake_sync_engine.h"
+#include "components/sync/test/sync_client_mock.h"
+#include "components/sync/test/sync_service_impl_bundle.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -76,6 +75,20 @@ class SyncServiceImplStartupTest : public testing::Test {
   void SimulateTestUserSignin() {
     sync_service_impl_bundle_.identity_test_env()->MakePrimaryAccountAvailable(
         kEmail, signin::ConsentLevel::kSync);
+  }
+
+  void SimulateRefreshTokensNotLoadedYet() {
+    // First, wait for the actual refresh token load to complete if necessary.
+    // Otherwise, if it was still ongoing, it might reset the state back to
+    // "everything loaded" once it completes.
+    sync_service_impl_bundle_.identity_test_env()->WaitForRefreshTokensLoaded();
+    sync_service_impl_bundle_.identity_test_env()
+        ->ResetToAccountsNotYetLoadedFromDiskState();
+  }
+
+  void SimulateRefreshTokensLoad() {
+    sync_service_impl_bundle_.identity_test_env()->ReloadAccountsFromDisk();
+    sync_service_impl_bundle_.identity_test_env()->WaitForRefreshTokensLoaded();
   }
 
   void SimulateTestUserSigninWithoutRefreshToken() {
@@ -223,6 +236,7 @@ TEST_F(SyncServiceImplStartupTest, StartFirstTime) {
 
 TEST_F(SyncServiceImplStartupTest, StartNoCredentials) {
   // We're already signed in, but don't have a refresh token.
+  SimulateRefreshTokensNotLoadedYet();
   SimulateTestUserSigninWithoutRefreshToken();
   sync_prefs()->SetFirstSetupComplete();
 
@@ -274,10 +288,15 @@ TEST_F(SyncServiceImplStartupTest, WebSignoutDuringDeferredStartup) {
   sync_service()->AddObserver(&observer);
 
   // Entering the sync-paused state should trigger a notification.
-  EXPECT_CALL(observer, OnStateChanged(sync_service())).WillOnce([&]() {
-    EXPECT_EQ(SyncService::TransportState::PAUSED,
-              sync_service()->GetTransportState());
-  });
+  // Note: Depending on the exact sequence of IdentityManager::Observer calls
+  // (refresh token changed and/or auth error changed), there might be multiple
+  // notifications.
+  EXPECT_CALL(observer, OnStateChanged(sync_service()))
+      .Times(testing::AtLeast(1))
+      .WillRepeatedly([&]() {
+        EXPECT_EQ(SyncService::TransportState::PAUSED,
+                  sync_service()->GetTransportState());
+      });
 
   // Now sign out on the web to enter the sync-paused state.
   SimulateWebSignout();
@@ -310,10 +329,15 @@ TEST_F(SyncServiceImplStartupTest, WebSignoutAfterInitialization) {
   sync_service()->AddObserver(&observer);
 
   // Entering the sync-paused state should trigger a notification.
-  EXPECT_CALL(observer, OnStateChanged(sync_service())).WillOnce([&]() {
-    EXPECT_EQ(SyncService::TransportState::PAUSED,
-              sync_service()->GetTransportState());
-  });
+  // Note: Depending on the exact sequence of IdentityManager::Observer calls
+  // (refresh token changed and/or auth error changed), there might be multiple
+  // notifications.
+  EXPECT_CALL(observer, OnStateChanged(sync_service()))
+      .Times(testing::AtLeast(1))
+      .WillRepeatedly([&]() {
+        EXPECT_EQ(SyncService::TransportState::PAUSED,
+                  sync_service()->GetTransportState());
+      });
 
   // Now sign out on the web to enter the sync-paused state.
   SimulateWebSignout();
@@ -356,6 +380,7 @@ TEST_F(SyncServiceImplStartupTest, StartCrosNoCredentials) {
 
   // On ChromeOS, the user is always immediately signed in, but a refresh token
   // isn't necessarily available yet.
+  SimulateRefreshTokensNotLoadedYet();
   SimulateTestUserSigninWithoutRefreshToken();
 
   CreateSyncService(SyncServiceImpl::AUTO_START);
@@ -374,16 +399,15 @@ TEST_F(SyncServiceImplStartupTest, StartCrosNoCredentials) {
 }
 
 TEST_F(SyncServiceImplStartupTest, StartCrosFirstTime) {
-  // On ChromeOS, the user is always immediately signed in, but a refresh token
-  // isn't necessarily available yet.
-  SimulateTestUserSigninWithoutRefreshToken();
-
-  CreateSyncService(SyncServiceImpl::AUTO_START);
+  // We've never completed Sync startup.
   ASSERT_FALSE(sync_prefs()->IsFirstSetupComplete());
 
-  // The primary account is already populated, all that's left to do is provide
-  // a refresh token.
-  UpdateCredentials();
+  // There is already a signed-in user.
+  SimulateTestUserSignin();
+
+  // Sync should become active, even though IsFirstSetupComplete wasn't set yet,
+  // due to AUTO_START.
+  CreateSyncService(SyncServiceImpl::AUTO_START);
   sync_service()->Initialize();
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(SyncService::TransportState::ACTIVE,
@@ -509,7 +533,7 @@ TEST_F(SyncServiceImplStartupTest, StartDontRecoverDatatypePrefs) {
 TEST_F(SyncServiceImplStartupTest, ManagedStartup) {
   // Sync was previously enabled, but a policy was set while Chrome wasn't
   // running.
-  sync_prefs()->SetManagedForTest(true);
+  pref_service()->SetBoolean(prefs::kSyncManaged, true);
   sync_prefs()->SetSyncRequested(true);
   sync_prefs()->SetFirstSetupComplete();
 
@@ -549,7 +573,7 @@ TEST_F(SyncServiceImplStartupTest, SwitchManaged) {
   ASSERT_EQ(0, get_controller(BOOKMARKS)->model()->clear_metadata_call_count());
 
   // The service should stop when switching to managed mode.
-  sync_prefs()->SetManagedForTest(true);
+  pref_service()->SetBoolean(prefs::kSyncManaged, true);
   // Give re-startup a chance to happen (it shouldn't!).
   base::RunLoop().RunUntilIdle();
   // Sync was disabled due to the policy, setting SyncRequested to false and
@@ -568,7 +592,7 @@ TEST_F(SyncServiceImplStartupTest, SwitchManaged) {
   // When switching back to unmanaged, Sync-the-transport should start up
   // automatically, which causes (re)creation of SyncEngine and
   // DataTypeManager.
-  sync_prefs()->SetManagedForTest(false);
+  pref_service()->SetBoolean(prefs::kSyncManaged, false);
   base::RunLoop().RunUntilIdle();
 
   ASSERT_EQ(

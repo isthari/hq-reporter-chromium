@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,6 +44,13 @@ void WebStateDelegate::ShowRepostFormWarningDialog(
 JavaScriptDialogPresenter* WebStateDelegate::GetJavaScriptDialogPresenter(
     WebState*) {
   return nullptr;
+}
+
+bool WebStateDelegate::HandlePermissionsDecisionRequest(
+    WebState* source,
+    NSArray<NSNumber*>* permissions,
+    WebStatePermissionDecisionHandler handler) {
+  return false;
 }
 
 void WebStateDelegate::OnAuthRequired(WebState* source,

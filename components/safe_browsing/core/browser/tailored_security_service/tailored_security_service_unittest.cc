@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
@@ -103,6 +102,9 @@ class TestingTailoredSecurityService : public TailoredSecurityService {
   void MaybeNotifySyncUser(bool is_enabled,
                            base::Time previous_update) override;
 
+  // Mock subclass overrides.
+  MOCK_METHOD1(ShowSyncNotification, void(bool));
+
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory()
       override {
     return url_loader_factory_;
@@ -168,7 +170,7 @@ class TestRequest : public TailoredSecurityService::Request {
 
   void Start() override {
     is_pending_ = true;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&TestRequest::MimicReturnFromFetch,
                                   base::Unretained(this)));
   }
@@ -284,8 +286,8 @@ class TailoredSecurityServiceTest : public testing::Test {
 
   void TearDown() override {
     base::RunLoop run_loop;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  run_loop.QuitClosure());
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, run_loop.QuitClosure());
     run_loop.Run();
   }
 
@@ -314,7 +316,7 @@ TEST_F(TailoredSecurityServiceTest, GetTailoredSecurityServiceEnabled) {
   tailored_security_service()->StartRequest(base::BindOnce(
       &TestingTailoredSecurityService::GetTailoredSecurityServiceCallback,
       base::Unretained(tailored_security_service())));
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           &TestingTailoredSecurityService::EnsureNoPendingRequestsRemain,
@@ -334,7 +336,7 @@ TEST_F(TailoredSecurityServiceTest,
           &TestingTailoredSecurityService::SetTailoredSecurityServiceCallback,
           base::Unretained(tailored_security_service())),
       TRAFFIC_ANNOTATION_FOR_TESTS);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           &TestingTailoredSecurityService::EnsureNoPendingRequestsRemain,
@@ -353,7 +355,7 @@ TEST_F(TailoredSecurityServiceTest, SetTailoredSecurityBitForTestingFalse) {
           &TestingTailoredSecurityService::SetTailoredSecurityServiceCallback,
           base::Unretained(tailored_security_service())),
       TRAFFIC_ANNOTATION_FOR_TESTS);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           &TestingTailoredSecurityService::EnsureNoPendingRequestsRemain,
@@ -380,7 +382,7 @@ TEST_F(TailoredSecurityServiceTest, MultipleRequests) {
                      base::Unretained(tailored_security_service())));
 
   // Check that both requests are no longer pending.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           &TestingTailoredSecurityService::EnsureNoPendingRequestsRemain,

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/scoped_blocking_call.h"
@@ -182,7 +183,7 @@ class DnsConfigServicePosix::ConfigReader : public SerialWorker {
     return std::make_unique<WorkItem>();
   }
 
-  void OnWorkFinished(std::unique_ptr<SerialWorker::WorkItem>
+  bool OnWorkFinished(std::unique_ptr<SerialWorker::WorkItem>
                           serial_worker_work_item) override {
     DCHECK(serial_worker_work_item);
     DCHECK(!IsCancelled());
@@ -190,8 +191,10 @@ class DnsConfigServicePosix::ConfigReader : public SerialWorker {
     WorkItem* work_item = static_cast<WorkItem*>(serial_worker_work_item.get());
     if (work_item->dns_config_.has_value()) {
       service_->OnConfigRead(std::move(work_item->dns_config_).value());
+      return true;
     } else {
       LOG(WARNING) << "Failed to read DnsConfig.";
+      return false;
     }
   }
 
@@ -206,7 +209,7 @@ class DnsConfigServicePosix::ConfigReader : public SerialWorker {
   };
 
   // Raw pointer to owning DnsConfigService.
-  DnsConfigServicePosix* const service_;
+  const raw_ptr<DnsConfigServicePosix> service_;
 };
 
 DnsConfigServicePosix::DnsConfigServicePosix()
@@ -312,8 +315,7 @@ std::unique_ptr<DnsConfigService> DnsConfigService::CreateSystemService() {
 #if BUILDFLAG(IS_IOS)
   return nullptr;
 #else   // BUILDFLAG(IS_IOS)
-  return std::unique_ptr<DnsConfigService>(
-      new internal::DnsConfigServicePosix());
+  return std::make_unique<internal::DnsConfigServicePosix>();
 #endif  // BUILDFLAG(IS_IOS)
 }
 

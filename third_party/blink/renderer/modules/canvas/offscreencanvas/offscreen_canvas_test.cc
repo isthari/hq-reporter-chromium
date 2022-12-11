@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "services/viz/public/mojom/hit_test/hit_test_region_list.mojom-blink.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/frame_test_helpers.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
@@ -148,7 +149,7 @@ TEST_P(OffscreenCanvasTest, CompositorFrameOpacity) {
 
   const bool context_alpha = GetParam().alpha;
 
-  const auto canvas_resource = CanvasResourceSharedBitmap::Create(
+  auto canvas_resource = CanvasResourceSharedBitmap::Create(
       SkImageInfo::MakeN32Premul(offscreen_canvas().Size().width(),
                                  offscreen_canvas().Size().height()),
       nullptr /* provider */, cc::PaintFlags::FilterQuality::kLow);
@@ -170,9 +171,14 @@ TEST_P(OffscreenCanvasTest, CompositorFrameOpacity) {
             EXPECT_NE(shared_quad_state_list.front()->are_contents_opaque,
                       context_alpha);
           })));
-  offscreen_canvas().PushFrame(canvas_resource, SkIRect::MakeWH(10, 10));
+  offscreen_canvas().PushFrame(std::move(canvas_resource),
+                               SkIRect::MakeWH(10, 10));
   platform->RunUntilIdle();
 
+  auto canvas_resource2 = CanvasResourceSharedBitmap::Create(
+      SkImageInfo::MakeN32Premul(offscreen_canvas().Size().width(),
+                                 offscreen_canvas().Size().height()),
+      nullptr /* provider */, cc::PaintFlags::FilterQuality::kLow);
   EXPECT_CALL(mock_embedded_frame_sink_provider.mock_compositor_frame_sink(),
               SubmitCompositorFrameSync_(_))
       .WillOnce(::testing::WithArg<0>(
@@ -189,7 +195,8 @@ TEST_P(OffscreenCanvasTest, CompositorFrameOpacity) {
             EXPECT_NE(shared_quad_state_list.front()->are_contents_opaque,
                       context_alpha);
           })));
-  offscreen_canvas().Commit(canvas_resource, SkIRect::MakeWH(10, 10));
+  offscreen_canvas().Commit(std::move(canvas_resource2),
+                            SkIRect::MakeWH(10, 10));
   platform->RunUntilIdle();
 }
 

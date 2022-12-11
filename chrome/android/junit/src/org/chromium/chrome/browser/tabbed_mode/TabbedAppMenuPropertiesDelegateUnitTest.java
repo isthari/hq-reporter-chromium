@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,17 +38,19 @@ import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ActivityTabProvider;
-import org.chromium.chrome.browser.bookmarks.BookmarkBridge;
+import org.chromium.chrome.browser.bookmarks.BookmarkModel;
 import org.chromium.chrome.browser.bookmarks.PowerBookmarkUtils;
-import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
+import org.chromium.chrome.browser.commerce.ShoppingServiceFactory;
 import org.chromium.chrome.browser.enterprise.util.ManagedBrowserUtils;
 import org.chromium.chrome.browser.enterprise.util.ManagedBrowserUtilsJni;
 import org.chromium.chrome.browser.feed.webfeed.WebFeedSnackbarController;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.incognito.reauth.IncognitoReauthController;
+import org.chromium.chrome.browser.layouts.LayoutStateProvider;
+import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.multiwindow.MultiWindowModeStateDispatcher;
 import org.chromium.chrome.browser.multiwindow.MultiWindowUtils;
 import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
-import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkMeta;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -64,8 +66,11 @@ import org.chromium.chrome.browser.toolbar.ToolbarManager;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuDelegate;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.test.util.browser.Features;
+import org.chromium.components.browser_ui.accessibility.PageZoomCoordinator;
 import org.chromium.components.browser_ui.site_settings.WebsitePreferenceBridge;
 import org.chromium.components.browser_ui.site_settings.WebsitePreferenceBridgeJni;
+import org.chromium.components.commerce.core.ShoppingService;
+import org.chromium.components.power_bookmarks.PowerBookmarkMeta;
 import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.components.webapps.AppBannerManager;
 import org.chromium.content_public.browser.NavigationController;
@@ -81,8 +86,8 @@ import java.util.List;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Features.EnableFeatures({ChromeFeatureList.WEB_FEED, ChromeFeatureList.READ_LATER,
-        ChromeFeatureList.BOOKMARKS_REFRESH, ChromeFeatureList.CHROME_MANAGEMENT_PAGE})
-@Features.DisableFeatures({ChromeFeatureList.READ_LATER, ChromeFeatureList.SHOPPING_LIST})
+        ChromeFeatureList.BOOKMARKS_REFRESH})
+@Features.DisableFeatures({ChromeFeatureList.SHOPPING_LIST, ChromeFeatureList.WEB_APK_UNIQUE_ID})
 public class TabbedAppMenuPropertiesDelegateUnitTest {
     // Costants defining flags that determines multi-window menu items visibility.
     private static final boolean TAB_M = true; // multiple tabs
@@ -126,7 +131,7 @@ public class TabbedAppMenuPropertiesDelegateUnitTest {
     @Mock
     private View mDecorView;
     @Mock
-    private OverviewModeBehavior mOverviewModeBehavior;
+    private LayoutStateProvider mLayoutStateProvider;
     @Mock
     private ManagedBrowserUtils.Natives mManagedBrowserUtilsJniMock;
     @Mock
@@ -157,10 +162,16 @@ public class TabbedAppMenuPropertiesDelegateUnitTest {
     private TabModelFilter mTabModelFilter;
     @Mock
     public WebsitePreferenceBridge.Natives mWebsitePreferenceBridgeJniMock;
+    @Mock
+    private IncognitoReauthController mIncognitoReauthControllerMock;
+    @Mock
+    private ShoppingService mShoppingService;
 
-    private OneshotSupplierImpl<OverviewModeBehavior> mOverviewModeSupplier =
+    private OneshotSupplierImpl<LayoutStateProvider> mLayoutStateProviderSupplier =
             new OneshotSupplierImpl<>();
-    private ObservableSupplierImpl<BookmarkBridge> mBookmarkBridgeSupplier =
+    private OneshotSupplierImpl<IncognitoReauthController> mIncognitoReauthControllerSupplier =
+            new OneshotSupplierImpl<>();
+    private ObservableSupplierImpl<BookmarkModel> mBookmarkModelSupplier =
             new ObservableSupplierImpl<>();
 
     private TabbedAppMenuPropertiesDelegate mTabbedAppMenuPropertiesDelegate;
@@ -181,7 +192,8 @@ public class TabbedAppMenuPropertiesDelegateUnitTest {
     public void setUp() {
         MockitoAnnotations.initMocks(this);
 
-        mOverviewModeSupplier.set(mOverviewModeBehavior);
+        mLayoutStateProviderSupplier.set(mLayoutStateProvider);
+        mIncognitoReauthControllerSupplier.set(mIncognitoReauthControllerMock);
         when(mTab.getWebContents()).thenReturn(mWebContents);
         when(mWebContents.getNavigationController()).thenReturn(mNavigationController);
         when(mNavigationController.getUseDesktopUserAgent()).thenReturn(false);
@@ -201,18 +213,22 @@ public class TabbedAppMenuPropertiesDelegateUnitTest {
         when(mSigninManager.getIdentityManager()).thenReturn(mIdentityManager);
         IdentityServicesProvider.setInstanceForTests(mIdentityService);
         FeatureList.setTestCanUseDefaultsForTesting();
+        PageZoomCoordinator.setShouldShowMenuItemForTesting(false);
 
         PowerBookmarkUtils.setPriceTrackingEligibleForTesting(false);
         PowerBookmarkUtils.setPowerBookmarkMetaForTesting(PowerBookmarkMeta.newBuilder().build());
         mTabbedAppMenuPropertiesDelegate = Mockito.spy(
                 new TabbedAppMenuPropertiesDelegate(ContextUtils.getApplicationContext(),
                         mActivityTabProvider, mMultiWindowModeStateDispatcher, mTabModelSelector,
-                        mToolbarManager, mDecorView, mAppMenuDelegate, mOverviewModeSupplier, null,
-                        mBookmarkBridgeSupplier, mFeedLauncher, mDialogManager, mSnackbarManager));
+                        mToolbarManager, mDecorView, mAppMenuDelegate, mLayoutStateProviderSupplier,
+                        null, mBookmarkModelSupplier, mFeedLauncher, mDialogManager,
+                        mSnackbarManager, mIncognitoReauthControllerSupplier));
         SharedPreferencesManager.getInstance().removeKeysWithPrefix(
                 ChromePreferenceKeys.MULTI_INSTANCE_URL);
         SharedPreferencesManager.getInstance().removeKeysWithPrefix(
                 ChromePreferenceKeys.MULTI_INSTANCE_TAB_COUNT);
+
+        ShoppingServiceFactory.setShoppingServiceForTesting(mShoppingService);
     }
 
     @Test
@@ -229,7 +245,8 @@ public class TabbedAppMenuPropertiesDelegateUnitTest {
                 R.id.divider_line_id, R.id.translate_id, R.id.share_row_menu_id,
                 R.id.find_in_page_id, R.id.add_to_homescreen_id,
                 R.id.request_desktop_site_row_menu_id, R.id.auto_dark_web_contents_row_menu_id,
-                R.id.divider_line_id, R.id.preferences_id, R.id.help_id, R.id.managed_by_menu_id};
+                R.id.divider_line_id, R.id.preferences_id, R.id.help_id,
+                R.id.managed_by_divider_line_id, R.id.managed_by_menu_id};
         assertMenuItemsAreEqual(menu, expectedItems);
     }
 
@@ -420,7 +437,7 @@ public class TabbedAppMenuPropertiesDelegateUnitTest {
 
     private void setUpMocksForPageMenu() {
         when(mActivityTabProvider.get()).thenReturn(mTab);
-        when(mOverviewModeBehavior.overviewVisible()).thenReturn(false);
+        when(mLayoutStateProvider.isLayoutVisible(LayoutType.TAB_SWITCHER)).thenReturn(false);
         doReturn(false)
                 .when(mTabbedAppMenuPropertiesDelegate)
                 .shouldCheckBookmarkStar(any(Tab.class));
@@ -453,6 +470,7 @@ public class TabbedAppMenuPropertiesDelegateUnitTest {
 
     private void setUpIncognitoMocks() {
         doReturn(true).when(mTabbedAppMenuPropertiesDelegate).isIncognitoEnabled();
+        doReturn(false).when(mIncognitoReauthControllerMock).isIncognitoReauthPending();
     }
 
     private Menu createTestMenu() {

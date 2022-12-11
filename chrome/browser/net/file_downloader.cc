@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,6 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/task/post_task.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "content/public/browser/browser_context.h"
@@ -49,14 +47,13 @@ FileDownloader::FileDownloader(
         base::BindOnce(&FileDownloader::OnSimpleDownloadComplete,
                        base::Unretained(this)));
   } else {
-    base::PostTaskAndReplyWithResult(
-        base::ThreadPool::CreateTaskRunner(
-            {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-             base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})
-            .get(),
-        FROM_HERE, base::BindOnce(&base::PathExists, local_path_),
-        base::BindOnce(&FileDownloader::OnFileExistsCheckDone,
-                       weak_ptr_factory_.GetWeakPtr()));
+    base::ThreadPool::CreateTaskRunner(
+        {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+         base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})
+        ->PostTaskAndReplyWithResult(
+            FROM_HERE, base::BindOnce(&base::PathExists, local_path_),
+            base::BindOnce(&FileDownloader::OnFileExistsCheckDone,
+                           weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
@@ -76,14 +73,13 @@ void FileDownloader::OnSimpleDownloadComplete(base::FilePath response_path) {
     return;
   }
 
-  base::PostTaskAndReplyWithResult(
-      base::ThreadPool::CreateTaskRunner(
-          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-           base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})
-          .get(),
-      FROM_HERE, base::BindOnce(&base::Move, response_path, local_path_),
-      base::BindOnce(&FileDownloader::OnFileMoveDone,
-                     weak_ptr_factory_.GetWeakPtr()));
+  base::ThreadPool::CreateTaskRunner(
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})
+      ->PostTaskAndReplyWithResult(
+          FROM_HERE, base::BindOnce(&base::Move, response_path, local_path_),
+          base::BindOnce(&FileDownloader::OnFileMoveDone,
+                         weak_ptr_factory_.GetWeakPtr()));
 }
 
 void FileDownloader::OnFileExistsCheckDone(bool exists) {

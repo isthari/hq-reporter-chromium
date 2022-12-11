@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "ash/app_list/views/apps_grid_view_folder_delegate.h"
 #include "ash/app_list/views/folder_header_view.h"
 #include "ash/app_list/views/folder_header_view_delegate.h"
-#include "ash/app_list/views/paged_apps_grid_view.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "ui/base/metadata/metadata_header_macros.h"
@@ -36,32 +35,25 @@ class AppListViewDelegate;
 class AppsContainerView;
 class AppsGridView;
 class FolderHeaderView;
-class PageSwitcher;
 class ScrollViewGradientHelper;
+class SystemShadow;
 
 // Displays folder contents via an AppsGridView. App items can be dragged out
 // of the folder to the main apps grid.
-class ASH_EXPORT AppListFolderView
-    : public views::View,
-      public FolderHeaderViewDelegate,
-      public AppListModelProvider::Observer,
-      public AppListModelObserver,
-      public views::ViewObserver,
-      public AppsGridViewFolderDelegate,
-      public PagedAppsGridView::ContainerDelegate {
+class ASH_EXPORT AppListFolderView : public views::View,
+                                     public FolderHeaderViewDelegate,
+                                     public AppListModelProvider::Observer,
+                                     public AppListModelObserver,
+                                     public views::ViewObserver,
+                                     public AppsGridViewFolderDelegate {
  public:
   METADATA_HEADER(AppListFolderView);
 
   // The maximum number of columns a folder can have.
   static constexpr int kMaxFolderColumns = 4;
 
-  // When using paged folder item grid, the maximum number of rows a folder
-  // items grid can have.
-  static constexpr int kMaxPagedFolderRows = 4;
-
   AppListFolderView(AppListFolderController* folder_controller,
                     AppsGridView* root_apps_grid_view,
-                    ContentsView* contents_view,
                     AppListA11yAnnouncer* a11y_announcer,
                     AppListViewDelegate* view_delegate);
   AppListFolderView(const AppListFolderView&) = delete;
@@ -85,8 +77,10 @@ class ASH_EXPORT AppListFolderView
 
   // Configures AppListFolderView to show the contents for the folder item
   // associated with `folder_item_view`. The folder view will be anchored at
-  // `folder_item_view`.
-  void ConfigureForFolderItemView(AppListItemView* folder_item_view);
+  // `folder_item_view`. `hide_callback` gets called when the folder gets
+  // hidden (after all hide animations complete).
+  void ConfigureForFolderItemView(AppListItemView* folder_item_view,
+                                  base::OnceClosure hide_callback);
 
   // Schedules an animation to show or hide the view.
   // If |show| is false, the view should be set to invisible after the
@@ -134,6 +128,9 @@ class ASH_EXPORT AppListFolderView
   // Virtual keyboard
   int GetYOffsetForFolder();
 
+  // Recalculates and updates the bounds of the folder `shadow_`  .
+  void UpdateShadowBounds();
+
   // Returns true if this view's child views are in animation for opening or
   // closing the folder.
   bool IsAnimationRunning() const;
@@ -141,6 +138,10 @@ class ASH_EXPORT AppListFolderView
   // Sets the bounding box for the folder view bounds. The bounds are expected
   // to be in the parent view's coordinate system.
   void SetBoundingBox(const gfx::Rect& bounding_box);
+
+  // Updates the highlight border of the folder view according to the folder
+  // animation.
+  void UpdateHighlightBorder(bool show);
 
   // Sets the callback that runs when the folder animation ends.
   void SetAnimationDoneTestCallback(base::OnceClosure animation_done_callback);
@@ -161,6 +162,8 @@ class ASH_EXPORT AppListFolderView
 
   const gfx::Rect& preferred_bounds() const { return preferred_bounds_; }
 
+  SystemShadow* shadow() { return shadow_.get(); }
+
   // Records the smoothness of folder show/hide animations mixed with the
   // BackgroundAnimation, FolderItemTitleAnimation, TopIconAnimation, and
   // ContentsContainerAnimation.
@@ -177,7 +180,8 @@ class ASH_EXPORT AppListFolderView
   void SetItemName(AppListFolderItem* item, const std::string& name) override;
 
   // Overridden from AppsGridViewFolderDelegate:
-  void ReparentItem(AppListItemView* original_drag_view,
+  void ReparentItem(AppsGridView::Pointer pointer,
+                    AppListItemView* original_drag_view,
                     const gfx::Point& drag_point_in_folder_grid) override;
   void DispatchDragEventForReparent(
       AppsGridView::Pointer pointer,
@@ -191,19 +195,12 @@ class ASH_EXPORT AppListFolderView
   void HandleKeyboardReparent(AppListItemView* reparented_view,
                               ui::KeyboardCode key_code) override;
 
-  // PagedAppsGridView::ContainerDelegate:
-  bool IsPointWithinPageFlipBuffer(const gfx::Point& point) const override;
-  bool IsPointWithinBottomDragBuffer(const gfx::Point& point,
-                                     int page_flip_zone_size) const override;
-
   const AppListConfig* GetAppListConfig() const;
 
+  AppListA11yAnnouncer* a11y_announcer_for_test() { return a11y_announcer_; }
   views::ScrollView* scroll_view_for_test() { return scroll_view_; }
 
  private:
-  // Creates an apps grid view with fixed-size pages.
-  void CreatePagedAppsGrid(ContentsView* contents_view);
-
   // Creates a vertically scrollable apps grid view.
   void CreateScrollableAppsGrid();
 
@@ -214,19 +211,6 @@ class ASH_EXPORT AppListFolderView
   // Called from the root apps grid view to cancel reparent drag from the root
   // apps grid.
   void CancelReparentDragFromRootGrid();
-
-  // Calculates whether the folder would fit in the bounding box if it had the
-  // max allowed number of rows, and condenses the margins between grid items if
-  // this is not the case. The goal is to prevent a portion of folder UI from
-  // getting laid out outside the bounding box. Tile size scaling done for the
-  // top level apps grid should ensure the folder UI reasonably fits within the
-  // bounding box with no item margins. At certain screen sizes, this approach
-  // also fails, but at that point the top level apps grid doesn't work too well
-  // either.
-  // No-op if the productivity launcher is enabled, in which case folder grid is
-  // scrollable, and should handle the case where grid bounds overflow bounding
-  // box size gracefully.
-  void ShrinkGridTileMarginsWhenNeeded();
 
   // Resets the folder view state. Called when the folder view gets hidden (and
   // hide animations finish) to disassociate the folder view with the current
@@ -262,18 +246,23 @@ class ASH_EXPORT AppListFolderView
   FolderHeaderView* folder_header_view_;  // Owned by views hierarchy.
   AppsGridView* items_grid_view_;         // Owned by views hierarchy.
 
-  // Only used for non-ProductivityLauncher. Owned by views hierarchy.
-  PageSwitcher* page_switcher_ = nullptr;
-
-  // Only used for ProductivityLauncher. Owned by views hierarchy.
+  // Owned by views hierarchy.
   views::ScrollView* scroll_view_ = nullptr;
 
+  std::unique_ptr<SystemShadow> shadow_;
+
   // Adds fade in/out gradients to `scroll_view_`.
-  // Only used for ProductivityLauncher.
   std::unique_ptr<ScrollViewGradientHelper> gradient_helper_;
 
   AppListViewDelegate* const view_delegate_;
   AppListFolderItem* folder_item_ = nullptr;  // Not owned.
+
+  // Whether the folder view is currently shown, or showing.
+  bool shown_ = false;
+
+  // If set, the callback that will be called when the folder hides (after hide
+  // animations complete).
+  base::OnceClosure hide_callback_;
 
   // The folder item in the root apps grid associated with this folder.
   AppListItemView* folder_item_view_ = nullptr;

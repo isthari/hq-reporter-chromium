@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,17 +15,13 @@
 #include "extensions/common/url_pattern.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-namespace base {
-class DictionaryValue;
-}  // namespace base
-
 namespace extensions {
 namespace declarative_net_request {
 
 struct DictionarySource {
   DictionarySource() = default;
   virtual ~DictionarySource() = default;
-  virtual std::unique_ptr<base::DictionaryValue> ToValue() const = 0;
+  virtual base::Value::Dict ToValue() const = 0;
 };
 
 // Helper structs to simplify building base::Values which can later be used to
@@ -43,6 +39,10 @@ struct TestRuleCondition : public DictionarySource {
   absl::optional<bool> is_url_filter_case_sensitive;
   absl::optional<std::vector<std::string>> domains;
   absl::optional<std::vector<std::string>> excluded_domains;
+  absl::optional<std::vector<std::string>> initiator_domains;
+  absl::optional<std::vector<std::string>> excluded_initiator_domains;
+  absl::optional<std::vector<std::string>> request_domains;
+  absl::optional<std::vector<std::string>> excluded_request_domains;
   absl::optional<std::vector<std::string>> request_methods;
   absl::optional<std::vector<std::string>> excluded_request_methods;
   absl::optional<std::vector<std::string>> resource_types;
@@ -51,7 +51,7 @@ struct TestRuleCondition : public DictionarySource {
   absl::optional<std::vector<int>> excluded_tab_ids;
   absl::optional<std::string> domain_type;
 
-  std::unique_ptr<base::DictionaryValue> ToValue() const override;
+  base::Value::Dict ToValue() const override;
 };
 
 struct TestRuleQueryKeyValue : public DictionarySource {
@@ -64,7 +64,7 @@ struct TestRuleQueryKeyValue : public DictionarySource {
   absl::optional<std::string> value;
   absl::optional<bool> replace_only;
 
-  std::unique_ptr<base::DictionaryValue> ToValue() const override;
+  base::Value::Dict ToValue() const override;
 };
 
 struct TestRuleQueryTransform : public DictionarySource {
@@ -76,7 +76,7 @@ struct TestRuleQueryTransform : public DictionarySource {
   absl::optional<std::vector<std::string>> remove_params;
   absl::optional<std::vector<TestRuleQueryKeyValue>> add_or_replace_params;
 
-  std::unique_ptr<base::DictionaryValue> ToValue() const override;
+  base::Value::Dict ToValue() const override;
 };
 
 struct TestRuleTransform : public DictionarySource {
@@ -95,7 +95,7 @@ struct TestRuleTransform : public DictionarySource {
   absl::optional<std::string> username;
   absl::optional<std::string> password;
 
-  std::unique_ptr<base::DictionaryValue> ToValue() const override;
+  base::Value::Dict ToValue() const override;
 };
 
 struct TestRuleRedirect : public DictionarySource {
@@ -109,7 +109,7 @@ struct TestRuleRedirect : public DictionarySource {
   absl::optional<std::string> url;
   absl::optional<std::string> regex_substitution;
 
-  std::unique_ptr<base::DictionaryValue> ToValue() const override;
+  base::Value::Dict ToValue() const override;
 };
 
 struct TestHeaderInfo : public DictionarySource {
@@ -124,7 +124,7 @@ struct TestHeaderInfo : public DictionarySource {
   absl::optional<std::string> operation;
   absl::optional<std::string> value;
 
-  std::unique_ptr<base::DictionaryValue> ToValue() const override;
+  base::Value::Dict ToValue() const override;
 };
 
 struct TestRuleAction : public DictionarySource {
@@ -138,7 +138,7 @@ struct TestRuleAction : public DictionarySource {
   absl::optional<std::vector<TestHeaderInfo>> response_headers;
   absl::optional<TestRuleRedirect> redirect;
 
-  std::unique_ptr<base::DictionaryValue> ToValue() const override;
+  base::Value::Dict ToValue() const override;
 };
 
 struct TestRule : public DictionarySource {
@@ -152,7 +152,7 @@ struct TestRule : public DictionarySource {
   absl::optional<TestRuleCondition> condition;
   absl::optional<TestRuleAction> action;
 
-  std::unique_ptr<base::DictionaryValue> ToValue() const override;
+  base::Value::Dict ToValue() const override;
 };
 
 // Helper function to build a generic TestRule.
@@ -213,7 +213,7 @@ struct TestRulesetInfo {
 
   // Returns the corresponding value to be specified in the manifest for the
   // ruleset.
-  std::unique_ptr<base::DictionaryValue> GetManifestValue() const;
+  base::Value::Dict GetManifestValue() const;
 };
 
 // Helper to build an extension manifest which uses the
@@ -226,13 +226,11 @@ std::unique_ptr<base::DictionaryValue> CreateManifest(
     unsigned flags = ConfigFlag::kConfig_None,
     const std::string& extension_name = "Test Extension");
 
-// Returns a ListValue corresponding to a vector of strings.
-std::unique_ptr<base::ListValue> ToListValue(
-    const std::vector<std::string>& vec);
+// Returns a Value corresponding to a vector of strings.
+base::Value ToListValue(const std::vector<std::string>& vec);
 
-// Returns a ListValue corresponding to a vector of TestRules.
-std::unique_ptr<base::ListValue> ToListValue(
-    const std::vector<TestRule>& rules);
+// Returns a alue corresponding to a vector of TestRules.
+base::Value ToListValue(const std::vector<TestRule>& rules);
 
 // Writes the rulesets specified in |ruleset_info| in the given |extension_dir|
 // together with the manifest file. |hosts| specifies the host permissions, the

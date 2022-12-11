@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "cc/paint/paint_image.h"
 #include "cc/paint/skottie_color_map.h"
 #include "cc/paint/skottie_frame_data.h"
+#include "cc/paint/skottie_text_property_value.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 
 class SkTextBlob;
@@ -133,11 +134,11 @@ class CC_PAINT_EXPORT PaintCanvas {
   virtual bool getLocalClipBounds(SkRect* bounds) const = 0;
   virtual SkIRect getDeviceClipBounds() const = 0;
   virtual bool getDeviceClipBounds(SkIRect* bounds) const = 0;
-  virtual void drawColor(SkColor color, SkBlendMode mode) = 0;
-  void drawColor(SkColor color) { drawColor(color, SkBlendMode::kSrcOver); }
+  virtual void drawColor(SkColor4f color, SkBlendMode mode) = 0;
+  void drawColor(SkColor4f color) { drawColor(color, SkBlendMode::kSrcOver); }
 
   // TODO(enne): This is a synonym for drawColor with kSrc.  Remove it.
-  virtual void clear(SkColor color) = 0;
+  virtual void clear(SkColor4f color) = 0;
 
   virtual void drawLine(SkScalar x0,
                         SkScalar y0,
@@ -192,7 +193,8 @@ class CC_PAINT_EXPORT PaintCanvas {
                            const SkRect& dst,
                            float t,
                            SkottieFrameDataMap images,
-                           const SkottieColorMap& color_map) = 0;
+                           const SkottieColorMap& color_map,
+                           SkottieTextPropertyValueMap text_map) = 0;
 
   virtual void drawTextBlob(sk_sp<SkTextBlob> blob,
                             SkScalar x,

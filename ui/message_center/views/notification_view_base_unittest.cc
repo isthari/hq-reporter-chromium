@@ -1,12 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/memory/raw_ptr.h"
 #include "ui/message_center/views/notification_view.h"
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -20,6 +20,7 @@
 #include "ui/events/event_processor.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/events/test/test_event.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/message_center/message_center.h"
@@ -38,6 +39,10 @@
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/test/widget_test.h"
 #include "ui/views/widget/widget_utils.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/notifier_catalogs.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace message_center {
 
@@ -150,12 +155,6 @@ class NotificationTestDelegate : public NotificationDelegate {
   bool expecting_reply_submission_ = false;
 };
 
-class DummyEvent : public ui::Event {
- public:
-  DummyEvent() : Event(ui::ET_UNKNOWN, base::TimeTicks(), 0) {}
-  ~DummyEvent() override = default;
-};
-
 }  // namespace
 
 class NotificationViewBaseTest : public views::ViewsTestBase,
@@ -180,11 +179,17 @@ class NotificationViewBaseTest : public views::ViewsTestBase,
     delete_on_preferred_size_changed_ = delete_on_preferred_size_changed;
   }
 
+  void ToggleExpanded() {
+    notification_view_->SetExpanded(!notification_view_->IsExpanded());
+  }
+
  protected:
   const gfx::Image CreateTestImage(int width, int height) const;
   const SkBitmap CreateBitmap(int width, int height) const;
   std::vector<ButtonInfo> CreateButtons(int number);
   std::unique_ptr<Notification> CreateSimpleNotification() const;
+  std::unique_ptr<Notification> CreateSimpleNotificationWithRichData(
+      const RichNotificationData& optional_fields) const;
 
   void UpdateNotificationViews(const Notification& notification);
   float GetNotificationSlideAmount() const;
@@ -208,10 +213,16 @@ std::unique_ptr<Notification>
 NotificationViewBaseTest::CreateSimpleNotification() const {
   RichNotificationData data;
   data.settings_button_handler = SettingsButtonHandler::INLINE;
+  return CreateSimpleNotificationWithRichData(data);
+}
 
+std::unique_ptr<Notification>
+NotificationViewBaseTest::CreateSimpleNotificationWithRichData(
+    const RichNotificationData& data) const {
   std::unique_ptr<Notification> notification = std::make_unique<Notification>(
-      NOTIFICATION_TYPE_BASE_FORMAT, std::string(kDefaultNotificationId),
-      u"title", u"message", CreateTestImage(80, 80), u"display source", GURL(),
+      NOTIFICATION_TYPE_SIMPLE, std::string(kDefaultNotificationId), u"title",
+      u"message", ui::ImageModel::FromImage(CreateTestImage(80, 80)),
+      u"display source", GURL(),
       NotifierId(NotifierType::APPLICATION, "extension_id"), data, delegate_);
   notification->set_small_image(CreateTestImage(16, 16));
   notification->set_image(CreateTestImage(320, 240));
@@ -356,7 +367,7 @@ TEST_F(NotificationViewBaseTest, CreateOrUpdateTest) {
   notification->set_image(gfx::Image());
   notification->set_title(std::u16string());
   notification->set_message(std::u16string());
-  notification->set_icon(gfx::Image());
+  notification->set_icon(ui::ImageModel());
 
   notification_view()->CreateOrUpdateViews(*notification);
 
@@ -381,7 +392,7 @@ TEST_F(NotificationViewBaseTest, UpdateButtonsStateTest) {
   notification->set_buttons(CreateButtons(0));
   notification_view()->CreateOrUpdateViews(*notification);
   // Expand, and add buttons.
-  notification_view()->ToggleExpanded();
+  ToggleExpanded();
   EXPECT_TRUE(notification_view()->expanded_);
   notification->set_buttons(CreateButtons(2));
   notification_view()->CreateOrUpdateViews(*notification);
@@ -425,7 +436,7 @@ TEST_F(NotificationViewBaseTest, UpdateButtonCountTest) {
 
   // Action buttons are hidden by collapsed state.
   if (!notification_view()->expanded_)
-    notification_view()->ToggleExpanded();
+    ToggleExpanded();
   EXPECT_TRUE(notification_view()->actions_row_->GetVisible());
 
   EXPECT_EQ(views::Button::STATE_NORMAL,
@@ -477,7 +488,7 @@ TEST_F(NotificationViewBaseTest, TestActionButtonClick) {
 
   // Action buttons are hidden by collapsed state.
   if (!notification_view()->expanded_)
-    notification_view()->ToggleExpanded();
+    ToggleExpanded();
   EXPECT_TRUE(notification_view()->actions_row_->GetVisible());
 
   // Now construct a mouse click event inside the boundary of the action button.
@@ -492,7 +503,7 @@ TEST_F(NotificationViewBaseTest, TestActionButtonClick) {
 }
 
 // TODO(crbug.com/1232197): Test failing on linux-lacros-tester-rel and ozone.
-#if BUILDFLAG(IS_CHROMEOS_LACROS) || defined(USE_OZONE)
+#if BUILDFLAG(IS_CHROMEOS_LACROS) || BUILDFLAG(IS_OZONE)
 #define MAYBE_TestInlineReply DISABLED_TestInlineReply
 #else
 #define MAYBE_TestInlineReply TestInlineReply
@@ -512,7 +523,7 @@ TEST_F(NotificationViewBaseTest, MAYBE_TestInlineReply) {
 
   // Action buttons are hidden by collapsed state.
   if (!notification_view()->expanded_)
-    notification_view()->ToggleExpanded();
+    ToggleExpanded();
   EXPECT_TRUE(notification_view()->actions_row_->GetVisible());
 
   // Now construct a mouse click event inside the boundary of the action button.
@@ -528,8 +539,8 @@ TEST_F(NotificationViewBaseTest, MAYBE_TestInlineReply) {
 
   // Toggling should hide the inline textfield.
   EXPECT_TRUE(notification_view()->inline_reply_->GetVisible());
-  notification_view()->ToggleExpanded();
-  notification_view()->ToggleExpanded();
+  ToggleExpanded();
+  ToggleExpanded();
   EXPECT_FALSE(notification_view()->inline_reply_->GetVisible());
 
   // Click the button again and the inline textfield should be focused.
@@ -601,7 +612,7 @@ TEST_F(NotificationViewBaseTest, TestInlineReplyRemovedByUpdate) {
 
   // Action buttons are hidden by collapsed state.
   if (!notification_view()->expanded_)
-    notification_view()->ToggleExpanded();
+    ToggleExpanded();
   EXPECT_TRUE(notification_view()->actions_row_->GetVisible());
 
   // Now construct a mouse click event inside the boundary of the action button.
@@ -648,7 +659,7 @@ TEST_F(NotificationViewBaseTest, TestInlineReplyActivateWithKeyPress) {
 
   // Action buttons are hidden by collapsed state.
   if (!notification_view()->expanded_)
-    notification_view()->ToggleExpanded();
+    ToggleExpanded();
 
   ui::test::EventGenerator generator(
       GetRootWindow(notification_view()->GetWidget()));
@@ -664,7 +675,7 @@ TEST_F(NotificationViewBaseTest, TestInlineReplyActivateWithKeyPress) {
 
 // Synthetic scroll events are not supported on Mac in the views
 // test framework.
-#if BUILDFLAG(IS_APPLE)
+#if BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_FUCHSIA)
 #define MAYBE_SlideOut DISABLED_SlideOut
 #else
 #define MAYBE_SlideOut SlideOut
@@ -691,7 +702,7 @@ TEST_F(NotificationViewBaseTest, MAYBE_SlideOut) {
   EXPECT_TRUE(IsRemovedAfterIdle(kDefaultNotificationId));
 }
 
-#if BUILDFLAG(IS_APPLE)
+#if BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_FUCHSIA)
 #define MAYBE_SlideOutNested DISABLED_SlideOutNested
 #else
 #define MAYBE_SlideOutNested SlideOutNested
@@ -717,7 +728,7 @@ TEST_F(NotificationViewBaseTest, MAYBE_SlideOutNested) {
   EXPECT_TRUE(IsRemovedAfterIdle(kDefaultNotificationId));
 }
 
-#if BUILDFLAG(IS_APPLE)
+#if BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_FUCHSIA)
 #define MAYBE_DisableSlideForcibly DISABLED_DisableSlideForcibly
 #else
 #define MAYBE_DisableSlideForcibly DisableSlideForcibly
@@ -811,6 +822,9 @@ TEST_F(NotificationViewBaseTest, FixedViewMode) {
 }
 
 TEST_F(NotificationViewBaseTest, SnoozeButton) {
+  MessageCenter::Get()->RemoveAllNotifications(/*by_user=*/false,
+                                               MessageCenter::RemoveType::ALL);
+
   // Create notification to replace the current one with itself.
   message_center::RichNotificationData rich_data;
   rich_data.settings_button_handler = SettingsButtonHandler::INLINE;
@@ -818,7 +832,7 @@ TEST_F(NotificationViewBaseTest, SnoozeButton) {
   rich_data.should_show_snooze_button = true;
   std::unique_ptr<Notification> notification = std::make_unique<Notification>(
       message_center::NOTIFICATION_TYPE_CUSTOM, kDefaultNotificationId,
-      u"title", u"message", gfx::Image(), u"display source", GURL(),
+      u"title", u"message", ui::ImageModel(), u"display source", GURL(),
       message_center::NotifierId(message_center::NotifierType::ARC_APPLICATION,
                                  "test_app_id"),
       rich_data, nullptr);
@@ -831,29 +845,14 @@ TEST_F(NotificationViewBaseTest, SnoozeButton) {
 
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-TEST_F(NotificationViewBaseTest, ManuallyExpandedOrCollapsed) {
-  // Test |manually_expanded_or_collapsed| being set when the toggle is done by
-  // user interaction.
-  EXPECT_FALSE(notification_view()->IsManuallyExpandedOrCollapsed());
-
-  // Construct a mouse click event inside the header.
-  gfx::Point done_cursor_location =
-      notification_view()->header_row_->GetBoundsInScreen().CenterPoint();
-  ui::test::EventGenerator generator(
-      GetRootWindow(notification_view()->GetWidget()));
-  generator.MoveMouseTo(done_cursor_location);
-  generator.ClickLeftButton();
-
-  EXPECT_TRUE(notification_view()->IsManuallyExpandedOrCollapsed());
-}
-
 TEST_F(NotificationViewBaseTest, UseImageAsIcon) {
   // TODO(tetsui): Remove duplicated integer literal in CreateOrUpdateIconView.
   const int kIconSize = 30;
 
   std::unique_ptr<Notification> notification = CreateSimpleNotification();
   notification->set_type(NotificationType::NOTIFICATION_TYPE_IMAGE);
-  notification->set_icon(CreateTestImage(kIconSize, kIconSize));
+  notification->set_icon(
+      ui::ImageModel::FromImage(CreateTestImage(kIconSize, kIconSize)));
 
   // Test normal notification.
   UpdateNotificationViews(*notification);
@@ -862,22 +861,22 @@ TEST_F(NotificationViewBaseTest, UseImageAsIcon) {
   EXPECT_TRUE(notification_view()->right_content_->GetVisible());
 
   // Icon on the right side is still visible when expanded.
-  notification_view()->ToggleExpanded();
+  ToggleExpanded();
   EXPECT_TRUE(notification_view()->expanded_);
   EXPECT_TRUE(notification_view()->icon_view_->GetVisible());
   EXPECT_TRUE(notification_view()->right_content_->GetVisible());
 
-  notification_view()->ToggleExpanded();
+  ToggleExpanded();
   EXPECT_FALSE(notification_view()->expanded_);
 
   // Test notification with |use_image_for_icon| e.g. screenshot preview.
-  notification->set_icon(gfx::Image());
+  notification->set_icon(ui::ImageModel());
   UpdateNotificationViews(*notification);
   EXPECT_TRUE(notification_view()->icon_view_->GetVisible());
   EXPECT_TRUE(notification_view()->right_content_->GetVisible());
 
   // Icon on the right side is not visible when expanded.
-  notification_view()->ToggleExpanded();
+  ToggleExpanded();
   EXPECT_TRUE(notification_view()->expanded_);
   EXPECT_TRUE(notification_view()->icon_view_->GetVisible());
   EXPECT_FALSE(notification_view()->right_content_->GetVisible());
@@ -885,7 +884,7 @@ TEST_F(NotificationViewBaseTest, UseImageAsIcon) {
 
 TEST_F(NotificationViewBaseTest, NotificationWithoutIcon) {
   std::unique_ptr<Notification> notification = CreateSimpleNotification();
-  notification->set_icon(gfx::Image());
+  notification->set_icon(ui::ImageModel());
   notification->set_image(gfx::Image());
   UpdateNotificationViews(*notification);
 
@@ -894,7 +893,7 @@ TEST_F(NotificationViewBaseTest, NotificationWithoutIcon) {
   EXPECT_FALSE(notification_view()->right_content_->GetVisible());
 
   // Toggling should not affect the icon.
-  notification_view()->ToggleExpanded();
+  ToggleExpanded();
   EXPECT_FALSE(notification_view()->icon_view_);
   EXPECT_FALSE(notification_view()->right_content_->GetVisible());
 }
@@ -904,12 +903,13 @@ TEST_F(NotificationViewBaseTest, UpdateAddingIcon) {
 
   // Create a notification without an icon.
   std::unique_ptr<Notification> notification = CreateSimpleNotification();
-  notification->set_icon(gfx::Image());
+  notification->set_icon(ui::ImageModel());
   notification->set_image(gfx::Image());
   UpdateNotificationViews(*notification);
 
   // Update the notification, adding an icon.
-  notification->set_icon(CreateTestImage(kIconSize, kIconSize));
+  notification->set_icon(
+      ui::ImageModel::FromImage(CreateTestImage(kIconSize, kIconSize)));
   UpdateNotificationViews(*notification);
 
   // Notification should now have an icon.
@@ -989,7 +989,7 @@ TEST_F(NotificationViewBaseTest, TestClick) {
 
   // Collapse the notification if it's expanded.
   if (notification_view()->expanded_)
-    notification_view()->ToggleExpanded();
+    ToggleExpanded();
   EXPECT_FALSE(notification_view()->actions_row_->GetVisible());
 
   // Now construct a mouse click event 2 pixel inside from the bottom.
@@ -1013,7 +1013,7 @@ TEST_F(NotificationViewBaseTest, TestClickExpanded) {
 
   // Expand the notification if it's collapsed.
   if (!notification_view()->expanded_)
-    notification_view()->ToggleExpanded();
+    ToggleExpanded();
   EXPECT_FALSE(notification_view()->actions_row_->GetVisible());
 
   // Now construct a mouse click event 2 pixel inside from the bottom.
@@ -1039,7 +1039,7 @@ TEST_F(NotificationViewBaseTest, TestDeleteOnToggleExpanded) {
   // The view can be deleted by PreferredSizeChanged(). https://crbug.com/918933
   set_delete_on_preferred_size_changed(true);
   views::test::ButtonTestApi(notification_view()->header_row_)
-      .NotifyClick(DummyEvent());
+      .NotifyClick(ui::test::TestEvent());
 }
 
 TEST_F(NotificationViewBaseTest, TestLongTitleAndMessage) {
@@ -1051,7 +1051,7 @@ TEST_F(NotificationViewBaseTest, TestLongTitleAndMessage) {
       u"labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud "
       u"exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.");
   UpdateNotificationViews(*notification);
-  notification_view()->ToggleExpanded();
+  ToggleExpanded();
 
   // Get the height of the message view with a short title.
   const int message_height = notification_view()->message_label_->height();
@@ -1077,14 +1077,23 @@ TEST_F(NotificationViewBaseTest, AppNameExtension) {
 }
 
 TEST_F(NotificationViewBaseTest, AppNameSystemNotification) {
+  MessageCenter::Get()->RemoveAllNotifications(/*by_user=*/false,
+                                               MessageCenter::RemoveType::ALL);
+
   std::u16string app_name = u"system notification";
-  message_center::MessageCenter::Get()->SetSystemNotificationAppName(app_name);
+  MessageCenter::Get()->SetSystemNotificationAppName(app_name);
   RichNotificationData data;
   data.settings_button_handler = SettingsButtonHandler::INLINE;
   auto notification = std::make_unique<Notification>(
-      NOTIFICATION_TYPE_BASE_FORMAT, std::string(kDefaultNotificationId),
-      u"title", u"message", gfx::Image(), std::u16string(), GURL(),
-      NotifierId(NotifierType::SYSTEM_COMPONENT, "system"), data, nullptr);
+      NOTIFICATION_TYPE_SIMPLE, std::string(kDefaultNotificationId), u"title",
+      u"message", ui::ImageModel(), std::u16string(), GURL(),
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      NotifierId(NotifierType::SYSTEM_COMPONENT, "system",
+                 ash::NotificationCatalogName::kTestCatalogName),
+#else
+      NotifierId(NotifierType::SYSTEM_COMPONENT, "system"),
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+      data, nullptr);
 
   UpdateNotificationViews(*notification);
 
@@ -1102,6 +1111,9 @@ TEST_F(NotificationViewBaseTest, AppNameWebNotification) {
 }
 
 TEST_F(NotificationViewBaseTest, AppNameWebAppNotification) {
+  MessageCenter::Get()->RemoveAllNotifications(/*by_user=*/false,
+                                               MessageCenter::RemoveType::ALL);
+
   const GURL web_app_url("http://example.com");
 
   NotifierId notifier_id(web_app_url, /*title=*/u"web app title");
@@ -1114,9 +1126,9 @@ TEST_F(NotificationViewBaseTest, AppNameWebAppNotification) {
   data.settings_button_handler = SettingsButtonHandler::INLINE;
 
   std::unique_ptr<Notification> notification = std::make_unique<Notification>(
-      NOTIFICATION_TYPE_BASE_FORMAT, std::string(kDefaultNotificationId),
-      u"title", u"message", CreateTestImage(80, 80), u"display source", GURL(),
-      notifier_id, data, delegate_);
+      NOTIFICATION_TYPE_SIMPLE, std::string(kDefaultNotificationId), u"title",
+      u"message", ui::ImageModel::FromImage(CreateTestImage(80, 80)),
+      u"display source", GURL(), notifier_id, data, delegate_);
   notification->set_small_image(gfx::Image::CreateFrom1xBitmap(small_bitmap));
   notification->set_image(CreateTestImage(320, 240));
 

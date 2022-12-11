@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,14 @@
 #import "components/sync/driver/sync_service_utils.h"
 #import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/main/test_browser.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/chrome/browser/signin/authentication_service_fake.h"
+#import "ios/chrome/browser/signin/fake_authentication_service_delegate.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
+#import "ios/chrome/browser/signin/trusted_vault_client_backend_factory.h"
 #import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
+#import "ios/chrome/test/providers/signin/fake_trusted_vault_client_backend.h"
 #import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_trusted_vault_service.h"
 #import "ios/web/common/uikit_ui_util.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/gmock/include/gmock/gmock.h"
@@ -36,18 +38,15 @@ class TrustedVaultReauthenticationCoordinatorTest : public PlatformTest {
     base_view_controller_ = [[UIViewController alloc] init];
     base_view_controller_.view.backgroundColor = UIColor.blueColor;
     GetAnyKeyWindow().rootViewController = base_view_controller_;
-
     TestChromeBrowserState::Builder builder;
     builder.AddTestingFactory(
         AuthenticationServiceFactory::GetInstance(),
-        base::BindRepeating(
-            &AuthenticationServiceFake::CreateAuthenticationService));
+        AuthenticationServiceFactory::GetDefaultFactory());
     browser_state_ = builder.Build();
-
-    ChromeIdentity* identity =
-        [FakeChromeIdentity identityWithEmail:@"foo1@gmail.com"
-                                       gaiaID:@"foo1ID"
-                                         name:@"Fake Foo 1"];
+    AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
+        browser_state_.get(),
+        std::make_unique<FakeAuthenticationServiceDelegate>());
+    id<SystemIdentity> identity = [FakeSystemIdentity fakeIdentity1];
     ios::FakeChromeIdentityService* identity_service =
         ios::FakeChromeIdentityService::GetInstanceFromChromeProvider();
     identity_service->AddIdentity(identity);
@@ -98,8 +97,26 @@ TEST_F(TrustedVaultReauthenticationCoordinatorTest, TestCancel) {
       base::test::ios::kWaitForUIElementTimeout, ^bool() {
         return !base_view_controller_.presentedViewController.beingPresented;
       }));
-  ios::FakeChromeTrustedVaultService::GetInstanceFromChromeProvider()
+
+  // The TrustedVaultClientBackend instance is created by the provider API.
+  // The test implementation returns a `FakeTrustedVaultClientBackend`. The
+  // provider API implementation is selected at link time and since it is a
+  // function, if multiple implementation are linked at the same time, the
+  // linker will fail.
+  //
+  // The class `FakeTrustedVaultClientBackend` is defined in the same target
+  // as the test implementation of the trusted_vault API. This means that if
+  // the current executable succeeded at link time, it is guaranteed to use
+  // the test implementation of the trusted_vault API (as the current target
+  // depends on it, and a binary cannot depend on two version of the API).
+  //
+  // This means that it is safe to cast the `TrustedVaultClientBackend` to
+  // `FakeTrustedVaultClientBackend` at runtime.
+  static_cast<FakeTrustedVaultClientBackend*>(
+      TrustedVaultClientBackendFactory::GetForBrowserState(
+          browser_state_.get()))
       ->SimulateUserCancel();
+
   // Test the completion block.
   EXPECT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
       base::test::ios::kWaitForUIElementTimeout, ^bool() {

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,7 +40,8 @@ class CredentialLeakDialogView : public views::DialogDelegateView,
 
   // A weak pointer to the controller.
   CredentialLeakDialogController* controller_ = nullptr;
-  const raw_ptr<content::WebContents> web_contents_ = nullptr;
+  const raw_ptr<content::WebContents, DanglingUntriaged> web_contents_ =
+      nullptr;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_PASSWORDS_CREDENTIAL_LEAK_DIALOG_VIEW_H_

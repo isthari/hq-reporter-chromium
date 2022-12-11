@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/stl_util.h"
-#include "base/task/task_runner_util.h"
 #include "base/threading/scoped_blocking_call.h"
 
 namespace download {
@@ -102,10 +101,10 @@ FileMonitorImpl::FileMonitorImpl(
 FileMonitorImpl::~FileMonitorImpl() = default;
 
 void FileMonitorImpl::Initialize(InitCallback callback) {
-  base::PostTaskAndReplyWithResult(
-      file_thread_task_runner_.get(), FROM_HERE,
+  file_thread_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&InitializeAndCreateDownloadDirectory, download_file_dir_),
-      base::BindOnce(std::move(callback)));
+      std::move(callback));
 }
 
 void FileMonitorImpl::DeleteUnknownFiles(
@@ -156,10 +155,9 @@ void FileMonitorImpl::DeleteFiles(
 }
 
 void FileMonitorImpl::HardRecover(InitCallback callback) {
-  base::PostTaskAndReplyWithResult(
-      file_thread_task_runner_.get(), FROM_HERE,
-      base::BindOnce(&HardRecoverOnFileThread, download_file_dir_),
-      base::BindOnce(std::move(callback)));
+  file_thread_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&HardRecoverOnFileThread, download_file_dir_),
+      std::move(callback));
 }
 
 }  // namespace download

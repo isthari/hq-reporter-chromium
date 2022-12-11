@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,10 +26,10 @@
 #include "base/timer/timer.h"
 #include "chrome/browser/ash/policy/status_collector/app_info_generator.h"
 #include "chrome/browser/ash/policy/status_collector/status_collector.h"
+#include "chromeos/ash/services/cros_healthd/public/cpp/service_connection.h"
+#include "chromeos/ash/services/cros_healthd/public/mojom/cros_healthd.mojom.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager.pb.h"
-#include "chromeos/services/cros_healthd/public/cpp/service_connection.h"
-#include "chromeos/services/cros_healthd/public/mojom/cros_healthd.mojom.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_member.h"
 #include "ui/base/idle/idle.h"
@@ -110,11 +110,11 @@ class DeviceStatusCollector : public StatusCollector,
 
   // Format of the function that asynchronously receives data from cros_healthd.
   using CrosHealthdDataReceiver = base::OnceCallback<void(
-      chromeos::cros_healthd::mojom::TelemetryInfoPtr,
+      ash::cros_healthd::mojom::TelemetryInfoPtr,
       const base::circular_deque<std::unique_ptr<SampledData>>&)>;
   // Gets the data from cros_healthd and passes it to CrosHealthdDataReceiver.
   using CrosHealthdDataFetcher = base::RepeatingCallback<void(
-      std::vector<chromeos::cros_healthd::mojom::ProbeCategoryEnum>,
+      std::vector<ash::cros_healthd::mojom::ProbeCategoryEnum>,
       CrosHealthdDataReceiver)>;
 
   // Asynchronously receives the graphics status.
@@ -212,14 +212,14 @@ class DeviceStatusCollector : public StatusCollector,
   // update.
   void SampleMemoryUsage();
 
-  // power_manager::PowerManagerClient::Observer:
+  // chromeos::PowerManagerClient::Observer:
   void PowerChanged(const power_manager::PowerSupplyProperties& prop) override;
 
  private:
   // Callbacks used during sampling data collection, that allows to pass
   // additional data using partial function application.
   using SamplingProbeResultCallback =
-      base::OnceCallback<void(chromeos::cros_healthd::mojom::TelemetryInfoPtr)>;
+      base::OnceCallback<void(ash::cros_healthd::mojom::TelemetryInfoPtr)>;
   using SamplingCallback = base::OnceCallback<void()>;
 
   // Clears the cached cpu resource usage.
@@ -229,7 +229,7 @@ class DeviceStatusCollector : public StatusCollector,
   void ClearCachedMemoryUsage();
 
   // Callbacks from chromeos::VersionLoader.
-  void OnOSVersion(const std::string& version);
+  void OnOSVersion(const absl::optional<std::string>& version);
   void OnOSFirmware(std::pair<const std::string&, const std::string&> version);
 
   // Callbacks from `chromeos::TpmManagerClient`.
@@ -293,7 +293,7 @@ class DeviceStatusCollector : public StatusCollector,
   // be called once all sampling is finished.
   void SampleProbeData(std::unique_ptr<SampledData> sample,
                        SamplingProbeResultCallback callback,
-                       chromeos::cros_healthd::mojom::TelemetryInfoPtr result);
+                       ash::cros_healthd::mojom::TelemetryInfoPtr result);
 
   // Callback triggered from PowerManagedClient that samples battery discharge
   // rate. |callback| will be called once all sampling is finished.
@@ -314,15 +314,14 @@ class DeviceStatusCollector : public StatusCollector,
   // cros_healthd and passes it to |callback|. The data collected depends on
   // the categories in |categories_to_probe|.
   void FetchCrosHealthdData(
-      std::vector<chromeos::cros_healthd::mojom::ProbeCategoryEnum>
+      std::vector<ash::cros_healthd::mojom::ProbeCategoryEnum>
           categories_to_probe,
       CrosHealthdDataReceiver callback);
 
   // Callback for CrosHealthd that performs final sampling and
   // actually invokes |callback|.
-  void OnProbeDataFetched(
-      CrosHealthdDataReceiver callback,
-      chromeos::cros_healthd::mojom::TelemetryInfoPtr reply);
+  void OnProbeDataFetched(CrosHealthdDataReceiver callback,
+                          ash::cros_healthd::mojom::TelemetryInfoPtr reply);
 
   // Callback invoked when reporting users pref is changed.
   void ReportingUsersChanged();
@@ -373,7 +372,7 @@ class DeviceStatusCollector : public StatusCollector,
   struct MemoryUsage {
     // Amount of free RAM (measures raw memory used by processes, not internal
     // memory waiting to be reclaimed by GC).
-    int64_t bytes_of_ram_free;
+    uint64_t bytes_of_ram_free;
 
     // Sampling timestamp.
     base::Time timestamp;

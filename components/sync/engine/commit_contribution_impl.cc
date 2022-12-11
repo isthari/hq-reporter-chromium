@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/guid.h"
 #include "base/logging.h"
 #include "base/values.h"
+#include "components/sync/base/features.h"
 #include "components/sync/base/time.h"
 #include "components/sync/base/unique_position.h"
 #include "components/sync/engine/commit_and_get_updates_types.h"
@@ -237,12 +238,9 @@ void CommitContributionImpl::PopulateCommitProto(
           commit_proto->set_folder(true);
           break;
       }
-      // position_in_parent field is set only for legacy reasons.  See comments
-      // in sync.proto for more information.
       const UniquePosition unique_position = UniquePosition::FromProto(
           entity_data.specifics.bookmark().unique_position());
       DCHECK(unique_position.IsValid());
-      commit_proto->set_position_in_parent(unique_position.ToInt64());
       *commit_proto->mutable_unique_position() = unique_position.ToProto();
       // parent_id field is set only for legacy clients only, before M99.
       if (!entity_data.legacy_parent_id.empty()) {
@@ -293,6 +291,19 @@ void CommitContributionImpl::AdjustCommitProto(
         password_data,
         encrypted_password.mutable_password()->mutable_encrypted());
     DCHECK(result);
+    if (base::FeatureList::IsEnabled(syncer::kPasswordNotesWithBackup)) {
+      // `encrypted_notes_backup` field needs to be populated regardless of
+      // whether or not there are any notes.
+      result = cryptographer_->Encrypt(password_data.notes(),
+                                       encrypted_password.mutable_password()
+                                           ->mutable_encrypted_notes_backup());
+      DCHECK(result);
+      // When encrypting both blobs succeeds, both encrypted blobs must use the
+      // key name.
+      DCHECK_EQ(
+          encrypted_password.password().encrypted().key_name(),
+          encrypted_password.password().encrypted_notes_backup().key_name());
+    }
     *commit_proto->mutable_specifics() = std::move(encrypted_password);
     commit_proto->set_name("encrypted");
   } else if (cryptographer_) {

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,8 @@
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
+#include "base/trace_event/typed_macros.h"
 #include "build/build_config.h"
 #include "net/base/address_list.h"
 #include "net/base/io_buffer.h"
@@ -43,6 +43,7 @@
 #include "net/socket/socket_posix.h"
 #include "net/socket/socket_tag.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "third_party/perfetto/include/perfetto/tracing/string_helpers.h"
 
 #if BUILDFLAG(IS_ANDROID)
 #include "net/android/network_library.h"
@@ -78,25 +79,30 @@ bool SetTCPKeepAlive(int fd, bool enable, int delay) {
   if (!enable)
     return true;
 
+  // A delay of 0 doesn't work, and is the default, so ignore that and rely on
+  // whatever the OS defaults are once we turned it on above.
+  if (delay) {
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
-  // Setting the keepalive interval varies by platform.
+    // Setting the keepalive interval varies by platform.
 
-  // Set seconds until first TCP keep alive.
-  if (setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &delay, sizeof(delay))) {
-    PLOG(ERROR) << "Failed to set TCP_KEEPIDLE on fd: " << fd;
-    return false;
-  }
-  // Set seconds between TCP keep alives.
-  if (setsockopt(fd, SOL_TCP, TCP_KEEPINTVL, &delay, sizeof(delay))) {
-    PLOG(ERROR) << "Failed to set TCP_KEEPINTVL on fd: " << fd;
-    return false;
-  }
+    // Set seconds until first TCP keep alive.
+    if (setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &delay, sizeof(delay))) {
+      PLOG(ERROR) << "Failed to set TCP_KEEPIDLE on fd: " << fd;
+      return false;
+    }
+    // Set seconds between TCP keep alives.
+    if (setsockopt(fd, SOL_TCP, TCP_KEEPINTVL, &delay, sizeof(delay))) {
+      PLOG(ERROR) << "Failed to set TCP_KEEPINTVL on fd: " << fd;
+      return false;
+    }
 #elif BUILDFLAG(IS_APPLE)
-  if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &delay, sizeof(delay))) {
-    PLOG(ERROR) << "Failed to set TCP_KEEPALIVE on fd: " << fd;
-    return false;
-  }
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &delay, sizeof(delay))) {
+      PLOG(ERROR) << "Failed to set TCP_KEEPALIVE on fd: " << fd;
+      return false;
+    }
 #endif
+  }
+
   return true;
 }
 
@@ -135,6 +141,18 @@ base::TimeDelta GetTransportRtt(SocketDescriptor fd) {
 
 #endif  // defined(TCP_INFO)
 
+#if BUILDFLAG(IS_APPLE) && !BUILDFLAG(CRONET_BUILD)
+// Returns true if `socket` is connected to 0.0.0.0, false otherwise.
+// For detecting slow socket close due to a MacOS bug
+// (https://crbug.com/1194888).
+bool PeerIsZeroIPv4(const TCPSocketPosix& socket) {
+  IPEndPoint peer;
+  if (socket.GetPeerAddress(&peer) != OK)
+    return false;
+  return peer.address().IsIPv4() && peer.address().IsZero();
+}
+#endif  // BUILDFLAG(IS_APPLE) && !BUILDFLAG(CRONET_BUILD)
+
 }  // namespace
 
 //-----------------------------------------------------------------------------
@@ -144,7 +162,6 @@ TCPSocketPosix::TCPSocketPosix(
     NetLog* net_log,
     const NetLogSource& source)
     : socket_performance_watcher_(std::move(socket_performance_watcher)),
-      logging_multiple_connect_attempts_(false),
       net_log_(NetLogWithSource::Make(net_log, NetLogSourceType::SOCKET)) {
   net_log_.BeginEventReferencingSource(NetLogEventType::SOCKET_ALIVE, source);
 }
@@ -165,8 +182,7 @@ int TCPSocketPosix::Open(AddressFamily family) {
   return rv;
 }
 
-int TCPSocketPosix::BindToNetwork(
-    NetworkChangeNotifier::NetworkHandle network) {
+int TCPSocketPosix::BindToNetwork(handles::NetworkHandle network) {
   DCHECK(IsValid());
   DCHECK(!IsConnected());
 #if BUILDFLAG(IS_ANDROID)
@@ -443,12 +459,21 @@ bool TCPSocketPosix::SetNoDelay(bool no_delay) {
 }
 
 void TCPSocketPosix::Close() {
+#if BUILDFLAG(IS_APPLE) && !BUILDFLAG(CRONET_BUILD)
+  // A MacOS bug can cause sockets to 0.0.0.0 to take 1 second to close. Log a
+  // trace event for this case so that it can be correlated with jank in traces.
+  // Use the "base" category since "net" isn't enabled by default. See
+  // https://crbug.com/1194888.
+  TRACE_EVENT("base", PeerIsZeroIPv4(*this)
+                          ? perfetto::StaticString{"CloseSocketTCP.PeerIsZero"}
+                          : perfetto::StaticString{"CloseSocketTCP"});
+#endif  // BUILDFLAG(IS_APPLE) && !BUILDFLAG(CRONET_BUILD)
   socket_.reset();
   tag_ = SocketTag();
 }
 
 bool TCPSocketPosix::IsValid() const {
-  return socket_ != NULL && socket_->socket_fd() != kInvalidSocket;
+  return socket_ != nullptr && socket_->socket_fd() != kInvalidSocket;
 }
 
 void TCPSocketPosix::DetachFromThread() {

@@ -1,23 +1,23 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_PLATFORM_KEYS_EXTENSION_KEY_PERMISSIONS_SERVICE_H_
 #define CHROME_BROWSER_PLATFORM_KEYS_EXTENSION_KEY_PERMISSIONS_SERVICE_H_
 
+#include <stdint.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/values.h"
 #include "chrome/browser/platform_keys/platform_keys.h"
 #include "chromeos/crosapi/mojom/keystore_error.mojom.h"
 #include "chromeos/crosapi/mojom/keystore_service.mojom.h"
-
-namespace base {
-class Value;
-}
 
 namespace extensions {
 class StateStore;
@@ -31,8 +31,7 @@ namespace content {
 class BrowserContext;
 }
 
-namespace chromeos {
-namespace platform_keys {
+namespace chromeos::platform_keys {
 
 // PlatformKeys is a field stored in each extension's state store. It saves
 // signing permissions of keys in the context of a (Profile, Extension) pair.
@@ -106,7 +105,7 @@ class ExtensionKeyPermissionsService {
   // instead.
   ExtensionKeyPermissionsService(const std::string& extension_id,
                                  extensions::StateStore* state_store,
-                                 std::unique_ptr<base::Value> state_store_value,
+                                 base::Value::List state_store_value,
                                  policy::PolicyService* profile_policies,
                                  content::BrowserContext* browser_context);
 
@@ -120,7 +119,7 @@ class ExtensionKeyPermissionsService {
   // used for signing by the extension with id |extension_id_|.
   // |key_locations| must describe locations available to the user the private
   // key is stored on.
-  void CanUseKeyForSigning(const std::string& public_key_spki_der,
+  void CanUseKeyForSigning(const std::vector<uint8_t>& public_key_spki_der,
                            CanUseKeyForSigningCallback callback);
 
   // Must be called when the extension with id |extension_id| used the private
@@ -129,7 +128,7 @@ class ExtensionKeyPermissionsService {
   // Updates the permissions accordingly.  E.g. if this extension generated
   // the key and no other permission was granted then the permission to sign
   // with this key is removed.
-  void SetKeyUsedForSigning(const std::string& public_key_spki_der,
+  void SetKeyUsedForSigning(const std::vector<uint8_t>& public_key_spki_der,
                             SetKeyUsedForSigningCallback callback);
 
   // Registers the private key matching |public_key_spki_der| as being generated
@@ -137,14 +136,14 @@ class ExtensionKeyPermissionsService {
   // |key_locations| must describe locations available to the user the private
   // key is stored on.
   void RegisterKeyForCorporateUsage(
-      const std::string& public_key_spki_der,
+      const std::vector<uint8_t>& public_key_spki_der,
       RegisterKeyForCorporateUsageCallback callback);
 
   // Sets the user granted permission that the extension with id
   // |extension_id| can use the private key matching |public_key_spki_der| for
   // signing. |key_locations| must describe locations available to the user
   // the private key is stored on.
-  void SetUserGrantedPermission(const std::string& public_key_spki_der,
+  void SetUserGrantedPermission(const std::vector<uint8_t>& public_key_spki_der,
                                 SetUserGrantedPermissionCallback callback);
 
   // Returns the list of apps and extensions ids allowed to use corporate usage
@@ -174,7 +173,7 @@ class ExtensionKeyPermissionsService {
     bool sign_unlimited = false;
   };
 
-  void OnGotExtensionValue(std::unique_ptr<base::Value> value);
+  void OnGotExtensionValue(absl::optional<base::Value> value);
 
   // Writes the current |state_store_entries_| to the state store of
   // |extension_id_|.
@@ -182,11 +181,11 @@ class ExtensionKeyPermissionsService {
 
   // Reads a KeyEntry list from |state| and stores them in
   // |state_store_entries_|.
-  void KeyEntriesFromState(const base::Value& state);
+  void KeyEntriesFromState(const base::Value::List& state);
 
   // Converts |state_store_entries_| to a base::Value for storing in the state
   // store.
-  std::unique_ptr<base::Value> KeyEntriesToState();
+  base::Value::List KeyEntriesToState();
 
   // Returns an existing entry for |public_key_spki_der_b64| from
   // |state_store_entries_|. If there is no existing entry, creates, adds and
@@ -196,7 +195,7 @@ class ExtensionKeyPermissionsService {
   KeyEntry* GetStateStoreEntry(const std::string& public_key_spki_der_b64);
 
   // Writes |value| to the state store of the extension.
-  void SetPlatformKeysInStateStore(std::unique_ptr<base::Value> value);
+  void SetPlatformKeysInStateStore(absl::optional<base::Value> value);
 
   bool PolicyAllowsCorporateKeyUsage() const;
 
@@ -206,19 +205,18 @@ class ExtensionKeyPermissionsService {
       crosapi::mojom::GetKeyTagsResultPtr key_tags);
 
   void SetUserGrantedPermissionWithFlag(
-      const std::string& public_key_spki_der,
+      const std::vector<uint8_t>& public_key_spki_der,
       SetUserGrantedPermissionCallback callback,
       bool can_user_grant_permission);
 
   const std::string extension_id_;
-  extensions::StateStore* extensions_state_store_ = nullptr;
+  raw_ptr<extensions::StateStore> extensions_state_store_ = nullptr;
   std::vector<KeyEntry> state_store_entries_;
-  policy::PolicyService* const profile_policies_;
-  crosapi::mojom::KeystoreService* const keystore_service_ = nullptr;
+  const raw_ptr<policy::PolicyService> profile_policies_;
+  const raw_ptr<crosapi::mojom::KeystoreService> keystore_service_ = nullptr;
   base::WeakPtrFactory<ExtensionKeyPermissionsService> weak_factory_{this};
 };
 
-}  // namespace platform_keys
-}  // namespace chromeos
+}  // namespace chromeos::platform_keys
 
 #endif  // CHROME_BROWSER_PLATFORM_KEYS_EXTENSION_KEY_PERMISSIONS_SERVICE_H_

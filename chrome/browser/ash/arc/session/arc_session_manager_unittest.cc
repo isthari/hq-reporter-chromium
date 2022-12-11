@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,21 +16,24 @@
 #include "ash/components/arc/session/arc_session_runner.h"
 #include "ash/components/arc/test/arc_util_test_support.h"
 #include "ash/components/arc/test/fake_arc_session.h"
+#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/notreached.h"
 #include "base/observer_list.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/bind.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_command_line.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/values.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_test.h"
 #include "chrome/browser/ash/arc/arc_optin_uma.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/optin/arc_terms_of_service_oobe_negotiator.h"
@@ -39,33 +42,35 @@
 #include "chrome/browser/ash/arc/session/arc_session_manager_observer.h"
 #include "chrome/browser/ash/arc/test/arc_data_removed_waiter.h"
 #include "chrome/browser/ash/arc/test/test_arc_session_manager.h"
+#include "chrome/browser/ash/login/demo_mode/demo_setup_controller.h"
 #include "chrome/browser/ash/login/ui/fake_login_display_host.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
+#include "chrome/browser/ash/policy/arc/fake_android_management_client.h"
 #include "chrome/browser/ash/policy/handlers/powerwash_requirements_checker.h"
+#include "chrome/browser/ash/settings/device_settings_cache.h"
 #include "chrome/browser/ash/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/prefs/pref_service_syncable_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_test.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
-#include "chrome/browser/ui/webui/chromeos/login/arc_terms_of_service_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/arc_terms_of_service_screen_handler.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/dbus/upstart/upstart_client.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_cryptohome_misc_client.h"
+#include "chromeos/ash/components/login/auth/auth_metrics_recorder.h"
 #include "chromeos/dbus/power/power_manager_client.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
-#include "chromeos/dbus/upstart/upstart_client.h"
-#include "chromeos/dbus/userdataauth/fake_cryptohome_misc_client.h"
 #include "components/account_id/account_id.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/session_manager/core/session_manager.h"
-#include "components/sync/test/model/fake_sync_change_processor.h"
-#include "components/sync/test/model/sync_error_factory_mock.h"
+#include "components/signin/public/identity_manager/identity_test_environment.h"
+#include "components/sync/test/fake_sync_change_processor.h"
+#include "components/sync/test/sync_error_factory_mock.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/scoped_user_manager.h"
@@ -78,6 +83,10 @@
 #include "net/http/http_status_code.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+
+// TODO(b/254819616): Replace base::RunLoop().RunUntilIdle() with
+// task_environment_.RunUntilIdle() or Run() & Quit() to make the tests less
+// fragile.
 
 namespace arc {
 
@@ -158,11 +167,8 @@ class ArcSessionManagerInLoginScreenTest : public testing::Test {
  public:
   ArcSessionManagerInLoginScreenTest()
       : user_manager_enabler_(std::make_unique<ash::FakeChromeUserManager>()) {
-    // Need to initialize DBusThreadManager before ArcSessionManager's
-    // constructor calls DBusThreadManager::Get().
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
-    chromeos::SessionManagerClient::InitializeFakeInMemory();
+    ash::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
+    ash::SessionManagerClient::InitializeFakeInMemory();
 
     ArcSessionManager::SetUiEnabledForTesting(false);
     SetArcBlockedDueToIncompatibleFileSystemForTesting(false);
@@ -182,9 +188,8 @@ class ArcSessionManagerInLoginScreenTest : public testing::Test {
     arc_session_manager_->Shutdown();
     arc_session_manager_.reset();
     arc_service_manager_.reset();
-    chromeos::SessionManagerClient::Shutdown();
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    ash::SessionManagerClient::Shutdown();
+    ash::ConciergeClient::Shutdown();
   }
 
  protected:
@@ -212,7 +217,7 @@ TEST_F(ArcSessionManagerInLoginScreenTest, EmitLoginPromptVisible) {
 
   SetArcAvailableCommandLineForTesting(base::CommandLine::ForCurrentProcess());
 
-  chromeos::SessionManagerClient::Get()->EmitLoginPromptVisible();
+  ash::SessionManagerClient::Get()->EmitLoginPromptVisible();
   ASSERT_TRUE(arc_session());
   EXPECT_FALSE(arc_session()->is_running());
   EXPECT_EQ(ArcSessionManager::State::NOT_INITIALIZED,
@@ -224,7 +229,7 @@ TEST_F(ArcSessionManagerInLoginScreenTest, EmitLoginPromptVisible) {
 TEST_F(ArcSessionManagerInLoginScreenTest, EmitLoginPromptVisible_NoOp) {
   EXPECT_FALSE(arc_session());
 
-  chromeos::SessionManagerClient::Get()->EmitLoginPromptVisible();
+  ash::SessionManagerClient::Get()->EmitLoginPromptVisible();
   EXPECT_FALSE(arc_session());
   EXPECT_EQ(ArcSessionManager::State::NOT_INITIALIZED,
             arc_session_manager()->state());
@@ -239,7 +244,7 @@ TEST_F(ArcSessionManagerInLoginScreenTest, EmitLoginPromptVisibleManualStart) {
   command_line.GetProcessCommandLine()->AppendSwitchASCII("arc-start-mode",
                                                           "manual");
 
-  chromeos::SessionManagerClient::Get()->EmitLoginPromptVisible();
+  ash::SessionManagerClient::Get()->EmitLoginPromptVisible();
   EXPECT_FALSE(arc_session());
   EXPECT_EQ(ArcSessionManager::State::NOT_INITIALIZED,
             arc_session_manager()->state());
@@ -251,7 +256,7 @@ TEST_F(ArcSessionManagerInLoginScreenTest, StopMiniArcIfNecessary) {
 
   SetArcAvailableCommandLineForTesting(base::CommandLine::ForCurrentProcess());
 
-  chromeos::SessionManagerClient::Get()->EmitLoginPromptVisible();
+  ash::SessionManagerClient::Get()->EmitLoginPromptVisible();
   EXPECT_TRUE(arc_session());
 
   arc_session_manager()->StopMiniArcIfNecessary();
@@ -261,24 +266,31 @@ TEST_F(ArcSessionManagerInLoginScreenTest, StopMiniArcIfNecessary) {
 class ArcSessionManagerTestBase : public testing::Test {
  public:
   ArcSessionManagerTestBase()
-      : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP),
-        user_manager_enabler_(std::make_unique<ash::FakeChromeUserManager>()),
-        test_local_state_(std::make_unique<TestingPrefServiceSimple>()) {
-    arc::prefs::RegisterLocalStatePrefs(test_local_state_->registry());
+      : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP,
+                          base::test::TaskEnvironment::TimeSource::MOCK_TIME),
+        user_manager_enabler_(std::make_unique<ash::FakeChromeUserManager>()) {
+    TestingBrowserProcess::GetGlobal()->SetLocalState(&test_local_state_);
+    arc::prefs::RegisterLocalStatePrefs(test_local_state_.registry());
+    ash::DemoSetupController::RegisterLocalStatePrefs(
+        test_local_state_.registry());
+    ash::device_settings_cache::RegisterPrefs(test_local_state_.registry());
+    user_manager::KnownUser::RegisterPrefs(test_local_state_.registry());
+    auth_metrics_recorder_ = ash::AuthMetricsRecorder::CreateForTesting();
   }
 
   ArcSessionManagerTestBase(const ArcSessionManagerTestBase&) = delete;
   ArcSessionManagerTestBase& operator=(const ArcSessionManagerTestBase&) =
       delete;
 
-  ~ArcSessionManagerTestBase() override = default;
+  ~ArcSessionManagerTestBase() override {
+    TestingBrowserProcess::GetGlobal()->SetLocalState(nullptr);
+  }
 
   void SetUp() override {
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
+    ash::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
     chromeos::PowerManagerClient::InitializeFake();
-    chromeos::SessionManagerClient::InitializeFakeInMemory();
-    chromeos::UpstartClient::InitializeFake();
+    ash::SessionManagerClient::InitializeFakeInMemory();
+    ash::UpstartClient::InitializeFake();
 
     SetArcAvailableCommandLineForTesting(
         base::CommandLine::ForCurrentProcess());
@@ -292,7 +304,7 @@ class ArcSessionManagerTestBase : public testing::Test {
 
     EXPECT_TRUE(temp_dir_.CreateUniqueTempDir());
     TestingProfile::Builder profile_builder;
-    profile_builder.SetProfileName("user@gmail.com");
+    profile_builder.SetProfileName("user@example.com");
     profile_builder.SetPath(temp_dir_.GetPath().AppendASCII("TestArcProfile"));
 
     profile_ = profile_builder.Build();
@@ -306,11 +318,10 @@ class ArcSessionManagerTestBase : public testing::Test {
     profile_.reset();
     arc_session_manager_.reset();
     arc_service_manager_.reset();
-    chromeos::UpstartClient::Shutdown();
-    chromeos::SessionManagerClient::Shutdown();
+    ash::UpstartClient::Shutdown();
+    ash::SessionManagerClient::Shutdown();
     chromeos::PowerManagerClient::Shutdown();
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    ash::ConciergeClient::Shutdown();
   }
 
   ash::FakeChromeUserManager* GetFakeUserManager() const {
@@ -319,13 +330,15 @@ class ArcSessionManagerTestBase : public testing::Test {
   }
 
  protected:
+  content::BrowserTaskEnvironment& task_environment() {
+    return task_environment_;
+  }
+
   TestingProfile* profile() { return profile_.get(); }
 
   ArcSessionManager* arc_session_manager() {
     return arc_session_manager_.get();
   }
-
-  PrefService* test_local_state() { return test_local_state_.get(); }
 
   bool WaitForDataRemoved(ArcSessionManager::State expected_state) {
     if (arc_session_manager()->state() !=
@@ -337,25 +350,6 @@ class ArcSessionManagerTestBase : public testing::Test {
       return false;
 
     return true;
-  }
-
-  static std::string GenerateFakeSerialNumber(const std::string& chromeos_user,
-                                              const std::string& salt) {
-    return ArcSessionManager::GenerateFakeSerialNumberForTesting(chromeos_user,
-                                                                 salt);
-  }
-
-  static std::string GetOrCreateSerialNumber(
-      PrefService* local_state,
-      const std::string& chromeos_user,
-      const std::string& arc_salt_on_disk) {
-    return ArcSessionManager::GetOrCreateSerialNumberForTesting(
-        local_state, chromeos_user, arc_salt_on_disk);
-  }
-
-  static bool ReadSaltOnDisk(const base::FilePath& salt_path,
-                             std::string* out_salt) {
-    return ArcSessionManager::ReadSaltOnDiskForTesting(salt_path, out_salt);
   }
 
  private:
@@ -374,7 +368,8 @@ class ArcSessionManagerTestBase : public testing::Test {
   std::unique_ptr<ArcSessionManager> arc_session_manager_;
   user_manager::ScopedUserManager user_manager_enabler_;
   base::ScopedTempDir temp_dir_;
-  std::unique_ptr<TestingPrefServiceSimple> test_local_state_;
+  TestingPrefServiceSimple test_local_state_;
+  std::unique_ptr<ash::AuthMetricsRecorder> auth_metrics_recorder_;
 };
 
 class ArcSessionManagerTest : public ArcSessionManagerTestBase {
@@ -392,8 +387,8 @@ class ArcSessionManagerTest : public ArcSessionManagerTestBase {
     GetFakeUserManager()->AddUser(account_id);
     GetFakeUserManager()->LoginUser(account_id);
 
-    chromeos::CryptohomeMiscClient::InitializeFake();
-    chromeos::FakeCryptohomeMiscClient::Get()->set_requires_powerwash(false);
+    ash::CryptohomeMiscClient::InitializeFake();
+    ash::FakeCryptohomeMiscClient::Get()->set_requires_powerwash(false);
     policy::PowerwashRequirementsChecker::InitializeSynchronouslyForTesting();
 
     ASSERT_EQ(ArcSessionManager::State::NOT_INITIALIZED,
@@ -401,7 +396,7 @@ class ArcSessionManagerTest : public ArcSessionManagerTestBase {
   }
 
   void TearDown() override {
-    chromeos::CryptohomeMiscClient::Shutdown();
+    ash::CryptohomeMiscClient::Shutdown();
     ArcSessionManagerTestBase::TearDown();
   }
 };
@@ -424,7 +419,7 @@ TEST_F(ArcSessionManagerTest, BaseWorkflow) {
   // Enables ARC. First time, ToS negotiation should start.
   arc_session_manager()->RequestEnable();
   base::RunLoop().RunUntilIdle();
-  ASSERT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  ASSERT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
   const base::TimeTicks after_enabled_time = base::TimeTicks::Now();
 
@@ -435,11 +430,7 @@ TEST_F(ArcSessionManagerTest, BaseWorkflow) {
   EXPECT_GE(after_enabled_time, pre_start_time);
   EXPECT_TRUE(arc_session_manager()->start_time().is_null());
 
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  ASSERT_EQ(ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT,
-            arc_session_manager()->state());
-  EXPECT_TRUE(arc_session_manager()->sign_in_start_time().is_null());
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
 
   const base::TimeTicks start_time = arc_session_manager()->start_time();
   EXPECT_FALSE(arc_session_manager()->sign_in_start_time().is_null());
@@ -452,6 +443,79 @@ TEST_F(ArcSessionManagerTest, BaseWorkflow) {
 
   EXPECT_TRUE(arc_session_manager()->pre_start_time().is_null());
   EXPECT_TRUE(arc_session_manager()->start_time().is_null());
+}
+
+TEST_F(ArcSessionManagerTest, SignedInWorkflow) {
+  PrefService* const prefs = profile()->GetPrefs();
+  prefs->SetBoolean(prefs::kArcTermsAccepted, true);
+  prefs->SetBoolean(prefs::kArcSignedIn, true);
+
+  arc_session_manager()->SetProfile(profile());
+  arc_session_manager()->Initialize();
+
+  // By default ARC is not enabled.
+  EXPECT_EQ(ArcSessionManager::State::STOPPED, arc_session_manager()->state());
+
+  // When signed-in, enabling ARC results in the ACTIVE state.
+  arc_session_manager()->RequestEnable();
+  ASSERT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
+}
+
+TEST_F(ArcSessionManagerTest, SignedInWorkflowWithArcOnDemand) {
+  base::HistogramTester histogram_tester;
+
+  // Enable ARC on Demand feature.
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(kArcOnDemandFeature);
+  // ARC on Demand is enabled only for managed users.
+  profile()->GetProfilePolicyConnector()->OverrideIsManagedForTesting(true);
+  // ARC on Demand is enabled only on ARCVM.
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      ash::switches::kEnableArcVm);
+
+  PrefService* const prefs = profile()->GetPrefs();
+  prefs->SetBoolean(prefs::kArcTermsAccepted, true);
+  prefs->SetBoolean(prefs::kArcSignedIn, true);
+  prefs->SetBoolean(prefs::kArcPackagesIsUpToDate, true);
+
+  arc_session_manager()->SetProfile(profile());
+  arc_session_manager()->Initialize();
+
+  // By default ARC is not enabled.
+  EXPECT_EQ(ArcSessionManager::State::STOPPED, arc_session_manager()->state());
+
+  // When signed-in, enabling ARC results in the READY state.
+  arc_session_manager()->RequestEnable();
+  ASSERT_EQ(ArcSessionManager::State::READY, arc_session_manager()->state());
+  histogram_tester.ExpectUniqueSample(
+      "Arc.DelayedActivation.ActivationIsDelayed", true, 1);
+
+  constexpr auto kDelay = base::Minutes(10);
+  task_environment().FastForwardBy(kDelay);
+
+  // ARC starts after calling AllowActivation().
+  arc_session_manager()->AllowActivation();
+  ASSERT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
+  histogram_tester.ExpectUniqueTimeSample("Arc.DelayedActivation.Delay", kDelay,
+                                          1);
+}
+
+TEST_F(ArcSessionManagerTest, SignedInWorkflow_ActivationIsAlreadyAllowed) {
+  PrefService* const prefs = profile()->GetPrefs();
+  prefs->SetBoolean(prefs::kArcTermsAccepted, true);
+  prefs->SetBoolean(prefs::kArcSignedIn, true);
+
+  arc_session_manager()->SetProfile(profile());
+  arc_session_manager()->Initialize();
+
+  // By default ARC is not enabled.
+  EXPECT_EQ(ArcSessionManager::State::STOPPED, arc_session_manager()->state());
+
+  // When signed-in, enabling ARC results in the ACTIVE state if
+  // AllowActivation() is called beforehand.
+  arc_session_manager()->AllowActivation();
+  arc_session_manager()->RequestEnable();
+  ASSERT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
 }
 
 // Tests that tying to enable ARC++ with an incompatible file system fails and
@@ -489,8 +553,7 @@ TEST_F(ArcSessionManagerTest, ArcInitialStartFirstProvisioning) {
 
   EXPECT_FALSE(start_handler.was_called());
 
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
 
   EXPECT_FALSE(start_handler.was_called());
 
@@ -573,7 +636,7 @@ TEST_F(ArcSessionManagerTest, CancelFetchingDisablesArc) {
   arc_session_manager()->Initialize();
   arc_session_manager()->RequestEnable();
   base::RunLoop().RunUntilIdle();
-  ASSERT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  ASSERT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
 
   // Emulate to cancel the ToS UI (e.g. closing the window).
@@ -599,12 +662,9 @@ TEST_F(ArcSessionManagerTest, CloseUIKeepsArcEnabled) {
   arc_session_manager()->Initialize();
   arc_session_manager()->RequestEnable();
   base::RunLoop().RunUntilIdle();
-  ASSERT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  ASSERT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  ASSERT_EQ(ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT,
-            arc_session_manager()->state());
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
   ASSERT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
 
   // When ARC is properly started, closing UI should be no-op.
@@ -629,15 +689,11 @@ TEST_F(ArcSessionManagerTest, Provisioning_Success) {
   arc_session_manager()->SetProfile(profile());
   arc_session_manager()->Initialize();
   arc_session_manager()->RequestEnable();
-  ASSERT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  ASSERT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
 
   // Emulate to accept the terms of service.
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  ASSERT_EQ(ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT,
-            arc_session_manager()->state());
-  EXPECT_TRUE(arc_session_manager()->sign_in_start_time().is_null());
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
   EXPECT_FALSE(arc_session_manager()->sign_in_start_time().is_null());
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
 
@@ -722,6 +778,7 @@ TEST_F(ArcSessionManagerTest, Provisioning_Restart) {
 
   arc_session_manager()->SetProfile(profile());
   arc_session_manager()->Initialize();
+  arc_session_manager()->AllowActivation();
   arc_session_manager()->RequestEnable();
 
   // Second start, no fetching code is expected.
@@ -766,12 +823,9 @@ TEST_F(ArcSessionManagerTest, RemoveDataDir) {
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(
       profile()->GetPrefs()->GetBoolean(prefs::kArcDataRemoveRequested));
-  EXPECT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  EXPECT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  ASSERT_EQ(ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT,
-            arc_session_manager()->state());
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
 
   // Request to remove data and stop session manager.
@@ -795,8 +849,8 @@ TEST_F(ArcSessionManagerTest, RemoveDataDir_Restart) {
   arc_session_manager()->RequestEnable();
   EXPECT_TRUE(
       profile()->GetPrefs()->GetBoolean(prefs::kArcDataRemoveRequested));
-  ASSERT_TRUE(WaitForDataRemoved(
-      ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE));
+  ASSERT_TRUE(
+      WaitForDataRemoved(ArcSessionManager::State::CHECKING_REQUIREMENTS));
   EXPECT_FALSE(
       profile()->GetPrefs()->GetBoolean(prefs::kArcDataRemoveRequested));
 
@@ -819,7 +873,7 @@ TEST_F(ArcSessionManagerTest, RegularToChildTransition) {
   EXPECT_EQ(static_cast<int>(ArcManagementTransition::REGULAR_TO_CHILD),
             profile()->GetPrefs()->GetInteger(prefs::kArcManagementTransition));
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  EXPECT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
 
   arc_session_manager()->Shutdown();
@@ -835,10 +889,9 @@ TEST_F(ArcSessionManagerTest, ClearArcTransitionOnShutdown) {
   arc_session_manager()->Initialize();
   arc_session_manager()->RequestEnable();
   base::RunLoop().RunUntilIdle();
-  ASSERT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  ASSERT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
   arc::mojom::ArcSignInResultPtr result =
       arc::mojom::ArcSignInResult::NewSuccess(
           arc::mojom::ArcSignInSuccess::SUCCESS);
@@ -869,10 +922,9 @@ TEST_F(ArcSessionManagerTest, ClearArcTransitionOnArcDataRemoval) {
   arc_session_manager()->Initialize();
   arc_session_manager()->RequestEnable();
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  EXPECT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
   arc::mojom::ArcSignInResultPtr result =
       arc::mojom::ArcSignInResult::NewSuccess(
           arc::mojom::ArcSignInSuccess::SUCCESS);
@@ -898,8 +950,7 @@ TEST_F(ArcSessionManagerTest, IgnoreSecondErrorReporting) {
   arc_session_manager()->SetProfile(profile());
   arc_session_manager()->Initialize();
   arc_session_manager()->RequestEnable();
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
 
   // Report some failure that does not stop the bridge.
@@ -922,20 +973,19 @@ TEST_F(ArcSessionManagerTest, IgnoreSecondErrorReporting) {
   arc_session_manager()->Shutdown();
 }
 
-// Test case when directly started flag is not set during the ARC boot.
-TEST_F(ArcSessionManagerTest, IsDirectlyStartedFalse) {
+// Test case when skipped ToS flag is not set during the ARC boot.
+TEST_F(ArcSessionManagerTest, SkippedTermsOfServiceNegotiationFalse) {
   arc_session_manager()->SetProfile(profile());
   arc_session_manager()->Initialize();
 
-  // On initial start directy started flag is not set.
-  EXPECT_FALSE(arc_session_manager()->is_directly_started());
+  // On initial start skipped ToS flag is not set.
+  EXPECT_FALSE(arc_session_manager()->skipped_terms_of_service_negotiation());
   arc_session_manager()->RequestEnable();
   base::RunLoop().RunUntilIdle();
-  EXPECT_FALSE(arc_session_manager()->is_directly_started());
-  ASSERT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  EXPECT_FALSE(arc_session_manager()->skipped_terms_of_service_negotiation());
+  ASSERT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
   arc::mojom::ArcSignInResultPtr result =
       arc::mojom::ArcSignInResult::NewSuccess(
           arc::mojom::ArcSignInSuccess::SUCCESS);
@@ -943,60 +993,61 @@ TEST_F(ArcSessionManagerTest, IsDirectlyStartedFalse) {
       ArcProvisioningResult(std::move(result)));
 
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
-  EXPECT_FALSE(arc_session_manager()->is_directly_started());
+  EXPECT_FALSE(arc_session_manager()->skipped_terms_of_service_negotiation());
   arc_session_manager()->Shutdown();
-  EXPECT_FALSE(arc_session_manager()->is_directly_started());
+  EXPECT_FALSE(arc_session_manager()->skipped_terms_of_service_negotiation());
 }
 
-// Test case when directly started flag is set during the ARC boot.
+// Test case when skipped ToS flag is set during the ARC boot.
 // Preconditions are: ToS accepted and ARC was signed in.
-TEST_F(ArcSessionManagerTest, IsDirectlyStartedTrue) {
+TEST_F(ArcSessionManagerTest, SkippedTermsOfServiceNegotiationTrue) {
   PrefService* const prefs = profile()->GetPrefs();
   prefs->SetBoolean(prefs::kArcTermsAccepted, true);
   prefs->SetBoolean(prefs::kArcSignedIn, true);
 
   arc_session_manager()->SetProfile(profile());
   arc_session_manager()->Initialize();
-  EXPECT_FALSE(arc_session_manager()->is_directly_started());
+  EXPECT_FALSE(arc_session_manager()->skipped_terms_of_service_negotiation());
+  arc_session_manager()->AllowActivation();
   arc_session_manager()->RequestEnable();
   base::RunLoop().RunUntilIdle();
-  EXPECT_TRUE(arc_session_manager()->is_directly_started());
+  EXPECT_TRUE(arc_session_manager()->skipped_terms_of_service_negotiation());
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
 
-  // Disabling ARC turns directy started flag off.
+  // Disabling ARC turns skipped ToS flag off.
   arc_session_manager()->RequestDisable();
-  EXPECT_FALSE(arc_session_manager()->is_directly_started());
+  EXPECT_FALSE(arc_session_manager()->skipped_terms_of_service_negotiation());
   arc_session_manager()->Shutdown();
 }
 
-// Test case when directly started flag is preserved during the internal ARC
-// restart.
-TEST_F(ArcSessionManagerTest, IsDirectlyStartedOnInternalRestart) {
+// Test case when skipped ToS flag is preserved during the internal ARC restart.
+TEST_F(ArcSessionManagerTest,
+       SkippedTermsOfServiceNegotiationOnInternalRestart) {
   arc_session_manager()->SetProfile(profile());
   arc_session_manager()->Initialize();
+  arc_session_manager()->AllowActivation();
   arc_session_manager()->RequestEnable();
   base::RunLoop().RunUntilIdle();
-  ASSERT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  ASSERT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
   arc::mojom::ArcSignInResultPtr result =
       arc::mojom::ArcSignInResult::NewSuccess(
           arc::mojom::ArcSignInSuccess::SUCCESS);
   arc_session_manager()->OnProvisioningFinished(
       ArcProvisioningResult(std::move(result)));
 
-  EXPECT_FALSE(arc_session_manager()->is_directly_started());
+  EXPECT_FALSE(arc_session_manager()->skipped_terms_of_service_negotiation());
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
-  EXPECT_FALSE(arc_session_manager()->is_directly_started());
+  EXPECT_FALSE(arc_session_manager()->skipped_terms_of_service_negotiation());
 
   // Simualate internal restart.
   arc_session_manager()->StopAndEnableArc();
   // Fake ARC session implementation synchronously calls stop callback and
   // session manager should be reactivated at this moment.
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
-  // directy started flag should be preserved.
-  EXPECT_FALSE(arc_session_manager()->is_directly_started());
+  // Skipped ToS flag should be preserved.
+  EXPECT_FALSE(arc_session_manager()->skipped_terms_of_service_negotiation());
   arc_session_manager()->Shutdown();
 }
 
@@ -1023,12 +1074,9 @@ TEST_F(ArcSessionManagerTest, DataCleanUpOnFirstStart) {
   profile()->GetPrefs()->SetBoolean(prefs::kArcEnabled, true);
 
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  EXPECT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  EXPECT_EQ(ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT,
-            arc_session_manager()->state());
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
 
   arc_session_manager()->Shutdown();
@@ -1067,7 +1115,7 @@ TEST_F(ArcSessionManagerTest, RequestDisableDoesNotRemoveData) {
   arc_session_manager()->Initialize();
   arc_session_manager()->RequestEnable();
   base::RunLoop().RunUntilIdle();
-  ASSERT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  ASSERT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
 
   // Disable ARC.
@@ -1087,7 +1135,7 @@ TEST_F(ArcSessionManagerTest, RequestDisableWithArcDataRemoval) {
   arc_session_manager()->Initialize();
   arc_session_manager()->RequestEnable();
   base::RunLoop().RunUntilIdle();
-  ASSERT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  ASSERT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
 
   // Disable ARC and remove ARC data.
@@ -1319,8 +1367,6 @@ class ArcSessionManagerPolicyTest
     // Mocks OOBE environment so that IsArcOobeOptInActive() returns true.
     if (is_oobe_optin()) {
       CreateLoginDisplayHost();
-      TestingBrowserProcess::GetGlobal()->SetLocalState(&pref_service_);
-      user_manager::KnownUser::RegisterPrefs(pref_service_.registry());
     }
   }
 
@@ -1370,7 +1416,6 @@ class ArcSessionManagerPolicyTest
   }
 
   std::unique_ptr<ash::FakeLoginDisplayHost> fake_login_display_host_;
-  TestingPrefServiceSimple pref_service_;
 };
 
 TEST_P(ArcSessionManagerPolicyTest, SkippingTerms) {
@@ -1421,17 +1466,13 @@ TEST_P(ArcSessionManagerPolicyTest, SkippingTerms) {
   const bool expected_terms_skipping =
       arc_enabled_pref_managed() && ((backup_managed && location_managed) ||
                                      prefs_unused || !is_arc_oobe_optin);
-  EXPECT_EQ(expected_terms_skipping
-                ? ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT
-                : ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  EXPECT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
   EXPECT_EQ(IsArcOobeOptInActive(), is_arc_oobe_optin);
 
   // Complete provisioning if it's not done yet.
-  if (!expected_terms_skipping)
-    arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
 
-  arc_session_manager()->StartArcForTesting();
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
   arc::mojom::ArcSignInResultPtr result =
       arc::mojom::ArcSignInResult::NewSuccess(
@@ -1568,10 +1609,20 @@ TEST_F(ArcSessionManagerPublicSessionTest, AuthFailure) {
 
 class ArcSessionOobeOptInNegotiatorTest
     : public ArcSessionManagerTest,
-      public chromeos::ArcTermsOfServiceScreenView,
+      public ash::ArcTermsOfServiceScreenView,
       public testing::WithParamInterface<bool> {
  public:
-  ArcSessionOobeOptInNegotiatorTest() = default;
+  ArcSessionOobeOptInNegotiatorTest() {
+    // This test only works with the ARC ToS screen, which would be replaced
+    // by the Consolidated Consent screen when the feature
+    // OobeConsolidatedConsent is enabled. Make sure that the
+    // OobeConsolidatedConsent feature is disabled before running these tests.
+    // TODO(crbug,com/1297250): Implement similar tests to test the interaction
+    // between the ArcSessionOobeOptInNegotiatorTest and the Consolidated
+    // Consent screen.
+    feature_list_.InitAndDisableFeature(
+        ash::features::kOobeConsolidatedConsent);
+  }
 
   ArcSessionOobeOptInNegotiatorTest(const ArcSessionOobeOptInNegotiatorTest&) =
       delete;
@@ -1599,9 +1650,6 @@ class ArcSessionOobeOptInNegotiatorTest
 
     arc_session_manager()->SetProfile(profile());
     arc_session_manager()->Initialize();
-
-    TestingBrowserProcess::GetGlobal()->SetLocalState(&pref_service_);
-    user_manager::KnownUser::RegisterPrefs(pref_service_.registry());
 
     if (IsArcPlayStoreEnabledForProfile(profile()))
       arc_session_manager()->RequestEnable();
@@ -1646,17 +1694,17 @@ class ArcSessionOobeOptInNegotiatorTest
 
   void CloseLoginDisplayHost() { fake_login_display_host_.reset(); }
 
-  chromeos::ArcTermsOfServiceScreenView* view() { return this; }
+  ash::ArcTermsOfServiceScreenView* view() { return this; }
 
  private:
   // ArcTermsOfServiceScreenView:
   void AddObserver(
-      chromeos::ArcTermsOfServiceScreenViewObserver* observer) override {
+      ash::ArcTermsOfServiceScreenViewObserver* observer) override {
     observer_list_.AddObserver(observer);
   }
 
   void RemoveObserver(
-      chromeos::ArcTermsOfServiceScreenViewObserver* observer) override {
+      ash::ArcTermsOfServiceScreenViewObserver* observer) override {
     observer_list_.RemoveObserver(observer);
   }
 
@@ -1669,12 +1717,10 @@ class ArcSessionOobeOptInNegotiatorTest
 
   void Hide() override {}
 
-  void Bind(ash::ArcTermsOfServiceScreen* screen) override {}
-
-  base::ObserverList<chromeos::ArcTermsOfServiceScreenViewObserver>::Unchecked
+  base::ObserverList<ash::ArcTermsOfServiceScreenViewObserver>::Unchecked
       observer_list_;
   std::unique_ptr<ash::FakeLoginDisplayHost> fake_login_display_host_;
-  TestingPrefServiceSimple pref_service_;
+  base::test::ScopedFeatureList feature_list_;
 };
 
 INSTANTIATE_TEST_SUITE_P(All,
@@ -1683,23 +1729,23 @@ INSTANTIATE_TEST_SUITE_P(All,
 
 TEST_P(ArcSessionOobeOptInNegotiatorTest, OobeTermsAccepted) {
   view()->Show();
-  EXPECT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  EXPECT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
   ReportAccepted();
-  EXPECT_EQ(ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT,
+  EXPECT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
 }
 
 TEST_P(ArcSessionOobeOptInNegotiatorTest, OobeTermsViewDestroyed) {
   view()->Show();
-  EXPECT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+  EXPECT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
   CloseLoginDisplayHost();
   ReportViewDestroyed();
   if (!IsManagedUser()) {
     // ArcPlayStoreEnabledPreferenceHandler is not running, so the state should
     // be kept as is.
-    EXPECT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
+    EXPECT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
               arc_session_manager()->state());
     EXPECT_FALSE(IsArcPlayStoreEnabledForProfile(profile()));
   } else {
@@ -1833,16 +1879,9 @@ TEST_P(ArcSessionRetryTest, ContainerRestarted) {
   arc_session_manager()->Initialize();
   arc_session_manager()->RequestEnable();
 
-  if (GetParam().negotiation ==
-      ArcSessionRetryTestParam::Negotiation::REQUIRED) {
-    EXPECT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
-              arc_session_manager()->state());
-    arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  }
-
-  EXPECT_EQ(ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT,
+  EXPECT_EQ(ArcSessionManager::State::CHECKING_REQUIREMENTS,
             arc_session_manager()->state());
-  arc_session_manager()->StartArcForTesting();
+  arc_session_manager()->EmulateRequirementCheckCompletionForTesting();
   EXPECT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
 
   ArcProvisioningResult result1 = CreateProvisioningResult(GetParam().error);
@@ -1865,9 +1904,9 @@ TEST_P(ArcSessionRetryTest, ContainerRestarted) {
   arc_session_manager()->OnRetryClicked();
 
   if (GetParam().data_removed) {
-    // Check state goes from REMOVING_DATA_DIR to CHECKING_ANDROID_MANAGEMENT
-    EXPECT_TRUE(WaitForDataRemoved(
-        ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT));
+    // Check state goes from REMOVING_DATA_DIR to CHECKING_REQUIREMENTS
+    EXPECT_TRUE(
+        WaitForDataRemoved(ArcSessionManager::State::CHECKING_REQUIREMENTS));
   }
 
   arc_session_manager()->StartArcForTesting();
@@ -1919,260 +1958,14 @@ TEST_F(ArcSessionManagerTest, FileExpansion_Fail) {
   EXPECT_FALSE(observer.property_files_expansion_result().value());
 }
 
-TEST_F(ArcSessionManagerTest, GenerateFakeSerialNumber) {
-  // Check that the function always returns 20-character string.
-  EXPECT_EQ(20U,
-            GenerateFakeSerialNumber("mytestaccount@gmail.com", "001122aabbcc")
-                .size());
-  EXPECT_EQ(20U, GenerateFakeSerialNumber("", "").size());
-  EXPECT_EQ(20U, GenerateFakeSerialNumber("a", "b").size());
-
-  // Check that the function always returns the same ID for the same
-  // account and hwid_raw.
-  const std::string id_1 =
-      GenerateFakeSerialNumber("mytestaccount@gmail.com", "001122aabbcc");
-  const std::string id_2 =
-      GenerateFakeSerialNumber("mytestaccount@gmail.com", "001122aabbcc");
-  EXPECT_EQ(id_1, id_2);
-
-  // Generate an ID for a different account but for the same machine.
-  // Check that the ID is not the same as |id_1|.
-  const std::string id_3 =
-      GenerateFakeSerialNumber("mytestaccount2@gmail.com", "001122aabbcc");
-  EXPECT_NE(id_1, id_3);
-
-  // Generate an ID for a different machine but for the same account.
-  // Check that the ID is not the same as |id_1|.
-  const std::string id_4 =
-      GenerateFakeSerialNumber("mytestaccount@gmail.com", "001122aaddcc");
-  EXPECT_NE(id_1, id_4);
-
-  // Check that the function treats '\0' in |salt| properly.
-  using std::literals::string_literals::operator""s;
-  const std::string id_5 =
-      GenerateFakeSerialNumber("mytestaccount@gmail.com", "a\0b"s);
-  const std::string id_6 =
-      GenerateFakeSerialNumber("mytestaccount@gmail.com", "a\0c"s);
-  EXPECT_NE(id_5, id_6);
-}
-
-TEST_F(ArcSessionManagerTest, GetOrCreateSerialNumber) {
-  constexpr size_t kSerialNumberLen = 20;
-  constexpr size_t kHexSaltLen = 32;
-
-  const std::string chromeos_user = "user@gmail.com";
-  const std::string chromeos_user2 = "user2@gmail.com";
-  ASSERT_TRUE(
-      test_local_state()->GetString(prefs::kArcSerialNumberSalt).empty());
-
-  // Check that when neither the pref nor the salt file exists, a random salt
-  // is stored in the local state, and a serial number based on the salt is
-  // returned.
-  const std::string serialno_1 =
-      GetOrCreateSerialNumber(test_local_state(), chromeos_user, std::string());
-  EXPECT_FALSE(serialno_1.empty());
-  EXPECT_EQ(kSerialNumberLen, serialno_1.size());
-
-  const std::string salt_1 =
-      test_local_state()->GetString(prefs::kArcSerialNumberSalt);
-  EXPECT_FALSE(salt_1.empty());
-  EXPECT_EQ(kHexSaltLen, salt_1.size());
-
-  // Calling the function again returns the same serial/salt.
-  EXPECT_EQ(serialno_1, GetOrCreateSerialNumber(test_local_state(),
-                                                chromeos_user, std::string()));
-  EXPECT_EQ(salt_1, test_local_state()->GetString(prefs::kArcSerialNumberSalt));
-
-  // A different user gets a different serial number, but the salt stays the
-  // same.
-  const std::string serialno_2 = GetOrCreateSerialNumber(
-      test_local_state(), chromeos_user2, std::string());
-  EXPECT_FALSE(serialno_2.empty());
-  EXPECT_EQ(kSerialNumberLen, serialno_2.size());
-  EXPECT_NE(serialno_1, serialno_2);
-  EXPECT_EQ(salt_1, test_local_state()->GetString(prefs::kArcSerialNumberSalt));
-
-  // Delete the salt in local state (which is what Chrome OS PowerWash does.)
-  test_local_state()->ClearPref(prefs::kArcSerialNumberSalt);
-  ASSERT_TRUE(
-      test_local_state()->GetString(prefs::kArcSerialNumberSalt).empty());
-
-  // Generate the salt and serial for |chromeos_user| again. Verify both are
-  // different than the previous ones.
-  const std::string serialno_3 =
-      GetOrCreateSerialNumber(test_local_state(), chromeos_user, std::string());
-  EXPECT_FALSE(serialno_3.empty());
-  EXPECT_EQ(kSerialNumberLen, serialno_3.size());
-  EXPECT_NE(serialno_1, serialno_3);
-
-  const std::string salt_2 =
-      test_local_state()->GetString(prefs::kArcSerialNumberSalt);
-  EXPECT_FALSE(salt_2.empty());
-  EXPECT_EQ(kHexSaltLen, salt_2.size());
-  EXPECT_NE(salt_1, salt_2);
-
-  // Delete the salt in local state again.
-  test_local_state()->ClearPref(prefs::kArcSerialNumberSalt);
-  ASSERT_TRUE(
-      test_local_state()->GetString(prefs::kArcSerialNumberSalt).empty());
-
-  // Pass |salt_on_disk| and verify hex-encoded version of the salt is stored
-  // in local state.
-  using std::literals::string_literals::operator""s;
-  const std::string salt_on_disk = "BAADDECAFC0\0FFEE"s;
-  const std::string salt_on_disk_hex =
-      base::HexEncode(salt_on_disk.data(), salt_on_disk.size());
-  const std::string serialno_4 =
-      GetOrCreateSerialNumber(test_local_state(), chromeos_user, salt_on_disk);
-  EXPECT_FALSE(serialno_4.empty());
-  EXPECT_EQ(kSerialNumberLen, serialno_4.size());
-  EXPECT_NE(serialno_1, serialno_4);
-
-  const std::string salt_3 =
-      test_local_state()->GetString(prefs::kArcSerialNumberSalt);
-  EXPECT_EQ(salt_on_disk_hex, salt_3);
-
-  // A different user gets a different serial number, but the salt stays the
-  // same. This time, pass a different salt on disk to verify it's ignored
-  // when a salt already exists in local state.
-  const std::string serialno_5 = GetOrCreateSerialNumber(
-      test_local_state(), chromeos_user2,
-      // Reverse |salt_on_disk| and pass it.
-      std::string(salt_on_disk.rbegin(), salt_on_disk.rend()));
-  EXPECT_FALSE(serialno_5.empty());
-  EXPECT_EQ(kSerialNumberLen, serialno_5.size());
-  EXPECT_NE(serialno_4, serialno_5);
-  // Local state still has the non-reversed one.
-  EXPECT_EQ(salt_on_disk_hex,
-            test_local_state()->GetString(prefs::kArcSerialNumberSalt));
-}
-
-// That shouldn't happen, but verify that the function can recover the state
-// even if local state has an invalid hex salt.
-TEST_F(ArcSessionManagerTest, GetOrCreateSerialNumber_InvalidLocalState) {
-  constexpr size_t kSaltLen = 16;
-  const std::string chromeos_user = "user@gmail.com";
-
-  // Manually set an invalid hex salt in local state, then call
-  // GetOrCreateSerialNumber. Verify the local state is overwritten by a valid
-  // one.
-  const std::string invalid_hex_salt_1 = "THIS_IS_NOT_A_HEX_STRING";
-  test_local_state()->SetString(prefs::kArcSerialNumberSalt,
-                                invalid_hex_salt_1);
-  EXPECT_FALSE(
-      GetOrCreateSerialNumber(test_local_state(), chromeos_user, std::string())
-          .empty());
-  std::string salt = test_local_state()->GetString(prefs::kArcSerialNumberSalt);
-  EXPECT_FALSE(salt.empty());
-  EXPECT_NE(invalid_hex_salt_1, salt);
-
-  // Do the same with a too short hex salt.
-  const std::string buf(kSaltLen + 1, 'x');
-  const std::string invalid_hex_salt_2 =
-      base::HexEncode(buf.data(), kSaltLen - 1);  // too short
-  test_local_state()->SetString(prefs::kArcSerialNumberSalt,
-                                invalid_hex_salt_2);
-  EXPECT_FALSE(
-      GetOrCreateSerialNumber(test_local_state(), chromeos_user, std::string())
-          .empty());
-  salt = test_local_state()->GetString(prefs::kArcSerialNumberSalt);
-  EXPECT_FALSE(salt.empty());
-  EXPECT_NE(invalid_hex_salt_2, salt);
-
-  // Do the same with a too long one.
-  const std::string invalid_hex_salt_3 =
-      base::HexEncode(buf.data(), kSaltLen + 1);  // too long
-  test_local_state()->SetString(prefs::kArcSerialNumberSalt,
-                                invalid_hex_salt_3);
-  EXPECT_FALSE(
-      GetOrCreateSerialNumber(test_local_state(), chromeos_user, std::string())
-          .empty());
-  salt = test_local_state()->GetString(prefs::kArcSerialNumberSalt);
-  EXPECT_FALSE(salt.empty());
-  EXPECT_NE(invalid_hex_salt_3, salt);
-
-  // Test the valid case too.
-  const std::string valid_hex_salt = base::HexEncode(buf.data(), kSaltLen);
-  test_local_state()->SetString(prefs::kArcSerialNumberSalt, valid_hex_salt);
-  EXPECT_FALSE(
-      GetOrCreateSerialNumber(test_local_state(), chromeos_user, std::string())
-          .empty());
-  salt = test_local_state()->GetString(prefs::kArcSerialNumberSalt);
-  EXPECT_FALSE(salt.empty());
-  EXPECT_EQ(valid_hex_salt, salt);
-}
-
-// Verify that GetOrCreateSerialNumber uses decoded salt when computing the
-// serial number.
-TEST_F(ArcSessionManagerTest, GetOrCreateSerialNumber_SerialNumberComputation) {
-  constexpr size_t kSaltLen = 16;
-  const std::string chromeos_user = "user@gmail.com";
-
-  // Set the |hex_salt| in local state.
-  const std::string hex_salt =
-      base::HexEncode(std::string(kSaltLen, 'x').data(), kSaltLen);
-  test_local_state()->SetString(prefs::kArcSerialNumberSalt, hex_salt);
-
-  // Get a serial number based on the hex salt.
-  const std::string serial_number =
-      GetOrCreateSerialNumber(test_local_state(), chromeos_user, std::string());
-  EXPECT_FALSE(serial_number.empty());
-
-  // Directly compute the serial number with the *hex* salt (which
-  // GetOrCreateSerialNumber is NOT supposed to do). Verify the returned
-  // serial number is NOT the same as the one from GetOrCreateSerialNumber.
-  EXPECT_NE(GenerateFakeSerialNumber(chromeos_user, hex_salt), serial_number);
-}
-
-// Tests that ReadSaltOnDisk can read a non-ASCII salt.
-TEST_F(ArcSessionManagerTest, ReadSaltOnDisk) {
-  constexpr int kSaltLen = 16;
-
-  std::string salt;
-  // Verify the function returns true when the file doesn't exist.
-  EXPECT_TRUE(ReadSaltOnDisk(base::FilePath("/nonexistent/path"), &salt));
-
-  // Create a valid arc_salt file.
-  using std::literals::string_literals::operator""s;
-  const std::string expected_salt_value = "BAADDECAFC0\0FFEE"s;
-  base::ScopedTempDir temp_dir;
-  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-  base::FilePath arc_salt_path = temp_dir.GetPath().Append("arc_salt");
-  ASSERT_EQ(kSaltLen, base::WriteFile(arc_salt_path, expected_salt_value.data(),
-                                      expected_salt_value.size()));
-
-  // Verify the function can read the salt file even when the file contains
-  // non-ASCII characters like '\0'.
-  EXPECT_TRUE(ReadSaltOnDisk(arc_salt_path, &salt));
-  EXPECT_EQ(expected_salt_value, salt);
-
-  // Change the mode to drop the r bit. Verify the function returns false
-  // when the file exists, but not readable.
-  ASSERT_TRUE(base::SetPosixFilePermissions(arc_salt_path, 0300));
-  EXPECT_FALSE(ReadSaltOnDisk(arc_salt_path, &salt));
-
-  // Create a different salt file that has corrupted data. Verify the function
-  // returns true but an empty |salt|.
-  arc_salt_path = temp_dir.GetPath().Append("arc_salt2");
-  ASSERT_TRUE(base::WriteFile(arc_salt_path,
-                              std::string(kSaltLen - 1, 'x')));  // too short
-  EXPECT_TRUE(ReadSaltOnDisk(arc_salt_path, &salt));
-  EXPECT_TRUE(salt.empty());
-
-  arc_salt_path = temp_dir.GetPath().Append("arc_salt3");
-  ASSERT_TRUE(base::WriteFile(arc_salt_path,
-                              std::string(kSaltLen + 1, 'x')));  // too long
-  EXPECT_TRUE(ReadSaltOnDisk(arc_salt_path, &salt));
-  EXPECT_TRUE(salt.empty());
-}
-
 // Tests that TrimVmMemory doesn't crash.
 TEST_F(ArcSessionManagerTest, TrimVmMemory) {
   bool callback_called = false;
   arc_session_manager()->TrimVmMemory(
       base::BindLambdaForTesting([&callback_called](bool, const std::string&) {
         callback_called = true;
-      }));
+      }),
+      0);
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(callback_called);
 }
@@ -2188,11 +1981,11 @@ class ArcSessionManagerPowerwashTest : public ArcSessionManagerTestBase {
 
   void SetUp() override {
     ArcSessionManagerTestBase::SetUp();
-    chromeos::CryptohomeMiscClient::InitializeFake();
+    ash::CryptohomeMiscClient::InitializeFake();
   }
 
   void TearDown() override {
-    chromeos::CryptohomeMiscClient::Shutdown();
+    ash::CryptohomeMiscClient::Shutdown();
     ArcSessionManagerTestBase::TearDown();
   }
 };
@@ -2222,7 +2015,7 @@ TEST_F(ArcSessionManagerPowerwashTest, PowerwashRequestBlocksArcStart) {
       enterprise_management::DeviceRebootOnUserSignoutProto::ALWAYS);
 
   // Initialize cryptohome to require powerwash.
-  chromeos::FakeCryptohomeMiscClient::Get()->set_requires_powerwash(true);
+  ash::FakeCryptohomeMiscClient::Get()->set_requires_powerwash(true);
   policy::PowerwashRequirementsChecker::InitializeSynchronouslyForTesting();
 
   arc_session_manager()->SetProfile(profile());
@@ -2246,6 +2039,31 @@ class ArcTransitionToManagedTest
   ArcTransitionToManagedTest& operator=(const ArcTransitionToManagedTest&) =
       delete;
 
+  void SetUp() override {
+    ArcSessionManagerTest::SetUp();
+    ArcSessionManager::SetUiEnabledForTesting(true);
+
+    const std::string profile_name = profile()->GetProfileUserName();
+    identity_test_environment_.MakeAccountAvailable(profile_name);
+    signin::IdentityManager* identity_manager =
+        identity_test_environment_.identity_manager();
+    CoreAccountId account_id = identity_manager->PickAccountIdForAccount(
+        signin::GetTestGaiaIdForEmail(profile_name), profile_name);
+
+    // Inject a fake AndroidManagementClient to return MANAGED as the result.
+    arc_session_manager()->SetAndroidManagementCheckerFactoryForTesting(
+        base::BindLambdaForTesting([=](Profile* profile, bool retry_on_error) {
+          auto fake_client =
+              std::make_unique<policy::FakeAndroidManagementClient>();
+          fake_client->SetResult(
+              policy::AndroidManagementClient::Result::MANAGED);
+
+          return std::make_unique<ArcAndroidManagementChecker>(
+              profile, identity_manager, account_id, retry_on_error,
+              std::move(fake_client));
+        }));
+  }
+
   bool transition_feature_enabled() const { return std::get<0>(GetParam()); }
 
   bool user_become_managed() const { return std::get<1>(GetParam()); }
@@ -2253,36 +2071,32 @@ class ArcTransitionToManagedTest
   bool ShouldArcTransitionToManaged() const {
     return transition_feature_enabled() && user_become_managed();
   }
+
+ protected:
+  signin::IdentityTestEnvironment identity_test_environment_;
 };
 
 TEST_P(ArcTransitionToManagedTest, TransitionFlow) {
-  // Here we only test OnBackgroundAndroidManagementChecked impl, not the actual
-  // Android management check.
-  ArcSessionManager::EnableCheckAndroidManagementForTesting(false);
-
   // Initialize feature state.
   base::test::ScopedFeatureList feature_list;
   feature_list.InitWithFeatureState(kEnableUnmanagedToManagedTransitionFeature,
                                     transition_feature_enabled());
+  // Set up the situation that provisioning is successfully done in the
+  // previous session.
   profile()->GetPrefs()->SetBoolean(prefs::kArcEnabled, true);
+  profile()->GetPrefs()->SetBoolean(prefs::kArcTermsAccepted, true);
+  profile()->GetPrefs()->SetBoolean(prefs::kArcSignedIn, true);
 
   // Initialize ARC.
   arc_session_manager()->SetProfile(profile());
   arc_session_manager()->Initialize();
+  arc_session_manager()->AllowActivation();
   arc_session_manager()->RequestEnable();
-  base::RunLoop().RunUntilIdle();
-  ASSERT_EQ(ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE,
-            arc_session_manager()->state());
-  arc_session_manager()->OnTermsOfServiceNegotiatedForTesting(true);
-  arc_session_manager()->StartArcForTesting();
+  ASSERT_EQ(ArcSessionManager::State::ACTIVE, arc_session_manager()->state());
 
   // Emulate user management state change.
   profile()->GetProfilePolicyConnector()->OverrideIsManagedForTesting(
       user_become_managed());
-
-  // Android management check response.
-  arc_session_manager()->OnBackgroundAndroidManagementCheckedForTesting(
-      policy::AndroidManagementClient::Result::MANAGED);
   base::RunLoop().RunUntilIdle();
 
   // Verify ARC state and ARC transition value.

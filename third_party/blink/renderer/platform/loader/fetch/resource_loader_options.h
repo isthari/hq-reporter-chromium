@@ -47,11 +47,6 @@ namespace blink {
 
 enum DataBufferingPolicy : uint8_t { kBufferData, kDoNotBufferData };
 
-enum RequestInitiatorContext : uint8_t {
-  kDocumentContext,
-  kWorkerContext,
-};
-
 enum SynchronousPolicy : uint8_t {
   kRequestSynchronously,
   kRequestAsynchronously
@@ -91,7 +86,6 @@ struct PLATFORM_EXPORT ResourceLoaderOptions {
   DataBufferingPolicy data_buffering_policy;
 
   network::mojom::CSPDisposition content_security_policy_option;
-  RequestInitiatorContext request_initiator_context;
   SynchronousPolicy synchronous_policy;
 
   // TODO(crbug.com/1064920): Remove this once PlzDedicatedWorker ships.
@@ -108,7 +102,7 @@ struct PLATFORM_EXPORT ResourceLoaderOptions {
 
   // If not null, this URLLoaderFactory should be used to load this resource
   // rather than whatever factory the system might otherwise use.
-  // Used for example for loading blob: URLs and for prefetch loading.
+  // Used for example for loading blob: URLs.
   scoped_refptr<base::RefCountedData<
       mojo::PendingRemote<network::mojom::blink::URLLoaderFactory>>>
       url_loader_factory;

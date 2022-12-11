@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/callback_helpers.h"
 #include "base/containers/flat_set.h"
 #include "base/memory/raw_ptr.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
@@ -71,7 +72,10 @@ class MockMediaNotificationContainer : public MediaNotificationContainer {
   MOCK_METHOD1(OnVisibleActionsChanged,
                void(const base::flat_set<MediaSessionAction>& actions));
   MOCK_METHOD1(OnMediaArtworkChanged, void(const gfx::ImageSkia& image));
-  MOCK_METHOD2(OnColorsChanged, void(SkColor foreground, SkColor background));
+  MOCK_METHOD3(OnColorsChanged,
+               void(SkColor foreground,
+                    SkColor foreground_disabled,
+                    SkColor background));
   MOCK_METHOD0(OnHeaderClicked, void());
 };
 
@@ -176,10 +180,8 @@ class MediaNotificationViewModernImplTest : public views::ViewsTestBase {
 
   views::Button* GetButtonForAction(MediaSessionAction action) const {
     auto buttons = media_control_buttons();
-    const auto i = std::find_if(
-        buttons.begin(), buttons.end(), [action](const views::Button* button) {
-          return button->tag() == static_cast<int>(action);
-        });
+    const auto i = base::ranges::find(buttons, static_cast<int>(action),
+                                      &views::Button::tag);
     return (i == buttons.end()) ? nullptr : *i;
   }
 
@@ -524,7 +526,7 @@ TEST_F(MediaNotificationViewModernImplTest, UpdateArtworkFromItem) {
   int labels_container_width = title_label()->parent()->width();
   gfx::Size size = view()->size();
   EXPECT_CALL(container(), OnMediaArtworkChanged(_)).Times(2);
-  EXPECT_CALL(container(), OnColorsChanged(_, _)).Times(2);
+  EXPECT_CALL(container(), OnColorsChanged(_, _, _)).Times(2);
 
   SkBitmap image;
   image.allocN32Pixels(10, 10);

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,12 +54,6 @@ class StubAccountReconcilor : public AccountReconcilor {
     EXPECT_TRUE(perform_logout_all_accounts_called_);
     perform_logout_all_accounts_called_ = false;
     OnLogOutFromCookieCompleted(GoogleServiceAuthError::AuthErrorNone());
-  }
-
-  void SimulateSetCookiesFinished() {
-    EXPECT_TRUE(perform_set_cookies_called_);
-    perform_set_cookies_called_ = false;
-    OnSetAccountsInCookieCompleted(signin::SetAccountsInCookieResult::kSuccess);
   }
 
  private:

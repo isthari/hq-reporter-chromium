@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,10 @@ import './mojom/firmware_update.mojom-lite.js';
 import './update_card.js';
 import './strings.m.js';
 
-import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/js/i18n_behavior.m.js';
+import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/ash/common/i18n_behavior.js';
 import {IronA11yAnnouncer} from 'chrome://resources/polymer/v3_0/iron-a11y-announcer/iron-a11y-announcer.js';
 import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
 import {FirmwareUpdate, UpdateObserverInterface, UpdateObserverReceiver, UpdateProviderInterface} from './firmware_update_types.js';
 import {getUpdateProvider} from './mojo_interface_provider.js';
 
@@ -94,7 +95,7 @@ export class PeripheralUpdateListElement extends
           this.dispatchEvent(new CustomEvent('open-update-dialog', {
             bubbles: true,
             composed: true,
-            detail: {update: result.update, inflight: true}
+            detail: {update: result.update, inflight: true},
           }));
         }
         this.hasCheckedInitialInflightProgress_ = true;
@@ -116,7 +117,7 @@ export class PeripheralUpdateListElement extends
     this.dispatchEvent(new CustomEvent('iron-announce', {
       bubbles: true,
       composed: true,
-      detail: {text: this.i18n('numUpdatesText', this.firmwareUpdates_.length)}
+      detail: {text: this.i18n('numUpdatesText', this.firmwareUpdates_.length)},
     }));
   }
 }

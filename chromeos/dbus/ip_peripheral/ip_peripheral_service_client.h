@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -76,10 +76,5 @@ class COMPONENT_EXPORT(DBUS_IP_PERIPHERAL_CLIENT) IpPeripheralServiceClient {
 };
 
 }  // namespace chromeos
-
-// TODO(https://crbug.com/1164001): remove when moved to ash.
-namespace ash {
-using ::chromeos::IpPeripheralServiceClient;
-}  // namespace ash
 
 #endif  // CHROMEOS_DBUS_IP_PERIPHERAL_IP_PERIPHERAL_SERVICE_CLIENT_H_

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,7 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/clock.h"
 #include "net/base/net_errors.h"
 #include "net/disk_cache/cache_util.h"
@@ -45,9 +44,6 @@ base::LinkNode<MemEntryImpl>* NextSkippingChildren(
 
 MemBackendImpl::MemBackendImpl(net::NetLog* net_log)
     : Backend(net::MEMORY_CACHE),
-      custom_clock_for_testing_(nullptr),
-      max_size_(0),
-      current_size_(0),
       net_log_(net_log),
       memory_pressure_listener_(
           FROM_HERE,
@@ -59,7 +55,7 @@ MemBackendImpl::~MemBackendImpl() {
     entries_.begin()->second->Doom();
 
   if (!post_cleanup_callback_.is_null())
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, std::move(post_cleanup_callback_));
 }
 
@@ -80,9 +76,9 @@ bool MemBackendImpl::Init() {
   if (max_size_)
     return true;
 
-  int64_t total_memory = base::SysInfo::AmountOfPhysicalMemory();
+  uint64_t total_memory = base::SysInfo::AmountOfPhysicalMemory();
 
-  if (total_memory <= 0) {
+  if (total_memory == 0) {
     max_size_ = kDefaultInMemoryCacheSize;
     return true;
   }
@@ -90,7 +86,7 @@ bool MemBackendImpl::Init() {
   // We want to use up to 2% of the computer's memory, with a limit of 50 MB,
   // reached on system with more than 2.5 GB of RAM.
   total_memory = total_memory * 2 / 100;
-  if (total_memory > kDefaultInMemoryCacheSize * 5)
+  if (total_memory > static_cast<uint64_t>(kDefaultInMemoryCacheSize) * 5)
     max_size_ = kDefaultInMemoryCacheSize * 5;
   else
     max_size_ = static_cast<int32_t>(total_memory);
@@ -312,8 +308,7 @@ class MemBackendImpl::MemIterator final : public Backend::Iterator {
 };
 
 std::unique_ptr<Backend::Iterator> MemBackendImpl::CreateIterator() {
-  return std::unique_ptr<Backend::Iterator>(
-      new MemIterator(weak_factory_.GetWeakPtr()));
+  return std::make_unique<MemIterator>(weak_factory_.GetWeakPtr());
 }
 
 void MemBackendImpl::OnExternalCacheHit(const std::string& key) {

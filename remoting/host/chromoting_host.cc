@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include <algorithm>
 #include <memory>
 #include <utility>
 
@@ -14,8 +13,11 @@
 #include "base/callback.h"
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
+#include "base/ranges/algorithm.h"
 #include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
+#include "components/named_mojo_ipc_server/connection_info.h"
+#include "components/named_mojo_ipc_server/named_mojo_ipc_server.h"
 #include "components/webrtc/thread_wrapper.h"
 #include "remoting/base/constants.h"
 #include "remoting/base/logging.h"
@@ -23,7 +25,7 @@
 #include "remoting/host/host_config.h"
 #include "remoting/host/input_injector.h"
 #include "remoting/host/ipc_constants.h"
-#include "remoting/host/mojo_ipc/mojo_ipc_server.h"
+#include "remoting/host/mojo_caller_security_checker.h"
 #include "remoting/protocol/client_stub.h"
 #include "remoting/protocol/host_stub.h"
 #include "remoting/protocol/ice_connection_to_client.h"
@@ -43,29 +45,29 @@ namespace remoting {
 namespace {
 
 const net::BackoffEntry::Policy kDefaultBackoffPolicy = {
-  // Number of initial errors (in sequence) to ignore before applying
-  // exponential back-off rules.
-  5,
+    // Number of initial errors (in sequence) to ignore before applying
+    // exponential back-off rules.
+    5,
 
-  // Initial delay for exponential back-off in ms.
-  2000,
+    // Initial delay for exponential back-off in ms.
+    2000,
 
-  // Factor by which the waiting time will be multiplied.
-  2,
+    // Factor by which the waiting time will be multiplied.
+    2,
 
-  // Fuzzing percentage. ex: 10% will spread requests randomly
-  // between 90%-100% of the calculated time.
-  0,
+    // Fuzzing percentage. ex: 10% will spread requests randomly
+    // between 90%-100% of the calculated time.
+    0,
 
-  // Maximum amount of time we are willing to delay our request in ms.
-  -1,
+    // Maximum amount of time we are willing to delay our request in ms.
+    -1,
 
-  // Time to keep an entry from being discarded even when it
-  // has no significant state, -1 to never discard.
-  -1,
+    // Time to keep an entry from being discarded even when it
+    // has no significant state, -1 to never discard.
+    -1,
 
-  // Don't use initial delay unless the last request was an error.
-  false,
+    // Don't use initial delay unless the last request was an error.
+    false,
 };
 
 }  // namespace
@@ -103,7 +105,7 @@ ChromotingHost::~ChromotingHost() {
   // Notify observers.
   if (started_) {
     for (auto& observer : status_monitor_->observers())
-      observer.OnShutdown();
+      observer.OnHostShutdown();
   }
 }
 
@@ -114,7 +116,7 @@ void ChromotingHost::Start(const std::string& host_owner_email) {
   HOST_LOG << "Starting host";
   started_ = true;
   for (auto& observer : status_monitor_->observers())
-    observer.OnStart(host_owner_email);
+    observer.OnHostStarted(host_owner_email);
 
   session_manager_->AcceptIncoming(base::BindRepeating(
       &ChromotingHost::OnIncomingSession, base::Unretained(this)));
@@ -125,8 +127,23 @@ void ChromotingHost::StartChromotingHostServices() {
   DCHECK(!ipc_server_);
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
-  ipc_server_ = std::make_unique<MojoIpcServer<mojom::ChromotingHostServices>>(
-      GetChromotingHostServicesServerName(), this);
+#if BUILDFLAG(IS_WIN)
+  // TODO(crbug.com/1378803): Make Windows hosts work with non-isolated
+  // connections.
+  auto message_pipe_id =
+      named_mojo_ipc_server::NamedMojoIpcServerBase::kUseIsolatedConnection;
+#else
+  auto message_pipe_id = kChromotingHostServicesMessagePipeId;
+#endif
+  ipc_server_ = std::make_unique<
+      named_mojo_ipc_server::NamedMojoIpcServer<mojom::ChromotingHostServices>>(
+      GetChromotingHostServicesServerName(), message_pipe_id,
+      base::BindRepeating(&IsTrustedMojoEndpoint)
+          .Then(base::BindRepeating(
+              [](mojom::ChromotingHostServices* impl, bool trusted) {
+                return trusted ? impl : nullptr;
+              },
+              base::Unretained(this))));
   ipc_server_->StartServer();
   HOST_LOG << "ChromotingHostServices IPC server has been started.";
 #else
@@ -157,7 +174,8 @@ void ChromotingHost::OnSessionAuthenticating(ClientSession* client) {
   // authenticates. This allows the backoff to protect from parallel
   // connection attempts as well as sequential ones.
   if (login_backoff_.ShouldRejectRequest()) {
-    LOG(WARNING) << "Disconnecting client " << client->client_jid() << " due to"
+    LOG(WARNING) << "Disconnecting client " << client->client_jid()
+                 << " due to"
                     " an overload of failed login attempts.";
     client->DisconnectSession(protocol::HOST_OVERLOAD);
     return;
@@ -203,16 +221,14 @@ void ChromotingHost::OnSessionAuthenticationFailed(ClientSession* client) {
 
   // Notify observers.
   for (auto& observer : status_monitor_->observers())
-    observer.OnAccessDenied(client->client_jid());
+    observer.OnClientAccessDenied(client->client_jid());
 }
 
 void ChromotingHost::OnSessionClosed(ClientSession* client) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  auto it = std::find_if(clients_.begin(), clients_.end(),
-                         [client](const std::unique_ptr<ClientSession>& item) {
-                           return item.get() == client;
-                         });
+  auto it = base::ranges::find(clients_, client,
+                               &std::unique_ptr<ClientSession>::get);
   CHECK(it != clients_.end());
 
   bool was_authenticated = client->is_authenticated();
@@ -265,8 +281,8 @@ void ChromotingHost::BindSessionServices(
 }
 
 void ChromotingHost::OnIncomingSession(
-      protocol::Session* session,
-      protocol::SessionManager::IncomingSessionResponse* response) {
+    protocol::Session* session,
+    protocol::SessionManager::IncomingSessionResponse* response) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(started_);
 

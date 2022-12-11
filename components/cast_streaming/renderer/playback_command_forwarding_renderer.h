@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/memory/weak_ptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "media/base/renderer.h"
 #include "media/base/renderer_client.h"
 #include "media/mojo/mojom/renderer.mojom.h"
@@ -29,7 +30,7 @@ class PlaybackCommandForwardingRenderer : public media::Renderer,
   // playback commands to this instance.
   PlaybackCommandForwardingRenderer(
       std::unique_ptr<media::Renderer> renderer,
-      scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+      scoped_refptr<base::SequencedTaskRunner> task_runner,
       mojo::PendingReceiver<media::mojom::Renderer> pending_rederer_controls);
   PlaybackCommandForwardingRenderer(const PlaybackCommandForwardingRenderer&) =
       delete;
@@ -60,6 +61,7 @@ class PlaybackCommandForwardingRenderer : public media::Renderer,
   void SetPlaybackRate(double playback_rate) override;
   void SetVolume(float volume) override;
   base::TimeDelta GetMediaTime() override;
+  media::RendererType GetRendererType() override;
 
  private:
   // Private namespace function not defined here because its details are not
@@ -90,6 +92,7 @@ class PlaybackCommandForwardingRenderer : public media::Renderer,
   // Each of these simply forwards the call to both |remote_renderer_client_|
   // and |upstream_renderer_client_|.
   void OnError(media::PipelineStatus status) override;
+  void OnFallback(media::PipelineStatus status) override;
   void OnEnded() override;
   void OnStatisticsUpdate(const media::PipelineStatistics& stats) override;
   void OnBufferingStateChange(
@@ -107,6 +110,11 @@ class PlaybackCommandForwardingRenderer : public media::Renderer,
   // Sends an OnTimeUpdate() call to |remote_renderer_client_|.
   void SendTimestampUpdate();
 
+  // Helper to create |send_timestamp_update_caller_| on |task_runner_|.
+  void InitializeSendTimestampUpdateCaller();
+
+  void OnMojoDisconnect();
+
   // Renderer to which playback calls should be forwarded.
   std::unique_ptr<media::Renderer> real_renderer_;
 
@@ -119,7 +127,7 @@ class PlaybackCommandForwardingRenderer : public media::Renderer,
   mojo::PendingReceiver<media::mojom::Renderer> pending_renderer_controls_;
 
   // Task runner on which all mojo callbacks will be run.
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
   // Created as part of OnRealRendererInitializationComplete().
   std::unique_ptr<media::mojom::Renderer> playback_controller_;

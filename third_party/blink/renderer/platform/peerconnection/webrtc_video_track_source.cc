@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
+#include "base/types/optional_util.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/webrtc/convert_to_webrtc_video_frame_buffer.h"
 #include "third_party/webrtc/rtc_base/ref_counted_object.h"
@@ -214,25 +214,6 @@ void WebRtcVideoTrackSource::OnFrameCaptured(
       timestamp_aligner_.TranslateTimestamp(frame->timestamp().InMicroseconds(),
                                             now_us);
 
-  // Return |frame| directly if it is texture not backed up by GPU memory,
-  // because there is no cropping support for texture yet. See
-  // http://crbug/503653.
-  if (frame->HasTextures() &&
-      frame->storage_type() != media::VideoFrame::STORAGE_GPU_MEMORY_BUFFER) {
-    // The webrtc::VideoFrame::UpdateRect expected by WebRTC must
-    // be relative to the |visible_rect()|. We need to translate.
-    absl::optional<gfx::Rect> cropped_rect;
-    if (accumulated_update_rect_) {
-      cropped_rect =
-          CropRectangle(*accumulated_update_rect_, frame->visible_rect());
-    }
-
-    DeliverFrame(std::move(frame), std::move(scaled_frames),
-                 base::OptionalOrNullptr(cropped_rect),
-                 translated_camera_time_us);
-    return;
-  }
-
   // Translate the |crop_*| values output by AdaptFrame() from natural size to
   // visible size. This is needed to apply the new cropping on top of any
   // existing soft-applied cropping and scaling when using
@@ -275,7 +256,7 @@ void WebRtcVideoTrackSource::OnFrameCaptured(
   // of the pipeline.
   if (video_frame->natural_size() == video_frame->visible_rect().size()) {
     DeliverFrame(std::move(video_frame), std::move(scaled_frames),
-                 base::OptionalOrNullptr(accumulated_update_rect_),
+                 base::OptionalToPtr(accumulated_update_rect_),
                  translated_camera_time_us);
     return;
   }
@@ -287,8 +268,13 @@ void WebRtcVideoTrackSource::OnFrameCaptured(
   }
 
   DeliverFrame(std::move(video_frame), std::move(scaled_frames),
-               base::OptionalOrNullptr(accumulated_update_rect_),
+               base::OptionalToPtr(accumulated_update_rect_),
                translated_camera_time_us);
+}
+
+void WebRtcVideoTrackSource::OnNotifyFrameDropped() {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  OnFrameDropped();
 }
 
 WebRtcVideoTrackSource::FrameAdaptationParams

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -202,6 +202,10 @@ std::u16string MediaGalleriesPermissionController::GetAuxiliaryButtonText()
 
 // This is the 'Add Folder' button.
 void MediaGalleriesPermissionController::DidClickAuxiliaryButton() {
+  // Early return if the select file dialog is already active.
+  if (select_folder_dialog_)
+    return;
+
   base::FilePath default_path =
       extensions::file_system_api::GetLastChooseEntryDirectory(
           extensions::ExtensionPrefs::Get(GetProfile()), extension_->id());
@@ -212,12 +216,8 @@ void MediaGalleriesPermissionController::DidClickAuxiliaryButton() {
   select_folder_dialog_->SelectFile(
       ui::SelectFileDialog::SELECT_FOLDER,
       l10n_util::GetStringUTF16(IDS_MEDIA_GALLERIES_DIALOG_ADD_GALLERY_TITLE),
-      default_path,
-      NULL,
-      0,
-      base::FilePath::StringType(),
-      web_contents_->GetTopLevelNativeWindow(),
-      NULL);
+      default_path, nullptr, 0, base::FilePath::StringType(),
+      web_contents_->GetTopLevelNativeWindow(), nullptr);
 }
 
 void MediaGalleriesPermissionController::DidToggleEntry(
@@ -275,6 +275,10 @@ content::WebContents* MediaGalleriesPermissionController::WebContents() {
   return web_contents_;
 }
 
+void MediaGalleriesPermissionController::FileSelectionCanceled(void* params) {
+  select_folder_dialog_.reset();
+}
+
 void MediaGalleriesPermissionController::FileSelected(
     const base::FilePath& path,
     int /*index*/,
@@ -301,6 +305,7 @@ void MediaGalleriesPermissionController::FileSelected(
     iter->second.selected = true;
     forgotten_galleries_.erase(gallery_id);
     dialog_->UpdateGalleries();
+    select_folder_dialog_.reset();
     return;
   }
 
@@ -311,6 +316,7 @@ void MediaGalleriesPermissionController::FileSelected(
         iter->second.pref_info.device_id == gallery.device_id) {
       iter->second.selected = true;
       dialog_->UpdateGalleries();
+      select_folder_dialog_.reset();
       return;
     }
   }
@@ -320,6 +326,7 @@ void MediaGalleriesPermissionController::FileSelected(
   // The old prefId is retained for blocklisted galleries.
   gallery.pref_id = GetDialogId(gallery.pref_id);
   new_galleries_[gallery.pref_id] = Entry(gallery, true);
+  select_folder_dialog_.reset();
   dialog_->UpdateGalleries();
 }
 

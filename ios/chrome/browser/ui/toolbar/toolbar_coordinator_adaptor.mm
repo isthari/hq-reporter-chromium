@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,6 +64,12 @@
   }
 }
 
+- (void)triggerToolbarSlideInAnimation {
+  for (id<ToolbarCommands> coordinator in self.coordinators) {
+    [coordinator triggerToolbarSlideInAnimation];
+  }
+}
+
 #pragma mark - SideSwipeToolbarInteracting
 
 - (BOOL)isInsideToolbar:(CGPoint)point {
@@ -92,6 +98,18 @@
 - (void)updateUIForMenuDismissed {
   for (id<ToolbarCoordinatee> coordinator in self.coordinators) {
     [coordinator.popupMenuUIUpdater updateUIForMenuDismissed];
+  }
+}
+
+- (void)updateUIForIPHDisplayed:(PopupMenuType)popupType {
+  for (id<ToolbarCoordinatee> coordinator in self.coordinators) {
+    [coordinator.popupMenuUIUpdater updateUIForIPHDisplayed:popupType];
+  }
+}
+
+- (void)updateUIForIPHDismissed {
+  for (id<ToolbarCoordinatee> coordinator in self.coordinators) {
+    [coordinator.popupMenuUIUpdater updateUIForIPHDismissed];
   }
 }
 

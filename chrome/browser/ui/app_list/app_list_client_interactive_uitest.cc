@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@ using AppListClientInteractiveTest = InProcessBrowserTest;
 IN_PROC_BROWSER_TEST_F(AppListClientInteractiveTest, ShowAndDismiss) {
   AppListClientImpl* client = AppListClientImpl::GetInstance();
   ASSERT_FALSE(client->app_list_visible());
-  client->ShowAppList();
+  client->ShowAppList(ash::AppListShowSource::kSearchKey);
   ASSERT_TRUE(client->app_list_visible());
   client->DismissView();
   ASSERT_FALSE(client->app_list_target_visibility());

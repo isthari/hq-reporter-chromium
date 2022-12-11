@@ -9,11 +9,8 @@ FAIL offsetParent should return node in the open shadow root because it is unclo
       <s... but got Element node <div id="host_open4" class="container">
   
   <div id="hos...
-FAIL offsetParent should return null in case position:fixed offsetParent is not unclosed. assert_equals: expected null but got Element node <body><div id="host_open0">
-  
-</div>
-
-<div id="host_clos...
+FAIL offsetParent should return null in case position:fixed offsetParent is not unclosed. assert_equals: expected Element node <div id="container" style="position: fixed;">
+      <slot... but got null
 FAIL All position:static elements should be skipped for offsetParent. assert_equals: expected Element node <div id="relative" style="position: relative;">
         <... but got Element node <body><div id="host_open0">
   

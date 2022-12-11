@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,9 +19,12 @@
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
 #include "ui/gfx/font_list.h"
+#include "ui/gfx/text_constants.h"
 #include "ui/gfx/text_elider.h"
 #include "ui/gfx/text_utils.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/controls/link.h"
+#include "ui/views/controls/link_fragment.h"
 #include "ui/views/view_class_properties.h"
 
 namespace views {
@@ -48,7 +51,6 @@ StyledLabel::RangeStyleInfo StyledLabel::RangeStyleInfo::CreateForLink(
     Link::ClickedCallback callback) {
   RangeStyleInfo result;
   result.callback = std::move(callback);
-  result.disable_line_wrapping = true;
   result.text_style = style::STYLE_LINK;
   return result;
 }
@@ -110,7 +112,7 @@ void StyledLabel::AddStyleRange(const gfx::Range& range,
 
   // Insert the new range in sorted order.
   StyleRanges new_range;
-  new_range.push_front(StyleRange(range, style_info));
+  new_range.emplace_front(range, style_info);
   style_ranges_.merge(new_range);
 
   PreferredSizeChanged();
@@ -188,6 +190,18 @@ void StyledLabel::SetAutoColorReadabilityEnabled(bool auto_color_readability) {
   OnPropertyChanged(&auto_color_readability_enabled_, kPropertyEffectsPaint);
 }
 
+bool StyledLabel::GetSubpixelRenderingEnabled() const {
+  return subpixel_rendering_enabled_;
+}
+
+void StyledLabel::SetSubpixelRenderingEnabled(bool subpixel_rendering_enabled) {
+  if (subpixel_rendering_enabled_ == subpixel_rendering_enabled)
+    return;
+
+  subpixel_rendering_enabled_ = subpixel_rendering_enabled;
+  OnPropertyChanged(&subpixel_rendering_enabled_, kPropertyEffectsPaint);
+}
+
 const StyledLabel::LayoutSizeInfo& StyledLabel::GetLayoutSizeInfoForWidth(
     int w) const {
   CalculateLayout(w);
@@ -248,11 +262,8 @@ void StyledLabel::Layout() {
         // Transfer ownership for any views in layout_views_->owned_views or
         // custom_views_.  The actual pointer is the same in both arms below.
         if (view->GetProperty(kStyledLabelCustomViewKey)) {
-          auto custom_view =
-              std::find_if(custom_views_.begin(), custom_views_.end(),
-                           [view](const auto& current_custom_view) {
-                             return current_custom_view.get() == view;
-                           });
+          auto custom_view = base::ranges::find(custom_views_, view,
+                                                &std::unique_ptr<View>::get);
           DCHECK(custom_view != custom_views_.end());
           AddChildView(std::move(*custom_view));
           custom_views_.erase(custom_view);
@@ -315,20 +326,28 @@ void StyledLabel::ClearStyleRanges() {
   PreferredSizeChanged();
 }
 
-void StyledLabel::ClickLinkForTesting() {
-  const auto it =
-      base::ranges::find(children(), Link::kViewClassName, &View::GetClassName);
-  DCHECK(it != children().cend());
-  (*it)->OnKeyPressed(
+void StyledLabel::ClickFirstLinkForTesting() {
+  GetFirstLinkForTesting()->OnKeyPressed(  // IN-TEST
       ui::KeyEvent(ui::ET_KEY_PRESSED, ui::VKEY_SPACE, ui::EF_NONE));
+}
+
+views::Link* StyledLabel::GetFirstLinkForTesting() {
+  const auto it = base::ranges::find(children(), LinkFragment::kViewClassName,
+                                     &View::GetClassName);
+  DCHECK(it != children().cend());
+  return static_cast<views::Link*>(*it);
 }
 
 int StyledLabel::StartX(int excess_space) const {
   int x = GetInsets().left();
-  if (horizontal_alignment_ == gfx::ALIGN_LEFT)
+  // If the element should be aligned to the leading side (left in LTR, or right
+  // in RTL), position it at the leading side Insets (left).
+  if (horizontal_alignment_ ==
+      (base::i18n::IsRTL() ? gfx::ALIGN_RIGHT : gfx::ALIGN_LEFT)) {
     return x;
-  return x + ((horizontal_alignment_ == gfx::ALIGN_CENTER) ? (excess_space / 2)
-                                                           : excess_space);
+  }
+  return x + (horizontal_alignment_ == gfx::ALIGN_CENTER ? (excess_space / 2)
+                                                         : excess_space);
 }
 
 void StyledLabel::CalculateLayout(int width) const {
@@ -350,6 +369,11 @@ void StyledLabel::CalculateLayout(int width) const {
   // Try to preserve leading whitespace on the first line.
   bool can_trim_leading_whitespace = false;
   StyleRanges::const_iterator current_range = style_ranges_.begin();
+
+  // A pointer to the previous link fragment if a logical link consists of
+  // multiple `LinkFragment` elements.
+  LinkFragment* previous_link_fragment = nullptr;
+
   for (std::u16string remaining_string = text_;
        content_width > 0 && !remaining_string.empty();) {
     layout_size_info_.line_sizes.emplace_back(0, line_height);
@@ -448,11 +472,9 @@ void StyledLabel::CalculateLayout(int width) const {
           chunk = substrings[0];
         }
 
-        if (((custom_view &&
-              line_size.width() + custom_view->GetPreferredSize().width() >
-                  content_width) ||
-             (style_info.disable_line_wrapping &&
-              chunk.size() < range.length())) &&
+        if ((custom_view &&
+             line_size.width() + custom_view->GetPreferredSize().width() >
+                 content_width) &&
             position == range.start() && line_size.width() != 0) {
           // If the chunk should not be wrapped, try to fit it entirely on the
           // next line.
@@ -462,18 +484,26 @@ void StyledLabel::CalculateLayout(int width) const {
         if (chunk.size() > range.end() - position)
           chunk = chunk.substr(0, range.end() - position);
 
-        if (!custom_view)
-          label = CreateLabel(chunk, style_info, range);
+        if (!custom_view) {
+          label =
+              CreateLabel(chunk, style_info, range, &previous_link_fragment);
+        } else {
+          previous_link_fragment = nullptr;
+        }
 
-        if (position + chunk.size() >= range.end())
+        if (position + chunk.size() >= range.end()) {
           ++current_range;
+          // Links do not connect across separate style ranges.
+          previous_link_fragment = nullptr;
+        }
       } else {
         chunk = substrings[0];
         if (position + chunk.size() > range.start())
           chunk = chunk.substr(0, range.start() - position);
 
         // This chunk is normal text.
-        label = CreateLabel(chunk, default_style, range);
+        label =
+            CreateLabel(chunk, default_style, range, &previous_link_fragment);
       }
 
       View* child_view = custom_view ? custom_view : label.get();
@@ -520,15 +550,20 @@ void StyledLabel::CalculateLayout(int width) const {
 std::unique_ptr<Label> StyledLabel::CreateLabel(
     const std::u16string& text,
     const RangeStyleInfo& style_info,
-    const gfx::Range& range) const {
+    const gfx::Range& range,
+    LinkFragment** previous_link_fragment) const {
   std::unique_ptr<Label> result;
   if (style_info.text_style == style::STYLE_LINK) {
     // Nothing should (and nothing does) use a custom font for links.
     DCHECK(!style_info.custom_font);
 
-    // Note this ignores |default_text_style_|, in favor of style::STYLE_LINK.
-    auto link = std::make_unique<Link>(text, text_context_);
+    // Note this ignores |default_text_style_|, in favor of `style::STYLE_LINK`.
+    auto link = std::make_unique<LinkFragment>(
+        text, text_context_, style::STYLE_LINK, *previous_link_fragment);
+    *previous_link_fragment = link.get();
     link->SetCallback(style_info.callback);
+    if (!style_info.accessible_name.empty())
+      link->SetAccessibleName(style_info.accessible_name);
 
     result = std::move(link);
   } else if (style_info.custom_font) {
@@ -544,10 +579,12 @@ std::unique_ptr<Label> StyledLabel::CreateLabel(
     result->SetEnabledColor(style_info.override_color.value());
   if (!style_info.tooltip.empty())
     result->SetTooltipText(style_info.tooltip);
+  if (!style_info.accessible_name.empty())
+    result->SetAccessibleName(style_info.accessible_name);
   if (displayed_on_background_color_)
     result->SetBackgroundColor(displayed_on_background_color_.value());
   result->SetAutoColorReadabilityEnabled(auto_color_readability_enabled_);
-
+  result->SetSubpixelRenderingEnabled(subpixel_rendering_enabled_);
   return result;
 }
 
@@ -559,7 +596,7 @@ void StyledLabel::UpdateLabelBackgroundColor() {
       // TODO(kylixrd): Should updating the label background color even be
       // allowed if there are custom views?
       DCHECK((child->GetClassName() == Label::kViewClassName) ||
-             (child->GetClassName() == Link::kViewClassName));
+             (child->GetClassName() == LinkFragment::kViewClassName));
       static_cast<Label*>(child)->SetBackgroundColor(new_color);
     }
   }

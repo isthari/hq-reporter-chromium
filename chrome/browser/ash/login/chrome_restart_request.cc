@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,12 @@
 #include <utility>
 #include <vector>
 
-#include "ash/components/cryptohome/cryptohome_parameters.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/app_list/app_list_switches.h"
 #include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/launch.h"
@@ -27,6 +25,7 @@
 #include "base/values.h"
 #include "cc/base/switches.h"
 #include "chrome/browser/ash/boot_times_recorder.h"
+#include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/common/chrome_constants.h"
@@ -34,9 +33,11 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
+#include "chromeos/ash/components/browser_context_helper/browser_context_helper.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
 #include "chromeos/dbus/constants/dbus_switches.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "components/account_id/account_id.h"
 #include "components/policy/core/common/policy_switches.h"
 #include "components/prefs/json_pref_store.h"
@@ -64,6 +65,7 @@
 #include "url/gurl.h"
 
 namespace ash {
+
 namespace {
 
 using ::content::BrowserThread;
@@ -84,7 +86,7 @@ bool IsRunningTest() {
 // - Append/override switches using `new_switches`;
 void DeriveCommandLine(const GURL& start_url,
                        const base::CommandLine& base_command_line,
-                       const base::DictionaryValue& new_switches,
+                       const base::Value::Dict& new_switches,
                        base::CommandLine* command_line) {
   DCHECK_NE(&base_command_line, command_line);
 
@@ -109,6 +111,7 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kDisableGpuWatchdog,
     ::switches::kDisableGpuCompositing,
     ::switches::kDisableGpuRasterization,
+    ::switches::kDisableMojoBroker,
     ::switches::kDisablePepper3DImageChromium,
     ::switches::kDisableTouchDragDrop,
     ::switches::kDisableVideoCaptureUseGpuMemoryBuffer,
@@ -117,10 +120,10 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kEnableGpuMemoryBufferVideoFrames,
     ::switches::kEnableGpuRasterization,
     ::switches::kEnableLogging,
+    ::switches::kEnableMicrophoneMuteSwitchDeviceSwitch,
     ::switches::kEnableNativeGpuMemoryBuffers,
     ::switches::kEnableTouchDragDrop,
     ::switches::kEnableUnifiedDesktop,
-    ::switches::kEnableUseZoomForDSF,
     ::switches::kEnableViewport,
     ::switches::kEnableHardwareOverlays,
     ::switches::kEdgeTouchFiltering,
@@ -129,7 +132,6 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kForceGpuMemAvailableMb,
     ::switches::kGpuStartupDialog,
     ::switches::kGpuSandboxStartEarly,
-    ::switches::kNumRasterThreads,
     ::switches::kPlatformDisallowsChromeOSDirectVideoDecoder,
     ::switches::kPpapiInProcess,
     ::switches::kRemoteDebuggingPort,
@@ -149,11 +151,13 @@ void DeriveCommandLine(const GURL& start_url,
     ::switches::kV,
     ::switches::kVModule,
     ::switches::kVideoCaptureUseGpuMemoryBuffer,
+    ::switches::kWebAuthRemoteDesktopSupport,
     ::switches::kEnableWebGLDeveloperExtensions,
     ::switches::kEnableWebGLDraftExtensions,
     ::switches::kDisableWebGLImageChromium,
     ::switches::kEnableWebGLImageChromium,
     ::switches::kEnableUnsafeWebGPU,
+    ::switches::kEnableWebGPUDeveloperFeatures,
     ::switches::kDisableWebRtcHWDecoding,
     ::switches::kDisableWebRtcHWEncoding,
     ::switches::kOzonePlatform,
@@ -181,6 +185,7 @@ void DeriveCommandLine(const GURL& start_url,
     blink::switches::kEnableRasterSideDarkModeForImages,
     blink::switches::kEnableZeroCopy,
     blink::switches::kGpuRasterizationMSAASampleCount,
+    blink::switches::kNumRasterThreads,
     switches::kAshPowerButtonPosition,
     switches::kAshSideVolumeButtonPosition,
     switches::kDefaultWallpaperLarge,
@@ -221,20 +226,22 @@ void DeriveCommandLine(const GURL& start_url,
     switches::kLacrosChromeAdditionalArgs,
     switches::kLacrosChromeAdditionalEnv,
     switches::kLacrosChromePath,
+    crosapi::browser_util::kLacrosStabilitySwitch,
     switches::kLoginProfile,
     switches::kNaturalScrollDefault,
     switches::kRlzPingDelay,
     chromeos::switches::kSystemInDevMode,
+    switches::kTouchscreenUsableWhileScreenOff,
     policy::switches::kDeviceManagementUrl,
     wm::switches::kWindowAnimationsDisabled,
   };
   command_line->CopySwitchesFrom(base_command_line, kForwardSwitches,
-                                 base::size(kForwardSwitches));
+                                 std::size(kForwardSwitches));
 
   if (start_url.is_valid())
     command_line->AppendArg(start_url.spec());
 
-  for (auto new_switch : new_switches.DictItems()) {
+  for (auto new_switch : new_switches) {
     command_line->AppendSwitchASCII(new_switch.first,
                                     new_switch.second.GetString());
   }
@@ -244,9 +251,8 @@ void DeriveCommandLine(const GURL& start_url,
 // current session.
 void DeriveEnabledFeatures(base::CommandLine* out_command_line) {
   std::vector<const base::Feature*> kForwardEnabledFeatures{
-      &features::kAutoNightLight,
-      &features::kLacrosPrimary,
-      &features::kLacrosSupport,
+      &features::kAutoNightLight, &features::kLacrosOnly,
+      &features::kLacrosPrimary,  &features::kLacrosSupport,
       &::features::kPluginVm,
   };
 
@@ -363,21 +369,21 @@ void ChromeRestartRequest::OnRestartJob(base::ScopedFD local_auth_fd,
 void GetOffTheRecordCommandLine(const GURL& start_url,
                                 const base::CommandLine& base_command_line,
                                 base::CommandLine* command_line) {
-  base::DictionaryValue otr_switches;
-  otr_switches.SetStringKey(switches::kGuestSession, std::string());
-  otr_switches.SetStringKey(::switches::kIncognito, std::string());
-  otr_switches.SetStringKey(::switches::kLoggingLevel, kGuestModeLoggingLevel);
-  otr_switches.SetStringKey(
+  base::Value::Dict otr_switches;
+  otr_switches.Set(switches::kGuestSession, std::string());
+  otr_switches.Set(::switches::kIncognito, std::string());
+  otr_switches.Set(::switches::kLoggingLevel, kGuestModeLoggingLevel);
+  otr_switches.Set(
       switches::kLoginUser,
       cryptohome::Identification(user_manager::GuestAccountId()).id());
   if (!base::SysInfo::IsRunningOnChromeOS()) {
-    otr_switches.SetStringKey(switches::kLoginProfile,
-                              chrome::kLegacyProfileDir);
+    otr_switches.Set(switches::kLoginProfile,
+                     BrowserContextHelper::kLegacyBrowserContextDirName);
   }
 
   // Override the home page.
-  otr_switches.SetStringKey(::switches::kHomePage,
-                            GURL(chrome::kChromeUINewTabURL).spec());
+  otr_switches.Set(::switches::kHomePage,
+                   GURL(chrome::kChromeUINewTabURL).spec());
 
   DeriveCommandLine(start_url, base_command_line, otr_switches, command_line);
   DeriveEnabledFeatures(command_line);

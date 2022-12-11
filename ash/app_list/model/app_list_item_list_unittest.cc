@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,11 @@
 #include "ash/app_list/model/app_list_folder_item.h"
 #include "ash/app_list/model/app_list_item.h"
 #include "ash/app_list/model/app_list_item_list_observer.h"
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/app_list/app_list_model_delegate.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace ash {
@@ -43,10 +45,15 @@ class AppListItemListWithUpdater : public AppListModelDelegate {
     item_list_->SetItemPosition(item_list_->FindItem(id), new_position);
   }
   void RequestMoveItemToFolder(std::string id,
-                               const std::string& folder_id,
-                               RequestMoveToFolderReason reason) override {}
+                               const std::string& folder_id) override {}
   void RequestMoveItemToRoot(std::string id,
                              syncer::StringOrdinal target_position) override {}
+  std::string RequestFolderCreation(std::string merge_target_id,
+                                    std::string item_to_merge_id) override {
+    return "";
+  }
+  void RequestFolderRename(std::string folder_id,
+                           const std::string& name) override {}
   void RequestAppListSort(AppListSortOrder order) override {}
   void RequestAppListSortRevert() override {}
 
@@ -409,41 +416,6 @@ TEST_F(AppListItemListTest, SetItemPosition) {
                               item_list_->item_at(3)->position().CreateAfter());
   EXPECT_TRUE(VerifyItemListOrdinals());
   EXPECT_TRUE(VerifyItemOrder4(2, 0, 3, 1));
-}
-
-// Test adding a page break item between two items with different position.
-TEST_F(AppListItemListTest, AddPageBreakItem) {
-  AppListItem* item_0 = CreateAndAddItem(GetItemId(0));
-  AppListItem* item_1 = CreateAndAddItem(GetItemId(1));
-  EXPECT_EQ(item_0, item_list_->item_at(0));
-  EXPECT_EQ(item_1, item_list_->item_at(1));
-  EXPECT_TRUE(item_0->position().LessThan(item_1->position()));
-
-  AppListItem* page_break_item = item_list_->AddPageBreakItemAfter(item_0);
-  EXPECT_EQ(item_0, item_list_->item_at(0));
-  EXPECT_EQ(page_break_item, item_list_->item_at(1));
-  EXPECT_EQ(item_1, item_list_->item_at(2));
-  EXPECT_TRUE(item_0->position().LessThan(page_break_item->position()));
-  EXPECT_TRUE(page_break_item->position().LessThan(item_1->position()));
-}
-
-// Test adding a page break item between two items with the same position.
-TEST_F(AppListItemListTest, AddPageBreakItemWithSamePosition) {
-  AppListItem* item_0 = CreateAndAddItem(GetItemId(0));
-  AppListItem* item_1 = CreateAndAddItem(GetItemId(1));
-  item_list_->SetItemPosition(item_list_->item_at(1),
-                              item_list_->item_at(0)->position());
-  EXPECT_EQ(item_0, item_list_->item_at(0));
-  EXPECT_EQ(item_1, item_list_->item_at(1));
-  EXPECT_TRUE(item_0->position().Equals(item_1->position()));
-
-  // Position of items should be fixed.
-  AppListItem* page_break_item = item_list_->AddPageBreakItemAfter(item_0);
-  EXPECT_EQ(item_0, item_list_->item_at(0));
-  EXPECT_EQ(page_break_item, item_list_->item_at(1));
-  EXPECT_EQ(item_1, item_list_->item_at(2));
-  EXPECT_TRUE(item_0->position().LessThan(page_break_item->position()));
-  EXPECT_TRUE(page_break_item->position().LessThan(item_1->position()));
 }
 
 TEST_F(AppListItemListTest, MoveItemPastEnd) {

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -135,10 +135,8 @@ IN_PROC_BROWSER_TEST_F(WebAppAudioFocusBrowserTest, AppHasDifferentAudioFocus) {
 
   // Navigate inside the PWA and make sure we keep the same group id.
   {
-    std::string new_query_string = "t=1";
-    url::Component new_query(0, new_query_string.length());
-    url::Replacements<char> replacements;
-    replacements.SetQuery(new_query_string.c_str(), new_query);
+    GURL::Replacements replacements;
+    replacements.SetQueryStr("t=1");
     GURL new_url =
         web_contents->GetLastCommittedURL().ReplaceComponents(replacements);
     ASSERT_TRUE(NavigateInRenderer(web_contents, new_url));

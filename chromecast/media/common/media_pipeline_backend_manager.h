@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -98,6 +98,7 @@ class MediaPipelineBackendManager : public media::CmaBackendFactory {
   // media::CmaBackendFactory implementation:
   std::unique_ptr<CmaBackend> CreateBackend(
       const MediaPipelineDeviceParams& params) override;
+  scoped_refptr<base::SequencedTaskRunner> GetMediaTaskRunner() override;
 
   // Inform that a backend previously created is destroyed.
   // Must be called on the same thread as |media_task_runner_|.

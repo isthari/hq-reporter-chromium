@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,9 +22,12 @@ struct COMPONENT_EXPORT(ICON_TYPES) IconKey {
   IconKey(IconKey&&) = default;
   IconKey& operator=(IconKey&&) = default;
 
-  bool operator==(const IconKey& other) const;
-
   ~IconKey();
+
+  bool operator==(const IconKey& other) const;
+  bool operator!=(const IconKey& other) const;
+
+  std::unique_ptr<IconKey> Clone() const;
 
   // A timeline value for icons that do not change.
   static const uint64_t kDoesNotChangeOverTime;
@@ -60,6 +63,8 @@ struct COMPONENT_EXPORT(ICON_TYPES) IconKey {
   // When adding new fields, also update the IconLoader::Key type in
   // components/services/app_service/public/cpp/icon_loader.*
 };
+
+using IconKeyPtr = std::unique_ptr<IconKey>;
 
 enum class IconType {
   // Sentinel value used in error cases.
@@ -115,23 +120,6 @@ apps::mojom::IconType ConvertIconTypeToMojomIconType(IconType icon_type);
 
 COMPONENT_EXPORT(ICON_TYPES)
 IconType ConvertMojomIconTypeToIconType(apps::mojom::IconType mojom_icon_type);
-
-COMPONENT_EXPORT(ICON_TYPES)
-apps::mojom::IconValuePtr ConvertIconValueToMojomIconValue(
-    IconValuePtr icon_value);
-
-COMPONENT_EXPORT(ICON_TYPES)
-IconValuePtr ConvertMojomIconValueToIconValue(
-    apps::mojom::IconValuePtr mojom_icon_value);
-
-COMPONENT_EXPORT(ICON_TYPES)
-base::OnceCallback<void(IconValuePtr)> IconValueToMojomIconValueCallback(
-    base::OnceCallback<void(apps::mojom::IconValuePtr)> callback);
-
-COMPONENT_EXPORT(ICON_TYPES)
-base::OnceCallback<void(apps::mojom::IconValuePtr)>
-MojomIconValueToIconValueCallback(
-    base::OnceCallback<void(IconValuePtr)> callback);
 
 }  // namespace apps
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/callback_helpers.h"
+#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/ref_counted.h"
@@ -17,9 +19,11 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/media/cast_remoting_connector.h"
+#include "chrome/browser/media/router/discovery/access_code/access_code_cast_feature.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "chrome/browser/net/system_network_context_manager.h"
+#include "chrome/browser/ui/tab_sharing/tab_sharing_ui.h"
 #include "components/mirroring/browser/single_client_video_capture_host.h"
 #include "components/mirroring/mojom/cast_message_channel.mojom.h"
 #include "components/mirroring/mojom/mirroring_service.mojom.h"
@@ -37,13 +41,16 @@
 #include "content/public/browser/video_capture_device_launcher.h"
 #include "content/public/browser/web_contents.h"
 #include "media/audio/audio_device_description.h"
+#include "media/base/media_switches.h"
 #include "media/mojo/mojom/audio_data_pipe.mojom.h"
 #include "media/mojo/mojom/audio_input_stream.mojom.h"
+#include "media/mojo/mojom/audio_processing.mojom.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "services/viz/public/mojom/gpu.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 #include "url/origin.h"
@@ -60,6 +67,13 @@ using media::mojom::AudioInputStreamObserver;
 
 // Default resolution constraint.
 constexpr gfx::Size kMaxResolution(1920, 1080);
+
+// Command line arguments that should be passed to the mirroring service.
+static const char* kPassthroughSwitches[]{
+    switches::kCastStreamingForceEnableHardwareH264,
+    switches::kCastStreamingForceDisableHardwareH264,
+    switches::kCastStreamingForceEnableHardwareVp8,
+    switches::kCastStreamingForceDisableHardwareVp8};
 
 void CreateVideoCaptureHostOnIO(
     const std::string& device_id,
@@ -104,6 +118,16 @@ content::WebContents* GetContents(
                                        id.main_render_frame_id));
 }
 
+// Returns true if this user is allowed to use Access Codes & QR codes to
+// discover cast devices, and AccessCodeCastTabSwitchingUI flag is enabled.
+bool IsAccessCodeCastTabSwitchingUIEnabled(
+    const content::WebContentsMediaCaptureId& id) {
+  auto* web_contents = GetContents(id);
+  return web_contents &&
+         media_router::IsAccessCodeCastTabSwitchingUiEnabled(
+             Profile::FromBrowserContext(web_contents->GetBrowserContext()));
+}
+
 content::DesktopMediaID BuildMediaIdForWebContents(
     content::WebContents* contents) {
   content::DesktopMediaID media_id;
@@ -111,8 +135,9 @@ content::DesktopMediaID BuildMediaIdForWebContents(
     return media_id;
   media_id.type = content::DesktopMediaID::TYPE_WEB_CONTENTS;
   media_id.web_contents_id = content::WebContentsMediaCaptureId(
-      contents->GetMainFrame()->GetProcess()->GetID(),
-      contents->GetMainFrame()->GetRoutingID(), true /* disable_local_echo */);
+      contents->GetPrimaryMainFrame()->GetProcess()->GetID(),
+      contents->GetPrimaryMainFrame()->GetRoutingID(),
+      true /* disable_local_echo */);
   return media_id;
 }
 
@@ -136,27 +161,6 @@ void CastMirroringServiceHost::GetForTab(
   if (target_contents) {
     const content::DesktopMediaID media_id =
         BuildMediaIdForWebContents(target_contents);
-    mojo::MakeSelfOwnedReceiver(
-        std::make_unique<CastMirroringServiceHost>(media_id),
-        std::move(receiver));
-  }
-}
-
-// static
-void CastMirroringServiceHost::GetForDesktop(
-    content::WebContents* initiator_contents,
-    const std::string& desktop_stream_id,
-    mojo::PendingReceiver<mojom::MirroringServiceHost> receiver) {
-  DCHECK(!desktop_stream_id.empty());
-  if (initiator_contents) {
-    std::string original_extension_name;
-    const content::DesktopMediaID media_id =
-        content::DesktopStreamsRegistry::GetInstance()->RequestMediaForStreamId(
-            desktop_stream_id,
-            initiator_contents->GetMainFrame()->GetProcess()->GetID(),
-            initiator_contents->GetMainFrame()->GetRoutingID(),
-            url::Origin::Create(initiator_contents->GetVisibleURL()),
-            &original_extension_name, content::kRegistryStreamTypeDesktop);
     mojo::MakeSelfOwnedReceiver(
         std::make_unique<CastMirroringServiceHost>(media_id),
         std::move(receiver));
@@ -189,7 +193,9 @@ void CastMirroringServiceHost::GetForOffscreenTab(
 CastMirroringServiceHost::CastMirroringServiceHost(
     content::DesktopMediaID source_media_id)
     : source_media_id_(source_media_id),
-      gpu_client_(nullptr, base::OnTaskRunnerDeleter(nullptr)) {
+      gpu_client_(nullptr, base::OnTaskRunnerDeleter(nullptr)),
+      tab_switching_ui_enabled_(IsAccessCodeCastTabSwitchingUIEnabled(
+          source_media_id.web_contents_id)) {
   // Observe the target WebContents for Tab mirroring.
   if (source_media_id_.type == content::DesktopMediaID::TYPE_WEB_CONTENTS)
     Observe(GetContents(source_media_id_.web_contents_id));
@@ -209,21 +215,44 @@ void CastMirroringServiceHost::Start(
     return;
   }
 
+  // Although the base::Features get propagated to the mirroring service, the
+  // command line flags do not.
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  std::vector<std::string> extra_switches;
+
+  for (const char* passthrough_switch : kPassthroughSwitches) {
+    if (command_line.HasSwitch(passthrough_switch)) {
+      extra_switches.emplace_back(passthrough_switch);
+    }
+  }
+
   // Launch and connect to the Mirroring Service. The process will run until
   // |mirroring_service_| is reset.
   content::ServiceProcessHost::Launch(
       mirroring_service_.BindNewPipeAndPassReceiver(),
       content::ServiceProcessHost::Options()
           .WithDisplayName("Mirroring Service")
+          .WithExtraCommandLineSwitches(extra_switches)
           .Pass());
   mojo::PendingRemote<mojom::ResourceProvider> provider;
-  resource_provider_receiver.Bind(provider.InitWithNewPipeAndPassReceiver());
+  resource_provider_receiver_.Bind(provider.InitWithNewPipeAndPassReceiver());
   mirroring_service_->Start(
       std::move(session_params), GetCaptureResolutionConstraint(),
       std::move(observer), std::move(provider), std::move(outbound_channel),
       std::move(inbound_channel));
 
   ShowCaptureIndicator();
+}
+
+void CastMirroringServiceHost::GetTabSourceId(
+    GetTabSourceIdCallback get_tab_source_id_callback) {
+  if (web_contents()) {
+    std::move(get_tab_source_id_callback)
+        .Run(web_contents()->GetPrimaryMainFrame()->GetFrameTreeNodeId());
+  } else {
+    std::move(get_tab_source_id_callback).Run(-1);
+  }
 }
 
 // static
@@ -401,7 +430,7 @@ void CastMirroringServiceHost::CreateAudioStreamForDesktop(
   // over time, with little consideration for maintainable code structure, and
   // add to the fun we're having here.
   //
-  // See if you can spot all 6 unused fields! :P
+  // See if you can spot all 7 unused fields! :P
   audio_stream_factory_->CreateInputStream(
       mojo::PendingReceiver<AudioInputStream>(
           std::move(pipe_to_audio_service.handle1)),
@@ -409,7 +438,7 @@ void CastMirroringServiceHost::CreateAudioStreamForDesktop(
           std::move(pipe_to_mirroring_service.handle0), 0),
       mojo::NullRemote(), mojo::NullRemote(),
       media::AudioDeviceDescription::kLoopbackWithMuteDeviceId, params,
-      total_segments, false, base::ReadOnlySharedMemoryRegion(),
+      total_segments, false, base::ReadOnlySharedMemoryRegion(), nullptr,
       base::BindOnce(
           [](mojo::PendingRemote<mojom::AudioStreamCreatorClient> requestor,
              mojo::PendingRemote<AudioInputStream> stream,
@@ -451,16 +480,80 @@ void CastMirroringServiceHost::ShowCaptureIndicator() {
       !web_contents()) {
     return;
   }
-  const blink::MediaStreamDevice device(
-      ConvertVideoStreamType(source_media_id_.type),
-      source_media_id_.ToString(), /* name */ std::string());
+
+  blink::mojom::StreamDevices devices;
+  const blink::mojom::MediaStreamType stream_type =
+      ConvertVideoStreamType(source_media_id_.type);
+  blink::MediaStreamDevice device = blink::MediaStreamDevice(
+      stream_type, source_media_id_.ToString(), /* name */ std::string());
+  if (blink::IsAudioInputMediaType(stream_type))
+    devices.audio_device = device;
+  else if (blink::IsVideoInputMediaType(stream_type))
+    devices.video_device = device;
+  DCHECK(devices.audio_device.has_value() || devices.video_device.has_value());
+
+  if (tab_switching_ui_enabled_) {
+    ShowTabSharingUI(devices);
+    return;
+  }
+
   media_stream_ui_ = MediaCaptureDevicesDispatcher::GetInstance()
                          ->GetMediaStreamCaptureIndicator()
-                         ->RegisterMediaStream(web_contents(), {device});
+                         ->RegisterMediaStream(web_contents(), devices);
   media_stream_ui_->OnStarted(
       base::RepeatingClosure(), content::MediaStreamUI::SourceCallback(),
       /*label=*/std::string(), /*screen_capture_ids=*/{},
       content::MediaStreamUI::StateChangeCallback());
+}
+
+void CastMirroringServiceHost::ShowTabSharingUI(
+    const blink::mojom::StreamDevices& devices) {
+  DCHECK(tab_switching_ui_enabled_);
+
+  // Callbacks that were supplied to the existing `media_stream_ui_` are no
+  // longer applicable. This is important as some implementations
+  // (TabSharingUIViews) always run the callback when destroyed. However at the
+  // point the UI is replaced while casting is ongoing, invalidating ensures
+  // that casting is not terminated.
+  // TODO(crbug.com/1394268): Remove the need for manual invalidation.
+  weak_factory_for_ui_.InvalidateWeakPtrs();
+
+  content::GlobalRenderFrameHostId capturer_id =
+      web_contents()->GetPrimaryMainFrame()->GetGlobalId();
+
+  std::unique_ptr<MediaStreamUI> notification_ui =
+      TabSharingUI::Create(capturer_id, source_media_id_, std::u16string(),
+                           /*favicons_used_for_switch_to_tab_button=*/false,
+                           /*app_preferred_current_tab=*/false,
+                           TabSharingInfoBarDelegate::TabShareType::CAST);
+
+  media_stream_ui_ = MediaCaptureDevicesDispatcher::GetInstance()
+                         ->GetMediaStreamCaptureIndicator()
+                         ->RegisterMediaStream(web_contents(), devices,
+                                               std::move(notification_ui));
+
+  media_stream_ui_->OnStarted(
+      base::BindRepeating(&CastMirroringServiceHost::WebContentsDestroyed,
+                          weak_factory_for_ui_.GetWeakPtr()),
+      base::BindRepeating(&CastMirroringServiceHost::SwitchMirroringSourceTab,
+                          weak_factory_for_ui_.GetWeakPtr()),
+      /*label=*/std::string(), /*screen_capture_ids=*/{},
+      content::MediaStreamUI::StateChangeCallback());
+}
+
+void CastMirroringServiceHost::SwitchMirroringSourceTab(
+    const content::DesktopMediaID& media_id) {
+  source_media_id_ = media_id;
+  source_media_id_.web_contents_id.disable_local_echo = true;
+
+  // Observe the target WebContents for tab mirroring.
+  DCHECK_EQ(source_media_id_.type, content::DesktopMediaID::TYPE_WEB_CONTENTS);
+  Observe(GetContents(source_media_id_.web_contents_id));
+
+  ShowCaptureIndicator();
+  web_contents_audio_muter_.reset();
+
+  mirroring_service_->SwitchMirroringSourceTab();
 }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)

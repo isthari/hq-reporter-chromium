@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/check.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/base/load_flags.h"
+#include "services/network/public/cpp/record_ontransfersizeupdate_utils.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/early_hints.mojom.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
@@ -72,9 +73,12 @@ class URLLoaderRelay : public network::mojom::URLLoaderClient,
     client_sink_->OnReceiveEarlyHints(std::move(early_hints));
   }
 
-  void OnReceiveResponse(network::mojom::URLResponseHeadPtr head,
-                         mojo::ScopedDataPipeConsumerHandle body) override {
-    client_sink_->OnReceiveResponse(std::move(head), std::move(body));
+  void OnReceiveResponse(
+      network::mojom::URLResponseHeadPtr head,
+      mojo::ScopedDataPipeConsumerHandle body,
+      absl::optional<mojo_base::BigBuffer> cached_metadata) override {
+    client_sink_->OnReceiveResponse(std::move(head), std::move(body),
+                                    std::move(cached_metadata));
   }
 
   void OnReceiveRedirect(const net::RedirectInfo& redirect_info,
@@ -89,17 +93,11 @@ class URLLoaderRelay : public network::mojom::URLLoaderClient,
                                    std::move(callback));
   }
 
-  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override {
-    client_sink_->OnReceiveCachedMetadata(std::move(data));
-  }
-
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override {
-    client_sink_->OnTransferSizeUpdated(transfer_size_diff);
-  }
+    network::RecordOnTransferSizeUpdatedUMA(
+        network::OnTransferSizeUpdatedFrom::kURLLoaderRelay);
 
-  void OnStartLoadingResponseBody(
-      mojo::ScopedDataPipeConsumerHandle body) override {
-    client_sink_->OnStartLoadingResponseBody(std::move(body));
+    client_sink_->OnTransferSizeUpdated(transfer_size_diff);
   }
 
   void OnComplete(const network::URLLoaderCompletionStatus& status) override {
@@ -201,7 +199,8 @@ void ChildURLLoaderFactoryBundle::CreateLoaderAndStart(
     mojo::Remote<network::mojom::URLLoaderClient> client_remote(
         std::move(client));
     client_remote->OnReceiveResponse(std::move(transferrable_loader->head),
-                                     std::move(transferrable_loader->body));
+                                     std::move(transferrable_loader->body),
+                                     absl::nullopt);
     mojo::MakeSelfOwnedReceiver(
         std::make_unique<URLLoaderRelay>(
             std::move(transferrable_loader->url_loader),
@@ -277,12 +276,12 @@ ChildURLLoaderFactoryBundle::PassInterface() {
 }
 
 void ChildURLLoaderFactoryBundle::Update(
-    std::unique_ptr<ChildPendingURLLoaderFactoryBundle> info) {
-  if (info->pending_prefetch_loader_factory()) {
+    std::unique_ptr<ChildPendingURLLoaderFactoryBundle> pending_factories) {
+  if (pending_factories->pending_prefetch_loader_factory()) {
     prefetch_loader_factory_.Bind(
-        std::move(info->pending_prefetch_loader_factory()));
+        std::move(pending_factories->pending_prefetch_loader_factory()));
   }
-  URLLoaderFactoryBundle::Update(std::move(info));
+  URLLoaderFactoryBundle::Update(std::move(pending_factories));
 }
 
 void ChildURLLoaderFactoryBundle::UpdateSubresourceOverrides(

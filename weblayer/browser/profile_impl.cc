@@ -1,10 +1,9 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "weblayer/browser/profile_impl.h"
 
-#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -14,6 +13,8 @@
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
 #include "base/observer_list.h"
+#include "base/ranges/algorithm.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
@@ -34,6 +35,7 @@
 #include "services/network/public/mojom/network_context.mojom.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "weblayer/browser/browser_context_impl.h"
 #include "weblayer/browser/browser_impl.h"
 #include "weblayer/browser/browser_list.h"
@@ -245,7 +247,7 @@ void ProfileImpl::RemoveProfileObserver(ProfileObserver* observer) {
 void ProfileImpl::DeleteWebContentsSoon(
     std::unique_ptr<content::WebContents> web_contents) {
   if (web_contents_to_delete_.empty()) {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&ProfileImpl::DeleteScheduleWebContents,
                                   weak_ptr_factory_.GetWeakPtr()));
   }
@@ -298,10 +300,7 @@ void ProfileImpl::ClearBrowsingData(
         remove_mask |= BrowsingDataRemoverDelegate::DATA_TYPE_ISOLATED_ORIGINS;
         remove_mask |= BrowsingDataRemoverDelegate::DATA_TYPE_FAVICONS;
         remove_mask |= BrowsingDataRemoverDelegate::DATA_TYPE_AD_INTERVENTIONS;
-        remove_mask |= content::BrowsingDataRemover::DATA_TYPE_TRUST_TOKENS;
-        remove_mask |= content::BrowsingDataRemover::DATA_TYPE_CONVERSIONS;
-        remove_mask |=
-            content::BrowsingDataRemover::DATA_TYPE_AGGREGATION_SERVICE;
+        remove_mask |= content::BrowsingDataRemover::DATA_TYPE_PRIVACY_SANDBOX;
         break;
       case BrowsingDataType::CACHE:
         remove_mask |= content::BrowsingDataRemover::DATA_TYPE_CACHE;
@@ -727,8 +726,7 @@ void ProfileImpl::PrepareForPossibleCrossOriginNavigation() {
 
 int ProfileImpl::GetNumberOfBrowsers() {
   const auto& browsers = BrowserList::GetInstance()->browsers();
-  return std::count_if(browsers.begin(), browsers.end(),
-                       [this](BrowserImpl* b) { return b->profile() == this; });
+  return base::ranges::count(browsers, this, &BrowserImpl::profile);
 }
 
 void ProfileImpl::DeleteScheduleWebContents() {

@@ -311,6 +311,11 @@
       initial: true,
     },
     {
+      name: "placeRTLScrollbarsOnLeftSideInMainFrame",
+      initial: false,
+      invalidate: ["ScrollbarLayout"],
+    },
+    {
       name: "webSecurityEnabled",
       initial: true,
     },
@@ -726,7 +731,7 @@
     {
       name: "viewportStyle",
       initial: "mojom::blink::ViewportStyle::kDefault",
-      invalidate: ["ViewportRule"],
+      invalidate: ["ViewportStyle"],
       type: "mojom::blink::ViewportStyle",
     },
 
@@ -773,10 +778,6 @@
       type: "String",
     },
     {
-      name: "textTrackWindowPadding",
-      type: "String",
-    },
-    {
       name: "textTrackWindowRadius",
       type: "String",
     },
@@ -815,13 +816,6 @@
     // frame inserted via document.write, regardless of connection type.
     {
       name: "disallowFetchForDocWrittenScriptsInMainFrame",
-      initial: false,
-    },
-
-    // Whether data saver holdback for Web APIs is enabled. If enabled, data saver appears
-    // as disabled to the web consumers even if it has been actually enabled by the user.
-    {
-      name: "dataSaverHoldbackWebApi",
       initial: false,
     },
 
@@ -1061,17 +1055,10 @@
       initial: true,
       type: "bool",
     },
-    // LitePage origin the subresources such as images should be redirected to
-    // when the kSubresourceRedirect feature is enabled.
     {
-      name: "LitePageSubresourceRedirectOrigin",
-      type: "String",
-    },
-    // If true, this setting will automatically grant the window placement
-    // permission on all sites.  This is used for enterprise policy.
-    {
-      name: "WindowPlacementAlwaysAllowed",
-      initial: false,
-    },
+      name: "modalContextMenu",
+      initial: true,
+      type: "bool",
+    }
   ],
 }

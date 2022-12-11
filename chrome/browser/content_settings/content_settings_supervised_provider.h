@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,7 +46,7 @@ class SupervisedProvider : public ObservableProvider {
 
  private:
   // Callback on receiving settings from the supervised user settings service.
-  void OnSupervisedSettingsAvailable(const base::DictionaryValue* settings);
+  void OnSupervisedSettingsAvailable(const base::Value::Dict& settings);
 
   GlobalValueMap value_map_;
 

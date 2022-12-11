@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -108,17 +108,16 @@ void WriteStatsAndDestroySubscribers(
   cast_environment->logger()->Unsubscribe(audio_stats_subscriber.get());
   cast_environment->logger()->Unsubscribe(estimator.get());
 
-  std::unique_ptr<base::DictionaryValue> stats =
-      video_stats_subscriber->GetStats();
+  base::Value::Dict stats = video_stats_subscriber->GetStats();
   std::string json;
   base::JSONWriter::WriteWithOptions(
-      *stats, base::JSONWriter::OPTIONS_PRETTY_PRINT, &json);
+      stats, base::JSONWriter::OPTIONS_PRETTY_PRINT, &json);
   VLOG(0) << "Video stats: " << json;
 
   stats = audio_stats_subscriber->GetStats();
   json.clear();
   base::JSONWriter::WriteWithOptions(
-      *stats, base::JSONWriter::OPTIONS_PRETTY_PRINT, &json);
+      stats, base::JSONWriter::OPTIONS_PRETTY_PRINT, &json);
   VLOG(0) << "Audio stats: " << json;
 }
 

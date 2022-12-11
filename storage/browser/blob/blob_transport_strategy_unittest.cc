@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,11 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/time/time.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "mojo/public/cpp/system/functions.h"
 #include "storage/browser/blob/blob_data_builder.h"
@@ -395,7 +395,8 @@ TEST_F(BlobTransportStrategyTest, Files_WriteFailed) {
     ASSERT_TRUE(base::CreateTemporaryFileInDir(data_dir_.GetPath(), &path));
     files[0].file =
         base::File(path, base::File::FLAG_OPEN | base::File::FLAG_WRITE);
-    files[0].file_deletion_runner = base::ThreadTaskRunnerHandle::Get();
+    files[0].file_deletion_runner =
+        base::SingleThreadTaskRunner::GetCurrentDefault();
     files[0].file_reference = ShareableFileReference::GetOrCreate(
         path, ShareableFileReference::DELETE_ON_FINAL_RELEASE,
         bytes_provider_runner_.get());
@@ -441,7 +442,8 @@ TEST_F(BlobTransportStrategyTest, Files_ValidBytesOneElement) {
     ASSERT_TRUE(base::CreateTemporaryFileInDir(data_dir_.GetPath(), &path));
     files[i].file =
         base::File(path, base::File::FLAG_OPEN | base::File::FLAG_WRITE);
-    files[i].file_deletion_runner = base::ThreadTaskRunnerHandle::Get();
+    files[i].file_deletion_runner =
+        base::SingleThreadTaskRunner::GetCurrentDefault();
     files[i].file_reference = ShareableFileReference::GetOrCreate(
         path, ShareableFileReference::DELETE_ON_FINAL_RELEASE,
         bytes_provider_runner_.get());
@@ -513,7 +515,8 @@ TEST_F(BlobTransportStrategyTest, Files_ValidBytesMultipleElements) {
     files[i].file =
         base::File(path, base::File::FLAG_OPEN | base::File::FLAG_WRITE);
     files[i].path = path;
-    files[i].file_deletion_runner = base::ThreadTaskRunnerHandle::Get();
+    files[i].file_deletion_runner =
+        base::SingleThreadTaskRunner::GetCurrentDefault();
     files[i].file_reference = ShareableFileReference::GetOrCreate(
         path, ShareableFileReference::DELETE_ON_FINAL_RELEASE,
         bytes_provider_runner_.get());

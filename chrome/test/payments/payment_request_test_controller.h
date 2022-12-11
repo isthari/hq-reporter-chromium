@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -97,6 +97,10 @@ class PaymentRequestTestController {
   // or SECURE_PAYMENT_CONFIRMATION type. Returns true if the dialog was
   // available.
   bool ConfirmPayment();
+
+  // Clicks opt-out on the dialog, if available. Returns true if the opt-out
+  // link was available, false if not.
+  bool ClickOptOut();
 
   // Returns true when running on Android M or L.
   bool IsAndroidMarshmallowOrLollipop();

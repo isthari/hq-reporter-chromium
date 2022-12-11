@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,8 +33,8 @@ void SetDestinationSize(struct wl_client* client,
 
   auto* viewport = mock_surface->viewport();
   DCHECK(viewport);
-  viewport->SetDestination(wl_fixed_to_double(width),
-                           wl_fixed_to_double(height));
+  viewport->SetDestinationImpl(wl_fixed_to_double(width),
+                               wl_fixed_to_double(height));
 }
 
 void SetRoundedClipBounds(struct wl_client* client,

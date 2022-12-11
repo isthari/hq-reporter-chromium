@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/task_runner_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -26,26 +25,27 @@
 #include "chrome/browser/ash/printing/cups_printers_manager_factory.h"
 #include "chrome/browser/ash/printing/history/print_job_info.pb.h"
 #include "chrome/browser/ash/printing/history/print_job_info_proto_conversions.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/printing/cups_wrapper.h"
 #include "chrome/browser/printing/print_job.h"
+#include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/grit/generated_resources.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/notification_service.h"
 #include "printing/printed_document.h"
 #include "printing/printing_utils.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
 
-namespace chromeos {
+namespace ash {
 
 namespace {
+
+using ::chromeos::CupsWrapper;
 
 // The rate at which we will poll CUPS for print job updates.
 constexpr base::TimeDelta kPollRate = base::Milliseconds(1000);
@@ -86,16 +86,19 @@ void RecordJobResult(JobResultForHistogram result) {
 
 }  // namespace
 
-class CupsPrintJobManagerImpl : public CupsPrintJobManager,
-                                public content::NotificationObserver {
+class CupsPrintJobManagerImpl : public CupsPrintJobManager {
  public:
   explicit CupsPrintJobManagerImpl(Profile* profile)
       : CupsPrintJobManager(profile),
         cups_wrapper_(CupsWrapper::Create()),
         weak_ptr_factory_(this) {
+    // NOTE: base::Unretained(this) is safe here because this object owns
+    // |subscription_| and the callback won't be invoked after |subscription_|
+    // is destroyed.
+    subscription_ = g_browser_process->print_job_manager()->AddDocDoneCallback(
+        base::BindRepeating(&CupsPrintJobManagerImpl::OnDocDone,
+                            base::Unretained(this)));
     timer_.SetTaskRunner(content::GetUIThreadTaskRunner({}));
-    registrar_.Add(this, chrome::NOTIFICATION_PRINT_JOB_EVENT,
-                   content::NotificationService::AllSources());
   }
 
   CupsPrintJobManagerImpl(const CupsPrintJobManagerImpl&) = delete;
@@ -123,31 +126,21 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
     return false;
   }
 
-  // NotificationObserver overrides:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override {
-    DCHECK_EQ(chrome::NOTIFICATION_PRINT_JOB_EVENT, type);
-
-    content::Details<::printing::JobEventDetails> job_details(details);
-    content::Source<::printing::PrintJob> job(source);
-
-    // DOC_DONE occurs after the print job has been successfully sent to the
+  void OnDocDone(::printing::PrintJob* job,
+                 ::printing::PrintedDocument* document,
+                 int job_id) {
+    // This event occurs after the print job has been successfully sent to the
     // spooler which is when we begin tracking the print queue.
-    if (job_details->type() == ::printing::JobEventDetails::DOC_DONE) {
-      const ::printing::PrintedDocument* document = job_details->document();
-      DCHECK(document);
-      std::u16string title =
-          ::printing::SimplifyDocumentTitle(document->name());
-      if (title.empty()) {
-        title = ::printing::SimplifyDocumentTitle(
-            l10n_util::GetStringUTF16(IDS_DEFAULT_PRINT_DOCUMENT_TITLE));
-      }
-      CreatePrintJob(base::UTF16ToUTF8(document->settings().device_name()),
-                     base::UTF16ToUTF8(title), job_details->job_id(),
-                     document->page_count(), job->source(), job->source_id(),
-                     PrintSettingsToProto(document->settings()));
+    DCHECK(document);
+    std::u16string title = ::printing::SimplifyDocumentTitle(document->name());
+    if (title.empty()) {
+      title = ::printing::SimplifyDocumentTitle(
+          l10n_util::GetStringUTF16(IDS_DEFAULT_PRINT_DOCUMENT_TITLE));
     }
+    CreatePrintJob(base::UTF16ToUTF8(document->settings().device_name()),
+                   base::UTF16ToUTF8(title), job_id, document->page_count(),
+                   job->source(), job->source_id(),
+                   PrintSettingsToProto(document->settings()));
   }
 
   // Begin monitoring a print job for a given |printer_id| with the given
@@ -174,7 +167,7 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
       return false;
     }
 
-    absl::optional<Printer> printer = manager->GetPrinter(printer_id);
+    absl::optional<chromeos::Printer> printer = manager->GetPrinter(printer_id);
     if (!printer) {
       LOG(WARNING)
           << "Printer was removed while job was in progress.  It cannot "
@@ -212,7 +205,7 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
     const int job_id = job->job_id();
     const std::string printer_id = job->printer().id();
 
-    // Stop montioring jobs after we cancel them.  The user no longer cares.
+    // Stop monitoring jobs after we cancel them.  The user no longer cares.
     jobs_.erase(job->GetUniqueId());
 
     cups_wrapper_->CancelJob(printer_id, job_id);
@@ -282,7 +275,8 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
           NotifyJobStateUpdate(print_job->GetWeakPtr());
         }
 
-        if (print_job->error_code() == PrinterErrorCode::CLIENT_UNAUTHORIZED) {
+        if (print_job->error_code() ==
+            chromeos::PrinterErrorCode::CLIENT_UNAUTHORIZED) {
           // Job needs to be forcibly cancelled, CUPS will keep the job in held
           // and the job cannot be resumed in chromeos.
           FinishPrintJob(print_job);
@@ -382,8 +376,8 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
   int retry_count_ = 0;
 
   base::RepeatingTimer timer_;
-  content::NotificationRegistrar registrar_;
   std::unique_ptr<CupsWrapper> cups_wrapper_;
+  ::printing::PrintJobManager::DocDoneCallbackList::Subscription subscription_;
   base::WeakPtrFactory<CupsPrintJobManagerImpl> weak_ptr_factory_;
 };
 
@@ -392,4 +386,4 @@ CupsPrintJobManager* CupsPrintJobManager::CreateInstance(Profile* profile) {
   return new CupsPrintJobManagerImpl(profile);
 }
 
-}  // namespace chromeos
+}  // namespace ash

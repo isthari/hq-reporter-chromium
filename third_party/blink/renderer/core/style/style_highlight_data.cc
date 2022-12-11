@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,6 +50,27 @@ bool StyleHighlightData::operator==(const StyleHighlightData& other) const {
          base::ValuesEquivalent(spelling_error_, other.spelling_error_) &&
          base::ValuesEquivalent(grammar_error_, other.grammar_error_) &&
          HighlightStyleMapEquals(custom_highlights_, other.custom_highlights_);
+}
+
+const ComputedStyle* StyleHighlightData::Style(
+    PseudoId pseudo_id,
+    const AtomicString& pseudo_argument) const {
+  DCHECK(IsHighlightPseudoElement(pseudo_id));
+  switch (pseudo_id) {
+    case kPseudoIdSelection:
+      return Selection();
+    case kPseudoIdTargetText:
+      return TargetText();
+    case kPseudoIdSpellingError:
+      return SpellingError();
+    case kPseudoIdGrammarError:
+      return GrammarError();
+    case kPseudoIdHighlight:
+      return CustomHighlight(pseudo_argument);
+    default:
+      NOTREACHED();
+      return nullptr;
+  }
 }
 
 const ComputedStyle* StyleHighlightData::Selection() const {

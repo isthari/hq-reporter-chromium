@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,15 @@
 
 #include "base/atomic_sequence_num.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/enterprise/connectors/interstitials/enterprise_block_controller_client.h"
+#include "chrome/browser/enterprise/connectors/interstitials/enterprise_block_page.h"
+#include "chrome/browser/enterprise/connectors/interstitials/enterprise_warn_controller_client.h"
+#include "chrome/browser/enterprise/connectors/interstitials/enterprise_warn_page.h"
 #include "chrome/browser/lookalikes/lookalike_url_blocking_page.h"
 #include "chrome/browser/lookalikes/lookalike_url_controller_client.h"
 #include "chrome/browser/profiles/profile.h"
@@ -34,7 +39,6 @@
 #include "components/security_interstitials/content/https_only_mode_blocking_page.h"
 #include "components/security_interstitials/content/insecure_form_blocking_page.h"
 #include "components/security_interstitials/content/mitm_software_blocking_page.h"
-#include "components/security_interstitials/content/origin_policy_ui.h"
 #include "components/security_interstitials/content/security_interstitial_page.h"
 #include "components/security_interstitials/content/unsafe_resource_util.h"
 #include "components/security_interstitials/core/ssl_error_options_mask.h"
@@ -54,7 +58,6 @@
 #include "net/cert/x509_util.h"
 #include "net/ssl/ssl_info.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
-#include "services/network/public/cpp/origin_policy.h"
 #include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/web_ui_util.h"
@@ -64,7 +67,7 @@
 #endif
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
-#include "chrome/browser/supervised_user/supervised_user_error_page/supervised_user_error_page.h"
+#include "chrome/browser/supervised_user/supervised_user_error_page/supervised_user_error_page.h"  // nogncheck
 #include "chrome/browser/supervised_user/supervised_user_interstitial.h"
 #endif
 
@@ -104,7 +107,7 @@ class InterstitialHTMLSource : public content::URLDataSource {
   ~InterstitialHTMLSource() override = default;
 
   // content::URLDataSource:
-  std::string GetMimeType(const std::string& mime_type) override;
+  std::string GetMimeType(const GURL& url) override;
   std::string GetSource() override;
   std::string GetContentSecurityPolicy(
       const network::mojom::CSPDirectiveName directive) override;
@@ -306,7 +309,7 @@ CreateSafeBrowsingBlockingPage(content::WebContents* web_contents) {
     }
   }
   const content::GlobalRenderFrameHostId primary_main_frame_id =
-      web_contents->GetMainFrame()->GetGlobalId();
+      web_contents->GetPrimaryMainFrame()->GetGlobalId();
   safe_browsing::SafeBrowsingBlockingPage::UnsafeResource resource;
   resource.url = request_url;
   resource.is_subresource = request_url != main_frame_url;
@@ -330,6 +333,24 @@ CreateSafeBrowsingBlockingPage(content::WebContents* web_contents) {
   return base::WrapUnique<safe_browsing::SafeBrowsingBlockingPage>(
       ui_manager->blocking_page_factory()->CreateSafeBrowsingPage(
           ui_manager, web_contents, main_frame_url, {resource}, true));
+}
+
+std::unique_ptr<EnterpriseBlockPage> CreateEnterpriseBlockPage(
+    content::WebContents* web_contents) {
+  const GURL kRequestUrl("https://enterprise-block.example.net");
+  return std::make_unique<EnterpriseBlockPage>(
+      web_contents, kRequestUrl,
+      std::make_unique<EnterpriseBlockControllerClient>(web_contents,
+                                                        kRequestUrl));
+}
+
+std::unique_ptr<EnterpriseWarnPage> CreateEnterpriseWarnPage(
+    content::WebContents* web_contents) {
+  const GURL kRequestUrl("https://enterprise-warn.example.net");
+  return std::make_unique<EnterpriseWarnPage>(
+      web_contents, kRequestUrl,
+      std::make_unique<EnterpriseWarnControllerClient>(web_contents,
+                                                       kRequestUrl));
 }
 
 std::unique_ptr<TestSafeBrowsingBlockingPageQuiet>
@@ -362,7 +383,7 @@ CreateSafeBrowsingQuietBlockingPage(content::WebContents* web_contents) {
     }
   }
   const content::GlobalRenderFrameHostId primary_main_frame_id =
-      web_contents->GetMainFrame()->GetGlobalId();
+      web_contents->GetPrimaryMainFrame()->GetGlobalId();
   safe_browsing::SafeBrowsingBlockingPage::UnsafeResource resource;
   resource.url = request_url;
   resource.is_subresource = request_url != main_frame_url;
@@ -431,14 +452,6 @@ std::unique_ptr<CaptivePortalBlockingPage> CreateCaptivePortalBlockingPage(
 }
 #endif
 
-std::unique_ptr<security_interstitials::SecurityInterstitialPage>
-CreateOriginPolicyInterstitialPage(content::WebContents* web_contents) {
-  return base::WrapUnique<security_interstitials::SecurityInterstitialPage>(
-      security_interstitials::OriginPolicyUI::GetBlockingPage(
-          network::OriginPolicyState::kCannotLoadPolicy, web_contents,
-          GURL("https://example.com/broken/origin/policy")));
-}
-
 }  //  namespace
 
 InterstitialUI::InterstitialUI(content::WebUI* web_ui)
@@ -451,7 +464,7 @@ InterstitialUI::~InterstitialUI() = default;
 
 // InterstitialHTMLSource
 
-std::string InterstitialHTMLSource::GetMimeType(const std::string& mime_type) {
+std::string InterstitialHTMLSource::GetMimeType(const GURL&) {
   return "text/html";
 }
 
@@ -503,6 +516,10 @@ void InterstitialHTMLSource::StartDataRequest(
     interstitial_delegate = CreateBlockedInterceptionBlockingPage(web_contents);
   } else if (path_without_query == "/safebrowsing") {
     interstitial_delegate = CreateSafeBrowsingBlockingPage(web_contents);
+  } else if (path_without_query == "/enterprise-block") {
+    interstitial_delegate = CreateEnterpriseBlockPage(web_contents);
+  } else if (path_without_query == "/enterprise-warn") {
+    interstitial_delegate = CreateEnterpriseWarnPage(web_contents);
   } else if (path_without_query == "/clock") {
     interstitial_delegate = CreateBadClockBlockingPage(web_contents);
   } else if (path_without_query == "/lookalike") {
@@ -511,8 +528,6 @@ void InterstitialHTMLSource::StartDataRequest(
   } else if (path_without_query == "/captiveportal") {
     interstitial_delegate = CreateCaptivePortalBlockingPage(web_contents);
 #endif
-  } else if (path_without_query == "/origin_policy") {
-    interstitial_delegate = CreateOriginPolicyInterstitialPage(web_contents);
   } else if (path_without_query == "/insecure_form") {
     interstitial_delegate = CreateInsecureFormPage(web_contents);
   } else if (path_without_query == "/https_only") {
@@ -551,15 +566,17 @@ std::string InterstitialHTMLSource::GetSupervisedUserInterstitialHTML(
     allow_access_requests = allow_access_requests_string == "1";
   }
 
-  std::string custodian;
+  std::string custodian = "Alice";
   net::GetValueForKeyInQuery(url, "custodian", &custodian);
-  std::string second_custodian;
+  std::string second_custodian = "Bob";
   net::GetValueForKeyInQuery(url, "second_custodian", &second_custodian);
-  std::string custodian_email;
+  std::string custodian_email = "alice.bloggs@gmail.com";
   net::GetValueForKeyInQuery(url, "custodian_email", &custodian_email);
-  std::string second_custodian_email;
+  std::string second_custodian_email = "bob.bloggs@gmail.com";
   net::GetValueForKeyInQuery(url, "second_custodian_email",
                              &second_custodian_email);
+  // The interstitial implementation provides a fallback image so no need to set
+  // one here.
   std::string profile_image_url;
   net::GetValueForKeyInQuery(url, "profile_image_url", &profile_image_url);
   std::string profile_image_url2;

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 
 #include <string>
 
-#include "ash/components/proximity_auth/proximity_auth_pref_manager.h"
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/smartlock_state.h"
 #include "base/bind.h"
@@ -16,10 +15,12 @@
 #include "build/build_config.h"
 #include "chrome/browser/ash/login/easy_unlock/easy_unlock_metrics.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/ash/components/proximity_auth/proximity_auth_pref_manager.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/chromeos/devicetype_utils.h"
 
 namespace ash {
+
 namespace {
 
 proximity_auth::ScreenlockBridge::UserPodCustomIcon GetIconForState(
@@ -30,7 +31,7 @@ proximity_auth::ScreenlockBridge::UserPodCustomIcon GetIconForState(
       // case.
       // TODO(crbug.com/1233614): Remove this special case once SmartLockState
       // is routed directly to SmartLockAuthFactorModel.
-      if (base::FeatureList::IsEnabled(ash::features::kSmartLockUIRevamp)) {
+      if (base::FeatureList::IsEnabled(features::kSmartLockUIRevamp)) {
         return proximity_auth::ScreenlockBridge::
             USER_POD_CUSTOM_ICON_LOCKED_TO_BE_ACTIVATED;
       }

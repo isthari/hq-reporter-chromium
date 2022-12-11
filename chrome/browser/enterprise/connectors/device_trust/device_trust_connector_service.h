@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,16 +32,12 @@ class DeviceTrustConnectorService : public KeyedService {
 
   ~DeviceTrustConnectorService() override;
 
-  // Returns whether the Device Trust connector is enabled or not, uses the
-  // given `profile_prefs` to check the policy value.
-  static bool IsConnectorEnabled(PrefService* profile_prefs);
-
   // Does one time initialization of the service.  This is called from the
   // factory and client do not need to call it.
   void Initialize();
 
   // Returns whether the Device Trust connector is enabled or not.
-  bool IsConnectorEnabled() const;
+  virtual bool IsConnectorEnabled() const;
 
   // Returns whether the Device Trust connector watches navigations to the given
   // `url` or not.

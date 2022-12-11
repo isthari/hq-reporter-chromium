@@ -1,10 +1,8 @@
 /*
- * Copyright 2017 The Chromium Authors. All rights reserved.
+ * Copyright 2017 The Chromium Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-
-/* global PaymentRequest:false */
 
 /**
  * Launches the PaymentRequest UI with Bob Pay as the only payment method.
@@ -14,7 +12,7 @@
  * the UI skip optimization, skipping its own UI enterily and going directly to
  * Bob Pay.
  */
-function buy() { // eslint-disable-line no-unused-vars
+function buy() {
   try {
     new PaymentRequest(
         [{supportedMethods: 'https://bobpay.com'}],
@@ -43,7 +41,7 @@ function buy() { // eslint-disable-line no-unused-vars
  * Launches the PaymentRequest UI with Bob Pay as the only payment method, then
  * tells the browser that the transaction has failed.
  */
-function buyFail() { // eslint-disable-line no-unused-vars
+function buyFail() {
   try {
     new PaymentRequest(
         [{supportedMethods: 'https://bobpay.com'}],
@@ -70,7 +68,7 @@ function buyFail() { // eslint-disable-line no-unused-vars
  * Launches the PaymentRequest UI with Bob Pay as the only payment method but
  * requesting the payer's email as to disable skip ui.
  */
-function buyWithRequestedEmail() { // eslint-disable-line no-unused-vars
+function buyWithRequestedEmail() {
   try {
     new PaymentRequest(
         [{supportedMethods: 'https://bobpay.com'}],

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,8 +56,13 @@ class LocalFrameMojoHandler
 
   void ClosePageForTesting();
 
-  mojom::blink::LocalFrameHost& LocalFrameHostRemote() const {
+  mojom::blink::LocalFrameHost& LocalFrameHostRemote() {
     return *local_frame_host_remote_.get();
+  }
+
+  mojom::blink::NonAssociatedLocalFrameHost&
+  NonAssociatedLocalFrameHostRemote() {
+    return *non_associated_local_frame_host_remote_.get();
   }
 
   mojom::blink::ReportingServiceProxy* ReportingService();
@@ -126,7 +131,7 @@ class LocalFrameMojoHandler
   void AdvanceFocusInFrame(
       mojom::blink::FocusType focus_type,
       const absl::optional<RemoteFrameToken>& source_frame_token) final;
-  void AdvanceFocusInForm(mojom::blink::FocusType focus_type) final;
+  void AdvanceFocusForIME(mojom::blink::FocusType focus_type) final;
   void ReportContentSecurityPolicyViolation(
       network::mojom::blink::CSPViolationPtr csp_violation) final;
   // Updates the snapshotted policy attributes (sandbox flags and permissions
@@ -143,7 +148,7 @@ class LocalFrameMojoHandler
   void JavaScriptMethodExecuteRequest(
       const String& object_name,
       const String& method_name,
-      base::Value arguments,
+      base::Value::List arguments,
       bool wants_result,
       JavaScriptMethodExecuteRequestCallback callback) final;
   void JavaScriptExecuteRequest(
@@ -191,6 +196,16 @@ class LocalFrameMojoHandler
   void HandleRendererDebugURL(const KURL& url) final;
   void GetCanonicalUrlForSharing(
       GetCanonicalUrlForSharingCallback callback) final;
+  void GetOpenGraphMetadata(GetOpenGraphMetadataCallback callback) final;
+
+  void SetNavigationApiHistoryEntriesForRestore(
+      mojom::blink::NavigationApiHistoryEntryArraysPtr) final;
+  void NotifyNavigationApiOfDisposedEntries(
+      const WTF::Vector<WTF::String>&) final;
+  void TraverseCancelled(const String& navigation_api_key,
+                         mojom::blink::TraverseCancelledReason reason) final;
+  void SnapshotDocumentForViewTransition(
+      SnapshotDocumentForViewTransitionCallback callback) final;
 
   // blink::mojom::LocalMainFrame overrides:
   void AnimateDoubleTapZoom(const gfx::Point& point,
@@ -198,6 +213,8 @@ class LocalFrameMojoHandler
   void SetScaleFactor(float scale) override;
   void ClosePage(
       mojom::blink::LocalMainFrame::ClosePageCallback callback) override;
+  void GetFullPageSize(
+      mojom::blink::LocalMainFrame::GetFullPageSizeCallback callback) override;
   void PluginActionAt(const gfx::Point& location,
                       mojom::blink::PluginActionType action) override;
   void SetInitialFocus(bool reverse) override;
@@ -249,6 +266,9 @@ class LocalFrameMojoHandler
 
   HeapMojoAssociatedRemote<mojom::blink::LocalFrameHost>
       local_frame_host_remote_{nullptr};
+
+  HeapMojoRemote<mojom::blink::NonAssociatedLocalFrameHost>
+      non_associated_local_frame_host_remote_{nullptr};
 
   // LocalFrameMojoHandler can be reused by multiple ExecutionContext.
   HeapMojoAssociatedReceiver<mojom::blink::LocalFrame, LocalFrameMojoHandler>

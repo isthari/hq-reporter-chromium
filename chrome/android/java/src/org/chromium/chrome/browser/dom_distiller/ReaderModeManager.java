@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,11 +36,14 @@ import org.chromium.chrome.browser.fullscreen.BrowserControlsManager;
 import org.chromium.chrome.browser.fullscreen.BrowserControlsManagerSupplier;
 import org.chromium.chrome.browser.fullscreen.FullscreenManager;
 import org.chromium.chrome.browser.infobar.ReaderModeInfoBar;
+import org.chromium.chrome.browser.preferences.Pref;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabHidingType;
 import org.chromium.chrome.browser.tab.TabSelectionType;
 import org.chromium.chrome.browser.tab.TabUtils;
+import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarFeatures;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
 import org.chromium.components.messages.DismissReason;
 import org.chromium.components.messages.MessageBannerProperties;
@@ -48,7 +51,9 @@ import org.chromium.components.messages.MessageDispatcher;
 import org.chromium.components.messages.MessageDispatcherProvider;
 import org.chromium.components.messages.MessageIdentifier;
 import org.chromium.components.messages.MessageScopeType;
+import org.chromium.components.messages.PrimaryActionClickBehavior;
 import org.chromium.components.navigation_interception.InterceptNavigationDelegate;
+import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.content_public.browser.LoadCommittedDetails;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.NavigationController;
@@ -63,6 +68,7 @@ import org.chromium.url.GURL;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.LinkedHashSet;
 
 /**
  * Manages UI effects for reader mode including hiding and showing the
@@ -83,6 +89,28 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
 
         /** STARTED means reader mode is currently in reader mode. */
         int STARTED = 2;
+    }
+
+    /**
+     * Conditions under which the Reader Mode message was dismissed in conjunction with the
+     * accessibility setting.
+     *
+     * Note: These values are persisted to logs. Entries should not be renumbered and numeric values
+     * should never be reused.
+     */
+    @IntDef({MessageDismissalCondition.ACCEPTED_WITH_ACCESSIBILITY_SETTING_SELECTED,
+            MessageDismissalCondition.ACCEPTED_WITH_ACCESSIBILITY_SETTING_DESELECTED,
+            MessageDismissalCondition.IGNORED_WITH_ACCESSIBILITY_SETTING_SELECTED,
+            MessageDismissalCondition.IGNORED_WITH_ACCESSIBILITY_SETTING_DESELECTED,
+            MessageDismissalCondition.NUM_ENTRIES})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface MessageDismissalCondition {
+        int ACCEPTED_WITH_ACCESSIBILITY_SETTING_SELECTED = 0;
+        int ACCEPTED_WITH_ACCESSIBILITY_SETTING_DESELECTED = 1;
+        int IGNORED_WITH_ACCESSIBILITY_SETTING_SELECTED = 2;
+        int IGNORED_WITH_ACCESSIBILITY_SETTING_DESELECTED = 3;
+        // Number of entries
+        int NUM_ENTRIES = 4;
     }
 
     /** The key to access this object from a {@Tab}. */
@@ -144,8 +172,16 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
     /** Whether the messages UI was requested for a navigation. */
     private boolean mMessageRequestedForNavigation;
 
+    // Record the sites which users refuse to view in reader mode.
+    // If the size is larger than the capacity, remove the earliest added site first.
+    private static final LinkedHashSet<Integer> sMutedSites = new LinkedHashSet<>();
+    private static final int MAX_SIZE_OF_DECLINED_SITES = 100;
+
     /** Whether the message ui is being shown or has already been shown. */
     private boolean mMessageShown;
+
+    /** Property Model of Reader mode message. */
+    private PropertyModel mMessageModel;
 
     ReaderModeManager(Tab tab, Supplier<MessageDispatcher> messageDispatcherSupplier) {
         super();
@@ -191,24 +227,28 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
         WebContents webContents = tab.getWebContents();
         if (webContents == null) return;
 
-        mCustomTabNavigationDelegate = (navParams) -> {
-            if (DomDistillerUrlUtils.isDistilledPage(navParams.url)
-                    || navParams.isExternalProtocol) {
-                return false;
+        mCustomTabNavigationDelegate = new InterceptNavigationDelegate() {
+            @Override
+            public boolean shouldIgnoreNavigation(
+                    NavigationHandle navigationHandle, GURL escapedUrl) {
+                if (DomDistillerUrlUtils.isDistilledPage(navigationHandle.getUrl())
+                        || navigationHandle.isExternalProtocol()) {
+                    return false;
+                }
+
+                Intent returnIntent =
+                        new Intent(Intent.ACTION_VIEW, Uri.parse(escapedUrl.getSpec()));
+                returnIntent.setClassName(activity, ChromeLauncherActivity.class.getName());
+
+                // Set the parent ID of the tab to be created.
+                returnIntent.putExtra(EXTRA_READER_MODE_PARENT,
+                        IntentUtils.safeGetInt(activity.getIntent().getExtras(),
+                                EXTRA_READER_MODE_PARENT, Tab.INVALID_TAB_ID));
+
+                activity.startActivity(returnIntent);
+                activity.finish();
+                return true;
             }
-
-            Intent returnIntent =
-                    new Intent(Intent.ACTION_VIEW, Uri.parse(navParams.url.getSpec()));
-            returnIntent.setClassName(activity, ChromeLauncherActivity.class.getName());
-
-            // Set the parent ID of the tab to be created.
-            returnIntent.putExtra(EXTRA_READER_MODE_PARENT,
-                    IntentUtils.safeGetInt(activity.getIntent().getExtras(),
-                            EXTRA_READER_MODE_PARENT, Tab.INVALID_TAB_ID));
-
-            activity.startActivity(returnIntent);
-            activity.finish();
-            return true;
         };
 
         DomDistillerTabUtils.setInterceptNavigationDelegate(
@@ -328,6 +368,35 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
         mIsDismissed = true;
     }
 
+    /**
+     * Records the conditions under which the Reader Mode message was dismissed.
+     * @param dismissReason The message dismissal reason.
+     */
+    public void recordDismissalConditions(@DismissReason int dismissReason) {
+        if (mTab == null) return;
+
+        Profile profile = Profile.fromWebContents(mTab.getWebContents());
+        if (profile == null) return;
+        boolean a11ySettingSelected =
+                UserPrefs.get(profile).getBoolean(Pref.READER_FOR_ACCESSIBILITY);
+
+        if (dismissReason == DismissReason.PRIMARY_ACTION) {
+            RecordHistogram.recordEnumeratedHistogram("DomDistiller.MessageDismissalCondition",
+                    a11ySettingSelected
+                            ? MessageDismissalCondition.ACCEPTED_WITH_ACCESSIBILITY_SETTING_SELECTED
+                            : MessageDismissalCondition
+                                      .ACCEPTED_WITH_ACCESSIBILITY_SETTING_DESELECTED,
+                    MessageDismissalCondition.NUM_ENTRIES);
+        } else {
+            RecordHistogram.recordEnumeratedHistogram("DomDistiller.MessageDismissalCondition",
+                    a11ySettingSelected
+                            ? MessageDismissalCondition.IGNORED_WITH_ACCESSIBILITY_SETTING_SELECTED
+                            : MessageDismissalCondition
+                                      .IGNORED_WITH_ACCESSIBILITY_SETTING_DESELECTED,
+                    MessageDismissalCondition.NUM_ENTRIES);
+        }
+    }
+
     private WebContentsObserver createWebContentsObserver() {
         return new WebContentsObserver(mTab.getWebContents()) {
             /** Whether or not the previous navigation should be removed. */
@@ -337,8 +406,8 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
             private int mLastDistillerPageIndex;
 
             @Override
-            public void didStartNavigation(NavigationHandle navigation) {
-                if (!navigation.isInPrimaryMainFrame() || navigation.isSameDocument()) return;
+            public void didStartNavigationInPrimaryMainFrame(NavigationHandle navigation) {
+                if (navigation.isSameDocument()) return;
 
                 // Reader Mode should not pollute the navigation stack. To avoid this, watch for
                 // navigations and prepare to remove any that are "chrome-distiller" urls.
@@ -361,11 +430,15 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
             }
 
             @Override
-            public void didFinishNavigation(NavigationHandle navigation) {
+            public void didStartNavigationNoop(NavigationHandle navigation) {
+                if (!navigation.isInPrimaryMainFrame()) return;
+            }
+
+            @Override
+            public void didFinishNavigationInPrimaryMainFrame(NavigationHandle navigation) {
                 // TODO(cjhopman): This should possibly ignore navigations that replace the entry
                 // (like those from history.replaceState()).
-                if (!navigation.hasCommitted() || !navigation.isInPrimaryMainFrame()
-                        || navigation.isSameDocument()) {
+                if (!navigation.hasCommitted() || navigation.isSameDocument()) {
                     return;
                 }
 
@@ -390,6 +463,11 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
                 mReaderModePageUrl = null;
 
                 if (mDistillationStatus == DistillationStatus.POSSIBLE) tryShowingPrompt();
+            }
+
+            @Override
+            public void didFinishNavigationNoop(NavigationHandle navigation) {
+                if (!navigation.isInPrimaryMainFrame()) return;
             }
 
             @Override
@@ -428,6 +506,9 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
     void tryShowingPrompt() {
         if (mTab == null || mTab.getWebContents() == null) return;
 
+        // If a reader mode button will be shown on the toolbar then don't show a message.
+        if (AdaptiveToolbarFeatures.isReaderModePageActionEnabled()) return;
+
         // Test if the user is requesting the desktop site. Ignore this if distiller is set to
         // ALWAYS_TRUE.
         boolean usingRequestDesktopSite =
@@ -438,9 +519,18 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
                 || mIsDismissed) {
             return;
         }
+
+        if (sMutedSites.contains(urlToHash(mDistillerUrl))) {
+            return;
+        }
+
         MessageDispatcher messageDispatcher = mMessageDispatcherSupplier.get();
         if (messageDispatcher != null && DomDistillerTabUtils.useMessagesForReaderModePrompt()) {
-            if (!mMessageRequestedForNavigation && !mMessageShown) {
+            if (!mMessageRequestedForNavigation) {
+                // If feature is disabled, reader mode message ui is only shown once per tab.
+                if (mMessageShown) {
+                    return;
+                }
                 showReaderModeMessage(messageDispatcher);
                 mMessageShown = true;
             }
@@ -451,32 +541,67 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
     }
 
     private void showReaderModeMessage(MessageDispatcher messageDispatcher) {
+        if (mMessageModel != null) {
+            // It is safe to dismiss a message which has been dismissed previously.
+            messageDispatcher.dismissMessage(mMessageModel, DismissReason.DISMISSED_BY_FEATURE);
+        }
         Resources resources = mTab.getContext().getResources();
-        PropertyModel message =
-                new PropertyModel.Builder(MessageBannerProperties.ALL_KEYS)
-                        .with(MessageBannerProperties.MESSAGE_IDENTIFIER,
-                                MessageIdentifier.READER_MODE)
-                        .with(MessageBannerProperties.TITLE,
-                                resources.getString(R.string.reader_mode_message_title))
-                        .with(MessageBannerProperties.ICON_RESOURCE_ID,
-                                R.drawable.infobar_mobile_friendly)
-                        .with(MessageBannerProperties.PRIMARY_BUTTON_TEXT,
-                                resources.getString(R.string.reader_mode_message_button))
-                        .with(MessageBannerProperties.ON_PRIMARY_ACTION, this::activateReaderMode)
-                        .with(MessageBannerProperties.ON_DISMISSED, this::onMessageDismissed)
-                        .build();
+        // Save url for #onMessageDismissed. mDistillerUrl may have been changed and became
+        // different from the url when message is enqueued.
+        GURL url = mDistillerUrl;
+        mMessageModel = new PropertyModel.Builder(MessageBannerProperties.ALL_KEYS)
+                                .with(MessageBannerProperties.MESSAGE_IDENTIFIER,
+                                        MessageIdentifier.READER_MODE)
+                                .with(MessageBannerProperties.TITLE,
+                                        resources.getString(R.string.reader_mode_message_title))
+                                .with(MessageBannerProperties.ICON_RESOURCE_ID,
+                                        R.drawable.infobar_mobile_friendly)
+                                .with(MessageBannerProperties.PRIMARY_BUTTON_TEXT,
+                                        resources.getString(R.string.reader_mode_message_button))
+                                .with(MessageBannerProperties.ON_PRIMARY_ACTION,
+                                        () -> {
+                                            activateReaderMode();
+                                            return PrimaryActionClickBehavior.DISMISS_IMMEDIATELY;
+                                        })
+                                .with(MessageBannerProperties.ON_DISMISSED,
+                                        (reason) -> onMessageDismissed(url, reason))
+                                .build();
         messageDispatcher.enqueueMessage(
-                message, mTab.getWebContents(), MessageScopeType.NAVIGATION, false);
+                mMessageModel, mTab.getWebContents(), MessageScopeType.NAVIGATION, false);
     }
 
-    private void onMessageDismissed(@DismissReason int dismissReason) {
+    private void onMessageDismissed(GURL url, @DismissReason int dismissReason) {
+        mMessageModel = null;
         if (dismissReason == DismissReason.GESTURE) {
             onClosed();
         }
+
+        recordDismissalConditions(dismissReason);
+
+        if (dismissReason != DismissReason.PRIMARY_ACTION) {
+            addUrlToMutedSites(url);
+        }
+    }
+
+    private void addUrlToMutedSites(GURL url) {
+        sMutedSites.add(urlToHash(url));
+        while (sMutedSites.size() > MAX_SIZE_OF_DECLINED_SITES) {
+            int v = sMutedSites.iterator().next();
+            sMutedSites.remove(v);
+        }
+    }
+
+    private void removeUrlFromMutedSites(GURL url) {
+        sMutedSites.remove(urlToHash(url));
     }
 
     public void activateReaderMode() {
         RecordHistogram.recordBooleanHistogram("DomDistiller.InfoBarUsage", true);
+        // Contextual page action buttons can't be dismissed, instead we consider a shown but unused
+        // button as "dismissed" and mute the site on setReaderModeUiShown(). When the button gets
+        // clicked we un-mute the site to prevent the rate limiting logic from showing the CPA
+        // button for this site on other tabs.
+        removeUrlFromMutedSites(mDistillerUrl);
 
         if (DomDistillerTabUtils.isCctMode() && !SysUtils.isLowEndDevice()) {
             distillInCustomTab();
@@ -594,16 +719,30 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
         TabDistillabilityProvider.get(tabToObserve).addObserver(mDistillabilityObserver);
     }
 
+    private int urlToHash(GURL url) {
+        return url.getHost().hashCode();
+    }
+
     @VisibleForTesting
     int getDistillationStatus() {
         return mDistillationStatus;
+    }
+
+    @VisibleForTesting
+    void muteSiteForTesting(GURL url) {
+        sMutedSites.add(urlToHash(url));
+    }
+
+    @VisibleForTesting
+    void clearSavedSitesForTesting() {
+        sMutedSites.clear();
     }
 
     /** @return Whether Reader mode and its new UI are enabled. */
     public static boolean isEnabled() {
         boolean enabled = CommandLine.getInstance().hasSwitch(ChromeSwitches.ENABLE_DOM_DISTILLER)
                 && !CommandLine.getInstance().hasSwitch(
-                           ChromeSwitches.DISABLE_READER_MODE_BOTTOM_BAR)
+                        ChromeSwitches.DISABLE_READER_MODE_BOTTOM_BAR)
                 && DomDistillerTabUtils.isDistillerHeuristicsEnabled();
         return enabled;
     }
@@ -617,5 +756,25 @@ public class ReaderModeManager extends EmptyTabObserver implements UserData {
         int readerParentId = IntentUtils.safeGetInt(
                 intent.getExtras(), ReaderModeManager.EXTRA_READER_MODE_PARENT, Tab.INVALID_TAB_ID);
         return readerParentId != Tab.INVALID_TAB_ID;
+    }
+
+    /**
+     * Determine if a reader mode UI should be shown for the current tab and URL. Used when the
+     * contextual page action UI is enabled to replicate the rate limiting of the messages UI.
+     * @return True if the CPA UI should be suppressed.
+     */
+    public boolean isReaderModeUiRateLimited() {
+        return mMessageShown || sMutedSites.contains(urlToHash(mDistillerUrl));
+    }
+
+    /**
+     * Notify that a reader mode UI was shown for the current tab and URL. Used when the contextual
+     * page action UI is enabled to update the rate limiting logic.
+     */
+    public void setReaderModeUiShown() {
+        // Contextual page actions can't be dismissed, so we consider an unused button as
+        // "dismissed". Interacting with the button will undo this "mute" logic.
+        addUrlToMutedSites(mDistillerUrl);
+        mMessageShown = true;
     }
 }

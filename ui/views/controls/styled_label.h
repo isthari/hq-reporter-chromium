@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,6 +30,7 @@ namespace views {
 
 class Label;
 class Link;
+class LinkFragment;
 
 // A class which can apply mixed styles to a block of text. Currently, text is
 // always multiline. Trailing whitespace in the styled label text is not
@@ -69,8 +70,8 @@ class VIEWS_EXPORT StyledLabel : public View {
     // Tooltip for the range.
     std::u16string tooltip;
 
-    // If set, the whole range will be put on a single line.
-    bool disable_line_wrapping = false;
+    // Accessible name for the range.
+    std::u16string accessible_name;
 
     // A custom view shown instead of the underlying text. Ownership of custom
     // views must be passed to StyledLabel via AddCustomView().
@@ -148,6 +149,9 @@ class VIEWS_EXPORT StyledLabel : public View {
   bool GetAutoColorReadabilityEnabled() const;
   void SetAutoColorReadabilityEnabled(bool auto_color_readability);
 
+  bool GetSubpixelRenderingEnabled() const;
+  void SetSubpixelRenderingEnabled(bool subpixel_rendering_enabled);
+
   // Returns the layout size information that would be used to layout the label
   // at width |w|.  This can be used by callers who need more detail than what's
   // provided by GetHeightForWidth().
@@ -178,7 +182,10 @@ class VIEWS_EXPORT StyledLabel : public View {
 
   // Sends a space keypress to the first child that is a link.  Assumes at least
   // one such child exists.
-  void ClickLinkForTesting();
+  void ClickFirstLinkForTesting();
+
+  // Get the first child that is a link.
+  views::Link* GetFirstLinkForTesting();
 
  private:
   struct StyleRange {
@@ -209,9 +216,11 @@ class VIEWS_EXPORT StyledLabel : public View {
   void CalculateLayout(int width) const;
 
   // Creates a Label for a given |text|, |style_info|, and |range|.
-  std::unique_ptr<Label> CreateLabel(const std::u16string& text,
-                                     const RangeStyleInfo& style_info,
-                                     const gfx::Range& range) const;
+  std::unique_ptr<Label> CreateLabel(
+      const std::u16string& text,
+      const RangeStyleInfo& style_info,
+      const gfx::Range& range,
+      LinkFragment** previous_link_component) const;
 
   // Update the label background color from the theme or
   // |displayed_on_background_color_| if set.
@@ -250,9 +259,13 @@ class VIEWS_EXPORT StyledLabel : public View {
   // background.
   bool auto_color_readability_enabled_ = true;
 
+  // Controls whether subpixel rendering is enabled.
+  bool subpixel_rendering_enabled_ = true;
+
   // The horizontal alignment. This value is flipped for RTL. The default
   // behavior is to align left in LTR UI and right in RTL UI.
-  gfx::HorizontalAlignment horizontal_alignment_ = gfx::ALIGN_LEFT;
+  gfx::HorizontalAlignment horizontal_alignment_ =
+      base::i18n::IsRTL() ? gfx::ALIGN_RIGHT : gfx::ALIGN_LEFT;
 };
 
 BEGIN_VIEW_BUILDER(VIEWS_EXPORT, StyledLabel, View)

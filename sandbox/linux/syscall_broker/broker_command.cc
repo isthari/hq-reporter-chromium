@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -93,6 +93,16 @@ bool CommandUnlinkIsSafe(const BrokerCommandSet& command_set,
          policy.GetFileNameIfAllowedToOpen(requested_filename,
                                            O_RDWR | O_CREAT | O_EXCL,
                                            filename_to_use, nullptr);
+}
+
+bool CommandInotifyAddWatchIsSafe(const BrokerCommandSet& command_set,
+                                  const BrokerPermissionList& policy,
+                                  const char* requested_filename,
+                                  uint32_t mask,
+                                  const char** filename_to_use) {
+  return command_set.test(COMMAND_INOTIFY_ADD_WATCH) &&
+         policy.GetFileNameIfAllowedToInotifyAddWatch(requested_filename, mask,
+                                                      filename_to_use);
 }
 
 }  // namespace syscall_broker

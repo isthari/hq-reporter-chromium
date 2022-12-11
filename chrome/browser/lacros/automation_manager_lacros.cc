@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,9 +66,7 @@ void AutomationManagerLacros::DispatchAccessibilityLocationChange(
       *tree_id.token(), params.id, params.new_location);
 }
 
-void AutomationManagerLacros::DispatchTreeDestroyedEvent(
-    ui::AXTreeID tree_id,
-    content::BrowserContext* browser_context) {
+void AutomationManagerLacros::DispatchTreeDestroyedEvent(ui::AXTreeID tree_id) {
   if (!tree_id.token())
     return;
 

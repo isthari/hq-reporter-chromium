@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,6 +40,9 @@ class ChromeViewsDelegate : public views::ViewsDelegate {
   ProcessMenuAcceleratorResult ProcessAcceleratorWhileMenuShowing(
       const ui::Accelerator& accelerator) override;
   bool ShouldCloseMenuIfMouseCaptureLost() const override;
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS)
   std::unique_ptr<views::NonClientFrameView> CreateDefaultNonClientFrameView(
       views::Widget* widget) override;
 #endif
@@ -52,8 +55,11 @@ class ChromeViewsDelegate : public views::ViewsDelegate {
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
 // of lacros-chrome is complete.
 #elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
-  gfx::ImageSkia* GetDefaultWindowIcon() const override;
   bool WindowManagerProvidesTitleBar(bool maximized) override;
+#endif
+
+#if BUILDFLAG(IS_LINUX)
+  gfx::ImageSkia* GetDefaultWindowIcon() const override;
 #endif
 
   void AddRef() override;

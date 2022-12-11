@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,8 +19,10 @@ namespace content {
 class WebUI;
 }  // namespace content
 
+namespace ash::personalization_app {
+
 class FakePersonalizationAppThemeProvider
-    : public ash::PersonalizationAppThemeProvider {
+    : public PersonalizationAppThemeProvider {
  public:
   explicit FakePersonalizationAppThemeProvider(content::WebUI* web_ui);
 
@@ -41,9 +43,24 @@ class FakePersonalizationAppThemeProvider
 
   void SetColorModePref(bool dark_mode_enabled) override;
 
+  void SetColorModeAutoScheduleEnabled(bool enabled) override;
+
+  void SetColorScheme(ash::ColorScheme color_scheme) override;
+
+  void SetStaticColor(::SkColor static_color) override;
+
+  void GetStaticColor(GetStaticColorCallback callback) override;
+
+  void IsDarkModeEnabled(IsDarkModeEnabledCallback callback) override;
+
+  void IsColorModeAutoScheduleEnabled(
+      IsColorModeAutoScheduleEnabledCallback callback) override;
+
  private:
   mojo::Receiver<ash::personalization_app::mojom::ThemeProvider>
       theme_receiver_{this};
 };
+
+}  // namespace ash::personalization_app
 
 #endif  // ASH_WEBUI_PERSONALIZATION_APP_TEST_FAKE_PERSONALIZATION_APP_THEME_PROVIDER_H_

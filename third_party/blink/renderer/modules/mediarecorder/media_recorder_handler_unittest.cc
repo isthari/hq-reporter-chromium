@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,11 +22,13 @@
 #include "third_party/blink/renderer/modules/mediarecorder/fake_encoded_video_frame.h"
 #include "third_party/blink/renderer/modules/mediarecorder/media_recorder.h"
 #include "third_party/blink/renderer/modules/mediarecorder/media_recorder_handler.h"
+#include "third_party/blink/renderer/modules/mediastream/media_stream_track_impl.h"
 #include "third_party/blink/renderer/modules/mediastream/mock_media_stream_registry.h"
 #include "third_party/blink/renderer/modules/mediastream/mock_media_stream_video_source.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_component_impl.h"
 #include "third_party/blink/renderer/platform/testing/io_task_runner_testing_platform_support.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
@@ -83,11 +85,12 @@ static const MediaRecorderTestParams kMediaRecorderTestParams[] = {
 
 MediaStream* CreateMediaStream(V8TestingScope& scope) {
   auto* source = MakeGarbageCollected<MediaStreamSource>(
-      "sourceId", MediaStreamSource::kTypeAudio, "sourceName", false);
+      "sourceId", MediaStreamSource::kTypeAudio, "sourceName", false,
+      /*platform_source=*/nullptr);
   auto* component =
-      MakeGarbageCollected<MediaStreamComponent>("audioTrack", source);
+      MakeGarbageCollected<MediaStreamComponentImpl>("audioTrack", source);
 
-  auto* track = MakeGarbageCollected<MediaStreamTrack>(
+  auto* track = MakeGarbageCollected<MediaStreamTrackImpl>(
       scope.GetExecutionContext(), component);
 
   HeapVector<Member<MediaStreamTrack>> tracks;
@@ -106,7 +109,7 @@ class MockMediaRecorder : public MediaRecorder {
                       CreateMediaStream(scope),
                       MediaRecorderOptions::Create(),
                       scope.GetExceptionState()) {}
-  virtual ~MockMediaRecorder() = default;
+  ~MockMediaRecorder() override = default;
 
   MOCK_METHOD4(WriteData, void(const char*, size_t, bool, double));
   MOCK_METHOD1(OnError, void(const String& message));
@@ -138,10 +141,10 @@ class MediaRecorderHandlerFixture : public ScopedMockOverlayScrollbars {
 
   bool recording() const { return media_recorder_handler_->recording_; }
   bool hasVideoRecorders() const {
-    return !media_recorder_handler_->video_recorders_.IsEmpty();
+    return !media_recorder_handler_->video_recorders_.empty();
   }
   bool hasAudioRecorders() const {
-    return !media_recorder_handler_->audio_recorders_.IsEmpty();
+    return !media_recorder_handler_->audio_recorders_.empty();
   }
 
   void OnVideoFrameForTesting(scoped_refptr<media::VideoFrame> frame) {
@@ -149,7 +152,7 @@ class MediaRecorderHandlerFixture : public ScopedMockOverlayScrollbars {
                                                     base::TimeTicks::Now());
   }
 
-  void OnEncodedVideoForTesting(const media::WebmMuxer::VideoParameters& params,
+  void OnEncodedVideoForTesting(const media::Muxer::VideoParameters& params,
                                 std::string encoded_data,
                                 std::string encoded_alpha,
                                 base::TimeTicks timestamp,
@@ -179,14 +182,15 @@ class MediaRecorderHandlerFixture : public ScopedMockOverlayScrollbars {
   }
 
   void ForceOneErrorInWebmMuxer() {
-    media_recorder_handler_->webm_muxer_->ForceOneLibWebmErrorForTesting();
+    static_cast<media::WebmMuxer*>(media_recorder_handler_->muxer_.get())
+        ->ForceOneLibWebmErrorForTesting();
   }
 
   std::unique_ptr<media::AudioBus> NextAudioBus() {
     std::unique_ptr<media::AudioBus> bus(media::AudioBus::Create(
         kTestAudioChannels,
         kTestAudioSampleRate * kTestAudioBufferDurationMs / 1000));
-    audio_source_.OnMoreData(base::TimeDelta(), base::TimeTicks::Now(), 0,
+    audio_source_.OnMoreData(base::TimeDelta(), base::TimeTicks::Now(), {},
                              bus.get());
     return bus;
   }
@@ -430,8 +434,8 @@ TEST_P(MediaRecorderHandlerTest, OpusEncodeAudioFrames) {
   const std::unique_ptr<media::AudioBus> audio_bus2 = NextAudioBus();
 
   media::AudioParameters params(
-      media::AudioParameters::AUDIO_PCM_LINEAR, media::CHANNEL_LAYOUT_STEREO,
-      kTestAudioSampleRate,
+      media::AudioParameters::AUDIO_PCM_LINEAR,
+      media::ChannelLayoutConfig::Stereo(), kTestAudioSampleRate,
       kTestAudioSampleRate * kTestAudioBufferDurationMs / 1000);
   SetAudioFormatForTesting(params);
 
@@ -572,8 +576,8 @@ TEST_P(MediaRecorderHandlerTest, PauseRecorderForVideo) {
   media_recorder_handler_->Pause();
 
   EXPECT_CALL(*recorder, WriteData).Times(AtLeast(1));
-  media::WebmMuxer::VideoParameters params(
-      gfx::Size(), 1, media::VideoCodec::kVP9, gfx::ColorSpace());
+  media::Muxer::VideoParameters params(gfx::Size(), 1, media::VideoCodec::kVP9,
+                                       gfx::ColorSpace());
   OnEncodedVideoForTesting(params, "vp9 frame", "", base::TimeTicks::Now(),
                            true);
 
@@ -606,8 +610,8 @@ TEST_P(MediaRecorderHandlerTest, StartStopStartRecorderForVideo) {
   EXPECT_TRUE(media_recorder_handler_->Start(0));
 
   EXPECT_CALL(*recorder, WriteData).Times(AtLeast(1));
-  media::WebmMuxer::VideoParameters params(
-      gfx::Size(), 1, media::VideoCodec::kVP9, gfx::ColorSpace());
+  media::Muxer::VideoParameters params(gfx::Size(), 1, media::VideoCodec::kVP9,
+                                       gfx::ColorSpace());
   OnEncodedVideoForTesting(params, "vp9 frame", "", base::TimeTicks::Now(),
                            true);
 

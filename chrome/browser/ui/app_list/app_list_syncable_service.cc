@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,16 @@
 #include "base/containers/contains.h"
 #include "base/feature_list.h"
 #include "base/one_shot_event.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/ash/app_list/app_service/app_service_app_model_builder.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_utils.h"
+#include "chrome/browser/ash/app_list/reorder/app_list_reorder_core.h"
+#include "chrome/browser/ash/app_list/reorder/app_list_reorder_util.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/crostini/crostini_features.h"
 #include "chrome/browser/ash/crostini/crostini_util.h"
@@ -33,15 +39,8 @@
 #include "chrome/browser/ui/app_list/app_list_model_updater.h"
 #include "chrome/browser/ui/app_list/app_list_sync_model_sanitizer.h"
 #include "chrome/browser/ui/app_list/app_list_util.h"
-#include "chrome/browser/ui/app_list/app_service/app_service_app_model_builder.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/app_list/chrome_app_list_item.h"
 #include "chrome/browser/ui/app_list/chrome_app_list_model_updater.h"
-#include "chrome/browser/ui/app_list/page_break_app_item.h"
-#include "chrome/browser/ui/app_list/page_break_constants.h"
-#include "chrome/browser/ui/app_list/reorder/app_list_reorder_core.h"
-#include "chrome/browser/ui/app_list/reorder/app_list_reorder_util.h"
 #include "chrome/browser/web_applications/web_app_id_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -50,6 +49,7 @@
 #include "components/app_constants/constants.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 #include "components/services/app_service/public/cpp/app_update.h"
 #include "components/services/app_service/public/mojom/types.mojom.h"
 #include "components/sync/driver/sync_service.h"
@@ -77,6 +77,7 @@ constexpr char kPinPositionKey[] = "pin_position";
 constexpr char kTypeKey[] = "type";
 constexpr char kBackgroundColorKey[] = "background_color";
 constexpr char kHueKey[] = "hue";
+constexpr char kEmptyItemOrdinalFixable[] = "empty_item_ordinal_fixable";
 
 void GetSyncSpecificsFromSyncItem(const AppListSyncableService::SyncItem* item,
                                   sync_pb::AppListSpecifics* specifics) {
@@ -118,23 +119,21 @@ bool AppIsDefault(Profile* profile, const std::string& id) {
   apps::AppServiceProxyFactory::GetForProfile(profile)
       ->AppRegistryCache()
       .ForOneApp(id, [&result](const apps::AppUpdate& update) {
-        result = update.InstallReason() == apps::mojom::InstallReason::kDefault;
+        result = update.InstallReason() == apps::InstallReason::kDefault;
       });
   return result;
 }
 
 void SetAppIsDefaultForTest(Profile* profile, const std::string& id) {
-  apps::mojom::AppPtr delta = apps::mojom::App::New();
-  delta->app_type = apps::mojom::AppType::kChromeApp;
-  delta->app_id = id;
-  delta->install_reason = apps::mojom::InstallReason::kDefault;
+  apps::AppPtr delta =
+      std::make_unique<apps::App>(apps::AppType::kChromeApp, id);
+  delta->install_reason = apps::InstallReason::kDefault;
 
-  std::vector<apps::mojom::AppPtr> deltas;
+  std::vector<apps::AppPtr> deltas;
   deltas.push_back(std::move(delta));
-
   apps::AppServiceProxyFactory::GetForProfile(profile)
       ->AppRegistryCache()
-      .OnApps(std::move(deltas), apps::mojom::AppType::kChromeApp,
+      .OnApps(std::move(deltas), apps::AppType::kChromeApp,
               false /* should_notify_initialized */);
 }
 
@@ -157,55 +156,52 @@ sync_pb::AppListSpecifics::AppListItemType GetAppListItemType(
     const ChromeAppListItem* item) {
   if (item->is_folder())
     return sync_pb::AppListSpecifics::TYPE_FOLDER;
-  else if (item->is_page_break())
-    return sync_pb::AppListSpecifics::TYPE_PAGE_BREAK;
   else
     return sync_pb::AppListSpecifics::TYPE_APP;
 }
 
 void RemoveSyncItemFromLocalStorage(Profile* profile,
                                     const std::string& item_id) {
-  DictionaryPrefUpdate(profile->GetPrefs(), prefs::kAppListLocalState)
-      ->RemoveKey(item_id);
+  ScopedDictPrefUpdate(profile->GetPrefs(), prefs::kAppListLocalState)
+      ->Remove(item_id);
 }
 
 void UpdateSyncItemInLocalStorage(
     Profile* profile,
     const AppListSyncableService::SyncItem* sync_item) {
-  DictionaryPrefUpdate pref_update(profile->GetPrefs(),
-                                   prefs::kAppListLocalState);
-  base::Value* dict_item = pref_update->FindKeyOfType(
-      sync_item->item_id, base::Value::Type::DICTIONARY);
-  if (!dict_item) {
-    dict_item = pref_update->SetKey(sync_item->item_id,
-                                    base::Value(base::Value::Type::DICTIONARY));
-  }
+  // Do not persist ephemeral sync items to local state.
+  if (sync_item->is_ephemeral)
+    return;
 
-  dict_item->SetKey(kNameKey, base::Value(sync_item->item_name));
-  dict_item->SetKey(kParentIdKey, base::Value(sync_item->parent_id));
-  dict_item->SetKey(kPositionKey,
-                    base::Value(sync_item->item_ordinal.IsValid()
-                                    ? sync_item->item_ordinal.ToInternalValue()
-                                    : std::string()));
-  dict_item->SetKey(
-      kPinPositionKey,
-      base::Value(sync_item->item_pin_ordinal.IsValid()
-                      ? sync_item->item_pin_ordinal.ToInternalValue()
-                      : std::string()));
-  dict_item->SetKey(kTypeKey,
-                    base::Value(static_cast<int>(sync_item->item_type)));
+  ScopedDictPrefUpdate pref_update(profile->GetPrefs(),
+                                   prefs::kAppListLocalState);
+  base::Value::Dict* dict_item = pref_update->EnsureDict(sync_item->item_id);
+  dict_item->Set(kNameKey, base::Value(sync_item->item_name));
+  dict_item->Set(kParentIdKey, base::Value(sync_item->parent_id));
+  dict_item->Set(kPositionKey,
+                 base::Value(sync_item->item_ordinal.IsValid()
+                                 ? sync_item->item_ordinal.ToInternalValue()
+                                 : std::string()));
+  dict_item->Set(kPinPositionKey,
+                 base::Value(sync_item->item_pin_ordinal.IsValid()
+                                 ? sync_item->item_pin_ordinal.ToInternalValue()
+                                 : std::string()));
+  dict_item->Set(kTypeKey, base::Value(static_cast<int>(sync_item->item_type)));
+  dict_item->Set(kEmptyItemOrdinalFixable,
+                 base::Value(sync_item->item_ordinal.IsValid() ||
+                             sync_item->empty_item_ordinal_fixable));
 
   if (ash::features::IsLauncherItemColorSyncEnabled()) {
     // Handle the item color.
     if (sync_item->item_color.IsValid()) {
-      dict_item->SetKey(kBackgroundColorKey,
-                        base::Value(sync_pb::AppListSpecifics::ColorGroup_Name(
-                            sync_item->item_color.background_color())));
-      dict_item->SetKey(kHueKey, base::Value(sync_item->item_color.hue()));
-    } else if (dict_item->FindKey(kBackgroundColorKey)) {
-      dict_item->RemoveKey(kBackgroundColorKey);
-      DCHECK(dict_item->FindKey(kHueKey));
-      dict_item->RemoveKey(kHueKey);
+      dict_item->Set(kBackgroundColorKey,
+                     base::Value(sync_pb::AppListSpecifics::ColorGroup_Name(
+                         sync_item->item_color.background_color())));
+      dict_item->Set(kHueKey, base::Value(sync_item->item_color.hue()));
+    } else if (dict_item->Find(kBackgroundColorKey)) {
+      dict_item->Remove(kBackgroundColorKey);
+      DCHECK(dict_item->Find(kHueKey));
+      dict_item->Remove(kHueKey);
     }
   }
 }
@@ -223,16 +219,11 @@ bool IsPageBreakItem(const AppListSyncableService::SyncItem& sync_item) {
   return sync_item.item_type == sync_pb::AppListSpecifics::TYPE_PAGE_BREAK;
 }
 
-// Returns true if the app is Settings app
-bool IsOsSettingsApp(const std::string& app_id) {
-  return app_id == web_app::kOsSettingsAppId;
-}
-
 bool IsSystemCreatedSyncFolder(
     const AppListSyncableService::SyncItem& folder_item) {
   if (folder_item.item_type != sync_pb::AppListSpecifics::TYPE_FOLDER)
     return false;
-  return folder_item.is_persistent_folder;
+  return folder_item.is_system_folder;
 }
 
 // Updates `target` if `target` is different from a valid new value. Returns
@@ -307,7 +298,7 @@ class AppListSyncableService::ModelUpdaterObserver
       return;
 
     // Only sync folders and page breaks which are added from Ash.
-    if (!item->is_folder() && !item->is_page_break())
+    if (!item->is_folder())
       return;
     DCHECK(adding_item_id_.empty());
     adding_item_id_ = item->id();  // Ignore updates while adding an item.
@@ -438,17 +429,16 @@ void AppListSyncableService::InitFromLocalStorage() {
   DCHECK(!IsInitialized());
 
   // Restore initial state from local storage.
-  const base::Value* local_items =
-      profile_->GetPrefs()->GetDictionary(prefs::kAppListLocalState);
-  DCHECK(local_items);
+  const base::Value::Dict& local_items =
+      profile_->GetPrefs()->GetDict(prefs::kAppListLocalState);
 
-  for (const auto item : local_items->DictItems()) {
+  for (const auto item : local_items) {
     if (!item.second.is_dict()) {
       LOG(ERROR) << "Dictionary not found for " << item.first + ".";
       continue;
     }
-
-    absl::optional<int> type = item.second.FindIntKey(kTypeKey);
+    const base::Value::Dict& item_dict = item.second.GetDict();
+    absl::optional<int> type = item_dict.FindInt(kTypeKey);
     if (!type) {
       LOG(ERROR) << "Item type is not set in local storage for " << item.second
                  << ".";
@@ -459,28 +449,29 @@ void AppListSyncableService::InitFromLocalStorage() {
         item.first,
         static_cast<sync_pb::AppListSpecifics::AppListItemType>(*type));
 
-    const std::string* maybe_item_name = item.second.FindStringKey(kNameKey);
+    const std::string* maybe_item_name = item_dict.FindString(kNameKey);
     if (maybe_item_name)
       sync_item->item_name = *maybe_item_name;
-    const std::string* maybe_parent_id =
-        item.second.FindStringKey(kParentIdKey);
-    if (maybe_item_name)
+    const std::string* maybe_parent_id = item_dict.FindString(kParentIdKey);
+    if (maybe_parent_id)
       sync_item->parent_id = *maybe_parent_id;
 
-    const std::string* position = item.second.FindStringKey(kPositionKey);
-    const std::string* pin_position =
-        item.second.FindStringKey(kPinPositionKey);
+    const std::string* position = item_dict.FindString(kPositionKey);
+    const std::string* pin_position = item_dict.FindString(kPinPositionKey);
     if (position && !position->empty())
       sync_item->item_ordinal = syncer::StringOrdinal(*position);
     if (pin_position && !pin_position->empty())
       sync_item->item_pin_ordinal = syncer::StringOrdinal(*pin_position);
+
+    sync_item->empty_item_ordinal_fixable =
+        item_dict.FindBool(kEmptyItemOrdinalFixable).value_or(true);
 
     // Fetch icon colors from `dict_item` if any.
     if (ash::features::IsLauncherItemColorSyncEnabled() &&
         item.second.FindKey(kBackgroundColorKey)) {
       // Retrieve the background color.
       const std::string* background_color_internal_string =
-          item.second.FindStringKey(kBackgroundColorKey);
+          item_dict.FindString(kBackgroundColorKey);
       sync_pb::AppListSpecifics::ColorGroup background_color;
       sync_pb::AppListSpecifics::ColorGroup_Parse(
           background_color_internal_string ? *background_color_internal_string
@@ -488,9 +479,9 @@ void AppListSyncableService::InitFromLocalStorage() {
           &background_color);
 
       // Retrieve the hue.
-      DCHECK(item.second.FindKey(kHueKey));
+      DCHECK(item_dict.Find(kHueKey));
       int hue =
-          item.second.FindIntKey(kHueKey).value_or(ash::IconColor::kHueInvalid);
+          item_dict.FindInt(kHueKey).value_or(ash::IconColor::kHueInvalid);
 
       sync_item->item_color = ash::IconColor(background_color, hue);
 
@@ -529,20 +520,6 @@ void AppListSyncableService::BuildModel() {
 
   if (wait_until_ready_to_sync_cb_)
     std::move(wait_until_ready_to_sync_cb_).Run();
-
-  // Install default page brakes for tablet form factor devices here as
-  // these devices do not have app list sync turned on.
-  if (ash::switches::IsTabletFormFactor() && profile_->IsNewProfile()) {
-    DCHECK(
-        !SyncServiceFactory::GetForProfile(profile_)->GetActiveDataTypes().Has(
-            syncer::APP_LIST));
-    // Create call back to create the default page break items at later time so
-    // that default page break items are not removed by
-    // |PruneRedundantPageBreakItems|
-    install_default_page_breaks_ =
-        base::BindOnce(&AppListSyncableService::InstallDefaultPageBreaks,
-                       weak_ptr_factory_.GetWeakPtr());
-  }
 }
 
 void AppListSyncableService::AddObserverAndStart(Observer* observer) {
@@ -569,7 +546,7 @@ const AppListSyncableService::SyncItem* AppListSyncableService::GetSyncItem(
   auto iter = sync_items_.find(id);
   if (iter != sync_items_.end())
     return iter->second.get();
-  return NULL;
+  return nullptr;
 }
 
 void AppListSyncableService::AppListSyncableService::AddPageBreakItem(
@@ -750,7 +727,7 @@ void AppListSyncableService::AddItem(
   if (!sync_item)
     return;  // Item is not valid.
 
-  if (app_item->is_folder() || app_item->is_page_break()) {
+  if (app_item->is_folder()) {
     model_updater_->AddItem(std::move(app_item));
   } else if (AppIsOem(app_item->id())) {
     VLOG(2) << this << ": AddItem to OEM folder: " << sync_item->ToString();
@@ -779,14 +756,7 @@ void AppListSyncableService::AddItem(
                                        is_item_new);
   }
 
-  // Calculate this early since |sync_item| could be deleted in
-  // PruneRedundantPageBreakItems.
-  bool run_install_default_page_breaks =
-      install_default_page_breaks_ && IsOsSettingsApp(sync_item->item_id);
   PruneRedundantPageBreakItems();
-
-  if (run_install_default_page_breaks)
-    std::move(install_default_page_breaks_).Run();
 }
 
 AppListSyncableService::SyncItem* AppListSyncableService::FindOrAddSyncItem(
@@ -794,7 +764,7 @@ AppListSyncableService::SyncItem* AppListSyncableService::FindOrAddSyncItem(
   const std::string& item_id = app_item->id();
   if (item_id.empty()) {
     LOG(ERROR) << "ChromeAppListItem item with empty ID";
-    return NULL;
+    return nullptr;
   }
   SyncItem* sync_item = FindSyncItem(item_id);
   if (sync_item) {
@@ -806,7 +776,7 @@ AppListSyncableService::SyncItem* AppListSyncableService::FindOrAddSyncItem(
     }
 
     if (RemoveDefaultApp(app_item, sync_item))
-      return NULL;
+      return nullptr;
 
     // Fall through. The REMOVE_DEFAULT_APP entry has been deleted, now a new
     // App entry can be added.
@@ -849,6 +819,11 @@ void AppListSyncableService::SetPinPosition(
   } else {
     sync_item = CreateSyncItem(app_id, sync_pb::AppListSpecifics::TYPE_APP);
     sync_change_type = SyncChange::ACTION_ADD;
+    // Prevent item ordinal from getting set by "fixing empty ordinals" until
+    // the app gets installed, and item ordinal gets set to its default value.
+    // At this point, sync item is added primarily to initialize default shelf
+    // pin order, and the associnated app may not be fully initialized.
+    sync_item->empty_item_ordinal_fixable = false;
   }
 
   sync_item->item_pin_ordinal = item_pin_ordinal;
@@ -1103,10 +1078,6 @@ void AppListSyncableService::PruneEmptySyncFolders() {
   }
 }
 
-void AppListSyncableService::InstallDefaultPageBreaksForTest() {
-  InstallDefaultPageBreaks();
-}
-
 void AppListSyncableService::PopulateSyncItemsForTest(
     std::vector<std::unique_ptr<SyncItem>>&& items) {
   for (auto& sync_item : items) {
@@ -1149,22 +1120,12 @@ AppListSyncableService::MergeDataAndStartSyncing(
   DCHECK(sync_processor.get());
   DCHECK(error_handler.get());
 
-  const bool first_time_user = initial_sync_data.empty();
-  if (first_time_user) {
-    // Post a task to avoid adding the default page break items which can
-    // cause sync changes during sync startup.
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::BindOnce(&AppListSyncableService::InstallDefaultPageBreaks,
-                       weak_ptr_factory_.GetWeakPtr()));
-  }
-
   HandleUpdateStarted();
 
   // Reset local state and recreate from sync info.
-  DictionaryPrefUpdate pref_update(profile_->GetPrefs(),
+  ScopedDictPrefUpdate pref_update(profile_->GetPrefs(),
                                    prefs::kAppListLocalState);
-  pref_update->DictClear();
+  pref_update->clear();
 
   sync_processor_ = std::move(sync_processor);
   sync_error_handler_ = std::move(error_handler);
@@ -1228,9 +1189,11 @@ AppListSyncableService::MergeDataAndStartSyncing(
   for (const auto& sync_pair : sync_items_) {
     SyncItem* sync_item = sync_pair.second.get();
     if (sync_item->item_type != sync_pb::AppListSpecifics::TYPE_APP ||
-        sync_item->item_ordinal.IsValid()) {
+        sync_item->item_ordinal.IsValid() ||
+        !sync_item->empty_item_ordinal_fixable) {
       continue;
     }
+
     const ChromeAppListItem* app_item =
         model_updater_->FindItem(sync_item->item_id);
     if (app_item) {
@@ -1308,8 +1271,6 @@ absl::optional<syncer::ModelError> AppListSyncableService::ProcessSyncChanges(
 
   HandleUpdateFinished(false /* clean_up_after_init_sync */);
 
-  GetModelUpdater()->NotifyProcessSyncChangesFinished();
-
   return absl::nullopt;
 }
 
@@ -1323,10 +1284,9 @@ void AppListSyncableService::SetAppListPreferredOrder(
   profile_->GetPrefs()->SetInteger(prefs::kAppListPreferredOrder,
                                    static_cast<int>(order));
 
-  // TODO(andrewxu): Return early for color sort because color info on sync
-  // items is not yet well implemented.
   if (order == ash::AppListSortOrder::kCustom ||
-      order == ash::AppListSortOrder::kColor) {
+      (order == ash::AppListSortOrder::kColor &&
+       !ash::features::IsLauncherItemColorSyncEnabled())) {
     return;
   }
 
@@ -1362,6 +1322,16 @@ void AppListSyncableService::SetAppListPreferredOrder(
 syncer::StringOrdinal AppListSyncableService::CalculateGlobalFrontPosition()
     const {
   return reorder::CalculateFrontPosition(sync_items_);
+}
+
+bool AppListSyncableService::CalculateItemPositionInPermanentSortOrder(
+    const ash::AppListItemMetadata& metadata,
+    syncer::StringOrdinal* target_position) const {
+  // TODO(https://crbug.com/1260877): ideally we would not have to create a
+  // one-off vector of items using `GetItems()`.
+  return reorder::CalculateItemPositionInOrder(
+      GetPermanentSortingOrder(), metadata, model_updater_->GetItems(),
+      &sync_items_, target_position);
 }
 
 ash::AppListSortOrder AppListSyncableService::GetPermanentSortingOrder() const {
@@ -1435,18 +1405,9 @@ void AppListSyncableService::ProcessNewSyncItem(SyncItem* sync_item) {
           false);                 // It's a folder itself.
       return;
     }
-    case sync_pb::AppListSpecifics::TYPE_OBSOLETE_URL: {
+    case sync_pb::AppListSpecifics::TYPE_OBSOLETE_URL:
+    case sync_pb::AppListSpecifics::TYPE_PAGE_BREAK:
       return;
-    }
-    case sync_pb::AppListSpecifics::TYPE_PAGE_BREAK: {
-      // This is can be either a default page break item that was installed by
-      // default for new users, or a non-default page-break item that was
-      // added by the user. the ctor of PageBreakAppItem will update the
-      // newly-created item from its |sync_item|.
-      model_updater_->AddItem(std::make_unique<PageBreakAppItem>(
-          profile_, model_updater_.get(), sync_item, sync_item->item_id));
-      return;
-    }
   }
   NOTREACHED() << "Unrecognized sync item type: " << sync_item->ToString();
 }
@@ -1481,6 +1442,10 @@ bool AppListSyncableService::SyncStarted() {
 void AppListSyncableService::SendSyncChange(
     SyncItem* sync_item,
     SyncChange::SyncChangeType sync_change_type) {
+  // Do not sync ephemeral sync items.
+  if (sync_item->is_ephemeral)
+    return;
+
   if (!SyncStarted()) {
     DVLOG(2) << this << " - SendSyncChange: SYNC NOT STARTED: "
              << sync_item->ToString();
@@ -1519,7 +1484,7 @@ AppListSyncableService::SyncItem* AppListSyncableService::CreateSyncItem(
 
   // In case we have pending attributes to apply, process it asynchronously.
   if (base::Contains(pending_transfer_map_, item_id)) {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&AppListSyncableService::ApplyAppAttributes,
                                   weak_ptr_factory_.GetWeakPtr(), item_id,
                                   std::move(pending_transfer_map_[item_id])));
@@ -1561,14 +1526,13 @@ void AppListSyncableService::DeleteSyncItemSpecifics(
 
 bool AppListSyncableService::AppIsOem(const std::string& id) {
   // For Arc and web apps, it is sufficient to check the install reason.
-  apps::mojom::InstallReason install_reason =
-      apps::mojom::InstallReason::kUnknown;
+  apps::InstallReason install_reason = apps::InstallReason::kUnknown;
   apps::AppServiceProxyFactory::GetForProfile(profile_)
       ->AppRegistryCache()
       .ForOneApp(id, [&install_reason](const apps::AppUpdate& update) {
         install_reason = update.InstallReason();
       });
-  if (install_reason == apps::mojom::InstallReason::kOem)
+  if (install_reason == apps::InstallReason::kOem)
     return true;
 
   if (!extension_system_->extension_service())
@@ -1664,24 +1628,6 @@ void AppListSyncableService::PruneRedundantPageBreakItems() {
   }
 }
 
-void AppListSyncableService::InstallDefaultPageBreaks() {
-  for (size_t i = 0; i < kDefaultPageBreakAppIdsLength; ++i) {
-    auto* const id = kDefaultPageBreakAppIds[i];
-    auto* sync_item = GetSyncItem(id);
-    if (sync_item) {
-      // The user may have cleared their sync from
-      // https://chrome.google.com/sync, so it may appear here that it's a new
-      // user, while in fact on this device, it's not. We don't want to
-      // recreate and re-add an already existing default page break item.
-      continue;
-    }
-
-    auto page_break_item = std::make_unique<PageBreakAppItem>(
-        profile(), model_updater_.get(), nullptr /* sync_item */, id);
-    AddItem(std::move(page_break_item));
-  }
-}
-
 void AppListSyncableService::UpdateSyncItemFromSync(
     const sync_pb::AppListSpecifics& specifics,
     AppListSyncableService::SyncItem* item) {
@@ -1723,9 +1669,6 @@ bool AppListSyncableService::UpdateSyncItemFromAppItem(
     AppListSyncableService::SyncItem* sync_item) {
   DCHECK_EQ(sync_item->item_id, app_item->id());
 
-  // Page breaker should not be added in a folder.
-  DCHECK(!app_item->is_page_break() || app_item->folder_id().empty());
-
   bool changed = false;
   // Allow sync changes for parent only for non OEM app.
   if (sync_item->parent_id != app_item->folder_id() &&
@@ -1743,19 +1686,29 @@ bool AppListSyncableService::UpdateSyncItemFromAppItem(
     changed = true;
   }
 
-  if (ash::features::IsLauncherItemColorSyncEnabled()) {
-    changed =
-        SetIconColorIfChanged(app_item->icon_color(), &sync_item->item_color);
+  if (ash::features::IsLauncherItemColorSyncEnabled() &&
+      SetIconColorIfChanged(app_item->icon_color(), &sync_item->item_color)) {
+    changed = true;
   }
 
-  if (sync_item->is_persistent_folder != app_item->is_persistent()) {
-    DCHECK(!sync_item->is_persistent_folder);
-    sync_item->is_persistent_folder = app_item->is_persistent();
+  if (sync_item->is_system_folder != app_item->is_system_folder()) {
+    DCHECK(!sync_item->is_system_folder);
+    sync_item->is_system_folder = app_item->is_system_folder();
     // Do not mark the item as changed - the persistent value is not expected to
     // be persisted to local state, nor synced. Also, it's expected to be set as
     // part of folder item creation flow, so no further processing should be
     // necessary.
   }
+
+  if (sync_item->is_ephemeral != app_item->is_ephemeral()) {
+    DCHECK(!sync_item->is_ephemeral);
+    sync_item->is_ephemeral = app_item->is_ephemeral();
+    // Do not mark the item as changed - the ephemeral value is not expected to
+    // be persisted to local state, nor synced. Ephemeral apps and folders are
+    // not synced. The ChromeAppListItem will always have the is_ephemeral flag
+    // set first.
+  }
+
   return changed;
 }
 
@@ -1765,8 +1718,14 @@ void AppListSyncableService::InitNewItemPosition(ChromeAppListItem* new_item) {
 
   // TODO(https://crbug.com/1260875): handle the case that `new_item` is a
   // folder.
-  if (!ash::features::IsLauncherAppSortEnabled() || new_item->is_folder() ||
-      new_item->is_page_break()) {
+  // Calculating the crostini folder's position with the sort order serves as a
+  // quick fix for https://crbug.com/1353237. Right now, folders except for the
+  // crostini folder still use the first available position as the initial
+  // position due to the concern over the possible regression in OEM folders.
+  bool use_first_available_position =
+      new_item->is_folder() && new_item->id() != ash::kCrostiniFolderId;
+  if (!ash::features::IsLauncherAppSortEnabled() ||
+      use_first_available_position) {
     new_item->SetChromePosition(model_updater_->GetFirstAvailablePosition());
     return;
   }
@@ -1777,21 +1736,15 @@ void AppListSyncableService::InitNewItemPosition(ChromeAppListItem* new_item) {
   // The target position of `new_item`.
   syncer::StringOrdinal position;
 
-  ash::AppListSortOrder order = GetPermanentSortingOrder();
-
-  // TODO(https://crbug.com/1260877): ideally we would not have to create a
-  // one-off vector of items using `GetItems()`.
-  bool is_successful = reorder::CalculateNewItemPosition(
-      order, *new_item, model_updater_->GetItems(), &sync_items_, &position);
+  bool is_successful = CalculateItemPositionInPermanentSortOrder(
+      new_item->metadata(), &position);
 
   // If `new_item` cannot be placed following the specified order, `new_item`
   // should be placed at front. Also reset the sorting order.
   if (!is_successful) {
     DCHECK(!position.IsValid());
     position = CalculateGlobalFrontPosition();
-    profile()->GetPrefs()->SetInteger(
-        prefs::kAppListPreferredOrder,
-        static_cast<int>(ash::AppListSortOrder::kCustom));
+    SetAppListPreferredOrder(ash::AppListSortOrder::kCustom);
   }
 
   DCHECK(position.IsValid());
@@ -1806,7 +1759,7 @@ void AppListSyncableService::EnsureOemFolderExists() {
   auto oem_folder = std::make_unique<ChromeAppListItem>(profile_, folder_id,
                                                         model_updater_.get());
   oem_folder->SetChromeName(oem_folder_name_);
-  oem_folder->SetIsPersistent(true);
+  oem_folder->SetIsSystemFolder(true);
   oem_folder->SetChromeIsFolder(true);
 
   SyncItem* current_sync_data = FindSyncItem(folder_id);
@@ -1842,7 +1795,7 @@ void AppListSyncableService::MaybeAddOrUpdateCrostiniFolderSyncData() {
                                     model_updater_.get());
   crostini_folder.SetChromeName(
       l10n_util::GetStringUTF8(IDS_APP_LIST_CROSTINI_DEFAULT_FOLDER_NAME));
-  crostini_folder.SetIsPersistent(true);
+  crostini_folder.SetIsSystemFolder(true);
   crostini_folder.SetChromeIsFolder(true);
 
   // Calculate the Crostini folder's position.
@@ -1872,8 +1825,6 @@ bool AppListSyncableService::MaybeCreateFolderBeforeAddingItem(
 
   const SyncItem* folder_sync_item = FindSyncItem(folder_id);
   if (!folder_sync_item) {
-    // TODO(https://crbug.com/1259459): delete this code block if the sync item
-    // indexed by `folder_id` always exists.
     app_item->SetChromeFolderId("");
     return false;
   }
@@ -1890,7 +1841,7 @@ bool AppListSyncableService::MaybeCreateFolderBeforeAddingItem(
   new_folder_item->SetMetadata(
       app_list::GenerateItemMetadataFromSyncItem(*folder_sync_item));
   if (IsSystemCreatedSyncFolder(*folder_sync_item))
-    new_folder_item->SetIsPersistent(true);
+    new_folder_item->SetIsSystemFolder(true);
   model_updater_->AddItem(std::move(new_folder_item));
   return true;
 }

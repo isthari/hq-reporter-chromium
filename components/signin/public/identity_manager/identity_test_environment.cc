@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,8 @@
 #include "base/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/image_fetcher/core/fake_image_decoder.h"
@@ -22,11 +23,11 @@
 #include "components/signin/internal/identity_manager/account_tracker_service.h"
 #include "components/signin/internal/identity_manager/accounts_cookie_mutator_impl.h"
 #include "components/signin/internal/identity_manager/diagnostics_provider_impl.h"
+#include "components/signin/internal/identity_manager/fake_account_capabilities_fetcher_factory.h"
 #include "components/signin/internal/identity_manager/fake_profile_oauth2_token_service.h"
 #include "components/signin/internal/identity_manager/gaia_cookie_manager_service.h"
 #include "components/signin/internal/identity_manager/primary_account_manager.h"
 #include "components/signin/internal/identity_manager/primary_account_mutator_impl.h"
-#include "components/signin/internal/identity_manager/primary_account_policy_manager_impl.h"
 #include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/base/test_signin_client.h"
 #include "components/signin/public/identity_manager/accounts_mutator.h"
@@ -38,9 +39,10 @@
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "google_apis/gaia/oauth2_access_token_consumer.h"
 #include "services/network/test/test_url_loader_factory.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/components/account_manager/account_manager_factory.h"
+#include "chromeos/ash/components/account_manager/account_manager_factory.h"
 #include "components/account_manager_core/account_manager_facade_impl.h"
 #include "components/account_manager_core/chromeos/account_manager.h"
 #include "components/account_manager_core/chromeos/account_manager_mojo_service.h"
@@ -192,7 +194,7 @@ IdentityTestEnvironment::IdentityTestEnvironment(
 }
 
 void IdentityTestEnvironment::Initialize() {
-  DCHECK(base::ThreadTaskRunnerHandle::Get())
+  DCHECK(base::SingleThreadTaskRunner::GetCurrentDefault())
       << "IdentityTestEnvironment requires a properly set up task "
          "environment. "
          "If your test has an existing one, move it to be initialized before "
@@ -277,7 +279,7 @@ IdentityTestEnvironment::BuildIdentityManagerForTests(
   auto token_service = std::make_unique<FakeProfileOAuth2TokenService>(
       pref_service,
       std::make_unique<TestProfileOAuth2TokenServiceDelegateChromeOS>(
-          account_tracker_service.get(),
+          signin_client, account_tracker_service.get(),
           account_manager_factory->GetAccountManagerMojoService(
               user_data_dir.value()),
           /*is_regular_profile=*/true));
@@ -335,22 +337,17 @@ IdentityTestEnvironment::FinishBuildIdentityManagerForTests(
   auto account_fetcher_service = std::make_unique<AccountFetcherService>();
   account_fetcher_service->Initialize(
       signin_client, token_service.get(), account_tracker_service.get(),
-      std::make_unique<image_fetcher::FakeImageDecoder>());
+      std::make_unique<image_fetcher::FakeImageDecoder>(),
+      std::make_unique<FakeAccountCapabilitiesFetcherFactory>());
 
-  std::unique_ptr<PrimaryAccountPolicyManager> policy_manager;
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
-  policy_manager =
-      std::make_unique<PrimaryAccountPolicyManagerImpl>(signin_client);
-#endif
   std::unique_ptr<PrimaryAccountManager> primary_account_manager =
       std::make_unique<PrimaryAccountManager>(
-          signin_client, token_service.get(), account_tracker_service.get(),
-          std::move(policy_manager));
+          signin_client, token_service.get(), account_tracker_service.get());
   primary_account_manager->Initialize(pref_service);
 
   std::unique_ptr<GaiaCookieManagerService> gaia_cookie_manager_service =
-      std::make_unique<GaiaCookieManagerService>(token_service.get(),
-                                                 signin_client);
+      std::make_unique<GaiaCookieManagerService>(
+          account_tracker_service.get(), token_service.get(), signin_client);
   IdentityManager::InitParameters init_params;
   init_params.primary_account_mutator =
       std::make_unique<PrimaryAccountMutatorImpl>(
@@ -460,6 +457,23 @@ AccountInfo IdentityTestEnvironment::MakeAccountAvailableWithCookies(
     const std::string& gaia_id) {
   return signin::MakeAccountAvailableWithCookies(
       identity_manager(), test_url_loader_factory(), email, gaia_id);
+}
+
+std::vector<AccountInfo>
+IdentityTestEnvironment::MakeAccountsAvailableWithCookies(
+    const std::vector<std::string>& emails) {
+  // Logging out existing accounts is not yet supported.
+  EXPECT_EQ(0u, identity_manager()->GetAccountsWithRefreshTokens().size());
+
+  std::vector<signin::CookieParamsForTest> cookie_accounts;
+  std::vector<AccountInfo> accounts_info;
+  for (auto email : emails) {
+    auto account_info = MakeAccountAvailable(email);
+    accounts_info.push_back(account_info);
+    cookie_accounts.push_back({account_info.email, account_info.gaia});
+  }
+  SetCookieAccounts(cookie_accounts);
+  return accounts_info;
 }
 
 void IdentityTestEnvironment::SetRefreshTokenForAccount(
@@ -579,7 +593,7 @@ void IdentityTestEnvironment::OnAccessTokenRequested(
   // production code, in which case this callback could be coming in ahead
   // of an invocation of WaitForAccessTokenRequestIfNecessary() that will be
   // made in this same iteration of the run loop.
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&IdentityTestEnvironment::HandleOnAccessTokenRequested,
                      weak_ptr_factory_.GetWeakPtr(), account_id));
@@ -677,7 +691,7 @@ void IdentityTestEnvironment::ResetToAccountsNotYetLoadedFromDiskState() {
 }
 
 void IdentityTestEnvironment::ReloadAccountsFromDisk() {
-  fake_token_service()->LoadCredentials(CoreAccountId());
+  fake_token_service()->LoadCredentials(CoreAccountId(), /*is_syncing=*/false);
 }
 
 bool IdentityTestEnvironment::IsAccessTokenRequestPending() {

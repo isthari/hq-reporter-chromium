@@ -1,10 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "printing/printing_utils.h"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 
 #include "base/logging.h"
@@ -133,5 +134,10 @@ gfx::Rect GetCenteredPageContentRect(const gfx::Size& paper_size,
   return content_rect;
 }
 #endif  // BUILDFLAG(IS_WIN)
+
+bool LooksLikePdf(base::span<const char> maybe_pdf_data) {
+  return maybe_pdf_data.size() >= 50u &&
+         std::memcmp(maybe_pdf_data.data(), "%PDF-", 5) == 0;
+}
 
 }  // namespace printing

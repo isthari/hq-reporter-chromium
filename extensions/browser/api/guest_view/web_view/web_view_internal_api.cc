@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,8 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "components/crash/core/common/crash_key.h"
 #include "content/public/browser/browser_context.h"
@@ -167,9 +167,7 @@ std::unique_ptr<extensions::UserScript> ParseContentScript(
 
   // exclude_matches:
   if (script_value.exclude_matches) {
-    const std::vector<std::string>& exclude_matches =
-        *(script_value.exclude_matches.get());
-    for (const std::string& exclude_match : exclude_matches) {
+    for (const std::string& exclude_match : *script_value.exclude_matches) {
       URLPattern pattern(
           UserScript::ValidUserScriptSchemes(allowed_everywhere));
 
@@ -290,7 +288,7 @@ bool WebViewInternalExtensionFunction::PreRunValidation(std::string* error) {
   // TODO(780728): Remove crash key once the cause of the kill is known.
   static crash_reporter::CrashKeyString<128> name_key("webview-function");
   crash_reporter::ScopedCrashKeyString name_key_scope(&name_key, name());
-  guest_ = WebViewGuest::From(source_process_id(), instance_id);
+  guest_ = WebViewGuest::FromInstanceID(source_process_id(), instance_id);
   if (!guest_) {
     *error = "Could not find guest";
     return false;
@@ -359,7 +357,8 @@ void WebViewInternalCaptureVisibleRegionFunction::OnCaptureSuccess(
       FROM_HERE, {base::TaskPriority::USER_VISIBLE},
       base::BindOnce(&WebViewInternalCaptureVisibleRegionFunction::
                          EncodeBitmapOnWorkerThread,
-                     this, base::ThreadTaskRunnerHandle::Get(), bitmap));
+                     this, base::SingleThreadTaskRunner::GetCurrentDefault(),
+                     bitmap));
 }
 
 void WebViewInternalCaptureVisibleRegionFunction::EncodeBitmapOnWorkerThread(
@@ -491,7 +490,7 @@ bool WebViewInternalExecuteCodeFunction::CanExecuteScriptOnPage(
 extensions::ScriptExecutor*
 WebViewInternalExecuteCodeFunction::GetScriptExecutor(std::string* error) {
   WebViewGuest* guest =
-      WebViewGuest::From(source_process_id(), guest_instance_id_);
+      WebViewGuest::FromInstanceID(source_process_id(), guest_instance_id_);
   if (!guest)
     return nullptr;
 
@@ -510,7 +509,7 @@ bool WebViewInternalExecuteCodeFunction::LoadFileForWebUI(
     const std::string& file_src,
     WebUIURLFetcher::WebUILoadFileCallback callback) {
   WebViewGuest* guest =
-      WebViewGuest::From(source_process_id(), guest_instance_id_);
+      WebViewGuest::FromInstanceID(source_process_id(), guest_instance_id_);
   if (!guest || host_id().type != mojom::HostID::HostType::kWebUi)
     return false;
 
@@ -783,9 +782,8 @@ WebViewInternalFindFunction::WebViewInternalFindFunction() {
 WebViewInternalFindFunction::~WebViewInternalFindFunction() {
 }
 
-void WebViewInternalFindFunction::ForwardResponse(
-    const base::DictionaryValue& results) {
-  Respond(OneArgument(results.Clone()));
+void WebViewInternalFindFunction::ForwardResponse(base::Value::Dict results) {
+  Respond(OneArgument(base::Value(std::move(results))));
 }
 
 ExtensionFunction::ResponseAction WebViewInternalFindFunction::Run() {

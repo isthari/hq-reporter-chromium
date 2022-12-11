@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -161,18 +161,8 @@ void AdvancedProtectionStatusManager::OnAccessTokenFetchComplete(
     signin::AccessTokenInfo token_info) {
   DCHECK(access_token_fetcher_);
 
-  if (is_under_advanced_protection_) {
-    // Those already known to be under AP should have much lower error rates.
-    UMA_HISTOGRAM_ENUMERATION(
-        "SafeBrowsing.AdvancedProtection.APTokenFetchStatus", error.state(),
-        GoogleServiceAuthError::NUM_STATES);
-  }
-
   if (error.state() == GoogleServiceAuthError::NONE)
     OnGetIDToken(account_id, token_info.id_token);
-
-  UMA_HISTOGRAM_ENUMERATION("SafeBrowsing.AdvancedProtection.TokenFetchStatus",
-                            error.state(), GoogleServiceAuthError::NUM_STATES);
 
   access_token_fetcher_.reset();
 

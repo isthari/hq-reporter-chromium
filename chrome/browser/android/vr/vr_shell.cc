@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,13 +15,13 @@
 #include "base/command_line.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
-#include "chrome/android/features/vr/jni_headers/VrShell_jni.h"
+#include "chrome/android/features/vr/split_jni_headers/VrShell_jni.h"
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/android/vr/android_ui_gesture_target.h"
 #include "chrome/browser/android/vr/autocomplete_controller.h"
@@ -142,7 +142,8 @@ VrShell::VrShell(JNIEnv* env,
                  bool pause_content,
                  bool low_density)
     : delegate_provider_(delegate),
-      main_thread_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      main_thread_task_runner_(
+          base::SingleThreadTaskRunner::GetCurrentDefault()),
       reprojected_rendering_(reprojected_rendering),
       display_size_meters_(display_width_meters, display_height_meters),
       display_size_pixels_(display_width_pixels, display_height_pixels),
@@ -585,12 +586,11 @@ void VrShell::CancelToast(JNIEnv* env,
 }
 
 void VrShell::ConnectPresentingService(
-    device::mojom::VRDisplayInfoPtr display_info,
     device::mojom::XRRuntimeSessionOptionsPtr options) {
-  PostToGlThread(FROM_HERE,
-                 base::BindOnce(&BrowserRenderer::ConnectPresentingService,
-                                gl_thread_->GetBrowserRenderer(),
-                                std::move(display_info), std::move(options)));
+  PostToGlThread(
+      FROM_HERE,
+      base::BindOnce(&BrowserRenderer::ConnectPresentingService,
+                     gl_thread_->GetBrowserRenderer(), std::move(options)));
 }
 
 void VrShell::SetHistoryButtonsEnabled(JNIEnv* env,

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,4 +29,8 @@ interface IRemoteFragment {
                                         in int[] grantResults) = 13;
   IObjectWrapper /* View */ handleOnCreateView(in IObjectWrapper /* ViewGroup */ container,
                                                in IObjectWrapper /* Bundle */ savedInstanceState) = 14;
+  void handleSetSurfaceControlViewHost(in IObjectWrapper /* SurfaceControlViewHost */ host) = 15;
+  IObjectWrapper /* View */ handleGetContentViewRenderView() = 16;
+
+  void handleSetMinimumSurfaceSize(in int width, in int height) = 17;
 }

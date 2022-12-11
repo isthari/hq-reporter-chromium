@@ -34,6 +34,8 @@
 #include "third_party/blink/renderer/core/css/media_query_evaluator.h"
 #include "third_party/blink/renderer/core/css/rule_set.h"
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/execution_context/security_context.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/html/html_anchor_element.h"
 #include "third_party/blink/renderer/core/html/html_html_element.h"
@@ -46,6 +48,28 @@
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
+namespace {
+String OverflowForReplacedElementRules() {
+  return RuntimeEnabledFeatures::CSSOverflowForReplacedElementsEnabled()
+             ? UncompressResourceAsASCIIString(
+                   IDR_UASTYLE_OVERFLOW_REPLACED_CSS)
+             : "";
+}
+
+String OverflowForSVGRules() {
+  if (!RuntimeEnabledFeatures::CSSOverflowForReplacedElementsEnabled())
+    return "";
+
+  // SVG uses an overflow value of 'hidden' for backwards compatibility with
+  // flex layout. 'overflow-clip-margin' below still applies because the used
+  // value of overflow at paint time is 'clip'.
+  // See https://github.com/w3c/csswg-drafts/issues/7714 for context.
+  return String(R"CSS(svg:not(:root) {
+    overflow-clip-margin: content-box;
+        })CSS");
+}
+
+}  // namespace
 
 CSSDefaultStyleSheets& CSSDefaultStyleSheets::Instance() {
   DEFINE_STATIC_LOCAL(Persistent<CSSDefaultStyleSheets>,
@@ -98,6 +122,7 @@ CSSDefaultStyleSheets::CSSDefaultStyleSheets()
     : media_controls_style_sheet_loader_(nullptr) {
   // Strict-mode rules.
   String default_rules = UncompressResourceAsASCIIString(IDR_UASTYLE_HTML_CSS) +
+                         OverflowForReplacedElementRules() +
                          LayoutTheme::GetTheme().ExtraDefaultStyleSheet();
 
   default_style_sheet_ = ParseUASheet(default_rules);
@@ -114,31 +139,30 @@ CSSDefaultStyleSheets::CSSDefaultStyleSheets()
   default_svg_style_->CompactRulesIfNeeded();
   default_html_quirks_style_->CompactRulesIfNeeded();
   default_print_style_->CompactRulesIfNeeded();
-  DCHECK(default_html_style_->UniversalRules()->IsEmpty());
-  DCHECK(default_mathml_style_->UniversalRules()->IsEmpty());
-  DCHECK(default_svg_style_->UniversalRules()->IsEmpty());
-  DCHECK(default_html_quirks_style_->UniversalRules()->IsEmpty());
-  DCHECK(default_print_style_->UniversalRules()->IsEmpty());
+  DCHECK(default_html_style_->UniversalRules().empty());
+  DCHECK(default_mathml_style_->UniversalRules().empty());
+  DCHECK(default_svg_style_->UniversalRules().empty());
+  DCHECK(default_html_quirks_style_->UniversalRules().empty());
+  DCHECK(default_print_style_->UniversalRules().empty());
 #endif
 }
 
 void CSSDefaultStyleSheets::PrepareForLeakDetection() {
   // Clear the optional style sheets.
-  mobile_viewport_style_sheet_.Clear();
-  television_viewport_style_sheet_.Clear();
-  xhtml_mobile_profile_style_sheet_.Clear();
   svg_style_sheet_.Clear();
   mathml_style_sheet_.Clear();
   media_controls_style_sheet_.Clear();
   text_track_style_sheet_.Clear();
   forced_colors_style_sheet_.Clear();
   fullscreen_style_sheet_.Clear();
-  popup_style_sheet_.Clear();
+  popover_style_sheet_.Clear();
   selectmenu_style_sheet_.Clear();
   webxr_overlay_style_sheet_.Clear();
   marker_style_sheet_.Clear();
+  form_controls_not_vertical_style_sheet_.Clear();
   // Recreate the default style sheet to clean up possible SVG resources.
   String default_rules = UncompressResourceAsASCIIString(IDR_UASTYLE_HTML_CSS) +
+                         OverflowForReplacedElementRules() +
                          LayoutTheme::GetTheme().ExtraDefaultStyleSheet();
   default_style_sheet_ = ParseUASheet(default_rules);
 
@@ -173,32 +197,6 @@ RuleSet* CSSDefaultStyleSheets::DefaultViewSourceStyle() {
     default_view_source_style_->AddRulesFromSheet(stylesheet, ScreenEval());
   }
   return default_view_source_style_;
-}
-
-StyleSheetContents*
-CSSDefaultStyleSheets::EnsureXHTMLMobileProfileStyleSheet() {
-  if (!xhtml_mobile_profile_style_sheet_) {
-    xhtml_mobile_profile_style_sheet_ =
-        ParseUASheet(UncompressResourceAsASCIIString(IDR_UASTYLE_XHTMLMP_CSS));
-  }
-  return xhtml_mobile_profile_style_sheet_;
-}
-
-StyleSheetContents* CSSDefaultStyleSheets::EnsureMobileViewportStyleSheet() {
-  if (!mobile_viewport_style_sheet_) {
-    mobile_viewport_style_sheet_ = ParseUASheet(
-        UncompressResourceAsASCIIString(IDR_UASTYLE_VIEWPORT_ANDROID_CSS));
-  }
-  return mobile_viewport_style_sheet_;
-}
-
-StyleSheetContents*
-CSSDefaultStyleSheets::EnsureTelevisionViewportStyleSheet() {
-  if (!television_viewport_style_sheet_) {
-    television_viewport_style_sheet_ = ParseUASheet(
-        UncompressResourceAsASCIIString(IDR_UASTYLE_VIEWPORT_TELEVISION_CSS));
-  }
-  return television_viewport_style_sheet_;
 }
 
 static void AddTextTrackCSSProperties(StringBuilder* builder,
@@ -240,7 +238,8 @@ bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetsForElement(
   // FIXME: We should assert that the sheet only styles SVG elements.
   if (element.IsSVGElement() && !svg_style_sheet_) {
     svg_style_sheet_ =
-        ParseUASheet(UncompressResourceAsASCIIString(IDR_UASTYLE_SVG_CSS));
+        ParseUASheet(UncompressResourceAsASCIIString(IDR_UASTYLE_SVG_CSS) +
+                     OverflowForSVGRules());
     AddRulesToDefaultStyleSheets(svg_style_sheet_, NamespaceType::kSVG);
     changed_default_style = true;
   }
@@ -274,8 +273,6 @@ bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetsForElement(
       builder.Append("video::-webkit-media-text-track-display { ");
       AddTextTrackCSSProperties(&builder, CSSPropertyID::kBackgroundColor,
                                 settings->GetTextTrackWindowColor());
-      AddTextTrackCSSProperties(&builder, CSSPropertyID::kPadding,
-                                settings->GetTextTrackWindowPadding());
       AddTextTrackCSSProperties(&builder, CSSPropertyID::kBorderRadius,
                                 settings->GetTextTrackWindowRadius());
       builder.Append(" } video::cue { ");
@@ -301,26 +298,39 @@ bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetsForElement(
     }
   }
 
-  if (!popup_style_sheet_ && IsA<HTMLPopupElement>(element)) {
-    // TODO: We should assert that this sheet only contains rules for <popup>.
-    String popup_rules =
-        RuntimeEnabledFeatures::HTMLPopupElementEnabled()
-            ? UncompressResourceAsASCIIString(IDR_UASTYLE_POPUP_CSS)
-            : String();
-    popup_style_sheet_ = ParseUASheet(popup_rules);
-    AddRulesToDefaultStyleSheets(popup_style_sheet_, NamespaceType::kHTML);
+  if (!popover_style_sheet_ && IsA<HTMLElement>(element) &&
+      To<HTMLElement>(element).HasPopoverAttribute()) {
+    // TODO: We should assert that this sheet only contains rules for popovers.
+    DCHECK(RuntimeEnabledFeatures::HTMLPopoverAttributeEnabled(
+        element.GetDocument().GetExecutionContext()));
+    popover_style_sheet_ =
+        ParseUASheet(UncompressResourceAsASCIIString(IDR_UASTYLE_POPOVER_CSS));
+    AddRulesToDefaultStyleSheets(popover_style_sheet_, NamespaceType::kHTML);
     changed_default_style = true;
   }
 
   if (!selectmenu_style_sheet_ && IsA<HTMLSelectMenuElement>(element)) {
     // TODO: We should assert that this sheet only contains rules for
     // <selectmenu>.
-    String selectmenu_rules =
-        RuntimeEnabledFeatures::HTMLSelectMenuElementEnabled()
-            ? UncompressResourceAsASCIIString(IDR_UASTYLE_SELECTMENU_CSS)
-            : String();
-    selectmenu_style_sheet_ = ParseUASheet(selectmenu_rules);
+    DCHECK(RuntimeEnabledFeatures::HTMLSelectMenuElementEnabled());
+    selectmenu_style_sheet_ = ParseUASheet(
+        UncompressResourceAsASCIIString(IDR_UASTYLE_SELECTMENU_CSS));
     AddRulesToDefaultStyleSheets(selectmenu_style_sheet_, NamespaceType::kHTML);
+    changed_default_style = true;
+  }
+
+  // TODO(crbug.com/681917): The FormControlsVerticalWritingModeSupport
+  // flag enables vertical writing mode to be used on form controls. When
+  // it is *disabled*, we need to force horizontal writing mode.
+  if (!RuntimeEnabledFeatures::
+          FormControlsVerticalWritingModeSupportEnabled() &&
+      !form_controls_not_vertical_style_sheet_ &&
+      (IsA<HTMLProgressElement>(element) || IsA<HTMLMeterElement>(element))) {
+    form_controls_not_vertical_style_sheet_ =
+        ParseUASheet(UncompressResourceAsASCIIString(
+            IDR_UASTYLE_FORM_CONTROLS_NOT_VERTICAL_CSS));
+    AddRulesToDefaultStyleSheets(form_controls_not_vertical_style_sheet_,
+                                 NamespaceType::kHTML);
     changed_default_style = true;
   }
 
@@ -409,13 +419,13 @@ bool CSSDefaultStyleSheets::EnsureDefaultStyleSheetForForcedColors() {
 void CSSDefaultStyleSheets::CollectFeaturesTo(const Document& document,
                                               RuleFeatureSet& features) {
   if (DefaultHtmlStyle())
-    features.Add(DefaultHtmlStyle()->Features());
+    features.Merge(DefaultHtmlStyle()->Features());
   if (DefaultMediaControlsStyle())
-    features.Add(DefaultMediaControlsStyle()->Features());
+    features.Merge(DefaultMediaControlsStyle()->Features());
   if (DefaultMathMLStyle())
-    features.Add(DefaultMathMLStyle()->Features());
+    features.Merge(DefaultMathMLStyle()->Features());
   if (document.IsViewSource() && DefaultViewSourceStyle())
-    features.Add(DefaultViewSourceStyle()->Features());
+    features.Merge(DefaultViewSourceStyle()->Features());
 }
 
 void CSSDefaultStyleSheets::Trace(Visitor* visitor) const {
@@ -429,9 +439,6 @@ void CSSDefaultStyleSheets::Trace(Visitor* visitor) const {
   visitor->Trace(default_media_controls_style_);
   visitor->Trace(default_style_sheet_);
   visitor->Trace(default_pseudo_element_style_);
-  visitor->Trace(mobile_viewport_style_sheet_);
-  visitor->Trace(television_viewport_style_sheet_);
-  visitor->Trace(xhtml_mobile_profile_style_sheet_);
   visitor->Trace(quirks_style_sheet_);
   visitor->Trace(svg_style_sheet_);
   visitor->Trace(mathml_style_sheet_);
@@ -439,10 +446,11 @@ void CSSDefaultStyleSheets::Trace(Visitor* visitor) const {
   visitor->Trace(text_track_style_sheet_);
   visitor->Trace(forced_colors_style_sheet_);
   visitor->Trace(fullscreen_style_sheet_);
-  visitor->Trace(popup_style_sheet_);
+  visitor->Trace(popover_style_sheet_);
   visitor->Trace(selectmenu_style_sheet_);
   visitor->Trace(webxr_overlay_style_sheet_);
   visitor->Trace(marker_style_sheet_);
+  visitor->Trace(form_controls_not_vertical_style_sheet_);
 }
 
 }  // namespace blink

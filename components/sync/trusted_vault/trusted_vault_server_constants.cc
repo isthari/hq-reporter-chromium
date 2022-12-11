@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,6 @@
 #include "net/base/url_util.h"
 
 namespace syncer {
-
-namespace {
-
-const char kQueryParameterAlternateOutputKey[] = "alt";
-const char kQueryParameterAlternateOutputProto[] = "proto";
-
-}  // namespace
 
 std::vector<uint8_t> GetConstantTrustedVaultKey() {
   return std::vector<uint8_t>(16, 0);
@@ -26,7 +19,8 @@ std::string GetGetSecurityDomainMemberURLPathAndQuery(
   base::Base64UrlEncode(std::string(public_key.begin(), public_key.end()),
                         base::Base64UrlEncodePolicy::OMIT_PADDING,
                         &encoded_public_key);
-  return kSecurityDomainMemberNamePrefix + encoded_public_key + "?view=2";
+  return kSecurityDomainMemberNamePrefix + encoded_public_key + "?view=2"
+    + "&request_header.force_master_read=true";
 }
 
 GURL GetFullJoinSecurityDomainsURLForTesting(const GURL& server_url) {

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,6 +33,12 @@ enum LayoutConstant {
   // new tab pages.
   BOOKMARK_BAR_NTP_PADDING,
 #endif
+
+  // The size of icons used in Download bubbles.
+  // TODO(crbug/1296323): We should be sourcing the size of the file icon from
+  // the layout
+  // provider rather than relying on hardcoded constants.
+  DOWNLOAD_ICON_SIZE,
 
   // The vertical padding between the edge of a location bar bubble and its
   // contained text.
@@ -109,6 +115,12 @@ enum LayoutConstant {
 };
 
 enum LayoutInset {
+  // The padding around icons used in Download bubbles.
+  DOWNLOAD_ICON,
+
+  // The padding around rows used in Download bubbles.
+  DOWNLOAD_ROW,
+
   // The padding used around the icon inside the LocationBar. The full width of
   // the icon would be LOCATION_BAR_ICON_SIZE + 2 * inset.width(). The full
   // height of the icon would be LOCATION_BAR_ICON_SIZE + 2 * inset.height().
@@ -117,14 +129,20 @@ enum LayoutInset {
   // (e.g. does not highlight on hover).
   LOCATION_BAR_ICON_INTERIOR_PADDING,
 
-  // The padding inside the border of a toolbar button (around the image).
-  TOOLBAR_BUTTON,
-
   // The padding inside the border of a toolbar action view button.
   TOOLBAR_ACTION_VIEW,
 
+  // The padding inside the border of a toolbar button (around the image).
+  TOOLBAR_BUTTON,
+
   // The padding between the edges of the toolbar and its content.
   TOOLBAR_INTERIOR_MARGIN,
+
+  // The padding between the edges of the toolbar and its content when the webui
+  // tab strip is enabled. Special handling is needed as when the browser is
+  // maximized and the tabstrip is collapsed the toolbar will sit flush with the
+  // edge of the screen.
+  WEBUI_TAB_STRIP_TOOLBAR_INTERIOR_MARGIN,
 };
 
 int GetLayoutConstant(LayoutConstant constant);

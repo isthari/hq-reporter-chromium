@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,22 +10,27 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
+#include "base/path_service.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/version.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/component_updater/component_updater_utils.h"
+#include "chrome/browser/component_updater/updater_state.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/update_client/chrome_update_query_params_delegate.h"
 #include "chrome/common/channel_info.h"
+#include "chrome/common/chrome_paths.h"
 #include "components/component_updater/component_updater_command_line_config_policy.h"
 #include "components/component_updater/configurator_impl.h"
 #include "components/prefs/pref_service.h"
 #include "components/services/patch/content/patch_service.h"
 #include "components/services/unzip/content/unzip_service.h"
 #include "components/update_client/activity_data_service.h"
+#include "components/update_client/buildflags.h"
 #include "components/update_client/crx_downloader_factory.h"
 #include "components/update_client/net/network_chromium.h"
 #include "components/update_client/patch/patch_impl.h"
@@ -81,6 +86,9 @@ class ChromeConfigurator : public update_client::Configurator {
   GetProtocolHandlerFactory() const override;
   absl::optional<bool> IsMachineExternallyManaged() const override;
   update_client::UpdaterStateProvider GetUpdaterStateProvider() const override;
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+  absl::optional<base::FilePath> GetCrxCachePath() const override;
+#endif
 
  private:
   friend class base::RefCountedThreadSafe<ChromeConfigurator>;
@@ -160,7 +168,7 @@ ChromeConfigurator::ExtraRequestParams() const {
 std::string ChromeConfigurator::GetDownloadPreference() const {
 #if BUILDFLAG(IS_WIN)
   // This group policy is supported only on Windows and only for enterprises.
-  return base::IsMachineExternallyManaged()
+  return base::IsEnterpriseDevice()
              ? base::SysWideToUTF8(
                    GoogleUpdateSettings::GetDownloadPreference())
              : std::string();
@@ -247,11 +255,22 @@ absl::optional<bool> ChromeConfigurator::IsMachineExternallyManaged() const {
 
 update_client::UpdaterStateProvider
 ChromeConfigurator::GetUpdaterStateProvider() const {
-  // TODO(crbug.com/1286378) - add a dependency on //chrome/updater and
-  // implement this function so that it picks up that updater state, in
-  // addition to Omaha or Keystone updater states.
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
+  return base::BindRepeating(&UpdaterState::GetState);
+#else
   return configurator_impl_.GetUpdaterStateProvider();
+#endif
 }
+
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+absl::optional<base::FilePath> ChromeConfigurator::GetCrxCachePath() const {
+  base::FilePath path;
+  bool result = base::PathService::Get(chrome::DIR_USER_DATA, &path);
+  return result ? absl::optional<base::FilePath>(
+                      path.AppendASCII("component_crx_cache"))
+                : absl::nullopt;
+}
+#endif
 
 }  // namespace
 

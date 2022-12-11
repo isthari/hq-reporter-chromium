@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
@@ -42,7 +43,7 @@ import org.chromium.base.supplier.Supplier;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.bookmarks.BookmarkBridge;
+import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.feed.componentinterfaces.SurfaceCoordinator;
 import org.chromium.chrome.browser.feed.sections.SectionHeaderListProperties;
 import org.chromium.chrome.browser.feed.sections.SectionHeaderView;
@@ -59,6 +60,9 @@ import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.share.ShareDelegate;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.services.SigninManager;
+import org.chromium.chrome.browser.tabmodel.EmptyTabModel;
+import org.chromium.chrome.browser.tabmodel.TabModelObserver;
+import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.xsurface.FeedLaunchReliabilityLogger;
 import org.chromium.chrome.browser.xsurface.FeedLaunchReliabilityLogger.SurfaceType;
@@ -68,11 +72,14 @@ import org.chromium.chrome.browser.xsurface.SurfaceScope;
 import org.chromium.chrome.browser.xsurface.SurfaceScopeDependencyProvider;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
+import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.feed.proto.wire.ReliabilityLoggingEnums.DiscoverLaunchResult;
 import org.chromium.components.prefs.PrefService;
 import org.chromium.components.search_engines.TemplateUrlService;
 import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.ui.base.WindowAndroid;
+
+import java.util.ArrayList;
 
 /**
  * Tests for {@link FeedSurfaceCoordinator}.
@@ -80,10 +87,21 @@ import org.chromium.ui.base.WindowAndroid;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
-@Features.DisableFeatures({ChromeFeatureList.WEB_FEED, ChromeFeatureList.WEB_FEED_SORT,
-        ChromeFeatureList.INTEREST_FEED_V2_AUTOPLAY, ChromeFeatureList.FEED_INTERACTIVE_REFRESH,
-        ChromeFeatureList.FEED_BACK_TO_TOP})
-@Features.EnableFeatures({ChromeFeatureList.FEED_RELIABILITY_LOGGING})
+@Features.DisableFeatures({
+        ChromeFeatureList.WEB_FEED,
+        ChromeFeatureList.WEB_FEED_SORT,
+        ChromeFeatureList.WEB_FEED_ONBOARDING,
+        ChromeFeatureList.INTEREST_FEED_V2_AUTOPLAY,
+        ChromeFeatureList.FEED_INTERACTIVE_REFRESH,
+        ChromeFeatureList.FEED_BACK_TO_TOP,
+        ChromeFeatureList.FEED_MULTI_COLUMN,
+        // TODO(crbug.com/1353777): Disabling the feature explicitly, because native is not
+        // available to provide a default value. This should be enabled if the feature is enabled by
+        // default or removed if the flag is removed.
+        ChromeFeatureList.SYNC_ANDROID_LIMIT_NTP_PROMO_IMPRESSIONS,
+})
+@Features.EnableFeatures(
+        {ChromeFeatureList.FEED_CLIENT_GOOD_VISITS, ChromeFeatureList.FEED_HEADER_STICK_TO_TOP})
 public class FeedSurfaceCoordinatorTest {
     private static final @SurfaceType int SURFACE_TYPE = SurfaceType.NEW_TAB_PAGE;
     private static final long SURFACE_CREATION_TIME_NS = 1234L;
@@ -114,6 +132,23 @@ public class FeedSurfaceCoordinatorTest {
         }
     }
 
+    private class TestTabModel extends EmptyTabModel {
+        public ArrayList<TabModelObserver> mObservers = new ArrayList<TabModelObserver>();
+
+        @Override
+        public void addObserver(TabModelObserver observer) {
+            mObservers.add(observer);
+        }
+
+        void selectTab() {
+            for (TabModelObserver observer : mObservers) {
+                observer.didSelectTab(null, 0, 0);
+            }
+        }
+    }
+    private TestTabModel mTabModel = new TestTabModel();
+    private TestTabModel mTabModelIncognito = new TestTabModel();
+
     private FeedSurfaceCoordinator mCoordinator;
 
     @Rule
@@ -140,8 +175,6 @@ public class FeedSurfaceCoordinatorTest {
     private Supplier<ShareDelegate> mShareDelegateSupplier;
     @Mock
     private SectionHeaderView mSectionHeaderView;
-    @Mock
-    private BookmarkBridge mBookmarkBridge;
     @Mock
     private FeedActionDelegate mFeedActionDelegate;
 
@@ -192,6 +225,12 @@ public class FeedSurfaceCoordinatorTest {
     private FeedLaunchReliabilityLogger mLaunchReliabilityLogger;
     @Mock
     private PrivacyPreferencesManagerImpl mPrivacyPreferencesManager;
+    @Mock
+    private Tracker mTracker;
+    @Mock
+    private TabModelSelector mTabModelSelector;
+    @Mock
+    private ScrollableContainerDelegate mScrollableContainerDelegate;
 
     @Rule
     public final MockitoRule mMockitoRule = MockitoJUnit.rule();
@@ -219,6 +258,9 @@ public class FeedSurfaceCoordinatorTest {
         // Preferences to enable feed.
         FeedSurfaceMediator.setPrefForTest(mPrefChangeRegistrar, mPrefService);
         FeedFeatures.setFakePrefsForTest(mPrefService);
+        // We want to make the feed service bridge ignore the ablation flag.
+        when(mFeedServiceBridgeJniMock.isEnabled())
+                .thenAnswer(invocation -> mPrefService.getBoolean(Pref.ENABLE_SNIPPETS));
         when(mPrefService.getBoolean(Pref.ENABLE_SNIPPETS)).thenReturn(true);
         when(mPrefService.getBoolean(Pref.ARTICLES_LIST_VISIBLE)).thenReturn(true);
         TemplateUrlServiceFactory.setInstanceForTesting(mUrlService);
@@ -236,8 +278,12 @@ public class FeedSurfaceCoordinatorTest {
         when(mProcessScope.obtainSurfaceScope(any(SurfaceScopeDependencyProvider.class)))
                 .thenReturn(mSurfaceScope);
         when(mSurfaceScope.provideListRenderer()).thenReturn(mRenderer);
-        when(mRenderer.bind(mContentManagerCaptor.capture(), isNull())).thenReturn(mRecyclerView);
+        when(mRenderer.bind(mContentManagerCaptor.capture(), isNull(), eq(false)))
+                .thenReturn(mRecyclerView);
         when(mSurfaceScope.getFeedLaunchReliabilityLogger()).thenReturn(mLaunchReliabilityLogger);
+        TrackerFactory.setTrackerForTests(mTracker);
+        when(mTabModelSelector.getModel(eq(false))).thenReturn(mTabModel);
+        when(mTabModelSelector.getModel(eq(true))).thenReturn(mTabModelIncognito);
 
         mCoordinator = createCoordinator();
 
@@ -327,12 +373,6 @@ public class FeedSurfaceCoordinatorTest {
     }
 
     @Test
-    @Features.DisableFeatures({ChromeFeatureList.FEED_RELIABILITY_LOGGING})
-    public void testDisableReliabilityLogging_featureDisabled() {
-        verify(mLaunchReliabilityLogger, never()).logUiStarting(anyInt(), anyLong());
-    }
-
-    @Test
     public void testLogUiStarting() {
         verify(mLaunchReliabilityLogger, times(1))
                 .logUiStarting(SURFACE_TYPE, SURFACE_CREATION_TIME_NS);
@@ -355,7 +395,7 @@ public class FeedSurfaceCoordinatorTest {
     @Test
     public void testOmniboxFocused() {
         when(mLaunchReliabilityLogger.isLaunchInProgress()).thenReturn(true);
-        mCoordinator.onOmniboxFocused();
+        mCoordinator.getReliabilityLogger().onOmniboxFocused();
         verify(mLaunchReliabilityLogger, times(1))
                 .pendingFinished(anyLong(), eq(DiscoverLaunchResult.SEARCH_BOX_TAPPED.getNumber()));
     }
@@ -363,7 +403,7 @@ public class FeedSurfaceCoordinatorTest {
     @Test
     public void testVoiceSearch() {
         when(mLaunchReliabilityLogger.isLaunchInProgress()).thenReturn(true);
-        mCoordinator.onVoiceSearch();
+        mCoordinator.getReliabilityLogger().onVoiceSearch();
         verify(mLaunchReliabilityLogger, times(1))
                 .pendingFinished(
                         anyLong(), eq(DiscoverLaunchResult.VOICE_SEARCH_TAPPED.getNumber()));
@@ -372,10 +412,10 @@ public class FeedSurfaceCoordinatorTest {
     @Test
     public void testUrlFocusChange() {
         when(mLaunchReliabilityLogger.isLaunchInProgress()).thenReturn(true);
-        mCoordinator.onUrlFocusChange(/*hasFocus=*/true);
+        mCoordinator.getReliabilityLogger().onUrlFocusChange(/*hasFocus=*/true);
         verify(mLaunchReliabilityLogger, never()).cancelPendingFinished();
 
-        mCoordinator.onUrlFocusChange(/*hasFocus=*/false);
+        mCoordinator.getReliabilityLogger().onUrlFocusChange(/*hasFocus=*/false);
         verify(mLaunchReliabilityLogger, times(1)).cancelPendingFinished();
     }
 
@@ -393,6 +433,54 @@ public class FeedSurfaceCoordinatorTest {
         assertEquals(0, mContentManagerCaptor.getValue().getItemCount());
     }
 
+    @Test
+    public void testLogManualRefresh() {
+        mCoordinator.onRefresh();
+        verify(mLaunchReliabilityLogger, times(1)).logManualRefresh(anyLong());
+    }
+
+    @Test
+    public void testSetUpLaunchReliabilityLogger() {
+        reset(mLaunchReliabilityLogger);
+        mCoordinator.destroy();
+        when(mPrivacyPreferencesManager.isMetricsReportingEnabled()).thenReturn(true);
+        mCoordinator = createCoordinator();
+
+        verify(mLaunchReliabilityLogger, times(1))
+                .logUiStarting(SURFACE_TYPE, SURFACE_CREATION_TIME_NS);
+    }
+
+    @Test
+    public void testFeedHeaderPosition_scrollableContainerDelegate() {
+        when(mScrollableContainerDelegate.getTopPositionRelativeToContainerView(any()))
+                .thenReturn(-1);
+        assertEquals(-1, mCoordinator.getFeedHeaderPosition());
+
+        mCoordinator.clearScrollableContainerDelegateForTesting();
+        assertEquals(Integer.MAX_VALUE, mCoordinator.getFeedHeaderPosition());
+    }
+
+    @Test
+    public void testStartSurfaceScrollListener() {
+        FeedSurfaceCoordinator.StartSurfaceScrollListener listener =
+                mCoordinator.new StartSurfaceScrollListener();
+
+        // Our toolbar height is always set as 0.
+        when(mCoordinator.getFeedHeaderPosition()).thenReturn(-10);
+        listener.onHeaderOffsetChanged(0);
+        // Toolbar height is bigger than the header position, then the sticky header is visible.
+        assertEquals(true,
+                mCoordinator.getSectionHeaderModelForTest().get(
+                        SectionHeaderListProperties.STICKY_HEADER_VISIBLILITY_KEY));
+
+        when(mCoordinator.getFeedHeaderPosition()).thenReturn(10);
+        listener.onHeaderOffsetChanged(0);
+        // Toolbar height is smaller than the header position, so the sticky header is invisible.
+        assertEquals(false,
+                mCoordinator.getSectionHeaderModelForTest().get(
+                        SectionHeaderListProperties.STICKY_HEADER_VISIBLILITY_KEY));
+    }
+
     private boolean hasStreamBound() {
         if (mCoordinator.getMediatorForTesting().getCurrentStreamForTesting() == null) {
             return false;
@@ -404,12 +492,12 @@ public class FeedSurfaceCoordinatorTest {
     private FeedSurfaceCoordinator createCoordinator() {
         return new FeedSurfaceCoordinator(mActivity, mSnackbarManager, mWindowAndroid, mSnapHelper,
                 null, 0, false, new TestSurfaceDelegate(), mProfileMock, false,
-                mBottomSheetController, mShareDelegateSupplier, null,
+                mBottomSheetController, mShareDelegateSupplier, mScrollableContainerDelegate,
                 NewTabPageLaunchOrigin.UNKNOWN, mPrivacyPreferencesManager,
                 ()
                         -> { return null; },
-                new FeedLaunchReliabilityLoggingState(SURFACE_TYPE, SURFACE_CREATION_TIME_NS), null,
-                false, /*viewportView=*/null, mFeedActionDelegate,
-                /*helpAndFeedbackLauncher=*/null);
+                SURFACE_TYPE, SURFACE_CREATION_TIME_NS, null, false,
+                /*viewportView=*/null, mFeedActionDelegate,
+                /*helpAndFeedbackLauncher=*/null, mTabModelSelector);
     }
 }

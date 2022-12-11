@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "base/containers/span.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/strings/string_piece.h"
 #include "base/time/time.h"
 #include "crypto/signature_verifier.h"
@@ -38,6 +38,16 @@ enum DigestAlgorithm { DIGEST_SHA256 };
 // Adds a RFC 5280 Time value to the given CBB.
 NET_EXPORT bool CBBAddTime(CBB* cbb, base::Time time);
 
+// Adds an X.509 name to |cbb|. The name is determined by parsing |name| as
+// a comma-separated list of type=value pairs, such as "O=Organization,
+// CN=Common Name".
+//
+// WARNING: This function does not implement the full RFC 4514 syntax for
+// distinguished names. It should only be used if |name| is a constant
+// value, rather than programmatically constructed. If programmatic support
+// is needed, this input should be replaced with a richer type.
+NET_EXPORT bool AddName(CBB* cbb, base::StringPiece name);
+
 // Generate a 'tls-server-end-point' channel binding based on the specified
 // certificate. Channel bindings are based on RFC 5929.
 NET_EXPORT_PRIVATE bool GetTLSServerEndPointChannelBinding(
@@ -49,7 +59,7 @@ NET_EXPORT_PRIVATE bool GetTLSServerEndPointChannelBinding(
 // The certificate is signed by the private key in |key|. The key length and
 // signature algorithm may be updated periodically to match best practices.
 //
-// |subject| is a distinguished name defined in RFC4514.
+// |subject| specifies the subject and issuer names as in AddName()
 //
 // SECURITY WARNING
 //
@@ -81,6 +91,8 @@ struct NET_EXPORT Extension {
 
 // Creates a self-signed certificate from a provided key, using the specified
 // hash algorithm.
+//
+// |subject| specifies the subject and issuer names as in AddName().
 NET_EXPORT bool CreateSelfSignedCert(
     EVP_PKEY* key,
     DigestAlgorithm alg,
@@ -100,7 +112,7 @@ NET_EXPORT bssl::UniquePtr<CRYPTO_BUFFER> CreateCryptoBuffer(
 
 // Creates a CRYPTO_BUFFER in the same pool returned by GetBufferPool.
 NET_EXPORT bssl::UniquePtr<CRYPTO_BUFFER> CreateCryptoBuffer(
-    const base::StringPiece& data);
+    base::StringPiece data);
 
 // Overload with no definition, to disallow creating a CRYPTO_BUFFER from a
 // char* due to StringPiece implicit ctor.
@@ -157,8 +169,10 @@ NET_EXPORT bool SignatureVerifierInitWithCertificate(
     base::span<const uint8_t> signature,
     const CRYPTO_BUFFER* certificate);
 
-// Returns true if the signature on the certificate uses SHA-1.
-NET_EXPORT_PRIVATE bool HasSHA1Signature(const CRYPTO_BUFFER* cert_buffer);
+// Returns true if the signature on the certificate is RSASSA-PKCS1-v1_5 with
+// SHA-1.
+NET_EXPORT_PRIVATE bool HasRsaPkcs1Sha1Signature(
+    const CRYPTO_BUFFER* cert_buffer);
 
 }  // namespace x509_util
 

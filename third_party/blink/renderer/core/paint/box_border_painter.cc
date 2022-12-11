@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <algorithm>
 
-#include "base/cxx17_backports.h"
 #include "third_party/blink/renderer/core/paint/box_painter.h"
 #include "third_party/blink/renderer/core/paint/object_painter.h"
 #include "third_party/blink/renderer/core/paint/paint_auto_dark_mode.h"
@@ -17,6 +16,7 @@
 #include "third_party/blink/renderer/platform/graphics/graphics_context_state_saver.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
+#include "ui/gfx/geometry/rect_conversions.h"
 
 namespace blink {
 
@@ -364,7 +364,10 @@ const unsigned kSidePriority[] = {
 // Edges sharing the same opacity. Stores both a side list and an edge bitfield
 // to support constant time iteration + membership tests.
 struct OpacityGroup {
-  OpacityGroup(unsigned alpha) : edge_flags(0), alpha(alpha) {}
+  DISALLOW_NEW();
+
+ public:
+  explicit OpacityGroup(unsigned alpha) : edge_flags(0), alpha(alpha) {}
 
   Vector<BoxSide, 4> sides;
   BorderEdgeFlags edge_flags;
@@ -711,6 +714,9 @@ void FindIntersection(const gfx::PointF& p1,
 
 // Holds edges grouped by opacity and sorted in paint order.
 struct BoxBorderPainter::ComplexBorderInfo {
+  STACK_ALLOCATED();
+
+ public:
   explicit ComplexBorderInfo(const BoxBorderPainter& border_painter) {
     Vector<BoxSide, 4> sorted_sides;
 
@@ -721,7 +727,7 @@ struct BoxBorderPainter::ComplexBorderInfo {
       if (IncludesEdge(border_painter.visible_edge_set_, side))
         sorted_sides.push_back(side);
     }
-    DCHECK(!sorted_sides.IsEmpty());
+    DCHECK(!sorted_sides.empty());
 
     // Then sort them in paint order, based on three (prioritized) criteria:
     // alpha, style, side.
@@ -773,13 +779,13 @@ struct BoxBorderPainter::ComplexBorderInfo {
         current_alpha = edge_alpha;
       }
 
-      DCHECK(!opacity_groups.IsEmpty());
+      DCHECK(!opacity_groups.empty());
       OpacityGroup& current_group = opacity_groups.back();
       current_group.sides.push_back(side);
       current_group.edge_flags |= EdgeFlagForSide(side);
     }
 
-    DCHECK(!opacity_groups.IsEmpty());
+    DCHECK(!opacity_groups.empty());
   }
 };
 
@@ -794,8 +800,7 @@ void BoxBorderPainter::DrawDoubleBorder() const {
   // When painting outlines, we ignore outer/inner radii.
   const auto force_rectangular = !outer_.IsRounded() && !inner_.IsRounded();
 
-  AutoDarkMode auto_dark_mode(
-      PaintAutoDarkMode(style_, DarkModeFilter::ElementRole::kBackground));
+  AutoDarkMode auto_dark_mode(PaintAutoDarkMode(style_, element_role_));
 
   // outer stripe
   const LayoutRectOutsets outer_third_outsets =
@@ -831,16 +836,14 @@ bool BoxBorderPainter::PaintBorderFastPath() const {
     if (FirstEdge().BorderStyle() == EBorderStyle::kSolid) {
       if (is_uniform_width_ && !outer_.IsRounded()) {
         // 4-side, solid, uniform-width, rectangular border => one drawRect()
-        DrawSolidBorderRect(
-            context_, outer_.Rect(), FirstEdge().Width(), FirstEdge().color,
-            PaintAutoDarkMode(style_,
-                              DarkModeFilter::ElementRole::kBackground));
+        DrawSolidBorderRect(context_, outer_.Rect(), FirstEdge().Width(),
+                            FirstEdge().color,
+                            PaintAutoDarkMode(style_, element_role_));
       } else {
         // 4-side, solid border => one drawDRRect()
-        DrawBleedAdjustedDRRect(
-            context_, bleed_avoidance_, outer_, inner_, FirstEdge().color,
-            PaintAutoDarkMode(style_,
-                              DarkModeFilter::ElementRole::kBackground));
+        DrawBleedAdjustedDRRect(context_, bleed_avoidance_, outer_, inner_,
+                                FirstEdge().color,
+                                PaintAutoDarkMode(style_, element_role_));
       }
     } else {
       // 4-side, double border => 2x drawDRRect()
@@ -868,9 +871,7 @@ bool BoxBorderPainter::PaintBorderFastPath() const {
     }
 
     context_.SetFillColor(FirstEdge().color);
-    context_.FillPath(
-        path,
-        PaintAutoDarkMode(style_, DarkModeFilter::ElementRole::kBackground));
+    context_.FillPath(path, PaintAutoDarkMode(style_, element_role_));
     return true;
   }
 
@@ -917,18 +918,18 @@ BoxBorderPainter::BoxBorderPainter(GraphicsContext& context,
   Edge(BoxSide::kLeft).ClampWidth(max_width);
 
   is_rounded_ = outer_.IsRounded();
+
+  element_role_ = DarkModeFilter::ElementRole::kBorder;
 }
 
 BoxBorderPainter::BoxBorderPainter(GraphicsContext& context,
                                    const ComputedStyle& style,
                                    const PhysicalRect& border_rect,
                                    int width,
-                                   int inner_outset_x,
-                                   int inner_outset_y)
+                                   const LayoutRectOutsets& inner_outsets)
     : context_(context),
       border_rect_(border_rect),
-      outer_outset_x_(inner_outset_x + width),
-      outer_outset_y_(inner_outset_y + width),
+      outer_outsets_(inner_outsets + LayoutUnit(width)),
       style_(style),
       bleed_avoidance_(kBackgroundBleedNone),
       sides_to_include_(PhysicalBoxSides()),
@@ -950,19 +951,17 @@ BoxBorderPainter::BoxBorderPainter(GraphicsContext& context,
   ComputeBorderProperties();
 
   outer_ = RoundedBorderGeometry::PixelSnappedRoundedBorderWithOutsets(
-      style, border_rect,
-      LayoutRectOutsets(outer_outset_y_, outer_outset_x_, outer_outset_y_,
-                        outer_outset_x_));
+      style, border_rect, outer_outsets_);
   is_rounded_ = outer_.IsRounded();
 
   inner_ = RoundedBorderGeometry::PixelSnappedRoundedBorderWithOutsets(
-      style, border_rect,
-      LayoutRectOutsets(inner_outset_y, inner_outset_x, inner_outset_y,
-                        inner_outset_x));
+      style, border_rect, inner_outsets);
+
+  element_role_ = DarkModeFilter::ElementRole::kBackground;
 }
 
 void BoxBorderPainter::ComputeBorderProperties() {
-  for (unsigned i = 0; i < base::size(edges_); ++i) {
+  for (unsigned i = 0; i < std::size(edges_); ++i) {
     const BorderEdge& edge = edges_[i];
 
     if (!edge.ShouldRender()) {
@@ -1288,8 +1287,7 @@ void BoxBorderPainter::PaintOneBorderSide(
         side_rect.bottom(), side, color, edge_to_render.BorderStyle(),
         miter1 != kNoMiter ? floorf(adjacent_edge1.Width()) : 0,
         miter2 != kNoMiter ? floorf(adjacent_edge2.Width()) : 0,
-        /*antialias*/ true,
-        PaintAutoDarkMode(style_, DarkModeFilter::ElementRole::kBackground));
+        /*antialias*/ true, PaintAutoDarkMode(style_, element_role_));
   }
 }
 
@@ -1341,9 +1339,8 @@ void BoxBorderPainter::DrawBoxSideFromPath(const Path& border_path,
 
   context_.SetStrokeStyle(kNoStroke);
   context_.SetFillColor(color);
-  context_.DrawRect(
-      gfx::ToRoundedRect(outer_.Rect()),
-      PaintAutoDarkMode(style_, DarkModeFilter::ElementRole::kBackground));
+  context_.DrawRect(gfx::ToRoundedRect(outer_.Rect()),
+                    PaintAutoDarkMode(style_, element_role_));
 }
 
 void BoxBorderPainter::DrawDashedDottedBoxSideFromPath(
@@ -1378,10 +1375,8 @@ void BoxBorderPainter::DrawDashedDottedBoxSideFromPath(
 
   // TODO(schenney): stroking the border path causes issues with tight corners:
   // https://bugs.chromium.org/p/chromium/issues/detail?id=344234
-  context_.StrokePath(
-      centerline_path,
-      PaintAutoDarkMode(style_, DarkModeFilter::ElementRole::kBackground),
-      centerline_path.length(), border_thickness);
+  context_.StrokePath(centerline_path, PaintAutoDarkMode(style_, element_role_),
+                      centerline_path.length(), border_thickness);
 }
 
 void BoxBorderPainter::DrawWideDottedBoxSideFromPath(
@@ -1393,10 +1388,8 @@ void BoxBorderPainter::DrawWideDottedBoxSideFromPath(
 
   // TODO(schenney): stroking the border path causes issues with tight corners:
   // https://bugs.webkit.org/show_bug.cgi?id=58711
-  context_.StrokePath(
-      border_path,
-      PaintAutoDarkMode(style_, DarkModeFilter::ElementRole::kBackground),
-      border_path.length(), border_thickness);
+  context_.StrokePath(border_path, PaintAutoDarkMode(style_, element_role_),
+                      border_path.length(), border_thickness);
 }
 
 void BoxBorderPainter::DrawDoubleBoxSideFromPath(
@@ -1771,22 +1764,20 @@ void BoxBorderPainter::ClipBorderSidePolygon(BoxSide side,
 
 LayoutRectOutsets BoxBorderPainter::DoubleStripeOutsets(
     BorderEdge::DoubleBorderStripe stripe) const {
-  return LayoutRectOutsets(
-      outer_outset_y_ - Edge(BoxSide::kTop).GetDoubleBorderStripeWidth(stripe),
-      outer_outset_x_ -
-          Edge(BoxSide::kRight).GetDoubleBorderStripeWidth(stripe),
-      outer_outset_y_ -
-          Edge(BoxSide::kBottom).GetDoubleBorderStripeWidth(stripe),
-      outer_outset_x_ -
-          Edge(BoxSide::kLeft).GetDoubleBorderStripeWidth(stripe));
+  return outer_outsets_ -
+         LayoutRectOutsets(
+             Edge(BoxSide::kTop).GetDoubleBorderStripeWidth(stripe),
+             Edge(BoxSide::kRight).GetDoubleBorderStripeWidth(stripe),
+             Edge(BoxSide::kBottom).GetDoubleBorderStripeWidth(stripe),
+             Edge(BoxSide::kLeft).GetDoubleBorderStripeWidth(stripe));
 }
 
 LayoutRectOutsets BoxBorderPainter::CenterOutsets() const {
-  return LayoutRectOutsets(
-      outer_outset_y_ - Edge(BoxSide::kTop).UsedWidth() * 0.5,
-      outer_outset_x_ - Edge(BoxSide::kRight).UsedWidth() * 0.5,
-      outer_outset_y_ - Edge(BoxSide::kBottom).UsedWidth() * 0.5,
-      outer_outset_x_ - Edge(BoxSide::kLeft).UsedWidth() * 0.5);
+  return outer_outsets_ -
+         LayoutRectOutsets(Edge(BoxSide::kTop).UsedWidth() * 0.5,
+                           Edge(BoxSide::kRight).UsedWidth() * 0.5,
+                           Edge(BoxSide::kBottom).UsedWidth() * 0.5,
+                           Edge(BoxSide::kLeft).UsedWidth() * 0.5);
 }
 
 bool BoxBorderPainter::ColorsMatchAtCorner(BoxSide side,

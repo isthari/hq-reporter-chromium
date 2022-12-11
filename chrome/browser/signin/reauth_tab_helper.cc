@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #include "base/memory/ptr_util.h"
 #include "chrome/browser/signin/reauth_result.h"
 #include "content/public/browser/navigation_handle.h"
+#include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
 #include "url/origin.h"
 

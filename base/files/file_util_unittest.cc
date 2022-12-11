@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,6 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/environment.h"
 #include "base/files/file.h"
 #include "base/files/file_enumerator.h"
@@ -45,7 +44,6 @@
 #include "base/threading/thread.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/multiprocess_func_list.h"
 #include "testing/platform_test.h"
@@ -196,14 +194,14 @@ class ReparsePoint {
                      NULL, OPEN_EXISTING,
                      FILE_FLAG_BACKUP_SEMANTICS,  // Needed to open a directory.
                      NULL));
-    created_ = dir_.IsValid() && SetReparsePoint(dir_.Get(), target);
+    created_ = dir_.is_valid() && SetReparsePoint(dir_.get(), target);
   }
   ReparsePoint(const ReparsePoint&) = delete;
   ReparsePoint& operator=(const ReparsePoint&) = delete;
 
   ~ReparsePoint() {
     if (created_)
-      DeleteReparsePoint(dir_.Get());
+      DeleteReparsePoint(dir_.get());
   }
 
   bool IsValid() { return created_; }
@@ -215,9 +213,7 @@ class ReparsePoint {
 
 #endif
 
-// Fuchsia doesn't support file permissions.
-#if !BUILDFLAG(IS_FUCHSIA)
-#if BUILDFLAG(IS_POSIX)
+#if BUILDFLAG(IS_MAC)
 // Provide a simple way to change the permissions bits on |path| in tests.
 // ASSERT failures will return, but not stop the test.  Caller should wrap
 // calls to this function in ASSERT_NO_FATAL_FAILURE().
@@ -233,8 +229,10 @@ void ChangePosixFilePermissions(const FilePath& path,
   mode &= ~mode_bits_to_clear;
   ASSERT_TRUE(SetPosixFilePermissions(path, mode));
 }
-#endif  // BUILDFLAG(IS_POSIX)
+#endif  // BUILDFLAG(IS_MAC)
 
+// Fuchsia doesn't support file permissions.
+#if !BUILDFLAG(IS_FUCHSIA)
 // Sets the source file to read-only.
 void SetReadOnly(const FilePath& path, bool read_only) {
 #if BUILDFLAG(IS_WIN)
@@ -351,7 +349,7 @@ std::wstring ReadTextFile(const FilePath& filename) {
   file.open(filename.value());
 #endif  // BUILDFLAG(IS_WIN)
   EXPECT_TRUE(file.is_open());
-  file.getline(contents, size(contents));
+  file.getline(contents, std::size(contents));
   file.close();
   return std::wstring(contents);
 }
@@ -1133,7 +1131,7 @@ TEST_F(FileUtilTest, CopyDirectoryPermissions) {
   ASSERT_TRUE(GetPosixFilePermissions(file_name_to, &mode));
 #if BUILDFLAG(IS_APPLE)
   expected_mode = 0755;
-#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;
@@ -1143,7 +1141,7 @@ TEST_F(FileUtilTest, CopyDirectoryPermissions) {
   ASSERT_TRUE(GetPosixFilePermissions(file2_name_to, &mode));
 #if BUILDFLAG(IS_APPLE)
   expected_mode = 0755;
-#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;
@@ -1153,7 +1151,7 @@ TEST_F(FileUtilTest, CopyDirectoryPermissions) {
   ASSERT_TRUE(GetPosixFilePermissions(file3_name_to, &mode));
 #if BUILDFLAG(IS_APPLE)
   expected_mode = 0600;
-#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;
@@ -1303,7 +1301,7 @@ TEST_F(FileUtilTest, CopyFileExecutablePermission) {
   int expected_mode;
 #if BUILDFLAG(IS_APPLE)
   expected_mode = 0755;
-#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;
@@ -1321,7 +1319,7 @@ TEST_F(FileUtilTest, CopyFileExecutablePermission) {
   ASSERT_TRUE(GetPosixFilePermissions(dst, &mode));
 #if BUILDFLAG(IS_APPLE)
   expected_mode = 0755;
-#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;
@@ -1339,7 +1337,7 @@ TEST_F(FileUtilTest, CopyFileExecutablePermission) {
   ASSERT_TRUE(GetPosixFilePermissions(dst, &mode));
 #if BUILDFLAG(IS_APPLE)
   expected_mode = 0600;
-#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS)
   expected_mode = 0644;
 #else
   expected_mode = 0600;
@@ -2545,7 +2543,7 @@ TEST_F(FileUtilTest, GetTempDirTest) {
   ASSERT_EQ(0, ::_tdupenv_s(&original_tmp, &original_tmp_size, kTmpKey));
   // original_tmp may be NULL.
 
-  for (unsigned int i = 0; i < size(kTmpValues); ++i) {
+  for (unsigned int i = 0; i < std::size(kTmpValues); ++i) {
     FilePath path;
     ::_tputenv_s(kTmpKey, kTmpValues[i]);
     GetTempDir(&path);
@@ -2720,6 +2718,15 @@ TEST_F(FileUtilTest, CreateNewTempDirectoryTest) {
   FilePath temp_dir;
   ASSERT_TRUE(CreateNewTempDirectory(FilePath::StringType(), &temp_dir));
   EXPECT_TRUE(PathExists(temp_dir));
+
+#if BUILDFLAG(IS_WIN)
+  FilePath expected_parent_dir;
+  EXPECT_TRUE(PathService::Get(
+      ::IsUserAnAdmin() ? int{DIR_PROGRAM_FILES} : int{DIR_TEMP},
+      &expected_parent_dir));
+  EXPECT_TRUE(expected_parent_dir.IsParent(temp_dir));
+#endif  // BUILDFLAG(IS_WIN)
+
   EXPECT_TRUE(DeleteFile(temp_dir));
 }
 
@@ -3112,6 +3119,33 @@ TEST_F(FileUtilTest, ReadFile) {
                      static_cast<int>(exact_buffer.size())));
 }
 
+TEST_F(FileUtilTest, ReadFileToBytes) {
+  const std::vector<uint8_t> kTestData = {'0', '1', '2', '3'};
+
+  FilePath file_path =
+      temp_dir_.GetPath().Append(FILE_PATH_LITERAL("ReadFileToStringTest"));
+  FilePath file_path_dangerous =
+      temp_dir_.GetPath()
+          .Append(FILE_PATH_LITERAL(".."))
+          .Append(temp_dir_.GetPath().BaseName())
+          .Append(FILE_PATH_LITERAL("ReadFileToStringTest"));
+
+  // Create test file.
+  ASSERT_TRUE(WriteFile(file_path, kTestData));
+
+  absl::optional<std::vector<uint8_t>> bytes = ReadFileToBytes(file_path);
+  ASSERT_TRUE(bytes.has_value());
+  EXPECT_EQ(kTestData, bytes);
+
+  // Write empty file.
+  ASSERT_TRUE(WriteFile(file_path, ""));
+  bytes = ReadFileToBytes(file_path);
+  ASSERT_TRUE(bytes.has_value());
+  EXPECT_TRUE(bytes->empty());
+
+  ASSERT_FALSE(ReadFileToBytes(file_path_dangerous));
+}
+
 TEST_F(FileUtilTest, ReadFileToString) {
   const char kTestData[] = "0123";
   std::string data;
@@ -3366,7 +3400,7 @@ MULTIPROCESS_TEST_MAIN(ChildMain) {
   HANDLE ph = CreateNamedPipe(pipe_path.value().c_str(), PIPE_ACCESS_OUTBOUND,
                               PIPE_WAIT, 1, 0, 0, 0, NULL);
   EXPECT_NE(ph, INVALID_HANDLE_VALUE);
-  EXPECT_TRUE(SetEvent(sync_event.Get()));
+  EXPECT_TRUE(SetEvent(sync_event.get()));
   if (!::ConnectNamedPipe(ph, /*lpOverlapped=*/nullptr)) {
     // ERROR_PIPE_CONNECTED means that the other side has already connected.
     auto error = ::GetLastError();
@@ -3397,7 +3431,7 @@ MULTIPROCESS_TEST_MAIN(MoreThanBufferSizeChildMain) {
   HANDLE ph = CreateNamedPipe(pipe_path.value().c_str(), PIPE_ACCESS_OUTBOUND,
                               PIPE_WAIT, 1, data.size(), data.size(), 0, NULL);
   EXPECT_NE(ph, INVALID_HANDLE_VALUE);
-  EXPECT_TRUE(SetEvent(sync_event.Get()));
+  EXPECT_TRUE(SetEvent(sync_event.get()));
   if (!::ConnectNamedPipe(ph, /*lpOverlapped=*/nullptr)) {
     // ERROR_PIPE_CONNECTED means that the other side has already connected.
     auto error = ::GetLastError();
@@ -3418,17 +3452,17 @@ TEST_F(FileUtilTest, ReadFileToStringWithNamedPipe) {
   CommandLine child_command_line(GetMultiProcessTestChildBaseCommandLine());
   child_command_line.AppendSwitchPath("pipe-path", pipe_path);
   child_command_line.AppendSwitchASCII(
-      "sync_event", NumberToString(win::HandleToUint32(sync_event.Get())));
+      "sync_event", NumberToString(win::HandleToUint32(sync_event.get())));
 
   LaunchOptions options;
-  options.handles_to_inherit.push_back(sync_event.Get());
+  options.handles_to_inherit.push_back(sync_event.get());
 
   {
     Process child_process = SpawnMultiProcessTestChild(
         ChildMainString, child_command_line, options);
     ASSERT_TRUE(child_process.IsValid());
     // Wait for pipe creation in child process.
-    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.get(), INFINITE));
 
     std::string data = "temp";
     EXPECT_FALSE(ReadFileToStringWithMaxSize(pipe_path, &data, 2));
@@ -3444,7 +3478,7 @@ TEST_F(FileUtilTest, ReadFileToStringWithNamedPipe) {
         ChildMainString, child_command_line, options);
     ASSERT_TRUE(child_process.IsValid());
     // Wait for pipe creation in child process.
-    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.get(), INFINITE));
 
     std::string data = "temp";
     EXPECT_TRUE(ReadFileToStringWithMaxSize(pipe_path, &data, 6));
@@ -3460,7 +3494,7 @@ TEST_F(FileUtilTest, ReadFileToStringWithNamedPipe) {
         MoreThanBufferSizeChildMainString, child_command_line, options);
     ASSERT_TRUE(child_process.IsValid());
     // Wait for pipe creation in child process.
-    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.get(), INFINITE));
 
     std::string data = "temp";
     EXPECT_FALSE(ReadFileToStringWithMaxSize(pipe_path, &data, 6));
@@ -3476,7 +3510,7 @@ TEST_F(FileUtilTest, ReadFileToStringWithNamedPipe) {
         MoreThanBufferSizeChildMainString, child_command_line, options);
     ASSERT_TRUE(child_process.IsValid());
     // Wait for pipe creation in child process.
-    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.get(), INFINITE));
 
     std::string data = "temp";
     EXPECT_FALSE(
@@ -3493,7 +3527,7 @@ TEST_F(FileUtilTest, ReadFileToStringWithNamedPipe) {
         MoreThanBufferSizeChildMainString, child_command_line, options);
     ASSERT_TRUE(child_process.IsValid());
     // Wait for pipe creation in child process.
-    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.get(), INFINITE));
 
     std::string data = "temp";
     EXPECT_TRUE(ReadFileToStringWithMaxSize(pipe_path, &data, kLargeFileSize));
@@ -3509,7 +3543,7 @@ TEST_F(FileUtilTest, ReadFileToStringWithNamedPipe) {
         MoreThanBufferSizeChildMainString, child_command_line, options);
     ASSERT_TRUE(child_process.IsValid());
     // Wait for pipe creation in child process.
-    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.Get(), INFINITE));
+    EXPECT_EQ(WAIT_OBJECT_0, WaitForSingleObject(sync_event.get(), INFINITE));
 
     std::string data = "temp";
     EXPECT_TRUE(
@@ -3761,7 +3795,7 @@ TEST_F(FileUtilTest, SetCloseOnExec) {
 
 #endif
 
-#if BUILDFLAG(IS_POSIX)
+#if BUILDFLAG(IS_MAC)
 
 // Testing VerifyPathControlledByAdmin() is hard, because there is no
 // way a test can make a file owned by root, or change file paths
@@ -4045,7 +4079,7 @@ TEST_F(VerifyPathControlledByUserTest, WriteBitChecks) {
   EXPECT_TRUE(VerifyPathControlledByUser(sub_dir_, text_file_, uid_, ok_gids_));
 }
 
-#endif  // BUILDFLAG(IS_POSIX)
+#endif  // BUILDFLAG(IS_MAC)
 
 // Flaky test: crbug/1054637
 #if BUILDFLAG(IS_ANDROID)
@@ -4144,16 +4178,15 @@ TEST_F(FileUtilTest, PreReadFile_ExistingFile_NoSize) {
   FilePath text_file = temp_dir_.GetPath().Append(FPL("text_file"));
   CreateTextFile(text_file, bogus_content);
 
-  EXPECT_TRUE(PreReadFile(text_file, /*is_executable=*/false).succeeded());
+  EXPECT_TRUE(PreReadFile(text_file, /*is_executable=*/false));
 }
 
 TEST_F(FileUtilTest, PreReadFile_ExistingFile_ExactSize) {
   FilePath text_file = temp_dir_.GetPath().Append(FPL("text_file"));
   CreateTextFile(text_file, bogus_content);
 
-  EXPECT_TRUE(
-      PreReadFile(text_file, /*is_executable=*/false, base::size(bogus_content))
-          .succeeded());
+  EXPECT_TRUE(PreReadFile(text_file, /*is_executable=*/false,
+                          std::size(bogus_content)));
 }
 
 TEST_F(FileUtilTest, PreReadFile_ExistingFile_OverSized) {
@@ -4161,8 +4194,7 @@ TEST_F(FileUtilTest, PreReadFile_ExistingFile_OverSized) {
   CreateTextFile(text_file, bogus_content);
 
   EXPECT_TRUE(PreReadFile(text_file, /*is_executable=*/false,
-                          base::size(bogus_content) * 2)
-                  .succeeded());
+                          std::size(bogus_content) * 2));
 }
 
 TEST_F(FileUtilTest, PreReadFile_ExistingFile_UnderSized) {
@@ -4170,16 +4202,14 @@ TEST_F(FileUtilTest, PreReadFile_ExistingFile_UnderSized) {
   CreateTextFile(text_file, bogus_content);
 
   EXPECT_TRUE(PreReadFile(text_file, /*is_executable=*/false,
-                          base::size(bogus_content) / 2)
-                  .succeeded());
+                          std::size(bogus_content) / 2));
 }
 
 TEST_F(FileUtilTest, PreReadFile_ExistingFile_ZeroSize) {
   FilePath text_file = temp_dir_.GetPath().Append(FPL("text_file"));
   CreateTextFile(text_file, bogus_content);
 
-  EXPECT_TRUE(PreReadFile(text_file, /*is_executable=*/false, /*max_bytes=*/0)
-                  .succeeded());
+  EXPECT_TRUE(PreReadFile(text_file, /*is_executable=*/false, /*max_bytes=*/0));
 }
 
 TEST_F(FileUtilTest, PreReadFile_ExistingEmptyFile_NoSize) {
@@ -4194,14 +4224,25 @@ TEST_F(FileUtilTest, PreReadFile_ExistingEmptyFile_NoSize) {
 TEST_F(FileUtilTest, PreReadFile_ExistingEmptyFile_ZeroSize) {
   FilePath text_file = temp_dir_.GetPath().Append(FPL("text_file"));
   CreateTextFile(text_file, L"");
-  EXPECT_TRUE(PreReadFile(text_file, /*is_executable=*/false, /*max_bytes=*/0)
-                  .succeeded());
+  EXPECT_TRUE(PreReadFile(text_file, /*is_executable=*/false, /*max_bytes=*/0));
 }
 
 TEST_F(FileUtilTest, PreReadFile_InexistentFile) {
   FilePath inexistent_file = temp_dir_.GetPath().Append(FPL("inexistent_file"));
-  EXPECT_FALSE(
-      PreReadFile(inexistent_file, /*is_executable=*/false).succeeded());
+  EXPECT_FALSE(PreReadFile(inexistent_file, /*is_executable=*/false));
+}
+
+TEST_F(FileUtilTest, PreReadFile_Executable) {
+  FilePath exe_data_dir;
+  ASSERT_TRUE(PathService::Get(DIR_TEST_DATA, &exe_data_dir));
+  exe_data_dir = exe_data_dir.Append(FPL("pe_image_reader"));
+  ASSERT_TRUE(PathExists(exe_data_dir));
+
+  // Load a sample executable and confirm that it was successfully prefetched.
+  // `test_exe` is a Windows binary, which is fine in this case because only the
+  // Windows implementation treats binaries differently from other files.
+  const FilePath test_exe = exe_data_dir.Append(FPL("signed.exe"));
+  EXPECT_TRUE(PreReadFile(test_exe, /*is_executable=*/true));
 }
 
 // Test that temp files obtained racily are all unique (no interference between

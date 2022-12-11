@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/test/bind.h"
 #include "build/build_config.h"
-#include "content/browser/picture_in_picture/picture_in_picture_window_controller_impl.h"
+#include "content/browser/picture_in_picture/video_picture_in_picture_window_controller_impl.h"
 #include "content/public/browser/overlay_window.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/content_client.h"
@@ -57,7 +57,7 @@ class PictureInPictureDelegate : public WebContentsDelegate {
   MOCK_METHOD1(EnterPictureInPicture, PictureInPictureResult(WebContents*));
 };
 
-class TestOverlayWindow : public OverlayWindow {
+class TestOverlayWindow : public VideoOverlayWindow {
  public:
   TestOverlayWindow() = default;
 
@@ -66,19 +66,18 @@ class TestOverlayWindow : public OverlayWindow {
 
   ~TestOverlayWindow() override {}
 
-  static std::unique_ptr<OverlayWindow> Create(
-      PictureInPictureWindowController* controller) {
-    return std::unique_ptr<OverlayWindow>(new TestOverlayWindow());
+  static std::unique_ptr<VideoOverlayWindow> Create(
+      VideoPictureInPictureWindowController* controller) {
+    return std::unique_ptr<VideoOverlayWindow>(new TestOverlayWindow());
   }
 
-  bool IsActive() override { return false; }
+  bool IsActive() const override { return false; }
   void Close() override {}
   void ShowInactive() override {}
   void Hide() override {}
-  bool IsVisible() override { return false; }
-  bool IsAlwaysOnTop() override { return false; }
+  bool IsVisible() const override { return false; }
   gfx::Rect GetBounds() override { return gfx::Rect(size_); }
-  void UpdateVideoSize(const gfx::Size& natural_size) override {
+  void UpdateNaturalSize(const gfx::Size& natural_size) override {
     size_ = natural_size;
   }
   void SetPlaybackState(PlaybackState playback_state) override {}
@@ -91,8 +90,9 @@ class TestOverlayWindow : public OverlayWindow {
   void SetToggleMicrophoneButtonVisibility(bool is_visible) override {}
   void SetToggleCameraButtonVisibility(bool is_visible) override {}
   void SetHangUpButtonVisibility(bool is_visible) override {}
+  void SetNextSlideButtonVisibility(bool is_visible) override {}
+  void SetPreviousSlideButtonVisibility(bool is_visible) override {}
   void SetSurfaceId(const viz::SurfaceId& surface_id) override {}
-  cc::Layer* GetLayerForTesting() override { return nullptr; }
 
  private:
   gfx::Size size_;
@@ -103,8 +103,8 @@ class PictureInPictureTestBrowserClient : public TestContentBrowserClient {
   PictureInPictureTestBrowserClient() = default;
   ~PictureInPictureTestBrowserClient() override = default;
 
-  std::unique_ptr<OverlayWindow> CreateWindowForPictureInPicture(
-      PictureInPictureWindowController* controller) override {
+  std::unique_ptr<VideoOverlayWindow> CreateWindowForVideoPictureInPicture(
+      VideoPictureInPictureWindowController* controller) override {
     return TestOverlayWindow::Create(controller);
   }
 };
@@ -139,6 +139,7 @@ class PictureInPictureMediaPlayerReceiver : public media::mojom::MediaPlayer {
   void SetPowerExperimentState(bool enabled) override {}
   void SetAudioSinkId(const std::string& sink_id) override {}
   void SuspendForFrameClosed() override {}
+  void RequestMediaRemoting() override {}
 
  private:
   mojo::AssociatedReceiver<media::mojom::MediaPlayer> receiver_{this};
@@ -151,7 +152,7 @@ class PictureInPictureServiceImplTest : public RenderViewHostImplTestHarness {
 
     SetBrowserClientForTesting(&browser_client_);
 
-    TestRenderFrameHost* render_frame_host = contents()->GetMainFrame();
+    TestRenderFrameHost* render_frame_host = contents()->GetPrimaryMainFrame();
     render_frame_host->InitializeRenderFrameIfNeeded();
 
     contents()->SetDelegate(&delegate_);
@@ -194,8 +195,8 @@ class PictureInPictureServiceImplTest : public RenderViewHostImplTestHarness {
 
 TEST_F(PictureInPictureServiceImplTest, MAYBE_EnterPictureInPicture) {
   const int kPlayerVideoOnlyId = 30;
-  const PictureInPictureWindowControllerImpl* controller =
-      PictureInPictureWindowControllerImpl::GetOrCreateForWebContents(
+  const VideoPictureInPictureWindowControllerImpl* controller =
+      VideoPictureInPictureWindowControllerImpl::GetOrCreateForWebContents(
           contents());
 
   ASSERT_TRUE(controller);
@@ -221,10 +222,11 @@ TEST_F(PictureInPictureServiceImplTest, MAYBE_EnterPictureInPicture) {
   mojo::Remote<blink::mojom::PictureInPictureSession> session_remote;
   gfx::Size window_size;
 
+  const gfx::Rect source_bounds(1, 2, 3, 4);
   service().StartSession(
       kPlayerVideoOnlyId, BindMediaPlayerReceiverAndPassRemote(), surface_id,
       gfx::Size(42, 42), true /* show_play_pause_button */,
-      std::move(observer_remote),
+      std::move(observer_remote), source_bounds,
       base::BindLambdaForTesting(
           [&](mojo::PendingRemote<blink::mojom::PictureInPictureSession> remote,
               const gfx::Size& b) {
@@ -233,9 +235,9 @@ TEST_F(PictureInPictureServiceImplTest, MAYBE_EnterPictureInPicture) {
             window_size = b;
           }));
 
-  EXPECT_TRUE(controller->active_session_for_testing());
   EXPECT_TRUE(session_remote);
   EXPECT_EQ(gfx::Size(42, 42), window_size);
+  EXPECT_EQ(source_bounds, controller->GetSourceBounds());
 
   // Picture-in-Picture media player id should not be reset when the media is
   // destroyed (e.g. video stops playing). This allows the Picture-in-Picture
@@ -246,8 +248,8 @@ TEST_F(PictureInPictureServiceImplTest, MAYBE_EnterPictureInPicture) {
 
 TEST_F(PictureInPictureServiceImplTest, EnterPictureInPicture_NotSupported) {
   const int kPlayerVideoOnlyId = 30;
-  const PictureInPictureWindowControllerImpl* controller =
-      PictureInPictureWindowControllerImpl::GetOrCreateForWebContents(
+  const VideoPictureInPictureWindowControllerImpl* controller =
+      VideoPictureInPictureWindowControllerImpl::GetOrCreateForWebContents(
           contents());
 
   ASSERT_TRUE(controller);
@@ -265,11 +267,12 @@ TEST_F(PictureInPictureServiceImplTest, EnterPictureInPicture_NotSupported) {
 
   mojo::Remote<blink::mojom::PictureInPictureSession> session_remote;
   gfx::Size window_size;
+  const gfx::Rect source_bounds(1, 2, 3, 4);
 
   service().StartSession(
       kPlayerVideoOnlyId, BindMediaPlayerReceiverAndPassRemote(), surface_id,
       gfx::Size(42, 42), true /* show_play_pause_button */,
-      std::move(observer_remote),
+      std::move(observer_remote), source_bounds,
       base::BindLambdaForTesting(
           [&](mojo::PendingRemote<blink::mojom::PictureInPictureSession> remote,
               const gfx::Size& b) {

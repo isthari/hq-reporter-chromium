@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,12 @@
 
   var indexedDBModel = ApplicationTestRunner.createIndexedDBModel();
   var mainFrameId = TestRunner.resourceTreeModel.mainFrame.id;
-  var securityOrigin = 'http://127.0.0.1:8000';
+  var storageKey = 'http://127.0.0.1:8000/';
   var databaseName = 'testDatabase';
   var objectStoreName1 = 'testObjectStore1';
   var objectStoreName2 = 'testObjectStore2';
   var indexName = 'testIndexName';
-  var databaseId = new Resources.IndexedDBModel.DatabaseId(securityOrigin, databaseName);
+  var databaseId = new Resources.IndexedDBModel.DatabaseId(storageKey, databaseName);
 
   /**
    * @param {number} count
@@ -87,7 +87,7 @@
     }
   }
 
-  TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateOriginDatabaseNames', fillDatabase, false);
+  TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateStorageKeyDatabaseNames', fillDatabase, false);
 
   function fillDatabase() {
     ApplicationTestRunner.createDatabase(mainFrameId, databaseName, step2);
@@ -118,7 +118,7 @@
           databaseId, {name: objectStoreName2, autoIncrement: true}).then(printMetadata);
         resolve();
       });
-      TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateOriginDatabaseNames', refreshDatabase, false);
+      TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateStorageKeyDatabaseNames', refreshDatabase, false);
       indexedDBModel.refreshDatabaseNames();
 
       function printMetadata(metadata) {

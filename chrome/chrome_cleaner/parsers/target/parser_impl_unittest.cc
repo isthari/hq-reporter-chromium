@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -97,12 +97,11 @@ TEST_F(ParserImplTest, ParseJson) {
             ASSERT_FALSE(error.has_value());
             ASSERT_TRUE(value.has_value());
             ASSERT_TRUE(value->is_dict());
-            const base::DictionaryValue* dict;
-            ASSERT_TRUE(value->GetAsDictionary(&dict));
+            const base::Value::Dict* dict = value->GetIfDict();
+            ASSERT_TRUE(dict);
 
-            std::string string_value;
-            ASSERT_TRUE(dict->GetString(kTestJsonKey, &string_value));
-            EXPECT_EQ(kTestJsonValue, string_value);
+            const std::string* string_value = dict->FindString(kTestJsonKey);
+            EXPECT_EQ(kTestJsonValue, *string_value);
             done->Signal();
           },
           &done));

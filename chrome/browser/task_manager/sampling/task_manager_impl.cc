@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/adapters.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -468,7 +467,7 @@ TaskId TaskManagerImpl::GetTaskIdForWebContents(
     content::WebContents* web_contents) const {
   if (!web_contents)
     return -1;
-  content::RenderFrameHost* rfh = web_contents->GetMainFrame();
+  content::RenderFrameHost* rfh = web_contents->GetPrimaryMainFrame();
   Task* task = GetTaskByRoute(rfh->GetGlobalId());
   if (!task)
     return -1;

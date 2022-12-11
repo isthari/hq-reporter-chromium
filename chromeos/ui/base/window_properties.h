@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,20 +45,36 @@ COMPONENT_EXPORT(CHROMEOS_UI_BASE)
 extern const ui::ClassProperty<bool>* const
     kIsDeferredTabDraggingTargetWindowKey;
 
-// Whether holding esc should exit fullscreen. Used by Borealis and Plugin VM.
+// Whether holding esc should exit fullscreen. Used by Plugin VM.
 COMPONENT_EXPORT(CHROMEOS_UI_BASE)
 extern const ui::ClassProperty<bool>* const kEscHoldToExitFullscreen;
 
-// Whether screen should minimize when using esc hold to exit fullscreen.
+// Whether to promote users to use Overview to exit fullscreen.
 // Borealis apps set this since they do not handle window size changes.
 COMPONENT_EXPORT(CHROMEOS_UI_BASE)
-extern const ui::ClassProperty<bool>* const kEscHoldExitFullscreenToMinimized;
+extern const ui::ClassProperty<bool>* const kUseOverviewToExitFullscreen;
+
+// If true, Exo clients may request pointer lock for this window.
+// When the lock activates, users will be notified to use Overview to exit
+// pointer lock.
+// Only ARC++ and Lacros may use pointer lock without this property being set.
+COMPONENT_EXPORT(CHROMEOS_UI_BASE)
+extern const ui::ClassProperty<bool>* const kUseOverviewToExitPointerLock;
+
+// True if clients expect the window to track the system's default frame colors.
+// This is used to determine whether a frame's color should be kept in sync with
+// default colors during system theme transitions, or if frame colors should be
+// left unmodified (e.g. system app custom frame colors).
+COMPONENT_EXPORT(CHROMEOS_UI_BASE)
+extern const ui::ClassProperty<bool>* const kTrackDefaultFrameColors;
 
 // A property key to store the active color on the window frame.
+// `kTrackDefaultFrameColors` must be set to false for this to take effect.
 COMPONENT_EXPORT(CHROMEOS_UI_BASE)
 extern const ui::ClassProperty<SkColor>* const kFrameActiveColorKey;
 
 // A property key to store the inactive color on the window frame.
+// `kTrackDefaultFrameColors` must be set to false for this to take effect.
 COMPONENT_EXPORT(CHROMEOS_UI_BASE)
 extern const ui::ClassProperty<SkColor>* const kFrameInactiveColorKey;
 
@@ -91,6 +107,10 @@ extern const ui::ClassProperty<gfx::Rect*>* const
 // If true, the window is currently showing in overview mode.
 COMPONENT_EXPORT(CHROMEOS_UI_BASE)
 extern const ui::ClassProperty<bool>* const kIsShowingInOverviewKey;
+
+// A property to indicate if a window should have a highlight border overlay.
+COMPONENT_EXPORT(CHROMEOS_UI_BASE)
+extern const ui::ClassProperty<bool>* const kShouldHaveHighlightBorderOverlay;
 
 // A property key to tell if the window's opacity should be managed by WM.
 COMPONENT_EXPORT(CHROMEOS_UI_BASE)

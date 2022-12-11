@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "base/unguessable_token.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/render_frame_host.h"
@@ -73,6 +74,7 @@ class CONTENT_EXPORT MediaPlayerRenderer
   void SetPlaybackRate(double playback_rate) override;
   void SetVolume(float volume) override;
   base::TimeDelta GetMediaTime() override;
+  media::RendererType GetRendererType() override;
 
   // media::MediaPlayerBridge::Client implementation
   media::MediaResourceGetter* GetMediaResourceGetter() override;

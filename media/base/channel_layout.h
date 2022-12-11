@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -114,8 +114,14 @@ enum ChannelLayout {
   // pass-through mode).
   CHANNEL_LAYOUT_BITSTREAM = 32,
 
+  // Front L, Front R, Front C, LFE, Side L, Side R,
+  // Front Height L, Front Height R, Rear Height L, Rear Height R
+  // Will be represented as six channels (5.1) due to eight channel limit
+  // kMaxConcurrentChannels
+  CHANNEL_LAYOUT_5_1_4_DOWNMIX = 33,
+
   // Max value, must always equal the largest entry ever logged.
-  CHANNEL_LAYOUT_MAX = CHANNEL_LAYOUT_BITSTREAM
+  CHANNEL_LAYOUT_MAX = CHANNEL_LAYOUT_5_1_4_DOWNMIX
 };
 
 // Note: Do not reorder or reassign these values; other code depends on their

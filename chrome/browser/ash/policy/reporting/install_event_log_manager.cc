@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,9 @@
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/location.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
 
@@ -100,7 +97,7 @@ void InstallEventLogManagerBase::LogUpload::OnLogChange(
 
   if (!store_scheduled_) {
     store_scheduled_ = true;
-    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&InstallEventLogManagerBase::LogUpload::StoreLog,
                        store_weak_factory_.GetWeakPtr()),
@@ -128,7 +125,7 @@ void InstallEventLogManagerBase::LogUpload::EnsureUpload(bool expedited) {
   if (FastUploadForTestsEnabled())
     upload_delay = kFastUploadDelay;
 
-  base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&InstallEventLogManagerBase::LogUpload::RequestUpload,
                      upload_weak_factory_.GetWeakPtr()),

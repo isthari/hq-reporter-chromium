@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,26 +20,25 @@ namespace {
 
 // Enum actions for the IOS.DefaultBrowserFullscreenPromo* UMA metrics. Entries
 // should not be renumbered and numeric values should never be reused.
-enum IOSDefaultBrowserFullscreenPromoAction {
-  ACTION_BUTTON = 0,
-  CANCEL = 1,
-  REMIND_ME_LATER = 2,
-  kMaxValue = REMIND_ME_LATER,
+enum class IOSDefaultBrowserFullscreenPromoAction {
+  kActionButton = 0,
+  kCancel = 1,
+  kRemindMeLater = 2,
+  kMaxValue = kRemindMeLater,
 };
 
 }  // namespace
 
-// UserDefaults key that saves the last time an HTTP(S) link was sent and opened
-// by the app.
-extern NSString* const kLastHTTPURLOpenTime;
-
 // The feature parameter to activate the remind me later button.
 extern const char kDefaultBrowserFullscreenPromoExperimentRemindMeGroupParam[];
+
+// Logs the timestamp of opening an HTTP(S) link sent and opened by the app.
+void LogOpenHTTPURLFromExternalURL();
 
 // Logs the timestamp of user activity that is deemed to be an indication of
 // a user that would likely benefit from having Chrome set as their default
 // browser. Before logging the current activity, this method will also clear all
-// past expired logs for |type| that have happened too far in the past.
+// past expired logs for `type` that have happened too far in the past.
 void LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoType type);
 
 // Logs the timestamp of a user tap on the "Remind Me Later" button in the
@@ -76,11 +75,11 @@ bool HasUserInteractedWithFullscreenPromoBefore();
 bool HasUserInteractedWithTailoredFullscreenPromoBefore();
 
 // Returns YES if the user taps on open settings button from first run promo.
-BOOL HasUserOpenedSettingsFromFirstRunPromo();
+bool HasUserOpenedSettingsFromFirstRunPromo();
 
 // Returns the number of times the user has seen and interacted with the
 // non-modal promo before.
-int UserInteractionWithNonModalPromoCount();
+NSInteger UserInteractionWithNonModalPromoCount();
 
 // Logs that the user has interacted with the Fullscreen Promo.
 void LogUserInteractionWithFullscreenPromo();
@@ -104,16 +103,16 @@ bool IsChromeLikelyDefaultBrowser7Days();
 
 // Returns true if the past behavior of the user indicates that the user fits
 // the categorization that would likely benefit from having Chrome set as their
-// default browser for the passed |type|. Returns false otherwise.
+// default browser for the passed `type`. Returns false otherwise.
 bool IsLikelyInterestedDefaultBrowserUser(DefaultPromoType type);
 
 // Returns the most recent promo the user showed interest in. Defaults to
-// DefaultPromoTypeGeneral if no interest is found. If |skipAllTabsPromo| is
+// DefaultPromoTypeGeneral if no interest is found. If `skipAllTabsPromo` is
 // true, this type of promo will be ignored.
 DefaultPromoType MostRecentInterestDefaultPromoType(BOOL skipAllTabsPromo);
 
 // Return YES if the user has seen a promo recently, and shouldn't
 // see another one.
-BOOL UserInPromoCooldown();
+bool UserInPromoCooldown();
 
 #endif  // IOS_CHROME_BROWSER_UI_DEFAULT_PROMO_DEFAULT_BROWSER_UTILS_H_

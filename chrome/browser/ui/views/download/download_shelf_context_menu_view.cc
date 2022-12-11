@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/check.h"
 #include "base/i18n/rtl.h"
 #include "base/metrics/histogram_functions.h"
+#include "chrome/browser/download/bubble/download_bubble_controller.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_stats.h"
 #include "chrome/browser/ui/views/download/download_item_view.h"
@@ -24,6 +25,12 @@ DownloadShelfContextMenuView::DownloadShelfContextMenuView(
 DownloadShelfContextMenuView::DownloadShelfContextMenuView(
     base::WeakPtr<DownloadUIModel> download_ui_model)
     : DownloadShelfContextMenu(download_ui_model) {}
+
+DownloadShelfContextMenuView::DownloadShelfContextMenuView(
+    base::WeakPtr<DownloadUIModel> download_ui_model,
+    DownloadBubbleUIController* bubble_controller)
+    : DownloadShelfContextMenu(download_ui_model),
+      bubble_controller_(bubble_controller) {}
 
 DownloadShelfContextMenuView::~DownloadShelfContextMenuView() = default;
 
@@ -77,24 +84,14 @@ void DownloadShelfContextMenuView::OnMenuWillShow(ui::SimpleMenuModel* source) {
 
 void DownloadShelfContextMenuView::ExecuteCommand(int command_id,
                                                   int event_flags) {
-  DownloadCommands::Command command =
-      static_cast<DownloadCommands::Command>(command_id);
-
-  if (command == DownloadCommands::KEEP && download_item_view_) {
-    // TODO(kerenzhu): We will need SBER in WebUI download shelf.
-    // Refactor this feature out of DownloadItemView so that it can be used in
-    // WebUI.
-    download_item_view_->MaybeSubmitDownloadToFeedbackService(
-        DownloadCommands::KEEP);
-  } else {
-    DownloadShelfContextMenu::ExecuteCommand(command_id, event_flags);
-  }
+  DownloadShelfContextMenu::ExecuteCommand(command_id, event_flags);
 
   if (!download_commands_executed_recorded_[command_id]) {
     base::UmaHistogramEnumeration(
         "Download.ShelfContextMenuAction",
-        DownloadCommandToShelfAction(command,
-                                     /*clicked=*/true));
+        DownloadCommandToShelfAction(
+            static_cast<DownloadCommands::Command>(command_id),
+            /*clicked=*/true));
     download_commands_executed_recorded_[command_id] = true;
   }
 }

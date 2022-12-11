@@ -1,11 +1,16 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.firstrun;
 
-import static org.hamcrest.Matchers.is;
+import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
+
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.when;
 
 import android.accounts.Account;
@@ -14,12 +19,14 @@ import android.app.Instrumentation;
 import android.app.Instrumentation.ActivityMonitor;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.support.test.InstrumentationRegistry;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.ProgressBar;
 
 import androidx.annotation.IdRes;
 import androidx.test.filters.MediumTest;
@@ -30,6 +37,7 @@ import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
@@ -44,12 +52,15 @@ import org.chromium.base.Callback;
 import org.chromium.base.CollectionUtil;
 import org.chromium.base.Promise;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.supplier.OneshotSupplier;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.test.metrics.HistogramTestRule;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
+import org.chromium.base.test.util.DoNotBatch;
 import org.chromium.base.test.util.JniMocker;
 import org.chromium.base.test.util.ScalableTimeout;
 import org.chromium.chrome.R;
@@ -57,10 +68,12 @@ import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.DeferredStartupHandler;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.customtabs.CustomTabActivity;
-import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
+import org.chromium.chrome.browser.customtabs.CustomTabsIntentTestUtils;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.enterprise.util.EnterpriseInfo;
+import org.chromium.chrome.browser.enterprise.util.FakeEnterpriseInfo;
 import org.chromium.chrome.browser.firstrun.FirstRunActivityTestObserver.ScopedObserverData;
+import org.chromium.chrome.browser.firstrun.ToSAndUMAFirstRunFragment.Observer;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.locale.LocaleManager;
 import org.chromium.chrome.browser.locale.LocaleManagerDelegate;
@@ -72,16 +85,17 @@ import org.chromium.chrome.browser.search_engines.SearchEnginePromoType;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.signin.SigninFirstRunFragment;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.MultiActivityTestRule;
 import org.chromium.chrome.test.util.browser.Features;
+import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.components.externalauth.ExternalAuthUtils;
 import org.chromium.components.policy.AbstractAppRestrictionsProvider;
+import org.chromium.components.policy.PolicyService;
 import org.chromium.components.search_engines.TemplateUrl;
 import org.chromium.components.search_engines.TemplateUrlService;
 import org.chromium.components.signin.AccountManagerFacade;
 import org.chromium.components.signin.AccountManagerFacadeProvider;
-import org.chromium.components.signin.ChildAccountStatus.Status;
 import org.chromium.content_public.browser.UiThreadTaskTraits;
+import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.common.ContentUrlConstants;
 
@@ -99,6 +113,7 @@ import java.util.concurrent.TimeoutException;
  * Integration test suite for the first run experience.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
+@DoNotBatch(reason = "This test interacts with startup, native initialization, and first run.")
 @CommandLineFlags.Add({ChromeSwitches.FORCE_DISABLE_SIGNIN_FRE})
 public class FirstRunIntegrationTest {
     private static final String TEST_URL = "https://test.com";
@@ -109,9 +124,6 @@ public class FirstRunIntegrationTest {
             "MobileFre.Progress.ViewIntent";
 
     @Rule
-    public MultiActivityTestRule mTestRule = new MultiActivityTestRule();
-
-    @Rule
     public TestRule mProcessor = new Features.JUnitProcessor();
 
     @Rule
@@ -120,12 +132,13 @@ public class FirstRunIntegrationTest {
     @Rule
     public TestRule mCommandLineFlagsRule = CommandLineFlags.getTestRule();
 
+    @Rule
+    public HistogramTestRule mHistogramTestRule = new HistogramTestRule();
+
     @Mock
     private ExternalAuthUtils mExternalAuthUtilsMock;
     @Mock
     public FirstRunAppRestrictionInfo mMockAppRestrictionInfo;
-    @Mock
-    public EnterpriseInfo mEnterpriseInfo;
     @Mock
     private AccountManagerFacade mAccountManagerFacade;
     @Mock
@@ -147,6 +160,14 @@ public class FirstRunIntegrationTest {
     private FirstRunActivityTestObserver mTestObserver = new FirstRunActivityTestObserver();
     private Activity mLastActivity;
 
+    @BeforeClass
+    public static void setUpBeforeActivityLaunched() {
+        // Only needs to be loaded once and needs to be loaded before HistogramTestRule.
+        // TODO(https://crbug.com/1211884): Revise after HistogramTestRule is revised to not require
+        // native loading.
+        NativeLibraryTestUtils.loadNativeLibraryNoBrowserProcess();
+    }
+
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
@@ -155,6 +176,7 @@ public class FirstRunIntegrationTest {
         FirstRunStatus.setFirstRunSkippedByPolicy(false);
         FirstRunUtils.setDisableDelayOnExitFreForTest(true);
         FirstRunActivity.setObserverForTest(mTestObserver);
+        FirstRunActivityBase.setPolicyLoadListenerFactoryForTesting(null);
         ToSAndUMAFirstRunFragment.setShowUmaCheckBoxForTesting(true);
 
         mInstrumentation = InstrumentationRegistry.getInstrumentation();
@@ -182,6 +204,7 @@ public class FirstRunIntegrationTest {
         EnterpriseInfo.setInstanceForTest(null);
         AccountManagerFacadeProvider.resetInstanceForTests();
         FirstRunFlowSequencer.setDelegateForTesting(null);
+        ToSAndUMAFirstRunFragment.setObserverForTesting(null);
     }
 
     private ActivityMonitor getMonitor(Class activityClass) {
@@ -220,17 +243,6 @@ public class FirstRunIntegrationTest {
         FirstRunAppRestrictionInfo.setInitializedInstanceForTest(mMockAppRestrictionInfo);
     }
 
-    private void setDeviceOwnedForMock() {
-        Mockito.doAnswer(invocation -> {
-                   Callback<EnterpriseInfo.OwnedState> callback = invocation.getArgument(0);
-                   callback.onResult(new EnterpriseInfo.OwnedState(true, false));
-                   return null;
-               })
-                .when(mEnterpriseInfo)
-                .getDeviceEnterpriseInfo(any());
-        EnterpriseInfo.setInstanceForTest(mEnterpriseInfo);
-    }
-
     private void setTemplateUrlServiceForMock() {
         Mockito.doAnswer(invocation -> {
                    mTemplateUrlServiceWhenLoadedRunnables.add(invocation.getArgument(0));
@@ -258,7 +270,19 @@ public class FirstRunIntegrationTest {
         Bundle restrictions = new Bundle();
         restrictions.putInt("TosDialogBehavior", TosDialogBehavior.SKIP);
         AbstractAppRestrictionsProvider.setTestRestrictions(restrictions);
-        setDeviceOwnedForMock();
+
+        FakeEnterpriseInfo fakeEnterpriseInfo = new FakeEnterpriseInfo();
+        fakeEnterpriseInfo.initialize(new EnterpriseInfo.OwnedState(true, false));
+        EnterpriseInfo.setInstanceForTest(fakeEnterpriseInfo);
+    }
+
+    private void setTosAccepted(boolean allowCrashUpload) {
+        FirstRunStatus.setSkipWelcomePage(true);
+        SharedPreferencesManager sharedPreferencesManager = SharedPreferencesManager.getInstance();
+        sharedPreferencesManager.writeBoolean(
+                ChromePreferenceKeys.FIRST_RUN_CACHED_TOS_ACCEPTED, true);
+        sharedPreferencesManager.writeBoolean(
+                ChromePreferenceKeys.PRIVACY_METRICS_REPORTING_PERMITTED_BY_USER, allowCrashUpload);
     }
 
     private void enableCloudManagementViaPolicy() {
@@ -269,7 +293,8 @@ public class FirstRunIntegrationTest {
     }
 
     private void launchCustomTabs(String url) {
-        mContext.startActivity(CustomTabsTestUtils.createMinimalCustomTabIntent(mContext, url));
+        mContext.startActivity(
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntent(mContext, url));
     }
 
     private void launchViewIntent(String url) {
@@ -351,13 +376,17 @@ public class FirstRunIntegrationTest {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Assert.assertNull("mAccountsPromise is already initialized!", mAccountsPromise);
             mAccountsPromise = new Promise<>();
+            // getCoreAccountInfos() is called by AccountTrackerService.seedAccounts();
+            // TODO(https://crbug.com/1336704): Remove when account manager facade initiates
+            //  seeding.
+            Mockito.when(mAccountManagerFacade.getCoreAccountInfos()).thenReturn(new Promise<>());
         });
         Mockito.when(mAccountManagerFacade.getAccounts()).thenReturn(mAccountsPromise);
         AccountManagerFacadeProvider.setInstanceForTests(mAccountManagerFacade);
     }
 
     private void unblockOnFlowIsKnown() {
-        Mockito.verify(mAccountManagerFacade).getAccounts();
+        Mockito.verify(mAccountManagerFacade, atLeastOnce()).getAccounts();
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> mAccountsPromise.fulfill(Collections.emptyList()));
     }
@@ -378,6 +407,7 @@ public class FirstRunIntegrationTest {
 
     @Test
     @SmallTest
+    @DisabledTest(message = "https://crbug.com/1295396")
     public void testAbortFirstRun() throws Exception {
         launchViewIntent(TEST_URL);
         Activity chromeLauncherActivity = waitForActivity(ChromeLauncherActivity.class);
@@ -390,7 +420,7 @@ public class FirstRunIntegrationTest {
         // startup flow where they were interrupted.
         ScopedObserverData scopedObserverData = getObserverData(firstRunActivity);
         Assert.assertEquals(0, scopedObserverData.abortFirstRunExperienceCallback.getCallCount());
-        mLastActivity.onBackPressed();
+        TestThreadUtils.runOnUiThreadBlocking(mLastActivity::onBackPressed);
         scopedObserverData.abortFirstRunExperienceCallback.waitForCallback(
                 "FirstRunActivity didn't abort", 0);
 
@@ -400,11 +430,11 @@ public class FirstRunIntegrationTest {
         CriteriaHelper.pollInstrumentationThread(() -> chromeLauncherActivity.isFinishing());
     }
 
-    // TODO(http://crbug.com/1240516): Add test cases for the new Welcome screen that includes the
+    // TODO(https://crbug.com/1240516): Add test cases for the new Welcome screen that includes the
     // Sign-in promo once the sign-in components can be disabled by policy.
 
-    // TODO(http://crbug.com/1254470): Add test cases for ToS page disabled by policy after the user
-    // accepted ToS and aborted first run.
+    // TODO(https://crbug.com/1254470): Add test cases for ToS page disabled by policy after the
+    // user accepted ToS and aborted first run.
 
     @Test
     @MediumTest
@@ -562,6 +592,7 @@ public class FirstRunIntegrationTest {
 
     private void initializePreferences(FirstRunPagesTestCase testCase) throws Exception {
         if (testCase.cctTosDisabled()) skipTosDialogViaPolicy();
+        if (testCase.isTosAccepted()) setTosAccepted(testCase.isUmaUploadAccepted());
 
         mDelegate = new TestFirstRunFlowSequencerDelegate(testCase);
         FirstRunFlowSequencer.setDelegateForTesting(mDelegate);
@@ -641,20 +672,20 @@ public class FirstRunIntegrationTest {
     public void testExitFirstRunWithPolicy() throws Exception {
         initializePreferences(new FirstRunPagesTestCase().withCctTosDisabled());
 
-        Intent intent = CustomTabsTestUtils.createMinimalCustomTabIntent(mContext, TEST_URL);
+        Intent intent = CustomTabsIntentTestUtils.createMinimalCustomTabIntent(mContext, TEST_URL);
         mContext.startActivity(intent);
 
         FirstRunActivity freActivity = waitForActivity(FirstRunActivity.class);
         CriteriaHelper.pollUiThread(
                 () -> freActivity.getSupportFragmentManager().getFragments().size() > 0);
         // Make sure native is initialized so that the subsequent transition is not blocked.
-        CriteriaHelper.pollUiThread((() -> freActivity.isNativeSideIsInitializedForTest()),
+        CriteriaHelper.pollUiThread(
+                (() -> freActivity.getNativeInitializationPromise().isFulfilled()),
                 "native never initialized.");
 
         waitForActivity(CustomTabActivity.class);
         Assert.assertFalse("Usage and crash reporting pref was set to true after skip",
-                PrivacyPreferencesManagerImpl.getInstance()
-                        .isUsageAndCrashReportingPermittedByUser());
+                PrivacyPreferencesManagerImpl.getInstance().isUsageAndCrashReportingPermitted());
         Assert.assertTrue(
                 "FRE should be skipped for CCT.", FirstRunStatus.isFirstRunSkippedByPolicy());
     }
@@ -667,7 +698,7 @@ public class FirstRunIntegrationTest {
         // policy set in this test case.
         FirstRunStatus.setFirstRunSkippedByPolicy(true);
 
-        Intent intent = CustomTabsTestUtils.createMinimalCustomTabIntent(
+        Intent intent = CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
                 mContext, ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL);
         mContext.startActivity(intent);
         CustomTabActivity activity = waitForActivity(CustomTabActivity.class);
@@ -704,11 +735,12 @@ public class FirstRunIntegrationTest {
     @MediumTest
     // TODO(https://crbug.com/1111490): Change this test case when policy can handle cases when ToS
     // is accepted in Browser App.
+    @DisabledTest(message = "https://crbug.com/1331277")
     public void testSkipTosPage_WithCctPolicy() throws Exception {
         skipTosDialogViaPolicy();
         FirstRunStatus.setSkipWelcomePage(true);
 
-        Intent intent = CustomTabsTestUtils.createMinimalCustomTabIntent(mContext, TEST_URL);
+        Intent intent = CustomTabsIntentTestUtils.createMinimalCustomTabIntent(mContext, TEST_URL);
         mContext.startActivity(intent);
 
         FirstRunActivity freActivity = waitForActivity(FirstRunActivity.class);
@@ -729,20 +761,18 @@ public class FirstRunIntegrationTest {
     public void testFastDestroy() {
         // Inspired by crbug.com/1119548, where onDestroy() before triggerLayoutInflation() caused
         // a crash.
-        Intent intent = CustomTabsTestUtils.createMinimalCustomTabIntent(mContext, TEST_URL);
+        Intent intent = CustomTabsIntentTestUtils.createMinimalCustomTabIntent(mContext, TEST_URL);
         mContext.startActivity(intent);
     }
 
     @Test
     @MediumTest
-    @DisabledTest(message = "https://crbug.com/1197556")
     public void testResetOnBackPress() throws Exception {
         testResetOnBackPressImpl(true);
     }
 
     @Test
     @MediumTest
-    @DisabledTest(message = "https://crbug.com/1197556")
     public void testResetOnBackPress_NoUmaAccepted() throws Exception {
         testResetOnBackPressImpl(false);
     }
@@ -752,27 +782,36 @@ public class FirstRunIntegrationTest {
         // When the policy initialization is finishing after ToS accepted, the small loading circle
         // will be shown on the screen. If user decide to go back with backpress, the UI should be
         // reset with ToS UI visible.
-        FirstRunStatus.setSkipWelcomePage(true);
-        SharedPreferencesManager sharedPreferencesManager = SharedPreferencesManager.getInstance();
-        sharedPreferencesManager.writeBoolean(
-                ChromePreferenceKeys.FIRST_RUN_CACHED_TOS_ACCEPTED, true);
-        sharedPreferencesManager.writeBoolean(
-                ChromePreferenceKeys.PRIVACY_METRICS_REPORTING, allowedCrashUpLoad);
-        setHasAppRestrictionForMock(false);
+        FirstRunPagesTestCase testCase = new FirstRunPagesTestCase()
+                                                 .withSigninPromo()
+                                                 .withTosAlreadyAccepted()
+                                                 .setUmaUploadAccepted(allowedCrashUpLoad);
+        initializePreferences(testCase);
+
+        // In this specific setup the policy loading call will be notified before ToS fragment is
+        // finishing initialization, as FRE might attach to the PolicyLoadListener first. To make
+        // sure no race condition happen, use TosAndUmaObserver to make sure the call is invoked.
+        CallbackHelper tosPagePolicyLoadingListener = new CallbackHelper();
+        ToSAndUMAFirstRunFragment.setObserverForTesting(new Observer() {
+            @Override
+            public void onNativeInitialized() {}
+
+            @Override
+            public void onPolicyServiceInitialized() {
+                tosPagePolicyLoadingListener.notifyCalled();
+            }
+
+            @Override
+            public void onHideLoadingUIComplete() {}
+        });
+
         FirstRunActivity freActivity = launchFirstRunActivity();
 
-        // ToS page should be skipped and jumped to the next page, since ToS is marked accepted in
-        // shared preference.
-        ScopedObserverData scopedObserverData = getObserverData(freActivity);
-        scopedObserverData.createPostNativeAndPoliciesPageSequenceCallback.waitForCallback(
-                "Failed to finalize the flow.", 0);
-        CriteriaHelper.pollUiThread(
-                () -> Criteria.checkThat(freActivity.isNativeSideIsInitializedForTest(), is(true)));
-        scopedObserverData.jumpToPageCallback.waitForCallback(
-                "ToS should be skipped after native initialized.", 0);
-
-        // Press back button.
-        TestThreadUtils.runOnUiThreadBlocking(() -> mLastActivity.onBackPressed());
+        FirstRunNavigationHelper navHelper = new FirstRunNavigationHelper(freActivity)
+                                                     .ensurePagesCreationSucceeded()
+                                                     .ensureSigninPromoIsCurrentPage();
+        tosPagePolicyLoadingListener.waitForFirst();
+        navHelper.goBackToPreviousPage().ensureTermsOfServiceIsCurrentPage();
 
         View tosAndPrivacy = mLastActivity.findViewById(R.id.tos_and_privacy);
         CheckBox umaCheckbox = mLastActivity.findViewById(R.id.send_report_checkbox);
@@ -895,12 +934,61 @@ public class FirstRunIntegrationTest {
 
         launchViewIntent(TEST_URL);
         FirstRunActivity firstRunActivity = waitForActivity(FirstRunActivity.class);
-        CriteriaHelper.pollUiThread((() -> firstRunActivity.isNativeSideIsInitializedForTest()),
+        CriteriaHelper.pollUiThread(
+                (() -> firstRunActivity.getNativeInitializationPromise().isFulfilled()),
                 "native never initialized.");
 
         unblockOnFlowIsKnown();
         clickThroughFirstRun(firstRunActivity, testCase);
         verifyUrlEquals(TEST_URL, waitAndGetUriFromChromeActivity(ChromeTabbedActivity.class));
+    }
+
+    @Test
+    @MediumTest
+    @CommandLineFlags.Remove({ChromeSwitches.FORCE_DISABLE_SIGNIN_FRE})
+    @CommandLineFlags.Add({ChromeSwitches.FORCE_ENABLE_SIGNIN_FRE})
+    public void testSigninFirstRunPageShownBeforeChildStatusFetch() throws Exception {
+        // ChildAccountStatusSupplier uses AppRestrictions to quickly detect non-supervised cases,
+        // so pretend there are AppRestrictions set by FamilyLink.
+        setHasAppRestrictionForMock(true);
+        blockOnFlowIsKnown();
+        initializePreferences(new FirstRunPagesTestCase());
+
+        FirstRunActivity firstRunActivity = launchFirstRunActivity();
+        new FirstRunNavigationHelper(firstRunActivity).ensureTermsOfServiceIsCurrentPage();
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            ProgressBar progressBar =
+                    ((SigninFirstRunFragment) firstRunActivity.getCurrentFragmentForTesting())
+                            .getView()
+                            .findViewById(R.id.fre_native_and_policy_load_progress_spinner);
+            // Replace the progress bar with a dummy to allow other checks. Currently the
+            // progress bar cannot be stopped otherwise due to some espresso issues (crbug/1115067).
+            progressBar.setIndeterminateDrawable(
+                    new ColorDrawable(SemanticColorUtils.getDefaultBgColor(firstRunActivity)));
+        });
+
+        onView(withId(R.id.fre_logo)).check(matches(isDisplayed()));
+        onView(withId(R.id.fre_native_and_policy_load_progress_spinner))
+                .check(matches(isDisplayed()));
+    }
+
+    @Test
+    @MediumTest
+    @CommandLineFlags.Remove({ChromeSwitches.FORCE_DISABLE_SIGNIN_FRE})
+    @CommandLineFlags.Add({ChromeSwitches.FORCE_ENABLE_SIGNIN_FRE})
+    public void testSigninFirstRunLoadPointHistograms() throws Exception {
+        initializePreferences(new FirstRunPagesTestCase());
+
+        FirstRunActivity firstRunActivity = launchFirstRunActivity();
+        new FirstRunNavigationHelper(firstRunActivity)
+                .ensurePagesCreationSucceeded()
+                .ensureTermsOfServiceIsCurrentPage();
+
+        Assert.assertEquals("Child status fetch time not recorded", 1,
+                mHistogramTestRule.getHistogramTotalCount(
+                        "MobileFre.FromLaunch.ChildStatusAvailable"));
+        Assert.assertEquals("Policies fetch time not recorded", 1,
+                mHistogramTestRule.getHistogramTotalCount("MobileFre.FromLaunch.PoliciesLoaded"));
     }
 
     @Test
@@ -911,7 +999,8 @@ public class FirstRunIntegrationTest {
 
         launchCustomTabs(TEST_URL);
         FirstRunActivity firstRunActivity = waitForActivity(FirstRunActivity.class);
-        CriteriaHelper.pollUiThread((() -> firstRunActivity.isNativeSideIsInitializedForTest()),
+        CriteriaHelper.pollUiThread(
+                (() -> firstRunActivity.getNativeInitializationPromise().isFulfilled()),
                 "native never initialized.");
 
         unblockOnFlowIsKnown();
@@ -1147,6 +1236,52 @@ public class FirstRunIntegrationTest {
         waitForActivity(ChromeTabbedActivity.class);
     }
 
+    /**
+     * Inspired by http://crbug.com/1320171, covers the case when the user interacted with the UMA
+     * checkbox before the policy service became available.
+     */
+    @Test
+    @MediumTest
+    @CommandLineFlags.Remove({ChromeSwitches.FORCE_ENABLE_SIGNIN_FRE})
+    @CommandLineFlags.Add({ChromeSwitches.FORCE_DISABLE_SIGNIN_FRE})
+    public void testDelayedPolicyInitializationRespectsMetricsAndCrashReportingSelection()
+            throws Exception {
+        initializePreferences(new FirstRunPagesTestCase());
+
+        DelayedPolicyLoadListenerFactory delayedPolicyLoadListenerFactory =
+                new DelayedPolicyLoadListenerFactory();
+        FirstRunActivityBase.setPolicyLoadListenerFactoryForTesting(
+                delayedPolicyLoadListenerFactory);
+
+        CallbackHelper onPolicyServiceInitializedCallback = new CallbackHelper();
+        ToSAndUMAFirstRunFragment.setObserverForTesting(new Observer() {
+            @Override
+            public void onNativeInitialized() {}
+
+            @Override
+            public void onPolicyServiceInitialized() {
+                onPolicyServiceInitializedCallback.notifyCalled();
+            }
+
+            @Override
+            public void onHideLoadingUIComplete() {}
+        });
+
+        FirstRunActivity firstRunActivity = launchFirstRunActivity();
+        FirstRunNavigationHelper helper =
+                new FirstRunNavigationHelper(firstRunActivity).ensurePagesCreationSucceeded();
+
+        helper.clickOnMetricsAndCrashReportingCheckbox();
+        helper.ensureMetricsAndCrashReportingDisabled();
+
+        int onPolicyServiceInitializedCallCount = onPolicyServiceInitializedCallback.getCallCount();
+        ((DelayedPolicyLoadListener) delayedPolicyLoadListenerFactory.get()).runSavedCallback();
+        onPolicyServiceInitializedCallback.waitForCallback(
+                "onPolicyServiceInitialized expected to be called.",
+                onPolicyServiceInitializedCallCount);
+        helper.ensureMetricsAndCrashReportingDisabled();
+    }
+
     private void clickButton(final Activity activity, final int id, final String message) {
         CriteriaHelper.pollUiThread(() -> {
             View view = activity.findViewById(id);
@@ -1168,6 +1303,9 @@ public class FirstRunIntegrationTest {
         private @SearchEnginePromoType int mSearchPromoType = SearchEnginePromoType.DONT_SHOW;
         private boolean mShowSigninPromo;
 
+        private boolean mIsTosAccepted;
+        private boolean mIsUmaUploadAccepted;
+
         boolean cctTosDisabled() {
             return mCctTosDisabled;
         }
@@ -1186,6 +1324,14 @@ public class FirstRunIntegrationTest {
             return mShowSigninPromo;
         }
 
+        boolean isTosAccepted() {
+            return mIsTosAccepted;
+        }
+
+        boolean isUmaUploadAccepted() {
+            return mIsUmaUploadAccepted;
+        }
+
         FirstRunPagesTestCase setCctTosDisabled(boolean cctTosDisabled) {
             mCctTosDisabled = cctTosDisabled;
             return this;
@@ -1201,6 +1347,16 @@ public class FirstRunIntegrationTest {
             return this;
         }
 
+        FirstRunPagesTestCase setTosAccepted(boolean tosAccepted) {
+            mIsTosAccepted = tosAccepted;
+            return this;
+        }
+
+        FirstRunPagesTestCase setUmaUploadAccepted(boolean umaUploadAccepted) {
+            mIsUmaUploadAccepted = umaUploadAccepted;
+            return this;
+        }
+
         FirstRunPagesTestCase withCctTosDisabled() {
             return setCctTosDisabled(true);
         }
@@ -1211,6 +1367,15 @@ public class FirstRunIntegrationTest {
 
         FirstRunPagesTestCase withSigninPromo() {
             return setSigninPromo(true);
+        }
+
+        // Used assuming user has previously accepted ToS and move to the following pages.
+        FirstRunPagesTestCase withTosAlreadyAccepted() {
+            return setTosAccepted(true);
+        }
+
+        FirstRunPagesTestCase withUmaUploadAccepted() {
+            return setUmaUploadAccepted(true);
         }
 
         static FirstRunPagesTestCase createWithShowAllPromos() {
@@ -1347,6 +1512,22 @@ public class FirstRunIntegrationTest {
             return this;
         }
 
+        protected FirstRunNavigationHelper clickOnMetricsAndCrashReportingCheckbox()
+                throws Exception {
+            ensureTermsOfServiceIsCurrentPage();
+            clickButton(mFirstRunActivity, R.id.send_report_checkbox,
+                    "Failed to click on send report checkbox.");
+            return this;
+        }
+
+        protected FirstRunNavigationHelper ensureMetricsAndCrashReportingDisabled() {
+            CheckBox umaCheckbox = mLastActivity.findViewById(R.id.send_report_checkbox);
+            Assert.assertNotNull("UMA checkbox should not be null.", umaCheckbox);
+            CriteriaHelper.pollUiThread(
+                    () -> !umaCheckbox.isChecked(), "UMA reporting should be disabled.");
+            return this;
+        }
+
         protected FirstRunNavigationHelper waitForCurrentFragmentToMatch(
                 String failureReason, Matcher<Object> matcher) {
             CriteriaHelper.pollUiThread(
@@ -1378,13 +1559,59 @@ public class FirstRunIntegrationTest {
 
         @Override
         public boolean shouldShowSyncConsentPage(
-                Activity activity, List<Account> accounts, @Status int childAccountStatus) {
+                Activity activity, List<Account> accounts, boolean isChild) {
             return mTestCase.showSigninPromo();
         }
 
         @Override
         public boolean shouldShowSearchEnginePage() {
             return mTestCase.showSearchPromo();
+        }
+    }
+
+    /**
+     * Fake {@link PolicyLoadListener} that captures invocations of {@code
+     * PolicyLoadListener#onAvailable} and delays them to until {@link runSavedCallback} is called.
+     */
+    private static class DelayedPolicyLoadListener extends PolicyLoadListener {
+        private List<Callback<Boolean>> mSavedCallbacks = new ArrayList<>();
+
+        public DelayedPolicyLoadListener(FirstRunAppRestrictionInfo appRestrictionInfo,
+                OneshotSupplier<PolicyService> policyServiceSupplier) {
+            super(appRestrictionInfo, policyServiceSupplier);
+        }
+
+        @Override
+        public Boolean onAvailable(Callback<Boolean> callback) {
+            mSavedCallbacks.add(callback);
+            return null;
+        }
+
+        /** Fires all callbacks saved in {@link mSavedCallbacks}. */
+        public void runSavedCallback() {
+            mSavedCallbacks.forEach(callback
+                    -> TestThreadUtils.runOnUiThreadBlocking(() -> callback.onResult(true)));
+        }
+    }
+
+    /**
+     * Allows injection of {@link DelayedPolicyLoadListener} into {@link
+     * ToSAndUMAFirstRunFragment}.
+     */
+    private class DelayedPolicyLoadListenerFactory
+            implements FirstRunActivityBase.PolicyLoadListenerFactory {
+        private PolicyLoadListener mInjectedPolicyLoadListener;
+
+        @Override
+        public PolicyLoadListener inject(FirstRunAppRestrictionInfo appRestrictionInfo,
+                OneshotSupplier<PolicyService> policyServiceSupplier) {
+            mInjectedPolicyLoadListener =
+                    new DelayedPolicyLoadListener(appRestrictionInfo, policyServiceSupplier);
+            return mInjectedPolicyLoadListener;
+        }
+
+        public PolicyLoadListener get() {
+            return mInjectedPolicyLoadListener;
         }
     }
 }

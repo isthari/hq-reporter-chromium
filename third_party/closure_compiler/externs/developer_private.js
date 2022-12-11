@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,10 @@
 // Please run the closure compiler before committing changes.
 // See https://chromium.googlesource.com/chromium/src/+/main/docs/closure_compilation.md
 
-/** @fileoverview Externs generated from namespace: developerPrivate */
+/**
+ * @fileoverview Externs generated from namespace: developerPrivate
+ * @externs
+ */
 
 /** @const */
 chrome.developerPrivate = {};
@@ -72,6 +75,7 @@ chrome.developerPrivate.Location = {
   FROM_STORE: 'FROM_STORE',
   UNPACKED: 'UNPACKED',
   THIRD_PARTY: 'THIRD_PARTY',
+  INSTALLED_BY_DEFAULT: 'INSTALLED_BY_DEFAULT',
   UNKNOWN: 'UNKNOWN',
 };
 
@@ -88,6 +92,8 @@ chrome.developerPrivate.ViewType = {
   EXTENSION_POPUP: 'EXTENSION_POPUP',
   EXTENSION_SERVICE_WORKER_BACKGROUND: 'EXTENSION_SERVICE_WORKER_BACKGROUND',
   TAB_CONTENTS: 'TAB_CONTENTS',
+  OFFSCREEN_DOCUMENT: 'OFFSCREEN_DOCUMENT',
+  EXTENSION_SIDE_PANEL: 'EXTENSION_SIDE_PANEL',
 };
 
 /**
@@ -322,7 +328,8 @@ chrome.developerPrivate.Permissions;
  *   version: string,
  *   views: !Array<!chrome.developerPrivate.ExtensionView>,
  *   webStoreUrl: string,
- *   showSafeBrowsingAllowlistWarning: boolean
+ *   showSafeBrowsingAllowlistWarning: boolean,
+ *   showAccessRequestsInToolbar: boolean
  * }}
  */
 chrome.developerPrivate.ExtensionInfo;
@@ -385,7 +392,8 @@ chrome.developerPrivate.GetExtensionsInfoOptions;
  *   fileAccess: (boolean|undefined),
  *   incognitoAccess: (boolean|undefined),
  *   errorCollection: (boolean|undefined),
- *   hostAccess: (!chrome.developerPrivate.HostAccess|undefined)
+ *   hostAccess: (!chrome.developerPrivate.HostAccess|undefined),
+ *   showAccessRequestsInToolbar: (boolean|undefined)
  * }}
  */
 chrome.developerPrivate.ExtensionConfigurationUpdate;
@@ -428,15 +436,16 @@ chrome.developerPrivate.LoadUnpackedOptions;
 /**
  * @enum {string}
  */
-chrome.developerPrivate.UserSiteSet = {
-  PERMITTED: 'PERMITTED',
-  RESTRICTED: 'RESTRICTED',
+chrome.developerPrivate.SiteSet = {
+  USER_PERMITTED: 'USER_PERMITTED',
+  USER_RESTRICTED: 'USER_RESTRICTED',
+  EXTENSION_SPECIFIED: 'EXTENSION_SPECIFIED',
 };
 
 /**
  * @typedef {{
- *   siteList: !chrome.developerPrivate.UserSiteSet,
- *   host: string
+ *   siteSet: !chrome.developerPrivate.SiteSet,
+ *   hosts: !Array<string>
  * }}
  */
 chrome.developerPrivate.UserSiteSettingsOptions;
@@ -448,6 +457,40 @@ chrome.developerPrivate.UserSiteSettingsOptions;
  * }}
  */
 chrome.developerPrivate.UserSiteSettings;
+
+/**
+ * @typedef {{
+ *   siteSet: !chrome.developerPrivate.SiteSet,
+ *   numExtensions: number,
+ *   site: string
+ * }}
+ */
+chrome.developerPrivate.SiteInfo;
+
+/**
+ * @typedef {{
+ *   etldPlusOne: string,
+ *   numExtensions: number,
+ *   sites: !Array<!chrome.developerPrivate.SiteInfo>
+ * }}
+ */
+chrome.developerPrivate.SiteGroup;
+
+/**
+ * @typedef {{
+ *   id: string,
+ *   siteAccess: !chrome.developerPrivate.HostAccess
+ * }}
+ */
+chrome.developerPrivate.MatchingExtensionInfo;
+
+/**
+ * @typedef {{
+ *   id: string,
+ *   siteAccess: !chrome.developerPrivate.HostAccess
+ * }}
+ */
+chrome.developerPrivate.ExtensionSiteAccessUpdate;
 
 /**
  * @enum {string}
@@ -806,25 +849,51 @@ chrome.developerPrivate.removeHostPermission = function(extensionId, host, callb
 /**
  * Returns the user specified site settings (which origins can extensions
  * always/never run on) for the current profile.
- * @param {function(!chrome.developerPrivate.UserSiteSettings): void=} callback
+ * @param {function(!chrome.developerPrivate.UserSiteSettings): void} callback
  */
 chrome.developerPrivate.getUserSiteSettings = function(callback) {};
 
 /**
- * Adds a host to the set of user permitted or restricted sites. If the host in
- * the other set than what's specified in `options`, then it is removed from
- * that set.
+ * Adds hosts to the set of user permitted or restricted sites. If any hosts are
+ * in the other set than what's specified in `options`, then they are removed
+ * from that set.
  * @param {!chrome.developerPrivate.UserSiteSettingsOptions} options
  * @param {function(): void=} callback
  */
-chrome.developerPrivate.addUserSpecifiedSite = function(options, callback) {};
+chrome.developerPrivate.addUserSpecifiedSites = function(options, callback) {};
 
 /**
- * Removes a host from the specified set of user permitted or restricted sites.
+ * Removes hosts from the specified set of user permitted or restricted sites.
  * @param {!chrome.developerPrivate.UserSiteSettingsOptions} options
  * @param {function(): void=} callback
  */
-chrome.developerPrivate.removeUserSpecifiedSite = function(options, callback) {};
+chrome.developerPrivate.removeUserSpecifiedSites = function(options, callback) {};
+
+/**
+ * Returns all hosts specified by user site settings, grouped by each host's
+ * eTLD+1.
+ * @param {function(!Array<!chrome.developerPrivate.SiteGroup>): void} callback
+ */
+chrome.developerPrivate.getUserAndExtensionSitesByEtld = function(callback) {};
+
+/**
+ * Returns a list of extensions which have at least one matching site in common
+ * between its set of host permissions and `site`.
+ * @param {string} site
+ * @param {function(!Array<!chrome.developerPrivate.MatchingExtensionInfo>): void}
+ *     callback
+ */
+chrome.developerPrivate.getMatchingExtensionsForSite = function(site, callback) {};
+
+/**
+ * Updates the site access settings for multiple extensions for the given `site`
+ * and calls `callback` once all updates have been finished. Each update species
+ * an extension id an a new HostAccess setting.
+ * @param {string} site
+ * @param {!Array<!chrome.developerPrivate.ExtensionSiteAccessUpdate>} updates
+ * @param {function(): void=} callback
+ */
+chrome.developerPrivate.updateSiteAccess = function(site, updates, callback) {};
 
 /**
  * @param {string} id
@@ -868,3 +937,9 @@ chrome.developerPrivate.onItemStateChanged;
  * @type {!ChromeEvent}
  */
 chrome.developerPrivate.onProfileStateChanged;
+
+/**
+ * Fired when the lists of sites in the user's site settings have changed.
+ * @type {!ChromeEvent}
+ */
+chrome.developerPrivate.onUserSiteSettingsChanged;

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@ SysInternalsBrowserTest.prototype = {
   __proto__: testing.Test.prototype,
 
   browsePreload:
-      'chrome://sys-internals/index.html?module=sys_internals/all_tests.js',
+      'chrome://sys-internals/index.html?module=sys_internals/all_tests.js&host=test',
 
   isAsync: true,
 

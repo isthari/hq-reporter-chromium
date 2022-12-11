@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #include <string>
 #include <utility>
 
-#include "ash/components/attestation/fake_attestation_flow.h"
 #include "base/guid.h"
 #include "base/json/values_util.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/ash/login/test/policy_test_server_constants.h"
@@ -17,6 +17,8 @@
 #include "chrome/browser/ash/policy/enrollment/device_cloud_policy_initializer.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
+#include "chromeos/ash/components/attestation/fake_attestation_flow.h"
+#include "chromeos/ash/components/attestation/fake_certificate.h"
 #include "chromeos/system/fake_statistics_provider.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/test/policy_builder.h"
@@ -56,13 +58,9 @@ void EmbeddedPolicyTestServerMixin::SetUp() {
 
   if (!capabilities_.contains(ENABLE_CANNED_SIGNING_KEYS)) {
     // Create universal signing keys that can sign any domain.
-    std::vector<policy::SignatureProvider::SigningKey> universal_signing_keys;
-    universal_signing_keys.push_back(policy::SignatureProvider::SigningKey(
-        policy::PolicyBuilder::CreateTestSigningKey(),
-        {{"*", policy::PolicyBuilder::GetTestSigningKeySignature()}}));
     policy_test_server_->policy_storage()
         ->signature_provider()
-        ->set_signing_keys(std::move(universal_signing_keys));
+        ->SetUniversalSigningKeys();
   }
 
   if (capabilities_.contains(ENABLE_AUTOMATIC_ROTATION_OF_SIGNINGKEYS)) {
@@ -107,6 +105,11 @@ void EmbeddedPolicyTestServerMixin::UpdateUserPolicy(
   policy_test_server_->policy_storage()->set_policy_user(policy_user);
   UpdatePolicy(policy::dm_protocol::kChromeUserPolicyType,
                policy.SerializeAsString());
+}
+
+void EmbeddedPolicyTestServerMixin::UpdatePolicyTimestamp(
+    const base::Time& timestamp) {
+  policy_test_server_->policy_storage()->set_timestamp(timestamp);
 }
 
 void EmbeddedPolicyTestServerMixin::UpdatePolicy(
@@ -157,10 +160,23 @@ void EmbeddedPolicyTestServerMixin::SetPolicyFetchError(int net_error_code) {
 }
 
 void EmbeddedPolicyTestServerMixin::SetFakeAttestationFlow() {
+  std::string valid_certificate;
+  attestation::GetFakeCertificatePEM(base::Days(10), &valid_certificate);
+
   g_browser_process->platform_part()
       ->browser_policy_connector_ash()
       ->SetAttestationFlowForTesting(
-          std::make_unique<attestation::FakeAttestationFlow>());
+          std::make_unique<attestation::FakeAttestationFlow>(
+              std::move(valid_certificate)));
+}
+
+void EmbeddedPolicyTestServerMixin::SetAvailableLicenses(
+    bool has_enterpise_license,
+    bool has_kiosk_license) {
+  policy_test_server_->policy_storage()->set_has_enterprise_license(
+      has_enterpise_license);
+  policy_test_server_->policy_storage()->set_has_kiosk_license(
+      has_kiosk_license);
 }
 
 void EmbeddedPolicyTestServerMixin::SetExpectedPsmParamsInDeviceRegisterRequest(
@@ -236,6 +252,7 @@ void EmbeddedPolicyTestServerMixin::ConfigureFakeStatisticsForZeroTouch(
                                 test::kTestSerialNumber);
   provider->SetMachineStatistic(system::kHardwareClassKey,
                                 test::kTestHardwareClass);
+  provider->SetVpdStatus(system::StatisticsProvider::VpdStatus::kValid);
 }
 
 }  // namespace ash

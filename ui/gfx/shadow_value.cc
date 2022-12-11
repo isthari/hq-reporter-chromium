@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,7 +39,7 @@ Insets GetInsets(const ShadowValues& shadows, bool include_inner_blur) {
     bottom = std::max(bottom, blur_length + shadow.y());
   }
 
-  return Insets(top, left, bottom, right);
+  return Insets::TLBR(top, left, bottom, right);
 }
 
 }  // namespace

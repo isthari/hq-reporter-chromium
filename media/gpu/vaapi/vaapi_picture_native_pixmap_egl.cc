@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,6 +47,14 @@ VaapiPictureNativePixmapEgl::~VaapiPictureNativePixmapEgl() {
     gl_image_->ReleaseTexImage(texture_target_);
     DCHECK_EQ(glGetError(), static_cast<GLenum>(GL_NO_ERROR));
   }
+
+  // Reset |va_surface_| before |gl_image_| to preserve the order of destruction
+  // before the refactoring done in
+  // https://chromium-review.googlesource.com/c/chromium/src/+/4025005.
+  // TODO(crbug.com/1366367): Determine whether preserving this order matters
+  // and remove these calls if not.
+  va_surface_.reset();
+  gl_image_.reset();
 }
 
 VaapiStatus VaapiPictureNativePixmapEgl::Initialize(
@@ -63,8 +71,7 @@ VaapiStatus VaapiPictureNativePixmapEgl::Initialize(
   }
 
   if (bind_image_cb_ &&
-      !bind_image_cb_.Run(client_texture_id_, texture_target_, gl_image_,
-                          true /* can_bind_to_sampler */)) {
+      !bind_image_cb_.Run(client_texture_id_, texture_target_, gl_image_)) {
     LOG(ERROR) << "Failed to bind client_texture_id";
     return VaapiStatus::Codes::kFailedToBindImage;
   }
@@ -78,6 +85,7 @@ VaapiStatus VaapiPictureNativePixmapEgl::Allocate(gfx::BufferFormat format) {
   if (make_context_current_cb_ && !make_context_current_cb_.Run())
     return VaapiStatus::Codes::kBadContext;
 
+  // TODO(b/220336463): plumb the right color space.
   auto image =
       base::MakeRefCounted<gl::GLImageNativePixmap>(visible_size_, format);
   // Create an EGLImage from a gl texture

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,7 @@
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/sync/test/integration/user_events_helper.h"
 #include "chrome/browser/sync/user_event_service_factory.h"
-#include "components/sync/engine/sync_engine_switches.h"
+#include "components/sync/base/features.h"
 #include "components/sync/protocol/user_event_specifics.pb.h"
 #include "components/sync_user_events/user_event_service.h"
 #include "content/public/test/browser_test.h"
@@ -55,7 +55,7 @@ class SingleClientUserEventsSyncTestWithEnabledThrottling
  public:
   SingleClientUserEventsSyncTestWithEnabledThrottling() {
     features_override_.InitAndEnableFeature(
-        switches::kSyncExtensionTypesThrottling);
+        syncer::kSyncExtensionTypesThrottling);
   }
 
  private:

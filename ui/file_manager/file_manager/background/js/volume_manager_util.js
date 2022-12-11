@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,7 +41,7 @@ volumeManagerUtil.TIMEOUT_STR_RESOLVE_ISOLATED_ENTRIES =
     'timeout(resolveIsolatedEntries)';
 
 /**
- * Throws an Error when the given error is not in
+ * Logs a warning message if the given error is not in
  * VolumeManagerCommon.VolumeError.
  *
  * @param {string} error Status string usually received from APIs.
@@ -53,7 +53,7 @@ volumeManagerUtil.validateError = error => {
     }
   }
 
-  throw new Error('Invalid mount error: ' + error);
+  console.warn(`Invalid mount error: ${error}`);
 };
 
 /**
@@ -106,7 +106,7 @@ volumeManagerUtil.createVolumeInfo = async volumeMetadata => {
             chrome.fileManagerPrivate.getVolumeRoot(
                 {
                   volumeId: volumeMetadata.volumeId,
-                  writable: !volumeMetadata.isReadOnly
+                  writable: !volumeMetadata.isReadOnly,
                 },
                 rootDirectoryEntry => {
                   if (chrome.runtime.lastError) {
@@ -134,12 +134,13 @@ volumeManagerUtil.createVolumeInfo = async volumeMetadata => {
             (volumeMetadata.source),
             /** @type {VolumeManagerCommon.FileSystemType} */
             (volumeMetadata.diskFileSystemType), volumeMetadata.iconSet,
-            volumeMetadata.driveLabel, volumeMetadata.remoteMountPath);
+            volumeMetadata.driveLabel, volumeMetadata.remoteMountPath,
+            volumeMetadata.vmType);
       })
       .catch(
           /** @param {*} error */
           error => {
-            console.error(`Cannot mount file system '${
+            console.warn(`Cannot mount file system '${
                 volumeMetadata.volumeId}': ${error.stack || error}`);
 
             // TODO(crbug/847729): Report a mount error via UMA.
@@ -158,7 +159,8 @@ volumeManagerUtil.createVolumeInfo = async volumeMetadata => {
                 (volumeMetadata.source),
                 /** @type {VolumeManagerCommon.FileSystemType} */
                 (volumeMetadata.diskFileSystemType), volumeMetadata.iconSet,
-                volumeMetadata.driveLabel, volumeMetadata.remoteMountPath);
+                volumeMetadata.driveLabel, volumeMetadata.remoteMountPath,
+                volumeMetadata.vmType);
           });
 };
 

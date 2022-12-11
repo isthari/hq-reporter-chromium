@@ -36,10 +36,10 @@
 #include "cc/paint/paint_flags.h"
 #include "third_party/blink/renderer/platform/geometry/layout_rect.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
-#include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/effects/SkCornerPathEffect.h"
-#include "third_party/skia/include/third_party/skcms/skcms.h"
+#include "third_party/skia/modules/skcms/skcms.h"
 #include "ui/base/ui_base_features.h"
 
 #include <algorithm>
@@ -252,34 +252,6 @@ SkMatrix AffineTransformToSkMatrix(const AffineTransform& source) {
   return result;
 }
 
-SkMatrix TransformationMatrixToSkMatrix(const TransformationMatrix& source) {
-  // SkMatrix is 3x3, TransformationMatrix is 4x4, this function encodes
-  // assuming that a 2D-transformation with perspective is what's desired,
-  // throwing out the z-dimension values. i.e.:
-
-  //        INPUT                  OUTPUT
-  // | m11 m21 m31 m41 |       | m11 m21 m41 |
-  // | m12 m22 m32 m42 | ----> | m12 m22 m42 |
-  // | m13 m23 m33 m43 |       | m14 m24 m44 |
-  // | m14 m24 m34 m44 |
-
-  SkMatrix result;
-
-  result.setScaleX(WebCoreDoubleToSkScalar(source.M11()));
-  result.setSkewX(WebCoreDoubleToSkScalar(source.M21()));
-  result.setTranslateX(WebCoreDoubleToSkScalar(source.M41()));
-
-  result.setScaleY(WebCoreDoubleToSkScalar(source.M22()));
-  result.setSkewY(WebCoreDoubleToSkScalar(source.M12()));
-  result.setTranslateY(WebCoreDoubleToSkScalar(source.M42()));
-
-  result.setPerspX(source.M14());
-  result.setPerspY(source.M24());
-  result.set(SkMatrix::kMPersp2, source.M44());
-
-  return result;
-}
-
 bool NearlyIntegral(float value) {
   return fabs(value - floorf(value)) < std::numeric_limits<float>::epsilon();
 }
@@ -437,9 +409,10 @@ void DrawPlatformFocusRing(const SkPath& path,
 }
 
 sk_sp<SkData> TryAllocateSkData(size_t size) {
-  void* buffer = WTF::Partitions::BufferPartition()->AllocFlags(
-      base::PartitionAllocReturnNull | base::PartitionAllocZeroFill, size,
-      "SkData");
+  void* buffer = WTF::Partitions::BufferPartition()->AllocWithFlags(
+      partition_alloc::AllocFlags::kReturnNull |
+          partition_alloc::AllocFlags::kZeroFill,
+      size, "SkData");
   if (!buffer)
     return nullptr;
   return SkData::MakeWithProc(

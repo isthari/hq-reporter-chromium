@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,9 +56,6 @@ char kTSanDefaultSuppressions[] =
     "race:base::PowerMonitor::RemoveObserver\n"
     "race:base::PowerMonitor::IsOnBatteryPower\n"
 
-    // http://crbug.com/272095
-    "race:base::g_top_manager\n"
-
     // http://crbug.com/308590
     "race:CustomThreadWatcher::~CustomThreadWatcher\n"
 
@@ -71,18 +68,11 @@ char kTSanDefaultSuppressions[] =
     // http://crbug.com/328868
     "race:PR_Lock\n"
 
-    // http://crbug.com/348984
-    "race:sctp_express_handle_sack\n"
-    "race:system_base_info\n"
-
     // False positive in libc's tzset_internal, http://crbug.com/379738.
     "race:tzset_internal\n"
 
     // http://crbug.com/380554
     "deadlock:g_type_add_interface_static\n"
-
-    // http:://crbug.com/386385
-    "race:content::AppCacheStorageImpl::DatabaseTask::CallRunCompleted\n"
 
     // http://crbug.com/397022
     "deadlock:"
@@ -99,9 +89,6 @@ char kTSanDefaultSuppressions[] =
     // https://crbug.com/459429
     "race:randomnessPid\n"
 
-    // http://crbug.com/582274
-    "race:usrsctp_close\n"
-
     // http://crbug.com/633145
     "race:third_party/libjpeg_turbo/simd/jsimd_x86_64.c\n"
 
@@ -114,10 +101,6 @@ char kTSanDefaultSuppressions[] =
     // http://crbug.com/695929
     "race:base::i18n::IsRTL\n"
     "race:base::i18n::SetICUDefaultLocale\n"
-
-    // https://crbug.com/794920
-    "race:base::debug::SetCrashKeyString\n"
-    "race:crash_reporter::internal::CrashKeyStringImpl::Set\n"
 
     // http://crbug.com/927330
     "race:net::(anonymous namespace)::g_network_change_notifier\n"
@@ -132,6 +115,14 @@ char kTSanDefaultSuppressions[] =
 
     // https://crbug.com/1158622
     "race:absl::synchronization_internal::Waiter::Post\n"
+
+    // Harmless data races, see WTF::StringImpl::Release code comments.
+    "race:scoped_refptr<WTF::StringImpl>::AddRef\n"
+    "race:scoped_refptr<WTF::StringImpl>::Release\n"
+
+    // Harmless data race in ipcz block allocation. See comments in
+    // ipcz::BlockAllocator::Allocate().
+    "race:ipcz::BlockAllocator::Allocate\n"
 
     // End of suppressions.
     ;  // Please keep this semicolon.

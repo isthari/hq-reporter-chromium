@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -87,7 +87,7 @@ class SearchBoxMediator
     public void onFinishNativeInitialization() {
         mAssistantVoiceSearchService = new AssistantVoiceSearchService(mContext,
                 ExternalAuthUtils.getInstance(), TemplateUrlServiceFactory.get(),
-                GSAState.getInstance(mContext), this, SharedPreferencesManager.getInstance(),
+                GSAState.getInstance(), this, SharedPreferencesManager.getInstance(),
                 IdentityServicesProvider.get().getIdentityManager(
                         Profile.getLastUsedRegularProfile()),
                 AccountManagerFacadeProvider.getInstance());
@@ -163,6 +163,34 @@ class SearchBoxMediator
             @LensEntryPoint int lensEntryPoint, boolean isIncognito, boolean isTablet) {
         return LensController.getInstance().isLensEnabled(
                 new LensQueryParams.Builder(lensEntryPoint, isIncognito, isTablet).build());
+    }
+
+    void setHeight(int height) {
+        mModel.set(SearchBoxProperties.SEARCH_BOX_HEIGHT, height);
+    }
+
+    void setTopMargin(int topMargin) {
+        mModel.set(SearchBoxProperties.SEARCH_BOX_TOP_MARGIN, topMargin);
+    }
+
+    void setEndPadding(int endPadding) {
+        mModel.set(SearchBoxProperties.SEARCH_BOX_END_PADDING, endPadding);
+    }
+
+    void setTextViewTranslationX(float translationX) {
+        mModel.set(SearchBoxProperties.SEARCH_TEXT_TRANSLATION_X, translationX);
+    }
+
+    void setButtonsHeight(int height) {
+        mModel.set(SearchBoxProperties.BUTTONS_HEIGHT, height);
+    }
+
+    void setButtonsWidth(int width) {
+        mModel.set(SearchBoxProperties.BUTTONS_WIDTH, width);
+    }
+
+    void setLensButtonLeftMargin(int leftMargin) {
+        mModel.set(SearchBoxProperties.LENS_BUTTON_LEFT_MARGIN, leftMargin);
     }
 
     private Drawable getRoundedDrawable(Bitmap bitmap) {

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,21 +55,6 @@ bool CheckFDAccessMode(int fd, int expected_mode) {
 
 }  // namespace
 
-ScopedFDPair::ScopedFDPair() = default;
-
-ScopedFDPair::ScopedFDPair(ScopedFDPair&&) = default;
-
-ScopedFDPair& ScopedFDPair::operator=(ScopedFDPair&&) = default;
-
-ScopedFDPair::~ScopedFDPair() = default;
-
-ScopedFDPair::ScopedFDPair(ScopedFD in_fd, ScopedFD in_readonly_fd)
-    : fd(std::move(in_fd)), readonly_fd(std::move(in_readonly_fd)) {}
-
-FDPair ScopedFDPair::get() const {
-  return {fd.get(), readonly_fd.get()};
-}
-
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 // static
 ScopedFD PlatformSharedMemoryRegion::ExecutableRegion::CreateFD(size_t size) {
@@ -115,9 +100,6 @@ PlatformSharedMemoryRegion PlatformSharedMemoryRegion::Take(
         return {};
       }
       break;
-    default:
-      DLOG(ERROR) << "Invalid permission mode: " << static_cast<int>(mode);
-      return {};
   }
 
   return PlatformSharedMemoryRegion(std::move(handle), mode, size, guid);
@@ -183,24 +165,6 @@ bool PlatformSharedMemoryRegion::ConvertToUnsafe() {
   return true;
 }
 
-bool PlatformSharedMemoryRegion::MapAtInternal(off_t offset,
-                                               size_t size,
-                                               void** memory,
-                                               size_t* mapped_size) const {
-  bool write_allowed = mode_ != Mode::kReadOnly;
-  *memory = mmap(nullptr, size, PROT_READ | (write_allowed ? PROT_WRITE : 0),
-                 MAP_SHARED, handle_.fd.get(), offset);
-
-  bool mmap_succeeded = *memory && *memory != MAP_FAILED;
-  if (!mmap_succeeded) {
-    DPLOG(ERROR) << "mmap " << handle_.fd.get() << " failed";
-    return false;
-  }
-
-  *mapped_size = size;
-  return true;
-}
-
 // static
 PlatformSharedMemoryRegion PlatformSharedMemoryRegion::Create(Mode mode,
                                                               size_t size
@@ -227,7 +191,7 @@ PlatformSharedMemoryRegion PlatformSharedMemoryRegion::Create(Mode mode,
   // This function theoretically can block on the disk, but realistically
   // the temporary files we create will just go into the buffer cache
   // and be deleted before they ever make it out to disk.
-  ThreadRestrictions::ScopedAllowIO allow_io;
+  ScopedAllowBlocking scoped_allow_blocking;
 
   // We don't use shm_open() API in order to support the --disable-dev-shm-usage
   // flag.
@@ -305,7 +269,7 @@ PlatformSharedMemoryRegion PlatformSharedMemoryRegion::Create(Mode mode,
 }
 
 bool PlatformSharedMemoryRegion::CheckPlatformHandlePermissionsCorrespondToMode(
-    PlatformHandle handle,
+    PlatformSharedMemoryHandle handle,
     Mode mode,
     size_t size) {
 #if !BUILDFLAG(IS_NACL)

@@ -1,8 +1,8 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-load("//lib/bootstrap.star", "PROPERTIES_OPTIONAL", "register_recipe_bootstrappability")
+load("//lib/bootstrap.star", "POLYMORPHIC", "register_recipe_bootstrappability")
 load("//lib/recipe_experiments.star", "register_recipe_experiments")
 
 _RECIPE_NAME_PREFIX = "recipe:"
@@ -13,7 +13,6 @@ def _recipe_for_package(cipd_package):
             name,
             cipd_version = None,
             recipe = None,
-            use_python3 = False,
             bootstrappable = False,
             experiments = None):
         """Declare a recipe for the given package.
@@ -29,7 +28,6 @@ def _recipe_for_package(cipd_package):
               information.
             cipd_version: See luci.recipe.
             recipe: See luci.recipe.
-            use_python3: See luci.recipe.
             bootstrappable: Whether or not the recipe supports the chromium
               bootstrapper. A recipe supports the bootstrapper if the following
               conditions are met:
@@ -41,11 +39,12 @@ def _recipe_for_package(cipd_package):
                 skips analysis and performs a full build if
                 chromium_bootstrap.skip_analysis_reasons is non-empty. This will
                 be true if calling chromium_tests.determine_compilation_targets.
-              In addition to a True or False value, PROPERTIES_OPTIONAL can be
+              In addition to a True or False value, POLYMORPHIC can be
               specified. This value will cause the builder's executable to be
-              changed to the bootstrapper in properties optional mode, which
-              will by default not bootstrap any properties. On a per-run basis
-              the $bootstrap/properties property can be set to bootstrap properties.
+              changed to the bootstrapper in properties-optional, polymorphic
+              mode, which will by default not bootstrap any properties. On a
+              per-run basis the $bootstrap/properties property can be set to
+              bootstrap properties for different builders.
             experiments: Experiments to apply to a builder using the recipe. If
               the builder specifies an experiment, the experiment value from the
               recipe will be ignored.
@@ -64,7 +63,7 @@ def _recipe_for_package(cipd_package):
             cipd_version = cipd_version,
             recipe = recipe,
             use_bbagent = True,
-            use_python3 = use_python3,
+            use_python3 = True,
         )
 
         register_recipe_bootstrappability(name, bootstrappable)
@@ -81,201 +80,197 @@ build_recipe = _recipe_for_package(
 
 build_recipe(
     name = "recipe:android/androidx_packager",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:android/avd_packager",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:android/sdk_packager",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:angle_chromium",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:angle_chromium_trybot",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:binary_size_generator_tot",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:binary_size_trybot",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:binary_size_fuchsia_trybot",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:branch_configuration/tester",
-    use_python3 = True,
+)
+
+build_recipe(
+    name = "recipe:build_perf",
 )
 
 build_recipe(
     name = "recipe:celab",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium",
     bootstrappable = True,
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium/builder_config_verifier",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium/orchestrator",
     bootstrappable = True,
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium/compilator",
     bootstrappable = True,
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium/builder_cache_prewarmer",
     bootstrappable = True,
-    use_python3 = True,
+)
+
+build_recipe(
+    name = "recipe:chromium_polymorphic/launcher",
 )
 
 build_recipe(
     name = "recipe:chromium_3pp",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium_afl",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium_clang_coverage_tot",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium_codesearch",
-    use_python3 = True,
+)
+
+build_recipe(
+    name = "recipe:chromium_expectation_files/expectation_file_scripts",
+    bootstrappable = True,
 )
 
 build_recipe(
     name = "recipe:chromium_export_metadata",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium_libfuzzer",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium_libfuzzer_trybot",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium_rts/create_model",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium_trybot",
     bootstrappable = True,
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:chromium_upload_clang",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:cronet",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:flakiness/generate_builder_test_data",
-    use_python3 = True,
+)
+
+build_recipe(
+    name = "recipe:flakiness/reproducer",
 )
 
 build_recipe(
     name = "recipe:findit/chromium/single_revision",
-    bootstrappable = PROPERTIES_OPTIONAL,
-    use_python3 = True,
+    bootstrappable = POLYMORPHIC,
+)
+
+build_recipe(
+    name = "recipe:gofindit/chromium/single_revision",
+    bootstrappable = POLYMORPHIC,
 )
 
 build_recipe(
     name = "recipe:presubmit",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:reclient_config_deploy_check/tester",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:reclient_goma_comparison",
-    use_python3 = True,
+)
+
+build_recipe(
+    name = "recipe:reclient_reclient_comparison",
 )
 
 build_recipe(
     name = "recipe:requires_testing_checker",
-    use_python3 = True,
+)
+
+build_recipe(
+    name = "recipe:reviver/chromium/runner",
+    bootstrappable = POLYMORPHIC,
 )
 
 build_recipe(
     name = "recipe:swarming/deterministic_build",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:swarming/staging",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:tricium_clang_tidy_wrapper",
-    use_python3 = True,
+)
+
+build_recipe(
+    name = "recipe:tricium_clang_tidy_orchestrator",
 )
 
 build_recipe(
     name = "recipe:tricium_metrics",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:tricium_oilpan",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:tricium_simple",
-    use_python3 = True,
 )
 
 build_recipe(
     name = "recipe:webrtc/chromium_ios",
-    use_python3 = True,
 )

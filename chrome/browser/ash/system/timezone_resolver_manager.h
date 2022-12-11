@@ -1,13 +1,13 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_SYSTEM_TIMEZONE_RESOLVER_MANAGER_H_
 #define CHROME_BROWSER_ASH_SYSTEM_TIMEZONE_RESOLVER_MANAGER_H_
 
-#include "ash/components/timezone/timezone_resolver.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "chromeos/ash/components/timezone/timezone_resolver.h"
 #include "components/prefs/pref_change_registrar.h"
 
 class PrefService;
@@ -112,13 +112,5 @@ class TimeZoneResolverManager : public TimeZoneResolver::Delegate {
 
 }  // namespace system
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when Chrome OS code migration is
-// done.
-namespace chromeos {
-namespace system {
-using ::ash::system::TimeZoneResolverManager;
-}  // namespace system
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_SYSTEM_TIMEZONE_RESOLVER_MANAGER_H_

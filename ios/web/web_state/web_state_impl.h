@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,9 @@
 #include <string>
 #include <vector>
 
-#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #import "ios/web/js_messaging/web_frames_manager_impl.h"
 #import "ios/web/navigation/navigation_manager_delegate.h"
@@ -34,6 +34,7 @@
 @protocol CRWWebViewProxy;
 @protocol CRWWebViewNavigationProxy;
 @class UIViewController;
+enum WKPermissionDecision : NSInteger;
 
 namespace web {
 
@@ -151,8 +152,8 @@ class WebStateImpl final : public WebState {
   // that is the point where MIME type is set from HTTP headers.
   void SetContentsMimeType(const std::string& mime_type);
 
-  // Decides whether the navigation corresponding to |request| should be
-  // allowed to continue by asking its policy deciders, and calls |callback|
+  // Decides whether the navigation corresponding to `request` should be
+  // allowed to continue by asking its policy deciders, and calls `callback`
   // with the decision. Defaults to PolicyDecision::Allow(). If at least one
   // policy decider's decision is PolicyDecision::Cancel(), the final result is
   // PolicyDecision::Cancel(). Otherwise, if at least one policy decider's
@@ -164,15 +165,8 @@ class WebStateImpl final : public WebState {
       WebStatePolicyDecider::RequestInfo request_info,
       WebStatePolicyDecider::PolicyDecisionCallback callback);
 
-  // Decides whether the navigation corresponding to |response| should
-  // be allowed to display an error page if an error occurs, by asking its
-  // policy deciders. If at least one policy decider's decision is false,
-  // returns false; otherwise returns true.
-  bool ShouldAllowErrorPageToBeDisplayed(NSURLResponse* response,
-                                         bool for_main_frame);
-
-  // Decides whether the navigation corresponding to |response| should be
-  // allowed to continue by asking its policy deciders, and calls |callback|
+  // Decides whether the navigation corresponding to `response` should be
+  // allowed to continue by asking its policy deciders, and calls `callback`
   // with the decision. Defaults to PolicyDecision::Allow(). If at least one
   // policy decider's decision is PolicyDecision::Cancel(), the final result is
   // PolicyDecision::Cancel(). Otherwise, if at least one policy decider's
@@ -188,7 +182,7 @@ class WebStateImpl final : public WebState {
   // nil.
   UIView* GetWebViewContainer();
 
-  // Returns the UserAgent that should be used to load the |url| if it is a new
+  // Returns the UserAgent that should be used to load the `url` if it is a new
   // navigation. This will be Mobile or Desktop.
   UserAgentType GetUserAgentForNextNavigation(const GURL& url);
 
@@ -197,10 +191,10 @@ class WebStateImpl final : public WebState {
   UserAgentType GetUserAgentForSessionRestoration() const;
 
   // Sets the UserAgent type that should be used by the WebState. If
-  // |user_agent| is AUTOMATIC, GetUserAgentForNextNavigation() will return
+  // `user_agent` is AUTOMATIC, GetUserAgentForNextNavigation() will return
   // MOBILE or DESKTOP based on the size class of the WebView. Otherwise, it
-  // will return |user_agent|.
-  // GetUserAgentForSessionRestoration() will always return |user_agent|.
+  // will return `user_agent`.
+  // GetUserAgentForSessionRestoration() will always return `user_agent`.
   void SetUserAgent(UserAgentType user_agent);
 
   // Notifies the delegate that the load progress was updated.
@@ -220,9 +214,9 @@ class WebStateImpl final : public WebState {
   bool IsJavaScriptDialogRunning();
 
   // Instructs the delegate to create a new web state. Called when this WebState
-  // wants to open a new window. |url| is the URL of the new window;
-  // |opener_url| is the URL of the page which requested a window to be open;
-  // |initiated_by_user| is true if action was caused by the user.
+  // wants to open a new window. `url` is the URL of the new window;
+  // `opener_url` is the URL of the page which requested a window to be open;
+  // `initiated_by_user` is true if action was caused by the user.
   WebState* CreateNewWebState(const GURL& url,
                               const GURL& opener_url,
                               bool initiated_by_user);
@@ -240,19 +234,27 @@ class WebStateImpl final : public WebState {
   // navigation related functions on the main WKWebView.
   id<CRWWebViewNavigationProxy> GetWebViewNavigationProxy() const;
 
-  // Registers |frame| as a new web frame and notifies any observers.
+  // Registers `frame` as a new web frame and notifies any observers.
   void WebFrameBecameAvailable(std::unique_ptr<WebFrame> frame);
 
-  // Removes the web frame with |frame_id|, if one exists and notifies any
+  // Removes the web frame with `frame_id`, if one exists and notifies any
   // observers.
   void WebFrameBecameUnavailable(const std::string& frame_id);
+
+  // Broadcasts a JavaScript message to request the frameId of all frames.
+  void RetrieveExistingFrames();
 
   // Removes all current web frames.
   void RemoveAllWebFrames();
 
+  // Requests the user's permission to access requested `permissions`.
+  typedef void (^PermissionDecisionHandler)(WKPermissionDecision decision)
+      API_AVAILABLE(ios(15.0));
+  void RequestPermissionsWithDecisionHandler(NSArray<NSNumber*>* permissions,
+                                             PermissionDecisionHandler handler)
+      API_AVAILABLE(ios(15.0));
+
   // WebState:
-  Getter CreateDefaultGetter() final;
-  OnceGetter CreateDefaultOnceGetter() final;
   WebStateDelegate* GetDelegate() final;
   void SetDelegate(WebStateDelegate* delegate) final;
   bool IsRealized() const final;
@@ -262,11 +264,20 @@ class WebStateImpl final : public WebState {
   UIView* GetView() final;
   void DidCoverWebContent() final;
   void DidRevealWebContent() final;
+  base::Time GetLastActiveTime() const final;
+  base::Time GetCreationTime() const final;
   void WasShown() final;
   void WasHidden() final;
   void SetKeepRenderProcessAlive(bool keep_alive) final;
   BrowserState* GetBrowserState() const final;
+  base::WeakPtr<WebState> GetWeakPtr() final;
   void OpenURL(const WebState::OpenURLParams& params) final;
+  void LoadSimulatedRequest(const GURL& url,
+                            NSString* response_html_string) final
+      API_AVAILABLE(ios(15.0));
+  void LoadSimulatedRequest(const GURL& url,
+                            NSData* response_data,
+                            NSString* mime_type) final API_AVAILABLE(ios(15.0));
   void Stop() final;
   const NavigationManager* GetNavigationManager() const final;
   NavigationManager* GetNavigationManager() final;
@@ -276,11 +287,7 @@ class WebStateImpl final : public WebState {
       const final;
   SessionCertificatePolicyCache* GetSessionCertificatePolicyCache() final;
   CRWSessionStorage* BuildSessionStorage() final;
-  CRWJSInjectionReceiver* GetJSInjectionReceiver() const final;
   void LoadData(NSData* data, NSString* mime_type, const GURL& url) final;
-  void ExecuteJavaScript(const std::u16string& javascript) final;
-  void ExecuteJavaScript(const std::u16string& javascript,
-                         JavaScriptResultCallback callback) final;
   void ExecuteUserJavaScript(NSString* javaScript) final;
   NSString* GetStableIdentifier() const final;
   const std::string& GetContentsMimeType() const final;
@@ -294,6 +301,7 @@ class WebStateImpl final : public WebState {
   bool IsBeingDestroyed() const final;
   const FaviconStatus& GetFaviconStatus() const final;
   void SetFaviconStatus(const FaviconStatus& favicon_status) final;
+  int GetNavigationItemCount() const final;
   const GURL& GetVisibleURL() const final;
   const GURL& GetLastCommittedURL() const final;
   GURL GetCurrentURL(URLVerificationTrustLevel* trust_level) const final;
@@ -320,6 +328,10 @@ class WebStateImpl final : public WebState {
       API_AVAILABLE(ios(15.0));
   NSDictionary<NSNumber*, NSNumber*>* GetStatesForAllPermissions() const final
       API_AVAILABLE(ios(15.0));
+  void DownloadCurrentPage(NSString* destination_file,
+                           id<CRWWebViewDownloadDelegate> delegate,
+                           void (^handler)(id<CRWWebViewDownload>)) final
+      API_AVAILABLE(ios(14.5));
 
  protected:
   // WebState:
@@ -335,11 +347,10 @@ class WebStateImpl final : public WebState {
 
   // Type aliases for the various ObserverList or ScriptCommandCallback map
   // used by WebStateImpl (those are reused by the RealizedWebState class).
-  using WebStateObserverList =
-      base::ObserverList<WebStateObserver, true>::Unchecked;
+  using WebStateObserverList = base::ObserverList<WebStateObserver, true>;
 
   using WebStatePolicyDeciderList =
-      base::ObserverList<WebStatePolicyDecider, true>::Unchecked;
+      base::ObserverList<WebStatePolicyDecider, true>;
 
   using ScriptCommandCallbackMap =
       std::map<std::string,

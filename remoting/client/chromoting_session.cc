@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "base/timer/timer.h"
 #include "components/webrtc/thread_wrapper.h"
 #include "net/socket/client_socket_factory.h"
@@ -542,22 +541,13 @@ void ChromotingSession::Core::ConnectOnNetworkThread() {
   scoped_refptr<protocol::TransportContext> transport_context =
       new protocol::TransportContext(
           std::make_unique<protocol::ChromiumPortAllocatorFactory>(),
+          webrtc::ThreadWrapper::current()->SocketServer(),
           runtime_->url_loader_factory(),
           /* oauth_token_getter= */ nullptr,
           protocol::NetworkSettings(
               protocol::NetworkSettings::NAT_TRAVERSAL_FULL),
           protocol::TransportRole::CLIENT);
 
-#if defined(ENABLE_WEBRTC_REMOTING_CLIENT)
-  if (session_context_->info.flags.find("useWebrtc") != std::string::npos) {
-    VLOG(0) << "Attempting to connect using WebRTC.";
-    std::unique_ptr<protocol::CandidateSessionConfig> protocol_config =
-        protocol::CandidateSessionConfig::CreateEmpty();
-    protocol_config->set_webrtc_supported(true);
-    protocol_config->set_ice_supported(false);
-    client_->set_protocol_config(std::move(protocol_config));
-  }
-#endif  // defined(ENABLE_WEBRTC_REMOTING_CLIENT)
   if (session_context_->info.pairing_id.length() &&
       session_context_->info.pairing_secret.length()) {
     logger_->SetAuthMethod(ChromotingEvent::AuthMethod::PINLESS);
@@ -705,8 +695,8 @@ void ChromotingSession::GetFeedbackData(
 
   // Bind to base::Unretained(core) instead of the WeakPtr so that we can still
   // get the feedback data after the session is remotely disconnected.
-  base::PostTaskAndReplyWithResult(
-      runtime_->network_task_runner().get(), FROM_HERE,
+  runtime_->network_task_runner()->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&Core::GetFeedbackData, base::Unretained(core_.get())),
       std::move(callback));
 }

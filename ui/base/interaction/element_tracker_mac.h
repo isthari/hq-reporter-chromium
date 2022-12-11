@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "ui/base/interaction/element_identifier.h"
 #include "ui/base/interaction/element_tracker.h"
 #include "ui/base/interaction/framework_specific_implementation.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace ui {
 
@@ -65,6 +66,9 @@ class COMPONENT_EXPORT(UI_BASE) ElementTrackerMac {
   // all of the Hidden() calls happen, but before NotifyMenuDoneShowing() is
   // called.
   void NotifyMenuItemActivated(NSMenu* menu, ElementIdentifier identifier);
+
+  // Returns the root menu for a given context, if any.
+  NSMenu* GetRootMenuForContext(ElementContext context);
 
  protected:
   ElementTrackerMac();

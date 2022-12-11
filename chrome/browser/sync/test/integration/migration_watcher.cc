@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,8 +51,9 @@ void MigrationWatcher::OnMigrationStateChange() {
   }
 
   // Manually trigger a check of the exit condition.
-  if (migration_waiter_)
+  if (migration_waiter_) {
     migration_waiter_->OnMigrationStateChange();
+  }
 }
 
 void MigrationWatcher::set_migration_waiter(MigrationWaiter* waiter) {

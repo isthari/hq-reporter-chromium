@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
 #include "build/build_config.h"
+#include "components/prefs/pref_change_registrar.h"
 #include "weblayer/public/browser.h"
 
 #if BUILDFLAG(IS_ANDROID)
@@ -60,6 +61,10 @@ class BrowserImpl : public Browser {
 
   // Called from BrowserPersister when restore has completed.
   void OnRestoreCompleted();
+
+  void set_is_minimal_restore_in_progress(bool value) {
+    is_minimal_restore_in_progress_ = value;
+  }
 
 #if BUILDFLAG(IS_ANDROID)
   bool CompositorHasSurface();
@@ -157,6 +162,8 @@ class BrowserImpl : public Browser {
   // Returns the path used by |browser_persister_|.
   base::FilePath GetBrowserPersisterDataPath();
 
+  void OnWebPreferenceChanged(const std::string& pref_name);
+
 #if BUILDFLAG(IS_ANDROID)
   void UpdateFragmentResumedState(bool state);
 
@@ -171,6 +178,8 @@ class BrowserImpl : public Browser {
   std::string persistence_id_;
   std::unique_ptr<BrowserPersister> browser_persister_;
   base::OnceClosure visible_security_state_changed_callback_for_tests_;
+  bool is_minimal_restore_in_progress_ = false;
+  PrefChangeRegistrar profile_pref_change_registrar_;
 };
 
 }  // namespace weblayer

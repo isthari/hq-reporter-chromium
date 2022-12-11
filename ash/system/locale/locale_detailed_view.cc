@@ -1,9 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/locale/locale_detailed_view.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/system_tray_client.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
@@ -36,20 +37,21 @@ namespace {
 // portion of |iso_code| is shown at the beginning of the row, and
 // |display_name| is shown in the middle. A checkmark is shown in the end if
 // |checked| is true.
-class LocaleItem : public ActionableView {
+class LocaleItemView : public ActionableView {
  public:
-  METADATA_HEADER(LocaleItem);
+  METADATA_HEADER(LocaleItemView);
 
-  LocaleItem(tray::LocaleDetailedView* locale_detailed_view,
-             const std::string& iso_code,
-             const std::u16string& display_name,
-             bool checked)
+  LocaleItemView(LocaleDetailedView* locale_detailed_view,
+                 const std::string& iso_code,
+                 const std::u16string& display_name,
+                 bool checked)
       : ActionableView(TrayPopupInkDropStyle::FILL_BOUNDS),
         locale_detailed_view_(locale_detailed_view),
         checked_(checked) {
     views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
 
-    TriView* tri_view = TrayPopupUtils::CreateDefaultRowView();
+    TriView* tri_view = TrayPopupUtils::CreateDefaultRowView(
+        /*use_wide_layout=*/false);
     AddChildView(tri_view);
     SetLayoutManager(std::make_unique<views::FillLayout>());
 
@@ -76,7 +78,8 @@ class LocaleItem : public ActionableView {
     tri_view->AddView(TriView::Container::CENTER, display_name_view);
 
     if (checked_) {
-      views::ImageView* checked_image = TrayPopupUtils::CreateMainImageView();
+      views::ImageView* checked_image = TrayPopupUtils::CreateMainImageView(
+          /*use_wide_layout=*/false);
       checked_image->SetImage(gfx::CreateVectorIcon(
           kCheckCircleIcon, kMenuIconSize,
           color_provider->GetContentLayerColor(
@@ -85,9 +88,9 @@ class LocaleItem : public ActionableView {
     }
     SetAccessibleName(display_name_view->GetText());
   }
-  LocaleItem(const LocaleItem&) = delete;
-  LocaleItem& operator=(const LocaleItem&) = delete;
-  ~LocaleItem() override = default;
+  LocaleItemView(const LocaleItemView&) = delete;
+  LocaleItemView& operator=(const LocaleItemView&) = delete;
+  ~LocaleItemView() override = default;
 
   // ActionableView:
   bool PerformAction(const ui::Event& event) override {
@@ -109,16 +112,14 @@ class LocaleItem : public ActionableView {
   }
 
  private:
-  tray::LocaleDetailedView* locale_detailed_view_;
+  LocaleDetailedView* locale_detailed_view_;
   const bool checked_;
 };
 
-BEGIN_METADATA(LocaleItem, ActionableView)
+BEGIN_METADATA(LocaleItemView, ActionableView)
 END_METADATA
 
 }  // namespace
-
-namespace tray {
 
 LocaleDetailedView::LocaleDetailedView(DetailedViewDelegate* delegate)
     : TrayDetailedView(delegate) {
@@ -138,8 +139,8 @@ void LocaleDetailedView::CreateItems() {
     const bool checked =
         entry.iso_code ==
         Shell::Get()->system_tray_model()->locale()->current_locale_iso_code();
-    LocaleItem* item =
-        new LocaleItem(this, entry.iso_code, entry.display_name, checked);
+    auto* item =
+        new LocaleItemView(this, entry.iso_code, entry.display_name, checked);
     scroll_content()->AddChildView(item);
     item->SetID(id);
     id_to_locale_[id] = entry.iso_code;
@@ -162,5 +163,4 @@ void LocaleDetailedView::HandleViewClicked(views::View* view) {
 BEGIN_METADATA(LocaleDetailedView, TrayDetailedView)
 END_METADATA
 
-}  // namespace tray
 }  // namespace ash

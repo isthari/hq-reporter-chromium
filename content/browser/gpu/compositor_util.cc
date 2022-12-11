@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@
 #include "base/system/sys_info.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "cc/base/switches.h"
 #include "components/viz/common/features.h"
 #include "content/browser/compositor/image_transport_factory.h"
@@ -107,14 +108,16 @@ const GpuFeatureData GetGpuFeatureData(
     {"canvas_oop_rasterization",
      SafeGetFeatureStatus(gpu_feature_info,
                           gpu::GPU_FEATURE_TYPE_CANVAS_OOP_RASTERIZATION),
-     !base::FeatureList::IsEnabled(features::kCanvasOopRasterization),
+     !base::FeatureList::IsEnabled(features::kCanvasOopRasterization) ||
+         command_line.HasSwitch(switches::kDisableAccelerated2dCanvas),
 #if 0
      // TODO(crbug.com/1240756): Remove the "#if 0" once OOPR-Canvas is fully
      // launched.
      DisableInfo::Problem(
          "Canvas out-of-process rasterization has been disabled, either via "
-         "blocklist, the command line, about:flags, or because out-of-process "
-         "rasterization is disabled."
+         "blocklist, the command line, about:flags, because out-of-process "
+         "rasterization is disabled, or because 2D canvas is not GPU-"
+         "accelerated."
      ),
 #else
      // As long as the Finch experiment is running, having the feature disabled
@@ -146,10 +149,9 @@ const GpuFeatureData GetGpuFeatureData(
      SafeGetFeatureStatus(gpu_feature_info,
                           gpu::GPU_FEATURE_TYPE_ACCELERATED_VIDEO_DECODE),
 #if BUILDFLAG(IS_LINUX)
-     !base::FeatureList::IsEnabled(media::kVaapiVideoDecodeLinux),
-#else
-     command_line.HasSwitch(switches::kDisableAcceleratedVideoDecode),
+     !base::FeatureList::IsEnabled(media::kVaapiVideoDecodeLinux) ||
 #endif  // BUILDFLAG(IS_LINUX)
+         command_line.HasSwitch(switches::kDisableAcceleratedVideoDecode),
      DisableInfo::Problem(
          "Accelerated video decode has been disabled, either via blocklist, "
          "about:flags or the command line."),
@@ -179,12 +181,6 @@ const GpuFeatureData GetGpuFeatureData(
                           gpu::GPU_FEATURE_TYPE_ACCELERATED_GL),
      false /* disabled */, DisableInfo::NotProblem(),
      false /* fallback_to_software */},
-#if BUILDFLAG(IS_MAC)
-    {"metal",
-     SafeGetFeatureStatus(gpu_feature_info, gpu::GPU_FEATURE_TYPE_METAL),
-     !base::FeatureList::IsEnabled(features::kMetal) /* disabled */,
-     DisableInfo::NotProblem(), false /* fallback_to_software */},
-#endif
 #if BUILDFLAG(ENABLE_VULKAN)
     {"vulkan",
      SafeGetFeatureStatus(gpu_feature_info, gpu::GPU_FEATURE_TYPE_VULKAN),
@@ -212,15 +208,21 @@ const GpuFeatureData GetGpuFeatureData(
      DisableInfo::Problem(
          "WebGL2 has been disabled via blocklist or the command line."),
      false},
-    {"skia_renderer", gpu::kGpuFeatureStatusEnabled,
-     !features::IsUsingSkiaRenderer(), DisableInfo::NotProblem(), false},
     {"raw_draw", gpu::kGpuFeatureStatusEnabled, !features::IsUsingRawDraw(),
      DisableInfo::NotProblem(), false},
     {"direct_rendering_display_compositor", gpu::kGpuFeatureStatusEnabled,
      !features::IsDrDcEnabled(), DisableInfo::NotProblem(), false},
+    {"webgpu",
+     SafeGetFeatureStatus(gpu_feature_info,
+                          gpu::GPU_FEATURE_TYPE_ACCELERATED_WEBGPU),
+     !command_line.HasSwitch(switches::kEnableUnsafeWebGPU) &&
+         !base::FeatureList::IsEnabled(features::kWebGPUService),
+     DisableInfo::Problem(
+         "WebGPU has been disabled via blocklist or the command line."),
+     false},
   };
-  DCHECK(index < base::size(kGpuFeatureData));
-  *eof = (index == base::size(kGpuFeatureData) - 1);
+  DCHECK(index < std::size(kGpuFeatureData));
+  *eof = (index == std::size(kGpuFeatureData) - 1);
   return kGpuFeatureData[index];
 }
 
@@ -242,7 +244,7 @@ base::Value GetFeatureStatusImpl(GpuFeatureInfoType type) {
         manager->IsGpuCompositingDisabledForHardwareGpu();
   }
 
-  auto feature_status_dict = base::Value(base::Value::Type::DICTIONARY);
+  base::Value::Dict feature_status_dict;
 
   bool eof = false;
   for (size_t i = 0; !eof; ++i) {
@@ -250,10 +252,8 @@ base::Value GetFeatureStatusImpl(GpuFeatureInfoType type) {
         gpu_feature_info, i, is_gpu_compositing_disabled, &eof);
     std::string status;
     // Features undergoing a finch controlled roll out.
-    if (gpu_feature_data.name == "skia_renderer" ||
-        gpu_feature_data.name == "raw_draw" ||
-        gpu_feature_data.name == "direct_rendering_display_compositor" ||
-        gpu_feature_data.name == "viz_hit_test_surface_layer") {
+    if (gpu_feature_data.name == "raw_draw" ||
+        gpu_feature_data.name == "direct_rendering_display_compositor") {
       status = (gpu_feature_data.disabled ? "disabled_off_ok" : "enabled_on");
     } else if (gpu_feature_data.disabled || gpu_access_blocked ||
                gpu_feature_data.status == gpu::kGpuFeatureStatusDisabled) {
@@ -272,7 +272,8 @@ base::Value GetFeatureStatusImpl(GpuFeatureInfoType type) {
         status += "_on";
       }
       if ((gpu_feature_data.name == "webgl" ||
-           gpu_feature_data.name == "webgl2") &&
+           gpu_feature_data.name == "webgl2" ||
+           gpu_feature_data.name == "webgpu") &&
           is_gpu_compositing_disabled)
         status += "_readback";
       if (gpu_feature_data.name == "rasterization") {
@@ -284,7 +285,7 @@ base::Value GetFeatureStatusImpl(GpuFeatureInfoType type) {
       if (gpu_feature_data.name == "multiple_raster_threads") {
         const base::CommandLine& command_line =
             *base::CommandLine::ForCurrentProcess();
-        if (command_line.HasSwitch(switches::kNumRasterThreads))
+        if (command_line.HasSwitch(blink::switches::kNumRasterThreads))
           status += "_force";
         status += "_on";
       }
@@ -295,9 +296,9 @@ base::Value GetFeatureStatusImpl(GpuFeatureInfoType type) {
         status += "_on";
       }
     }
-    feature_status_dict.SetStringKey(gpu_feature_data.name, status);
+    feature_status_dict.Set(gpu_feature_data.name, status);
   }
-  return feature_status_dict;
+  return base::Value(std::move(feature_status_dict));
 }
 
 base::Value GetProblemsImpl(GpuFeatureInfoType type) {
@@ -318,7 +319,7 @@ base::Value GetProblemsImpl(GpuFeatureInfoType type) {
         manager->IsGpuCompositingDisabledForHardwareGpu();
   }
 
-  auto problem_list = base::Value(base::Value::Type::LIST);
+  base::Value::List problem_list;
   if (!gpu_feature_info.applied_gpu_blocklist_entries.empty()) {
     std::unique_ptr<gpu::GpuBlocklist> blocklist(gpu::GpuBlocklist::Create());
     blocklist->GetReasons(problem_list, "disabledFeatures",
@@ -332,15 +333,15 @@ base::Value GetProblemsImpl(GpuFeatureInfoType type) {
   }
 
   if (gpu_access_blocked) {
-    auto problem = base::Value(base::Value::Type::DICTIONARY);
-    problem.SetStringKey("description", "GPU process was unable to boot: " +
-                                            gpu_access_blocked_reason);
-    problem.SetKey("crBugs", base::Value(base::Value::Type::LIST));
-    auto disabled_features = base::Value(base::Value::Type::LIST);
+    base::Value::Dict problem;
+    problem.Set("description",
+                "GPU process was unable to boot: " + gpu_access_blocked_reason);
+    problem.Set("crBugs", base::Value::List());
+    base::Value::List disabled_features;
     disabled_features.Append("all");
-    problem.SetKey("affectedGpuSettings", std::move(disabled_features));
-    problem.SetStringKey("tag", "disabledFeatures");
-    problem_list.Insert(problem_list.GetList().begin(), std::move(problem));
+    problem.Set("affectedGpuSettings", std::move(disabled_features));
+    problem.Set("tag", "disabledFeatures");
+    problem_list.Insert(problem_list.begin(), base::Value(std::move(problem)));
   }
 
   bool eof = false;
@@ -349,18 +350,18 @@ base::Value GetProblemsImpl(GpuFeatureInfoType type) {
         gpu_feature_info, i, is_gpu_compositing_disabled, &eof);
     if (gpu_feature_data.disabled &&
         gpu_feature_data.disabled_info.is_problem) {
-      auto problem = base::Value(base::Value::Type::DICTIONARY);
-      problem.SetStringKey("description",
-                           gpu_feature_data.disabled_info.description);
-      problem.SetKey("crBugs", base::Value(base::Value::Type::LIST));
-      auto disabled_features = base::Value(base::Value::Type::LIST);
+      base::Value::Dict problem;
+      problem.Set("description", gpu_feature_data.disabled_info.description);
+      problem.Set("crBugs", base::Value::List());
+      base::Value::List disabled_features;
       disabled_features.Append(gpu_feature_data.name);
-      problem.SetKey("affectedGpuSettings", std::move(disabled_features));
-      problem.SetStringKey("tag", "disabledFeatures");
-      problem_list.Insert(problem_list.GetList().begin(), std::move(problem));
+      problem.Set("affectedGpuSettings", std::move(disabled_features));
+      problem.Set("tag", "disabledFeatures");
+      problem_list.Insert(problem_list.begin(),
+                          base::Value(std::move(problem)));
     }
   }
-  return problem_list;
+  return base::Value(std::move(problem_list));
 }
 
 std::vector<std::string> GetDriverBugWorkaroundsImpl(GpuFeatureInfoType type) {
@@ -422,12 +423,13 @@ int NumberOfRendererRasterThreads() {
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
 
-  if (command_line.HasSwitch(switches::kNumRasterThreads)) {
-    std::string string_value = command_line.GetSwitchValueASCII(
-        switches::kNumRasterThreads);
+  if (command_line.HasSwitch(blink::switches::kNumRasterThreads)) {
+    std::string string_value =
+        command_line.GetSwitchValueASCII(blink::switches::kNumRasterThreads);
     if (!base::StringToInt(string_value, &num_raster_threads)) {
-      DLOG(WARNING) << "Failed to parse switch " <<
-          switches::kNumRasterThreads  << ": " << string_value;
+      DLOG(WARNING) << "Failed to parse switch "
+                    << blink::switches::kNumRasterThreads << ": "
+                    << string_value;
     }
   }
 
@@ -471,6 +473,8 @@ bool IsGpuMemoryBufferCompositorResourcesEnabled() {
 
 #if BUILDFLAG(IS_MAC)
   return true;
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  return features::IsDelegatedCompositingEnabled();
 #else
   return false;
 #endif

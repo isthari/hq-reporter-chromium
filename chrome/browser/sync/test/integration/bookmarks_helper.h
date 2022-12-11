@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "base/sequence_checker.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/sync/test/integration/await_match_status_change_checker.h"
+#include "chrome/browser/sync/test/integration/fake_server_match_status_checker.h"
 #include "chrome/browser/sync/test/integration/multi_client_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/single_client_status_change_checker.h"
 #include "components/bookmarks/browser/bookmark_model_observer.h"
@@ -25,7 +26,7 @@
 #include "components/bookmarks/browser/bookmark_test_util.h"
 #include "components/sync/engine/loopback_server/loopback_server_entity.h"
 #include "components/sync/engine/nigori/cryptographer.h"
-#include "components/sync/test/fake_server/fake_server.h"
+#include "components/sync/test/fake_server.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "url/gurl.h"
@@ -176,7 +177,9 @@ void SetTitle(int profile,
 enum FaviconSource { FROM_UI, FROM_SYNC };
 
 // Sets the |icon_url| and |image| data for the favicon for |node| in the
-// bookmark model for |profile|.
+// bookmark model for |profile|. Waits until the favicon is loaded, but does so
+// comparing the icon URL and hence is unreliable if the same icon URL has been
+// used before.
 void SetFavicon(int profile,
                 const bookmarks::BookmarkNode* node,
                 const GURL& icon_url,
@@ -320,7 +323,8 @@ class AnyBookmarkChangeObserver : public bookmarks::BookmarkModelObserver {
                          size_t new_index) override;
   void BookmarkNodeAdded(bookmarks::BookmarkModel* model,
                          const bookmarks::BookmarkNode* parent,
-                         size_t index) override;
+                         size_t index,
+                         bool added_by_user) override;
   void OnWillRemoveBookmarks(bookmarks::BookmarkModel* model,
                              const bookmarks::BookmarkNode* parent,
                              size_t old_index,
@@ -434,7 +438,7 @@ class SingleBookmarksModelMatcherChecker
   using Matcher = testing::Matcher<std::vector<const bookmarks::BookmarkNode*>>;
 
   SingleBookmarksModelMatcherChecker(int profile_index, const Matcher& matcher);
-  ~SingleBookmarksModelMatcherChecker();
+  ~SingleBookmarksModelMatcherChecker() override;
 
   // StatusChangeChecker implementation.
   bool IsExitConditionSatisfied(std::ostream* os) final;
@@ -478,7 +482,8 @@ class BookmarkFaviconLoadedChecker
 
 // Checker used to block until the bookmarks on the server match a given set of
 // expected bookmarks. The |title| is comapred to both legacy and full titles.
-class ServerBookmarksEqualityChecker : public SingleClientStatusChangeChecker {
+class ServerBookmarksEqualityChecker
+    : public fake_server::FakeServerMatchStatusChecker {
  public:
   struct ExpectedBookmark {
     // Used to check both legacy and full titles in specifics.
@@ -491,8 +496,6 @@ class ServerBookmarksEqualityChecker : public SingleClientStatusChangeChecker {
   // will be used to decrypt the data prior to checking for equality.
   // |fake_server| must not be nullptr and must outlive this object.
   ServerBookmarksEqualityChecker(
-      syncer::SyncServiceImpl* service,
-      fake_server::FakeServer* fake_server,
       std::vector<ExpectedBookmark> expected_bookmarks,
       syncer::Cryptographer* cryptographer);
 
@@ -506,7 +509,6 @@ class ServerBookmarksEqualityChecker : public SingleClientStatusChangeChecker {
   ~ServerBookmarksEqualityChecker() override;
 
  private:
-  raw_ptr<fake_server::FakeServer> fake_server_;
   raw_ptr<syncer::Cryptographer> cryptographer_;
   const std::vector<ExpectedBookmark> expected_bookmarks_;
 };

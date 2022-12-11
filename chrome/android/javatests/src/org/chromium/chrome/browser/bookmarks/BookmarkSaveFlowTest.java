@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,8 @@ import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 
 import androidx.test.espresso.Espresso;
@@ -30,14 +32,14 @@ import org.chromium.base.Callback;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
+import org.chromium.chrome.browser.commerce.PriceTrackingUtils;
+import org.chromium.chrome.browser.commerce.PriceTrackingUtilsJni;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.partnerbookmarks.PartnerBookmarksShim;
-import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkMeta;
-import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkType;
-import org.chromium.chrome.browser.power_bookmarks.ShoppingSpecifics;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.subscriptions.CommerceSubscription;
 import org.chromium.chrome.browser.subscriptions.SubscriptionsManager;
@@ -47,12 +49,14 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.BookmarkTestUtil;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
+import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.bookmarks.BookmarkId;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetTestSupport;
+import org.chromium.components.power_bookmarks.PowerBookmarkMeta;
+import org.chromium.components.power_bookmarks.ShoppingSpecifics;
 import org.chromium.content_public.browser.test.util.ClickUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
 import org.chromium.url.GURL;
 
 import java.io.IOException;
@@ -61,19 +65,26 @@ import java.util.concurrent.ExecutionException;
 /** Tests for the bookmark save flow. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
+@Features.EnableFeatures(ChromeFeatureList.SHOPPING_LIST)
 public class BookmarkSaveFlowTest {
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
     @Rule
-    public DisableAnimationsTestRule mDisableAnimationsTestRule = new DisableAnimationsTestRule();
-    @Rule
     public ChromeRenderTestRule mRenderTestRule =
-            ChromeRenderTestRule.Builder.withPublicCorpus().build();
+            ChromeRenderTestRule.Builder.withPublicCorpus()
+                    .setBugComponent(ChromeRenderTestRule.Component.UI_BROWSER_BOOKMARKS)
+                    .build();
     @Rule
     public final MockitoRule mMockitoRule = MockitoJUnit.rule();
 
+    @Rule
+    public JniMocker mJniMocker = new JniMocker();
+
     @Mock
     SubscriptionsManager mSubscriptionsManager;
+
+    @Mock
+    PriceTrackingUtils.Natives mMockPriceTrackingUtilsJni;
 
     @Mock
     private UserEducationHelper mUserEducationHelper;
@@ -82,13 +93,13 @@ public class BookmarkSaveFlowTest {
     private BottomSheetController mBottomSheetController;
     private BottomSheetTestSupport mBottomSheetTestSupport;
     private BookmarkModel mBookmarkModel;
-    private BookmarkBridge mBookmarkBridge;
 
     @Before
     public void setUp() throws ExecutionException {
         mActivityTestRule.startMainActivityOnBlankPage();
         ChromeActivityTestRule.waitForActivityNativeInitializationComplete(
                 mActivityTestRule.getActivity());
+        mJniMocker.mock(PriceTrackingUtilsJni.TEST_HOOKS, mMockPriceTrackingUtilsJni);
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             ChromeTabbedActivity cta = mActivityTestRule.getActivity();
@@ -97,12 +108,17 @@ public class BookmarkSaveFlowTest {
             mBottomSheetTestSupport = new BottomSheetTestSupport(mBottomSheetController);
             mBookmarkSaveFlowCoordinator = new BookmarkSaveFlowCoordinator(
                     cta, mBottomSheetController, mSubscriptionsManager, mUserEducationHelper);
-            mBookmarkModel = new BookmarkModel(Profile.fromWebContents(
-                    mActivityTestRule.getActivity().getActivityTab().getWebContents()));
-            mBookmarkBridge = mActivityTestRule.getActivity().getBookmarkBridgeForTesting();
+            mBookmarkModel = mActivityTestRule.getActivity().getBookmarkModelForTesting();
         });
 
         loadBookmarkModel();
+        doAnswer((invocation) -> {
+            ((Callback<Boolean>) invocation.getArgument(3)).onResult(true);
+            return null;
+        })
+                .when(mMockPriceTrackingUtilsJni)
+                .setPriceTrackingStateForBookmark(
+                        any(Profile.class), anyLong(), anyBoolean(), any());
         doAnswer((invocation) -> {
             ((Callback<Integer>) invocation.getArgument(1))
                     .onResult(SubscriptionsManager.StatusCode.OK);
@@ -167,13 +183,9 @@ public class BookmarkSaveFlowTest {
     public void testBookmarkSaveFlow_WithShoppingListItem() throws IOException {
         TestThreadUtils.runOnUiThreadBlockingNoException(() -> {
             BookmarkId id = addBookmark("Test bookmark", new GURL("http://a.com"));
-            PowerBookmarkMeta.Builder meta =
-                    PowerBookmarkMeta.newBuilder()
-                            .setType(PowerBookmarkType.SHOPPING)
-                            .setShoppingSpecifics(ShoppingSpecifics.newBuilder()
-                                                          .setProductClusterId(1234L)
-                                                          .build());
-            mBookmarkBridge.setPowerBookmarkMeta(id, meta.build());
+            PowerBookmarkMeta.Builder meta = PowerBookmarkMeta.newBuilder().setShoppingSpecifics(
+                    ShoppingSpecifics.newBuilder().setProductClusterId(1234L).build());
+            mBookmarkModel.setPowerBookmarkMeta(id, meta.build());
             mBookmarkSaveFlowCoordinator.show(id, /*fromHeuristicEntryPoint=*/false,
                     /*wasBookmarkMoved=*/false, meta.build());
             return null;
@@ -189,13 +201,9 @@ public class BookmarkSaveFlowTest {
             throws IOException {
         TestThreadUtils.runOnUiThreadBlockingNoException(() -> {
             BookmarkId id = addBookmark("Test bookmark", new GURL("http://a.com"));
-            PowerBookmarkMeta.Builder meta =
-                    PowerBookmarkMeta.newBuilder()
-                            .setType(PowerBookmarkType.SHOPPING)
-                            .setShoppingSpecifics(ShoppingSpecifics.newBuilder()
-                                                          .setProductClusterId(1234L)
-                                                          .build());
-            mBookmarkBridge.setPowerBookmarkMeta(id, meta.build());
+            PowerBookmarkMeta.Builder meta = PowerBookmarkMeta.newBuilder().setShoppingSpecifics(
+                    ShoppingSpecifics.newBuilder().setProductClusterId(1234L).build());
+            mBookmarkModel.setPowerBookmarkMeta(id, meta.build());
             mBookmarkSaveFlowCoordinator.show(
                     id, /*fromHeuristicEntryPoint=*/true, /*wasBookmarkMoved=*/false, meta.build());
             return null;
@@ -211,16 +219,20 @@ public class BookmarkSaveFlowTest {
             throws IOException {
         TestThreadUtils.runOnUiThreadBlockingNoException(() -> {
             BookmarkId id = addBookmark("Test bookmark", new GURL("http://a.com"));
-            PowerBookmarkMeta.Builder meta =
-                    PowerBookmarkMeta.newBuilder()
-                            .setType(PowerBookmarkType.SHOPPING)
-                            .setShoppingSpecifics(
-                                    ShoppingSpecifics.newBuilder().setProductClusterId(1234L));
-            mBookmarkBridge.setPowerBookmarkMeta(id, meta.build());
+            PowerBookmarkMeta.Builder meta = PowerBookmarkMeta.newBuilder().setShoppingSpecifics(
+                    ShoppingSpecifics.newBuilder().setProductClusterId(1234L));
+            mBookmarkModel.setPowerBookmarkMeta(id, meta.build());
             mBookmarkSaveFlowCoordinator.show(id, /*fromHeuristicEntryPoint=*/false,
                     /*wasBookmarkMoved=*/false, meta.build());
             return null;
         });
+        doAnswer((invocation) -> {
+            ((Callback<Boolean>) invocation.getArgument(3)).onResult(false);
+            return null;
+        })
+                .when(mMockPriceTrackingUtilsJni)
+                .setPriceTrackingStateForBookmark(
+                        any(Profile.class), anyLong(), anyBoolean(), any());
         doAnswer((invocation) -> {
             ((Callback<Integer>) invocation.getArgument(1))
                     .onResult(SubscriptionsManager.StatusCode.NETWORK_ERROR);

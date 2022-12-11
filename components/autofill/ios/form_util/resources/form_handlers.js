@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,7 @@
  * Autofill keyboard accessory.
  */
 
-goog.provide('__crWeb.formHandlers');
-
-// Requires __crWeb.fill and __crWeb.form.
+// Requires functions from fill.js and form.js.
 
 /**
  * Namespace for this file. It depends on |__gCrWeb| having already been
@@ -19,8 +17,6 @@ goog.provide('__crWeb.formHandlers');
  */
 __gCrWeb.formHandlers = {};
 
-/** Beginning of anonymous object */
-(function() {
 /**
  * The MutationObserver tracking form related changes.
  */
@@ -92,7 +88,6 @@ function isPasswordField_(element) {
  * Installs a MutationObserver to track the last password field that had
  * user input.
  * @param {Element} A password field that should be observed.
- * @suppress {checkTypes} Required for for...of loop on mutations.
  */
 function trackPasswordField_(field) {
   if (passwordFieldsObserver) {
@@ -134,7 +129,7 @@ function trackPasswordField_(field) {
           'fieldType': '',
           'type': 'password_form_cleared',
           'value': __gCrWeb.stringify(formData),
-          'hasUserGesture': false
+          'hasUserGesture': false,
         };
         sendMessageOnNextLoop_(msg);
       }
@@ -179,10 +174,27 @@ function shouldNotifyAboutFormReset_(form) {
  * @private
  */
 function formActivity_(evt) {
-  const target = evt.target;
-  if (!['FORM', 'INPUT', 'OPTION', 'SELECT', 'TEXTAREA'].includes(
-          target.tagName)) {
-    return;
+  const validTagNames = ['FORM', 'INPUT', 'OPTION', 'SELECT', 'TEXTAREA'];
+  let target = evt.target;
+
+  if (!validTagNames.includes(target.tagName)) {
+    const path = evt.composedPath();
+    let foundValidTagName = false;
+
+    // Checks if a valid tag name is found in the event path when the tag name
+    // of the event target is not valid itself.
+    if (path) {
+      for (const htmlElement of path) {
+        if (validTagNames.includes(htmlElement.tagName)) {
+          target = htmlElement;
+          foundValidTagName = true;
+          break;
+        }
+      }
+    }
+    if (!foundValidTagName) {
+      return;
+    }
   }
   if (evt.type !== 'blur') {
     lastFocusedElement = document.activeElement;
@@ -197,7 +209,7 @@ function formActivity_(evt) {
   const isPasswordFormReset = target.tagName === 'FORM' &&
       evt.type === 'reset' && shouldNotifyAboutFormReset_(target);
 
-  if (target !== lastFocusedElement && !isPasswordFormReset) {
+  if (evt.target !== lastFocusedElement && !isPasswordFormReset) {
     return;
   }
   const form = target.tagName === 'FORM' ? target : target.form;
@@ -230,7 +242,7 @@ function formActivity_(evt) {
     'fieldType': fieldType,
     'type': type,
     'value': value,
-    'hasUserGesture': evt.isTrusted
+    'hasUserGesture': evt.isTrusted,
   };
   sendMessageOnNextLoop_(msg);
 }
@@ -257,7 +269,7 @@ function formSubmitted_(form) {
     'frameID': __gCrWeb.message.getFrameId(),
     'formName': __gCrWeb.form.getFormIdentifier(form),
     'href': getFullyQualifiedUrl_(action),
-    'formData': __gCrWeb.fill.autofillSubmissionData(form)
+    'formData': __gCrWeb.fill.autofillSubmissionData(form),
   });
 }
 
@@ -398,7 +410,6 @@ function extractRemovedFormlessPasswordFieldsIds_(removedElements) {
  * milliseconds before sending a message to browser. A delay is used because
  * form mutations are likely to come in batches. An undefined or zero value for
  * |delay| would stop the MutationObserver, if any.
- * @suppress {checkTypes} Required for for...of loop on mutations.
  */
 __gCrWeb.formHandlers['trackFormMutations'] = function(delay) {
   if (formMutationObserver) {
@@ -427,7 +438,7 @@ __gCrWeb.formHandlers['trackFormMutations'] = function(delay) {
           'fieldType': '',
           'type': 'form_changed',
           'value': '',
-          'hasUserGesture': false
+          'hasUserGesture': false,
         };
         return sendFormMutationMessageAfterDelay_(msg, delay);
       }
@@ -474,5 +485,3 @@ __gCrWeb.formHandlers['toggleTrackingUserEditedFields'] = function(track) {
     __gCrWeb.form.wasEditedByUser = null;
   }
 };
-
-}());  // End of anonymous object

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -140,7 +140,7 @@ int AudioRendererMixer::Render(base::TimeDelta delay,
 
   uint32_t frames_delayed =
       AudioTimestampHelper::TimeToFrames(delay, output_params_.sample_rate());
-  aggregate_converter_.ConvertWithDelay(frames_delayed, audio_bus);
+  aggregate_converter_.ConvertWithInfo(frames_delayed, {}, audio_bus);
   return audio_bus->frames();
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <array>
 
-#include "ash/public/cpp/style/scoped_light_mode_as_default.h"
+#include "ash/clipboard/clipboard_history_util.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/view_class_properties.h"
 
@@ -16,10 +16,7 @@ namespace {
 constexpr gfx::Size kIconSize(20, 20);
 
 // The file icon's margin.
-constexpr gfx::Insets kIconMargin(/*top=*/0,
-                                  /*left=*/0,
-                                  /*bottom=*/0,
-                                  /*right=*/12);
+constexpr auto kIconMargin = gfx::Insets::TLBR(0, 0, 0, 12);
 }  // namespace
 
 namespace ash {
@@ -35,28 +32,18 @@ ClipboardHistoryFileItemView::CreateContentsView() {
   auto contents_view = ClipboardHistoryTextItemView::CreateContentsView();
 
   // `file_icon` should be `contents_view`'s first child.
-  file_icon_ = contents_view->AddChildViewAt(
+  views::ImageView* file_icon = contents_view->AddChildViewAt(
       std::make_unique<views::ImageView>(), /*index=*/0);
-  file_icon_->SetImageSize(kIconSize);
-  file_icon_->SetProperty(views::kMarginsKey, kIconMargin);
+  file_icon->SetImageSize(kIconSize);
+  file_icon->SetProperty(views::kMarginsKey, kIconMargin);
+  file_icon->SetImage(clipboard_history_util::GetIconForFileClipboardItem(
+      *clipboard_history_item(), base::UTF16ToUTF8(text())));
 
   return contents_view;
 }
 
 const char* ClipboardHistoryFileItemView::GetClassName() const {
   return "ClipboardHistoryFileItemView";
-}
-
-void ClipboardHistoryFileItemView::OnThemeChanged() {
-  ClipboardHistoryTextItemView::OnThemeChanged();
-
-  // Use the light mode as default because the light mode is the default mode
-  // of the native theme which decides the context menu's background color.
-  // TODO(andrewxu): remove this line after https://crbug.com/1143009 is fixed.
-  ScopedLightModeAsDefault scoped_light_mode_as_default;
-
-  file_icon_->SetImage(ClipboardHistoryUtil::GetIconForFileClipboardItem(
-      *clipboard_history_item(), base::UTF16ToUTF8(text())));
 }
 
 }  // namespace ash

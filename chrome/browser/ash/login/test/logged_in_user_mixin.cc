@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <vector>
 
-#include "ash/components/login/auth/stub_authenticator_builder.h"
-#include "ash/components/login/auth/user_context.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
+#include "chromeos/ash/components/login/auth/stub_authenticator_builder.h"
 #include "components/account_id/account_id.h"
 #include "net/dns/mock_host_resolver.h"
 
@@ -75,7 +75,7 @@ void LoggedInUserMixin::SetUpOnMainThread() {
   // this.
   test_base_->host_resolver()->AddRule("*", "127.0.0.1");
   // Ensures logging in doesn't hang on the post login Gaia screens.
-  WizardController::SkipPostLoginScreensForTesting();
+  login_manager_.SkipPostLoginScreens();
 }
 
 void LoggedInUserMixin::LogInUser(bool issue_any_scope_token,

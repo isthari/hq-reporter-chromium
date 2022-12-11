@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -52,8 +52,9 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "base/cxx17_backports.h"
 #include "base/files/important_file_writer.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/debug_daemon/fake_debug_daemon_client.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/debug_daemon/debug_daemon_client.h"
+#include "chromeos/ash/components/dbus/debug_daemon/fake_debug_daemon_client.h"
 #include "rlz/chromeos/lib/rlz_value_store_chromeos.h"
 #endif
 
@@ -1078,14 +1079,19 @@ TEST_F(RlzLibTest, LockAcquistionSucceedsButStoreFileCannotBeCreated) {
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-class TestDebugDaemonClient : public chromeos::FakeDebugDaemonClient {
+class ScopedTestDebugDaemonClient : public ash::FakeDebugDaemonClient {
  public:
-  TestDebugDaemonClient() = default;
+  ScopedTestDebugDaemonClient() {
+    ash::DebugDaemonClient::SetInstanceForTest(this);
+  }
 
-  TestDebugDaemonClient(const TestDebugDaemonClient&) = delete;
-  TestDebugDaemonClient& operator=(const TestDebugDaemonClient&) = delete;
+  ScopedTestDebugDaemonClient(const ScopedTestDebugDaemonClient&) = delete;
+  ScopedTestDebugDaemonClient& operator=(const ScopedTestDebugDaemonClient&) =
+      delete;
 
-  ~TestDebugDaemonClient() override = default;
+  ~ScopedTestDebugDaemonClient() override {
+    ash::DebugDaemonClient::SetInstanceForTest(nullptr);
+  }
 
   int num_set_rlz_ping_sent() const { return num_set_rlz_ping_sent_; }
 
@@ -1106,10 +1112,8 @@ class TestDebugDaemonClient : public chromeos::FakeDebugDaemonClient {
 };
 
 TEST_F(RlzLibTest, SetRlzPingSent) {
-  TestDebugDaemonClient* debug_daemon_client = new TestDebugDaemonClient;
-  chromeos::DBusThreadManager::Initialize();
-  chromeos::DBusThreadManager::GetSetterForTesting()->SetDebugDaemonClient(
-      std::unique_ptr<chromeos::DebugDaemonClient>(debug_daemon_client));
+  ash::DBusThreadManager::Initialize();
+  auto debug_daemon_client = std::make_unique<ScopedTestDebugDaemonClient>();
   const char* kPingResponse =
       "stateful-events: CAF\r\n"
       "crc32: 3BB2FEAE\r\n";
@@ -1128,7 +1132,8 @@ TEST_F(RlzLibTest, SetRlzPingSent) {
       rlz_lib::ParsePingResponse(rlz_lib::TOOLBAR_NOTIFIER, kPingResponse));
   EXPECT_EQ(debug_daemon_client->num_set_rlz_ping_sent(),
             1 + rlz_lib::RlzValueStoreChromeOS::kMaxRetryCount);
-  chromeos::DBusThreadManager::Shutdown();
+  debug_daemon_client.reset();
+  ash::DBusThreadManager::Shutdown();
 }
 
 TEST_F(RlzLibTest, NoRecordCAFEvent) {
@@ -1142,7 +1147,7 @@ TEST_F(RlzLibTest, NoRecordCAFEvent) {
                               rlz_lib::FIRST_SEARCH);
   char cgi[256];
   EXPECT_TRUE(
-      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, base::size(cgi)));
+      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, std::size(cgi)));
   EXPECT_NE(nullptr, strstr(cgi, "CAF"));
 
   // Simulate another user on the machine sending the RLZ ping, so "should send
@@ -1154,7 +1159,7 @@ TEST_F(RlzLibTest, NoRecordCAFEvent) {
   // The first search event should no longer appear, so there are no events
   // to report.
   EXPECT_FALSE(
-      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, base::size(cgi)));
+      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, std::size(cgi)));
 
   // The event should be permanently deleted, so setting the flag back to
   // true should still not return the event.
@@ -1162,7 +1167,7 @@ TEST_F(RlzLibTest, NoRecordCAFEvent) {
       chromeos::system::kShouldSendRlzPingKey,
       chromeos::system::kShouldSendRlzPingValueTrue);
   EXPECT_FALSE(
-      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, base::size(cgi)));
+      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, std::size(cgi)));
 }
 
 TEST_F(RlzLibTest, NoRecordCAFEvent2) {
@@ -1178,7 +1183,7 @@ TEST_F(RlzLibTest, NoRecordCAFEvent2) {
                               rlz_lib::FIRST_SEARCH);
   char cgi[256];
   EXPECT_TRUE(
-      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, base::size(cgi)));
+      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, std::size(cgi)));
   EXPECT_NE(nullptr, strstr(cgi, "CAF"));
   EXPECT_NE(nullptr, strstr(cgi, "CAI"));
 
@@ -1190,7 +1195,7 @@ TEST_F(RlzLibTest, NoRecordCAFEvent2) {
 
   // Only the "CAI" event should appear.
   EXPECT_TRUE(
-      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, base::size(cgi)));
+      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, std::size(cgi)));
   EXPECT_NE(nullptr, strstr(cgi, "CAI"));
 
   // The event should be permanently deleted, so setting the flag back to
@@ -1199,7 +1204,7 @@ TEST_F(RlzLibTest, NoRecordCAFEvent2) {
       chromeos::system::kShouldSendRlzPingKey,
       chromeos::system::kShouldSendRlzPingValueTrue);
   EXPECT_TRUE(
-      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, base::size(cgi)));
+      rlz_lib::GetProductEventsAsCgi(rlz_lib::CHROME, cgi, std::size(cgi)));
   EXPECT_NE(nullptr, strstr(cgi, "CAI"));
 }
 #endif

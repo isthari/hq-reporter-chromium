@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "base/callback.h"
+#include "base/callback_forward.h"
 #include "base/compiler_specific.h"
 #include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
@@ -144,12 +144,12 @@ class PrefModelAssociator : public syncer::SyncableService {
                             const std::string& pref_name,
                             syncer::SyncChangeList* sync_changes);
 
-  static std::unique_ptr<base::Value> MergeListValues(
-      const base::Value& from_value,
-      const base::Value& to_value);
+  static base::Value::List MergeListValues(const base::Value::List& from_value,
+                                           const base::Value::List& to_value);
 
-  static base::Value MergeDictionaryValues(const base::Value& from_value,
-                                           const base::Value& to_value);
+  static base::Value::Dict MergeDictionaryValues(
+      const base::Value::Dict& from_value,
+      const base::Value::Dict& to_value);
 
   // Extract preference value from sync specifics.
   static absl::optional<base::Value> ReadPreferenceSpecifics(

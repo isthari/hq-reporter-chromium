@@ -1,16 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/web_package/web_bundle_interceptor_for_trustable_file.h"
 
 #include "base/bind.h"
-#include "content/browser/loader/single_request_url_loader_factory.h"
 #include "content/browser/web_package/web_bundle_reader.h"
 #include "content/browser/web_package/web_bundle_redirect_url_loader.h"
 #include "content/browser/web_package/web_bundle_source.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/cpp/single_request_url_loader_factory.h"
 
 namespace content {
 
@@ -37,9 +37,10 @@ void WebBundleInterceptorForTrustableFile::MaybeCreateLoader(
     LoaderCallback callback,
     FallbackCallback fallback_callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  std::move(callback).Run(base::MakeRefCounted<SingleRequestURLLoaderFactory>(
-      base::BindOnce(&WebBundleInterceptorForTrustableFile::CreateURLLoader,
-                     weak_factory_.GetWeakPtr())));
+  std::move(callback).Run(
+      base::MakeRefCounted<network::SingleRequestURLLoaderFactory>(
+          base::BindOnce(&WebBundleInterceptorForTrustableFile::CreateURLLoader,
+                         weak_factory_.GetWeakPtr())));
 }
 
 void WebBundleInterceptorForTrustableFile::CreateURLLoader(
@@ -50,8 +51,7 @@ void WebBundleInterceptorForTrustableFile::CreateURLLoader(
   if (metadata_error_) {
     web_bundle_utils::CompleteWithInvalidWebBundleError(
         mojo::Remote<network::mojom::URLLoaderClient>(std::move(client)),
-        frame_tree_node_id_,
-        web_bundle_utils::GetMetadataParseErrorMessage(metadata_error_));
+        frame_tree_node_id_, *metadata_error_);
     return;
   }
 
@@ -61,13 +61,6 @@ void WebBundleInterceptorForTrustableFile::CreateURLLoader(
     pending_resource_request_ = resource_request;
     pending_receiver_ = std::move(receiver);
     pending_client_ = std::move(client);
-    return;
-  }
-
-  if (primary_url_.is_empty()) {
-    web_bundle_utils::CompleteWithInvalidWebBundleError(
-        mojo::Remote<network::mojom::URLLoaderClient>(std::move(client)),
-        frame_tree_node_id_, web_bundle_utils::kNoPrimaryUrlErrorMessage);
     return;
   }
 
@@ -100,11 +93,22 @@ void WebBundleInterceptorForTrustableFile::OnMetadataReady(
   DCHECK(!url_loader_factory_);
 
   if (error) {
-    metadata_error_ = std::move(error);
+    metadata_error_ =
+        web_bundle_utils::GetMetadataParseErrorMessage(std::move(error));
   } else {
-    primary_url_ = reader_->GetPrimaryURL();
-    url_loader_factory_ = std::make_unique<WebBundleURLLoaderFactory>(
-        std::move(reader_), frame_tree_node_id_);
+    primary_url_ = reader_->GetPrimaryURL().value_or(GURL());
+
+    if (primary_url_.is_empty()) {
+      metadata_error_ = web_bundle_utils::kNoPrimaryUrlErrorMessage;
+    } else if (!web_bundle_utils::IsAllowedExchangeUrl(primary_url_)) {
+      metadata_error_ = web_bundle_utils::kInvalidPrimaryUrlErrorMessage;
+    } else if (!base::ranges::all_of(reader_->GetEntries(),
+                                     &web_bundle_utils::IsAllowedExchangeUrl)) {
+      metadata_error_ = web_bundle_utils::kInvalidExchangeUrlErrorMessage;
+    } else {
+      url_loader_factory_ = std::make_unique<WebBundleURLLoaderFactory>(
+          std::move(reader_), frame_tree_node_id_);
+    }
   }
 
   if (pending_receiver_) {

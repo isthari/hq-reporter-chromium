@@ -1,9 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/gpu/v4l2/test/v4l2_ioctl_shim.h"
 
+#include <fcntl.h>
 #include <linux/media.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -13,6 +14,8 @@
 #include "base/containers/contains.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/logging.h"
+#include "base/notreached.h"
+#include "base/strings/string_number_conversions.h"
 #include "media/base/video_types.h"
 
 namespace media {
@@ -24,12 +27,43 @@ constexpr int kIoctlOk = 0;
 // Trogdor when a decode stalls.
 constexpr int kMaxRetryCount = 1 << 24;
 
-// TODO(stevecho): this might need to be changed for other platforms.
-static const base::FilePath kDecodeDevice("/dev/video-dec0");
-static const base::FilePath kMediaDevice("/dev/media-dec0");
-
 #define V4L2_REQUEST_CODE_AND_STRING(x) \
   { x, #x }
+
+constexpr uint32_t kMaximumDeviceNumber = 10;
+
+constexpr std::string_view kDecoderDevicePrefix = "/dev/video-dec";
+constexpr std::string_view kMediaDevicePrefix = "/dev/media-dec";
+
+// Finds first available device of specified type for v4l2
+static base::FilePath FindFirstDeviceOfType(V4L2IoctlShim::DeviceType type) {
+  std::string device_prefix;
+
+  switch (type) {
+    case V4L2IoctlShim::DeviceType::kDecoder:
+      device_prefix = kDecoderDevicePrefix;
+      break;
+    case V4L2IoctlShim::DeviceType::kMedia:
+      device_prefix = kMediaDevicePrefix;
+      break;
+    default:
+      NOTREACHED() << "Invalid device type: " << base::strict_cast<int>(type);
+  }
+
+  for (uint32_t i = 0; i < kMaximumDeviceNumber; ++i) {
+    std::string path = device_prefix + base::NumberToString(i);
+    base::File candidate_device_file_path(open(path.c_str(), O_RDWR, 0));
+
+    if (!candidate_device_file_path.IsValid()) {
+      continue;
+    }
+
+    LOG(INFO) << "Using device: " << path;
+    return base::FilePath(path);
+  }
+  LOG(ERROR) << "Failed to find available device.";
+  return base::FilePath();
+}
 
 // This map maintains a table with pairs of V4L2 request code
 // and corresponding name. New pair has to be added here
@@ -37,6 +71,7 @@ static const base::FilePath kMediaDevice("/dev/media-dec0");
 static const std::unordered_map<int, std::string>
     kMapFromV4L2RequestCodeToString = {
         V4L2_REQUEST_CODE_AND_STRING(VIDIOC_QUERYCAP),
+        V4L2_REQUEST_CODE_AND_STRING(VIDIOC_QUERYCTRL),
         V4L2_REQUEST_CODE_AND_STRING(VIDIOC_ENUM_FMT),
         V4L2_REQUEST_CODE_AND_STRING(VIDIOC_ENUM_FRAMESIZES),
         V4L2_REQUEST_CODE_AND_STRING(VIDIOC_S_FMT),
@@ -112,8 +147,8 @@ MmapedBuffer::MmapedBuffer(const base::PlatformFile ioctl_fd,
 }
 
 MmapedBuffer::~MmapedBuffer() {
-  for (const auto& plane : mmaped_planes_)
-    munmap(plane.start_addr, plane.length);
+  for (const auto& [start_addr, length, bytes_used] : mmaped_planes_)
+    munmap(start_addr, length);
 }
 
 V4L2Queue::V4L2Queue(enum v4l2_buf_type type,
@@ -138,14 +173,14 @@ scoped_refptr<MmapedBuffer> V4L2Queue::GetBuffer(const size_t index) const {
 }
 
 V4L2IoctlShim::V4L2IoctlShim()
-    : decode_fd_(kDecodeDevice,
+    : decode_fd_(FindFirstDeviceOfType(V4L2IoctlShim::DeviceType::kDecoder),
                  base::File::FLAG_OPEN | base::File::FLAG_READ |
                      base::File::FLAG_WRITE),
-      media_fd_(kMediaDevice,
+      media_fd_(FindFirstDeviceOfType(V4L2IoctlShim::DeviceType::kMedia),
                 base::File::FLAG_OPEN | base::File::FLAG_READ |
                     base::File::FLAG_WRITE) {
-  PCHECK(decode_fd_.IsValid()) << "Failed to open " << kDecodeDevice;
-  PCHECK(media_fd_.IsValid()) << "Failed to open " << kMediaDevice;
+  PCHECK(decode_fd_.IsValid()) << "Failed to find available decode device.";
+  PCHECK(media_fd_.IsValid()) << "Failed to find available media device.";
 }
 
 V4L2IoctlShim::~V4L2IoctlShim() = default;
@@ -163,6 +198,18 @@ bool V4L2IoctlShim::Ioctl(int request_code, struct v4l2_capability* cap) const {
   LOG_ASSERT(cap != nullptr) << "|cap| check failed.";
 
   const int ret = ioctl(decode_fd_.GetPlatformFile(), request_code, cap);
+  LogIoctlResult(ret, request_code);
+
+  return ret == kIoctlOk;
+}
+
+template <>
+bool V4L2IoctlShim::Ioctl(int request_code,
+                          struct v4l2_queryctrl* query_ctrl) const {
+  DCHECK_EQ(request_code, static_cast<int>(VIDIOC_QUERYCTRL));
+  LOG_ASSERT(query_ctrl != nullptr) << "|query_ctrl| check failed.";
+
+  const int ret = ioctl(decode_fd_.GetPlatformFile(), request_code, query_ctrl);
   LogIoctlResult(ret, request_code);
 
   return ret == kIoctlOk;
@@ -274,6 +321,15 @@ bool V4L2IoctlShim::Ioctl(int request_code,
   return ret == kIoctlOk;
 }
 
+bool V4L2IoctlShim::QueryCtrl(const uint32_t ctrl_id) const {
+  struct v4l2_queryctrl query_ctrl;
+
+  memset(&query_ctrl, 0, sizeof(query_ctrl));
+  query_ctrl.id = ctrl_id;
+
+  return Ioctl(VIDIOC_QUERYCTRL, &query_ctrl);
+}
+
 bool V4L2IoctlShim::EnumFrameSizes(uint32_t fourcc) const {
   struct v4l2_frmsizeenum frame_size;
 
@@ -377,7 +433,7 @@ bool V4L2IoctlShim::QBuf(const std::unique_ptr<V4L2Queue>& queue,
 
   for (uint32_t i = 0; i < queue->num_planes(); ++i) {
     v4l2_buffer.m.planes[i].length = buffer->mmaped_planes()[i].length;
-    v4l2_buffer.m.planes[i].bytesused = buffer->mmaped_planes()[i].length;
+    v4l2_buffer.m.planes[i].bytesused = buffer->mmaped_planes()[i].bytes_used;
     v4l2_buffer.m.planes[i].data_offset = 0;
   }
 
@@ -430,25 +486,14 @@ bool V4L2IoctlShim::DQBuf(const std::unique_ptr<V4L2Queue>& queue,
       num_tries = kMaxRetryCount;
     }
 
-    // Frame number was used to setup |v4l2_buffer.timestamp.tv_usec| field of
-    // the OUTPUT queue for VIDIOC_QBUF ioctl call. Then, |tv_usec| is copied to
-    // |index| in the CAPTURE queue during VIDIOC_DQBUF ioctl call. Then, buffer
-    // ID (|index| in the CAPTURE queue) needs to be converted to reference ID.
-    // Reference ID of a frame can be specified by converting its timestamp
-    // (microseconds) into nanoseconds. This is required because |ref| field of
-    // |v4l2_ctrl_vp9_frame_decode_params| for VIDIOC_S_EXT_CTRLS ioctl call is
-    // expected to be in nanoseconds. Thus, |kTimestampToNanoSecs| is multiplied
-    // to the timestamp to get a reference ID.
-    // Technically, v4l2_timeval_to_ns() is suggested to be used to convert
-    // timestamp to nanoseconds, but multiplying the microseconds part of
-    // timestamp |tv_usec| by kTimestampToNanoSecs (1000) to make it nanoseconds
-    // is also known to work. This is how it is implemented in v4l2 video decode
-    // accelerator tests as well as in gstreamer.
-    // https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dev-stateless-decoder.html#buffer-management-while-decoding
-    constexpr size_t kTimestampToNanoSecs = 1000;
-
+    // We set |v4l2_buffer.timestamp.tv_usec| in the encoded chunk enqueued in
+    // the OUTPUT queue, and the driver propagates it to the corresponding
+    // decoded video frame (or at least is expected to). This gives us
+    // information about which encoded frame corresponds to the current decoded
+    // video frame.
+    queue->GetBuffer(v4l2_buffer.index)->set_buffer_id(v4l2_buffer.index);
     queue->GetBuffer(v4l2_buffer.index)
-        ->set_reference_id(v4l2_buffer.index * kTimestampToNanoSecs);
+        ->set_frame_number(v4l2_buffer.timestamp.tv_usec);
 
     *index = v4l2_buffer.index;
 
@@ -469,13 +514,10 @@ bool V4L2IoctlShim::StreamOn(const enum v4l2_buf_type type) const {
   return Ioctl(VIDIOC_STREAMON, &arg);
 }
 
-bool V4L2IoctlShim::SetExtCtrls(
-    const std::unique_ptr<V4L2Queue>& queue,
-    v4l2_ctrl_vp9_frame_decode_params& frame_params) const {
-  struct v4l2_ext_control ctrl = {
-      .id = V4L2_CID_MPEG_VIDEO_VP9_FRAME_DECODE_PARAMS,
-      .size = sizeof(frame_params),
-      .ptr = &frame_params};
+bool V4L2IoctlShim::SetExtCtrls(const std::unique_ptr<V4L2Queue>& queue,
+                                v4l2_ext_controls* ext_ctrls) const {
+  // TODO(b/230021497): add compressed header probability related change
+  // when V4L2_CID_STATELESS_VP9_COMPRESSED_HDR is supported
 
   // "If |request_fd| is set to a not-yet-queued request file descriptor
   // and |which| is set to V4L2_CTRL_WHICH_REQUEST_VAL, then the controls
@@ -483,12 +525,10 @@ bool V4L2IoctlShim::SetExtCtrls(
   // instead are applied by the driver for the buffer associated with
   // the same request.", see:
   // https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/vidioc-g-ext-ctrls.html#description
-  struct v4l2_ext_controls ctrls = {.which = V4L2_CTRL_WHICH_REQUEST_VAL,
-                                    .count = 1,
-                                    .request_fd = queue->media_request_fd(),
-                                    .controls = &ctrl};
+  ext_ctrls->which = V4L2_CTRL_WHICH_REQUEST_VAL;
+  ext_ctrls->request_fd = queue->media_request_fd();
 
-  const bool ret = Ioctl(VIDIOC_S_EXT_CTRLS, &ctrls);
+  const bool ret = Ioctl(VIDIOC_S_EXT_CTRLS, ext_ctrls);
 
   return ret;
 }
@@ -546,7 +586,8 @@ bool V4L2IoctlShim::VerifyCapabilities(uint32_t compressed_format,
   struct v4l2_capability cap;
   memset(&cap, 0, sizeof(cap));
 
-  DCHECK(Ioctl(VIDIOC_QUERYCAP, &cap));
+  const bool ret = Ioctl(VIDIOC_QUERYCAP, &cap);
+  DCHECK(ret);
 
   LOG(INFO) << "Driver=\"" << cap.driver << "\" bus_info=\"" << cap.bus_info
             << "\" card=\"" << cap.card;
@@ -585,7 +626,8 @@ bool V4L2IoctlShim::QueryAndMmapQueueBuffers(
     v4l_buffer.length = queue->num_planes();
     v4l_buffer.m.planes = planes.data();
 
-    DCHECK(Ioctl(VIDIOC_QUERYBUF, &v4l_buffer));
+    const bool ret = Ioctl(VIDIOC_QUERYBUF, &v4l_buffer);
+    DCHECK(ret);
 
     buffers.emplace_back(base::MakeRefCounted<MmapedBuffer>(
         decode_fd_.GetPlatformFile(), v4l_buffer));

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_AUTOFILL_AUTOFILL_POPUP_VIEW_NATIVE_VIEWS_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
@@ -103,6 +104,7 @@ class AutofillPopupViewNativeViews : public AutofillPopupBaseView,
   void Show() override;
   void Hide() override;
   absl::optional<int32_t> GetAxUniqueId() override;
+  void AxAnnounce(const std::u16string& text) override;
 
   // AutofillPopupBaseView:
   // TODO(crbug.com/831603): Remove these overrides and the corresponding
@@ -132,10 +134,10 @@ class AutofillPopupViewNativeViews : public AutofillPopupBaseView,
   // Controller for this view.
   base::WeakPtr<AutofillPopupController> controller_ = nullptr;
   std::vector<AutofillPopupRowView*> rows_;
-  raw_ptr<views::BoxLayout> layout_ = nullptr;
-  raw_ptr<views::ScrollView> scroll_view_ = nullptr;
-  raw_ptr<views::View> body_container_ = nullptr;
-  raw_ptr<views::View> footer_container_ = nullptr;
+  raw_ptr<views::BoxLayout, DanglingUntriaged> layout_ = nullptr;
+  raw_ptr<views::ScrollView, DanglingUntriaged> scroll_view_ = nullptr;
+  raw_ptr<views::View, DanglingUntriaged> body_container_ = nullptr;
+  raw_ptr<views::View, DanglingUntriaged> footer_container_ = nullptr;
 };
 
 }  // namespace autofill

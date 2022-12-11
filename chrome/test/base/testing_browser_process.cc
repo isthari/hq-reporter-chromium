@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,7 +28,6 @@
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/testing_browser_process_platform_part.h"
-#include "components/federated_learning/floc_sorting_lsh_clusters_service.h"
 #include "components/network_time/network_time_tracker.h"
 #include "components/permissions/permissions_client.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
@@ -63,6 +62,7 @@
 #endif
 
 #if !BUILDFLAG(IS_ANDROID)
+#include "chrome/browser/hid/hid_policy_allowed_devices.h"
 #include "chrome/browser/serial/serial_policy_allowed_ports.h"
 #include "components/keep_alive_registry/keep_alive_registry.h"
 #endif
@@ -100,9 +100,14 @@ void TestingBrowserProcess::DeleteInstance() {
 }
 
 TestingBrowserProcess::TestingBrowserProcess()
-    : notification_service_(content::NotificationService::Create()),
-      app_locale_("en"),
-      platform_part_(std::make_unique<TestingBrowserProcessPlatformPart>()) {}
+    : app_locale_("en"),
+      platform_part_(std::make_unique<TestingBrowserProcessPlatformPart>()) {
+  // TestingBrowserProcess is used in unit_tests which sets this up through
+  // content::UnitTestTestSuite but also through other test binaries which don't
+  // use that test suite in which case we have to set it up.
+  if (!content::NotificationService::current())
+    notification_service_.reset(content::NotificationService::Create());
+}
 
 TestingBrowserProcess::~TestingBrowserProcess() {
   EXPECT_FALSE(local_state_);
@@ -112,7 +117,8 @@ TestingBrowserProcess::~TestingBrowserProcess() {
   extensions::AppWindowClient::Set(nullptr);
 #endif
 
-  content::SetNetworkConnectionTrackerForTesting(nullptr);
+  if (test_network_connection_tracker_)
+    content::SetNetworkConnectionTrackerForTesting(nullptr);
 
   // Destructors for some objects owned by TestingBrowserProcess will use
   // g_browser_process if it is not null, so it must be null before proceeding.
@@ -120,10 +126,13 @@ TestingBrowserProcess::~TestingBrowserProcess() {
 }
 
 void TestingBrowserProcess::Init() {
-  test_network_connection_tracker_ =
-      network::TestNetworkConnectionTracker::CreateInstance();
-  content::SetNetworkConnectionTrackerForTesting(
-      test_network_connection_tracker_.get());
+  // See comment in constructor.
+  if (!network::TestNetworkConnectionTracker::HasInstance()) {
+    test_network_connection_tracker_ =
+        network::TestNetworkConnectionTracker::CreateInstance();
+    content::SetNetworkConnectionTrackerForTesting(
+        test_network_connection_tracker_.get());
+  }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   extensions_browser_client_ =
@@ -279,11 +288,6 @@ TestingBrowserProcess::safe_browsing_service() {
 subresource_filter::RulesetService*
 TestingBrowserProcess::subresource_filter_ruleset_service() {
   return subresource_filter_ruleset_service_.get();
-}
-
-federated_learning::FlocSortingLshClustersService*
-TestingBrowserProcess::floc_sorting_lsh_clusters_service() {
-  return floc_sorting_lsh_clusters_service_.get();
 }
 
 BrowserProcessPlatformPart* TestingBrowserProcess::platform_part() {
@@ -443,6 +447,14 @@ SerialPolicyAllowedPorts* TestingBrowserProcess::serial_policy_allowed_ports() {
   }
   return serial_policy_allowed_ports_.get();
 }
+
+HidPolicyAllowedDevices* TestingBrowserProcess::hid_policy_allowed_devices() {
+  if (!hid_policy_allowed_devices_) {
+    hid_policy_allowed_devices_ =
+        std::make_unique<HidPolicyAllowedDevices>(local_state());
+  }
+  return hid_policy_allowed_devices_.get();
+}
 #endif
 
 BuildState* TestingBrowserProcess::GetBuildState() {
@@ -496,6 +508,7 @@ void TestingBrowserProcess::SetLocalState(PrefService* local_state) {
 #endif
 #if !BUILDFLAG(IS_ANDROID)
     serial_policy_allowed_ports_.reset();
+    hid_policy_allowed_devices_.reset();
 #endif
     ShutdownBrowserPolicyConnector();
     created_browser_policy_connector_ = false;
@@ -522,12 +535,6 @@ void TestingBrowserProcess::SetSafeBrowsingService(
 void TestingBrowserProcess::SetRulesetService(
     std::unique_ptr<subresource_filter::RulesetService> ruleset_service) {
   subresource_filter_ruleset_service_.swap(ruleset_service);
-}
-
-void TestingBrowserProcess::SetFlocSortingLshClustersService(
-    std::unique_ptr<federated_learning::FlocSortingLshClustersService>
-        service) {
-  floc_sorting_lsh_clusters_service_.swap(service);
 }
 
 void TestingBrowserProcess::SetShuttingDown(bool is_shutting_down) {

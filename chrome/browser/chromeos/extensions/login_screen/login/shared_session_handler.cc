@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,17 @@
 
 #include <utility>
 
-#include "ash/components/login/auth/user_context.h"
-#include "ash/components/settings/cros_settings_names.h"
 #include "base/bind.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/ash/login/existing_user_controller.h"
 #include "chrome/browser/ash/settings/cros_settings.h"
-#include "chrome/browser/chromeos/extensions/login_screen/login/cleanup/cleanup_manager.h"
+#include "chrome/browser/chromeos/extensions/login_screen/login/cleanup/cleanup_manager_ash.h"
 #include "chrome/browser/chromeos/extensions/login_screen/login/errors.h"
 #include "chrome/browser/chromeos/extensions/login_screen/login/login_api_lock_handler.h"
 #include "chrome/browser/ui/ash/session_controller_client_impl.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/session_manager/session_manager_types.h"
 #include "components/user_manager/user.h"
@@ -28,6 +28,7 @@
 namespace chromeos {
 
 namespace {
+
 constexpr size_t kSessionSecretLength = 64;
 constexpr size_t kUserSaltLength = 16;
 constexpr size_t kHashKeyLength = 32;
@@ -54,6 +55,7 @@ bool IsDeviceRestrictedManagedGuestSessionEnabled() {
              &device_restricted_managed_guest_session_enabled) &&
          device_restricted_managed_guest_session_enabled;
 }
+
 }  // namespace
 
 // static
@@ -83,8 +85,8 @@ SharedSessionHandler::LaunchSharedManagedGuestSession(
   CHECK(user_secret_hash_.empty());
   CHECK(user_secret_salt_.empty());
 
-  chromeos::ExistingUserController* existing_user_controller =
-      chromeos::ExistingUserController::current_controller();
+  auto* existing_user_controller =
+      ash::ExistingUserController::current_controller();
   if (existing_user_controller->IsSigninInProgress())
     return extensions::login_api_errors::kAnotherLoginAttemptInProgress;
 
@@ -101,7 +103,7 @@ SharedSessionHandler::LaunchSharedManagedGuestSession(
                            user->GetAccountId());
   context.SetKey(ash::Key(session_secret_));
   context.SetCanLockManagedGuestSession(true);
-  existing_user_controller->Login(context, chromeos::SigninSpecifics());
+  existing_user_controller->Login(context, ash::SigninSpecifics());
 
   return absl::nullopt;
 }
@@ -134,7 +136,7 @@ void SharedSessionHandler::EnterSharedSession(
 
   CHECK(user_secret_salt_.empty());
 
-  if (chromeos::CleanupManager::Get()->is_cleanup_in_progress()) {
+  if (chromeos::CleanupManagerAsh::Get()->is_cleanup_in_progress()) {
     std::move(callback).Run(extensions::login_api_errors::kCleanupInProgress);
     return;
   }
@@ -177,7 +179,7 @@ void SharedSessionHandler::UnlockSharedSession(
 
   CHECK(!user_secret_salt_.empty());
 
-  if (chromeos::CleanupManager::Get()->is_cleanup_in_progress()) {
+  if (chromeos::CleanupManagerAsh::Get()->is_cleanup_in_progress()) {
     std::move(callback).Run(extensions::login_api_errors::kCleanupInProgress);
     return;
   }
@@ -225,7 +227,8 @@ void SharedSessionHandler::EndSharedSession(
     return;
   }
 
-  chromeos::CleanupManager* cleanup_manager = chromeos::CleanupManager::Get();
+  chromeos::CleanupManagerAsh* cleanup_manager =
+      chromeos::CleanupManagerAsh::Get();
   if (cleanup_manager->is_cleanup_in_progress()) {
     std::move(callback).Run(extensions::login_api_errors::kCleanupInProgress);
     return;
@@ -319,8 +322,9 @@ void SharedSessionHandler::OnAuthenticateDone(
   std::move(callback).Run(absl::nullopt);
 }
 
-void SharedSessionHandler::OnCleanupDone(CallbackWithOptionalError callback,
-                                         absl::optional<std::string> errors) {
+void SharedSessionHandler::OnCleanupDone(
+    CallbackWithOptionalError callback,
+    const absl::optional<std::string>& errors) {
   if (errors) {
     std::move(callback).Run(*errors);
     return;

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,10 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "content/browser/bluetooth/bluetooth_blocklist.h"
 #include "content/browser/bluetooth/bluetooth_metrics.h"
+#include "content/browser/bluetooth/bluetooth_util.h"
 #include "content/browser/bluetooth/web_bluetooth_service_impl.h"
 #include "content/public/browser/bluetooth_delegate.h"
 #include "content/public/browser/browser_thread.h"
@@ -115,26 +116,25 @@ void LogRequestDeviceOptions(
       DVLOG(1) << "Name Prefix: " << filter->name_prefix.value();
 
     if (filter->services) {
-      base::Value services_list(base::Value::Type::LIST);
+      base::Value::List services_list;
       for (const auto& service : filter->services.value())
         services_list.Append(service.canonical_value());
       DVLOG(1) << "Services: " << services_list;
     }
 
     if (filter->manufacturer_data) {
-      base::Value manufacturer_data_list(base::Value::Type::LIST);
+      base::Value::List manufacturer_data_list;
       for (const auto& manufacturer_data : filter->manufacturer_data.value()) {
-        base::Value filter_data_list(base::Value::Type::LIST);
-        base::Value filter_mask_list(base::Value::Type::LIST);
+        base::Value::List filter_data_list;
+        base::Value::List filter_mask_list;
         for (const auto& data_filter : manufacturer_data.second) {
-          filter_data_list.Append(base::Value(data_filter->data));
-          filter_mask_list.Append(base::Value(data_filter->mask));
+          filter_data_list.Append(data_filter->data);
+          filter_mask_list.Append(data_filter->mask);
         }
-        base::Value data_filter_dict(base::Value::Type::DICTIONARY);
-        data_filter_dict.SetKey("Company Identifier",
-                                base::Value(manufacturer_data.first->id));
-        data_filter_dict.SetKey("Data", std::move(filter_data_list));
-        data_filter_dict.SetKey("Mask", std::move(filter_mask_list));
+        base::Value::Dict data_filter_dict;
+        data_filter_dict.Set("Company Identifier", manufacturer_data.first->id);
+        data_filter_dict.Set("Data", std::move(filter_data_list));
+        data_filter_dict.Set("Mask", std::move(filter_mask_list));
         manufacturer_data_list.Append(std::move(data_filter_dict));
       }
       DVLOG(1) << "Manufacturer Data: " << manufacturer_data_list;
@@ -178,17 +178,8 @@ bool MatchesFilter(const std::string* device_name,
         return false;
       // Check data filter size is less than device manufacturer data size.
       const auto& device_data = it->second;
-      if (filter_data.second.size() > device_data.size())
+      if (!MatchesBluetoothDataFilter(filter_data.second, device_data))
         return false;
-      // For each bit in mask, check the corresponding bit in device
-      // manufacturer data is equal to the corresponding bit in expected data.
-      size_t i = 0;
-      for (const auto& filter_byte : filter_data.second) {
-        if ((filter_byte->mask & filter_byte->data) !=
-            (filter_byte->mask & device_data.at(i++))) {
-          return false;
-        }
-      }
     }
   }
 
@@ -223,7 +214,7 @@ void StopDiscoverySession(
 
 BluetoothDeviceChooserController::BluetoothDeviceChooserController(
     WebBluetoothServiceImpl* web_bluetooth_service,
-    RenderFrameHost* render_frame_host,
+    RenderFrameHost& render_frame_host,
     scoped_refptr<device::BluetoothAdapter> adapter)
     : adapter_(std::move(adapter)),
       web_bluetooth_service_(web_bluetooth_service),
@@ -262,7 +253,9 @@ void BluetoothDeviceChooserController::GetDevice(
   // Check blocklist to reject invalid filters and adjust optional_services.
   if (options_->filters &&
       BluetoothBlocklist::Get().IsExcluded(options_->filters.value())) {
-    PostErrorCallback(WebBluetoothResult::REQUEST_DEVICE_WITH_BLOCKLISTED_UUID);
+    PostErrorCallback(
+        WebBluetoothResult::
+            REQUEST_DEVICE_WITH_BLOCKLISTED_UUID_OR_MANUFACTURER_DATA);
     return;
   }
   BluetoothBlocklist::Get().RemoveExcludedUUIDs(options_.get());
@@ -299,7 +292,7 @@ void BluetoothDeviceChooserController::GetDevice(
       base::Unretained(this));
 
   if (auto* delegate = GetContentClient()->browser()->GetBluetoothDelegate()) {
-    chooser_ = delegate->RunBluetoothChooser(render_frame_host_,
+    chooser_ = delegate->RunBluetoothChooser(&*render_frame_host_,
                                              std::move(chooser_event_handler));
   }
 
@@ -513,7 +506,7 @@ void BluetoothDeviceChooserController::PostSuccessCallback(
     const std::string& device_address) {
   DCHECK(callback_);
 
-  if (!base::ThreadTaskRunnerHandle::Get()->PostTask(
+  if (!base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(std::move(callback_), WebBluetoothResult::SUCCESS,
                          std::move(options_), device_address))) {
@@ -525,7 +518,7 @@ void BluetoothDeviceChooserController::PostErrorCallback(
     WebBluetoothResult error) {
   DCHECK(callback_);
 
-  if (!base::ThreadTaskRunnerHandle::Get()->PostTask(
+  if (!base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(std::move(callback_), error, /*options=*/nullptr,
                          /*device_id=*/std::string()))) {

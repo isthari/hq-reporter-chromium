@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,14 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
 #include "components/omnibox/browser/buildflags.h"
 #include "components/search_engines/template_url.h"
+#include "components/url_formatter/spoof_checks/idna_metrics.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/color_utils.h"
@@ -77,6 +79,11 @@ class OmniboxAction : public base::RefCounted<OmniboxAction> {
 
     // Presents translation prompt for current tab web contents.
     virtual void PromptPageTranslation() = 0;
+
+    // Opens Journeys in an embedder-specific way. If this returns true, that
+    // means that the embedder successfully opened Journeys, and the caller can
+    // early exit. If this returns false, the caller should open the WebUI.
+    virtual bool OpenJourneys(const std::string& query);
   };
 
   // ExecutionContext provides the necessary structure for Action
@@ -105,14 +112,15 @@ class OmniboxAction : public base::RefCounted<OmniboxAction> {
                                 bool destination_url_entered_without_scheme,
                                 const std::u16string&,
                                 const AutocompleteMatch&,
-                                const AutocompleteMatch&)>;
+                                const AutocompleteMatch&,
+                                IDNA2008DeviationCharacter)>;
 
     ExecutionContext(Client& client,
                      OpenUrlCallback callback,
                      base::TimeTicks match_selection_timestamp,
                      WindowOpenDisposition disposition);
     ~ExecutionContext();
-    Client& client_;
+    const raw_ref<Client> client_;
     OpenUrlCallback open_url_callback_;
     base::TimeTicks match_selection_timestamp_;
     WindowOpenDisposition disposition_;
@@ -128,10 +136,8 @@ class OmniboxAction : public base::RefCounted<OmniboxAction> {
   const GURL& getUrl() const { return url_; }
 
   // Records that the action was shown at index `position` in the popup.
-  virtual void RecordActionShown(size_t position) const {}
-
-  // Records that the action was executed at index `position` in the popup.
-  virtual void RecordActionExecuted(size_t position) const {}
+  // `executed` is set to true if the action was also executed by the user.
+  virtual void RecordActionShown(size_t position, bool executed) const {}
 
   // Takes the action associated with this Action.  Non-navigation
   // Actions must override the default, but Navigation Actions don't need to.
@@ -148,14 +154,10 @@ class OmniboxAction : public base::RefCounted<OmniboxAction> {
   virtual const gfx::VectorIcon& GetVectorIcon() const;
 #endif
 
-  // Returns SK_ColorTRANSPARENT by default to indicate usage of normal theme
-  // color for suggestion row buttons; or override to force icon color.
-  virtual SkColor GetVectorIconColor() const;
-
   // Estimates RAM usage in bytes for this Action.
   virtual size_t EstimateMemoryUsage() const;
 
-  // Returns an ID used to identify some actions. Not defined for all Actions.
+  // Returns an ID used to identify the action.
   virtual int32_t GetID() const;
 
 #if BUILDFLAG(IS_ANDROID)

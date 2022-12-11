@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,11 @@ class PasswordGenerationAgent;
 class AutofillAssistantAgent;
 }  // namespace autofill
 
+// This test fixture emulates a single RenderView within the main test process.
+// Since it does everything in a single process, tests based on this fixture do
+// not cover code related to Chrome's multiprocess architecture, such as
+// sandboxing. InProcessBrowserTest is a better fixture for integration tests
+// that care about multiple processes.
 class ChromeRenderViewTest : public content::RenderViewTest {
  public:
   ChromeRenderViewTest();

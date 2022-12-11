@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -170,13 +170,6 @@ public class ProfileDataCache implements AccountInfoService.Observer {
     }
 
     /**
-     * @return Whether the cache contains non-default profile data for the given account.
-     */
-    public boolean hasProfileData(String accountEmail) {
-        return mCachedProfileData.containsKey(accountEmail);
-    }
-
-    /**
      * Sets a default {@link BadgeConfig} and then populates the cache with the new Badge.
      * @param badgeResId Resource id of the badge to be attached. If 0 then the current Badge is
      * removed.
@@ -264,6 +257,14 @@ public class ProfileDataCache implements AccountInfoService.Observer {
             updateCacheAndNotifyObservers(accountInfo.getEmail(), accountInfo.getAccountImage(),
                     accountInfo.getFullName(), accountInfo.getGivenName());
         }
+    }
+
+    /**
+     * @return Whether the cache contains non-default profile data for the given account.
+     */
+    @VisibleForTesting
+    public boolean hasProfileDataForTesting(String accountEmail) {
+        return mCachedProfileData.containsKey(accountEmail);
     }
 
     private void populateCache(AccountInfoService accountInfoService) {

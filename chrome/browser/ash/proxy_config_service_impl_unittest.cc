@@ -1,8 +1,6 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-#include "chromeos/network/proxy/proxy_config_service_impl.h"
 
 #include <stddef.h>
 
@@ -10,7 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include "base/cxx17_backports.h"
 #include "base/format_macros.h"
 #include "base/json/json_writer.h"
 #include "base/notreached.h"
@@ -18,13 +15,14 @@
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/ash/settings/scoped_cros_settings_test_helper.h"
+#include "chromeos/ash/components/network/network_handler.h"
+#include "chromeos/ash/components/network/network_handler_test_helper.h"
+#include "chromeos/ash/components/network/network_profile_handler.h"
+#include "chromeos/ash/components/network/network_state.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
+#include "chromeos/ash/components/network/proxy/proxy_config_handler.h"
+#include "chromeos/ash/components/network/proxy/proxy_config_service_impl.h"
 #include "chromeos/components/onc/onc_utils.h"
-#include "chromeos/network/network_handler.h"
-#include "chromeos/network/network_handler_test_helper.h"
-#include "chromeos/network/network_profile_handler.h"
-#include "chromeos/network/network_state.h"
-#include "chromeos/network/network_state_handler.h"
-#include "chromeos/network/proxy/proxy_config_handler.h"
 #include "components/onc/onc_pref_names.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
@@ -38,9 +36,10 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
-// TODO(stevenjb): Refactor and move this to src/chromeos/network/proxy or
-// rename. This is really more of an integration test than a unit test at this
-// point and currently relies on some chrome specific components.
+// TODO(stevenjb): Refactor and move this to
+// src/chromeos/ash/components/network/proxy or rename. This is really more of
+// an integration test than a unit test at this point and currently relies on
+// some chrome specific components.
 
 namespace ash {
 
@@ -330,7 +329,7 @@ class ProxyConfigServiceImplTest : public testing::Test {
     proxy_config_service_.reset();
   }
 
-  base::Value InitConfigWithTestInput(const Input& input) {
+  base::Value::Dict InitConfigWithTestInput(const Input& input) {
     switch (input.mode) {
       case Mode::kDirect:
         return ProxyConfigDictionary::CreateDirect();
@@ -344,10 +343,10 @@ class ProxyConfigServiceImplTest : public testing::Test {
                                                          input.bypass_rules);
     }
     NOTREACHED();
-    return base::Value();
+    return base::Value::Dict();
   }
 
-  void SetUserConfigInShill(const base::Value* pref_proxy_config_dict) {
+  void SetUserConfigInShill(const base::Value::Dict* pref_proxy_config_dict) {
     std::string proxy_config;
     if (pref_proxy_config_dict)
       base::JSONWriter::Write(*pref_proxy_config_dict, &proxy_config);
@@ -389,11 +388,11 @@ TEST_F(ProxyConfigServiceImplTest, NetworkProxy) {
   SetUpPrivateWiFi();
   // Create a ProxyConfigServiceImpl like for the system request context.
   SetUpProxyConfigService(nullptr /* no profile prefs */);
-  for (size_t i = 0; i < base::size(tests); ++i) {
+  for (size_t i = 0; i < std::size(tests); ++i) {
     SCOPED_TRACE(base::StringPrintf("Test[%" PRIuS "] %s", i,
                                     tests[i].description.c_str()));
 
-    base::Value test_config = InitConfigWithTestInput(tests[i].input);
+    base::Value::Dict test_config = InitConfigWithTestInput(tests[i].input);
     SetUserConfigInShill(&test_config);
 
     net::ProxyConfigWithAnnotation config;
@@ -435,7 +434,7 @@ TEST_F(ProxyConfigServiceImplTest, DynamicPrefsOverride) {
     { 7, 6, 8, },
       // clang-format on
   };
-  for (size_t i = 0; i < base::size(proxies); ++i) {
+  for (size_t i = 0; i < std::size(proxies); ++i) {
     const TestParams& managed_params = tests[proxies[i][0]];
     const TestParams& recommended_params = tests[proxies[i][1]];
     const TestParams& network_params = tests[proxies[i][2]];
@@ -446,10 +445,9 @@ TEST_F(ProxyConfigServiceImplTest, DynamicPrefsOverride) {
         recommended_params.description.c_str(),
         network_params.description.c_str()));
 
-    base::Value managed_config = InitConfigWithTestInput(managed_params.input);
-    base::Value recommended_config =
-        InitConfigWithTestInput(recommended_params.input);
-    base::Value network_config = InitConfigWithTestInput(network_params.input);
+    base::Value managed_config(InitConfigWithTestInput(managed_params.input));
+    base::Value recommended_config(
+        InitConfigWithTestInput(recommended_params.input));
 
     // Managed proxy pref should take effect over recommended proxy and
     // non-existent network proxy.
@@ -478,6 +476,8 @@ TEST_F(ProxyConfigServiceImplTest, DynamicPrefsOverride) {
     EXPECT_TRUE(recommended_params.proxy_rules.Matches(
         actual_config.value().proxy_rules()));
 
+    base::Value::Dict network_config =
+        InitConfigWithTestInput(network_params.input);
     // Network proxy should take take effect over recommended proxy pref.
     SetUserConfigInShill(&network_config);
     SyncGetLatestProxyConfig(&actual_config);

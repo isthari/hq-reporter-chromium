@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,7 @@ class AutofillPopupControllerImplMac : public AutofillPopupControllerImpl {
   // If the popup contains credit card items, find and set
   // |touchBarController_| and show the credit card autofill touch bar.
   void Show(const std::vector<autofill::Suggestion>& suggestions,
-            bool autoselect_first_suggestion,
+            AutoselectFirstSuggestion autoselect_first_suggestion,
             PopupType popup_type) override;
 
   // Updates the data list values currently shown with the popup. Calls

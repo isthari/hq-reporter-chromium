@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_component_options.h"
 #import "ios/chrome/browser/ui/util/named_guide.h"
 
+@class LayoutGuideCenter;
 @class ToolbarConfiguration;
 
 // UIButton subclass used as a Toolbar component.
@@ -24,22 +25,27 @@
 // Returns true if the ToolbarButton should be hidden due to a current UI state
 // or WebState.
 @property(nonatomic, assign) BOOL hiddenInCurrentState;
-// Named of the layout guide this button should be constrained to, if not nil.
+// Name of the layout guide this button should be constrained to, if not nil.
 // The constraints to the layout guide are only valid when the button is
 // displayed. Also, they can be dropped/changed upon size class changes or
 // rotations. Any view constrained to them is expected to be dismissed on such
 // events.
 @property(nonatomic, strong) GuideName* guideName;
+// The layout guide center for this button.
+@property(nonatomic, strong) LayoutGuideCenter* layoutGuideCenter;
 // Whether this button is spotlighted, having a light gray background. This
 // state should not be used in the same time as the selected state.
 @property(nonatomic, assign) BOOL spotlighted;
+// Whether this button is highlighted for an IPH, having a blue background. This
+// color will override the spotlighted background color.
+@property(nonatomic, assign) BOOL iphHighlighted;
 // View used to display the view used for the spotlight effect.
 @property(nonatomic, strong) UIView* spotlightView;
 // Whether this button is dimmed. When the button is dimmed, its tintColor is
 // changed to have a lower alpha.
 @property(nonatomic, assign) BOOL dimmed;
 
-// Returns a ToolbarButton with a type system, using the |image| as image for
+// Returns a ToolbarButton with a type system, using the `image` as image for
 // normal state.
 + (instancetype)toolbarButtonWithImage:(UIImage*)image;
 

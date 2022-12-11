@@ -1,9 +1,12 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/autofill/core/browser/test_autofill_client.h"
 
+#include <utility>
+
+#include "base/command_line.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
@@ -18,18 +21,28 @@
 
 namespace autofill {
 
-TestAutofillClient::TestAutofillClient()
-    : form_origin_(GURL("https://example.test")),
-      last_committed_url_(GURL("https://example.test")) {}
+TestAutofillClient::TestAutofillClient(
+    std::unique_ptr<TestPersonalDataManager> pdm)
+    : test_personal_data_manager_(
+          pdm ? std::move(pdm) : std::make_unique<TestPersonalDataManager>()),
+      form_origin_(GURL("https://example.test")),
+      last_committed_primary_main_frame_url_(GURL("https://example.test")),
+      log_manager_(LogManager::Create(&log_router_, base::NullCallback())) {
+  mock_iban_manager_ = std::make_unique<testing::NiceMock<MockIBANManager>>(
+      test_personal_data_manager_.get());
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch("show-autofill-internals"))
+    scoped_logging_subscription_.Observe(&log_router_);
+}
 
-TestAutofillClient::~TestAutofillClient() {}
+TestAutofillClient::~TestAutofillClient() = default;
 
 version_info::Channel TestAutofillClient::GetChannel() const {
   return channel_for_testing_;
 }
 
-PersonalDataManager* TestAutofillClient::GetPersonalDataManager() {
-  return &test_personal_data_manager_;
+TestPersonalDataManager* TestAutofillClient::GetPersonalDataManager() {
+  return test_personal_data_manager_.get();
 }
 
 AutocompleteHistoryManager*
@@ -37,8 +50,28 @@ TestAutofillClient::GetAutocompleteHistoryManager() {
   return &mock_autocomplete_history_manager_;
 }
 
+IBANManager* TestAutofillClient::GetIBANManager() {
+  return mock_iban_manager_.get();
+}
+
+MerchantPromoCodeManager* TestAutofillClient::GetMerchantPromoCodeManager() {
+  return &mock_merchant_promo_code_manager_;
+}
+
+CreditCardCVCAuthenticator* TestAutofillClient::GetCVCAuthenticator() {
+  if (!cvc_authenticator_)
+    cvc_authenticator_ = std::make_unique<CreditCardCVCAuthenticator>(this);
+  return cvc_authenticator_.get();
+}
+
+CreditCardOtpAuthenticator* TestAutofillClient::GetOtpAuthenticator() {
+  if (!otp_authenticator_)
+    otp_authenticator_ = std::make_unique<CreditCardOtpAuthenticator>(this);
+  return otp_authenticator_.get();
+}
+
 PrefService* TestAutofillClient::GetPrefs() {
-  return const_cast<PrefService*>(base::as_const(*this).GetPrefs());
+  return const_cast<PrefService*>(std::as_const(*this).GetPrefs());
 }
 
 const PrefService* TestAutofillClient::GetPrefs() const {
@@ -85,8 +118,12 @@ AutofillOfferManager* TestAutofillClient::GetAutofillOfferManager() {
   return autofill_offer_manager_.get();
 }
 
-const GURL& TestAutofillClient::GetLastCommittedURL() const {
-  return last_committed_url_;
+const GURL& TestAutofillClient::GetLastCommittedPrimaryMainFrameURL() const {
+  return last_committed_primary_main_frame_url_;
+}
+
+url::Origin TestAutofillClient::GetLastCommittedPrimaryMainFrameOrigin() const {
+  return url::Origin::Create(last_committed_primary_main_frame_url_);
 }
 
 security_state::SecurityLevel
@@ -102,10 +139,14 @@ translate::TranslateDriver* TestAutofillClient::GetTranslateDriver() {
   return &mock_translate_driver_;
 }
 
+std::string TestAutofillClient::GetVariationConfigCountryCode() const {
+  return variation_config_country_code_;
+}
+
 #if !BUILDFLAG(IS_IOS)
 std::unique_ptr<webauthn::InternalAuthenticator>
 TestAutofillClient::CreateCreditCardInternalAuthenticator(
-    content::RenderFrameHost* rfh) {
+    AutofillDriver* driver) {
   return std::make_unique<TestInternalAuthenticator>();
 }
 #endif
@@ -113,16 +154,21 @@ TestAutofillClient::CreateCreditCardInternalAuthenticator(
 void TestAutofillClient::ShowAutofillSettings(bool show_credit_card_settings) {}
 
 void TestAutofillClient::ShowUnmaskPrompt(
-    const CreditCard& card,
-    UnmaskCardReason reason,
-    base::WeakPtr<CardUnmaskDelegate> delegate) {}
+    const autofill::CreditCard& card,
+    const autofill::CardUnmaskPromptOptions& card_unmask_prompt_options,
+    base::WeakPtr<autofill::CardUnmaskDelegate> delegate) {}
 
 void TestAutofillClient::OnUnmaskVerificationResult(PaymentsRpcResult result) {}
 
-raw_ptr<VirtualCardEnrollmentManager>
+VirtualCardEnrollmentManager*
 TestAutofillClient::GetVirtualCardEnrollmentManager() {
   return form_data_importer_->GetVirtualCardEnrollmentManager();
 }
+
+void TestAutofillClient::ShowVirtualCardEnrollDialog(
+    const VirtualCardEnrollmentFields& virtual_card_enrollment_fields,
+    base::OnceClosure accept_virtual_card_callback,
+    base::OnceClosure decline_virtual_card_callback) {}
 
 #if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
 std::vector<std::string>
@@ -238,6 +284,34 @@ bool TestAutofillClient::HasCreditCardScanFeature() {
 
 void TestAutofillClient::ScanCreditCard(CreditCardScanCallback callback) {}
 
+bool TestAutofillClient::IsFastCheckoutSupported() {
+  return false;
+}
+
+bool TestAutofillClient::IsFastCheckoutTriggerForm(const FormData& form,
+                                                   const FormFieldData& field) {
+  return false;
+}
+
+bool TestAutofillClient::ShowFastCheckout(
+    base::WeakPtr<FastCheckoutDelegate> delegate) {
+  return false;
+}
+
+void TestAutofillClient::HideFastCheckout() {}
+
+bool TestAutofillClient::IsTouchToFillCreditCardSupported() {
+  return false;
+}
+
+bool TestAutofillClient::ShowTouchToFillCreditCard(
+    base::WeakPtr<TouchToFillDelegate> delegate,
+    base::span<const autofill::CreditCard* const> cards_to_suggest) {
+  return false;
+}
+
+void TestAutofillClient::HideTouchToFillCreditCard() {}
+
 void TestAutofillClient::ShowAutofillPopup(
     const AutofillClient::PopupOpenArgs& open_args,
     base::WeakPtr<AutofillPopupDelegate> delegate) {}
@@ -261,17 +335,22 @@ void TestAutofillClient::UpdatePopup(const std::vector<Suggestion>& suggestions,
 
 void TestAutofillClient::HideAutofillPopup(PopupHidingReason reason) {}
 
-void TestAutofillClient::ShowVirtualCardErrorDialog(bool is_permanent_error) {
+void TestAutofillClient::ShowVirtualCardErrorDialog(
+    const AutofillErrorDialogContext& context) {
   virtual_card_error_dialog_shown_ = true;
-  virtual_card_error_dialog_is_permanent_error_ = is_permanent_error;
+  autofill_error_dialog_context_ = context;
 }
 
-bool TestAutofillClient::IsAutocompleteEnabled() {
+bool TestAutofillClient::IsAutocompleteEnabled() const {
+  return true;
+}
+
+bool TestAutofillClient::IsPasswordManagerEnabled() {
   return true;
 }
 
 void TestAutofillClient::PropagateAutofillPredictions(
-    content::RenderFrameHost* rfh,
+    AutofillDriver* driver,
     const std::vector<FormStructure*>& forms) {}
 
 void TestAutofillClient::DidFillOrPreviewField(
@@ -293,13 +372,23 @@ bool TestAutofillClient::AreServerCardsSupported() const {
 
 void TestAutofillClient::ExecuteCommand(int id) {}
 
+void TestAutofillClient::OpenPromoCodeOfferDetailsURL(const GURL& url) {}
+
+LogManager* TestAutofillClient::GetLogManager() const {
+  return log_manager_.get();
+}
+
+FormInteractionsFlowId TestAutofillClient::GetCurrentFormInteractionsFlowId() {
+  return {};
+}
+
 void TestAutofillClient::LoadRiskData(
     base::OnceCallback<void(const std::string&)> callback) {
   std::move(callback).Run("some risk data");
 }
 
 #if BUILDFLAG(IS_IOS)
-bool TestAutofillClient::IsQueryIDRelevant(int query_id) {
+bool TestAutofillClient::IsLastQueriedField(FieldGlobalId field_id) {
   return true;
 }
 #endif
@@ -315,8 +404,9 @@ void TestAutofillClient::set_form_origin(const GURL& url) {
   test_ukm_recorder_.UpdateSourceURL(source_id_, form_origin_);
 }
 
-void TestAutofillClient::set_last_committed_url(const GURL& url) {
-  last_committed_url_ = url;
+void TestAutofillClient::set_last_committed_primary_main_frame_url(
+    const GURL& url) {
+  last_committed_primary_main_frame_url_ = url;
 }
 
 ukm::TestUkmRecorder* TestAutofillClient::GetTestUkmRecorder() {

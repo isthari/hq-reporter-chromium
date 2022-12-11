@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,17 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/media/router/mojo/media_router_desktop.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -192,7 +194,7 @@ bool MediaRouterIntegrationBrowserTest::ConditionalWait(
       return true;
 
     base::RunLoop run_loop;
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, run_loop.QuitClosure(), interval);
     run_loop.Run();
   } while (timer.Elapsed() < timeout);
@@ -202,7 +204,7 @@ bool MediaRouterIntegrationBrowserTest::ConditionalWait(
 
 void MediaRouterIntegrationBrowserTest::Wait(base::TimeDelta timeout) {
   base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), timeout);
   run_loop.Run();
 }
@@ -212,10 +214,11 @@ void MediaRouterIntegrationBrowserTest::WaitUntilNoRoutes(
   if (!test_provider_->HasRoutes())
     return;
 
-  // FIXME: There can't be a good reason to use the observer API to check for
-  // routes asynchronously, which is fragile.  However, some browser tests rely
-  // on this behavior.  Either add a callback parameter to TerminateRoute, or
-  // add pass callback to the TestProvider to run when all routes are gone.
+  // TODO(crbug.com/1374499): There can't be a good reason to use the observer
+  // API to check for routes asynchronously, which is fragile.  However, some
+  // browser tests rely on this behavior.  Either add a callback parameter to
+  // TerminateRoute, or add pass callback to the TestProvider to run when all
+  // routes are gone.
   base::RunLoop run_loop;
   NoRoutesObserver no_routes_observer(
       MediaRouterFactory::GetApiForBrowserContext(
@@ -232,19 +235,17 @@ void MediaRouterIntegrationBrowserTest::ExecuteJavaScriptAPI(
   // Read the test result, the test result set by javascript is a
   // JSON string with the following format:
   // {"passed": "<true/false>", "errorMessage": "<error_message>"}
-  std::unique_ptr<base::Value> value = base::JSONReader::ReadDeprecated(
-      result, base::JSON_ALLOW_TRAILING_COMMAS);
+  absl::optional<base::Value> value =
+      base::JSONReader::Read(result, base::JSON_ALLOW_TRAILING_COMMAS);
 
   // Convert to dictionary.
-  base::DictionaryValue* dict_value = nullptr;
-  ASSERT_TRUE(value->GetAsDictionary(&dict_value));
+  base::Value::Dict* dict_value = value->GetIfDict();
+  ASSERT_TRUE(dict_value);
 
   // Extract the fields.
-  std::string error_message;
-  ASSERT_TRUE(dict_value->GetString("errorMessage", &error_message));
-
-  ASSERT_THAT(dict_value->FindBoolKey("passed"), Optional(true))
-      << error_message;
+  const std::string* error_message = dict_value->FindString("errorMessage");
+  ASSERT_TRUE(error_message);
+  ASSERT_THAT(dict_value->FindBool("passed"), Optional(true)) << error_message;
 }
 
 void MediaRouterIntegrationBrowserTest::StartSessionAndAssertNotFoundError() {
@@ -318,7 +319,7 @@ void MediaRouterIntegrationBrowserTest::CheckStartFailed(
 base::FilePath MediaRouterIntegrationBrowserTest::GetResourceFile(
     base::FilePath::StringPieceType relative_path) const {
   const base::FilePath full_path =
-      base::PathService::CheckedGet(base::DIR_MODULE)
+      base::PathService::CheckedGet(base::DIR_GEN_TEST_DATA_ROOT)
           .Append(FILE_PATH_LITERAL("media_router/browser_test_resources/"))
           .Append(relative_path);
   {

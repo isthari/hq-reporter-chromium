@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,7 @@
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
-#include "third_party/blink/renderer/core/inspector/thread_debugger.h"
+#include "third_party/blink/renderer/core/inspector/thread_debugger_common_impl.h"
 #include "third_party/blink/renderer/core/loader/worker_fetch_context.h"
 #include "third_party/blink/renderer/core/origin_trials/origin_trial_context.h"
 #include "third_party/blink/renderer/core/script/script.h"
@@ -30,6 +30,8 @@
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
 #include "third_party/blink/renderer/platform/loader/fetch/worker_resource_timing_notifier.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_std.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
@@ -60,10 +62,14 @@ void ThreadedWorkletMessagingProxy::Initialize(
   DCHECK(csp);
 
   LocalFrameClient* frame_client = window->GetFrame()->Client();
+  // For now we should prioritize to send full UA string if opted into both
+  // Reduction and SendFullUserAgentAfterReduction Origin Trial
   const String user_agent =
-      RuntimeEnabledFeatures::UserAgentReductionEnabled(window)
-          ? frame_client->ReducedUserAgent()
-          : frame_client->UserAgent();
+      RuntimeEnabledFeatures::SendFullUserAgentAfterReductionEnabled(window)
+          ? frame_client->FullUserAgent()
+          : (RuntimeEnabledFeatures::UserAgentReductionEnabled(window)
+                 ? frame_client->ReducedUserAgent()
+                 : frame_client->UserAgent());
 
   auto global_scope_creation_params =
       std::make_unique<GlobalScopeCreationParams>(
@@ -75,18 +81,17 @@ void ThreadedWorkletMessagingProxy::Initialize(
           window->GetReferrerPolicy(), window->GetSecurityOrigin(),
           window->IsSecureContext(), window->GetHttpsState(), worker_clients,
           frame_client->CreateWorkerContentSettingsClient(),
-          window->AddressSpace(),
           OriginTrialContext::GetInheritedTrialFeatures(window).get(),
           base::UnguessableToken::Create(),
           std::make_unique<WorkerSettings>(window->GetFrame()->GetSettings()),
           mojom::blink::V8CacheOptions::kDefault, module_responses_map,
           mojo::NullRemote() /* browser_interface_broker */,
           window->GetFrame()->Loader().CreateWorkerCodeCacheHost(),
+          window->GetFrame()->GetBlobUrlStorePendingRemote(),
           BeginFrameProviderParams(), nullptr /* parent_permissions_policy */,
           window->GetAgentClusterID(), ukm::kInvalidSourceId,
           window->GetExecutionContextToken(),
-          window->CrossOriginIsolatedCapability(),
-          window->DirectSocketCapability());
+          window->CrossOriginIsolatedCapability(), window->IsIsolatedContext());
 
   // Worklets share the pre-initialized backing thread so that we don't have to
   // specify the backing thread startup data.

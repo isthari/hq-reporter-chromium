@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_ARC_ACCESSIBILITY_ACCESSIBILITY_WINDOW_INFO_DATA_WRAPPER_H_
 #define CHROME_BROWSER_ASH_ARC_ACCESSIBILITY_ACCESSIBILITY_WINDOW_INFO_DATA_WRAPPER_H_
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -46,6 +47,12 @@ class AccessibilityWindowInfoDataWrapper : public AccessibilityInfoDataWrapper {
   void GetChildren(
       std::vector<AccessibilityInfoDataWrapper*>* children) const override;
   int32_t GetWindowId() const override;
+
+  AccessibilityInfoDataWrapper* GetTraversalBefore() const override;
+  AccessibilityInfoDataWrapper* GetTraversalAfter() const override;
+
+ protected:
+  void PopulateChildrenOverride() override;
 
  private:
   bool GetProperty(mojom::AccessibilityWindowBooleanProperty prop) const;

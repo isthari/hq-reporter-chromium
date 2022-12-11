@@ -33,12 +33,13 @@
 
 #include <limits>
 
+#include "base/memory/values_equivalent.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/fonts/font_face_creation_params.h"
 #include "third_party/blink/renderer/platform/fonts/font_palette.h"
+#include "third_party/blink/renderer/platform/fonts/font_variant_alternates.h"
 #include "third_party/blink/renderer/platform/fonts/opentype/font_settings.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/hash_table_deleted_value_type.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
@@ -60,6 +61,7 @@ struct FontCacheKey {
                float device_scale_factor,
                scoped_refptr<FontVariationSettings> variation_settings,
                scoped_refptr<FontPalette> palette,
+               scoped_refptr<FontVariantAlternates> font_variant_alternates,
                bool is_unique_match)
       : creation_params_(creation_params),
         font_size_(font_size * kFontSizePrecisionMultiplier),
@@ -67,6 +69,7 @@ struct FontCacheKey {
         device_scale_factor_(device_scale_factor),
         variation_settings_(std::move(variation_settings)),
         palette_(palette),
+        font_variant_alternates_(font_variant_alternates),
         is_unique_match_(is_unique_match) {}
 
   FontCacheKey(WTF::HashTableDeletedValueType)
@@ -81,16 +84,17 @@ struct FontCacheKey {
   unsigned GetHash() const {
     // Convert from float with 3 digit precision before hashing.
     unsigned device_scale_factor_hash = device_scale_factor_ * 1000;
-    unsigned hash_codes[7] = {
+    unsigned hash_codes[8] = {
       creation_params_.GetHash(),
       font_size_,
       options_,
       device_scale_factor_hash,
 #if BUILDFLAG(IS_ANDROID)
-      (locale_.IsEmpty() ? 0 : AtomicStringHash::GetHash(locale_)) ^
+      (locale_.empty() ? 0 : AtomicStringHash::GetHash(locale_)) ^
 #endif  // BUILDFLAG(IS_ANDROID)
           (variation_settings_ ? variation_settings_->GetHash() : 0),
       palette_ ? palette_->GetHash() : 0,
+      font_variant_alternates_ ? font_variant_alternates_->GetHash() : 0,
       is_unique_match_
     };
     return StringHasher::HashMemory<sizeof(hash_codes)>(hash_codes);
@@ -111,6 +115,8 @@ struct FontCacheKey {
            locale_ == other.locale_ &&
 #endif  // BUILDFLAG(IS_ANDROID)
            variation_settings_equal && palette_equal &&
+           base::ValuesEquivalent(font_variant_alternates_,
+                                  other.font_variant_alternates_) &&
            is_unique_match_ == other.is_unique_match_;
   }
 
@@ -142,6 +148,7 @@ struct FontCacheKey {
 #endif  // BUILDFLAG(IS_ANDROID)
   scoped_refptr<FontVariationSettings> variation_settings_;
   scoped_refptr<FontPalette> palette_;
+  scoped_refptr<FontVariantAlternates> font_variant_alternates_;
   bool is_unique_match_ = false;
 };
 
@@ -168,21 +175,23 @@ struct FontCacheKeyTraits : WTF::SimpleClassHashTraits<FontCacheKey> {
 
 namespace WTF {
 template <>
-struct DefaultHash<blink::FontCacheKey> {
-  STATIC_ONLY(DefaultHash);
-  typedef blink::FontCacheKeyHash Hash;
-};
+struct DefaultHash<blink::FontCacheKey> : blink::FontCacheKeyHash {};
 
 template <>
 struct HashTraits<blink::FontCacheKey>
     : WTF::SimpleClassHashTraits<blink::FontCacheKey> {
-  STATIC_ONLY(HashTraits);
-
   // std::string's empty state need not be zero in all implementations,
   // and it is held within FontFaceCreationParams.
   static const bool kEmptyValueIsZero = false;
 };
 
 }  // namespace WTF
+
+template <>
+struct std::hash<blink::FontCacheKey> {
+  std::size_t operator()(blink::FontCacheKey const& s) const noexcept {
+    return static_cast<size_t>(s.GetHash());
+  }
+};
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_CACHE_KEY_H_

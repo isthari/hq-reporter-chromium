@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,10 +41,10 @@ class TestExtensionNotificationHandler : public ExtensionNotificationHandler {
                  events::HistogramValue histogram_value,
                  const std::string& event_name,
                  EventRouter::UserGestureState user_gesture,
-                 std::unique_ptr<base::ListValue> args) final {
+                 base::Value::List args) final {
     EXPECT_EQ(event_name_, event_name);
     EXPECT_EQ(extension_id_, extension_id);
-    EXPECT_EQ(param_count_, args->GetList().size());
+    EXPECT_EQ(param_count_, args.size());
   }
 
  private:

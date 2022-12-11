@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,13 +18,22 @@
 #include "base/memory/weak_ptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
+#include "base/win/windows_types.h"
+#include "gpu/config/gpu_driver_bug_workarounds.h"
+#include "gpu/config/gpu_preferences.h"
 #include "media/base/bitrate.h"
 #include "media/base/video_codecs.h"
 #include "media/base/win/dxgi_device_manager.h"
 #include "media/gpu/media_gpu_export.h"
+#include "media/video/h264_parser.h"
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
+#include "media/video/h265_nalu_parser.h"
+#endif
 #include "media/video/video_encode_accelerator.h"
 
 namespace media {
+
+class VideoRateControlWrapper;
 
 // Media Foundation implementation of the VideoEncodeAccelerator interface for
 // Windows.
@@ -36,10 +45,10 @@ namespace media {
 class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
     : public VideoEncodeAccelerator {
  public:
-  // If |compatible_with_win7| is true, MediaFoundationVideoEncoderAccelerator
-  // works on Windows 7. Some attributes of the encoder are not supported on old
-  // systems, which may impact the performance or quality of the output.
-  explicit MediaFoundationVideoEncodeAccelerator(bool compatible_with_win7);
+  explicit MediaFoundationVideoEncodeAccelerator(
+      const gpu::GpuPreferences& gpu_preferences,
+      const gpu::GpuDriverBugWorkarounds& gpu_workarounds,
+      CHROME_LUID luid);
 
   MediaFoundationVideoEncodeAccelerator(
       const MediaFoundationVideoEncodeAccelerator&) = delete;
@@ -48,13 +57,16 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
 
   // VideoEncodeAccelerator implementation.
   VideoEncodeAccelerator::SupportedProfiles GetSupportedProfiles() override;
-  VideoEncodeAccelerator::SupportedProfiles GetSupportedProfilesLight()
-      override;
-  bool Initialize(const Config& config, Client* client) override;
+  bool Initialize(const Config& config,
+                  Client* client,
+                  std::unique_ptr<MediaLog> media_log) override;
   void Encode(scoped_refptr<VideoFrame> frame, bool force_keyframe) override;
   void UseOutputBitstreamBuffer(BitstreamBuffer buffer) override;
-  void RequestEncodingParametersChange(const media::Bitrate& bitrate,
+  void RequestEncodingParametersChange(const Bitrate& bitrate,
                                        uint32_t framerate) override;
+  void RequestEncodingParametersChange(
+      const VideoBitrateAllocation& bitrate_allocation,
+      uint32_t framerate) override;
   void Destroy() override;
   bool IsGpuFrameResizeSupported() override;
 
@@ -76,17 +88,11 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
 
   // Get supported profiles for specific codec.
   VideoEncodeAccelerator::SupportedProfiles GetSupportedProfilesForCodec(
-      VideoCodec codec,
-      bool populate_svc_info);
-
-  // Enumerates all hardware encoder backed IMFTransform instances for given
-  // codec.
-  uint32_t EnumerateHardwareEncoders(VideoCodec codec,
-                                     IMFActivate*** pp_activate);
+      VideoCodec codec);
 
   // Activates the asynchronous encoder instance |encoder_| according to codec
   // merit.
-  bool ActivateAsyncEncoder(IMFActivate** pp_activate,
+  bool ActivateAsyncEncoder(IMFActivate** pp_activates,
                             uint32_t activate_count,
                             bool is_constrained_h264);
 
@@ -101,7 +107,7 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
   // |main_client_task_runner_|.
   void NotifyError(VideoEncodeAccelerator::Error error);
 
-  // Encoding task to be run on |encoder_thread_|.
+  // Encoding task to be run on |encoder_thread_task_runner_|.
   void EncodeTask(scoped_refptr<VideoFrame> frame, bool force_keyframe);
 
   // Processes the input video frame for the encoder.
@@ -110,6 +116,7 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
   // Populates input sample buffer with contents of a video frame
   HRESULT PopulateInputSampleBuffer(scoped_refptr<VideoFrame> frame);
   HRESULT PopulateInputSampleBufferGpu(scoped_refptr<VideoFrame> frame);
+  HRESULT CopyInputSampleBufferFromGpu(const VideoFrame& frame);
 
   // Assign TemporalID by bitstream or external state machine(based on SVC
   // Spec).
@@ -122,11 +129,8 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
 
   bool temporalScalableCoding() { return num_temporal_layers_ > 1; }
 
-  // Checks for and copies encoded output on |encoder_thread_|.
+  // Checks for and copies encoded output on |encoder_thread_task_runner_|.
   void ProcessOutput();
-
-  // Drains pending output samples on |encoder_thread_|.
-  void DrainPendingOutputs();
 
   // Tries to deliver the input frame to the encoder.
   bool TryToDeliverInputFrame(scoped_refptr<VideoFrame> frame,
@@ -135,16 +139,21 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
   // Tries to return a bitstream buffer to the client.
   void TryToReturnBitstreamBuffer();
 
-  // Inserts the output buffers for reuse on |encoder_thread_|.
+  // Inserts the output buffers for reuse on |encoder_thread_task_runner_|.
   void UseOutputBitstreamBufferTask(
       std::unique_ptr<BitstreamBufferRef> buffer_ref);
 
-  // Changes encode parameters on |encoder_thread_|.
-  void RequestEncodingParametersChangeTask(const Bitrate& bitrate,
-                                           uint32_t framerate);
+  // Changes encode parameters on |encoder_thread_task_runner_|.
+  void RequestEncodingParametersChangeTask(
+      const VideoBitrateAllocation& bitrate_allocation,
+      uint32_t framerate);
 
-  // Destroys encode session on |encoder_thread_|.
+  // Destroys encode session on |encoder_thread_task_runner_|.
   void DestroyTask();
+
+  // Initialize the encoder on |encoder_thread_task_runner_|.
+  void EncoderInitializeTask(const Config& config,
+                             std::unique_ptr<MediaLog> media_log);
 
   // Releases resources encoder holds.
   void ReleaseEncoderResources();
@@ -170,11 +179,18 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
 
   // This parser is used to assign temporalId.
   H264Parser h264_parser_;
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
+  H265NaluParser h265_nalu_parser_;
+#endif
 
   gfx::Size input_visible_size_;
   size_t bitstream_buffer_size_;
   uint32_t frame_rate_;
-  Bitrate bitrate_;
+  // For recording configured frame rate as we don't dynamically change it.
+  // The default value here will be overridden during initialization.
+  uint32_t configured_frame_rate_ = 30;
+  // Bitrate allocation in bps.
+  VideoBitrateAllocation bitrate_allocation_;
   bool low_latency_mode_;
   int num_temporal_layers_ = 1;
 
@@ -186,7 +202,11 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
 
   // Group of picture length for encoded output stream, indicates the
   // distance between two key frames.
-  absl::optional<uint32_t> gop_length_;
+  uint32_t gop_length_;
+
+  // Video encoder info that includes accelerator name, QP validity, etc.
+  VideoEncoderInfo encoder_info_;
+  bool encoder_info_sent_ = false;
 
   Microsoft::WRL::ComPtr<IMFActivate> activate_;
   Microsoft::WRL::ComPtr<IMFTransform> encoder_;
@@ -222,9 +242,24 @@ class MEDIA_GPU_EXPORT MediaFoundationVideoEncodeAccelerator
   // This thread services tasks posted from the VEA API entry points
   // and runs them on a thread that can do heavy work and call MF COM interface.
   scoped_refptr<base::SingleThreadTaskRunner> encoder_thread_task_runner_;
+  SEQUENCE_CHECKER(encode_sequence_checker_);
 
   // DXGI device manager for handling hardware input textures
   scoped_refptr<DXGIDeviceManager> dxgi_device_manager_;
+  // Mapping of dxgi resource needed when HMFT rejects setting D3D11 manager.
+  bool dxgi_resource_mapping_required_ = false;
+  // Staging texture for copying from GPU memory if HMFT does not operate in
+  // D3D11 mode.
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_texture_;
+
+  // Preferred adapter for DXGIDeviceManager.
+  const CHROME_LUID luid_;
+
+  // A buffer used as a scratch space for I420 to NV12 conversion
+  std::vector<uint8_t> resize_buffer_;
+
+  // Bitrate controller for CBR encoding.
+  std::unique_ptr<VideoRateControlWrapper> rate_ctrl_;
 
   // Declared last to ensure that all weak pointers are invalidated before
   // other destructors run.

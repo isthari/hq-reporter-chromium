@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@ import android.os.Bundle;
 import android.view.Menu;
 import android.view.View;
 
-import androidx.annotation.IdRes;
 import androidx.annotation.Nullable;
 
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
@@ -139,13 +138,6 @@ public interface AppMenuPropertiesDelegate {
      */
     boolean shouldShowIconBeforeItem();
 
-    /**
-     * Called to record that the menu item {@code menuItemId} was highlighted.
-     */
-    void recordHighlightedMenuItemShown(@Nullable @IdRes Integer menuItemId);
-
-    /**
-     * Called to record that user clicked on highlighted menu item {@code menuItemId}.
-     */
-    void recordHighlightedMenuItemClicked(@Nullable @IdRes Integer menuItemId);
+    /** Returns whether the menu icon is positioned at the start. */
+    boolean isMenuIconAtStart();
 }

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
-#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "content/browser/renderer_host/input/synthetic_gesture.h"
@@ -56,12 +55,19 @@ const char kTouchActionDataURL[] =
     "  margin: 0;"
     "}"
     ".box {"
-    "  height: 96px;"
-    "  width: 96px;"
-    "  border: 2px solid blue;"
+    "  height: 100px;"
+    "  width: 100px;"
+    "  background-color: red;"
     "}"
-    ".spacer { height: 10000px; }"
-    ".ta-none { touch-action: none; }"
+    ".ta-none {"
+    "  touch-action: none;"
+    "  background-color: green;"
+    "}"
+    ".spacer {"
+    "  height: 10000px;"
+    "  width: 100px;"
+    "  background-color: blue;"
+    "}"
     "</style>"
     "<div class=box></div>"
     "<div class='box ta-none'></div>"
@@ -122,7 +128,7 @@ const char kTouchActionURLWithOverlapArea[] =
 
 void GiveItSomeTime(int t) {
   base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(t));
   run_loop.Run();
 }
@@ -148,7 +154,7 @@ class TouchActionBrowserTest : public ContentBrowserTest {
   RenderWidgetHostImpl* GetWidgetHost() {
     return RenderWidgetHostImpl::From(shell()
                                           ->web_contents()
-                                          ->GetMainFrame()
+                                          ->GetPrimaryMainFrame()
                                           ->GetRenderViewHost()
                                           ->GetWidget());
   }
@@ -358,10 +364,10 @@ class TouchActionBrowserTest : public ContentBrowserTest {
                 { "name": "pointerUp"}]}]
         )HTML";
 
-    base::JSONReader::ValueWithError parsed_json =
+    auto parsed_json =
         base::JSONReader::ReadAndReturnValueWithError(pointer_actions_json);
-    ASSERT_TRUE(parsed_json.value) << parsed_json.error_message;
-    ActionsParser actions_parser(std::move(*parsed_json.value));
+    ASSERT_TRUE(parsed_json.has_value()) << parsed_json.error().message;
+    ActionsParser actions_parser(std::move(*parsed_json));
 
     ASSERT_TRUE(actions_parser.Parse());
 
@@ -396,10 +402,10 @@ class TouchActionBrowserTest : public ContentBrowserTest {
         }]
         )HTML";
 
-    base::JSONReader::ValueWithError parsed_json =
+    auto parsed_json =
         base::JSONReader::ReadAndReturnValueWithError(pointer_actions_json);
-    ASSERT_TRUE(parsed_json.value) << parsed_json.error_message;
-    ActionsParser actions_parser(std::move(*parsed_json.value));
+    ASSERT_TRUE(parsed_json.has_value()) << parsed_json.error().message;
+    ActionsParser actions_parser(std::move(*parsed_json));
 
     ASSERT_TRUE(actions_parser.Parse());
 
@@ -476,9 +482,10 @@ class TouchActionBrowserTest : public ContentBrowserTest {
   std::unique_ptr<base::RunLoop> run_loop_;
 };
 
+// TODO(crbug.com/1357167): Fix Mac failures.
 #if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) ||       \
     defined(MEMORY_SANITIZER) || defined(LEAK_SANITIZER) || \
-    defined(THREAD_SANITIZER)
+    defined(THREAD_SANITIZER) || BUILDFLAG(IS_MAC)
 #define MAYBE_DefaultAuto DISABLED_DefaultAuto
 #else
 #define MAYBE_DefaultAuto DefaultAuto
@@ -523,9 +530,10 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTest, MAYBE_TouchActionNone) {
   EXPECT_EQ(0, ExecuteScriptAndExtractInt("eventCounts.touchcancel"));
 }
 
+// TODO(crbug.com/1357167): Fix Mac failures.
 #if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) ||       \
     defined(MEMORY_SANITIZER) || defined(LEAK_SANITIZER) || \
-    defined(THREAD_SANITIZER)
+    defined(THREAD_SANITIZER) || BUILDFLAG(IS_MAC)
 #define MAYBE_PanYMainThreadJanky DISABLED_PanYMainThreadJanky
 #else
 #define MAYBE_PanYMainThreadJanky PanYMainThreadJanky
@@ -539,9 +547,10 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTest, MAYBE_PanYMainThreadJanky) {
                                     gfx::Vector2d(0, 45), kShortJankTime);
 }
 
+// TODO(crbug.com/1357167): Fix Mac failures.
 #if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) ||       \
     defined(MEMORY_SANITIZER) || defined(LEAK_SANITIZER) || \
-    defined(THREAD_SANITIZER)
+    defined(THREAD_SANITIZER) || BUILDFLAG(IS_MAC)
 #define MAYBE_PanXMainThreadJanky DISABLED_PanXMainThreadJanky
 #else
 #define MAYBE_PanXMainThreadJanky PanXMainThreadJanky
@@ -585,9 +594,10 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTest,
   DoTwoFingerTouchScroll(true, gfx::Vector2d(20, 0));
 }
 
+// TODO(crbug.com/1357167): Fix Mac failures.
 #if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) ||       \
     defined(MEMORY_SANITIZER) || defined(LEAK_SANITIZER) || \
-    defined(THREAD_SANITIZER)
+    defined(THREAD_SANITIZER) || BUILDFLAG(IS_MAC)
 #define MAYBE_PanXYMainThreadJanky DISABLED_PanXYMainThreadJanky
 #else
 #define MAYBE_PanXYMainThreadJanky PanXYMainThreadJanky
@@ -601,9 +611,10 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTest, MAYBE_PanXYMainThreadJanky) {
                                     gfx::Vector2d(45, 45), kShortJankTime);
 }
 
+// TODO(crbug.com/1357167): Fix Mac failures.
 #if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) ||       \
     defined(MEMORY_SANITIZER) || defined(LEAK_SANITIZER) || \
-    defined(THREAD_SANITIZER)
+    defined(THREAD_SANITIZER) || BUILDFLAG(IS_MAC)
 #define MAYBE_PanXYAtXAreaMainThreadJanky DISABLED_PanXYAtXAreaMainThreadJanky
 #else
 #define MAYBE_PanXYAtXAreaMainThreadJanky PanXYAtXAreaMainThreadJanky
@@ -617,9 +628,10 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTest,
                                     kShortJankTime);
 }
 
+// TODO(crbug.com/1357167): Fix Mac failures.
 #if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) ||       \
     defined(MEMORY_SANITIZER) || defined(LEAK_SANITIZER) || \
-    defined(THREAD_SANITIZER)
+    defined(THREAD_SANITIZER) || BUILDFLAG(IS_MAC)
 #define MAYBE_PanXYAtYAreaMainThreadJanky DISABLED_PanXYAtYAreaMainThreadJanky
 #else
 #define MAYBE_PanXYAtYAreaMainThreadJanky PanXYAtYAreaMainThreadJanky
@@ -633,9 +645,10 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTest,
                                     kShortJankTime);
 }
 
+// TODO(crbug.com/1357167): Fix Mac failures.
 #if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) ||       \
     defined(MEMORY_SANITIZER) || defined(LEAK_SANITIZER) || \
-    defined(THREAD_SANITIZER)
+    defined(THREAD_SANITIZER) || BUILDFLAG(IS_MAC)
 #define MAYBE_PanXYAtAutoYOverlapAreaMainThreadJanky \
   DISABLED_PanXYAtAutoYOverlapAreaMainThreadJanky
 #else
@@ -651,9 +664,10 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTest,
                                     kShortJankTime);
 }
 
+// TODO(crbug.com/1357167): Fix Mac failures.
 #if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) ||       \
     defined(MEMORY_SANITIZER) || defined(LEAK_SANITIZER) || \
-    defined(THREAD_SANITIZER)
+    defined(THREAD_SANITIZER) || BUILDFLAG(IS_MAC)
 #define MAYBE_PanXYAtAutoXOverlapAreaMainThreadJanky \
   DISABLED_PanXYAtAutoXOverlapAreaMainThreadJanky
 #else
@@ -838,7 +852,6 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTestEnableCursorControl,
                        BasicCursorControl) {
   if (!::features::IsSwipeToMoveCursorEnabled())
     return;
-  base::HistogramTester histograms;
   LoadURL(kContentEditableDataURL.c_str());
 
   EXPECT_EQ(32,
@@ -857,10 +870,6 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTestEnableCursorControl,
 
   EXPECT_EQ(anchor_offset, focus_offset);
   EXPECT_GT(32, anchor_offset);
-  histograms.ExpectBucketCount("Blink.Input.GestureScrollBeginAsCursorControl",
-                               true, 1);
-  histograms.ExpectBucketCount("Blink.Input.GestureScrollBeginAsCursorControl",
-                               false, 0);
 }
 
 // Perform a horizontal swipe over an editable element from right to left (the
@@ -871,7 +880,6 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTestEnableCursorControl,
                        NoCursorControlForHorizontalScrollable) {
   if (!::features::IsSwipeToMoveCursorEnabled())
     return;
-  base::HistogramTester histograms;
   LoadURL(kContentEditableHorizontalScrollableDataURL.c_str());
 
   EXPECT_EQ(32,
@@ -892,10 +900,6 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTestEnableCursorControl,
   EXPECT_EQ(32, anchor_offset);
   EXPECT_LT(0.f, ExecuteScriptAndExtractDouble(
                      "document.getElementById('scroller').scrollLeft"));
-  histograms.ExpectBucketCount("Blink.Input.GestureScrollBeginAsCursorControl",
-                               true, 0);
-  histograms.ExpectBucketCount("Blink.Input.GestureScrollBeginAsCursorControl",
-                               false, 1);
 }
 
 // Perform a horizontal swipe over an editable element from right to left
@@ -931,7 +935,6 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTestEnableCursorControl,
                        CursorControlOnInput) {
   if (!::features::IsSwipeToMoveCursorEnabled())
     return;
-  base::HistogramTester histograms;
   // input size larger than the text size, not horizontally scrollable.
   LoadURL(base::StringPrintf(kInputTagCursorControl.c_str(), 40).c_str());
 
@@ -949,10 +952,6 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTestEnableCursorControl,
 
   EXPECT_EQ(selection_start, selection_end);
   EXPECT_GT(32, selection_start);
-  histograms.ExpectBucketCount("Blink.Input.GestureScrollBeginAsCursorControl",
-                               true, 1);
-  histograms.ExpectBucketCount("Blink.Input.GestureScrollBeginAsCursorControl",
-                               false, 0);
 }
 
 // Perform a horizontal swipe over an horizontal scrollable input element from
@@ -961,7 +960,6 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTestEnableCursorControl,
                        NoCursorControlOnHorizontalScrollableInput) {
   if (!::features::IsSwipeToMoveCursorEnabled())
     return;
-  base::HistogramTester histograms;
   // Make the input size smaller than the text size, so it horizontally
   // scrollable.
   LoadURL(base::StringPrintf(kInputTagCursorControl.c_str(), 20).c_str());
@@ -980,10 +978,6 @@ IN_PROC_BROWSER_TEST_F(TouchActionBrowserTestEnableCursorControl,
 
   EXPECT_EQ(selection_start, selection_end);
   EXPECT_EQ(32, selection_start);
-  histograms.ExpectBucketCount("Blink.Input.GestureScrollBeginAsCursorControl",
-                               true, 0);
-  histograms.ExpectBucketCount("Blink.Input.GestureScrollBeginAsCursorControl",
-                               false, 1);
 }
 
 }  // namespace content

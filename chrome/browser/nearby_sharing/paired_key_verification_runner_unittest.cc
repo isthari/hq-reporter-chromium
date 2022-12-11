@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <stdint.h>
 #include <vector>
 
-#include "ash/services/nearby/public/cpp/mock_nearby_process_manager.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/run_loop.h"
@@ -20,6 +19,7 @@
 #include "chrome/browser/nearby_sharing/incoming_frames_reader.h"
 #include "chrome/browser/nearby_sharing/share_target.h"
 #include "chrome/services/sharing/public/proto/wire_format.pb.h"
+#include "chromeos/ash/services/nearby/public/cpp/mock_nearby_process_manager.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -129,7 +129,7 @@ class PairedKeyVerificationRunnerTest : public testing::Test {
     EXPECT_CALL(
         frames_reader_,
         ReadFrame(
-            testing::Eq(sharing::mojom::V1Frame::Tag::PAIRED_KEY_ENCRYPTION),
+            testing::Eq(sharing::mojom::V1Frame::Tag::kPairedKeyEncryption),
             testing::_, testing::Eq(kTimeout)))
         .WillOnce(testing::WithArg<1>(testing::Invoke(
             [frame_type](
@@ -140,16 +140,15 @@ class PairedKeyVerificationRunnerTest : public testing::Test {
                 return;
               }
 
-              sharing::mojom::V1FramePtr mojo_v1frame =
-                  sharing::mojom::V1Frame::New();
+              sharing::mojom::V1FramePtr mojo_v1frame;
 
               if (frame_type == ReturnFrameType::kValid) {
-                mojo_v1frame->set_paired_key_encryption(
+                mojo_v1frame = sharing::mojom::V1Frame::NewPairedKeyEncryption(
                     sharing::mojom::PairedKeyEncryptionFrame::New(
                         kIncomingConnectionSignedData,
                         kPrivateCertificateHashAuthToken));
               } else {
-                mojo_v1frame->set_paired_key_encryption(
+                mojo_v1frame = sharing::mojom::V1Frame::NewPairedKeyEncryption(
                     sharing::mojom::PairedKeyEncryptionFrame::New());
               }
 
@@ -163,7 +162,7 @@ class PairedKeyVerificationRunnerTest : public testing::Test {
           sharing::mojom::PairedKeyResultFrame_Status::kUnknown) {
     EXPECT_CALL(
         frames_reader_,
-        ReadFrame(testing::Eq(sharing::mojom::V1Frame::Tag::PAIRED_KEY_RESULT),
+        ReadFrame(testing::Eq(sharing::mojom::V1Frame::Tag::kPairedKeyResult),
                   testing::_, testing::Eq(kTimeout)))
         .WillOnce(testing::WithArg<1>(testing::Invoke(
             [=](base::OnceCallback<void(
@@ -174,9 +173,8 @@ class PairedKeyVerificationRunnerTest : public testing::Test {
               }
 
               sharing::mojom::V1FramePtr mojo_v1frame =
-                  sharing::mojom::V1Frame::New();
-              mojo_v1frame->set_paired_key_result(
-                  sharing::mojom::PairedKeyResultFrame::New(status));
+                  sharing::mojom::V1Frame::NewPairedKeyResult(
+                      sharing::mojom::PairedKeyResultFrame::New(status));
 
               std::move(callback).Run(std::move(mojo_v1frame));
             })));

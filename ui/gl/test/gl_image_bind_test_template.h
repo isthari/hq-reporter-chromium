@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,8 @@ class GLImageBindTest : public GLImageTest<GLImageTestDelegate> {};
 TYPED_TEST_SUITE_P(GLImageBindTest);
 
 TYPED_TEST_P(GLImageBindTest, BindTexImage) {
-  if (this->delegate_.SkipTest())
-    return;
+  if (this->delegate_.SkipTest(this->display_))
+    GTEST_SKIP() << "Skip because GL initialization failed";
 
   const gfx::Size image_size(256, 256);
   const uint8_t* image_color = this->delegate_.GetImageColor();

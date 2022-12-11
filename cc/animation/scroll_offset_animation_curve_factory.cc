@@ -1,10 +1,8 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "cc/animation/scroll_offset_animation_curve_factory.h"
-
-#include <memory>
 
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
@@ -37,7 +35,7 @@ ScrollOffsetAnimationCurveFactory::CreateAnimation(
   if (scroll_type == ScrollType::kAutoScroll)
     return CreateLinearAnimation(target_value);
 
-  if (base::FeatureList::IsEnabled(features::kImpulseScrollAnimations))
+  if (features::IsImpulseScrollAnimationEnabled())
     return CreateImpulseAnimation(target_value);
 
   return CreateEaseInOutAnimation(
@@ -89,7 +87,6 @@ std::unique_ptr<ScrollOffsetAnimationCurve>
 ScrollOffsetAnimationCurveFactory::CreateImpulseAnimation(
     const gfx::PointF& target_value) {
   return base::WrapUnique(new ScrollOffsetAnimationCurve(
-      target_value, ScrollOffsetAnimationCurve::AnimationType::kImpulse,
-      ScrollOffsetAnimationCurve::DurationBehavior::INVERSE_DELTA));
+      target_value, ScrollOffsetAnimationCurve::AnimationType::kImpulse));
 }
 }  // namespace cc

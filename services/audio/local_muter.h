@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "base/callback.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/unguessable_token.h"
 #include "media/mojo/mojom/audio_stream_factory.mojom.h"
@@ -36,13 +37,17 @@ class LocalMuter final : public media::mojom::LocalMuter,
 
   // SetAllBindingsLostCallback() must be called before the first call to
   // AddBinding().
-  void SetAllBindingsLostCallback(base::OnceClosure callback);
+  void SetAllBindingsLostCallback(base::RepeatingClosure callback);
   void AddReceiver(
       mojo::PendingAssociatedReceiver<media::mojom::LocalMuter> receiver);
 
   // LoopbackCoordinator::Observer implementation.
   void OnMemberJoinedGroup(LoopbackGroupMember* member) final;
   void OnMemberLeftGroup(LoopbackGroupMember* member) final;
+
+  bool HasReceivers() { return !receivers_.empty(); }
+
+  base::WeakPtr<LocalMuter> GetWeakPtr() { return weak_factory_.GetWeakPtr(); }
 
  private:
   // Runs the |all_bindings_lost_callback_| when |bindings_| becomes empty.
@@ -52,9 +57,11 @@ class LocalMuter final : public media::mojom::LocalMuter,
   const base::UnguessableToken group_id_;
 
   mojo::AssociatedReceiverSet<media::mojom::LocalMuter> receivers_;
-  base::OnceClosure all_bindings_lost_callback_;
+  base::RepeatingClosure all_bindings_lost_callback_;
 
   SEQUENCE_CHECKER(sequence_checker_);
+
+  base::WeakPtrFactory<LocalMuter> weak_factory_{this};
 };
 
 }  // namespace audio

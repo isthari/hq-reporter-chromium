@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,10 +24,6 @@ class Profile;
 
 namespace bookmarks {
 class ManagedBookmarkService;
-}
-
-namespace content {
-class PageNavigator;
 }
 
 namespace ui {
@@ -57,10 +53,7 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
     HIDE_PERMANENT_FOLDERS
   };
 
-  BookmarkMenuDelegate(
-      Browser* browser,
-      base::RepeatingCallback<content::PageNavigator*()> get_navigator,
-      views::Widget* parent);
+  BookmarkMenuDelegate(Browser* browser, views::Widget* parent);
 
   BookmarkMenuDelegate(const BookmarkMenuDelegate&) = delete;
   BookmarkMenuDelegate& operator=(const BookmarkMenuDelegate&) = delete;
@@ -119,10 +112,6 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
       views::MenuItemView* item,
       const ui::DropTargetEvent& event,
       views::MenuDelegate::DropPosition* position);
-  ui::mojom::DragOperation OnPerformDrop(
-      views::MenuItemView* menu,
-      views::MenuDelegate::DropPosition position,
-      const ui::DropTargetEvent& event);
   views::View::DropCallback GetDropCallback(
       views::MenuItemView* menu,
       views::MenuDelegate::DropPosition position,
@@ -199,8 +188,6 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
 
   const raw_ptr<Browser> browser_;
   raw_ptr<Profile> profile_;
-
-  base::RepeatingCallback<content::PageNavigator*()> get_navigator_;
 
   // Parent of menus.
   raw_ptr<views::Widget> parent_;

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,8 +54,11 @@ class LoggedInSpokenFeedbackTest : public InProcessBrowserTest {
 
   void StablizeChromeVoxState();
 
+  void ExecuteCommandHandlerCommand(std::string command);
+
   void PressRepeatedlyUntilUtterance(ui::KeyboardCode key,
                                      const std::string& expected_utterance);
+  void ImportJSModuleForChromeVox(std::string name, std::string path);
 
   test::SpeechMonitor sm_;
 

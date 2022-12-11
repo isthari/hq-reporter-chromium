@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,18 +12,17 @@
 #include <utility>
 #include <vector>
 
-#include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/synchronization/waitable_event.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -39,6 +38,7 @@
 #include "net/cert/ct_sct_to_string.h"
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util.h"
+#include "net/cookies/parsed_cookie.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/ssl/ssl_cipher_suite_names.h"
@@ -46,7 +46,6 @@
 #include "net/ssl/ssl_info.h"
 #include "services/network/public/cpp/http_raw_request_response_info.h"
 #include "services/network/public/cpp/ip_address_space_util.h"
-#include "services/network/public/cpp/is_potentially_trustworthy.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "services/network/public/mojom/ip_address_space.mojom-shared.h"
@@ -83,6 +82,7 @@
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_security_policy.h"
 #include "third_party/blink/renderer/platform/loader/fetch/url_loader/sync_load_response.h"
+#include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
 #include "url/origin.h"
 
@@ -93,128 +93,6 @@ using blink::scheduler::WebResourceLoadingTaskRunnerHandle;
 namespace blink {
 
 // Utilities -------------------------------------------------------------------
-
-namespace {
-
-// Converts timing data from |load_timing| to the mojo type.
-network::mojom::LoadTimingInfo ToMojoLoadTiming(
-    const net::LoadTimingInfo& load_timing) {
-  DCHECK(!load_timing.request_start.is_null());
-
-  return network::mojom::LoadTimingInfo(
-      load_timing.socket_reused, load_timing.socket_log_id,
-      load_timing.request_start_time, load_timing.request_start,
-      load_timing.proxy_resolve_start, load_timing.proxy_resolve_end,
-      load_timing.connect_timing, load_timing.send_start, load_timing.send_end,
-      load_timing.receive_headers_start, load_timing.receive_headers_end,
-      load_timing.receive_non_informational_headers_start,
-      load_timing.first_early_hints_time, load_timing.push_start,
-      load_timing.push_end, load_timing.service_worker_start_time,
-      load_timing.service_worker_ready_time,
-      load_timing.service_worker_fetch_start,
-      load_timing.service_worker_respond_with_settled);
-}
-
-// This is complementary to ConvertNetPriorityToWebKitPriority, defined in
-// service_worker_context_client.cc.
-// TODO(yhirano): Move this to blink/platform/loader.
-net::RequestPriority ConvertWebKitPriorityToNetPriority(
-    const WebURLRequest::Priority& priority) {
-  switch (priority) {
-    case WebURLRequest::Priority::kVeryHigh:
-      return net::HIGHEST;
-
-    case WebURLRequest::Priority::kHigh:
-      return net::MEDIUM;
-
-    case WebURLRequest::Priority::kMedium:
-      return net::LOW;
-
-    case WebURLRequest::Priority::kLow:
-      return net::LOWEST;
-
-    case WebURLRequest::Priority::kVeryLow:
-      return net::IDLE;
-
-    case WebURLRequest::Priority::kUnresolved:
-    default:
-      NOTREACHED();
-      return net::LOW;
-  }
-}
-
-void SetSecurityStyleAndDetails(const GURL& url,
-                                const network::mojom::URLResponseHead& head,
-                                WebURLResponse* response,
-                                bool report_security_info) {
-  if (!report_security_info) {
-    response->SetSecurityStyle(SecurityStyle::kUnknown);
-    return;
-  }
-  if (!url.SchemeIsCryptographic()) {
-    // Some origins are considered secure even though they're not cryptographic,
-    // so treat them as secure in the UI.
-    if (network::IsUrlPotentiallyTrustworthy(url))
-      response->SetSecurityStyle(SecurityStyle::kSecure);
-    else
-      response->SetSecurityStyle(SecurityStyle::kInsecure);
-    return;
-  }
-
-  // The resource loader does not provide a guarantee that requests always have
-  // security info (such as a certificate) attached. Use SecurityStyleUnknown
-  // in this case where there isn't enough information to be useful.
-  if (!head.ssl_info.has_value()) {
-    response->SetSecurityStyle(SecurityStyle::kUnknown);
-    return;
-  }
-
-  const net::SSLInfo& ssl_info = *head.ssl_info;
-  if (net::IsCertStatusError(head.cert_status)) {
-    response->SetSecurityStyle(SecurityStyle::kInsecure);
-  } else {
-    response->SetSecurityStyle(SecurityStyle::kSecure);
-  }
-
-  if (!ssl_info.cert) {
-    NOTREACHED();
-    response->SetSecurityStyle(SecurityStyle::kUnknown);
-    return;
-  }
-
-  response->SetSSLInfo(ssl_info);
-}
-
-bool IsBannedCrossSiteAuth(
-    network::ResourceRequest* resource_request,
-    WebURLRequestExtraData* passed_url_request_extra_data) {
-  auto& request_url = resource_request->url;
-  auto& first_party = resource_request->site_for_cookies;
-
-  bool allow_cross_origin_auth_prompt = false;
-  if (passed_url_request_extra_data) {
-    WebURLRequestExtraData* url_request_extra_data =
-        static_cast<WebURLRequestExtraData*>(passed_url_request_extra_data);
-    allow_cross_origin_auth_prompt =
-        url_request_extra_data->allow_cross_origin_auth_prompt();
-  }
-
-  if (first_party.IsFirstPartyWithSchemefulMode(
-          request_url, /*compute_schemefully=*/false)) {
-    // If the first party is secure but the subresource is not, this is
-    // mixed-content. Do not allow the image.
-    if (!allow_cross_origin_auth_prompt &&
-        network::IsUrlPotentiallyTrustworthy(first_party.RepresentativeUrl()) &&
-        !network::IsUrlPotentiallyTrustworthy(request_url)) {
-      return true;
-    }
-    return false;
-  }
-
-  return !allow_cross_origin_auth_prompt;
-}
-
-}  // namespace
 
 // This inner class exists since the WebURLLoader may be deleted while inside a
 // call to WebURLLoaderClient. Refcounting is to keep the context from
@@ -260,7 +138,9 @@ class WebURLLoader::Context : public WebRequestPeer {
   bool OnReceivedRedirect(const net::RedirectInfo& redirect_info,
                           network::mojom::URLResponseHeadPtr head,
                           std::vector<std::string>* removed_headers) override;
-  void OnReceivedResponse(network::mojom::URLResponseHeadPtr head) override;
+  void OnReceivedResponse(
+      network::mojom::URLResponseHeadPtr head,
+      base::TimeTicks response_arrival_at_renderer) override;
   void OnStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle body) override;
   void OnTransferSizeUpdated(int transfer_size_diff) override;
@@ -389,7 +269,7 @@ void WebURLLoader::Context::DidChangePriority(
     int intra_priority_value) {
   if (request_id_ != -1) {
     net::RequestPriority net_priority =
-        ConvertWebKitPriorityToNetPriority(new_priority);
+        WebURLRequest::ConvertToNetPriority(new_priority);
     resource_request_sender_->DidChangePriority(net_priority,
                                                 intra_priority_value);
     // TODO(https://crbug.com/1137682): Change this to
@@ -423,23 +303,6 @@ void WebURLLoader::Context::Start(
   const network::mojom::RequestDestination request_destination =
       request->destination;
 
-  // TODO(yhirano): Move the logic below to blink/platform/loader.
-  if (!request->is_favicon &&
-      request_destination == network::mojom::RequestDestination::kImage &&
-      IsBannedCrossSiteAuth(request.get(),
-                            passed_url_request_extra_data.get())) {
-    // Prevent third-party image content from prompting for login, as this
-    // is often a scam to extract credentials for another domain from the
-    // user. Only block image loads, as the attack applies largely to the
-    // "src" property of the <img> tag. It is common for web properties to
-    // allow untrusted values for <img src>; this is considered a fair thing
-    // for an HTML sanitizer to do. Conversely, any HTML sanitizer that didn't
-    // filter sources for <script>, <link>, <embed>, <object>, <iframe> tags
-    // would be considered vulnerable in and of itself.
-    request->do_not_prompt_for_login = true;
-    request->load_flags |= net::LOAD_DO_NOT_USE_EMBEDDED_IDENTITY;
-  }
-
   scoped_refptr<WebURLRequestExtraData> empty_url_request_extra_data;
   WebURLRequestExtraData* url_request_extra_data;
   if (passed_url_request_extra_data) {
@@ -450,10 +313,6 @@ void WebURLLoader::Context::Start(
         base::MakeRefCounted<WebURLRequestExtraData>();
     url_request_extra_data = empty_url_request_extra_data.get();
   }
-  url_request_extra_data->CopyToResourceRequest(request.get());
-
-  if (request->load_flags & net::LOAD_PREFETCH)
-    request->corb_detachable = true;
 
   auto throttles =
       url_request_extra_data->TakeURLLoaderThrottles().ReleaseVector();
@@ -480,7 +339,7 @@ void WebURLLoader::Context::Start(
   }
 
   if (sync_load_response) {
-    DCHECK(freeze_mode_ == WebLoaderFreezeMode::kNone);
+    DCHECK_EQ(freeze_mode_, WebLoaderFreezeMode::kNone);
 
     loader_options |= network::mojom::kURLLoadOptionSynchronous;
     request->load_flags |= net::LOAD_IGNORE_LIMITS;
@@ -497,8 +356,7 @@ void WebURLLoader::Context::Start(
         url_loader_factory_, std::move(throttles), timeout_interval,
         cors_exempt_header_list_, terminate_sync_load_event_,
         std::move(download_to_blob_registry), base::WrapRefCounted(this),
-        std::move(resource_load_info_notifier_wrapper),
-        back_forward_cache_loader_helper_);
+        std::move(resource_load_info_notifier_wrapper));
     return;
   }
 
@@ -532,9 +390,8 @@ bool WebURLLoader::Context::OnReceivedRedirect(
                          this,
                          TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT);
 
-  WebURLResponse response;
-  PopulateURLResponse(url_, *head, &response, has_devtools_request_id_,
-                      request_id_);
+  WebURLResponse response = WebURLResponse::Create(
+      url_, *head, has_devtools_request_id_, request_id_);
 
   url_ = KURL(redirect_info.new_url);
   return client_->WillFollowRedirect(
@@ -547,7 +404,8 @@ bool WebURLLoader::Context::OnReceivedRedirect(
 }
 
 void WebURLLoader::Context::OnReceivedResponse(
-    network::mojom::URLResponseHeadPtr head) {
+    network::mojom::URLResponseHeadPtr head,
+    base::TimeTicks response_arrival_at_renderer) {
   if (!client_)
     return;
 
@@ -561,9 +419,9 @@ void WebURLLoader::Context::OnReceivedResponse(
   DCHECK(!head->headers || !head->headers->HasHeader("set-cookie2"));
   DCHECK(!head->headers || !head->headers->HasHeader("clear-site-data"));
 
-  WebURLResponse response;
-  PopulateURLResponse(url_, *head, &response, has_devtools_request_id_,
-                      request_id_);
+  WebURLResponse response = WebURLResponse::Create(
+      url_, *head, has_devtools_request_id_, request_id_);
+  response.SetArrivalTimeAtRenderer(response_arrival_at_renderer);
 
   client_->DidReceiveResponse(response);
 
@@ -609,13 +467,14 @@ void WebURLLoader::Context::OnCompletedRequest(
                            TRACE_EVENT_FLAG_FLOW_IN);
 
     if (status.error_code != net::OK) {
-      client_->DidFail(PopulateURLError(status, url_), status.completion_time,
-                       total_transfer_size, encoded_body_size,
-                       status.decoded_body_length);
+      client_->DidFail(WebURLError::Create(status, url_),
+                       status.completion_time, total_transfer_size,
+                       encoded_body_size, status.decoded_body_length);
     } else {
       client_->DidFinishLoading(status.completion_time, total_transfer_size,
                                 encoded_body_size, status.decoded_body_length,
-                                status.should_report_corb_blocking);
+                                status.should_report_corb_blocking,
+                                status.pervasive_payload_requested);
     }
   }
 }
@@ -664,167 +523,6 @@ WebURLLoader::WebURLLoader() = default;
 
 WebURLLoader::~WebURLLoader() {
   Cancel();
-}
-
-void WebURLLoader::PopulateURLResponse(
-    const WebURL& url,
-    const network::mojom::URLResponseHead& head,
-    WebURLResponse* response,
-    bool report_security_info,
-    int request_id) {
-  response->SetCurrentRequestUrl(url);
-  response->SetResponseTime(head.response_time);
-  response->SetMimeType(WebString::FromUTF8(head.mime_type));
-  response->SetTextEncodingName(WebString::FromUTF8(head.charset));
-  response->SetExpectedContentLength(head.content_length);
-  response->SetHasMajorCertificateErrors(
-      net::IsCertStatusError(head.cert_status));
-  response->SetIsLegacyTLSVersion(head.is_legacy_tls_version);
-  response->SetHasRangeRequested(head.has_range_requested);
-  response->SetTimingAllowPassed(head.timing_allow_passed);
-  response->SetWasCached(!head.load_timing.request_start_time.is_null() &&
-                         head.response_time <
-                             head.load_timing.request_start_time);
-  response->SetConnectionID(head.load_timing.socket_log_id);
-  response->SetConnectionReused(head.load_timing.socket_reused);
-  response->SetWasFetchedViaSPDY(head.was_fetched_via_spdy);
-  response->SetWasFetchedViaServiceWorker(head.was_fetched_via_service_worker);
-  response->SetServiceWorkerResponseSource(head.service_worker_response_source);
-  response->SetType(head.response_type);
-  response->SetPadding(head.padding);
-  WebVector<KURL> url_list_via_service_worker(
-      head.url_list_via_service_worker.size());
-  std::transform(head.url_list_via_service_worker.begin(),
-                 head.url_list_via_service_worker.end(),
-                 url_list_via_service_worker.begin(),
-                 [](const GURL& h) { return KURL(h); });
-  response->SetUrlListViaServiceWorker(url_list_via_service_worker);
-  response->SetCacheStorageCacheName(
-      head.service_worker_response_source ==
-              network::mojom::FetchResponseSource::kCacheStorage
-          ? WebString::FromUTF8(head.cache_storage_cache_name)
-          : WebString());
-
-  WebVector<WebString> dns_aliases(head.dns_aliases.size());
-  std::transform(head.dns_aliases.begin(), head.dns_aliases.end(),
-                 dns_aliases.begin(),
-                 [](const std::string& h) { return WebString::FromASCII(h); });
-  response->SetDnsAliases(dns_aliases);
-  response->SetRemoteIPEndpoint(head.remote_endpoint);
-  // This computation can only be done once SetUrlListViaServiceWorker() has
-  // been called on |response|, so that ResponseUrl() returns the correct
-  // answer.
-  //
-  // Implements: https://wicg.github.io/cors-rfc1918/#integration-html
-  response->SetAddressSpace(network::CalculateResourceAddressSpace(
-      KURL(response->ResponseUrl()), head.remote_endpoint));
-
-  WebVector<WebString> cors_exposed_header_names(
-      head.cors_exposed_header_names.size());
-  std::transform(head.cors_exposed_header_names.begin(),
-                 head.cors_exposed_header_names.end(),
-                 cors_exposed_header_names.begin(),
-                 [](const std::string& h) { return WebString::FromLatin1(h); });
-  response->SetCorsExposedHeaderNames(cors_exposed_header_names);
-  response->SetDidServiceWorkerNavigationPreload(
-      head.did_service_worker_navigation_preload);
-  response->SetIsValidated(head.is_validated);
-  response->SetEncodedDataLength(head.encoded_data_length);
-  response->SetEncodedBodyLength(head.encoded_body_length);
-  response->SetWasAlpnNegotiated(head.was_alpn_negotiated);
-  response->SetAlpnNegotiatedProtocol(
-      WebString::FromUTF8(head.alpn_negotiated_protocol));
-  response->SetHasAuthorizationCoveredByWildcardOnPreflight(
-      head.has_authorization_covered_by_wildcard_on_preflight);
-  response->SetWasAlternateProtocolAvailable(
-      head.was_alternate_protocol_available);
-  response->SetConnectionInfo(head.connection_info);
-  response->SetAsyncRevalidationRequested(head.async_revalidation_requested);
-  response->SetNetworkAccessed(head.network_accessed);
-  response->SetRequestId(request_id);
-  response->SetIsSignedExchangeInnerResponse(
-      head.is_signed_exchange_inner_response);
-  response->SetWasInPrefetchCache(head.was_in_prefetch_cache);
-  response->SetWasCookieInRequest(head.was_cookie_in_request);
-  response->SetRecursivePrefetchToken(head.recursive_prefetch_token);
-  response->SetWebBundleURL(KURL(head.web_bundle_url));
-
-  SetSecurityStyleAndDetails(KURL(url), head, response, report_security_info);
-
-  // If there's no received headers end time, don't set load timing.  This is
-  // the case for non-HTTP requests, requests that don't go over the wire, and
-  // certain error cases.
-  if (!head.load_timing.receive_headers_end.is_null()) {
-    response->SetLoadTiming(ToMojoLoadTiming(head.load_timing));
-  }
-
-  response->SetEmittedExtraInfo(head.emitted_extra_info);
-
-  response->SetAuthChallengeInfo(head.auth_challenge_info);
-  response->SetRequestIncludeCredentials(head.request_include_credentials);
-
-  const net::HttpResponseHeaders* headers = head.headers.get();
-  if (!headers)
-    return;
-
-  WebURLResponse::HTTPVersion version = WebURLResponse::kHTTPVersionUnknown;
-  if (headers->GetHttpVersion() == net::HttpVersion(0, 9))
-    version = WebURLResponse::kHTTPVersion_0_9;
-  else if (headers->GetHttpVersion() == net::HttpVersion(1, 0))
-    version = WebURLResponse::kHTTPVersion_1_0;
-  else if (headers->GetHttpVersion() == net::HttpVersion(1, 1))
-    version = WebURLResponse::kHTTPVersion_1_1;
-  else if (headers->GetHttpVersion() == net::HttpVersion(2, 0))
-    version = WebURLResponse::kHTTPVersion_2_0;
-  response->SetHttpVersion(version);
-  response->SetHttpStatusCode(headers->response_code());
-  response->SetHttpStatusText(WebString::FromLatin1(headers->GetStatusText()));
-
-  // Build up the header map.
-  size_t iter = 0;
-  std::string name;
-  std::string value;
-  while (headers->EnumerateHeaderLines(&iter, &name, &value)) {
-    response->AddHttpHeaderField(WebString::FromLatin1(name),
-                                 WebString::FromLatin1(value));
-  }
-}
-
-// static
-WebURLError WebURLLoader::PopulateURLError(
-    const network::URLLoaderCompletionStatus& status,
-    const WebURL& url) {
-  DCHECK_NE(net::OK, status.error_code);
-  const WebURLError::HasCopyInCache has_copy_in_cache =
-      status.exists_in_cache ? WebURLError::HasCopyInCache::kTrue
-                             : WebURLError::HasCopyInCache::kFalse;
-  if (status.cors_error_status)
-    return WebURLError(*status.cors_error_status, has_copy_in_cache, url);
-  if (status.blocked_by_response_reason) {
-    DCHECK_EQ(net::ERR_BLOCKED_BY_RESPONSE, status.error_code);
-    return WebURLError(*status.blocked_by_response_reason,
-                       status.resolve_error_info, has_copy_in_cache, url);
-  }
-
-  if (status.trust_token_operation_status !=
-      network::mojom::TrustTokenOperationStatus::kOk) {
-    DCHECK(status.error_code ==
-               net::ERR_TRUST_TOKEN_OPERATION_SUCCESS_WITHOUT_SENDING_REQUEST ||
-           status.error_code == net::ERR_TRUST_TOKEN_OPERATION_FAILED)
-        << "Unexpected error code on Trust Token operation failure (or cache "
-           "hit): "
-        << status.error_code;
-
-    return WebURLError(status.error_code, status.trust_token_operation_status,
-                       url);
-  }
-
-  return WebURLError(status.error_code, status.extended_error_code,
-                     status.resolve_error_info, has_copy_in_cache,
-                     WebURLError::IsWebSecurityViolation::kFalse, url,
-                     status.should_collapse_initiator
-                         ? WebURLError::ShouldCollapseInitiator::kTrue
-                         : WebURLError::ShouldCollapseInitiator::kFalse);
 }
 
 void WebURLLoader::LoadSynchronously(
@@ -884,8 +582,9 @@ void WebURLLoader::LoadSynchronously(
     return;
   }
 
-  PopulateURLResponse(final_url, *sync_load_response.head, &response,
-                      has_devtools_request_id, context_->request_id());
+  response =
+      WebURLResponse::Create(final_url, *sync_load_response.head,
+                             has_devtools_request_id, context_->request_id());
   encoded_data_length = sync_load_response.head->encoded_data_length;
   encoded_body_length = sync_load_response.head->encoded_body_length;
   if (sync_load_response.downloaded_blob) {
@@ -980,6 +679,7 @@ net::NetworkTrafficAnnotationTag WebURLLoader::Context::GetTrafficAnnotationTag(
     case network::mojom::RequestDestination::kIframe:
     case network::mojom::RequestDestination::kFrame:
     case network::mojom::RequestDestination::kFencedframe:
+    case network::mojom::RequestDestination::kWebIdentity:
       NOTREACHED();
       [[fallthrough]];
 

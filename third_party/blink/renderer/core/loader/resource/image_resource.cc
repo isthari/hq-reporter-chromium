@@ -140,6 +140,18 @@ class ImageResource::ImageResourceInfoImpl final
     return &resource_->Options().unsupported_image_mime_types->data;
   }
 
+  absl::optional<WebURLRequest::Priority> RequestPriority() const override {
+    auto priority = resource_->GetResourceRequest().Priority();
+    if (priority == WebURLRequest::Priority::kUnresolved) {
+      // This can happen for image documents (e.g. when `<iframe
+      // src="title.png">` is the LCP), because the `ImageResource` isn't
+      // associated with `ResourceLoader` in such cases. For now, consider the
+      // priority not available for such cases by returning nullopt.
+      return absl::nullopt;
+    }
+    return priority;
+  }
+
   const Member<ImageResource> resource_;
 };
 
@@ -303,7 +315,7 @@ scoped_refptr<const SharedBuffer> ImageResource::ResourceBuffer() const {
 void ImageResource::AppendData(const char* data, size_t length) {
   v8::Isolate::GetCurrent()->AdjustAmountOfExternalAllocatedMemory(length);
   if (multipart_parser_) {
-    multipart_parser_->AppendData(data, SafeCast<wtf_size_t>(length));
+    multipart_parser_->AppendData(data, base::checked_cast<wtf_size_t>(length));
   } else {
     Resource::AppendData(data, length);
 
@@ -335,10 +347,11 @@ void ImageResource::AppendData(const char* data, size_t length) {
       DCHECK_LE(last_flush_time_, now);
       base::TimeDelta flush_delay =
           std::max(base::TimeDelta(), last_flush_time_ - now + kFlushDelay);
-      task_runner->PostDelayedTask(FROM_HERE,
-                                   WTF::Bind(&ImageResource::FlushImageIfNeeded,
-                                             WrapWeakPersistent(this)),
-                                   flush_delay);
+      task_runner->PostDelayedTask(
+          FROM_HERE,
+          WTF::BindOnce(&ImageResource::FlushImageIfNeeded,
+                        WrapWeakPersistent(this)),
+          flush_delay);
       is_pending_flushing_ = true;
     }
   }
@@ -380,7 +393,7 @@ void ImageResource::DecodeError(bool all_data_received) {
     DCHECK_EQ(result, ImageResourceContent::UpdateImageResult::kNoDecodeError);
   }
 
-  GetMemoryCache()->Remove(this);
+  MemoryCache::Get()->Remove(this);
 }
 
 void ImageResource::UpdateImageAndClearBuffer() {
@@ -433,7 +446,7 @@ void ImageResource::ResponseReceived(const ResourceResponse& response) {
     Vector<char> boundary = network_utils::ParseMultipartBoundary(
         response.HttpHeaderField(http_names::kContentType));
     // If there's no boundary, just handle the request normally.
-    if (!boundary.IsEmpty()) {
+    if (!boundary.empty()) {
       multipart_parser_ = MakeGarbageCollected<MultipartImageResourceParser>(
           response, boundary, this);
     }
@@ -502,7 +515,8 @@ const ImageResourceContent* ImageResource::GetContent() const {
   return content_;
 }
 
-ResourcePriority ImageResource::PriorityFromObservers() {
+std::pair<ResourcePriority, ResourcePriority>
+ImageResource::PriorityFromObservers() {
   return GetContent()->PriorityFromObservers();
 }
 

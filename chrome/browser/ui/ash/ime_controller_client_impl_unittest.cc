@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,10 +67,9 @@ class TestInputMethodManager : public MockInputMethodManager {
       current_ime_id_ = input_method_id;
       last_show_message_ = show_message;
     }
-    std::unique_ptr<std::vector<InputMethodDescriptor>>
+    std::vector<InputMethodDescriptor>
     GetEnabledInputMethodsSortedByLocalizedDisplayNames() const override {
-      return std::make_unique<std::vector<InputMethodDescriptor>>(
-          input_methods_);
+      return input_methods_;
     }
     const InputMethodDescriptor* GetInputMethodFromId(
         const std::string& input_method_id) const override {
@@ -289,11 +288,8 @@ TEST_F(ImeControllerClientImplTest, NoActiveState) {
 TEST_F(ImeControllerClientImplTest, MenuItemChanged) {
   ImeControllerClientImpl client(&input_method_manager_);
   client.Init();
-  const bool is_selection_item = true;
-  InputMethodMenuItem item1("key1", "label1", is_selection_item,
-                            true /* checked */);
-  InputMethodMenuItem item2("key2", "label2", is_selection_item,
-                            false /* checked */);
+  InputMethodMenuItem item1("key1", "label1", true /* checked */);
+  InputMethodMenuItem item2("key2", "label2", false /* checked */);
 
   // Setting the list triggers the InputMethodMenuItemChanged event.
   InputMethodMenuManager::GetInstance()->SetCurrentInputMethodMenuItemList(

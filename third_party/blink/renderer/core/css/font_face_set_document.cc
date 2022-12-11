@@ -77,7 +77,7 @@ AtomicString FontFaceSetDocument::status() const {
 void FontFaceSetDocument::DidLayout() {
   if (!GetExecutionContext())
     return;
-  if (GetDocument()->GetFrame()->IsMainFrame() && loading_fonts_.IsEmpty())
+  if (GetDocument()->IsInOutermostMainFrame() && loading_fonts_.empty())
     font_load_histogram_.Record();
   if (!ShouldSignalReady())
     return;
@@ -161,7 +161,7 @@ void FontFaceSetDocument::FireDoneEventIfPossible() {
 
 bool FontFaceSetDocument::ResolveFontStyle(const String& font_string,
                                            Font& font) {
-  if (font_string.IsEmpty())
+  if (font_string.empty())
     return false;
 
   // Interpret fontString in the same way as the 'font' attribute of
@@ -178,8 +178,8 @@ bool FontFaceSetDocument::ResolveFontStyle(const String& font_string,
     return true;
   }
 
-  scoped_refptr<ComputedStyle> style =
-      GetDocument()->GetStyleResolver().CreateComputedStyle();
+  ComputedStyleBuilder builder =
+      GetDocument()->GetStyleResolver().CreateComputedStyleBuilder();
 
   FontFamily font_family;
   font_family.SetFamily(
@@ -191,7 +191,8 @@ bool FontFaceSetDocument::ResolveFontStyle(const String& font_string,
   default_font_description.SetSpecifiedSize(FontFaceSet::kDefaultFontSize);
   default_font_description.SetComputedSize(FontFaceSet::kDefaultFontSize);
 
-  style->SetFontDescription(default_font_description);
+  builder.SetFontDescription(default_font_description);
+  scoped_refptr<ComputedStyle> style = builder.TakeStyle();
 
   GetDocument()->GetStyleEngine().ComputeFont(*GetDocument()->documentElement(),
                                               style.get(), *parsed_style);

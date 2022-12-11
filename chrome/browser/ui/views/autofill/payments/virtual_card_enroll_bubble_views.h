@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,16 +9,18 @@
 
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/autofill/autofill_bubble_base.h"
-#include "chrome/browser/ui/autofill/payments/virtual_card_enroll_bubble_controller.h"
 #include "chrome/browser/ui/views/autofill/payments/payments_view_util.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_bubble_delegate_view.h"
 #include "components/autofill/core/browser/ui/payments/payments_bubble_closed_reasons.h"
+#include "ui/views/controls/image_view.h"
 
 namespace content {
 class WebContents;
 }
 
 namespace autofill {
+
+class VirtualCardEnrollBubbleController;
 
 // This class handles the view for when users use a card that is also elligible
 // to be enrolled in a virtual card.
@@ -29,12 +31,16 @@ class VirtualCardEnrollBubbleViews : public AutofillBubbleBase,
   VirtualCardEnrollBubbleViews(views::View* anchor_view,
                                content::WebContents* web_contents,
                                VirtualCardEnrollBubbleController* controller);
-
+  ~VirtualCardEnrollBubbleViews() override;
   VirtualCardEnrollBubbleViews(const VirtualCardEnrollBubbleViews&) = delete;
   VirtualCardEnrollBubbleViews& operator=(const VirtualCardEnrollBubbleViews&) =
       delete;
 
   void Show(DisplayReason reason);
+
+  bool NetworkIconNotEmptyForTesting() {
+    return !card_network_icon_->GetImageModel().IsEmpty();
+  }
 
   // AutofillBubbleBase:
   void Hide() override;
@@ -43,13 +49,8 @@ class VirtualCardEnrollBubbleViews : public AutofillBubbleBase,
   void AddedToWidget() override;
   std::u16string GetWindowTitle() const override;
   void WindowClosing() override;
-  void OnWidgetClosing(views::Widget* widget) override;
 
  protected:
-  // Create the dialog's content view containing everything except for the
-  // footnote.
-  virtual std::unique_ptr<views::View> CreateMainContentView();
-
   VirtualCardEnrollBubbleController* controller() const { return controller_; }
 
   // LocationBarBubbleDelegateView:
@@ -58,19 +59,18 @@ class VirtualCardEnrollBubbleViews : public AutofillBubbleBase,
   void OnDialogAccepted();
   void OnDialogDeclined();
 
-  ~VirtualCardEnrollBubbleViews() override;
-
  private:
-  void LearnMoreLinkClicked();
+  friend class VirtualCardEnrollBubbleViewsInteractiveUiTest;
 
-  void LegalMessageClicked(const GURL& url);
+  std::unique_ptr<views::View> CreateLegalMessageView();
+
+  void LearnMoreLinkClicked();
+  void GoogleLegalMessageClicked(const GURL& url);
+  void IssuerLegalMessageClicked(const GURL& url);
 
   raw_ptr<VirtualCardEnrollBubbleController> controller_;
 
-  raw_ptr<LegalMessageView> legal_message_view_ = nullptr;
-
-  PaymentsBubbleClosedReason closed_reason_ =
-      PaymentsBubbleClosedReason::kUnknown;
+  raw_ptr<views::ImageView> card_network_icon_ = nullptr;
 
   base::WeakPtrFactory<VirtualCardEnrollBubbleViews> weak_ptr_factory_{this};
 };

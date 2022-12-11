@@ -1,10 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.base.compat;
 
-import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.Notification;
@@ -15,7 +14,6 @@ import android.graphics.drawable.Icon;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkInfo;
-import android.os.BatteryManager;
 import android.os.Build;
 import android.os.PowerManager;
 import android.os.Process;
@@ -28,15 +26,15 @@ import android.view.ViewConfiguration;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
-import org.chromium.base.annotations.VerifiesOnM;
+import androidx.annotation.RequiresApi;
+import androidx.annotation.RequiresPermission;
 
 /**
  * Utility class to use new APIs that were added in M (API level 23). These need to exist in a
  * separate class so that Android framework can successfully verify classes without
  * encountering the new APIs.
  */
-@VerifiesOnM
-@TargetApi(Build.VERSION_CODES.M)
+@RequiresApi(Build.VERSION_CODES.M)
 public final class ApiHelperForM {
     private ApiHelperForM() {}
 
@@ -144,6 +142,7 @@ public final class ApiHelperForM {
     }
 
     /** See {@link AlarmManager#setExactAndAllowWhileIdle(int, long, PendingIntent) }.  */
+    @RequiresPermission(android.Manifest.permission.SCHEDULE_EXACT_ALARM)
     public static void setAlarmManagerExactAndAllowWhileIdle(AlarmManager alarmManager, int type,
             long triggerAtMillis, PendingIntent pendingIntent) {
         alarmManager.setExactAndAllowWhileIdle(type, triggerAtMillis, pendingIntent);
@@ -167,11 +166,6 @@ public final class ApiHelperForM {
     /** See {@link Display.Mode#getPhysicalHeight() }. */
     public static int getModePhysicalHeight(Display.Mode mode) {
         return mode.getPhysicalHeight();
-    }
-
-    /** See {@link BatteryManager#isCharging() }. */
-    public static boolean isCharging(BatteryManager batteryManager) {
-        return batteryManager.isCharging();
     }
 
     /** See {@link Icon#createWithBitmap(Bitmap) }. */

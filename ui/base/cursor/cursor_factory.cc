@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,8 @@
 #include "base/check_op.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/notreached.h"
+#include "base/observer_list.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
 #include "ui/base/cursor/platform_cursor.h"
@@ -132,7 +134,7 @@ std::vector<std::string> CursorNamesFromType(mojom::CursorType type) {
     case mojom::CursorType::kNone:
       return {};
     case mojom::CursorType::kGrab:
-      return {"openhand", "grab"};
+      return {"openhand", "grab", "hand1"};
     case mojom::CursorType::kGrabbing:
       return {"closedhand", "grabbing", "hand2"};
     case mojom::CursorType::kCross:

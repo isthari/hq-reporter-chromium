@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.webkit.URLUtil;
 import android.widget.FrameLayout;
+
 import org.chromium.base.Callback;
 import org.chromium.base.ContentUriUtils;
 import org.chromium.base.ThreadUtils;
@@ -40,6 +41,7 @@ class AwWebContentsDelegateAdapter extends AwWebContentsDelegate {
     private final Context mContext;
     private View mContainerView;
     private FrameLayout mCustomView;
+    private boolean mDidSynthesizePageLoad;
 
     public AwWebContentsDelegateAdapter(AwContents awContents, AwContentsClient contentsClient,
             AwSettings settings, Context context, View containerView) {
@@ -47,6 +49,7 @@ class AwWebContentsDelegateAdapter extends AwWebContentsDelegate {
         mContentsClient = contentsClient;
         mAwSettings = settings;
         mContext = context;
+        mDidSynthesizePageLoad = false;
         setContainerView(containerView);
     }
 
@@ -178,8 +181,6 @@ class AwWebContentsDelegateAdapter extends AwWebContentsDelegate {
         final int msgContinuePendingReload = 1;
         final int msgCancelPendingReload = 2;
 
-        // TODO(sgurun) Remember the URL to cancel the reload behavior
-        // if it is different than the most recent NavigationController entry.
         final Handler handler = new Handler(ThreadUtils.getUiThreadLooper()) {
             @Override
             public void handleMessage(Message msg) {
@@ -209,8 +210,9 @@ class AwWebContentsDelegateAdapter extends AwWebContentsDelegate {
     @Override
     public void runFileChooser(final int processId, final int renderId, final int modeFlags,
             String acceptTypes, String title, String defaultFilename, boolean capture) {
+        int correctedModeFlags = FileModeConversionHelper.convertFileChooserMode(modeFlags);
         AwContentsClient.FileChooserParamsImpl params = new AwContentsClient.FileChooserParamsImpl(
-                modeFlags, acceptTypes, title, defaultFilename, capture);
+                correctedModeFlags, acceptTypes, title, defaultFilename, capture);
 
         mContentsClient.showFileChooser(new Callback<String[]>() {
             boolean mCompleted;
@@ -222,11 +224,11 @@ class AwWebContentsDelegateAdapter extends AwWebContentsDelegate {
                 mCompleted = true;
                 if (results == null) {
                     AwWebContentsDelegateJni.get().filesSelectedInChooser(
-                            processId, renderId, modeFlags, null, null);
+                            processId, renderId, correctedModeFlags, null, null);
                     return;
                 }
-                GetDisplayNameTask task =
-                        new GetDisplayNameTask(mContext, processId, renderId, modeFlags, results);
+                GetDisplayNameTask task = new GetDisplayNameTask(
+                        mContext, processId, renderId, correctedModeFlags, results);
                 task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
             }
         }, params);
@@ -244,23 +246,27 @@ class AwWebContentsDelegateAdapter extends AwWebContentsDelegate {
 
     @Override
     public void navigationStateChanged(int flags) {
-        if ((flags & InvalidateTypes.URL) != 0
-                && (flags != InvalidateTypes.ALL_BUT_KEEPS_INITIAL_NAVIGATION_ENTRY_STATUS)
-                && mAwContents.isPopupWindow() && mAwContents.hasAccessedInitialDocument()) {
-            // This is a popup whose document has been accessed by script. Hint
-            // the client to show the last committed url, as it may be unsafe to
-            // show the pending entry. Note that we are also preserving old
-            // behavior by not firing this for initial NavigationEntry creation
-            // or modification, which used to not exist and thus won't trigger
-            // NavigationStateChanged calls.
+        // If this is a popup whose document has been accessed by script, hint
+        // the client to show the last committed url through synthesizing a page
+        // load, as it may be unsafe to show the pending entry. Since we want to
+        // synthesize the page load only once for when the NavigationStateChange
+        // call is triggered by the first initial main document access, the flag
+        // must match InvalidateTypes.URL (the flag fired by
+        // NavigationControllerImpl::DidAccessInitialMainDocument()) and we must
+        // check whether a page load has previously been synthesized here.
+        boolean shouldSynthesizePageLoad = mAwContents.isPopupWindow()
+                && mAwContents.hasAccessedInitialDocument() && (flags == InvalidateTypes.URL)
+                && !mDidSynthesizePageLoad;
+        if (shouldSynthesizePageLoad) {
             String url = mAwContents.getLastCommittedUrl();
             url = TextUtils.isEmpty(url) ? ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL : url;
             mContentsClient.getCallbackHelper().postSynthesizedPageLoadingForUrlBarUpdate(url);
+            mDidSynthesizePageLoad = true;
         }
     }
 
     @Override
-    public void enterFullscreenModeForTab(boolean prefersNavigationBar) {
+    public void enterFullscreenModeForTab(boolean prefersNavigationBar, boolean prefersStatusBar) {
         enterFullscreen();
     }
 

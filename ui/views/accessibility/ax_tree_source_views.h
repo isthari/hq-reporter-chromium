@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,12 +65,12 @@ class VIEWS_EXPORT AXTreeSourceViews
 
  private:
   // The top-level object to use for the AX tree. See class comment.
-  const raw_ptr<AXAuraObjWrapper> root_ = nullptr;
+  const raw_ptr<AXAuraObjWrapper, DanglingUntriaged> root_ = nullptr;
 
   // ID to use for the AX tree.
   const ui::AXTreeID tree_id_;
 
-  raw_ptr<views::AXAuraObjCache> cache_;
+  raw_ptr<views::AXAuraObjCache, DanglingUntriaged> cache_;
 };
 
 }  // namespace views

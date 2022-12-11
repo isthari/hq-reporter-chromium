@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -61,12 +61,10 @@ class VrShellDelegate : public device::GvrDelegateProvider {
   // device::GvrDelegateProvider implementation.
   bool ShouldDisableGvrDevice() override;
   void StartWebXRPresentation(
-      device::mojom::VRDisplayInfoPtr display_info,
       device::mojom::XRRuntimeSessionOptionsPtr options,
       base::OnceCallback<void(device::mojom::XRSessionPtr)> callback) override;
 
   void OnPresentResult(
-      device::mojom::VRDisplayInfoPtr display_info,
       device::mojom::XRRuntimeSessionOptionsPtr options,
       base::OnceCallback<void(device::mojom::XRSessionPtr)> callback,
       bool success);

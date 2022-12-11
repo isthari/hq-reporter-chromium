@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "ash/components/arc/ime/arc_ime_bridge.h"
 #include "ash/components/arc/ime/key_event_result_receiver.h"
+#include "ash/components/arc/mojom/ime.mojom-forward.h"
 #include "ash/public/cpp/keyboard/keyboard_controller_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -90,8 +91,9 @@ class ArcImeService : public KeyedService,
   void OnTextInputTypeChanged(ui::TextInputType type,
                               bool is_personalized_learning_allowed,
                               int flags) override;
-  void OnCursorRectChanged(const gfx::Rect& rect,
-                           bool is_screen_coordinates) override;
+  void OnCursorRectChanged(
+      const gfx::Rect& rect,
+      mojom::CursorCoordinateSpace coordinate_space) override;
   void OnCancelComposition() override;
   void ShowVirtualKeyboardIfEnabled() override;
   void OnCursorRectChangedWithSurroundingText(
@@ -99,7 +101,7 @@ class ArcImeService : public KeyedService,
       const gfx::Range& text_range,
       const std::u16string& text_in_range,
       const gfx::Range& selection_range,
-      bool is_screen_coordinates) override;
+      mojom::CursorCoordinateSpace coordinate_space) override;
   void SendKeyEvent(std::unique_ptr<ui::KeyEvent> key_event,
                     KeyEventDoneCallback callback) override;
 
@@ -109,7 +111,7 @@ class ArcImeService : public KeyedService,
 
   // Overridden from ui::TextInputClient:
   void SetCompositionText(const ui::CompositionText& composition) override;
-  uint32_t ConfirmCompositionText(bool keep_selection) override;
+  size_t ConfirmCompositionText(bool keep_selection) override;
   void ClearCompositionText() override;
   void InsertText(const std::u16string& text,
                   InsertTextCursorBehavior cursor_behavior) override;
@@ -130,13 +132,12 @@ class ArcImeService : public KeyedService,
   base::i18n::TextDirection GetTextDirection() const override;
   int GetTextInputFlags() const override;
   bool CanComposeInline() const override;
-  bool GetCompositionCharacterBounds(uint32_t index,
+  bool GetCompositionCharacterBounds(size_t index,
                                      gfx::Rect* rect) const override;
   bool HasCompositionText() const override;
   FocusReason GetFocusReason() const override;
   bool GetCompositionTextRange(gfx::Range* range) const override;
   bool SetEditableSelectionRange(const gfx::Range& range) override;
-  bool DeleteRange(const gfx::Range& range) override;
   void OnInputMethodChanged() override {}
   bool ChangeTextDirectionAndLayoutAlignment(
       base::i18n::TextDirection direction) override;
@@ -152,8 +153,8 @@ class ArcImeService : public KeyedService,
   gfx::Range GetAutocorrectRange() const override;
   gfx::Rect GetAutocorrectCharacterBounds() const override;
   bool SetAutocorrectRange(const gfx::Range& range) override;
-  absl::optional<ui::GrammarFragment> GetGrammarFragment(
-      const gfx::Range& range) override;
+  absl::optional<ui::GrammarFragment> GetGrammarFragmentAtCursor()
+      const override;
   bool ClearGrammarFragments(const gfx::Range& range) override;
   bool AddGrammarFragments(
       const std::vector<ui::GrammarFragment>& fragments) override;
@@ -166,6 +167,9 @@ class ArcImeService : public KeyedService,
   // physical pixels. This method provides a way to override it for testing.
   static void SetOverrideDefaultDeviceScaleFactorForTesting(
       absl::optional<double> scale_factor);
+
+  static void SetOverrideDisplayOriginForTesting(
+      absl::optional<gfx::Point> origin);
 
  private:
   friend class ArcImeServiceTest;
@@ -187,7 +191,8 @@ class ArcImeService : public KeyedService,
 
   // Converts |rect| passed from the client to the host's cooridnates and
   // updates |cursor_rect_|. Returns whether or not the stored value changed.
-  bool UpdateCursorRect(const gfx::Rect& rect, bool is_screen_coordinates);
+  bool UpdateCursorRect(const gfx::Rect& rect,
+                        mojom::CursorCoordinateSpace coordinate_space);
 
   // Returns true if this TextInputClient is active and incoming input state
   // from Android is valid.
@@ -195,6 +200,9 @@ class ArcImeService : public KeyedService,
 
   double GetDeviceScaleFactorForKeyboard() const;
   double GetDeviceScaleFactorForFocusedWindow() const;
+  double GetDefaultDeviceScaleFactor() const;
+
+  gfx::Point GetDisplayOriginForFocusedWindow() const;
 
   std::unique_ptr<ArcImeBridge> ime_bridge_;
   std::unique_ptr<ArcWindowDelegate> arc_window_delegate_;

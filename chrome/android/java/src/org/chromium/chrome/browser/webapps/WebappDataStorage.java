@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.text.format.DateUtils;
 
@@ -16,6 +15,7 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
+import org.chromium.base.PackageUtils;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
@@ -61,6 +61,7 @@ public class WebappDataStorage {
     static final String KEY_WEBAPK_INSTALL_TIMESTAMP = "webapk_install_timestamp";
     static final String KEY_WEBAPK_UNINSTALL_TIMESTAMP = "webapk_uninstall_timestamp";
     static final String KEY_WEBAPK_MANIFEST_URL = "webapk_manifest_url";
+    static final String KEY_WEBAPK_MANIFEST_ID = "webapk_manifest_id";
     static final String KEY_WEBAPK_VERSION_CODE = "webapk_version_code";
 
     // The completion time of the last check for whether the WebAPK's Web Manifest was updated.
@@ -278,6 +279,7 @@ public class WebappDataStorage {
             if (info.isForWebApk()) {
                 editor.putString(KEY_WEBAPK_PACKAGE_NAME, info.webApkPackageName());
                 editor.putString(KEY_WEBAPK_MANIFEST_URL, info.manifestUrl());
+                editor.putString(KEY_WEBAPK_MANIFEST_ID, info.manifestId());
                 editor.putInt(KEY_WEBAPK_VERSION_CODE, info.webApkVersionCode());
                 editor.putLong(KEY_WEBAPK_INSTALL_TIMESTAMP,
                         fetchWebApkInstallTimestamp(info.webApkPackageName()));
@@ -630,14 +632,8 @@ public class WebappDataStorage {
      * Fetches the timestamp that the WebAPK was installed from the PackageManager.
      */
     private long fetchWebApkInstallTimestamp(String webApkPackageName) {
-        try {
-            PackageManager packageManager =
-                    ContextUtils.getApplicationContext().getPackageManager();
-            PackageInfo packageInfo = packageManager.getPackageInfo(webApkPackageName, 0);
-            return packageInfo.firstInstallTime;
-        } catch (PackageManager.NameNotFoundException e) {
-        }
-        return 0;
+        PackageInfo packageInfo = PackageUtils.getPackageInfo(webApkPackageName, 0);
+        return packageInfo == null ? 0 : packageInfo.firstInstallTime;
     }
 
     /**
@@ -683,6 +679,13 @@ public class WebappDataStorage {
      */
     public String getWebApkManifestUrl() {
         return mPreferences.getString(KEY_WEBAPK_MANIFEST_URL, null);
+    }
+
+    /**
+     * Returns cached Web Manifest ID.
+     */
+    public String getWebApkManifestId() {
+        return mPreferences.getString(KEY_WEBAPK_MANIFEST_ID, null);
     }
 
     /**

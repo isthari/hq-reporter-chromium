@@ -1,8 +1,9 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/feed/core/v2/api_test/feed_api_test.h"
+#include <string>
 #include "base/time/time.h"
 #include "components/feed/core/proto/v2/wire/reliability_logging_enums.pb.h"
 #include "components/feed/core/proto/v2/wire/web_feeds.pb.h"
@@ -22,7 +23,9 @@
 #include "base/run_loop.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/bind.h"
 #include "components/feed/core/common/pref_names.h"
 #include "components/feed/core/proto/v2/keyvalue_store.pb.h"
@@ -34,6 +37,7 @@
 #include "components/feed/core/proto/v2/xsurface.pb.h"
 #include "components/feed/core/shared_prefs/pref_names.h"
 #include "components/feed/core/v2/config.h"
+#include "components/feed/core/v2/feedstore_util.h"
 #include "components/feed/core/v2/prefs.h"
 #include "components/feed/core/v2/test/callback_receiver.h"
 #include "components/feed/core/v2/test/proto_printer.h"
@@ -69,7 +73,8 @@ std::unique_ptr<StreamModelUpdateRequest> StoredModelData(
   };
   LoadStreamFromStoreTask load_task(
       LoadStreamFromStoreTask::LoadType::kFullLoad, nullptr, stream_type, store,
-      /*missed_last_refresh=*/false, base::BindLambdaForTesting(complete));
+      /*missed_last_refresh=*/false, /*is_web_feed_subscriber=*/true,
+      base::BindLambdaForTesting(complete));
   // We want to load the data no matter how stale, or which account.
   load_task.IgnoreStalenessForTesting();
   load_task.IngoreAccountForTesting();
@@ -141,6 +146,17 @@ feedwire::ThereAndBackAgainData MakeThereAndBackAgainData(int64_t id) {
   *msg.mutable_action_payload() = MakeFeedAction(id).action_payload();
   return msg;
 }
+std::string DatastoreEntryToString(base::StringPiece key,
+                                   base::StringPiece value) {
+  if (base::StartsWith(key, "/app/webfeed-follow-state/")) {
+    feedxsurface::WebFeedFollowState pb;
+    if (pb.ParseFromArray(value.data(), value.size())) {
+      return feedxsurface::WebFeedFollowState_FollowState_Name(
+          pb.follow_state());
+    }
+  }
+  return static_cast<std::string>(value);
+}
 
 TestUnreadContentObserver::TestUnreadContentObserver() = default;
 TestUnreadContentObserver::~TestUnreadContentObserver() = default;
@@ -187,10 +203,14 @@ void TestSurfaceBase::StreamUpdate(const feedui::StreamUpdate& stream_update) {
 }
 void TestSurfaceBase::ReplaceDataStoreEntry(base::StringPiece key,
                                             base::StringPiece data) {
-  data_store_entries_[std::string(key)] = std::string(data);
+  described_datastore_updates_.push_back(
+      base::StrCat({"write ", key, ": ", DatastoreEntryToString(key, data)}));
+  data_store_entries_[static_cast<std::string>(key)] =
+      static_cast<std::string>(data);
 }
 void TestSurfaceBase::RemoveDataStoreEntry(base::StringPiece key) {
-  data_store_entries_.erase(std::string(key));
+  described_datastore_updates_.push_back(base::StrCat({"delete ", key}));
+  data_store_entries_.erase(static_cast<std::string>(key));
 }
 ReliabilityLoggingBridge& TestSurfaceBase::GetReliabilityLoggingBridge() {
   return reliability_logging_bridge;
@@ -200,6 +220,7 @@ void TestSurfaceBase::Clear() {
   initial_state = absl::nullopt;
   update = absl::nullopt;
   described_updates_.clear();
+  described_datastore_updates_.clear();
 }
 
 std::string TestSurfaceBase::DescribeUpdates() {
@@ -207,14 +228,26 @@ std::string TestSurfaceBase::DescribeUpdates() {
   described_updates_.clear();
   return result;
 }
+std::vector<std::string> TestSurfaceBase::DescribeDataStoreUpdates() {
+  std::vector<std::string> result;
+  std::swap(result, described_datastore_updates_);
+  return result;
+}
 
 std::string TestSurfaceBase::DescribeState() {
   return described_updates_.empty() ? "" : described_updates_.back();
 }
-
 std::map<std::string, std::string> TestSurfaceBase::GetDataStoreEntries()
     const {
   return data_store_entries_;
+}
+std::string TestSurfaceBase::DescribeDataStore() const {
+  std::stringstream ss;
+  for (std::pair<std::string, std::string> entry : data_store_entries_) {
+    ss << entry.first << ": "
+       << DatastoreEntryToString(entry.first, entry.second) << '\n';
+  }
+  return ss.str();
 }
 LoggingParameters TestSurfaceBase::GetLoggingParameters() const {
   if (update)
@@ -298,9 +331,13 @@ bool TestSurfaceBase::IsInitialLoadSpinnerUpdate(
 }
 
 TestForYouSurface::TestForYouSurface(FeedStream* stream)
-    : TestSurfaceBase(kForYouStream, stream) {}
+    : TestSurfaceBase(StreamType(StreamKind::kForYou), stream) {}
 TestWebFeedSurface::TestWebFeedSurface(FeedStream* stream)
-    : TestSurfaceBase(kWebFeedStream, stream) {}
+    : TestSurfaceBase(StreamType(StreamKind::kFollowing), stream) {}
+TestSingleWebFeedSurface::TestSingleWebFeedSurface(FeedStream* stream,
+                                                   std::string web_feed_id)
+    : TestSurfaceBase(StreamType(StreamKind::kSingleWebFeed, web_feed_id),
+                      stream) {}
 
 TestReliabilityLoggingBridge::TestReliabilityLoggingBridge() = default;
 TestReliabilityLoggingBridge::~TestReliabilityLoggingBridge() = default;
@@ -348,6 +385,13 @@ void TestReliabilityLoggingBridge::LogWebFeedRequestStart(
     NetworkRequestId id,
     base::TimeTicks timestamp) {
   events_.push_back(base::StrCat({"LogWebFeedRequestStart id=",
+                                  base::NumberToString(id.GetUnsafeValue())}));
+}
+
+void TestReliabilityLoggingBridge::LogSingleWebFeedRequestStart(
+    NetworkRequestId id,
+    base::TimeTicks timestamp) {
+  events_.push_back(base::StrCat({"LogSingleWebFeedRequestStart id=",
                                   base::NumberToString(id.GetUnsafeValue())}));
 }
 
@@ -417,6 +461,7 @@ void TestFeedNetwork::SendQueryRequest(
     const feedwire::Request& request,
     const AccountInfo& account_info,
     base::OnceCallback<void(QueryRequestResult)> callback) {
+  sent_request_types_.push_back(NetworkRequestType::kFeedQuery);
   last_account_info = account_info;
   ++send_query_call_count;
   // Emulate a successful response.
@@ -478,7 +523,9 @@ void TestFeedNetwork::SendDiscoverApiRequest(
     base::StringPiece method,
     std::string request_bytes,
     const AccountInfo& account_info,
+    absl::optional<RequestMetadata> request_metadata,
     base::OnceCallback<void(RawResponse)> callback) {
+  sent_request_types_.push_back(request_type);
   last_account_info = account_info;
   api_requests_sent_[request_type] = request_bytes;
   ++api_request_count_[request_type];
@@ -488,6 +535,7 @@ void TestFeedNetwork::SendDiscoverApiRequest(
   bool is_feed_query_request =
       request_type == NetworkRequestType::kFeedQuery ||
       request_type == WebFeedListContentsDiscoverApi::kRequestType ||
+      request_type == SingleWebFeedListContentsDiscoverApi::kRequestType ||
       request_type == QueryInteractiveFeedDiscoverApi::kRequestType ||
       request_type == QueryBackgroundFeedDiscoverApi::kRequestType ||
       request_type == QueryNextPageDiscoverApi::kRequestType;
@@ -497,14 +545,6 @@ void TestFeedNetwork::SendDiscoverApiRequest(
     request_proto.ParseFromString(request_bytes);
     query_request_sent = request_proto;
     send_query_call_count++;
-  }
-
-  bool is_action_upload_request =
-      request_type == UploadActionsDiscoverApi::kRequestType;
-  if (is_action_upload_request) {
-    feedwire::UploadActionsRequest request;
-    ASSERT_TRUE(request.ParseFromString(request_bytes));
-    ASSERT_TRUE(request.has_client_info());
   }
 
   // If there is no injected response, create a default response.
@@ -542,6 +582,11 @@ void TestFeedNetwork::SendDiscoverApiRequest(
       case WebFeedListContentsDiscoverApi::kRequestType: {
         feedwire::Response response;
         InjectApiResponse<WebFeedListContentsDiscoverApi>(response);
+        break;
+      }
+      case SingleWebFeedListContentsDiscoverApi::kRequestType: {
+        feedwire::Response response;
+        InjectApiResponse<SingleWebFeedListContentsDiscoverApi>(response);
         break;
       }
       case QueryInteractiveFeedDiscoverApi::kRequestType: {
@@ -664,8 +709,8 @@ void TestFeedNetwork::Reply(base::OnceClosure reply_closure) {
     if (on_reply_added_)
       on_reply_added_.Run();
   } else {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                     std::move(reply_closure));
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(reply_closure));
   }
 }
 
@@ -705,6 +750,7 @@ void TestWireResponseTranslator::InjectResponse(
   RefreshResponseData data;
   data.model_update_request = std::move(response);
   data.session_id = std::move(session_id);
+  data.last_fetch_timestamp = base::Time::Now();
   InjectResponse(std::move(data));
 }
 void TestWireResponseTranslator::InjectResponse(
@@ -749,22 +795,16 @@ void TestMetricsReporter::ContentSliceViewed(const StreamType& stream_type,
 }
 void TestMetricsReporter::OnLoadStream(
     const StreamType& stream_type,
-    LoadStreamStatus load_from_store_status,
-    LoadStreamStatus final_status,
-    bool is_initial_load,
-    bool loaded_new_content_from_network,
-    base::TimeDelta stored_content_age,
+    const LoadStreamResultSummary& result_summary,
     const ContentStats& content_stats,
-    const RequestMetadata& request_metadata,
-    std::unique_ptr<LoadLatencyTimes> latencies) {
-  load_stream_from_store_status = load_from_store_status;
-  load_stream_status = final_status;
-  LOG(INFO) << "OnLoadStream: " << final_status
-            << " (store status: " << load_from_store_status << ")";
-  MetricsReporter::OnLoadStream(
-      stream_type, load_from_store_status, final_status, is_initial_load,
-      loaded_new_content_from_network, stored_content_age, content_stats,
-      request_metadata, std::move(latencies));
+    std::unique_ptr<LoadLatencyTimes> load_latencies) {
+  load_stream_from_store_status = result_summary.load_from_store_status;
+  load_stream_status = result_summary.final_status;
+  LOG(INFO) << "OnLoadStream: " << result_summary.final_status
+            << " (store status: " << result_summary.load_from_store_status
+            << ")";
+  MetricsReporter::OnLoadStream(stream_type, result_summary, content_stats,
+                                std::move(load_latencies));
 }
 void TestMetricsReporter::OnLoadMoreBegin(const StreamType& stream_type,
                                           SurfaceId surface_id) {
@@ -815,9 +855,9 @@ void FeedApiTest::SetUp() {
   // Disable fetching of recommended web feeds at startup to
   // avoid a delayed task in tests that don't need it.
   config.fetch_web_feed_info_delay = base::TimeDelta();
-  // `use_feed_query_requests_for_web_feeds` is a temporary option for
+  // `use_feed_query_requests` is a temporary option for
   // debugging, setting it to false tests the preferred endpoint.
-  config.use_feed_query_requests_for_web_feeds = false;
+  config.use_feed_query_requests = false;
   SetFeedConfigForTesting(config);
 
   feed::prefs::RegisterFeedSharedProfilePrefs(profile_prefs_.registry());
@@ -863,6 +903,10 @@ void FeedApiTest::RegisterFollowingFeedFollowCountFieldTrial(
   register_following_feed_follow_count_field_trial_calls_.push_back(
       follow_count);
 }
+void FeedApiTest::RegisterFeedUserSettingsFieldTrial(base::StringPiece group) {
+  register_feed_user_settings_field_trial_calls_.push_back(
+      static_cast<std::string>(group));
+}
 DisplayMetrics FeedApiTest::GetDisplayMetrics() {
   DisplayMetrics result;
   result.density = 200;
@@ -875,6 +919,9 @@ std::string FeedApiTest::GetLanguageTag() {
 }
 bool FeedApiTest::IsAutoplayEnabled() {
   return false;
+}
+TabGroupEnabledState FeedApiTest::GetTabGroupEnabledState() {
+  return TabGroupEnabledState::kNone;
 }
 void FeedApiTest::ClearAll() {
   if (on_clear_all_)
@@ -912,10 +959,28 @@ bool FeedApiTest::IsTaskQueueIdle() const {
 }
 
 void FeedApiTest::WaitForIdleTaskQueue() {
-  RunLoopUntil(base::BindLambdaForTesting([&]() {
-    return IsTaskQueueIdle() &&
-           !stream_->subscriptions().is_loading_model_for_testing();
-  }));
+  RunLoopUntil(
+      base::BindLambdaForTesting([&]() {
+        return IsTaskQueueIdle() &&
+               !stream_->subscriptions().is_loading_model_for_testing();
+      }),
+      base::BindLambdaForTesting([&]() -> std::string {
+        std::stringstream ss;
+        if (!IsTaskQueueIdle()) {
+          ss << "Task queue not idle. Queue state:\n"
+             << stream_->GetTaskQueueForTesting().GetStateForTesting() << '\n';
+        }
+        if (stream_->subscriptions().is_loading_model_for_testing()) {
+          ss << "Subscription model still loading\n";
+        }
+
+        return ss.str();
+      }));
+}
+
+void FeedApiTest::WaitForModelToAutoUnload() {
+  task_environment_.FastForwardBy(GetFeedConfig().model_unload_timeout +
+                                  base::Seconds(1));
 }
 
 void FeedApiTest::UnloadModel(const StreamType& stream_type) {
@@ -949,7 +1014,9 @@ std::string FeedApiTest::DumpStoreState(bool print_keys) {
 void FeedApiTest::FollowWebFeed(const WebFeedPageInformation page_info) {
   CallbackReceiver<WebFeedSubscriptions::FollowWebFeedResult> callback;
   network_.InjectResponse(SuccessfulFollowResponse(page_info.url().host()));
-  stream_->subscriptions().FollowWebFeed(page_info, callback.Bind());
+  stream_->subscriptions().FollowWebFeed(
+      page_info, feedwire::webfeed::WebFeedChangeReason::WEB_PAGE_MENU,
+      callback.Bind());
 
   EXPECT_EQ(WebFeedSubscriptionRequestStatus::kSuccess,
             callback.RunAndGetResult().request_status);

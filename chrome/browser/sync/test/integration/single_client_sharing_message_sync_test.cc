@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/ranges/algorithm.h"
 #include "base/test/mock_callback.h"
+#include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/sharing/features.h"
 #include "chrome/browser/sharing/sharing_message_bridge.h"
@@ -15,13 +16,12 @@
 #include "chrome/browser/sync/test/integration/sync_service_impl_harness.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "components/sync/driver/sync_token_status.h"
-#include "components/sync/test/fake_server/fake_server_http_post_provider.h"
+#include "components/sync/test/fake_server_http_post_provider.h"
 #include "content/public/test/browser_test.h"
 
 namespace {
 
 using sync_pb::SharingMessageSpecifics;
-using testing::_;
 
 constexpr char kEmptyOAuth2Token[] = "";
 

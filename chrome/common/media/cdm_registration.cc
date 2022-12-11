@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,10 +32,14 @@
 #include "base/no_destructor.h"
 #include "components/cdm/common/cdm_manifest.h"
 #include "media/cdm/supported_audio_codecs.h"
-// TODO(crbug.com/663554): Needed for WIDEVINE_CDM_VERSION_STRING. Support
-// component updated CDM on all desktop platforms and remove this.
-// This file is In SHARED_INTERMEDIATE_DIR.
+// Needed for WIDEVINE_CDM_MIN_GLIBC_VERSION. This file is in
+// SHARED_INTERMEDIATE_DIR.
 #include "widevine_cdm_version.h"  // nogncheck
+// The following must be after widevine_cdm_version.h.
+#if defined(WIDEVINE_CDM_MIN_GLIBC_VERSION)
+#include <gnu/libc-version.h>
+#include "base/version.h"
+#endif  // defined(WIDEVINE_CDM_MIN_GLIBC_VERSION)
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/common/media/component_widevine_cdm_hint_file_linux.h"
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
@@ -62,11 +66,10 @@ std::unique_ptr<content::CdmInfo> CreateWidevineCdmInfo(
       kWidevineCdmType, version, cdm_library_path);
 }
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
-// On desktop Linux, given |cdm_base_path| that points to a folder containing
-// the Widevine CDM and associated files, read the manifest included in that
-// directory and create a CdmInfo. If that is successful, return the CdmInfo. If
-// not, return nullptr.
+// On desktop Linux and ChromeOS, given |cdm_base_path| that points to a folder
+// containing the Widevine CDM and associated files, read the manifest included
+// in that directory and create a CdmInfo. If that is successful, return the
+// CdmInfo. If not, return nullptr.
 std::unique_ptr<content::CdmInfo> CreateCdmInfoFromWidevineDirectory(
     const base::FilePath& cdm_base_path) {
   // Library should be inside a platform specific directory.
@@ -86,7 +89,6 @@ std::unique_ptr<content::CdmInfo> CreateCdmInfoFromWidevineDirectory(
   return CreateWidevineCdmInfo(version, cdm_library_path,
                                std::move(capability));
 }
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 #endif  // (BUILDFLAG(BUNDLE_WIDEVINE_CDM) ||
         // BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)) && (BUILDFLAG(IS_LINUX) ||
         // BUILDFLAG(IS_CHROMEOS))
@@ -96,52 +98,6 @@ std::unique_ptr<content::CdmInfo> CreateCdmInfoFromWidevineDirectory(
 // On Linux/ChromeOS we have to preload the CDM since it uses the zygote
 // sandbox. On Windows and Mac, the bundled CDM is handled by the component
 // updater.
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-std::unique_ptr<content::CdmInfo> CreateCdmInfoForChromeOS(
-    const base::FilePath& install_dir) {
-  // On ChromeOS the Widevine CDM library is in the component directory and
-  // does not have a manifest.
-  // TODO(crbug.com/971433): Move Widevine CDM to a separate folder in the
-  // component directory so that the manifest can be included.
-  auto cdm_library_path =
-      install_dir.Append(base::GetNativeLibraryName(kWidevineCdmLibraryName));
-  if (!base::PathExists(cdm_library_path))
-    return nullptr;
-
-  // As there is no manifest, set |capability| as if it came from one. These
-  // values must match the CDM that is being bundled with Chrome.
-  media::CdmCapability capability;
-
-  // Note that desktop CDMs only support decryption of audio content,
-  // no decoding. Manifest does not contain any audio codecs, as decoding
-  // will be done by the browser. So use the standard set of audio codecs
-  // supported.
-  capability.audio_codecs = media::GetCdmSupportedAudioCodecs();
-
-  // Add the supported codecs as if they came from the component manifest.
-  // Not specifying any profiles to indicate that all relevant profiles
-  // should be considered supported.
-  const std::vector<media::VideoCodecProfile> kAllProfiles = {};
-  capability.video_codecs.emplace(media::VideoCodec::kVP8, kAllProfiles);
-  capability.video_codecs.emplace(media::VideoCodec::kVP9, kAllProfiles);
-  capability.video_codecs.emplace(media::VideoCodec::kAV1, kAllProfiles);
-#if BUILDFLAG(USE_PROPRIETARY_CODECS)
-  capability.video_codecs.emplace(media::VideoCodec::kH264, kAllProfiles);
-#endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
-
-  // Both encryption schemes are supported on ChromeOS.
-  capability.encryption_schemes.insert(media::EncryptionScheme::kCenc);
-  capability.encryption_schemes.insert(media::EncryptionScheme::kCbcs);
-
-  // Both temporary and persistent sessions are supported on ChromeOS.
-  capability.session_types.insert(media::CdmSessionType::kTemporary);
-  capability.session_types.insert(media::CdmSessionType::kPersistentLicense);
-
-  return CreateWidevineCdmInfo(base::Version(WIDEVINE_CDM_VERSION_STRING),
-                               cdm_library_path, std::move(capability));
-}
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // This code checks to see if the Widevine CDM was bundled with Chrome. If one
 // can be found and looks valid, it returns the CdmInfo for the CDM. Otherwise
@@ -154,17 +110,7 @@ content::CdmInfo* GetBundledWidevine() {
         base::FilePath install_dir;
         CHECK(base::PathService::Get(chrome::DIR_BUNDLED_WIDEVINE_CDM,
                                      &install_dir));
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-        // On ChromeOS the Widevine CDM library is in the component directory
-        // (returned above) and does not have a manifest.
-        // TODO(crbug.com/971433): Move Widevine CDM to a separate folder in
-        // the component directory so that the manifest can be included.
-        return CreateCdmInfoForChromeOS(install_dir);
-#else
-        // On desktop Linux the MANIFEST is bundled with the CDM.
         return CreateCdmInfoFromWidevineDirectory(install_dir);
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
       }());
   return s_cdm_info->get();
 }
@@ -196,6 +142,15 @@ content::CdmInfo* GetComponentUpdatedWidevine() {
 
 void AddSoftwareSecureWidevine(std::vector<content::CdmInfo>* cdms) {
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#if defined(WIDEVINE_CDM_MIN_GLIBC_VERSION)
+  base::Version glibc_version(gnu_get_libc_version());
+  DCHECK(glibc_version.IsValid());
+  if (glibc_version < base::Version(WIDEVINE_CDM_MIN_GLIBC_VERSION)) {
+    LOG(WARNING) << "Widevine not registered because glibc version is too low";
+    return;
+  }
+#endif  // defined(WIDEVINE_CDM_MIN_GLIBC_VERSION)
+
   // The Widevine CDM on Linux needs to be registered (and loaded) before the
   // zygote is locked down. The CDM can be found from the version bundled with
   // Chrome (if BUNDLE_WIDEVINE_CDM = true) and/or the version downloaded by
@@ -252,7 +207,7 @@ void AddHardwareSecureWidevine(std::vector<content::CdmInfo>* cdms) {
   // We currently support VP9, H264 and HEVC video formats with
   // decrypt-and-decode. Not specifying any profiles to indicate that all
   // relevant profiles should be considered supported.
-  const std::vector<media::VideoCodecProfile> kAllProfiles = {};
+  const media::VideoCodecInfo kAllProfiles;
   capability.video_codecs.emplace(media::VideoCodec::kVP9, kAllProfiles);
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
   capability.video_codecs.emplace(media::VideoCodec::kH264, kAllProfiles);
@@ -313,7 +268,7 @@ void AddExternalClearKey(std::vector<content::CdmInfo>* cdms) {
   const char kkExternalClearKeyDifferentCdmTypeTestKeySystem[] =
       "org.chromium.externalclearkey.differentcdmtype";
 
-  // Supported codecs are hard-coded in ExternalClearKeyProperties.
+  // Supported codecs are hard-coded in ExternalClearKeySystemInfo.
   media::CdmCapability capability(
       {}, {}, {media::EncryptionScheme::kCenc, media::EncryptionScheme::kCbcs},
       {media::CdmSessionType::kTemporary,

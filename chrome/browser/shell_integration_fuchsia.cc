@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,8 @@ bool SetAsDefaultProtocolClient(const std::string& protocol) {
   return false;
 }
 
-DefaultWebClientSetPermission GetDefaultWebClientSetPermission() {
+DefaultWebClientSetPermission
+GetPlatformSpecificDefaultWebClientSetPermission() {
   return SET_DEFAULT_UNATTENDED;
 }
 
@@ -31,12 +32,14 @@ std::u16string GetApplicationNameForProtocol(const GURL& url) {
 }
 
 DefaultWebClientState GetDefaultBrowser() {
-  NOTIMPLEMENTED_LOG_ONCE();
-  return DefaultWebClientState::UNKNOWN_DEFAULT;
+  // TODO(crbug.com/1226243): Chromium is effectively the default until Fuchsia
+  // implements a picker.
+  return DefaultWebClientState::IS_DEFAULT;
 }
 
 bool IsFirefoxDefaultBrowser() {
-  NOTIMPLEMENTED_LOG_ONCE();
+  // TODO(crbug.com/1226243): Chromium is effectively the default until Fuchsia
+  // implements a picker.
   return false;
 }
 

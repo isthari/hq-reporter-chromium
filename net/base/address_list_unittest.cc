@@ -1,10 +1,11 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/base/address_list.h"
 
-#include "base/cxx17_backports.h"
+#include <algorithm>
+
 #include "base/strings/string_util.h"
 #include "base/sys_byteorder.h"
 #include "net/base/ip_address.h"
@@ -142,7 +143,7 @@ TEST(AddressListTest, CreateFromIPAddressList) {
       AddressList::CreateFromIPAddressList(ip_list, std::move(aliases));
   std::string canonical_name;
   EXPECT_THAT(test_list.dns_aliases(), UnorderedElementsAre(kCanonicalName));
-  EXPECT_EQ(base::size(tests), test_list.size());
+  EXPECT_EQ(std::size(tests), test_list.size());
 }
 
 TEST(AddressListTest, GetCanonicalNameWhenUnset) {
@@ -244,6 +245,32 @@ TEST(AddressListTest, DeduplicatesLongerAddressList) {
               ElementsAre(IPEndPoint(IPAddress(0, 0, 0, 1), 0),
                           IPEndPoint(IPAddress(0, 0, 0, 2), 0),
                           IPEndPoint(IPAddress(0, 0, 0, 3), 0)));
+}
+
+// Test that, for every permutation of a list of endpoints, deduplication
+// produces the same results as a naive reference implementation.
+TEST(AddressListTest, DeduplicatePreservesOrder) {
+  std::vector<IPEndPoint> permutation = {IPEndPoint(IPAddress(0, 0, 0, 1), 0),
+                                         IPEndPoint(IPAddress(0, 0, 0, 1), 0),
+                                         IPEndPoint(IPAddress(0, 0, 0, 2), 0),
+                                         IPEndPoint(IPAddress(0, 0, 0, 2), 0),
+                                         IPEndPoint(IPAddress(0, 0, 0, 3), 0)};
+  ASSERT_TRUE(std::is_sorted(permutation.begin(), permutation.end()));
+
+  do {
+    std::vector<IPEndPoint> expected;
+    std::set<IPEndPoint> set;
+    for (const IPEndPoint& endpoint : permutation) {
+      if (set.insert(endpoint).second)
+        expected.push_back(endpoint);
+    }
+    EXPECT_EQ(expected.size(), 3u);
+
+    AddressList address_list;
+    address_list.endpoints() = permutation;
+    address_list.Deduplicate();
+    EXPECT_EQ(address_list.endpoints(), expected);
+  } while (std::next_permutation(permutation.begin(), permutation.end()));
 }
 
 }  // namespace

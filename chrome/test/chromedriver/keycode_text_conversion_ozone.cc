@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "base/strings/utf_string_conversion_utils.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/test/chromedriver/chrome/ui_events.h"
 #include "chrome/test/chromedriver/keycode_text_conversion.h"
 #include "ui/events/event_constants.h"
@@ -16,7 +17,7 @@
 #include "ui/events/ozone/layout/stub/stub_keyboard_layout_engine.h"
 #include "ui/ozone/buildflags.h"
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "ui/base/ui_base_features.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #endif
@@ -75,9 +76,7 @@ bool ConvertCharToKeyCode
      ui::KeyboardCode* key_code,
      int* necessary_modifiers,
      std::string* error_msg) {
-  std::u16string key_string;
-  key_string.push_back(key);
-  std::string key_string_utf8 = base::UTF16ToUTF8(key_string);
+  std::string key_string_utf8 = base::UTF16ToUTF8(std::u16string(1, key));
   bool found_code = false;
   *error_msg = std::string();
   // There doesn't seem to be a way to get a CrOS key code for a given unicode

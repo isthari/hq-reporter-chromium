@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,11 +17,12 @@
 namespace policy {
 namespace {
 base::Value ToListValue(const std::vector<std::string>& values) {
-  base::Value::ListStorage storage(values.size());
-  std::transform(values.begin(), values.end(), storage.begin(),
-                 [](const auto& value) { return base::Value(value); });
+  base::Value::List storage;
+  storage.reserve(values.size());
+  for (const auto& value : values)
+    storage.Append(value);
 
-  return base::Value(storage);
+  return base::Value(std::move(storage));
 }
 
 base::Value ToDictValue(const std::string& json) {
@@ -68,8 +69,8 @@ TEST_F(SensitivePolicyFilterTest, TestExtensionInstallForceListFilter) {
 
   FilterSensitivePolicies(policies());
 
-  const auto* actual_filtered_policy =
-      policies()->GetValue(key::kExtensionInstallForcelist);
+  const auto* actual_filtered_policy = policies()->GetValue(
+      key::kExtensionInstallForcelist, base::Value::Type::LIST);
   ASSERT_TRUE(actual_filtered_policy);
   base::Value expected_filtered_policy = ToListValue(
       {"extension0", "[BLOCKED]extension1;example.com", "[BLOCKED]extension2;",
@@ -113,7 +114,8 @@ TEST_F(SensitivePolicyFilterTest, TestExtensionSettingsFilter) {
 
   FilterSensitivePolicies(policies());
 
-  const auto* filtered_policy = policies()->GetValue(key::kExtensionSettings);
+  const auto* filtered_policy =
+      policies()->GetValue(key::kExtensionSettings, base::Value::Type::DICT);
   ASSERT_TRUE(filtered_policy);
   EXPECT_EQ(policy.DictSize(), filtered_policy->DictSize());
   for (const auto entry : policy.DictItems()) {

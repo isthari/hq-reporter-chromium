@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-# Copyright (c) 2012 The Chromium Authors. All rights reserved.
+# Copyright 2012 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -33,14 +33,13 @@ usage() {
 build_apt_package_list() {
   echo "Building apt package list." >&2
   apt-cache dumpavail | \
-    python3 -c '\
-      import re,sys; \
-      o = sys.stdin.read(); \
-      p = {"i386": ":i386"}; \
-      f = re.M | re.S; \
-      r = re.compile(r"^Package: (.+?)$.+?^Architecture: (.+?)$", f); \
-      m = ["%s%s" % (x, p.get(y, "")) for x, y in re.findall(r, o)]; \
-      print("\n".join(m))'
+    python3 -c 'import re,sys; \
+o = sys.stdin.read(); \
+p = {"i386": ":i386"}; \
+f = re.M | re.S; \
+r = re.compile(r"^Package: (.+?)$.+?^Architecture: (.+?)$", f); \
+m = ["%s%s" % (x, p.get(y, "")) for x, y in re.findall(r, o)]; \
+print("\n".join(m))'
 }
 
 # Checks whether a particular package is available in the repos.
@@ -98,18 +97,17 @@ fi
 
 distro_codename=$(lsb_release --codename --short)
 distro_id=$(lsb_release --id --short)
-# TODO(crbug.com/1199405): Remove 14.04 (trusty) and 16.04 (xenial).
-supported_codenames="(trusty|xenial|bionic|disco|eoan|focal|groovy)"
+# TODO(crbug.com/1199405): Remove 16.04 (xenial).
+supported_codenames="(xenial|bionic|focal|jammy)"
 supported_ids="(Debian)"
 if [ 0 -eq "${do_unsupported-0}" ] && [ 0 -eq "${do_quick_check-0}" ] ; then
   if [[ ! $distro_codename =~ $supported_codenames &&
         ! $distro_id =~ $supported_ids ]]; then
     echo -e "ERROR: The only supported distros are\n" \
-      "\tUbuntu 14.04 LTS (trusty with EoL April 2022)\n" \
       "\tUbuntu 16.04 LTS (xenial with EoL April 2024)\n" \
       "\tUbuntu 18.04 LTS (bionic with EoL April 2028)\n" \
-      "\tUbuntu 20.04 LTS (focal with Eol April 2030)\n" \
-      "\tUbuntu 20.10 (groovy)\n" \
+      "\tUbuntu 20.04 LTS (focal with EoL April 2030)\n" \
+      "\tUbuntu 22.04 LTS (jammy with EoL April 2032)\n" \
       "\tDebian 10 (buster) or later" >&2
     exit 1
   fi
@@ -137,7 +135,7 @@ fi
 apt_package_list=$(build_apt_package_list)
 
 # Packages needed for chromeos only
-chromeos_dev_list="libbluetooth-dev libxkbcommon-dev mesa-common-dev"
+chromeos_dev_list="libbluetooth-dev libxkbcommon-dev mesa-common-dev zstd"
 
 if package_exists realpath; then
   chromeos_dev_list="${chromeos_dev_list} realpath"
@@ -199,7 +197,6 @@ dev_list="\
   patch
   perl
   pkg-config
-  python-setuptools
   rpm
   ruby
   subversion
@@ -211,12 +208,6 @@ dev_list="\
   zip
   $chromeos_dev_list
 "
-
-if package_exists python-is-python2; then
-  dev_list="${dev_list} python-is-python2 python2-dev"
-else
-  dev_list="${dev_list} python python-dev"
-fi
 
 # 64-bit systems need a minimum set of 32-bit compat packages for the pre-built
 # NaCl binaries.
@@ -279,7 +270,9 @@ common_lib_list="\
   zlib1g
 "
 
-if package_exists libffi7; then
+if package_exists libffi8; then
+  common_lib_list="${common_lib_list} libffi8"
+elif package_exists libffi7; then
   common_lib_list="${common_lib_list} libffi7"
 elif package_exists libffi6; then
   common_lib_list="${common_lib_list} libffi6"
@@ -291,11 +284,52 @@ lib_list="\
   $chromeos_lib_list
 "
 
+# this can be moved into the lib list without a guard when xenial is deprecated
+if package_exists libgl1; then
+  lib_list="${lib_list} libgl1"
+fi
+if package_exists libegl1; then
+  lib_list="${lib_list} libegl1"
+fi
+if package_exists libwayland-egl1; then
+  lib_list="${lib_list} libwayland-egl1"
+fi
+if package_exists libpangocairo-1.0-0; then
+  lib_list="${lib_list} libpangocairo-1.0-0"
+fi
+if package_exists libgl1:i386; then
+  lib_list="${lib_list} libgl1:i386"
+fi
+if package_exists libegl1:i386; then
+  lib_list="${lib_list} libegl1:i386"
+fi
+if package_exists libwayland-egl1:i386; then
+  lib_list="${lib_list} libwayland-egl1:i386"
+fi
+if package_exists libpangocairo-1.0-0:i386; then
+  lib_list="${lib_list} libpangocairo-1.0-0:i386"
+fi
+
 # 32-bit libraries needed e.g. to compile V8 snapshot for Android or armhf
 lib32_list="linux-libc-dev:i386 libpci3:i386"
 
 # 32-bit libraries needed for a 32-bit build
-lib32_list="$lib32_list libx11-xcb1:i386"
+lib32_list="$lib32_list
+  libasound2:i386
+  libatk-bridge2.0-0:i386
+  libatk1.0-0:i386
+  libatspi2.0-0:i386
+  libdbus-1-3:i386
+  libglib2.0-0:i386
+  libnss3:i386
+  libpango-1.0-0:i386
+  libx11-xcb1:i386
+  libxcomposite1:i386
+  libxdamage1:i386
+  libxkbcommon0:i386
+  libxrandr2:i386
+  libxtst6:i386
+"
 
 # Packages that have been removed from this script.  Regardless of configuration
 # or options passed to this script, whenever a package is removed, it should be
@@ -335,6 +369,8 @@ backwards_compatible_list="\
   libgtk2.0-dev
   mesa-common-dev
   msttcorefonts
+  python-dev
+  python-setuptools
   ttf-dejavu-core
   ttf-indic-fonts
   ttf-kochi-gothic
@@ -342,19 +378,58 @@ backwards_compatible_list="\
   ttf-mscorefonts-installer
   xfonts-mathml
 "
+
 if package_exists python-is-python2; then
-  backwards_compatible_list="${backwards_compatible_list} python-dev"
+  backwards_compatible_list="${backwards_compatible_list} python-is-python2 python2-dev"
+else
+  backwards_compatible_list="${backwards_compatible_list} python"
+fi
+
+if package_exists python-crypto; then
+  backwards_compatible_list="${backwards_compatible_list} python-crypto"
+fi
+
+if package_exists python-numpy; then
+  backwards_compatible_list="${backwards_compatible_list} python-numpy"
+fi
+
+if package_exists python-openssl; then
+  backwards_compatible_list="${backwards_compatible_list} python-openssl"
+fi
+
+if package_exists python-psutil; then
+  backwards_compatible_list="${backwards_compatible_list} python-psutil"
+fi
+
+if package_exists python-yaml; then
+  backwards_compatible_list="${backwards_compatible_list} python-yaml"
+fi
+if package_exists apache2.2-bin; then
+  backwards_compatible_list="${backwards_compatible_list} apache2.2-bin"
+else
+  backwards_compatible_list="${backwards_compatible_list} apache2-bin"
+fi
+if package_exists php8.1-cgi; then
+  backwards_compatible_list="${backwards_compatible_list} php8.1-cgi libapache2-mod-php8.1"
+elif package_exists php8.0-cgi; then
+  backwards_compatible_list="${backwards_compatible_list} php8.0-cgi libapache2-mod-php8.0"
+elif package_exists php7.4-cgi; then
+  backwards_compatible_list="${backwards_compatible_list} php7.4-cgi libapache2-mod-php7.4"
+elif package_exists php7.3-cgi; then
+  backwards_compatible_list="${backwards_compatible_list} php7.3-cgi libapache2-mod-php7.3"
+elif package_exists php7.2-cgi; then
+  backwards_compatible_list="${backwards_compatible_list} php7.2-cgi libapache2-mod-php7.2"
+elif package_exists php7.1-cgi; then
+  backwards_compatible_list="${backwards_compatible_list} php7.1-cgi libapache2-mod-php7.1"
+elif package_exists php7.0-cgi; then
+  backwards_compatible_list="${backwards_compatible_list} php7.0-cgi libapache2-mod-php7.0"
+elif package_exists php8.0-cgi; then
+  backwards_compatible_list="${backwards_compatible_list} php8.0-cgi libapache2-mod-php8.0"
+else
+  backwards_compatible_list="${backwards_compatible_list} php5-cgi libapache2-mod-php5"
 fi
 
 case $distro_codename in
-  trusty)
-    backwards_compatible_list+=" \
-      libgbm-dev-lts-trusty
-      libgl1-mesa-dev-lts-trusty
-      libgl1-mesa-glx-lts-trusty:i386
-      libgles2-mesa-dev-lts-trusty
-      mesa-common-dev-lts-trusty"
-    ;;
   xenial)
     backwards_compatible_list+=" \
       libgbm-dev-lts-xenial
@@ -370,20 +445,11 @@ arm_list="libc6-dev-armhf-cross
           linux-libc-dev-armhf-cross
           g++-arm-linux-gnueabihf"
 
-# Work around for dependency issue Ubuntu/Trusty: http://crbug.com/435056
+# Work around for dependency issue Ubuntu: http://crbug.com/435056
 case $distro_codename in
-  trusty)
-    arm_list+=" g++-4.8-multilib-arm-linux-gnueabihf
-                gcc-4.8-multilib-arm-linux-gnueabihf"
-    ;;
   xenial|bionic)
     arm_list+=" g++-5-multilib-arm-linux-gnueabihf
                 gcc-5-multilib-arm-linux-gnueabihf
-                gcc-arm-linux-gnueabihf"
-    ;;
-  disco|eoan)
-    arm_list+=" g++-9-multilib-arm-linux-gnueabihf
-                gcc-9-multilib-arm-linux-gnueabihf
                 gcc-arm-linux-gnueabihf"
     ;;
   focal)
@@ -391,12 +457,10 @@ case $distro_codename in
                 gcc-10-multilib-arm-linux-gnueabihf
                 gcc-arm-linux-gnueabihf"
     ;;
-  groovy)
-    arm_list+=" g++-10-multilib-arm-linux-gnueabihf
-                gcc-10-multilib-arm-linux-gnueabihf
-                gcc-arm-linux-gnueabihf
-                g++-10-arm-linux-gnueabihf
-                gcc-10-arm-linux-gnueabihf"
+  jammy)
+    arm_list+=" gcc-arm-linux-gnueabihf
+                g++-11-arm-linux-gnueabihf
+                gcc-11-arm-linux-gnueabihf"
     ;;
 esac
 
@@ -433,7 +497,9 @@ nacl_list="\
 "
 
 # Some package names have changed over time
-if package_exists libssl1.1; then
+if package_exists libssl-dev; then
+  nacl_list="${nacl_list} libssl-dev:i386"
+elif package_exists libssl1.1; then
   nacl_list="${nacl_list} libssl1.1:i386"
 elif package_exists libssl1.0.2; then
   nacl_list="${nacl_list} libssl1.0.2:i386"
@@ -474,46 +540,8 @@ elif package_exists libbrlapi0.6; then
 else
   dev_list="${dev_list} libbrlapi0.5"
 fi
-if package_exists apache2.2-bin; then
-  dev_list="${dev_list} apache2.2-bin"
-else
-  dev_list="${dev_list} apache2-bin"
-fi
 if package_exists libav-tools; then
   dev_list="${dev_list} libav-tools"
-fi
-if package_exists php7.4-cgi; then
-  dev_list="${dev_list} php7.4-cgi libapache2-mod-php7.4"
-elif package_exists php7.3-cgi; then
-  dev_list="${dev_list} php7.3-cgi libapache2-mod-php7.3"
-elif package_exists php7.2-cgi; then
-  dev_list="${dev_list} php7.2-cgi libapache2-mod-php7.2"
-elif package_exists php7.1-cgi; then
-  dev_list="${dev_list} php7.1-cgi libapache2-mod-php7.1"
-elif package_exists php7.0-cgi; then
-  dev_list="${dev_list} php7.0-cgi libapache2-mod-php7.0"
-elif package_exists php8.0-cgi; then
-  dev_list="${dev_list} php8.0-cgi libapache2-mod-php8.0"
-else
-  dev_list="${dev_list} php5-cgi libapache2-mod-php5"
-fi
-
-# Most python 2 packages are removed in Ubuntu 20.10, but the build doesn't seem
-# to need them, so only install them if they're available.
-if package_exists python-crypto; then
-  dev_list="${dev_list} python-crypto"
-fi
-if package_exists python-numpy; then
-  dev_list="${dev_list} python-numpy"
-fi
-if package_exists python-openssl; then
-  dev_list="${dev_list} python-openssl"
-fi
-if package_exists python-psutil; then
-  dev_list="${dev_list} python-psutil"
-fi
-if package_exists python-yaml; then
-  dev_list="${dev_list} python-yaml"
 fi
 
 # Some packages are only needed if the distribution actually supports
@@ -561,7 +589,7 @@ fi
 # that are part of v8 need to be compiled with -m32 which means
 # that basic multilib support is needed.
 if file -L /sbin/init | grep -q 'ELF 64-bit'; then
-  # gcc-multilib conflicts with the arm cross compiler (at least in trusty) but
+  # gcc-multilib conflicts with the arm cross compiler but
   # g++-X.Y-multilib gives us the 32-bit support that we need. Find out the
   # appropriate value of X and Y by seeing what version the current
   # distribution's g++-multilib package depends on.
@@ -736,7 +764,7 @@ if [ "$do_inst_chromeos_fonts" != "0" ]; then
       echo "This is expected if your repo is installed on a remote file system."
     fi
     echo "It is recommended to install your repo on a local file system."
-    echo "You can skip the installation of the Chrome OS default founts with"
+    echo "You can skip the installation of the Chrome OS default fonts with"
     echo "the command line option: --no-chromeos-fonts."
     exit 1
   fi

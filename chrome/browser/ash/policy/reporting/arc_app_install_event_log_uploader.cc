@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/ash/policy/reporting/install_event_log_util.h"
@@ -57,7 +57,7 @@ void ArcAppInstallEventLogUploader::OnUploadSuccess() {
 }
 
 void ArcAppInstallEventLogUploader::PostTaskForStartSerialization() {
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&InstallEventLogUploaderBase::StartSerialization,
                      weak_factory_.GetWeakPtr()),
@@ -66,11 +66,12 @@ void ArcAppInstallEventLogUploader::PostTaskForStartSerialization() {
 
 void ArcAppInstallEventLogUploader::OnSerialized(
     const em::AppInstallReportRequest* report) {
-  base::Value context = reporting::GetContext(profile_);
-  base::Value event_list = ConvertArcAppProtoToValue(report, context);
+  base::Value::Dict context = reporting::GetContext(profile_);
+  base::Value::List event_list = ConvertArcAppProtoToValue(report, context);
 
-  base::Value value_report = RealtimeReportingJobConfiguration::BuildReport(
-      std::move(event_list), std::move(context));
+  base::Value::Dict value_report =
+      RealtimeReportingJobConfiguration::BuildReport(std::move(event_list),
+                                                     std::move(context));
 
   // base::Unretained() is safe here as the destructor cancels any pending
   // upload, after which the |client_| is guaranteed to not call the callback.

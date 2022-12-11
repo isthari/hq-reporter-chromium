@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,9 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/location.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/renderer_host/navigation_request.h"
 #include "content/browser/renderer_host/navigator.h"
@@ -22,7 +23,6 @@
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_version.h"
-#include "content/browser/storage_partition_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -109,7 +109,7 @@ class OpenURLObserver : public WebContentsObserver {
     DCHECK(callback_);
 
     scoped_refptr<base::SequencedTaskRunner> task_runner =
-        base::SequencedTaskRunnerHandle::Get();
+        base::SequencedTaskRunner::GetCurrentDefault();
     // TODO(falken): Does this need to be asynchronous?
     task_runner->PostTask(FROM_HERE,
                           base::BindOnce(std::move(callback_), rfh_id));
@@ -169,7 +169,7 @@ void DidOpenURL(OpenURLCallback callback, WebContents* web_contents) {
   static_cast<WebContentsImpl*>(web_contents)->Activate();
 
   RenderFrameHostImpl* rfhi =
-      static_cast<RenderFrameHostImpl*>(web_contents->GetMainFrame());
+      static_cast<RenderFrameHostImpl*>(web_contents->GetPrimaryMainFrame());
   new OpenURLObserver(web_contents,
                       rfhi->frame_tree_node()->frame_tree_node_id(),
                       std::move(callback));
@@ -413,8 +413,8 @@ void FocusWindowClient(ServiceWorkerContainerHost* container_host,
   FrameTreeNode* frame_tree_node = render_frame_host->frame_tree_node();
 
   // Focus the frame in the frame tree node, in case it has changed.
-  frame_tree_node->frame_tree()->SetFocusedFrame(
-      frame_tree_node, render_frame_host->GetSiteInstance());
+  frame_tree_node->frame_tree().SetFocusedFrame(
+      frame_tree_node, render_frame_host->GetSiteInstance()->group());
 
   // Focus the frame's view to make sure the frame is now considered as focused.
   render_frame_host->GetView()->Focus();
@@ -457,7 +457,7 @@ void OpenWindow(const GURL& url,
   }
 
   // The following code is a rough copy of Navigator::RequestOpenURL. That
-  // function can't be used directly since there is no render frame host yet
+  // function can't be used directly since there is no RenderFrameHost yet
   // that the navigation will occur in.
 
   OpenURLParams params(
@@ -552,7 +552,7 @@ void GetClient(ServiceWorkerContainerHost* container_host,
     blink::mojom::ServiceWorkerClientInfoPtr info = GetWindowClientInfo(
         container_host->GetRenderFrameHostId(), container_host->create_time(),
         container_host->client_uuid());
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), std::move(info)));
     return;
   }
@@ -566,7 +566,7 @@ void GetClient(ServiceWorkerContainerHost* container_host,
       /*is_focused=*/false,
       blink::mojom::ServiceWorkerClientLifecycleState::kActive,
       base::TimeTicks(), container_host->create_time());
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), std::move(client_info)));
 }
 

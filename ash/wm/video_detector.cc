@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -128,7 +128,7 @@ void VideoDetector::EstablishConnectionToViz() {
 void VideoDetector::OnConnectionError() {
   if (video_is_playing_)
     OnVideoActivityEnded();
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&VideoDetector::EstablishConnectionToViz,
                      weak_factory_.GetWeakPtr()),

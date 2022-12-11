@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -73,34 +73,30 @@ LayerTreePixelTest::CreateLayerTreeFrameSink(
   if (!use_software_renderer()) {
     compositor_context_provider =
         base::MakeRefCounted<viz::TestInProcessContextProvider>(
-            /*enable_gles2_interface=*/true, /*support_locking=*/false,
-            viz::RasterInterfaceType::None);
+            viz::TestContextType::kGLES2, /*support_locking=*/false);
 
-    viz::RasterInterfaceType worker_ri_type;
+    viz::TestContextType worker_ri_type;
     switch (raster_type()) {
       case TestRasterType::kGpu:
-        worker_ri_type = viz::RasterInterfaceType::GPU;
+        worker_ri_type = viz::TestContextType::kGpuRaster;
         break;
       case TestRasterType::kOneCopy:
-        worker_ri_type = viz::RasterInterfaceType::Software;
+        worker_ri_type = viz::TestContextType::kSoftwareRaster;
         break;
       case TestRasterType::kZeroCopy:
-        worker_ri_type = viz::RasterInterfaceType::Software;
+        worker_ri_type = viz::TestContextType::kSoftwareRaster;
         break;
       case TestRasterType::kBitmap:
-        worker_ri_type = viz::RasterInterfaceType::None;
-        break;
-      default:
         NOTREACHED();
     }
     worker_context_provider =
         base::MakeRefCounted<viz::TestInProcessContextProvider>(
-            /*enable_gles2_interface=*/false, /*support_locking=*/true,
-            worker_ri_type);
+            worker_ri_type, /*support_locking=*/true);
     // Bind worker context to main thread like it is in production. This is
     // needed to fully initialize the context. Compositor context is bound to
-    // the impl thread in LayerTreeFrameSink::BindToCurrentThread().
-    gpu::ContextResult result = worker_context_provider->BindToCurrentThread();
+    // the impl thread in LayerTreeFrameSink::BindToCurrentSequence().
+    gpu::ContextResult result =
+        worker_context_provider->BindToCurrentSequence();
     DCHECK_EQ(result, gpu::ContextResult::kSuccess);
   }
   static constexpr bool disable_display_vsync = false;
@@ -153,7 +149,7 @@ LayerTreePixelTest::CreateDisplayControllerOnThread() {
 }
 
 std::unique_ptr<viz::SkiaOutputSurface>
-LayerTreePixelTest::CreateDisplaySkiaOutputSurfaceOnThread(
+LayerTreePixelTest::CreateSkiaOutputSurfaceOnThread(
     viz::DisplayCompositorMemoryAndTaskController* display_controller) {
   // Set up the SkiaOutputSurfaceImpl.
   auto output_surface = viz::SkiaOutputSurfaceImpl::Create(
@@ -162,29 +158,10 @@ LayerTreePixelTest::CreateDisplaySkiaOutputSurfaceOnThread(
 }
 
 std::unique_ptr<viz::OutputSurface>
-LayerTreePixelTest::CreateDisplayOutputSurfaceOnThread(
-    scoped_refptr<viz::ContextProvider> compositor_context_provider) {
-  std::unique_ptr<PixelTestOutputSurface> display_output_surface;
-  if (renderer_type_ == viz::RendererType::kGL) {
-    // Pixel tests use a separate context for the Display to more closely
-    // mimic texture transport from the renderer process to the Display
-    // compositor.
-    auto display_context_provider =
-        base::MakeRefCounted<viz::TestInProcessContextProvider>(
-            /*enable_gles2_interface=*/true, /*support_locking=*/false,
-            viz::RasterInterfaceType::None);
-    gpu::ContextResult result = display_context_provider->BindToCurrentThread();
-    DCHECK_EQ(result, gpu::ContextResult::kSuccess);
-
-    gfx::SurfaceOrigin surface_origin = gfx::SurfaceOrigin::kBottomLeft;
-    display_output_surface = std::make_unique<PixelTestOutputSurface>(
-        std::move(display_context_provider), surface_origin);
-  } else {
-    EXPECT_EQ(viz::RendererType::kSoftware, renderer_type_);
-    display_output_surface = std::make_unique<PixelTestOutputSurface>(
-        std::make_unique<viz::SoftwareOutputDevice>());
-  }
-  return std::move(display_output_surface);
+LayerTreePixelTest::CreateSoftwareOutputSurfaceOnThread() {
+  EXPECT_EQ(viz::RendererType::kSoftware, renderer_type_);
+  return std::make_unique<PixelTestOutputSurface>(
+      std::make_unique<viz::SoftwareOutputDevice>());
 }
 
 std::unique_ptr<viz::CopyOutputRequest>
@@ -256,7 +233,9 @@ scoped_refptr<SolidColorLayer> LayerTreePixelTest::CreateSolidColorLayer(
   layer->SetBounds(rect.size());
   layer->SetPosition(gfx::PointF(rect.origin()));
   layer->SetOffsetToTransformParent(gfx::Vector2dF(rect.OffsetFromOrigin()));
-  layer->SetBackgroundColor(color);
+  // CreateSolidColorLayer is only being used in tests, so we can live with this
+  // SkColor converted to SkColor4f.
+  layer->SetBackgroundColor(SkColor4f::FromColor(color));
   return layer;
 }
 

@@ -1,19 +1,26 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
 
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {Action} from '../realbox.mojom-webui.js';
+import {sanitizeInnerHtml} from 'chrome://resources/js/parse_html_subset.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
+import {Action} from '../omnibox.mojom-webui.js';
 import {decodeString16} from '../utils.js';
+
+import {getTemplate} from './realbox_action.html.js';
 
 // Displays an action associated with AutocompleteMatch (i.e. Clear
 // Browsing History, etc.)
 class RealboxActionElement extends PolymerElement {
   static get is() {
     return 'ntp-realbox-action';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -49,13 +56,20 @@ class RealboxActionElement extends PolymerElement {
         type: String,
         computed: `computeHintHtml_(action)`,
       },
+
+      /** Rendered tooltip from action. */
+      tooltip_: {
+        type: String,
+        computed: `computeTooltip_(action)`,
+      },
     };
   }
 
   action: Action;
   matchIndex: number;
-  ariaLabel: string;
-  private hintHtml_: string;
+  override ariaLabel: string;
+  private hintHtml_: TrustedHTML;
+  private tooltip_: string;
 
   //============================================================================
   // Helpers
@@ -68,15 +82,18 @@ class RealboxActionElement extends PolymerElement {
     return '';
   }
 
-  private computeHintHtml_(): string {
+  private computeHintHtml_(): TrustedHTML {
     if (this.action.hint) {
-      return decodeString16(this.action.hint);
+      return sanitizeInnerHtml(decodeString16(this.action.hint));
     }
-    return '';
+    return window.trustedTypes!.emptyHTML;
   }
 
-  static get template() {
-    return html`{__html_template__}`;
+  private computeTooltip_(): string {
+    if (this.action.suggestionContents) {
+      return decodeString16(this.action.suggestionContents);
+    }
+    return '';
   }
 }
 

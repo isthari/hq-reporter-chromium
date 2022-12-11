@@ -35,6 +35,7 @@
 #include <iosfwd>
 #include <limits>
 
+#include "base/check_op.h"
 #include "base/compiler_specific.h"
 #include "base/dcheck_is_on.h"
 #include "base/logging.h"
@@ -44,6 +45,7 @@
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
+#include "third_party/blink/renderer/platform/wtf/vector_traits.h"
 
 namespace blink {
 
@@ -89,13 +91,15 @@ ALWAYS_INLINE int GetMinSaturatedSetResultForTesting() {
 class PLATFORM_EXPORT LayoutUnit;
 constexpr bool operator<(const LayoutUnit&, const LayoutUnit&);
 
+// LayoutUnit is a fixed-point math class, storing multiples of 1/64 of a pixel.
+// See: https://trac.webkit.org/wiki/LayoutUnit
 class LayoutUnit {
   DISALLOW_NEW();
 
  public:
   constexpr LayoutUnit() : value_(0) {}
   template <typename IntegerType>
-  constexpr explicit LayoutUnit(IntegerType value) {
+  constexpr explicit LayoutUnit(IntegerType value) : value_(0) {
     if (std::is_signed<IntegerType>::value)
       SaturatedSet(static_cast<int>(value));
     else
@@ -103,6 +107,8 @@ class LayoutUnit {
   }
   constexpr explicit LayoutUnit(uint64_t value)
       : value_(base::saturated_cast<int>(value * kFixedPointDenominator)) {}
+  // A |value| is clamped by Min() and Max().
+  // A NaN |value| produces LayoutUnit(0).
   constexpr explicit LayoutUnit(float value)
       : value_(base::saturated_cast<int>(value * kFixedPointDenominator)) {}
   constexpr explicit LayoutUnit(double value)
@@ -818,5 +824,7 @@ PLATFORM_EXPORT WTF::TextStream& operator<<(WTF::TextStream&,
                                             const LayoutUnit&);
 
 }  // namespace blink
+
+WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(blink::LayoutUnit)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_GEOMETRY_LAYOUT_UNIT_H_

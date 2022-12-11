@@ -1,12 +1,14 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef BASE_TRACE_EVENT_BUILTIN_CATEGORIES_H_
 #define BASE_TRACE_EVENT_BUILTIN_CATEGORIES_H_
 
+#include <cstddef>
+#include <iterator>
+
 #include "base/base_export.h"
-#include "base/cxx17_backports.h"
 #include "base/trace_event/common/trace_event_common.h"
 #include "base/tracing_buildflags.h"
 #include "build/build_config.h"
@@ -58,6 +60,7 @@
   X("cast.mdns")                                                         \
   X("cast.mdns.socket")                                                  \
   X("cast.stream")                                                       \
+  X("catan_investigation")                                               \
   X("cc")                                                                \
   X("cc.debug")                                                          \
   X("cdp.perf")                                                          \
@@ -66,6 +69,7 @@
   X("compositor")                                                        \
   X("content")                                                           \
   X("content_capture")                                                   \
+  X("delegated_ink_trails")                                              \
   X("device")                                                            \
   X("devtools")                                                          \
   X("devtools.contrast")                                                 \
@@ -84,12 +88,15 @@
   X("explore_sites")                                                     \
   X("FileSystem")                                                        \
   X("file_system_provider")                                              \
+  X("fledge")                                                            \
   X("fonts")                                                             \
   X("GAMEPAD")                                                           \
   X("gpu")                                                               \
   X("gpu.angle")                                                         \
   X("gpu.capture")                                                       \
   X("headless")                                                          \
+  /* Traces for //components/history. */                                 \
+  X("history")                                                           \
   X("hwoverlays")                                                        \
   X("identity")                                                          \
   X("ime")                                                               \
@@ -141,6 +148,7 @@
   X("SiteEngagement")                                                    \
   X("safe_browsing")                                                     \
   X("scheduler")                                                         \
+  X("scheduler.long_tasks")                                              \
   X("screenlock_monitor")                                                \
   X("segmentation_platform")                                             \
   X("sequence_manager")                                                  \
@@ -168,11 +176,13 @@
   X("views.frame")                                                       \
   X("viz")                                                               \
   X("vk")                                                                \
+  X("wakeup.flow")                                                       \
   X("wayland")                                                           \
   X("webaudio")                                                          \
   X("weblayer")                                                          \
   X("WebCore")                                                           \
   X("webrtc")                                                            \
+  X("webrtc_stats")                                                      \
   X("xr")                                                                \
   X(TRACE_DISABLED_BY_DEFAULT("android_view_hierarchy"))                 \
   X(TRACE_DISABLED_BY_DEFAULT("animation-worklet"))                      \
@@ -186,6 +196,8 @@
   X(TRACE_DISABLED_BY_DEFAULT("blink.feature_usage"))                    \
   X(TRACE_DISABLED_BY_DEFAULT("blink.image_decoding"))                   \
   X(TRACE_DISABLED_BY_DEFAULT("blink.invalidation"))                     \
+  X(TRACE_DISABLED_BY_DEFAULT("identifiability"))                        \
+  X(TRACE_DISABLED_BY_DEFAULT("identifiability.high_entropy_api"))       \
   X(TRACE_DISABLED_BY_DEFAULT("cc"))                                     \
   X(TRACE_DISABLED_BY_DEFAULT("cc.debug"))                               \
   X(TRACE_DISABLED_BY_DEFAULT("cc.debug.cdp-perf"))                      \
@@ -205,6 +217,7 @@
   X(TRACE_DISABLED_BY_DEFAULT("devtools.timeline.invalidationTracking")) \
   X(TRACE_DISABLED_BY_DEFAULT("devtools.timeline.layers"))               \
   X(TRACE_DISABLED_BY_DEFAULT("devtools.timeline.picture"))              \
+  X(TRACE_DISABLED_BY_DEFAULT("devtools.timeline.stack"))                \
   X(TRACE_DISABLED_BY_DEFAULT("file"))                                   \
   X(TRACE_DISABLED_BY_DEFAULT("fonts"))                                  \
   X(TRACE_DISABLED_BY_DEFAULT("gpu_cmd_queue"))                          \
@@ -230,7 +243,6 @@
   X(TRACE_DISABLED_BY_DEFAULT("power"))                                  \
   X(TRACE_DISABLED_BY_DEFAULT("renderer.scheduler"))                     \
   X(TRACE_DISABLED_BY_DEFAULT("renderer.scheduler.debug"))               \
-  X(TRACE_DISABLED_BY_DEFAULT("sandbox"))                                \
   X(TRACE_DISABLED_BY_DEFAULT("sequence_manager"))                       \
   X(TRACE_DISABLED_BY_DEFAULT("sequence_manager.debug"))                 \
   X(TRACE_DISABLED_BY_DEFAULT("sequence_manager.verbose_snapshots"))     \
@@ -316,6 +328,8 @@
   X("inc,inc2")                                                               \
   X("input,benchmark")                                                        \
   X("input,benchmark,devtools.timeline")                                      \
+  X("input,benchmark,devtools.timeline,latencyInfo")                          \
+  X("input,benchmark,latencyInfo")                                            \
   X("input,latency")                                                          \
   X("input,rail")                                                             \
   X("input,views")                                                            \
@@ -335,8 +349,11 @@
   X("shutdown,viz")                                                           \
   X("startup,benchmark,rail")                                                 \
   X("startup,rail")                                                           \
+  X("toplevel,Java")                                                          \
+  X("toplevel,viz")                                                           \
   X("ui,input")                                                               \
   X("ui,latency")                                                             \
+  X("ui,toplevel")                                                            \
   X("v8," TRACE_DISABLED_BY_DEFAULT("v8.compile"))                            \
   X("v8,devtools.timeline")                                                   \
   X("v8,devtools.timeline," TRACE_DISABLED_BY_DEFAULT("v8.compile"))          \
@@ -418,9 +435,7 @@ class BASE_EXPORT BuiltinCategories {
   }
 
   // Returns the amount of built-in categories in the registry.
-  static constexpr size_t Size() {
-    return base::size(kBuiltinCategories);
-  }
+  static constexpr size_t Size() { return std::size(kBuiltinCategories); }
 
   // Where in the builtin category list to start when populating the
   // about://tracing UI.
@@ -524,13 +539,13 @@ class BASE_EXPORT BuiltinCategories {
   // Returns whether |category| is used only for testing.
   static constexpr bool IsCategoryForTesting(const char* category) {
     return IsStringInArray(category, kCategoriesForTesting,
-                           base::size(kCategoriesForTesting));
+                           std::size(kCategoriesForTesting));
   }
 
   // Returns whether |category| is registered in the builtin list.
   static constexpr bool IsBuiltinCategory(const char* category) {
     return IsStringInArray(category, kBuiltinCategories,
-                           base::size(kBuiltinCategories));
+                           std::size(kBuiltinCategories));
   }
 };
 

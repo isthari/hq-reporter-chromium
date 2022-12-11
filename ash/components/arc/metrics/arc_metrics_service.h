@@ -1,16 +1,18 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_COMPONENTS_ARC_METRICS_ARC_METRICS_SERVICE_H_
 #define ASH_COMPONENTS_ARC_METRICS_ARC_METRICS_SERVICE_H_
 
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
+#include "ash/components/arc/metrics/arc_daily_metrics.h"
 #include "ash/components/arc/metrics/arc_metrics_constants.h"
 #include "ash/components/arc/mojom/anr.mojom.h"
 #include "ash/components/arc/mojom/metrics.mojom.h"
@@ -24,6 +26,7 @@
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_service.pb.h"
 #include "components/guest_os/guest_os_engagement_metrics.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -31,6 +34,7 @@
 #include "ui/wm/public/activation_change_observer.h"
 
 class BrowserContextKeyedServiceFactory;
+class PrefService;
 
 namespace metrics {
 class PSIMemoryParser;
@@ -46,6 +50,8 @@ class BrowserContext;
 
 namespace arc {
 
+class ArcMetricsAnr;
+
 namespace mojom {
 class AppInstance;
 class IntentHelperInstance;
@@ -57,7 +63,7 @@ class ArcMetricsService : public KeyedService,
                           public mojom::MetricsHost,
                           public ui::GamepadObserver {
  public:
-  using HistogramNamer =
+  using HistogramNamerCallback =
       base::RepeatingCallback<std::string(const std::string& base_name)>;
 
   class AppKillObserver : public base::CheckedObserver {
@@ -71,6 +77,11 @@ class ArcMetricsService : public KeyedService,
   class UserInteractionObserver : public base::CheckedObserver {
    public:
     virtual void OnUserInteraction(UserInteractionType type) = 0;
+  };
+
+  class BootTypeObserver : public base::CheckedObserver {
+   public:
+    virtual void OnBootTypeRetrieved(mojom::BootType type) = 0;
   };
 
   // Returns singleton instance for the given BrowserContext,
@@ -100,7 +111,7 @@ class ArcMetricsService : public KeyedService,
 
   // Sets the histogram namer. Required to not have a dependency on browser
   // codebase.
-  void SetHistogramNamer(HistogramNamer histogram_namer);
+  void SetHistogramNamerCallback(HistogramNamerCallback histogram_namer_cb);
 
   // Implementations for ConnectionObserver<mojom::ProcessInstance>.
   void OnProcessConnectionReady();
@@ -142,6 +153,26 @@ class ArcMetricsService : public KeyedService,
   void ReportDataRestore(mojom::DataRestoreStatus status,
                          int64_t duration_ms) override;
   void ReportMemoryPressure(const std::vector<uint8_t>& psiFile) override;
+  void ReportProvisioningPreSignIn() override;
+  void ReportWaylandLateTimingEvent(mojom::WaylandTimingEvent event,
+                                    base::TimeDelta duration) override;
+  void ReportNonAndroidPlayFilesCount(
+      uint32_t number_of_directories,
+      uint32_t number_of_non_directories) override;
+  void ReportPerAppFileStatsOfAndroidDataDirs(
+      uint32_t number_of_directories,
+      uint32_t number_of_non_directories,
+      uint32_t size_in_kilobytes) override;
+  void ReportTotalFileStatsOfAndroidDataDirs(uint32_t number_of_directories,
+                                             uint32_t number_of_non_directories,
+                                             uint32_t size_in_kilobytes,
+                                             base::TimeDelta duration) override;
+  void ReportTotalFileStatsOfAndroidDataSubdir(
+      mojom::AndroidDataSubdirectory target,
+      uint32_t number_of_directories,
+      uint32_t number_of_non_directories,
+      uint32_t size_in_kilobytes) override;
+  void ReportWebViewProcessStarted() override;
 
   // wm::ActivationChangeObserver overrides.
   // Records to UMA when a user has interacted with an ARC app window.
@@ -160,11 +191,19 @@ class ArcMetricsService : public KeyedService,
                      const std::string& intent);
   void OnTaskDestroyed(int32_t task_id);
 
+  // ArcSessionManagerObserver callbacks which are called through
+  // ArcMetricsServiceProxy.
+  void OnArcStarted();
+  void OnArcSessionStopped();
+
   void AddAppKillObserver(AppKillObserver* obs);
   void RemoveAppKillObserver(AppKillObserver* obs);
 
   void AddUserInteractionObserver(UserInteractionObserver* obs);
   void RemoveUserInteractionObserver(UserInteractionObserver* obs);
+
+  void AddBootTypeObserver(BootTypeObserver* obs);
+  void RemoveBootTypeObserver(BootTypeObserver* obs);
 
   // Finds the boot_progress_arc_upgraded event, removes it from |events|, and
   // returns the event time. If the boot_progress_arc_upgraded event is not
@@ -176,6 +215,24 @@ class ArcMetricsService : public KeyedService,
   // Forwards reports of app kills resulting from a MemoryPressureArcvm signal
   // to MemoryKillsMonitor via ArcMetricsServiceProxy.
   void ReportMemoryPressureArcVmKills(int count, int estimated_freed_kb);
+
+  // Make a request to Concierge service for running VMs, then a request to
+  // ArcProcessService for kill counts. Public for testing.
+  void RequestKillCountsForTesting();
+
+  void SetPrefService(PrefService* prefs);
+
+  // Sets the UserId hash (cryptohome ID). Required to not have a dependency on
+  // browser codebase.
+  void set_user_id_hash(const std::string& user_id_hash) {
+    user_id_hash_ = user_id_hash;
+  }
+
+  ArcDailyMetrics* get_daily_metrics_for_testing() { return daily_.get(); }
+
+  // Record the starting time of ARC provisioning, for later use.
+  void ReportProvisioningStartTime(const base::TimeTicks& start_time,
+                                   const std::string& account_type_suffix);
 
  private:
   // Adapter to be able to also observe ProcessInstance events.
@@ -258,6 +315,13 @@ class ArcMetricsService : public KeyedService,
   void RequestProcessList();
   void ParseProcessList(std::vector<mojom::RunningAppProcessInfoPtr> processes);
 
+  void OnRequestKillCountTimer();
+  void OnListVmsResponse(
+      absl::optional<vm_tools::concierge::ListVmsResponse> response);
+  void OnLowMemoryKillCounts(
+      absl::optional<vm_tools::concierge::ListVmsResponse> vms_list,
+      mojom::LowMemoryKillCountsPtr counts);
+
   // DBus callbacks.
   void OnArcStartTimeRetrieved(std::vector<mojom::BootProgressEventPtr> events,
                                mojom::BootType boot_type,
@@ -266,9 +330,18 @@ class ArcMetricsService : public KeyedService,
       base::TimeTicks durationTicks,
       absl::optional<base::TimeTicks> arc_start_time);
 
+  void OnVmsListedForKillCounts(
+      absl::optional<vm_tools::concierge::ListVmsResponse> response);
+
   // Notify AppKillObservers.
   void NotifyLowMemoryKill();
   void NotifyOOMKillCount(unsigned long count);
+
+  // Calls sysinfo() to get the load average value and store it.
+  void MeasureLoadAverage(size_t index);
+
+  // Records load average with the appropriate histogram name if ready.
+  void MaybeRecordLoadAveragePerProcessor();
 
   THREAD_CHECKER(thread_checker_);
 
@@ -279,10 +352,19 @@ class ArcMetricsService : public KeyedService,
 
   // A function that appends a suffix to the base of a histogram name based on
   // the current user profile.
-  HistogramNamer histogram_namer_;
+  HistogramNamerCallback histogram_namer_cb_;
+
+  std::string user_id_hash_;
 
   ProcessObserver process_observer_;
   base::RepeatingTimer request_process_list_timer_;
+  base::RepeatingTimer request_kill_count_timer_;
+
+  mojom::LowMemoryKillCountsPtr prev_logged_memory_kills_;
+
+  // Tracks metrics that should be logged daily. Lazily initialized in
+  // SetPrefService because we need PrefService to create.
+  std::unique_ptr<ArcDailyMetrics> daily_;
 
   ArcBridgeServiceObserver arc_bridge_service_observer_;
   IntentHelperObserver intent_helper_observer_;
@@ -296,6 +378,20 @@ class ArcMetricsService : public KeyedService,
 
   base::ObserverList<AppKillObserver> app_kill_observers_;
   base::ObserverList<UserInteractionObserver> user_interaction_observers_;
+  base::ObserverList<BootTypeObserver> boot_type_observers_;
+
+  PrefService* prefs_ = nullptr;
+  std::unique_ptr<ArcMetricsAnr> metrics_anr_;
+
+  // For reporting Arc.Provisioning.PreSignInTimeDelta.
+  absl::optional<base::TimeTicks> arc_provisioning_start_time_;
+  absl::optional<std::string> arc_provisioning_account_type_suffix_;
+
+  // Load average values returned by sysinfo() after ARC start.
+  // Maps from the index of the value to the value itself.
+  std::map<size_t, int> load_averages_after_arc_start_;
+
+  mojom::BootType boot_type_ = mojom::BootType::UNKNOWN;
 
   // Always keep this the last member of this class to make sure it's the
   // first thing to be destructed.

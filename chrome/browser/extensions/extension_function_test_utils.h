@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 
 #include <string>
 
-#include "base/memory/ref_counted.h"
 #include "base/values.h"
 #include "extensions/browser/api_test_utils.h"
 #include "extensions/common/manifest.h"
@@ -15,11 +14,6 @@
 
 class Browser;
 class ExtensionFunction;
-
-namespace base {
-class Value;
-class ListValue;
-}
 
 // TODO(ckehoe): Accept args as std::unique_ptr<base::Value>,
 // and migrate existing users to the new API.
@@ -31,15 +25,15 @@ namespace extension_function_test_utils {
 absl::optional<base::Value> ParseList(const std::string& data);
 
 // If |val| is a dictionary, return it as one, otherwise create an empty one.
-base::Value::DictStorage ToDictionary(std::unique_ptr<base::Value> val);
-base::Value::DictStorage ToDictionary(const base::Value& val);
+base::Value::Dict ToDictionary(std::unique_ptr<base::Value> val);
+base::Value::Dict ToDictionary(const base::Value& val);
 
-// If |val| is a list, return it as one, otherwise NULL.
-std::unique_ptr<base::ListValue> ToList(std::unique_ptr<base::Value> val);
+// If |val| is a list, return it as one, otherwise create an empty one.
+base::Value::List ToList(std::unique_ptr<base::Value> val);
 
 // Returns true if |val| contains any privacy information, e.g. url,
 // pendingUrl, title or faviconUrl.
-bool HasAnyPrivacySensitiveFields(const base::Value::DictStorage& dict);
+bool HasAnyPrivacySensitiveFields(const base::Value::Dict& dict);
 
 // Run |function| with |args| and return the resulting error. Adds an error to
 // the current test if |function| returns a result. Takes ownership of
@@ -80,6 +74,11 @@ bool RunFunction(ExtensionFunction* function,
                  const std::string& args,
                  Browser* browser,
                  extensions::api_test_utils::RunFunctionFlags flags);
+bool RunFunction(ExtensionFunction* function,
+                 base::Value::List args,
+                 Browser* browser,
+                 extensions::api_test_utils::RunFunctionFlags flags);
+// DEPRECATED. Use the version above.
 bool RunFunction(ExtensionFunction* function,
                  std::unique_ptr<base::ListValue> args,
                  Browser* browser,

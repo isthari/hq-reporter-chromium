@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,7 +33,6 @@
 #include "headless/lib/browser/headless_browser_impl.h"
 #include "headless/lib/browser/headless_browser_main_parts.h"
 #include "headless/lib/browser/headless_devtools_manager_delegate.h"
-#include "headless/lib/browser/headless_quota_permission_context.h"
 #include "mojo/public/cpp/bindings/binder_map.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
@@ -49,20 +48,19 @@
 #include "ui/gfx/switches.h"
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-#include "components/crash/core/app/crash_switches.h"
-#include "components/crash/core/app/crashpad.h"
+#include "components/crash/core/app/crash_switches.h"  // nogncheck
+#include "components/crash/core/app/crashpad.h"        // nogncheck
 #include "content/public/common/content_descriptors.h"
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 
 #if defined(HEADLESS_USE_POLICY)
 #include "components/policy/content/policy_blocklist_navigation_throttle.h"
-#include "components/policy/core/common/policy_service.h"  // nogncheck http://crbug.com/1227148
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/navigation_throttle.h"
 #endif  // defined(HEADLESS_USE_POLICY)
 
 #if BUILDFLAG(ENABLE_PRINTING)
-#include "components/printing/browser/print_to_pdf/pdf_print_manager.h"
+#include "components/printing/browser/headless/headless_print_manager.h"
 #endif  // defined(ENABLE_PRINTING)
 
 namespace headless {
@@ -116,9 +114,9 @@ HeadlessContentBrowserClient::~HeadlessContentBrowserClient() = default;
 
 std::unique_ptr<content::BrowserMainParts>
 HeadlessContentBrowserClient::CreateBrowserMainParts(
-    content::MainFunctionParams parameters) {
-  auto browser_main_parts = std::make_unique<HeadlessBrowserMainParts>(
-      std::move(parameters), browser_);
+    bool /* is_integration_test */) {
+  auto browser_main_parts =
+      std::make_unique<HeadlessBrowserMainParts>(browser_);
 
   browser_->set_browser_main_parts(browser_main_parts.get());
 
@@ -150,14 +148,15 @@ void HeadlessContentBrowserClient::
   // TODO(https://crbug.com/1265864): Move the registry logic below to a
   // dedicated file to ensure security review coverage.
 #if BUILDFLAG(ENABLE_PRINTING)
-  associated_registry.AddInterface(base::BindRepeating(
-      [](content::RenderFrameHost* render_frame_host,
-         mojo::PendingAssociatedReceiver<printing::mojom::PrintManagerHost>
-             receiver) {
-        print_to_pdf::PdfPrintManager::BindPrintManagerHost(std::move(receiver),
-                                                            render_frame_host);
-      },
-      &render_frame_host));
+  associated_registry.AddInterface<printing::mojom::PrintManagerHost>(
+      base::BindRepeating(
+          [](content::RenderFrameHost* render_frame_host,
+             mojo::PendingAssociatedReceiver<printing::mojom::PrintManagerHost>
+                 receiver) {
+            HeadlessPrintManager::BindPrintManagerHost(std::move(receiver),
+                                                       render_frame_host);
+          },
+          &render_frame_host));
 #endif
 }
 
@@ -165,11 +164,6 @@ std::unique_ptr<content::DevToolsManagerDelegate>
 HeadlessContentBrowserClient::CreateDevToolsManagerDelegate() {
   return std::make_unique<HeadlessDevToolsManagerDelegate>(
       browser_->GetWeakPtr());
-}
-
-scoped_refptr<content::QuotaPermissionContext>
-HeadlessContentBrowserClient::CreateQuotaPermissionContext() {
-  return new HeadlessQuotaPermissionContext();
 }
 
 content::GeneratedCodeCacheSettings
@@ -217,6 +211,9 @@ void HeadlessContentBrowserClient::AppendExtraCommandLineSwitches(
   }
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 
+  if (old_command_line.HasSwitch(switches::kDisablePDFTagging))
+    command_line->AppendSwitch(switches::kDisablePDFTagging);
+
   // If we're spawning a renderer, then override the language switch.
   std::string process_type =
       command_line->GetSwitchValueASCII(::switches::kProcessType);
@@ -245,7 +242,7 @@ void HeadlessContentBrowserClient::AppendExtraCommandLineSwitches(
         embedder_support::kOriginTrialPublicKey,
     };
     command_line->CopySwitchesFrom(old_command_line, kSwitchNames,
-                                   base::size(kSwitchNames));
+                                   std::size(kSwitchNames));
   }
 
   if (append_command_line_flags_callback_) {
@@ -263,14 +260,6 @@ void HeadlessContentBrowserClient::AppendExtraCommandLineSwitches(
                                             headless_browser_context_impl,
                                             process_type, child_process_id);
   }
-
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-  // Processes may only query perf_event_open with the BPF sandbox disabled.
-  if (old_command_line.HasSwitch(::switches::kEnableThreadInstructionCount) &&
-      old_command_line.HasSwitch(sandbox::policy::switches::kNoSandbox)) {
-    command_line->AppendSwitch(::switches::kEnableThreadInstructionCount);
-  }
-#endif
 }
 
 std::string HeadlessContentBrowserClient::GetApplicationLocale() {
@@ -287,7 +276,7 @@ void HeadlessContentBrowserClient::AllowCertificateError(
     int cert_error,
     const net::SSLInfo& ssl_info,
     const GURL& request_url,
-    bool is_main_frame_request,
+    bool is_primary_main_frame_request,
     bool strict_enforcement,
     base::OnceCallback<void(content::CertificateRequestResultType)> callback) {
   if (!callback.is_null()) {
@@ -377,9 +366,8 @@ HeadlessContentBrowserClient::CreateThrottlesForNavigation(
   // Avoid creating naviagtion throttle if preferences are not available
   // (happens in tests).
   if (browser_->GetPrefs()) {
-    policy::PolicyService* policy_service = browser_->GetPolicyService();
     throttles.push_back(std::make_unique<PolicyBlocklistNavigationThrottle>(
-        handle, handle->GetWebContents()->GetBrowserContext(), policy_service));
+        handle, handle->GetWebContents()->GetBrowserContext()));
   }
 
   return throttles;

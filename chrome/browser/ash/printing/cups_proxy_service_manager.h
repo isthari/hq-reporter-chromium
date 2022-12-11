@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,10 @@
 
 #include "base/memory/weak_ptr.h"
 #include "chrome/services/cups_proxy/cups_proxy_service.h"
-#include "chrome/services/cups_proxy/public/mojom/proxy.mojom-forward.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
-namespace chromeos {
+namespace ash {
 
 // This KeyedService is responsible for helping manage the
 // lifetime of the CupsProxyService. This manager is started with the Profile
@@ -36,6 +35,6 @@ class CupsProxyServiceManager : public KeyedService {
   base::WeakPtrFactory<CupsProxyServiceManager> weak_factory_{this};
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_CUPS_PROXY_SERVICE_MANAGER_H_

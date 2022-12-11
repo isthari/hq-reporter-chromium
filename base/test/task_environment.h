@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -105,6 +105,8 @@ class TaskEnvironment {
     // according to the semantics of the current Run*() or FastForward*() call.
     //
     // This also mocks Time/TimeTicks::Now() with the same mock clock.
+    // Time::Now() and TimeTicks::Now() (with respect to its origin) start
+    // without submillisecond components.
     //
     // Warning some platform APIs are still real-time, e.g.:
     //   * PlatformThread::Sleep
@@ -423,7 +425,7 @@ class TaskEnvironment {
   // TimeSource::SYSTEM_TIME mode.
   std::unique_ptr<MockTimeDomain> mock_time_domain_;
 
-  // Overrides Time/TimeTicks::Now() under TimeSource::MOCK_TIME_AND_NOW mode.
+  // Overrides Time/TimeTicks::Now() under TimeSource::MOCK_TIME mode.
   // Null in other modes.
   std::unique_ptr<subtle::ScopedTimeClockOverrides> time_overrides_;
 

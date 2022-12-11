@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "base/check.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "ui/android/resources/ui_resource_provider.h"
@@ -90,7 +90,7 @@ cc::UIResourceBitmap Thumbnail::GetBitmap(cc::UIResourceId uid,
     // InvalidateCachedThumbnail() causes |this| to be deleted, so
     // don't delete the resource while LayerTeeHost calls into |this|
     // to avoid reentry there.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&Thumbnail::DoInvalidate, weak_factory_.GetWeakPtr()));
     return bitmap_;

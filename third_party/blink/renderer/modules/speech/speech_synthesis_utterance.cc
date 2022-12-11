@@ -29,6 +29,7 @@
 #include "third_party/blink/renderer/modules/speech/speech_synthesis.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
+#include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
 
@@ -88,10 +89,11 @@ void SpeechSynthesisUtterance::OnStartedSpeaking() {
   synthesis_->DidStartSpeaking(this);
 }
 
-void SpeechSynthesisUtterance::OnFinishedSpeaking() {
+void SpeechSynthesisUtterance::OnFinishedSpeaking(
+    mojom::blink::SpeechSynthesisErrorCode error_code) {
   DCHECK(synthesis_);
   finished_ = true;
-  synthesis_->DidFinishSpeaking(this);
+  synthesis_->DidFinishSpeaking(this, error_code);
 }
 
 void SpeechSynthesisUtterance::OnPausedSpeaking() {
@@ -146,14 +148,14 @@ void SpeechSynthesisUtterance::Start(SpeechSynthesis* synthesis) {
           context->GetTaskRunner(TaskType::kMiscPlatformAPI)));
 
   // Add a disconnect handler so we can cleanup appropriately.
-  receiver_.set_disconnect_handler(WTF::Bind(
+  receiver_.set_disconnect_handler(WTF::BindOnce(
       &SpeechSynthesisUtterance::OnDisconnected, WrapWeakPersistent(this)));
 }
 
 void SpeechSynthesisUtterance::OnDisconnected() {
   // If the remote end disconnects, just simulate that we finished normally.
   if (!finished_)
-    OnFinishedSpeaking();
+    OnFinishedSpeaking(mojom::blink::SpeechSynthesisErrorCode::kNoError);
 }
 
 }  // namespace blink

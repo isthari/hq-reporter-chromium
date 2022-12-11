@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,9 @@
 #include "skia/ext/legacy_display_globals.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/web_media_player.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/core/v8/to_v8_traits.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_throw_dom_exception.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/html/canvas/image_data.h"
@@ -33,8 +36,13 @@
 #include "third_party/blink/renderer/platform/graphics/video_frame_image_util.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder.h"
+#include "third_party/blink/renderer/platform/scheduler/public/main_thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/worker_pool.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_gfx.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_skia.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_std.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
@@ -149,45 +157,6 @@ bool DstBufferSizeHasOverflow(const ImageBitmap::ParsedOptions& options) {
 
 SkImageInfo GetSkImageInfo(const scoped_refptr<Image>& input) {
   return input->PaintImageForCurrentFrame().GetSkImageInfo();
-}
-
-// This function results in a readback due to using SkImage::readPixels().
-// Returns transparent black pixels if the input SkImageInfo.bounds() does
-// not intersect with the input image boundaries. When apply_orientation
-// is true this method will orient the data according to the source's EXIF
-// information.
-Vector<uint8_t> CopyImageData(const scoped_refptr<StaticBitmapImage>& input,
-                              const SkImageInfo& info,
-                              bool apply_orientation = true) {
-  if (info.isEmpty())
-    return {};
-  PaintImage paint_image = input->PaintImageForCurrentFrame();
-  if (paint_image.GetSkImageInfo().isEmpty())
-    return {};
-
-  wtf_size_t byte_length =
-      base::checked_cast<wtf_size_t>(info.computeMinByteSize());
-  Vector<uint8_t> dst_buffer(byte_length);
-
-  bool read_pixels_successful =
-      paint_image.readPixels(info, dst_buffer.data(), info.minRowBytes(), 0, 0);
-  DCHECK(read_pixels_successful);
-  if (!read_pixels_successful)
-    return {};
-
-  // Orient the data, and re-read the pixels.
-  if (apply_orientation && !input->HasDefaultOrientation()) {
-    paint_image = Image::ResizeAndOrientImage(
-        paint_image, input->CurrentFrameOrientation(), gfx::Vector2dF(1, 1), 1,
-        kInterpolationNone);
-    read_pixels_successful = paint_image.readPixels(info, dst_buffer.data(),
-                                                    info.minRowBytes(), 0, 0);
-    DCHECK(read_pixels_successful);
-    if (!read_pixels_successful)
-      return {};
-  }
-
-  return dst_buffer;
 }
 
 static inline bool ShouldAvoidPremul(
@@ -643,7 +612,8 @@ ImageBitmap::ImageBitmap(OffscreenCanvas* offscreen_canvas,
 }
 
 ImageBitmap::ImageBitmap(const SkPixmap& pixmap,
-                         bool is_image_bitmap_origin_clean) {
+                         bool is_image_bitmap_origin_clean,
+                         ImageOrientationEnum image_orientation) {
   sk_sp<SkImage> raster_copy = SkImage::MakeRasterCopy(pixmap);
   if (!raster_copy)
     return;
@@ -651,6 +621,7 @@ ImageBitmap::ImageBitmap(const SkPixmap& pixmap,
   if (!image_)
     return;
   image_->SetOriginClean(is_image_bitmap_origin_clean);
+  image_->SetOrientation(image_orientation);
   UpdateImageBitmapMemoryUsage();
 }
 
@@ -913,20 +884,21 @@ void ImageBitmap::RasterizeImageOnBackgroundThread(
                           ImageOrientationEnum::kDefault));
 }
 
-ScriptPromise ImageBitmap::CreateAsync(ImageElementBase* image,
-                                       absl::optional<gfx::Rect> crop_rect,
-                                       ScriptState* script_state,
-                                       const ImageBitmapOptions* options) {
-  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
-  ScriptPromise promise = resolver->Promise();
-
+ScriptPromise ImageBitmap::CreateAsync(
+    ImageElementBase* image,
+    absl::optional<gfx::Rect> crop_rect,
+    ScriptState* script_state,
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
+    mojom::blink::PreferredColorScheme preferred_color_scheme,
+    ExceptionState& exception_state,
+    const ImageBitmapOptions* options) {
   ParsedOptions parsed_options =
       ParseOptions(options, crop_rect, image->BitmapSourceSize());
   if (DstBufferSizeHasOverflow(parsed_options)) {
-    resolver->Reject(MakeGarbageCollected<DOMException>(
+    exception_state.ThrowDOMException(
         DOMExceptionCode::kInvalidStateError,
-        "The ImageBitmap could not be allocated."));
-    return promise;
+        "The ImageBitmap could not be allocated.");
+    return ScriptPromise();
   }
 
   scoped_refptr<Image> input = image->CachedImage()->GetImage();
@@ -941,37 +913,42 @@ ScriptPromise ImageBitmap::CreateAsync(ImageElementBase* image,
         MakeGarbageCollected<ImageBitmap>(MakeBlankImage(parsed_options));
     if (bitmap->BitmapImage()) {
       bitmap->BitmapImage()->SetOriginClean(!image->WouldTaintOrigin());
-      resolver->Resolve(bitmap);
+      return ScriptPromise::Cast(
+          script_state,
+          ToV8Traits<ImageBitmap>::ToV8(script_state, bitmap).ToLocalChecked());
     } else {
-      resolver->Reject(MakeGarbageCollected<DOMException>(
+      exception_state.ThrowDOMException(
           DOMExceptionCode::kInvalidStateError,
-          "The ImageBitmap could not be allocated."));
+          "The ImageBitmap could not be allocated.");
+      return ScriptPromise();
     }
-    return promise;
   }
 
   gfx::Rect draw_src_rect = parsed_options.crop_rect;
   gfx::Rect draw_dst_rect(0, 0, parsed_options.resize_width,
                           parsed_options.resize_height);
   PaintRecorder recorder;
-  cc::PaintCanvas* canvas =
-      recorder.beginRecording(gfx::RectToSkRect(draw_src_rect));
+  cc::PaintCanvas* canvas = recorder.beginRecording();
   if (parsed_options.flip_y) {
     canvas->translate(0, draw_dst_rect.height());
     canvas->scale(1, -1);
   }
   SVGImageForContainer::Create(To<SVGImage>(input.get()),
-                               gfx::SizeF(input_rect.size()), 1, NullURL())
+                               gfx::SizeF(input_rect.size()), 1, NullURL(),
+                               preferred_color_scheme)
       ->Draw(canvas, cc::PaintFlags(), gfx::RectF(draw_dst_rect),
              gfx::RectF(draw_src_rect), ImageDrawOptions());
   sk_sp<PaintRecord> paint_record = recorder.finishRecordingAsPicture();
 
   std::unique_ptr<ParsedOptions> passed_parsed_options =
       std::make_unique<ParsedOptions>(parsed_options);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  ScriptPromise promise = resolver->Promise();
+
   worker_pool::PostTask(
       FROM_HERE, CrossThreadBindOnce(
                      &RasterizeImageOnBackgroundThread, std::move(paint_record),
-                     draw_dst_rect, Thread::MainThread()->GetTaskRunner(),
+                     draw_dst_rect, std::move(task_runner),
                      CrossThreadBindOnce(&ResolvePromiseOnOriginalThread,
                                          WrapCrossThreadPersistent(resolver),
                                          !image->WouldTaintOrigin(),
@@ -999,7 +976,7 @@ SkImageInfo ImageBitmap::GetBitmapSkImageInfo() const {
 
 Vector<uint8_t> ImageBitmap::CopyBitmapData(const SkImageInfo& info,
                                             bool apply_orientation) {
-  return CopyImageData(image_, info, apply_orientation);
+  return image_->CopyImageData(info, apply_orientation);
 }
 
 unsigned ImageBitmap::width() const {

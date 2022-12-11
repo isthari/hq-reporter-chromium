@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,13 @@
 
 #include "base/metrics/histogram_functions.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/safe_browsing/tailored_security/tailored_security_outcome.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
+#include "components/safe_browsing/core/browser/tailored_security_service/tailored_security_outcome.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/web_contents.h"
@@ -53,29 +53,6 @@ void EnableEsbAndShowSettings(content::WebContents* web_contents) {
   chrome::ShowSafeBrowsingEnhancedProtection(
       chrome::FindBrowserWithWebContents(web_contents));
 }
-
-class CircleImageSource : public gfx::CanvasImageSource {
- public:
-  CircleImageSource(int size, SkColor color)
-      : gfx::CanvasImageSource(gfx::Size(size, size)), color_(color) {}
-
-  CircleImageSource(const CircleImageSource&) = delete;
-  CircleImageSource& operator=(const CircleImageSource&) = delete;
-
-  ~CircleImageSource() override = default;
-
-  void Draw(gfx::Canvas* canvas) override {
-    float radius = size().width() / 2.0f;
-    cc::PaintFlags flags;
-    flags.setStyle(cc::PaintFlags::kFill_Style);
-    flags.setAntiAlias(true);
-    flags.setColor(color_);
-    canvas->DrawCircle(gfx::PointF(radius, radius), radius, flags);
-  }
-
- private:
-  SkColor color_;
-};
 
 class SuperimposedOffsetImageSource : public gfx::CanvasImageSource {
  public:
@@ -168,11 +145,14 @@ void TailoredSecurityUnconsentedModal::AddedToWidget() {
       gfx::ImageSkiaOperations::CreateResizedImage(
           avatar_image, skia::ImageOperations::RESIZE_BEST,
           gfx::Size(kAvatarSize, kAvatarSize));
+  // The color used in `circle_mask` is irrelevant as long as it's opaque; only
+  // the alpha channel matters.
+  gfx::ImageSkia circle_mask =
+      gfx::ImageSkiaOperations::CreateImageWithCircleBackground(
+          kAvatarSize / 2, SK_ColorWHITE, gfx::ImageSkia());
   gfx::ImageSkia cropped_avatar_image =
-      gfx::ImageSkiaOperations::CreateMaskedImage(
-          sized_avatar_image,
-          gfx::CanvasImageSource::MakeImageSkia<CircleImageSource>(
-              sized_avatar_image.width(), SK_ColorWHITE));
+      gfx::ImageSkiaOperations::CreateMaskedImage(sized_avatar_image,
+                                                  circle_mask);
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
   gfx::ImageSkia header_image =
       *bundle.GetImageSkiaNamed(IDR_TAILORED_SECURITY_UNCONSENTED);

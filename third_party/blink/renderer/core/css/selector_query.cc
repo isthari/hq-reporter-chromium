@@ -30,8 +30,9 @@
 #include <utility>
 
 #include "base/memory/ptr_util.h"
-#include "third_party/blink/renderer/core/css/has_matched_cache_scope.h"
+#include "third_party/blink/renderer/core/css/check_pseudo_has_cache_scope.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
+#include "third_party/blink/renderer/core/css/parser/css_selector_parser.h"
 #include "third_party/blink/renderer/core/css/selector_checker.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
@@ -87,7 +88,7 @@ struct AllElementsSelectorQueryTrait {
   typedef HeapVector<Member<Element>> OutputType;
   static const bool kShouldOnlyMatchFirstElement = false;
   ALWAYS_INLINE static bool IsEmpty(const OutputType& output) {
-    return output.IsEmpty();
+    return output.empty();
   }
   ALWAYS_INLINE static void AppendElement(OutputType& output,
                                           Element& element) {
@@ -107,14 +108,16 @@ inline bool SelectorMatches(const CSSSelector& selector,
 
 bool SelectorQuery::Matches(Element& target_element) const {
   QUERY_STATS_RESET();
-  HasMatchedCacheScope has_matched_cache_scope(&target_element.GetDocument());
+  CheckPseudoHasCacheScope check_pseudo_has_cache_scope(
+      &target_element.GetDocument());
   return SelectorListMatches(target_element, target_element);
 }
 
 Element* SelectorQuery::Closest(Element& target_element) const {
   QUERY_STATS_RESET();
-  HasMatchedCacheScope has_matched_cache_scope(&target_element.GetDocument());
-  if (selectors_.IsEmpty())
+  CheckPseudoHasCacheScope check_pseudo_has_cache_scope(
+      &target_element.GetDocument());
+  if (selectors_.empty())
     return nullptr;
 
   for (Element* current_element = &target_element; current_element;
@@ -127,7 +130,8 @@ Element* SelectorQuery::Closest(Element& target_element) const {
 
 StaticElementList* SelectorQuery::QueryAll(ContainerNode& root_node) const {
   QUERY_STATS_RESET();
-  HasMatchedCacheScope has_matched_cache_scope(&root_node.GetDocument());
+  CheckPseudoHasCacheScope check_pseudo_has_cache_scope(
+      &root_node.GetDocument());
   NthIndexCache nth_index_cache(root_node.GetDocument());
   HeapVector<Member<Element>> result;
   Execute<AllElementsSelectorQueryTrait>(root_node, result);
@@ -136,7 +140,8 @@ StaticElementList* SelectorQuery::QueryAll(ContainerNode& root_node) const {
 
 Element* SelectorQuery::QueryFirst(ContainerNode& root_node) const {
   QUERY_STATS_RESET();
-  HasMatchedCacheScope has_matched_cache_scope(&root_node.GetDocument());
+  CheckPseudoHasCacheScope check_pseudo_has_cache_scope(
+      &root_node.GetDocument());
   NthIndexCache nth_index_cache(root_node.GetDocument());
   Element* matched_element = nullptr;
   Execute<SingleElementSelectorQueryTrait>(root_node, matched_element);
@@ -365,7 +370,7 @@ template <typename SelectorQueryTrait>
 void SelectorQuery::Execute(
     ContainerNode& root_node,
     typename SelectorQueryTrait::OutputType& output) const {
-  if (selectors_.IsEmpty())
+  if (selectors_.empty())
     return;
 
   if (use_slow_scan_) {
@@ -413,17 +418,17 @@ void SelectorQuery::Execute(
 }
 
 std::unique_ptr<SelectorQuery> SelectorQuery::Adopt(
-    CSSSelectorList selector_list) {
-  return base::WrapUnique(new SelectorQuery(std::move(selector_list)));
+    CSSSelectorList* selector_list) {
+  return base::WrapUnique(new SelectorQuery(selector_list));
 }
 
-SelectorQuery::SelectorQuery(CSSSelectorList selector_list)
-    : selector_list_(std::move(selector_list)),
+SelectorQuery::SelectorQuery(CSSSelectorList* selector_list)
+    : selector_list_(selector_list),
       selector_id_is_rightmost_(true),
       selector_id_affected_by_sibling_combinator_(false),
       use_slow_scan_(true) {
-  selectors_.ReserveInitialCapacity(selector_list_.ComputeLength());
-  for (const CSSSelector* selector = selector_list_.First(); selector;
+  selectors_.ReserveInitialCapacity(selector_list_->ComputeLength());
+  for (const CSSSelector* selector = selector_list_->First(); selector;
        selector = CSSSelectorList::Next(*selector)) {
     if (selector->MatchesPseudoElement())
       continue;
@@ -460,7 +465,7 @@ SelectorQuery::SelectorQuery(CSSSelectorList selector_list)
 SelectorQuery* SelectorQueryCache::Add(const AtomicString& selectors,
                                        const Document& document,
                                        ExceptionState& exception_state) {
-  if (selectors.IsEmpty()) {
+  if (selectors.empty()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kSyntaxError,
                                       "The provided selector is empty.");
     return nullptr;
@@ -471,25 +476,28 @@ SelectorQuery* SelectorQueryCache::Add(const AtomicString& selectors,
   if (it != entries_.end())
     return it->value.get();
 
-  CSSSelectorList selector_list = CSSParser::ParseSelector(
+  HeapVector<CSSSelector> arena;
+  base::span<CSSSelector> selector_vector = CSSParser::ParseSelector(
       MakeGarbageCollected<CSSParserContext>(
           document, document.BaseURL(), true /* origin_clean */, Referrer(),
           WTF::TextEncoding(), CSSParserContext::kSnapshotProfile),
-      nullptr, selectors);
+      /*parent_rule_for_nesting=*/nullptr, nullptr, selectors, arena);
 
-  if (!selector_list.First()) {
+  if (selector_vector.empty()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kSyntaxError,
         "'" + selectors + "' is not a valid selector.");
     return nullptr;
   }
 
+  CSSSelectorList* selector_list =
+      CSSSelectorList::AdoptSelectorVector(selector_vector);
+
   const unsigned kMaximumSelectorQueryCacheSize = 256;
   if (entries_.size() == kMaximumSelectorQueryCacheSize)
     entries_.erase(entries_.begin());
 
-  return entries_
-      .insert(selectors, SelectorQuery::Adopt(std::move(selector_list)))
+  return entries_.insert(selectors, SelectorQuery::Adopt(selector_list))
       .stored_value->value.get();
 }
 

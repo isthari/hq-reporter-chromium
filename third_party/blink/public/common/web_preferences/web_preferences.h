@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,6 +49,7 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   ScriptFontFamilyMap sans_serif_font_family_map;
   ScriptFontFamilyMap cursive_font_family_map;
   ScriptFontFamilyMap fantasy_font_family_map;
+  ScriptFontFamilyMap math_font_family_map;
   int default_font_size;
   int default_fixed_font_size;
   int minimum_font_size;
@@ -66,7 +67,6 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   bool allow_scripts_to_close_windows;
   bool remote_fonts_enabled;
   bool javascript_can_access_clipboard;
-  bool xslt_enabled;
   // We don't use dns_prefetching_enabled to disable DNS prefetching.  Instead,
   // we disable the feature at a lower layer so that we catch non-WebKit uses
   // of DNS prefetch as well.
@@ -74,10 +74,6 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   // Preference to save data. When enabled, requests will contain the header
   // 'Save-Data: on'.
   bool data_saver_enabled;
-  // Whether data saver holdback for Web APIs is enabled. If enabled, data saver
-  // appears as disabled to the web consumers even if it has been actually
-  // enabled by the user.
-  bool data_saver_holdback_web_api_enabled;
   bool local_storage_enabled;
   bool databases_enabled;
   bool tabs_to_links;
@@ -88,15 +84,13 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   bool webgl1_enabled;
   bool webgl2_enabled;
   bool pepper_3d_enabled;
-  bool flash_3d_enabled;
-  bool flash_stage3d_enabled;
-  bool flash_stage3d_baseline_enabled;
   bool privileged_webgl_extensions_enabled;
   bool webgl_errors_to_console_enabled;
   bool hide_scrollbars;
+  // If false, ignore ::-webkit-scrollbar-* CSS pseudo-elements in stylesheets.
+  bool enable_webkit_scrollbar_styling = true;
   bool accelerated_2d_canvas_enabled;
   bool canvas_2d_layers_enabled = false;
-  bool new_canvas_2d_api_enabled;
   bool antialiased_2d_canvas_disabled;
   bool antialiased_clips_2d_canvas_enabled;
   bool accelerated_filters_enabled;
@@ -142,6 +136,7 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   bool supports_multiple_windows;
   bool viewport_enabled;
   bool viewport_meta_enabled;
+  bool auto_zoom_focused_editable_to_legible_scale;
 
   // If true - Blink will clamp the minimum scale factor to the content width,
   // preventing zoom beyond the visible content. This is really only needed if
@@ -159,6 +154,10 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   bool fake_no_alloc_direct_call_for_testing_enabled;
   blink::mojom::V8CacheOptions v8_cache_options;
   bool record_whole_document;
+
+  // If true, stylus handwriting recognition to text input will be available in
+  // editable input fields which are non-password type.
+  bool stylus_handwriting_enabled;
 
   // This flags corresponds to a Page's Settings' setCookieEnabled state. It
   // only controls whether or not the "document.cookie" field is properly
@@ -197,8 +196,6 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   // around WebVTT text tracks.
   // Window color can be any legal CSS color descriptor.
   std::string text_track_window_color;
-  // Window padding is in em.
-  std::string text_track_window_padding;
   // Window radius is in pixels.
   std::string text_track_window_radius;
 
@@ -257,6 +254,14 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   // Don't accelerate small canvases to avoid crashes TODO(crbug.com/1004304)
   bool disable_accelerated_small_canvases;
 #endif  // BUILDFLAG(IS_ANDROID)
+
+// TODO(crbug.com/1284805): Remove IS_ANDROID once WebView supports WebAuthn.
+// TODO(crbug.com/1382970): Remove IS_FUCHSIA and merge with the block above
+// once all Content embedders on Fuchsia support WebAuthn.
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)
+  // Disable the Web Authentication API.
+  bool disable_webauthn = false;
+#endif  // BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_FUCHSIA)
 
   // Enable forcibly modifying content rendering to result in a light on dark
   // color scheme.
@@ -352,9 +357,18 @@ struct BLINK_COMMON_EXPORT WebPreferences {
   // change depending on the enterprise policy if the platform supports it.
   bool webxr_immersive_ar_allowed = true;
 
-  // By default, window placement requires a user to set a content setting,
-  // but enterprise policy can automatically allow this feature for all sites.
-  bool window_placement_always_allowed = false;
+  // Whether lookup of frames in the associated WebView (e.g. lookup via
+  // window.open or via <a target=...>) should be renderer-wide (i.e. going
+  // beyond the usual opener-relationship-based BrowsingInstance boundaries).
+  bool renderer_wide_named_frame_lookup = false;
+
+  // Whether MIME type checking for worker scripts is strict (true) or lax
+  // (false). Used by StrictMimetypeCheckForWorkerScriptsEnabled policy.
+  bool strict_mime_type_check_for_worker_scripts_enabled = true;
+
+  // Whether modal context menu is used. A modal context menu meaning it is
+  // blocking user's access to the background web content.
+  bool modal_context_menu = true;
 
   // We try to keep the default values the same as the default values in
   // chrome, except for the cases where it would require lots of extra work for

@@ -1,11 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationStore, DestinationStoreEventType, DestinationType, NativeLayerCrosImpl, NativeLayerImpl, PrintPreviewDestinationDialogCrosElement} from 'chrome://print/print_preview.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {Destination, DestinationOrigin, DestinationStore, DestinationStoreEventType, NativeLayerCrosImpl, NativeLayerImpl, PrintPreviewDestinationDialogCrosElement} from 'chrome://print/print_preview.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-
 import {assertEquals, assertNotEquals} from 'chrome://webui-test/chai_assert.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
@@ -18,7 +16,6 @@ const destination_search_test_chromeos = {
   TestNames: {
     ReceiveSuccessfulSetup: 'receive successful setup',
     ResolutionFails: 'resolution fails',
-    CloudKioskPrinter: 'cloud kiosk printer',
     ReceiveSuccessfulSetupWithPolicies:
         'receive successful setup with policies',
   },
@@ -58,10 +55,8 @@ suite(destination_search_test_chromeos.suiteName, function() {
 
     // Set up dialog
     dialog = document.createElement('print-preview-destination-dialog-cros');
-    dialog.users = [];
-    dialog.activeUser = '';
     dialog.destinationStore = destinationStore;
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     document.body.appendChild(dialog);
     return nativeLayer.whenCalled('getPrinterCapabilities').then(function() {
       dialog.show();
@@ -89,9 +84,7 @@ suite(destination_search_test_chromeos.suiteName, function() {
    * @param destId The ID for the destination.
    */
   function requestSetup(destId: string) {
-    const dest = new Destination(
-        destId, DestinationType.LOCAL, DestinationOrigin.CROS, 'displayName',
-        DestinationConnectionStatus.ONLINE);
+    const dest = new Destination(destId, DestinationOrigin.CROS, 'displayName');
 
     // Add the destination to the list.
     simulateDestinationSelect(dest);
@@ -100,8 +93,8 @@ suite(destination_search_test_chromeos.suiteName, function() {
   // Tests that a destination is selected if the user clicks on it and setup
   // (for CrOS) or capabilities fetch (for non-Cros) succeeds.
   test(
-      assert(destination_search_test_chromeos.TestNames.ReceiveSuccessfulSetup),
-      function() {
+      destination_search_test_chromeos.TestNames.ReceiveSuccessfulSetup,
+      async function() {
         const destId = '00112233DEADBEEF';
         const response = {
           printerId: destId,
@@ -112,54 +105,30 @@ suite(destination_search_test_chromeos.suiteName, function() {
         const waiter = eventToPromise(
             DestinationStoreEventType.DESTINATION_SELECT, destinationStore);
         requestSetup(destId);
-        return Promise.all([nativeLayerCros.whenCalled('setupPrinter'), waiter])
-            .then(function(results) {
-              const actualId = results[0];
-              assertEquals(destId, actualId);
-              // After setup or capabilities fetch succeeds, the destination
-              // should be selected.
-              assertNotEquals(null, destinationStore.selectedDestination);
-              assertEquals(destId, destinationStore.selectedDestination!.id);
-            });
+        const results = await Promise.all(
+            [nativeLayerCros.whenCalled('setupPrinter'), waiter]);
+        const actualId = results[0];
+        assertEquals(destId, actualId);
+        // After setup or capabilities fetch succeeds, the destination
+        // should be selected.
+        assertNotEquals(null, destinationStore.selectedDestination);
+        assertEquals(destId, destinationStore.selectedDestination!.id);
       });
 
   // Test what happens when the setupPrinter request is rejected.
   test(
-      assert(destination_search_test_chromeos.TestNames.ResolutionFails),
-      function() {
+      destination_search_test_chromeos.TestNames.ResolutionFails,
+      async function() {
         const destId = '001122DEADBEEF';
         const originalDestination = destinationStore.selectedDestination;
         nativeLayerCros.setSetupPrinterResponse(
             {printerId: destId, capabilities: {printer: {}, version: '1'}},
             true);
         requestSetup(destId);
-        return nativeLayerCros.whenCalled('setupPrinter')
-            .then(function(actualId) {
-              assertEquals(destId, actualId);
-              // The selected printer should not have changed, since a printer
-              // cannot be selected until setup succeeds.
-              assertEquals(
-                  originalDestination, destinationStore.selectedDestination);
-            });
-      });
-
-  // Test what happens when a simulated cloud kiosk printer is selected.
-  test(
-      assert(destination_search_test_chromeos.TestNames.CloudKioskPrinter),
-      function() {
-        const printerId = 'cloud-printer-id';
-
-        // Create cloud destination.
-        const cloudDest = new Destination(
-            printerId, DestinationType.GOOGLE, DestinationOrigin.DEVICE,
-            'displayName', DestinationConnectionStatus.ONLINE);
-        cloudDest.capabilities =
-            getCddTemplate(printerId, 'displayName').capabilities;
-
-        // Place destination in the local list as happens for Kiosk printers.
-        simulateDestinationSelect(cloudDest);
-
-        // Verify that the destination has been selected.
-        assertEquals(printerId, destinationStore.selectedDestination!.id);
+        const actualId = await nativeLayerCros.whenCalled('setupPrinter');
+        assertEquals(destId, actualId);
+        // The selected printer should not have changed, since a printer
+        // cannot be selected until setup succeeds.
+        assertEquals(originalDestination, destinationStore.selectedDestination);
       });
 });

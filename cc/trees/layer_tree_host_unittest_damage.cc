@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -145,7 +145,9 @@ class LayerTreeHostDamageTestSetViewportRectAndScale
   FakeContentLayerClient client_;
 };
 
-SINGLE_AND_MULTI_THREAD_TEST_F(LayerTreeHostDamageTestSetViewportRectAndScale);
+// Test is flaky: https://crbug.com/1306984
+// SINGLE_AND_MULTI_THREAD_TEST_F(
+// LayerTreeHostDamageTestSetViewportRectAndScale);
 
 class LayerTreeHostDamageTestNoDamageDoesNotSwap
     : public LayerTreeHostDamageTest {

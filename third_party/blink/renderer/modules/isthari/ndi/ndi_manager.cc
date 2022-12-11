@@ -11,14 +11,19 @@ NdiManager::NdiManager(){
     scanedStreams_ = std::make_shared<std::map<std::string, std::string>>();    
     VLOG(0) << "ndi manager constructor";
     this->find_ = NDIlib_find_create_v2();
-    this->scanTimer_.Start(FROM_HERE, base::Seconds(1), this, &NdiManager::scanCallback);
+    //this->scanTimer_.Start(FROM_HERE, base::Seconds(1), instance_, &NdiManager::scanCallback);    
+    /*
+    this->scanTimer_.Start(FROM_HERE, 
+            base::Seconds(1), 
+            WTF::BindRepeating(&NdiManager::scanCallback, WTF::Unretained(NdiManager::instance_)));    
+    */
 }	
 
 NdiManager* NdiManager::getInstance() {
     VLOG(0) << "ndi factory initialize";
     if(instance_ == nullptr) {
         VLOG(0) << "NDI factory first instance";
-        NdiManager::instance_ = MakeGarbageCollected<NdiManager>();
+        NdiManager::instance_ = MakeGarbageCollected<NdiManager>();        
     }	
     VLOG(0) << "NDI factory ends";
     return instance_;
@@ -29,6 +34,7 @@ void NdiManager::Trace(Visitor* visitor) const {
 }
 
 void NdiManager::scanCallback(void) {
+    /*
     uint32_t numSources = 0;
     
     if (NDIlib_find_wait_for_sources(this->find_, 1) ) {
@@ -46,9 +52,11 @@ void NdiManager::scanCallback(void) {
         }
         this->scanedStreams_ = tempMap;
     }
+    */
 }
 
 void NdiManager::getScanedStreams(V8NdiScanCallback* callback) {
+    /*
     std::shared_ptr<std::map<std::string, std::string>> temp = this->scanedStreams_;
     
     std::map<std::string, std::string>::iterator it = temp->begin();
@@ -62,6 +70,7 @@ void NdiManager::getScanedStreams(V8NdiScanCallback* callback) {
             VLOG(0) << "isjust";
         }
     }
+    */
 }
 
 NdiInputStream* NdiManager::startInputStream(String url, V8VideoCardFrameCallback* callback, V8VideoCardAudioCallback* audioCallback) {

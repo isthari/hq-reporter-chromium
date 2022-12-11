@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,7 +36,6 @@ class TargetProcess {
   // The constructor takes ownership of |initial_token| and |lockdown_token|
   TargetProcess(base::win::ScopedHandle initial_token,
                 base::win::ScopedHandle lockdown_token,
-                HANDLE job,
                 ThreadPool* thread_pool,
                 const std::vector<base::win::Sid>& impersonation_capabilities);
 
@@ -71,9 +70,6 @@ class TargetProcess {
   // Returns the handle to the target process.
   HANDLE Process() const { return sandbox_process_info_.process_handle(); }
 
-  // Returns the handle to the job object that the target process belongs to.
-  HANDLE Job() const { return job_; }
-
   // Returns the address of the target main exe. This is used by the
   // interceptions framework.
   HMODULE MainModule() const {
@@ -94,7 +90,14 @@ class TargetProcess {
                               const void* address,
                               size_t size);
 
+  // Creates a mock TargetProcess used for testing interceptions.
+  static std::unique_ptr<TargetProcess> MakeTargetProcessForTesting(
+      HANDLE process,
+      HMODULE base_address);
+
  private:
+  // Verify the target process looks the same as the broker process.
+  ResultCode VerifySentinels();
   // Details of the target process.
   base::win::ScopedProcessInformation sandbox_process_info_;
   // The token associated with the process. It provides the core of the
@@ -105,10 +108,6 @@ class TargetProcess {
   base::win::ScopedHandle initial_token_;
   // Kernel handle to the shared memory used by the IPC server.
   base::win::ScopedHandle shared_section_;
-  // Job object containing the target process. This is used during
-  // process creation prior to Windows 10 and to identify the process in
-  // broker_services.cc.
-  HANDLE job_;
   // Reference to the IPC subsystem.
   std::unique_ptr<SharedMemIPCServer> ipc_server_;
   // Provides the threads used by the IPC. This class does not own this pointer.
@@ -118,21 +117,12 @@ class TargetProcess {
   // `base_address_` is not a raw_ptr<void>, because pointer to address in
   // another process could be confused as a pointer to PartitionMalloc memory,
   // causing ref-counting mismatch.  See also https://crbug.com/1173374.
-  void* base_address_;
+  RAW_PTR_EXCLUSION void* base_address_;
   // Full name of the target executable.
   std::unique_ptr<wchar_t, base::FreeDeleter> exe_name_;
   /// List of capability sids for use when impersonating in an AC process.
   std::vector<base::win::Sid> impersonation_capabilities_;
-
-  // Function used for testing.
-  friend std::unique_ptr<TargetProcess> MakeTestTargetProcess(
-      HANDLE process,
-      HMODULE base_address);
 };
-
-// Creates a mock TargetProcess used for testing interceptions.
-std::unique_ptr<TargetProcess> MakeTestTargetProcess(HANDLE process,
-                                                     HMODULE base_address);
 
 }  // namespace sandbox
 

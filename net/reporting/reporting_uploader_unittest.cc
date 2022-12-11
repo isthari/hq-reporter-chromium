@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "net/base/features.h"
-#include "net/base/network_isolation_key.h"
+#include "net/base/network_anonymization_key.h"
 #include "net/base/schemeful_site.h"
 #include "net/cookies/cookie_access_result.h"
 #include "net/cookies/cookie_store.h"
@@ -24,6 +24,8 @@
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "net/test/test_with_task_environment.h"
+#include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_context_builder.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -36,10 +38,11 @@ class ReportingUploaderTest : public TestWithTaskEnvironment {
  protected:
   ReportingUploaderTest()
       : server_(test_server::EmbeddedTestServer::TYPE_HTTPS),
-        uploader_(ReportingUploader::Create(&context_)) {}
+        context_(CreateTestURLRequestContextBuilder()->Build()),
+        uploader_(ReportingUploader::Create(context_.get())) {}
 
-  TestURLRequestContext context_;
   test_server::EmbeddedTestServer server_;
+  std::unique_ptr<URLRequestContext> context_;
   std::unique_ptr<ReportingUploader> uploader_;
 
   const url::Origin kOrigin = url::Origin::Create(GURL("https://origin/"));
@@ -93,7 +96,7 @@ std::unique_ptr<test_server::HttpResponse> ReturnInvalidResponse(
 
 class TestUploadCallback {
  public:
-  TestUploadCallback() : called_(false), waiting_(false) {}
+  TestUploadCallback() = default;
 
   ReportingUploader::UploadCallback callback() {
     return base::BindOnce(&TestUploadCallback::OnUploadComplete,
@@ -126,10 +129,10 @@ class TestUploadCallback {
     }
   }
 
-  bool called_;
+  bool called_ = false;
   ReportingUploader::Outcome outcome_;
 
-  bool waiting_;
+  bool waiting_ = false;
   base::OnceClosure closure_;
 };
 
@@ -531,7 +534,7 @@ TEST_F(ReportingUploaderTest, DontSendCookies) {
   auto cookie = CanonicalCookie::Create(
       url, "foo=bar", base::Time::Now(), absl::nullopt /* server_time */,
       absl::nullopt /* cookie_partition_key */);
-  context_.cookie_store()->SetCanonicalCookieAsync(
+  context_->cookie_store()->SetCanonicalCookieAsync(
       std::move(cookie), url, CookieOptions::MakeAllInclusive(),
       cookie_callback.MakeCallback());
   cookie_callback.WaitUntilDone();
@@ -566,7 +569,7 @@ TEST_F(ReportingUploaderTest, DontSaveCookies) {
   upload_callback.WaitForCall();
 
   GetCookieListCallback cookie_callback;
-  context_.cookie_store()->GetCookieListWithOptionsAsync(
+  context_->cookie_store()->GetCookieListWithOptionsAsync(
       server_.GetURL("/"), CookieOptions::MakeAllInclusive(),
       CookiePartitionKeyCollection(),
       base::BindOnce(&GetCookieListCallback::Run,
@@ -618,14 +621,14 @@ TEST_F(ReportingUploaderTest, DontCacheResponse) {
   EXPECT_EQ(2, request_count);
 }
 
-// Create two requests with the same NetworkIsolationKey, and one request with a
-// different one, and make sure only the requests with the same
-// NetworkIsolationKey share a socket.
-TEST_F(ReportingUploaderTest, RespectsNetworkIsolationKey) {
+// Create two requests with the same NetworkAnonymizationKey, and one request
+// with a different one, and make sure only the requests with the same
+// NetworkAnonymizationKey share a socket.
+TEST_F(ReportingUploaderTest, RespectsNetworkAnonymizationKey) {
   // While features::kPartitionConnectionsByNetworkIsolationKey is not needed
-  // for reporting code to respect NetworkIsolationKeys, this test works by
-  // ensuring that Reporting's NetworkIsolationKey makes it to the socket pool
-  // layer and is respected there, so this test needs to enable
+  // for reporting code to respect NetworkAnonymizationKey, this test works by
+  // ensuring that Reporting's NetworkAnonymizationKey makes it to the socket
+  // pool layer and is respected there, so this test needs to enable
   // kPartitionConnectionsByNetworkIsolationKey.
   base::test::ScopedFeatureList feature_list;
   feature_list.InitAndEnableFeature(
@@ -642,9 +645,9 @@ TEST_F(ReportingUploaderTest, RespectsNetworkIsolationKey) {
       IsolationInfo::RequestType::kOther, kNetworkIsolationKey2);
 
   MockClientSocketFactory socket_factory;
-  TestURLRequestContext context(true /* delay_initialization */);
-  context.set_client_socket_factory(&socket_factory);
-  context.Init();
+  auto context_builder = CreateTestURLRequestContextBuilder();
+  context_builder->set_client_socket_factory_for_testing(&socket_factory);
+  auto context = context_builder->Build();
 
   // First socket handles first and third requests.
   MockWrite writes1[] = {
@@ -710,25 +713,25 @@ TEST_F(ReportingUploaderTest, RespectsNetworkIsolationKey) {
 
   TestUploadCallback callback1;
   std::unique_ptr<ReportingUploader> uploader1 =
-      ReportingUploader::Create(&context);
+      ReportingUploader::Create(context.get());
   uploader1->StartUpload(kOrigin, GURL("https://origin/1"), kIsolationInfo1,
                          kUploadBody, 0, false, callback1.callback());
   callback1.WaitForCall();
   EXPECT_EQ(ReportingUploader::Outcome::SUCCESS, callback1.outcome());
 
   // Start two more requests in parallel. The first started uses a different
-  // NetworkIsolationKey, so should create a new socket, while the second one
-  // gets the other socket. Start in parallel to make sure that a new socket
+  // NetworkAnonymizationKey, so should create a new socket, while the second
+  // one gets the other socket. Start in parallel to make sure that a new socket
   // isn't created just because the first is returned to the socket pool
   // asynchronously.
   TestUploadCallback callback2;
   std::unique_ptr<ReportingUploader> uploader2 =
-      ReportingUploader::Create(&context);
+      ReportingUploader::Create(context.get());
   uploader2->StartUpload(kOrigin, GURL("https://origin/2"), kIsolationInfo2,
                          kUploadBody, 0, false, callback2.callback());
   TestUploadCallback callback3;
   std::unique_ptr<ReportingUploader> uploader3 =
-      ReportingUploader::Create(&context);
+      ReportingUploader::Create(context.get());
   uploader3->StartUpload(kOrigin, GURL("https://origin/3"), kIsolationInfo1,
                          kUploadBody, 0, false, callback3.callback());
 

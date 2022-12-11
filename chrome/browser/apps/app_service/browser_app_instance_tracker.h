@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <set>
 
 #include "base/check.h"
+#include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
 #include "base/scoped_multi_source_observation.h"
 #include "base/unguessable_token.h"
@@ -181,7 +182,7 @@ class BrowserAppInstanceTracker : public TabStripModelObserver,
   bool IsBrowserTracked(Browser* browser) const;
   bool IsActivationClientTracked(wm::ActivationClient* client) const;
 
-  Profile* const profile_;
+  const raw_ptr<Profile, DanglingUntriaged> profile_;
 
   std::map<content::WebContents*, std::unique_ptr<WebContentsObserver>>
       webcontents_to_observer_map_;

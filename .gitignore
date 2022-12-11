@@ -39,28 +39,39 @@
 .cipd
 .classpath
 .code-coverage
+.coverage
 .cproject
+.dir-locals.el
 .emulator_sdk
 .gdb_history
 .gdbinit
 .landmines
 .metadata
 .project
+.projectile
 .pydevproject
 .checkstyle
 *.class
 compile_commands.json
 cscope.*
+child_pool-0.profraw
+child_pool-1.profraw
+child_pool-2.profraw
+child_pool-3.profraw
+default.profraw
 GPATH
 GRTAGS
 GSYMS
 GTAGS
 Session.vim
 tags
+TAGS
 Thumbs.db
 rust-project.json
 v8.log
 vs-chromium-project.txt
+# Store android emulator artifacts, used by //tools/android/avd/avd.py
+/.android_emulator/
 /.clangd
 /.clangd/
 /.clangd-index/
@@ -69,8 +80,11 @@ vs-chromium-project.txt
 /.settings/
 /.vs/
 # Visual Studio Code
-.vscode/
-.vscode-server/
+# No trailing slash to also ignore symlinks, which is useful in conjunction with
+# gclient-new-workdir.
+.vscode
+.vscode-server
+
 /_out
 /android_emulator_sdk
 /ash/ash_unittests_run.xml
@@ -92,7 +106,6 @@ vs-chromium-project.txt
 /chrome/android/profiles/afdo.prof
 /chrome/android/profiles/local.txt
 /chrome/angle_unittests_run.xml
-/chrome/app/vector_icons/google_chrome/
 /chrome/build/pgo_profiles/
 /chrome/gl_tests_run.xml
 /chrome/gles2_conform_test_run.xml
@@ -141,6 +154,7 @@ vs-chromium-project.txt
 /chrome/installer_util_strings.xml
 /chrome/interactive_ui_tests_run.xml
 /chrome/services/soda/internal
+/chrome/services/speech/internal
 /chrome/setup.xml
 /chrome/setup_unittests.xml
 /chrome/sync_integration_tests_run.xml
@@ -187,7 +201,7 @@ vs-chromium-project.txt
 /chromeos/profiles/*.afdo.prof
 /cipd_cache/
 /clank
-/cloud_print/cloud_print_version_resources.xml
+/components/autofill/core/browser/form_parsing/internal_resources
 /components/chrome_settings_proto_generated_compile.xml
 /components/cloud_policy_proto_generated_compile.xml
 /components/gcm_driver.xml
@@ -202,6 +216,7 @@ vs-chromium-project.txt
 /components/site_isolation/internal
 /components/suggestions.xml
 /components/variations.xml
+/components/vector_icons/google_chrome/
 /components/zucchini/testdata/*.exe
 /content/browser/service_worker/proto.xml
 /content/content_browsertests_run.xml
@@ -213,6 +228,7 @@ vs-chromium-project.txt
 /content/test/data/gpu/mediapipe_zip/mediapipe_chromium_tests.zip
 /content/test/data/layout_tests/
 /content/test/data/plugin/
+/content/test/gpu/.webgpu_typescript/
 /content/web_ui_test_mojo_bindings.xml
 /data
 /delegate_execute
@@ -226,8 +242,8 @@ vs-chromium-project.txt
 /ios/third_party/earl_grey/src
 /ios/third_party/earl_grey2/src
 /ios/third_party/edo/src
-/ios/third_party/gcdwebserver/src
 /ios/third_party/gtx/src
+/ios/third_party/lottie/src
 /ios/third_party/material_components_ios/src
 /ios/third_party/material_font_disk_loader_ios/src
 /ios/third_party/material_internationalization_ios/src
@@ -262,6 +278,7 @@ vs-chromium-project.txt
 /ppapi/native_client/ppapi_lib.xml
 /remoting/android/internal/
 /remoting/appengine/
+/remoting/host/installer/chrome-remote-desktop_*.buildinfo
 /remoting/host/installer/linux/internal/
 /remoting/ios/internal/
 /remoting/internal/
@@ -308,11 +325,13 @@ vs-chromium-project.txt
 /tools/metrics/histograms/metadata/*/*.before.pretty-print.xml
 /tools/metrics/histograms/enums.before.pretty-print.xml
 /tools/page_cycler/acid3
+/tools/bluetooth
 /tools/reclient
 /tools/skia_goldctl/
 /tools/tryserver
 /tools/win/link_limiter/build
 /ui/file_manager/internal
+/ui/file_manager/tsconfig.json
 /ui/keyboard/keyboard_mojom_bindings.xml
 /ui/surface/surface.xml
 /ui/surface/surface_gpu_tests.xml

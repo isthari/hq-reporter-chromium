@@ -1,12 +1,12 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {AsyncUtil} from '../../common/js/async_util.js';
+import {AsyncQueue} from '../../common/js/async_util.js';
+import {notifications} from '../../common/js/notifications.js';
 import {ProgressCenterItem, ProgressItemState} from '../../common/js/progress_center_common.js';
 import {getFilesAppIconURL} from '../../common/js/url_constants.js';
 import {str} from '../../common/js/util.js';
-import {xfm} from '../../common/js/xfm.js';
 import {ProgressCenter} from '../../externs/background/progress_center.js';
 import {ProgressCenterPanelInterface} from '../../externs/progress_center_panel.js';
 
@@ -64,7 +64,8 @@ export class ProgressCenterImpl {
   updateItem(item) {
     // Update item.
     const index = this.getItemIndex_(item.id);
-    if (item.state === ProgressItemState.PROGRESSING) {
+    if (item.state === ProgressItemState.PROGRESSING ||
+        item.state === ProgressItemState.SCANNING) {
       if (index === -1) {
         this.items_.push(item);
       } else {
@@ -224,9 +225,9 @@ ProgressCenterImpl.Notifications_ = class {
 
     /**
      * Async queue.
-     * @private @const {AsyncUtil.Queue}
+     * @private @const {AsyncQueue}
      */
-    this.queue_ = new AsyncUtil.Queue();
+    this.queue_ = new AsyncQueue();
 
     /**
      * Callback to notify the progress center of cancel operation.
@@ -240,9 +241,8 @@ ProgressCenterImpl.Notifications_ = class {
      */
     this.dismissCallback_ = dismissCallback;
 
-    xfm.notifications.onButtonClicked.addListener(
-        this.onButtonClicked_.bind(this));
-    xfm.notifications.onClosed.addListener(this.onClosed_.bind(this));
+    notifications.onButtonClicked.addListener(this.onButtonClicked_.bind(this));
+    notifications.onClosed.addListener(this.onClosed_.bind(this));
   }
 
   /**
@@ -278,7 +278,7 @@ ProgressCenterImpl.Notifications_ = class {
           item.state === ProgressItemState.COMPLETED) {
         if (previousState === NotificationState.VISIBLE) {
           this.queue_.run(proceed => {
-            xfm.notifications.clear(item.id, proceed);
+            notifications.clear(item.id, proceed);
           });
         }
         return;
@@ -298,13 +298,13 @@ ProgressCenterImpl.Notifications_ = class {
             item.progressRateInPercent :
             undefined,
         priority: (item.state === ProgressItemState.ERROR || !item.quiet) ? 0 :
-                                                                            -1
+                                                                            -1,
       };
 
       if (newlyAdded) {
-        xfm.notifications.create(item.id, params, proceed);
+        notifications.create(item.id, params, proceed);
       } else {
-        xfm.notifications.update(item.id, params, proceed);
+        notifications.update(item.id, params, proceed);
       }
     });
   }
@@ -321,7 +321,7 @@ ProgressCenterImpl.Notifications_ = class {
     delete this.ids_[id];
 
     this.queue_.run(proceed => {
-      xfm.notifications.clear(id, proceed);
+      notifications.clear(id, proceed);
     });
   }
 
@@ -356,5 +356,5 @@ ProgressCenterImpl.Notifications_ = class {
  */
 ProgressCenterImpl.Notifications_.NotificationState_ = {
   VISIBLE: 'visible',
-  DISMISSED: 'dismissed'
+  DISMISSED: 'dismissed',
 };

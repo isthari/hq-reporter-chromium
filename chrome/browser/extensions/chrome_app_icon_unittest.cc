@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,13 +23,14 @@
 #include "extensions/common/constants.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/image/image_skia_operations.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "ui/gfx/image/image_unittest_util.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/components/arc/test/fake_app_instance.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_test.h"
 #include "chrome/browser/ash/arc/arc_util.h"
-#include "chrome/browser/chromeos/extensions/gfx_utils.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_test.h"
+#include "chrome/browser/ash/extensions/gfx_utils.h"
 #include "ui/chromeos/resources/grit/ui_chromeos_resources.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -305,7 +306,9 @@ TEST_F(ChromeAppIconTest, ChromeBadging) {
   // Opts out the Play Store. Badge should be gone and icon image is the same
   // as it was before badging.
   arc::SetArcPlayStoreEnabledForProfile(profile(), false);
-  EXPECT_EQ(3U, reference_icon.icon_update_count());
+  // Wait for the asynchronous ArcAppListPrefs::RemoveAllAppsAndPackages to be
+  // called.
+  arc_test.WaitForRemoveAllApps();
   EXPECT_TRUE(AreEqual(reference_icon.image_skia(), image_before_badging));
 }
 

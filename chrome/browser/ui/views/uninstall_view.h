@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/memory/raw_ref.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/models/combobox_model.h"
 #include "ui/views/metadata/view_factory.h"
@@ -33,8 +34,8 @@ class UninstallView : public views::DialogDelegateView,
   ~UninstallView() override;
 
   // Overridden from ui::ComboboxModel:
-  int GetItemCount() const override;
-  std::u16string GetItemAt(int index) const override;
+  size_t GetItemCount() const override;
+  std::u16string GetItemAt(size_t index) const override;
 
  private:
   typedef std::map<std::wstring, std::wstring> BrowsersMap;
@@ -49,7 +50,7 @@ class UninstallView : public views::DialogDelegateView,
   views::Checkbox* change_default_browser_ = nullptr;
   views::Combobox* browsers_combo_ = nullptr;
   std::unique_ptr<BrowsersMap> browsers_;
-  int& user_selection_;
+  const raw_ref<int> user_selection_;
   base::RepeatingClosure quit_closure_;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,9 @@
 
 #include "base/callback_forward.h"
 #include "base/containers/flat_map.h"
+#include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
+#include "components/update_client/buildflags.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 class GURL;
@@ -31,9 +33,9 @@ class PatcherFactory;
 class ProtocolHandlerFactory;
 class UnzipperFactory;
 
+using UpdaterStateAttributes = base::flat_map<std::string, std::string>;
 using UpdaterStateProvider =
-    base::RepeatingCallback<base::flat_map<std::string, std::string>(
-        bool is_machine)>;
+    base::RepeatingCallback<UpdaterStateAttributes(bool is_machine)>;
 
 // Controls the component updater behavior.
 // TODO(sorin): this class will be split soon in two. One class controls
@@ -56,7 +58,8 @@ class Configurator : public base::RefCountedThreadSafe<Configurator> {
   virtual int UpdateDelay() const = 0;
 
   // The URLs for the update checks. The URLs are tried in order, the first one
-  // that succeeds wins.
+  // that succeeds wins. Since some components cannot be updated over HTTP,
+  // HTTPS URLs should appear first.
   virtual std::vector<GURL> UpdateUrl() const = 0;
 
   // The URLs for pings. Returns an empty vector if and only if pings are
@@ -148,6 +151,12 @@ class Configurator : public base::RefCountedThreadSafe<Configurator> {
   // Returns a callable to get the state of the platform updater, if the
   // embedder includes an updater. Returns a null callback otherwise.
   virtual UpdaterStateProvider GetUpdaterStateProvider() const = 0;
+
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+  // Returns the FilePath specified for this specific UpdateClient, pointing
+  // to where the retained CRX's will be stored.
+  virtual absl::optional<base::FilePath> GetCrxCachePath() const = 0;
+#endif
 
  protected:
   friend class base::RefCountedThreadSafe<Configurator>;

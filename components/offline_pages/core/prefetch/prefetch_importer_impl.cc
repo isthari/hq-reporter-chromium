@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include "base/guid.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/offline_pages/core/offline_page_model.h"
 #include "url/gurl.h"
@@ -114,7 +114,7 @@ void PrefetchImporterImpl::ImportArchive(const PrefetchArchiveInfo& archive) {
       FROM_HERE,
       base::BindOnce(
           &MoveFile, archive.file_path, dest_path,
-          base::RetainedRef(base::ThreadTaskRunnerHandle::Get()),
+          base::RetainedRef(base::SingleThreadTaskRunner::GetCurrentDefault()),
           base::BindOnce(&PrefetchImporterImpl::OnMoveFileDone,
                          weak_ptr_factory_.GetWeakPtr(), offline_page)));
 }

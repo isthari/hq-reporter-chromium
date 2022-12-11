@@ -28,6 +28,7 @@
 
 #include <memory>
 
+#include "base/notreached.h"
 #include "base/rand_util.h"
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_runner.h"
@@ -41,6 +42,7 @@
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 
+#include "base/time/time.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -125,8 +127,8 @@ class PLATFORM_EXPORT NetworkStateNotifier {
   NetworkStateNotifier& operator=(const NetworkStateNotifier&) = delete;
 
   ~NetworkStateNotifier() {
-    DCHECK(connection_observers_.IsEmpty());
-    DCHECK(on_line_state_observers_.IsEmpty());
+    DCHECK(connection_observers_.empty());
+    DCHECK(on_line_state_observers_.empty());
   }
 
   // Can be called on any thread.

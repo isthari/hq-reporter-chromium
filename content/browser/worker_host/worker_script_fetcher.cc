@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/task/single_thread_task_runner.h"
 #include "content/browser/data_url_loader_factory.h"
 #include "content/browser/devtools/devtools_agent_host_impl.h"
 #include "content/browser/devtools/devtools_instrumentation.h"
@@ -43,6 +44,7 @@
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "services/network/public/cpp/constants.h"
 #include "services/network/public/cpp/ip_address_space_util.h"
+#include "services/network/public/cpp/record_ontransfersizeupdate_utils.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/mojom/client_security_state.mojom.h"
 #include "services/network/public/mojom/early_hints.mojom.h"
@@ -53,7 +55,7 @@
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
 #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
 #include "third_party/blink/public/common/storage_key/storage_key.h"
-#include "third_party/blink/public/mojom/web_feature/web_feature.mojom.h"
+#include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom.h"
 
 namespace content {
 
@@ -108,7 +110,8 @@ void AddAdditionalRequestHeaders(network::ResourceRequest* resource_request,
       browser_context, &renderer_preferences);
   UpdateAdditionalHeadersForBrowserInitiatedRequest(
       &resource_request->headers, browser_context,
-      /*should_update_existing_headers=*/false, renderer_preferences);
+      /*should_update_existing_headers=*/false, renderer_preferences,
+      /*is_for_worker_script=*/true);
 }
 
 void DidCreateScriptLoader(
@@ -614,7 +617,8 @@ void WorkerScriptFetcher::Start(
   url_loader_ = blink::ThrottlingURLLoader::CreateLoaderAndStart(
       std::move(shared_url_loader_factory), std::move(throttles), request_id_,
       network::mojom::kURLLoadOptionNone, resource_request_.get(), this,
-      kWorkerScriptLoadTrafficAnnotation, base::ThreadTaskRunnerHandle::Get());
+      kWorkerScriptLoadTrafficAnnotation,
+      base::SingleThreadTaskRunner::GetCurrentDefault());
 }
 
 void WorkerScriptFetcher::OnReceiveEarlyHints(
@@ -624,16 +628,13 @@ void WorkerScriptFetcher::OnReceiveEarlyHints(
 
 void WorkerScriptFetcher::OnReceiveResponse(
     network::mojom::URLResponseHeadPtr response_head,
-    mojo::ScopedDataPipeConsumerHandle body) {
+    mojo::ScopedDataPipeConsumerHandle body,
+    absl::optional<mojo_base::BigBuffer> cached_metadata) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  DCHECK(!cached_metadata);
   response_head_ = std::move(response_head);
-  if (body)
-    OnStartLoadingResponseBody(std::move(body));
-}
-
-void WorkerScriptFetcher::OnStartLoadingResponseBody(
-    mojo::ScopedDataPipeConsumerHandle response_body) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (!body)
+    return;
 
   base::WeakPtr<WorkerScriptLoader> script_loader =
       script_loader_factory_->GetScriptLoader();
@@ -645,7 +646,7 @@ void WorkerScriptFetcher::OnStartLoadingResponseBody(
     mojo::PendingReceiver<network::mojom::URLLoaderClient>
         response_client_receiver;
     if (script_loader->MaybeCreateLoaderForResponse(
-            &response_head_, &response_body, &response_url_loader_,
+            &response_head_, &body, &response_url_loader_,
             &response_client_receiver, url_loader_.get())) {
       DCHECK(response_url_loader_);
       response_url_loader_receiver_.Bind(std::move(response_client_receiver));
@@ -660,7 +661,7 @@ void WorkerScriptFetcher::OnStartLoadingResponseBody(
   main_script_load_params_ = blink::mojom::WorkerMainScriptLoadParams::New();
   main_script_load_params_->request_id = request_id_;
   main_script_load_params_->response_head = std::move(response_head_);
-  main_script_load_params_->response_body = std::move(response_body);
+  main_script_load_params_->response_body = std::move(body);
   if (url_loader_) {
     // The main script was served by a request interceptor or the default
     // network loader.
@@ -716,11 +717,9 @@ void WorkerScriptFetcher::OnUploadProgress(int64_t current_position,
   NOTREACHED();
 }
 
-void WorkerScriptFetcher::OnReceiveCachedMetadata(mojo_base::BigBuffer data) {
-  NOTREACHED();
-}
-
 void WorkerScriptFetcher::OnTransferSizeUpdated(int32_t transfer_size_diff) {
+  network::RecordOnTransferSizeUpdatedUMA(
+      network::OnTransferSizeUpdatedFrom::kWorkerScriptFetcher);
   NOTREACHED();
 }
 
@@ -731,7 +730,7 @@ void WorkerScriptFetcher::OnComplete(
   if (status.error_code == net::OK) {
     // It's possible to reach here when the `response_head_` doesn't have a
     // `parsed_headers` and ask NetworkService to parse headers in
-    // OnStartLoadingResponseBody(). DidParseHeaders() will be called eventually
+    // OnReceiveResponse(). DidParseHeaders() will be called eventually
     // and `this` will be deleted in it.
     return;
   }

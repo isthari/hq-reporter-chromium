@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,12 @@
 
 #include <stddef.h>
 
-#include <algorithm>
 #include <memory>
 
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
-#include "base/task/post_task.h"
-#include "base/task/task_runner_util.h"
+#include "base/ranges/algorithm.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
@@ -115,12 +113,14 @@ void CodecAllocator::CreateMediaCodecAsync(
   // Post creation to the task runner. This may hang on broken platforms; if it
   // hangs, we will detect it on the next creation request, and future creations
   // will fallback to software.
-  base::PostTaskAndReplyWithResult(
-      std::move(task_runner), FROM_HERE,
-      base::BindOnce(&CreateMediaCodecInternal, factory_cb_,
-                     std::move(codec_config)),
-      base::BindOnce(&CodecAllocator::OnCodecCreated, base::Unretained(this),
-                     start_time, std::move(codec_created_cb)));
+  std::move(task_runner)
+      ->PostTaskAndReplyWithResult(
+          FROM_HERE,
+          base::BindOnce(&CreateMediaCodecInternal, factory_cb_,
+                         std::move(codec_config)),
+          base::BindOnce(&CodecAllocator::OnCodecCreated,
+                         base::Unretained(this), start_time,
+                         std::move(codec_created_cb)));
 }
 
 void CodecAllocator::ReleaseMediaCodec(std::unique_ptr<MediaCodecBridge> codec,
@@ -216,8 +216,8 @@ base::SequencedTaskRunner* CodecAllocator::SelectCodecTaskRunner() {
 void CodecAllocator::CompletePendingOperation(base::TimeTicks start_time) {
   // Note: This intentionally only erases the first instance, since there may be
   // multiple instances of the same value.
-  pending_operations_.erase(std::find(pending_operations_.begin(),
-                                      pending_operations_.end(), start_time));
+  pending_operations_.erase(
+      base::ranges::find(pending_operations_, start_time));
 }
 
 }  // namespace media

@@ -1,12 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/modules/breakout_box/media_stream_video_track_underlying_source.h"
 
 #include "base/feature_list.h"
-#include "base/logging.h"
-#include "base/metrics/histogram_macros.h"
 #include "media/capture/video/video_capture_buffer_pool_util.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -32,8 +30,9 @@ bool IsScreenOrWindowCapture(const std::string& device_id) {
 }
 }  // namespace
 
-const base::Feature kBreakoutBoxFrameLimiter{"BreakoutBoxFrameLimiter",
-                                             base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kBreakoutBoxFrameLimiter,
+             "BreakoutBoxFrameLimiter",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 const int MediaStreamVideoTrackUnderlyingSource::kMaxMonitoredFrameCount = 20;
 const int MediaStreamVideoTrackUnderlyingSource::kMinMonitoredFrameCount = 2;
@@ -68,6 +67,9 @@ MediaStreamVideoTrackUnderlyingSource::GetStreamTransferOptimizer() {
       this, GetRealmRunner(), MaxQueueSize(),
       CrossThreadBindOnce(
           &MediaStreamVideoTrackUnderlyingSource::OnSourceTransferStarted,
+          WrapCrossThreadWeakPersistent(this)),
+      CrossThreadBindOnce(
+          &MediaStreamVideoTrackUnderlyingSource::ClearTransferredSource,
           WrapCrossThreadWeakPersistent(this)));
 }
 
@@ -78,9 +80,9 @@ MediaStreamVideoTrackUnderlyingSource::GetIOTaskRunner() {
 
 void MediaStreamVideoTrackUnderlyingSource::OnSourceTransferStarted(
     scoped_refptr<base::SequencedTaskRunner> transferred_runner,
-    TransferredVideoFrameQueueUnderlyingSource* source) {
+    CrossThreadPersistent<TransferredVideoFrameQueueUnderlyingSource> source) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  TransferSource(source);
+  TransferSource(std::move(source));
   RecordBreakoutBoxUsage(BreakoutBoxUsage::kReadableVideoWorker);
 }
 
@@ -89,31 +91,6 @@ void MediaStreamVideoTrackUnderlyingSource::OnFrameFromTrack(
     std::vector<scoped_refptr<media::VideoFrame>> /*scaled_media_frames*/,
     base::TimeTicks estimated_capture_time) {
   DCHECK(GetIOTaskRunner()->RunsTasksInCurrentSequence());
-
-  // The track's source may provide duplicate frames, eg if other sinks
-  // request a refresh frame. Drop them here as we've already provided them.
-  // Out of order frames aren't expected, but are also dropped defensively,
-  // see crbug.com(1271175).
-  if (media_frame->timestamp() != media::kNoTimestamp &&
-      media_frame->timestamp() <= last_enqueued_timestamp) {
-    if (media_frame->timestamp() < last_enqueued_timestamp) {
-      DLOG(WARNING)
-          << "Received unexpectedly out-of-order frame with timestamp: "
-          << media_frame->timestamp()
-          << ", previous timestamp: " << last_enqueued_timestamp
-          << ". Dropping it.";
-      if (!reported_out_of_order_timestamp) {
-        // Monitor the number of instances performing these drops. Can be
-        // compared with the "Media.BreakoutBox.Usage" histogram to give a
-        // baseline.
-        UMA_HISTOGRAM_BOOLEAN("Media.BreakoutBox.OutOfOrderFrameDropped", true);
-        reported_out_of_order_timestamp = true;
-      }
-    }
-    return;
-  }
-  last_enqueued_timestamp = media_frame->timestamp();
-
   // The scaled video frames are currently ignored.
   QueueFrame(std::move(media_frame));
 }

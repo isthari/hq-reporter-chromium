@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,9 +42,6 @@ public class TabSuggestionsClientFetcherTest {
     @Rule
     public TestRule mProcessor = new Features.JUnitProcessor();
 
-    @Rule
-    public TestRule mCommandLineFlagsRule = CommandLineFlags.getTestRule();
-
     @Mock
     TabContext mTabContext;
 
@@ -59,7 +56,7 @@ public class TabSuggestionsClientFetcherTest {
     private TabContext.TabInfo getMockTab(int id, String title, String url, String originalUrl,
             String referrer, long timestamp, double siteEngagementScore) {
         TabContext.TabInfo tabInfo =
-                spy(new TabContext.TabInfo(id, title, url, originalUrl, referrer, timestamp, ""));
+                spy(new TabContext.TabInfo(id, title, url, originalUrl, timestamp, ""));
         doReturn(siteEngagementScore).when(tabInfo).getSiteEngagementScore();
         return tabInfo;
     }

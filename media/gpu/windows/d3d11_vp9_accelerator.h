@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,7 +44,7 @@ class D3D11VP9Accelerator : public VP9Decoder::VP9Accelerator {
 
   bool OutputPicture(scoped_refptr<VP9Picture> picture) override;
 
-  bool IsFrameContextRequired() const override;
+  bool NeedsCompressedHeaderParsed() const override;
 
   bool GetFrameContext(scoped_refptr<VP9Picture> picture,
                        Vp9FrameContext* frame_context) override;

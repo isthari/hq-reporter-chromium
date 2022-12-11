@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/ash/net/system_proxy_manager.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
@@ -48,7 +48,7 @@ class ProxyLookupRequest : public network::mojom::ProxyLookupClient {
   ProxyLookupRequest(
       network::mojom::NetworkContext* network_context,
       const GURL& source_url,
-      const net::NetworkIsolationKey& network_isolation_key,
+      const net::NetworkAnonymizationKey& network_anonymization_key,
       ProxyResolutionServiceProvider::NotifyCallback notify_callback,
       chromeos::SystemProxyOverride system_proxy_override)
       : notify_callback_(std::move(notify_callback)),
@@ -59,7 +59,7 @@ class ProxyLookupRequest : public network::mojom::ProxyLookupClient {
         &ProxyLookupRequest::OnProxyLookupComplete, base::Unretained(this),
         net::ERR_ABORTED, absl::nullopt));
 
-    network_context->LookUpProxyForURL(source_url, network_isolation_key,
+    network_context->LookUpProxyForURL(source_url, network_anonymization_key,
                                        std::move(proxy_lookup_client));
   }
 
@@ -97,7 +97,7 @@ class ProxyLookupRequest : public network::mojom::ProxyLookupClient {
   // trough the same Chrome proxy resolution service to connect to the
   // remote proxy server. The availability of this feature is controlled by the
   // |SystemProxySettings| policy and the feature flag
-  // `ash::features::kSystemProxyForSystemServices`.
+  // `features::kSystemProxyForSystemServices`.
   void AppendSystemProxyIfActive(std::string* pac_proxy_list) {
     SystemProxyManager* system_proxy_manager = SystemProxyManager::Get();
     // |system_proxy_manager| may be missing in tests.
@@ -122,8 +122,9 @@ class ProxyLookupRequest : public network::mojom::ProxyLookupClient {
 }  // namespace
 
 ProxyResolutionServiceProvider::ProxyResolutionServiceProvider()
-    : origin_thread_(base::ThreadTaskRunnerHandle::Get()),
-      network_isolation_key_(net::NetworkIsolationKey::CreateTransient()) {}
+    : origin_thread_(base::SingleThreadTaskRunner::GetCurrentDefault()),
+      network_anonymization_key_(
+          net::NetworkAnonymizationKey::CreateTransient()) {}
 
 ProxyResolutionServiceProvider::~ProxyResolutionServiceProvider() {
   DCHECK(OnOriginThread());
@@ -219,7 +220,7 @@ void ProxyResolutionServiceProvider::ResolveProxyInternal(
   }
 
   VLOG(1) << "Starting network proxy resolution for " << url;
-  new ProxyLookupRequest(network_context, url, network_isolation_key_,
+  new ProxyLookupRequest(network_context, url, network_anonymization_key_,
                          std::move(callback), system_proxy_override);
 }
 

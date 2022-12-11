@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/memory/raw_ptr.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/webauthn/authenticator_request_sheet_model.h"
 #include "chrome/browser/ui/webauthn/transport_hover_list_model.h"
 #include "chrome/browser/webauthn/authenticator_request_dialog_model.h"
@@ -30,8 +31,20 @@ class AuthenticatorSheetModelBase
     : public AuthenticatorRequestSheetModel,
       public AuthenticatorRequestDialogModel::Observer {
  public:
+  // Determines whether the button in the lower-left corner of the dialog, to
+  // display other available mechanisms, is shown on a sheet.
+  enum class OtherMechanismButtonVisibility {
+    // The button is not shown (default).
+    kHidden,
+    // The button is shown if there is more than one mechanism to choose from.
+    kVisible,
+  };
+
   explicit AuthenticatorSheetModelBase(
       AuthenticatorRequestDialogModel* dialog_model);
+  AuthenticatorSheetModelBase(
+      AuthenticatorRequestDialogModel* dialog_model,
+      OtherMechanismButtonVisibility other_mechanism_button_visibility);
 
   AuthenticatorSheetModelBase(const AuthenticatorSheetModelBase&) = delete;
   AuthenticatorSheetModelBase& operator=(const AuthenticatorSheetModelBase&) =
@@ -53,6 +66,7 @@ class AuthenticatorSheetModelBase
   bool IsActivityIndicatorVisible() const override;
   bool IsBackButtonVisible() const override;
   bool IsCancelButtonVisible() const override;
+  bool IsOtherMechanismButtonVisible() const override;
   std::u16string GetCancelButtonLabel() const override;
   bool IsAcceptButtonVisible() const override;
   bool IsAcceptButtonEnabled() const override;
@@ -66,6 +80,8 @@ class AuthenticatorSheetModelBase
 
  private:
   raw_ptr<AuthenticatorRequestDialogModel> dialog_model_;
+  OtherMechanismButtonVisibility other_mechanism_button_visibility_ =
+      OtherMechanismButtonVisibility::kHidden;
 };
 
 // The sheet shown for selecting the transport over which the security key
@@ -195,7 +211,8 @@ class AuthenticatorInternalUnrecognizedErrorSheetModel
 class AuthenticatorBlePowerOnManualSheetModel
     : public AuthenticatorSheetModelBase {
  public:
-  using AuthenticatorSheetModelBase::AuthenticatorSheetModelBase;
+  explicit AuthenticatorBlePowerOnManualSheetModel(
+      AuthenticatorRequestDialogModel* dialog_model);
 
  private:
   // AuthenticatorSheetModelBase:
@@ -215,7 +232,8 @@ class AuthenticatorBlePowerOnManualSheetModel
 class AuthenticatorBlePowerOnAutomaticSheetModel
     : public AuthenticatorSheetModelBase {
  public:
-  using AuthenticatorSheetModelBase::AuthenticatorSheetModelBase;
+  explicit AuthenticatorBlePowerOnAutomaticSheetModel(
+      AuthenticatorRequestDialogModel* dialog_model);
 
  private:
   // AuthenticatorSheetModelBase:
@@ -231,6 +249,30 @@ class AuthenticatorBlePowerOnAutomaticSheetModel
 
   bool busy_powering_on_ble_ = false;
 };
+
+#if BUILDFLAG(IS_MAC)
+
+class AuthenticatorBlePermissionMacSheetModel
+    : public AuthenticatorSheetModelBase {
+ public:
+  explicit AuthenticatorBlePermissionMacSheetModel(
+      AuthenticatorRequestDialogModel* dialog_model);
+
+ private:
+  // AuthenticatorSheetModelBase:
+  const gfx::VectorIcon& GetStepIllustration(
+      ImageColorScheme color_scheme) const override;
+  bool ShouldFocusBackArrow() const override;
+  std::u16string GetStepTitle() const override;
+  std::u16string GetStepDescription() const override;
+  bool IsAcceptButtonVisible() const override;
+  bool IsAcceptButtonEnabled() const override;
+  bool IsCancelButtonVisible() const override;
+  std::u16string GetAcceptButtonLabel() const override;
+  void OnAccept() override;
+};
+
+#endif  // IS_MAC
 
 class AuthenticatorOffTheRecordInterstitialSheetModel
     : public AuthenticatorSheetModelBase {
@@ -264,12 +306,15 @@ class AuthenticatorPaaskSheetModel : public AuthenticatorSheetModelBase {
  private:
   // AuthenticatorSheetModelBase:
   bool IsBackButtonVisible() const override;
+  bool IsCloseButtonVisible() const override;
+  bool IsCancelButtonVisible() const override;
   bool IsActivityIndicatorVisible() const override;
   const gfx::VectorIcon& GetStepIllustration(
       ImageColorScheme color_scheme) const override;
   std::u16string GetStepTitle() const override;
   std::u16string GetStepDescription() const override;
   ui::MenuModel* GetOtherMechanismsMenuModel() override;
+  void OnBack() override;
 
   std::unique_ptr<OtherMechanismsMenuModel> other_mechanisms_menu_model_;
 };
@@ -455,11 +500,36 @@ class AuthenticatorResidentCredentialConfirmationSheetView
 class AuthenticatorSelectAccountSheetModel
     : public AuthenticatorSheetModelBase {
  public:
-  explicit AuthenticatorSelectAccountSheetModel(
-      AuthenticatorRequestDialogModel* dialog_model);
+  // Indicates whether the corresponding view is presented before or after
+  // gathering user verification and generating an assertion signature.
+  // `kPreUserVerification` is only possible with platform authenticators
+  // for which we can silently enumerate credentials.
+  enum UserVerificationMode {
+    kPreUserVerification,
+    kPostUserVerification,
+  };
+
+  // Whether the user needs to select an account from a list of many or they
+  // merely need to confirm a single possible choice.
+  enum SelectionType {
+    kSingleAccount,
+    kMultipleAccounts,
+  };
+
+  AuthenticatorSelectAccountSheetModel(
+      AuthenticatorRequestDialogModel* dialog_model,
+      UserVerificationMode mode,
+      SelectionType type);
   ~AuthenticatorSelectAccountSheetModel() override;
 
-  // Set the index of the currently selected row.
+  SelectionType selection_type() const;
+
+  // Returns the single available credential if `type()` is
+  // `kSingleAccount` and must not be called otherwise.
+  const device::DiscoverableCredentialMetadata& SingleCredential() const;
+
+  // Set the index of the currently selected row. Only valid to call for
+  // `kMultipleAccount`.
   void SetCurrentSelection(int selected);
 
   // AuthenticatorSheetModelBase:
@@ -475,6 +545,8 @@ class AuthenticatorSelectAccountSheetModel
   bool IsAcceptButtonEnabled() const override;
   std::u16string GetAcceptButtonLabel() const override;
 
+  const UserVerificationMode user_verification_mode_;
+  const SelectionType selection_type_;
   size_t selected_ = 0;
 };
 
@@ -527,6 +599,29 @@ class AuthenticatorQRSheetModel : public AuthenticatorSheetModelBase {
       ImageColorScheme color_scheme) const override;
   std::u16string GetStepTitle() const override;
   std::u16string GetStepDescription() const override;
+};
+
+class AuthenticatorCreatePasskeySheetModel
+    : public AuthenticatorSheetModelBase {
+ public:
+  explicit AuthenticatorCreatePasskeySheetModel(
+      AuthenticatorRequestDialogModel* dialog_model);
+  ~AuthenticatorCreatePasskeySheetModel() override;
+
+  // An additional label that `AuthenticatorCreatePasskeySheetView` includes in
+  // the `BuildStepSpecificContent()` view.
+  std::u16string passkey_storage_description() const;
+
+ private:
+  // AuthenticatorSheetModelBase:
+  const gfx::VectorIcon& GetStepIllustration(
+      ImageColorScheme color_scheme) const override;
+  std::u16string GetStepTitle() const override;
+  std::u16string GetStepDescription() const override;
+  bool IsAcceptButtonVisible() const override;
+  bool IsAcceptButtonEnabled() const override;
+  void OnAccept() override;
+  std::u16string GetAcceptButtonLabel() const override;
 };
 
 #endif  // CHROME_BROWSER_UI_WEBAUTHN_SHEET_MODELS_H_

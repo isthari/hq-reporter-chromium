@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,7 +36,9 @@ class ContentRendererClientImpl : public content::ContentRendererClient {
   // content::ContentRendererClient:
   void RenderThreadStarted() override;
   void RenderFrameCreated(content::RenderFrame* render_frame) override;
-  void WebViewCreated(blink::WebView* web_view) override;
+  void WebViewCreated(blink::WebView* web_view,
+                      bool was_created_by_renderer,
+                      const url::Origin* outermost_origin) override;
   SkBitmap* GetSadPluginBitmap() override;
   SkBitmap* GetSadWebViewBitmap() override;
   void PrepareErrorPage(content::RenderFrame* render_frame,
@@ -48,9 +50,7 @@ class ContentRendererClientImpl : public content::ContentRendererClient {
   std::unique_ptr<blink::URLLoaderThrottleProvider>
   CreateURLLoaderThrottleProvider(
       blink::URLLoaderThrottleProviderType provider_type) override;
-  void AddSupportedKeySystems(
-      std::vector<std::unique_ptr<::media::KeySystemProperties>>* key_systems)
-      override;
+  void GetSupportedKeySystems(media::GetSupportedKeySystemsCB cb) override;
   void SetRuntimeFeaturesDefaultsBeforeBlinkInitialization() override;
   bool IsPrefetchOnly(content::RenderFrame* render_frame) override;
   bool DeferMediaLoad(content::RenderFrame* render_frame,

@@ -28,7 +28,7 @@
 #include "third_party/blink/renderer/core/animation/timing.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
-#include "third_party/blink/renderer/core/style/style_name_or_keyword.h"
+#include "third_party/blink/renderer/core/style/style_timeline.h"
 #include "third_party/blink/renderer/platform/animation/timing_function.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
@@ -39,6 +39,7 @@ class CSSValue;
 class StyleResolverState;
 class NinePieceImage;
 class BorderImageLengthBox;
+class ScopedCSSValue;
 
 class CSSToStyleMap {
   STATIC_ONLY(CSSToStyleMap);
@@ -66,13 +67,14 @@ class CSSToStyleMap {
                                FillLayer*,
                                const CSSValue&);
 
-  static double MapAnimationDelay(const CSSValue&);
+  static Timing::Delay MapAnimationDelayStart(const CSSValue&);
+  static Timing::Delay MapAnimationDelayEnd(const CSSValue&);
   static Timing::PlaybackDirection MapAnimationDirection(const CSSValue&);
-  static double MapAnimationDuration(const CSSValue&);
+  static absl::optional<double> MapAnimationDuration(const CSSValue&);
   static Timing::FillMode MapAnimationFillMode(const CSSValue&);
   static double MapAnimationIterationCount(const CSSValue&);
   static AtomicString MapAnimationName(const CSSValue&);
-  static StyleNameOrKeyword MapAnimationTimeline(const CSSValue&);
+  static StyleTimeline MapAnimationTimeline(const ScopedCSSValue&);
   static EAnimPlayState MapAnimationPlayState(const CSSValue&);
   static CSSTransitionData::TransitionProperty MapAnimationProperty(
       const CSSValue&);

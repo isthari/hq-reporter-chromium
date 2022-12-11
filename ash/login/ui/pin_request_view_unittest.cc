@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -520,7 +520,13 @@ TEST_F(PinRequestViewTest, BackwardTabKeyTraversal) {
   EXPECT_TRUE(HasFocusInAnyChildView(test_api.access_code_view()));
 }
 
-using PinRequestWidgetTest = PinRequestViewTest;
+class PinRequestWidgetTest : public PinRequestViewTest {
+ public:
+  PinRequestWidgetTest() { set_start_session(true); }
+  PinRequestWidgetTest(const PinRequestWidgetTest&) = delete;
+  PinRequestWidgetTest& operator=(const PinRequestWidgetTest&) = delete;
+  ~PinRequestWidgetTest() override = default;
+};
 
 // Tests that the widget is properly resized when tablet mode changes.
 TEST_F(PinRequestWidgetTest, WidgetResizingInTabletMode) {
@@ -582,7 +588,7 @@ TEST_F(PinRequestViewTest, VirtualKeyboardHidden) {
 
   ui::GestureEvent event(
       text_field->x(), text_field->y(), 0, base::TimeTicks::Now(),
-      ui::GestureEventDetails(ui::EventType::ET_GESTURE_TAP_DOWN));
+      ui::GestureEventDetails(ui::EventType::ET_GESTURE_TAP));
   text_field->OnGestureEvent(&event);
   base::RunLoop().RunUntilIdle();
 

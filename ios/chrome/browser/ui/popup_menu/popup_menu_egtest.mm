@@ -1,20 +1,21 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/ios/ios_util.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/ios/ios_util.h"
+#import "base/strings/sys_string_conversions.h"
+#import "ios/chrome/browser/feature_engagement/feature_engagement_app_interface.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
+#import "ios/testing/earl_grey/app_launch_manager.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "ios/web/public/test/http_server/http_server.h"
 #import "ios/web/public/test/http_server/http_server_util.h"
-#include "ios/web/public/test/http_server/http_server_util.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -145,7 +146,7 @@ const char kPDFURL[] = "http://ios/testing/data/http_server_files/testpage.pdf";
   [ChromeEarlGreyUI openToolsMenu];
 
   // If using the new overflow menu, swipe up to expand the menu to the full
-  // height to make sure that |closeToolsMenu| still closes it.
+  // height to make sure that `closeToolsMenu` still closes it.
   if ([ChromeEarlGrey isNewOverflowMenuEnabled] &&
       [ChromeEarlGrey isCompactWidth]) {
     [[EarlGrey selectElementWithMatcher:chrome_test_util::ToolsMenuView()]
@@ -174,17 +175,6 @@ const char kPDFURL[] = "http://ios/testing/data/http_server_files/testpage.pdf";
 // Navigates to a pdf page and verifies that the "Find in Page..." tool
 // is not enabled
 - (void)testNoSearchForPDF {
-#if !TARGET_IPHONE_SIMULATOR
-  // TODO(crbug.com/1209346): test failing on ipad device
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"This test doesn't pass on iPad device.");
-  }
-#else
-  // TODO(crbug.com/1293132): Test is flaky on iphone simulator.
-  if (![ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"This test is flaky on iPhone simulator.");
-  }
-#endif
   const GURL URL = web::test::HttpServer::MakeUrl(kPDFURL);
 
   // Navigate to a mock pdf and verify that the find button is disabled.
@@ -210,6 +200,34 @@ const char kPDFURL[] = "http://ios/testing/data/http_server_files/testpage.pdf";
   [ChromeEarlGrey verifyAccessibilityForCurrentScreen];
   // Close Tools menu.
   [ChromeTestCase removeAnyOpenMenusAndInfoBars];
+}
+
+// Tests that the overflow menu IPH shows up when triggered.
+- (void)testOverflowMenuIPH {
+  if (![ChromeEarlGrey isNewOverflowMenuEnabled]) {
+    EARL_GREY_TEST_SKIPPED(
+        @"The overflow menu IPH only exists when the overflow menu is enabled.")
+  }
+  GREYAssert([FeatureEngagementAppInterface enableOverflowMenuTipTriggering],
+             @"Feature Engagement tracker did not load");
+
+  // Open and close tools menu twice with no action to trigger tooltip.
+  [ChromeEarlGreyUI openToolsMenu];
+  [ChromeEarlGreyUI closeToolsMenu];
+
+  [ChromeEarlGreyUI openToolsMenu];
+  [ChromeEarlGreyUI closeToolsMenu];
+
+  // Background and foreground the app, which should show tooltip.
+  [[AppLaunchManager sharedManager] backgroundAndForegroundApp];
+
+  [ChromeEarlGrey waitForSufficientlyVisibleElementWithMatcher:
+                      grey_accessibilityID(@"BubbleViewLabelIdentifier")];
+
+  // Open the tools menu and verify the second tooltip is visible.
+  [ChromeEarlGreyUI openToolsMenu];
+  [ChromeEarlGrey waitForSufficientlyVisibleElementWithMatcher:
+                      grey_accessibilityID(@"BubbleViewLabelIdentifier")];
 }
 
 @end

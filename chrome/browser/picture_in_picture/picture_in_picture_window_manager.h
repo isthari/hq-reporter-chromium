@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,9 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
+#include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace content {
 enum class PictureInPictureResult;
@@ -27,19 +30,55 @@ class PictureInPictureWindowManager {
   PictureInPictureWindowManager& operator=(
       const PictureInPictureWindowManager&) = delete;
 
-  // Some PIP windows (e.g. from ARC) may not have a WebContents as the source
-  // of the PIP content. This function lets them provide their own window
-  // controller directly.
+  // Shows a PIP window using the window controller for a video element.
+  //
+  // This mode is triggered through WebContentsDelegate::EnterPictureInPicture,
+  // and the default implementation of that fails with a kNotSupported
+  // result. For compatibility, this method must also return a
+  // content::PictureInPictureResult even though it doesn't fail.
+  content::PictureInPictureResult EnterVideoPictureInPicture(
+      content::WebContents*);
+
+#if !BUILDFLAG(IS_ANDROID)
+  // Shows a PIP window using the window controller for document picture in
+  // picture.
+  //
+  // Document picture-in-picture mode is triggered from the Renderer via
+  // WindowOpenDisposition::NEW_PICTURE_IN_PICTURE, and the browser
+  // (i.e. Chrome's BrowserNavigator) then calls this method to create the
+  // window. There's no corresponding path through the WebContentsDelegate, so
+  // it doesn't have a failure state.
+  void EnterDocumentPictureInPicture(content::WebContents* parent_web_contents,
+                                     content::WebContents* child_web_contents);
+#endif  // !BUILDFLAG(IS_ANDROID)
+
+  // Shows a PIP window with an explicitly provided window controller. This is
+  // used by ChromeOS ARC windows which do not have a WebContents as the source.
   void EnterPictureInPictureWithController(
       content::PictureInPictureWindowController* pip_window_controller);
-  content::PictureInPictureResult EnterPictureInPicture(content::WebContents*);
+
   void ExitPictureInPicture();
 
-  content::WebContents* GetWebContents();
+  // Called to notify that the initiator web contents should be focused.
+  void FocusInitiator();
+
+  // Gets the web contents in the opener browser window.
+  content::WebContents* GetWebContents() const;
+
+  // Gets the web contents in the PiP window. This only applies to document PiP
+  // and will be null for video PiP.
+  content::WebContents* GetChildWebContents() const;
+
+  // Returns the window bounds of the video picture-in-picture or the document
+  // picture-in-picture if either of them is present.
+  absl::optional<gfx::Rect> GetPictureInPictureWindowBounds() const;
 
  private:
   friend struct base::DefaultSingletonTraits<PictureInPictureWindowManager>;
-  class ContentsObserver;
+  class VideoWebContentsObserver;
+#if !BUILDFLAG(IS_ANDROID)
+  class DocumentWebContentsObserver;
+#endif  // !BUILDFLAG(IS_ANDROID)
 
   // Create a Picture-in-Picture window and register it in order to be closed
   // when needed.
@@ -52,10 +91,19 @@ class PictureInPictureWindowManager {
   // This is suffixed with "Internal" to keep consistency with the method above.
   void CloseWindowInternal();
 
+#if !BUILDFLAG(IS_ANDROID)
+  // Called when the document PiP parent web contents is being destroyed.
+  void DocumentWebContentsDestroyed();
+#endif  // !BUILDFLAG(IS_ANDROID)
+
   PictureInPictureWindowManager();
   ~PictureInPictureWindowManager();
 
-  std::unique_ptr<ContentsObserver> contents_observer_;
+  std::unique_ptr<VideoWebContentsObserver> video_web_contents_observer_;
+#if !BUILDFLAG(IS_ANDROID)
+  std::unique_ptr<DocumentWebContentsObserver> document_web_contents_observer_;
+#endif  //! BUILDFLAG(IS_ANDROID)
+
   raw_ptr<content::PictureInPictureWindowController> pip_window_controller_ =
       nullptr;
 };

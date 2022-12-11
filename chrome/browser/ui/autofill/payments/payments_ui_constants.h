@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 namespace autofill {
 
 constexpr int kMigrationDialogMainContainerChildSpacing = 24;
-constexpr gfx::Insets kMigrationDialogInsets = gfx::Insets(0, 24, 48, 24);
+constexpr auto kMigrationDialogInsets = gfx::Insets::TLBR(0, 24, 48, 24);
 
 // The time span an Autofill card bubble should be visible even if the document
 // navigates away meanwhile. This is to ensure that the user has time to see

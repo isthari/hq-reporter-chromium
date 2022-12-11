@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -105,7 +105,7 @@ void TrackedChildURLLoaderFactoryBundle::AddObserverOnMainThread() {
       FROM_HERE,
       base::BindOnce(
           &HostChildURLLoaderFactoryBundle::AddObserver,
-          main_thread_host_bundle_->first, base::Unretained(this),
+          main_thread_host_bundle_->first, base::UnsafeDanglingUntriaged(this),
           std::make_unique<
               HostChildURLLoaderFactoryBundle::ObserverPtrAndTaskRunner>(
               AsWeakPtr(), base::SequencedTaskRunnerHandle::Get())));
@@ -117,13 +117,14 @@ void TrackedChildURLLoaderFactoryBundle::RemoveObserverOnMainThread() {
   main_thread_host_bundle_->second->PostTask(
       FROM_HERE,
       base::BindOnce(&HostChildURLLoaderFactoryBundle::RemoveObserver,
-                     main_thread_host_bundle_->first, base::Unretained(this)));
+                     main_thread_host_bundle_->first,
+                     base::UnsafeDanglingUntriaged(this)));
 }
 
 void TrackedChildURLLoaderFactoryBundle::OnUpdate(
-    std::unique_ptr<network::PendingSharedURLLoaderFactory> info) {
-  Update(base::WrapUnique(
-      static_cast<ChildPendingURLLoaderFactoryBundle*>(info.release())));
+    std::unique_ptr<network::PendingSharedURLLoaderFactory> pending_factories) {
+  Update(base::WrapUnique(static_cast<ChildPendingURLLoaderFactoryBundle*>(
+      pending_factories.release())));
 }
 
 // -----------------------------------------------------------------------------
@@ -159,13 +160,13 @@ HostChildURLLoaderFactoryBundle::Clone() {
 }
 
 void HostChildURLLoaderFactoryBundle::UpdateThisAndAllClones(
-    std::unique_ptr<blink::PendingURLLoaderFactoryBundle> info) {
+    std::unique_ptr<blink::PendingURLLoaderFactoryBundle> pending_factories) {
   DCHECK(IsMainThread()) << "Should run on the main renderer thread";
   DCHECK(observer_list_);
 
   auto partial_bundle = base::MakeRefCounted<ChildURLLoaderFactoryBundle>();
   static_cast<blink::URLLoaderFactoryBundle*>(partial_bundle.get())
-      ->Update(std::move(info));
+      ->Update(std::move(pending_factories));
 
   for (const auto& iter : *observer_list_) {
     NotifyUpdateOnMainOrWorkerThread(iter.second.get(),
@@ -197,11 +198,11 @@ void HostChildURLLoaderFactoryBundle::RemoveObserver(
 
 void HostChildURLLoaderFactoryBundle::NotifyUpdateOnMainOrWorkerThread(
     ObserverPtrAndTaskRunner* observer_bundle,
-    std::unique_ptr<network::PendingSharedURLLoaderFactory> update_info) {
+    std::unique_ptr<network::PendingSharedURLLoaderFactory> pending_factories) {
   observer_bundle->second->PostTask(
       FROM_HERE,
       base::BindOnce(&TrackedChildURLLoaderFactoryBundle::OnUpdate,
-                     observer_bundle->first, std::move(update_info)));
+                     observer_bundle->first, std::move(pending_factories)));
 }
 
 }  // namespace blink

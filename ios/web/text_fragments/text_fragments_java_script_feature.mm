@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #import <vector>
 
 #import "base/no_destructor.h"
+#import "base/strings/sys_string_conversions.h"
 #import "components/shared_highlighting/ios/parsing_utils.h"
 #import "ios/web/public/js_messaging/script_message.h"
 #import "ios/web/public/js_messaging/web_frame.h"
@@ -18,7 +19,7 @@
 #endif
 
 namespace {
-const char kScriptName[] = "text_fragments_js";
+const char kScriptName[] = "text_fragments";
 const char kScriptHandlerName[] = "textFragments";
 const char kHandleFragmentsScript[] = "textFragments.handleTextFragments";
 const char kRemoveHighlightsScript[] = "textFragments.removeHighlights";
@@ -104,6 +105,13 @@ void TextFragmentsJavaScriptFeature::ScriptMessageReceived(
     return;
   }
 
+  // Discard messages if we've navigated away.
+  auto sender_url = script_message.request_url();
+  GURL current_url = web_state->GetLastCommittedURL();
+  if (!sender_url || *sender_url != current_url) {
+    return;
+  }
+
   if (*command == "textFragments.processingComplete") {
     // Extract success metrics.
     absl::optional<double> optional_fragment_count =
@@ -136,11 +144,27 @@ void TextFragmentsJavaScriptFeature::ScriptMessageReceived(
   } else if (*command == "textFragments.onClickWithSender") {
     absl::optional<CGRect> rect =
         shared_highlighting::ParseRect(response->FindDictKey("rect"));
-    if (!rect) {
+    const std::string* text = response->FindStringKey("text");
+
+    const base::Value::List* fragment_values_list =
+        response->GetDict().FindList("fragments");
+    std::vector<shared_highlighting::TextFragment> fragments;
+    if (fragment_values_list) {
+      for (const base::Value& val : *fragment_values_list) {
+        absl::optional<shared_highlighting::TextFragment> fragment =
+            shared_highlighting::TextFragment::FromValue(&val);
+        if (fragment) {
+          fragments.push_back(*fragment);
+        }
+      }
+    }
+
+    if (!rect || !text || fragments.empty()) {
       return;
     }
     manager->OnClickWithSender(
-        shared_highlighting::ConvertToBrowserRect(*rect, web_state));
+        shared_highlighting::ConvertToBrowserRect(*rect, web_state),
+        base::SysUTF8ToNSString(*text), std::move(fragments));
   }
 }
 

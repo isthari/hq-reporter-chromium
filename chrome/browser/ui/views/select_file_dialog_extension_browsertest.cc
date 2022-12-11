@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,9 @@
 
 #include <memory>
 
-#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/keyboard/keyboard_switches.h"
-#include "ash/public/cpp/style/color_provider.h"
-#include "ash/public/cpp/style/scoped_light_mode_as_default.h"
+#include "ash/public/cpp/style/dark_light_mode_controller.h"
 #include "ash/public/cpp/test/shell_test_api.h"
 #include "base/callback_helpers.h"
 #include "base/files/file_util.h"
@@ -19,12 +17,15 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/gmock_callback_support.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/ash/file_manager/file_manager_test_util.h"
 #include "chrome/browser/ash/file_manager/volume_manager.h"
+#include "chrome/browser/chromeos/policy/dlp/dlp_rules_manager_factory.h"
+#include "chrome/browser/chromeos/policy/dlp/mock_dlp_rules_manager.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client.h"
@@ -50,6 +51,8 @@
 #include "extensions/test/extension_background_page_waiter.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "storage/browser/file_system/external_mount_points.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "ui/aura/window.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
@@ -137,36 +140,17 @@ class MockSelectFileDialogListener : public ui::SelectFileDialog::Listener {
   scoped_refptr<content::MessageLoopRunner> message_loop_runner_;
 };
 
-// Enumerates possible app modes. We support extension mode (Chrome App)
-// and System App (SWA) mode.
-enum AppMode {
-  EXTENSION_FILES_APP_MODE,
-  SYSTEM_FILES_APP_MODE,
-};
-
-// Parametrization of tests. We run tests with various app modes, with and
+// Parametrization of tests. We run tests with and
 // without filt type filter enabled, and in tablet mode and in regular mode.
 struct TestMode {
-  TestMode(AppMode app_mode, bool file_type_filter, bool tablet_mode)
-      : app_mode(app_mode),
-        file_type_filter(file_type_filter),
-        tablet_mode(tablet_mode) {}
+  TestMode(bool file_type_filter, bool tablet_mode)
+      : file_type_filter(file_type_filter), tablet_mode(tablet_mode) {}
 
   static testing::internal::ParamGenerator<TestMode> SystemWebAppValues() {
-    return ::testing::Values(TestMode(SYSTEM_FILES_APP_MODE, false, false),
-                             TestMode(SYSTEM_FILES_APP_MODE, false, true),
-                             TestMode(SYSTEM_FILES_APP_MODE, true, false),
-                             TestMode(SYSTEM_FILES_APP_MODE, true, true));
+    return ::testing::Values(TestMode(false, false), TestMode(false, true),
+                             TestMode(true, false), TestMode(true, true));
   }
 
-  static testing::internal::ParamGenerator<TestMode> LegacyValues() {
-    return ::testing::Values(TestMode(EXTENSION_FILES_APP_MODE, false, false),
-                             TestMode(EXTENSION_FILES_APP_MODE, false, true),
-                             TestMode(EXTENSION_FILES_APP_MODE, true, false),
-                             TestMode(EXTENSION_FILES_APP_MODE, true, true));
-  }
-
-  AppMode app_mode;
   bool file_type_filter;
   bool tablet_mode;
 };
@@ -203,15 +187,6 @@ class BaseSelectFileDialogExtensionBrowserTest
     extensions::ExtensionBrowserTest::SetUp();
   }
 
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    if (GetParam().app_mode == SYSTEM_FILES_APP_MODE) {
-      feature_list_.InitWithFeatures({chromeos::features::kFilesSWA}, {});
-    } else {
-      feature_list_.InitWithFeatures({}, {chromeos::features::kFilesSWA});
-    }
-    extensions::ExtensionBrowserTest::SetUpCommandLine(command_line);
-  }
-
   void SetUpOnMainThread() override {
     extensions::ExtensionBrowserTest::SetUpOnMainThread();
     CHECK(profile());
@@ -226,19 +201,6 @@ class BaseSelectFileDialogExtensionBrowserTest
     // The test resources are setup: enable and add default ChromeOS component
     // extensions now and not before: crbug.com/831074, crbug.com/804413.
     file_manager::test::AddDefaultComponentExtensionsOnMainThread(profile());
-
-    if (GetParam().app_mode == EXTENSION_FILES_APP_MODE) {
-      // Ensure the Files app background page has shut down. These tests should
-      // ensure launching without the background page functions correctly.
-      extensions::ProcessManager::SetEventPageIdleTimeForTesting(1);
-      extensions::ProcessManager::SetEventPageSuspendingTimeForTesting(1);
-      const auto* extension =
-          extensions::ExtensionRegistryFactory::GetForBrowserContext(profile())
-              ->GetExtensionById(extension_misc::kFilesManagerAppId,
-                                 extensions::ExtensionRegistry::ENABLED);
-      extensions::ExtensionBackgroundPageWaiter(profile(), *extension)
-          .WaitForBackgroundClosed();
-    }
   }
 
   void TearDown() override {
@@ -252,7 +214,7 @@ class BaseSelectFileDialogExtensionBrowserTest
   }
 
   void CheckJavascriptErrors() {
-    content::RenderFrameHost* host = dialog_->GetMainFrame();
+    content::RenderFrameHost* host = dialog_->GetPrimaryMainFrame();
     base::Value value =
         content::ExecuteScriptAndGetValue(host, "window.JSErrorCount");
     int js_error_count = value.GetInt();
@@ -260,7 +222,7 @@ class BaseSelectFileDialogExtensionBrowserTest
   }
 
   void ClickElement(const std::string& selector) {
-    content::RenderFrameHost* frame_host = dialog_->GetMainFrame();
+    content::RenderFrameHost* frame_host = dialog_->GetPrimaryMainFrame();
 
     auto* web_contents = content::WebContents::FromRenderFrameHost(frame_host);
     CHECK(web_contents);
@@ -291,19 +253,19 @@ class BaseSelectFileDialogExtensionBrowserTest
   void OpenDialog(ui::SelectFileDialog::Type dialog_type,
                   const base::FilePath& file_path,
                   const gfx::NativeWindow& owning_window,
-                  const std::string& additional_message) {
+                  const std::string& additional_message,
+                  const GURL* caller = nullptr) {
     if (GetParam().tablet_mode) {
       ash::ShellTestApi().SetTabletModeEnabledForTest(true);
     }
     // Open the file dialog: Files app will signal that it is loaded via the
     // "ready" chrome.test.sendMessage().
-    const bool will_reply = false;
-    ExtensionTestMessageListener init_listener("ready", will_reply);
+    ExtensionTestMessageListener init_listener("ready");
 
     std::unique_ptr<ExtensionTestMessageListener> additional_listener;
     if (!additional_message.empty()) {
-      additional_listener = std::make_unique<ExtensionTestMessageListener>(
-          additional_message, will_reply);
+      additional_listener =
+          std::make_unique<ExtensionTestMessageListener>(additional_message);
     }
 
     std::u16string title;
@@ -315,7 +277,8 @@ class BaseSelectFileDialogExtensionBrowserTest
         UseFileTypeFilter() ? &file_types : nullptr;
 
     dialog_->SelectFile(dialog_type, title, file_path, file_types_ptr, 0,
-                        FILE_PATH_LITERAL(""), owning_window, /*params=*/this);
+                        FILE_PATH_LITERAL(""), owning_window, /*params=*/this,
+                        caller);
     LOG(INFO) << "Waiting for JavaScript ready message.";
     ASSERT_TRUE(init_listener.WaitUntilSatisfied());
 
@@ -366,7 +329,7 @@ class BaseSelectFileDialogExtensionBrowserTest
   void CloseDialog(DialogButtonType button_type,
                    const gfx::NativeWindow& owning_window) {
     // Inject JavaScript into the dialog to click the dialog |button_type|.
-    content::RenderFrameHost* frame_host = dialog_->GetMainFrame();
+    content::RenderFrameHost* frame_host = dialog_->GetPrimaryMainFrame();
 
     ClickJsButton(frame_host, button_type);
 
@@ -424,7 +387,7 @@ IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionBrowserTest, DestroyListener2) {
                                      base::FilePath(), owning_window, ""));
 
   // Get the Files app WebContents/Framehost, before deleting the dialog_.
-  content::RenderFrameHost* frame_host = dialog_->GetMainFrame();
+  content::RenderFrameHost* frame_host = dialog_->GetPrimaryMainFrame();
 
   // Some users of SelectFileDialog destroy their listener before cleaning
   // up the dialog, delete the `dialog_`, however the
@@ -501,8 +464,9 @@ IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionBrowserTest,
   ASSERT_EQ(this, listener_->params());
 }
 
+// TODO(https://crbug.com/1395419): Re-enable this test
 IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionBrowserTest,
-                       SelectFileAndSave) {
+                       DISABLED_SelectFileAndSave) {
   gfx::NativeWindow owning_window = browser()->window()->GetNativeWindow();
   ASSERT_NE(nullptr, owning_window);
 
@@ -523,8 +487,9 @@ IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionBrowserTest,
   ASSERT_EQ(this, listener_->params());
 }
 
+// TODO(https://crbug.com/1395419): Re-enable this test
 IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionBrowserTest,
-                       SelectFileVirtualKeyboard) {
+                       DISABLED_SelectFileVirtualKeyboard) {
   gfx::NativeWindow owning_window = browser()->window()->GetNativeWindow();
   ASSERT_NE(nullptr, owning_window);
 
@@ -619,7 +584,7 @@ IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionBrowserTest, FileInputElement) {
   ASSERT_EQ(url, web_contents->GetLastCommittedURL());
 
   // Create a listener for the file dialog's "ready" message.
-  ExtensionTestMessageListener listener("ready", false);
+  ExtensionTestMessageListener listener("ready");
 
   // Click the file <input> element to open the file dialog.
   constexpr auto kButton = blink::WebMouseEvent::Button::kLeft;
@@ -651,9 +616,32 @@ IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionBrowserTest, MultipleOpenFile) {
   browser()->OpenFile();
 }
 
-INSTANTIATE_TEST_SUITE_P(Legacy,
-                         SelectFileDialogExtensionBrowserTest,
-                         TestMode::LegacyValues());
+IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionBrowserTest,
+                       DialogCallerSetWhenPassed) {
+  gfx::NativeWindow owning_window = browser()->window()->GetNativeWindow();
+  ASSERT_NE(nullptr, owning_window);
+
+  const std::string url = "https://example.com/";
+  const GURL caller = GURL(url);
+
+  // Open the file dialog on the default path.
+  ASSERT_NO_FATAL_FAILURE(OpenDialog(ui::SelectFileDialog::SELECT_OPEN_FILE,
+                                     base::FilePath(), owning_window, "",
+                                     &caller));
+
+  // Check that the caller field is set correctly.
+  ASSERT_TRUE(dialog_->owner_.dialog_caller.has_value());
+  ASSERT_EQ(dialog_->owner_.dialog_caller->url_or_path.value(), url);
+
+  // Click the "Cancel" button.
+  CloseDialog(DIALOG_BTN_CANCEL, owning_window);
+
+  // Listener should have been informed of the cancellation.
+  ASSERT_FALSE(listener_->file_selected());
+  ASSERT_TRUE(listener_->canceled());
+  ASSERT_EQ(this, listener_->params());
+}
+
 INSTANTIATE_TEST_SUITE_P(SystemWebApp,
                          SelectFileDialogExtensionBrowserTest,
                          TestMode::SystemWebAppValues());
@@ -667,29 +655,50 @@ class SelectFileDialogExtensionFlagTest
   }
 };
 
-IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionFlagTest, DialogColoredTitle) {
+IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionFlagTest,
+                       DialogColoredTitle_Light) {
+  ash::DarkLightModeController::Get()->SetDarkModeEnabledForTest(false);
   gfx::NativeWindow owning_window = browser()->window()->GetNativeWindow();
   ASSERT_NE(nullptr, owning_window);
 
   // Open the file dialog on the default path.
   ASSERT_NO_FATAL_FAILURE(OpenDialog(ui::SelectFileDialog::SELECT_OPEN_FILE,
                                      base::FilePath(), owning_window, ""));
-  content::RenderFrameHost* frame_host = dialog_->GetMainFrame();
+  content::RenderFrameHost* frame_host = dialog_->GetPrimaryMainFrame();
   aura::Window* dialog_window =
       frame_host->GetNativeView()->GetToplevelWindow();
-  auto* color_provider = ash::ColorProvider::Get();
-  ash::ScopedLightModeAsDefault scoped_light_mode_as_default;
+  // This is cros_tokens::kDialogTitleBarColorLight
+  SkColor dialog_title_bar_color = SkColorSetRGB(0xDF, 0xE0, 0xE1);
   EXPECT_EQ(dialog_window->GetProperty(chromeos::kFrameActiveColorKey),
-            color_provider->GetActiveDialogTitleBarColor());
+            dialog_title_bar_color);
   EXPECT_EQ(dialog_window->GetProperty(chromeos::kFrameInactiveColorKey),
-            color_provider->GetInactiveDialogTitleBarColor());
+            dialog_title_bar_color);
 
   CloseDialog(DIALOG_BTN_CANCEL, owning_window);
 }
 
-INSTANTIATE_TEST_SUITE_P(Legacy,
-                         SelectFileDialogExtensionFlagTest,
-                         TestMode::LegacyValues());
+IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionFlagTest,
+                       DialogColoredTitle_Dark) {
+  ash::DarkLightModeController::Get()->SetDarkModeEnabledForTest(true);
+  gfx::NativeWindow owning_window = browser()->window()->GetNativeWindow();
+  ASSERT_NE(nullptr, owning_window);
+
+  // Open the file dialog on the default path.
+  ASSERT_NO_FATAL_FAILURE(OpenDialog(ui::SelectFileDialog::SELECT_OPEN_FILE,
+                                     base::FilePath(), owning_window, ""));
+  content::RenderFrameHost* frame_host = dialog_->GetPrimaryMainFrame();
+  aura::Window* dialog_window =
+      frame_host->GetNativeView()->GetToplevelWindow();
+  // This is cros_tokens::kDialogTitleBarColorDark
+  SkColor dialog_title_bar_color = SkColorSetRGB(0x4D, 0x4D, 0x50);
+  EXPECT_EQ(dialog_window->GetProperty(chromeos::kFrameActiveColorKey),
+            dialog_title_bar_color);
+  EXPECT_EQ(dialog_window->GetProperty(chromeos::kFrameInactiveColorKey),
+            dialog_title_bar_color);
+
+  CloseDialog(DIALOG_BTN_CANCEL, owning_window);
+}
+
 INSTANTIATE_TEST_SUITE_P(SystemWebApp,
                          SelectFileDialogExtensionFlagTest,
                          TestMode::SystemWebAppValues());
@@ -697,14 +706,7 @@ INSTANTIATE_TEST_SUITE_P(SystemWebApp,
 class SelectFileDialogExtensionDarkLightModeEnabledTest
     : public BaseSelectFileDialogExtensionBrowserTest {
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    if (GetParam().app_mode == SYSTEM_FILES_APP_MODE) {
-      feature_list_.InitWithFeatures(
-          {chromeos::features::kFilesSWA, chromeos::features::kDarkLightMode},
-          {});
-    } else {
-      feature_list_.InitWithFeatures({chromeos::features::kDarkLightMode},
-                                     {chromeos::features::kFilesSWA});
-    }
+    feature_list_.InitWithFeatures({chromeos::features::kDarkLightMode}, {});
     extensions::ExtensionBrowserTest::SetUpCommandLine(command_line);
   }
 };
@@ -717,33 +719,257 @@ IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionDarkLightModeEnabledTest,
   // Open the file dialog on the default path.
   ASSERT_NO_FATAL_FAILURE(OpenDialog(ui::SelectFileDialog::SELECT_OPEN_FILE,
                                      base::FilePath(), owning_window, ""));
-  content::RenderFrameHost* frame_host = dialog_->GetMainFrame();
+  content::RenderFrameHost* frame_host = dialog_->GetPrimaryMainFrame();
   aura::Window* dialog_window =
       frame_host->GetNativeView()->GetToplevelWindow();
 
-  auto* color_provider = ash::ColorProvider::Get();
-  EXPECT_FALSE(color_provider->IsDarkModeEnabled());
-  SkColor light_active_color =
+  auto* dark_light_mode_controller = ash::DarkLightModeController::Get();
+  bool dark_mode_enabled = dark_light_mode_controller->IsDarkModeEnabled();
+  SkColor initial_active_color =
       dialog_window->GetProperty(chromeos::kFrameActiveColorKey);
-  SkColor light_inactive_color =
+  SkColor initial_inactive_color =
       dialog_window->GetProperty(chromeos::kFrameInactiveColorKey);
-  // Switch on dark mode.
   Profile* profile = chrome_test_utils::GetProfile(this);
   PrefService* prefs = profile->GetPrefs();
-  prefs->SetBoolean(ash::prefs::kDarkModeEnabled, true);
-  EXPECT_TRUE(color_provider->IsDarkModeEnabled());
-  // Check active/invactive color in Dark mode should be different.
+
+  // Switch the color mode.
+  prefs->SetBoolean(ash::prefs::kDarkModeEnabled, !dark_mode_enabled);
+  EXPECT_EQ(!dark_mode_enabled,
+            dark_light_mode_controller->IsDarkModeEnabled());
+
+  // Active and inactive colors in the other mode should be different from the
+  // initial mode.
   EXPECT_NE(dialog_window->GetProperty(chromeos::kFrameActiveColorKey),
-            light_active_color);
+            initial_active_color);
   EXPECT_NE(dialog_window->GetProperty(chromeos::kFrameInactiveColorKey),
-            light_inactive_color);
+            initial_inactive_color);
 
   CloseDialog(DIALOG_BTN_CANCEL, owning_window);
 }
 
-INSTANTIATE_TEST_SUITE_P(Legacy,
-                         SelectFileDialogExtensionDarkLightModeEnabledTest,
-                         TestMode::LegacyValues());
 INSTANTIATE_TEST_SUITE_P(SystemWebApp,
                          SelectFileDialogExtensionDarkLightModeEnabledTest,
+                         TestMode::SystemWebAppValues());
+
+// Tests applying policies before notifying listeners.
+class SelectFileDialogExtensionPolicyTest
+    : public BaseSelectFileDialogExtensionBrowserTest {
+ protected:
+  class MockFilesController : public policy::DlpFilesController {
+   public:
+    explicit MockFilesController(const policy::DlpRulesManager& rules_manager)
+        : DlpFilesController(rules_manager) {}
+    ~MockFilesController() override = default;
+
+    MOCK_METHOD(void,
+                CheckIfDownloadAllowed,
+                (const DlpFileDestination&,
+                 const base::FilePath&,
+                 base::OnceCallback<void(bool)>),
+                (override));
+    MOCK_METHOD(void,
+                FilterDisallowedUploads,
+                (std::vector<ui::SelectedFileInfo>,
+                 const DlpFileDestination&,
+                 base::OnceCallback<void(std::vector<ui::SelectedFileInfo>)>),
+                (override));
+  };
+
+  std::unique_ptr<KeyedService> SetDlpRulesManager(
+      content::BrowserContext* context) {
+    auto dlp_rules_manager =
+        std::make_unique<testing::NiceMock<policy::MockDlpRulesManager>>();
+    rules_manager_ = dlp_rules_manager.get();
+    return dlp_rules_manager;
+  }
+
+  void SetupRulesManager() {
+    policy::DlpRulesManagerFactory::GetInstance()->SetTestingFactory(
+        profile(), base::BindRepeating(
+                       &SelectFileDialogExtensionPolicyTest::SetDlpRulesManager,
+                       base::Unretained(this)));
+    ASSERT_TRUE(policy::DlpRulesManagerFactory::GetForPrimaryProfile());
+
+    ON_CALL(*rules_manager_, IsFilesPolicyEnabled)
+        .WillByDefault(testing::Return(true));
+    mock_files_controller_ =
+        std::make_unique<MockFilesController>(*rules_manager_);
+    ON_CALL(*rules_manager_, GetDlpFilesController)
+        .WillByDefault(testing::Return(mock_files_controller_.get()));
+  }
+
+  policy::MockDlpRulesManager* rules_manager_ = nullptr;
+  std::unique_ptr<MockFilesController> mock_files_controller_ = nullptr;
+  storage::ExternalMountPoints* mount_points_ = nullptr;
+};
+
+// TODO(crbug.com/1395135): Re-enable this test
+IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionPolicyTest,
+                       DISABLED_DlpDownloadAllow) {
+  SetupRulesManager();
+
+  gfx::NativeWindow owning_window = browser()->window()->GetNativeWindow();
+  ASSERT_NE(nullptr, owning_window);
+
+  const std::string url = "https://example.com/";
+  const GURL caller = GURL(url);
+
+  // Open the file dialog to save a file, providing a suggested file path.
+  // Ensure the "Save" button is enabled by waiting for notification from
+  // chrome.test.sendMessage().
+  const base::FilePath test_file =
+      downloads_dir_.AppendASCII("file_manager_save.html");
+  ASSERT_NO_FATAL_FAILURE(OpenDialog(ui::SelectFileDialog::SELECT_SAVEAS_FILE,
+                                     test_file, owning_window, "dialog-ready",
+                                     &caller));
+
+  EXPECT_CALL(*mock_files_controller_.get(),
+              CheckIfDownloadAllowed(
+                  policy::DlpFilesController::DlpFileDestination(url),
+                  test_file, base::test::IsNotNullCallback()))
+      .WillOnce(base::test::RunOnceCallback<2>(true));
+
+  // Click the "Save" button.
+  CloseDialog(DIALOG_BTN_OK, owning_window);
+
+  // Listener should have been informed of the selection.
+  ASSERT_TRUE(listener_->file_selected());
+  ASSERT_FALSE(listener_->canceled());
+  ASSERT_EQ(this, listener_->params());
+}
+
+IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionPolicyTest, DlpDownloadBlock) {
+  SetupRulesManager();
+
+  gfx::NativeWindow owning_window = browser()->window()->GetNativeWindow();
+  ASSERT_NE(nullptr, owning_window);
+
+  const std::string url = "https://example.com/";
+  const GURL caller = GURL(url);
+
+  // Open the file dialog to save a file, providing a suggested file path.
+  // Ensure the "Save" button is enabled by waiting for notification from
+  // chrome.test.sendMessage().
+  const base::FilePath test_file =
+      downloads_dir_.AppendASCII("file_manager_save.html");
+  ASSERT_NO_FATAL_FAILURE(OpenDialog(ui::SelectFileDialog::SELECT_SAVEAS_FILE,
+                                     test_file, owning_window, "dialog-ready",
+                                     &caller));
+
+  EXPECT_CALL(*mock_files_controller_.get(),
+              CheckIfDownloadAllowed(
+                  policy::DlpFilesController::DlpFileDestination(url),
+                  test_file, base::test::IsNotNullCallback()))
+      .WillOnce(base::test::RunOnceCallback<2>(false));
+
+  // Click the "Save" button.
+  CloseDialog(DIALOG_BTN_OK, owning_window);
+
+  // Listener should have been informed of the cancellation.
+  ASSERT_FALSE(listener_->file_selected());
+  ASSERT_TRUE(listener_->canceled());
+  ASSERT_EQ(this, listener_->params());
+}
+
+IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionPolicyTest, DlpUploadAllow) {
+  SetupRulesManager();
+
+  gfx::NativeWindow owning_window = browser()->window()->GetNativeWindow();
+  ASSERT_NE(nullptr, owning_window);
+
+  // Create an empty file to provide the file to open.
+  const base::FilePath test_file =
+      downloads_dir_.AppendASCII("file_manager_test.html");
+  {
+    base::ScopedAllowBlockingForTesting allow_io;
+    FILE* fp = base::OpenFile(test_file, "w");
+    ASSERT_TRUE(fp != nullptr);
+    ASSERT_TRUE(base::CloseFile(fp));
+  }
+  base::FilePath test_file_virtual_path;
+  ASSERT_TRUE(storage::ExternalMountPoints::GetSystemInstance()->GetVirtualPath(
+      test_file, &test_file_virtual_path));
+
+  const std::string url = "https://example.com/";
+  const GURL caller = GURL(url);
+
+  // Open the file dialog, providing a path to the file to open so the dialog
+  // will automatically select it.  Ensure the "Open" button is enabled by
+  // waiting for notification from chrome.test.sendMessage().
+  ASSERT_NO_FATAL_FAILURE(OpenDialog(ui::SelectFileDialog::SELECT_OPEN_FILE,
+                                     test_file, owning_window, "dialog-ready",
+                                     &caller));
+
+  std::vector<ui::SelectedFileInfo> selected_files;
+  auto selected_file = ui::SelectedFileInfo(test_file, test_file);
+  selected_file.virtual_path = test_file_virtual_path;
+  selected_files.push_back(std::move(selected_file));
+  EXPECT_CALL(
+      *mock_files_controller_.get(),
+      FilterDisallowedUploads(
+          selected_files, policy::DlpFilesController::DlpFileDestination(url),
+          base::test::IsNotNullCallback()))
+      .WillOnce(base::test::RunOnceCallback<2>(selected_files));
+
+  // Click the "Save" button.
+  CloseDialog(DIALOG_BTN_OK, owning_window);
+
+  // Listener should have been informed of the selection.
+  ASSERT_TRUE(listener_->file_selected());
+  ASSERT_FALSE(listener_->canceled());
+  ASSERT_EQ(this, listener_->params());
+}
+
+IN_PROC_BROWSER_TEST_P(SelectFileDialogExtensionPolicyTest, DlpUploadBlock) {
+  SetupRulesManager();
+
+  gfx::NativeWindow owning_window = browser()->window()->GetNativeWindow();
+  ASSERT_NE(nullptr, owning_window);
+
+  // Create an empty file to provide the file to open.
+  const base::FilePath test_file =
+      downloads_dir_.AppendASCII("file_manager_test.html");
+  {
+    base::ScopedAllowBlockingForTesting allow_io;
+    FILE* fp = base::OpenFile(test_file, "w");
+    ASSERT_TRUE(fp != nullptr);
+    ASSERT_TRUE(base::CloseFile(fp));
+  }
+  base::FilePath test_file_virtual_path;
+  ASSERT_TRUE(storage::ExternalMountPoints::GetSystemInstance()->GetVirtualPath(
+      test_file, &test_file_virtual_path));
+
+  const std::string url = "https://example.com/";
+  const GURL caller = GURL(url);
+
+  // Open the file dialog, providing a path to the file to open so the dialog
+  // will automatically select it.  Ensure the "Open" button is enabled by
+  // waiting for notification from chrome.test.sendMessage().
+  ASSERT_NO_FATAL_FAILURE(OpenDialog(ui::SelectFileDialog::SELECT_OPEN_FILE,
+                                     test_file, owning_window, "dialog-ready",
+                                     &caller));
+
+  std::vector<ui::SelectedFileInfo> selected_files;
+  auto selected_file = ui::SelectedFileInfo(test_file, test_file);
+  selected_file.virtual_path = test_file_virtual_path;
+  selected_files.push_back(std::move(selected_file));
+  EXPECT_CALL(*mock_files_controller_.get(),
+              FilterDisallowedUploads(
+                  std::move(selected_files),
+                  policy::DlpFilesController::DlpFileDestination(url),
+                  base::test::IsNotNullCallback()))
+      .WillOnce(
+          base::test::RunOnceCallback<2>(std::vector<ui::SelectedFileInfo>()));
+
+  // Click the "Save" button.
+  CloseDialog(DIALOG_BTN_OK, owning_window);
+
+  // Listener should have been informed of the cancellation.
+  ASSERT_FALSE(listener_->file_selected());
+  ASSERT_TRUE(listener_->canceled());
+  ASSERT_EQ(this, listener_->params());
+}
+
+INSTANTIATE_TEST_SUITE_P(SystemWebApp,
+                         SelectFileDialogExtensionPolicyTest,
                          TestMode::SystemWebAppValues());

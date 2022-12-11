@@ -1,9 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_OVERLAYS_PUBLIC_INFOBAR_MODAL_TRANSLATE_INFOBAR_MODAL_OVERLAY_REQUEST_CONFIG_H_
 #define IOS_CHROME_BROWSER_OVERLAYS_PUBLIC_INFOBAR_MODAL_TRANSLATE_INFOBAR_MODAL_OVERLAY_REQUEST_CONFIG_H_
+
+#include <string>
+#include <vector>
 
 #include "ios/chrome/browser/overlays/public/overlay_request_config.h"
 
@@ -24,6 +27,11 @@ class TranslateModalRequestConfig
   translate::TranslateStep current_step() const { return current_step_; }
   // The source language name.
   std::u16string source_language_name() const { return source_language_name_; }
+  // A special language name the is used when the source language could not be
+  // detected.
+  std::u16string unknown_language_name() const {
+    return unknown_language_name_;
+  }
   // The target language name.
   std::u16string target_language_name() const { return target_language_name_; }
   // A list of names of all possible languages.
@@ -51,9 +59,10 @@ class TranslateModalRequestConfig
 
   // The InfoBar causing this modal.
   InfoBarIOS* infobar_ = nullptr;
-  // Configuration data extracted from |infobar_|'s translate delegate.
+  // Configuration data extracted from `infobar_`'s translate delegate.
   translate::TranslateStep current_step_;
   std::u16string source_language_name_;
+  std::u16string unknown_language_name_;
   std::u16string target_language_name_;
   std::vector<std::u16string> language_names_;
   bool is_always_translate_enabled_ = false;

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,6 @@
 #include "components/consent_auditor/consent_auditor.h"
 #include "components/signin/public/base/avatar_icon_util.h"
 #include "components/signin/public/base/consent_level.h"
-#include "components/signin/public/base/signin_switches.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -36,7 +35,15 @@ using signin::ConsentLevel;
 
 namespace {
 const int kProfileImageSize = 128;
+const char kSyncBenefitTitleKey[] = "title";
+const char kSyncBenefitIconNameKey[] = "iconName";
 }  // namespace
+
+const char kSyncBenefitBookmarksStringName[] = "syncConfirmationBookmarks";
+const char kSyncBenefitAutofillStringName[] = "syncConfirmationAutofill";
+const char kSyncBenefitExtensionsStringName[] = "syncConfirmationExtensions";
+const char kSyncBenefitHistoryAndMoreStringName[] =
+    "syncConfirmationHistoryAndMore";
 
 SyncConfirmationHandler::SyncConfirmationHandler(
     Profile* profile,
@@ -67,49 +74,51 @@ void SyncConfirmationHandler::OnBrowserRemoved(Browser* browser) {
 }
 
 void SyncConfirmationHandler::RegisterMessages() {
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "confirm", base::BindRepeating(&SyncConfirmationHandler::HandleConfirm,
                                      base::Unretained(this)));
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "undo", base::BindRepeating(&SyncConfirmationHandler::HandleUndo,
                                   base::Unretained(this)));
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "goToSettings",
       base::BindRepeating(&SyncConfirmationHandler::HandleGoToSettings,
                           base::Unretained(this)));
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "initializedWithSize",
       base::BindRepeating(&SyncConfirmationHandler::HandleInitializedWithSize,
                           base::Unretained(this)));
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "accountInfoRequest",
       base::BindRepeating(&SyncConfirmationHandler::HandleAccountInfoRequest,
                           base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "getSyncBenefitsList",
+      base::BindRepeating(&SyncConfirmationHandler::HandleGetSyncBenefitsList,
+                          base::Unretained(this)));
 }
 
-void SyncConfirmationHandler::HandleConfirm(const base::ListValue* args) {
+void SyncConfirmationHandler::HandleConfirm(const base::Value::List& args) {
   did_user_explicitly_interact_ = true;
   RecordConsent(args);
   CloseModalSigninWindow(LoginUIService::SYNC_WITH_DEFAULT_SETTINGS);
 }
 
-void SyncConfirmationHandler::HandleGoToSettings(const base::ListValue* args) {
+void SyncConfirmationHandler::HandleGoToSettings(
+    const base::Value::List& args) {
   DCHECK(SyncServiceFactory::IsSyncAllowed(profile_));
   did_user_explicitly_interact_ = true;
   RecordConsent(args);
   CloseModalSigninWindow(LoginUIService::CONFIGURE_SYNC_FIRST);
 }
 
-void SyncConfirmationHandler::HandleUndo(const base::ListValue* args) {
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  DCHECK(base::FeatureList::IsEnabled(switches::kLacrosNonSyncingProfiles));
-#endif
+void SyncConfirmationHandler::HandleUndo(const base::Value::List& args) {
   did_user_explicitly_interact_ = true;
   CloseModalSigninWindow(LoginUIService::ABORT_SYNC);
 }
 
 void SyncConfirmationHandler::HandleAccountInfoRequest(
-    const base::ListValue* args) {
+    const base::Value::List& args) {
   DCHECK(SyncServiceFactory::IsSyncAllowed(profile_));
   AccountInfo primary_account_info = identity_manager_->FindExtendedAccountInfo(
       identity_manager_->GetPrimaryAccountInfo(ConsentLevel::kSignin));
@@ -122,10 +131,46 @@ void SyncConfirmationHandler::HandleAccountInfoRequest(
     SetAccountInfo(primary_account_info);
 }
 
-void SyncConfirmationHandler::RecordConsent(const base::ListValue* args) {
-  CHECK_EQ(2U, args->GetList().size());
-  base::Value::ConstListView consent_description = args->GetList()[0].GetList();
-  const std::string& consent_confirmation = args->GetList()[1].GetString();
+// TODO(crbug.com/1392115): Add a new method to `WebUIDataSource` that supports
+// passing an arbitrary `Value` to JS instead of using a callback.
+void SyncConfirmationHandler::HandleGetSyncBenefitsList(
+    const base::Value::List& args) {
+  AllowJavascript();
+  CHECK_EQ(1U, args.size());
+  const base::Value& callback_id = args[0];
+
+  base::Value::List sync_benefits_list;
+
+  // TODO(crbug.com/1383163): Select available types from SyncTypesListDisabled.
+
+  base::Value::Dict bookmarks;
+  bookmarks.Set(kSyncBenefitTitleKey, kSyncBenefitBookmarksStringName);
+  bookmarks.Set(kSyncBenefitIconNameKey, "signin:star-outline");
+  sync_benefits_list.Append(std::move(bookmarks));
+
+  base::Value::Dict autofill;
+  autofill.Set(kSyncBenefitTitleKey, kSyncBenefitAutofillStringName);
+  autofill.Set(kSyncBenefitIconNameKey, "signin:assignment-outline");
+  sync_benefits_list.Append(std::move(autofill));
+
+  base::Value::Dict extensions;
+  extensions.Set(kSyncBenefitTitleKey, kSyncBenefitExtensionsStringName);
+  extensions.Set(kSyncBenefitIconNameKey, "signin:extension-outline");
+  sync_benefits_list.Append(std::move(extensions));
+
+  base::Value::Dict history_and_more;
+  history_and_more.Set(kSyncBenefitTitleKey,
+                       kSyncBenefitHistoryAndMoreStringName);
+  history_and_more.Set(kSyncBenefitIconNameKey, "signin:devices");
+  sync_benefits_list.Append(std::move(history_and_more));
+
+  ResolveJavascriptCallback(callback_id, sync_benefits_list);
+}
+
+void SyncConfirmationHandler::RecordConsent(const base::Value::List& args) {
+  CHECK_EQ(2U, args.size());
+  const base::Value::List& consent_description = args[0].GetList();
+  const std::string& consent_confirmation = args[1].GetString();
 
   // The strings returned by the WebUI are not free-form, they must belong into
   // a pre-determined set of strings (stored in |string_to_grd_id_map_|). As
@@ -171,9 +216,9 @@ void SyncConfirmationHandler::SetAccountInfo(const AccountInfo& info) {
   GURL picture_gurl_with_options = signin::GetAvatarImageURLWithOptions(
       picture_gurl, kProfileImageSize, false /* no_silhouette */);
 
-  base::Value value(base::Value::Type::DICTIONARY);
-  value.SetKey("src", base::Value(picture_gurl_with_options.spec()));
-  value.SetKey("showEnterpriseBadge", base::Value(info.IsManaged()));
+  base::Value::Dict value;
+  value.Set("src", picture_gurl_with_options.spec());
+  value.Set("showEnterpriseBadge", info.IsManaged());
 
   AllowJavascript();
   FireWebUIListener("account-info-changed", value);
@@ -216,7 +261,7 @@ void SyncConfirmationHandler::CloseModalSigninWindow(
 }
 
 void SyncConfirmationHandler::HandleInitializedWithSize(
-    const base::ListValue* args) {
+    const base::Value::List& args) {
   AllowJavascript();
 
   AccountInfo primary_account_info = identity_manager_->FindExtendedAccountInfo(

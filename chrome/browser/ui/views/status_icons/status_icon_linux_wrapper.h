@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,19 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "chrome/browser/status_icons/desktop_notification_balloon.h"
 #include "chrome/browser/status_icons/status_icon.h"
 #include "ui/gfx/image/image_skia.h"
-#include "ui/views/linux_ui/status_icon_linux.h"
+#include "ui/linux/status_icon_linux.h"
 
 class StatusIconLinuxDbus;
 
 // Wrapper class for StatusIconLinux that implements the standard StatusIcon
 // interface. Also handles callbacks from StatusIconLinux.
 class StatusIconLinuxWrapper : public StatusIcon,
-                               public views::StatusIconLinux::Delegate,
+                               public ui::StatusIconLinux::Delegate,
                                public StatusIconMenuModel::Observer {
  public:
   StatusIconLinuxWrapper(const StatusIconLinuxWrapper&) = delete;
@@ -58,14 +59,16 @@ class StatusIconLinuxWrapper : public StatusIcon,
 
  private:
   enum StatusIconType {
+#if defined(USE_DBUS)
     kTypeDbus,
+#endif
     kTypeWindowed,
     kTypeNone,
   };
 
   // A status icon wrapper should only be created by calling
   // CreateWrappedStatusIcon().
-  StatusIconLinuxWrapper(views::StatusIconLinux* status_icon,
+  StatusIconLinuxWrapper(ui::StatusIconLinux* status_icon,
                          StatusIconType status_icon_type,
                          const gfx::ImageSkia& image,
                          const std::u16string& tool_tip);
@@ -74,27 +77,27 @@ class StatusIconLinuxWrapper : public StatusIcon,
                          const gfx::ImageSkia& image,
                          const std::u16string& tool_tip);
 #endif
-  StatusIconLinuxWrapper(std::unique_ptr<views::StatusIconLinux> status_icon,
+  StatusIconLinuxWrapper(std::unique_ptr<ui::StatusIconLinux> status_icon,
                          StatusIconType status_icon_type,
                          const gfx::ImageSkia& image,
                          const std::u16string& tool_tip);
+
+  ui::StatusIconLinux* GetStatusIcon();
 
   // Notification balloon.
   DesktopNotificationBalloon notification_;
 
   // The status icon may be ref-counted (via |status_icon_dbus_|) or owned by
-  // |this| (via |status_icon_linux_|).  Either way, |status_icon_| points to
-  // the underlying object.
+  // |this| (via |status_icon_linux_|).
 #if defined(USE_DBUS)
   scoped_refptr<StatusIconLinuxDbus> status_icon_dbus_;
 #endif
-  std::unique_ptr<views::StatusIconLinux> status_icon_linux_;
-  views::StatusIconLinux* status_icon_;
+  std::unique_ptr<ui::StatusIconLinux> status_icon_linux_;
   StatusIconType status_icon_type_;
 
   gfx::ImageSkia image_;
   std::u16string tool_tip_;
-  StatusIconMenuModel* menu_model_ = nullptr;
+  raw_ptr<StatusIconMenuModel> menu_model_ = nullptr;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_STATUS_ICONS_STATUS_ICON_LINUX_WRAPPER_H_

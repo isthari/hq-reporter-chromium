@@ -1,8 +1,7 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <algorithm>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -20,7 +19,7 @@
 #include "net/cookies/cookie_constants.h"
 #include "net/cookies/cookie_options.h"
 #include "net/cookies/cookie_util.h"
-#include "net/cookies/same_party_context.h"
+#include "net/first_party_sets/same_party_context.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -33,6 +32,9 @@ namespace {
 struct RequestCookieParsingTest {
   std::string str;
   base::StringPairs parsed;
+  // Used for malformed cookies where the parsed-then-serialized string does not
+  // match the original string.
+  std::string serialized;
 };
 
 void CheckParse(const std::string& str,
@@ -209,26 +211,26 @@ TEST(CookieUtilTest, TestRequestCookieParsing) {
   std::vector<RequestCookieParsingTest> tests;
 
   // Simple case.
-  tests.push_back(RequestCookieParsingTest());
+  tests.emplace_back();
   tests.back().str = "key=value";
   tests.back().parsed.push_back(std::make_pair(std::string("key"),
                                                std::string("value")));
   // Multiple key/value pairs.
-  tests.push_back(RequestCookieParsingTest());
+  tests.emplace_back();
   tests.back().str = "key1=value1; key2=value2";
   tests.back().parsed.push_back(std::make_pair(std::string("key1"),
                                                std::string("value1")));
   tests.back().parsed.push_back(std::make_pair(std::string("key2"),
                                                std::string("value2")));
   // Empty value.
-  tests.push_back(RequestCookieParsingTest());
+  tests.emplace_back();
   tests.back().str = "key=; otherkey=1234";
   tests.back().parsed.push_back(std::make_pair(std::string("key"),
                                                std::string()));
   tests.back().parsed.push_back(std::make_pair(std::string("otherkey"),
                                                std::string("1234")));
   // Special characters (including equals signs) in value.
-  tests.push_back(RequestCookieParsingTest());
+  tests.emplace_back();
   tests.back().str = "key=; a2=s=(./&t=:&u=a#$; a3=+~";
   tests.back().parsed.push_back(std::make_pair(std::string("key"),
                                                std::string()));
@@ -237,7 +239,7 @@ TEST(CookieUtilTest, TestRequestCookieParsing) {
   tests.back().parsed.push_back(std::make_pair(std::string("a3"),
                                                std::string("+~")));
   // Quoted value.
-  tests.push_back(RequestCookieParsingTest());
+  tests.emplace_back();
   tests.back().str = "key=\"abcdef\"; otherkey=1234";
   tests.back().parsed.push_back(std::make_pair(std::string("key"),
                                                std::string("\"abcdef\"")));
@@ -248,6 +250,47 @@ TEST(CookieUtilTest, TestRequestCookieParsing) {
     SCOPED_TRACE(testing::Message() << "Test " << i);
     CheckParse(tests[i].str, tests[i].parsed);
     CheckSerialize(tests[i].parsed, tests[i].str);
+  }
+}
+
+TEST(CookieUtilTest, TestRequestCookieParsing_Malformed) {
+  std::vector<RequestCookieParsingTest> tests;
+
+  // Missing equal sign.
+  tests.emplace_back();
+  tests.back().str = "key";
+  tests.back().parsed.emplace_back(
+      std::make_pair(std::string("key"), std::string()));
+  tests.back().serialized = "key=";
+
+  // Quoted value with unclosed quote.
+  tests.emplace_back();
+  tests.back().str = "key=\"abcdef";
+
+  // Quoted value with unclosed quote followed by regular value.
+  tests.emplace_back();
+  tests.back().str = "key=\"abcdef; otherkey=1234";
+
+  // Quoted value with unclosed quote followed by another quoted value.
+  tests.emplace_back();
+  tests.back().str = "key=\"abcdef; otherkey=\"1234\"";
+  tests.back().parsed.emplace_back(
+      std::make_pair(std::string("key"), std::string("\"abcdef; otherkey=\"")));
+  tests.back().parsed.emplace_back(
+      std::make_pair(std::string("234\""), std::string()));
+  tests.back().serialized = "key=\"abcdef; otherkey=\"; 234\"=";
+
+  // Regular value followed by quoted value with unclosed quote.
+  tests.emplace_back();
+  tests.back().str = "key=abcdef; otherkey=\"1234";
+  tests.back().parsed.emplace_back(
+      std::make_pair(std::string("key"), std::string("abcdef")));
+  tests.back().serialized = "key=abcdef";
+
+  for (size_t i = 0; i < tests.size(); i++) {
+    SCOPED_TRACE(testing::Message() << "Test " << i);
+    CheckParse(tests[i].str, tests[i].parsed);
+    CheckSerialize(tests[i].parsed, tests[i].serialized);
   }
 }
 
@@ -360,6 +403,10 @@ TEST(CookieUtilTest, TestIsDomainMatch) {
 using ::testing::AllOf;
 using SameSiteCookieContext = CookieOptions::SameSiteCookieContext;
 using ContextType = CookieOptions::SameSiteCookieContext::ContextType;
+using ContextRedirectTypeBug1221316 = CookieOptions::SameSiteCookieContext::
+    ContextMetadata::ContextRedirectTypeBug1221316;
+using HttpMethod =
+    CookieOptions::SameSiteCookieContext::ContextMetadata::HttpMethod;
 
 MATCHER_P2(ContextTypeIsWithSchemefulMode, context_type, schemeful, "") {
   return context_type == (schemeful ? arg.schemeful_context() : arg.context());
@@ -367,15 +414,28 @@ MATCHER_P2(ContextTypeIsWithSchemefulMode, context_type, schemeful, "") {
 
 // Checks for the expected metadata related to context downgrades from
 // cross-site redirects.
-MATCHER_P3(CrossSiteRedirectMetadataCorrectWithSchemefulMode,
+MATCHER_P5(CrossSiteRedirectMetadataCorrectWithSchemefulMode,
+           method,
            context_type_without_chain,
            context_type_with_chain,
+           redirect_type_with_chain,
            schemeful,
            "") {
   using ContextDowngradeType = CookieOptions::SameSiteCookieContext::
       ContextMetadata::ContextDowngradeType;
 
   const auto& metadata = schemeful ? arg.schemeful_metadata() : arg.metadata();
+
+  if (metadata.redirect_type_bug_1221316 != redirect_type_with_chain)
+    return false;
+
+  // http_method_bug_1221316 is only set when there is a context downgrade.
+  if (metadata.cross_site_redirect_downgrade !=
+          ContextDowngradeType::kNoDowngrade &&
+      metadata.http_method_bug_1221316 != method) {
+    return false;
+  }
+
   switch (metadata.cross_site_redirect_downgrade) {
     case ContextDowngradeType::kNoDowngrade:
       return context_type_without_chain == context_type_with_chain;
@@ -434,10 +494,13 @@ class CookieUtilComputeSameSiteContextTest
   }
 
   auto CrossSiteRedirectMetadataCorrect(
+      HttpMethod method,
       ContextType context_type_without_chain,
-      ContextType context_type_with_chain) const {
+      ContextType context_type_with_chain,
+      ContextRedirectTypeBug1221316 redirect_type_with_chain) const {
     return CrossSiteRedirectMetadataCorrectWithSchemefulMode(
-        context_type_without_chain, context_type_with_chain, IsSchemeful());
+        method, context_type_without_chain, context_type_with_chain,
+        redirect_type_with_chain, IsSchemeful());
   }
 
   // The following methods return the sets of URLs/SiteForCookies/initiators/URL
@@ -496,11 +559,8 @@ class CookieUtilComputeSameSiteContextTest
     std::vector<SiteForCookies> cross_site_sfc;
     std::vector<SiteForCookies> same_site_sfc = GetSameSiteSitesForCookies();
     for (const SiteForCookies& sfc : GetAllSitesForCookies()) {
-      if (std::none_of(same_site_sfc.begin(), same_site_sfc.end(),
-                       [&sfc](const SiteForCookies& s) {
-                         return sfc.RepresentativeUrl() ==
-                                s.RepresentativeUrl();
-                       })) {
+      if (!base::Contains(same_site_sfc, sfc.RepresentativeUrl(),
+                          &SiteForCookies::RepresentativeUrl)) {
         cross_site_sfc.push_back(sfc);
       }
     }
@@ -985,63 +1045,83 @@ TEST_P(CookieUtilComputeSameSiteContextTest, ForRequest_Redirect) {
     // These are the expected context types not considering redirect chains:
     ContextType expected_context_type_without_chain;
     ContextType expected_context_type_for_main_frame_navigation_without_chain;
+    // The expected redirect type (only applicable for chains):
+    ContextRedirectTypeBug1221316 expected_redirect_type_with_chain;
   } kTestCases[] = {
       // If the url chain is same-site, then the result is the same with or
       // without considering the redirect chain.
       {"GET", true, true, true, ContextType::SAME_SITE_STRICT,
        ContextType::SAME_SITE_STRICT, ContextType::SAME_SITE_STRICT,
-       ContextType::SAME_SITE_STRICT},
+       ContextType::SAME_SITE_STRICT,
+       ContextRedirectTypeBug1221316::kAllSameSiteRedirect},
       {"GET", true, true, false, ContextType::CROSS_SITE,
        ContextType::SAME_SITE_LAX, ContextType::CROSS_SITE,
-       ContextType::SAME_SITE_LAX},
+       ContextType::SAME_SITE_LAX,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {"GET", true, false, true, ContextType::CROSS_SITE,
        ContextType::CROSS_SITE, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {"GET", true, false, false, ContextType::CROSS_SITE,
        ContextType::CROSS_SITE, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       // If the url chain is cross-site, then the result will differ depending
       // on whether the redirect chain is considered, when the site-for-cookies
       // and initiator are both same-site.
       {"GET", false, true, true, ContextType::CROSS_SITE,
        ContextType::SAME_SITE_LAX, ContextType::SAME_SITE_STRICT,
-       ContextType::SAME_SITE_STRICT},
+       ContextType::SAME_SITE_STRICT,
+       ContextRedirectTypeBug1221316::kPartialSameSiteRedirect},
       {"GET", false, true, false, ContextType::CROSS_SITE,
        ContextType::SAME_SITE_LAX, ContextType::CROSS_SITE,
-       ContextType::SAME_SITE_LAX},
+       ContextType::SAME_SITE_LAX,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {"GET", false, false, true, ContextType::CROSS_SITE,
        ContextType::CROSS_SITE, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {"GET", false, false, false, ContextType::CROSS_SITE,
        ContextType::CROSS_SITE, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       // If the url chain is same-site, then the result is the same with or
       // without considering the redirect chain.
       {"POST", true, true, true, ContextType::SAME_SITE_STRICT,
        ContextType::SAME_SITE_STRICT, ContextType::SAME_SITE_STRICT,
-       ContextType::SAME_SITE_STRICT},
+       ContextType::SAME_SITE_STRICT,
+       ContextRedirectTypeBug1221316::kAllSameSiteRedirect},
       {"POST", true, true, false, ContextType::CROSS_SITE,
        ContextType::SAME_SITE_LAX_METHOD_UNSAFE, ContextType::CROSS_SITE,
-       ContextType::SAME_SITE_LAX_METHOD_UNSAFE},
+       ContextType::SAME_SITE_LAX_METHOD_UNSAFE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {"POST", true, false, true, ContextType::CROSS_SITE,
        ContextType::CROSS_SITE, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {"POST", true, false, false, ContextType::CROSS_SITE,
        ContextType::CROSS_SITE, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       // If the url chain is cross-site, then the result will differ depending
       // on whether the redirect chain is considered, when the site-for-cookies
       // and initiator are both same-site.
       {"POST", false, true, true, ContextType::CROSS_SITE,
        ContextType::SAME_SITE_LAX_METHOD_UNSAFE, ContextType::SAME_SITE_STRICT,
-       ContextType::SAME_SITE_STRICT},
+       ContextType::SAME_SITE_STRICT,
+       ContextRedirectTypeBug1221316::kPartialSameSiteRedirect},
       {"POST", false, true, false, ContextType::CROSS_SITE,
        ContextType::SAME_SITE_LAX_METHOD_UNSAFE, ContextType::CROSS_SITE,
-       ContextType::SAME_SITE_LAX_METHOD_UNSAFE},
+       ContextType::SAME_SITE_LAX_METHOD_UNSAFE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {"POST", false, false, true, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE, ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE, ContextType::CROSS_SITE,
+       ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {"POST", false, false, false, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE, ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE, ContextType::CROSS_SITE,
+       ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
   };
 
   for (const auto& test_case : kTestCases) {
@@ -1066,14 +1146,17 @@ TEST_P(CookieUtilComputeSameSiteContextTest, ForRequest_Redirect) {
     for (const std::vector<GURL>& url_chain : url_chains) {
       for (const SiteForCookies& site_for_cookies : sites_for_cookies) {
         for (const absl::optional<url::Origin>& initiator : initiators) {
-          EXPECT_THAT(cookie_util::ComputeSameSiteContextForRequest(
-                          test_case.method, url_chain, site_for_cookies,
-                          initiator, false /* is_main_frame_navigation */,
-                          false /* force_ignore_site_for_cookies */),
-                      AllOf(ContextTypeIs(expected_context_type),
-                            CrossSiteRedirectMetadataCorrect(
-                                test_case.expected_context_type_without_chain,
-                                test_case.expected_context_type)))
+          EXPECT_THAT(
+              cookie_util::ComputeSameSiteContextForRequest(
+                  test_case.method, url_chain, site_for_cookies, initiator,
+                  false /* is_main_frame_navigation */,
+                  false /* force_ignore_site_for_cookies */),
+              AllOf(ContextTypeIs(expected_context_type),
+                    CrossSiteRedirectMetadataCorrect(
+                        cookie_util::HttpMethodStringToEnum(test_case.method),
+                        test_case.expected_context_type_without_chain,
+                        test_case.expected_context_type,
+                        test_case.expected_redirect_type_with_chain)))
               << UrlChainToString(url_chain) << " "
               << site_for_cookies.ToDebugString() << " "
               << (initiator ? initiator->Serialize() : "nullopt");
@@ -1088,10 +1171,11 @@ TEST_P(CookieUtilComputeSameSiteContextTest, ForRequest_Redirect) {
                   ContextTypeIs(
                       expected_context_type_for_main_frame_navigation),
                   CrossSiteRedirectMetadataCorrect(
+                      cookie_util::HttpMethodStringToEnum(test_case.method),
                       test_case
                           .expected_context_type_for_main_frame_navigation_without_chain,
-                      test_case
-                          .expected_context_type_for_main_frame_navigation)))
+                      test_case.expected_context_type_for_main_frame_navigation,
+                      test_case.expected_redirect_type_with_chain)))
               << UrlChainToString(url_chain) << " "
               << site_for_cookies.ToDebugString() << " "
               << (initiator ? initiator->Serialize() : "nullopt");
@@ -1273,28 +1357,38 @@ TEST_P(CookieUtilComputeSameSiteContextTest, ForResponse_Redirect) {
     // These are the expected context types not considering redirect chains:
     ContextType expected_context_type_without_chain;
     ContextType expected_context_type_for_main_frame_navigation_without_chain;
+    // The expected redirect type (only applicable for chains):
+    ContextRedirectTypeBug1221316 expected_redirect_type_with_chain;
   } kTestCases[] = {
       // If the url chain is same-site, then the result is the same with or
       // without considering the redirect chain.
       {true, true, true, ContextType::SAME_SITE_LAX, ContextType::SAME_SITE_LAX,
-       ContextType::SAME_SITE_LAX, ContextType::SAME_SITE_LAX},
+       ContextType::SAME_SITE_LAX, ContextType::SAME_SITE_LAX,
+       ContextRedirectTypeBug1221316::kAllSameSiteRedirect},
       {true, true, false, ContextType::CROSS_SITE, ContextType::SAME_SITE_LAX,
-       ContextType::CROSS_SITE, ContextType::SAME_SITE_LAX},
+       ContextType::CROSS_SITE, ContextType::SAME_SITE_LAX,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {true, false, true, ContextType::CROSS_SITE, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE, ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE, ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {true, false, false, ContextType::CROSS_SITE, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE, ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE, ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       // If the url chain is cross-site, then the result will differ depending
       // on whether the redirect chain is considered, when the site-for-cookies
       // and initiator are both same-site.
       {false, true, true, ContextType::CROSS_SITE, ContextType::SAME_SITE_LAX,
-       ContextType::SAME_SITE_LAX, ContextType::SAME_SITE_LAX},
+       ContextType::SAME_SITE_LAX, ContextType::SAME_SITE_LAX,
+       ContextRedirectTypeBug1221316::kPartialSameSiteRedirect},
       {false, true, false, ContextType::CROSS_SITE, ContextType::SAME_SITE_LAX,
-       ContextType::CROSS_SITE, ContextType::SAME_SITE_LAX},
+       ContextType::CROSS_SITE, ContextType::SAME_SITE_LAX,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {false, false, true, ContextType::CROSS_SITE, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE, ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE, ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
       {false, false, false, ContextType::CROSS_SITE, ContextType::CROSS_SITE,
-       ContextType::CROSS_SITE, ContextType::CROSS_SITE},
+       ContextType::CROSS_SITE, ContextType::CROSS_SITE,
+       ContextRedirectTypeBug1221316::kCrossSiteRedirect},
   };
   for (const auto& test_case : kTestCases) {
     std::vector<std::vector<GURL>> url_chains =
@@ -1323,9 +1417,14 @@ TEST_P(CookieUtilComputeSameSiteContextTest, ForResponse_Redirect) {
                           false /* is_main_frame_navigation */,
                           false /* force_ignore_site_for_cookies */),
                       AllOf(ContextTypeIs(expected_context_type),
+                            // The 'method' field is kept empty because it's
+                            // only used to check http_method_bug_1221316 which
+                            // is always empty for responses.
                             CrossSiteRedirectMetadataCorrect(
+                                HttpMethod::kUnset,
                                 test_case.expected_context_type_without_chain,
-                                test_case.expected_context_type)))
+                                test_case.expected_context_type,
+                                test_case.expected_redirect_type_with_chain)))
               << UrlChainToString(url_chain) << " "
               << site_for_cookies.ToDebugString() << " "
               << (initiator ? initiator->Serialize() : "nullopt");
@@ -1340,10 +1439,11 @@ TEST_P(CookieUtilComputeSameSiteContextTest, ForResponse_Redirect) {
                   ContextTypeIs(
                       expected_context_type_for_main_frame_navigation),
                   CrossSiteRedirectMetadataCorrect(
+                      HttpMethod::kUnset,
                       test_case
                           .expected_context_type_for_main_frame_navigation_without_chain,
-                      test_case
-                          .expected_context_type_for_main_frame_navigation)))
+                      test_case.expected_context_type_for_main_frame_navigation,
+                      test_case.expected_redirect_type_with_chain)))
               << UrlChainToString(url_chain) << " "
               << site_for_cookies.ToDebugString() << " "
               << (initiator ? initiator->Serialize() : "nullopt");
@@ -1477,7 +1577,7 @@ TEST(CookieUtilTest, AdaptCookieAccessResultToBool) {
 }
 
 TEST(CookieUtilTest, GetSamePartyStatus_NotInSet) {
-  const bool first_party_sets_enabled = true;
+  const bool same_party_attribute_enabled = true;
   CookieOptions options;
   options.set_is_in_nontrivial_first_party_set(false);
 
@@ -1497,7 +1597,7 @@ TEST(CookieUtilTest, GetSamePartyStatus_NotInSet) {
             base::Time now = base::Time::Now();
             std::unique_ptr<CanonicalCookie> cookie =
                 CanonicalCookie::CreateUnsafeCookieForTesting(
-                    "cookie", "tasty", "example.test", "/", now, now, now,
+                    "cookie", "tasty", "example.test", "/", now, now, now, now,
                     secure, httponly, same_site,
                     CookiePriority::COOKIE_PRIORITY_DEFAULT, same_party);
 
@@ -1505,7 +1605,7 @@ TEST(CookieUtilTest, GetSamePartyStatus_NotInSet) {
                 SamePartyContext(party_context_type));
             EXPECT_EQ(CookieSamePartyStatus::kNoSamePartyEnforcement,
                       cookie_util::GetSamePartyStatus(
-                          *cookie, options, first_party_sets_enabled));
+                          *cookie, options, same_party_attribute_enabled));
           }
         }
       }
@@ -1514,7 +1614,7 @@ TEST(CookieUtilTest, GetSamePartyStatus_NotInSet) {
 }
 
 TEST(CookieUtilTest, GetSamePartyStatus_FeatureDisabled) {
-  const bool first_party_sets_enabled = false;
+  const bool same_party_attribute_enabled = false;
   CookieOptions options;
   options.set_is_in_nontrivial_first_party_set(true);
 
@@ -1534,7 +1634,7 @@ TEST(CookieUtilTest, GetSamePartyStatus_FeatureDisabled) {
             base::Time now = base::Time::Now();
             std::unique_ptr<CanonicalCookie> cookie =
                 CanonicalCookie::CreateUnsafeCookieForTesting(
-                    "cookie", "tasty", "example.test", "/", now, now, now,
+                    "cookie", "tasty", "example.test", "/", now, now, now, now,
                     secure, httponly, same_site,
                     CookiePriority::COOKIE_PRIORITY_DEFAULT, same_party);
 
@@ -1542,7 +1642,7 @@ TEST(CookieUtilTest, GetSamePartyStatus_FeatureDisabled) {
                 SamePartyContext(party_context_type));
             EXPECT_EQ(CookieSamePartyStatus::kNoSamePartyEnforcement,
                       cookie_util::GetSamePartyStatus(
-                          *cookie, options, first_party_sets_enabled));
+                          *cookie, options, same_party_attribute_enabled));
           }
         }
       }
@@ -1551,7 +1651,6 @@ TEST(CookieUtilTest, GetSamePartyStatus_FeatureDisabled) {
 }
 
 TEST(CookieUtilTest, GetSamePartyStatus_NotSameParty) {
-  const bool first_party_sets_enabled = true;
   CookieOptions options;
   options.set_is_in_nontrivial_first_party_set(true);
 
@@ -1570,14 +1669,16 @@ TEST(CookieUtilTest, GetSamePartyStatus_NotSameParty) {
           base::Time now = base::Time::Now();
           std::unique_ptr<CanonicalCookie> cookie =
               CanonicalCookie::CreateUnsafeCookieForTesting(
-                  "cookie", "tasty", "example.test", "/", now, now, now, secure,
-                  httponly, same_site, CookiePriority::COOKIE_PRIORITY_DEFAULT,
+                  "cookie", "tasty", "example.test", "/", now, now, now, now,
+                  secure, httponly, same_site,
+                  CookiePriority::COOKIE_PRIORITY_DEFAULT,
                   false /* same_party */);
 
           options.set_same_party_context(SamePartyContext(party_context_type));
           EXPECT_EQ(CookieSamePartyStatus::kNoSamePartyEnforcement,
-                    cookie_util::GetSamePartyStatus(*cookie, options,
-                                                    first_party_sets_enabled));
+                    cookie_util::GetSamePartyStatus(
+                        *cookie, options,
+                        /*same_party_attribute_enabled=*/true));
         }
       }
     }
@@ -1585,7 +1686,6 @@ TEST(CookieUtilTest, GetSamePartyStatus_NotSameParty) {
 }
 
 TEST(CookieUtilTest, GetSamePartyStatus_SamePartySemantics) {
-  const bool first_party_sets_enabled = true;
   CookieOptions options;
   options.set_is_in_nontrivial_first_party_set(true);
 
@@ -1626,7 +1726,7 @@ TEST(CookieUtilTest, GetSamePartyStatus_SamePartySemantics) {
           base::Time now = base::Time::Now();
           std::unique_ptr<CanonicalCookie> cookie =
               CanonicalCookie::CreateUnsafeCookieForTesting(
-                  "cookie", "tasty", "example.test", "/", now, now, now,
+                  "cookie", "tasty", "example.test", "/", now, now, now, now,
                   true /* secure */, httponly, same_site,
                   CookiePriority::COOKIE_PRIORITY_DEFAULT,
                   true /* same_party */);
@@ -1634,14 +1734,16 @@ TEST(CookieUtilTest, GetSamePartyStatus_SamePartySemantics) {
           options.set_same_party_context(
               SamePartyContext(SamePartyContext::Type::kCrossParty));
           EXPECT_EQ(CookieSamePartyStatus::kEnforceSamePartyExclude,
-                    cookie_util::GetSamePartyStatus(*cookie, options,
-                                                    first_party_sets_enabled));
+                    cookie_util::GetSamePartyStatus(
+                        *cookie, options,
+                        /*same_party_attribute_enabled=*/true));
 
           options.set_same_party_context(
               SamePartyContext(SamePartyContext::Type::kSameParty));
           EXPECT_EQ(CookieSamePartyStatus::kEnforceSamePartyInclude,
-                    cookie_util::GetSamePartyStatus(*cookie, options,
-                                                    first_party_sets_enabled));
+                    cookie_util::GetSamePartyStatus(
+                        *cookie, options,
+                        /*same_party_attribute_enabled=*/true));
         }
       }
     }

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,17 +16,16 @@
 #include "base/thread_annotations.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-namespace base {
-namespace test {
+namespace base::test {
 
-// Related class to |base::test::TestFuture|, which allows its callback and
+// Related class to `base::test::TestFuture`, which allows its callback and
 // AddValue() method to be called multiple times.
 //
 // Each call to Take() will return one element in FIFO fashion.
 // If no element is available, Take() will wait until an element becomes
 // available.
 //
-// Just like |base::test::TestFuture|, |base::test::RepeatingTestFuture| also
+// Just like `base::test::TestFuture`, `base::test::RepeatingTestFuture` also
 // supports callbacks which take multiple values. If this is the case Take()
 // will return a tuple containing all values passed to the callback.
 //
@@ -37,12 +36,12 @@ namespace test {
 //
 //     InvokeCallbackAsyncTwice(future.GetCallback());
 //
-//     ResultType first_result = future.Get();
-//     ResultType second_result = future.Get();
+//     ResultType first_result = future.Take();
+//     ResultType second_result = future.Take();
 //
 //     // When you come here, InvokeCallbackAsyncTwice has finished,
-//     // |first_result| contains the value passed to the first invocation
-//     // of the callback, and |second_result| has the result of the second
+//     // `first_result` contains the value passed to the first invocation
+//     // of the callback, and `second_result` has the result of the second
 //     // invocation.
 //   }
 //
@@ -78,9 +77,7 @@ namespace test {
 template <typename... Types>
 class RepeatingTestFuture {
  public:
-  // Helper type to make the SFINAE templates easier on the eyes.
-  using T = std::tuple<Types...>;
-  using FirstType = typename std::tuple_element<0, T>::type;
+  using TupleType = std::tuple<std::decay_t<Types>...>;
 
   RepeatingTestFuture() = default;
   RepeatingTestFuture(const RepeatingTestFuture&) = delete;
@@ -120,7 +117,7 @@ class RepeatingTestFuture {
   // and unblock any waiters.
   // This method is templated so you can specify how you need the arguments to
   // be passed - be it const, as reference, or anything you can think off.
-  // By default the callback accepts the arguments as |Types...|.
+  // By default the callback accepts the arguments as `Types...`.
   //
   // Example usage:
   //
@@ -136,8 +133,11 @@ class RepeatingTestFuture {
   base::RepeatingCallback<void(CallbackArgumentsTypes...)> GetCallback() {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     return base::BindRepeating(
-        &RepeatingTestFuture<Types...>::AddValueFromCallbackArguments<
-            CallbackArgumentsTypes...>,
+        [](WeakPtr<RepeatingTestFuture<Types...>> future,
+           CallbackArgumentsTypes... values) {
+          if (future)
+            future->AddValue(std::forward<CallbackArgumentsTypes>(values)...);
+        },
         weak_ptr_factory_.GetWeakPtr());
   }
 
@@ -162,8 +162,8 @@ class RepeatingTestFuture {
   // Wait for an element to arrive, and move its value out.
   //
   // Will DCHECK if a timeout happens.
-  template <typename U = T, internal::EnableIfSingleValue<U> = true>
-  FirstType Take() {
+  template <typename T = TupleType, internal::EnableIfSingleValue<T> = true>
+  auto Take() {
     return std::get<0>(TakeTuple());
   }
 
@@ -175,8 +175,8 @@ class RepeatingTestFuture {
   // Wait for an element to arrive, and move a tuple with its values out.
   //
   // Will DCHECK if a timeout happens.
-  template <typename U = T, internal::EnableIfMultiValue<U> = true>
-  std::tuple<Types...> Take() {
+  template <typename T = TupleType, internal::EnableIfMultiValue<T> = true>
+  TupleType Take() {
     return TakeTuple();
   }
 
@@ -197,7 +197,7 @@ class RepeatingTestFuture {
       run_loop_->Quit();
   }
 
-  std::tuple<Types...> TakeTuple() {
+  TupleType TakeTuple() {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
     // Ensure an element is available.
@@ -209,16 +209,7 @@ class RepeatingTestFuture {
     return result;
   }
 
-  // Used by GetCallback() to adapt between the form in which the callback
-  // provides arguments, and the argument types specified to this template.
-  // e.g. callbacks often carry arguments as |const Foo&| rather than |Foo|.
-  template <typename... CallbackArgumentsTypes>
-  void AddValueFromCallbackArguments(CallbackArgumentsTypes... values) {
-    AddValue(std::forward<CallbackArgumentsTypes>(values)...);
-  }
-
-  base::queue<std::tuple<Types...>> elements_
-      GUARDED_BY_CONTEXT(sequence_checker_);
+  base::queue<TupleType> elements_ GUARDED_BY_CONTEXT(sequence_checker_);
 
   // Used by Wait() to know when AddValue() is called.
   absl::optional<base::RunLoop> run_loop_ GUARDED_BY_CONTEXT(sequence_checker_);
@@ -228,7 +219,6 @@ class RepeatingTestFuture {
   base::WeakPtrFactory<RepeatingTestFuture<Types...>> weak_ptr_factory_{this};
 };
 
-}  // namespace test
-}  // namespace base
+}  // namespace base::test
 
 #endif  // BASE_TEST_REPEATING_TEST_FUTURE_H_

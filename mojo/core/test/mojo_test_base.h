@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/memory/ref_counted.h"
 #include "build/build_config.h"
 #include "mojo/core/test/multiprocess_test_helper.h"
 #include "mojo/public/c/system/trap.h"
@@ -49,6 +48,10 @@ class MojoTestBase : public testing::Test {
 
     ~ClientController();
 
+#if !BUILDFLAG(IS_IOS)
+    const base::Process& process() const { return helper_.test_child(); }
+#endif
+
     MojoHandle pipe() const { return pipe_.get().value(); }
 
     int WaitForShutdown();
@@ -76,6 +79,14 @@ class MojoTestBase : public testing::Test {
     ClientController& c = StartClient(client_name);
     handler(c.pipe());
     return c.WaitForShutdown();
+  }
+
+  template <typename HandlerFunc>
+  void RunTestClientWithController(const std::string& client_name,
+                                   HandlerFunc handler) {
+    ClientController& c = StartClient(client_name);
+    handler(c);
+    EXPECT_EQ(0, c.WaitForShutdown());
   }
 
   // Closes a handle and expects success.

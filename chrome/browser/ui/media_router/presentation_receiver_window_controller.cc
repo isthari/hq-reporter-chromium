@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,7 +53,7 @@ PresentationReceiverWindowController::~PresentationReceiverWindowController() {
 
   if (otr_profile_) {
     otr_profile_observation_.Reset();
-    ProfileDestroyer::DestroyProfileWhenAppropriate(otr_profile_);
+    ProfileDestroyer::DestroyOTRProfileWhenAppropriate(otr_profile_);
   }
 }
 

@@ -1,11 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/default_promo/default_browser_promo_non_modal_scheduler.h"
 
 #import "base/time/time.h"
-#include "base/timer/timer.h"
+#import "base/timer/timer.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/main/browser_observer_bridge.h"
 #import "ios/chrome/browser/overlays/public/overlay_presenter.h"
@@ -17,7 +17,7 @@
 #import "ios/chrome/browser/ui/default_promo/default_browser_utils.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
 #import "ios/chrome/browser/web_state_list/active_web_state_observation_forwarder.h"
-#include "ios/chrome/browser/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
 #import "ios/web/public/web_state.h"
 #import "ios/web/public/web_state_observer_bridge.h"
@@ -30,21 +30,27 @@ namespace {
 
 // Default time interval to wait to show the promo after loading a webpage.
 // This should allow any initial overlays to be presented first.
-const int64_t kShowPromoWebpageLoadWaitTime = 3;
+constexpr base::TimeDelta kShowPromoWebpageLoadWaitTime = base::Seconds(3);
 
 // Default time interval to wait to show the promo after the share action is
 // completed.
-const int64_t kShowPromoPostShareWaitTime = 1;
+constexpr base::TimeDelta kShowPromoPostShareWaitTime = base::Seconds(1);
 
 // Number of times to show the promo to a user.
-const int kPromoShownTimesLimit = 2;
+const int kPromoShownTimesLimit = 3;
 
 // Timeout before the promo is dismissed.
-const double kPromoTimeout = 45;
+constexpr base::TimeDelta kPromoTimeout = base::Seconds(45);
 
 bool PromoCanBeDisplayed() {
-  return !IsChromeLikelyDefaultBrowser() && !UserInPromoCooldown() &&
-         UserInteractionWithNonModalPromoCount() < kPromoShownTimesLimit;
+  if (IsChromeLikelyDefaultBrowser())
+    return false;
+
+  if (UserInPromoCooldown())
+    return false;
+
+  NSInteger count = UserInteractionWithNonModalPromoCount();
+  return count < kPromoShownTimesLimit;
 }
 
 typedef NS_ENUM(NSUInteger, PromoReason) {
@@ -328,8 +334,8 @@ NonModalPromoTriggerType MetricTypeForPromoReason(PromoReason reason) {
 
 #pragma mark - Timer Management
 
-// Start the timer to show a promo. |self.currentPromoReason| must be set to
-// the reason for this promo flow and must not be |PromoReasonNone|.
+// Start the timer to show a promo. `self.currentPromoReason` must be set to
+// the reason for this promo flow and must not be `PromoReasonNone`.
 - (void)startShowPromoTimer {
   DCHECK(self.currentPromoReason != PromoReasonNone);
 
@@ -343,7 +349,7 @@ NonModalPromoTriggerType MetricTypeForPromoReason(PromoReason reason) {
     return;
   }
 
-  int64_t promoTimeInterval;
+  base::TimeDelta promoTimeInterval;
   switch (self.currentPromoReason) {
     case PromoReasonNone:
       NOTREACHED();
@@ -362,16 +368,19 @@ NonModalPromoTriggerType MetricTypeForPromoReason(PromoReason reason) {
 
   __weak __typeof(self) weakSelf = self;
   _showPromoTimer = std::make_unique<base::OneShotTimer>();
-  _showPromoTimer->Start(FROM_HERE, base::Seconds(promoTimeInterval),
-                         base::BindOnce(^{
+  _showPromoTimer->Start(FROM_HERE, promoTimeInterval, base::BindOnce(^{
                            [weakSelf showPromoTimerFinished];
                          }));
 }
 
 - (void)cancelShowPromoTimer {
+  // Only reset the reason and web state to listen to if there is no promo
+  // showing.
+  if (!self.promoIsShowing) {
+    self.currentPromoReason = PromoReasonNone;
+    self.webStateToListenTo = nullptr;
+  }
   _showPromoTimer = nullptr;
-  self.currentPromoReason = PromoReasonNone;
-  self.webStateToListenTo = nullptr;
 }
 
 - (void)showPromoTimerFinished {
@@ -398,8 +407,7 @@ NonModalPromoTriggerType MetricTypeForPromoReason(PromoReason reason) {
 
   __weak __typeof(self) weakSelf = self;
   _dismissPromoTimer = std::make_unique<base::OneShotTimer>();
-  _dismissPromoTimer->Start(FROM_HERE, base::Seconds(kPromoTimeout),
-                            base::BindOnce(^{
+  _dismissPromoTimer->Start(FROM_HERE, kPromoTimeout, base::BindOnce(^{
                               [weakSelf dismissPromoTimerFinished];
                             }));
 }

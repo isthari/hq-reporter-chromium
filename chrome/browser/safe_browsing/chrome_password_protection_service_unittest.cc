@@ -1,9 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
 #include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/memory/raw_ptr.h"
@@ -15,6 +17,7 @@
 #include "base/test/mock_callback.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
+#include "chrome/browser/enterprise/connectors/reporting/realtime_reporting_client_factory.h"
 #include "chrome/browser/password_manager/account_password_store_factory.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/safe_browsing/chrome_safe_browsing_blocking_page_factory.h"
@@ -39,7 +42,7 @@
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
-#include "components/safe_browsing/content/browser/password_protection/password_protection_navigation_throttle.h"
+#include "components/safe_browsing/content/browser/password_protection/password_protection_commit_deferring_condition.h"
 #include "components/safe_browsing/content/browser/password_protection/password_protection_request_content.h"
 #include "components/safe_browsing/content/browser/ui_manager.h"
 #include "components/safe_browsing/core/browser/db/v4_protocol_manager_util.h"
@@ -269,10 +272,11 @@ class ChromePasswordProtectionServiceTest
     HostContentSettingsMap::RegisterProfilePrefs(test_pref_service_.registry());
     content_setting_map_ = new HostContentSettingsMap(
         &test_pref_service_, /*is_off_the_record=*/false,
-        /*store_last_modified=*/false, /*restore_session=*/false);
+        /*store_last_modified=*/false, /*restore_session=*/false,
+        /*should_record_metrics=*/false);
 
     cache_manager_ = std::make_unique<VerdictCacheManager>(
-        nullptr, content_setting_map_.get());
+        nullptr, content_setting_map_.get(), &test_pref_service_, nullptr);
 
     service_ = NewMockPasswordProtectionService();
     fake_user_event_service_ = static_cast<syncer::FakeUserEventService*>(
@@ -286,6 +290,9 @@ class ChromePasswordProtectionServiceTest
         ->SetTestingFactory(
             browser_context(),
             base::BindRepeating(&BuildSafeBrowsingPrivateEventRouter));
+    enterprise_connectors::RealtimeReportingClientFactory::GetInstance()
+        ->SetTestingFactory(browser_context(),
+                            base::BindRepeating(&BuildRealtimeReportingClient));
 #endif
 
     identity_test_env_profile_adaptor_ =
@@ -397,13 +404,14 @@ class ChromePasswordProtectionServiceTest
   }
 
   int GetSizeofUnhandledSyncPasswordReuses() {
-    DictionaryPrefUpdate unhandled_sync_password_reuses(
-        profile()->GetPrefs(), prefs::kSafeBrowsingUnhandledGaiaPasswordReuses);
-    return unhandled_sync_password_reuses->DictSize();
+    return profile()
+        ->GetPrefs()
+        ->GetDict(prefs::kSafeBrowsingUnhandledGaiaPasswordReuses)
+        .size();
   }
 
-  size_t GetNumberOfNavigationThrottles() {
-    return request_ ? request_->throttles_.size() : 0u;
+  size_t GetNumberOfDeferredNavigations() {
+    return request_ ? request_->deferred_navigations_.size() : 0u;
   }
 
   signin::IdentityTestEnvironment* identity_test_env() {
@@ -435,25 +443,6 @@ class ChromePasswordProtectionServiceTest
   base::MockCallback<
       ChromePasswordProtectionService::ChangePhishedCredentialsCallback>
       mock_remove_callback_;
-};
-
-class ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest
-    : public ChromePasswordProtectionServiceTest {
- private:
-  base::test::ScopedFeatureList feature_list_{
-      safe_browsing::kPasswordProtectionForSignedInUsers};
-};
-
-class ChromePasswordProtectionServiceWithProtectionForSignedInUsersDisabledTest
-    : public ChromePasswordProtectionServiceTest {
- public:
-  ChromePasswordProtectionServiceWithProtectionForSignedInUsersDisabledTest() {
-    feature_list_.InitAndDisableFeature(
-        safe_browsing::kPasswordProtectionForSignedInUsers);
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
 };
 
 TEST_F(ChromePasswordProtectionServiceTest,
@@ -517,7 +506,7 @@ TEST_F(ChromePasswordProtectionServiceTest,
       reused_password_type));
 }
 
-TEST_F(ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest,
+TEST_F(ChromePasswordProtectionServiceTest,
        VerifyUserPopulationForSyncPasswordEntryPing) {
   // Sets up the account as a gmail account as there is no hosted domain.
   ReusedPasswordAccountType reused_password_type;
@@ -526,9 +515,6 @@ TEST_F(ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest,
 
   // Sync password entry pinging is enabled by default.
   service_->ConfigService(false /*incognito*/, false /*SBER*/);
-  // Sync password pings are now gated by Safe Browsing, not Safe Browsing
-  // Enhanced Reporting (SBER), on Android, because warnings are now enabled
-  // with kPasswordProtectionForSignedInUsers.
   EXPECT_TRUE(service_->IsPingingEnabled(
       LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
       reused_password_type));
@@ -539,9 +525,6 @@ TEST_F(ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest,
       reused_password_type));
 
   service_->ConfigService(true /*incognito*/, false /*SBER*/);
-  // Sync password pings are now gated by Safe Browsing, not Safe Browsing
-  // Enhanced Reporting (SBER), on Android, because warnings are now enabled
-  // with kPasswordProtectionForSignedInUsers.
   EXPECT_TRUE(service_->IsPingingEnabled(
       LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
       reused_password_type));
@@ -558,49 +541,16 @@ TEST_F(ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest,
   profile()->GetPrefs()->SetInteger(prefs::kPasswordProtectionWarningTrigger,
                                     PASSWORD_PROTECTION_OFF);
   service_->ConfigService(false /*incognito*/, false /*SBER*/);
-  // Sync password pings are now gated by Safe Browsing, not Safe Browsing
-  // Enhanced Reporting (SBER), on Android, because warnings are now enabled
-  // with kPasswordProtectionForSignedInUsers.
   EXPECT_TRUE(service_->IsPingingEnabled(
       LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
       reused_password_type));
 
   profile()->GetPrefs()->SetInteger(prefs::kPasswordProtectionWarningTrigger,
                                     PASSWORD_REUSE);
-  // Sync password pings are now gated by Safe Browsing, not Safe Browsing
-  // Enhanced Reporting (SBER), on Android, because warnings are now enabled.
   EXPECT_TRUE(service_->IsPingingEnabled(
       LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
       reused_password_type));
 }
-
-#if BUILDFLAG(IS_ANDROID)
-TEST_F(
-    ChromePasswordProtectionServiceWithProtectionForSignedInUsersDisabledTest,
-    VerifyUserPopulationForSyncPasswordEntryPing) {
-  // Sets up the account as a gmail account as there is no hosted domain.
-  ReusedPasswordAccountType reused_password_type;
-  reused_password_type.set_account_type(ReusedPasswordAccountType::GMAIL);
-  reused_password_type.set_is_account_syncing(true);
-
-  profile()->GetPrefs()->SetInteger(prefs::kPasswordProtectionWarningTrigger,
-                                    PASSWORD_REUSE);
-
-  service_->ConfigService(false /*incognito*/, false /*SBER*/);
-  // Sync password pings are now gated by Safe Browsing Enhanced Reporting,
-  // because kPasswordProtectionForSignedInUsers is disabled.
-  EXPECT_FALSE(service_->IsPingingEnabled(
-      LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
-      reused_password_type));
-
-  // Sync password pings are now gated by Safe Browsing Enhanced Reporting,
-  // because kPasswordProtectionForSignedInUsers is disabled.
-  service_->ConfigService(false /*incognito*/, true /*SBER*/);
-  EXPECT_TRUE(service_->IsPingingEnabled(
-      LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
-      reused_password_type));
-}
-#endif
 
 TEST_F(ChromePasswordProtectionServiceTest,
        VerifyPingingIsSkippedIfMatchEnterpriseAllowlist) {
@@ -613,10 +563,11 @@ TEST_F(ChromePasswordProtectionServiceTest,
       GURL("https://www.mydomain.com")));
 
   // Verify if match enterprise allowlist.
-  base::ListValue allowlist;
+  base::Value::List allowlist;
   allowlist.Append("mydomain.com");
   allowlist.Append("mydomain.net");
-  profile()->GetPrefs()->Set(prefs::kSafeBrowsingAllowlistDomains, allowlist);
+  profile()->GetPrefs()->SetList(prefs::kSafeBrowsingAllowlistDomains,
+                                 std::move(allowlist));
   EXPECT_TRUE(service_->IsURLAllowlistedForPasswordEntry(
       GURL("https://www.mydomain.com")));
 
@@ -635,9 +586,10 @@ TEST_F(ChromePasswordProtectionServiceTest,
   profile()->GetPrefs()->ClearPref(prefs::kPasswordProtectionChangePasswordURL);
   EXPECT_FALSE(service_->IsURLAllowlistedForPasswordEntry(
       GURL("https://www.mydomain.com")));
-  base::ListValue login_urls;
+  base::Value::List login_urls;
   login_urls.Append("https://mydomain.com/login.html");
-  profile()->GetPrefs()->Set(prefs::kPasswordProtectionLoginURLs, login_urls);
+  profile()->GetPrefs()->SetList(prefs::kPasswordProtectionLoginURLs,
+                                 std::move(login_urls));
   EXPECT_TRUE(service_->IsURLAllowlistedForPasswordEntry(
       GURL("https://mydomain.com/login.html#ref?user_name=alice")));
 }
@@ -1015,6 +967,26 @@ TEST_F(ChromePasswordProtectionServiceTest,
     EXPECT_EQ("token2", reuse_lookup.verdict_token()) << t;
     t++;
   }
+
+  {
+    auto response = std::make_unique<LoginReputationClientResponse>();
+    response->set_verdict_token("token3");
+    response->set_verdict_type(LoginReputationClientResponse::PHISHING);
+    service_->MaybeLogPasswordReuseLookupEvent(
+        web_contents(), RequestOutcome::RESPONSE_ALREADY_CACHED,
+        PasswordType::PRIMARY_ACCOUNT_PASSWORD, response.get());
+    ASSERT_EQ(t + 1, GetUserEventService()->GetRecordedUserEvents().size())
+        << t;
+    PasswordReuseLookup reuse_lookup = GetUserEventService()
+                                           ->GetRecordedUserEvents()[t]
+                                           .gaia_password_reuse_event()
+                                           .reuse_lookup();
+    EXPECT_EQ(PasswordReuseLookup::CACHE_HIT, reuse_lookup.lookup_result())
+        << t;
+    EXPECT_EQ(PasswordReuseLookup::PHISHING, reuse_lookup.verdict()) << t;
+    EXPECT_EQ("token3", reuse_lookup.verdict_token()) << t;
+    t++;
+  }
 }
 
 TEST_F(ChromePasswordProtectionServiceTest, VerifyGetDefaultChangePasswordURL) {
@@ -1050,9 +1022,9 @@ TEST_F(ChromePasswordProtectionServiceTest,
                  /*is_warning_showing=*/false);
   GURL redirect_url(kRedirectURL);
   content::MockNavigationHandle test_handle(redirect_url, main_rfh());
-  std::unique_ptr<PasswordProtectionNavigationThrottle> throttle =
-      service_->MaybeCreateNavigationThrottle(&test_handle);
-  EXPECT_EQ(nullptr, throttle);
+  std::unique_ptr<PasswordProtectionCommitDeferringCondition> condition =
+      service_->MaybeCreateCommitDeferringCondition(test_handle);
+  EXPECT_EQ(nullptr, condition);
 }
 
 TEST_F(ChromePasswordProtectionServiceTest,
@@ -1071,28 +1043,24 @@ TEST_F(ChromePasswordProtectionServiceTest,
   GURL redirect_url(kRedirectURL);
   bool was_navigation_resumed = false;
   content::MockNavigationHandle test_handle(redirect_url, main_rfh());
-  std::unique_ptr<PasswordProtectionNavigationThrottle> throttle =
-      service_->MaybeCreateNavigationThrottle(&test_handle);
-  ASSERT_NE(nullptr, throttle);
-  throttle->set_resume_callback_for_testing(
-      base::BindLambdaForTesting([&]() { was_navigation_resumed = true; }));
+  std::unique_ptr<PasswordProtectionCommitDeferringCondition> condition =
+      service_->MaybeCreateCommitDeferringCondition(test_handle);
+  ASSERT_NE(nullptr, condition);
 
   // Verify navigation get deferred.
-  EXPECT_EQ(content::NavigationThrottle::DEFER, throttle->WillStartRequest());
+  EXPECT_EQ(content::CommitDeferringCondition::Result::kDefer,
+            condition->WillCommitNavigation(base::BindLambdaForTesting(
+                [&]() { was_navigation_resumed = true; })));
   base::RunLoop().RunUntilIdle();
 
   // Simulate receiving a SAFE verdict.
   SimulateRequestFinished(LoginReputationClientResponse::SAFE);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(true, was_navigation_resumed);
-
-  // Verify that navigation can be resumed.
-  EXPECT_EQ(content::NavigationThrottle::PROCEED,
-            throttle->WillProcessResponse());
 }
 
 TEST_F(ChromePasswordProtectionServiceTest,
-       VerifyNavigationDuringModalWarningCanceled) {
+       VerifyNavigationDuringModalWarningDeferred) {
   GURL trigger_url(kPhishingURL);
   NavigateAndCommit(trigger_url);
   // Simulate a password reuse request, whose verdict is triggering a modal
@@ -1108,15 +1076,16 @@ TEST_F(ChromePasswordProtectionServiceTest,
 
   GURL redirect_url(kRedirectURL);
   content::MockNavigationHandle test_handle(redirect_url, main_rfh());
-  std::unique_ptr<PasswordProtectionNavigationThrottle> throttle =
-      service_->MaybeCreateNavigationThrottle(&test_handle);
+  std::unique_ptr<PasswordProtectionCommitDeferringCondition> condition =
+      service_->MaybeCreateCommitDeferringCondition(test_handle);
 
-  // Verify that navigation gets canceled.
-  EXPECT_EQ(content::NavigationThrottle::CANCEL, throttle->WillStartRequest());
+  // Verify that navigation gets deferred.
+  EXPECT_EQ(content::CommitDeferringCondition::Result::kDefer,
+            condition->WillCommitNavigation(base::DoNothing()));
 }
 
 TEST_F(ChromePasswordProtectionServiceTest,
-       VerifyNavigationThrottleRemovedWhenNavigationHandleIsGone) {
+       VerifyCommitDeferringConditionRemovedWhenNavigationHandleIsGone) {
   GURL trigger_url(kPhishingURL);
   NavigateAndCommit(trigger_url);
   service_->SetIsSyncing(true);
@@ -1129,20 +1098,21 @@ TEST_F(ChromePasswordProtectionServiceTest,
 
   GURL redirect_url(kRedirectURL);
   content::MockNavigationHandle test_handle(redirect_url, main_rfh());
-  std::unique_ptr<PasswordProtectionNavigationThrottle> throttle =
-      service_->MaybeCreateNavigationThrottle(&test_handle);
+  std::unique_ptr<PasswordProtectionCommitDeferringCondition> condition =
+      service_->MaybeCreateCommitDeferringCondition(test_handle);
 
-  // Verify navigation get deferred.
-  EXPECT_EQ(content::NavigationThrottle::DEFER, throttle->WillStartRequest());
+  // Verify navigation gets deferred.
+  EXPECT_EQ(content::CommitDeferringCondition::Result::kDefer,
+            condition->WillCommitNavigation(base::DoNothing()));
 
-  EXPECT_EQ(1u, GetNumberOfNavigationThrottles());
+  EXPECT_EQ(1u, GetNumberOfDeferredNavigations());
 
-  // Simulate the deletion of the PasswordProtectionNavigationThrottle.
-  throttle.reset();
+  // Simulate the deletion of the PasswordProtectionCommitDeferringCondition.
+  condition.reset();
   base::RunLoop().RunUntilIdle();
 
-  // Expect no navigation throttle kept by |request_|.
-  EXPECT_EQ(0u, GetNumberOfNavigationThrottles());
+  // Expect no navigation condition kept by |request_|.
+  EXPECT_EQ(0u, GetNumberOfDeferredNavigations());
 
   // Simulate receiving a SAFE verdict.
   SimulateRequestFinished(LoginReputationClientResponse::SAFE);
@@ -1156,14 +1126,14 @@ TEST_F(ChromePasswordProtectionServiceTest,
   GURL url_b("https://www.phishingb.com");
   GURL url_c("https://www.phishingc.com");
 
-  DictionaryPrefUpdate update(profile()->GetPrefs(),
+  ScopedDictPrefUpdate update(profile()->GetPrefs(),
                               prefs::kSafeBrowsingUnhandledGaiaPasswordReuses);
-  update->SetKey(Origin::Create(url_a).Serialize(),
-                 base::Value("navigation_id_a"));
-  update->SetKey(Origin::Create(url_b).Serialize(),
-                 base::Value("navigation_id_b"));
-  update->SetKey(Origin::Create(url_c).Serialize(),
-                 base::Value("navigation_id_c"));
+  update->Set(Origin::Create(url_a).Serialize(),
+              base::Value("navigation_id_a"));
+  update->Set(Origin::Create(url_b).Serialize(),
+              base::Value("navigation_id_b"));
+  update->Set(Origin::Create(url_c).Serialize(),
+              base::Value("navigation_id_c"));
 
   // Delete a https://www.phishinga.com URL.
   history::URLRows deleted_urls;
@@ -1225,7 +1195,8 @@ TEST_F(ChromePasswordProtectionServiceTest,
                  /*is_warning_showing=*/false);
   service_->MaybeReportPasswordReuseDetected(request_.get(), kUserName,
                                              PasswordType::ENTERPRISE_PASSWORD,
-                                             /*is_phishing_url =*/true);
+                                             /*is_phishing_url =*/true,
+                                             /*warning_shown =*/true);
   base::RunLoop().RunUntilIdle();
 
   ASSERT_EQ(1, test_event_router_->GetEventCount(
@@ -1241,7 +1212,8 @@ TEST_F(ChromePasswordProtectionServiceTest,
   service_->SetIsAccountSignedIn(true);
   service_->MaybeReportPasswordReuseDetected(request_.get(), kUserName,
                                              PasswordType::OTHER_GAIA_PASSWORD,
-                                             /*is_phishing_url =*/true);
+                                             /*is_phishing_url =*/true,
+                                             /*warning_shown =*/true);
   base::RunLoop().RunUntilIdle();
 
   ASSERT_EQ(2, test_event_router_->GetEventCount(
@@ -1250,7 +1222,7 @@ TEST_F(ChromePasswordProtectionServiceTest,
   // If no password is used , no event should be sent.
   service_->MaybeReportPasswordReuseDetected(
       request_.get(), kUserName, PasswordType::PASSWORD_TYPE_UNKNOWN,
-      /*is_phishing_url =*/true);
+      /*is_phishing_url =*/true, /*warning_shown =*/true);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(2, test_event_router_->GetEventCount(
                    OnPolicySpecifiedPasswordReuseDetected::kEventName));
@@ -1259,7 +1231,8 @@ TEST_F(ChromePasswordProtectionServiceTest,
   service_->ConfigService(true /*incognito*/, false /*SBER*/);
   service_->MaybeReportPasswordReuseDetected(request_.get(), kUserName,
                                              PasswordType::ENTERPRISE_PASSWORD,
-                                             /*is_phishing_url =*/true);
+                                             /*is_phishing_url =*/true,
+                                             /*warning_shown =*/true);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(2, test_event_router_->GetEventCount(
                    OnPolicySpecifiedPasswordReuseDetected::kEventName));
@@ -1282,7 +1255,8 @@ TEST_F(ChromePasswordProtectionServiceTest,
                  /*is_warning_showing=*/false);
   service_->MaybeReportPasswordReuseDetected(request_.get(), kUserName,
                                              PasswordType::ENTERPRISE_PASSWORD,
-                                             /*is_phishing_url =*/true);
+                                             /*is_phishing_url =*/true,
+                                             /*warning_shown =*/true);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, test_event_router_->GetEventCount(
                    OnPolicySpecifiedPasswordReuseDetected::kEventName));
@@ -1291,7 +1265,8 @@ TEST_F(ChromePasswordProtectionServiceTest,
   // should be sent.
   service_->MaybeReportPasswordReuseDetected(request_.get(), kUserName,
                                              PasswordType::OTHER_GAIA_PASSWORD,
-                                             /*is_phishing_url =*/true);
+                                             /*is_phishing_url =*/true,
+                                             /*warning_shown =*/true);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, test_event_router_->GetEventCount(
                    OnPolicySpecifiedPasswordReuseDetected::kEventName));
@@ -1299,7 +1274,7 @@ TEST_F(ChromePasswordProtectionServiceTest,
   // If user is a Gmail user and no password is used , no event should be sent.
   service_->MaybeReportPasswordReuseDetected(
       request_.get(), kUserName, PasswordType::PASSWORD_TYPE_UNKNOWN,
-      /*is_phishing_url =*/true);
+      /*is_phishing_url =*/true, /*warning_shown*/ true);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, test_event_router_->GetEventCount(
                    OnPolicySpecifiedPasswordReuseDetected::kEventName));
@@ -1315,7 +1290,7 @@ TEST_F(ChromePasswordProtectionServiceTest, VerifyGetWarningDetailTextSaved) {
   EXPECT_EQ(warning_text, service_->GetWarningDetailText(reused_password_type));
 }
 
-TEST_F(ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest,
+TEST_F(ChromePasswordProtectionServiceTest,
        VerifyGetWarningDetailTextEnterprise) {
   std::u16string warning_text_non_sync = l10n_util::GetStringUTF16(
       IDS_PAGE_INFO_CHANGE_PASSWORD_DETAILS_SIGNED_IN_NON_SYNC);
@@ -1354,8 +1329,7 @@ TEST_F(ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest,
             service_->GetWarningDetailText(reused_password_type));
 }
 
-TEST_F(ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest,
-       VerifyGetWarningDetailTextGmail) {
+TEST_F(ChromePasswordProtectionServiceTest, VerifyGetWarningDetailTextGmail) {
   std::u16string warning_text_non_sync = l10n_util::GetStringUTF16(
       IDS_PAGE_INFO_CHANGE_PASSWORD_DETAILS_SIGNED_IN_NON_SYNC);
   std::u16string warning_text_sync =
@@ -1367,25 +1341,6 @@ TEST_F(ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest,
   reused_password_type.set_is_account_syncing(true);
   EXPECT_EQ(warning_text_sync,
             service_->GetWarningDetailText(reused_password_type));
-}
-
-TEST_F(ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest,
-       VerifyCanShowInterstitial) {
-  // Do not show interstitial if policy not set for password_alert.
-  ASSERT_FALSE(
-      profile()->GetPrefs()->HasPrefPath(prefs::kSafeBrowsingAllowlistDomains));
-  GURL trigger_url = GURL(kPhishingURL);
-  ReusedPasswordAccountType reused_password_type;
-  reused_password_type.set_account_type(ReusedPasswordAccountType::GSUITE);
-  reused_password_type.set_is_account_syncing(false);
-  service_->SetAccountInfo(kUserName);
-  EXPECT_FALSE(
-      service_->CanShowInterstitial(reused_password_type, trigger_url));
-
-  // Show interstitial if the policy is set to password_alert.
-  profile()->GetPrefs()->SetInteger(prefs::kPasswordProtectionWarningTrigger,
-                                    PASSWORD_REUSE);
-  EXPECT_TRUE(service_->CanShowInterstitial(reused_password_type, trigger_url));
 }
 
 TEST_F(ChromePasswordProtectionServiceTest, VerifyCanShowInterstitial) {
@@ -1428,10 +1383,10 @@ TEST_F(ChromePasswordProtectionServiceTest, VerifyCanShowInterstitial) {
   EXPECT_TRUE(service_->CanShowInterstitial(reused_password_type, trigger_url));
 
   // Add |trigger_url| to enterprise allowlist.
-  base::ListValue allowlisted_domains;
+  base::Value::List allowlisted_domains;
   allowlisted_domains.Append(trigger_url.host());
-  profile()->GetPrefs()->Set(prefs::kSafeBrowsingAllowlistDomains,
-                             allowlisted_domains);
+  profile()->GetPrefs()->SetList(prefs::kSafeBrowsingAllowlistDomains,
+                                 std::move(allowlisted_domains));
   reused_password_type.set_account_type(
       ReusedPasswordAccountType::SAVED_PASSWORD);
   reused_password_type.set_is_account_syncing(false);
@@ -1496,10 +1451,11 @@ TEST_F(ChromePasswordProtectionServiceTest, VerifyGetPingNotSentReason) {
     reused_password_type.set_account_type(ReusedPasswordAccountType::GSUITE);
     profile()->GetPrefs()->SetInteger(prefs::kPasswordProtectionWarningTrigger,
                                       PHISHING_REUSE);
-    base::ListValue allowlist;
+    base::Value::List allowlist;
     allowlist.Append("mydomain.com");
     allowlist.Append("mydomain.net");
-    profile()->GetPrefs()->Set(prefs::kSafeBrowsingAllowlistDomains, allowlist);
+    profile()->GetPrefs()->SetList(prefs::kSafeBrowsingAllowlistDomains,
+                                   std::move(allowlist));
     EXPECT_EQ(RequestOutcome::MATCHED_ENTERPRISE_ALLOWLIST,
               service_->GetPingNotSentReason(
                   LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
@@ -1516,35 +1472,21 @@ TEST_F(ChromePasswordProtectionServiceTest, VerifyGetPingNotSentReason) {
               service_->GetPingNotSentReason(
                   LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
                   GURL("about:blank"), reused_password_type));
+    profile()->GetPrefs()->SetInteger(prefs::kPasswordProtectionWarningTrigger,
+                                      PASSWORD_PROTECTION_OFF);
+  }
+  {
+    // Internal URL
+    ReusedPasswordAccountType reused_password_type;
+    service_->ConfigService(false /*incognito*/, true /*SBER*/);
+    EXPECT_EQ(RequestOutcome::URL_NOT_VALID_FOR_REPUTATION_COMPUTING,
+              service_->GetPingNotSentReason(
+                  LoginReputationClientRequest::UNFAMILIAR_LOGIN_PAGE,
+                  GURL("http://192.168.1.1/"), reused_password_type));
   }
 }
 
-class ChromePasswordProtectionServiceWithSBPageLoadTokenDisabledTest
-    : public ChromePasswordProtectionServiceTest {
- public:
-  ChromePasswordProtectionServiceWithSBPageLoadTokenDisabledTest() {
-    feature_list_.InitAndDisableFeature(kSafeBrowsingPageLoadToken);
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-};
-
-TEST_F(ChromePasswordProtectionServiceWithSBPageLoadTokenDisabledTest,
-       VerifyPageLoadToken) {
-  auto request = std::make_unique<LoginReputationClientRequest>();
-  service_->FillUserPopulation(GURL("https:www.example.com/"), request.get());
-  ASSERT_EQ(0, request->population().page_load_tokens_size());
-}
-
-class ChromePasswordProtectionServiceWithSBPageLoadTokenEnabledTest
-    : public ChromePasswordProtectionServiceTest {
- private:
-  base::test::ScopedFeatureList feature_list_{kSafeBrowsingPageLoadToken};
-};
-
-TEST_F(ChromePasswordProtectionServiceWithSBPageLoadTokenEnabledTest,
-       VerifyPageLoadToken) {
+TEST_F(ChromePasswordProtectionServiceTest, VerifyPageLoadToken) {
   auto request = std::make_unique<LoginReputationClientRequest>();
   service_->FillUserPopulation(GURL("https:www.example.com/"), request.get());
   ASSERT_EQ(1, request->population().page_load_tokens_size());

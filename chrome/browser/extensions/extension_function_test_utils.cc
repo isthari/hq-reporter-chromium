@@ -1,15 +1,15 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/extension_function_test_utils.h"
-#include "base/memory/raw_ptr.h"
 
 #include <string>
 #include <utility>
 
 #include "base/files/file_path.h"
 #include "base/json/json_reader.h"
+#include "base/memory/raw_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/tabs/tabs_constants.h"
 #include "chrome/browser/extensions/browser_extension_window_controller.h"
@@ -42,9 +42,9 @@ class TestFunctionDispatcherDelegate
     return browser_->extension_window_controller();
   }
 
-  WebContents* GetAssociatedWebContents() const override { return NULL; }
+  WebContents* GetAssociatedWebContents() const override { return nullptr; }
 
-  raw_ptr<Browser> browser_;
+  raw_ptr<Browser, DanglingUntriaged> browser_;
 };
 
 }  // namespace
@@ -62,30 +62,30 @@ absl::optional<base::Value> ParseList(const std::string& data) {
   return result;
 }
 
-base::Value::DictStorage ToDictionary(std::unique_ptr<base::Value> val) {
+base::Value::Dict ToDictionary(std::unique_ptr<base::Value> val) {
   if (!val || !val->is_dict()) {
     ADD_FAILURE() << "val is nullptr or is not a dictonary.";
-    return base::Value::DictStorage();
+    return base::Value::Dict();
   }
-  return std::move(*val).TakeDictDeprecated();
+  return std::move(*val).TakeDict();
 }
 
-base::Value::DictStorage ToDictionary(const base::Value& val) {
+base::Value::Dict ToDictionary(const base::Value& val) {
   EXPECT_TRUE(val.is_dict());
   if (!val.is_dict())
-    return base::Value::DictStorage();
-  return val.Clone().TakeDictDeprecated();
+    return base::Value::Dict();
+  return val.GetDict().Clone();
 }
 
-std::unique_ptr<base::ListValue> ToList(std::unique_ptr<base::Value> val) {
+base::Value::List ToList(std::unique_ptr<base::Value> val) {
   if (!val || !val->is_list()) {
     ADD_FAILURE() << "val is nullptr or is not a list.";
-    return nullptr;
+    return base::Value::List();
   }
-  return base::ListValue::From(std::move(val));
+  return std::move(*val).TakeList();
 }
 
-bool HasAnyPrivacySensitiveFields(const base::Value::DictStorage& dict) {
+bool HasAnyPrivacySensitiveFields(const base::Value::Dict& dict) {
   constexpr std::array privacySensitiveKeys{keys::kUrlKey, keys::kTitleKey,
                                             keys::kFaviconUrlKey,
                                             keys::kPendingUrlKey};
@@ -111,9 +111,9 @@ std::string RunFunctionAndReturnError(
   RunFunction(function, args, browser, flags);
   // When sending a response, the function will set an empty list value if there
   // is no specified result.
-  const base::ListValue* results = function->GetResultList();
+  const base::Value::List* results = function->GetResultListForTest();
   CHECK(results);
-  EXPECT_TRUE(results->GetList().empty()) << "Did not expect a result";
+  EXPECT_TRUE(results->empty()) << "Did not expect a result";
   CHECK(function->response_type());
   EXPECT_EQ(ExtensionFunction::FAILED, *function->response_type());
   return function->GetError();
@@ -137,10 +137,10 @@ std::unique_ptr<base::Value> RunFunctionAndReturnSingleResult(
   RunFunction(function, args, browser, flags);
   EXPECT_TRUE(function->GetError().empty()) << "Unexpected error: "
       << function->GetError();
-  if (function->GetResultList() &&
-      !function->GetResultList()->GetList().empty()) {
+  if (function->GetResultListForTest() &&
+      !function->GetResultListForTest()->empty()) {
     return base::Value::ToUniquePtrValue(
-        function->GetResultList()->GetList()[0].Clone());
+        (*function->GetResultListForTest())[0].Clone());
   }
   return nullptr;
 }
@@ -152,22 +152,27 @@ bool RunFunction(ExtensionFunction* function,
   absl::optional<base::Value> maybe_parsed_args(ParseList(args));
   EXPECT_TRUE(maybe_parsed_args)
       << "Could not parse extension function arguments: " << args;
-  std::unique_ptr<base::ListValue> parsed_args(base::ListValue::From(
-      base::Value::ToUniquePtrValue(std::move(*maybe_parsed_args))));
+  return RunFunction(function, std::move(*maybe_parsed_args).TakeList(),
+                     browser, flags);
+}
 
-  return RunFunction(function, std::move(parsed_args), browser, flags);
+bool RunFunction(ExtensionFunction* function,
+                 base::Value::List args,
+                 Browser* browser,
+                 extensions::api_test_utils::RunFunctionFlags flags) {
+  TestFunctionDispatcherDelegate dispatcher_delegate(browser);
+  auto dispatcher = std::make_unique<extensions::ExtensionFunctionDispatcher>(
+      browser->profile());
+  dispatcher->set_delegate(&dispatcher_delegate);
+  return extensions::api_test_utils::RunFunction(function, std::move(args),
+                                                 std::move(dispatcher), flags);
 }
 
 bool RunFunction(ExtensionFunction* function,
                  std::unique_ptr<base::ListValue> args,
                  Browser* browser,
                  extensions::api_test_utils::RunFunctionFlags flags) {
-  TestFunctionDispatcherDelegate dispatcher_delegate(browser);
-  std::unique_ptr<extensions::ExtensionFunctionDispatcher> dispatcher(
-      new extensions::ExtensionFunctionDispatcher(browser->profile()));
-  dispatcher->set_delegate(&dispatcher_delegate);
-  return extensions::api_test_utils::RunFunction(function, std::move(args),
-                                                 std::move(dispatcher), flags);
+  return RunFunction(function, std::move(*args).TakeList(), browser, flags);
 }
 
 } // namespace extension_function_test_utils

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/fuchsia/test_component_context_for_process.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "media/capture/video/fuchsia/video_capture_device_factory_fuchsia.h"
 #include "media/fuchsia/camera/fake_fuchsia_camera.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -66,11 +67,6 @@ class HeapBufferHandleProvider final
   ~HeapBufferHandleProvider() override = default;
 
   base::UnsafeSharedMemoryRegion DuplicateAsUnsafeRegion() override {
-    NOTREACHED();
-    return {};
-  }
-
-  mojo::ScopedSharedBufferHandle DuplicateAsMojoBuffer() override {
     NOTREACHED();
     return {};
   }
@@ -166,7 +162,8 @@ class TestVideoCaptureClient final : public VideoCaptureDevice::Client {
       CapturedExternalVideoBuffer buffer,
       std::vector<CapturedExternalVideoBuffer> scaled_buffers,
       base::TimeTicks reference_time,
-      base::TimeDelta timestamp) override {
+      base::TimeDelta timestamp,
+      gfx::Rect visible_rect) override {
     NOTREACHED();
   }
   void OnIncomingCapturedBuffer(Buffer buffer,

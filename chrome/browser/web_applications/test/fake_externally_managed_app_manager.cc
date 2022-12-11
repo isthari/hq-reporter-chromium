@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/web_applications/test/fake_externally_managed_app_manager.h"
 
-#include <algorithm>
+#include "base/ranges/algorithm.h"
 
 namespace web_app {
 
@@ -25,10 +25,11 @@ void FakeExternallyManagedAppManager::Install(
     OnceInstallCallback callback) {
   install_requests_.push_back(install_options);
   if (handle_install_request_callback_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTaskAndReplyWithResult(
-        FROM_HERE,
-        base::BindOnce(handle_install_request_callback_, install_options),
-        base::BindOnce(std::move(callback), install_options.install_url));
+    base::SingleThreadTaskRunner::GetCurrentDefault()
+        ->PostTaskAndReplyWithResult(
+            FROM_HERE,
+            base::BindOnce(handle_install_request_callback_, install_options),
+            base::BindOnce(std::move(callback), install_options.install_url));
     return;
   }
   ExternallyManagedAppManagerImpl::Install(install_options,
@@ -44,11 +45,11 @@ void FakeExternallyManagedAppManager::InstallApps(
     return;
   }
 
-  std::copy(install_options_list.begin(), install_options_list.end(),
-            std::back_inserter(install_requests_));
+  base::ranges::copy(install_options_list,
+                     std::back_inserter(install_requests_));
   if (!drop_requests_for_testing_) {
     ExternallyManagedAppManagerImpl::InstallApps(install_options_list,
-                                                 std::move(callback));
+                                                 callback);
   }
 }
 
@@ -56,20 +57,20 @@ void FakeExternallyManagedAppManager::UninstallApps(
     std::vector<GURL> uninstall_urls,
     ExternalInstallSource install_source,
     const UninstallCallback& callback) {
-  std::copy(uninstall_urls.begin(), uninstall_urls.end(),
-            std::back_inserter(uninstall_requests_));
+  base::ranges::copy(uninstall_urls, std::back_inserter(uninstall_requests_));
   if (handle_uninstall_request_callback_) {
     for (auto& app_url : uninstall_urls) {
-      base::ThreadTaskRunnerHandle::Get()->PostTaskAndReplyWithResult(
-          FROM_HERE,
-          base::BindOnce(handle_uninstall_request_callback_, app_url,
-                         install_source),
-          base::BindOnce(callback, app_url));
+      base::SingleThreadTaskRunner::GetCurrentDefault()
+          ->PostTaskAndReplyWithResult(
+              FROM_HERE,
+              base::BindOnce(handle_uninstall_request_callback_, app_url,
+                             install_source),
+              base::BindOnce(callback, app_url));
     }
     return;
   }
   ExternallyManagedAppManagerImpl::UninstallApps(uninstall_urls, install_source,
-                                                 std::move(callback));
+                                                 callback);
 }
 
 void FakeExternallyManagedAppManager::SetHandleInstallRequestCallback(

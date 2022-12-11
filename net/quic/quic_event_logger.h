@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include "net/base/net_export.h"
 #include "net/cert/cert_verify_result.h"
 #include "net/log/net_log_with_source.h"
-#include "net/third_party/quiche/src/quic/core/quic_connection.h"
-#include "net/third_party/quiche/src/quic/core/quic_packet_creator.h"
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_connection.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_packet_creator.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_session.h"
 
 namespace net {
 
@@ -49,6 +49,7 @@ class NET_EXPORT_PRIVATE QuicEventLogger
                     quic::EncryptionLevel encryption_level,
                     quic::TransmissionType transmission_type,
                     quic::QuicTime detection_time) override;
+  void OnConfigProcessed(const SendParameters& parameters) override;
   void OnPacketReceived(const quic::QuicSocketAddress& self_address,
                         const quic::QuicSocketAddress& peer_address,
                         const quic::QuicEncryptedPacket& packet) override;

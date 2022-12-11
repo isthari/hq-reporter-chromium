@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,6 +59,17 @@ v8::Local<v8::Value> V8ThrowDOMException::CreateOrEmpty(
   auto* dom_exception = MakeGarbageCollected<DOMException>(
       exception_code, sanitized_message, unsanitized_message);
   return AttachStackProperty(isolate, dom_exception);
+}
+
+v8::Local<v8::Value> V8ThrowDOMException::CreateOrDie(
+    v8::Isolate* isolate,
+    DOMExceptionCode exception_code,
+    const String& sanitized_message,
+    const String& unsanitized_message) {
+  v8::Local<v8::Value> v8_value = CreateOrEmpty(
+      isolate, exception_code, sanitized_message, unsanitized_message);
+  CHECK(!v8_value.IsEmpty());
+  return v8_value;
 }
 
 v8::Local<v8::Value> V8ThrowDOMException::AttachStackProperty(

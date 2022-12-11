@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <array>
 
 #include "base/callback.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/point.h"
@@ -18,6 +18,12 @@
 #include "ui/gfx/hdr_metadata.h"
 #include "ui/gfx/video_types.h"
 #include "ui/gl/gl_export.h"
+
+#if BUILDFLAG(IS_WIN)
+#include <Unknwnbase.h>
+#include <wrl/client.h>
+#include "ui/gl/dcomp_surface_proxy.h"
+#endif
 
 namespace gl {
 class GLImage;
@@ -35,6 +41,16 @@ struct GL_EXPORT DCRendererLayerParams {
   enum : size_t { kNumImages = 2 };
   using OverlayImages = std::array<scoped_refptr<gl::GLImage>, kNumImages>;
   OverlayImages images;
+
+#if BUILDFLAG(IS_WIN)
+  // DCOMPSurfaceProxy corresponding to MF video renderer.
+  scoped_refptr<gl::DCOMPSurfaceProxy> dcomp_surface_proxy;
+  // |dcomp_surface_serial| is associated with |dcomp_visual_content| of
+  // IDCompositionSurface type. New value indicates that dcomp surface data is
+  // updated.
+  uint64_t dcomp_surface_serial = 0;
+  Microsoft::WRL::ComPtr<IUnknown> dcomp_visual_content;
+#endif
 
   // Stacking order relative to backbuffer which has z-order 0.
   int z_order = 1;
@@ -56,6 +72,8 @@ struct GL_EXPORT DCRendererLayerParams {
       gfx::ProtectedVideoType::kClear;
 
   gfx::HDRMetadata hdr_metadata;
+
+  bool is_video_fullscreen_letterboxing = false;
 };
 
 }  // namespace ui

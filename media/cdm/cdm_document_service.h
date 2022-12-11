@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,14 @@
 #endif  // BUILDFLAG(IS_WIN)
 
 namespace media {
+
+// Important events happened to the CDM.
+enum class CdmEvent {
+  kSignificantPlayback,  // Significant (e.g. played >1 minute) successful
+                         // playback happened using the CDM.
+  kPlaybackError,        // Error happened during playback using the CDM.
+  kCdmError,             // Error happened in the CDM.
+};
 
 class MEDIA_EXPORT CdmDocumentService {
  public:
@@ -74,6 +82,11 @@ class MEDIA_EXPORT CdmDocumentService {
   // Pref Service so that it can be reused next time the CDM request a new
   // license for that origin.
   virtual void SetCdmClientToken(const std::vector<uint8_t>& client_token) = 0;
+
+  // Reports a CDM event. This can be used for metrics reporting or fallback
+  // logic, e.g. disable the CDM in the current robustness level. For error
+  // events, the `hresult` provides more details about the error.
+  virtual void OnCdmEvent(CdmEvent event, HRESULT hresult) = 0;
 #endif  // BUILDFLAG(IS_WIN)
 };
 

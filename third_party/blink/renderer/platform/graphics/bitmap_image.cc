@@ -34,7 +34,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "cc/paint/paint_flags.h"
 #include "third_party/blink/renderer/platform/graphics/bitmap_image_metrics.h"
-#include "third_party/blink/renderer/platform/graphics/dark_mode_filter_helper.h"
 #include "third_party/blink/renderer/platform/graphics/deferred_image_decoder.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/image_observer.h"
@@ -45,6 +44,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 #include "third_party/blink/renderer/platform/timer.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "ui/gfx/geometry/rect_f.h"
 
@@ -176,11 +176,8 @@ bool BitmapImage::GetHotSpot(gfx::Point& hot_spot) const {
 bool BitmapImage::ShouldReportByteSizeUMAs(bool data_now_completely_received) {
   if (!decoder_)
     return false;
-  // Ensures that refactoring to check truthiness of ByteSize() method is
-  // equivalent to the previous use of Data() and does not mess up UMAs.
-  DCHECK_EQ(!decoder_->ByteSize(), !decoder_->Data());
   return !all_data_received_ && data_now_completely_received &&
-         decoder_->ByteSize() && IsSizeAvailable();
+         decoder_->ByteSize() != 0 && IsSizeAvailable();
 }
 
 Image::SizeAvailability BitmapImage::SetData(scoped_refptr<SharedBuffer> data,
@@ -251,6 +248,10 @@ String BitmapImage::FilenameExtension() const {
   return decoder_ ? decoder_->FilenameExtension() : String();
 }
 
+const AtomicString& BitmapImage::MimeType() const {
+  return decoder_ ? decoder_->MimeType() : g_null_atom;
+}
+
 void BitmapImage::Draw(cc::PaintCanvas* canvas,
                        const cc::PaintFlags& flags,
                        const gfx::RectF& dst_rect,
@@ -264,9 +265,11 @@ void BitmapImage::Draw(cc::PaintCanvas* canvas,
 
   auto paint_image_decoding_mode =
       ToPaintImageDecodingMode(draw_options.decode_mode);
-  if (image.decoding_mode() != paint_image_decoding_mode) {
+  if (image.decoding_mode() != paint_image_decoding_mode ||
+      image.may_be_lcp_candidate() != draw_options.may_be_lcp_candidate) {
     image = PaintImageBuilder::WithCopy(std::move(image))
                 .set_decoding_mode(paint_image_decoding_mode)
+                .set_may_be_lcp_candidate(draw_options.may_be_lcp_candidate)
                 .TakePaintImage();
   }
 
@@ -311,12 +314,10 @@ void BitmapImage::Draw(cc::PaintCanvas* canvas,
 
   const cc::PaintFlags* image_flags = &flags;
   absl::optional<cc::PaintFlags> dark_mode_flags;
-  if (draw_options.apply_dark_mode) {
+  if (draw_options.dark_mode_filter) {
     dark_mode_flags = flags;
-    DarkModeFilter* dark_mode_filter = draw_options.dark_mode_filter;
-    DarkModeFilterHelper::ApplyToImageIfNeeded(
-        *dark_mode_filter, this, &dark_mode_flags.value(),
-        gfx::RectFToSkRect(src_rect), gfx::RectFToSkRect(dst_rect));
+    draw_options.dark_mode_filter->ApplyFilterToImage(
+        this, &dark_mode_flags.value(), gfx::RectFToSkRect(src_rect));
     image_flags = &dark_mode_flags.value();
   }
   canvas->drawImageRect(

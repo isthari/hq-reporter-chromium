@@ -122,9 +122,17 @@ the following process:
     * If there are objections, then the decision should be escalated to
       the [../CHROME_ENG_REVIEW](//CHROME_ENG_REVIEW) for resolution.
 
+Note: For the purpose of not slowing down code review, Chromium removes
+inactive owners (e.g., those who made no contributions for multiple quarters)
+on a regular basis. The script does not take into account personal situations
+like a long leave. If you were inactive only for a certain period of time
+while you were on a long leave and have been meeting the above owner's
+expectations in other times, you can create a CL to re-add yourself and land
+after getting local owner's approval (you can refer to this policy in the CL).
+
 ### OWNERS file details
 
-Refer to the [source code](https://chromium.googlesource.com/chromium/tools/depot_tools/+/main/owners.py)
+Refer to the [owners plugin](https://github.com/GerritCodeReview/plugins_code-owners/blob/master/resources/Documentation/backend-find-owners.md)
 for all details on the file format.
 
 This example indicates that two people are owners, in addition to any owners
@@ -171,19 +179,15 @@ per-file foo.*=a@chromium.org
 per-file readme.txt=*
 ```
 
-Note that `per-file` directives cannot directly specify subdirectories, e.g:
-```
-per-file foo/bar.cc=a@chromium.org
-```
-
-is not OK; instead, place a `per-file` directive in `foo/OWNERS`.
-
 Other `OWNERS` files can be included by reference by listing the path to the
 file with `file://...`. This example indicates that only the people listed in
 `//ipc/SECURITY_OWNERS` can review the messages files:
 ```
 per-file *_messages*.h=set noparent
 per-file *_messages*.h=file://ipc/SECURITY_OWNERS
+
+File globbing is supported using the
+[simple path expression format](https://github.com/GerritCodeReview/plugins_code-owners/blob/master/resources/Documentation/path-expressions.md#simplePathExpressions)
 ```
 
 ### Owners-Override
@@ -216,8 +220,9 @@ available, please send an email to lsc-owners-override@chromium.org for help.
 
 Note that Owners-Override by itself is not enough on your own CLs. Where this
 matters is when you are sheriffing. For example, if you want to revert or
-disable a test, your Owners-Override on the CL is not enough. You need
-another committer to LGTM the CL.
+disable a test, your Owners-Override on the CL is not enough. You also need
+either another committer to LGTM the CL or, for clean reverts, a `Bot-Commit:
++1` from the [rubber-stamper bot](#automated-code_review).
 
 ## Mechanical changes
 

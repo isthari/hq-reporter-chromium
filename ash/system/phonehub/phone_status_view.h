@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 #define ASH_SYSTEM_PHONEHUB_PHONE_STATUS_VIEW_H_
 
 #include "ash/ash_export.h"
-#include "ash/components/phonehub/phone_model.h"
 #include "ash/system/power/power_status.h"
 #include "ash/system/tray/tri_view.h"
 #include "base/gtest_prod_util.h"
+#include "chromeos/ash/components/phonehub/phone_model.h"
 
 namespace views {
 class ImageView;
@@ -36,6 +36,9 @@ class ASH_EXPORT PhoneStatusView : public TriView,
   ~PhoneStatusView() override;
   PhoneStatusView(PhoneStatusView&) = delete;
   PhoneStatusView operator=(PhoneStatusView&) = delete;
+
+  // TriView:
+  void OnThemeChanged() override;
 
   // phonehub::PhoneHubModel::Observer:
   void OnModelChanged() override;

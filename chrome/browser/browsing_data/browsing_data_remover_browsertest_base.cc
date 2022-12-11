@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/files/file_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
+#include "base/ranges/algorithm.h"
 #include "base/test/bind.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
@@ -139,7 +140,7 @@ BrowsingDataRemoverBrowserTestBase::~BrowsingDataRemoverBrowserTestBase() =
     default;
 
 void BrowsingDataRemoverBrowserTestBase::InitFeatureList(
-    std::vector<base::Feature> enabled_features) {
+    std::vector<base::test::FeatureRef> enabled_features) {
   feature_list_.InitWithFeatures(enabled_features, {});
 }
 
@@ -373,7 +374,7 @@ bool BrowsingDataRemoverBrowserTestBase::CheckUserDirectoryForString(
           pos < 30 ? 0 : pos - 30,
           std::min(content.size() - 1, pos + hostname.size() + 30));
       LOG(WARNING) << "Found file content: " << file << "\n"
-                   << partial_content << "\n";
+                   << partial_content << "\n" << found;
     }
   }
   return found;
@@ -384,12 +385,11 @@ int BrowsingDataRemoverBrowserTestBase::GetCookiesTreeModelCount(
   int count = 0;
   for (const auto& node : root->children()) {
     EXPECT_GE(node->children().size(), 1u);
-    count += std::count_if(node->children().cbegin(), node->children().cend(),
-                           [](const auto& child) {
-                             // TODO(crbug.com/642955): Include quota nodes.
-                             return child->GetDetailedInfo().node_type !=
-                                    CookieTreeNode::DetailedInfo::TYPE_QUOTA;
-                           });
+    count += base::ranges::count_if(node->children(), [](const auto& child) {
+      // TODO(crbug.com/1307796): Include quota nodes.
+      return child->GetDetailedInfo().node_type !=
+             CookieTreeNode::DetailedInfo::TYPE_QUOTA;
+    });
   }
   return count;
 }
@@ -438,14 +438,14 @@ BrowsingDataRemoverBrowserTestBase::GetCookiesTreeModel(Profile* profile) {
       base::MakeRefCounted<browsing_data::SharedWorkerHelper>(
           storage_partition),
       base::MakeRefCounted<browsing_data::CacheStorageHelper>(
-          storage_partition),
-      BrowsingDataMediaLicenseHelper::Create(file_system_context));
+          storage_partition));
   base::RunLoop run_loop;
   CookiesTreeObserver observer(run_loop.QuitClosure());
   auto model = std::make_unique<CookiesTreeModel>(
       std::move(container), profile->GetExtensionSpecialStoragePolicy());
   model->AddCookiesTreeObserver(&observer);
   run_loop.Run();
+  model->RemoveCookiesTreeObserver(&observer);
   return model;
 }
 
@@ -455,9 +455,10 @@ bool BrowsingDataRemoverBrowserTestBase::SetGaiaCookieForProfile(
   GURL google_url = GaiaUrls::GetInstance()->secure_google_url();
   auto cookie = net::CanonicalCookie::CreateUnsafeCookieForTesting(
       "SAPISID", std::string(), "." + google_url.host(), "/", base::Time(),
-      base::Time(), base::Time(), true /* secure */, false /* httponly */,
-      net::CookieSameSite::NO_RESTRICTION, net::COOKIE_PRIORITY_DEFAULT,
-      false /* same_party */);
+      base::Time(), base::Time(), base::Time(), /*secure=*/true,
+      /*httponly=*/false, net::CookieSameSite::NO_RESTRICTION,
+      net::COOKIE_PRIORITY_DEFAULT,
+      /*same_party=*/false);
   bool success = false;
   base::RunLoop loop;
   base::OnceCallback<void(net::CookieAccessResult)> callback =

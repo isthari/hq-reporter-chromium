@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,14 +46,15 @@ class ReceiverController;
 // via RPC calls. When Receiver receives RPC calls, it will call the
 // corresponding functions of |renderer_| to control the media playback of
 // the remoting media.
-class Receiver final : public Renderer,
-                       public RendererClient,
-                       public cast_streaming::remoting::RpcCallMessageHandler {
+class Receiver final
+    : public Renderer,
+      public RendererClient,
+      public cast_streaming::remoting::RpcRendererCallMessageHandler {
  public:
   Receiver(int rpc_handle,
            int remote_handle,
            ReceiverController* receiver_controller,
-           const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner,
+           const scoped_refptr<base::SequencedTaskRunner>& media_task_runner,
            std::unique_ptr<Renderer> renderer,
            base::OnceCallback<void(int)> acquire_renderer_done_cb);
   ~Receiver() override;
@@ -69,9 +70,11 @@ class Receiver final : public Renderer,
   void SetPlaybackRate(double playback_rate) override;
   void SetVolume(float volume) override;
   base::TimeDelta GetMediaTime() override;
+  RendererType GetRendererType() override;
 
   // RendererClient implementation.
   void OnError(PipelineStatus status) override;
+  void OnFallback(PipelineStatus status) override;
   void OnEnded() override;
   void OnStatisticsUpdate(const PipelineStatistics& stats) override;
   void OnBufferingStateChange(BufferingState state,
@@ -138,7 +141,7 @@ class Receiver final : public Renderer,
   const scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
 
   // Media tasks should run on media thread.
-  const scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
+  const scoped_refptr<base::SequencedTaskRunner> media_task_runner_;
 
   // |renderer_| is the real renderer to render media.
   std::unique_ptr<Renderer> renderer_;

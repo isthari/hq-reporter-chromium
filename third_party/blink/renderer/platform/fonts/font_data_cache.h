@@ -67,10 +67,12 @@ struct FontDataCacheKeyHash {
   static const bool safe_to_compare_to_empty_or_deleted = true;
 };
 
-class FontDataCache {
+class FontDataCache final {
   USING_FAST_MALLOC(FontDataCache);
 
  public:
+  static std::unique_ptr<FontDataCache> Create();
+
   FontDataCache() = default;
   FontDataCache(const FontDataCache&) = delete;
   FontDataCache& operator=(const FontDataCache&) = delete;
@@ -92,8 +94,10 @@ class FontDataCache {
                   std::pair<scoped_refptr<SimpleFontData>, unsigned>,
                   FontDataCacheKeyHash>
       Cache;
+
   Cache cache_;
   LinkedHashSet<scoped_refptr<SimpleFontData>> inactive_font_data_;
+  bool is_purging_ = false;
 };
 
 }  // namespace blink

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,6 +35,7 @@ class TabHandleLayer : public Layer {
 
   void SetProperties(int id,
                      ui::Resource* close_button_resource,
+                     ui::Resource* divider_resource,
                      ui::NinePatchResource* tab_handle_resource,
                      ui::NinePatchResource* tab_handle_outline_resource,
                      bool foreground,
@@ -45,10 +46,14 @@ class TabHandleLayer : public Layer {
                      float width,
                      float height,
                      float content_offset_x,
+                     float divider_offset_x,
+                     float bottom_offset_y,
                      float close_button_alpha,
+                     float divider_alpha,
                      bool is_loading,
                      float spinner_rotation,
-                     float brightness);
+                     float brightness,
+                     float opacity);
   scoped_refptr<cc::Layer> layer() override;
 
  protected:
@@ -59,12 +64,15 @@ class TabHandleLayer : public Layer {
   raw_ptr<LayerTitleCache> layer_title_cache_;
 
   scoped_refptr<cc::Layer> layer_;
+  scoped_refptr<cc::Layer> tab_;
   scoped_refptr<cc::UIResourceLayer> close_button_;
+  scoped_refptr<cc::UIResourceLayer> divider_;
   scoped_refptr<cc::NinePatchLayer> decoration_tab_;
   scoped_refptr<cc::NinePatchLayer> tab_outline_;
   scoped_refptr<cc::Layer> title_layer_;
 
   float brightness_;
+  float opacity_;
   bool foreground_;
 };
 

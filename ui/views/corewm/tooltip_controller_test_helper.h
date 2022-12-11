@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,11 +17,11 @@ namespace aura {
 class Window;
 }
 
-namespace views {
-namespace corewm {
+namespace base {
+class TimeDelta;
+}
 
-
-namespace test {
+namespace views::corewm::test {
 
 // TooltipControllerTestHelper provides access to TooltipControllers private
 // state.
@@ -46,16 +46,17 @@ class TooltipControllerTestHelper {
   const aura::Window* GetTooltipParentWindow();
   const aura::Window* GetObservedWindow();
   const gfx::Point& GetTooltipPosition();
+  base::TimeDelta GetShowTooltipDelay();
   void HideAndReset();
   void UpdateIfRequired(TooltipTrigger trigger);
   void FireHideTooltipTimer();
   bool IsHideTooltipTimerRunning();
   bool IsTooltipVisible();
-  void SetTooltipShowDelayEnable(bool tooltip_show_delay);
+  void SkipTooltipShowDelay(bool enable);
   void MockWindowActivated(aura::Window* window, bool active);
 
  private:
-  raw_ptr<TooltipController> controller_;
+  raw_ptr<TooltipController, DanglingUntriaged> controller_;
 };
 
 // Trivial View subclass that lets you set the tooltip text.
@@ -79,8 +80,6 @@ class TooltipTestView : public views::View {
   std::u16string tooltip_text_;
 };
 
-}  // namespace test
-}  // namespace corewm
-}  // namespace views
+}  // namespace views::corewm::test
 
 #endif  // UI_VIEWS_COREWM_TOOLTIP_CONTROLLER_TEST_HELPER_H_

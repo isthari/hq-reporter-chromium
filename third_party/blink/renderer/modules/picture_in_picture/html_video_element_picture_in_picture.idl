@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,5 @@ partial interface HTMLVideoElement {
     [RuntimeEnabled=PictureInPictureAPI] attribute EventHandler onenterpictureinpicture;
     [RuntimeEnabled=PictureInPictureAPI] attribute EventHandler onleavepictureinpicture;
 
-    [RuntimeEnabled=AutoPictureInPicture, CEReactions, Measure, Reflect] attribute boolean autoPictureInPicture;
     [RuntimeEnabled=PictureInPictureAPI, CEReactions, Measure, Reflect] attribute boolean disablePictureInPicture;
 };

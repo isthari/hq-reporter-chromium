@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,14 +17,20 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.Mock;
+import org.mockito.junit.MockitoJUnit;
+import org.mockito.junit.MockitoRule;
 
+import org.chromium.base.jank_tracker.JankMetricUMARecorder;
+import org.chromium.base.jank_tracker.JankMetricUMARecorderJni;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
+import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.webapps.WebApkActivityLifecycleUmaTracker;
@@ -34,7 +40,7 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeApplicationTestUtils;
 import org.chromium.chrome.test.util.ChromeTabUtils;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
+import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 
@@ -42,6 +48,7 @@ import org.chromium.net.test.EmbeddedTestServer;
  * Tests for startup timing histograms.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
+@Batch(Batch.PER_CLASS)
 @CommandLineFlags.Add(ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE)
 public class StartupLoadingMetricsTest {
     private static final String TAG = "StartupLoadingTest";
@@ -70,6 +77,15 @@ public class StartupLoadingMetricsTest {
     @Rule
     public WebApkActivityTestRule mWebApkActivityTestRule = new WebApkActivityTestRule();
 
+    @Rule
+    public JniMocker mJniMocker = new JniMocker();
+
+    @Rule
+    public MockitoRule mMockitoRule = MockitoJUnit.rule();
+
+    @Mock
+    JankMetricUMARecorder.Natives mJankRecorderNativeMock;
+
     private String mTestPage;
     private String mTestPage2;
     private String mErrorPage;
@@ -86,6 +102,7 @@ public class StartupLoadingMetricsTest {
         mTestPage2 = mTestServer.getURL(TEST_PAGE_2);
         mErrorPage = mTestServer.getURL(ERROR_PAGE);
         mSlowPage = mTestServer.getURL(SLOW_PAGE);
+        mJniMocker.mock(JankMetricUMARecorderJni.TEST_HOOKS, mJankRecorderNativeMock);
     }
 
     @After
@@ -99,7 +116,7 @@ public class StartupLoadingMetricsTest {
         PageLoadMetricsTest.PageLoadMetricsTestObserver testObserver =
                 new PageLoadMetricsTest.PageLoadMetricsTestObserver();
         TestThreadUtils.runOnUiThreadBlockingNoException(
-                () -> PageLoadMetrics.addObserver(testObserver));
+                () -> PageLoadMetrics.addObserver(testObserver, false));
         runnable.run();
         // First Contentful Paint may be recorded asynchronously after a page load is finished, we
         // have to wait the event to occur.
@@ -182,7 +199,7 @@ public class StartupLoadingMetricsTest {
     @LargeTest
     public void testNTPNotRecorded() throws Exception {
         runAndWaitForPageLoadMetricsRecorded(
-                () -> mTabbedActivityTestRule.startMainActivityFromLauncher());
+                () -> mTabbedActivityTestRule.startMainActivityWithURL(UrlConstants.NTP_URL));
         assertHistogramsRecorded(0, TABBED_SUFFIX);
         loadUrlAndWaitForPageLoadMetricsRecorded(mTabbedActivityTestRule, mTestPage2);
         assertHistogramsRecorded(0, TABBED_SUFFIX);
@@ -274,7 +291,7 @@ public class StartupLoadingMetricsTest {
 
     @Test
     @LargeTest
-    @DisableFeatures(ChromeFeatureList.ELIDE_TAB_PRELOAD_AT_STARTUP)
+    @DisabledTest(message = "https://crbug.com/1313210")
     public void testRecordingOfFirstNavigationCommitPreForeground() throws Exception {
         UmaUtils.skipRecordingNextForegroundStartTimeForTesting();
 
@@ -303,7 +320,7 @@ public class StartupLoadingMetricsTest {
                         FIRST_COMMIT_OCCURRED_PRE_FOREGROUND_HISTOGRAM, 1));
 
         // Trigger the come-to-foreground event.
-        TestThreadUtils.runOnUiThreadBlocking(() -> UmaUtils.recordForegroundStartTime());
+        TestThreadUtils.runOnUiThreadBlocking(() -> UmaUtils.recordForegroundStartTimeWithNative());
 
         // Startup metrics should still not have been recorded...
         Assert.assertEquals(0,

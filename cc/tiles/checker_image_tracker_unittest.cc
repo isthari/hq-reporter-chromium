@@ -1,12 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "cc/tiles/checker_image_tracker.h"
 
+#include <memory>
+#include <unordered_set>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "cc/paint/paint_image_builder.h"
 #include "cc/test/skia_common.h"
 #include "cc/tiles/image_controller.h"
@@ -23,13 +27,15 @@ const int kCheckerableImageDimension = 512;
 const int kLargeNonCheckerableImageDimension = 1145;
 const int kSmallNonCheckerableImageDimension = 16;
 
+const TargetColorParams kDefaultTargetColorParams;
+
 class TestImageController : public ImageController {
  public:
   // We can use the same thread for the image worker because all use of it in
   // the ImageController is over-ridden here.
   TestImageController()
-      : ImageController(base::ThreadTaskRunnerHandle::Get().get(),
-                        base::ThreadTaskRunnerHandle::Get()) {
+      : ImageController(base::SingleThreadTaskRunner::GetCurrentDefault().get(),
+                        base::SingleThreadTaskRunner::GetCurrentDefault()) {
     SetMaxImageCacheLimitBytesForTesting(kMaxImageCacheSizeBytes);
   }
 
@@ -125,7 +131,7 @@ class CheckerImageTrackerTest : public testing::Test,
                          .TakePaintImage(),
                      false, SkIRect::MakeWH(dimension, dimension),
                      PaintFlags::FilterQuality::kNone, SkM44(),
-                     PaintImage::kDefaultFrameIndex, gfx::ColorSpace());
+                     PaintImage::kDefaultFrameIndex, kDefaultTargetColorParams);
   }
 
   bool ShouldCheckerImage(const DrawImage& draw_image, WhichTree tree) {
@@ -439,7 +445,7 @@ TEST_F(CheckerImageTrackerTest, CheckersOnlyStaticCompletedImages) {
           .TakePaintImage(),
       false, SkIRect::MakeWH(image_size.width(), image_size.height()),
       PaintFlags::FilterQuality::kNone, SkM44(), PaintImage::kDefaultFrameIndex,
-      gfx::ColorSpace());
+      kDefaultTargetColorParams);
   EXPECT_FALSE(
       ShouldCheckerImage(completed_paint_image, WhichTree::PENDING_TREE));
 }
@@ -467,11 +473,11 @@ TEST_F(CheckerImageTrackerTest, ChoosesMaxScaleAndQuality) {
 
   DrawImage image = CreateImage(ImageType::CHECKERABLE);
   DrawImage scaled_image1(image, 0.5f, PaintImage::kDefaultFrameIndex,
-                          gfx::ColorSpace());
+                          TargetColorParams());
   DrawImage scaled_image2 =
       DrawImage(image.paint_image(), false, image.src_rect(),
                 PaintFlags::FilterQuality::kHigh, SkM44::Scale(1.8f, 1.8f),
-                PaintImage::kDefaultFrameIndex, gfx::ColorSpace());
+                PaintImage::kDefaultFrameIndex, kDefaultTargetColorParams);
 
   std::vector<DrawImage> draw_images = {scaled_image1, scaled_image2};
   CheckerImageTracker::ImageDecodeQueue image_decode_queue =
@@ -544,9 +550,10 @@ TEST_F(CheckerImageTrackerTest, UseSrcRectForSize) {
   // Create an image with checkerable dimensions and subrect it. It should not
   // be checkered.
   DrawImage image = CreateImage(ImageType::CHECKERABLE);
-  image = DrawImage(image.paint_image(), false, SkIRect::MakeWH(200, 200),
-                    image.filter_quality(), SkM44(),
-                    PaintImage::kDefaultFrameIndex, image.target_color_space());
+  image =
+      DrawImage(image.paint_image(), false, SkIRect::MakeWH(200, 200),
+                image.filter_quality(), SkM44(), PaintImage::kDefaultFrameIndex,
+                image.target_color_params());
   EXPECT_FALSE(ShouldCheckerImage(image, WhichTree::PENDING_TREE));
 }
 

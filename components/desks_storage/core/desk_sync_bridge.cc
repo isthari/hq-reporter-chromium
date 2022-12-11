@@ -1,15 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/desks_storage/core/desk_sync_bridge.h"
 
-#include <algorithm>
-
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/desk_template.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/guid.h"
 #include "base/json/json_writer.h"
 #include "base/memory/ptr_util.h"
@@ -17,15 +17,19 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "build/chromeos_buildflags.h"
 #include "chromeos/ui/base/window_state_type.h"
 #include "components/account_id/account_id.h"
+#include "components/app_constants/constants.h"
 #include "components/app_restore/app_launch_info.h"
 #include "components/app_restore/window_info.h"
 #include "components/desks_storage/core/desk_model_observer.h"
 #include "components/desks_storage/core/desk_template_conversion.h"
 #include "components/desks_storage/core/desk_template_util.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
 #include "components/services/app_service/public/cpp/app_registry_cache_wrapper.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 #include "components/sync/model/entity_change.h"
 #include "components/sync/model/metadata_batch.h"
 #include "components/sync/model/metadata_change_list.h"
@@ -33,38 +37,54 @@
 #include "components/sync/model/mutable_data_batch.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 #include "components/sync/protocol/workspace_desk_specifics.pb.h"
-#include "extensions/common/constants.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/ui_base_types.h"
+#include "ui/base/window_open_disposition.h"
+
+#if !BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/crosapi/cpp/lacros_startup_state.h"  // nogncheck
+#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 namespace desks_storage {
 
 using BrowserAppTab =
     sync_pb::WorkspaceDeskSpecifics_BrowserAppWindow_BrowserAppTab;
 using BrowserAppWindow = sync_pb::WorkspaceDeskSpecifics_BrowserAppWindow;
+using ArcApp = sync_pb::WorkspaceDeskSpecifics_ArcApp;
+using ArcAppWindowSize = sync_pb::WorkspaceDeskSpecifics_ArcApp_WindowSize;
 using ash::DeskTemplate;
 using ash::DeskTemplateSource;
+using ash::DeskTemplateType;
+using SyncDeskType = sync_pb::WorkspaceDeskSpecifics_DeskType;
 using WindowState = sync_pb::WorkspaceDeskSpecifics_WindowState;
 using WindowBound = sync_pb::WorkspaceDeskSpecifics_WindowBound;
+using LaunchContainer = sync_pb::WorkspaceDeskSpecifics_LaunchContainer;
+// Use name prefixed with Sync here to avoid name collision with original class
+// which isn't defined in a namespace.
+using SyncWindowOpenDisposition =
+    sync_pb::WorkspaceDeskSpecifics_WindowOpenDisposition;
 using ProgressiveWebApp = sync_pb::WorkspaceDeskSpecifics_ProgressiveWebApp;
 using ChromeApp = sync_pb::WorkspaceDeskSpecifics_ChromeApp;
 using WorkspaceDeskSpecifics_App = sync_pb::WorkspaceDeskSpecifics_App;
+using SyncTabGroup = sync_pb::WorkspaceDeskSpecifics_BrowserAppWindow_TabGroup;
+using SyncTabGroupColor = sync_pb::WorkspaceDeskSpecifics_TabGroupColor;
+using TabGroupColor = tab_groups::TabGroupColorId;
 
 namespace {
 
 using syncer::ModelTypeStore;
 
 // The maximum number of templates the local storage can hold.
-constexpr std::size_t kMaxTemplateCount = 6u;
+constexpr size_t kMaxTemplateCount = 6u;
 
 // The maximum number of bytes a template can be.
 // Sync server silently ignores large items. The client-side
 // needs to check item size to avoid sending large items.
 // This limit follows precedent set by the chrome extension API:
 // chrome.storage.sync.QUOTA_BYTES_PER_ITEM.
-constexpr std::size_t kMaxTemplateSize = 8192u;
+constexpr size_t kMaxTemplateSize = 8192u;
 
-// Allocate a EntityData and copies |specifics| into it.
+// Allocate a EntityData and copies `specifics` into it.
 std::unique_ptr<syncer::EntityData> CopyToEntityData(
     const sync_pb::WorkspaceDeskSpecifics& specifics) {
   auto entity_data = std::make_unique<syncer::EntityData>();
@@ -75,9 +95,9 @@ std::unique_ptr<syncer::EntityData> CopyToEntityData(
   return entity_data;
 }
 
-// Parses the content of |record_list| into |*desk_templates|.
+// Parses the content of `record_list` into `*desk_templates`.
 absl::optional<syncer::ModelError> ParseDeskTemplatesOnBackendSequence(
-    std::map<base::GUID, std::unique_ptr<DeskTemplate>>* desk_templates,
+    base::flat_map<base::GUID, std::unique_ptr<DeskTemplate>>* desk_templates,
     std::unique_ptr<ModelTypeStore::RecordList> record_list) {
   DCHECK(desk_templates);
   DCHECK(desk_templates->empty());
@@ -96,7 +116,7 @@ absl::optional<syncer::ModelError> ParseDeskTemplatesOnBackendSequence(
       }
 
       std::unique_ptr<ash::DeskTemplate> entry =
-          DeskSyncBridge::FromSyncProto(*specifics);
+          desk_template_conversion::FromSyncProto(*specifics);
 
       if (!entry)
         continue;
@@ -109,377 +129,6 @@ absl::optional<syncer::ModelError> ParseDeskTemplatesOnBackendSequence(
   }
 
   return absl::nullopt;
-}
-
-// Fill |out_gurls| using tabs' URL in |browser_app_window|.
-void FillUrlList(std::vector<GURL>* out_gurls,
-                 const BrowserAppWindow& browser_app_window) {
-  for (auto tab : browser_app_window.tabs()) {
-    if (tab.has_url())
-      out_gurls->emplace_back(tab.url());
-  }
-}
-
-// Get App ID from App proto.
-std::string GetAppId(const sync_pb::WorkspaceDeskSpecifics_App& app) {
-  switch (app.app().app_case()) {
-    case sync_pb::WorkspaceDeskSpecifics_AppOneOf::AppCase::APP_NOT_SET:
-      // Return an empty string to indicate this app is unsupported.
-      return std::string();
-    case sync_pb::WorkspaceDeskSpecifics_AppOneOf::AppCase::kBrowserAppWindow:
-      // Browser app has a known app ID.
-      return std::string(extension_misc::kChromeAppId);
-    case sync_pb::WorkspaceDeskSpecifics_AppOneOf::AppCase::kChromeApp:
-      return app.app().chrome_app().app_id();
-    case sync_pb::WorkspaceDeskSpecifics_AppOneOf::AppCase::kProgressWebApp:
-      return app.app().progress_web_app().app_id();
-      // Leave out the default case to let compiler to ensure we have
-      // exhaustively handled all cases.
-  }
-}
-
-// Convert App proto to |app_restore::AppLaunchInfo|.
-std::unique_ptr<app_restore::AppLaunchInfo> ConvertToAppLaunchInfo(
-    const sync_pb::WorkspaceDeskSpecifics_App& app) {
-  const int32_t window_id = app.window_id();
-  const std::string app_id = GetAppId(app);
-
-  if (app_id.empty())
-    return nullptr;
-
-  std::unique_ptr<app_restore::AppLaunchInfo> app_launch_info =
-      std::make_unique<app_restore::AppLaunchInfo>(app_id, window_id);
-
-  if (app.has_display_id())
-    app_launch_info->display_id = app.display_id();
-
-  switch (app.app().app_case()) {
-    case sync_pb::WorkspaceDeskSpecifics_AppOneOf::AppCase::APP_NOT_SET:
-      // This should never happen. |APP_NOT_SET| corresponds to empty |app_id|.
-      // This method will early return when |app_id| is empty.
-      NOTREACHED();
-      break;
-    case sync_pb::WorkspaceDeskSpecifics_AppOneOf::AppCase::kBrowserAppWindow:
-      if (app.app().browser_app_window().has_active_tab_index()) {
-        app_launch_info->active_tab_index =
-            app.app().browser_app_window().active_tab_index();
-      }
-
-      app_launch_info->urls.emplace();
-      FillUrlList(&app_launch_info->urls.value(),
-                  app.app().browser_app_window());
-
-      break;
-    case sync_pb::WorkspaceDeskSpecifics_AppOneOf::AppCase::kChromeApp:
-      // |app_id| is enough to identify a Chrome app.
-      break;
-    case sync_pb::WorkspaceDeskSpecifics_AppOneOf::AppCase::kProgressWebApp:
-      // |app_id| is enough to identify a Progressive Web app.
-      break;
-      // Leave out the default case to let compiler to ensure we have
-      // exhaustively handled all cases.
-  }
-
-  return app_launch_info;
-}
-
-// Convert Sync proto WindowState |state| to ui::WindowShowState used by
-// the app_restore::WindowInfo struct.
-ui::WindowShowState ToUiWindowState(WindowState state) {
-  switch (state) {
-    case WindowState::WorkspaceDeskSpecifics_WindowState_UNKNOWN_WINDOW_STATE:
-      return ui::WindowShowState::SHOW_STATE_NORMAL;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_NORMAL:
-      return ui::WindowShowState::SHOW_STATE_NORMAL;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_MINIMIZED:
-      return ui::WindowShowState::SHOW_STATE_MINIMIZED;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_MAXIMIZED:
-      return ui::WindowShowState::SHOW_STATE_MAXIMIZED;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_FULLSCREEN:
-      return ui::WindowShowState::SHOW_STATE_FULLSCREEN;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_PRIMARY_SNAPPED:
-      return ui::WindowShowState::SHOW_STATE_NORMAL;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_SECONDARY_SNAPPED:
-      return ui::WindowShowState::SHOW_STATE_NORMAL;
-      // Leave out the default case to let compiler to ensure we have
-      // exhaustively handled all cases.
-  }
-}
-
-// Convert Sync proto WindowState |state| to chromeos::WindowStateType used by
-// the app_restore::WindowInfo struct.
-chromeos::WindowStateType ToChromeOsWindowState(WindowState state) {
-  switch (state) {
-    case WindowState::WorkspaceDeskSpecifics_WindowState_UNKNOWN_WINDOW_STATE:
-      return chromeos::WindowStateType::kNormal;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_NORMAL:
-      return chromeos::WindowStateType::kNormal;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_MINIMIZED:
-      return chromeos::WindowStateType::kMinimized;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_MAXIMIZED:
-      return chromeos::WindowStateType::kMaximized;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_FULLSCREEN:
-      return chromeos::WindowStateType::kFullscreen;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_PRIMARY_SNAPPED:
-      return chromeos::WindowStateType::kPrimarySnapped;
-    case WindowState::WorkspaceDeskSpecifics_WindowState_SECONDARY_SNAPPED:
-      return chromeos::WindowStateType::kSecondarySnapped;
-      // Leave out the default case to let compiler to ensure we have
-      // exhaustively handled all cases.
-  }
-}
-
-// Convert chromeos::WindowStateType to Sync proto WindowState.
-WindowState FromChromeOsWindowState(chromeos::WindowStateType state) {
-  switch (state) {
-    case chromeos::WindowStateType::kDefault:
-    case chromeos::WindowStateType::kNormal:
-    case chromeos::WindowStateType::kInactive:
-    case chromeos::WindowStateType::kAutoPositioned:
-    case chromeos::WindowStateType::kPinned:
-    case chromeos::WindowStateType::kTrustedPinned:
-    case chromeos::WindowStateType::kPip:
-      return WindowState::WorkspaceDeskSpecifics_WindowState_NORMAL;
-    case chromeos::WindowStateType::kMinimized:
-      return WindowState::WorkspaceDeskSpecifics_WindowState_MINIMIZED;
-    case chromeos::WindowStateType::kMaximized:
-      return WindowState::WorkspaceDeskSpecifics_WindowState_MAXIMIZED;
-    case chromeos::WindowStateType::kFullscreen:
-      return WindowState::WorkspaceDeskSpecifics_WindowState_FULLSCREEN;
-    case chromeos::WindowStateType::kPrimarySnapped:
-      return WindowState::WorkspaceDeskSpecifics_WindowState_PRIMARY_SNAPPED;
-    case chromeos::WindowStateType::kSecondarySnapped:
-      return WindowState::WorkspaceDeskSpecifics_WindowState_SECONDARY_SNAPPED;
-      // Leave out the default case to let compiler to ensure we have
-      // exhaustively handled all cases.
-  }
-}
-
-// Convert ui::WindowShowState to Sync proto WindowState.
-WindowState FromUiWindowState(ui::WindowShowState state) {
-  switch (state) {
-    case ui::WindowShowState::SHOW_STATE_DEFAULT:
-    case ui::WindowShowState::SHOW_STATE_NORMAL:
-    case ui::WindowShowState::SHOW_STATE_INACTIVE:
-    case ui::WindowShowState::SHOW_STATE_END:
-      return WindowState::WorkspaceDeskSpecifics_WindowState_NORMAL;
-    case ui::WindowShowState::SHOW_STATE_MINIMIZED:
-      return WindowState::WorkspaceDeskSpecifics_WindowState_MINIMIZED;
-    case ui::WindowShowState::SHOW_STATE_MAXIMIZED:
-      return WindowState::WorkspaceDeskSpecifics_WindowState_MAXIMIZED;
-    case ui::WindowShowState::SHOW_STATE_FULLSCREEN:
-      return WindowState::WorkspaceDeskSpecifics_WindowState_FULLSCREEN;
-      // Leave out the default case to let compiler to ensure we have
-      // exhaustively handled all cases.
-  }
-}
-
-// Fill |out_browser_app_window| with the given GURLs as BrowserAppTabs.
-void FillBrowserAppTabs(BrowserAppWindow* out_browser_app_window,
-                        const std::vector<GURL>& gurls) {
-  for (const auto& gurl : gurls) {
-    const std::string& url = gurl.spec();
-    if (url.empty()) {
-      // Skip invalid URLs.
-      continue;
-    }
-    BrowserAppTab* browser_app_tab = out_browser_app_window->add_tabs();
-    browser_app_tab->set_url(url);
-  }
-}
-
-// Fill |out_browser_app_window| with urls and tab information from
-// |app_restore_data|.
-void FillBrowserAppWindow(BrowserAppWindow* out_browser_app_window,
-                          const app_restore::AppRestoreData* app_restore_data) {
-  if (app_restore_data->urls.has_value())
-    FillBrowserAppTabs(out_browser_app_window, app_restore_data->urls.value());
-
-  if (app_restore_data->active_tab_index.has_value()) {
-    out_browser_app_window->set_active_tab_index(
-        app_restore_data->active_tab_index.value());
-  }
-}
-
-// Fill |out_window_bound| with information from |bound|.
-void FillWindowBound(WindowBound* out_window_bound, const gfx::Rect& bound) {
-  out_window_bound->set_left(bound.x());
-  out_window_bound->set_top(bound.y());
-  out_window_bound->set_width(bound.width());
-  out_window_bound->set_height(bound.height());
-}
-
-// Fill |out_app| with information from |window_info|.
-void FillAppWithWindowInfo(WorkspaceDeskSpecifics_App* out_app,
-                           const app_restore::WindowInfo* window_info) {
-  if (window_info->activation_index.has_value())
-    out_app->set_z_index(window_info->activation_index.value());
-
-  if (window_info->current_bounds.has_value()) {
-    FillWindowBound(out_app->mutable_window_bound(),
-                    window_info->current_bounds.value());
-  }
-
-  if (window_info->window_state_type.has_value()) {
-    out_app->set_window_state(
-        FromChromeOsWindowState(window_info->window_state_type.value()));
-  }
-
-  if (window_info->pre_minimized_show_state_type.has_value()) {
-    out_app->set_pre_minimized_window_state(
-        FromUiWindowState(window_info->pre_minimized_show_state_type.value()));
-  }
-
-  // AppRestoreData.GetWindowInfo does not include |display_id| in the returned
-  // WindowInfo. Therefore, we are not filling |display_id| here.
-}
-
-//  Fill |out_app| with |display_id| from |app_restore_data|.
-void FillAppWithDisplayId(WorkspaceDeskSpecifics_App* out_app,
-                          const app_restore::AppRestoreData* app_restore_data) {
-  if (app_restore_data->display_id.has_value())
-    out_app->set_display_id(app_restore_data->display_id.value());
-}
-
-// Fill |out_app| with |app_restore_data|.
-void FillApp(WorkspaceDeskSpecifics_App* out_app,
-             const std::string& app_id,
-             const apps::mojom::AppType app_type,
-             const app_restore::AppRestoreData* app_restore_data) {
-  FillAppWithWindowInfo(out_app, app_restore_data->GetWindowInfo().get());
-
-  // AppRestoreData.GetWindowInfo does not include |display_id| in the returned
-  // WindowInfo. We need to fill the |display_id| from AppRestoreData.
-  FillAppWithDisplayId(out_app, app_restore_data);
-
-  // See definition components/services/app_service/public/mojom/types.mojom
-  switch (app_type) {
-    case apps::mojom::AppType::kWeb: {
-      if (extension_misc::kChromeAppId == app_id) {
-        // Chrome Browser Window.
-        BrowserAppWindow* browser_app_window =
-            out_app->mutable_app()->mutable_browser_app_window();
-        FillBrowserAppWindow(browser_app_window, app_restore_data);
-      } else {
-        // PWA app.
-        ProgressiveWebApp* pwa_window =
-            out_app->mutable_app()->mutable_progress_web_app();
-        pwa_window->set_app_id(app_id);
-        if (app_restore_data->title.has_value()) {
-          pwa_window->set_title(
-              base::UTF16ToUTF8(app_restore_data->title.value()));
-        }
-      }
-      break;
-    }
-    case apps::mojom::AppType::kStandaloneBrowser: {
-      // Lacros Browser App. This is currently unsupported.
-      // Note, Lacros-chrome has app ID kLacrosAppId, that is different than
-      // kChromeAppId.
-      break;
-    }
-    case apps::mojom::AppType::kChromeApp: {
-      // Chrome extension backed app, Chrome Apps
-      ChromeApp* chrome_app_window =
-          out_app->mutable_app()->mutable_chrome_app();
-      chrome_app_window->set_app_id(app_id);
-      if (app_restore_data->title.has_value()) {
-        chrome_app_window->set_title(
-            base::UTF16ToUTF8(app_restore_data->title.value()));
-      }
-      break;
-    }
-    default: {
-      // Unhandled app type.
-      break;
-    }
-  }
-}
-
-// Fill |out_window_info| with information from Sync proto |app|.
-void FillWindowInfoFromProto(app_restore::WindowInfo* out_window_info,
-                             sync_pb::WorkspaceDeskSpecifics_App& app) {
-  if (app.has_window_state() &&
-      sync_pb::WorkspaceDeskSpecifics_WindowState_IsValid(app.window_state())) {
-    out_window_info->window_state_type.emplace(
-        ToChromeOsWindowState(app.window_state()));
-  }
-
-  if (app.has_window_bound()) {
-    out_window_info->current_bounds.emplace(
-        app.window_bound().left(), app.window_bound().top(),
-        app.window_bound().width(), app.window_bound().height());
-  }
-
-  if (app.has_z_index())
-    out_window_info->activation_index.emplace(app.z_index());
-
-  if (app.has_display_id())
-    out_window_info->display_id.emplace(app.display_id());
-
-  if (app.has_pre_minimized_window_state() &&
-      sync_pb::WorkspaceDeskSpecifics_WindowState_IsValid(app.window_state())) {
-    out_window_info->pre_minimized_show_state_type.emplace(
-        ToUiWindowState(app.pre_minimized_window_state()));
-  }
-}
-
-// Convert a desk template to |app_restore::RestoreData|.
-std::unique_ptr<app_restore::RestoreData> ConvertToRestoreData(
-    const sync_pb::WorkspaceDeskSpecifics& entry_proto) {
-  std::unique_ptr<app_restore::RestoreData> restore_data =
-      std::make_unique<app_restore::RestoreData>();
-
-  for (auto app_proto : entry_proto.desk().apps()) {
-    std::unique_ptr<app_restore::AppLaunchInfo> app_launch_info =
-        ConvertToAppLaunchInfo(app_proto);
-    if (!app_launch_info) {
-      // Skip unsupported app.
-      continue;
-    }
-
-    const std::string app_id = app_launch_info->app_id;
-    restore_data->AddAppLaunchInfo(std::move(app_launch_info));
-
-    app_restore::WindowInfo app_window_info;
-    FillWindowInfoFromProto(&app_window_info, app_proto);
-
-    restore_data->ModifyWindowInfo(app_id, app_proto.window_id(),
-                                   app_window_info);
-  }
-
-  return restore_data;
-}
-
-// Fill a desk template |out_entry_proto| with information from
-// |restore_data|.
-void FillWorkspaceDeskSpecifics(
-    sync_pb::WorkspaceDeskSpecifics* out_entry_proto,
-    apps::AppRegistryCache* apps_cache,
-    const app_restore::RestoreData* restore_data) {
-  DCHECK(apps_cache);
-
-  for (auto const& app_id_to_launch_list :
-       restore_data->app_id_to_launch_list()) {
-    const std::string app_id = app_id_to_launch_list.first;
-
-    for (auto const& window_id_to_launch_info : app_id_to_launch_list.second) {
-      const int window_id = window_id_to_launch_info.first;
-      const app_restore::AppRestoreData* app_restore_data =
-          window_id_to_launch_info.second.get();
-      // The apps cache returns kChromeApp for browser windows, therefore we
-      // short circuit the cache retrieval if we get the browser ID.
-      const apps::mojom::AppType app_type =
-          app_id == extension_misc::kChromeAppId
-              ? apps::mojom::AppType::kWeb
-              : apps_cache->GetAppType(app_id);
-
-      WorkspaceDeskSpecifics_App* app =
-          out_entry_proto->mutable_desk()->add_apps();
-      app->set_window_id(window_id);
-      FillApp(app, app_id, app_type, app_restore_data);
-    }
-  }
 }
 
 }  // namespace
@@ -498,28 +147,6 @@ DeskSyncBridge::DeskSyncBridge(
 }
 
 DeskSyncBridge::~DeskSyncBridge() = default;
-
-std::unique_ptr<DeskTemplate> DeskSyncBridge::FromSyncProto(
-    const sync_pb::WorkspaceDeskSpecifics& pb_entry) {
-  const std::string uuid(pb_entry.uuid());
-  if (uuid.empty() || !base::GUID::ParseCaseInsensitive(uuid).is_valid())
-    return nullptr;
-
-  const base::Time created_time = desk_template_conversion::ProtoTimeToTime(
-      pb_entry.created_time_windows_epoch_micros());
-
-  // Protobuf parsing enforces UTF-8 encoding for all strings.
-  std::unique_ptr<DeskTemplate> desk_template = std::make_unique<DeskTemplate>(
-      uuid, ash::DeskTemplateSource::kUser, pb_entry.name(), created_time);
-
-  if (pb_entry.has_updated_time_windows_epoch_micros()) {
-    desk_template->set_updated_time(desk_template_conversion::ProtoTimeToTime(
-        pb_entry.updated_time_windows_epoch_micros()));
-  }
-
-  desk_template->set_desk_restore_data(ConvertToRestoreData(pb_entry));
-  return desk_template;
-}
 
 std::unique_ptr<syncer::MetadataChangeList>
 DeskSyncBridge::CreateMetadataChangeList() {
@@ -550,7 +177,7 @@ absl::optional<syncer::ModelError> DeskSyncBridge::ApplySyncChanges(
     std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
     syncer::EntityChangeList entity_changes) {
   std::vector<const DeskTemplate*> added_or_updated;
-  std::vector<std::string> removed;
+  std::vector<base::GUID> removed;
   std::unique_ptr<ModelTypeStore::WriteBatch> batch =
       store_->CreateWriteBatch();
 
@@ -564,10 +191,10 @@ absl::optional<syncer::ModelError> DeskSyncBridge::ApplySyncChanges(
 
     switch (change->type()) {
       case syncer::EntityChange::ACTION_DELETE: {
-        if (entries_.find(uuid) != entries_.end()) {
-          entries_.erase(uuid);
+        if (desk_template_entries_.find(uuid) != desk_template_entries_.end()) {
+          desk_template_entries_.erase(uuid);
           batch->DeleteData(uuid.AsLowercaseString());
-          removed.push_back(uuid.AsLowercaseString());
+          removed.push_back(uuid);
         }
         break;
       }
@@ -577,7 +204,7 @@ absl::optional<syncer::ModelError> DeskSyncBridge::ApplySyncChanges(
             change->data().specifics.workspace_desk();
 
         std::unique_ptr<DeskTemplate> remote_entry =
-            DeskSyncBridge::FromSyncProto(specifics);
+            desk_template_conversion::FromSyncProto(specifics);
         if (!remote_entry) {
           // Skip invalid entries.
           continue;
@@ -587,7 +214,7 @@ absl::optional<syncer::ModelError> DeskSyncBridge::ApplySyncChanges(
         std::string serialized_remote_entry = specifics.SerializeAsString();
 
         // Add/update the remote_entry to the model.
-        entries_[uuid] = std::move(remote_entry);
+        desk_template_entries_[uuid] = std::move(remote_entry);
         added_or_updated.push_back(GetUserEntryByUUID(uuid));
 
         // Write to the store.
@@ -617,16 +244,21 @@ void DeskSyncBridge::GetData(StorageKeyList storage_keys,
       continue;
     }
 
-    batch->Put(uuid, CopyToEntityData(ToSyncProto(entry)));
+    batch->Put(uuid, CopyToEntityData(desk_template_conversion::ToSyncProto(
+                         entry, apps::AppRegistryCacheWrapper::Get()
+                                    .GetAppRegistryCache(account_id_))));
   }
   std::move(callback).Run(std::move(batch));
 }
 
 void DeskSyncBridge::GetAllDataForDebugging(DataCallback callback) {
   auto batch = std::make_unique<syncer::MutableDataBatch>();
-  for (const auto& it : entries_) {
+  for (const auto& it : desk_template_entries_) {
     batch->Put(it.first.AsLowercaseString(),
-               CopyToEntityData(ToSyncProto(it.second.get())));
+               CopyToEntityData(desk_template_conversion::ToSyncProto(
+                   it.second.get(),
+                   apps::AppRegistryCacheWrapper::Get().GetAppRegistryCache(
+                       account_id_))));
   }
   std::move(callback).Run(std::move(batch));
 }
@@ -641,52 +273,49 @@ std::string DeskSyncBridge::GetStorageKey(
   return entity_data.specifics.workspace_desk().uuid();
 }
 
-void DeskSyncBridge::GetAllEntries(GetAllEntriesCallback callback) {
-  std::vector<DeskTemplate*> entries;
-
+DeskModel::GetAllEntriesResult DeskSyncBridge::GetAllEntries() {
   if (!IsReady()) {
-    std::move(callback).Run(GetAllEntriesStatus::kFailure, std::move(entries));
-    return;
+    return GetAllEntriesResult(GetAllEntriesStatus::kFailure,
+                               std::vector<const DeskTemplate*>());
   }
+
+  std::vector<const DeskTemplate*> entries;
 
   for (const auto& it : policy_entries_)
     entries.push_back(it.get());
 
-  for (const auto& it : entries_) {
+  for (const auto& it : desk_template_entries_) {
     DCHECK_EQ(it.first, it.second->uuid());
     entries.push_back(it.second.get());
   }
 
-  std::move(callback).Run(GetAllEntriesStatus::kOk, std::move(entries));
+  return GetAllEntriesResult(GetAllEntriesStatus::kOk, std::move(entries));
 }
 
-void DeskSyncBridge::GetEntryByUUID(const std::string& uuid_str,
-                                    GetEntryByUuidCallback callback) {
+DeskModel::GetEntryByUuidResult DeskSyncBridge::GetEntryByUUID(
+    const base::GUID& uuid) {
   if (!IsReady()) {
-    std::move(callback).Run(GetEntryByUuidStatus::kFailure, nullptr);
-    return;
+    return GetEntryByUuidResult(GetEntryByUuidStatus::kFailure, nullptr);
   }
 
-  const base::GUID uuid = base::GUID::ParseCaseInsensitive(uuid_str);
   if (!uuid.is_valid()) {
-    std::move(callback).Run(GetEntryByUuidStatus::kInvalidUuid, nullptr);
-    return;
+    return GetEntryByUuidResult(GetEntryByUuidStatus::kInvalidUuid, nullptr);
   }
 
-  auto it = entries_.find(uuid);
-  if (it == entries_.end()) {
+  auto it = desk_template_entries_.find(uuid);
+  if (it == desk_template_entries_.end()) {
     std::unique_ptr<DeskTemplate> policy_entry =
-        GetAdminDeskTemplateByUUID(uuid_str);
+        GetAdminDeskTemplateByUUID(uuid);
 
     if (policy_entry) {
-      std::move(callback).Run(GetEntryByUuidStatus::kOk,
-                              std::move(policy_entry));
+      return GetEntryByUuidResult(GetEntryByUuidStatus::kOk,
+                                  std::move(policy_entry));
     } else {
-      std::move(callback).Run(GetEntryByUuidStatus::kNotFound, nullptr);
+      return GetEntryByUuidResult(GetEntryByUuidStatus::kNotFound, nullptr);
     }
   } else {
-    std::move(callback).Run(GetEntryByUuidStatus::kOk,
-                            it->second.get()->Clone());
+    return GetEntryByUuidResult(GetEntryByUuidStatus::kOk,
+                                it->second.get()->Clone());
   }
 }
 
@@ -695,17 +324,19 @@ void DeskSyncBridge::AddOrUpdateEntry(std::unique_ptr<DeskTemplate> new_entry,
   if (!IsReady()) {
     // This sync bridge has not finished initializing. Do not save the new entry
     // yet.
-    std::move(callback).Run(AddOrUpdateEntryStatus::kFailure);
+    std::move(callback).Run(AddOrUpdateEntryStatus::kFailure,
+                            std::move(new_entry));
     return;
   }
 
   base::GUID uuid = new_entry->uuid();
   if (!uuid.is_valid()) {
-    std::move(callback).Run(AddOrUpdateEntryStatus::kInvalidArgument);
+    std::move(callback).Run(AddOrUpdateEntryStatus::kInvalidArgument,
+                            std::move(new_entry));
     return;
   }
 
-  // When a user creates a desk template locally, the desk template has |kUser|
+  // When a user creates a desk template locally, the desk template has `kUser`
   // as its source. Only user desk templates should be saved to Sync.
   DCHECK_EQ(DeskTemplateSource::kUser, new_entry->source());
 
@@ -713,42 +344,41 @@ void DeskSyncBridge::AddOrUpdateEntry(std::unique_ptr<DeskTemplate> new_entry,
   entry->set_template_name(
       base::CollapseWhitespace(new_entry->template_name(), true));
 
-  // While we still find duplicate names iterate the duplicate number. i.e.
-  // if there are 4 duplicates of some template name then this iterates until
-  // the current template will be named 5.
-  while (HasUserTemplateWithName(entry->template_name())) {
-    entry->set_template_name(
-        desk_template_util::AppendDuplicateNumberToDuplicateName(
-            entry->template_name()));
-  }
-
   std::unique_ptr<ModelTypeStore::WriteBatch> batch =
       store_->CreateWriteBatch();
 
   // Check the new entry size and ensure it is below the size limit.
-  auto sync_proto = ToSyncProto(entry.get());
+  auto sync_proto = desk_template_conversion::ToSyncProto(
+      entry.get(),
+      apps::AppRegistryCacheWrapper::Get().GetAppRegistryCache(account_id_));
   if (sync_proto.ByteSizeLong() > kMaxTemplateSize) {
-    std::move(callback).Run(AddOrUpdateEntryStatus::kEntryTooLarge);
+    std::move(callback).Run(AddOrUpdateEntryStatus::kEntryTooLarge,
+                            std::move(new_entry));
     return;
   }
 
   // Add/update this entry to the store and model.
-  auto entity_data = CopyToEntityData(sync_proto);
-  change_processor()->Put(uuid.AsLowercaseString(), std::move(entity_data),
+  change_processor()->Put(uuid.AsLowercaseString(),
+                          CopyToEntityData(sync_proto),
                           batch->GetMetadataChangeList());
 
-  entries_[uuid] = std::move(entry);
+  desk_template_entries_[uuid] =
+      desk_template_conversion::FromSyncProto(sync_proto);
   const DeskTemplate* result = GetUserEntryByUUID(uuid);
 
-  batch->WriteData(uuid.AsLowercaseString(),
-                   ToSyncProto(result).SerializeAsString());
+  batch->WriteData(
+      uuid.AsLowercaseString(),
+      desk_template_conversion::ToSyncProto(
+          result,
+          apps::AppRegistryCacheWrapper::Get().GetAppRegistryCache(account_id_))
+          .SerializeAsString());
 
   Commit(std::move(batch));
 
-  std::move(callback).Run(AddOrUpdateEntryStatus::kOk);
+  std::move(callback).Run(AddOrUpdateEntryStatus::kOk, std::move(new_entry));
 }
 
-void DeskSyncBridge::DeleteEntry(const std::string& uuid_str,
+void DeskSyncBridge::DeleteEntry(const base::GUID& uuid,
                                  DeleteEntryCallback callback) {
   if (!IsReady()) {
     // This sync bridge has not finished initializing.
@@ -756,8 +386,6 @@ void DeskSyncBridge::DeleteEntry(const std::string& uuid_str,
     std::move(callback).Run(DeleteEntryStatus::kFailure);
     return;
   }
-
-  const base::GUID uuid = base::GUID::ParseCaseInsensitive(uuid_str);
 
   if (GetUserEntryByUUID(uuid) == nullptr) {
     // Consider the deletion successful if the entry does not exist.
@@ -771,7 +399,7 @@ void DeskSyncBridge::DeleteEntry(const std::string& uuid_str,
   change_processor()->Delete(uuid.AsLowercaseString(),
                              batch->GetMetadataChangeList());
 
-  entries_.erase(uuid);
+  desk_template_entries_.erase(uuid);
 
   batch->DeleteData(uuid.AsLowercaseString());
 
@@ -781,11 +409,15 @@ void DeskSyncBridge::DeleteEntry(const std::string& uuid_str,
 }
 
 void DeskSyncBridge::DeleteAllEntries(DeleteEntryCallback callback) {
+  DeleteEntryStatus status = DeleteAllEntriesSync();
+  std::move(callback).Run(status);
+}
+
+DeskModel::DeleteEntryStatus DeskSyncBridge::DeleteAllEntriesSync() {
   if (!IsReady()) {
     // This sync bridge has not finished initializing.
     // Cannot delete anything.
-    std::move(callback).Run(DeleteEntryStatus::kFailure);
-    return;
+    return DeleteEntryStatus::kFailure;
   }
 
   std::unique_ptr<ModelTypeStore::WriteBatch> batch =
@@ -798,16 +430,40 @@ void DeskSyncBridge::DeleteAllEntries(DeleteEntryCallback callback) {
                                batch->GetMetadataChangeList());
     batch->DeleteData(uuid.AsLowercaseString());
   }
-  entries_.clear();
-
-  std::move(callback).Run(DeleteEntryStatus::kOk);
+  desk_template_entries_.clear();
+  return DeleteEntryStatus::kOk;
 }
 
-std::size_t DeskSyncBridge::GetEntryCount() const {
-  return entries_.size() + policy_entries_.size();
+size_t DeskSyncBridge::GetEntryCount() const {
+  return GetSaveAndRecallDeskEntryCount() + GetDeskTemplateEntryCount();
 }
 
-std::size_t DeskSyncBridge::GetMaxEntryCount() const {
+size_t DeskSyncBridge::GetMaxEntryCount() const {
+  return GetMaxSaveAndRecallDeskEntryCount() +
+         GetMaxFloatingWorkspaceDeskEntryCount() +
+         GetMaxDeskTemplateEntryCount();
+}
+
+// Return 0 for now since chrome sync does not support save and recall desks.
+size_t DeskSyncBridge::GetSaveAndRecallDeskEntryCount() const {
+  return 0u;
+}
+
+size_t DeskSyncBridge::GetDeskTemplateEntryCount() const {
+  return desk_template_entries_.size() + policy_entries_.size();
+}
+
+// Chrome sync does not support save and recall desks yet. Return 0 for max
+// count.
+size_t DeskSyncBridge::GetMaxSaveAndRecallDeskEntryCount() const {
+  return 0u;
+}
+
+size_t DeskSyncBridge::GetMaxFloatingWorkspaceDeskEntryCount() const {
+  return (ash::features::IsFloatingWorkspaceV2Enabled() ? 1u : 0u);
+}
+
+size_t DeskSyncBridge::GetMaxDeskTemplateEntryCount() const {
   return kMaxTemplateCount + policy_entries_.size();
 }
 
@@ -817,7 +473,7 @@ std::vector<base::GUID> DeskSyncBridge::GetAllEntryUuids() const {
   for (const auto& it : policy_entries_)
     keys.push_back(it.get()->uuid());
 
-  for (const auto& it : entries_) {
+  for (const auto& it : desk_template_entries_) {
     DCHECK_EQ(it.first, it.second->uuid());
     keys.emplace_back(it.first);
   }
@@ -835,35 +491,20 @@ bool DeskSyncBridge::IsSyncing() const {
   return change_processor()->IsTrackingMetadata();
 }
 
-sync_pb::WorkspaceDeskSpecifics DeskSyncBridge::ToSyncProto(
-    const DeskTemplate* desk_template) {
-  apps::AppRegistryCache* cache =
-      apps::AppRegistryCacheWrapper::Get().GetAppRegistryCache(account_id_);
-  DCHECK(cache);
-
-  sync_pb::WorkspaceDeskSpecifics pb_entry;
-
-  pb_entry.set_uuid(desk_template->uuid().AsLowercaseString());
-  pb_entry.set_name(base::UTF16ToUTF8(desk_template->template_name()));
-  pb_entry.set_created_time_windows_epoch_micros(
-      desk_template_conversion::TimeToProtoTime(desk_template->created_time()));
-  if (desk_template->WasUpdatedSinceCreation()) {
-    pb_entry.set_updated_time_windows_epoch_micros(
-        desk_template_conversion::TimeToProtoTime(
-            desk_template->GetLastUpdatedTime()));
-  }
-
-  if (desk_template->desk_restore_data()) {
-    FillWorkspaceDeskSpecifics(&pb_entry, cache,
-                               desk_template->desk_restore_data());
-  }
-  return pb_entry;
+// TODO(zhumatthew): Once desk sync bridge supports save and recall desk type,
+// update this method to search the correct cache for the entry.
+ash::DeskTemplate* DeskSyncBridge::FindOtherEntryWithName(
+    const std::u16string& name,
+    ash::DeskTemplateType type,
+    const base::GUID& uuid) const {
+  return desk_template_util::FindOtherEntryWithName(name, uuid,
+                                                    desk_template_entries_);
 }
 
 const DeskTemplate* DeskSyncBridge::GetUserEntryByUUID(
     const base::GUID& uuid) const {
-  auto it = entries_.find(uuid);
-  if (it == entries_.end())
+  auto it = desk_template_entries_.find(uuid);
+  if (it == desk_template_entries_.end())
     return nullptr;
   return it->second.get();
 }
@@ -886,7 +527,7 @@ void DeskSyncBridge::NotifyRemoteDeskTemplateAddedOrUpdated(
 }
 
 void DeskSyncBridge::NotifyRemoteDeskTemplateDeleted(
-    const std::vector<std::string>& uuids) {
+    const std::vector<base::GUID>& uuids) {
   if (uuids.empty()) {
     return;
   }
@@ -926,7 +567,7 @@ void DeskSyncBridge::OnReadAllData(
     return;
   }
 
-  entries_ = std::move(*stored_desk_templates);
+  desk_template_entries_ = std::move(*stored_desk_templates);
 
   store_->ReadAllMetadata(base::BindOnce(&DeskSyncBridge::OnReadAllMetadata,
                                          weak_ptr_factory_.GetWeakPtr()));
@@ -961,12 +602,12 @@ void DeskSyncBridge::UploadLocalOnlyData(
     syncer::MetadataChangeList* metadata_change_list,
     const syncer::EntityChangeList& entity_data) {
   std::set<base::GUID> local_keys_to_upload;
-  for (const auto& it : entries_) {
+  for (const auto& it : desk_template_entries_) {
     DCHECK_EQ(DeskTemplateSource::kUser, it.second->source());
     local_keys_to_upload.insert(it.first);
   }
 
-  // Strip |local_keys_to_upload| of any key (UUID) that is already known to the
+  // Strip `local_keys_to_upload` of any key (UUID) that is already known to the
   // server.
   for (const std::unique_ptr<syncer::EntityChange>& change : entity_data) {
     local_keys_to_upload.erase(
@@ -975,19 +616,25 @@ void DeskSyncBridge::UploadLocalOnlyData(
 
   // Upload the local-only templates.
   for (const base::GUID& uuid : local_keys_to_upload) {
-    change_processor()->Put(uuid.AsLowercaseString(),
-                            CopyToEntityData(ToSyncProto(entries_[uuid].get())),
-                            metadata_change_list);
+    change_processor()->Put(
+        uuid.AsLowercaseString(),
+        CopyToEntityData(desk_template_conversion::ToSyncProto(
+            desk_template_entries_[uuid].get(),
+            apps::AppRegistryCacheWrapper::Get().GetAppRegistryCache(
+                account_id_))),
+        metadata_change_list);
   }
 }
 
 bool DeskSyncBridge::HasUserTemplateWithName(const std::u16string& name) {
-  return std::find_if(
-             entries_.begin(), entries_.end(),
-             [&name](std::pair<const base::GUID,
-                               std::unique_ptr<ash::DeskTemplate>>& entry) {
-               return entry.second->template_name() == name;
-             }) != entries_.end();
+  return base::Contains(desk_template_entries_, name,
+                        [](const DeskEntries::value_type& entry) {
+                          return entry.second->template_name();
+                        });
+}
+
+bool DeskSyncBridge::HasUuid(const base::GUID& uuid) const {
+  return uuid.is_valid() && base::Contains(desk_template_entries_, uuid);
 }
 
 }  // namespace desks_storage

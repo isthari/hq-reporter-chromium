@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,9 @@ import android.content.res.Configuration;
 import androidx.test.filters.MediumTest;
 
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -58,6 +60,17 @@ public class OptionalNewTabButtonControllerTabletTest {
             new BlankCTATabInitialStateRule(sActivityTestRule, /*clearAllTabState=*/false);
 
     private String mTestPageUrl;
+
+    @BeforeClass
+    public static void setUpBeforeActivityLaunched() {
+        AdaptiveToolbarStatePredictor.setToolbarStateForTesting(
+                AdaptiveToolbarButtonVariant.NEW_TAB);
+    }
+
+    @AfterClass
+    public static void tearDownAfterActivityDestroyed() {
+        AdaptiveToolbarStatePredictor.setToolbarStateForTesting(null);
+    }
 
     @Before
     public void setUp() {

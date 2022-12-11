@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -29,8 +29,6 @@ public class NativeLibraries {{
 
     // Set to true to enable the use of the Chromium Linker.
     public static {MAYBE_FINAL}boolean sUseLinker{USE_LINKER};
-    public static {MAYBE_FINAL}boolean sUseLibraryInZipFile{USE_LIBRARY_IN_ZIP_FILE};
-    public static {MAYBE_FINAL}boolean sUseModernLinker{USE_MODERN_LINKER};
 
     // This is the list of native libraries to be loaded (in the correct order)
     // by LibraryLoader.java.
@@ -59,12 +57,6 @@ def main():
       action='store_true',
       help='Enable Chromium linker.')
   parser.add_argument(
-      '--load-library-from-apk',
-      action='store_true',
-      help='Load libaries from APK without uncompressing.')
-  parser.add_argument(
-      '--use-modern-linker', action='store_true', help='To use ModernLinker.')
-  parser.add_argument(
       '--native-libraries-list', help='File with list of native libraries.')
   parser.add_argument(
       '--cpu-family',
@@ -85,17 +77,19 @@ def main():
 
   options = parser.parse_args(build_utils.ExpandFileArgs(sys.argv[1:]))
 
-  assert (options.enable_chromium_linker or not options.load_library_from_apk)
-
-  native_libraries_list = []
+  native_libraries = []
   if options.main_component_library:
-    native_libraries_list.append(
-        _FormatLibraryName(options.main_component_library))
+    native_libraries.append(options.main_component_library)
   elif options.native_libraries_list:
     with open(options.native_libraries_list) as f:
-      for path in f:
-        path = path.strip()
-        native_libraries_list.append(_FormatLibraryName(path))
+      native_libraries.extend(l.strip() for l in f)
+
+  if options.enable_chromium_linker and len(native_libraries) > 1:
+    sys.stderr.write(
+        'Multiple libraries not supported when using chromium linker. Found:\n')
+    sys.stderr.write('\n'.join(native_libraries))
+    sys.stderr.write('\n')
+    sys.exit(1)
 
   def bool_str(value):
     if value:
@@ -107,9 +101,7 @@ def main():
   format_dict = {
       'MAYBE_FINAL': 'final ' if options.final else '',
       'USE_LINKER': bool_str(options.enable_chromium_linker),
-      'USE_LIBRARY_IN_ZIP_FILE': bool_str(options.load_library_from_apk),
-      'USE_MODERN_LINKER': bool_str(options.use_modern_linker),
-      'LIBRARIES': ','.join(native_libraries_list),
+      'LIBRARIES': ','.join(_FormatLibraryName(n) for n in native_libraries),
       'CPU_FAMILY': options.cpu_family,
   }
   with build_utils.AtomicOutput(options.output) as f:

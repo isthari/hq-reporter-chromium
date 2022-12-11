@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,8 +35,7 @@
 
 using DispatchDetails = ui::EventDispatchDetails;
 
-namespace views {
-namespace internal {
+namespace views::internal {
 
 namespace {
 
@@ -51,6 +50,11 @@ class MouseEnterExitEvent : public ui::MouseEvent {
   }
 
   ~MouseEnterExitEvent() override = default;
+
+  // Event:
+  std::unique_ptr<ui::Event> Clone() const override {
+    return std::make_unique<MouseEnterExitEvent>(*this);
+  }
 };
 
 }  // namespace
@@ -85,7 +89,7 @@ class AnnounceTextView : public View {
     // May require setting kLiveStatus, kContainerLiveStatus to "polite".
     node_data->role = ax::mojom::Role::kAlert;
 #endif
-    node_data->SetName(announce_text_);
+    node_data->SetNameChecked(announce_text_);
     node_data->AddState(ax::mojom::State::kInvisible);
   }
 
@@ -221,7 +225,8 @@ RootView::~RootView() {
 
 void RootView::SetContentsView(View* contents_view) {
   DCHECK(contents_view && GetWidget()->native_widget())
-      << "Can't be called until after the native widget is created!";
+      << "Can't be called because the widget is not initialized or is "
+         "destroyed";
   // The ContentsView must be set up _after_ the window is created so that its
   // Widget pointer is valid.
   SetUseDefaultFillLayout(true);
@@ -272,6 +277,14 @@ void RootView::DeviceScaleFactorChanged(float old_device_scale_factor,
 
 // Accessibility ---------------------------------------------------------------
 
+raw_ptr<AnnounceTextView> RootView::GetOrCreateAnnounceView() {
+  if (!announce_view_) {
+    announce_view_ = AddChildView(std::make_unique<AnnounceTextView>());
+    announce_view_->SetProperty(kViewIgnoredByLayoutKey, true);
+  }
+  return announce_view_.get();
+}
+
 void RootView::AnnounceText(const std::u16string& text) {
 #if BUILDFLAG(IS_MAC)
   gfx::NativeViewAccessible native = GetViewAccessibility().GetNativeObject();
@@ -281,12 +294,12 @@ void RootView::AnnounceText(const std::u16string& text) {
 #else
   DCHECK(GetWidget());
   DCHECK(GetContentsView());
-  if (!announce_view_) {
-    announce_view_ = AddChildView(std::make_unique<AnnounceTextView>());
-    announce_view_->SetProperty(kViewIgnoredByLayoutKey, true);
-  }
-  announce_view_->Announce(text);
+  GetOrCreateAnnounceView()->Announce(text);
 #endif
+}
+
+View* RootView::GetAnnounceViewForTesting() {
+  return GetOrCreateAnnounceView();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -350,7 +363,10 @@ void RootView::OnEventProcessingStarted(ui::Event* event) {
   gesture_handler_set_before_processing_ = !!gesture_handler_;
 }
 
-void RootView::OnEventProcessingFinished(ui::Event* event) {
+void RootView::OnEventProcessingFinished(
+    ui::Event* event,
+    ui::EventTarget* target,
+    const ui::EventDispatchDetails& details) {
   VLOG(5) << "RootView::OnEventProcessingFinished(" << event->ToString() << ")";
   // If |event| was not handled and |gesture_handler_| was not set by the
   // dispatch of a previous gesture event, then no default gesture handler
@@ -463,6 +479,7 @@ bool RootView::OnMouseDragged(const ui::MouseEvent& event) {
         DispatchEvent(mouse_pressed_handler_, &mouse_event);
     if (dispatch_details.dispatcher_destroyed)
       return false;
+    return true;
   }
   return false;
 }
@@ -604,7 +621,7 @@ void RootView::OnMouseMoved(const ui::MouseEvent& event) {
     // some windows.  Let the non-client cursor handling code set the cursor
     // as we do above.
     if (!(event.flags() & ui::EF_IS_NON_CLIENT))
-      widget_->SetCursor(gfx::kNullCursor);
+      widget_->SetCursor(ui::Cursor());
     mouse_move_handler_ = nullptr;
   }
 }
@@ -677,8 +694,8 @@ void RootView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   auto* widget_delegate = GetWidget()->widget_delegate();
   if (!widget_delegate)
     return;
-  node_data->SetName(widget_delegate->GetAccessibleWindowTitle());
   node_data->role = widget_delegate->GetAccessibleWindowRole();
+  node_data->SetName(widget_delegate->GetAccessibleWindowTitle());
 }
 
 void RootView::UpdateParentLayer() {
@@ -693,7 +710,7 @@ void RootView::ViewHierarchyChanged(
     const ViewHierarchyChangedDetails& details) {
   widget_->ViewHierarchyChanged(details);
 
-  if (!details.is_add) {
+  if (!details.is_add && !details.move_view) {
     if (!explicit_mouse_handler_ && mouse_pressed_handler_ == details.child)
       mouse_pressed_handler_ = nullptr;
     if (mouse_move_handler_ == details.child)
@@ -727,7 +744,7 @@ void RootView::OnDidSchedulePaint(const gfx::Rect& rect) {
 
 void RootView::OnPaint(gfx::Canvas* canvas) {
   if (!layer() || !layer()->fills_bounds_opaquely())
-    canvas->DrawColor(SK_ColorBLACK, SkBlendMode::kClear);
+    canvas->DrawColor(SK_ColorTRANSPARENT, SkBlendMode::kClear);
 
   View::OnPaint(canvas);
 }
@@ -837,5 +854,4 @@ ui::EventDispatchDetails RootView::PostDispatchEvent(ui::EventTarget* target,
 
 BEGIN_METADATA(RootView, View)
 END_METADATA
-}  // namespace internal
-}  // namespace views
+}  // namespace views::internal

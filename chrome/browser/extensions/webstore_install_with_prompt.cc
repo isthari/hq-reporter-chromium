@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,7 @@ WebstoreInstallWithPrompt::WebstoreInstallWithPrompt(
       show_post_install_ui_(true),
       dummy_web_contents_(
           WebContents::Create(WebContents::CreateParams(profile))),
-      parent_window_(NULL) {
+      parent_window_(nullptr) {
   set_install_source(WebstoreInstaller::INSTALL_SOURCE_OTHER);
 }
 
@@ -41,7 +41,7 @@ WebstoreInstallWithPrompt::WebstoreInstallWithPrompt(
           WebContents::Create(WebContents::CreateParams(profile))),
       parent_window_(parent_window) {
   if (parent_window_)
-    parent_window_tracker_ = NativeWindowTracker::Create(parent_window);
+    parent_window_tracker_ = views::NativeWindowTracker::Create(parent_window);
   set_install_source(WebstoreInstaller::INSTALL_SOURCE_OTHER);
 }
 
@@ -53,7 +53,7 @@ bool WebstoreInstallWithPrompt::CheckRequestorAlive() const {
     // Assume the requestor is always alive if |parent_window_| is null.
     return true;
   }
-  return !parent_window_tracker_->WasNativeWindowClosed();
+  return !parent_window_tracker_->WasNativeWindowDestroyed();
 }
 
 std::unique_ptr<ExtensionInstallPrompt::Prompt>

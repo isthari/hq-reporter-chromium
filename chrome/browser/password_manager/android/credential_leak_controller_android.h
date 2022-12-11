@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,10 @@ class CredentialLeakControllerAndroid {
       password_manager::CredentialLeakType leak_type,
       const GURL& origin,
       const std::u16string& username,
-      ui::WindowAndroid* window_android);
+      ui::WindowAndroid* window_android,
+      // Metrics recorder for leak dialog related UMA and UKM logging.
+      std::unique_ptr<password_manager::metrics_util::LeakDialogMetricsRecorder>
+          metrics_recorder);
 
   CredentialLeakControllerAndroid(const CredentialLeakControllerAndroid&) =
       delete;
@@ -66,10 +69,6 @@ class CredentialLeakControllerAndroid {
   // Checks whether the cancel button should be shown.
   bool ShouldShowCancelButton() const;
 
-  // Whether the "change password automatically" button is available. Varies by
-  // leak type.
-  bool ShouldShowChangePasswordButton() const;
-
  private:
   // Used to customize the UI.
   const password_manager::CredentialLeakType leak_type_;
@@ -78,9 +77,15 @@ class CredentialLeakControllerAndroid {
 
   const std::u16string username_;
 
-  raw_ptr<ui::WindowAndroid> window_android_;
+  const raw_ptr<ui::WindowAndroid> window_android_;
 
   std::unique_ptr<CredentialLeakDialogViewAndroid> dialog_view_;
+
+  std::unique_ptr<password_manager::LeakDialogTraits> leak_dialog_traits_;
+
+  // Metrics recorder for leak dialog related UMA and UKM logging.
+  std::unique_ptr<password_manager::metrics_util::LeakDialogMetricsRecorder>
+      metrics_recorder_;
 };
 
 #endif  // CHROME_BROWSER_PASSWORD_MANAGER_ANDROID_CREDENTIAL_LEAK_CONTROLLER_ANDROID_H_

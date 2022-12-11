@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,7 @@ class Event;
 namespace ui {
 
 // Cross platform typedefs for native event types.
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 using PlatformEvent = ui::Event*;
 #elif BUILDFLAG(IS_WIN)
 using PlatformEvent = CHROME_MSG;

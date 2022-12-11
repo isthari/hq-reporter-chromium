@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,9 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/rand_util.h"
+#include "base/run_loop.h"
+#include "base/test/bind.h"
 #include "components/tracing/common/trace_startup_config.h"
 #include "content/public/browser/background_tracing_config.h"
 #include "content/public/browser/background_tracing_manager.h"
@@ -35,27 +38,27 @@ class AwBackgroundTracingMetricsProviderTest : public testing::Test {
   }
 
   void SetUp() override {
-    base::Value dict(base::Value::Type::DICTIONARY);
+    base::Value::Dict dict;
 
-    dict.SetStringKey("mode", "REACTIVE_TRACING_MODE");
-    dict.SetStringKey("custom_categories",
-                      tracing::TraceStartupConfig::kDefaultStartupCategories);
+    dict.Set("mode", "REACTIVE_TRACING_MODE");
+    dict.Set("custom_categories",
+             tracing::TraceStartupConfig::kDefaultStartupCategories);
 
-    base::Value rules_list(base::Value::Type::LIST);
+    base::Value::List rules_list;
     {
-      base::Value rules_dict(base::Value::Type::DICTIONARY);
-      rules_dict.SetStringKey("rule", "MONITOR_AND_DUMP_WHEN_TRIGGER_NAMED");
-      rules_dict.SetStringKey("trigger_name", "test");
+      base::Value::Dict rules_dict;
+      rules_dict.Set("rule", "MONITOR_AND_DUMP_WHEN_TRIGGER_NAMED");
+      rules_dict.Set("trigger_name", "test");
       rules_list.Append(std::move(rules_dict));
     }
-    dict.SetKey("configs", std::move(rules_list));
+    dict.Set("configs", std::move(rules_list));
 
     std::unique_ptr<content::BackgroundTracingConfig> config(
         content::BackgroundTracingConfig::FromDict(std::move(dict)));
     ASSERT_TRUE(config);
 
     ASSERT_TRUE(
-        content::BackgroundTracingManager::GetInstance()->SetActiveScenario(
+        content::BackgroundTracingManager::GetInstance().SetActiveScenario(
             std::move(config),
             content::BackgroundTracingManager::ANONYMIZE_DATA));
   }
@@ -75,22 +78,70 @@ TEST_F(AwBackgroundTracingMetricsProviderTest, UploadsTraceLog) {
   AwBackgroundTracingMetricsProvider provider;
   EXPECT_FALSE(provider.HasIndependentMetrics());
 
-  content::BackgroundTracingManager::GetInstance()->SetTraceToUploadForTesting(
+  content::BackgroundTracingManager::GetInstance().SetTraceToUploadForTesting(
       std::make_unique<std::string>(kDummyTrace));
 
   EXPECT_TRUE(provider.HasIndependentMetrics());
   metrics::ChromeUserMetricsExtension uma_proto;
   uma_proto.set_client_id(100);
   uma_proto.set_session_id(15);
+
+  base::RunLoop run_loop;
   provider.ProvideIndependentMetrics(
-      base::BindOnce([](bool success) { EXPECT_TRUE(success); }), &uma_proto,
+      base::BindLambdaForTesting([&run_loop](bool success) {
+        EXPECT_TRUE(success);
+        run_loop.Quit();
+      }),
+      &uma_proto,
       /* snapshot_manager=*/nullptr);
+  run_loop.Run();
 
   EXPECT_EQ(100u, uma_proto.client_id());
   EXPECT_EQ(15, uma_proto.session_id());
   ASSERT_EQ(1, uma_proto.trace_log_size());
-  EXPECT_EQ(kDummyTrace, uma_proto.trace_log(0).raw_data());
+  EXPECT_EQ(metrics::TraceLog::COMPRESSION_TYPE_ZLIB,
+            uma_proto.trace_log(0).compression_type());
+  EXPECT_NE(kDummyTrace, uma_proto.trace_log(0).raw_data());
 
+  EXPECT_FALSE(provider.HasIndependentMetrics());
+}
+
+TEST_F(AwBackgroundTracingMetricsProviderTest, HandlesOversizeTraceLog) {
+  AwBackgroundTracingMetricsProvider provider;
+  EXPECT_FALSE(provider.HasIndependentMetrics());
+
+  auto trace = std::make_unique<std::string>();
+  constexpr int size = kCompressedUploadLimitBytes * 5;
+  trace->resize(size);
+
+  // Writing a random string to the trace makes it less likely to compress well
+  // and fit into the upload limit.
+  for (int i = 0; i < size; i++) {
+    (*trace)[i] = base::RandInt('a', 'z');
+  }
+
+  content::BackgroundTracingManager::GetInstance().SetTraceToUploadForTesting(
+      std::move(trace));
+
+  EXPECT_TRUE(provider.HasIndependentMetrics());
+  metrics::ChromeUserMetricsExtension uma_proto;
+  uma_proto.set_client_id(100);
+  uma_proto.set_session_id(15);
+
+  base::RunLoop run_loop;
+  provider.ProvideIndependentMetrics(
+      base::BindLambdaForTesting([&run_loop](bool success) {
+        EXPECT_FALSE(success);
+        run_loop.Quit();
+      }),
+      &uma_proto,
+      /* snapshot_manager=*/nullptr);
+  run_loop.Run();
+
+  EXPECT_EQ(100u, uma_proto.client_id());
+  EXPECT_EQ(15, uma_proto.session_id());
+  EXPECT_EQ(1, uma_proto.trace_log_size());
+  EXPECT_TRUE(uma_proto.trace_log(0).raw_data().empty());
   EXPECT_FALSE(provider.HasIndependentMetrics());
 }
 
@@ -98,20 +149,28 @@ TEST_F(AwBackgroundTracingMetricsProviderTest, ClearsAppPackageName) {
   AwBackgroundTracingMetricsProvider provider;
   EXPECT_FALSE(provider.HasIndependentMetrics());
 
-  content::BackgroundTracingManager::GetInstance()->SetTraceToUploadForTesting(
+  content::BackgroundTracingManager::GetInstance().SetTraceToUploadForTesting(
       std::make_unique<std::string>(kDummyTrace));
 
   EXPECT_TRUE(provider.HasIndependentMetrics());
   metrics::ChromeUserMetricsExtension uma_proto;
 
   uma_proto.mutable_system_profile()->set_app_package_name("my_app");
+  base::RunLoop run_loop;
   provider.ProvideIndependentMetrics(
-      base::BindOnce([](bool success) { EXPECT_TRUE(success); }), &uma_proto,
+      base::BindLambdaForTesting([&run_loop](bool success) {
+        EXPECT_TRUE(success);
+        run_loop.Quit();
+      }),
+      &uma_proto,
       /* snapshot_manager=*/nullptr);
+  run_loop.Run();
 
   EXPECT_TRUE(uma_proto.system_profile().app_package_name().empty());
   ASSERT_EQ(1, uma_proto.trace_log_size());
-  EXPECT_EQ(kDummyTrace, uma_proto.trace_log(0).raw_data());
+  EXPECT_EQ(metrics::TraceLog::COMPRESSION_TYPE_ZLIB,
+            uma_proto.trace_log(0).compression_type());
+  EXPECT_NE(kDummyTrace, uma_proto.trace_log(0).raw_data());
 
   EXPECT_FALSE(provider.HasIndependentMetrics());
 }
@@ -120,11 +179,11 @@ TEST_F(AwBackgroundTracingMetricsProviderTest, HandlesMissingTrace) {
   AwBackgroundTracingMetricsProvider provider;
   EXPECT_FALSE(provider.HasIndependentMetrics());
 
-  content::BackgroundTracingManager::GetInstance()->SetTraceToUploadForTesting(
+  content::BackgroundTracingManager::GetInstance().SetTraceToUploadForTesting(
       std::make_unique<std::string>(kDummyTrace));
   EXPECT_TRUE(provider.HasIndependentMetrics());
 
-  content::BackgroundTracingManager::GetInstance()->SetTraceToUploadForTesting(
+  content::BackgroundTracingManager::GetInstance().SetTraceToUploadForTesting(
       nullptr);
   metrics::ChromeUserMetricsExtension uma_proto;
   uma_proto.set_client_id(100);

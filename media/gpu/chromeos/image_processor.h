@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -105,6 +105,21 @@ class MEDIA_GPU_EXPORT ImageProcessor {
   // Reset() must be called on |client_task_runner_|.
   bool Reset();
 
+  // Returns true if and only if, in IMPORT mode, the image processor requires
+  // the output video frames to be CPU-readable with a linear view of the data.
+  bool needs_linear_output_buffers() const {
+    return needs_linear_output_buffers_;
+  }
+
+  // Returns true if the image processor supports buffers allocated
+  // incoherently. The MTK MDP3 image processor has coherency issues, but the
+  // Libyuv image processor benefits greatly from incoherent allocations.
+  // Defaults to false, since only Libyuv has been shown to support this feature
+  // so far.
+  bool SupportsIncoherentBufs() const {
+    return backend_ && backend_->supports_incoherent_buffers();
+  }
+
  protected:
   // Container for both FrameReadyCB and LegacyFrameReadyCB. With this class,
   // we could store both kind of callback in the same container.
@@ -161,6 +176,8 @@ class MEDIA_GPU_EXPORT ImageProcessor {
 
   // The sequence for interacting with |backend_|.
   scoped_refptr<base::SequencedTaskRunner> backend_task_runner_;
+
+  const bool needs_linear_output_buffers_;
 
   // The weak pointer of this, bound to |client_task_runner_|.
   base::WeakPtr<ImageProcessor> weak_this_;

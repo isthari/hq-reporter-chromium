@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,9 +67,10 @@ void ShowPasswordReuseModalWarningDialog(
 #endif
 
 // Called by ChromeContentBrowserClient to create a
-// PasswordProtectionNavigationThrottle if appropriate.
-std::unique_ptr<PasswordProtectionNavigationThrottle>
-MaybeCreateNavigationThrottle(content::NavigationHandle* navigation_handle);
+// PasswordProtectionCommitDeferringCondition if appropriate.
+std::unique_ptr<PasswordProtectionCommitDeferringCondition>
+MaybeCreateCommitDeferringCondition(
+    content::NavigationHandle& navigation_handle);
 
 // ChromePasswordProtectionService extends PasswordProtectionService by adding
 // access to SafeBrowsingNaivigationObserverManager and Profile.
@@ -196,7 +197,8 @@ class ChromePasswordProtectionService : public PasswordProtectionService,
   void MaybeReportPasswordReuseDetected(PasswordProtectionRequest* request,
                                         const std::string& username,
                                         PasswordType password_type,
-                                        bool is_phishing_url) override;
+                                        bool is_phishing_url,
+                                        bool warning_shown) override;
 
   // Triggers "safeBrowsingPrivate.OnPolicySpecifiedPasswordChanged" API.
   void ReportPasswordChanged() override;
@@ -397,14 +399,8 @@ class ChromePasswordProtectionService : public PasswordProtectionService,
   // Unit tests
   FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
                            VerifyUserPopulationForPasswordOnFocusPing);
-  FRIEND_TEST_ALL_PREFIXES(
-      ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest,
-      VerifyUserPopulationForSyncPasswordEntryPing);
-#if BUILDFLAG(IS_ANDROID)
-  FRIEND_TEST_ALL_PREFIXES(
-      ChromePasswordProtectionServiceWithProtectionForSignedInUsersDisabledTest,
-      VerifyUserPopulationForSyncPasswordEntryPing);
-#endif
+  FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
+                           VerifyUserPopulationForSyncPasswordEntryPing);
   FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
                            VerifyUserPopulationForSavedPasswordEntryPing);
   FRIEND_TEST_ALL_PREFIXES(
@@ -431,9 +427,8 @@ class ChromePasswordProtectionService : public PasswordProtectionService,
       VerifyUnhandledSyncPasswordReuseUponClearHistoryDeletion);
   FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
                            VerifyCanShowInterstitial);
-  FRIEND_TEST_ALL_PREFIXES(
-      ChromePasswordProtectionServiceWithProtectionForSignedInUsersEnabledTest,
-      VerifyCanShowInterstitial);
+  FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
+                           VerifyCanShowInterstitial);
   FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
                            VerifySendsPingForAboutBlank);
   FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
@@ -450,12 +445,8 @@ class ChromePasswordProtectionService : public PasswordProtectionService,
                            VerifyPersistPhishedSavedPasswordCredential);
   FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
                            VerifyGetPingNotSentReason);
-  FRIEND_TEST_ALL_PREFIXES(
-      ChromePasswordProtectionServiceWithSBPageLoadTokenEnabledTest,
-      VerifyPageLoadToken);
-  FRIEND_TEST_ALL_PREFIXES(
-      ChromePasswordProtectionServiceWithSBPageLoadTokenDisabledTest,
-      VerifyPageLoadToken);
+  FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceTest,
+                           VerifyPageLoadToken);
   // Browser tests
   FRIEND_TEST_ALL_PREFIXES(ChromePasswordProtectionServiceBrowserTest,
                            VerifyCheckGaiaPasswordChange);

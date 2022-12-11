@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,6 +25,15 @@
 namespace media {
 
 class MediaTracks;
+
+enum class DemuxerType {
+  kMockDemuxer,
+  kFFmpegDemuxer,
+  kChunkDemuxer,
+  kMediaUrlDemuxer,
+  kFrameInjectingDemuxer,
+  kStreamProviderDemuxer,
+};
 
 class MEDIA_EXPORT DemuxerHost {
  public:
@@ -87,6 +96,9 @@ class MEDIA_EXPORT Demuxer : public MediaResource {
 
   // Returns the name of the demuxer for logging purpose.
   virtual std::string GetDisplayName() const = 0;
+
+  // Get the demuxer type for identification purposes.
+  virtual DemuxerType GetDemuxerType() const = 0;
 
   // Completes initialization of the demuxer.
   //

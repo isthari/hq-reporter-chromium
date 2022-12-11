@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,19 @@
 #include "base/memory/raw_ptr.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "build/build_config.h"
-#include "chrome/browser/cart/cart_db_content.pb.h"
 #include "chrome/browser/cart/cart_service.h"
 #include "chrome/browser/cart/cart_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
-#include "chrome/browser/persisted_state_db/profile_proto_db.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/commerce/core/commerce_feature_list.h"
+#include "components/commerce/core/commerce_heuristics_data.h"
+#include "components/commerce/core/proto/cart_db_content.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/search/ntp_features.h"
+#include "components/session_proto_db/session_proto_db.h"
 #include "content/public/test/browser_task_environment.h"
+#include "content/public/test/test_web_contents_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -77,21 +80,24 @@ const cart_db::ChromeCartContentProto kFakeProto =
     BuildProto(kFakeMerchantKey, kFakeMerchant, kFakeMerchantURL);
 const cart_db::ChromeCartContentProto kMockProtoB =
     BuildProto(kMockMerchantBKey, kMockMerchantB, kMockMerchantURLB);
-const std::vector<ProfileProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>
+const std::vector<SessionProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>
     kExpectedFake = {{kFakeMerchant, kFakeProto}};
-const std::vector<ProfileProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>
+const std::vector<SessionProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>
     kExpectedAllData = {
         {kFakeMerchant, kFakeProto},
         {kMockMerchantB, kMockProtoB},
 };
-const std::vector<ProfileProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>
-    kEmptyExpected = {};
 }  // namespace
 
 class CartHandlerTest : public testing::Test {
  public:
   CartHandlerTest()
-      : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP) {}
+      : task_environment_(content::BrowserTaskEnvironment::IO_MAINLOOP) {
+    feature_list_.InitAndEnableFeatureWithParameters(
+        ntp_features::kNtpChromeCartModule,
+        {{ntp_features::kNtpChromeCartModuleAbandonedCartDiscountUseUtmParam,
+          "false"}});
+  }
 
   void SetUp() override {
     testing::Test::SetUp();
@@ -100,10 +106,11 @@ class CartHandlerTest : public testing::Test {
         HistoryServiceFactory::GetInstance(),
         HistoryServiceFactory::GetDefaultFactory());
     profile_ = profile_builder.Build();
+    web_contents_ = web_contents_factory_.CreateWebContents(profile_.get());
 
     handler_ = std::make_unique<CartHandler>(
         mojo::PendingReceiver<chrome_cart::mojom::CartHandler>(),
-        profile_.get());
+        profile_.get(), web_contents_);
     service_ = CartServiceFactory::GetForProfile(profile_.get());
   }
 
@@ -118,7 +125,7 @@ class CartHandlerTest : public testing::Test {
       base::OnceClosure closure,
       bool isHidden,
       bool result,
-      std::vector<ProfileProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>
+      std::vector<SessionProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>
           found) {
     EXPECT_EQ(1U, found.size());
     EXPECT_EQ(isHidden, found[0].second.is_hidden());
@@ -129,7 +136,7 @@ class CartHandlerTest : public testing::Test {
       base::OnceClosure closure,
       bool isRemoved,
       bool result,
-      std::vector<ProfileProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>
+      std::vector<SessionProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>
           found) {
     EXPECT_EQ(1U, found.size());
     EXPECT_EQ(isRemoved, found[0].second.is_removed());
@@ -143,7 +150,11 @@ class CartHandlerTest : public testing::Test {
     std::move(closure).Run();
   }
 
-  void TearDown() override {}
+  void TearDown() override {
+    testing::Test::TearDown();
+    auto& data = commerce_heuristics::CommerceHeuristicsData::GetInstance();
+    data.PopulateDataFromComponent("{}", "{}", "", "");
+  }
 
  protected:
   // This needs to be declared before |task_environment_|, so that it will be
@@ -153,6 +164,8 @@ class CartHandlerTest : public testing::Test {
   // Required to run tests from UI thread.
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestingProfile> profile_;
+  content::TestWebContentsFactory web_contents_factory_;
+  raw_ptr<content::WebContents> web_contents_;  // Weak. Owned by factory_.
   std::unique_ptr<CartHandler> handler_;
   raw_ptr<CartService> service_;
   base::HistogramTester histogram_tester_;
@@ -251,54 +264,9 @@ TEST_F(CartHandlerTest, TestRemoveCart) {
   run_loop[5].Run();
 }
 
-// Override CartHandlerTest so that we can initialize feature_list_ in our
-// constructor, before CartHandlerTest::SetUp is called.
-class CartHandlerNtpModuleFakeDataTest : public CartHandlerTest {
- public:
-  CartHandlerNtpModuleFakeDataTest() {
-    // This needs to be called before any tasks that run on other threads check
-    // if a feature is enabled.
-    feature_list_.InitAndEnableFeatureWithParameters(
-        ntp_features::kNtpChromeCartModule,
-        {{"NtpChromeCartModuleDataParam", "fake"}});
-  }
-};
-
-// Verifies GetMerchantCarts loads fake data with feature parameter.
-TEST_F(CartHandlerNtpModuleFakeDataTest, TestEnableFakeData) {
-  // Remove fake data loaded by CartService::CartService.
-  service_->DeleteCartsWithFakeData();
-
-  service_->AddCart(kFakeMerchantKey, absl::nullopt, kFakeProto);
-  service_->AddCart(kMockMerchantBKey, absl::nullopt, kMockProtoB);
-  task_environment_.RunUntilIdle();
-
-  std::vector<chrome_cart::mojom::MerchantCartPtr> carts;
-  auto dummy_cart1 = chrome_cart::mojom::MerchantCart::New();
-  dummy_cart1->merchant = kFakeMerchant;
-  dummy_cart1->cart_url = GURL(kFakeMerchantURL);
-  carts.push_back(std::move(dummy_cart1));
-
-  base::RunLoop run_loop;
-  handler_->GetMerchantCarts(base::BindOnce(
-      &GetEvaluationMerchantCarts, run_loop.QuitClosure(), std::move(carts)));
-  run_loop.Run();
-}
-
-// Override CartHandlerTest so that we can initialize feature_list_ in our
-// constructor, before CartHandlerTest::SetUp is called.
-class CartHandlerNtpModuleTest : public CartHandlerTest {
- public:
-  CartHandlerNtpModuleTest() {
-    // This needs to be called before any tasks that run on other threads check
-    // if a feature is enabled.
-    feature_list_.InitAndEnableFeature(ntp_features::kNtpChromeCartModule);
-  }
-};
-
 // Verifies GetMerchantCarts loads real data without fake data parameter.
 // Flaky, see crbug.com/1185497.
-TEST_F(CartHandlerNtpModuleTest, DISABLED_TestDisableFakeData) {
+TEST_F(CartHandlerTest, DISABLED_TestDisableFakeData) {
   base::RunLoop run_loop;
   service_->AddCart(kFakeMerchantKey, absl::nullopt, kFakeProto);
   service_->AddCart(kMockMerchantBKey, absl::nullopt, kMockProtoB);
@@ -320,7 +288,7 @@ TEST_F(CartHandlerNtpModuleTest, DISABLED_TestDisableFakeData) {
 }
 
 // Tests show welcome surface for first three appearances of cart module.
-TEST_F(CartHandlerNtpModuleTest, TestShowWelcomeSurface) {
+TEST_F(CartHandlerTest, TestShowWelcomeSurface) {
   base::RunLoop run_loop[4 * CartService::kWelcomSurfaceShowLimit + 5];
   int run_loop_index = 0;
 
@@ -389,7 +357,7 @@ TEST_F(CartHandlerNtpModuleTest, TestShowWelcomeSurface) {
 }
 
 // Verifies discount data not showing with RBD disabled.
-TEST_F(CartHandlerNtpModuleTest, TestDiscountDataWithoutFeature) {
+TEST_F(CartHandlerTest, TestDiscountDataWithoutFeature) {
   base::RunLoop run_loop[7];
   int run_loop_index = 0;
   // Add a cart with discount.
@@ -420,6 +388,45 @@ TEST_F(CartHandlerNtpModuleTest, TestDiscountDataWithoutFeature) {
 
 // Override CartHandlerTest so that we can initialize feature_list_ in our
 // constructor, before CartHandlerTest::SetUp is called.
+class CartHandlerNtpModuleFakeDataTest : public CartHandlerTest {
+ public:
+  CartHandlerNtpModuleFakeDataTest() {
+    // This needs to be called before any tasks that run on other threads check
+    // if a feature is enabled.
+    feature_list_.InitAndEnableFeatureWithParameters(
+        ntp_features::kNtpChromeCartModule,
+        {{"NtpChromeCartModuleDataParam", "fake"},
+         {ntp_features::kNtpChromeCartModuleAbandonedCartDiscountUseUtmParam,
+          "false"}});
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+// Verifies GetMerchantCarts loads fake data with feature parameter.
+TEST_F(CartHandlerNtpModuleFakeDataTest, TestEnableFakeData) {
+  // Remove fake data loaded by CartService::CartService.
+  service_->DeleteCartsWithFakeData();
+
+  service_->AddCart(kFakeMerchantKey, absl::nullopt, kFakeProto);
+  service_->AddCart(kMockMerchantBKey, absl::nullopt, kMockProtoB);
+  task_environment_.RunUntilIdle();
+
+  std::vector<chrome_cart::mojom::MerchantCartPtr> carts;
+  auto dummy_cart1 = chrome_cart::mojom::MerchantCart::New();
+  dummy_cart1->merchant = kFakeMerchant;
+  dummy_cart1->cart_url = GURL(kFakeMerchantURL);
+  carts.push_back(std::move(dummy_cart1));
+
+  base::RunLoop run_loop;
+  handler_->GetMerchantCarts(base::BindOnce(
+      &GetEvaluationMerchantCarts, run_loop.QuitClosure(), std::move(carts)));
+  run_loop.Run();
+}
+
+// Override CartHandlerTest so that we can initialize feature_list_ in our
+// constructor, before CartHandlerTest::SetUp is called.
 class CartHandlerNtpModuleDiscountTest : public CartHandlerTest {
  public:
   CartHandlerNtpModuleDiscountTest() {
@@ -428,11 +435,20 @@ class CartHandlerNtpModuleDiscountTest : public CartHandlerTest {
     feature_list_.InitAndEnableFeatureWithParameters(
         ntp_features::kNtpChromeCartModule,
         {{"NtpChromeCartModuleAbandonedCartDiscountParam", "true"},
-         {"partner-merchant-pattern", "(foo.com)"}});
+         {ntp_features::kNtpChromeCartModuleAbandonedCartDiscountUseUtmParam,
+          "false"}});
   }
 
   void SetUp() override {
     CartHandlerTest::SetUp();
+
+    auto& data = commerce_heuristics::CommerceHeuristicsData::GetInstance();
+    ASSERT_TRUE(data.PopulateDataFromComponent("{}", R"###(
+        {
+          "rule_discount_partner_merchant_regex": "(foo.com)"
+        }
+    )###",
+                                               "", ""));
 
     // Mock that welcome surface has already finished showing.
     for (int i = 0; i < CartService::kWelcomSurfaceShowLimit; i++) {
@@ -440,6 +456,9 @@ class CartHandlerNtpModuleDiscountTest : public CartHandlerTest {
     }
     ASSERT_FALSE(service_->ShouldShowWelcomeSurface());
   }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
 };
 
 // Test discount consent card visibility aligns with CartService.
@@ -619,54 +638,138 @@ TEST_F(CartHandlerNtpModuleDiscountTest, TestDiscountDataShows) {
 
 // Override CartHandlerTest so that we can initialize feature_list_ in our
 // constructor, before CartHandlerTest::SetUp is called.
-class CartHandlerNtpModuleDiscountFastPathTest : public CartHandlerTest {
+class CartHandlerCartURLUTMTest : public CartHandlerTest {
  public:
-  CartHandlerNtpModuleDiscountFastPathTest() {
+  CartHandlerCartURLUTMTest() {
     // This needs to be called before any tasks that run on other threads check
     // if a feature is enabled.
     feature_list_.InitAndEnableFeatureWithParameters(
         ntp_features::kNtpChromeCartModule,
         {{"NtpChromeCartModuleAbandonedCartDiscountParam", "true"},
-         {"partner-merchant-pattern", "(foo.com)"},
          {ntp_features::kNtpChromeCartModuleAbandonedCartDiscountUseUtmParam,
           "true"}});
   }
+
+  void SetUp() override {
+    CartHandlerTest::SetUp();
+    auto& data = commerce_heuristics::CommerceHeuristicsData::GetInstance();
+    ASSERT_TRUE(data.PopulateDataFromComponent("{}", R"###(
+        {
+          "rule_discount_partner_merchant_regex": "(foo.com)"
+        }
+    )###",
+                                               "", ""));
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
 };
 
-// Verifies utm_source tag is appended to partner merchant's cart.
-TEST_F(CartHandlerNtpModuleDiscountFastPathTest,
-       TestAppendUtmSourceToPartnerMerchant) {
+// Verifies UTM tags are correctly appended to partner merchant's cart.
+TEST_F(CartHandlerCartURLUTMTest, TestAppendUTMToPartnerMerchant) {
   base::RunLoop run_loop[2];
   service_->AddCart(kFakeMerchantKey, absl::nullopt, kFakeProto);
   task_environment_.RunUntilIdle();
 
-  // Verifies utm_source tag for discount is disabled.
+  // Verifies UTM tags for when discount is disabled.
   ASSERT_FALSE(service_->IsCartDiscountEnabled());
   handler_->GetMerchantCarts(base::BindOnce(
       &GetEvaluationMerchantCartWithUtmSource, run_loop[0].QuitClosure(), true,
-      "utm_source=chrome_cart_no_rbd"));
+      "utm_source=chrome&utm_medium=app&utm_campaign=chrome-cart-discount-"
+      "off"));
   run_loop[0].Run();
 
-  // Verifies utm_source tag for discount is enabled.
+  // Verifies UTM tags for when discount is enabled.
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, true);
+  ASSERT_TRUE(service_->IsCartDiscountEnabled());
+  handler_->GetMerchantCarts(base::BindOnce(
+      &GetEvaluationMerchantCartWithUtmSource, run_loop[1].QuitClosure(), true,
+      "utm_source=chrome&utm_medium=app&utm_campaign=chrome-cart-discount-on"));
+  run_loop[1].Run();
+}
+
+// Verifies UTM tags are correctly appended to non-partner merchant's cart.
+TEST_F(CartHandlerCartURLUTMTest, TestAppendUTMToNonPartnerMerchant) {
+  base::RunLoop run_loop[2];
+  service_->AddCart(kMockMerchantBKey, absl::nullopt, kMockProtoB);
+  task_environment_.RunUntilIdle();
+
+  // UTM tags are the same for non-partner merchants regardless of discount
+  // status.
+  ASSERT_FALSE(service_->IsCartDiscountEnabled());
+  handler_->GetMerchantCarts(base::BindOnce(
+      &GetEvaluationMerchantCartWithUtmSource, run_loop[0].QuitClosure(), true,
+      "utm_source=chrome&utm_medium=app&utm_campaign=chrome-cart"));
+  run_loop[0].Run();
+
   handler_->SetDiscountEnabled(true);
   ASSERT_TRUE(service_->IsCartDiscountEnabled());
   handler_->GetMerchantCarts(base::BindOnce(
       &GetEvaluationMerchantCartWithUtmSource, run_loop[1].QuitClosure(), true,
-      "utm_source=chrome_cart_rbd"));
+      "utm_source=chrome&utm_medium=app&utm_campaign=chrome-cart"));
   run_loop[1].Run();
 }
 
-// Verifies utm_source tag is not appended to non partner merchant's cart.
-TEST_F(CartHandlerNtpModuleDiscountFastPathTest,
-       TestNotAppendUtmSourceToNonPartnerMerchant) {
-  base::RunLoop run_loop;
-  service_->AddCart(kMockMerchantBKey, absl::nullopt, kMockProtoB);
-  task_environment_.RunUntilIdle();
+class CartHandlerNtpModuleDiscountConsentV2Test : public CartHandlerTest {
+ public:
+  CartHandlerNtpModuleDiscountConsentV2Test() {
+    std::vector<base::test::FeatureRefAndParams> enabled_features;
+    base::FieldTrialParams consent_v2_params, cart_params;
+    cart_params["NtpChromeCartModuleAbandonedCartDiscountParam"] = "true";
+    enabled_features.emplace_back(ntp_features::kNtpChromeCartModule,
+                                  cart_params);
+    consent_v2_params["discount-consent-ntp-reshow-time"] = "1m";
+    consent_v2_params["discount-consent-ntp-max-dismiss-count"] = "2";
+    enabled_features.emplace_back(commerce::kDiscountConsentV2,
+                                  consent_v2_params);
+    feature_list_.InitWithFeaturesAndParameters(enabled_features,
+                                                /*disabled_features*/ {});
+  }
 
-  // Verifies utm_source tag is not appended.
-  ASSERT_FALSE(service_->IsCartDiscountEnabled());
-  handler_->GetMerchantCarts(
-      base::BindOnce(&GetEvaluationMerchantCartWithUtmSource,
-                     run_loop.QuitClosure(), false, ""));
-  run_loop.Run();
+  void SetUp() override {
+    CartHandlerTest::SetUp();
+    auto& data = commerce_heuristics::CommerceHeuristicsData::GetInstance();
+    ASSERT_TRUE(data.PopulateDataFromComponent("{}", R"###(
+        {
+          "rule_discount_partner_merchant_regex": "(foo.com)"
+        }
+    )###",
+                                               "", ""));
+    // Simulate that the welcome surface has been shown.
+    profile_->GetPrefs()->SetInteger(prefs::kCartModuleWelcomeSurfaceShownTimes,
+                                     CartService::kWelcomSurfaceShowLimit);
+  }
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
+TEST_F(CartHandlerNtpModuleDiscountConsentV2Test,
+       TestOnDiscountConsentDismissed) {
+  CartDB* cart_db = service_->GetDB();
+  {
+    base::RunLoop run_loop;
+    // Add a partner cart.
+    cart_db->AddCart(
+        kFakeMerchant, kFakeProto,
+        base::BindOnce(&CartHandlerTest::OperationEvaluation,
+                       base::Unretained(this), run_loop.QuitClosure(), true));
+    run_loop.Run();
+  }
+  {
+    base::RunLoop run_loop;
+    service_->ShouldShowDiscountConsent(
+        base::BindOnce(&CartHandlerTest::GetEvaluationBoolResult,
+                       base::Unretained(this), run_loop.QuitClosure(), true));
+    run_loop.Run();
+  }
+
+  handler_->OnDiscountConsentDismissed();
+  {
+    base::RunLoop run_loop;
+    service_->ShouldShowDiscountConsent(
+        base::BindOnce(&CartHandlerTest::GetEvaluationBoolResult,
+                       base::Unretained(this), run_loop.QuitClosure(), false));
+    run_loop.Run();
+  }
 }

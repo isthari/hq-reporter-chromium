@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -244,7 +244,7 @@ void LocationProviderWinrt::RegisterCallbacks() {
     hr = geo_locator_->add_PositionChanged(
         Microsoft::WRL::Callback<
             ITypedEventHandler<Geolocator*, PositionChangedEventArgs*>>(
-            [task_runner(base::ThreadTaskRunnerHandle::Get()),
+            [task_runner(base::SingleThreadTaskRunner::GetCurrentDefault()),
              callback(
                  base::BindRepeating(&LocationProviderWinrt::OnPositionChanged,
                                      weak_ptr_factory_.GetWeakPtr()))](
@@ -282,7 +282,7 @@ void LocationProviderWinrt::RegisterCallbacks() {
     hr = geo_locator_->add_StatusChanged(
         Microsoft::WRL::Callback<
             ITypedEventHandler<Geolocator*, StatusChangedEventArgs*>>(
-            [task_runner(base::ThreadTaskRunnerHandle::Get()),
+            [task_runner(base::SingleThreadTaskRunner::GetCurrentDefault()),
              callback(
                  base::BindRepeating(&LocationProviderWinrt::OnStatusChanged,
                                      weak_ptr_factory_.GetWeakPtr()))](

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,11 +55,11 @@ class ChromeLabsFooter : public views::View {
                          views::FlexSpecification(
                              views::MinimumFlexSizeRule::kPreferred,
                              views::MaximumFlexSizeRule::kPreferred, true))
-            .SetBorder(views::CreateEmptyBorder(
-                gfx::Insets(0, 0,
-                            views::LayoutProvider::Get()->GetDistanceMetric(
-                                views::DISTANCE_RELATED_CONTROL_VERTICAL),
-                            0)))
+            .SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(
+                0, 0,
+                views::LayoutProvider::Get()->GetDistanceMetric(
+                    views::DISTANCE_RELATED_CONTROL_VERTICAL),
+                0)))
             .Build());
     AddChildView(views::Builder<views::MdTextButton>()
                      .CopyAddressTo(&restart_button_)
@@ -68,8 +68,8 @@ class ChromeLabsFooter : public views::View {
                          IDS_CHROMELABS_RELAUNCH_BUTTON_LABEL))
                      .SetProminent(true)
                      .Build());
-    SetBackground(views::CreateThemedSolidBackground(
-        this, ui::kColorBubbleFooterBackground));
+    SetBackground(
+        views::CreateThemedSolidBackground(ui::kColorBubbleFooterBackground));
     SetBorder(views::CreateEmptyBorder(
         views::LayoutProvider::Get()->GetInsetsMetric(views::INSETS_DIALOG)));
     SetProperty(
@@ -88,8 +88,7 @@ END_METADATA
 
 }  // namespace
 
-ChromeLabsBubbleView::ChromeLabsBubbleView(ChromeLabsButton* anchor_view,
-                                           Browser* browser)
+ChromeLabsBubbleView::ChromeLabsBubbleView(ChromeLabsButton* anchor_view)
     : BubbleDialogDelegateView(anchor_view,
                                views::BubbleBorder::Arrow::TOP_RIGHT) {
   SetButtons(ui::DIALOG_BUTTON_NONE);

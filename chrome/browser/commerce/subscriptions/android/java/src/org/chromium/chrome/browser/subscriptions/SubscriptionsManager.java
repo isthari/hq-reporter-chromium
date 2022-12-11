@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,6 +63,13 @@ public interface SubscriptionsManager {
      * @param callback indicates whether or not the operation was successful.
      */
     void unsubscribe(CommerceSubscription subscription, Callback<Integer> callback);
+
+    /**
+     * This is batched version of {@link #unsubscribe(CommerceSubscription, Callback)}.
+     * @param subscriptions The list of subscription objects to unsubscribe from.
+     * @param callback A callback for whether the operation completed successfully.
+     */
+    void unsubscribe(List<CommerceSubscription> subscriptions, Callback<Integer> callback);
 
     /**
      * Returns all subscriptions that match the provided type.

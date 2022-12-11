@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -57,7 +57,7 @@ class PromotionalTabsEnabledPolicyTest
 
  protected:
   PromotionalTabsEnabledPolicyTest() {
-    const std::vector<base::Feature> kEnabledFeatures = {
+    const std::vector<base::test::FeatureRef> kEnabledFeatures = {
       features::kChromeWhatsNewUI,
 #if !BUILDFLAG(IS_CHROMEOS)
       welcome::kForceEnabled,
@@ -81,10 +81,12 @@ class PromotionalTabsEnabledPolicyTest
     // Set policies before the browser starts up.
     PolicyMap policies;
 
+#if !BUILDFLAG(IS_CHROMEOS)
     // Suppress the first-run dialog by disabling metrics reporting.
     policies.Set(key::kMetricsReportingEnabled, POLICY_LEVEL_MANDATORY,
                  POLICY_SCOPE_MACHINE, POLICY_SOURCE_CLOUD, base::Value(false),
                  nullptr);
+#endif
 
     // Apply the policy setting under test.
     if (GetParam() != BooleanPolicy::kNotConfigured) {
@@ -170,7 +172,7 @@ class PromotionalTabsEnabledPolicyWhatsNewTest
   void SetUpCommandLine(base::CommandLine* command_line) override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     command_line->RemoveSwitch(switches::kForceFirstRun);
-    command_line->AppendSwitch(switches::kNoFirstRun);
+    command_line->AppendSwitch(switches::kForceWhatsNew);
     command_line->AppendSwitchPath(switches::kUserDataDir, temp_dir_.GetPath());
 
     // Suppress the welcome page by setting the pref indicating that it has
@@ -211,10 +213,17 @@ class PromotionalTabsEnabledPolicyWhatsNewTest
   base::ScopedTempDir temp_dir_;
 };
 
-IN_PROC_BROWSER_TEST_P(PromotionalTabsEnabledPolicyWhatsNewTest, RunTest) {
+// This is disabled due to flakiness: https://crbug.com/1362518
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_RunTest DISABLED_RunTest
+#else
+#define MAYBE_RunTest RunTest
+#endif
+IN_PROC_BROWSER_TEST_P(PromotionalTabsEnabledPolicyWhatsNewTest,
+                       MAYBE_RunTest) {
   // Delay to allow the network request simulation to finish.
   base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), TestTimeouts::action_timeout());
   run_loop.Run();
   TabStripModel* tab_strip = browser()->tab_strip_model();
@@ -269,7 +278,7 @@ IN_PROC_BROWSER_TEST_P(PromotionalTabsEnabledPolicyWhatsNewInvalidTest,
                        RunTest) {
   // Delay to allow the network request simulation to finish.
   base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), TestTimeouts::action_timeout());
   run_loop.Run();
   TabStripModel* tab_strip = browser()->tab_strip_model();

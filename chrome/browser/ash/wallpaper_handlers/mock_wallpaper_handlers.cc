@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "ash/webui/personalization_app/mojom/personalization_app.mojom.h"
 #include "base/callback.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "chrome/browser/ash/wallpaper_handlers/wallpaper_handlers.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -26,34 +25,47 @@ MockGooglePhotosAlbumsFetcher::MockGooglePhotosAlbumsFetcher(Profile* profile)
              base::OnceCallback<void(GooglePhotosAlbumsCbkArgs)> callback) {
             auto response = FetchGooglePhotosAlbumsResponse::New(
                 std::vector<GooglePhotosAlbumPtr>(), absl::nullopt);
-            base::SequencedTaskRunnerHandle::Get()->PostTask(
+            base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
                 FROM_HERE,
                 base::BindOnce(std::move(callback), std::move(response)));
           });
 
   ON_CALL(*this, ParseResponse)
-      .WillByDefault([this](absl::optional<base::Value> value) {
-        return GooglePhotosAlbumsFetcher::ParseResponse(std::move(value));
+      .WillByDefault([this](const base::Value::Dict* response) {
+        return GooglePhotosAlbumsFetcher::ParseResponse(response);
       });
 }
 
 MockGooglePhotosAlbumsFetcher::~MockGooglePhotosAlbumsFetcher() = default;
 
-MockGooglePhotosCountFetcher::MockGooglePhotosCountFetcher(Profile* profile)
-    : GooglePhotosCountFetcher(profile) {
+absl::optional<size_t> MockGooglePhotosAlbumsFetcher::GetResultCount(
+    const GooglePhotosAlbumsCbkArgs& result) {
+  return GooglePhotosAlbumsFetcher::GetResultCount(result);
+}
+
+MockGooglePhotosEnabledFetcher::MockGooglePhotosEnabledFetcher(Profile* profile)
+    : GooglePhotosEnabledFetcher(profile) {
   ON_CALL(*this, AddRequestAndStartIfNecessary)
-      .WillByDefault([](base::OnceCallback<void(int)> callback) {
-        base::SequencedTaskRunnerHandle::Get()->PostTask(
-            FROM_HERE, base::BindOnce(std::move(callback), /*count=*/0));
-      });
+      .WillByDefault(
+          [](base::OnceCallback<void(GooglePhotosEnablementState)> callback) {
+            base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+                FROM_HERE,
+                base::BindOnce(std::move(callback),
+                               GooglePhotosEnablementState::kEnabled));
+          });
 
   ON_CALL(*this, ParseResponse)
-      .WillByDefault([this](absl::optional<base::Value> value) {
-        return GooglePhotosCountFetcher::ParseResponse(std::move(value));
+      .WillByDefault([this](const base::Value::Dict* response) {
+        return GooglePhotosEnabledFetcher::ParseResponse(response);
       });
 }
 
-MockGooglePhotosCountFetcher::~MockGooglePhotosCountFetcher() = default;
+MockGooglePhotosEnabledFetcher::~MockGooglePhotosEnabledFetcher() = default;
+
+absl::optional<size_t> MockGooglePhotosEnabledFetcher::GetResultCount(
+    const GooglePhotosEnablementState& result) {
+  return GooglePhotosEnabledFetcher::GetResultCount(result);
+}
 
 MockGooglePhotosPhotosFetcher::MockGooglePhotosPhotosFetcher(Profile* profile)
     : GooglePhotosPhotosFetcher(profile) {
@@ -62,21 +74,28 @@ MockGooglePhotosPhotosFetcher::MockGooglePhotosPhotosFetcher(Profile* profile)
 
   ON_CALL(*this, AddRequestAndStartIfNecessary)
       .WillByDefault(
-          [](const absl::optional<std::string>& resume_token,
+          [](const absl::optional<std::string>& item_id,
+             const absl::optional<std::string>& album_id,
+             const absl::optional<std::string>& resume_token, bool shuffle,
              base::OnceCallback<void(GooglePhotosPhotosCbkArgs)> callback) {
             auto response = FetchGooglePhotosPhotosResponse::New(
                 std::vector<GooglePhotosPhotoPtr>(), absl::nullopt);
-            base::SequencedTaskRunnerHandle::Get()->PostTask(
+            base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
                 FROM_HERE,
                 base::BindOnce(std::move(callback), std::move(response)));
           });
 
   ON_CALL(*this, ParseResponse)
-      .WillByDefault([this](absl::optional<base::Value> value) {
-        return GooglePhotosPhotosFetcher::ParseResponse(std::move(value));
+      .WillByDefault([this](const base::Value::Dict* response) {
+        return GooglePhotosPhotosFetcher::ParseResponse(response);
       });
 }
 
 MockGooglePhotosPhotosFetcher::~MockGooglePhotosPhotosFetcher() = default;
+
+absl::optional<size_t> MockGooglePhotosPhotosFetcher::GetResultCount(
+    const GooglePhotosPhotosCbkArgs& result) {
+  return GooglePhotosPhotosFetcher::GetResultCount(result);
+}
 
 }  // namespace wallpaper_handlers

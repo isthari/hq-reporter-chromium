@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,6 @@
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_fence.h"
-#include "ui/gl/gl_image.h"
 #include "ui/gl/gl_image_native_pixmap.h"
 #include "ui/gl/gl_surface.h"
 #include "ui/gl/init/gl_factory.h"
@@ -75,6 +74,11 @@ SurfacelessGlRenderer::BufferWrapper::~BufferWrapper() {
     image_->ReleaseTexImage(GL_TEXTURE_2D);
     glDeleteTextures(1, &gl_tex_);
   }
+}
+
+scoped_refptr<gfx::NativePixmap> SurfacelessGlRenderer::BufferWrapper::image()
+    const {
+  return image_->GetNativePixmap();
 }
 
 bool SurfacelessGlRenderer::BufferWrapper::Initialize(
@@ -134,11 +138,11 @@ SurfacelessGlRenderer::~SurfacelessGlRenderer() {
   // Need to make current when deleting the framebuffer resources allocated in
   // the buffers.
   context_->MakeCurrent(gl_surface_.get());
-  for (size_t i = 0; i < base::size(buffers_); ++i)
+  for (size_t i = 0; i < std::size(buffers_); ++i)
     buffers_[i].reset();
 
   for (size_t i = 0; i < kMaxLayers; ++i) {
-    for (size_t j = 0; j < base::size(overlay_buffers_[i]); ++j)
+    for (size_t j = 0; j < std::size(overlay_buffers_[i]); ++j)
       overlay_buffers_[i][j].reset();
   }
 }
@@ -164,7 +168,7 @@ bool SurfacelessGlRenderer::Initialize() {
   else
     primary_plane_rect_ = gfx::Rect(size_);
 
-  for (size_t i = 0; i < base::size(buffers_); ++i) {
+  for (size_t i = 0; i < std::size(buffers_); ++i) {
     buffers_[i] = std::make_unique<BufferWrapper>();
     if (!buffers_[i]->Initialize(widget_, primary_plane_rect_.size()))
       return false;
@@ -180,7 +184,7 @@ bool SurfacelessGlRenderer::Initialize() {
     const gfx::Size overlay_size =
         gfx::Size(size_.width() / 8, size_.height() / 8);
     for (size_t i = 0; i < overlay_cnt_; ++i) {
-      for (size_t j = 0; j < base::size(overlay_buffers_[i]); ++j) {
+      for (size_t j = 0; j < std::size(overlay_buffers_[i]); ++j) {
         overlay_buffers_[i][j] = std::make_unique<BufferWrapper>();
         overlay_buffers_[i][j]->Initialize(gfx::kNullAcceleratedWidget,
                                            overlay_size);
@@ -292,7 +296,7 @@ void SurfacelessGlRenderer::RenderFrame() {
   gl_surface_->SwapBuffersAsync(
       base::BindOnce(&SurfacelessGlRenderer::PostRenderFrameTask,
                      weak_ptr_factory_.GetWeakPtr()),
-      base::DoNothing());
+      base::DoNothing(), gl::FrameData());
 }
 
 void SurfacelessGlRenderer::PostRenderFrameTask(
@@ -302,14 +306,14 @@ void SurfacelessGlRenderer::PostRenderFrameTask(
 
   switch (result.swap_result) {
     case gfx::SwapResult::SWAP_NAK_RECREATE_BUFFERS:
-      for (size_t i = 0; i < base::size(buffers_); ++i) {
+      for (size_t i = 0; i < std::size(buffers_); ++i) {
         buffers_[i] = std::make_unique<BufferWrapper>();
         if (!buffers_[i]->Initialize(widget_, primary_plane_rect_.size()))
           LOG(FATAL) << "Failed to recreate buffer";
       }
       [[fallthrough]];  // We want to render a new frame anyways.
     case gfx::SwapResult::SWAP_ACK:
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(&SurfacelessGlRenderer::RenderFrame,
                                     weak_ptr_factory_.GetWeakPtr()));
       break;

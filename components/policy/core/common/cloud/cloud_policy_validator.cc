@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,11 @@
 #include <utility>
 
 #include "base/callback_helpers.h"
-#include "base/cxx17_backports.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
@@ -299,7 +297,8 @@ void CloudPolicyValidatorBase::PostValidationTask(
   task_runner->PostTask(
       FROM_HERE,
       base::BindOnce(&CloudPolicyValidatorBase::PerformValidation,
-                     std::move(validator), base::ThreadTaskRunnerHandle::Get(),
+                     std::move(validator),
+                     base::SingleThreadTaskRunner::GetCurrentDefault(),
                      std::move(completion_callback)));
 }
 
@@ -381,7 +380,7 @@ void CloudPolicyValidatorBase::RunChecks() {
       {VALIDATE_VALUES, &CloudPolicyValidatorBase::CheckValues},
   };
 
-  for (size_t i = 0; i < base::size(kCheckFunctions); ++i) {
+  for (size_t i = 0; i < std::size(kCheckFunctions); ++i) {
     if (validation_flags_ & kCheckFunctions[i].flag) {
       status_ = (this->*(kCheckFunctions[i].checkFunction))();
       if (status_ != VALIDATION_OK)

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 
 #include <limits>
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "base/callback.h"
@@ -19,6 +18,7 @@
 #include "base/containers/span.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/strings/string_piece.h"
 #include "mojo/public/cpp/bindings/connection_group.h"
 #include "mojo/public/cpp/bindings/lib/buffer.h"
 #include "mojo/public/cpp/bindings/lib/message_internal.h"
@@ -32,7 +32,7 @@ namespace mojo {
 class AssociatedGroupController;
 
 using ReportBadMessageCallback =
-    base::OnceCallback<void(const std::string& error)>;
+    base::OnceCallback<void(base::StringPiece error)>;
 
 // Message is a holder for the data and handles to be sent over a MessagePipe.
 // Message owns its data and handles, but a consumer of Message is free to
@@ -228,7 +228,7 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) Message {
 
   // Notifies the system that this message is "bad," in this case meaning it was
   // rejected by bindings validation code.
-  void NotifyBadMessage(const std::string& error);
+  void NotifyBadMessage(base::StringPiece error);
 
   // Serializes and attaches Mojo handles and associated endpoint handles from
   // |handles_| and |associated_endpoint_handles_| respectively.
@@ -296,7 +296,8 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) Message {
 
   std::vector<ScopedHandle> handles_;
   std::vector<ScopedInterfaceEndpointHandle> associated_endpoint_handles_;
-  raw_ptr<const ConnectionGroup::Ref> receiver_connection_group_ = nullptr;
+  raw_ptr<const ConnectionGroup::Ref, DanglingUntriaged>
+      receiver_connection_group_ = nullptr;
 
   // Indicates whether this Message object is transferable, i.e. can be sent
   // elsewhere. In general this is true unless |handle_| is invalid or
@@ -410,7 +411,7 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) PassThroughFilter
 // a message, use GetBadMessageCallback() and retain its result until you're
 // ready to invoke or discard it.
 COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE)
-void ReportBadMessage(const std::string& error);
+void ReportBadMessage(base::StringPiece error);
 
 // Acquires a callback which may be run to report the currently dispatching
 // Message as bad. Note that this is only legal to call from directly within the

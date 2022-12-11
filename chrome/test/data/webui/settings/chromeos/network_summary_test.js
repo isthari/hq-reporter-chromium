@@ -1,12 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// clang-format off
-// #import 'chrome://os-settings/chromeos/os_settings.js';
+import 'chrome://os-settings/chromeos/os_settings.js';
 
-// #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-// clang-format on
+import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 suite('NetworkSummary', function() {
   /** @type {!NetworkSummaryElement|undefined} */
@@ -15,7 +13,7 @@ suite('NetworkSummary', function() {
   setup(function() {
     netSummary = document.createElement('network-summary');
     document.body.appendChild(netSummary);
-    Polymer.dom.flush();
+    flush();
   });
 
   test('Default network summary item', function() {
@@ -24,4 +22,22 @@ suite('NetworkSummary', function() {
     assertEquals(1, summaryItems.length);
     assertEquals('WiFi', summaryItems[0].id);
   });
+
+  [false, true].forEach(isHotspotFeatureEnabled => {
+    test('Hotspot summary item', async () => {
+      loadTimeData.overrideValues(
+          {'isHotspotEnabled': isHotspotFeatureEnabled});
+      netSummary = document.createElement('network-summary');
+      document.body.appendChild(netSummary);
+      flush();
+      const hotspotSummaryItem = netSummary.$$('hotspot-summary-item');
+
+      if (isHotspotFeatureEnabled) {
+        assertTrue(!!hotspotSummaryItem);
+      } else {
+        assertFalse(!!hotspotSummaryItem);
+      }
+    });
+  });
+
 });

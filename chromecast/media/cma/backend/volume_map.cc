@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,16 +49,15 @@ void VolumeMap::LoadFromFile() {
 }
 
 void VolumeMap::LoadVolumeMap(std::unique_ptr<base::Value> cast_audio_config) {
-  const base::DictionaryValue* cast_audio_dict;
-  if (!cast_audio_config ||
-      !cast_audio_config->GetAsDictionary(&cast_audio_dict)) {
+  if (!cast_audio_config || !cast_audio_config->is_dict()) {
     LOG(WARNING) << "No cast audio config found; using default volume map.";
     UseDefaultVolumeMap();
     return;
   }
 
-  const base::ListValue* volume_map_list;
-  if (!cast_audio_dict->GetList(kKeyVolumeMap, &volume_map_list)) {
+  const base::Value::List* volume_map_list =
+      cast_audio_config->GetDict().FindList(kKeyVolumeMap);
+  if (!volume_map_list) {
     LOG(WARNING) << "No volume map found; using default volume map.";
     UseDefaultVolumeMap();
     return;
@@ -66,18 +65,18 @@ void VolumeMap::LoadVolumeMap(std::unique_ptr<base::Value> cast_audio_config) {
 
   double prev_level = -1.0;
   std::vector<LevelToDb> new_map;
-  for (size_t i = 0; i < volume_map_list->GetList().size(); ++i) {
-    const base::DictionaryValue* volume_map_entry;
-    CHECK(volume_map_list->GetDictionary(i, &volume_map_entry));
 
-    absl::optional<double> level = volume_map_entry->FindDoubleKey(kKeyLevel);
+  for (const auto& value : *volume_map_list) {
+    const base::Value::Dict& volume_map_entry = value.GetDict();
+
+    absl::optional<double> level = volume_map_entry.FindDouble(kKeyLevel);
     CHECK(level);
     CHECK_GE(*level, 0.0);
     CHECK_LE(*level, 1.0);
     CHECK_GT(*level, prev_level);
     prev_level = *level;
 
-    absl::optional<double> db = volume_map_entry->FindDoubleKey(kKeyDb);
+    absl::optional<double> db = volume_map_entry.FindDouble(kKeyDb);
     CHECK(db);
     CHECK_LE(*db, 0.0);
 

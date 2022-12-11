@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,7 @@ message_center::Notification CreateNotification(const GURL& origin,
   return message_center::Notification(
       message_center::NOTIFICATION_TYPE_SIMPLE, id,
       /*title=*/std::u16string(),
-      /*message=*/std::u16string(), /*icon=*/gfx::Image(),
+      /*message=*/std::u16string(), /*icon=*/ui::ImageModel(),
       /*display_source=*/std::u16string(), origin, message_center::NotifierId(),
       message_center::RichNotificationData(), /*delegate=*/nullptr);
 }

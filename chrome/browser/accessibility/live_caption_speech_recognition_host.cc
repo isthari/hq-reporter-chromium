@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,13 @@
 #include <memory>
 #include <utility>
 
+#include "base/callback_forward.h"
 #include "build/build_config.h"
 #include "chrome/browser/accessibility/caption_bubble_context_browser.h"
 #include "chrome/browser/accessibility/live_caption_controller_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/live_caption/live_caption_controller.h"
+#include "components/live_caption/views/caption_bubble_model.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
@@ -23,13 +25,14 @@ void LiveCaptionSpeechRecognitionHost::Create(
     content::RenderFrameHost* frame_host,
     mojo::PendingReceiver<media::mojom::SpeechRecognitionRecognizerClient>
         receiver) {
+  CHECK(frame_host);
   // The object is bound to the lifetime of |host| and the mojo
   // connection. See DocumentService for details.
-  new LiveCaptionSpeechRecognitionHost(frame_host, std::move(receiver));
+  new LiveCaptionSpeechRecognitionHost(*frame_host, std::move(receiver));
 }
 
 LiveCaptionSpeechRecognitionHost::LiveCaptionSpeechRecognitionHost(
-    content::RenderFrameHost* frame_host,
+    content::RenderFrameHost& frame_host,
     mojo::PendingReceiver<media::mojom::SpeechRecognitionRecognizerClient>
         receiver)
     : DocumentService<media::mojom::SpeechRecognitionRecognizerClient>(
@@ -72,7 +75,11 @@ void LiveCaptionSpeechRecognitionHost::OnLanguageIdentificationEvent(
 void LiveCaptionSpeechRecognitionHost::OnSpeechRecognitionError() {
   LiveCaptionController* live_caption_controller = GetLiveCaptionController();
   if (live_caption_controller)
-    live_caption_controller->OnError(context_.get());
+    live_caption_controller->OnError(
+        context_.get(), CaptionBubbleErrorType::kGeneric,
+        base::RepeatingClosure(),
+        base::BindRepeating(
+            [](CaptionBubbleErrorType error_type, bool checked) {}));
 }
 
 void LiveCaptionSpeechRecognitionHost::OnSpeechRecognitionStopped() {
@@ -91,7 +98,7 @@ void LiveCaptionSpeechRecognitionHost::MediaEffectivelyFullscreenChanged(
 #endif
 
 content::WebContents* LiveCaptionSpeechRecognitionHost::GetWebContents() {
-  return content::WebContents::FromRenderFrameHost(render_frame_host());
+  return content::WebContents::FromRenderFrameHost(&render_frame_host());
 }
 
 LiveCaptionController*

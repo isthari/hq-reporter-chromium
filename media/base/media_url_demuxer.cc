@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,12 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
+#include "media/base/demuxer.h"
 
 namespace media {
 
 MediaUrlDemuxer::MediaUrlDemuxer(
-    const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
+    const scoped_refptr<base::SequencedTaskRunner>& task_runner,
     const GURL& media_url,
     const net::SiteForCookies& site_for_cookies,
     const url::Origin& top_frame_origin,
@@ -41,10 +42,14 @@ std::string MediaUrlDemuxer::GetDisplayName() const {
   return "MediaUrlDemuxer";
 }
 
+DemuxerType MediaUrlDemuxer::GetDemuxerType() const {
+  return DemuxerType::kMediaUrlDemuxer;
+}
+
 void MediaUrlDemuxer::ForwardDurationChangeToDemuxerHost(
     base::TimeDelta duration) {
   DCHECK(host_);
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   host_->SetDuration(duration);
 }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -74,7 +74,7 @@ struct PipelineStatusTraits {
   using Codes = PipelineStatusCodes;
 
   static constexpr StatusGroupType Group() { return "PipelineStatus"; }
-  static constexpr Codes DefaultEnumValue() { return PIPELINE_OK; }
+  static constexpr Codes OkEnumValue() { return PIPELINE_OK; }
 };
 
 using PipelineStatus = TypedStatus<PipelineStatusTraits>;

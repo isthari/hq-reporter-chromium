@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,14 +43,15 @@ SyncSessionsWebContentsRouter::SyncSessionsWebContentsRouter(Profile* profile) {
 #endif  // !BUILDFLAG(IS_ANDROID)
 }
 
-SyncSessionsWebContentsRouter::~SyncSessionsWebContentsRouter() {}
+SyncSessionsWebContentsRouter::~SyncSessionsWebContentsRouter() = default;
 
 void SyncSessionsWebContentsRouter::NotifyTabModified(
     content::WebContents* web_contents,
     bool page_load_completed) {
   SyncedTabDelegate* delegate = nullptr;
-  if (web_contents)
+  if (web_contents) {
     delegate = GetSyncedTabDelegateFromWebContents(web_contents);
+  }
 
   if (handler_ && delegate) {
     handler_->OnLocalTabModified(delegate);

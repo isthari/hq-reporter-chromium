@@ -1,9 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/browser/events/lazy_event_dispatch_util.h"
 
+#include "base/observer_list.h"
 #include "base/version.h"
 #include "content/public/browser/browser_context.h"
 #include "extensions/browser/event_router.h"
@@ -75,14 +76,14 @@ bool LazyEventDispatchUtil::ReadPendingOnInstallInfoFromPref(
   ExtensionPrefs* prefs = ExtensionPrefs::Get(browser_context_);
   DCHECK(prefs);
 
-  const base::DictionaryValue* info = nullptr;
-  if (!prefs->ReadPrefAsDictionary(
-          extension_id, kPrefPendingOnInstalledEventDispatchInfo, &info)) {
+  const base::Value::Dict* info = prefs->ReadPrefAsDict(
+      extension_id, kPrefPendingOnInstalledEventDispatchInfo);
+  if (!info) {
     return false;
   }
 
   const std::string* previous_version_string =
-      info->FindStringKey(kPrefPreviousVersion);
+      info->FindString(kPrefPreviousVersion);
   // |previous_version_string| can be empty.
   *previous_version = base::Version(
       previous_version_string ? *previous_version_string : std::string());
@@ -109,10 +110,10 @@ void LazyEventDispatchUtil::StorePendingOnInstallInfoToPref(
   auto pending_on_install_info = std::make_unique<base::DictionaryValue>();
   base::Version previous_version = ExtensionRegistry::Get(browser_context_)
                                        ->GetStoredVersion(extension->id());
-  pending_on_install_info->SetString(kPrefPreviousVersion,
-                                     previous_version.IsValid()
-                                         ? previous_version.GetString()
-                                         : std::string());
+  pending_on_install_info->SetStringKey(kPrefPreviousVersion,
+                                        previous_version.IsValid()
+                                            ? previous_version.GetString()
+                                            : std::string());
   prefs->UpdateExtensionPref(extension->id(),
                              kPrefPendingOnInstalledEventDispatchInfo,
                              std::move(pending_on_install_info));

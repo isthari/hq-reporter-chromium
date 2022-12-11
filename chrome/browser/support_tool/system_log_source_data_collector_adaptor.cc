@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@
 #include "components/feedback/pii_types.h"
 #include "components/feedback/redaction_tool.h"
 #include "components/feedback/system_logs/system_logs_source.h"
+#include "data_collector_utils.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace {
@@ -41,10 +42,7 @@ std::pair<std::unique_ptr<system_logs::SystemLogsResponse>, PIIMap> DetectPII(
   // PII to `detected_pii`.
   for (const auto& entry : *system_logs_response) {
     PIIMap pii_in_logs = redaction_tool->Detect(entry.second);
-    for (auto& pii_data : pii_in_logs) {
-      detected_pii[pii_data.first].insert(pii_data.second.begin(),
-                                          pii_data.second.end());
-    }
+    MergePIIMaps(detected_pii, pii_in_logs);
   }
   return std::make_pair(std::move(system_logs_response),
                         std::move(detected_pii));
@@ -77,7 +75,8 @@ bool WriteOutputFiles(
   DCHECK(system_logs_response);
   bool success = true;
   for (auto& entry : *system_logs_response) {
-    if (!base::WriteFile(target_directory.AppendASCII(entry.first),
+    if (!base::WriteFile(target_directory.AppendASCII(entry.first)
+                             .AddExtension(FILE_PATH_LITERAL(".log")),
                          entry.second))
       success = false;
   }
@@ -188,4 +187,9 @@ void SystemLogSourceDataCollectorAdaptor::OnFilesWritten(
     return;
   }
   std::move(on_exported_callback).Run(/*error=*/absl::nullopt);
+}
+
+void SystemLogSourceDataCollectorAdaptor::SetLogSourceForTesting(
+    std::unique_ptr<system_logs::SystemLogsSource> log_source) {
+  log_source_ = std::move(log_source);
 }

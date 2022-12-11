@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,9 @@
 
 #include <utility>
 
+#include "build/build_config.h"
 #include "gpu/command_buffer/service/context_state.h"
+#include "gpu/command_buffer/service/gl_utils.h"
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_surface.h"
@@ -34,13 +36,7 @@ AbstractTextureImpl::AbstractTextureImpl(GLenum target,
   api_->glTexParameteriFn(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   api_->glTexParameteriFn(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-  texture_ = new gpu::gles2::Texture(service_id);
-  texture_->SetLightweightRef();
-  texture_->SetTarget(target, 1);
-  texture_->set_min_filter(GL_LINEAR);
-  texture_->set_mag_filter(GL_LINEAR);
-  texture_->set_wrap_t(GL_CLAMP_TO_EDGE);
-  texture_->set_wrap_s(GL_CLAMP_TO_EDGE);
+  texture_ = gpu::gles2::CreateGLES2TextureWithLightRef(service_id, target);
   gfx::Rect cleared_rect;
   texture_->SetLevelInfo(target, 0, internal_format, width, height, depth,
                          border, format, type, cleared_rect);
@@ -64,6 +60,7 @@ void AbstractTextureImpl::SetParameteri(GLenum pname, GLint param) {
   NOTIMPLEMENTED();
 }
 
+#if BUILDFLAG(IS_ANDROID)
 void AbstractTextureImpl::BindStreamTextureImage(gl::GLImage* image,
                                                  GLuint service_id) {
   const GLint level = 0;
@@ -72,12 +69,19 @@ void AbstractTextureImpl::BindStreamTextureImage(gl::GLImage* image,
       target, level, image, Texture::ImageState::UNBOUND, service_id);
   texture_->SetLevelCleared(target, level, true);
 }
+#endif
 
-void AbstractTextureImpl::BindImage(gl::GLImage* image, bool client_managed) {
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+void AbstractTextureImpl::SetUnboundImage(gl::GLImage* image) {
   NOTIMPLEMENTED();
 }
+#else
+void AbstractTextureImpl::SetBoundImage(gl::GLImage* image) {
+  NOTIMPLEMENTED();
+}
+#endif
 
-gl::GLImage* AbstractTextureImpl::GetImage() const {
+gl::GLImage* AbstractTextureImpl::GetImageForTesting() const {
   NOTIMPLEMENTED();
   return nullptr;
 }
@@ -138,20 +142,27 @@ void AbstractTextureImplPassthrough::SetParameteri(GLenum pname, GLint param) {
   NOTIMPLEMENTED();
 }
 
+#if BUILDFLAG(IS_ANDROID)
 void AbstractTextureImplPassthrough::BindStreamTextureImage(gl::GLImage* image,
                                                             GLuint service_id) {
   const GLint level = 0;
   const GLuint target = texture_->target();
   texture_->SetStreamLevelImage(target, level, image, service_id);
-  texture_->set_is_bind_pending(true);
+  texture_->set_bind_pending();
 }
+#endif
 
-void AbstractTextureImplPassthrough::BindImage(gl::GLImage* image,
-                                               bool client_managed) {
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+void AbstractTextureImplPassthrough::SetUnboundImage(gl::GLImage* image) {
   NOTIMPLEMENTED();
 }
+#else
+void AbstractTextureImplPassthrough::SetBoundImage(gl::GLImage* image) {
+  NOTIMPLEMENTED();
+}
+#endif
 
-gl::GLImage* AbstractTextureImplPassthrough::GetImage() const {
+gl::GLImage* AbstractTextureImplPassthrough::GetImageForTesting() const {
   NOTIMPLEMENTED();
   return nullptr;
 }

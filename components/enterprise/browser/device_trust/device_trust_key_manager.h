@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,8 +23,10 @@ class DeviceTrustKeyManager {
 
   struct KeyMetadata {
     enterprise_management::BrowserPublicKeyUploadRequest::KeyTrustLevel
-        trust_level;
-    crypto::SignatureVerifier::SignatureAlgorithm algorithm;
+        trust_level{};
+    crypto::SignatureVerifier::SignatureAlgorithm algorithm{};
+    std::string spki_bytes{};
+    absl::optional<int> synchronization_response_code = absl::nullopt;
   };
 
   enum class KeyRotationResult {

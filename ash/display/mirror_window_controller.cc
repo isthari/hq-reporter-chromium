@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +16,9 @@
 #include "ash/host/root_window_transformer.h"
 #include "ash/root_window_settings.h"
 #include "ash/shell.h"
+#include "base/containers/contains.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/window.h"
@@ -192,7 +193,7 @@ void MirrorWindowController::UpdateWindow(
       AshWindowTreeHostInitParams init_params;
       init_params.initial_bounds = display_info.bounds_in_native();
       init_params.display_id = display_info.id();
-      init_params.mirroring_delegate = this;
+      init_params.delegate = this;
       init_params.mirroring_unified = display_manager->IsInUnifiedMode();
       init_params.device_scale_factor = display_info.device_scale_factor();
       MirroringHostInfo* host_info = new MirroringHostInfo;
@@ -291,10 +292,8 @@ void MirrorWindowController::UpdateWindow(
   if (mirroring_host_info_map_.size() > display_info_list.size()) {
     for (MirroringHostInfoMap::iterator iter = mirroring_host_info_map_.begin();
          iter != mirroring_host_info_map_.end();) {
-      if (std::find_if(display_info_list.begin(), display_info_list.end(),
-                       [iter](const display::ManagedDisplayInfo& info) {
-                         return info.id() == iter->first;
-                       }) == display_info_list.end()) {
+      if (!base::Contains(display_info_list, iter->first,
+                          &display::ManagedDisplayInfo::id)) {
         CloseAndDeleteHost(iter->second, true);
         iter = mirroring_host_info_map_.erase(iter);
       } else {
@@ -367,7 +366,7 @@ display::Display MirrorWindowController::GetDisplayForRootWindow(
     if (pair.second->ash_host->AsWindowTreeHost()->window() == root) {
       // Sanity check to catch an error early.
       const int64_t id = pair.first;
-      const display::Display* display = GetMirroringDisplayById(id);
+      const display::Display* display = GetDisplayById(id);
       DCHECK(display);
       if (display)
         return *display;
@@ -390,7 +389,7 @@ aura::Window::Windows MirrorWindowController::GetAllRootWindows() const {
   return root_windows;
 }
 
-const display::Display* MirrorWindowController::GetMirroringDisplayById(
+const display::Display* MirrorWindowController::GetDisplayById(
     int64_t display_id) const {
   const display::Displays& list =
       Shell::Get()->display_manager()->software_mirroring_display_list();
@@ -426,7 +425,8 @@ void MirrorWindowController::CloseAndDeleteHost(MirroringHostInfo* host_info,
   // was deleted as a result of input event (e.g. shortcut), so don't delete
   // now.
   if (delay_host_deletion)
-    base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, host_info);
+    base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                  host_info);
   else
     delete host_info;
 }

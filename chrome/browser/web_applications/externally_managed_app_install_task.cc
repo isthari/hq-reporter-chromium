@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,24 +11,39 @@
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
+#include "chrome/browser/web_applications/commands/externally_managed_install_command.h"
+#include "chrome/browser/web_applications/commands/install_from_info_command.h"
+#include "chrome/browser/web_applications/user_display_mode.h"
 #include "chrome/browser/web_applications/web_app.h"
+#include "chrome/browser/web_applications/web_app_command_scheduler.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
+#include "chrome/browser/web_applications/web_app_data_retriever.h"
 #include "chrome/browser/web_applications/web_app_install_finalizer.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
-#include "chrome/browser/web_applications/web_app_install_manager.h"
 #include "chrome/browser/web_applications/web_app_install_utils.h"
-#include "chrome/browser/web_applications/web_app_installation_utils.h"
+#include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_registry_update.h"
+#include "chrome/browser/web_applications/web_app_sync_bridge.h"
 #include "chrome/browser/web_applications/web_app_ui_manager.h"
+#include "components/webapps/browser/install_result_code.h"
 #include "components/webapps/browser/installable/installable_manager.h"
 #include "components/webapps/browser/installable/installable_metrics.h"
 #include "components/webapps/browser/installable/installable_params.h"
+#include "components/webapps/browser/uninstall_result_code.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
+
+namespace {
+// How often we retry to download a custom icon, not counting the first attempt.
+const int MAX_ICON_DOWNLOAD_RETRIES = 1;
+const base::TimeDelta ICON_DOWNLOAD_RETRY_DELAY = base::Seconds(5);
+}  // namespace
 
 namespace web_app {
 
@@ -36,17 +51,15 @@ ExternallyManagedAppInstallTask::ExternallyManagedAppInstallTask(
     Profile* profile,
     WebAppUrlLoader* url_loader,
     WebAppRegistrar* registrar,
-    OsIntegrationManager* os_integration_manager,
     WebAppUiManager* ui_manager,
     WebAppInstallFinalizer* install_finalizer,
-    WebAppInstallManager* install_manager,
+    WebAppCommandScheduler* command_scheduler,
     ExternalInstallOptions install_options)
     : profile_(profile),
       url_loader_(url_loader),
       registrar_(registrar),
-      os_integration_manager_(os_integration_manager),
       install_finalizer_(install_finalizer),
-      install_manager_(install_manager),
+      command_scheduler_(command_scheduler),
       ui_manager_(ui_manager),
       externally_installed_app_prefs_(profile_->GetPrefs()),
       install_options_(std::move(install_options)) {}
@@ -67,6 +80,11 @@ void ExternallyManagedAppInstallTask::Install(
       base::BindOnce(&ExternallyManagedAppInstallTask::OnWebContentsReady,
                      weak_ptr_factory_.GetWeakPtr(), web_contents,
                      std::move(result_callback)));
+}
+
+void ExternallyManagedAppInstallTask::SetDataRetrieverFactoryForTesting(
+    DataRetrieverFactory data_retriever_factory) {
+  data_retriever_factory_ = std::move(data_retriever_factory);
 }
 
 void ExternallyManagedAppInstallTask::OnWebContentsReady(
@@ -119,7 +137,8 @@ void ExternallyManagedAppInstallTask::OnUrlLoaded(
   if (load_url_result == WebAppUrlLoader::Result::kFailedWebContentsDestroyed)
     return;
 
-  InstallResultCode code = InstallResultCode::kInstallURLLoadFailed;
+  webapps::InstallResultCode code =
+      webapps::InstallResultCode::kInstallURLLoadFailed;
 
   switch (load_url_result) {
     case WebAppUrlLoader::Result::kUrlLoaded:
@@ -128,20 +147,20 @@ void ExternallyManagedAppInstallTask::OnUrlLoaded(
       NOTREACHED();
       break;
     case WebAppUrlLoader::Result::kRedirectedUrlLoaded:
-      code = InstallResultCode::kInstallURLRedirected;
+      code = webapps::InstallResultCode::kInstallURLRedirected;
       break;
     case WebAppUrlLoader::Result::kFailedUnknownReason:
-      code = InstallResultCode::kInstallURLLoadFailed;
+      code = webapps::InstallResultCode::kInstallURLLoadFailed;
       break;
     case WebAppUrlLoader::Result::kFailedPageTookTooLong:
-      code = InstallResultCode::kInstallURLLoadTimeOut;
+      code = webapps::InstallResultCode::kInstallURLLoadTimeOut;
       break;
     case WebAppUrlLoader::Result::kFailedErrorPageLoaded:
-      code = InstallResultCode::kInstallURLLoadFailed;
+      code = webapps::InstallResultCode::kInstallURLLoadFailed;
       break;
   }
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(retry_on_failure),
                      ExternallyManagedAppManager::InstallResult(code)));
@@ -152,29 +171,33 @@ void ExternallyManagedAppInstallTask::InstallFromInfo(
   auto internal_install_source = ConvertExternalInstallSourceToInstallSource(
       install_options().install_source);
   auto install_params = ConvertExternalInstallOptionsToParams(install_options_);
+  install_params.bypass_os_hooks = true;
   auto web_app_info = install_options_.app_info_factory.Run();
   for (std::string& search_term : install_params.additional_search_terms) {
     web_app_info->additional_search_terms.push_back(std::move(search_term));
   }
-  install_manager_->InstallWebAppFromInfo(
+  web_app_info->install_url = install_params.install_url;
+  command_scheduler_->InstallFromInfoWithParams(
       std::move(web_app_info),
       /*overwrite_existing_manifest_fields=*/install_params.force_reinstall,
-      ForInstallableSite::kYes, install_params, internal_install_source,
+      internal_install_source,
       base::BindOnce(&ExternallyManagedAppInstallTask::OnWebAppInstalled,
                      weak_ptr_factory_.GetWeakPtr(), /* is_placeholder=*/false,
-                     /*offline_install=*/true, std::move(result_callback)));
+                     /*offline_install=*/true, std::move(result_callback)),
+      install_params);
 }
 
 void ExternallyManagedAppInstallTask::UninstallPlaceholderApp(
     content::WebContents* web_contents,
     ResultCallback result_callback) {
-  absl::optional<AppId> app_id =
-      externally_installed_app_prefs_.LookupPlaceholderAppId(
-          install_options_.install_url);
+  absl::optional<AppId> app_id = registrar_->LookupPlaceholderAppId(
+      install_options_.install_url,
+      ConvertExternalInstallSourceToSource(install_options_.install_source));
 
-  // If there is no placeholder app or the app is not installed,
-  // then no need to uninstall anything.
-  if (!app_id.has_value() || !registrar_->IsInstalled(app_id.value())) {
+  // If there is no app in the DB that is a placeholder app or if the app exists
+  // but is not a placeholder, then no need to uninstall anything.
+  // These checks are handled by the WebAppRegistrar itself.
+  if (!app_id.has_value()) {
     ContinueWebAppInstall(web_contents, std::move(result_callback));
     return;
   }
@@ -182,6 +205,7 @@ void ExternallyManagedAppInstallTask::UninstallPlaceholderApp(
   // Otherwise, uninstall the placeholder app.
   install_finalizer_->UninstallExternalWebAppByUrl(
       install_options_.install_url,
+      ConvertExternalInstallSourceToSource(install_options_.install_source),
       webapps::WebappUninstallSource::kPlaceholderReplacement,
       base::BindOnce(&ExternallyManagedAppInstallTask::OnPlaceholderUninstalled,
                      weak_ptr_factory_.GetWeakPtr(), web_contents,
@@ -191,13 +215,13 @@ void ExternallyManagedAppInstallTask::UninstallPlaceholderApp(
 void ExternallyManagedAppInstallTask::OnPlaceholderUninstalled(
     content::WebContents* web_contents,
     ResultCallback result_callback,
-    bool uninstalled) {
-  if (!uninstalled) {
+    webapps::UninstallResultCode code) {
+  if (code != webapps::UninstallResultCode::kSuccess) {
     LOG(ERROR) << "Failed to uninstall placeholder for: "
                << install_options_.install_url;
     std::move(result_callback)
         .Run(ExternallyManagedAppManager::InstallResult(
-            InstallResultCode::kFailedPlaceholderUninstall));
+            webapps::InstallResultCode::kFailedPlaceholderUninstall));
     return;
   }
   ContinueWebAppInstall(web_contents, std::move(result_callback));
@@ -206,15 +230,18 @@ void ExternallyManagedAppInstallTask::OnPlaceholderUninstalled(
 void ExternallyManagedAppInstallTask::ContinueWebAppInstall(
     content::WebContents* web_contents,
     ResultCallback result_callback) {
-  auto install_params = ConvertExternalInstallOptionsToParams(install_options_);
-  auto install_source = ConvertExternalInstallSourceToInstallSource(
-      install_options_.install_source);
+  if (!data_retriever_factory_) {
+    data_retriever_factory_ = base::BindRepeating(
+        []() { return std::make_unique<WebAppDataRetriever>(); });
+  }
 
-  install_manager_->InstallWebAppWithParams(
-      web_contents, install_params, install_source,
+  command_scheduler_->InstallExternallyManagedApp(
+      install_options_,
       base::BindOnce(&ExternallyManagedAppInstallTask::OnWebAppInstalled,
-                     weak_ptr_factory_.GetWeakPtr(), /*is_placeholder=*/false,
-                     /*offline_install=*/false, std::move(result_callback)));
+                     weak_ptr_factory_.GetWeakPtr(),
+                     /*is_placeholder=*/false,
+                     /*offline_install=*/false, std::move(result_callback)),
+      web_contents->GetWeakPtr(), data_retriever_factory_.Run());
 }
 
 void ExternallyManagedAppInstallTask::InstallPlaceholder(
@@ -222,35 +249,48 @@ void ExternallyManagedAppInstallTask::InstallPlaceholder(
     ResultCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  absl::optional<AppId> app_id =
-      externally_installed_app_prefs_.LookupPlaceholderAppId(
-          install_options_.install_url);
-  if (app_id.has_value() && registrar_->IsInstalled(app_id.value()) &&
-      !install_options_.force_reinstall) {
+  absl::optional<AppId> app_id = registrar_->LookupPlaceholderAppId(
+      install_options_.install_url,
+      ConvertExternalInstallSourceToSource(install_options_.install_source));
+
+  if (app_id.has_value() && !install_options_.force_reinstall) {
     // No need to install a placeholder app again.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
-        base::BindOnce(std::move(callback),
-                       ExternallyManagedAppManager::InstallResult(
-                           InstallResultCode::kSuccessNewInstall, app_id)));
+        base::BindOnce(
+            std::move(callback),
+            ExternallyManagedAppManager::InstallResult(
+                webapps::InstallResultCode::kSuccessNewInstall, app_id)));
     return;
   }
 
   if (install_options_.override_icon_url) {
-    web_contents->DownloadImage(
-        install_options_.override_icon_url.value(),
-        /*is_favicon, whether to not sent/accept cookies*/ true, gfx::Size(),
-        /*max_bitmap_size, 0=unlimited*/ 0,
-        /*bypass_cache*/ false,
-        base::BindOnce(&ExternallyManagedAppInstallTask::OnCustomIconFetched,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+    FetchCustomIcon(install_options_.override_icon_url.value(), web_contents,
+                    MAX_ICON_DOWNLOAD_RETRIES, std::move(callback));
     return;
   }
 
   FinalizePlaceholderInstall(std::move(callback), absl::nullopt);
 }
 
+void ExternallyManagedAppInstallTask::FetchCustomIcon(
+    const GURL& url,
+    content::WebContents* web_contents,
+    int retries_left,
+    ResultCallback callback) {
+  web_contents->DownloadImage(
+      url,
+      /*is_favicon, whether to not sent/accept cookies*/ true, gfx::Size(),
+      /*max_bitmap_size, 0=unlimited*/ 0,
+      /*bypass_cache*/ false,
+      base::BindOnce(&ExternallyManagedAppInstallTask::OnCustomIconFetched,
+                     weak_ptr_factory_.GetWeakPtr(), retries_left, web_contents,
+                     std::move(callback)));
+}
+
 void ExternallyManagedAppInstallTask::OnCustomIconFetched(
+    int retries_left,
+    content::WebContents* web_contents,
     ResultCallback callback,
     int id,
     int http_status_code,
@@ -258,10 +298,22 @@ void ExternallyManagedAppInstallTask::OnCustomIconFetched(
     const std::vector<SkBitmap>& bitmaps,
     const std::vector<gfx::Size>& sizes) {
   if (bitmaps.size() > 0) {
+    // Download succeeded.
     FinalizePlaceholderInstall(std::move(callback), bitmaps);
-  } else {
-    FinalizePlaceholderInstall(std::move(callback), absl::nullopt);
+    return;
   }
+  if (retries_left <= 0) {
+    // Download failed.
+    FinalizePlaceholderInstall(std::move(callback), absl::nullopt);
+    return;
+  }
+  // Retry download.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&ExternallyManagedAppInstallTask::FetchCustomIcon,
+                     weak_ptr_factory_.GetWeakPtr(), image_url, web_contents,
+                     retries_left - 1, std::move(callback)),
+      ICON_DOWNLOAD_RETRY_DELAY);
 }
 
 void ExternallyManagedAppInstallTask::FinalizePlaceholderInstall(
@@ -293,21 +345,29 @@ void ExternallyManagedAppInstallTask::FinalizePlaceholderInstall(
 #endif  // defined(CHROMEOS)
 
   web_app_info.start_url = install_options_.install_url;
+  web_app_info.install_url = install_options_.install_url;
 
   web_app_info.user_display_mode = install_options_.user_display_mode;
 
-  WebAppInstallFinalizer::FinalizeOptions options;
-  options.install_source = ConvertExternalInstallSourceToInstallSource(
-      install_options_.install_source);
+  WebAppInstallFinalizer::FinalizeOptions options(
+      ConvertExternalInstallSourceToInstallSource(
+          install_options_.install_source));
   // Overwrite fields if we are doing a forced reinstall, because some
   // values (custom name or icon) might have changed.
   options.overwrite_existing_manifest_fields = install_options_.force_reinstall;
 
+  options.add_to_applications_menu = install_options_.add_to_applications_menu;
+  options.add_to_desktop = install_options_.add_to_desktop;
+  options.add_to_quick_launch_bar = install_options_.add_to_quick_launch_bar;
+
+  web_app_info.is_placeholder = true;
+
   install_finalizer_->FinalizeInstall(
       web_app_info, options,
-      base::BindOnce(&ExternallyManagedAppInstallTask::OnWebAppInstalled,
-                     weak_ptr_factory_.GetWeakPtr(), /*is_placeholder=*/true,
-                     /*offline_install=*/false, std::move(callback)));
+      base::BindOnce(
+          &ExternallyManagedAppInstallTask::OnWebAppInstalledWithHooksErrors,
+          weak_ptr_factory_.GetWeakPtr(), /*is_placeholder=*/true,
+          /*offline_install=*/false, std::move(callback)));
 }
 
 void ExternallyManagedAppInstallTask::OnWebAppInstalled(
@@ -315,7 +375,19 @@ void ExternallyManagedAppInstallTask::OnWebAppInstalled(
     bool offline_install,
     ResultCallback result_callback,
     const AppId& app_id,
-    InstallResultCode code) {
+    webapps::InstallResultCode code) {
+  OnWebAppInstalledWithHooksErrors(is_placeholder, offline_install,
+                                   std::move(result_callback), app_id, code,
+                                   OsHooksErrors());
+}
+
+void ExternallyManagedAppInstallTask::OnWebAppInstalledWithHooksErrors(
+    bool is_placeholder,
+    bool offline_install,
+    ResultCallback result_callback,
+    const AppId& app_id,
+    webapps::InstallResultCode code,
+    OsHooksErrors os_hooks_errors) {
   if (!IsNewInstall(code)) {
     std::move(result_callback)
         .Run(ExternallyManagedAppManager::InstallResult(code));
@@ -333,59 +405,13 @@ void ExternallyManagedAppInstallTask::OnWebAppInstalled(
 
   if (offline_install) {
     code = install_options().only_use_app_info_factory
-               ? InstallResultCode::kSuccessOfflineOnlyInstall
-               : InstallResultCode::kSuccessOfflineFallbackInstall;
+               ? webapps::InstallResultCode::kSuccessOfflineOnlyInstall
+               : webapps::InstallResultCode::kSuccessOfflineFallbackInstall;
   }
-  base::ScopedClosureRunner scoped_closure(
-      base::BindOnce(std::move(result_callback),
-                     ExternallyManagedAppManager::InstallResult(
-                         code, app_id, uninstall_and_replace_triggered)));
 
-  if (!is_placeholder) {
-    registrar_->NotifyWebAppInstalledWithOsHooks(app_id);
-    return;
-  }
-  InstallOsHooksOptions options;
-  options.os_hooks[OsHookType::kShortcuts] =
-      install_options_.add_to_applications_menu;
-  options.os_hooks[OsHookType::kShortcutsMenu] =
-      install_options_.add_to_applications_menu;
-  options.add_to_desktop = install_options_.add_to_desktop;
-  options.add_to_quick_launch_bar = install_options_.add_to_quick_launch_bar;
-  options.os_hooks[OsHookType::kRunOnOsLogin] =
-      install_options_.run_on_os_login;
-
-  // TODO(crbug.com/1087219): Determine if |register_file_handlers| should be
-  // configured from somewhere else rather than always true.
-  options.os_hooks[OsHookType::kFileHandlers] = true;
-  options.os_hooks[OsHookType::kProtocolHandlers] = true;
-
-  const WebApp* web_app = registrar_->GetAppById(app_id);
-  options.os_hooks[OsHookType::kUninstallationViaOsSettings] =
-      web_app->CanUserUninstallWebApp();
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || \
-    (BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
-  options.os_hooks[OsHookType::kUrlHandlers] = true;
-#else
-  options.os_hooks[OsHookType::kUrlHandlers] = false;
-#endif
-
-  MaybeDisableOsIntegration(registrar_, app_id, &options);
-
-  os_integration_manager_->InstallOsHooks(
-      app_id,
-      base::BindOnce(&ExternallyManagedAppInstallTask::OnOsHooksCreated,
-                     weak_ptr_factory_.GetWeakPtr(), app_id,
-                     std::move(scoped_closure)),
-      nullptr, options);
-}
-
-void ExternallyManagedAppInstallTask::OnOsHooksCreated(
-    const AppId& app_id,
-    base::ScopedClosureRunner scoped_closure,
-    const OsHooksErrors os_hooks_errors) {
-  registrar_->NotifyWebAppInstalledWithOsHooks(app_id);
-  scoped_closure.RunAndReset();
+  std::move(result_callback)
+      .Run(ExternallyManagedAppManager::InstallResult(
+          code, app_id, uninstall_and_replace_triggered));
 }
 
 void ExternallyManagedAppInstallTask::TryAppInfoFactoryOnFailure(

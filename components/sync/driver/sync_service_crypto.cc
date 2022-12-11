@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,11 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/os_crypt/os_crypt.h"
+#include "components/sync/base/features.h"
 #include "components/sync/base/passphrase_enums.h"
-#include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/driver/sync_service.h"
+#include "components/sync/driver/trusted_vault_histograms.h"
 #include "components/sync/engine/nigori/nigori.h"
 #include "components/sync/engine/sync_string_conversions.h"
 
@@ -329,11 +329,22 @@ void SyncServiceCrypto::SetEncryptionPassphrase(const std::string& passphrase) {
   // encrypted with an explicit passphrase.
   DCHECK(!IsExplicitPassphrase(state_.cached_passphrase_type));
 
-  state_.engine->SetEncryptionPassphrase(passphrase);
+  const auto key_derivation_params =
+      KeyDerivationParams::CreateForScrypt(Nigori::GenerateScryptSalt());
+  state_.engine->SetEncryptionPassphrase(passphrase, key_derivation_params);
+
+  // Immediately store new bootstrap token.
+  std::unique_ptr<Nigori> nigori =
+      Nigori::CreateByDerivation(key_derivation_params, passphrase);
+  DCHECK(nigori);
+  delegate_->SetEncryptionBootstrapToken(
+      SerializeNigoriAsBootstrapToken(*nigori));
 }
 
 bool SyncServiceCrypto::SetDecryptionPassphrase(const std::string& passphrase) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // This should only be called when the engine has been initialized.
+  DCHECK(state_.engine);
 
   // We should never be called with an empty passphrase.
   DCHECK(!passphrase.empty());
@@ -348,27 +359,16 @@ bool SyncServiceCrypto::SetDecryptionPassphrase(const std::string& passphrase) {
               KeyDerivationMethod::PBKDF2_HMAC_SHA1_1003);
   }
 
-  if (state_.passphrase_key_derivation_params.method() ==
-      KeyDerivationMethod::UNSUPPORTED) {
-    DLOG(ERROR) << "Cannot derive keys using an unsupported key derivation "
-                   "method. Rejecting passphrase.";
-    return false;
-  }
-
   std::unique_ptr<Nigori> nigori = Nigori::CreateByDerivation(
       state_.passphrase_key_derivation_params, passphrase);
   DCHECK(nigori);
 
-  std::string bootstrap_token = SerializeNigoriAsBootstrapToken(*nigori);
-  if (SetDecryptionKeyWithoutUpdatingBootstrapToken(std::move(nigori))) {
-    // Update the bootstrap token immediately, even if engine has new pending
-    // keys, which aren't decryptable with |nigori|, this is harmless as
-    // bootstrap token is ignored if it doesn't contain the right key.
-    delegate_->SetEncryptionBootstrapToken(bootstrap_token);
-    return true;
-  }
+  // Update the bootstrap token immediately, this is harmless as bootstrap token
+  // is ignored if it doesn't contain the right key.
+  delegate_->SetEncryptionBootstrapToken(
+      SerializeNigoriAsBootstrapToken(*nigori));
 
-  return false;
+  return SetDecryptionKeyWithoutUpdatingBootstrapToken(std::move(nigori));
 }
 
 void SyncServiceCrypto::SetDecryptionNigoriKey(std::unique_ptr<Nigori> nigori) {
@@ -380,12 +380,16 @@ void SyncServiceCrypto::SetDecryptionNigoriKey(std::unique_ptr<Nigori> nigori) {
     return;
   }
 
-  std::string bootstrap_token = SerializeNigoriAsBootstrapToken(*nigori);
-  if (SetDecryptionKeyWithoutUpdatingBootstrapToken(std::move(nigori))) {
-    // Update the bootstrap token immediately, even if engine has new pending
-    // keys, which aren't decryptable with |nigori|, this is harmless as
-    // bootstrap token is ignored if it doesn't contain the right key.
-    delegate_->SetEncryptionBootstrapToken(bootstrap_token);
+  // Update the bootstrap token immediately, this is harmless as bootstrap token
+  // is ignored if it doesn't contain the right key.
+  delegate_->SetEncryptionBootstrapToken(
+      SerializeNigoriAsBootstrapToken(*nigori));
+
+  if (state_.engine) {
+    // Engine being initialized isn't a precondition of this method. In case
+    // it's not initialized, decryption passphrase will be set later, upon
+    // initialization.
+    SetDecryptionKeyWithoutUpdatingBootstrapToken(std::move(nigori));
   }
 }
 
@@ -420,24 +424,36 @@ void SyncServiceCrypto::SetSyncEngine(const CoreAccountInfo& account_info,
   state_.account_info = account_info;
   state_.engine = engine;
 
-  // Since there was no state changes during engine initialization, now the
-  // state is known and no user action required.
-  if (state_.required_user_action ==
-      RequiredUserAction::kUnknownDuringInitialization) {
-    UpdateRequiredUserActionAndNotify(RequiredUserAction::kNone);
-    RefreshIsRecoverabilityDegraded();
-  }
-
-  // This indicates OnTrustedVaultKeyRequired() was called as part of the
-  // engine's initialization.
-  if (state_.required_user_action ==
-      RequiredUserAction::kFetchingTrustedVaultKeys) {
-    FetchTrustedVaultKeys(/*is_second_fetch_attempt=*/false);
-  }
-
-  // Attempt decryption with bootstrap token if necessary.
-  if (state_.required_user_action == RequiredUserAction::kPassphraseRequired) {
-    MaybeSetDecryptionKeyFromBootstrapToken();
+  switch (state_.required_user_action) {
+    case RequiredUserAction::kNone:
+      // It was already established during initialization that there's nothing
+      // to do, which is possible for some passphrase types, but not others
+      // (including |kTrustedVaultPassphrase|.
+      DCHECK_NE(state_.cached_passphrase_type,
+                PassphraseType::kTrustedVaultPassphrase);
+      break;
+    case RequiredUserAction::kUnknownDuringInitialization:
+      // Since there was no state changes during engine initialization, now the
+      // state is known and no user action required.
+      UpdateRequiredUserActionAndNotify(RequiredUserAction::kNone);
+      RefreshIsRecoverabilityDegraded();
+      break;
+    case RequiredUserAction::kFetchingTrustedVaultKeys:
+      // This indicates OnTrustedVaultKeyRequired() was called as part of the
+      // engine's initialization.
+      FetchTrustedVaultKeys(/*is_second_fetch_attempt=*/false);
+      break;
+    case RequiredUserAction::kPassphraseRequired:
+      // Attempt decryption with bootstrap token if necessary.
+      MaybeSetDecryptionKeyFromBootstrapToken();
+      break;
+    case RequiredUserAction::kTrustedVaultKeyRequired:
+    case RequiredUserAction::kTrustedVaultKeyRequiredButFetching:
+    case RequiredUserAction::kTrustedVaultRecoverabilityDegraded:
+      // Neither keys nor the recoverability state are fetched during engine
+      // initialization.
+      NOTREACHED();
+      break;
   }
 }
 
@@ -445,7 +461,8 @@ std::unique_ptr<SyncEncryptionHandler::Observer>
 SyncServiceCrypto::GetEncryptionObserverProxy() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return std::make_unique<SyncEncryptionObserverProxy>(
-      weak_factory_.GetWeakPtr(), base::SequencedTaskRunnerHandle::Get());
+      weak_factory_.GetWeakPtr(),
+      base::SequencedTaskRunner::GetCurrentDefault());
 }
 
 ModelTypeSet SyncServiceCrypto::GetEncryptedDataTypes() const {
@@ -536,7 +553,7 @@ void SyncServiceCrypto::OnTrustedVaultKeyRequired() {
     // If SetSyncEngine() hasn't been called yet, it means
     // OnTrustedVaultKeyRequired() was called as part of the engine's
     // initialization. Fetching the keys is not useful right now because there
-    // is known engine to feed the keys to, so let's defer fetching until
+    // is no engine to feed the keys to, so let's defer fetching until
     // SetSyncEngine() is called.
     return;
   }
@@ -559,6 +576,7 @@ void SyncServiceCrypto::OnTrustedVaultKeyAccepted() {
       break;
   }
 
+  DCHECK(state_.engine);
   UpdateRequiredUserActionAndNotify(RequiredUserAction::kNone);
   RefreshIsRecoverabilityDegraded();
 
@@ -598,6 +616,11 @@ void SyncServiceCrypto::OnPassphraseTypeChanged(PassphraseType type,
   state_.cached_explicit_passphrase_time = passphrase_time;
 
   // Clear recoverability degraded state in case a custom passphrase was set.
+  // Note that the opposite transition (into degraded recoverability) isn't
+  // handled here, i.e. RefreshIsRecoverabilityDegraded() isn't invoked, as
+  // it can be safely assumed that in practice either of
+  // OnTrustedVaultKeyRequired() or OnTrustedVaultKeyAccepted() will eventually
+  // be invoked.
   if (type != PassphraseType::kTrustedVaultPassphrase &&
       state_.required_user_action ==
           RequiredUserAction::kTrustedVaultRecoverabilityDegraded) {
@@ -635,6 +658,11 @@ void SyncServiceCrypto::OnTrustedVaultKeysChanged() {
 }
 
 void SyncServiceCrypto::OnTrustedVaultRecoverabilityChanged() {
+  // Ignore calls during engine initialization, as decoverability will be
+  // refreshed in SetSyncEngine().
+  if (!state_.engine) {
+    return;
+  }
   RefreshIsRecoverabilityDegraded();
 }
 
@@ -770,6 +798,8 @@ void SyncServiceCrypto::UpdateRequiredUserActionAndNotify(
 }
 
 void SyncServiceCrypto::RefreshIsRecoverabilityDegraded() {
+  DCHECK(state_.engine);
+
   if (state_.cached_passphrase_type !=
       PassphraseType::kTrustedVaultPassphrase) {
     return;
@@ -787,8 +817,7 @@ void SyncServiceCrypto::RefreshIsRecoverabilityDegraded() {
       break;
   }
 
-  if (!base::FeatureList::IsEnabled(
-          switches::kSyncTrustedVaultPassphraseRecovery)) {
+  if (!base::FeatureList::IsEnabled(kSyncTrustedVaultPassphraseRecovery)) {
     return;
   }
 
@@ -825,10 +854,12 @@ void SyncServiceCrypto::GetIsRecoverabilityDegradedCompleted(
   }
 
   if (!initial_trusted_vault_recoverability_logged_to_uma_) {
+    DCHECK(state_.engine);
+
     initial_trusted_vault_recoverability_logged_to_uma_ = true;
-    base::UmaHistogramBoolean(
+    RecordTrustedVaultHistogramBooleanWithMigrationSuffix(
         "Sync.TrustedVaultRecoverabilityDegradedOnStartup",
-        is_recoverability_degraded);
+        is_recoverability_degraded, state_.engine->GetDetailedStatus());
   }
 }
 

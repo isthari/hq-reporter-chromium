@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "chrome/browser/interstitials/security_interstitial_page_test_utils.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/policy/safe_browsing_policy_test.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/test/base/chrome_test_utils.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_types.h"
@@ -14,8 +15,10 @@
 #include "components/security_interstitials/content/security_interstitial_tab_helper.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/network_service_instance.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/common/network_service_util.h"
 #include "content/public/test/browser_test.h"
+#include "mojo/public/cpp/bindings/sync_call_restrictions.h"
 #include "net/base/hash_value.h"
 #include "net/cert/x509_util.h"
 #include "net/http/transport_security_state.h"
@@ -62,6 +65,11 @@ class CertificateTransparencyPolicyTest : public SafeBrowsingPolicyTest {
 
 IN_PROC_BROWSER_TEST_F(CertificateTransparencyPolicyTest,
                        CertificateTransparencyEnforcementDisabledForUrls) {
+  auto* profile = Profile::FromBrowserContext(
+      chrome_test_utils::GetActiveWebContents(this)->GetBrowserContext());
+  content::StoragePartition* partition = profile->GetDefaultStoragePartition();
+  partition->GetNetworkContext()->SetCTLogListAlwaysTimelyForTesting();
+
   net::EmbeddedTestServer https_server_ok(net::EmbeddedTestServer::TYPE_HTTPS);
   https_server_ok.SetSSLConfig(net::EmbeddedTestServer::CERT_OK);
   https_server_ok.ServeFilesFromSourceDirectory("chrome/test/data");
@@ -74,10 +82,10 @@ IN_PROC_BROWSER_TEST_F(CertificateTransparencyPolicyTest,
 
   // The page should initially be blocked.
   content::WebContents* tab = chrome_test_utils::GetActiveWebContents(this);
-  WaitForInterstitial(tab);
+  ASSERT_TRUE(IsShowingInterstitial(tab));
 
   EXPECT_TRUE(chrome_browser_interstitials::IsInterstitialDisplayingText(
-      tab->GetMainFrame(), "proceed-link"));
+      tab->GetPrimaryMainFrame(), "proceed-link"));
   EXPECT_NE(u"OK", chrome_test_utils::GetActiveWebContents(this)->GetTitle());
 
   // Now exempt the URL from being blocked by setting policy.
@@ -115,6 +123,11 @@ IN_PROC_BROWSER_TEST_F(CertificateTransparencyPolicyTest,
 
 IN_PROC_BROWSER_TEST_F(CertificateTransparencyPolicyTest,
                        CertificateTransparencyEnforcementDisabledForCas) {
+  auto* profile = Profile::FromBrowserContext(
+      chrome_test_utils::GetActiveWebContents(this)->GetBrowserContext());
+  content::StoragePartition* partition = profile->GetDefaultStoragePartition();
+  partition->GetNetworkContext()->SetCTLogListAlwaysTimelyForTesting();
+
   net::EmbeddedTestServer https_server_ok(net::EmbeddedTestServer::TYPE_HTTPS);
   https_server_ok.SetSSLConfig(net::EmbeddedTestServer::CERT_OK);
   https_server_ok.ServeFilesFromSourceDirectory("chrome/test/data");
@@ -136,7 +149,7 @@ IN_PROC_BROWSER_TEST_F(CertificateTransparencyPolicyTest,
   ASSERT_TRUE(helper);
   ASSERT_TRUE(
       helper->GetBlockingPageForCurrentlyCommittedNavigationForTesting());
-  main_frame = web_contents->GetMainFrame();
+  main_frame = web_contents->GetPrimaryMainFrame();
   ASSERT_TRUE(content::WaitForRenderFrameReady(main_frame));
   EXPECT_TRUE(chrome_browser_interstitials::IsInterstitialDisplayingText(
       main_frame, "proceed-link"));

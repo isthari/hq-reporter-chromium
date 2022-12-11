@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,10 +37,46 @@ scoped_refptr<StaticBitmapImage> StaticBitmapImage::Create(
 }
 
 gfx::Size StaticBitmapImage::SizeWithConfig(SizeConfig config) const {
-  gfx::Size size = SizeInternal();
+  auto info = GetSkImageInfoInternal();
+  gfx::Size size(info.width(), info.height());
   if (config.apply_orientation && orientation_.UsesWidthAsHeight())
     size.Transpose();
   return size;
+}
+
+Vector<uint8_t> StaticBitmapImage::CopyImageData(const SkImageInfo& info,
+                                                 bool apply_orientation) {
+  if (info.isEmpty())
+    return {};
+  PaintImage paint_image = PaintImageForCurrentFrame();
+  if (paint_image.GetSkImageInfo().isEmpty())
+    return {};
+
+  wtf_size_t byte_length =
+      base::checked_cast<wtf_size_t>(info.computeMinByteSize());
+  if (byte_length > partition_alloc::MaxDirectMapped())
+    return {};
+  Vector<uint8_t> dst_buffer(byte_length);
+
+  bool read_pixels_successful =
+      paint_image.readPixels(info, dst_buffer.data(), info.minRowBytes(), 0, 0);
+  DCHECK(read_pixels_successful);
+  if (!read_pixels_successful)
+    return {};
+
+  // Orient the data, and re-read the pixels.
+  if (apply_orientation && !HasDefaultOrientation()) {
+    paint_image = Image::ResizeAndOrientImage(
+        paint_image, CurrentFrameOrientation(), gfx::Vector2dF(1, 1), 1,
+        kInterpolationNone);
+    read_pixels_successful = paint_image.readPixels(info, dst_buffer.data(),
+                                                    info.minRowBytes(), 0, 0);
+    DCHECK(read_pixels_successful);
+    if (!read_pixels_successful)
+      return {};
+  }
+
+  return dst_buffer;
 }
 
 void StaticBitmapImage::DrawHelper(cc::PaintCanvas* canvas,

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,7 +77,7 @@ class CoordinatorImplTest : public testing::Test {
     TracingObserverProto::RegisterForTesting();
     coordinator_ = std::make_unique<NiceMock<FakeCoordinatorImpl>>();
     tracing::PerfettoTracedProcess::GetTaskRunner()->ResetTaskRunnerForTesting(
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 
   void TearDown() override {

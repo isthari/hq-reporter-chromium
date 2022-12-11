@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,10 @@
 
 #import <UIKit/UIKit.h>
 
+#import "ios/chrome/browser/follow/follow_action_state.h"
 #import "ios/chrome/browser/ui/browser_container/browser_container_consumer.h"
-#import "ios/chrome/browser/ui/follow/follow_action_state.h"
+#import "ios/chrome/browser/ui/popup_menu/overflow_menu/overflow_menu_swift.h"
+#import "ios/chrome/browser/ui/popup_menu/popup_menu_carousel_metrics_delegate.h"
 
 namespace bookmarks {
 class BookmarkModel;
@@ -16,20 +18,27 @@ class BookmarkModel;
 namespace feature_engagement {
 class Tracker;
 }
+@protocol ActivityServiceCommands;
 @protocol ApplicationCommands;
+@protocol BookmarksCommands;
 @protocol BrowserCommands;
+@protocol BrowserCoordinatorCommands;
 class BrowserPolicyConnectorIOS;
-@class OverflowMenuModel;
 class OverlayPresenter;
+@protocol PageInfoCommands;
+@protocol PopupMenuCommands;
+@protocol PriceNotificationsCommands;
 class PrefService;
 @protocol FindInPageCommands;
 @protocol TextZoomCommands;
 class WebNavigationBrowserAgent;
 class WebStateList;
+class FollowBrowserAgent;
 
 // Mediator for the overflow menu. This object is in charge of creating and
 // updating the items of the overflow menu.
-@interface OverflowMenuMediator : NSObject <BrowserContainerConsumer>
+@interface OverflowMenuMediator
+    : NSObject <BrowserContainerConsumer, PopupMenuCarouselMetricsDelegate>
 
 // The data model for the overflow menu.
 @property(nonatomic, readonly) OverflowMenuModel* overflowMenuModel;
@@ -39,11 +48,18 @@ class WebStateList;
 @property(nonatomic, assign) WebStateList* webStateList;
 
 // Dispatcher.
-@property(nonatomic, weak) id<ApplicationCommands,
+@property(nonatomic, weak) id<ActivityServiceCommands,
+                              ApplicationCommands,
                               BrowserCommands,
+                              BrowserCoordinatorCommands,
                               FindInPageCommands,
+                              PriceNotificationsCommands,
                               TextZoomCommands>
     dispatcher;
+
+@property(nonatomic, weak) id<BookmarksCommands> bookmarksCommandsHandler;
+@property(nonatomic, weak) id<PopupMenuCommands> popupMenuCommandsHandler;
+@property(nonatomic, weak) id<PageInfoCommands> pageInfoCommandsHandler;
 
 // Navigation agent for reloading pages.
 @property(nonatomic, assign) WebNavigationBrowserAgent* navigationAgent;
@@ -57,8 +73,11 @@ class WebStateList;
 // The bookmarks model to know if the page is bookmarked.
 @property(nonatomic, assign) bookmarks::BookmarkModel* bookmarkModel;
 
-// Pref service to retrieve preference values.
-@property(nonatomic, assign) PrefService* prefService;
+// Pref service to retrieve browser state preference values.
+@property(nonatomic, assign) PrefService* browserStatePrefs;
+
+// Pref service to retrieve local state preference values.
+@property(nonatomic, assign) PrefService* localStatePrefs;
 
 // The overlay presenter for OverlayModality::kWebContentArea.  This mediator
 // listens for overlay presentation events to determine whether the "Add to
@@ -73,9 +92,8 @@ class WebStateList;
 // The current browser policy connector.
 @property(nonatomic, assign) BrowserPolicyConnectorIOS* browserPolicyConnector;
 
-// The follow action state. e.g. If the property value is FollowActionStateHide,
-// "Follow" action should be hidden in the overflow menu.
-@property(nonatomic, assign) FollowActionState followActionState;
+// The FollowBrowserAgent used to manage web channels subscriptions.
+@property(nonatomic, assign) FollowBrowserAgent* followBrowserAgent;
 
 // Disconnect the mediator.
 - (void)disconnect;

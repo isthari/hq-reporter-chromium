@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,7 +37,6 @@ class LoginHandlerViews : public LoginHandler {
                      web_contents,
                      std::move(auth_required_callback)),
         popunder_preventer_(std::make_unique<PopunderPreventer>(web_contents)) {
-    RecordDialogCreation(DialogIdentifier::LOGIN_HANDLER);
   }
 
   LoginHandlerViews(const LoginHandlerViews&) = delete;

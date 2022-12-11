@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,6 +65,28 @@ export enum SafetyCheckInteractions {
 }
 
 /**
+ * Contains all safety check notifications module interactions.
+ *
+ * These values are persisted to logs. Entries should not be renumbered and
+ * numeric values should never be reused.
+ *
+ * Must be kept in sync with the SafetyCheckNotificationsModuleInteractions enum
+ * in histograms/enums.xml
+ */
+export enum SafetyCheckNotificationsModuleInteractions {
+  BLOCK = 0,
+  BLOCK_ALL = 1,
+  IGNORE = 2,
+  MINIMIZE = 3,
+  RESET = 4,
+  UNDO_BLOCK = 5,
+  UNDO_IGNORE = 6,
+  UNDO_RESET = 7,
+  // Leave this at the end.
+  COUNT = 8,
+}
+
+/**
  * Contains all safe browsing interactions.
  *
  * These values are persisted to logs. Entries should not be renumbered and
@@ -117,7 +139,8 @@ export enum PrivacyGuideInteractions {
  * These values are persisted to logs. Entries should not be renumbered and
  * numeric values should never be reused.
  *
- * Must be kept in sync with SettingsPrivacyGuideSettingsStates in enums.xml.
+ * Must be kept in sync with SettingsPrivacyGuideSettingsStates in enums.xml and
+ * PrivacyGuideSettingsStates in privacy_guide/privacy_guide_settings_states.h.
  */
 export enum PrivacyGuideSettingsStates {
   MSBB_ON_TO_ON = 0,
@@ -153,6 +176,19 @@ export interface MetricsBrowserProxy {
    */
   recordSafetyCheckInteractionHistogram(interaction: SafetyCheckInteractions):
       void;
+
+  /**
+   * Helper function that calls recordHistogram for
+   * Settings.SafetyCheck.NotificationsListCount histogram.
+   */
+  recordSafetyCheckNotificationsListCountHistogram(suggestions: number): void;
+
+  /**
+   * Helper function that calls recordHistogram for the
+   * SafetyCheck.NotificationsModule.Interactions histogram
+   */
+  recordSafetyCheckNotificationsModuleInteractionsHistogram(
+      interaction: SafetyCheckNotificationsModuleInteractions): void;
 
   /**
    * Helper function that calls recordHistogram for the
@@ -196,15 +232,33 @@ export class MetricsBrowserProxyImpl implements MetricsBrowserProxy {
 
   recordSafetyCheckInteractionHistogram(interaction: SafetyCheckInteractions) {
     chrome.send('metricsHandler:recordInHistogram', [
-      'Settings.SafetyCheck.Interactions', interaction,
-      SafetyCheckInteractions.COUNT
+      'Settings.SafetyCheck.Interactions',
+      interaction,
+      SafetyCheckInteractions.COUNT,
+    ]);
+  }
+
+  recordSafetyCheckNotificationsListCountHistogram(suggestions: number) {
+    chrome.send('metricsHandler:recordInHistogram', [
+      'Settings.SafetyCheck.NotificationsListCount',
+      suggestions, 3999 /*max value for Notification suggestions*/,
+    ]);
+  }
+
+  recordSafetyCheckNotificationsModuleInteractionsHistogram(
+      interaction: SafetyCheckNotificationsModuleInteractions) {
+    chrome.send('metricsHandler:recordInHistogram', [
+      'SafetyCheck.NotificationsModule.Interactions',
+      interaction,
+      SafetyCheckNotificationsModuleInteractions.COUNT,
     ]);
   }
 
   recordSettingsPageHistogram(interaction: PrivacyElementInteractions) {
     chrome.send('metricsHandler:recordInHistogram', [
-      'Settings.PrivacyElementInteractions', interaction,
-      PrivacyElementInteractions.COUNT
+      'Settings.PrivacyElementInteractions',
+      interaction,
+      PrivacyElementInteractions.COUNT,
     ]);
   }
 
@@ -213,30 +267,34 @@ export class MetricsBrowserProxyImpl implements MetricsBrowserProxy {
     // TODO(crbug.com/1124491): Set the correct suffix for
     // SafeBrowsing.Settings.UserAction. Use the .Default suffix for now.
     chrome.send('metricsHandler:recordInHistogram', [
-      'SafeBrowsing.Settings.UserAction.Default', interaction,
-      SafeBrowsingInteractions.COUNT
+      'SafeBrowsing.Settings.UserAction.Default',
+      interaction,
+      SafeBrowsingInteractions.COUNT,
     ]);
   }
 
   recordPrivacyGuideNextNavigationHistogram(interaction:
                                                 PrivacyGuideInteractions) {
     chrome.send('metricsHandler:recordInHistogram', [
-      'Settings.PrivacyGuide.NextNavigation', interaction,
-      PrivacyGuideInteractions.COUNT
+      'Settings.PrivacyGuide.NextNavigation',
+      interaction,
+      PrivacyGuideInteractions.COUNT,
     ]);
   }
 
   recordPrivacyGuideEntryExitHistogram(interaction: PrivacyGuideInteractions) {
     chrome.send('metricsHandler:recordInHistogram', [
-      'Settings.PrivacyGuide.EntryExit', interaction,
-      PrivacyGuideInteractions.COUNT
+      'Settings.PrivacyGuide.EntryExit',
+      interaction,
+      PrivacyGuideInteractions.COUNT,
     ]);
   }
 
   recordPrivacyGuideSettingsStatesHistogram(state: PrivacyGuideSettingsStates) {
     chrome.send('metricsHandler:recordInHistogram', [
-      'Settings.PrivacyGuide.SettingsStates', state,
-      PrivacyGuideSettingsStates.COUNT
+      'Settings.PrivacyGuide.SettingsStates',
+      state,
+      PrivacyGuideSettingsStates.COUNT,
     ]);
   }
 

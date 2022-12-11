@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -169,7 +169,7 @@ bool ActionsParser::ActionsDictionaryUsesTestDriverApi(
   // gpuBenchmarking.pointerActionSequence API. We have to keep both formats
   // for now, but later on once we switch to the new Action API in all tests,
   // we will remove the old format.
-  if (action_sequence.FindKey("type"))
+  if (action_sequence.is_dict() && action_sequence.FindKey("type"))
     return true;
   return false;
 }

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,17 +34,6 @@
 
 namespace web_app {
 
-namespace {
-
-WebAppLaunchManager::OpenApplicationCallback&
-GetOpenApplicationCallbackForTesting() {
-  static base::NoDestructor<WebAppLaunchManager::OpenApplicationCallback>
-      callback;
-  return *callback;
-}
-
-}  // namespace
-
 WebAppLaunchManager::WebAppLaunchManager(Profile* profile)
     : profile_(profile),
       provider_(WebAppProvider::GetForLocalAppsUnchecked(profile)) {}
@@ -56,7 +45,12 @@ content::WebContents* WebAppLaunchManager::OpenApplication(
   if (GetOpenApplicationCallbackForTesting())
     return GetOpenApplicationCallbackForTesting().Run(std::move(params));
 
-  return WebAppLaunchProcess(*profile_, params).Run();
+  WebAppProvider* provider =
+      WebAppProvider::GetForLocalAppsUnchecked(profile_.get());
+  DCHECK(provider);
+  return WebAppLaunchProcess::CreateAndRun(
+      *profile_, provider->registrar_unsafe(),
+      provider->os_integration_manager(), params);
 }
 
 void WebAppLaunchManager::LaunchApplication(
@@ -65,9 +59,10 @@ void WebAppLaunchManager::LaunchApplication(
     const base::FilePath& current_directory,
     const absl::optional<GURL>& url_handler_launch_url,
     const absl::optional<GURL>& protocol_handler_launch_url,
+    const absl::optional<GURL>& file_launch_url,
     const std::vector<base::FilePath>& launch_files,
-    base::OnceCallback<void(Browser* browser,
-                            apps::mojom::LaunchContainer container)> callback) {
+    base::OnceCallback<void(Browser* browser, apps::LaunchContainer container)>
+        callback) {
   if (!provider_)
     return;
 
@@ -76,31 +71,36 @@ void WebAppLaunchManager::LaunchApplication(
                 protocol_handler_launch_url.has_value() + !launch_files.empty(),
             1);
 
-  apps::mojom::LaunchSource launch_source =
-      apps::mojom::LaunchSource::kFromCommandLine;
+  apps::LaunchSource launch_source = apps::LaunchSource::kFromCommandLine;
 
-  if (url_handler_launch_url.has_value())
-    launch_source = apps::mojom::LaunchSource::kFromUrlHandler;
-  else if (!launch_files.empty())
-    launch_source = apps::mojom::LaunchSource::kFromFileManager;
+  if (url_handler_launch_url.has_value()) {
+    launch_source = apps::LaunchSource::kFromUrlHandler;
+  } else if (!launch_files.empty()) {
+    DCHECK(file_launch_url.has_value());
+    launch_source = apps::LaunchSource::kFromFileManager;
+  }
 
   if (base::FeatureList::IsEnabled(features::kDesktopPWAsRunOnOsLogin) &&
       command_line.HasSwitch(switches::kAppRunOnOsLoginMode)) {
-    launch_source = apps::mojom::LaunchSource::kFromOsLogin;
+    launch_source = apps::LaunchSource::kFromOsLogin;
   } else if (protocol_handler_launch_url.has_value()) {
-    launch_source = apps::mojom::LaunchSource::kFromProtocolHandler;
+    launch_source = apps::LaunchSource::kFromProtocolHandler;
   }
 
   apps::AppLaunchParams params(
-      app_id, apps::mojom::LaunchContainer::kLaunchContainerWindow,
+      app_id, apps::LaunchContainer::kLaunchContainerWindow,
       WindowOpenDisposition::NEW_WINDOW, launch_source);
   params.command_line = command_line;
   params.current_directory = current_directory;
   params.launch_files = launch_files;
   params.url_handler_launch_url = url_handler_launch_url;
   params.protocol_handler_launch_url = protocol_handler_launch_url;
-  params.override_url = GURL(command_line.GetSwitchValueASCII(
-      switches::kAppLaunchUrlForShortcutsMenuItem));
+  if (file_launch_url) {
+    params.override_url = *file_launch_url;
+  } else {
+    params.override_url = GURL(command_line.GetSwitchValueASCII(
+        switches::kAppLaunchUrlForShortcutsMenuItem));
+  }
 
   // Wait for the web applications database to load.
   // If the profile and WebAppLaunchManager are destroyed,
@@ -117,16 +117,23 @@ void WebAppLaunchManager::SetOpenApplicationCallbackForTesting(
   GetOpenApplicationCallbackForTesting() = std::move(callback);
 }
 
+// static
+WebAppLaunchManager::OpenApplicationCallback&
+WebAppLaunchManager::GetOpenApplicationCallbackForTesting() {
+  static base::NoDestructor<WebAppLaunchManager::OpenApplicationCallback>
+      callback;
+  return *callback;
+}
 void WebAppLaunchManager::LaunchWebApplication(
     apps::AppLaunchParams&& params,
-    base::OnceCallback<void(Browser* browser,
-                            apps::mojom::LaunchContainer container)> callback) {
-  apps::mojom::LaunchContainer container;
+    base::OnceCallback<void(Browser* browser, apps::LaunchContainer container)>
+        callback) {
+  apps::LaunchContainer container;
   Browser* browser = nullptr;
-  if (provider_->registrar().IsInstalled(params.app_id)) {
-    if (provider_->registrar().GetAppEffectiveDisplayMode(params.app_id) ==
-        blink::mojom::DisplayMode::kBrowser) {
-      params.container = apps::mojom::LaunchContainer::kLaunchContainerTab;
+  if (provider_->registrar_unsafe().IsInstalled(params.app_id)) {
+    if (provider_->registrar_unsafe().GetAppEffectiveDisplayMode(
+            params.app_id) == blink::mojom::DisplayMode::kBrowser) {
+      params.container = apps::LaunchContainer::kLaunchContainerTab;
       params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
     }
 
@@ -137,7 +144,7 @@ void WebAppLaunchManager::LaunchWebApplication(
       browser = chrome::FindBrowserWithWebContents(web_contents);
   } else {
     // Open an empty browser window as the app_id is invalid.
-    container = apps::mojom::LaunchContainer::kLaunchContainerNone;
+    container = apps::LaunchContainer::kLaunchContainerNone;
     browser = apps::CreateBrowserWithNewTabPage(profile_);
   }
   std::move(callback).Run(browser, container);

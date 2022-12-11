@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -87,7 +87,8 @@ gfx::NativeView AllPasswordsBottomSheetController::GetNativeView() {
 
 void AllPasswordsBottomSheetController::OnCredentialSelected(
     const std::u16string username,
-    const std::u16string password) {
+    const std::u16string password,
+    RequestsToFillPassword requests_to_fill_password) {
   const bool is_password_field =
       focused_field_type_ == FocusedFieldType::kFillablePasswordField;
   if (!driver_) {
@@ -95,7 +96,7 @@ void AllPasswordsBottomSheetController::OnCredentialSelected(
     return;
   }
 
-  if (is_password_field) {
+  if (requests_to_fill_password && is_password_field) {
     // `client_` is guaranteed to be valid here.
     // Both the `client_` and `PasswordAccessoryController` are attached to
     // WebContents. And AllPasswordBottomSheetController is owned by
@@ -105,17 +106,19 @@ void AllPasswordsBottomSheetController::OnCredentialSelected(
         client_->GetBiometricAuthenticator();
     if (password_manager_util::CanUseBiometricAuth(
             authenticator.get(),
-            device_reauth::BiometricAuthRequester::kAllPasswordsList)) {
+            device_reauth::BiometricAuthRequester::kAllPasswordsList,
+            client_)) {
       authenticator_ = std::move(authenticator);
       authenticator_->Authenticate(
           device_reauth::BiometricAuthRequester::kAllPasswordsList,
           base::BindOnce(&AllPasswordsBottomSheetController::OnReauthCompleted,
-                         base::Unretained(this), password));
+                         base::Unretained(this), password),
+          /*use_last_valid_auth=*/true);
       return;
     }
 
     FillPassword(password);
-  } else {
+  } else if (!requests_to_fill_password) {
     driver_->FillIntoFocusedField(is_password_field, username);
   }
   // Consumes the dismissal callback to destroy the native controller and java

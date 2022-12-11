@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,9 +46,13 @@ class PrintManager : public content::WebContentsObserver,
   void DidGetPrintedPagesCount(int32_t cookie, uint32_t number_pages) override;
   void DidPrintDocument(mojom::DidPrintDocumentParamsPtr params,
                         DidPrintDocumentCallback callback) override;
+  void IsPrintingEnabled(IsPrintingEnabledCallback callback) override;
   void DidShowPrintDialog() override;
   void ShowInvalidPrinterSettingsError() override;
-  void PrintingFailed(int32_t cookie) override;
+  void PrintingFailed(int32_t cookie,
+                      mojom::PrintFailureReason reason) override;
+
+  void ClearPrintRenderFramesForTesting();
 
  protected:
   explicit PrintManager(content::WebContents* contents);
@@ -64,6 +68,11 @@ class PrintManager : public content::WebContentsObserver,
 
   // Returns the RenderFrameHost currently targeted by message dispatch.
   content::RenderFrameHost* GetCurrentTargetFrame();
+
+  content::RenderFrameHostReceiverSet<printing::mojom::PrintManagerHost>&
+  print_manager_host_receivers_for_testing() {
+    return print_manager_host_receivers_;
+  }
 
   // Terminates or cancels the print job if one was pending.
   void PrintingRenderFrameDeleted();

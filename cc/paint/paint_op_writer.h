@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CC_PAINT_PAINT_OP_WRITER_H_
 
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "cc/paint/paint_canvas.h"
 #include "cc/paint/paint_export.h"
 #include "cc/paint/paint_filter.h"
@@ -60,11 +61,12 @@ class CC_PAINT_EXPORT PaintOpWriter {
   void Write(const SkRect& rect);
   void Write(const SkIRect& rect);
   void Write(const SkRRect& rect);
+  void Write(const SkColor4f& color);
   void Write(const SkPath& path, UsePaintCache);
   void Write(const sk_sp<SkData>& data);
   void Write(const SkColorSpace* data);
   void Write(const SkSamplingOptions&);
-  void Write(const sk_sp<SkTextBlob>& blob);
+  void Write(const sk_sp<GrSlug>& slug);
   void Write(SkYUVColorSpace yuv_color_space);
   void Write(SkYUVAInfo::PlaneConfig plane_config);
   void Write(SkYUVAInfo::Subsampling subsampling);
@@ -96,6 +98,13 @@ class CC_PAINT_EXPORT PaintOpWriter {
 
   // Aligns the memory to the given alignment.
   void AlignMemory(size_t alignment);
+
+  void AssertAlignment(size_t alignment) {
+#if DCHECK_IS_ON()
+    uintptr_t memory = reinterpret_cast<uintptr_t>(memory_.get());
+    DCHECK_EQ(base::bits::AlignUp(memory, alignment), memory);
+#endif
+  }
 
   // sk_sp is implicitly convertible to uint8_t (likely via implicit bool
   // conversion). In order to avoid accidentally calling that overload instead
@@ -161,7 +170,6 @@ class CC_PAINT_EXPORT PaintOpWriter {
              const SkM44& current_ctm);
   void Write(const LightingPointPaintFilter& filter, const SkM44& current_ctm);
   void Write(const LightingSpotPaintFilter& filter, const SkM44& current_ctm);
-  void Write(const StretchPaintFilter& filter, const SkM44& current_ctm);
 
   void Write(const PaintRecord* record,
              const gfx::Rect& playback_rect,
@@ -170,7 +178,7 @@ class CC_PAINT_EXPORT PaintOpWriter {
   void WriteImage(const DecodedDrawImage& decoded_draw_image);
   void WriteImage(uint32_t transfer_cache_entry_id, bool needs_mips);
   void WriteImage(const gpu::Mailbox& mailbox);
-
+  void DidWrite(size_t bytes_written);
   void EnsureBytes(size_t required_bytes);
   sk_sp<PaintShader> TransformShaderIfNecessary(
       const PaintShader* original,
@@ -184,7 +192,7 @@ class CC_PAINT_EXPORT PaintOpWriter {
   raw_ptr<char> memory_ = nullptr;
   size_t size_ = 0u;
   size_t remaining_bytes_ = 0u;
-  const PaintOp::SerializeOptions& options_;
+  const raw_ref<const PaintOp::SerializeOptions> options_;
   bool valid_ = true;
 
   // Indicates that the following security constraints must be applied during

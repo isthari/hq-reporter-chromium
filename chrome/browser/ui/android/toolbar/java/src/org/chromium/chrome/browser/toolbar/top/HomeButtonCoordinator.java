@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,12 @@ package org.chromium.chrome.browser.toolbar.top;
 
 import android.content.Context;
 import android.view.View;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
-import org.chromium.base.supplier.BooleanSupplier;
+
+import org.chromium.base.TraceEvent;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.OneshotSupplier;
 import org.chromium.base.supplier.Supplier;
@@ -27,6 +29,8 @@ import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter.Highl
 import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.feature_engagement.FeatureConstants;
 import org.chromium.url.GURL;
+
+import java.util.function.BooleanSupplier;
 
 /**
  * Root component for the home button on the toolbar. Intended to own the {@link HomeButton}, but
@@ -79,7 +83,12 @@ public class HomeButtonCoordinator {
         mPageLoadObserver = new CurrentTabObserver(tabSupplier, new EmptyTabObserver() {
             @Override
             public void onPageLoadFinished(Tab tab, GURL url) {
-                handlePageLoadFinished(url);
+                // Part of scroll jank investigation http://crbug.com/1311003. Will remove
+                // TraceEvent after the investigation is complete.
+                try (TraceEvent te =
+                                TraceEvent.scoped("HomeButtonCoordinator::onPageLoadFinished")) {
+                    handlePageLoadFinished(url);
+                }
             }
         }, /*swapCallback=*/null);
     }

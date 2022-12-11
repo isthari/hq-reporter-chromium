@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "base/unguessable_token.h"
-#include "base/values.h"
 #include "build/build_config.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_message.h"
@@ -25,7 +24,7 @@
 #include "ipc/ipc_message_attachment_set.h"
 #include "ipc/ipc_mojo_param_traits.h"
 
-#if BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_APPLE)
 #include "ipc/mach_port_mac.h"
 #endif
 
@@ -80,125 +79,135 @@ void LogBytes(const std::vector<CharType>& data, std::string* out) {
 #endif
 }
 
-bool ReadValue(const base::Pickle* m,
-               base::PickleIterator* iter,
-               base::Value* value,
-               int recursion);
+void WriteValue(const base::Value& value, int recursion, base::Pickle* pickle);
 
-void WriteValue(base::Pickle* m, const base::Value* value, int recursion) {
+void WriteDictValue(const base::Value::Dict& value,
+                    int recursion,
+                    base::Pickle* pickle) {
+  WriteParam(pickle, base::checked_cast<int>(value.size()));
+  for (const auto entry : value) {
+    WriteParam(pickle, entry.first);
+    WriteValue(entry.second, recursion + 1, pickle);
+  }
+}
+
+void WriteListValue(const base::Value::List& value,
+                    int recursion,
+                    base::Pickle* pickle) {
+  WriteParam(pickle, base::checked_cast<int>(value.size()));
+  for (const auto& entry : value) {
+    WriteValue(entry, recursion + 1, pickle);
+  }
+}
+
+void WriteValue(const base::Value& value, int recursion, base::Pickle* pickle) {
   bool result;
   if (recursion > kMaxRecursionDepth) {
     LOG(ERROR) << "Max recursion depth hit in WriteValue.";
     return;
   }
 
-  m->WriteInt(static_cast<int>(value->type()));
+  pickle->WriteInt(static_cast<int>(value.type()));
 
-  switch (value->type()) {
+  switch (value.type()) {
     case base::Value::Type::NONE:
       break;
     case base::Value::Type::BOOLEAN: {
-      WriteParam(m, value->GetBool());
+      WriteParam(pickle, value.GetBool());
       break;
     }
     case base::Value::Type::INTEGER: {
-      DCHECK(value->is_int());
-      WriteParam(m, value->GetInt());
+      DCHECK(value.is_int());
+      WriteParam(pickle, value.GetInt());
       break;
     }
     case base::Value::Type::DOUBLE: {
-      DCHECK(value->is_int() || value->is_double());
-      WriteParam(m, value->GetDouble());
+      DCHECK(value.is_int() || value.is_double());
+      WriteParam(pickle, value.GetDouble());
       break;
     }
     case base::Value::Type::STRING: {
-      const std::string* val = value->GetIfString();
+      const std::string* val = value.GetIfString();
       result = !!val;
       DCHECK(result);
-      WriteParam(m, *val);
+      WriteParam(pickle, *val);
       break;
     }
     case base::Value::Type::BINARY: {
-      m->WriteData(reinterpret_cast<const char*>(value->GetBlob().data()),
-                   base::checked_cast<int>(value->GetBlob().size()));
+      pickle->WriteData(reinterpret_cast<const char*>(value.GetBlob().data()),
+                        value.GetBlob().size());
       break;
     }
-    case base::Value::Type::DICTIONARY: {
-      DCHECK(value->is_dict());
-      WriteParam(m, base::checked_cast<int>(value->DictSize()));
-
-      for (auto it : value->DictItems()) {
-        WriteParam(m, it.first);
-        WriteValue(m, &it.second, recursion + 1);
-      }
+    case base::Value::Type::DICT: {
+      DCHECK(value.is_dict());
+      WriteDictValue(value.GetDict(), recursion, pickle);
       break;
     }
     case base::Value::Type::LIST: {
-      const base::ListValue* list = static_cast<const base::ListValue*>(value);
-      WriteParam(m, base::checked_cast<int>(list->GetList().size()));
-      for (const auto& entry : list->GetList()) {
-        WriteValue(m, &entry, recursion + 1);
-      }
+      DCHECK(value.is_list());
+      WriteListValue(value.GetList(), recursion, pickle);
       break;
     }
   }
 }
 
-// Helper for ReadValue that reads a DictionaryValue into a pre-allocated
-// object.
-bool ReadDictionaryValue(const base::Pickle* m,
-                         base::PickleIterator* iter,
-                         base::DictionaryValue* value,
-                         int recursion) {
-  int size;
-  if (!ReadParam(m, iter, &size))
-    return false;
-
-  std::vector<base::Value::LegacyDictStorage::value_type> entries;
-  entries.resize(size);
-  for (auto& entry : entries) {
-    entry.second = std::make_unique<base::Value>();
-    if (!ReadParam(m, iter, &entry.first) ||
-        !ReadValue(m, iter, entry.second.get(), recursion + 1))
-      return false;
-  }
-
-  *value =
-      base::DictionaryValue(base::Value::LegacyDictStorage(std::move(entries)));
-  return true;
-}
-
-// Helper for ReadValue that reads a ReadListValue into a pre-allocated
-// object.
-bool ReadListValue(const base::Pickle* m,
-                   base::PickleIterator* iter,
-                   base::ListValue* value,
-                   int recursion) {
-  int size;
-  if (!ReadParam(m, iter, &size))
-    return false;
-
-  base::Value::ListStorage list_storage;
-  list_storage.resize(size);
-  for (base::Value& subval : list_storage) {
-    if (!ReadValue(m, iter, &subval, recursion + 1))
-      return false;
-  }
-  *value = base::ListValue(std::move(list_storage));
-  return true;
-}
-
-bool ReadValue(const base::Pickle* m,
+bool ReadValue(const base::Pickle* pickle,
                base::PickleIterator* iter,
-               base::Value* value,
-               int recursion) {
+               int recursion,
+               base::Value* value);
+
+// Helper for ReadValue that reads a Value::Dict into a pre-allocated object.
+bool ReadDictValue(const base::Pickle* pickle,
+                   base::PickleIterator* iter,
+                   int recursion,
+                   base::Value::Dict* value) {
+  int size;
+  if (!ReadParam(pickle, iter, &size))
+    return false;
+
+  for (int i = 0; i < size; i++) {
+    std::string key;
+    base::Value subvalue;
+    if (!ReadParam(pickle, iter, &key) ||
+        !ReadValue(pickle, iter, recursion + 1, &subvalue)) {
+      return false;
+    }
+    value->Set(key, std::move(subvalue));
+  }
+
+  return true;
+}
+
+// Helper for ReadValue that reads a Value::List into a pre-allocated object.
+bool ReadListValue(const base::Pickle* pickle,
+                   base::PickleIterator* iter,
+                   int recursion,
+                   base::Value::List* value) {
+  int size;
+  if (!ReadParam(pickle, iter, &size))
+    return false;
+
+  value->reserve(size);
+  for (int i = 0; i < size; i++) {
+    base::Value subval;
+    if (!ReadValue(pickle, iter, recursion + 1, &subval))
+      return false;
+    value->Append(std::move(subval));
+  }
+  return true;
+}
+
+bool ReadValue(const base::Pickle* pickle,
+               base::PickleIterator* iter,
+               int recursion,
+               base::Value* value) {
   if (recursion > kMaxRecursionDepth) {
     LOG(ERROR) << "Max recursion depth hit in ReadValue.";
     return false;
   }
 
   int type;
-  if (!ReadParam(m, iter, &type))
+  if (!ReadParam(pickle, iter, &type))
     return false;
 
   constexpr int kMinValueType = static_cast<int>(base::Value::Type::NONE);
@@ -212,28 +221,28 @@ bool ReadValue(const base::Pickle* m,
       break;
     case base::Value::Type::BOOLEAN: {
       bool val;
-      if (!ReadParam(m, iter, &val))
+      if (!ReadParam(pickle, iter, &val))
         return false;
       *value = base::Value(val);
       break;
     }
     case base::Value::Type::INTEGER: {
       int val;
-      if (!ReadParam(m, iter, &val))
+      if (!ReadParam(pickle, iter, &val))
         return false;
       *value = base::Value(val);
       break;
     }
     case base::Value::Type::DOUBLE: {
       double val;
-      if (!ReadParam(m, iter, &val))
+      if (!ReadParam(pickle, iter, &val))
         return false;
       *value = base::Value(val);
       break;
     }
     case base::Value::Type::STRING: {
       std::string val;
-      if (!ReadParam(m, iter, &val))
+      if (!ReadParam(pickle, iter, &val))
         return false;
       *value = base::Value(std::move(val));
       break;
@@ -246,17 +255,17 @@ bool ReadValue(const base::Pickle* m,
       break;
     }
     case base::Value::Type::DICTIONARY: {
-      base::DictionaryValue val;
-      if (!ReadDictionaryValue(m, iter, &val, recursion))
+      base::Value::Dict val;
+      if (!ReadDictValue(pickle, iter, recursion, &val))
         return false;
-      *value = std::move(val);
+      *value = base::Value(std::move(val));
       break;
     }
     case base::Value::Type::LIST: {
-      base::ListValue val;
-      if (!ReadListValue(m, iter, &val, recursion))
+      base::Value::List val;
+      if (!ReadListValue(pickle, iter, recursion, &val))
         return false;
-      *value = std::move(val);
+      *value = base::Value(std::move(val));
       break;
     }
     default:
@@ -424,7 +433,7 @@ void ParamTraits<std::vector<char>>::Write(base::Pickle* m,
   if (p.empty()) {
     m->WriteData(NULL, 0);
   } else {
-    m->WriteData(&p.front(), base::checked_cast<int>(p.size()));
+    m->WriteData(&p.front(), p.size());
   }
 }
 
@@ -432,8 +441,8 @@ bool ParamTraits<std::vector<char>>::Read(const base::Pickle* m,
                                           base::PickleIterator* iter,
                                           param_type* r) {
   const char *data;
-  int data_size = 0;
-  if (!iter->ReadData(&data, &data_size) || data_size < 0)
+  size_t data_size = 0;
+  if (!iter->ReadData(&data, &data_size))
     return false;
   r->resize(data_size);
   if (data_size)
@@ -450,8 +459,7 @@ void ParamTraits<std::vector<unsigned char>>::Write(base::Pickle* m,
   if (p.empty()) {
     m->WriteData(NULL, 0);
   } else {
-    m->WriteData(reinterpret_cast<const char*>(&p.front()),
-                 base::checked_cast<int>(p.size()));
+    m->WriteData(reinterpret_cast<const char*>(&p.front()), p.size());
   }
 }
 
@@ -459,8 +467,8 @@ bool ParamTraits<std::vector<unsigned char>>::Read(const base::Pickle* m,
                                                    base::PickleIterator* iter,
                                                    param_type* r) {
   const char *data;
-  int data_size = 0;
-  if (!iter->ReadData(&data, &data_size) || data_size < 0)
+  size_t data_size = 0;
+  if (!iter->ReadData(&data, &data_size))
     return false;
   r->resize(data_size);
   if (data_size)
@@ -486,12 +494,11 @@ void ParamTraits<std::vector<bool>>::Write(base::Pickle* m,
 bool ParamTraits<std::vector<bool>>::Read(const base::Pickle* m,
                                           base::PickleIterator* iter,
                                           param_type* r) {
-  int size;
-  // ReadLength() checks for < 0 itself.
+  size_t size;
   if (!iter->ReadLength(&size))
     return false;
   r->resize(size);
-  for (int i = 0; i < size; i++) {
+  for (size_t i = 0; i < size; i++) {
     bool value;
     if (!ReadParam(m, iter, &value))
       return false;
@@ -510,22 +517,34 @@ void ParamTraits<std::vector<bool> >::Log(const param_type& p, std::string* l) {
 
 void ParamTraits<base::DictionaryValue>::Write(base::Pickle* m,
                                                const param_type& p) {
-  WriteValue(m, &p, 0);
+  WriteDictValue(p.GetDict(), 0, m);
 }
 
 bool ParamTraits<base::DictionaryValue>::Read(const base::Pickle* m,
                                               base::PickleIterator* iter,
                                               param_type* r) {
-  int type;
-  if (!ReadParam(m, iter, &type) ||
-      type != static_cast<int>(base::Value::Type::DICTIONARY))
-    return false;
-
-  return ReadDictionaryValue(m, iter, r, 0);
+  return ReadDictValue(m, iter, 0, &(r->GetDict()));
 }
 
 void ParamTraits<base::DictionaryValue>::Log(const param_type& p,
                                              std::string* l) {
+  std::string json;
+  base::JSONWriter::Write(p, &json);
+  l->append(json);
+}
+
+void ParamTraits<base::Value::Dict>::Write(base::Pickle* m,
+                                           const param_type& p) {
+  WriteDictValue(p, 0, m);
+}
+
+bool ParamTraits<base::Value::Dict>::Read(const base::Pickle* m,
+                                          base::PickleIterator* iter,
+                                          param_type* r) {
+  return ReadDictValue(m, iter, 0, r);
+}
+
+void ParamTraits<base::Value::Dict>::Log(const param_type& p, std::string* l) {
   std::string json;
   base::JSONWriter::Write(p, &json);
   l->append(json);
@@ -942,7 +961,7 @@ void ParamTraits<base::subtle::PlatformSharedMemoryRegion>::Write(
 #elif BUILDFLAG(IS_FUCHSIA)
   zx::vmo vmo = const_cast<param_type&>(p).PassPlatformHandle();
   WriteParam(m, vmo);
-#elif BUILDFLAG(IS_MAC)
+#elif BUILDFLAG(IS_APPLE)
   base::mac::ScopedMachSendRight h =
       const_cast<param_type&>(p).PassPlatformHandle();
   MachPortMac mach_port_mac(h.get());
@@ -996,7 +1015,7 @@ bool ParamTraits<base::subtle::PlatformSharedMemoryRegion>::Read(
     return false;
   *r = base::subtle::PlatformSharedMemoryRegion::Take(std::move(vmo), mode,
                                                       size, guid);
-#elif BUILDFLAG(IS_MAC)
+#elif BUILDFLAG(IS_APPLE)
   MachPortMac mach_port_mac;
   if (!ReadParam(m, iter, &mach_port_mac))
     return false;
@@ -1056,7 +1075,7 @@ void ParamTraits<base::subtle::PlatformSharedMemoryRegion>::Log(
 #elif BUILDFLAG(IS_WIN)
   l->append("Handle: ");
   LogParam(p.GetPlatformHandle(), l);
-#elif BUILDFLAG(IS_MAC)
+#elif BUILDFLAG(IS_APPLE)
   l->append("Mach port: ");
   LogParam(p.GetPlatformHandle(), l);
 #elif BUILDFLAG(IS_ANDROID)
@@ -1156,35 +1175,31 @@ void ParamTraits<base::FilePath>::Log(const param_type& p, std::string* l) {
   ParamTraits<base::FilePath::StringType>::Log(p.value(), l);
 }
 
-void ParamTraits<base::ListValue>::Write(base::Pickle* m, const param_type& p) {
-  WriteValue(m, &p, 0);
+void ParamTraits<base::Value::List>::Write(base::Pickle* m,
+                                           const param_type& p) {
+  WriteListValue(p, 0, m);
 }
 
-bool ParamTraits<base::ListValue>::Read(const base::Pickle* m,
-                                        base::PickleIterator* iter,
-                                        param_type* r) {
-  int type;
-  if (!ReadParam(m, iter, &type) ||
-      type != static_cast<int>(base::Value::Type::LIST))
-    return false;
-
-  return ReadListValue(m, iter, r, 0);
+bool ParamTraits<base::Value::List>::Read(const base::Pickle* m,
+                                          base::PickleIterator* iter,
+                                          param_type* r) {
+  return ReadListValue(m, iter, 0, r);
 }
 
-void ParamTraits<base::ListValue>::Log(const param_type& p, std::string* l) {
+void ParamTraits<base::Value::List>::Log(const param_type& p, std::string* l) {
   std::string json;
   base::JSONWriter::Write(p, &json);
   l->append(json);
 }
 
 void ParamTraits<base::Value>::Write(base::Pickle* m, const param_type& p) {
-  WriteValue(m, &p, 0);
+  WriteValue(p, 0, m);
 }
 
 bool ParamTraits<base::Value>::Read(const base::Pickle* m,
                                     base::PickleIterator* iter,
                                     param_type* r) {
-  return ReadValue(m, iter, r, 0);
+  return ReadValue(m, iter, 0, r);
 }
 
 void ParamTraits<base::Value>::Log(const param_type& p, std::string* l) {
@@ -1404,7 +1419,7 @@ void ParamTraits<Message>::Write(base::Pickle* m, const Message& p) {
   m->WriteUInt32(static_cast<uint32_t>(p.routing_id()));
   m->WriteUInt32(p.type());
   m->WriteUInt32(p.flags());
-  m->WriteData(p.payload(), static_cast<uint32_t>(p.payload_size()));
+  m->WriteData(p.payload(), p.payload_size());
 }
 
 bool ParamTraits<Message>::Read(const base::Pickle* m,
@@ -1416,7 +1431,7 @@ bool ParamTraits<Message>::Read(const base::Pickle* m,
       !iter->ReadUInt32(&flags))
     return false;
 
-  int payload_size;
+  size_t payload_size;
   const char* payload;
   if (!iter->ReadData(&payload, &payload_size))
     return false;
@@ -1459,7 +1474,7 @@ bool ParamTraits<MSG>::Read(const base::Pickle* m,
                             base::PickleIterator* iter,
                             param_type* r) {
   const char *data;
-  int data_size = 0;
+  size_t data_size = 0;
   bool result = iter->ReadData(&data, &data_size);
   if (result && data_size == sizeof(MSG)) {
     memcpy(r, data, sizeof(MSG));

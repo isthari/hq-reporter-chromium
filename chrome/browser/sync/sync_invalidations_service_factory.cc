@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "components/gcm_driver/gcm_profile_service.h"
 #include "components/gcm_driver/instance_id/instance_id_profile_service.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
-#include "components/sync/invalidations/switches.h"
+#include "components/sync/base/features.h"
 #include "components/sync/invalidations/sync_invalidations_service_impl.h"
 
 syncer::SyncInvalidationsService*
@@ -27,9 +26,7 @@ SyncInvalidationsServiceFactory::GetInstance() {
 }
 
 SyncInvalidationsServiceFactory::SyncInvalidationsServiceFactory()
-    : BrowserContextKeyedServiceFactory(
-          "SyncInvalidationsService",
-          BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory("SyncInvalidationsService") {
   DependsOn(gcm::GCMProfileServiceFactory::GetInstance());
   DependsOn(instance_id::InstanceIDProfileServiceFactory::GetInstance());
 }
@@ -38,7 +35,7 @@ SyncInvalidationsServiceFactory::~SyncInvalidationsServiceFactory() = default;
 
 KeyedService* SyncInvalidationsServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  if (!base::FeatureList::IsEnabled(switches::kSyncSendInterestedDataTypes)) {
+  if (!base::FeatureList::IsEnabled(syncer::kSyncSendInterestedDataTypes)) {
     return nullptr;
   }
 

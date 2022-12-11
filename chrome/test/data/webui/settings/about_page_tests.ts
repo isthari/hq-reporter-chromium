@@ -1,11 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 
-import {AboutPageBrowserProxyImpl, LifetimeBrowserProxyImpl, MinimumRoutes, Route, Router, SettingsAboutPageElement} from 'chrome://settings/settings.js';
+import {AboutPageBrowserProxyImpl, LifetimeBrowserProxyImpl, Route, Router, SettingsAboutPageElement, SettingsRoutes} from 'chrome://settings/settings.js';
 import {assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {TestAboutPageBrowserProxy} from './test_about_page_browser_proxy.js';
 import {TestLifetimeBrowserProxy} from './test_lifetime_browser_proxy.js';
@@ -15,28 +15,27 @@ import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min
 import {PromoteUpdaterStatus} from 'chrome://settings/settings.js';
 // </if>
 
-// <if expr="not chromeos">
+// <if expr="not chromeos_ash">
 import {UpdateStatus} from 'chrome://settings/settings.js';
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
 import {assertEquals, assertFalse, assertNotEquals} from 'chrome://webui-test/chai_assert.js';
 // </if>
 
 // clang-format on
 
-function setupRouter(): MinimumRoutes {
+function setupRouter(): SettingsRoutes {
   const routes = {
     ABOUT: new Route('/help'),
     ADVANCED: new Route('/advanced'),
     BASIC: new Route('/'),
-  };
+  } as unknown as SettingsRoutes;
   Router.resetInstanceForTesting(new Router(routes));
   return routes;
 }
 
-// <if expr="not chromeos">
+// <if expr="not chromeos_ash">
 function fireStatusChanged(
-    status: UpdateStatus, opt_options?: {progress?: number, message?: string}) {
-  const options = opt_options || {};
+    status: UpdateStatus, options: {progress?: number, message?: string} = {}) {
   webUIListenerCallback('update-status-changed', {
     progress: options.progress === undefined ? 1 : options.progress,
     message: options.message,
@@ -50,7 +49,7 @@ suite('AboutPageTest_AllBuilds', function() {
   let aboutBrowserProxy: TestAboutPageBrowserProxy;
   let lifetimeBrowserProxy: TestLifetimeBrowserProxy;
 
-  let testRoutes: MinimumRoutes;
+  let testRoutes: SettingsRoutes;
 
   setup(function() {
     loadTimeData.overrideValues({
@@ -74,18 +73,20 @@ suite('AboutPageTest_AllBuilds', function() {
   function initNewPage(): Promise<void> {
     aboutBrowserProxy.reset();
     lifetimeBrowserProxy.reset();
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     page = document.createElement('settings-about-page');
     Router.getInstance().navigateTo(testRoutes.ABOUT);
     document.body.appendChild(page);
-    // <if expr="chromeos">
+    // <if expr="chromeos_ash">
     return Promise.resolve();
     // </if>
 
+    // <if expr="not chromeos_ash">
     return aboutBrowserProxy.whenCalled('refreshUpdateStatus');
+    // </if>
   }
 
-  // <if expr="not chromeos">
+  // <if expr="not chromeos_ash">
   const SPINNER_ICON: string = 'chrome://resources/images/throbber_small.svg';
 
   /**
@@ -314,7 +315,7 @@ suite('AboutPageTest_OfficialBuilds', function() {
     setupRouter();
     browserProxy = new TestAboutPageBrowserProxy();
     AboutPageBrowserProxyImpl.setInstance(browserProxy);
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     page = document.createElement('settings-about-page');
     document.body.appendChild(page);
   });

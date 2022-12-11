@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -130,6 +130,14 @@ class MetricsRecorder {
 
   // Records |sample| in sparse histogram.
   virtual void RecordHistogramSparse(const std::string& name, int sample) = 0;
+
+  // Measures the time elapsed between now and the next occurrence of
+  // |event_name|. A metrics event named |measurement_name| will be logged when
+  // the event occurs, along with the elapsed time in milliseconds. These
+  // methods can be called from any thread.
+  virtual void MeasureTimeUntilEvent(const std::string& event_name,
+                                     const std::string& measurement_name) {}
+  virtual void RecordTimelineEvent(const std::string& event_name) {}
 
   void AddObserver(Observer* o);
   void RemoveObserver(Observer* o);

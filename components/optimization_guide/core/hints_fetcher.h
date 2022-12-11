@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
+class OptimizationGuideLogger;
 class PrefService;
 
 namespace network {
@@ -69,7 +70,8 @@ class HintsFetcher {
   HintsFetcher(
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const GURL& optimization_guide_service_url,
-      PrefService* pref_service);
+      PrefService* pref_service,
+      OptimizationGuideLogger* optimization_guide_logger);
 
   HintsFetcher(const HintsFetcher&) = delete;
   HintsFetcher& operator=(const HintsFetcher&) = delete;
@@ -180,6 +182,10 @@ class HintsFetcher {
   // The start time of the current hints fetch, used to determine the latency in
   // retrieving hints from the remote Optimization Guide Service.
   base::TimeTicks hints_fetch_start_time_;
+
+  // Owned by OptimizationGuideKeyedService and outlives |this|.
+  raw_ptr<OptimizationGuideLogger, DanglingUntriaged>
+      optimization_guide_logger_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 };

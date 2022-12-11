@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,8 +41,9 @@ using ui_test_utils::NavigateToURL;
 
 // No current reliable way to determine OOM on Linux/Mac. Sanitizers also
 // interfere with the exit code on OOM, making this detection unreliable.
+// TODO(crbug.com/1304695): Fix flakiness on Windows.
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \
-    defined(ADDRESS_SANITIZER)
+    BUILDFLAG(IS_WIN) || defined(ADDRESS_SANITIZER)
 #define MAYBE_OutOfMemoryReporterBrowserTest \
   DISABLED_OutOfMemoryReporterBrowserTest
 #else
@@ -155,7 +156,7 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PortalOutOfMemoryReporterBrowserTest,
 
   // Wait a short amount of time to ensure the OOM report isn't delayed.
   base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), TestTimeouts::tiny_timeout());
   run_loop.Run();
 
@@ -201,7 +202,7 @@ IN_PROC_BROWSER_TEST_F(MAYBE_PortalOutOfMemoryReporterBrowserTest,
 
   // Wait a short amount of time to ensure the OOM report isn't delayed.
   base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), TestTimeouts::tiny_timeout());
   run_loop.Run();
 

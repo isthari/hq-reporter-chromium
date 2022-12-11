@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/observer_list.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/page_info/chosen_object_view_observer.h"
@@ -43,7 +45,7 @@ ChosenObjectView::ChosenObjectView(
           &ChosenObjectView::ExecuteDeleteCommand, base::Unretained(this)));
   delete_button->SetRequestFocusOnPress(true);
   delete_button->SetTooltipText(
-      l10n_util::GetStringUTF16(info_->ui_info.delete_tooltip_string_id));
+      l10n_util::GetStringUTF16(info_->ui_info->delete_tooltip_string_id));
   views::InstallCircleHighlightPathGenerator(delete_button.get());
 
   // Disable the delete button for policy controlled objects and display the
@@ -53,10 +55,10 @@ ChosenObjectView::ChosenObjectView(
       content_settings::SettingSource::SETTING_SOURCE_POLICY) {
     delete_button->SetEnabled(false);
     row_view_->AddSecondaryLabel(l10n_util::GetStringUTF16(
-        info_->ui_info.allowed_by_policy_description_string_id));
+        info_->ui_info->allowed_by_policy_description_string_id));
   } else {
     row_view_->AddSecondaryLabel(
-        l10n_util::GetStringUTF16(info_->ui_info.description_string_id));
+        l10n_util::GetStringUTF16(info_->ui_info->description_string_id));
   }
 
   delete_button_ = row_view_->AddControl(std::move(delete_button));
@@ -75,10 +77,11 @@ void ChosenObjectView::AddObserver(ChosenObjectViewObserver* observer) {
 
 void ChosenObjectView::OnThemeChanged() {
   views::View::OnThemeChanged();
-  views::SetImageFromVectorIcon(
+  const ui::ColorProvider* cp = GetColorProvider();
+  views::SetImageFromVectorIconWithColor(
       delete_button_, vector_icons::kCloseRoundedIcon,
-      views::style::GetColor(*this, views::style::CONTEXT_DIALOG_BODY_TEXT,
-                             views::style::STYLE_PRIMARY));
+      cp->GetColor(kColorPageInfoChosenObjectDeleteButtonIcon),
+      cp->GetColor(kColorPageInfoChosenObjectDeleteButtonIconDisabled));
 }
 
 ChosenObjectView::~ChosenObjectView() = default;

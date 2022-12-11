@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "base/callback.h"
 #include "base/containers/contains.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 
 namespace web_app {
 
@@ -53,6 +53,8 @@ void TestWebAppUrlLoader::LoadUrl(const GURL& url,
                                   content::WebContents* web_contents,
                                   UrlComparison url_comparison,
                                   ResultCallback callback) {
+  load_url_tracker_.Run(url, web_contents, url_comparison);
+
   if (should_save_requests_) {
     pending_requests_.emplace(url, std::move(callback));
     return;
@@ -68,7 +70,7 @@ void TestWebAppUrlLoader::LoadUrl(const GURL& url,
   if (responses.results.empty())
     next_result_map_.erase(url);
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), result));
 }
 

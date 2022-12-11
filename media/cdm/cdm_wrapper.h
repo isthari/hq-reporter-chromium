@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -294,7 +294,7 @@ class CdmWrapperImpl : public CdmWrapper {
  private:
   CdmWrapperImpl(CdmInterface* cdm) : cdm_(cdm) { DCHECK(cdm_); }
 
-  raw_ptr<CdmInterface> cdm_;
+  raw_ptr<CdmInterface, DanglingUntriaged> cdm_;
 };
 
 // Specialization for cdm::ContentDecryptionModule_10 methods.

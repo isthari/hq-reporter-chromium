@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -539,6 +539,30 @@ TEST_P(ParameterizedSelectionControllerTest, Scroll) {
   Node* line8_node = line8.AnchorNode();
   EXPECT_EQ(line8_node->nodeName(), "#text");
   EXPECT_EQ(line8_node->textContent(), "x");
+}
+
+// http://crbug.com/1372847
+TEST_F(SelectionControllerTest, AdjustSelectionByUserSelect) {
+  SetBodyContent(R"HTML(
+    <div style="user-select: none;">
+      <div id="one" style="user-select: text;">11</div>
+      <input type="text" value="input"/>
+    </div>
+    <div id="two">22</div>)HTML");
+
+  Element* one = GetDocument().getElementById("one");
+  Element* input = GetDocument().QuerySelector("input");
+
+  const SelectionInFlatTree& selection =
+      ExpandWithGranularity(SelectionInFlatTree::Builder()
+                                .Collapse(PositionInFlatTree(one, 0))
+                                .Build(),
+                            TextGranularity::kParagraph);
+  SelectionInFlatTree adjust_selection =
+      AdjustSelectionByUserSelect(one, selection);
+  EXPECT_EQ(adjust_selection.Base(),
+            PositionInFlatTree::FirstPositionInNode(*one));
+  EXPECT_EQ(adjust_selection.Extent(), PositionInFlatTree::BeforeNode(*input));
 }
 
 }  // namespace blink

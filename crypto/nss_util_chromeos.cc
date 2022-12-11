@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "base/bind.h"
 #include "base/callback_list.h"
 #include "base/debug/stack_trace.h"
+#include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/lazy_instance.h"
@@ -28,12 +29,12 @@
 #include "base/path_service.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_checker.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "crypto/chaps_support.h"
 #include "crypto/nss_util_internal.h"
@@ -53,9 +54,9 @@ class ChromeOSUserData {
 
   ~ChromeOSUserData() {
     if (public_slot_) {
-      SECStatus status = SECMOD_CloseUserDB(public_slot_.get());
+      SECStatus status = CloseSoftwareNSSDB(public_slot_.get());
       if (status != SECSuccess)
-        PLOG(ERROR) << "SECMOD_CloseUserDB failed: " << PORT_GetError();
+        PLOG(ERROR) << "CloseSoftwareNSSDB failed: " << PORT_GetError();
     }
   }
 
@@ -157,7 +158,7 @@ class ChromeOSTokenManager {
     // NSS is allowed to do IO on the current thread since dispatching
     // to a dedicated thread would still have the affect of blocking
     // the current thread, due to NSS's internal locking requirements
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    ScopedAllowBlockingForNSS allow_blocking;
 
     base::FilePath nssdb_path = GetSoftwareNSSDBPath(path);
     if (!base::CreateDirectory(nssdb_path)) {
@@ -269,8 +270,8 @@ class ChromeOSTokenManager {
       return;
     }
 
-    DCHECK(base::SequencedTaskRunnerHandle::IsSet());
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    DCHECK(base::SequencedTaskRunner::HasCurrentDefault());
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(std::move(callback),
                        /*is_tpm_enabled=*/(state_ == State::kTpmTokenEnabled)));
@@ -388,7 +389,7 @@ class ChromeOSTokenManager {
     if (username_hash.empty()) {
       DVLOG(2) << "empty username_hash";
       if (!callback.is_null()) {
-        base::ThreadTaskRunnerHandle::Get()->PostTask(
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
             FROM_HERE, base::BindOnce(std::move(callback), ScopedPK11Slot()));
       }
       return ScopedPK11Slot();
@@ -419,7 +420,7 @@ class ChromeOSTokenManager {
       return;
     }
 
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(std::move(callback),
                        /*system_slot=*/ScopedPK11Slot(
@@ -589,6 +590,87 @@ void CloseChromeOSUserForTesting(const std::string& username_hash) {
 void SetPrivateSoftwareSlotForChromeOSUserForTesting(ScopedPK11Slot slot) {
   g_token_manager.Get().SetPrivateSoftwareSlotForChromeOSUserForTesting(
       std::move(slot));
+}
+
+namespace {
+void PrintDirectoryInfo(const base::FilePath& path) {
+  base::stat_wrapper_t file_stat;
+
+  if (base::File::Stat(path.value().c_str(), &file_stat) == -1) {
+    base::File::Error error_code = base::File::OSErrorToFileError(errno);
+    LOG(ERROR) << "Failed to collect directory info, error: " << error_code;
+  }
+
+  LOG(ERROR) << path << ", " << std::oct << file_stat.st_mode << std::dec
+             << ", "
+             << "uid " << file_stat.st_uid << ", "
+             << "gid " << file_stat.st_gid << std::endl;
+}
+}  // namespace
+
+// TODO(crbug.com/1163303): Remove when the bug is fixed.
+void DiagnosePublicSlotAndCrash(const base::FilePath& nss_path) {
+  LOG(ERROR) << "Public slot is invalid. Start collecting stats.";
+  // Should be something like /home/chronos/u-<hash>/.pki/nssdb .
+  LOG(ERROR) << "NSS path: " << nss_path;
+
+  {
+    // NSS files like pkcs11.txt, cert9.db, key4.db .
+    base::FileEnumerator files(
+        nss_path, /*recursive=*/false,
+        /*file_type=*/base::FileEnumerator::FILES,
+        /*pattern=*/base::FilePath::StringType(),
+        base::FileEnumerator::FolderSearchPolicy::MATCH_ONLY,
+        base::FileEnumerator::ErrorPolicy::STOP_ENUMERATION);
+    LOG(ERROR) << "Public slot database files:";
+    for (base::FilePath path = files.Next(); !path.empty();
+         path = files.Next()) {
+      base::FileEnumerator::FileInfo file_info = files.GetInfo();
+
+      char buf[16];
+      int read_result = base::ReadFile(path, buf, sizeof(buf) - 1);
+
+      LOG(ERROR) << file_info.GetName() << ", " << std::oct
+                 << file_info.stat().st_mode << std::dec << ", "
+                 << "uid " << file_info.stat().st_uid << ", "
+                 << "gid " << file_info.stat().st_gid << ", "
+                 << file_info.stat().st_size << " bytes, "
+                 << ((read_result > 0) ? "readable" : "not readable");
+    }
+    LOG(ERROR) << "Enumerate error code: " << files.GetError();
+  }
+
+  // NSS directory might not be created yet, also check parent directories.
+  // Use u-hash directory as a comparison point for user and group ids and
+  // access permissions.
+
+  base::FilePath nssdb_path = nss_path.Append(base::FilePath::kParentDirectory);
+  PrintDirectoryInfo(nssdb_path);
+
+  base::FilePath pki_path = nssdb_path.Append(base::FilePath::kParentDirectory);
+  PrintDirectoryInfo(pki_path);
+
+  base::FilePath u_hash_path =
+      pki_path.Append(base::FilePath::kParentDirectory);
+  PrintDirectoryInfo(u_hash_path);
+
+  {
+    // Check whether the NSS path exists, and if not, check whether it's
+    // possible to create it.
+    if (base::DirectoryExists(nss_path)) {
+      LOG(ERROR) << "NSS path exists (as expected).";
+    } else {
+      base::File::Error error = base::File::Error::FILE_OK;
+      if (base::CreateDirectoryAndGetError(nss_path, &error)) {
+        LOG(ERROR) << "NSS path didn't exist. Created successfully.";
+      } else {
+        LOG(ERROR) << "NSS path didn't exist. Failed to create, error: "
+                   << error;
+      }
+    }
+  }
+
+  CHECK(false) << "Public slot is invalid.";
 }
 
 }  // namespace crypto

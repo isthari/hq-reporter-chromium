@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/tabs/tab_group.h"
 #include "chrome/browser/ui/tabs/tab_group_model.h"
 #include "chrome/browser/ui/tabs/tab_group_theme.h"
@@ -150,17 +151,6 @@ class WebUITabContextMenu : public ui::SimpleMenuModel::Delegate,
   const int tab_index_;
 };
 
-bool IsSortedAndContiguous(base::span<const int> sequence) {
-  if (sequence.size() < 2)
-    return true;
-
-  if (!std::is_sorted(sequence.begin(), sequence.end()))
-    return false;
-
-  return sequence.back() ==
-         sequence.front() + static_cast<int>(sequence.size()) - 1;
-}
-
 }  // namespace
 
 TabStripPageHandler::~TabStripPageHandler() {
@@ -232,20 +222,20 @@ void TabStripPageHandler::OnTabGroupChanged(const TabGroupChange& change) {
     }
 
     case TabGroupChange::kVisualsChanged: {
-      page_->TabGroupVisualsChanged(
-          change.group.ToString(),
-          GetTabGroupData(
-              browser_->tab_strip_model()->group_model()->GetTabGroup(
-                  change.group)));
+      TabGroupModel* group_model = browser_->tab_strip_model()->group_model();
+      if (group_model) {
+        page_->TabGroupVisualsChanged(
+            change.group.ToString(),
+            GetTabGroupData(group_model->GetTabGroup(change.group)));
+      }
       break;
     }
 
     case TabGroupChange::kMoved: {
-      const int start_tab = browser_->tab_strip_model()
-                                ->group_model()
-                                ->GetTabGroup(change.group)
-                                ->ListTabs()
-                                .start();
+      DCHECK(browser_->tab_strip_model()->SupportsTabGroups());
+      TabGroupModel* group_model = browser_->tab_strip_model()->group_model();
+      const int start_tab =
+          group_model->GetTabGroup(change.group)->ListTabs().start();
       page_->TabGroupMoved(change.group.ToString(), start_tab);
       break;
     }
@@ -280,6 +270,14 @@ void TabStripPageHandler::OnTabStripModelChanged(
   if (tab_strip_model->empty())
     return;
 
+  // The context menu model is created when the menu is first shown. However, if
+  // the tab strip model changes, the context menu model may not longer reflect
+  // the current state of the tab strip. Actions then taken from the context
+  // menu may leave the tab strip in an inconsistent state, or result in DCHECK
+  // crashes. To ensure this does not occur close the context menu on a tab
+  // strip model change.
+  embedder_->CloseContextMenu();
+
   switch (change.type()) {
     case TabStripModelChange::kInserted: {
       for (const auto& contents : change.GetInsert()->contents) {
@@ -296,32 +294,6 @@ void TabStripPageHandler::OnTabStripModelChanged(
     }
     case TabStripModelChange::kMoved: {
       auto* move = change.GetMove();
-
-      absl::optional<tab_groups::TabGroupId> tab_group_id =
-          tab_strip_model->GetTabGroupForTab(move->to_index);
-      if (tab_group_id.has_value()) {
-        const gfx::Range tabs_in_group = tab_strip_model->group_model()
-                                             ->GetTabGroup(tab_group_id.value())
-                                             ->ListTabs();
-
-        const ui::ListSelectionModel::SelectedIndices& sel =
-            selection.new_model.selected_indices();
-        const auto& selected_tabs = std::vector<int>(sel.begin(), sel.end());
-        const bool all_tabs_in_group =
-            IsSortedAndContiguous(base::make_span(selected_tabs)) &&
-            selected_tabs.front() == static_cast<int>(tabs_in_group.start()) &&
-            selected_tabs.size() == tabs_in_group.length();
-
-        if (all_tabs_in_group) {
-          // If the selection includes all the tabs within the changed tab's
-          // group, it is an indication that the entire group is being moved.
-          // To prevent sending multiple events for each tab in the group,
-          // ignore these tabs moving as entire group moves will be handled by
-          // TabGroupChange::kMoved.
-          break;
-        }
-      }
-
       page_->TabMoved(extensions::ExtensionTabUtil::GetTabId(move->contents),
                       move->to_index,
                       tab_strip_model->IsTabPinned(move->to_index));
@@ -341,8 +313,7 @@ void TabStripPageHandler::OnTabStripModelChanged(
 
   if (selection.active_tab_changed()) {
     content::WebContents* new_contents = selection.new_contents;
-    int index = selection.new_model.active();
-    if (new_contents && index != TabStripModel::kNoTab) {
+    if (new_contents && selection.new_model.active().has_value()) {
       page_->TabActiveChanged(
           extensions::ExtensionTabUtil::GetTabId(new_contents));
     }
@@ -514,11 +485,19 @@ tab_strip::mojom::TabPtr TabStripPageHandler::GetTabData(
   tab_data->url = tab_renderer_data.visible_url;
 
   if (!tab_renderer_data.favicon.isNull()) {
-    tab_data->favicon_url = GURL(webui::EncodePNGAndMakeDataURI(
-        tab_renderer_data.should_themify_favicon
-            ? ThemeFavicon(tab_renderer_data.favicon)
-            : tab_renderer_data.favicon,
-        web_ui_->GetDeviceScaleFactor()));
+    // Themified icons only apply to a few select chrome URLs.
+    if (tab_renderer_data.should_themify_favicon) {
+      tab_data->favicon_url = GURL(webui::EncodePNGAndMakeDataURI(
+          ThemeFavicon(tab_renderer_data.favicon, false),
+          web_ui_->GetDeviceScaleFactor()));
+      tab_data->active_favicon_url = GURL(webui::EncodePNGAndMakeDataURI(
+          ThemeFavicon(tab_renderer_data.favicon, true),
+          web_ui_->GetDeviceScaleFactor()));
+    } else {
+      tab_data->favicon_url = GURL(webui::EncodePNGAndMakeDataURI(
+          tab_renderer_data.favicon, web_ui_->GetDeviceScaleFactor()));
+    }
+
     tab_data->is_default_favicon =
         tab_renderer_data.favicon.BackedBySameObjectAs(
             favicon::GetDefaultFavicon().AsImageSkia());
@@ -537,6 +516,7 @@ tab_strip::mojom::TabPtr TabStripPageHandler::GetTabData(
        chrome::GetTabAlertStatesForContents(contents)) {
     tab_data->alert_states.push_back(alert_state);
   }
+
   return tab_data;
 }
 
@@ -550,9 +530,11 @@ tab_strip::mojom::TabGroupVisualDataPtr TabStripPageHandler::GetTabGroupData(
   // TODO the tab strip should support toggles between inactive and active frame
   // states. Currently the webui tab strip only uses active frame colors
   // (https://crbug.com/1060398).
-  const int color_id = GetTabGroupTabStripColorId(visual_data->color(), true);
-  const SkColor group_color = embedder_->GetColor(color_id);
+  const int group_color_id =
+      GetThumbnailTabStripTabGroupColorId(visual_data->color(), true);
+  const SkColor group_color = embedder_->GetColorProviderColor(group_color_id);
   tab_group->color = color_utils::SkColorToRgbString(group_color);
+  // TODO(tluk): Incorporate the text color into the ColorProvider.
   tab_group->text_color = color_utils::SkColorToRgbString(
       color_utils::GetColorWithMaxContrast(group_color));
   return tab_group;
@@ -582,56 +564,14 @@ void TabStripPageHandler::GetGroupVisualData(
   std::move(callback).Run(std::move(group_visual_datas));
 }
 
-void TabStripPageHandler::GetThemeColors(GetThemeColorsCallback callback) {
-  TRACE_EVENT0("browser", "TabStripPageHandler:HandleGetThemeColors");
-  // This should return an object of CSS variables to rgba values so that
-  // the WebUI can use the CSS variables to color the tab strip
-  base::flat_map<std::string, std::string> colors;
-  colors["--tabstrip-background-color"] = color_utils::SkColorToRgbaString(
-      embedder_->GetColor(ThemeProperties::COLOR_FRAME_ACTIVE));
-  colors["--tabstrip-tab-background-color"] = color_utils::SkColorToRgbaString(
-      embedder_->GetColor(ThemeProperties::COLOR_TOOLBAR));
-  colors["--tabstrip-tab-text-color"] =
-      color_utils::SkColorToRgbaString(embedder_->GetColor(
-          ThemeProperties::COLOR_TAB_FOREGROUND_ACTIVE_FRAME_ACTIVE));
-  colors["--tabstrip-tab-separator-color"] =
-      color_utils::SkColorToRgbaString(SkColorSetA(
-          embedder_->GetColor(
-              ThemeProperties::COLOR_TAB_FOREGROUND_ACTIVE_FRAME_ACTIVE),
-          /* 16% opacity */ 0.16 * 255));
-
-  std::string throbber_color = color_utils::SkColorToRgbaString(
-      embedder_->GetColorProviderColor(ui::kColorThrobber));
-  colors["--tabstrip-tab-loading-spinning-color"] = throbber_color;
-  colors["--tabstrip-tab-waiting-spinning-color"] =
-      color_utils::SkColorToRgbaString(
-          embedder_->GetColorProviderColor(ui::kColorThrobberPreconnect));
-  colors["--tabstrip-indicator-recording-color"] =
-      color_utils::SkColorToRgbaString(
-          embedder_->GetColorProviderColor(ui::kColorAlertHighSeverity));
-  colors["--tabstrip-indicator-pip-color"] = throbber_color;
-  colors["--tabstrip-indicator-capturing-color"] = throbber_color;
-  colors["--tabstrip-tab-blocked-color"] = color_utils::SkColorToRgbaString(
-      embedder_->GetColorProviderColor(ui::kColorButtonBackgroundProminent));
-  colors["--tabstrip-focus-outline-color"] = color_utils::SkColorToRgbaString(
-      embedder_->GetColorProviderColor(ui::kColorFocusableBorderFocused));
-
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
-  colors["--tabstrip-scrollbar-thumb-color-rgb"] =
-      color_utils::SkColorToRgbString(color_utils::GetColorWithMaxContrast(
-          embedder_->GetColor(ThemeProperties::COLOR_FRAME_ACTIVE)));
-#endif
-
-  std::move(callback).Run(std::move(colors));
-}
-
 void TabStripPageHandler::GroupTab(int32_t tab_id,
                                    const std::string& group_id_string) {
   int tab_index = -1;
-  bool got_tab = extensions::ExtensionTabUtil::GetTabById(
-      tab_id, browser_->profile(), /*include_incognito=*/true, nullptr, nullptr,
-      nullptr, &tab_index);
-  DCHECK(got_tab);
+  if (!extensions::ExtensionTabUtil::GetTabById(
+          tab_id, browser_->profile(), /*include_incognito=*/true, nullptr,
+          nullptr, nullptr, &tab_index)) {
+    return;
+  }
 
   absl::optional<tab_groups::TabGroupId> group_id =
       tab_strip_ui::GetTabGroupIdFromString(
@@ -644,10 +584,11 @@ void TabStripPageHandler::GroupTab(int32_t tab_id,
 
 void TabStripPageHandler::UngroupTab(int32_t tab_id) {
   int tab_index = -1;
-  bool got_tab = extensions::ExtensionTabUtil::GetTabById(
-      tab_id, browser_->profile(), /*include_incognito=*/true, nullptr, nullptr,
-      nullptr, &tab_index);
-  DCHECK(got_tab);
+  if (!extensions::ExtensionTabUtil::GetTabById(
+          tab_id, browser_->profile(), /*include_incognito=*/true, nullptr,
+          nullptr, nullptr, &tab_index)) {
+    return;
+  }
 
   browser_->tab_strip_model()->RemoveFromGroup({tab_index});
 }
@@ -684,12 +625,11 @@ void TabStripPageHandler::MoveGroup(const std::string& group_id_string,
     // When a group is moved, all the tabs in it need to be selected at the same
     // time. This mimics the way the native tab strip works and also allows
     // this handler to ignore the events for each individual tab moving.
-    int active_index =
-        target_browser->tab_strip_model()->selection_model().active();
     ui::ListSelectionModel group_selection;
     group_selection.SetSelectedIndex(tabs_in_group.start());
     group_selection.SetSelectionFromAnchorTo(tabs_in_group.end() - 1);
-    group_selection.set_active(active_index);
+    group_selection.set_active(
+        target_browser->tab_strip_model()->selection_model().active());
     target_browser->tab_strip_model()->SetSelectionFromModel(group_selection);
 
     target_browser->tab_strip_model()->MoveGroupTo(group_id.value(), to_index);
@@ -796,10 +736,11 @@ void TabStripPageHandler::ShowTabContextMenu(int32_t tab_id,
   gfx::PointF point(location_x, location_y);
   Browser* browser = nullptr;
   int tab_index = -1;
-  const bool got_tab = extensions::ExtensionTabUtil::GetTabById(
-      tab_id, browser_->profile(), true /* include_incognito */, &browser,
-      nullptr, nullptr, &tab_index);
-  CHECK(got_tab);
+  if (!extensions::ExtensionTabUtil::GetTabById(
+          tab_id, browser_->profile(), true /* include_incognito */, &browser,
+          nullptr, nullptr, &tab_index)) {
+    return;
+  }
 
   if (browser != browser_) {
     // TODO(crbug.com/1141573): Investigate how a context menu is being opened
@@ -816,9 +757,8 @@ void TabStripPageHandler::ShowTabContextMenu(int32_t tab_id,
           browser, embedder_->GetAcceleratorProvider(), tab_index),
       base::BindRepeating(&TabStripPageHandler::NotifyContextMenuClosed,
                           weak_ptr_factory_.GetWeakPtr()));
-  base::UmaHistogramEnumeration(
-      "TabStrip.Tab.WebUI.ActivationAction",
-      TabStripModel::TabActivationTypes::kContextMenu);
+  base::UmaHistogramEnumeration("TabStrip.Tab.WebUI.ActivationAction",
+                                TabActivationTypes::kContextMenu);
 }
 
 void TabStripPageHandler::GetLayout(GetLayoutCallback callback) {
@@ -847,7 +787,7 @@ void TabStripPageHandler::ReportTabActivationDuration(uint32_t duration_ms) {
   UMA_HISTOGRAM_TIMES("WebUITabStrip.TabActivation",
                       base::Milliseconds(duration_ms));
   base::UmaHistogramEnumeration("TabStrip.Tab.WebUI.ActivationAction",
-                                TabStripModel::TabActivationTypes::kTab);
+                                TabActivationTypes::kTab);
 }
 
 void TabStripPageHandler::ReportTabDataReceivedDuration(uint32_t tab_count,
@@ -908,13 +848,19 @@ void TabStripPageHandler::ReportTabDurationHistogram(
   base::UmaHistogramTimes(histogram_name, duration);
 }
 
-gfx::ImageSkia TabStripPageHandler::ThemeFavicon(const gfx::ImageSkia& source) {
+gfx::ImageSkia TabStripPageHandler::ThemeFavicon(const gfx::ImageSkia& source,
+                                                 bool active_tab_icon) {
+  if (active_tab_icon) {
+    return favicon::ThemeFavicon(
+        source, embedder_->GetColorProviderColor(kColorThumbnailTabForeground),
+        embedder_->GetColorProviderColor(kColorThumbnailTabBackground),
+        embedder_->GetColorProviderColor(kColorThumbnailTabBackground));
+  }
+
   return favicon::ThemeFavicon(
-      source, embedder_->GetColor(ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON),
-      embedder_->GetColor(
-          ThemeProperties::COLOR_TAB_BACKGROUND_ACTIVE_FRAME_ACTIVE),
-      embedder_->GetColor(
-          ThemeProperties::COLOR_TAB_BACKGROUND_INACTIVE_FRAME_ACTIVE));
+      source, embedder_->GetColorProviderColor(kColorToolbarButtonIcon),
+      embedder_->GetColorProviderColor(kColorTabBackgroundActiveFrameActive),
+      embedder_->GetColorProviderColor(kColorTabBackgroundInactiveFrameActive));
 }
 
 void TabStripPageHandler::ActivateTab(int32_t tab_id) {

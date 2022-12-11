@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -165,6 +165,25 @@ TEST(GurlOsHandlerUtilsTest, GetChromeUrlFromSystemUrl) {
   EXPECT_EQ(GetChromeUrlFromSystemUrl(GURL("os://flags?foo")),
             GURL("chrome://flags"));
   EXPECT_EQ(GetChromeUrlFromSystemUrl(GURL("os://foo")), GURL("chrome://foo"));
+}
+
+TEST(GurlOsHandlerUtilsTest, GetAshUrlFromLacrosUrl) {
+  // To allow the "chrome" schemer, we need to add it to the registry.
+  url::ScopedSchemeRegistryForTests scoped_registry;
+  url::AddStandardScheme("chrome", url::SCHEME_WITH_HOST);
+
+  // os://settings need to be converted to chrome://os-settings
+  EXPECT_EQ(GetTargetURLFromLacrosURL(GURL("os://settings/foo")),
+            GURL("chrome://os-settings/foo"));
+  // os-settings should not be changed
+  EXPECT_EQ(GetTargetURLFromLacrosURL(GURL("os://os-settings")),
+            GURL("os://os-settings"));
+  // chrome://settings should also not be touched.
+  EXPECT_EQ(GetTargetURLFromLacrosURL(GURL("chrome://settings/foo")),
+            GURL("chrome://settings/foo"));
+  // Needs to be sanitized.
+  EXPECT_EQ(GetTargetURLFromLacrosURL(GURL("chrome://settings/foo#bar")),
+            GURL("chrome://settings/foo"));
 }
 
 }  // namespace gurl_os_handler_utils

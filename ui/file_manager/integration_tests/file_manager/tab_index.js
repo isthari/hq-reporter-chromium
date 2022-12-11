@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,9 +18,16 @@ testcase.tabindexSearchBoxFocus = async () => {
   // Check that the file list has the focus on launch.
   await remoteCall.waitForElement(appId, ['#file-list:focus']);
 
+  // Check that the search UI is in the collapsed state (hidden from the user).
+  await remoteCall.waitForElement(appId, '#search-wrapper[collapsed]');
+
   // Press the Ctrl-F key.
   chrome.test.assertTrue(await remoteCall.callRemoteTestUtil(
       'fakeKeyDown', appId, ['body', 'f', true, false, false]));
+
+  // Wait for the search box to fully open. Only once the search wrapper
+  // is fully expanded the collapsed attribute is removed.
+  await remoteCall.waitForElementLost(appId, '#search-wrapper[collapsed]');
 
   // Check that the search box has the focus.
   await remoteCall.waitForElement(appId, ['#search-box cr-input:focus-within']);
@@ -135,8 +142,7 @@ testcase.tabindexFocusDirectorySelected = async () => {
   await remoteCall.callRemoteTestUtil('foregroundFake', appId, [fakeData]);
 
   // Select the directory named 'photos'.
-  chrome.test.assertTrue(
-      await remoteCall.callRemoteTestUtil('selectFile', appId, ['photos']));
+  await remoteCall.waitUntilSelected(appId, 'photos');
 
   await Promise.all([
 
@@ -201,7 +207,7 @@ async function tabindexFocus(
     expectedTabOrder) {
   await Promise.all([
     addEntries(['local'], BASIC_LOCAL_ENTRY_SET),
-    addEntries(['drive'], BASIC_DRIVE_ENTRY_SET)
+    addEntries(['drive'], BASIC_DRIVE_ENTRY_SET),
   ]);
 
   const selectAndCheckAndClose = async (appId) => {
@@ -243,13 +249,20 @@ async function tabindexFocus(
  */
 testcase.tabindexOpenDialogDownloads = async () => {
   const tabindexIds = [
-    'cancel-button', 'ok-button', 'directory-tree',
-    /* first breadcrumb */ 'first', 'search-button', 'view-button',
-    'sort-button', 'gear-button', 'dismiss-button', 'file-list'
+    'cancel-button',
+    'ok-button',
+    'directory-tree',
+    /* first breadcrumb */ 'first',
+    'search-button',
+    'view-button',
+    'sort-button',
+    'gear-button',
+    'dismiss-button',
+    'file-list',
   ];
   return tabindexFocus(
       {type: 'openFile'}, 'downloads', BASIC_LOCAL_ENTRY_SET, async (appId) => {
-        await remoteCall.callRemoteTestUtil('selectFile', appId, ['hello.txt']);
+        await remoteCall.waitUntilSelected(appId, 'hello.txt');
         await remoteCall.isolateBannerForTesting(
             appId, 'holding-space-welcome-banner');
       }, ['#ok-button:not([disabled])'], tabindexIds);
@@ -261,13 +274,20 @@ testcase.tabindexOpenDialogDownloads = async () => {
  */
 testcase.tabindexOpenDialogDrive = async () => {
   const tabindexIds = [
-    'cancel-button', 'ok-button', 'search-button', 'view-button', 'sort-button',
-    'gear-button', 'drive-learn-more-button', 'dismiss-button',
-    'directory-tree', 'file-list'
+    'cancel-button',
+    'ok-button',
+    'search-button',
+    'view-button',
+    'sort-button',
+    'gear-button',
+    'drive-learn-more-button',
+    'dismiss-button',
+    'directory-tree',
+    'file-list',
   ];
   return tabindexFocus(
       {type: 'openFile'}, 'drive', BASIC_DRIVE_ENTRY_SET, async (appId) => {
-        await remoteCall.callRemoteTestUtil('selectFile', appId, ['hello.txt']);
+        await remoteCall.waitUntilSelected(appId, 'hello.txt');
         await remoteCall.isolateBannerForTesting(appId, 'drive-welcome-banner');
       }, ['#ok-button:not([disabled])'], tabindexIds);
 };
@@ -279,14 +299,21 @@ testcase.tabindexSaveFileDialogDownloads = async () => {
   return tabindexFocus(
       {
         type: 'saveFile',
-        suggestedName: 'hoge.txt'  // Prevent showing a override prompt
+        suggestedName: 'hoge.txt',  // Prevent showing a override prompt
       },
       'downloads', BASIC_LOCAL_ENTRY_SET, null, ['#ok-button:not([disabled])'],
       [
-        'cancel-button', 'ok-button', 'directory-tree',
-        /* first breadcrumb */ 'first', 'search-button', 'view-button',
-        'sort-button', 'gear-button', 'file-list', 'new-folder-button',
-        'filename-input-textbox'
+        'cancel-button',
+        'ok-button',
+        'directory-tree',
+        /* first breadcrumb */ 'first',
+        'search-button',
+        'view-button',
+        'sort-button',
+        'gear-button',
+        'file-list',
+        'new-folder-button',
+        'filename-input-textbox',
       ]);
 };
 
@@ -298,11 +325,18 @@ testcase.tabindexSaveFileDialogDrive = async () => {
   return tabindexFocus(
       {
         type: 'saveFile',
-        suggestedName: 'hoge.txt'  // Prevent showing a override prompt
+        suggestedName: 'hoge.txt',  // Prevent showing a override prompt
       },
       'drive', BASIC_DRIVE_ENTRY_SET, null, ['#ok-button:not([disabled])'], [
-        'cancel-button', 'ok-button', 'directory-tree', 'search-button',
-        'view-button', 'sort-button', 'gear-button', 'file-list',
-        'new-folder-button', 'filename-input-textbox'
+        'cancel-button',
+        'ok-button',
+        'directory-tree',
+        'search-button',
+        'view-button',
+        'sort-button',
+        'gear-button',
+        'file-list',
+        'new-folder-button',
+        'filename-input-textbox',
       ]);
 };

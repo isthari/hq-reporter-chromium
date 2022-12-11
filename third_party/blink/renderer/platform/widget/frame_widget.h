@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@
 
 namespace cc {
 class AnimationHost;
+class AnimationTimeline;
 enum class EventListenerClass;
 enum class EventListenerProperties;
 class Layer;
@@ -52,6 +53,9 @@ class PLATFORM_EXPORT FrameWidget {
 
   // Returns the compositors's AnimationHost for the widget.
   virtual cc::AnimationHost* AnimationHost() const = 0;
+
+  // Returns the compositors's AnimationTimeline for the widget.
+  virtual cc::AnimationTimeline* ScrollAnimationTimeline() const = 0;
 
   // Set the browser's behavior when overscroll happens, e.g. whether to glow
   // or navigate.
@@ -187,8 +191,7 @@ class PLATFORM_EXPORT FrameWidget {
   virtual void FinishComposingText(bool keep_selection) = 0;
 
   virtual bool IsProvisional() = 0;
-  virtual uint64_t GetScrollableContainerIdAt(
-      const gfx::PointF& point_in_dips) = 0;
+  virtual uint64_t GetScrollableContainerIdAt(const gfx::PointF& point) = 0;
 
   virtual bool ShouldHandleImeEvents() { return false; }
 
@@ -280,6 +283,12 @@ class PLATFORM_EXPORT FrameWidget {
   // CompositorFrames.  See https://crbug.com/1232173 for more details.
   virtual void SetMayThrottleIfUndrawnFrames(
       bool may_throttle_if_undrawn_frames) = 0;
+
+  // Returns, in physical pixels, the amount that the widget has been resized
+  // by the virtual keyboard. The virtual keyboard always insets a widget from
+  // the bottom so only the height can be affected. Only the outermost main
+  // frame's widget returns a non-zero value.
+  virtual int GetVirtualKeyboardResizeHeight() const = 0;
 };
 
 }  // namespace blink

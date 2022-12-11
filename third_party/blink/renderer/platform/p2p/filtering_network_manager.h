@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,7 +53,7 @@ class FilteringNetworkManager : public rtc::NetworkManagerBase,
   void Initialize() override;
   void StartUpdating() override;
   void StopUpdating() override;
-  void GetNetworks(NetworkList* networks) const override;
+  std::vector<const rtc::Network*> GetNetworks() const override;
 
   webrtc::MdnsResponderInterface* GetMdnsResponder() const override;
 
@@ -77,12 +77,6 @@ class FilteringNetworkManager : public rtc::NetworkManagerBase,
   // Receive callback from the wrapped NetworkManager when the underneath
   // network list is changed.
   void OnNetworksChanged();
-
-  // Reporting the IPPermissionStatus and how long it takes to send
-  // SignalNetworksChanged. |report_start_latency| is false when called by the
-  // destructor to report no networks changed signal is ever fired and could
-  // potentially be a bug.
-  void ReportMetrics(bool report_start_latency);
 
   // A tri-state permission checking status. It starts with UNKNOWN and will
   // change to GRANTED if one of permissions is granted. Otherwise, DENIED will
@@ -121,10 +115,8 @@ class FilteringNetworkManager : public rtc::NetworkManagerBase,
   // Track whether CheckPermission has been called before StartUpdating.
   bool started_permission_check_ = false;
 
-  // Track how long it takes for client to receive SignalNetworksChanged. This
-  // helps to identify if the signal is delayed by permission check and increase
-  // the setup time.
-  base::TimeTicks start_updating_time_;
+  // Track whether StartUpdating has been called.
+  bool start_updating_called_ = false;
 
   // When the mDNS obfuscation is allowed, access to the mDNS responder provided
   // by the base network manager is provided to conceal IPs with mDNS hostnames.

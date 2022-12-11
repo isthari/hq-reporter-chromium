@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@ import android.os.Bundle;
 
 import androidx.annotation.CallSuper;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.annotation.StyleRes;
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -24,17 +25,17 @@ import com.google.android.material.color.DynamicColors;
 
 import org.chromium.base.BundleUtils;
 import org.chromium.base.ContextUtils;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.base.ServiceTracingProxyProvider;
 import org.chromium.chrome.browser.base.SplitChromeApplication;
-import org.chromium.chrome.browser.flags.CachedFeatureFlags;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.language.GlobalAppLocaleController;
+import org.chromium.chrome.browser.metrics.UmaSessionStats;
 import org.chromium.chrome.browser.night_mode.GlobalNightModeStateProviderHolder;
 import org.chromium.chrome.browser.night_mode.NightModeStateProvider;
 import org.chromium.chrome.browser.night_mode.NightModeUtils;
-import org.chromium.chrome.browser.theme.ThemeUtils;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.modaldialog.ModalDialogManagerHolder;
 
@@ -50,6 +51,7 @@ public class ChromeBaseAppCompatActivity extends AppCompatActivity
             new ObservableSupplierImpl<>();
     private NightModeStateProvider mNightModeStateProvider;
     private LinkedHashSet<Integer> mThemeResIds = new LinkedHashSet<>();
+    private ServiceTracingProxyProvider mServiceTracingProxyProvider;
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -71,6 +73,8 @@ public class ChromeBaseAppCompatActivity extends AppCompatActivity
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             BundleUtils.checkContextClassLoader(newBase, this);
         }
+
+        mServiceTracingProxyProvider = ServiceTracingProxyProvider.create(newBase);
 
         mNightModeStateProvider = createNightModeStateProvider();
 
@@ -126,9 +130,32 @@ public class ChromeBaseAppCompatActivity extends AppCompatActivity
     }
 
     @Override
+    protected void onRestoreInstanceState(@Nullable Bundle state) {
+        if (state != null) {
+            // Ensure that classes from previously loaded splits can be read from the bundle.
+            // https://crbug.com/1382227
+            ClassLoader splitClassLoader = BundleUtils.getSplitCompatClassLoader();
+            state.setClassLoader(splitClassLoader);
+            // See: https://cs.android.com/search?q=Activity.java%20symbol:onRestoreInstanceState
+            Bundle windowState = state.getBundle("android:viewHierarchyState");
+            if (windowState != null) {
+                windowState.setClassLoader(splitClassLoader);
+            }
+        }
+        super.onRestoreInstanceState(state);
+    }
+
+    @Override
     public void setTheme(@StyleRes int resid) {
         super.setTheme(resid);
         mThemeResIds.add(resid);
+    }
+
+    @Override
+    @RequiresApi(Build.VERSION_CODES.O)
+    public void onMultiWindowModeChanged(boolean inMultiWindowMode, Configuration configuration) {
+        super.onMultiWindowModeChanged(inMultiWindowMode, configuration);
+        onMultiWindowModeChanged(inMultiWindowMode);
     }
 
     @Override
@@ -211,36 +238,16 @@ public class ChromeBaseAppCompatActivity extends AppCompatActivity
     @CallSuper
     protected void applyThemeOverlays() {
         setTheme(R.style.ColorOverlay_ChromiumAndroid);
+        DynamicColors.applyToActivityIfAvailable(this);
 
-        if (supportsDynamicColors()) {
-            DynamicColors.applyIfAvailable(this);
-        }
-
-        // Try to enable browser overscroll when content overscroll is enabled for consistency. This
-        // needs to be in a cached feature because activity startup happens before native is
-        // initialized. Unfortunately content overscroll is read in renderer threads, and these two
-        // are not synchronized. Typically the first time overscroll is enabled, the following will
-        // use the old value and then content will pick up the enabled value, causing one execution
-        // of inconsistency.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                && !CachedFeatureFlags.isEnabled(ChromeFeatureList.ELASTIC_OVERSCROLL)) {
-            setTheme(R.style.ThemeOverlay_DisableOverscroll);
-        }
-
-        // We apply an extra theme overlay to override some of the dynamic colors. For example,
-        // android:textColorHighlight is overridden by dynamic colors, preventing us from specifying
-        // the alpha for the selected text highlight. In this case, the overridden colors should
-        // still use dynamic colors, as in the android:textColorHighlight example where we use a
-        // color state list that depends on colorPrimary.
-        setTheme(R.style.ThemeOverlay_DynamicColorOverrides);
-    }
-
-    /**
-     * Returns whether the activity supports dynamic colors. For most activities this is only true
-     * if full dynamic colors are enabled.
-     */
-    protected boolean supportsDynamicColors() {
-        return ThemeUtils.ENABLE_FULL_DYNAMIC_COLORS.getValue();
+        DeferredStartupHandler.getInstance().addDeferredTask(() -> {
+            // #registerSyntheticFieldTrial requires native.
+            boolean isDynamicColorAvailable = DynamicColors.isDynamicColorAvailable();
+            RecordHistogram.recordBooleanHistogram(
+                    "Android.DynamicColors.IsAvailable", isDynamicColorAvailable);
+            UmaSessionStats.registerSyntheticFieldTrial(
+                    "IsDynamicColorAvailable", isDynamicColorAvailable ? "Enabled" : "Disabled");
+        });
     }
 
     /**
@@ -267,5 +274,17 @@ public class ChromeBaseAppCompatActivity extends AppCompatActivity
     @Override
     public SharedPreferences getSharedPreferences(String name, int mode) {
         return ContextUtils.getApplicationContext().getSharedPreferences(name, mode);
+    }
+
+    // Note that we do not need to (and can't) override getSystemService(Class<T>) as internally
+    // that just gets the name of the Service and calls getSystemService(String) for backwards
+    // compatibility with overrides like this one.
+    @Override
+    public Object getSystemService(String name) {
+        Object service = super.getSystemService(name);
+        if (mServiceTracingProxyProvider != null) {
+            mServiceTracingProxyProvider.traceSystemServices();
+        }
+        return service;
     }
 }

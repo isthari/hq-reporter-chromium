@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -87,7 +87,7 @@ class Thumbnail : public cc::UIResourceClient {
 
   bool retrieved_;
 
-  raw_ptr<ui::UIResourceProvider> ui_resource_provider_;
+  raw_ptr<ui::UIResourceProvider, DanglingUntriaged> ui_resource_provider_;
   raw_ptr<ThumbnailDelegate> thumbnail_delegate_;
 
   base::WeakPtrFactory<Thumbnail> weak_factory_{this};

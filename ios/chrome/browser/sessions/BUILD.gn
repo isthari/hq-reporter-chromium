@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -32,10 +32,11 @@ source_set("sessions") {
     "//components/keyed_service/core",
     "//components/keyed_service/ios",
     "//components/tab_groups",
-    "//ios/chrome/browser",
+    "//ios/chrome/browser/application_context",
     "//ios/chrome/browser/browser_state",
     "//ios/chrome/browser/main:public",
     "//ios/chrome/browser/tabs",
+    "//ios/chrome/browser/url:constants",
     "//ios/chrome/browser/web_state_list",
     "//ios/public/provider/chrome/browser",
     "//ios/web",
@@ -87,9 +88,9 @@ source_set("restoration_agent") {
     ":session_service",
     "//components/favicon/ios",
     "//components/previous_session_info",
-    "//ios/chrome/browser:chrome_url_constants",
     "//ios/chrome/browser/browser_state",
     "//ios/chrome/browser/main:public",
+    "//ios/chrome/browser/url:constants",
     "//ios/chrome/browser/web:page_placeholder",
     "//ios/chrome/browser/web/session_state",
     "//ios/chrome/browser/web_state_list",
@@ -173,6 +174,16 @@ source_set("test_support") {
   ]
 }
 
+source_set("fake") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  testonly = true
+  sources = [
+    "fake_tab_restore_service.h",
+    "fake_tab_restore_service.mm",
+  ]
+  deps = [ "//components/sessions" ]
+}
+
 source_set("unit_tests") {
   configs += [ "//build/config/compiler:enable_arc" ]
   testonly = true
@@ -195,11 +206,14 @@ source_set("unit_tests") {
     ":test_support",
     "//base",
     "//base/test:test_support",
-    "//ios/chrome/browser",
     "//ios/chrome/browser/browser_state:test_support",
     "//ios/chrome/browser/main",
     "//ios/chrome/browser/main:test_support",
     "//ios/chrome/browser/ntp",
+    "//ios/chrome/browser/paths",
+    "//ios/chrome/browser/signin:signin",
+    "//ios/chrome/browser/signin:test_support",
+    "//ios/chrome/browser/url:constants",
     "//ios/chrome/browser/web:web_internal",
     "//ios/chrome/browser/web_state_list",
     "//ios/chrome/browser/web_state_list:test_support",

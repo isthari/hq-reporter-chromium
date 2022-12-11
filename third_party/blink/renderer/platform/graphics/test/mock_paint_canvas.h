@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,8 +52,9 @@ class MockPaintCanvas : public cc::PaintCanvas {
   MOCK_CONST_METHOD1(getLocalClipBounds, bool(SkRect* bounds));
   MOCK_CONST_METHOD0(getDeviceClipBounds, SkIRect());
   MOCK_CONST_METHOD1(getDeviceClipBounds, bool(SkIRect* bounds));
-  MOCK_METHOD2(drawColor, void(SkColor color, SkBlendMode mode));
-  MOCK_METHOD1(clear, void(SkColor color));
+  MOCK_METHOD2(drawColor, void(SkColor4f color, SkBlendMode mode));
+  MOCK_METHOD1(clearInt, void(SkColor color));
+  MOCK_METHOD1(clear, void(SkColor4f color));
   MOCK_METHOD5(drawLine,
                void(SkScalar x0,
                     SkScalar y0,
@@ -92,12 +93,13 @@ class MockPaintCanvas : public cc::PaintCanvas {
                     const SkSamplingOptions&,
                     const cc::PaintFlags* flags,
                     SkCanvas::SrcRectConstraint constraint));
-  MOCK_METHOD5(drawSkottie,
+  MOCK_METHOD6(drawSkottie,
                void(scoped_refptr<cc::SkottieWrapper> skottie,
                     const SkRect& dst,
                     float t,
                     cc::SkottieFrameDataMap images,
-                    const cc::SkottieColorMap& color_map));
+                    const cc::SkottieColorMap& color_map,
+                    cc::SkottieTextPropertyValueMap text_map));
   MOCK_METHOD4(drawBitmap,
                void(const SkBitmap& bitmap,
                     SkScalar left,

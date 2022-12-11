@@ -1,12 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-
 export type PersonalDataChangedListener =
-    (addresses: Array<chrome.autofillPrivate.AddressEntry>,
-     creditCards: Array<chrome.autofillPrivate.CreditCardEntry>) => void;
+    (addresses: chrome.autofillPrivate.AddressEntry[],
+     creditCards: chrome.autofillPrivate.CreditCardEntry[]) => void;
 
 /**
  * Interface for all callbacks to the autofill API.
@@ -26,9 +24,7 @@ export interface AutofillManagerProxy {
   /**
    * Request the list of addresses.
    */
-  getAddressList(
-      callback: (entries: Array<chrome.autofillPrivate.AddressEntry>) => void):
-      void;
+  getAddressList(): Promise<chrome.autofillPrivate.AddressEntry[]>;
 
   /**
    * Saves the given address.
@@ -51,9 +47,8 @@ export class AutofillManagerImpl implements AutofillManagerProxy {
     chrome.autofillPrivate.onPersonalDataChanged.removeListener(listener);
   }
 
-  getAddressList(
-      callback: (entries: Array<chrome.autofillPrivate.AddressEntry>) => void) {
-    chrome.autofillPrivate.getAddressList(callback);
+  getAddressList() {
+    return chrome.autofillPrivate.getAddressList();
   }
 
   saveAddress(address: chrome.autofillPrivate.AddressEntry) {
@@ -61,7 +56,7 @@ export class AutofillManagerImpl implements AutofillManagerProxy {
   }
 
   removeAddress(guid: string) {
-    chrome.autofillPrivate.removeEntry(assert(guid));
+    chrome.autofillPrivate.removeEntry(guid);
   }
 
   static getInstance(): AutofillManagerProxy {

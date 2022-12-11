@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include "base/location.h"
 #include "base/sys_byteorder.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/webrtc/net_address_utils.h"
 #include "net/base/ip_address.h"
 #include "net/base/network_change_notifier.h"
@@ -61,7 +60,7 @@ IpcNetworkManager::~IpcNetworkManager() {
 void IpcNetworkManager::StartUpdating() {
   if (network_list_received_) {
     // Post a task to avoid reentrancy.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&IpcNetworkManager::SendNetworksChangedSignal,
                                   weak_factory_.GetWeakPtr()));
   } else {
@@ -94,7 +93,7 @@ void IpcNetworkManager::NetworkListChanged(
 
   // rtc::Network uses these prefix_length to compare network
   // interfaces discovered.
-  std::vector<rtc::Network*> networks;
+  std::vector<std::unique_ptr<rtc::Network>> networks;
   for (auto it = list.begin(); it != list.end(); it++) {
     rtc::IPAddress ip_address = webrtc::NetIPAddressToRtcIPAddress(it->address);
     DCHECK(!ip_address.IsNil());
@@ -107,8 +106,8 @@ void IpcNetworkManager::NetworkListChanged(
     if (adapter_type == rtc::ADAPTER_TYPE_UNKNOWN) {
       adapter_type = rtc::GetAdapterTypeFromName(it->name.c_str());
     }
-    std::unique_ptr<rtc::Network> network(new rtc::Network(
-        it->name, it->name, prefix, it->prefix_length, adapter_type));
+    auto network = CreateNetwork(it->name, it->name, prefix, it->prefix_length,
+                                 adapter_type);
     network->set_default_local_address_provider(this);
     network->set_mdns_responder_provider(this);
 
@@ -131,7 +130,7 @@ void IpcNetworkManager::NetworkListChanged(
       use_default_ipv6_address |= (default_ipv6_local_address == it->address);
     }
     network->AddIP(iface_addr);
-    networks.push_back(network.release());
+    networks.push_back(std::move(network));
   }
 
   // Update the default local addresses.
@@ -149,7 +148,7 @@ void IpcNetworkManager::NetworkListChanged(
 
   bool changed = false;
   NetworkManager::Stats stats;
-  MergeNetworkList(networks, &changed, &stats);
+  MergeNetworkList(std::move(networks), &changed, &stats);
   if (changed)
     SignalNetworksChanged();
 }

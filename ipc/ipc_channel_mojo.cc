@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ref.h"
 #include "base/process/process_handle.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -91,7 +92,7 @@ class ThreadSafeChannelProxy : public mojo::ThreadSafeProxy {
 
   // mojo::ThreadSafeProxy:
   void SendMessage(mojo::Message& message) override {
-    message.SerializeHandles(&group_controller_);
+    message.SerializeHandles(&*group_controller_);
     task_runner_->PostTask(FROM_HERE,
                            base::BindOnce(forwarder_, std::move(message)));
   }
@@ -108,7 +109,8 @@ class ThreadSafeChannelProxy : public mojo::ThreadSafeProxy {
 
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   const Forwarder forwarder_;
-  mojo::AssociatedGroupController& group_controller_;
+  const raw_ref<mojo::AssociatedGroupController, DanglingUntriaged>
+      group_controller_;
 };
 
 base::ProcessId GetSelfPID() {

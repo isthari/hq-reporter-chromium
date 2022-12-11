@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,7 +33,7 @@ base::RepeatingClosure* GetDragEnteredCallback() {
 }  // namespace
 
 DropHelper::DropHelper(View* root_view)
-    : root_view_(root_view), target_view_(nullptr), deepest_view_(nullptr) {}
+    : root_view_(root_view), target_view_(nullptr) {}
 
 DropHelper::~DropHelper() = default;
 
@@ -101,7 +101,10 @@ DragOperation DropHelper::OnDrop(const OSExchangeData& data,
   View::ConvertPointToTarget(root_view, drop_view, &view_location);
   ui::DropTargetEvent drop_event(data, gfx::PointF(view_location),
                                  gfx::PointF(view_location), drag_operation);
-  return drop_view->OnPerformDrop(drop_event);
+  auto output_drag_op = ui::mojom::DragOperation::kNone;
+  auto drop_cb = drop_view->GetDropCallback(drop_event);
+  std::move(drop_cb).Run(drop_event, output_drag_op);
+  return output_drag_op;
 }
 
 DropHelper::DropCallback DropHelper::GetDropCallback(
@@ -130,7 +133,6 @@ DropHelper::DropCallback DropHelper::GetDropCallback(
 
   return base::BindOnce(
       [](const ui::DropTargetEvent& drop_event, View::DropCallback drop_cb,
-         const ui::DropTargetEvent& /*window_event*/,
          std::unique_ptr<ui::OSExchangeData> data,
          ui::mojom::DragOperation& output_drag_op) {
         // Bind the drop_event here instead of using the one that the callback

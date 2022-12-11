@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "components/cronet/android/test/cronet_test_util.h"
 #include "components/cronet/url_request_context_config.h"
 #include "net/base/address_family.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/base/network_isolation_key.h"
 #include "net/dns/host_cache.h"
@@ -37,17 +38,15 @@ void WriteToHostCacheOnNetworkThread(jlong jcontext_adapter,
   // conditions.
   net::HostCache::Key key1(hostname, net::DnsQueryType::UNSPECIFIED, 0,
                            net::HostResolverSource::ANY,
-                           net::NetworkIsolationKey());
+                           net::NetworkAnonymizationKey());
   net::HostCache::Key key2(hostname, net::DnsQueryType::A,
                            net::HOST_RESOLVER_DEFAULT_FAMILY_SET_DUE_TO_NO_IPV6,
                            net::HostResolverSource::ANY,
-                           net::NetworkIsolationKey());
+                           net::NetworkAnonymizationKey());
 
   net::IPAddress address;
   CHECK(address.AssignFromIPLiteral(address_string));
-  net::AddressList address_list =
-      net::AddressList::CreateFromIPAddress(address, 0);
-  net::HostCache::Entry entry(net::OK, address_list,
+  net::HostCache::Entry entry(net::OK, {{address, 0}}, /*aliases=*/{hostname},
                               net::HostCache::Entry::SOURCE_UNKNOWN);
   cache->Set(key1, entry, base::TimeTicks::Now(), base::Seconds(1));
   cache->Set(key2, entry, base::TimeTicks::Now(), base::Seconds(1));

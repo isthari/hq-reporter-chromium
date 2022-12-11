@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,6 +54,21 @@ struct TrustedUrlRequestParams {
   // Always true for navigations except the one triggered from a document
   // without user gesture. Used to determine the `Sec-Fetch-User` header.
   bool has_user_activation;
+
+  // Requests received from the trusted URLLoaderFactory may contain cookies
+  // which are overridden in the network stack.
+  //
+  // If this is set to true, the Cookie headers in ResourceRequest::headers and
+  // ResourceRequest::cors_exempt_headers, if present, are added to the request
+  // after the network stack has set its cookies, which prevents them from being
+  // overridden. Such a cookie will not be added if the request already contains
+  // a cookie with an identical name.
+  //
+  // Cookies added through this method are removed on redirects (including same-
+  // origin redirects) to ensure sensitive data is only sent to appropriate
+  // sites. If needed, the caller can add the cookies back in the call to
+  // FollowRedirect().
+  bool allow_cookies_from_browser;
 
   // Observer which should be notified when this URLRequest reads or writes
   // a cookie. If this is set to non-null, the observer passed to
@@ -242,12 +257,6 @@ struct URLRequest {
   // The priority of this request determined by Blink.
   RequestPriority priority;
 
-  // https://wicg.github.io/cors-rfc1918/#external-request
-  // TODO(toyoshim): The browser should know better than renderers do.
-  // This is used to plumb Blink decided information for legacy code path, but
-  // eventually we should remove this.
-  bool is_external_request;
-
   // A policy to decide if CORS-preflight fetch should be performed.
   CorsPreflightPolicy cors_preflight_policy;
 
@@ -295,6 +304,11 @@ struct URLRequest {
   // https://fetch.spec.whatwg.org/#request-keepalive-flag
   bool keepalive;
 
+  // True if the request should try to calculate and send the
+  // `Sec-Browsing-Topics` headers.
+  // https://github.com/patcg-individual-drafts/topics
+  bool browsing_topics;
+
   // True if the request was user initiated.
   bool has_user_gesture;
 
@@ -310,8 +324,8 @@ struct URLRequest {
   // credentials or default credentials may still be used for authentication.
   bool do_not_prompt_for_login;
 
-  // True if |frame_id| is the main frame of a RenderView.
-  bool is_main_frame;
+  // True if |frame_id| is the outermost main frame of a page.
+  bool is_outermost_main_frame;
 
   // Note: this is an enum of type ui::PageTransition.
   // TODO(jam): remove this from the struct since network service shouldn't know
@@ -367,22 +381,11 @@ struct URLRequest {
   // handler.
   string? devtools_stack_id;
 
-  // True for prefetch requests when SignedExchangePrefetchCacheForNavigations
-  // feature is enabled by flags or SignedExchangeSubresourcePrefetch feature is
-  // enabled by flags, or OriginTrial. TODO(horo): Remove this when these
-  // features are enabled by default.
-  bool is_signed_exchange_prefetch_cache_enabled;
-
   // True for XHR, Fetch, and EventSource.
   bool is_fetch_like_api;
 
   // True for favicon.
   bool is_favicon;
-
-  // If set, the network service will attempt to retrieve the appropriate origin
-  // policy, if necessary, and attach it to the ResourceResponseHead.
-  // Spec: https://wicg.github.io/origin-policy/
-  bool obey_origin_policy;
 
   // The original destination of a request that was passed through by a service
   // worker.
@@ -441,10 +444,12 @@ struct URLRequest {
   array<SourceType>? devtools_accepted_stream_types;
 
   // This field is filled and used when network service creates a new request
-  // for preflights (which happens in CorsURLLoader). So this field is set
-  // within the network service, more concretely by CorsURLLoader, and solely
-  // used there unless the loader factory is overridden. Setting this field by
-  // the process outside the network service is currently not expected and is
+  // for preflights (which happens in CorsURLLoader) and OHTTP requests (which
+  // happens in ObliviousHttpRequestHandler). This field should only be set
+  // within the network service and requires either
+  // `URLLoaderFactoryParams.is_trusted` or
+  // `URLLoaderFactoryParams.disable_web_security`. Setting this field by the
+  // process outside the network service is currently not expected and is
   // invalid.
   // If set, it contains NetLog related parameters to construct a NetLogSource
   // for the request. If not set, URLRequest constructs a NetLogSource with

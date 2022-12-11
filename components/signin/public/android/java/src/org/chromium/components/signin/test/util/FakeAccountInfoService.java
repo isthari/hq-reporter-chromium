@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,15 @@ package org.chromium.components.signin.test.util;
 
 import android.graphics.Bitmap;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.chromium.base.ObserverList;
 import org.chromium.base.Promise;
 import org.chromium.base.ThreadUtils;
+import org.chromium.components.signin.base.AccountCapabilities;
 import org.chromium.components.signin.base.AccountInfo;
-import org.chromium.components.signin.base.CoreAccountInfo;
+import org.chromium.components.signin.base.CoreAccountId;
 import org.chromium.components.signin.identitymanager.AccountInfoService;
 import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -68,12 +70,27 @@ public class FakeAccountInfoService implements IdentityManager.Observer, Account
      */
     public void addAccountInfo(
             String email, String fullName, String givenName, @Nullable Bitmap avatar) {
-        final CoreAccountInfo coreAccountInfo = CoreAccountInfo.createFromEmailAndGaiaId(
-                email, FakeAccountManagerFacade.toGaiaId(email));
-        final AccountInfo accountInfo =
-                new AccountInfo(coreAccountInfo.getId(), coreAccountInfo.getEmail(),
-                        coreAccountInfo.getGaiaId(), fullName, givenName, avatar);
-        mAccountInfos.put(email, accountInfo);
+        addAccountInfo(
+                email, fullName, givenName, avatar, new AccountCapabilities(new HashMap<>()));
+    }
+
+    /**
+     * Builds {@link AccountInfo} with the given information and adds it to the fake service.
+     */
+    public AccountInfo addAccountInfo(String email, String fullName, String givenName,
+            @Nullable Bitmap avatar, @NonNull AccountCapabilities capabilities) {
+        String gaiaId = FakeAccountManagerFacade.toGaiaId(email);
+        final AccountInfo accountInfo = new AccountInfo(new CoreAccountId(gaiaId), email, gaiaId,
+                fullName, givenName, avatar, capabilities);
+        addAccountInfo(accountInfo);
+        return accountInfo;
+    }
+
+    /**
+     * Adds {@link AccountInfo} to the fake service.
+     */
+    public void addAccountInfo(AccountInfo accountInfo) {
+        mAccountInfos.put(accountInfo.getEmail(), accountInfo);
 
         ThreadUtils.runOnUiThreadBlocking(() -> {
             for (Observer observer : mObservers) {

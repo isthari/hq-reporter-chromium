@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,14 +80,16 @@ class LoginDetectionPasswordStoreSitesBrowserTest
 
  protected:
   base::HistogramTester histogram_tester;
-  raw_ptr<PasswordStoreInterface> profile_password_store_ = nullptr;
-  raw_ptr<PasswordStoreInterface> account_password_store_ = nullptr;
+  raw_ptr<PasswordStoreInterface, DanglingUntriaged> profile_password_store_ =
+      nullptr;
+  raw_ptr<PasswordStoreInterface, DanglingUntriaged> account_password_store_ =
+      nullptr;
   base::CallbackListSubscription create_services_subscription_;
 };
 
 // The code under test depends on feature EnablePasswordsAccountStorage which
 // is not enabled for Chrome OS (ash or lacros).
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 #define DISABLE_ON_CHROMEOS(x) DISABLED_##x
 #else
 #define DISABLE_ON_CHROMEOS(x) x

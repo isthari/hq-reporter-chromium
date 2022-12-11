@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -91,7 +91,7 @@ bool MojoBinderPolicyApplier::ApplyPolicyToAssociatedBinder(
     case Mode::kPrepareToGrantAll:
       return true;
     case Mode::kEnforce:
-      policy = policy_map_.GetAssociatedMojoBinderPolicy(
+      policy = policy_map_->GetAssociatedMojoBinderPolicy(
           interface_name, MojoBinderAssociatedPolicy::kCancel);
       if (policy != MojoBinderAssociatedPolicy::kGrant) {
         if (cancel_callback_)
@@ -140,8 +140,8 @@ void MojoBinderPolicyApplier::DropDeferredBinders() {
 MojoBinderNonAssociatedPolicy
 MojoBinderPolicyApplier::GetNonAssociatedMojoBinderPolicy(
     const std::string& interface_name) const {
-  return policy_map_.GetNonAssociatedMojoBinderPolicy(interface_name,
-                                                      default_policy_);
+  return policy_map_->GetNonAssociatedMojoBinderPolicy(interface_name,
+                                                       default_policy_);
 }
 
 }  // namespace content

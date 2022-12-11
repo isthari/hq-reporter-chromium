@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -244,7 +244,7 @@ void ArcSessionRunner::SetUserInfo(
     const std::string& serial_number) {
   // |cryptohome_id.id()| and |hash| can be empty in unit tests. This function
   // can also be called multiple times in tests.
-  // TODO(yusukes): Fix tests and add DCHECKs to make sure they are not empty
+  // TODO(khmel): Fix tests and add DCHECKs to make sure they are not empty
   // and the function is called only once.
   DCHECK(!IsArcVmEnabled() || !serial_number.empty());
   cryptohome_id_ = cryptohome_id;
@@ -259,9 +259,10 @@ void ArcSessionRunner::SetDemoModeDelegate(
   demo_mode_delegate_ = std::move(delegate);
 }
 
-void ArcSessionRunner::TrimVmMemory(TrimVmMemoryCallback callback) {
+void ArcSessionRunner::TrimVmMemory(TrimVmMemoryCallback callback,
+                                    int page_limit) {
   if (arc_session_) {
-    arc_session_->TrimVmMemory(std::move(callback));
+    arc_session_->TrimVmMemory(std::move(callback), page_limit);
     return;
   }
   LOG(WARNING) << "TrimVmMemory is called when no ARC session is running";
@@ -290,6 +291,7 @@ void ArcSessionRunner::StartArcSession() {
     }
     arc_session_->SetDefaultDeviceScaleFactor(default_device_scale_factor_);
     arc_session_->SetDemoModeDelegate(demo_mode_delegate_.get());
+    arc_session_->SetUseVirtioBlkData(use_virtio_blk_data_);
     arc_session_->AddObserver(this);
     arc_session_->StartMiniInstance();
     // Record the UMA only when |restart_after_crash_count_| is zero to avoid

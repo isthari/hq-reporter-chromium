@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,9 @@
 
 #include <cmath>
 #include <limits>
+#include <memory>
 
+#include "base/fuchsia/fuchsia_logging.h"
 #include "base/logging.h"
 #include "base/notreached.h"
 #include "base/numerics/safe_conversions.h"
@@ -32,6 +34,8 @@ namespace ui {
 namespace fup = fuchsia::ui::pointer;
 
 namespace {
+
+const int kWheelDelta = 120;
 
 void IssueTouchTraceEvent(const fup::TouchEvent& event) {
   DCHECK(event.has_trace_flow_id()) << "API guarantee";
@@ -175,10 +179,11 @@ TouchEvent CreateTouchEventDraft(const fup::TouchEvent& event,
                                 view_parameters.viewport_to_view_transform);
   // TODO(fxbug.dev/88580): Consider setting hover via
   // ui::TouchEvent::set_hovering().
-  return TouchEvent(event_type, gfx::PointF(logical[0], logical[1]),
-                    gfx::PointF(sample.position_in_viewport()[0],
-                                sample.position_in_viewport()[1]),
-                    timestamp, pointer_details);
+  gfx::PointF location(logical[0], logical[1]);
+  gfx::PointF root_location(sample.position_in_viewport()[0],
+                            sample.position_in_viewport()[1]);
+  return TouchEvent(event_type, location, root_location, timestamp,
+                    pointer_details);
 }
 
 // It returns a "draft" because the coordinates are logical. Later,
@@ -201,12 +206,13 @@ TouchEvent CreateTouchEventDraft(const fup::TouchEvent& event,
 // The gestures expect a gesture to start within the logical view space, and
 // is not tolerant of floating point drift. This function coerces just the DOWN
 // event's coordinate to start within the logical view.
-MouseEvent CreateMouseEventDraft(const fup::MouseEvent& event,
-                                 const EventType event_type,
-                                 const int pressed_buttons_flags,
-                                 const int changed_buttons_flags,
-                                 const fup::ViewParameters& view_parameters,
-                                 const fup::MouseDeviceInfo& device_info) {
+std::unique_ptr<MouseEvent> CreateMouseEventDraft(
+    const fup::MouseEvent& event,
+    const EventType event_type,
+    const int pressed_buttons_flags,
+    const int changed_buttons_flags,
+    const fup::ViewParameters& view_parameters,
+    const fup::MouseDeviceInfo& device_info) {
   DCHECK(HasValidMouseSample(event)) << "precondition";
   const auto& sample = event.pointer_sample();
 
@@ -222,20 +228,70 @@ MouseEvent CreateMouseEventDraft(const fup::MouseEvent& event,
     logical = ClampToViewSpace(logical[0], logical[1], view_parameters);
   }
 
-  // TODO(fxbug.dev/88580): Use ui::MouseWheelEvent to signal scroll.
+  auto location = gfx::PointF(logical[0], logical[1]);
+  auto root_location = gfx::PointF(sample.position_in_viewport()[0],
+                                   sample.position_in_viewport()[1]);
 
-  return MouseEvent(event_type, gfx::PointF(logical[0], logical[1]),
-                    gfx::PointF(sample.position_in_viewport()[0],
-                                sample.position_in_viewport()[1]),
-                    timestamp, pressed_buttons_flags, changed_buttons_flags,
-                    pointer_details);
+  if (event_type == ET_MOUSEWHEEL) {
+    // TODO(fxbug.dev/92938): Maybe also support ctrl+wheel event here.
+
+    const int tick_x_120ths =
+        sample.has_scroll_h()
+            ? static_cast<int>(sample.scroll_h()) * kWheelDelta
+            : 0;
+    const int tick_y_120ths =
+        sample.has_scroll_v()
+            ? static_cast<int>(sample.scroll_v()) * kWheelDelta
+            : 0;
+
+    // Fuchsia reports suggested scroll pixel in physical, but for old version,
+    // Fuchsia reports wheel rotated ticks need to multiple |kWheelDelta| for
+    // pixel offset.
+    const float offset_x =
+        sample.has_scroll_h_physical_pixel()
+            ? static_cast<float>(sample.scroll_h_physical_pixel())
+            : static_cast<float>(tick_x_120ths);
+    const float offset_y =
+        sample.has_scroll_v_physical_pixel()
+            ? static_cast<float>(sample.scroll_v_physical_pixel())
+            : static_cast<float>(tick_y_120ths);
+
+    if (sample.has_is_precision_scroll() && sample.is_precision_scroll()) {
+      // For precision scroll device, mostly are touchpads for now, need to use
+      // ScrollEvent instead of MouseWheelEvent to prevent animation
+      // interpolation in smooth scrolling.
+      // Because we only support touchpad as precision scroll device now,
+      // finger_count is 2. Maybe need to use different number when we support
+      // precision wheel mouse.
+      return std::make_unique<ScrollEvent>(
+          ui::ET_SCROLL, location, root_location, timestamp,
+          pressed_buttons_flags, offset_x, offset_y, offset_x, offset_y,
+          /*finger_count=*/2);
+    }
+    return std::make_unique<MouseWheelEvent>(
+        gfx::Vector2d(static_cast<int>(offset_x), static_cast<int>(offset_y)),
+        location, root_location, timestamp, pressed_buttons_flags,
+        changed_buttons_flags, gfx::Vector2d(tick_x_120ths, tick_y_120ths));
+  }
+  auto mouse_event = std::make_unique<MouseEvent>(
+      event_type, location, root_location, timestamp, pressed_buttons_flags,
+      changed_buttons_flags, pointer_details);
+  mouse_event->InitializeNative();
+  return mouse_event;
 }
 
 }  // namespace
 
 PointerEventsHandler::PointerEventsHandler(fup::TouchSourceHandle touch_source,
                                            fup::MouseSourceHandle mouse_source)
-    : touch_source_(touch_source.Bind()), mouse_source_(mouse_source.Bind()) {}
+    : touch_source_(touch_source.Bind()), mouse_source_(mouse_source.Bind()) {
+  touch_source_.set_error_handler([](zx_status_t status) {
+    ZX_LOG(ERROR, status) << "fuchsia.ui.pointer.TouchSource disconnected.";
+  });
+  mouse_source_.set_error_handler([](zx_status_t status) {
+    ZX_LOG(ERROR, status) << "fuchsia.ui.pointer.MouseSource disconnected.";
+  });
+}
 
 PointerEventsHandler::~PointerEventsHandler() = default;
 
@@ -360,16 +416,18 @@ void PointerEventsHandler::OnMouseSourceWatchResult(
       // Update mouse_down_ for the next Fuchsia event.
       mouse_down_[id] = pressed_buttons;
 
-      // Handle the default case: moved buttons.
-      // This is when there are no buttons pressed either previously or
-      // currently.
-      if (changed_buttons == 0 && pressed_buttons == 0) {
-        // Handle the moved case.
-        auto draft = CreateMouseEventDraft(
-            event, ET_MOUSE_MOVED, pressed_buttons, changed_buttons,
-            mouse_view_parameters_.value(), mouse_device_info_[id]);
-        event_callback_.Run(&draft);
-      } else {
+      const bool is_wheel_event = sample.has_scroll_v() ||
+                                  sample.has_scroll_h() ||
+                                  sample.has_scroll_h_physical_pixel() ||
+                                  sample.has_scroll_v_physical_pixel();
+      // Do not filterout mouse wheel here, because the wheel event may be
+      // bundled with button down and button up event. Chromium will need to
+      // split it to 2 events.
+      const bool is_button_event = changed_buttons != 0;
+
+      const bool is_move_or_drag_event = !is_wheel_event && !is_button_event;
+
+      if (is_button_event) {
         // Iterate through possible mouse buttons and potentially emit an event
         // for each one.
         for (int button = EF_LEFT_MOUSE_BUTTON; button <= EF_RIGHT_MOUSE_BUTTON;
@@ -389,21 +447,32 @@ void PointerEventsHandler::OnMouseSourceWatchResult(
             auto draft = CreateMouseEventDraft(
                 event, event_type, button, changed_buttons,
                 mouse_view_parameters_.value(), mouse_device_info_[id]);
-            event_callback_.Run(&draft);
-          } else if (prev_down && curr_down) {
-            auto event_type = ET_MOUSE_DRAGGED;
-            auto draft = CreateMouseEventDraft(
-                event, event_type, button, changed_buttons,
-                mouse_view_parameters_.value(), mouse_device_info_[id]);
-            event_callback_.Run(&draft);
+            event_callback_.Run(draft.get());
           } else if (prev_down && !curr_down) {
             auto event_type = ET_MOUSE_RELEASED;
             auto draft = CreateMouseEventDraft(
                 event, event_type, button, changed_buttons,
                 mouse_view_parameters_.value(), mouse_device_info_[id]);
-            event_callback_.Run(&draft);
+            event_callback_.Run(draft.get());
           }
         }
+      }
+
+      if (is_wheel_event) {
+        // Handle the mouse scroll.
+        auto draft = CreateMouseEventDraft(
+            event, ET_MOUSEWHEEL, pressed_buttons, changed_buttons,
+            mouse_view_parameters_.value(), mouse_device_info_[id]);
+        event_callback_.Run(draft.get());
+      }
+
+      if (is_move_or_drag_event) {
+        auto event_type =
+            (pressed_buttons == 0) ? ET_MOUSE_MOVED : ET_MOUSE_DRAGGED;
+        auto draft = CreateMouseEventDraft(
+            event, event_type, pressed_buttons, changed_buttons,
+            mouse_view_parameters_.value(), mouse_device_info_[id]);
+        event_callback_.Run(draft.get());
       }
     }
   }

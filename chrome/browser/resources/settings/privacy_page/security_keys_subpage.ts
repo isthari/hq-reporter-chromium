@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,19 +7,21 @@
  * containing operations on security keys.
  */
 import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
-import '../settings_shared_css.js';
+import '../settings_shared.css.js';
 import './security_keys_credential_management_dialog.js';
 import './security_keys_bio_enroll_dialog.js';
 import './security_keys_set_pin_dialog.js';
 import './security_keys_reset_dialog.js';
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {focusWithoutInk} from 'chrome://resources/js/cr/ui/focus_without_ink.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
+import {focusWithoutInk} from 'chrome://resources/js/focus_without_ink.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {loadTimeData} from '../i18n_setup.js';
 import {routes} from '../route.js';
 import {Router} from '../router.js';
+
+import {getTemplate} from './security_keys_subpage.html.js';
 
 interface SecurityKeysSubpageElement {
   $: {
@@ -34,7 +36,7 @@ class SecurityKeysSubpageElement extends PolymerElement {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -44,25 +46,7 @@ class SecurityKeysSubpageElement extends PolymerElement {
         readOnly: true,
         value() {
           return loadTimeData.getBoolean('enableSecurityKeysBioEnrollment');
-        }
-      },
-
-      enableSecurityKeysPhonesSubpage_: {
-        type: Boolean,
-        readOnly: true,
-        value() {
-          return loadTimeData.getBoolean('enableSecurityKeysPhonesSubpage');
-        }
-      },
-
-      hrIfPhonesSubpageEnabled_: {
-        type: String,
-        readOnly: true,
-        value() {
-          return loadTimeData.getBoolean('enableSecurityKeysPhonesSubpage') ?
-              'hr' :
-              '';
-        }
+        },
       },
 
       showSetPINDialog_: {
@@ -88,8 +72,6 @@ class SecurityKeysSubpageElement extends PolymerElement {
   }
 
   private enableBioEnrollment_: boolean;
-  private enableSecurityKeysPhonesSubpage_: boolean;
-  private hrIfPhonesSubpageEnabled_: string;
   private showSetPINDialog_: boolean;
   private showCredentialManagementDialog_: boolean;
   private showResetDialog_: boolean;
@@ -99,11 +81,11 @@ class SecurityKeysSubpageElement extends PolymerElement {
     Router.getInstance().navigateTo(routes.SECURITY_KEYS_PHONES);
   }
 
-  private onSetPIN_() {
+  private onSetPin_() {
     this.showSetPINDialog_ = true;
   }
 
-  private onSetPINDialogClosed_() {
+  private onSetPinDialogClosed_() {
     this.showSetPINDialog_ = false;
     focusWithoutInk(this.$.setPINButton);
   }
@@ -114,8 +96,11 @@ class SecurityKeysSubpageElement extends PolymerElement {
 
   private onCredentialManagementDialogClosed_() {
     this.showCredentialManagementDialog_ = false;
-    focusWithoutInk(
-        assert(this.shadowRoot!.querySelector('#credentialManagementButton')!));
+    const toFocus =
+        this.shadowRoot!.querySelector<HTMLElement>(
+            '#credentialManagementButton');
+    assert(toFocus);
+    focusWithoutInk(toFocus);
   }
 
   private onReset_() {
@@ -133,8 +118,10 @@ class SecurityKeysSubpageElement extends PolymerElement {
 
   private onBioEnrollDialogClosed_() {
     this.showBioEnrollDialog_ = false;
-    focusWithoutInk(
-        assert(this.shadowRoot!.querySelector('#bioEnrollButton')!));
+    const toFocus =
+        this.shadowRoot!.querySelector<HTMLElement>('#bioEnrollButton');
+    assert(toFocus);
+    focusWithoutInk(toFocus);
   }
 }
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env vpython
+#!/usr/bin/env vpython3
 
 # Copyright (C) 2021 Google Inc.  All rights reserved.
 #
@@ -24,10 +24,15 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import copy
-import io
 import logging
 import json
+import six
 import unittest
+
+if six.PY3:
+    from io import StringIO as DataIO
+else:
+    from io import BytesIO as DataIO
 
 from blinkpy.common.host import Host
 from blinkpy.common.host_mock import MockHost
@@ -40,7 +45,7 @@ from diff_wpt_results import (
     _get_product_test_results)
 
 MockArgs = namedtuple('MockArgs', ['product_to_compare', 'baseline_product'])
-TEST_PRODUCT = 'android_weblayer'
+TEST_PRODUCT = 'android_webview'
 TEST_BASELINE_PRODUCT = 'chrome_android'
 
 
@@ -60,7 +65,7 @@ class MockWPTResultsDiffer(WPTResultsDiffer):
             def flakes_by_path(self, *args, **kwargs):
 
                 class AlwaysGet(object):
-                    def get(*_):
+                    def get(self, *_):
                         if product == TEST_PRODUCT:
                             return {'FAIL', 'TIMEOUT'}
                         else:
@@ -82,56 +87,56 @@ class JsonResultsCompressTest(unittest.TestCase):
 class CreateCsvTest(unittest.TestCase):
     def test_name_with_comma_escaped_in_csv(self):
         actual_mp = {'test, name.html': {'actual': 'PASS'}}
-        with io.BytesIO() as csv_out:
+        with DataIO() as csv_out:
             MockWPTResultsDiffer(actual_mp, actual_mp, csv_out).create_csv()
             csv_out.seek(0)
             content = csv_out.read()
             heading = CSV_HEADING % (TEST_PRODUCT, TEST_BASELINE_PRODUCT)
             self.assertEquals(content, heading +
                               ('"test, name.html",PASS,PASS,'
-                               'SAME RESULTS,"{FAIL, TIMEOUT, PASS}",'
+                               'SAME RESULTS,"{FAIL, PASS, TIMEOUT}",'
                                '"{CRASH, PASS}",Yes\n'))
 
     def test_create_csv_with_same_result(self):
         actual_mp = {'test.html': {'actual': 'PASS'}}
-        with io.BytesIO() as csv_out:
+        with DataIO() as csv_out:
             MockWPTResultsDiffer(actual_mp, actual_mp, csv_out).create_csv()
             csv_out.seek(0)
             content = csv_out.read()
             heading = CSV_HEADING % (TEST_PRODUCT, TEST_BASELINE_PRODUCT)
             self.assertEquals(content, heading +
                               ('test.html,PASS,PASS,SAME RESULTS,'
-                               '"{FAIL, TIMEOUT, PASS}","{CRASH, PASS}",Yes\n'))
+                               '"{FAIL, PASS, TIMEOUT}","{CRASH, PASS}",Yes\n'))
 
     def test_create_csv_with_reliable_different_result(self):
         actual_mp = {'test.html': {'actual': 'PASS'}}
         baseline_mp = copy.deepcopy(actual_mp)
         baseline_mp['test.html']['actual'] = 'FAIL'
-        with io.BytesIO() as csv_out:
+        with DataIO() as csv_out:
             MockWPTResultsDiffer(actual_mp, baseline_mp, csv_out).create_csv()
             csv_out.seek(0)
             content = csv_out.read()
             heading = CSV_HEADING % (TEST_PRODUCT, TEST_BASELINE_PRODUCT)
             self.assertEquals(content, heading +
                               ('test.html,PASS,FAIL,DIFFERENT RESULTS,'
-                               '"{FAIL, TIMEOUT, PASS}","{FAIL, CRASH}",No\n'))
+                               '"{FAIL, PASS, TIMEOUT}","{CRASH, FAIL}",No\n'))
 
     def test_create_csv_with_unreliable_different_result(self):
         actual_mp = {'test.html': {'actual': 'CRASH'}}
         baseline_mp = copy.deepcopy(actual_mp)
         baseline_mp['test.html']['actual'] = 'FAIL'
-        with io.BytesIO() as csv_out:
+        with DataIO() as csv_out:
             MockWPTResultsDiffer(actual_mp, baseline_mp, csv_out).create_csv()
             csv_out.seek(0)
             content = csv_out.read()
             heading = CSV_HEADING % (TEST_PRODUCT, TEST_BASELINE_PRODUCT)
             self.assertEquals(content, heading +
                               ('test.html,CRASH,FAIL,DIFFERENT RESULTS,'
-                               '"{FAIL, CRASH, TIMEOUT}","{FAIL, CRASH}",Yes\n'))
+                               '"{CRASH, FAIL, TIMEOUT}","{CRASH, FAIL}",Yes\n'))
 
     def test_create_csv_with_missing_result(self):
         actual_mp = {'test.html': {'actual': 'PASS'}}
-        with io.BytesIO() as csv_out:
+        with DataIO() as csv_out:
             MockWPTResultsDiffer(actual_mp, {}, csv_out).create_csv()
             csv_out.seek(0)
             content = csv_out.read()
@@ -148,7 +153,7 @@ class CreateCsvTest(unittest.TestCase):
         def process_cmds(cmd_args):
             if 'token' in cmd_args:
                 return '00000'
-            elif (('weblayer_shell_wpt on '
+            elif (('system_webview_wpt on '
                    'Ubuntu-16.04 or Ubuntu-18.04') in cmd_args):
                 return json.dumps(actual_mp)
             elif (('chrome_public_wpt on '
@@ -161,9 +166,9 @@ class CreateCsvTest(unittest.TestCase):
 
         host.executive = MockExecutive(run_command_fn=process_cmds)
 
-        with io.StringIO() as csv_out,                                                 \
-                _get_product_test_results(host, 'android_weblayer') as test_results,   \
-                _get_product_test_results(host, 'chrome_android') as baseline_results:
+        with DataIO() as csv_out,                                                 \
+                _get_product_test_results(host, 'android_webview', 0) as test_results,   \
+                _get_product_test_results(host, 'chrome_android', 0) as baseline_results:
 
             actual_results_json = json.loads(test_results.read())
             baseline_results_json = json.loads(baseline_results.read())
@@ -183,7 +188,7 @@ class CreateCsvTest(unittest.TestCase):
             heading = CSV_HEADING % (TEST_PRODUCT, TEST_BASELINE_PRODUCT)
             self.assertEquals(content, heading +
                               ('test.html,PASS,FAIL,DIFFERENT RESULTS,'
-                               '"{FAIL, TIMEOUT, PASS}","{FAIL, CRASH}",No\n'))
+                               '"{FAIL, PASS, TIMEOUT}","{CRASH, FAIL}",No\n'))
 
 if __name__ == '__main__':
     logging.basicConfig()

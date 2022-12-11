@@ -1,8 +1,9 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/page_info/android/page_info_controller_android.h"
+#include <string>
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
@@ -41,7 +42,7 @@ static jlong JNI_PageInfoController_Init(
   // Important to use GetVisibleEntry to match what's showing in the omnibox.
   content::NavigationEntry* nav_entry =
       web_contents->GetController().GetVisibleEntry();
-  if (!nav_entry || nav_entry->IsInitialEntry())
+  if (nav_entry->IsInitialEntry())
     return 0;
 
   return reinterpret_cast<intptr_t>(
@@ -152,6 +153,10 @@ void PageInfoControllerAndroid::SetPermissionInfo(
     permissions_to_display.push_back(ContentSettingsType::BLUETOOTH_SCANNING);
   permissions_to_display.push_back(ContentSettingsType::VR);
   permissions_to_display.push_back(ContentSettingsType::AR);
+  if (base::FeatureList::IsEnabled(features::kFedCm)) {
+    permissions_to_display.push_back(
+        ContentSettingsType::FEDERATED_IDENTITY_API);
+  }
 
   std::map<ContentSettingsType, ContentSetting>
       user_specified_settings_to_display;
@@ -185,13 +190,13 @@ void PageInfoControllerAndroid::SetPermissionInfo(
 
   for (const auto& chosen_object : chosen_object_info_list) {
     std::u16string object_title =
-        presenter_->GetChooserContextFromUIInfo(chosen_object->ui_info)
+        presenter_->GetChooserContextFromUIInfo(*chosen_object->ui_info)
             ->GetObjectDisplayName(chosen_object->chooser_object->value);
 
     Java_PageInfoController_addPermissionSection(
         env, controller_jobject_, ConvertUTF16ToJavaString(env, object_title),
         ConvertUTF16ToJavaString(env, object_title),
-        static_cast<jint>(chosen_object->ui_info.content_settings_type),
+        static_cast<jint>(chosen_object->ui_info->content_settings_type),
         static_cast<jint>(CONTENT_SETTING_ALLOW));
   }
 
@@ -230,4 +235,16 @@ absl::optional<ContentSetting> PageInfoControllerAndroid::GetSettingToDisplay(
   // subpage directly from the permissions returned from this controller.
 
   return absl::optional<ContentSetting>();
+}
+
+void PageInfoControllerAndroid::SetAdPersonalizationInfo(
+    const AdPersonalizationInfo& info) {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  std::vector<std::u16string> topic_names;
+  for (const auto& topic : info.accessed_topics) {
+    topic_names.push_back(topic.GetLocalizedRepresentation());
+  }
+  Java_PageInfoController_setAdPersonalizationInfo(
+      env, controller_jobject_, info.has_joined_user_to_interest_group,
+      base::android::ToJavaArrayOfStrings(env, topic_names));
 }

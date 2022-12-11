@@ -62,6 +62,12 @@
       Search or type URL
     </message>
   </if>
+  <message name="IDS_OMNIBOX_ADDITIONAL_TEXT_DASH_TEMPLATE" desc="The omnibox text when there is both traditional text (i.e., user text + inline autocompletion) and additional text (i.e. the default suggestion's URL when rich autocompleting a title) to display.">
+    <ph name="TRADITIONAL_TEXT">$1</ph> - <ph name="ADDITIONAL_TEXT">$2</ph>
+  </message>
+  <message name="IDS_OMNIBOX_ADDITIONAL_TEXT_PARENTHESIS_TEMPLATE" desc="The omnibox text when there is both traditional text (i.e., user text + inline autocompletion) and additional text (i.e. the default suggestion's URL when rich autocompleting a title) to display.">
+    <ph name="TRADITIONAL_TEXT">$1</ph> (<ph name="ADDITIONAL_TEXT">$2</ph>)
+  </message>
   <message name="IDS_OMNIBOX_TAB_SUGGEST_HINT" desc="The button text contents to say that this suggestion will switch to another tab.">
     Switch to this tab
   </message>
@@ -97,12 +103,12 @@
   </message>
   <if expr="use_titlecase">
     <then>
-      <message name="IDS_ACCURACY_CHECK_VERBOSE_STATE" desc="Text for the Accuracy Check Omnibox Verbose state. Displayed when the current page is showing an accuracy tip.">
+      <message name="IDS_ACCURACY_CHECK_VERBOSE_STATE" meaning="Text for feature that encourages the user to think about how accurate the content is" desc="This text appears in the address bar chip, which states the title of the feature shown in the page info bubble below (see screenshot). With this feature, the user will see a reminder on the page they're visiting that encourages the user to think about how accurate the content is. You may translate 'Accuracy' as 'Trustworthiness' or 'Reliability,' if those terms work better in your language. The 'Accuracy Check' is a noun; avoid translating this as an imperative command. Chrome does not verify accuracy by providing this feature; avoid any translation that implies Google or Chrome verification.">
         Accuracy Check
       </message>
     </then>
     <else>
-      <message name="IDS_ACCURACY_CHECK_VERBOSE_STATE" desc="Text for the Accuracy Check Omnibox Verbose state. Displayed when the current page is showing an accuracy tip.">
+      <message name="IDS_ACCURACY_CHECK_VERBOSE_STATE" meaning="Text for feature that encourages the user to think about how accurate the content is" desc="This text appears in the  address bar chip, which states the title of the feature shown in the page info bubble below (see screenshot). With this feature, the user will see a reminder on the page they're visiting that encourages the user to think about how accurate the content is. You may translate 'Accuracy' as 'Trustworthiness' or 'Reliability,' if those terms work better in your language. The 'Accuracy Check' is a noun; avoid translating this as an imperative command. Chrome does not verify accuracy by providing this feature; avoid any translation that implies Google or Chrome verification.">
         Accuracy check
       </message>
     </else>
@@ -121,18 +127,6 @@
   </message>
   <message name="IDS_ACC_OMNIBOX_ACTION_HISTORY_CLUSTERS_SEARCH" desc="Announcement when the Search History Clusters action button is focused.">
     Resume your journey button, press Enter to resume your journey and see relevant activity in your Chrome history
-  </message>
-  <message name="IDS_OMNIBOX_ACTION_HISTORY_CLUSTERS_SEARCH_HINT_ALTERNATE" desc="The button text for the History Clusters omnibox action. Clicking this button takes users to a view of their browsing history related to the attached suggestion.">
-    Resume your research
-  </message>
-  <message name="IDS_OMNIBOX_ACTION_HISTORY_CLUSTERS_SEARCH_SUGGESTION_CONTENTS_ALTERNATE" desc="The button tooltip for the History Clusters omnibox action. Clicking this button takes users to a view of their browsing history related to the attached suggestion.">
-    Resume your research to see relevant activity in your Chrome history
-  </message>
-  <message name="IDS_ACC_OMNIBOX_ACTION_HISTORY_CLUSTERS_SEARCH_SUFFIX_ALTERNATE" desc="Suffix for spoken suggestion description with action button to explain keystroke used to Search History Clusters.">
-    <ph name="HISTORY_CLUSTERS_SEARCH_FOCUSED_FRIENDLY_MATCH_TEXT">$1<ex>dog food</ex></ph>, press Tab, then Enter to resume your research and see relevant activity in your Chrome history
-  </message>
-  <message name="IDS_ACC_OMNIBOX_ACTION_HISTORY_CLUSTERS_SEARCH_ALTERNATE" desc="Announcement when the Search History Clusters action button is focused.">
-    Resume your research button, press Enter to resume your research and see relevant activity in your Chrome history
   </message>
 
   <!-- Accessibility labels for autocomplete match types.
@@ -194,7 +188,7 @@
     <ph name="KEYWORD_FOCUSED_FRIENDLY_MATCH_TEXT">$1<ex>The Chromium Projects http://www.chromium.org bookmark</ex></ph>, press Tab then Enter to search
   </message>
   <message name="IDS_ACC_KEYWORD_MODE" desc="Announcement when entering keyword search mode.">
-    Search mode, press Enter to search <ph name="KEYWORD_SUFFIX">$1<ex>Youtube</ex></ph>
+    Search <ph name="KEYWORD_SUFFIX">$1<ex>Youtube</ex>, type a query and press Enter to search</ph>
   </message>
 
   <!-- Accessibility suffix for suggestions when the remove button is focused. -->
@@ -227,5 +221,30 @@
   </message>
   <message name="IDS_ACC_HEADER_SECTION_HIDDEN" desc="Announcement that lets the user know the suggestions section has been Hidden.">
     &quot;<ph name="SECTION">$1<ex>Related to recent searches</ex></ph>&quot; section hidden
+  </message>
+
+  <!-- Site Search/Keyword mode Starter Pack strings. Note: kCurrentDataVersion in template_url_starter_pack_data.cc must also be updated when changing these values. -->
+  <message name="IDS_SEARCH_ENGINES_STARTER_PACK_BOOKMARKS_NAME" desc = "The name of the chrome bookmarks search engine as it appears on chrome://settings/searchEngines">
+    Bookmarks
+  </message>
+  <message name="IDS_SEARCH_ENGINES_STARTER_PACK_BOOKMARKS_KEYWORD" desc = "The keyword required to trigger bookmarks search in keyword mode. This will be prepended with an '@'.">
+    Bookmarks
+  </message>
+  <message name="IDS_SEARCH_ENGINES_STARTER_PACK_HISTORY_NAME" desc = "The name of the chrome history search engine as it appears on chrome://settings/searchEngines">
+    History
+  </message>
+  <message name="IDS_SEARCH_ENGINES_STARTER_PACK_HISTORY_KEYWORD" desc = "The keyword required to trigger history search in keyword mode. This will be prepended with an '@'.">
+    History
+  </message>
+  <message name="IDS_SEARCH_ENGINES_STARTER_PACK_TABS_NAME" desc = "The name of the search engine to search through open Chrome Tabs as it appears on chrome://settings/searchEngines.">
+    Tabs
+  </message>
+  <message name="IDS_SEARCH_ENGINES_STARTER_PACK_TABS_KEYWORD" desc = "The keyword required to trigger tab search in keyword mode. This will be prepended with an '@'.">
+    Tabs
+  </message>
+
+  <!-- No results description for the Starter Pack's Tab search feature (@tabs). This appears as the first suggestion when no matching tabs are found. -->
+  <message name="IDS_OMNIBOX_TAB_SEARCH_NO_RESULTS_FOUND" desc = "The string displayed as the first row in the Omnibox when no results are found in Tab Search mode.">
+    No results found
   </message>
 </grit-part>

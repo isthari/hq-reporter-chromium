@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,10 @@
 
 #include <string>
 
+#include "base/containers/enum_set.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "net/cookies/cookie_constants.h"
+#include "net/cookies/cookie_setting_override.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace net {
@@ -66,7 +68,7 @@ namespace content_settings {
 // |top_frame_origin|. This is done inconsistently and needs to be fixed.
 class CookieSettingsBase {
  public:
-  CookieSettingsBase() = default;
+  CookieSettingsBase();
 
   CookieSettingsBase(const CookieSettingsBase&) = delete;
   CookieSettingsBase& operator=(const CookieSettingsBase&) = delete;
@@ -87,14 +89,62 @@ class CookieSettingsBase {
       const std::string& domain,
       bool is_https) const;
 
+  // This enum is provided to CookieSettingsBase query methods by callers in
+  // order to indicate the reason for the query. This allows CookieSettingsBase
+  // (or its subclasses) to optionally apply different policies based on how the
+  // returned content setting will be used. E.g., a CookieSettings class may
+  // choose to alter the value returned to the caller based on whether the
+  // caller cares about the setting itself, or whether the caller just cares
+  // about access to a particular cookie.
+  enum class QueryReason {
+    // The query is about getting the user's setting (possibly for UI exposure).
+    // Storage Access API permission grants will not be considered when
+    // answering the query.
+    kSetting = 0,
+    // The query is to determine whether Privacy Sandbox APIs should be enabled,
+    // based on the cookies content setting. Storage Access API permission
+    // grants will not be considered when answering the query.
+    kPrivacySandbox,
+    // The query is about access to site-scoped storage in practice, after
+    // taking all settings and permission into account. Storage Access API
+    // permission grants will be considered when answering the query.
+    kSiteStorage,
+    // The query is about determining whether cookies are accessible in
+    // practice, after taking all settings and permissions into account. Storage
+    // Access API permission grants will be considered when answering the query.
+    kCookies,
+  };
+
   // Returns true if the page identified by (|url|, |first_party_url|) is
   // allowed to access (i.e., read or write) cookies. |first_party_url|
   // is used to determine third-party-ness of |url|.
   //
   // This may be called on any thread.
-  // DEPRECATED: Replace with IsFullCookieAccessAllowed(GURL, GURL, Origin).
+  // DEPRECATED: Replace with IsFullCookieAccessAllowed(GURL, SiteForCookies,
+  // Origin, bool, QueryRason).
+  // TODO(crbug.com/1386190): Update callers and remove.
   bool IsFullCookieAccessAllowed(const GURL& url,
-                                 const GURL& first_party_url) const;
+                                 const GURL& first_party_url,
+                                 QueryReason query_reason) const;
+
+  // Similar to IsFullCookieAccessAllowed(GURL, GURL) but provides a mechanism
+  // to specify a separate `site_for_cookies`, which is used to determine
+  // whether a request is in a third_party context and `top_frame_origin`, which
+  // is used to check if there are any content_settings exceptions.
+  // `top_frame_origin` should at least be specified when `site_for_cookies` is
+  // non-empty.
+  // DEPRECATED: Replace with IsFullCookieAccessAllowed(GURL, SiteForCookies,
+  // Origin, bool, QueryReason)
+  // TODO(crbug.com/1386190): Update callers and remove.
+  bool IsFullCookieAccessAllowed(
+      const GURL& url,
+      const net::SiteForCookies& site_for_cookies,
+      const absl::optional<url::Origin>& top_frame_origin,
+      QueryReason query_reason) const {
+    return IsFullCookieAccessAllowed(url, site_for_cookies, top_frame_origin,
+                                     net::CookieSettingOverrides(),
+                                     query_reason);
+  }
 
   // Similar to IsFullCookieAccessAllowed(GURL, GURL) but provides a mechanism
   // to specify a separate `site_for_cookies`, which is used to determine
@@ -105,27 +155,40 @@ class CookieSettingsBase {
   bool IsFullCookieAccessAllowed(
       const GURL& url,
       const net::SiteForCookies& site_for_cookies,
-      const absl::optional<url::Origin>& top_frame_origin) const;
+      const absl::optional<url::Origin>& top_frame_origin,
+      net::CookieSettingOverrides overrides,
+      QueryReason query_reason) const;
 
   // Returns true if the cookie set by a page identified by |url| should be
   // session only. Querying this only makes sense if |IsFullCookieAccessAllowed|
   // has returned true.
   //
   // This may be called on any thread.
-  bool IsCookieSessionOnly(const GURL& url) const;
+  bool IsCookieSessionOnly(const GURL& url, QueryReason query_reason) const;
 
   // A helper for applying third party cookie blocking rules.
-  ContentSetting GetCookieSetting(
-      const GURL& url,
-      const GURL& first_party_url,
-      content_settings::SettingSource* source) const;
+  // DEPRECATED: Replace with GetCookieSetting(GURL, GURL, bool, SettingSource,
+  // QueryReason).
+  // TODO(crbug.com/1386190): Update callers and remove.
+  ContentSetting GetCookieSetting(const GURL& url,
+                                  const GURL& first_party_url,
+                                  content_settings::SettingSource* source,
+                                  QueryReason query_reason) const {
+    return GetCookieSetting(url, first_party_url, net::CookieSettingOverrides(),
+                            source, query_reason);
+  }
+
+  // A helper for applying third party cookie blocking rules.
+  ContentSetting GetCookieSetting(const GURL& url,
+                                  const GURL& first_party_url,
+                                  net::CookieSettingOverrides overrides,
+                                  content_settings::SettingSource* source,
+                                  QueryReason query_reason) const;
 
   // Returns the cookie access semantics (legacy or nonlegacy) to be applied for
   // cookies on the given domain. The |cookie_domain| can be provided as the
   // direct output of CanonicalCookie::Domain(), i.e. any leading dot does not
   // have to be removed.
-  //
-  // This may be called on any thread.
   //
   // Legacy access means we treat "SameSite unspecified" as if it were
   // SameSite=None. Also, we don't require SameSite=None cookies to be Secure.
@@ -143,9 +206,8 @@ class CookieSettingsBase {
   // cookie domain. The |cookie_domain| can be provided as the direct output of
   // CanonicalCookie::Domain(), i.e. any leading dot does not have to be
   // removed.
-  virtual void GetSettingForLegacyCookieAccess(
-      const std::string& cookie_domain,
-      ContentSetting* setting) const = 0;
+  virtual ContentSetting GetSettingForLegacyCookieAccess(
+      const std::string& cookie_domain) const = 0;
 
   // Returns whether a cookie should be attached regardless of its SameSite
   // value vs the request context.
@@ -178,6 +240,16 @@ class CookieSettingsBase {
   // access.
   static bool IsValidSettingForLegacyAccess(ContentSetting setting);
 
+  // Returns true iff the query should consider Storage Access API permission
+  // grants.
+  bool ShouldConsiderStorageAccessGrants(QueryReason query_reason) const;
+  // Static version of the above, exposed for testing.
+  static bool ShouldConsiderStorageAccessGrantsInternal(
+      QueryReason query_reason,
+      bool storage_access_api_enabled,
+      bool storage_access_api_grants_unpartitioned_storage,
+      bool is_storage_partitioned);
+
  protected:
   // Returns true iff the request is considered third-party.
   static bool IsThirdPartyRequest(const GURL& url,
@@ -194,7 +266,13 @@ class CookieSettingsBase {
       const GURL& url,
       const GURL& first_party_url,
       bool is_third_party_request,
-      content_settings::SettingSource* source) const = 0;
+      net::CookieSettingOverrides overrides,
+      content_settings::SettingSource* source,
+      QueryReason query_reason) const = 0;
+
+  bool storage_access_api_enabled_;
+  bool storage_access_api_grants_unpartitioned_storage_;
+  bool is_storage_partitioned_;
 };
 
 }  // namespace content_settings

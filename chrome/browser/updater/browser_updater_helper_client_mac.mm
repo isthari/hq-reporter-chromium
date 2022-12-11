@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,9 +14,8 @@
 #include "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task/post_task.h"
+#include "base/task/bind_post_task.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "chrome/browser/updater/browser_updater_client_util.h"
 #include "chrome/updater/mac/privileged_helper/service_protocol.h"
 
@@ -24,8 +23,7 @@ namespace {
 const int kPrivilegedHelperConnectionFailed = -10000;
 }
 
-BrowserUpdaterHelperClientMac::BrowserUpdaterHelperClientMac()
-    : main_task_runner_(base::SequencedTaskRunnerHandle::Get()) {
+BrowserUpdaterHelperClientMac::BrowserUpdaterHelperClientMac() {
   xpc_connection_.reset([[NSXPCConnection alloc]
       initWithMachServiceName:base::SysUTF8ToNSString(kPrivilegedHelperName)
                       options:NSXPCConnectionPrivileged]);
@@ -52,13 +50,15 @@ BrowserUpdaterHelperClientMac::~BrowserUpdaterHelperClientMac() {
 }
 
 void BrowserUpdaterHelperClientMac::SetupSystemUpdater(
-    base::OnceCallback<void(int)> result) {
+    base::OnceCallback<void(int)> callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  __block base::OnceCallback<void(int)> block_callback = std::move(result);
+  __block base::OnceCallback<void(int)> block_callback = base::BindPostTask(
+      base::SequencedTaskRunner::GetCurrentDefault(),
+      base::BindOnce(&BrowserUpdaterHelperClientMac::SetupSystemUpdaterDone,
+                     base::WrapRefCounted(this), std::move(callback)));
 
   auto reply = ^(int error) {
-    main_task_runner_->PostTask(
-        FROM_HERE, base::BindOnce(std::move(block_callback), error));
+    std::move(block_callback).Run(error);
   };
 
   auto errorHandler = ^(NSError* xpcError) {
@@ -71,4 +71,11 @@ void BrowserUpdaterHelperClientMac::SetupSystemUpdater(
       setupSystemUpdaterWithBrowserPath:base::mac::FilePathToNSString(
                                             base::mac::OuterBundlePath())
                                   reply:reply];
+}
+
+void BrowserUpdaterHelperClientMac::SetupSystemUpdaterDone(
+    base::OnceCallback<void(int)> callback,
+    int result) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  std::move(callback).Run(result);
 }

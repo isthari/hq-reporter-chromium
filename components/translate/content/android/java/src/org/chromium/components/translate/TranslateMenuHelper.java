@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -108,14 +108,10 @@ public class TranslateMenuHelper implements AdapterView.OnItemClickListener {
                 // Keeps track how many were added.
                 contentLanguagesCount = menuList.size();
             }
-            // "Detected Language" option is added to the top of the languages list if the feature
-            // is enabled. This option is only used in the source language menu.
-            boolean should_skip_detected_source_language_option =
-                    TranslateFeatureList.isEnabled(
-                            TranslateFeatureList.DETECTED_SOURCE_LANGUAGE_OPTION)
-                    && menuType == TranslateMenu.MENU_TARGET_LANGUAGE;
             for (int i = 0; i < mOptions.allLanguages().size(); ++i) {
-                if (i == 0 && should_skip_detected_source_language_option) {
+                // "Detected Language" is the first item in the languages list and should only be
+                // added to the source language menu.
+                if (i == 0 && menuType == TranslateMenu.MENU_TARGET_LANGUAGE) {
                     continue;
                 }
                 String code = mOptions.allLanguages().get(i).mLanguageCode;
@@ -123,7 +119,7 @@ public class TranslateMenuHelper implements AdapterView.OnItemClickListener {
                     continue;
                 }
                 // Subtract 1 from item IDs if skipping the "Detected Language" option.
-                int itemID = should_skip_detected_source_language_option
+                int itemID = menuType == TranslateMenu.MENU_TARGET_LANGUAGE
                         ? contentLanguagesCount + i - 1
                         : contentLanguagesCount + i;
                 menuList.add(new TranslateMenu.MenuItem(TranslateMenu.ITEM_LANGUAGE, itemID, code));

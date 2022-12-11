@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -128,7 +128,7 @@ bool IsUrlIncrementedByOne(const HTMLAnchorElement& anchor_element) {
 // overflows.
 gfx::Rect AbsoluteElementBoundingBoxRect(const LayoutObject& layout_object) {
   Vector<PhysicalRect> rects = layout_object.OutlineRects(
-      PhysicalOffset(), NGOutlineType::kIncludeBlockVisualOverflow);
+      nullptr, PhysicalOffset(), NGOutlineType::kIncludeBlockVisualOverflow);
   return ToEnclosingRect(layout_object.LocalToAbsoluteRect(UnionRect(rects)));
 }
 

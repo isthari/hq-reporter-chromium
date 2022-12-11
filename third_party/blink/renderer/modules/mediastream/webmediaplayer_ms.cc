@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,10 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/sequence_checker.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "cc/layers/video_frame_provider_client_impl.h"
 #include "cc/layers/video_layer.h"
@@ -49,6 +52,7 @@
 #include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/timer.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_media.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace WTF {
@@ -73,8 +77,7 @@ enum class RendererReloadAction {
 
 bool IsPlayableTrack(MediaStreamComponent* component) {
   return component && component->Source() &&
-         component->Source()->GetReadyState() !=
-             MediaStreamSource::kReadyStateEnded;
+         component->GetReadyState() != MediaStreamSource::kReadyStateEnded;
 }
 
 const char* LoadTypeToString(WebMediaPlayer::LoadType type) {
@@ -122,6 +125,17 @@ const char* NetworkStateToString(WebMediaPlayer::NetworkState state) {
   }
 }
 
+media::VideoTransformation GetFrameTransformation(
+    scoped_refptr<media::VideoFrame> frame) {
+  return frame ? frame->metadata().transformation.value_or(
+                     media::kNoTransformation)
+               : media::kNoTransformation;
+}
+
+base::TimeDelta GetFrameTime(scoped_refptr<media::VideoFrame> frame) {
+  return frame ? frame->timestamp() : base::TimeDelta();
+}
+
 constexpr base::TimeDelta kForceBeginFramesTimeout = base::Seconds(1);
 }  // namespace
 
@@ -136,17 +150,17 @@ const gfx::Size WebMediaPlayerMS::kUseGpuMemoryBufferVideoFramesMinResolution =
 #endif  // BUILDFLAG(IS_WIN)
 
 // FrameDeliverer is responsible for delivering frames received on
-// the IO thread by calling of EnqueueFrame() method of |compositor_|.
+// the video task runner by calling of EnqueueFrame() method of |compositor_|.
 //
 // It is created on the main thread, but methods should be called and class
-// should be destructed on the IO thread.
+// should be destructed on the video task runner.
 class WebMediaPlayerMS::FrameDeliverer {
  public:
   using RepaintCB = WTF::CrossThreadRepeatingFunction<
       void(scoped_refptr<media::VideoFrame> frame, bool is_copy)>;
   FrameDeliverer(const base::WeakPtr<WebMediaPlayerMS>& player,
                  RepaintCB enqueue_frame_cb,
-                 scoped_refptr<base::SingleThreadTaskRunner> media_task_runner,
+                 scoped_refptr<base::SequencedTaskRunner> media_task_runner,
                  scoped_refptr<base::TaskRunner> worker_task_runner,
                  media::GpuVideoAcceleratorFactories* gpu_factories)
       : main_task_runner_(base::ThreadTaskRunnerHandle::Get()),
@@ -155,7 +169,7 @@ class WebMediaPlayerMS::FrameDeliverer {
         media_task_runner_(media_task_runner),
         worker_task_runner_(worker_task_runner),
         gpu_factories_(gpu_factories) {
-    DETACH_FROM_THREAD(io_thread_checker_);
+    DETACH_FROM_SEQUENCE(video_sequence_checker_);
 
     CreateGpuMemoryBufferPoolIfNecessary();
   }
@@ -164,12 +178,12 @@ class WebMediaPlayerMS::FrameDeliverer {
   FrameDeliverer& operator=(const FrameDeliverer&) = delete;
 
   ~FrameDeliverer() {
-    DCHECK_CALLED_ON_VALID_THREAD(io_thread_checker_);
+    DCHECK_CALLED_ON_VALID_SEQUENCE(video_sequence_checker_);
     FreeGpuMemoryBufferPool();
   }
 
   void OnVideoFrame(scoped_refptr<media::VideoFrame> frame) {
-    DCHECK_CALLED_ON_VALID_THREAD(io_thread_checker_);
+    DCHECK_CALLED_ON_VALID_SEQUENCE(video_sequence_checker_);
 
 // On Android, stop passing frames.
 #if BUILDFLAG(IS_ANDROID)
@@ -178,27 +192,27 @@ class WebMediaPlayerMS::FrameDeliverer {
 #endif  // BUILDFLAG(IS_ANDROID)
 
     if (!gpu_memory_buffer_pool_) {
-      int original_frame_id = frame->unique_id();
+      const media::VideoFrame::ID original_frame_id = frame->unique_id();
       EnqueueFrame(original_frame_id, std::move(frame));
       return;
     }
-
-#if BUILDFLAG(IS_WIN)
-    const bool skip_creating_gpu_memory_buffer =
-        frame->visible_rect().width() <
-            kUseGpuMemoryBufferVideoFramesMinResolution.width() ||
-        frame->visible_rect().height() <
-            kUseGpuMemoryBufferVideoFramesMinResolution.height();
-#else
-    const bool skip_creating_gpu_memory_buffer = false;
-#endif  // BUILDFLAG(IS_WIN)
 
     // If |render_frame_suspended_|, we can keep passing the frames to keep the
     // latest frame in compositor up to date. However, creating GMB backed
     // frames is unnecessary, because the frames are not going to be shown for
     // the time period.
-    if (render_frame_suspended_ || skip_creating_gpu_memory_buffer) {
-      int original_frame_id = frame->unique_id();
+    bool skip_creating_gpu_memory_buffer = render_frame_suspended_;
+
+#if BUILDFLAG(IS_WIN)
+    skip_creating_gpu_memory_buffer |=
+        frame->visible_rect().width() <
+            kUseGpuMemoryBufferVideoFramesMinResolution.width() ||
+        frame->visible_rect().height() <
+            kUseGpuMemoryBufferVideoFramesMinResolution.height();
+#endif  // BUILDFLAG(IS_WIN)
+
+    if (skip_creating_gpu_memory_buffer) {
+      media::VideoFrame::ID original_frame_id = frame->unique_id();
       EnqueueFrame(original_frame_id, std::move(frame));
       // If there are any existing MaybeCreateHardwareFrame() calls, we do not
       // want those frames to be placed after the current one, so just drop
@@ -207,7 +221,7 @@ class WebMediaPlayerMS::FrameDeliverer {
       return;
     }
 
-    int original_frame_id = frame->unique_id();
+    const media::VideoFrame::ID original_frame_id = frame->unique_id();
 
     // |gpu_memory_buffer_pool_| deletion is going to be posted to
     // |media_task_runner_|. base::Unretained() usage is fine since
@@ -226,7 +240,7 @@ class WebMediaPlayerMS::FrameDeliverer {
   }
 
   void SetRenderFrameSuspended(bool render_frame_suspended) {
-    DCHECK_CALLED_ON_VALID_THREAD(io_thread_checker_);
+    DCHECK_CALLED_ON_VALID_SEQUENCE(video_sequence_checker_);
     render_frame_suspended_ = render_frame_suspended;
     if (render_frame_suspended_) {
       // Drop GpuMemoryBuffer pool to free memory.
@@ -257,7 +271,7 @@ class WebMediaPlayerMS::FrameDeliverer {
   }
 
   void FreeGpuMemoryBufferPool() {
-    DCHECK_CALLED_ON_VALID_THREAD(io_thread_checker_);
+    DCHECK_CALLED_ON_VALID_SEQUENCE(video_sequence_checker_);
 
     if (gpu_memory_buffer_pool_) {
       DropCurrentPoolTasks();
@@ -266,9 +280,9 @@ class WebMediaPlayerMS::FrameDeliverer {
     }
   }
 
-  void EnqueueFrame(int original_frame_id,
+  void EnqueueFrame(media::VideoFrame::ID original_frame_id,
                     scoped_refptr<media::VideoFrame> frame) {
-    DCHECK_CALLED_ON_VALID_THREAD(io_thread_checker_);
+    DCHECK_CALLED_ON_VALID_SEQUENCE(video_sequence_checker_);
 
     {
       bool tracing_enabled = false;
@@ -288,7 +302,7 @@ class WebMediaPlayerMS::FrameDeliverer {
   }
 
   void DropCurrentPoolTasks() {
-    DCHECK_CALLED_ON_VALID_THREAD(io_thread_checker_);
+    DCHECK_CALLED_ON_VALID_SEQUENCE(video_sequence_checker_);
     DCHECK(gpu_memory_buffer_pool_);
 
     if (!weak_factory_for_pool_.HasWeakPtrs())
@@ -313,13 +327,13 @@ class WebMediaPlayerMS::FrameDeliverer {
 
   // Pool of GpuMemoryBuffers and resources used to create hardware frames.
   std::unique_ptr<media::GpuMemoryBufferVideoFramePool> gpu_memory_buffer_pool_;
-  const scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
+  const scoped_refptr<base::SequencedTaskRunner> media_task_runner_;
   const scoped_refptr<base::TaskRunner> worker_task_runner_;
 
   media::GpuVideoAcceleratorFactories* const gpu_factories_;
 
   // Used for DCHECKs to ensure method calls are executed on the correct thread.
-  THREAD_CHECKER(io_thread_checker_);
+  SEQUENCE_CHECKER(video_sequence_checker_);
 
   base::WeakPtrFactory<FrameDeliverer> weak_factory_for_pool_{this};
   base::WeakPtrFactory<FrameDeliverer> weak_factory_{this};
@@ -331,15 +345,15 @@ WebMediaPlayerMS::WebMediaPlayerMS(
     WebMediaPlayerDelegate* delegate,
     std::unique_ptr<media::MediaLog> media_log,
     scoped_refptr<base::SingleThreadTaskRunner> main_render_task_runner,
-    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+    scoped_refptr<base::SequencedTaskRunner> video_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner,
-    scoped_refptr<base::SingleThreadTaskRunner> media_task_runner,
+    scoped_refptr<base::SequencedTaskRunner> media_task_runner,
     scoped_refptr<base::TaskRunner> worker_task_runner,
     media::GpuVideoAcceleratorFactories* gpu_factories,
     const WebString& sink_id,
     CreateSurfaceLayerBridgeCB create_bridge_callback,
     std::unique_ptr<WebVideoFrameSubmitter> submitter,
-    WebMediaPlayer::SurfaceLayerMode surface_layer_mode)
+    bool use_surface_layer)
     : internal_frame_(std::make_unique<MediaStreamInternalFrameWrapper>(frame)),
       network_state_(WebMediaPlayer::kNetworkStateEmpty),
       ready_state_(WebMediaPlayer::kReadyStateHaveNothing),
@@ -348,11 +362,10 @@ WebMediaPlayerMS::WebMediaPlayerMS(
       delegate_(delegate),
       delegate_id_(0),
       paused_(true),
-      video_transformation_(media::kNoTransformation),
       media_log_(std::move(media_log)),
       renderer_factory_(std::make_unique<MediaStreamRendererFactory>()),
       main_render_task_runner_(std::move(main_render_task_runner)),
-      io_task_runner_(std::move(io_task_runner)),
+      video_task_runner_(std::move(video_task_runner)),
       compositor_task_runner_(std::move(compositor_task_runner)),
       media_task_runner_(std::move(media_task_runner)),
       worker_task_runner_(std::move(worker_task_runner)),
@@ -368,7 +381,7 @@ WebMediaPlayerMS::WebMediaPlayerMS(
               this,
               &WebMediaPlayerMS::StopForceBeginFrames)),
       submitter_(std::move(submitter)),
-      surface_layer_mode_(surface_layer_mode) {
+      use_surface_layer_(use_surface_layer) {
   DCHECK(client);
   DCHECK(delegate_);
   weak_this_ = weak_factory_.GetWeakPtr();
@@ -394,12 +407,12 @@ WebMediaPlayerMS::~WebMediaPlayerMS() {
   // Destruct compositor resources in the proper order.
   get_client()->SetCcLayer(nullptr);
   if (video_layer_) {
-    DCHECK(surface_layer_mode_ != WebMediaPlayer::SurfaceLayerMode::kAlways);
+    DCHECK(!use_surface_layer_);
     video_layer_->StopUsingProvider();
   }
 
   if (frame_deliverer_)
-    io_task_runner_->DeleteSoon(FROM_HERE, frame_deliverer_.release());
+    video_task_runner_->DeleteSoon(FROM_HERE, frame_deliverer_.release());
 
   if (compositor_)
     compositor_->StopUsingProvider();
@@ -450,8 +463,8 @@ WebMediaPlayer::LoadTiming WebMediaPlayerMS::Load(
   watch_time_reporter_.reset();
 
   compositor_ = base::MakeRefCounted<WebMediaPlayerMSCompositor>(
-      compositor_task_runner_, io_task_runner_, web_stream_,
-      std::move(submitter_), surface_layer_mode_, weak_this_);
+      compositor_task_runner_, video_task_runner_, web_stream_,
+      std::move(submitter_), use_surface_layer_, weak_this_);
 
   // We can receive a call to RequestVideoFrameCallback() before |compositor_|
   // is created. In that case, we suspend the request, and wait until now to
@@ -477,7 +490,7 @@ WebMediaPlayer::LoadTiming WebMediaPlayerMS::Load(
   video_frame_provider_ = renderer_factory_->GetVideoRenderer(
       web_stream_,
       ConvertToBaseRepeatingCallback(frame_deliverer_->GetRepaintCallback()),
-      io_task_runner_, main_render_task_runner_);
+      video_task_runner_, main_render_task_runner_);
 
   if (internal_frame_->web_frame()) {
     WebURL url = source.GetAsURL();
@@ -518,7 +531,7 @@ WebMediaPlayer::LoadTiming WebMediaPlayerMS::Load(
         client_->AddAudioTrack(
             blink::WebString::FromUTF8(component->Id().Utf8()),
             blink::WebMediaPlayerClient::kAudioTrackKindMain,
-            blink::WebString::FromUTF8(component->Source()->GetName().Utf8()),
+            blink::WebString::FromUTF8(component->GetSourceName().Utf8()),
             /*language=*/"", is_first_audio_track);
         is_first_audio_track = false;
       }
@@ -543,7 +556,7 @@ WebMediaPlayer::LoadTiming WebMediaPlayerMS::Load(
         client_->AddVideoTrack(
             blink::WebString::FromUTF8(component->Id().Utf8()),
             blink::WebMediaPlayerClient::kVideoTrackKindMain,
-            blink::WebString::FromUTF8(component->Source()->GetName().Utf8()),
+            blink::WebString::FromUTF8(component->GetSourceName().Utf8()),
             /*language=*/"", is_first_video_track);
         is_first_video_track = false;
       }
@@ -561,8 +574,9 @@ WebMediaPlayer::LoadTiming WebMediaPlayerMS::Load(
     MaybeCreateWatchTimeReporter();
   }
 
-  client_->DidMediaMetadataChange(HasAudio(), HasVideo(),
-                                  media::MediaContentType::OneShot);
+  client_->DidMediaMetadataChange(
+      HasAudio(), HasVideo(), media::AudioCodec::kUnknown,
+      media::VideoCodec::kUnknown, media::MediaContentType::OneShot);
   delegate_->DidMediaMetadataChange(delegate_id_, HasAudio(), HasVideo(),
                                     media::MediaContentType::OneShot);
 
@@ -658,7 +672,7 @@ void WebMediaPlayerMS::ReloadVideo() {
   auto video_components = descriptor.VideoComponents();
 
   RendererReloadAction renderer_action = RendererReloadAction::KEEP_RENDERER;
-  if (video_components.IsEmpty()) {
+  if (video_components.empty()) {
     if (video_frame_provider_)
       renderer_action = RendererReloadAction::REMOVE_RENDERER;
     current_video_track_id_ = WebString();
@@ -678,7 +692,7 @@ void WebMediaPlayerMS::ReloadVideo() {
           web_stream_,
           ConvertToBaseRepeatingCallback(
               frame_deliverer_->GetRepaintCallback()),
-          io_task_runner_, main_render_task_runner_);
+          video_task_runner_, main_render_task_runner_);
       DCHECK(video_frame_provider_);
       video_frame_provider_->Start();
       break;
@@ -702,8 +716,9 @@ void WebMediaPlayerMS::ReloadVideo() {
   // TODO(perkj, magjed): We use OneShot focus type here so that it takes
   // audio focus once it starts, and then will not respond to further audio
   // focus changes. See https://crbug.com/596516 for more details.
-  client_->DidMediaMetadataChange(HasAudio(), HasVideo(),
-                                  media::MediaContentType::OneShot);
+  client_->DidMediaMetadataChange(
+      HasAudio(), HasVideo(), media::AudioCodec::kUnknown,
+      media::VideoCodec::kUnknown, media::MediaContentType::OneShot);
   delegate_->DidMediaMetadataChange(delegate_id_, HasAudio(), HasVideo(),
                                     media::MediaContentType::OneShot);
 }
@@ -719,7 +734,7 @@ void WebMediaPlayerMS::ReloadAudio() {
   auto audio_components = descriptor.AudioComponents();
 
   RendererReloadAction renderer_action = RendererReloadAction::KEEP_RENDERER;
-  if (audio_components.IsEmpty()) {
+  if (audio_components.empty()) {
     if (audio_renderer_)
       renderer_action = RendererReloadAction::REMOVE_RENDERER;
     current_audio_track_id_ = WebString();
@@ -762,8 +777,9 @@ void WebMediaPlayerMS::ReloadAudio() {
   // TODO(perkj, magjed): We use OneShot focus type here so that it takes
   // audio focus once it starts, and then will not respond to further audio
   // focus changes. See https://crbug.com/596516 for more details.
-  client_->DidMediaMetadataChange(HasAudio(), HasVideo(),
-                                  media::MediaContentType::OneShot);
+  client_->DidMediaMetadataChange(
+      HasAudio(), HasVideo(), media::AudioCodec::kUnknown,
+      media::VideoCodec::kUnknown, media::MediaContentType::OneShot);
   delegate_->DidMediaMetadataChange(delegate_id_, HasAudio(), HasVideo(),
                                     media::MediaContentType::OneShot);
 }
@@ -866,8 +882,9 @@ void WebMediaPlayerMS::SetWasPlayedWithUserActivation(
     bool was_played_with_user_activation) {}
 
 void WebMediaPlayerMS::OnRequestPictureInPicture() {
-  if (!bridge_)
-    ActivateSurfaceLayerForVideo();
+  if (!bridge_) {
+    ActivateSurfaceLayerForVideo(compositor_->GetMetadata().video_transform);
+  }
 
   DCHECK(bridge_);
   DCHECK(bridge_->GetSurfaceId().is_valid());
@@ -916,9 +933,11 @@ gfx::Size WebMediaPlayerMS::NaturalSize() const {
   if (!video_frame_provider_)
     return gfx::Size();
 
-  const gfx::Size& current_size = compositor_->GetCurrentSize();
-  if (video_transformation_.rotation == media::VIDEO_ROTATION_90 ||
-      video_transformation_.rotation == media::VIDEO_ROTATION_270) {
+  const auto& metadata = compositor_->GetMetadata();
+  const gfx::Size& current_size = metadata.natural_size;
+  const auto& rotation = metadata.video_transform.rotation;
+  if (rotation == media::VIDEO_ROTATION_90 ||
+      rotation == media::VIDEO_ROTATION_270) {
     return gfx::Size(current_size.height(), current_size.width());
   }
   return current_size;
@@ -931,8 +950,9 @@ gfx::Size WebMediaPlayerMS::VisibleSize() const {
     return gfx::Size();
 
   const gfx::Rect& visible_rect = video_frame->visible_rect();
-  if (video_transformation_.rotation == media::VIDEO_ROTATION_90 ||
-      video_transformation_.rotation == media::VIDEO_ROTATION_270) {
+  const auto rotation = GetFrameTransformation(video_frame).rotation;
+  if (rotation == media::VIDEO_ROTATION_90 ||
+      rotation == media::VIDEO_ROTATION_270) {
     return gfx::Size(visible_rect.height(), visible_rect.width());
   }
   return visible_rect.size();
@@ -955,7 +975,8 @@ double WebMediaPlayerMS::Duration() const {
 
 double WebMediaPlayerMS::CurrentTime() const {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  const base::TimeDelta current_time = compositor_->GetCurrentTime();
+  const base::TimeDelta current_time =
+      GetFrameTime(compositor_->GetCurrentFrame());
   if (current_time.ToInternalValue() != 0)
     return current_time.InSecondsF();
   else if (audio_renderer_.get())
@@ -978,11 +999,6 @@ WebMediaPlayer::ReadyState WebMediaPlayerMS::GetReadyState() const {
   return ready_state_;
 }
 
-WebMediaPlayer::SurfaceLayerMode WebMediaPlayerMS::GetVideoSurfaceLayerMode()
-    const {
-  return surface_layer_mode_;
-}
-
 WebString WebMediaPlayerMS::GetErrorMessage() const {
   return WebString::FromUTF8(media_log_->GetErrorMessage());
 }
@@ -995,6 +1011,11 @@ WebTimeRanges WebMediaPlayerMS::Buffered() const {
 WebTimeRanges WebMediaPlayerMS::Seekable() const {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   return WebTimeRanges();
+}
+
+void WebMediaPlayerMS::OnFrozen() {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  DCHECK(paused_);
 }
 
 bool WebMediaPlayerMS::DidLoadingProgress() {
@@ -1018,14 +1039,20 @@ void WebMediaPlayerMS::Paint(cc::PaintCanvas* canvas,
       return;
   }
   const gfx::RectF dest_rect(rect);
-  video_renderer_.Paint(frame, canvas, dest_rect, flags, video_transformation_,
-                        provider.get());
+  video_renderer_.Paint(frame, canvas, dest_rect, flags,
+                        GetFrameTransformation(frame), provider.get());
 }
 
-scoped_refptr<media::VideoFrame> WebMediaPlayerMS::GetCurrentFrame() {
+scoped_refptr<media::VideoFrame> WebMediaPlayerMS::GetCurrentFrameThenUpdate() {
   DVLOG(3) << __func__;
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   return compositor_->GetCurrentFrame();
+}
+
+absl::optional<media::VideoFrame::ID> WebMediaPlayerMS::CurrentFrameId() const {
+  DVLOG(3) << __func__;
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  return compositor_->GetCurrentFrame()->unique_id();
 }
 
 bool WebMediaPlayerMS::WouldTaintOrigin() const {
@@ -1066,15 +1093,18 @@ bool WebMediaPlayerMS::HasAvailableVideoFrame() const {
 void WebMediaPlayerMS::OnFrameHidden() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  if (watch_time_reporter_)
+  bool in_picture_in_picture =
+      client_->GetDisplayType() == DisplayType::kPictureInPicture;
+
+  if (watch_time_reporter_ && !in_picture_in_picture)
     watch_time_reporter_->OnHidden();
 
   // This method is called when the RenderFrame is sent to background or
   // suspended. During undoable tab closures OnHidden() may be called back to
   // back, so we can't rely on |render_frame_suspended_| being false here.
-  if (frame_deliverer_) {
+  if (frame_deliverer_ && !in_picture_in_picture) {
     PostCrossThreadTask(
-        *io_task_runner_, FROM_HERE,
+        *video_task_runner_, FROM_HERE,
         CrossThreadBindOnce(&FrameDeliverer::SetRenderFrameSuspended,
                             CrossThreadUnretained(frame_deliverer_.get()),
                             true));
@@ -1108,7 +1138,7 @@ void WebMediaPlayerMS::SuspendForFrameClosed() {
 
   if (frame_deliverer_) {
     PostCrossThreadTask(
-        *io_task_runner_, FROM_HERE,
+        *video_task_runner_, FROM_HERE,
         CrossThreadBindOnce(&FrameDeliverer::SetRenderFrameSuspended,
                             CrossThreadUnretained(frame_deliverer_.get()),
                             true));
@@ -1123,7 +1153,7 @@ void WebMediaPlayerMS::OnFrameShown() {
 
   if (frame_deliverer_) {
     PostCrossThreadTask(
-        *io_task_runner_, FROM_HERE,
+        *video_task_runner_, FROM_HERE,
         CrossThreadBindOnce(&FrameDeliverer::SetRenderFrameSuspended,
                             CrossThreadUnretained(frame_deliverer_.get()),
                             false));
@@ -1148,7 +1178,8 @@ void WebMediaPlayerMS::SetVolumeMultiplier(double multiplier) {
   // TODO(perkj, magjed): See TODO in OnPlay().
 }
 
-void WebMediaPlayerMS::ActivateSurfaceLayerForVideo() {
+void WebMediaPlayerMS::ActivateSurfaceLayerForVideo(
+    media::VideoTransformation video_transform) {
   // Note that we might or might not already be in VideoLayer mode.
   DCHECK(!bridge_);
 
@@ -1166,8 +1197,8 @@ void WebMediaPlayerMS::ActivateSurfaceLayerForVideo() {
   PostCrossThreadTask(
       *compositor_task_runner_, FROM_HERE,
       CrossThreadBindOnce(&WebMediaPlayerMSCompositor::EnableSubmission,
-                          compositor_, bridge_->GetSurfaceId(),
-                          video_transformation_, IsInPictureInPicture()));
+                          compositor_, bridge_->GetSurfaceId(), video_transform,
+                          IsInPictureInPicture()));
 
   // If the element is already in Picture-in-Picture mode, it means that it
   // was set in this mode prior to this load, with a different
@@ -1192,8 +1223,8 @@ void WebMediaPlayerMS::OnFirstFrameReceived(
   OnTransformChanged(video_transform);
   OnOpacityChanged(is_opaque);
 
-  if (surface_layer_mode_ == WebMediaPlayer::SurfaceLayerMode::kAlways)
-    ActivateSurfaceLayerForVideo();
+  if (use_surface_layer_)
+    ActivateSurfaceLayerForVideo(video_transform);
 
   SetReadyState(WebMediaPlayer::kReadyStateHaveMetadata);
   SetReadyState(WebMediaPlayer::kReadyStateHaveEnoughData);
@@ -1221,13 +1252,12 @@ void WebMediaPlayerMS::OnTransformChanged(
     media::VideoTransformation video_transform) {
   DVLOG(1) << __func__;
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  video_transformation_ = video_transform;
 
   if (!bridge_) {
     // Keep the old |video_layer_| alive until SetCcLayer() is called with a new
     // pointer, as it may use the pointer from the last call.
     auto new_video_layer =
-        cc::VideoLayer::Create(compositor_.get(), video_transformation_);
+        cc::VideoLayer::Create(compositor_.get(), video_transform);
     get_client()->SetCcLayer(new_video_layer.get());
     video_layer_ = std::move(new_video_layer);
   }
@@ -1337,7 +1367,6 @@ WebMediaPlayerMS::GetVideoFramePresentationMetadata() {
 }
 
 void WebMediaPlayerMS::RequestVideoFrameCallback() {
-  DCHECK(RuntimeEnabledFeatures::RequestVideoFrameCallbackEnabled());
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   if (!compositor_) {
@@ -1377,7 +1406,7 @@ void WebMediaPlayerMS::MaybeCreateWatchTimeReporter() {
     return;
 
   if (compositor_) {
-    compositor_initial_time_ = compositor_->GetCurrentTime();
+    compositor_initial_time_ = GetFrameTime(compositor_->GetCurrentFrame());
     compositor_last_time_ = compositor_initial_time_;
   }
   if (audio_renderer_) {
@@ -1467,8 +1496,8 @@ void WebMediaPlayerMS::UpdateWatchTimeReporterSecondaryProperties() {
 base::TimeDelta WebMediaPlayerMS::GetCurrentTimeInterval() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   if (compositor_) {
-    compositor_last_time_ =
-        std::max(compositor_last_time_, compositor_->GetCurrentTime());
+    compositor_last_time_ = std::max(
+        compositor_last_time_, GetFrameTime(compositor_->GetCurrentFrame()));
   }
   if (audio_renderer_) {
     audio_last_time_ =
@@ -1531,6 +1560,7 @@ WebMediaPlayerMS::GetMediaStreamType() {
     case mojom::blink::MediaStreamType::DISPLAY_AUDIO_CAPTURE:
     case mojom::blink::MediaStreamType::DISPLAY_VIDEO_CAPTURE:
     case mojom::blink::MediaStreamType::DISPLAY_VIDEO_CAPTURE_THIS_TAB:
+    case mojom::blink::MediaStreamType::DISPLAY_VIDEO_CAPTURE_SET:
       return media::mojom::MediaStreamType::kLocalDisplayCapture;
     case mojom::blink::MediaStreamType::NUM_MEDIA_TYPES:
       NOTREACHED();

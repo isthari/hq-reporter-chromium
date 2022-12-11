@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -131,19 +131,29 @@ enum VideoProfile : int {
   kVP9Profile1,
   kVP9Profile2,
   kVP9Profile3,
-  kDolbyVisionCompatible_EL_MD,
-  kDolbyVisionCompatible_BL_EL_MD,
-  kDolbyVisionNonCompatible_BL_MD,
-  kDolbyVisionNonCompatible_BL_EL_MD,
+  kDolbyVisionProfile0,
+  kDolbyVisionProfile4,
+  kDolbyVisionProfile5,
+  kDolbyVisionProfile7,
   kHEVCMain,
   kHEVCMain10,
   kHEVCMainStillPicture,
   kAV1ProfileMain,
   kAV1ProfileHigh,
   kAV1ProfilePro,
+  kDolbyVisionProfile8,
+  kDolbyVisionProfile9,
+  kHEVCRext,
+  kHEVCHighThroughput,
+  kHEVCMultiviewMain,
+  kHEVCScalableMain,
+  kHEVC3dMain,
+  kHEVCScreenExtended,
+  kHEVCScalableRext,
+  kHEVCHighThroughputScreenExtended,
 
   kVideoProfileMin = kVideoProfileUnknown,
-  kVideoProfileMax = kAV1ProfilePro,
+  kVideoProfileMax = kHEVCHighThroughputScreenExtended,
 };
 
 struct CodecProfileLevel {

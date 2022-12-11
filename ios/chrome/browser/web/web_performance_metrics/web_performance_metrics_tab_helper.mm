@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,11 @@ void WebPerformanceMetricsTabHelper::DidStartNavigation(
     web::NavigationContext* navigation_context) {
   SetAggregateAbsoluteFirstContentfulPaint(std::numeric_limits<double>::max());
   SetFirstInputDelayLoggingStatus(false);
+  has_been_hidden_since_navigation_started_ = !web_state->IsVisible();
+}
+
+void WebPerformanceMetricsTabHelper::WasHidden(web::WebState* web_state) {
+  has_been_hidden_since_navigation_started_ = true;
 }
 
 void WebPerformanceMetricsTabHelper::WebStateDestroyed(
@@ -40,6 +45,11 @@ void WebPerformanceMetricsTabHelper::SetAggregateAbsoluteFirstContentfulPaint(
 
 bool WebPerformanceMetricsTabHelper::GetFirstInputDelayLoggingStatus() const {
   return first_input_delay_has_been_logged;
+}
+
+bool WebPerformanceMetricsTabHelper::HasBeenHiddenSinceNavigationStarted()
+    const {
+  return has_been_hidden_since_navigation_started_;
 }
 
 void WebPerformanceMetricsTabHelper::SetFirstInputDelayLoggingStatus(

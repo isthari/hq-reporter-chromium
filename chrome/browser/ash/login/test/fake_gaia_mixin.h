@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -120,10 +120,5 @@ class FakeGaiaMixin : public InProcessBrowserTestMixin {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove once the migration is finished.
-namespace chromeos {
-using ::ash::FakeGaiaMixin;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_TEST_FAKE_GAIA_MIXIN_H_

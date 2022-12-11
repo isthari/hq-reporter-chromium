@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,38 +7,49 @@
 #include <cmath>
 
 #include "ash/constants/ash_pref_names.h"
-#include "ash/services/ime/public/cpp/suggestions.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "chrome/browser/ash/input_method/suggestion_enums.h"
 #include "chrome/browser/ash/input_method/ui/suggestion_details.h"
+#include "chromeos/ash/services/ime/public/cpp/assistive_suggestions.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 
 namespace ash {
 namespace input_method {
 namespace {
 
-using ::chromeos::ime::TextSuggestion;
-using ::chromeos::ime::TextSuggestionMode;
-using ::chromeos::ime::TextSuggestionType;
+using ime::AssistiveSuggestion;
+using ime::AssistiveSuggestionMode;
+using ime::AssistiveSuggestionType;
 
+// Used for UmaHistogramExactLinear, should remain <= 101.
+constexpr size_t kMaxSuggestionLength = 101;
+constexpr size_t kMinimumNumberOfCharsToProduceSuggestion = 3;
 constexpr char kMultiWordFirstAcceptTimeDays[] = "multi_word_first_accept";
 constexpr char16_t kSuggestionShownMessage[] =
-    u"predictive writing candidate shown, press tab to accept";
+    u"predictive writing candidate shown, press down to select or "
+    u"press tab to accept";
+constexpr char kSuggestionSelectedMessage[] =
+    "predictive writing candidate selected, candidate text is %s, "
+    "press tab to accept or press up to deselect";
 constexpr char16_t kSuggestionAcceptedMessage[] =
     u"predictive writing candidate inserted";
 constexpr char16_t kSuggestionDismissedMessage[] =
     u"predictive writing candidate dismissed";
 
-absl::optional<TextSuggestion> GetMultiWordSuggestion(
-    const std::vector<TextSuggestion>& suggestions) {
+absl::optional<AssistiveSuggestion> GetMultiWordSuggestion(
+    const std::vector<AssistiveSuggestion>& suggestions) {
   if (suggestions.empty())
     return absl::nullopt;
-  if (suggestions[0].type == TextSuggestionType::kMultiWord) {
+  if (suggestions[0].type == AssistiveSuggestionType::kMultiWord) {
     // There should only ever be one multi word suggestion given at a time.
-    DCHECK_EQ(suggestions.size(), 1);
+    DCHECK_EQ(suggestions.size(), 1u);
     return suggestions[0];
   }
   return absl::nullopt;
@@ -58,6 +69,18 @@ size_t CalculateConfirmedLength(const std::u16string& surrounding_text,
   return 0;
 }
 
+MultiWordSuggestionType ToSuggestionType(
+    const ime::AssistiveSuggestionMode& suggestion_mode) {
+  switch (suggestion_mode) {
+    case ime::AssistiveSuggestionMode::kCompletion:
+      return MultiWordSuggestionType::kCompletion;
+    case ime::AssistiveSuggestionMode::kPrediction:
+      return MultiWordSuggestionType::kPrediction;
+    default:
+      return MultiWordSuggestionType::kUnknown;
+  }
+}
+
 void RecordTimeToAccept(base::TimeDelta delta) {
   base::UmaHistogramTimes("InputMethod.Assistive.TimeToAccept.MultiWord",
                           delta);
@@ -68,21 +91,40 @@ void RecordTimeToDismiss(base::TimeDelta delta) {
                           delta);
 }
 
-std::optional<int> GetTimeFirstAcceptedSuggestion(Profile* profile) {
-  DictionaryPrefUpdate update(profile->GetPrefs(),
+void RecordSuggestionLength(size_t suggestion_length) {
+  base::UmaHistogramExactLinear(
+      "InputMethod.Assistive.MultiWord.SuggestionLength", suggestion_length,
+      kMaxSuggestionLength);
+}
+
+void RecordCouldPossiblyShowSuggestion(
+    const ime::AssistiveSuggestionMode& suggestion_mode) {
+  base::UmaHistogramEnumeration(
+      "InputMethod.Assistive.MultiWord.CouldPossiblyShowSuggestion",
+      ToSuggestionType(suggestion_mode));
+}
+
+void RecordImplicitAcceptance(
+    const ime::AssistiveSuggestionMode& suggestion_mode) {
+  base::UmaHistogramEnumeration(
+      "InputMethod.Assistive.MultiWord.ImplicitAcceptance",
+      ToSuggestionType(suggestion_mode));
+}
+
+absl::optional<int> GetTimeFirstAcceptedSuggestion(Profile* profile) {
+  ScopedDictPrefUpdate update(profile->GetPrefs(),
                               prefs::kAssistiveInputFeatureSettings);
-  auto value = update->FindIntKey(kMultiWordFirstAcceptTimeDays);
+  auto value = update->FindInt(kMultiWordFirstAcceptTimeDays);
   if (value.has_value())
     return value.value();
-  return std::nullopt;
+  return absl::nullopt;
 }
 
 void SetTimeFirstAcceptedSuggestion(Profile* profile) {
-  DictionaryPrefUpdate update(profile->GetPrefs(),
+  ScopedDictPrefUpdate update(profile->GetPrefs(),
                               prefs::kAssistiveInputFeatureSettings);
   auto time_since_epoch = base::Time::Now() - base::Time::UnixEpoch();
-  update->SetIntKey(kMultiWordFirstAcceptTimeDays,
-                    time_since_epoch.InDaysFloored());
+  update->Set(kMultiWordFirstAcceptTimeDays, time_since_epoch.InDaysFloored());
 }
 
 bool ShouldShowTabGuide(Profile* profile) {
@@ -96,6 +138,21 @@ bool ShouldShowTabGuide(Profile* profile) {
   return (time_since_epoch - first_accepted) <= base::Days(7);
 }
 
+bool CouldSuggestWithSurroundingText(const base::StringPiece16& text,
+                                     size_t cursor_pos,
+                                     size_t anchor_pos) {
+  return cursor_pos == anchor_pos && cursor_pos == text.size() &&
+         text.size() >= kMinimumNumberOfCharsToProduceSuggestion;
+}
+
+bool u16_isalpha(char16_t ch) {
+  return (ch >= u'A' && ch <= u'Z') || (ch >= u'a' && ch <= u'z');
+}
+
+bool WouldBeInCompletionMode(const base::StringPiece16& text) {
+  return !text.empty() && u16_isalpha(text.back());
+}
+
 // TODO(crbug/1146266): Add DismissedAccuracy metric back in.
 
 }  // namespace
@@ -106,25 +163,37 @@ MultiWordSuggester::MultiWordSuggester(
     : suggestion_handler_(suggestion_handler), state_(this), profile_(profile) {
   suggestion_button_.id = ui::ime::ButtonId::kSuggestion;
   suggestion_button_.window_type =
-      ui::ime::AssistiveWindowType::kMultiWordSuggestion;
+      ash::ime::AssistiveWindowType::kMultiWordSuggestion;
   suggestion_button_.index = 0;
 }
 
 MultiWordSuggester::~MultiWordSuggester() = default;
 
 void MultiWordSuggester::OnFocus(int context_id) {
+  // Some parts of the code reserve negative/zero context_id for unfocused
+  // context. As a result we should make sure it is not being erroneously set to
+  // a negative number, and cause unexpected behaviour.
+  DCHECK(context_id > 0);
   focused_context_id_ = context_id;
   state_.ResetSuggestion();
 }
 
 void MultiWordSuggester::OnBlur() {
-  focused_context_id_ = 0;
+  focused_context_id_ = absl::nullopt;
   state_.ResetSuggestion();
 }
 
 void MultiWordSuggester::OnSurroundingTextChanged(const std::u16string& text,
                                                   size_t cursor_pos,
                                                   size_t anchor_pos) {
+  if (CouldSuggestWithSurroundingText(text, cursor_pos, anchor_pos) &&
+      !state_.IsSuggestionShowing()) {
+    RecordCouldPossiblyShowSuggestion(
+        WouldBeInCompletionMode(text)
+            ? ime::AssistiveSuggestionMode::kCompletion
+            : ime::AssistiveSuggestionMode::kPrediction);
+  }
+
   auto surrounding_text = SuggestionState::SurroundingText{
       .text = text,
       .cursor_pos = cursor_pos,
@@ -135,16 +204,21 @@ void MultiWordSuggester::OnSurroundingTextChanged(const std::u16string& text,
 }
 
 void MultiWordSuggester::OnExternalSuggestionsUpdated(
-    const std::vector<TextSuggestion>& suggestions) {
+    const std::vector<AssistiveSuggestion>& suggestions) {
   if (state_.IsSuggestionShowing() || !state_.IsCursorAtEndOfText())
     return;
 
-  absl::optional<TextSuggestion> multi_word_suggestion =
+  absl::optional<AssistiveSuggestion> multi_word_suggestion =
       GetMultiWordSuggestion(suggestions);
 
   if (!multi_word_suggestion) {
     state_.UpdateState(SuggestionState::State::kNoSuggestionShown);
     return;
+  }
+
+  if (auto suggestion_length = multi_word_suggestion->text.size();
+      suggestion_length < kMaxSuggestionLength) {
+    RecordSuggestionLength(suggestion_length);
   }
 
   auto suggestion = SuggestionState::Suggestion{
@@ -185,17 +259,28 @@ SuggestionStatus MultiWordSuggester::HandleKeyEvent(const ui::KeyEvent& event) {
   }
 }
 
-bool MultiWordSuggester::Suggest(const std::u16string& text,
-                                 size_t cursor_pos,
-                                 size_t anchor_pos) {
+bool MultiWordSuggester::TrySuggestWithSurroundingText(
+    const std::u16string& text,
+    int cursor_pos,
+    int anchor_pos) {
+  // MultiWordSuggester does not trigger a suggest based on surrounding text
+  // events. It only triggers suggestions OnExternalSuggestionsUpdated.
+  //
+  // Hence we should return whether the current suggestion is showing from
+  // internal state.
   return state_.IsSuggestionShowing();
 }
 
 bool MultiWordSuggester::AcceptSuggestion(size_t index) {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "suggest: Failed to accept suggestion. No context id.";
+    return false;
+  }
+
   std::string error;
-  suggestion_handler_->AcceptSuggestion(focused_context_id_, &error);
+  suggestion_handler_->AcceptSuggestion(*focused_context_id_, &error);
   if (!error.empty()) {
-    LOG(ERROR) << "suggest: failed to accept suggestion - " << error;
+    LOG(ERROR) << "suggest: Failed to accept suggestion - " << error;
     return false;
   }
 
@@ -213,8 +298,12 @@ bool MultiWordSuggester::AcceptSuggestion(size_t index) {
 }
 
 void MultiWordSuggester::DismissSuggestion() {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "suggest: Failed to dismiss suggestion. No context id.";
+    return;
+  }
   std::string error;
-  suggestion_handler_->DismissSuggestion(focused_context_id_, &error);
+  suggestion_handler_->DismissSuggestion(*focused_context_id_, &error);
   if (!error.empty()) {
     LOG(ERROR) << "suggest: Failed to dismiss suggestion - " << error;
     return;
@@ -237,8 +326,15 @@ bool MultiWordSuggester::HasSuggestions() {
   return false;
 }
 
-std::vector<TextSuggestion> MultiWordSuggester::GetSuggestions() {
-  return {};
+std::vector<AssistiveSuggestion> MultiWordSuggester::GetSuggestions() {
+  auto suggestion = state_.GetSuggestion();
+  if (!suggestion)
+    return {};
+  return {
+      AssistiveSuggestion{.mode = suggestion->mode,
+                          .type = AssistiveSuggestionType::kMultiWord,
+                          .text = base::UTF16ToUTF8(suggestion->text),
+                          .confirmed_length = suggestion->confirmed_length}};
 }
 
 void MultiWordSuggester::DisplaySuggestionIfAvailable() {
@@ -249,6 +345,10 @@ void MultiWordSuggester::DisplaySuggestionIfAvailable() {
 
 void MultiWordSuggester::DisplaySuggestion(
     const SuggestionState::Suggestion& suggestion) {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "suggest: Failed to show suggestion. No context id.";
+    return;
+  }
   ui::ime::SuggestionDetails details;
   details.text = suggestion.text;
   details.show_accept_annotation = false;
@@ -256,8 +356,11 @@ void MultiWordSuggester::DisplaySuggestion(
   details.confirmed_length = suggestion.confirmed_length;
   details.show_setting_link = false;
 
+  suggestion_button_.announce_string = base::UTF8ToUTF16(base::StringPrintf(
+      kSuggestionSelectedMessage, base::UTF16ToUTF8(details.text).c_str()));
+
   std::string error;
-  suggestion_handler_->SetSuggestion(focused_context_id_, details, &error);
+  suggestion_handler_->SetSuggestion(*focused_context_id_, details, &error);
   if (!error.empty()) {
     LOG(ERROR) << "suggest: Failed to show suggestion in assistive framework"
                << " - " << error;
@@ -265,9 +368,13 @@ void MultiWordSuggester::DisplaySuggestion(
 }
 
 void MultiWordSuggester::SetSuggestionHighlight(bool highlighted) {
+  if (!focused_context_id_.has_value()) {
+    LOG(ERROR) << "suggest: Failed to set button highlighted. No context id.";
+    return;
+  }
   std::string error;
   suggestion_handler_->SetButtonHighlighted(
-      focused_context_id_, suggestion_button_, highlighted, &error);
+      *focused_context_id_, suggestion_button_, highlighted, &error);
   if (!error.empty()) {
     LOG(ERROR) << "Failed to set button highlighted. " << error;
   }
@@ -335,10 +442,10 @@ void MultiWordSuggester::SuggestionState::UpdateSurroundingText(
 void MultiWordSuggester::SuggestionState::UpdateSuggestion(
     const MultiWordSuggester::SuggestionState::Suggestion& suggestion) {
   suggestion_ = suggestion;
-  UpdateState(suggestion.mode == TextSuggestionMode::kCompletion
+  UpdateState(suggestion.mode == AssistiveSuggestionMode::kCompletion
                   ? State::kCompletionSuggestionShown
                   : State::kPredictionSuggestionShown);
-  if (suggestion.mode == TextSuggestionMode::kCompletion)
+  if (suggestion.mode == AssistiveSuggestionMode::kCompletion)
     ReconcileSuggestionWithText();
 }
 
@@ -356,6 +463,9 @@ void MultiWordSuggester::SuggestionState::ReconcileSuggestionWithText() {
                                       ? new_confirmed_length
                                       : suggestion_->initial_confirmed_length;
 
+  bool user_typed_suggestion =
+      new_confirmed_length == suggestion_->text.length();
+
   // Are we still tracking the last suggestion shown to the user?
   bool no_longer_tracking =
       state_ == State::kTrackingLastSuggestionShown &&
@@ -363,7 +473,10 @@ void MultiWordSuggester::SuggestionState::ReconcileSuggestionWithText() {
         new_confirmed_length < suggestion_->initial_confirmed_length) ||
        (new_confirmed_length == suggestion_->confirmed_length &&
         surrounding_text_->cursor_pos != surrounding_text_->prev_cursor_pos) ||
-       new_confirmed_length == suggestion_->text.length());
+       user_typed_suggestion);
+
+  if (no_longer_tracking && user_typed_suggestion)
+    RecordImplicitAcceptance(suggestion_->mode);
 
   if (no_longer_tracking || !surrounding_text_->cursor_at_end_of_text) {
     UpdateState(State::kSuggestionDismissed);
@@ -376,10 +489,12 @@ void MultiWordSuggester::SuggestionState::ReconcileSuggestionWithText() {
     UpdateState(State::kTrackingLastSuggestionShown);
   }
 
-  suggestion_ = Suggestion{.text = suggestion_->text,
+  suggestion_ = Suggestion{.mode = suggestion_->mode,
+                           .text = suggestion_->text,
                            .confirmed_length = new_confirmed_length,
                            .initial_confirmed_length = initial_confirmed_length,
-                           .time_first_shown = suggestion_->time_first_shown};
+                           .time_first_shown = suggestion_->time_first_shown,
+                           .highlighted = suggestion_->highlighted};
 }
 
 void MultiWordSuggester::SuggestionState::ToggleSuggestionHighlight() {

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "components/optimization_guide/core/model_util.h"
 #include "components/optimization_guide/core/optimization_guide_features.h"
 #include "components/optimization_guide/core/optimization_guide_util.h"
 #include "components/optimization_guide/proto/models.pb.h"
@@ -22,7 +23,6 @@
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
-#include "services/network/public/cpp/network_connection_tracker.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
@@ -32,16 +32,14 @@ namespace optimization_guide {
 
 PredictionModelFetcherImpl::PredictionModelFetcherImpl(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-    const GURL& optimization_guide_service_get_models_url,
-    network::NetworkConnectionTracker* network_connection_tracker)
+    const GURL& optimization_guide_service_get_models_url)
     : optimization_guide_service_get_models_url_(
           net::AppendOrReplaceQueryParameter(
               optimization_guide_service_get_models_url,
               "key",
               optimization_guide::features::
                   GetOptimizationGuideServiceAPIKey())),
-      url_loader_factory_(url_loader_factory),
-      network_connection_tracker_(network_connection_tracker) {
+      url_loader_factory_(url_loader_factory) {
   CHECK(optimization_guide_service_get_models_url_.SchemeIs(url::kHttpsScheme));
 }
 
@@ -49,16 +47,10 @@ PredictionModelFetcherImpl::~PredictionModelFetcherImpl() = default;
 
 bool PredictionModelFetcherImpl::FetchOptimizationGuideServiceModels(
     const std::vector<proto::ModelInfo>& models_request_info,
-    const std::vector<proto::FieldTrial>& active_field_trials,
     proto::RequestContext request_context,
     const std::string& locale,
     ModelsFetchedCallback models_fetched_callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  if (network_connection_tracker_->IsOffline()) {
-    std::move(models_fetched_callback).Run(absl::nullopt);
-    return false;
-  }
 
   if (url_loader_)
     return false;
@@ -74,9 +66,8 @@ bool PredictionModelFetcherImpl::FetchOptimizationGuideServiceModels(
 
   pending_models_request_->set_request_context(request_context);
   pending_models_request_->set_locale(locale);
-
-  *pending_models_request_->mutable_active_field_trials() = {
-      active_field_trials.begin(), active_field_trials.end()};
+  *pending_models_request_->mutable_origin_info() =
+      optimization_guide::GetClientOriginInfo();
 
   for (const auto& model_request_info : models_request_info)
     *pending_models_request_->add_requested_models() = model_request_info;
@@ -90,23 +81,25 @@ bool PredictionModelFetcherImpl::FetchOptimizationGuideServiceModels(
         semantics {
           sender: "Optimization Guide"
           description:
-            "Requests PredictionModels from the Optimization Guide Service for "
-            "use in providing data saving and pageload optimizations for "
-            "Chrome."
+            "Requests the updated set of machine learning models from the "
+            "Optimization Guide Service that are applicable to the current "
+            "client version."
           trigger:
-            "Requested daily if Lite mode is enabled and the browser "
-            "has models provided by the Optimization Guide that are older than "
-            "a threshold set by the server."
-          data: "A list of models supported by the client and a list of the "
-            "user's websites."
+            "Requested at the beginning of each session if there are features "
+            "enabled by the current client version that require machine "
+            "learning models."
+          data: "A list of models supported by the client."
           destination: GOOGLE_OWNED_SERVICE
         }
-        policy {
+         policy {
           cookies_allowed: NO
-          setting:
-            "Users can control Lite mode on Android via 'Lite mode' setting. "
-            "Lite mode is not available on iOS."
-          policy_exception_justification: "Not implemented."
+          setting: "This feature cannot be disabled."
+          chrome_policy {
+            ComponentUpdatesEnabled {
+              policy_options {mode: MANDATORY}
+              ComponentUpdatesEnabled: false
+            }
+          }
         })");
 
   auto resource_request = std::make_unique<network::ResourceRequest>();
@@ -127,13 +120,6 @@ bool PredictionModelFetcherImpl::FetchOptimizationGuideServiceModels(
 
   url_loader_->AttachStringForUpload(serialized_request,
                                      "application/x-protobuf");
-
-  // |url_loader_| should not retry on 5xx errors since the server may already
-  // be overloaded.  |url_loader_| should retry on network changes since the
-  // network stack may receive the connection change event later than |this|.
-  static const int kMaxRetries = 1;
-  url_loader_->SetRetryOptions(
-      kMaxRetries, network::SimpleURLLoader::RETRY_ON_NETWORK_CHANGE);
 
   url_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
       url_loader_factory_.get(),
@@ -162,6 +148,26 @@ void PredictionModelFetcherImpl::HandleResponse(
       "OptimizationGuide.PredictionModelFetcher."
       "GetModelsResponse.NetErrorCode",
       -net_status);
+
+  for (const auto& model_info : pending_models_request_->requested_models()) {
+    if (response_code >= 0 &&
+        response_code <= net::HTTP_VERSION_NOT_SUPPORTED) {
+      base::UmaHistogramEnumeration(
+          "OptimizationGuide.PredictionModelFetcher."
+          "GetModelsResponse.Status." +
+              optimization_guide::GetStringNameForOptimizationTarget(
+                  model_info.optimization_target()),
+          static_cast<net::HttpStatusCode>(response_code),
+          net::HTTP_VERSION_NOT_SUPPORTED);
+    }
+    // Net error codes are negative but histogram enums must be positive.
+    base::UmaHistogramSparse(
+        "OptimizationGuide.PredictionModelFetcher."
+        "GetModelsResponse.NetErrorCode." +
+            optimization_guide::GetStringNameForOptimizationTarget(
+                model_info.optimization_target()),
+        -net_status);
+  }
 
   if (net_status == net::OK && response_code == net::HTTP_OK &&
       get_models_response->ParseFromString(get_models_response_data)) {

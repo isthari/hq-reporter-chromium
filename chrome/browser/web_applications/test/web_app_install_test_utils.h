@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +16,7 @@
 #include "chrome/common/buildflags.h"
 #include "components/webapps/browser/installable/installable_metrics.h"
 
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || \
-    (BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
 #include "components/services/app_service/public/cpp/url_handler_info.h"
 #endif
 
@@ -38,9 +37,12 @@ void AwaitStartWebAppProviderAndSubsystems(Profile* profile);
 // Wait until the provided WebAppProvider is ready.
 void WaitUntilReady(WebAppProvider* provider);
 
-AppId InstallDummyWebApp(Profile* profile,
-                         const std::string& app_name,
-                         const GURL& app_url);
+AppId InstallDummyWebApp(
+    Profile* profile,
+    const std::string& app_name,
+    const GURL& app_url,
+    const webapps::WebappInstallSource install_source =
+        webapps::WebappInstallSource::OMNIBOX_INSTALL_ICON);
 
 // Synchronous version of WebAppInstallManager::InstallWebAppFromInfo. May be
 // used in unit tests and browser tests.
@@ -50,21 +52,13 @@ AppId InstallWebApp(Profile* profile,
                     webapps::WebappInstallSource install_source =
                         webapps::WebappInstallSource::OMNIBOX_INSTALL_ICON);
 
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || \
-    (BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
-// Install a web app with url_handlers then register it with the
-// UrlHandlerManager. This is sufficient for testing URL matching and launch
-// at startup.
-AppId InstallWebAppWithUrlHandlers(
-    Profile* profile,
-    const GURL& start_url,
-    const std::u16string& app_name,
-    const std::vector<apps::UrlHandlerInfo>& url_handlers);
-#endif
-
 // Synchronously uninstall a web app. May be used in unit tests and browser
 // tests.
 void UninstallWebApp(Profile* profile, const AppId& app_id);
+
+// Synchronously uninstall all web apps for the given profile. May be used in
+// unit tests and browser tests. Returns `false` if there was a failure.
+bool UninstallAllWebApps(Profile* profile);
 
 }  // namespace test
 }  // namespace web_app

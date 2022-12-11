@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,7 @@
 //
 // The DownloadItem corresponding to the context menu is observed for removal or
 // destruction.
-class DownloadShelfContextMenu : public ui::SimpleMenuModel::Delegate,
-                                 public DownloadUIModel::Observer {
+class DownloadShelfContextMenu : public ui::SimpleMenuModel::Delegate {
  public:
   // Only show a context menu for a dangerous download if it is malicious.
   static bool WantsContextMenu(DownloadUIModel* download_model);
@@ -31,6 +30,9 @@ class DownloadShelfContextMenu : public ui::SimpleMenuModel::Delegate,
   DownloadShelfContextMenu& operator=(const DownloadShelfContextMenu&) = delete;
 
   ~DownloadShelfContextMenu() override;
+
+  // Called when download is destroyed.
+  void OnDownloadDestroyed();
 
  protected:
   explicit DownloadShelfContextMenu(base::WeakPtr<DownloadUIModel> download);
@@ -47,6 +49,8 @@ class DownloadShelfContextMenu : public ui::SimpleMenuModel::Delegate,
   bool IsItemForCommandIdDynamic(int command_id) const override;
   std::u16string GetLabelForCommandId(int command_id) const override;
 
+  DownloadUIModel* GetDownload() { return download_.get(); }
+
  private:
   friend class DownloadShelfContextMenuTest;
   FRIEND_TEST_ALL_PREFIXES(DownloadShelfContextMenuTest,
@@ -56,9 +60,6 @@ class DownloadShelfContextMenu : public ui::SimpleMenuModel::Delegate,
   // Detaches self from |download_item_|. Called when the DownloadItem is
   // destroyed or when this object is being destroyed.
   void DetachFromDownloadItem();
-
-  // DownloadUIModel::Observer overrides.
-  void OnDownloadDestroyed() override;
 
   ui::SimpleMenuModel* GetInProgressMenuModel(bool is_download);
   ui::SimpleMenuModel* GetInProgressPausedMenuModel(bool is_download);

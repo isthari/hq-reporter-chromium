@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,13 +21,15 @@
 #include "components/safe_browsing/content/renderer/renderer_url_loader_throttle.h"
 #include "components/safe_browsing/core/common/features.h"
 #include "content/public/common/content_features.h"
+#include "content/public/common/web_identity.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
-#include "content/public/renderer/render_view.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/common/loader/resource_type_util.h"
 #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
+#include "third_party/blink/public/web/modules/credentialmanagement/throttle_helper.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -191,6 +193,20 @@ URLLoaderThrottleProviderImpl::CreateThrottles(
       chrome_content_renderer_client_->GetChromeObserver()
           ->chromeos_listener()));
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+  // Workers can call us on a background thread. We don't care about such
+  // requests because we purposefully only look at resources from frames
+  // that the user can interact with.
+  content::RenderFrame* frame =
+      content::RenderThread::IsMainThread()
+          ? content::RenderFrame::FromRoutingID(render_frame_id)
+          : nullptr;
+  if (frame) {
+    auto throttle = content::MaybeCreateIdentityUrlLoaderThrottle(
+        base::BindRepeating(blink::SetIdpSigninStatus, frame->GetWebFrame()));
+    if (throttle)
+      throttles.push_back(std::move(throttle));
+  }
 
   return throttles;
 }

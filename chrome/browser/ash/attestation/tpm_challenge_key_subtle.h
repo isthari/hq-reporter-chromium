@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,16 +8,16 @@
 #include <memory>
 #include <string>
 
-#include "ash/components/attestation/attestation_flow.h"
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "chrome/browser/ash/attestation/tpm_challenge_key_result.h"
 #include "chrome/browser/platform_keys/platform_keys.h"
-#include "chromeos/dbus/attestation/attestation_ca.pb.h"
-#include "chromeos/dbus/attestation/attestation_client.h"
-#include "chromeos/dbus/attestation/interface.pb.h"
-#include "chromeos/dbus/constants/attestation_constants.h"
+#include "chromeos/ash/components/attestation/attestation_flow.h"
+#include "chromeos/ash/components/dbus/attestation/attestation_ca.pb.h"
+#include "chromeos/ash/components/dbus/attestation/attestation_client.h"
+#include "chromeos/ash/components/dbus/attestation/interface.pb.h"
+#include "chromeos/ash/components/dbus/constants/attestation_constants.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager.pb.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/user.h"
@@ -48,6 +48,7 @@ class TpmChallengeKeySubtleFactory final {
   static std::unique_ptr<TpmChallengeKeySubtle> CreateForPreparedKey(
       AttestationKeyType key_type,
       bool will_register_key,
+      ::attestation::KeyType key_crypto_type,
       const std::string& key_name,
       const std::string& public_key,
       Profile* profile);
@@ -92,10 +93,11 @@ class TpmChallengeKeySubtle {
   virtual void StartPrepareKeyStep(
       AttestationKeyType key_type,
       bool will_register_key,
+      ::attestation::KeyType key_crypto_type,
       const std::string& key_name,
       Profile* profile,
       TpmChallengeKeyCallback callback,
-      const absl::optional<::attestation::DeviceTrustSignals>& signals) = 0;
+      const absl::optional<std::string>& signals) = 0;
 
   // Generates a VA challenge response using the key pair prepared by
   // |PrepareKey| method. Returns VA challenge response via |callback|. In case
@@ -119,6 +121,7 @@ class TpmChallengeKeySubtle {
   // is true.
   virtual void RestorePreparedKeyState(AttestationKeyType key_type,
                                        bool will_register_key,
+                                       ::attestation::KeyType key_crypto_type,
                                        const std::string& key_name,
                                        const std::string& public_key,
                                        Profile* profile) = 0;
@@ -141,14 +144,13 @@ class TpmChallengeKeySubtleImpl final : public TpmChallengeKeySubtle {
   ~TpmChallengeKeySubtleImpl() override;
 
   // TpmChallengeKeySubtle
-  void StartPrepareKeyStep(
-      AttestationKeyType key_type,
-      bool will_register_key,
-      const std::string& key_name,
-      Profile* profile,
-      TpmChallengeKeyCallback callback,
-      const absl::optional<::attestation::DeviceTrustSignals>& signals)
-      override;
+  void StartPrepareKeyStep(AttestationKeyType key_type,
+                           bool will_register_key,
+                           ::attestation::KeyType key_crypto_type,
+                           const std::string& key_name,
+                           Profile* profile,
+                           TpmChallengeKeyCallback callback,
+                           const absl::optional<std::string>& signals) override;
   void StartSignChallengeStep(const std::string& challenge,
                               TpmChallengeKeyCallback callback) override;
   void StartRegisterKeyStep(TpmChallengeKeyCallback callback) override;
@@ -157,6 +159,7 @@ class TpmChallengeKeySubtleImpl final : public TpmChallengeKeySubtle {
   // TpmChallengeKeySubtle
   void RestorePreparedKeyState(AttestationKeyType key_type,
                                bool will_register_key,
+                               ::attestation::KeyType key_crypto_type,
                                const std::string& key_name,
                                const std::string& public_key,
                                Profile* profile) override;
@@ -235,6 +238,7 @@ class TpmChallengeKeySubtleImpl final : public TpmChallengeKeySubtle {
 
   AttestationKeyType key_type_ = AttestationKeyType::KEY_DEVICE;
   bool will_register_key_ = false;
+  ::attestation::KeyType key_crypto_type_ = ::attestation::KEY_TYPE_RSA;
   // See the comment for TpmChallengeKey::BuildResponse for more context about
   // different cases of using this variable.
   std::string key_name_;
@@ -243,7 +247,7 @@ class TpmChallengeKeySubtleImpl final : public TpmChallengeKeySubtle {
   // as corporate.
   std::string public_key_;
   // Signals from Context Aware Access.
-  absl::optional<::attestation::DeviceTrustSignals> signals_;
+  absl::optional<std::string> signals_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 
@@ -252,14 +256,5 @@ class TpmChallengeKeySubtleImpl final : public TpmChallengeKeySubtle {
 
 }  // namespace attestation
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-namespace attestation {
-using ::ash::attestation::TpmChallengeKeySubtle;
-using ::ash::attestation::TpmChallengeKeySubtleFactory;
-}  // namespace attestation
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_ATTESTATION_TPM_CHALLENGE_KEY_SUBTLE_H_

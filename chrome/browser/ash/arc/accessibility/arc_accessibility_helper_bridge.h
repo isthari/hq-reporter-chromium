@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -125,6 +125,10 @@ class ArcAccessibilityHelperBridge
   void OnGetTextLocationDataResult(
       const ui::AXActionData& data,
       const absl::optional<gfx::Rect>& result_rect) const;
+
+  void PopulateActionParameters(
+      const ui::AXActionData& chrome_data,
+      arc::mojom::AccessibilityActionData& action_data) const;
 
   absl::optional<gfx::Rect> OnGetTextLocationDataResultInternal(
       const ui::AXTreeID& ax_tree_id,

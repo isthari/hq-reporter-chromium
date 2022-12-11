@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,6 +47,7 @@ void CheckDisplaysEqual(const Display& input, const Display& output) {
   EXPECT_EQ(input.depth_per_component(), output.depth_per_component());
   EXPECT_EQ(input.is_monochrome(), output.is_monochrome());
   EXPECT_EQ(input.display_frequency(), output.display_frequency());
+  EXPECT_EQ(input.label(), output.label());
 }
 
 void CheckDisplayLayoutsEqual(const DisplayLayout& input,
@@ -151,6 +152,7 @@ TEST(DisplayStructTraitsTest, SetAllDisplayValues) {
   input.set_depth_per_component(input.depth_per_component() + 1);
   input.set_is_monochrome(!input.is_monochrome());
   input.set_display_frequency(input.display_frequency() + 1);
+  input.set_label("Internal Display");
 
   Display output;
   SerializeAndDeserialize<mojom::Display>(input, &output);
@@ -277,6 +279,8 @@ TEST(DisplayStructTraitsTest, DisplaySnapshotCurrentAndNativeModesNull) {
   const base::FilePath sys_path = base::FilePath::FromUTF8Unsafe("a/cb");
   const int64_t product_code = 19;
   const int32_t year_of_manufacture = 1776;
+  const VariableRefreshRateState variable_refresh_rate_state = kVrrEnabled;
+  const gfx::Range vertical_display_range_limits({48, 120});
 
   const DisplayMode display_mode(gfx::Size(13, 11), true, 40.0f);
 
@@ -294,7 +298,8 @@ TEST(DisplayStructTraitsTest, DisplaySnapshotCurrentAndNativeModesNull) {
       has_color_correction_matrix, color_correction_in_linear_space,
       display_color_space, bits_per_channel, hdr_static_metadata, display_name,
       sys_path, std::move(modes), PanelOrientation::kNormal, edid, current_mode,
-      native_mode, product_code, year_of_manufacture, maximum_cursor_size);
+      native_mode, product_code, year_of_manufacture, maximum_cursor_size,
+      variable_refresh_rate_state, vertical_display_range_limits);
 
   std::unique_ptr<DisplaySnapshot> output;
   SerializeAndDeserialize<mojom::DisplaySnapshot>(input->Clone(), &output);
@@ -326,6 +331,8 @@ TEST(DisplayStructTraitsTest, DisplaySnapshotCurrentModeNull) {
   const base::FilePath sys_path = base::FilePath::FromUTF8Unsafe("z/b");
   const int64_t product_code = 9;
   const int32_t year_of_manufacture = 1776;
+  const VariableRefreshRateState variable_refresh_rate_state = kVrrEnabled;
+  const gfx::Range vertical_display_range_limits({48, 120});
 
   const DisplayMode display_mode(gfx::Size(13, 11), true, 50.0f);
 
@@ -343,7 +350,8 @@ TEST(DisplayStructTraitsTest, DisplaySnapshotCurrentModeNull) {
       has_color_correction_matrix, color_correction_in_linear_space,
       display_color_space, bits_per_channel, hdr_static_metadata, display_name,
       sys_path, std::move(modes), PanelOrientation::kNormal, edid, current_mode,
-      native_mode, product_code, year_of_manufacture, maximum_cursor_size);
+      native_mode, product_code, year_of_manufacture, maximum_cursor_size,
+      variable_refresh_rate_state, vertical_display_range_limits);
 
   std::unique_ptr<DisplaySnapshot> output;
   SerializeAndDeserialize<mojom::DisplaySnapshot>(input->Clone(), &output);
@@ -375,6 +383,8 @@ TEST(DisplayStructTraitsTest, DisplaySnapshotExternal) {
   const base::FilePath sys_path = base::FilePath::FromUTF8Unsafe("a/cb");
   const int64_t product_code = 139;
   const int32_t year_of_manufacture = 2018;
+  const VariableRefreshRateState variable_refresh_rate_state = kVrrDisabled;
+  const gfx::Range vertical_display_range_limits({40, 144});
 
   const DisplayMode display_mode(gfx::Size(1024, 768), false, 60.0f);
   const DisplayMode display_current_mode(gfx::Size(1440, 900), false, 59.89f);
@@ -396,7 +406,8 @@ TEST(DisplayStructTraitsTest, DisplaySnapshotExternal) {
       has_color_correction_matrix, color_correction_in_linear_space,
       display_color_space, bits_per_channel, hdr_static_metadata, display_name,
       sys_path, std::move(modes), PanelOrientation::kLeftUp, edid, current_mode,
-      native_mode, product_code, year_of_manufacture, maximum_cursor_size);
+      native_mode, product_code, year_of_manufacture, maximum_cursor_size,
+      variable_refresh_rate_state, vertical_display_range_limits);
 
   std::unique_ptr<DisplaySnapshot> output;
   SerializeAndDeserialize<mojom::DisplaySnapshot>(input->Clone(), &output);
@@ -428,6 +439,7 @@ TEST(DisplayStructTraitsTest, DisplaySnapshotInternal) {
   const base::FilePath sys_path;
   const int64_t product_code = 139;
   const int32_t year_of_manufacture = 2018;
+  const VariableRefreshRateState variable_refresh_rate_state = kVrrNotCapable;
 
   const DisplayMode display_mode(gfx::Size(2560, 1700), false, 95.96f);
 
@@ -446,7 +458,7 @@ TEST(DisplayStructTraitsTest, DisplaySnapshotInternal) {
       display_color_space, bits_per_channel, hdr_static_metadata, display_name,
       sys_path, std::move(modes), PanelOrientation::kRightUp, edid,
       current_mode, native_mode, product_code, year_of_manufacture,
-      maximum_cursor_size);
+      maximum_cursor_size, variable_refresh_rate_state, absl::nullopt);
 
   std::unique_ptr<DisplaySnapshot> output;
   SerializeAndDeserialize<mojom::DisplaySnapshot>(input->Clone(), &output);

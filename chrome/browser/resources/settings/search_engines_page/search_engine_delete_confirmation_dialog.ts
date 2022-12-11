@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,16 @@
  * @fileoverview 'settings-search-engine-delete-confirmation-dialog' is a
  * component for confirming that the user wants to delete a search engine.
  */
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
 
-import {CrButtonElement} from 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import {WebUIListenerMixin} from 'chrome://resources/js/web_ui_listener_mixin.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrButtonElement} from 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {loadTimeData} from '../i18n_setup.js';
-
-import {SearchEngine, SearchEnginesBrowserProxy, SearchEnginesBrowserProxyImpl, SearchEnginesInfo} from './search_engines_browser_proxy.js';
+import {getTemplate} from './search_engine_delete_confirmation_dialog.html.js';
+import {SearchEngine, SearchEnginesBrowserProxy, SearchEnginesBrowserProxyImpl} from './search_engines_browser_proxy.js';
 
 export interface SettingsSearchEngineDeleteConfirmationDialogElement {
   $: {
@@ -27,7 +26,7 @@ export interface SettingsSearchEngineDeleteConfirmationDialogElement {
 }
 
 const SettingsSearchEngineDeleteConfirmationDialogElementBase =
-    WebUIListenerMixin(PolymerElement);
+    WebUiListenerMixin(PolymerElement);
 
 export class SettingsSearchEngineDeleteConfirmationDialogElement extends
     SettingsSearchEngineDeleteConfirmationDialogElementBase {
@@ -36,18 +35,12 @@ export class SettingsSearchEngineDeleteConfirmationDialogElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
     return {
       model: Object,
-
-      isActiveSearchEnginesFlagEnabled_: {
-        type: Boolean,
-        value: () =>
-            loadTimeData.getBoolean('isActiveSearchEnginesFlagEnabled'),
-      },
     };
   }
 
@@ -55,7 +48,7 @@ export class SettingsSearchEngineDeleteConfirmationDialogElement extends
   private browserProxy_: SearchEnginesBrowserProxy =
       SearchEnginesBrowserProxyImpl.getInstance();
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
     this.$.dialog.showModal();
   }

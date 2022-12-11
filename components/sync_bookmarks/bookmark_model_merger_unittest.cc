@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/guid.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -19,16 +20,17 @@
 #include "components/bookmarks/test/test_bookmark_client.h"
 #include "components/favicon/core/test/mock_favicon_service.h"
 #include "components/sync/base/unique_position.h"
+#include "components/sync/protocol/entity_metadata.pb.h"
 #include "components/sync_bookmarks/bookmark_specifics_conversions.h"
 #include "components/sync_bookmarks/switches.h"
 #include "components/sync_bookmarks/synced_bookmark_tracker.h"
+#include "components/sync_bookmarks/synced_bookmark_tracker_entity.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using testing::_;
 using testing::Eq;
 using testing::IsNull;
-using testing::Ne;
 using testing::NotNull;
 using testing::UnorderedElementsAre;
 
@@ -184,10 +186,10 @@ syncer::UpdateResponseData CreateBookmarkBarNodeUpdateData() {
 
 syncer::UniquePosition PositionOf(const bookmarks::BookmarkNode* node,
                                   const SyncedBookmarkTracker& tracker) {
-  const SyncedBookmarkTracker::Entity* entity =
+  const SyncedBookmarkTrackerEntity* entity =
       tracker.GetEntityForBookmarkNode(node);
   return syncer::UniquePosition::FromProto(
-      entity->metadata()->unique_position());
+      entity->metadata().unique_position());
 }
 
 bool PositionsInTrackerMatchModel(const bookmarks::BookmarkNode* node,
@@ -207,11 +209,9 @@ bool PositionsInTrackerMatchModel(const bookmarks::BookmarkNode* node,
     }
     last_pos = pos;
   }
-  return std::all_of(node->children().cbegin(), node->children().cend(),
-                     [&tracker](const auto& child) {
-                       return PositionsInTrackerMatchModel(child.get(),
-                                                           tracker);
-                     });
+  return base::ranges::all_of(node->children(), [&tracker](const auto& child) {
+    return PositionsInTrackerMatchModel(child.get(), tracker);
+  });
 }
 
 std::unique_ptr<SyncedBookmarkTracker> Merge(
@@ -234,8 +234,6 @@ static syncer::UniquePosition MakeRandomPosition() {
 }  // namespace
 
 TEST(BookmarkModelMergerTest, ShouldMergeLocalAndRemoteModels) {
-  const size_t kMaxEntries = 1000;
-
   const std::string kFolder1Title = "folder1";
   const std::string kFolder2Title = "folder2";
   const std::string kFolder3Title = "folder3";
@@ -415,12 +413,12 @@ TEST(BookmarkModelMergerTest, ShouldMergeLocalAndRemoteModels) {
 
   // Verify the tracker contents.
   EXPECT_THAT(tracker->TrackedEntitiesCountForTest(), Eq(11U));
-  std::vector<const SyncedBookmarkTracker::Entity*> local_changes =
-      tracker->GetEntitiesWithLocalChanges(kMaxEntries);
+  std::vector<const SyncedBookmarkTrackerEntity*> local_changes =
+      tracker->GetEntitiesWithLocalChanges();
 
   EXPECT_THAT(local_changes.size(), Eq(4U));
   std::vector<const bookmarks::BookmarkNode*> nodes_with_local_changes;
-  for (const SyncedBookmarkTracker::Entity* local_change : local_changes) {
+  for (const SyncedBookmarkTrackerEntity* local_change : local_changes) {
     nodes_with_local_changes.push_back(local_change->bookmark_node());
   }
   // Verify that url2(http://www.url2.com), Folder 2 and children have
@@ -437,8 +435,6 @@ TEST(BookmarkModelMergerTest, ShouldMergeLocalAndRemoteModels) {
 }
 
 TEST(BookmarkModelMergerTest, ShouldMergeRemoteReorderToLocalModel) {
-  const size_t kMaxEntries = 1000;
-
   const std::string kFolder1Title = "folder1";
   const std::string kFolder2Title = "folder2";
   const std::string kFolder3Title = "folder3";
@@ -520,8 +516,8 @@ TEST(BookmarkModelMergerTest, ShouldMergeRemoteReorderToLocalModel) {
   EXPECT_THAT(tracker->TrackedEntitiesCountForTest(), Eq(4U));
 
   // There should be no local changes.
-  std::vector<const SyncedBookmarkTracker::Entity*> local_changes =
-      tracker->GetEntitiesWithLocalChanges(kMaxEntries);
+  std::vector<const SyncedBookmarkTrackerEntity*> local_changes =
+      tracker->GetEntitiesWithLocalChanges();
   EXPECT_THAT(local_changes.size(), Eq(0U));
 
   // Verify positions in tracker.
@@ -1666,9 +1662,8 @@ TEST(BookmarkModelMergerTest,
   // Verify the tracker contents.
   EXPECT_THAT(tracker->TrackedEntitiesCountForTest(), Eq(5U));
 
-  const size_t kMaxEntries = 1000;
-  std::vector<const SyncedBookmarkTracker::Entity*> local_changes =
-      tracker->GetEntitiesWithLocalChanges(kMaxEntries);
+  std::vector<const SyncedBookmarkTrackerEntity*> local_changes =
+      tracker->GetEntitiesWithLocalChanges();
 
   ASSERT_THAT(local_changes.size(), Eq(1U));
   EXPECT_THAT(local_changes[0]->bookmark_node(),
@@ -1700,7 +1695,7 @@ TEST(BookmarkModelMergerTest, ShouldLogMetricsForInvalidSpecifics) {
   histogram_tester.ExpectUniqueSample(
       "Sync.ProblematicServerSideBookmarksDuringMerge",
       /*sample=*/ExpectedRemoteBookmarkUpdateError::kInvalidSpecifics,
-      /*count=*/1);
+      /*expected_bucket_count=*/1);
 }
 
 TEST(BookmarkModelMergerTest, ShouldLogMetricsForChildrenOfNonFolder) {
@@ -1744,7 +1739,7 @@ TEST(BookmarkModelMergerTest, ShouldLogMetricsForChildrenOfNonFolder) {
   histogram_tester.ExpectUniqueSample(
       "Sync.ProblematicServerSideBookmarksDuringMerge",
       /*sample=*/ExpectedRemoteBookmarkUpdateError::kParentNotFolder,
-      /*count=*/3);
+      /*expected_bucket_count=*/3);
 }
 
 TEST(BookmarkModelMergerTest, ShouldLogMetricsForChildrenOfOrphanUpdates) {
@@ -1775,7 +1770,7 @@ TEST(BookmarkModelMergerTest, ShouldLogMetricsForChildrenOfOrphanUpdates) {
   histogram_tester.ExpectUniqueSample(
       "Sync.ProblematicServerSideBookmarksDuringMerge",
       /*sample=*/ExpectedRemoteBookmarkUpdateError::kMissingParentEntity,
-      /*count=*/1);
+      /*expected_bucket_count=*/1);
   EXPECT_THAT(histogram_tester.GetTotalSum(
                   "Sync.BookmarkModelMerger.ReachableInputUpdates"),
               Eq(1));
@@ -1796,7 +1791,7 @@ TEST(BookmarkModelMergerTest, ShouldLogMetricsForUnsupportedServerTag) {
   histogram_tester.ExpectUniqueSample(
       "Sync.ProblematicServerSideBookmarksDuringMerge",
       /*sample=*/ExpectedRemoteBookmarkUpdateError::kUnsupportedPermanentFolder,
-      /*count=*/1);
+      /*expected_bucket_count=*/1);
 }
 
 TEST(BookmarkModelMergerTest, ShouldLogMetricsForkDescendantOfRootNode) {
@@ -1826,7 +1821,7 @@ TEST(BookmarkModelMergerTest, ShouldLogMetricsForkDescendantOfRootNode) {
   histogram_tester.ExpectUniqueSample(
       "Sync.ProblematicServerSideBookmarksDuringMerge",
       /*sample=*/ExpectedRemoteBookmarkUpdateError::kMissingParentEntity,
-      /*count=*/1);
+      /*expected_bucket_count=*/1);
 }
 
 TEST(BookmarkModelMergerTest, ShouldRemoveMatchingDuplicatesByGUID) {
@@ -1885,7 +1880,8 @@ TEST(BookmarkModelMergerTest, ShouldRemoveMatchingDuplicatesByGUID) {
               Eq(4));
   histogram_tester.ExpectBucketCount(
       "Sync.BookmarksGUIDDuplicates",
-      /*sample=*/ExpectedBookmarksGUIDDuplicates::kMatchingUrls, /*count=*/1);
+      /*sample=*/ExpectedBookmarksGUIDDuplicates::kMatchingUrls,
+      /*expected_count=*/1);
   EXPECT_THAT(histogram_tester.GetTotalSum(
                   "Sync.BookmarkModelMerger.ReachableInputUpdates"),
               Eq(3));
@@ -1934,7 +1930,8 @@ TEST(BookmarkModelMergerTest, ShouldRemoveDifferentDuplicatesByGUID) {
               UnorderedElementsAre(HasTitle(base::UTF8ToUTF16(kTitle1))));
   histogram_tester.ExpectBucketCount(
       "Sync.BookmarksGUIDDuplicates",
-      /*sample=*/ExpectedBookmarksGUIDDuplicates::kDifferentUrls, /*count=*/1);
+      /*sample=*/ExpectedBookmarksGUIDDuplicates::kDifferentUrls,
+      /*expected_count=*/1);
 }
 
 TEST(BookmarkModelMergerTest, ShouldRemoveMatchingFolderDuplicatesByGUID) {
@@ -1977,7 +1974,7 @@ TEST(BookmarkModelMergerTest, ShouldRemoveMatchingFolderDuplicatesByGUID) {
   histogram_tester.ExpectBucketCount(
       "Sync.BookmarksGUIDDuplicates",
       /*sample=*/ExpectedBookmarksGUIDDuplicates::kMatchingFolders,
-      /*count=*/1);
+      /*expected_count=*/1);
   EXPECT_THAT(tracker->GetEntityForSyncId("Id1"), IsNull());
   EXPECT_THAT(tracker->GetEntityForSyncId("Id2"), NotNull());
 }
@@ -2033,7 +2030,7 @@ TEST(BookmarkModelMergerTest, ShouldRemoveDifferentFolderDuplicatesByGUID) {
   histogram_tester.ExpectBucketCount(
       "Sync.BookmarksGUIDDuplicates",
       /*sample=*/ExpectedBookmarksGUIDDuplicates::kDifferentFolders,
-      /*count=*/1);
+      /*expected_count=*/1);
   EXPECT_THAT(tracker->GetEntityForSyncId("Id1"), NotNull());
   EXPECT_THAT(tracker->GetEntityForSyncId("Id2"), IsNull());
   EXPECT_EQ(bookmark_bar_node->children().front()->GetTitle(),
@@ -2188,10 +2185,39 @@ TEST(BookmarkModelMergerTest, ShouldRemoveDifferentTypeDuplicatesByGUID) {
   histogram_tester.ExpectUniqueSample(
       "Sync.BookmarksGUIDDuplicates",
       /*sample=*/ExpectedBookmarksGUIDDuplicates::kDifferentTypes,
-      /*count=*/1);
+      /*expected_bucket_count=*/1);
   EXPECT_THAT(tracker->GetEntityForSyncId("Id1"), NotNull());
   EXPECT_THAT(tracker->GetEntityForSyncId("Id2"), IsNull());
   EXPECT_EQ(bookmark_bar_node->children().front()->children().size(), 1u);
+}
+
+TEST(BookmarkModelMergerTest, ShouldReportTimeMetrics) {
+  const std::string kTitle = "Title";
+  std::unique_ptr<bookmarks::BookmarkModel> bookmark_model =
+      bookmarks::TestBookmarkClient::CreateModel();
+
+  syncer::UpdateResponseDataList updates;
+  updates.push_back(CreateBookmarkBarNodeUpdateData());
+
+  // Create 10k+ bookmarks to verify reported metrics.
+  for (size_t i = 0; i < 10001; ++i) {
+    updates.push_back(CreateUpdateResponseData(
+        /*guid=*/base::GUID::GenerateRandomV4(),
+        /*parent_guid=*/BookmarkBarGuid(), kTitle,
+        /*url=*/"",
+        /*is_folder=*/true, MakeRandomPosition()));
+  }
+
+  base::HistogramTester histogram_tester;
+  std::unique_ptr<SyncedBookmarkTracker> tracker =
+      Merge(std::move(updates), bookmark_model.get());
+  histogram_tester.ExpectTotalCount("Sync.BookmarkModelMergerTime", 1);
+  histogram_tester.ExpectTotalCount("Sync.BookmarkModelMergerTime.10kUpdates",
+                                    1);
+  histogram_tester.ExpectTotalCount("Sync.BookmarkModelMergerTime.50kUpdates",
+                                    0);
+  histogram_tester.ExpectTotalCount("Sync.BookmarkModelMergerTime.100kUpdates",
+                                    0);
 }
 
 }  // namespace sync_bookmarks

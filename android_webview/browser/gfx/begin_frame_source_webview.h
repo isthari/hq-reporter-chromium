@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,6 +35,9 @@ class BeginFrameSourceWebView : public viz::ExternalBeginFrameSource {
 
   // Schedules BeginFrame completion callback on root begin frame source.
   virtual void AddBeginFrameCompletionCallback(base::OnceClosure callback);
+
+  // Returns last dispatched begin frame args.
+  const viz::BeginFrameArgs& LastDispatchedBeginFrameArgs();
 
  protected:
   void ObserveBeginFrameSource(viz::BeginFrameSource* begin_frame_source);

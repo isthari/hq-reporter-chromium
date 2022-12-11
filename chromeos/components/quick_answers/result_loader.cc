@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "chromeos/components/quick_answers/result_loader.h"
@@ -26,17 +26,30 @@ constexpr net::NetworkTrafficAnnotationTag kNetworkTrafficAnnotationTag =
             sender: "ChromeOS Quick Answers"
             description:
               "ChromeOS requests quick answers based on the currently selected "
-              "text."
+              "text to look up a translation, dictionary definition, "
+              "or unit conversion."
             trigger:
               "Right click to trigger context menu."
+            data: "Currently selected text, device language and "
+                  "source language of the selected text "
+                  "is sent to Google API only for translation."
             destination: GOOGLE_OWNED_SERVICE
           }
           policy: {
             cookies_allowed: YES
+            cookies_store: "system"
             setting:
               "Quick Answers can be enabled/disabled in Chrome Settings and is "
               "subject to eligibility requirements. The user may also "
               "separately opt out of sharing screen context with Assistant."
+            chrome_policy {
+                QuickAnswersEnabled {
+                    QuickAnswersEnabled: false
+                }
+                QuickAnswersTranslationEnabled {
+                    QuickAnswersTranslationEnabled: true
+                }
+            }
           })");
 
 }  // namespace
@@ -78,11 +91,16 @@ void ResultLoader::OnBuildRequestComplete(
   if (!request_body.empty())
     loader_->AttachStringForUpload(request_body, "application/json");
 
+  loader_->SetRetryOptions(
+      /*max_retries=*/5, network::SimpleURLLoader::RetryMode::RETRY_ON_5XX |
+                             network::SimpleURLLoader::RETRY_ON_NETWORK_CHANGE);
+
   fetch_start_time_ = base::TimeTicks::Now();
-  loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+  loader_->DownloadToString(
       url_loader_factory_.get(),
       base::BindOnce(&ResultLoader::OnSimpleURLLoaderComplete,
-                     weak_factory_.GetWeakPtr(), preprocessed_output));
+                     weak_factory_.GetWeakPtr(), preprocessed_output),
+      network::SimpleURLLoader::kMaxBoundedStringDownloadSize);
 }
 
 void ResultLoader::OnSimpleURLLoaderComplete(
@@ -92,8 +110,13 @@ void ResultLoader::OnSimpleURLLoaderComplete(
 
   if (!response_body || loader_->NetError() != net::OK ||
       !loader_->ResponseInfo() || !loader_->ResponseInfo()->headers) {
+    int response_code = -1;
+    if (loader_->ResponseInfo() && loader_->ResponseInfo()->headers) {
+      response_code = loader_->ResponseInfo()->headers->response_code();
+    }
     RecordLoadingStatus(LoadStatus::kNetworkError, duration);
-    RecordNetworkError(preprocessed_output.intent_info.intent_type);
+    RecordNetworkError(preprocessed_output.intent_info.intent_type,
+                       response_code);
     delegate_->OnNetworkError();
     return;
   }

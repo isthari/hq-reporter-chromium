@@ -1,22 +1,21 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import '//resources/cr_elements/cr_lottie/cr_lottie.m.js';
-import '//resources/cr_elements/cr_fingerprint/cr_fingerprint_progress_arc.m.js';
-import '//resources/cr_elements/cr_button/cr_button.m.js';
-import '//resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import '../../settings_shared_css.js';
+import 'chrome://resources/cr_elements/cr_lottie/cr_lottie.js';
+import 'chrome://resources/cr_elements/cr_fingerprint/cr_fingerprint_progress_arc.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import '../../settings_shared.css.js';
 
-import {assert, assertNotReached} from '//resources/js/assert.m.js';
-import {I18nBehavior} from '//resources/js/i18n_behavior.m.js';
-import {WebUIListenerBehavior} from '//resources/js/web_ui_listener_behavior.m.js';
-import {afterNextRender, flush, html, Polymer, TemplateInstanceBase, Templatizer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {assertNotReached} from 'chrome://resources/js/assert.js';
+import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/ash/common/i18n_behavior.js';
+import {WebUIListenerBehavior, WebUIListenerBehaviorInterface} from 'chrome://resources/ash/common/web_ui_listener_behavior.js';
+import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {loadTimeData} from '../../i18n_setup.js';
-import {recordSettingChange, setUserActionRecorderForTesting} from '../metrics_recorder.m.js';
+import {recordSettingChange} from '../metrics_recorder.js';
 
-import {FingerprintAttempt, FingerprintBrowserProxy, FingerprintBrowserProxyImpl, FingerprintInfo, FingerprintResultType, FingerprintScan} from './fingerprint_browser_proxy.js';
+import {FingerprintBrowserProxy, FingerprintBrowserProxyImpl, FingerprintResultType, FingerprintScan} from './fingerprint_browser_proxy.js';
 
 /**
  * The steps in the fingerprint setup flow.
@@ -25,20 +24,7 @@ import {FingerprintAttempt, FingerprintBrowserProxy, FingerprintBrowserProxyImpl
 export const FingerprintSetupStep = {
   LOCATE_SCANNER: 1,  // The user needs to locate the scanner.
   MOVE_FINGER: 2,     // The user needs to move finger around the scanner.
-  READY: 3            // The scanner has read the fingerprint successfully.
-};
-
-/**
- * Fingerprint sensor locations corresponding to the FingerprintLocation
- * enumerators in
- * /chrome/browser/ash/login/quick_unlock/quick_unlock_utils.h
- * @enum {number}
- */
-export const FingerprintLocation = {
-  TABLET_POWER_BUTTON: 0,
-  KEYBOARD_BOTTOM_LEFT: 1,
-  KEYBOARD_BOTTOM_RIGHT: 2,
-  KEYBOARD_TOP_RIGHT: 3,
+  READY: 3,           // The scanner has read the fingerprint successfully.
 };
 
 /**
@@ -48,113 +34,143 @@ export const FingerprintLocation = {
  */
 const SHOW_TAP_SENSOR_MESSAGE_DELAY_MS = 2000;
 
-Polymer({
-  _template: html`{__html_template__}`,
-  is: 'settings-setup-fingerprint-dialog',
+/**
+ * The onboarding animation asset for dark mode.
+ * @type {string}
+ */
+const ONBOARDING_ANIMATION_DARK = 'fingerprint_scanner_animation_dark.json';
 
-  behaviors: [I18nBehavior, WebUIListenerBehavior],
+/**
+ * The onboarding animation asset for light mode.
+ * @type {string}
+ */
+const ONBOARDING_ANIMATION_LIGHT = 'fingerprint_scanner_animation_light.json';
 
-  properties: {
+/**
+ * @constructor
+ * @extends {PolymerElement}
+ * @implements {I18nBehaviorInterface}
+ * @implements {WebUIListenerBehaviorInterface}
+ */
+const SettingsSetupFingerprintDialogElementBase =
+    mixinBehaviors([I18nBehavior, WebUIListenerBehavior], PolymerElement);
+
+/** @polymer */
+class SettingsSetupFingerprintDialogElement extends
+    SettingsSetupFingerprintDialogElementBase {
+  static get is() {
+    return 'settings-setup-fingerprint-dialog';
+  }
+
+  static get template() {
+    return html`{__html_template__}`;
+  }
+
+  static get properties() {
+    return {
+      /**
+       * Whether add another finger is allowed.
+       * @type {boolean}
+       */
+      allowAddAnotherFinger: {
+        type: Boolean,
+        value: true,
+      },
+
+      /**
+       * Authentication token provided by settings-fingerprint-list
+       */
+      authToken: {
+        type: String,
+        value: '',
+      },
+
+      /**
+       * The problem message to display.
+       * @private
+       */
+      problemMessage_: {
+        type: String,
+        value: '',
+      },
+
+      /**
+       * The setup phase we are on.
+       * @type {!FingerprintSetupStep}
+       * @private
+       */
+      step_: {type: Number, value: FingerprintSetupStep.LOCATE_SCANNER},
+
+      /**
+       * The percentage of completion that has been received during setup.
+       * This is used to approximate the progress of the setup.
+       * The value within [0, 100] represents the percent of enrollment
+       * completion.
+       * @type {number}
+       * @private
+       */
+      percentComplete_: {
+        type: Number,
+        value: 0,
+        observer: 'onProgressChanged_',
+      },
+
+      /**
+       * Whether the dialog is being rendered in dark mode.
+       * @type {boolean}
+       * @private
+       */
+      isDarkModeActive_: {
+        type: Boolean,
+        value: false,
+      },
+    };
+  }
+
+  constructor() {
+    super();
+
     /**
-     * Whether add another finger is allowed.
-     * @type {boolean}
-     */
-    allowAddAnotherFinger: {
-      type: Boolean,
-      value: true,
-    },
-
-    /**
-     * Authentication token provided by settings-fingerprint-list
-     */
-    authToken: {
-      type: String,
-      value: '',
-    },
-
-    /**
-     * The problem message to display.
-     * @private
-     */
-    problemMessage_: {
-      type: String,
-      value: '',
-    },
-
-    /**
-     * The setup phase we are on.
-     * @type {!FingerprintSetupStep}
-     * @private
-     */
-    step_: {type: Number, value: FingerprintSetupStep.LOCATE_SCANNER},
-
-    /**
-     * The percentage of completion that has been received during setup.
-     * This is used to approximate the progress of the setup.
-     * The value within [0, 100] represents the percent of enrollment
-     * completion.
+     * A message shows after the user has not scanned a finger during setup.
+     * This is the set timeout id.
      * @type {number}
      * @private
      */
-    percentComplete_: {
-      type: Number,
-      value: 0,
-      observer: 'onProgressChanged_',
-    },
+    this.tapSensorMessageTimeoutId_ = 0;
 
-    /**
-     * True if lottie animation file should be used instead of an
-     * illustration.
-     * @type {boolean}
-     * @private
-     */
-    shouldUseLottieAnimation_: {
-      type: Boolean,
-      value() {
-        return loadTimeData.getBoolean('useLottieAnimationForFingerprint');
-      },
-      readOnly: true,
-    }
-  },
+    /** @private {?FingerprintBrowserProxy} */
+    this.browserProxy_ = FingerprintBrowserProxyImpl.getInstance();
+  }
 
-  /**
-   * A message shows after the user has not scanned a finger during setup.
-   * This is the set timeout id.
-   * @type {number}
-   * @private
-   */
-  tapSensorMessageTimeoutId_: 0,
-
-  /** @private {?FingerprintBrowserProxy}*/
-  browserProxy_: null,
 
   /** @override */
-  attached() {
+  connectedCallback() {
+    super.connectedCallback();
+
     this.addWebUIListener(
         'on-fingerprint-scan-received', this.onScanReceived_.bind(this));
-    this.browserProxy_ = FingerprintBrowserProxyImpl.getInstance();
-
+    this.addWebUIListener('on-screen-locked', this.onScreenLocked_.bind(this));
     this.$.arc.reset();
     this.browserProxy_.startEnroll(this.authToken);
     this.$.dialog.showModal();
-  },
+  }
 
   /**
    * Closes the dialog.
    */
   close() {
-    if (this.$.dialog.open) {
-      this.$.dialog.close();
-    }
-
     // Note: Reset resets |step_| back to the default, so handle anything that
     // checks |step_| before resetting.
     if (this.step_ !== FingerprintSetupStep.READY) {
       this.browserProxy_.cancelCurrentEnroll();
     }
 
+    if (this.$.dialog.open) {
+      this.$.dialog.close();
+    }
+
     this.reset_();
-  },
+  }
 
   /** private */
   clearSensorMessageTimeout_() {
@@ -162,7 +178,7 @@ Polymer({
       clearTimeout(this.tapSensorMessageTimeoutId_);
       this.tapSensorMessageTimeoutId_ = 0;
     }
-  },
+  }
 
   /**
    * Resets the dialog to its start state. Call this when the dialog gets
@@ -173,7 +189,7 @@ Polymer({
     this.step_ = FingerprintSetupStep.LOCATE_SCANNER;
     this.percentComplete_ = 0;
     this.clearSensorMessageTimeout_();
-  },
+  }
 
   /**
    * Closes the dialog.
@@ -183,7 +199,7 @@ Polymer({
     if (this.$.dialog.open) {
       this.$.dialog.close();
     }
-  },
+  }
 
   /**
    * Advances steps, shows problems and animates the progress as needed based
@@ -204,7 +220,9 @@ Polymer({
           this.problemMessage_ = '';
           this.step_ = FingerprintSetupStep.READY;
           this.clearSensorMessageTimeout_();
-          this.fire('add-fingerprint');
+          const event = new CustomEvent(
+              'add-fingerprint', {bubbles: true, composed: true});
+          this.dispatchEvent(event);
         } else {
           this.setProblem_(scan.result);
         }
@@ -216,7 +234,19 @@ Polymer({
         assertNotReached();
         break;
     }
-  },
+  }
+
+  /**
+   * When the screen is getting locked during enrollment we close
+   * the dialog to cancel the enrollment process and make the fingerprint
+   * unlock available to the user.
+   */
+  onScreenLocked_(screenIsLocked) {
+    if (screenIsLocked) {
+      this.close();
+    }
+  }
+
 
   /**
    * Sets the instructions based on which phase of the fingerprint setup we
@@ -236,7 +266,7 @@ Polymer({
         return this.i18n('configureFingerprintInstructionReadyStep');
     }
     assertNotReached();
-  },
+  }
 
   /**
    * Set the problem message based on the result from the fingerprint scanner.
@@ -267,7 +297,7 @@ Polymer({
         assertNotReached();
         break;
     }
-  },
+  }
 
   /**
    * Displays the text of the close button based on which phase of the
@@ -282,7 +312,7 @@ Polymer({
     }
 
     return this.i18n('cancel');
-  },
+  }
 
   /**
    * @param {!FingerprintSetupStep} step
@@ -294,7 +324,7 @@ Polymer({
     }
 
     return 'cancel-button';
-  },
+  }
 
   /**
    * @param {!FingerprintSetupStep} step
@@ -303,7 +333,7 @@ Polymer({
    */
   hideAddAnother_(step, allowAddAnotherFinger) {
     return step !== FingerprintSetupStep.READY || !allowAddAnotherFinger;
-  },
+  }
 
   /**
    * Enrolls the finished fingerprint and sets the dialog back to step one to
@@ -316,7 +346,7 @@ Polymer({
     this.step_ = FingerprintSetupStep.MOVE_FINGER;
     this.browserProxy_.startEnroll(this.authToken);
     recordSettingChange();
-  },
+  }
 
   /**
    * Whether scanner location should be shown at the current step.
@@ -324,7 +354,7 @@ Polymer({
    */
   showScannerLocation_() {
     return this.step_ === FingerprintSetupStep.LOCATE_SCANNER;
-  },
+  }
 
   /**
    * Whether fingerprint progress circle should be shown at the current step.
@@ -333,7 +363,7 @@ Polymer({
   showArc_() {
     return this.step_ === FingerprintSetupStep.MOVE_FINGER ||
         this.step_ === FingerprintSetupStep.READY;
-  },
+  }
 
   /**
    * Observer for percentComplete_.
@@ -347,5 +377,20 @@ Polymer({
     }
 
     this.$.arc.setProgress(oldValue, newValue, newValue === 100);
-  },
-});
+  }
+
+  /**
+   * Returns the URL for the asset that defines the onboarding animation for the
+   * current fingerprint sensor location.
+   * @return {string}
+   * @private
+   */
+  getAnimationUrl_() {
+    return this.isDarkModeActive_ ? ONBOARDING_ANIMATION_DARK :
+                                    ONBOARDING_ANIMATION_LIGHT;
+  }
+}
+
+customElements.define(
+    SettingsSetupFingerprintDialogElement.is,
+    SettingsSetupFingerprintDialogElement);

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
@@ -41,6 +42,7 @@
 #include "storage/browser/file_system/file_system_operation_context.h"
 #include "storage/browser/file_system/file_system_operation_runner.h"
 #include "storage/browser/file_system/file_system_url.h"
+#include "storage/browser/file_system/sandbox_file_system_backend_delegate.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/browser/test/async_file_test_helper.h"
 #include "storage/browser/test/mock_quota_manager.h"
@@ -88,8 +90,8 @@ bool TestAutoMountForURLRequest(
   if (request_info.storage_domain != "automount")
     return false;
 
-  std::vector<base::FilePath::StringType> components;
-  filesystem_url.path().GetComponents(&components);
+  std::vector<base::FilePath::StringType> components =
+      filesystem_url.path().GetComponents();
   std::string mount_point = base::FilePath(components[0]).AsUTF8Unsafe();
 
   if (mount_point == kValidExternalMountPoint) {
@@ -120,7 +122,7 @@ void ReadDataPipeInternal(mojo::DataPipeConsumerHandle handle,
         std::move(quit_closure).Run();
         return;
       case MOJO_RESULT_SHOULD_WAIT:
-        base::ThreadTaskRunnerHandle::Get()->PostTask(
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
             FROM_HERE, base::BindOnce(&ReadDataPipeInternal, handle, result,
                                       std::move(quit_closure)));
         return;
@@ -212,7 +214,7 @@ class FileSystemURLLoaderFactoryTest
         base::BindOnce(
             &FileSystemContext::OpenFileSystem, file_system_context_,
             blink::StorageKey::CreateFromStringForTesting("http://remote/"),
-            storage::kFileSystemTypeTemporary,
+            /*bucket=*/absl::nullopt, storage::kFileSystemTypeTemporary,
             storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
             base::BindOnce(&FileSystemURLLoaderFactoryTest::OnOpenFileSystem,
                            loop.QuitClosure())));
@@ -245,7 +247,8 @@ class FileSystemURLLoaderFactoryTest
         additional_providers;
     additional_providers.push_back(
         std::make_unique<storage::TestFileSystemBackend>(
-            base::ThreadTaskRunnerHandle::Get().get(), mnt_point));
+            base::SingleThreadTaskRunner::GetCurrentDefault().get(),
+            mnt_point));
 
     std::vector<storage::URLRequestAutoMountHandler> handlers = {
         base::BindRepeating(&TestAutoMountForURLRequest)};
@@ -437,7 +440,7 @@ class FileSystemURLLoaderFactoryTest
 
  private:
   static void OnOpenFileSystem(base::OnceClosure done_closure,
-                               const GURL& root_url,
+                               const FileSystemURL& root_url,
                                const std::string& name,
                                base::File::Error result) {
     ASSERT_EQ(base::File::FILE_OK, result);
@@ -470,7 +473,7 @@ class FileSystemURLLoaderFactoryTest
   }
 
   RenderFrameHost* render_frame_host() const {
-    return shell()->web_contents()->GetMainFrame();
+    return shell()->web_contents()->GetPrimaryMainFrame();
   }
 
   std::unique_ptr<network::TestURLLoaderClient> TestLoadHelper(
@@ -505,7 +508,7 @@ class FileSystemURLLoaderFactoryTest
   scoped_refptr<storage::MockQuotaManager> quota_manager_;
   scoped_refptr<storage::MockQuotaManagerProxy> quota_manager_proxy_;
   // Owned by `file_system_context_` and only usable on `blocking_task_runner_`.
-  raw_ptr<storage::FileSystemFileUtil> file_util_ = nullptr;
+  raw_ptr<storage::FileSystemFileUtil, DanglingUntriaged> file_util_ = nullptr;
 };
 
 INSTANTIATE_TEST_SUITE_P(All,
@@ -685,7 +688,7 @@ IN_PROC_BROWSER_TEST_P(FileSystemURLLoaderFactoryTest, AutoMountNoHandler) {
 
 IN_PROC_BROWSER_TEST_P(FileSystemURLLoaderFactoryTest, FileTest) {
   base::ScopedAllowBlockingForTesting allow_blocking;
-  WriteFile("file1.dat", kTestFileData, base::size(kTestFileData) - 1);
+  WriteFile("file1.dat", kTestFileData, std::size(kTestFileData) - 1);
   auto client = TestLoad(CreateFileSystemURL("file1.dat"));
 
   EXPECT_TRUE(client->has_received_response());
@@ -707,7 +710,7 @@ IN_PROC_BROWSER_TEST_P(FileSystemURLLoaderFactoryTest, CrossOriginFileBlocked) {
   IsolateAllSitesForTesting(base::CommandLine::ForCurrentProcess());
 
   base::ScopedAllowBlockingForTesting allow_blocking;
-  WriteFile("file1.dat", kTestFileData, base::size(kTestFileData) - 1);
+  WriteFile("file1.dat", kTestFileData, std::size(kTestFileData) - 1);
 
   // Navigate main frame to foo.com.
   ASSERT_TRUE(embedded_test_server()->Start());
@@ -781,7 +784,7 @@ IN_PROC_BROWSER_TEST_P(FileSystemURLLoaderFactoryTest,
 IN_PROC_BROWSER_TEST_P(FileSystemURLLoaderFactoryTest,
                        FileTestMultipleRangesNotSupported) {
   base::ScopedAllowBlockingForTesting allow_blocking;
-  WriteFile("file1.dat", kTestFileData, base::size(kTestFileData) - 1);
+  WriteFile("file1.dat", kTestFileData, std::size(kTestFileData) - 1);
   net::HttpRequestHeaders headers;
   headers.SetHeader(net::HttpRequestHeaders::kRange,
                     "bytes=0-5,10-200,200-300");
@@ -794,7 +797,7 @@ IN_PROC_BROWSER_TEST_P(FileSystemURLLoaderFactoryTest,
 
 IN_PROC_BROWSER_TEST_P(FileSystemURLLoaderFactoryTest, FileRangeOutOfBounds) {
   base::ScopedAllowBlockingForTesting allow_blocking;
-  WriteFile("file1.dat", kTestFileData, base::size(kTestFileData) - 1);
+  WriteFile("file1.dat", kTestFileData, std::size(kTestFileData) - 1);
   net::HttpRequestHeaders headers;
   headers.SetHeader(net::HttpRequestHeaders::kRange,
                     net::HttpByteRange::Bounded(500, 1000).GetHeaderValue());
@@ -838,7 +841,7 @@ IN_PROC_BROWSER_TEST_P(FileSystemURLLoaderFactoryTest, NoSuchFile) {
 
 IN_PROC_BROWSER_TEST_P(FileSystemURLLoaderFactoryTest, FileCancel) {
   base::ScopedAllowBlockingForTesting allow_blocking;
-  WriteFile("file1.dat", kTestFileData, base::size(kTestFileData) - 1);
+  WriteFile("file1.dat", kTestFileData, std::size(kTestFileData) - 1);
   auto client = TestLoadNoRun(CreateFileSystemURL("file1.dat"));
 
   // client.reset();
@@ -872,7 +875,7 @@ IN_PROC_BROWSER_TEST_P(FileSystemURLLoaderFactoryTest, FileGetMimeType) {
 
 IN_PROC_BROWSER_TEST_P(FileSystemURLLoaderFactoryTest, FileIncognito) {
   base::ScopedAllowBlockingForTesting allow_blocking;
-  WriteFile("file", kTestFileData, base::size(kTestFileData) - 1);
+  WriteFile("file", kTestFileData, std::size(kTestFileData) - 1);
 
   // Creates a new filesystem context for incognito mode.
   scoped_refptr<FileSystemContext> file_system_context =

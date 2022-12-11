@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,7 +70,6 @@ TEST(URLRequestMojomTraitsTest, Roundtrips_ResourceRequest) {
   original.load_flags = 3;
   original.resource_type = 2;
   original.priority = net::IDLE;
-  original.is_external_request = false;
   original.cors_preflight_policy =
       mojom::CorsPreflightPolicy::kConsiderPreflight;
   original.originated_from_service_worker = false;
@@ -80,11 +79,12 @@ TEST(URLRequestMojomTraitsTest, Roundtrips_ResourceRequest) {
   original.redirect_mode = mojom::RedirectMode::kFollow;
   original.fetch_integrity = "dummy_fetch_integrity";
   original.keepalive = true;
+  original.browsing_topics = true;
   original.has_user_gesture = false;
   original.enable_load_timing = true;
   original.enable_upload_progress = false;
   original.do_not_prompt_for_login = true;
-  original.is_main_frame = true;
+  original.is_outermost_main_frame = true;
   original.transition_type = 0;
   original.previews_state = 0;
   original.upgrade_if_insecure = true;
@@ -112,6 +112,7 @@ TEST(URLRequestMojomTraitsTest, Roundtrips_ResourceRequest) {
       url::Origin::Create(original.url), url::Origin::Create(original.url),
       original.site_for_cookies);
   original.trusted_params->disable_secure_dns = true;
+  original.trusted_params->allow_cookies_from_browser = true;
 
   original.trust_token_params = network::mojom::TrustTokenParams();
   original.trust_token_params->issuers.push_back(

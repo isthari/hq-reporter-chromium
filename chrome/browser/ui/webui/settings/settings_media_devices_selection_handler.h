@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,12 +42,12 @@ class MediaDevicesSelectionHandler
   };
 
   // Fetches the list of default capture devices.
-  void GetDefaultCaptureDevices(const base::ListValue* args);
+  void GetDefaultCaptureDevices(const base::Value::List& args);
 
   // Sets the default audio/video capture device for media. |args| includes the
   // media type (kAuudio/kVideo) and the unique id of the new default device
   // that the user has chosen.
-  void SetDefaultCaptureDevice(const base::ListValue* args);
+  void SetDefaultCaptureDevice(const base::Value::List& args);
 
   // Helpers methods to update the device menus.
   void UpdateDevicesMenuForType(DeviceType type);

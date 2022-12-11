@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,46 +17,64 @@ namespace ash {
 
 // The size delta between the default font and the font size found in tray
 // items like labels and buttons.
-extern const int kTrayTextFontSizeIncrease;
+constexpr int kTrayTextFontSizeIncrease = 2;
 
-ASH_EXPORT extern const int kTrayItemSize;
+// Size of tray items on the primary axis.
+constexpr int kTrayItemSize = 32;
 
-extern const float kTrayItemCornerRadius;
-
-// Extra padding used beside a single icon in the tray area of the shelf.
-constexpr int kTrayImageItemPadding = 3;
+constexpr float kTrayItemCornerRadius = kTrayItemSize / 2.f;
 
 // The width of the tray menu.
 constexpr int kTrayMenuWidth = 360;
 
-extern const int kTrayPopupAutoCloseDelayInSeconds;
-extern const int kTrayPopupAutoCloseDelayInSecondsWithSpokenFeedback;
-extern const int kTrayPopupPaddingHorizontal;
-extern const int kTrayPopupButtonEndMargin;
+// The width of the revamped tray menu.
+constexpr int kRevampedTrayMenuWidth = 440;
+
+// TODO(b/258072559): Update this height once we have finalized UX specs for
+// tray height.
+// The maximum height of the revamped tray menu.
+constexpr int kRevampedTrayMenuMaxHeight = 508;
+
+constexpr int kTrayPopupAutoCloseDelayInSeconds = 2;
+constexpr int kTrayPopupAutoCloseDelayInSecondsWithSpokenFeedback = 5;
+constexpr int kTrayPopupPaddingHorizontal = 18;
+constexpr int kTrayPopupButtonEndMargin = 10;
 
 // The padding used on the left and right of labels. This applies to all labels
 // in the system menu.
-extern const int kTrayPopupLabelHorizontalPadding;
+constexpr int kTrayPopupLabelHorizontalPadding = 4;
 
-// The horizontal padding used to properly lay out a slider in a TriView
-// container with a FillLayout (such as a volume notification bubble).
-extern const int kTrayPopupSliderHorizontalPadding;
+// The padding used on the left and right of labels with QsRevamp.
+constexpr int kQsPopupLabelHorizontalPadding = 16;
+
+// The padding used on the top and bottom of labels.
+constexpr int kTrayPopupLabelVerticalPadding = 8;
 
 // The minimum/default height of the rows in the system tray menu.
-extern const int kTrayPopupItemMinHeight;
+constexpr int kTrayPopupItemMinHeight = 48;
 
 // The width used for the first region of the row (which holds an image).
-extern const int kTrayPopupItemMinStartWidth;
+constexpr int kTrayPopupItemMinStartWidth = 48;
+
+// The width used for the first region of the row (an image) with QsRevamp.
+constexpr int kQsPopupItemMinStartWidth = 20;
+
+// The size of the icons appearing in the material design system menu.
+constexpr int kMenuIconSize = 20;
 
 // The width used for the end region of the row (usually a more arrow).
-extern const int kTrayPopupItemMinEndWidth;
+constexpr int kTrayPopupItemMinEndWidth =
+    kMenuIconSize + 2 * kTrayPopupButtonEndMargin;
+
+// The width used for the end region of a row with QsRevamp.
+constexpr int kQsPopupItemMinEndWidth = 20;
 
 // Padding used on right side of labels to keep minimum distance to the next
 // item. This applies to all labels in the system menu.
-extern const int kTrayPopupLabelRightPadding;
+constexpr int kTrayPopupLabelRightPadding = 8;
 
 // The width of ToggleButton views including any border padding.
-extern const int kTrayToggleButtonWidth;
+constexpr int kTrayToggleButtonWidth = 68;
 
 // Constants for the title row.
 constexpr int kTitleRowProgressBarHeight = 2;
@@ -71,30 +89,33 @@ constexpr int kTraySeparatorWidth = 0;
 // The size of the icons appearing in the material design system tray.
 constexpr int kTrayIconSize = 16;
 
-// The padding on top of the time tray icon when vertically aligned.
-constexpr int kTrayTimeIconTopPadding = 2;
-
 // The padding around network tray icon in dip.
-constexpr int kTrayNetworkIconPadding = 2;
 constexpr int kUnifiedTrayNetworkIconPadding = 4;
 
-// The size of the icons appearing in the material design system menu.
-extern const int kMenuIconSize;
 // The size of buttons in the system menu.
-ASH_EXPORT extern const int kMenuButtonSize;
+constexpr int kMenuButtonSize = 48;
 // The vertical padding for the system menu separator.
-extern const int kMenuSeparatorVerticalPadding;
-// The horizontal padding for the system menu separator.
-extern const int kMenuExtraMarginFromLeftEdge;
+constexpr int kMenuSeparatorVerticalPadding = 4;
+
+// Additional margin on the left edge of the tray menu.
+constexpr int kMenuExtraMarginFromLeftEdge = 4;
+
+// Additional margin on the left edge of the quick settings menu with QsRevamp.
+constexpr int kQsExtraMarginFromLeftEdge = 24;
+
+// Default margin on right edge of the quick settings menu with QsRevamp.
+constexpr int kQsExtraMarginsFromRightEdge = 18;
+
 // The visual padding to the left of icons in the system menu.
-extern const int kMenuEdgeEffectivePadding;
+constexpr int kMenuEdgeEffectivePadding =
+    kMenuExtraMarginFromLeftEdge + (kMenuButtonSize - kMenuIconSize) / 2;
 
 // The inset applied to clickable surfaces in the system menu that do not have
 // the ink drop filling the entire bounds.
-extern const int kTrayPopupInkDropInset;
+constexpr int kTrayPopupInkDropInset = 4;
 
 // The radius used to draw the corners of the rounded rect style ink drops.
-extern const int kTrayPopupInkDropCornerRadius;
+constexpr int kTrayPopupInkDropCornerRadius = 2;
 
 // Threshold to ignore update on the slider value.
 constexpr float kAudioSliderIgnoreUpdateThreshold = 0.01;
@@ -102,19 +123,16 @@ constexpr float kAudioSliderIgnoreUpdateThreshold = 0.01;
 // Duration for the collapse / expand animation in ms.
 constexpr int kSystemMenuCollapseExpandAnimationDurationMs = 500;
 
-constexpr gfx::Insets kUnifiedMenuItemPadding(0, 16, 16, 16);
-constexpr gfx::Insets kUnifiedSystemInfoViewPadding(0, 16, 16, 16);
-constexpr gfx::Insets kUnifiedManagedDeviceViewPadding(0, 16, 11, 16);
-constexpr gfx::Insets kUnifiedSliderRowPadding(0, 12, 8, 16);
-constexpr gfx::Insets kUnifiedSliderBubblePadding(12, 0, 4, 0);
-constexpr gfx::Insets kUnifiedSliderPadding(0, 16);
-constexpr gfx::Insets kMicGainSliderViewPadding(0, 52, 8, 0);
-constexpr gfx::Insets kMicGainSliderPadding(0, 8, 0, 48);
-constexpr int kMicGainSliderViewSpacing = 8;
+constexpr auto kUnifiedMenuItemPadding = gfx::Insets::TLBR(0, 16, 16, 16);
+constexpr auto kUnifiedSystemInfoViewPadding = gfx::Insets::TLBR(0, 16, 16, 16);
+constexpr auto kUnifiedSliderRowPadding = gfx::Insets::TLBR(0, 12, 8, 16);
+constexpr auto kUnifiedSliderBubblePadding = gfx::Insets::TLBR(12, 0, 4, 0);
+constexpr auto kUnifiedSliderPadding = gfx::Insets::VH(0, 16);
+constexpr auto kMicGainSliderViewPadding = gfx::Insets::TLBR(0, 52, 8, 0);
+constexpr auto kMicGainSliderPadding = gfx::Insets::TLBR(0, 8, 0, 48);
 
-constexpr int kTrayRadioButtonInterSpacing = 20;
-constexpr gfx::Insets kTrayRadioButtonPadding(16, 20, 0, 0);
-constexpr gfx::Insets kTraySubLabelPadding(4, 56, 16, 16);
+// Constants used in the QuickSettingsSlider of the `QuickSettingsView`.
+constexpr int kQsSliderIconSize = 20;
 
 constexpr int kMessageCenterCollapseThreshold = 175;
 constexpr int kStackedNotificationBarHeight = 32;
@@ -125,23 +143,26 @@ constexpr int kUnifiedMessageCenterBubbleSpacing = 8;
 constexpr int kUnifiedNotificationCenterSpacing = 16;
 constexpr int kUnifiedTrayBatteryIconSize = 20;
 constexpr int kUnifiedTrayIconSize = 18;
+constexpr int kUnifiedTrayNonRoundedSideRadius = 4;
 constexpr int kUnifiedTraySubIconSize = 15;
 constexpr int kUnifiedTrayTextTopPadding = 1;
 constexpr int kUnifiedTrayTextRightPadding = 1;
 constexpr int kUnifiedTrayTimeLeftPadding = 1;
 constexpr int kUnifiedTraySpacingBetweenIcons = 6;
 constexpr int kUnifiedTrayBatteryWidth = 12;
-constexpr int kUnifiedTrayBatteryBottomPadding = 1;
 constexpr int kUnifiedTrayContentPadding = 12;
 constexpr int kUnifiedTopShortcutSpacing = 16;
 constexpr int kUnifiedNotificationHiddenLineHeight = 20;
 constexpr int kUnifiedTopShortcutContainerTopPadding = 12;
 constexpr int kUnifiedNotificationMinimumHeight = 40;
 constexpr int kUnifiedBackButtonLeftPadding = 16;
-constexpr gfx::Insets kUnifiedTopShortcutPadding(0, 16);
-constexpr gfx::Insets kUnifiedNotificationHiddenPadding(6, 16);
+constexpr auto kUnifiedTopShortcutPadding = gfx::Insets::VH(0, 16);
+constexpr auto kUnifiedNotificationHiddenPadding = gfx::Insets::VH(6, 16);
+constexpr int kUnifiedNotificationSeparatorThickness = 1;
 constexpr gfx::Insets kUnifiedCircularButtonFocusPadding(4);
 constexpr gfx::Insets kTrayBackgroundFocusPadding(1);
+constexpr gfx::Insets kUnifiedSystemInfoBatteryIconPadding =
+    gfx::Insets::TLBR(2, 2, 2, 6);
 
 // Size of an icon drawn inside top shortcut buttons.
 // A dark disc with |kTrayItemSize| diameter is drawn in the background.
@@ -154,7 +175,8 @@ constexpr gfx::Insets kUnifiedSystemInfoDateViewPadding(3);
 
 // Constants used in StackedNotificationBar located on top of the message
 // center.
-constexpr gfx::Insets kStackedNotificationIconsContainerPadding(1, 16, 0, 8);
+constexpr auto kStackedNotificationIconsContainerPadding =
+    gfx::Insets::TLBR(1, 14, 0, 8);
 constexpr int kStackedNotificationBarMaxIcons = 3;
 constexpr int kStackedNotificationBarIconSpacing = 6;
 constexpr int kStackedNotificationIconSize = 18;
@@ -170,7 +192,6 @@ constexpr double kNotificationCenterDragExpandThreshold = 0.8;
 constexpr gfx::Size kUnifiedFeaturePodSize(112, 94);
 constexpr gfx::Size kUnifiedFeaturePodCollapsedSize(46, 46);
 constexpr gfx::Insets kUnifiedFeaturePodHoverPadding(2);
-constexpr int kUnifiedFeaturePodVectorIconSize = 18;
 constexpr int kUnifiedFeaturePodLabelWidth = 85;
 constexpr int kUnifiedFeaturePodSpacing = 6;
 constexpr int kUnifiedFeaturePodHoverCornerRadius = 4;
@@ -194,7 +215,14 @@ constexpr int kUnifiedFeaturePodMaxRows = 3;
 constexpr int kUnifiedFeaturePodMinRows = 1;
 constexpr int kUnifiedFeaturePodMaxItemsInCollapsed = 5;
 constexpr int kUnifiedFeaturePodsPageSpacing = 48;
-constexpr int kUnifiedNotificationSeparatorThickness = 1;
+
+// Constants used in FeatureTiles of QuickSettingsView.
+constexpr int kFeatureTileItemsInRow = 2;
+constexpr int kFeatureTileMaxRows = 4;
+constexpr int kFeatureTileMinRows = 1;
+constexpr int kFeatureTileHeight = 64;
+
+// Height of the page indicator view.
 constexpr int kPageIndicatorViewMaxHeight = 20;
 
 // Constants used in system tray page transition animations.
@@ -214,8 +242,8 @@ constexpr int kUnifiedTopShortcutButtonDefaultSpacing = 16;
 constexpr int kUnifiedTopShortcutButtonMinSpacing = 4;
 
 // Constants used in the detailed view in UnifiedSystemTray.
-constexpr gfx::Insets kUnifiedDetailedViewPadding(0, 0, 8, 0);
-constexpr gfx::Insets kUnifiedDetailedViewTitlePadding(0, 0, 0, 16);
+constexpr auto kUnifiedDetailedViewTitlePadding =
+    gfx::Insets::TLBR(0, 0, 0, 16);
 constexpr int kUnifiedDetailedViewTitleRowHeight = 64;
 
 // Constants used for the status area overflow button and state.
@@ -234,7 +262,7 @@ constexpr int kPrivacyScreenToastMaxWidth = 512;
 constexpr int kPrivacyScreenToastHeight = 64;
 constexpr int kPrivacyScreenToastMainLabelFontSize = 14;
 constexpr int kPrivacyScreenToastSubLabelFontSize = 13;
-constexpr gfx::Insets kPrivacyScreenToastInsets(10, 16);
+constexpr auto kPrivacyScreenToastInsets = gfx::Insets::VH(10, 16);
 constexpr int kPrivacyScreenToastSpacing = 16;
 
 // Constants used for media tray.
@@ -243,6 +271,13 @@ constexpr int kMediaTrayPadding = 8;
 // There is no active user session during oobe, which means it doesn't support
 // dark mode. Sets the icon color to be constant.
 constexpr SkColor kIconColorInOobe = gfx::kGoogleGrey700;
+
+// Constants used for the autozoom toast.
+constexpr int kAutozoomToastMinWidth = 160;
+constexpr int kAutozoomToastMaxWidth = 400;
+constexpr int kAutozoomToastMainLabelFontSize = 14;
+constexpr auto kAutozoomToastInsets = gfx::Insets::VH(10, 16);
+constexpr int kAutozoomToastSpacing = 16;
 
 }  // namespace ash
 

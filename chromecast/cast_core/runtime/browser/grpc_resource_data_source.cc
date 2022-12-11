@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -106,12 +106,15 @@ void GrpcResourceDataSource::ReadResourceFile(
 
   std::string text;
   base::ReadFileToString(base::FilePath(resource_file_path), &text);
-  std::move(callback).Run(base::RefCountedString::TakeString(&text));
+  std::move(callback).Run(
+      base::MakeRefCounted<base::RefCountedString>(std::move(text)));
 }
 
 // The Path can either be a filename or a remote url string starting with "?".
 // Examples - "?remote_url=https://google.com", "fonts.css".
-std::string GrpcResourceDataSource::GetMimeType(const std::string& path) {
+std::string GrpcResourceDataSource::GetMimeType(const GURL& url) {
+  const std::string path = content::URLDataSource::URLToRequestPath(url);
+
   if (!for_webui_) {
     std::string mime_type;
     base::FilePath::StringType file_ext =

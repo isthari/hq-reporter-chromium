@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "components/viz/common/quads/draw_quad.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
+#include "components/viz/service/display/overlay_candidate_factory.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
 
@@ -22,7 +23,7 @@ OverlayStrategyFullscreen::OverlayStrategyFullscreen(
 OverlayStrategyFullscreen::~OverlayStrategyFullscreen() {}
 
 bool OverlayStrategyFullscreen::Attempt(
-    const skia::Matrix44& output_color_matrix,
+    const SkM44& output_color_matrix,
     const OverlayProcessorInterface::FilterOperationsMap&
         render_pass_backdrop_filters,
     DisplayResourceProvider* resource_provider,
@@ -51,10 +52,11 @@ bool OverlayStrategyFullscreen::Attempt(
     return false;
 
   OverlayCandidate candidate;
-  if (OverlayCandidate::FromDrawQuad(
-          resource_provider, surface_damage_rect_list, output_color_matrix,
-          quad, GetPrimaryPlaneDisplayRect(primary_plane),
-          &candidate) != OverlayCandidate::CandidateStatus::kSuccess) {
+  OverlayCandidateFactory candidate_factory = OverlayCandidateFactory(
+      render_pass, resource_provider, surface_damage_rect_list,
+      &output_color_matrix, GetPrimaryPlaneDisplayRect(primary_plane));
+  if (candidate_factory.FromDrawQuad(quad, candidate) !=
+      OverlayCandidate::CandidateStatus::kSuccess) {
     return false;
   }
 
@@ -80,14 +82,14 @@ bool OverlayStrategyFullscreen::Attempt(
 }
 
 void OverlayStrategyFullscreen::ProposePrioritized(
-    const skia::Matrix44& output_color_matrix,
+    const SkM44& output_color_matrix,
     const OverlayProcessorInterface::FilterOperationsMap&
         render_pass_backdrop_filters,
     DisplayResourceProvider* resource_provider,
     AggregatedRenderPassList* render_pass_list,
     SurfaceDamageRectList* surface_damage_rect_list,
     const PrimaryPlane* primary_plane,
-    OverlayProposedCandidateList* candidates,
+    std::vector<OverlayProposedCandidate>* candidates,
     std::vector<gfx::Rect>* content_bounds) {
   auto* render_pass = render_pass_list->back().get();
   QuadList* quad_list = &render_pass->quad_list;
@@ -108,10 +110,11 @@ void OverlayStrategyFullscreen::ProposePrioritized(
     return;
 
   OverlayCandidate candidate;
-  if (OverlayCandidate::FromDrawQuad(
-          resource_provider, surface_damage_rect_list, output_color_matrix,
-          quad, GetPrimaryPlaneDisplayRect(primary_plane),
-          &candidate) != OverlayCandidate::CandidateStatus::kSuccess) {
+  OverlayCandidateFactory candidate_factory = OverlayCandidateFactory(
+      render_pass, resource_provider, surface_damage_rect_list,
+      &output_color_matrix, GetPrimaryPlaneDisplayRect(primary_plane));
+  if (candidate_factory.FromDrawQuad(quad, candidate) !=
+      OverlayCandidate::CandidateStatus::kSuccess) {
     return;
   }
 
@@ -126,7 +129,7 @@ void OverlayStrategyFullscreen::ProposePrioritized(
 }
 
 bool OverlayStrategyFullscreen::AttemptPrioritized(
-    const skia::Matrix44& output_color_matrix,
+    const SkM44& output_color_matrix,
     const OverlayProcessorInterface::FilterOperationsMap&
         render_pass_backdrop_filters,
     DisplayResourceProvider* resource_provider,

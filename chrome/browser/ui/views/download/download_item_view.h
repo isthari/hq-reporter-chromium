@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/scoped_observation.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -67,7 +66,7 @@ class StyledLabel;
 // DownloadController that receives / writes data which lives in the Renderer.
 class DownloadItemView : public views::View,
                          public views::ContextMenuController,
-                         public DownloadUIModel::Observer,
+                         public DownloadUIModel::Delegate,
                          public views::AnimationDelegateViews {
  public:
   METADATA_HEADER(DownloadItemView);
@@ -92,10 +91,10 @@ class DownloadItemView : public views::View,
                                   const gfx::Point& point,
                                   ui::MenuSourceType source_type) override;
 
-  // DownloadUIModel::Observer:
+  // DownloadUIModel::Delegate:
   void OnDownloadUpdated() override;
   void OnDownloadOpened() override;
-  void OnDownloadDestroyed() override;
+  void OnDownloadDestroyed(const ContentId& id) override;
 
   // views::AnimationDelegateViews:
   void AnimationProgressed(const gfx::Animation* animation) override;
@@ -104,11 +103,6 @@ class DownloadItemView : public views::View,
   // Returns the DownloadUIModel object belonging to this item.
   DownloadUIModel* model() { return model_.get(); }
   const DownloadUIModel* model() const { return model_.get(); }
-
-  // Submits download to download feedback service if the user has approved and
-  // the download is suitable for submission, then applies |command|.
-  // If user hasn't seen SBER opt-in text before, show SBER opt-in dialog first.
-  void MaybeSubmitDownloadToFeedbackService(DownloadCommands::Command command);
 
   std::u16string GetStatusTextForTesting() const;
   void OpenItemForTesting();
@@ -210,7 +204,6 @@ class DownloadItemView : public views::View,
 
   // Called when various buttons are pressed.
   void OpenButtonPressed();
-  void SaveOrDiscardButtonPressed(DownloadCommands::Command command);
   void DropdownButtonPressed(const ui::Event& event);
   void ReviewButtonPressed();
 
@@ -225,11 +218,6 @@ class DownloadItemView : public views::View,
 
   // Opens a file while async scanning is still pending.
   void OpenDownloadDuringAsyncScanning();
-
-  // Submits the downloaded file to the safebrowsing download feedback service.
-  // Applies |command| if submission succeeds. Returns whether submission was
-  // successful.
-  bool SubmitDownloadToFeedbackService(DownloadCommands::Command command) const;
 
   // Forwards |command| to |commands_|; useful for callbacks.
   void ExecuteCommand(DownloadCommands::Command command);
@@ -317,9 +305,6 @@ class DownloadItemView : public views::View,
 
   float current_scale_;
 
-  base::ScopedObservation<DownloadUIModel, DownloadUIModel::Observer>
-      observation_{this};
-
   // Whether or not a histogram has been emitted recording that the dropdown
   // button shown.
   bool dropdown_button_shown_recorded_ = false;
@@ -327,6 +312,10 @@ class DownloadItemView : public views::View,
   // Whether or not a histogram has been emitted recording that the dropdown
   // button was pressed.
   bool dropdown_button_pressed_recorded_ = false;
+
+  // Whether the download's completion has already been logged. This is used to
+  // avoid inaccurate repeated logging.
+  bool has_download_completion_been_logged_ = false;
 
   // Method factory used to delay reenabling of the item when opening the
   // downloaded file.

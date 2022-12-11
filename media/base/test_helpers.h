@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "base/callback.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -250,7 +250,7 @@ MATCHER_P(SameStatusCode, status, "") {
   }
 }
 
-// Compares an `arg` Status.code() to a test-supplied StatusCode.
+// Compares an `arg` TypedStatus<T>.code() to a test-supplied StatusCode.
 MATCHER_P(HasStatusCode, status_code, "") {
   return arg.code() == status_code;
 }
@@ -316,7 +316,7 @@ MATCHER_P2(KeyframeTimeGreaterThanDependant,
 }
 
 MATCHER(StreamParsingFailed, "") {
-  return CONTAINS_STRING(arg, "Append: stream parsing failed.");
+  return CONTAINS_STRING(arg, "RunSegmentParserLoop: stream parsing failed.");
 }
 
 MATCHER(ParsedBuffersNotInDTSSequence, "") {
@@ -515,6 +515,47 @@ MATCHER_P3(DroppedAppendWindowUnusedPreroll,
           base::NumberToString(pts_us) + "us that ends too far (" +
           base::NumberToString(delta_us) + "us) from next buffer with PTS " +
           base::NumberToString(next_pts_us) + "us");
+}
+
+MATCHER_P(PtsUnknown, frame_type, "") {
+  return CONTAINS_STRING(
+      arg, "Unknown PTS for " + std::string(frame_type) + " frame");
+}
+
+MATCHER_P2(FrameDurationUnknown, frame_type, pts_us, "") {
+  return CONTAINS_STRING(arg, "Unknown duration for " +
+                                  std::string(frame_type) + " frame at PTS " +
+                                  base::NumberToString(pts_us) + "us");
+}
+
+MATCHER_P3(FrameTimeOutOfRange, when, pts_or_dts, frame_type, "") {
+  return CONTAINS_STRING(
+      arg, std::string(when) + ", " + pts_or_dts + " for " + frame_type +
+               " frame exceeds range allowed by implementation");
+}
+
+MATCHER(SequenceOffsetUpdateOutOfRange, "") {
+  return CONTAINS_STRING(arg,
+                         "Sequence mode timestampOffset update resulted in an "
+                         "offset that exceeds range allowed by implementation");
+}
+
+MATCHER(SequenceOffsetUpdatePreventedByOutOfRangeGroupStartTimestamp, "") {
+  return CONTAINS_STRING(
+      arg,
+      "Sequence mode timestampOffset update prevented by a group start "
+      "timestamp that exceeds range allowed by implementation");
+}
+
+MATCHER(OffsetOutOfRange, "") {
+  return CONTAINS_STRING(
+      arg, "timestampOffset exceeds range allowed by implementation");
+}
+
+MATCHER_P(FrameEndTimestampOutOfRange, frame_type, "") {
+  return CONTAINS_STRING(arg,
+                         "Frame end timestamp for " + std::string(frame_type) +
+                             " frame exceeds range allowed by implementation");
 }
 
 }  // namespace media

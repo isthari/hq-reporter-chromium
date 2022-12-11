@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,11 @@
 #include "ash/components/arc/arc_prefs.h"
 #include "ash/components/arc/arc_util.h"
 #include "ash/components/arc/enterprise/arc_data_snapshotd_manager.h"
+#include "ash/components/arc/mojom/auth.mojom-shared.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
 #include "ash/components/arc/session/arc_management_transition.h"
 #include "ash/components/arc/session/arc_service_manager.h"
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/flat_set.h"
@@ -24,6 +26,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/ash/account_manager/account_apps_availability_factory.h"
 #include "chrome/browser/ash/account_manager/account_manager_util.h"
+#include "chrome/browser/ash/app_list/arc/arc_data_removal_dialog.h"
 #include "chrome/browser/ash/arc/arc_optin_uma.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/auth/arc_background_auth_code_fetcher.h"
@@ -37,10 +40,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/signin_ui_util.h"
-#include "chrome/browser/ui/app_list/arc/arc_data_removal_dialog.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
-#include "chrome/browser/ui/webui/signin/inline_login_dialog_chromeos.h"
+#include "chrome/browser/ui/webui/signin/ash/inline_login_dialog.h"
 #include "chrome/common/webui_url_constants.h"
 #include "components/account_manager_core/account_manager_facade.h"
 #include "components/account_manager_core/chromeos/account_manager_facade_factory.h"
@@ -52,6 +54,10 @@
 #include "content/public/browser/storage_partition.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
 
 namespace arc {
 
@@ -81,6 +87,13 @@ class ArcAuthServiceFactory
 };
 
 mojom::ChromeAccountType GetAccountType(const Profile* profile) {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  DCHECK(command_line);
+  if (command_line->HasSwitch(
+          ash::switches::kDemoModeForceArcOfflineProvision)) {
+    return mojom::ChromeAccountType::OFFLINE_DEMO_ACCOUNT;
+  }
+
   if (profile->IsChild())
     return mojom::ChromeAccountType::CHILD_ACCOUNT;
 
@@ -95,9 +108,7 @@ mojom::ChromeAccountType GetAccountType(const Profile* profile) {
     // a (fake) robot account not known to auth service - this means that it has
     // to go through different, offline provisioning flow.
     DCHECK(IsRobotOrOfflineDemoAccountMode());
-    return demo_session->offline_enrolled()
-               ? mojom::ChromeAccountType::OFFLINE_DEMO_ACCOUNT
-               : mojom::ChromeAccountType::ROBOT_ACCOUNT;
+    return mojom::ChromeAccountType::ROBOT_ACCOUNT;
   }
 
   return IsRobotOrOfflineDemoAccountMode()
@@ -371,10 +382,6 @@ void ArcAuthService::ReportAccountReauthReason(mojom::ReauthReason reason) {
   UpdateAccountReauthReason(reason, profile_);
 }
 
-void ArcAuthService::ReportAndroidIdSource(mojom::AndroidIdSource source) {
-  UpdateAndroidIdSource(source, profile_);
-}
-
 void ArcAuthService::ReportManagementChangeStatus(
     mojom::ManagementChangeStatus status) {
   UpdateSupervisionTransitionResultUMA(status);
@@ -536,7 +543,7 @@ void ArcAuthService::HandleUpdateCredentialsRequest(const std::string& email) {
   ::GetAccountManagerFacade(profile_->GetPath().value())
       ->ShowReauthAccountDialog(
           account_manager::AccountManagerFacade::AccountAdditionSource::kArc,
-          email);
+          email, base::OnceClosure());
 }
 
 void ArcAuthService::OnRefreshTokenUpdatedForAccount(

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -84,9 +84,10 @@ void StatusCollector::RegisterProfilePrefs(PrefRegistrySimple* registry) {
 // static
 absl::optional<std::string> StatusCollector::GetBootMode(
     chromeos::system::StatisticsProvider* statistics_provider) {
-  std::string dev_switch_mode;
-  if (!statistics_provider->GetMachineStatistic(
-          chromeos::system::kDevSwitchBootKey, &dev_switch_mode)) {
+  const absl::optional<base::StringPiece> dev_switch_mode =
+      statistics_provider->GetMachineStatistic(
+          chromeos::system::kDevSwitchBootKey);
+  if (!dev_switch_mode) {
     return absl::nullopt;
   }
 
@@ -125,7 +126,7 @@ StatusCollector::GetAutoLaunchedKioskSessionInfo() {
                                           &current_app) &&
       current_app.was_auto_launched_with_zero_delay;
   bool arc_app_auto_launched_with_zero_delay =
-      chromeos::ArcKioskAppManager::Get()
+      ash::ArcKioskAppManager::Get()
           ->current_app_was_auto_launched_with_zero_delay();
 
   bool web_app_auto_launched_with_zero_delay =

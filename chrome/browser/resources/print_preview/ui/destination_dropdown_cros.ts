@@ -1,21 +1,22 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/hidden_style_css.m.js';
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/cr_elements/cr_hidden_style.css.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 // TODO(gavinwill): Remove iron-dropdown dependency https://crbug.com/1082587.
 import 'chrome://resources/polymer/v3_0/iron-dropdown/iron-dropdown.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import 'chrome://resources/polymer/v3_0/iron-media-query/iron-media-query.js';
+import './print_preview_vars.css.js';
 
-import './print_preview_vars_css.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {I18nMixin} from 'chrome://resources/js/i18n_mixin.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-
-import {Destination, DestinationOrigin} from '../data/destination.js';
+import {Destination} from '../data/destination.js';
 import {ERROR_STRING_KEY_MAP, getPrinterStatusIcon, PrinterStatusReason} from '../data/printer_status_cros.js';
+
+import {getTemplate} from './destination_dropdown_cros.html.js';
 
 
 declare global {
@@ -27,7 +28,7 @@ declare global {
 export interface PrintPreviewDestinationDropdownCrosElement {
   $: {
     destinationDropdown: HTMLDivElement,
-  }
+  };
 }
 
 const PrintPreviewDestinationDropdownCrosElementBase =
@@ -40,7 +41,7 @@ export class PrintPreviewDestinationDropdownCrosElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -94,7 +95,7 @@ export class PrintPreviewDestinationDropdownCrosElement extends
   noDestinations: boolean;
   pdfDestinationKey: string;
   pdfPrinterDisabled: boolean;
-  destinationStatusText: string;
+  destinationStatusText: TrustedHTML;
   private isDarkModeActive_: boolean;
   private highlightedIndex_: number;
   private dropdownLength_: number;
@@ -102,20 +103,24 @@ export class PrintPreviewDestinationDropdownCrosElement extends
   private opened_: boolean = false;
   private dropdownRefitPending_: boolean = false;
 
-  ready() {
+  override ready() {
     super.ready();
 
     this.addEventListener('mousemove', e => this.onMouseMove_(e));
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
     this.updateTabIndex_();
   }
 
-  focus() {
+  override focus() {
     this.$.destinationDropdown.focus();
+  }
+
+  private getAriaDescription_(): string {
+    return this.destinationStatusText.toString();
   }
 
   private fireDropdownValueSelected_(element: Element) {

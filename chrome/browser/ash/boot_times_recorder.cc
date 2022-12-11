@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/metrics/login_event_recorder.h"
+#include "chromeos/ash/components/metrics/login_event_recorder.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -50,7 +50,7 @@ RenderWidgetHost* GetRenderWidgetHost(NavigationController* tab) {
     if (render_widget_host_view)
       return render_widget_host_view->GetRenderWidgetHost();
   }
-  return NULL;
+  return nullptr;
 }
 
 const std::string GetTabUrl(RenderWidgetHost* rwh) {

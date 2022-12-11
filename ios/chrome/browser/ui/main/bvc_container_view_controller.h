@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,9 +19,15 @@
     : UIViewController <ThumbStripSupporting, ViewRevealingAnimatee>
 
 // The BVC instance being contained. If this is set, the current BVC (if any)
-// will be removed as a child view controller, and the new |currentBVC| will
+// will be removed as a child view controller, and the new `currentBVC` will
 // be added as a child and have its view resized to this object's view's bounds.
 @property(nonatomic, weak) UIViewController* currentBVC;
+
+// Fallback presenter VC to use when `currentBVC` is nil. Owner of this VC
+// should set this property, which is used by
+// `presentViewController:animated:completion:` and
+// `dismissViewControllerAnimated:completion:`.
+@property(nonatomic, weak) UIViewController* fallbackPresenterViewController;
 
 // YES if the currentBVC is in incognito mode. Is used to set proper background
 // color.

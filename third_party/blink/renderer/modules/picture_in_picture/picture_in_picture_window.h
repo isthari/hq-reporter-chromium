@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 
 namespace blink {
 
-class Document;
 class ExecutionContext;
 
 // The PictureInPictureWindow is meant to be used only by
@@ -28,6 +27,7 @@ class PictureInPictureWindow
  public:
   PictureInPictureWindow() = delete;
 
+  // Create a Picture-in-Picture window for an HTMLVideoElement.
   PictureInPictureWindow(ExecutionContext*, const gfx::Size& size);
 
   PictureInPictureWindow(const PictureInPictureWindow&) = delete;
@@ -35,7 +35,6 @@ class PictureInPictureWindow
 
   int width() const { return size_.width(); }
   int height() const { return size_.height(); }
-  Document* document() const { return nullptr; }
 
   // Called when Picture-in-Picture window state is closed.
   void OnClose();

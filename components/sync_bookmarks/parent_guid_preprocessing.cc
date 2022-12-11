@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,14 @@
 
 #include "base/check.h"
 #include "base/guid.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/string_piece.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/sync/protocol/bookmark_specifics.pb.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 #include "components/sync_bookmarks/synced_bookmark_tracker.h"
+#include "components/sync_bookmarks/synced_bookmark_tracker_entity.h"
 
 namespace sync_bookmarks {
 
@@ -53,7 +55,7 @@ base::GUID TryGetParentGuidFromTracker(
   DCHECK(update.entity.server_defined_unique_tag.empty());
   DCHECK(!update.entity.specifics.bookmark().has_parent_guid());
 
-  const SyncedBookmarkTracker::Entity* const tracked_parent =
+  const SyncedBookmarkTrackerEntity* const tracked_parent =
       tracker->GetEntityForSyncId(update.entity.legacy_parent_id);
   if (!tracked_parent) {
     // Parent not known by tracker.
@@ -125,7 +127,7 @@ class LazySyncIdToGuidMapInUpdates {
     }
   }
 
-  const syncer::UpdateResponseDataList* const updates_;
+  const raw_ptr<const syncer::UpdateResponseDataList> updates_;
   bool initialized_ = false;
   std::
       unordered_map<base::StringPiece, base::StringPiece, base::StringPieceHash>

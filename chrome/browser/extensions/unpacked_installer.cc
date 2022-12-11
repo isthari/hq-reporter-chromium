@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -83,7 +83,7 @@ scoped_refptr<UnpackedInstaller> UnpackedInstaller::Create(
 }
 
 UnpackedInstaller::UnpackedInstaller(ExtensionService* extension_service)
-    : service_weak_(extension_service->AsWeakPtr()),
+    : service_weak_(extension_service->AsExtensionServiceWeakPtr()),
       profile_(extension_service->profile()),
       require_modern_manifest_version_(true),
       be_noisy_on_failure_(true) {
@@ -110,7 +110,7 @@ bool UnpackedInstaller::LoadFromCommandLine(const base::FilePath& path_in,
     return false;
   // Load extensions from the command line synchronously to avoid a race
   // between extension loading and loading an URL from the command line.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlocking allow_blocking;
 
   extension_path_ =
       base::MakeAbsoluteFilePath(path_util::ResolveHomeDirectory(path_in));
@@ -266,7 +266,8 @@ bool UnpackedInstaller::LoadExtension(mojom::ManifestLocation location,
 
   return extension() &&
          extension_l10n_util::ValidateExtensionLocales(
-             extension_path_, extension()->manifest()->value(), error) &&
+             extension_path_, extension()->manifest()->value()->GetDict(),
+             error) &&
          IndexAndPersistRulesIfNeeded(error);
 }
 

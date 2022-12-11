@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,9 @@ class AutofillPopupView {
 
   // Refreshes the position and redraws popup when suggestions change.
   virtual void OnSuggestionsChanged() = 0;
+
+  // Makes accessibility announcement.
+  virtual void AxAnnounce(const std::u16string& text) = 0;
 
   // Return the autofill popup view's ax unique id.
   virtual absl::optional<int32_t> GetAxUniqueId() = 0;

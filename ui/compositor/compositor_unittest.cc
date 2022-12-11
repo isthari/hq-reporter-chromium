@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,16 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
 #include "base/test/power_monitor_test.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_mock_time_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "cc/metrics/frame_sequence_tracker.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_delegate.h"
@@ -40,13 +41,17 @@ class CompositorTest : public testing::Test {
 
   ~CompositorTest() override = default;
 
-  void SetUp() override {
-    context_factories_ = std::make_unique<TestContextFactories>(false);
+  void CreateCompositor() {
     compositor_ = std::make_unique<Compositor>(
         context_factories_->GetContextFactory()->AllocateFrameSinkId(),
         context_factories_->GetContextFactory(), CreateTaskRunner(),
         false /* enable_pixel_canvas */);
     compositor_->SetAcceleratedWidget(gfx::kNullAcceleratedWidget);
+  }
+
+  void SetUp() override {
+    context_factories_ = std::make_unique<TestContextFactories>(false);
+    CreateCompositor();
   }
 
   void TearDown() override {
@@ -99,7 +104,7 @@ class CompositorTestWithMessageLoop : public CompositorTest {
 
  protected:
   scoped_refptr<base::SingleThreadTaskRunner> CreateTaskRunner() override {
-    task_runner_ = base::ThreadTaskRunnerHandle::Get();
+    task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
     return task_runner_;
   }
 
@@ -199,9 +204,9 @@ TEST_F(CompositorTestWithMessageLoop, ShouldUpdateDisplayProperties) {
   // Set a non-identity color matrix, color space, sdr white level, vsync
   // timebase and vsync interval, and expect it to be set on the context
   // factory.
-  skia::Matrix44 color_matrix(skia::Matrix44::kIdentity_Constructor);
-  color_matrix.set(1, 1, 0.7f);
-  color_matrix.set(2, 2, 0.4f);
+  SkM44 color_matrix;
+  color_matrix.setRC(1, 1, 0.7f);
+  color_matrix.setRC(2, 2, 0.4f);
   gfx::DisplayColorSpaces display_color_spaces(
       gfx::ColorSpace::CreateDisplayP3D65());
   display_color_spaces.SetSDRMaxLuminanceNits(1.f);

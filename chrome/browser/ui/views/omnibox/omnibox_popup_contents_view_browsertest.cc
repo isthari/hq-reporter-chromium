@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "chrome/browser/themes/test/theme_service_changed_waiter.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_popup_contents_view.h"
@@ -30,12 +31,18 @@
 #include "content/public/test/test_utils.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/theme_provider.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/views/accessibility/ax_event_manager.h"
 #include "ui/views/accessibility/ax_event_observer.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/widget/widget.h"
+
+#if BUILDFLAG(IS_LINUX)
+#include "ui/linux/linux_ui.h"
+#include "ui/linux/linux_ui_getter.h"
+#endif
 
 #if defined(USE_AURA)
 #include "ui/aura/window.h"
@@ -184,15 +191,15 @@ class OmniboxPopupContentsViewTest : public InProcessBrowserTest {
   }
 
   SkColor GetSelectedColor(Browser* browser) {
-    return GetOmniboxColor(
-        BrowserView::GetBrowserViewForBrowser(browser)->GetThemeProvider(),
-        OmniboxPart::RESULTS_BACKGROUND, OmniboxPartState::SELECTED);
+    return BrowserView::GetBrowserViewForBrowser(browser)
+        ->GetColorProvider()
+        ->GetColor(kColorOmniboxResultsBackgroundSelected);
   }
 
   SkColor GetNormalColor(Browser* browser) {
-    return GetOmniboxColor(
-        BrowserView::GetBrowserViewForBrowser(browser)->GetThemeProvider(),
-        OmniboxPart::RESULTS_BACKGROUND);
+    return BrowserView::GetBrowserViewForBrowser(browser)
+        ->GetColorProvider()
+        ->GetColor(kColorOmniboxResultsBackground);
   }
 
   void SetUseDarkColor(bool use_dark) {
@@ -203,9 +210,20 @@ class OmniboxPopupContentsViewTest : public InProcessBrowserTest {
 
   void UseDefaultTheme() {
     // Some test relies on the light/dark variants of the result background to
-    // be different. But when using the GTK theme on Linux, these colors will be
-    // the same. Ensure we're not using the system (GTK) theme, which may be
+    // be different. But when using the system theme on Linux, these colors will
+    // be the same. Ensure we're not using the system theme, which may be
     // conditionally enabled depending on the environment.
+#if BUILDFLAG(IS_LINUX)
+    // Normally it would be sufficient to call ThemeService::UseDefaultTheme()
+    // which sets the kUsesSystemTheme user pref on the browser's profile.
+    // However BrowserThemeProvider::GetColorProviderColor() currently does not
+    // pass an aura::Window to LinuxUI::GetNativeTheme() - which means that the
+    // NativeThemeGtk instance will always be returned.
+    // TODO(crbug.com/1304441): Remove this once GTK passthrough is fully
+    // supported.
+    ui::LinuxUiGetter::set_instance(nullptr);
+    ui::NativeTheme::GetInstanceForNativeUi()->NotifyOnNativeThemeUpdated();
+
     ThemeService* theme_service =
         ThemeServiceFactory::GetForProfile(browser()->profile());
     if (!theme_service->UsingDefaultTheme()) {
@@ -213,6 +231,7 @@ class OmniboxPopupContentsViewTest : public InProcessBrowserTest {
       theme_service->UseDefaultTheme();
     }
     ASSERT_TRUE(theme_service->UsingDefaultTheme());
+#endif  // BUILDFLAG(IS_LINUX)
   }
 };
 
@@ -225,7 +244,7 @@ views::Widget* OmniboxPopupContentsViewTest::CreatePopupForTestQuery() {
   AutocompleteInput input(
       u"foo", metrics::OmniboxEventProto::BLANK,
       ChromeAutocompleteSchemeClassifier(browser()->profile()));
-  input.set_want_asynchronous_matches(false);
+  input.set_omit_asynchronous_matches(true);
   edit_model()->autocomplete_controller()->Start(input);
 
   EXPECT_FALSE(edit_model()->result().empty());
@@ -453,11 +472,15 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
   AutocompleteController* controller = edit_model()->autocomplete_controller();
   match.contents = u"https://foobar.com";
   match.description = u"FooBarCom";
+  match.contents_class = {{0, 0}};
+  match.description_class = {{0, 0}};
   matches.push_back(match);
   match.contents = u"https://foobarbaz.com";
   match.description = u"FooBarBazCom";
+  match.contents_class = {{0, 0}};
+  match.description_class = {{0, 0}};
   matches.push_back(match);
-  controller->result_.AppendMatches(controller->input_, matches);
+  controller->result_.AppendMatches(matches);
   popup_view()->UpdatePopupAppearance();
   EXPECT_EQ(observer.text_changed_on_listboxoption_count(), 0);
 
@@ -529,7 +552,8 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
   match.description = u"The Foo Of All Bars";
   match.has_tab_match = true;
   matches.push_back(match);
-  controller->result_.AppendMatches(controller->input_, matches);
+  controller->result_.AppendMatches(matches);
+  controller->NotifyChanged();
   popup_view()->UpdatePopupAppearance();
 
   edit_model()->SetPopupSelection(OmniboxPopupSelection(1));
@@ -581,7 +605,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
   AutocompleteInput input(
       u"foo", metrics::OmniboxEventProto::BLANK,
       ChromeAutocompleteSchemeClassifier(browser()->profile()));
-  input.set_want_asynchronous_matches(false);
+  input.set_omit_asynchronous_matches(true);
   edit_model()->autocomplete_controller()->Start(input);
 
   // Create a match to populate the autocomplete.
@@ -600,18 +624,18 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
   AutocompleteResult& results = autocomplete_controller->result_;
   ACMatches matches;
   matches.push_back(match);
-  results.AppendMatches(input, matches);
+  results.AppendMatches(matches);
   results.SortAndCull(input, nullptr);
-  autocomplete_controller->NotifyChanged(true);
+  autocomplete_controller->NotifyChanged();
 
-  // Lets check that arrowing up and down emits the event.
+  // Check that arrowing up and down emits the event.
   TestAXEventObserver observer;
   EXPECT_EQ(observer.selected_children_changed_count(), 0);
   EXPECT_EQ(observer.selection_changed_count(), 0);
   EXPECT_EQ(observer.value_changed_count(), 0);
   EXPECT_EQ(observer.active_descendant_changed_count(), 0);
 
-  // This is equiverlent of the user arrowing down in the omnibox.
+  // This is equivalent of the user arrowing down in the omnibox.
   edit_model()->SetPopupSelection(OmniboxPopupSelection(1));
   EXPECT_EQ(observer.selected_children_changed_count(), 1);
   EXPECT_EQ(observer.selection_changed_count(), 1);
@@ -626,7 +650,7 @@ IN_PROC_BROWSER_TEST_F(OmniboxPopupContentsViewTest,
   EXPECT_EQ(observer.active_descendant_changed_count(), 2);
 
   // TODO(accessibility) Test that closing the popup fires an activedescendant
-  // changed event.
+  //  changed event.
 
   // Check accessibility of list box while it's open.
   ui::AXNodeData popup_node_data_while_open;

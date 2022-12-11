@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -61,11 +61,11 @@ class ExtensionViewViews : public views::WebView,
   void OnLoaded() override;
 
   // views::WebView:
-  gfx::NativeCursor GetCursor(const ui::MouseEvent& event) override;
+  ui::Cursor GetCursor(const ui::MouseEvent& event) override;
   void PreferredSizeChanged() override;
   void OnWebContentsAttached() override;
 
-  raw_ptr<extensions::ExtensionViewHost> host_;
+  raw_ptr<extensions::ExtensionViewHost, DanglingUntriaged> host_;
 
   // What we should set the preferred width to once the ExtensionViewViews has
   // loaded.

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,11 @@
 
 #include "base/bind.h"
 #include "base/check.h"
+#include "base/command_line.h"
 #include "base/location.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/numerics/checked_math.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "cc/paint/paint_flags.h"
@@ -656,8 +656,8 @@ bool PepperGraphics2DHost::PrepareTransferableResource(
         upload_bgra ? viz::BGRA_8888 : viz::RGBA_8888;
 
     bool overlays_supported =
-        enable_gpu_memory_buffer_ &&
-        main_thread_context_->ContextCapabilities().texture_storage_image;
+        enable_gpu_memory_buffer_ && main_thread_context_->ContextCapabilities()
+                                         .supports_scanout_shared_images;
     uint32_t texture_target = GL_TEXTURE_2D;
     if (overlays_supported) {
       texture_target = gpu::GetBufferTextureTarget(
@@ -683,7 +683,7 @@ bool PepperGraphics2DHost::PrepareTransferableResource(
     }
     if (gpu_mailbox.IsZero()) {
       uint32_t usage =
-          gpu::SHARED_IMAGE_USAGE_GLES2 | gpu::SHARED_IMAGE_USAGE_DISPLAY;
+          gpu::SHARED_IMAGE_USAGE_GLES2 | gpu::SHARED_IMAGE_USAGE_DISPLAY_READ;
       if (overlays_supported)
         usage |= gpu::SHARED_IMAGE_USAGE_SCANOUT;
       gpu_mailbox = sii->CreateSharedImage(
@@ -722,10 +722,9 @@ bool PepperGraphics2DHost::PrepareTransferableResource(
     *release_callback =
         base::BindOnce(&ReleaseTextureCallback, this->AsWeakPtr(),
                        main_thread_context_, size, gpu_mailbox);
-    *transferable_resource = viz::TransferableResource::MakeGL(
+    *transferable_resource = viz::TransferableResource::MakeGpu(
         std::move(gpu_mailbox), GL_LINEAR, texture_target,
-        std::move(out_sync_token), size, overlays_supported);
-    transferable_resource->format = format;
+        std::move(out_sync_token), size, format, overlays_supported);
     composited_output_modified_ = false;
     return true;
   }
@@ -957,7 +956,7 @@ void PepperGraphics2DHost::SendOffscreenFlushAck() {
 
 void PepperGraphics2DHost::ScheduleOffscreenFlushAck() {
   offscreen_flush_pending_ = true;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&PepperGraphics2DHost::SendOffscreenFlushAck, AsWeakPtr()),
       base::Milliseconds(kOffscreenCallbackDelayMs));

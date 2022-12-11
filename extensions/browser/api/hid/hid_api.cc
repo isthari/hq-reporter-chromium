@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,7 @@ const char kErrorFailedToOpenDevice[] = "Failed to open HID device.";
 const char kErrorConnectionNotFound[] = "Connection not established.";
 const char kErrorTransfer[] = "Transfer failed.";
 
-std::unique_ptr<base::Value> PopulateHidConnection(int connection_id) {
+base::Value::Dict PopulateHidConnection(int connection_id) {
   hid::HidConnectInfo connection_value;
   connection_value.connection_id = connection_id;
   return connection_value.ToValue();
@@ -91,16 +91,15 @@ ExtensionFunction::ResponseAction HidGetDevicesFunction::Run() {
   return RespondLater();
 }
 
-void HidGetDevicesFunction::OnEnumerationComplete(
-    std::unique_ptr<base::ListValue> devices) {
-  Respond(OneArgument(base::Value::FromUniquePtrValue(std::move(devices))));
+void HidGetDevicesFunction::OnEnumerationComplete(base::Value::List devices) {
+  Respond(OneArgument(base::Value(std::move(devices))));
 }
 
-HidGetUserSelectedDevicesFunction::HidGetUserSelectedDevicesFunction() {
-}
+HidGetUserSelectedDevicesFunction::HidGetUserSelectedDevicesFunction() =
+    default;
 
-HidGetUserSelectedDevicesFunction::~HidGetUserSelectedDevicesFunction() {
-}
+HidGetUserSelectedDevicesFunction::~HidGetUserSelectedDevicesFunction() =
+    default;
 
 ExtensionFunction::ResponseAction HidGetUserSelectedDevicesFunction::Run() {
   std::unique_ptr<api::hid::GetUserSelectedDevices::Params> parameters =
@@ -139,8 +138,8 @@ void HidGetUserSelectedDevicesFunction::OnDevicesChosen(
     std::vector<device::mojom::HidDeviceInfoPtr> devices) {
   HidDeviceManager* device_manager = HidDeviceManager::Get(browser_context());
   CHECK(device_manager);
-  Respond(OneArgument(base::Value::FromUniquePtrValue(
-      device_manager->GetApiDevicesFromList(std::move(devices)))));
+  Respond(OneArgument(
+      base::Value(device_manager->GetApiDevicesFromList(std::move(devices)))));
 }
 
 HidConnectFunction::HidConnectFunction() : connection_manager_(nullptr) {
@@ -186,8 +185,7 @@ void HidConnectFunction::OnConnectComplete(
   DCHECK(connection_manager_);
   int connection_id = connection_manager_->Add(
       new HidConnectionResource(extension_id(), std::move(connection)));
-  Respond(OneArgument(
-      base::Value::FromUniquePtrValue(PopulateHidConnection(connection_id))));
+  Respond(OneArgument(base::Value(PopulateHidConnection(connection_id))));
 }
 
 HidDisconnectFunction::HidDisconnectFunction() {}

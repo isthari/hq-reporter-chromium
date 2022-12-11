@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "ash/constants/app_types.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/session/test_session_controller_client.h"
+#include "ash/test/pixel/ash_pixel_test_init_params.h"
 #include "ash/wm/desks/desks_util.h"
 #include "ash/wm/overview/overview_types.h"
 #include "base/compiler_specific.h"
@@ -68,6 +69,7 @@ namespace ash {
 
 class AmbientAshTestHelper;
 class AppListTestHelper;
+class AshPixelDiffer;
 class AshTestHelper;
 class Shelf;
 class TestAppListClient;
@@ -141,10 +143,13 @@ class AshTestBase : public testing::Test {
   // window, otherwise the window is added to the display matching
   // |bounds_in_screen|. |shell_window_id| is the shell window id to give to
   // the new window.
+  // If |delegate| is empty, a new |TestWidgetDelegate| instance will be set as
+  // this widget's delegate.
   std::unique_ptr<aura::Window> CreateAppWindow(
       const gfx::Rect& bounds_in_screen = gfx::Rect(),
       AppType app_type = AppType::SYSTEM_APP,
-      int shell_window_id = kShellWindowId_Invalid);
+      int shell_window_id = kShellWindowId_Invalid,
+      views::WidgetDelegate* delegate = nullptr);
 
   // Creates a visible window in the appropriate container. If
   // |bounds_in_screen| is empty the window is added to the primary root
@@ -179,6 +184,14 @@ class AshTestBase : public testing::Test {
 
   // Attach |window| to the current shell's root window.
   void ParentWindowInPrimaryRootWindow(aura::Window* window);
+
+  // Returns the raw pointer carried by `pixel_differ_`.
+  AshPixelDiffer* GetPixelDiffer();
+
+  // Stabilizes the variable UI components (such as the battery view). It should
+  // be called after the active user changes since some UI components are
+  // associated with the active account.
+  void StabilizeUIForPixelTest();
 
   // Returns the EventGenerator that uses screen coordinates and works
   // across multiple displays. It creates a new generator if it
@@ -231,6 +244,12 @@ class AshTestBase : public testing::Test {
   // Returns the rotation currently active for the internal display.
   static display::Display::Rotation GetCurrentInternalDisplayRotation();
 
+  // Creates init params to set up a pixel test. If the test is not pixel
+  // related, returns `absl::nullopt`. This function should be overridden by ash
+  // pixel tests.
+  virtual absl::optional<pixel_test::InitParams> CreatePixelTestInitParams()
+      const;
+
   void set_start_session(bool start_session) { start_session_ = start_session; }
 
   base::test::TaskEnvironment* task_environment() {
@@ -264,23 +283,33 @@ class AshTestBase : public testing::Test {
   // behavior where |AccountId|s are compared, prefer the method of the same
   // name that takes an |AccountId| created with a valid storage key instead.
   // See the documentation for|AccountId::GetUserEmail| for discussion.
+  // NOTE: call `StabilizeUIForPixelTest()` after using this function in a pixel
+  // test.
   void SimulateUserLogin(
       const std::string& user_email,
       user_manager::UserType user_type = user_manager::USER_TYPE_REGULAR);
 
   // Simulates a user sign-in. It creates a new user session, adds it to
   // existing user sessions and makes it the active user session.
+  // NOTE: call `StabilizeUIForPixelTest()` after using this function in a pixel
+  // test.
   void SimulateUserLogin(
       const AccountId& account_id,
       user_manager::UserType user_type = user_manager::USER_TYPE_REGULAR);
 
   // Simular to SimulateUserLogin but for a newly created user first ever login.
+  // NOTE: call `StabilizeUIForPixelTest()` after using this function in a pixel
+  // test.
   void SimulateNewUserFirstLogin(const std::string& user_email);
 
   // Similar to SimulateUserLogin but for a guest user.
+  // NOTE: call `StabilizeUIForPixelTest()` after using this function in a pixel
+  // test.
   void SimulateGuestLogin();
 
   // Simulates kiosk mode. |user_type| must correlate to a kiosk type user.
+  // NOTE: call `StabilizeUIForPixelTest()` after using this function in a pixel
+  // test.
   void SimulateKioskMode(user_manager::UserType user_type);
 
   // Simulates setting height of the accessibility panel.
@@ -319,6 +348,10 @@ class AshTestBase : public testing::Test {
  private:
   void CreateWindowTreeIfNecessary();
 
+  // Prepares for pixel tests by enabling related flags and building
+  // `ash_test_helper_`.
+  void PrepareForPixelDiffTest();
+
   bool setup_called_ = false;
   bool teardown_called_ = false;
 
@@ -331,6 +364,10 @@ class AshTestBase : public testing::Test {
 
   // A pref service used for local state.
   TestingPrefServiceSimple local_state_;
+
+  // A helper class to take screen shots then compare with benchmarks. Set by
+  // `PrepareForPixelDiffTest()`.
+  std::unique_ptr<AshPixelDiffer> pixel_differ_;
 
   // Must be constructed after |task_environment_|.
   std::unique_ptr<AshTestHelper> ash_test_helper_;

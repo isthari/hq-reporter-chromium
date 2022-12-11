@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/callback_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/observer_list.h"
 #include "chrome/browser/ui/global_media_controls/media_notification_device_provider.h"
 #include "chrome/browser/ui/media_router/cast_dialog_controller.h"
 #include "chrome/browser/ui/views/global_media_controls/media_item_ui_footer_view.h"
@@ -110,16 +111,12 @@ class MediaItemUIDeviceSelectorView
   void UpdateVisibility();
   bool ShouldBeVisible() const;
   void CreateExpandButtonStrip(bool show_expand_button);
-  void ExpandButtonPressed();
+  void ShowOrHideDeviceList();
   void ShowDevices();
   void HideDevices();
   void RemoveDevicesOfType(DeviceEntryUIType type);
   void StartCastSession(CastDeviceEntryView* entry);
   void DoStartCastSession(media_router::UIMediaSink sink);
-  void RecordStartCastingMetrics(media_router::SinkIconType sink_icon_type);
-  void RecordStartCastingWithCastAndDialPresent(
-      media_router::SinkIconType sink_icon_type);
-  void RecordStopCastingMetrics();
   void RecordCastDeviceCountAfterDelay();
   void RecordCastDeviceCount();
   DeviceEntryUI* GetDeviceEntryUI(views::View* view) const;

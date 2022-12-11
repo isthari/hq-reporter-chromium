@@ -1,10 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/profiles/avatar_toolbar_button_delegate.h"
 
 #include "base/check_op.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
@@ -62,12 +63,18 @@ AvatarToolbarButtonDelegate::AvatarToolbarButtonDelegate(
   }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  // On CrOS this button should only show as badging for Incognito and Guest
-  // sessions. It's only enabled for Incognito where a menu is available for
-  // closing all Incognito windows.
+  // On CrOS this button should only show as badging for Incognito, Guest and
+  // captivie portal signin. It's only enabled for non captive portal Incognito
+  // where a menu is available for closing all Incognito windows.
   avatar_toolbar_button_->SetEnabled(
-      state == AvatarToolbarButton::State::kIncognitoProfile);
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
+      state == AvatarToolbarButton::State::kIncognitoProfile &&
+      !profile_->GetOTRProfileID().IsCaptivePortal());
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  // On Lacros we need to disable the button for captivie portal signin.
+  avatar_toolbar_button_->SetEnabled(
+      state != AvatarToolbarButton::State::kIncognitoProfile ||
+      !profile_->GetOTRProfileID().IsCaptivePortal());
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 }
 
 AvatarToolbarButtonDelegate::~AvatarToolbarButtonDelegate() {
@@ -154,6 +161,10 @@ AvatarToolbarButton::State AvatarToolbarButtonDelegate::GetState() const {
   if (identity_animation_state_ == IdentityAnimationState::kShowing)
     return AvatarToolbarButton::State::kAnimatedUserIdentity;
 
+  if (!SyncServiceFactory::IsSyncAllowed(profile_)) {
+    return AvatarToolbarButton::State::kNormal;
+  }
+
   // Show any existing sync errors (sync-the-feature or sync-the-transport).
   // |last_avatar_error_| should be checked here rather than
   // ::GetAvatarSyncErrorType(), so the result agrees with
@@ -186,7 +197,7 @@ void AvatarToolbarButtonDelegate::ShowHighlightAnimation() {
   DCHECK_NE(GetState(), AvatarToolbarButton::State::kGuestSession);
   avatar_toolbar_button_->UpdateText();
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AvatarToolbarButtonDelegate::HideHighlightAnimation,
                      weak_ptr_factory_.GetWeakPtr()),
@@ -237,10 +248,6 @@ void AvatarToolbarButtonDelegate::OnMouseExited() {
 }
 
 void AvatarToolbarButtonDelegate::OnBlur() {
-  MaybeHideIdentityAnimation();
-}
-
-void AvatarToolbarButtonDelegate::OnHighlightChanged() {
   MaybeHideIdentityAnimation();
 }
 
@@ -399,7 +406,7 @@ void AvatarToolbarButtonDelegate::ShowIdentityAnimation() {
 
   // Hide the pill after a while.
   ++identity_animation_timeout_count_;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AvatarToolbarButtonDelegate::OnIdentityAnimationTimeout,
                      weak_ptr_factory_.GetWeakPtr()),

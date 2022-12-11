@@ -11,8 +11,9 @@ support._
 The C++ language has in recent years received an updated standard every three
 years (C++11, C++14, etc.). For various reasons, Chromium does not immediately
 allow new features on the publication of such a standard. Instead, once
-toolchain support is sufficient, a standard is declared "initially supported",
-with new language/library features banned pending discussion.
+Chromium supports the toolchain to a certain extent (e.g., build support is
+ready), a standard is declared "_initially supported_", with new
+language/library features banned pending discussion but not yet allowed.
 
 You can propose changing the status of a feature by sending an email to
 [cxx@chromium.org](https://groups.google.com/a/chromium.org/forum/#!forum/cxx).
@@ -33,10 +34,11 @@ The current status of existing standards and Abseil features is:
     features below
 *   **C++20:** _Not yet supported in Chromium_
 *   **C++23:** _Not yet standardized_
-*   **Abseil:** Initially supported July 31, 2020; see allowed/banned/TBD
-    features below
-    *   absl::StatusOr: Initially supported September 3, 2020
-    *   absl::Cleanup: Initially supported February 4, 2021
+*   **Abseil:** _Default allowed; see banned/TBD
+    features below_
+    *   absl::AnyInvocable: Initially supported June 20, 2022
+    *   Log library: Initially supported Aug 31, 2022
+    *   CRC32C library: Initially supported Dec 5, 2022
 
 [TOC]
 
@@ -422,6 +424,26 @@ Usage is governed by the
 [Google Style Guide](https://google.github.io/styleguide/cppguide.html#CTAD).
 ***
 
+### Fold expressions <sup>[allowed]</sup>
+
+```c++
+template <typename... Args>
+auto sum(Args... args) {
+  return (... + args);
+}
+```
+
+**Description:** A fold expression performs a fold of a template parameter pack
+over a binary operator.
+
+**Documentation:**
+[Fold expression](https://en.cppreference.com/w/cpp/language/fold)
+
+**Notes:**
+*** promo
+[Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/4DTm3idXz0w/m/g_JjOh0wAgAJ)
+***
+
 ### Selection statements with initializer <sup>[allowed]</sup>
 
 ```c++
@@ -501,6 +523,9 @@ The `[[nodiscard]]` attribute can be used to indicate that
 
 **Notes:**
 *** promo
+This replaces the previous `WARN_UNUSED_RESULT` macro, which was a wrapper
+around the compiler-specific `__attribute__((warn_unused_result))`.
+
 [Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/nH7Ar8pZ1Dw/m/c90vGChvAAAJ)
 ***
 
@@ -549,14 +574,14 @@ This feature forces omitting type names. Its use should follow
 See [discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/ExfSorNLNf4).
 ***
 
-### Inline variables
+### Inline variables <sup>[allowed]</sup>
 
 ```c++
 struct S {
   static constexpr int kZero = 0;  // constexpr implies inline here.
 };
 
-constexpr inline int kOne = 1;  // Explicit inline needed here.
+inline constexpr int kOne = 1;  // Explicit inline needed here.
 ```
 
 **Description:** The `inline` specifier can be applied to variables as well as
@@ -603,7 +628,7 @@ requirements exceed `__STDCPP_DEFAULT_NEW_ALIGNMENT__`.
 None
 ***
 
-### Type trait variable templates <sup>[tbd]</sup>
+### Type trait variable templates <sup>[allowed]</sup>
 
 ```c++
 bool b = std::is_same_v<int, std::int32_t>;
@@ -656,6 +681,132 @@ require default-constructibility of the mapped type.
 **Notes:**
 *** promo
 [Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/Uv2tUfIwUfQ/m/ffMxCk9uAAAJ)
+***
+
+### std::apply <sup>[allowed]</sup>
+
+```c++
+static_assert(std::apply(std::plus<>(), std::make_tuple(1, 2)) == 3);
+```
+
+**Description:** Invokes a `Callable` object with a tuple of arguments.
+
+**Documentation:**
+[std::apply](https://en.cppreference.com/w/cpp/utility/apply)
+
+**Notes:**
+*** promo
+[Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/cNZm_g39fyM)
+***
+
+### std::as_const <sup>[allowed]</sup>
+
+```c++
+auto&& const_ref = std::as_const(mutable_obj);
+```
+
+**Description:** Forms reference to const T.
+
+**Documentation:**
+[std::as_const](https://en.cppreference.com/w/cpp/utility/as_const)
+
+**Notes:**
+*** promo
+[Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/5Uo4iJK6Mf4)
+***
+
+### Non-member std::size/std::empty/std::data <sup>[allowed]</sup>
+
+```c++
+char buffer[260];
+memcpy(std::data(buffer), source_str.data(), std::size(buffer));
+
+if (!std::empty(container)) { ... }
+```
+
+**Description:** Non-member versions of what are often member functions on STL
+containers. Primarily useful when:
+- using `std::size()` as a replacement for the old `arraysize()` macro.
+- writing code that needs to generically operate across things like
+  `std::vector` and `std::list` (which provide `size()`, `empty()`, and `data()
+  member functions), `std::array` and `std::initialize_list` (which only provide
+  a subset of the aforementioned member functions), and regular arrays (which
+  have no member functions at all).
+
+**Documentation:**
+[std::size](https://en.cppreference.com/w/cpp/iterator/size),
+[std::empty](https://en.cppreference.com/w/cpp/iterator/empty),
+[std::data](https://en.cppreference.com/w/cpp/iterator/data)
+
+**Notes:**
+*** promo
+[Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/58qlA3zk5ZI/m/7kKok65xAAAJ)
+
+Prefer range-based for loops over `std::size()`: range-based for loops work even
+for regular arrays.
+***
+
+### std::is_invocable <sup>[allowed]</sup>
+
+```c++
+std::is_invocable_v<Fn, 1, "Hello">
+```
+
+**Description:** Checks whether a function may be invoked with the given
+argument types.  The `_r` variant also evaluates whether the result is
+convertible to a given type.
+
+**Documentation:**
+[std::is_invocable](https://en.cppreference.com/w/cpp/types/is_invocable)
+
+**Notes:**
+*** promo
+[Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/YhlF_sTDSc0/m/QMzf42BtAAAJ)
+***
+
+### std::conjunction/std::disjunction/std::negation <sup>[allowed]</sup>
+
+```c++
+template<typename T, typename... Ts>
+std::enable_if_t<std::conjunction_v<std::is_same<T, Ts>...>>
+func(T, Ts...) { ...
+```
+
+**Description:** Performs logical operations on type traits.
+
+**Documentation:**
+[std::conjunction](https://en.cppreference.com/w/cpp/types/conjunction),
+[std::disjunction](https://en.cppreference.com/w/cpp/types/disjunction),
+[std::negation](https://en.cppreference.com/w/cpp/types/negation)
+
+**Notes:**
+*** promo
+[Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/YhlF_sTDSc0/m/QMzf42BtAAAJ)
+***
+
+### std::hardware_{constructive|destructive}_interference_size <sup>[allowed]</sup>
+
+```c++
+struct SharedData {
+  ReadOnlyFrequentlyUsed data;
+  alignas(std::hardware_destructive_interference_size) std::atomic<size_t> counter;
+};
+```
+
+**Description:** The `std::hardware_destructive_interference_size` constant is
+useful to avoid false sharing (destructive interference) between variables that
+would otherwise occupy the same cacheline. In contrast,
+`std::hardware_constructive_interference_size` is helpful to promote true
+sharing (constructive interference), e.g. to support better locality for
+non-contended data.
+
+**Documentation:**
+[std::hardware_destructive_interference_size](https://en.cppreference.com/w/cpp/thread/hardware_destructive_interference_size),
+[std::hardware_constructive_interference_size](https://en.cppreference.com/w/cpp/thread/hardware_destructive_interference_size)
+
+**Notes:**
+*** promo
+[Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/cwktrFxxUY4/m/sP-J-s61AQAJ)
 ***
 
 ## C++17 Banned Library Features {#library-blocklist-17}
@@ -787,6 +938,90 @@ std::chrono::round<std::chrono::seconds>(time_pt);
 Banned since `std::chrono` is banned.
 ***
 
+### std::variant <sup>[banned]</sup>
+
+```c++
+std::variant<int, double> v = 12;
+```
+
+**Description:** The class template `std::variant` represents a type-safe
+`union`. An instance of `std::variant` at any given time holds a value of one of
+its alternative types (it's also possible for it to be valueless).
+
+**Documentation:**
+[std::variant](https://en.cppreference.com/w/cpp/utility/variant)
+
+**Notes:**
+*** promo
+Banned for now because it does not provide safety guarantees in the case of
+misuse. The Chromium C++ team is investigating the possibility of hardening the
+C++ library so that the standard version can be used. In the meanwhile, use
+`absl::variant` instead.
+***
+
+### std::optional <sup>[banned]</sup>
+
+```c++
+std::optional<std::string> s;
+```
+
+**Description:** The class template `std::optional` manages an optional
+contained value, i.e. a value that may or may not be present. A common use case
+for optional is the return value of a function that may fail.
+
+**Documentation:**
+[std::optional](https://en.cppreference.com/w/cpp/utility/optional)
+
+**Notes:**
+*** promo
+Banned for now because it does not provide safety guarantees in the case of
+misuse. The Chromium C++ team is investigating the possibility of hardening the
+C++ library so that the standard version can be used. In the meanwhile, use
+`absl::optional` instead.
+***
+
+### std::in_place/in_place_type/in_place_index/in_place_t/in_place_type_t/in_place_index_t <sup>[banned]</sup>
+
+```c++
+std::optional<std::complex<double>> opt{std::in_place, 0, 1};
+std::variant<int, float> v{std::in_place_type<int>, 1.4};
+```
+
+**Description:** The `std::in_place` are disambiguation tags for
+`std::optional`, `std::variant`, and `std::any` to indicate that the object
+should be constructed in-place.
+
+**Documentation:**
+[std::in_place](https://en.cppreference.com/w/cpp/utility/in_place)
+
+**Notes:**
+*** promo
+Banned for now because `std::optional`, `std::variant`, and `std::any` are all
+banned for now. Because `absl::optional` and `absl::variant` are used instead,
+and they require `absl::in_place`, use `absl::in_place` for non-Abseil Chromium
+code. See the
+[discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/ZspmuJPpv6s/m/wYYTCiRwAAAJ).
+***
+
+### std::clamp <sup>[banned]</sup>
+
+```c++
+int x = std::clamp(inp, 0, 100);
+```
+
+**Description:** Clamps a value between a minimum and a maximum.
+
+**Documentation:**
+[std::clamp](https://en.cppreference.com/w/cpp/algorithm/clamp)
+
+**Notes:**
+*** promo
+Banned for now because it does not provide safety guarantees in the case of
+misuse. The Chromium C++ team is investigating the possibility of hardening the
+C++ library so that the standard version can be used. In the meanwhile, use
+`base::clamp` instead.
+***
+
 ## C++17 TBD Language Features {#core-review-17}
 
 The following C++17 language features are not allowed in the Chromium codebase.
@@ -809,26 +1044,6 @@ deduced from the types of its arguments.
 
 **Documentation:**
 [Template parameters](https://en.cppreference.com/w/cpp/language/template_parameters)
-
-**Notes:**
-*** promo
-None
-***
-
-### Fold expressions <sup>[tbd]</sup>
-
-```c++
-template <typename... Args>
-auto sum(Args... args) {
-  return (... + args);
-}
-```
-
-**Description:** A fold expression performs a fold of a template parameter pack
-over a binary operator.
-
-**Documentation:**
-[Fold expression](https://en.cppreference.com/w/cpp/language/fold)
 
 **Notes:**
 *** promo
@@ -927,42 +1142,6 @@ The following C++17 library features are not allowed in the Chromium codebase.
 See the top of this page on how to propose moving a feature from this list into
 the allowed or banned sections.
 
-### std::variant <sup>[tbd]</sup>
-
-```c++
-std::variant<int, double> v = 12;
-```
-
-**Description:** The class template `std::variant` represents a type-safe
-`union`. An instance of `std::variant` at any given time holds a value of one of
-its alternative types (it's also possible for it to be valueless).
-
-**Documentation:**
-[std::variant](https://en.cppreference.com/w/cpp/utility/variant)
-
-**Notes:**
-*** promo
-See also `absl::variant`.
-***
-
-### std::optional <sup>[tbd]</sup>
-
-```c++
-std::optional<std::string> s;
-```
-
-**Description:** The class template `std::optional` manages an optional
-contained value, i.e. a value that may or may not be present. A common use case
-for optional is the return value of a function that may fail.
-
-**Documentation:**
-[std::optional](https://en.cppreference.com/w/cpp/utility/optional)
-
-**Notes:**
-*** promo
-See also `absl::optional`.
-***
-
 ### std::string_view <sup>[tbd]</sup>
 
 ```c++
@@ -996,22 +1175,6 @@ a regular function.
 **Notes:**
 *** promo
 See also `base::invoke`.
-***
-
-### std::apply <sup>[tbd]</sup>
-
-```c++
-static_assert(std::apply(std::plus<>(), std::make_tuple(1, 2)) == 3);
-```
-
-**Description:** Invokes a `Callable` object with a tuple of arguments.
-
-**Documentation:**
-[std::apply](https://en.cppreference.com/w/cpp/utility/apply)
-
-**Notes:**
-*** promo
-See also `absl::apply` and `base::apply`.
 ***
 
 ### std::byte <sup>[tbd]</sup>
@@ -1107,22 +1270,6 @@ auto it = std::search(haystack.begin(), haystack.end(),
 None
 ***
 
-### std::as_const <sup>[tbd]</sup>
-
-```c++
-auto&& const_ref = std::as_const(mutable_obj);
-```
-
-**Description:** Forms reference to const T.
-
-**Documentation:**
-[std::as_const](https://en.cppreference.com/w/cpp/utility/as_const)
-
-**Notes:**
-*** promo
-See also `base::as_const`.
-***
-
 ### std::not_fn <sup>[tbd]</sup>
 
 ```c++
@@ -1199,26 +1346,6 @@ int* p2 = static_cast<int*>(std::aligned_alloc(1024, 1024));
 None
 ***
 
-### std::conjunction/std::disjunction/std::negation <sup>[tbd]</sup>
-
-```c++
-template<typename T, typename... Ts>
-std::enable_if_t<std::conjunction_v<std::is_same<T, Ts>...>>
-func(T, Ts...) { ...
-```
-
-**Description:** Performs logical operations on type traits.
-
-**Documentation:**
-[std::conjunction](https://en.cppreference.com/w/cpp/types/conjunction),
-[std::disjunction](https://en.cppreference.com/w/cpp/types/disjunction),
-[std::negation](https://en.cppreference.com/w/cpp/types/negation)
-
-**Notes:**
-*** promo
-None
-***
-
 ### std::is_swappable <sup>[tbd]</sup>
 
 ```c++
@@ -1230,24 +1357,6 @@ std::is_swappable_with_v<T, U>
 
 **Documentation:**
 [std::is_swappable](https://en.cppreference.com/w/cpp/types/is_swappable)
-
-**Notes:**
-*** promo
-None
-***
-
-### std::is_invocable <sup>[tbd]</sup>
-
-```c++
-std::is_invocable_v<Fn, 1, "Hello">
-```
-
-**Description:** Checks whether a function may be invoked with the given
-argument types.  The `_r` variant also evaluates whether the result is
-convertible to a given type.
-
-**Documentation:**
-[std::is_invocable](https://en.cppreference.com/w/cpp/types/is_invocable)
 
 **Notes:**
 *** promo
@@ -1285,22 +1394,6 @@ objects with the same value have the same object representation.
 **Notes:**
 *** promo
 None
-***
-
-### std::clamp <sup>[tbd]</sup>
-
-```c++
-int x = base::clamp(inp, 0, 100);
-```
-
-**Description:** Clamps a value between a minimum and a maximum.
-
-**Documentation:**
-[std::clamp](https://en.cppreference.com/w/cpp/algorithm/clamp)
-
-**Notes:**
-*** promo
-See also `base::clamp`.
 ***
 
 ### std::reduce <sup>[tbd]</sup>
@@ -1387,27 +1480,6 @@ static_assert(std::lcm(12, 18) == 36);
 None
 ***
 
-### Non-member std::size/std::empty/std::data <sup>[tbd]</sup>
-
-```c++
-for (std::size_t i = 0; i < std::size(c); ++i) { ...
-if (!std::empty(c)) { ...
-std::strcpy(arr, std::data(str));
-```
-
-**Description:** Non-member versions of what are normally member functions, for
-symmetrical use with things like arrays and initializer_lists.
-
-**Documentation:**
-[std::size](https://en.cppreference.com/w/cpp/iterator/size),
-[std::empty](https://en.cppreference.com/w/cpp/iterator/empty),
-[std::data](https://en.cppreference.com/w/cpp/iterator/data)
-
-**Notes:**
-*** promo
-See `base::size`, `base::empty`, and `base::data`.
-***
-
 ### Mathematical special functions <sup>[tbd]</sup>
 
 ```c++
@@ -1459,24 +1531,6 @@ double dist = std::hypot(1.0, 2.5, 3.7);
 **Notes:**
 *** promo
 None
-***
-
-### Cache line interface <sup>[tbd]</sup>
-
-```c++
-alignas(std::hardware_destructive_interference_size) std::atomic<int> cat;
-static_assert(sizeof(S) <= std::hardware_constructive_interference_size);
-```
-
-**Description:** A portable way to access the L1 data cache line size.
-
-**Documentation:**
-[Hardware interference size](https://en.cppreference.com/w/cpp/thread/hardware_destructive_interference_size)
-
-**Notes:**
-*** promo
-May not be supported in libc++, according to the
-[library features table](https://en.cppreference.com/w/cpp/17)
 ***
 
 ### std::launder <sup>[tbd]</sup>
@@ -1572,88 +1626,6 @@ std::timespec_get(&ts, TIME_UTC);
 None
 ***
 
-## Abseil Allowed Library Features {#absl-allowlist}
-
-The following Abseil library features are allowed in the Chromium codebase.
-
-### 128bit integer <sup>[allowed]</sup>
-
-```c++
-uint64_t a;
-absl::uint128 v = a;
-```
-
-**Description:** Signed and unsigned 128-bit integer types meant to mimic
-intrinsic types as closely as possible.
-
-**Documentation:**
-[Numerics](https://abseil.io/docs/cpp/guides/numeric)
-
-**Notes:**
-*** promo
-[Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/6l8MlO7vEek)
-***
-
-### Optional <sup>[allowed]</sup>
-
-```c++
-absl::optional
-```
-
-**Description:** Early adaptation of C++17 `std::optional`.
-
-**Documentation:**
-[std::optional](https://en.cppreference.com/w/cpp/utility/optional)
-
-**Notes:**
-*** promo
-Replaces `base::Optional`.
-[Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/zUGqagX1NFU)
-***
-
-### Status <sup>[allowed]</sup>
-
-```c++
-absl::Status
-```
-
-**Description:** Type for returning detailed errors.
-
-**Documentation:**
-[status.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/status/status.h)
-
-**Notes:**
-*** promo
-Approved for use inside a wrapper type. Use
-[abseil_string_conversions.h](https://source.chromium.org/chromium/chromium/src/+/main:base/strings/abseil_string_conversions.h)
-to convert to and from
-[absl::string_view](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/strings/string_view.h)
-so the wrapper can expose
-[base::StringPiece](https://source.chromium.org/chromium/chromium/src/+/main:base/strings/string_piece.h).
-Use
-[absl::Cord](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/strings/cord.h)
-directly as minimally necessary to interface; do not expose in the wrapper type
-API.
-
-[Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/ImdFCSZ-NMA)
-***
-
-### Variant <sup>[allowed]</sup>
-
-```c++
-absl::variant
-```
-
-**Description:** Early adaptation of C++17 `std::variant`.
-
-**Documentation:**
-[std::variant](https://en.cppreference.com/w/cpp/utility/variant)
-
-**Notes:**
-*** promo
-[Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/DqvG-TpvMyU)
-***
-
 ## Abseil Banned Library Features {#absl-blocklist}
 
 The following Abseil library features are not allowed in the Chromium codebase.
@@ -1676,6 +1648,23 @@ Banned since workaround for lack of RTTI isn't compatible with the component
 build ([Bug](https://crbug.com/1096380)). Also see `std::any`.
 ***
 
+### bind_front <sup>[banned]</sup>
+
+```c++
+absl::bind_front
+```
+
+**Description:** Binds the first N arguments of an invocable object and stores them by value.
+
+**Documentation:**
+*   [bind_front.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/functional/bind_front.h)
+*   [Avoid std::bind](https://abseil.io/tips/108)
+
+**Notes:**
+*** promo
+Banned due to overlap with `base::Bind`. Use `base::Bind` instead.
+***
+
 ### Command line flags <sup>[banned]</sup>
 
 ```c++
@@ -1694,6 +1683,80 @@ Banned since workaround for lack of RTTI isn't compatible with the component
 build. ([Bug](https://crbug.com/1096380)) Use `base::CommandLine` instead.
 ***
 
+### Container utilities <sup>[banned]</sup>
+
+```c++
+auto it = absl::c_find(container, value);
+```
+
+**Description:** Container-based versions of algorithmic functions within C++
+standard library.
+
+**Documentation:**
+[container.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/algorithm/container.h)
+
+**Notes:**
+*** promo
+Banned due to overlap with `base/ranges/algorithm.h`. Use the `base/ranges/`
+facilities instead.
+***
+
+### FunctionRef <sup>[banned]</sup>
+
+```c++
+absl::FunctionRef
+```
+
+**Description:** Type for holding a non-owning reference to an object of any
+invocable type.
+
+**Documentation:**
+[function_ref.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/functional/function_ref.h)
+
+**Notes:**
+*** promo
+- `absl::FunctionRef` is banned due to allowing implicit conversions between
+  function signatures in potentially surprising ways. For example, a callable
+  with the signature `int()` will bind to `absl::FunctionRef<void()>`: the
+  return value from the callable will be silently discarded.
+- In Chromium, use `base::FunctionRef` instead.
+- Unlike `base::OnceCallback` and `base::RepeatingCallback`, `base::FunctionRef`
+  supports capturing lambdas.
+- Useful when passing an invocable object to a function that synchronously calls
+  the invocable object, e.g. `ForEachFrame(base::FunctionRef<void(Frame&)>)`.
+  This can often result in clearer code than code that is templated to accept
+  lambdas, e.g. with `template <typename Invocable> void
+  ForEachFrame(Invocable invocable)`, it is much less obvious what arguments
+  will be passed to `invocable`.
+- For now, `base::OnceCallback` and `base::RepeatingCallback` intentionally
+  disallow conversions to `base::FunctionRef`, under the theory that the
+  callback should be a capturing lambda instead. Attempting to use this
+  conversion will trigger a `static_assert` requesting additional feedback for
+  use cases where this conversion would be valuable.
+- *Important:* `base::FunctionRef` must not outlive the function call. Like
+  `base::StringPiece`, `base::FunctionRef` is a *non-owning* reference. Using a
+  `base::FunctionRef` as a return value or class field is dangerous and likely
+  to result in lifetime bugs.
+- [Discussion thread](https://groups.google.com/a/chromium.org/g/cxx/c/JVN4E4IIYA0/m/V0EVUVLiBwAJ)
+***
+
+### Random <sup>[banned]</sup>
+
+```c++
+absl::BitGen bitgen;
+size_t index = absl::Uniform(bitgen, 0u, elems.size());
+```
+
+**Description:** Functions and utilities for generating pseudorandom data.
+
+**Documentation:** [Random library](https://abseil.io/docs/cpp/guides/random)
+
+**Notes:**
+*** promo
+Banned because most uses of random values in Chromium should be using a
+cryptographically secure generator. Use `base/rand_util.h` instead.
+***
+
 ### Span <sup>[banned]</sup>
 
 ```c++
@@ -1708,6 +1771,41 @@ absl::Span
 *** promo
 Banned due to being less std::-compliant than `base::span`. Keep using
 `base::span`.
+***
+
+### StatusOr <sup>[banned]</sup>
+
+```c++
+absl::StatusOr<T>
+```
+
+**Description:** An object that is either a usable value, or an error Status
+explaining why such a value is not present.
+
+**Documentation:**
+[statusor.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/status/statusor.h)
+
+**Notes:**
+*** promo
+Banned due to overlap with `base::expected`. Use `base::expected` instead.
+***
+
+### String Formatting <sup>[banned]</sup>
+
+```c++
+absl::StrFormat
+```
+
+**Description:** A typesafe replacement for the family of printf() string
+formatting routines.
+
+**Documentation:**
+[String Formatting](https://abseil.io/docs/cpp/guides/format)
+
+**Notes:**
+*** promo
+Banned for now due to overlap with `base::StringPrintf()`. See
+[migration bug](https://bugs.chromium.org/p/chromium/issues/detail?id=1371963).
 ***
 
 ### string_view <sup>[banned]</sup>
@@ -1726,45 +1824,91 @@ Banned due to only working with 8-bit characters. Keep using
 `base::StringPiece` from `base/strings/`.
 ***
 
+### Strings Library <sup>[banned]</sup>
+
+```c++
+absl::StrSplit
+absl::StrJoin
+absl::StrCat
+absl::StrAppend
+absl::Substitute
+absl::StrContains
+```
+
+**Description:** Classes and utility functions for manipulating and comparing
+strings.
+
+**Documentation:**
+[String Utilities](https://abseil.io/docs/cpp/guides/strings)
+
+**Notes:**
+*** promo
+Banned for now due to overlap with `base/strings`. We
+[should re-evalute](https://bugs.chromium.org/p/chromium/issues/detail?id=1371966)
+when we've
+[migrated](https://bugs.chromium.org/p/chromium/issues/detail?id=691162) from
+`base::StringPiece` to `std::string_view`.
+***
+
+### Synchronization <sup>[banned]</sup>
+
+```c++
+absl::Mutex
+```
+
+**Description:** Primitives for managing tasks across different threads.
+
+**Documentation:**
+[Synchronization](https://abseil.io/docs/cpp/guides/synchronization)
+
+**Notes:**
+*** promo
+Banned due to overlap with `base/synchronization/`. We would love
+[more testing](https://bugs.chromium.org/p/chromium/issues/detail?id=1371969) on
+whether there are compelling reasons to prefer base, absl, or std
+synchronization primitives; for now, use `base/synchronization/`.
+***
+
+### Time library <sup>[banned]</sup>
+
+```c++
+absl::Duration
+absl::Time
+absl::TimeZone
+absl::CivilDay
+```
+
+**Description:** Abstractions for holding time values, both in terms of
+absolute time and civil time.
+
+**Documentation:** [Time](https://abseil.io/docs/cpp/guides/time)
+
+**Notes:**
+*** promo
+Banned due to overlap with `base/time/`. Use `base/time/` instead.
+***
+
 ## Abseil TBD Features {#absl-review}
 
 The following Abseil library features are not allowed in the Chromium codebase.
 See the top of this page on how to propose moving a feature from this list into
 the allowed or banned sections.
 
-### bind_front <sup>[tbd]</sup>
+### AnyInvocable <sup>[tbd]</sup>
 
 ```c++
-absl::bind_front
+absl::AnyInvocable
 ```
 
-**Description:** Binds the first N arguments of an invocable object and stores them by value.
+**Description:** An equivalent of the C++23 std::move_only_function.
 
 **Documentation:**
-*   [bind_front.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/functional/bind_front.h)
-*   [Avoid std::bind](https://abseil.io/tips/108)
+*   [any_invocable.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/functional/any_invocable.h)
+*   [std::move_only_function](https://en.cppreference.com/w/cpp/utility/functional/move_only_function/move_only_function)
 
 **Notes:**
 *** promo
-Overlaps with `base::Bind`.
-***
-
-### Cleanup <sup>[tbd]</sup>
-
-```c++
-FILE* sink_file = fopen(sink_path, "w");
-auto sink_closer = absl::MakeCleanup([sink_file] { fclose(sink_file); });
-```
-
-**Description:** Implements the scope guard idiom, invoking the contained
-callback's `operator()() &&` on scope exit.
-
-**Documentation:**
-[cleanup.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/cleanup/cleanup.h)
-
-**Notes:**
-*** promo
-Similar to `defer` in Golang.
+Overlaps with `base::RepeatingCallback`, `base::OnceCallback`.
 ***
 
 ### Containers <sup>[tbd]</sup>
@@ -1794,143 +1938,34 @@ in the general case.
 Supplements `base/containers/`.
 ***
 
-### Container utilities <sup>[tbd]</sup>
+### CRC32C library <sup>[tbd]</sup>
 
-```c++
-auto it = absl::c_find(container, value);
-```
-
-**Description:** Container-based versions of algorithmic functions within C++
-standard library.
+**Description:** API for computing CRC32C values as checksums for arbitrary
+sequences of bytes provided as a string buffer.
 
 **Documentation:**
-[container.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/algorithm/container.h)
+[crc32.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/crc/crc32c.h)
 
 **Notes:**
 *** promo
-Overlaps with `base/ranges/algorithm.h`.
+Overlaps with //third_party/crc32c.
 ***
 
-### FunctionRef <sup>[tbd]</sup>
+### Log macros and related classes <sup>[tbd]</sup>
 
 ```c++
-absl::FunctionRef
+LOG(INFO) << message;
+CHECK(condition);
+absl::AddLogSink(&custom_sink_to_capture_absl_logs);
 ```
 
-**Description:** Type for holding a non-owning reference to an object of any
-invocable type.
+**Description:** Macros and related classes to perform debug loggings
 
 **Documentation:**
-[function_ref.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/functional/function_ref.h)
+[log.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/log.h)
+[check.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/check.h)
 
 **Notes:**
 *** promo
-None
-***
-
-### Random <sup>[tbd]</sup>
-
-```c++
-absl::BitGen bitgen;
-size_t index = absl::Uniform(bitgen, 0u, elems.size());
-```
-
-**Description:** Functions and utilities for generating pseudorandom data.
-
-**Documentation:** [Random library](https://abseil.io/docs/cpp/guides/random)
-
-**Notes:**
-*** promo
-Overlaps with `base/rand_util.h`.
-***
-
-### StatusOr <sup>[tbd]</sup>
-
-```c++
-absl::StatusOr<T>
-```
-
-**Description:** An object that is either a usable value, or an error Status
-explaining why such a value is not present.
-
-**Documentation:**
-[statusor.h](https://source.chromium.org/chromium/chromium/src/+/main:third_party/abseil-cpp/absl/status/statusor.h)
-
-**Notes:**
-*** promo
-None
-***
-
-### String Formatting <sup>[tbd]</sup>
-
-```c++
-absl::StrFormat
-```
-
-**Description:** A typesafe replacement for the family of printf() string
-formatting routines.
-
-**Documentation:**
-[String Formatting](https://abseil.io/docs/cpp/guides/format)
-
-**Notes:**
-*** promo
-None
-***
-
-### Strings Library <sup>[tbd]</sup>
-
-```c++
-absl::StrSplit
-absl::StrJoin
-absl::StrCat
-absl::StrAppend
-absl::Substitute
-absl::StrContains
-```
-
-**Description:** Classes and utility functions for manipulating and comparing
-strings.
-
-**Documentation:**
-[String Utilities](https://abseil.io/docs/cpp/guides/strings)
-
-**Notes:**
-*** promo
-Overlaps with `base/strings`.
-***
-
-### Synchronization <sup>[tbd]</sup>
-
-```c++
-absl::Mutex
-```
-
-**Description:** Primitives for managing tasks across different threads.
-
-**Documentation:**
-[Synchronization](https://abseil.io/docs/cpp/guides/synchronization)
-
-**Notes:**
-*** promo
-Overlaps with `Lock` in `base/synchronization/`.
-***
-
-### Time library <sup>[tbd]</sup>
-
-```c++
-absl::Duration
-absl::Time
-absl::TimeZone
-absl::CivilDay
-```
-
-**Description:** Abstractions for holding time values, both in terms of
-absolute time and civil time.
-
-**Documentation:** [Time](https://abseil.io/docs/cpp/guides/time)
-
-**Notes:**
-*** promo
-Overlaps with `Time` APIs in `base/`.
+Overlaps and uses same macros names as `base/logging.h`.
 ***

@@ -1,32 +1,32 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef BASE_NOTREACHED_H_
 #define BASE_NOTREACHED_H_
 
+#include "base/base_export.h"
 #include "base/check.h"
+#include "base/dcheck_is_on.h"
 #include "base/logging_buildflags.h"
 
 namespace logging {
 
-#if BUILDFLAG(ENABLE_LOG_ERROR_NOT_REACHED)
-void BASE_EXPORT LogErrorNotReached(const char* file, int line);
-#define NOTREACHED()                                       \
-  true ? ::logging::LogErrorNotReached(__FILE__, __LINE__) \
-       : EAT_CHECK_STREAM_PARAMS()
+// Under these conditions NOTREACHED() will effectively either log or DCHECK.
+#if BUILDFLAG(ENABLE_LOG_ERROR_NOT_REACHED) || DCHECK_IS_ON()
+#define NOTREACHED()                                                         \
+  CHECK_FUNCTION_IMPL(::logging::CheckError::NotReached(__FILE__, __LINE__), \
+                      false)
 #else
-#define NOTREACHED() DCHECK(false)
-#endif
+#define NOTREACHED() EAT_CHECK_STREAM_PARAMS()
+#endif  // BUILDFLAG(ENABLE_LOG_ERROR_NOT_REACHED) || DCHECK_IS_ON()
 
 // The NOTIMPLEMENTED() macro annotates codepaths which have not been
 // implemented yet. If output spam is a serious concern,
 // NOTIMPLEMENTED_LOG_ONCE can be used.
 #if DCHECK_IS_ON()
-#define NOTIMPLEMENTED()                                     \
-  ::logging::CheckError::NotImplemented(__FILE__, __LINE__,  \
-                                        __PRETTY_FUNCTION__) \
-      .stream()
+#define NOTIMPLEMENTED() \
+  ::logging::CheckError::NotImplemented(__FILE__, __LINE__, __PRETTY_FUNCTION__)
 #else
 #define NOTIMPLEMENTED() EAT_CHECK_STREAM_PARAMS()
 #endif

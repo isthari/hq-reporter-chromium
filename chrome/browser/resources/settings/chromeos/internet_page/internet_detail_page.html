@@ -19,6 +19,10 @@
     color: var(--cros-text-color-positive);
   }
 
+  #networkState[warning] {
+    color: var(--cros-text-color-warning);
+  }
+
   #networkState[error] {
     color: var(--cros-text-color-alert);
   }
@@ -41,8 +45,27 @@
     margin-inline-start: var(--settings-controlled-by-spacing);
   }
 
+  .signin-button {
+    margin-inline-end: 8px;
+    padding: 8px 16px 8px 8px;
+  }
+
+  .signin-icon {
+    background-color: var(--text-color);
+    margin-inline-end: 4px;
+    margin-inline-start: 0;
+  }
+
   #mac-address-container {
     border-top: none;
+  }
+
+  #hiddenToggle {
+    margin-inline-start: var(--cr-section-padding);
+  }
+
+  cr-link-row {
+    --cr-secondary-text-color: var(--cros-text-color-positive);
   }
 </style>
 <!-- Title section: Icon + name + connection state. -->
@@ -53,7 +76,8 @@
         network-state="[[getNetworkState_(managedProperties_)]]">
     </network-icon>
     <div id="networkState" class="title settings-box-text"
-        connected$="[[isConnectedState_(managedProperties_)]]"
+        connected$="[[showConnectedState_(managedProperties_)]]"
+        warning$="[[showRestrictedConnectivity_(managedProperties_)]]"
         error$="[[isOutOfRangeOrNotEnabled_(outOfRange_, deviceState_)]]">
       [[getStateText_(managedProperties_, propertiesReceived_,
           outOfRange_, deviceState_)]]
@@ -66,6 +90,14 @@
       </cr-policy-indicator>
     </template>
   </div>
+  <template is="dom-if" if="[[isCaptivePortalUI2022Enabled_]]">
+    <cr-button class="signin-button" id="signinButton" on-click="onSigninTap_"
+      hidden$="[[!showSignin_(managedProperties_)]]"
+      disabled="[[disableSignin_(managedProperties_, disabled_)]]">
+      <div class="signin-icon cr-icon icon-external"></div>
+      $i18n{networkButtonSignin}
+    </cr-button>
+  </template>
   <cr-button id="forgetButton" on-click="onForgetTap_"
       hidden$="[[!showForget_(managedProperties_)]]"
       disabled="[[disableForget_(managedProperties_,
@@ -193,9 +225,12 @@
     </template>
     <!-- Hidden. -->
     <template is="dom-if"
-        if="[[showHiddenNetwork_(managedProperties_, globalPolicy,
-            managedNetworkAvailable)]]">
-      <settings-toggle-button id="hiddenToggle" class="hr"
+        if="[[showHiddenNetworkToggleLegacy_(
+                enableHiddenNetworkMigration_,
+                globalPolicy,
+                managedNetworkAvailable,
+                managedProperties_)]]">
+      <settings-toggle-button id="hiddenToggleLegacy" class="hr"
           pref="{{hiddenPref_}}"
           label="$i18n{networkHidden}"
           sub-label="$i18n{networkHiddenSublabel}"
@@ -276,6 +311,20 @@
       </div>
     </template>
   </template>
+
+  <!-- APN row item -->
+  <template is="dom-if" if="[[shouldShowApnRow_(managedProperties_,
+      isApnRevampEnabled_)]]">
+    <cr-link-row
+        id="apnSubpageButton"
+        class="hr"
+        label="$i18n{internetApnPageTitle}"
+        sub-label="[[getApnRowSubLabel_(managedProperties_)]]"
+        on-click="onApnRowClicked_"
+        role-description="$i18n{subpageArrowRoleDescription}">
+    </cr-link-row>
+  </template>
+
   <template is="dom-if" if="[[hasAdvancedSection_(managedProperties_,
                               propertiesReceived_, showMeteredToggle_,
                               deviceState_)]]">
@@ -297,6 +346,7 @@
             <network-siminfo id="cellularSimInfoAdvanced"
                 network-state="[[getNetworkState_(managedProperties_)]]"
                 device-state="[[deviceState_]]"
+                global-policy="[[globalPolicy]]"
                 disabled="[[disabled_]]">
             </network-siminfo>
           </div>
@@ -338,6 +388,23 @@
     </iron-collapse>
   </template>
 
+  <template is="dom-if" if="[[showDataUsage_(managedProperties_)]]">
+    <!-- Data usage toggle. -->
+    <cr-expand-button
+        aria-label="$i18n{TrafficCountersDataUsageLabel}"
+        class="settings-box"
+        expanded="{{dataUsageExpanded_}}">
+      $i18n{TrafficCountersDataUsageLabel}
+    </cr-expand-button>
+
+    <!-- Data usage section -->
+    <iron-collapse opened="[[dataUsageExpanded_]]">
+      <settings-traffic-counters id="settingsTrafficCounters"
+          guid="[[guid]]">
+      </settings-traffic-counters>
+    </iron-collapse>
+  </template>
+
   <template is="dom-if" if="[[showConfigurableSections_]]"  restamp>
     <template is="dom-if" if="[[hasNetworkSection_(managedProperties_,
         globalPolicy, managedNetworkAvailable)]]">
@@ -372,7 +439,8 @@
           </template>
 
           <!-- APN -->
-          <template is="dom-if" if="[[isCellular_(managedProperties_)]]">
+          <template is="dom-if" if="[[shouldShowApnList_(managedProperties_,
+              isApnRevampEnabled_)]]">
             <network-apnlist on-apn-change="onApnChange_"
                 managed-properties="[[managedProperties_]]"
                 disabled="[[disabled_]]">
@@ -400,6 +468,23 @@
           <div>$i18n{OncMacAddress}</div>
           <div class="secondary">[[getMacAddress_(deviceState_)]]</div>
         </div>
+
+        <!-- Hidden. -->
+        <template is="dom-if"
+            if="[[showHiddenNetworkToggleMoved_(
+                    enableHiddenNetworkMigration_,
+                    globalPolicy,
+                    managedNetworkAvailable,
+                    managedProperties_)]]">
+          <settings-toggle-button id="hiddenToggle"
+              pref="{{hiddenPref_}}"
+              label="$i18n{networkHidden}"
+              sub-label="$i18n{networkHiddenSublabel}"
+              sub-label-icon="cr20:warning"
+              learn-more-url="$i18n{wifiHiddenNetworkLearnMoreUrl}"
+              deep-link-focus-id$="[[Setting.kWifiHidden]]">
+          </settings-toggle-button>
+        </template>
       </iron-collapse>
     </template>
 

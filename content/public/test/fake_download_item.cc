@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -202,11 +202,6 @@ FakeDownloadItem::GetDownloadCreationType() const {
   return download::DownloadItem::DownloadCreationType::TYPE_ACTIVE_DOWNLOAD;
 }
 
-const absl::optional<download::DownloadSchedule>&
-FakeDownloadItem::GetDownloadSchedule() const {
-  return download_schedule_;
-}
-
 ::network::mojom::CredentialsMode FakeDownloadItem::GetCredentialsMode() const {
   return ::network::mojom::CredentialsMode::kInclude;
 }
@@ -291,10 +286,6 @@ void FakeDownloadItem::ValidateMixedContentDownload() {
   NOTREACHED();
 }
 
-void FakeDownloadItem::AcceptIncognitoWarning() {
-  NOTREACHED();
-}
-
 void FakeDownloadItem::StealDangerousDownload(bool delete_file_afterward,
                                               AcquireFileCallback callback) {
   NOTREACHED();
@@ -335,11 +326,6 @@ void FakeDownloadItem::OnAsyncScanningCompleted(
   NOTREACHED();
 }
 
-void FakeDownloadItem::OnDownloadScheduleChanged(
-    absl::optional<download::DownloadSchedule> schedule) {
-  NOTREACHED();
-}
-
 bool FakeDownloadItem::IsPaused() const {
   return false;
 }
@@ -374,14 +360,19 @@ int32_t FakeDownloadItem::GetAutoResumeCount() const {
   return 0;
 }
 
+bool FakeDownloadItem::IsOffTheRecord() const {
+  NOTREACHED();
+  return false;
+}
+
 const GURL& FakeDownloadItem::GetReferrerUrl() const {
   NOTREACHED();
   return dummy_url;
 }
 
-const GURL& FakeDownloadItem::GetSiteUrl() const {
+const std::string& FakeDownloadItem::GetSerializedEmbedderDownloadData() const {
   NOTREACHED();
-  return dummy_url;
+  return serialized_embedder_download_data;
 }
 
 const GURL& FakeDownloadItem::GetTabUrl() const {
@@ -490,10 +481,6 @@ bool FakeDownloadItem::IsDangerous() const {
 
 bool FakeDownloadItem::IsMixedContent() const {
   return is_mixed_content_;
-}
-
-bool FakeDownloadItem::ShouldShowIncognitoWarning() const {
-  return false;
 }
 
 download::DownloadDangerType FakeDownloadItem::GetDangerType() const {

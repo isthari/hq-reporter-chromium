@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -81,12 +81,12 @@ void NetworkConfigurationUpdater::OnPolicyServiceInitialized(
 }
 
 void NetworkConfigurationUpdater::AddPolicyProvidedCertsObserver(
-    chromeos::PolicyCertificateProvider::Observer* observer) {
+    ash::PolicyCertificateProvider::Observer* observer) {
   observer_list_.AddObserver(observer);
 }
 
 void NetworkConfigurationUpdater::RemovePolicyProvidedCertsObserver(
-    chromeos::PolicyCertificateProvider::Observer* observer) {
+    ash::PolicyCertificateProvider::Observer* observer) {
   observer_list_.RemoveObserver(observer);
 }
 
@@ -170,16 +170,17 @@ void NetworkConfigurationUpdater::Init() {
 }
 
 void NetworkConfigurationUpdater::ParseCurrentPolicy(
-    base::ListValue* network_configs,
-    base::DictionaryValue* global_network_config,
-    base::ListValue* certificates) {
+    base::Value::List* network_configs,
+    base::Value::Dict* global_network_config,
+    base::Value::List* certificates) {
   const PolicyMap& policies = policy_service_->GetPolicies(
       PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()));
-  const base::Value* policy_value = policies.GetValue(policy_key_);
+  const base::Value* policy_value =
+      policies.GetValue(policy_key_, base::Value::Type::STRING);
 
-  if (!policy_value)
+  if (!policies.IsPolicySet(policy_key_))
     VLOG(2) << LogHeader() << " is not set.";
-  else if (!policy_value->is_string())
+  else if (!policy_value)
     LOG(ERROR) << LogHeader() << " is not a string value.";
 
   const std::string onc_blob = policy_value && policy_value->is_string()
@@ -201,20 +202,21 @@ void NetworkConfigurationUpdater::OnPolicyChanged(const base::Value* previous,
 }
 
 void NetworkConfigurationUpdater::ApplyPolicy() {
-  base::ListValue network_configs;
-  base::DictionaryValue global_network_config;
-  base::ListValue certificates;
+  base::Value::List network_configs;
+  base::Value::Dict global_network_config;
+  base::Value::List certificates;
   ParseCurrentPolicy(&network_configs, &global_network_config, &certificates);
 
-  ImportCertificates(certificates);
-  MarkFieldsAsRecommendedForBackwardsCompatibility(&network_configs);
-  ApplyNetworkPolicy(&network_configs, &global_network_config);
+  ImportCertificates(std::move(certificates));
+  MarkFieldsAsRecommendedForBackwardsCompatibility(network_configs);
+  ApplyNetworkPolicy(std::move(network_configs),
+                     std::move(global_network_config));
 }
 
 void NetworkConfigurationUpdater::
     MarkFieldsAsRecommendedForBackwardsCompatibility(
-        base::Value* network_configs_onc) {
-  for (auto& network_config_onc : network_configs_onc->GetList()) {
+        base::Value::List& network_configs_onc) {
+  for (auto& network_config_onc : network_configs_onc) {
     DCHECK(network_config_onc.is_dict());
     const std::string* type =
         network_config_onc.FindStringKey(::onc::network_config::kType);
@@ -271,9 +273,10 @@ std::string NetworkConfigurationUpdater::LogHeader() const {
 }
 
 void NetworkConfigurationUpdater::ImportCertificates(
-    const base::ListValue& certificates_onc) {
+    base::Value::List certificates_onc) {
   std::unique_ptr<OncParsedCertificates> incoming_certs =
-      std::make_unique<OncParsedCertificates>(certificates_onc);
+      std::make_unique<OncParsedCertificates>(
+          base::Value(std::move(certificates_onc)));
 
   bool server_or_authority_certs_changed =
       certs_->server_or_authority_certificates() !=

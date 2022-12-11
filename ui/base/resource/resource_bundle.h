@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,11 +22,13 @@
 #include "base/strings/string_piece.h"
 #include "build/chromeos_buildflags.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "ui/base/layout.h"
-#include "ui/base/models/image_model.h"
+#include "ui/base/resource/resource_scale_factor.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gfx/native_widget_types.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ui/base/models/image_model.h"
+#endif
 
 class SkBitmap;
 
@@ -152,10 +154,12 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
     virtual ~Delegate() = default;
   };
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   using LottieImageParseFunction =
       gfx::ImageSkia (*)(const std::string& bytes_string);
   using LottieThemedImageParseFunction =
       ui::ImageModel (*)(const std::string& bytes_string);
+#endif
 
   // Initialize the ResourceBundle for this process. Does not take ownership of
   // the |delegate| value. Returns the language selected or an empty string if
@@ -243,6 +247,28 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
   // load.
   void AddOptionalDataPackFromPath(const base::FilePath& path,
                                    ResourceScaleFactor scale_factor);
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // Same as AddDataPackFromPath but loads main source `shared_resource_path`
+  // with ash resources `ash_path`.
+  // When creating and adding ResourceHandle for `lacros_path`, we map lacros
+  // resources to ash resources if a resource is common and remove it from
+  // lacros resources. This is for saving memory.
+  // If `shared_resource_path` is not successfully loaded, load `lacros_path`
+  // as DataPack instead. In this case, the memory saving does not work.
+  void AddDataPackFromPathWithAshResources(
+      const base::FilePath& shared_resource_path,
+      const base::FilePath& ash_path,
+      const base::FilePath& lacros_path,
+      ResourceScaleFactor scale_factor);
+
+  // Same as above but does not log an error if the pack fails to load.
+  void AddOptionalDataPackFromPathWithAshResources(
+      const base::FilePath& shared_resource_path,
+      const base::FilePath& ash_path,
+      const base::FilePath& lacros_path,
+      ResourceScaleFactor scale_factor);
+#endif
 
   // Changes the locale for an already-initialized ResourceBundle, returning the
   // name of the newly-loaded locale, or an empty string if initialization
@@ -435,9 +461,21 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
                                    ResourceScaleFactor scale_factor,
                                    bool optional);
 
-  // Inserts |data_pack| to |data_pack_| and updates |max_scale_factor_|
-  // accordingly.
-  void AddDataPack(std::unique_ptr<DataPack> data_pack);
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // Implementation for the public methods which add a DataPack from a path with
+  // ash resources. If |optional| is false, an error is logged on failure to
+  // load.
+  void AddDataPackFromPathWithAshResourcesInternal(
+      const base::FilePath& shared_resource_path,
+      const base::FilePath& ash_path,
+      const base::FilePath& lacros_path,
+      ResourceScaleFactor scale_factor,
+      bool optional);
+#endif
+
+  // Inserts |resource_handle| to |resource_handle_| and updates
+  // |max_scale_factor_| accordingly.
+  void AddResourceHandle(std::unique_ptr<ResourceHandle> resource_handle);
 
   // Try to load the locale specific strings from an external data module.
   // Returns the locale that is loaded or an empty string if no resources were
@@ -530,7 +568,7 @@ class COMPONENT_EXPORT(UI_BASE) ResourceBundle {
   // Handles for data sources.
   std::unique_ptr<ResourceHandle> locale_resources_data_;
   std::unique_ptr<ResourceHandle> secondary_locale_resources_data_;
-  std::vector<std::unique_ptr<ResourceHandle>> data_packs_;
+  std::vector<std::unique_ptr<ResourceHandle>> resource_handles_;
 
   // The maximum scale factor currently loaded.
   ResourceScaleFactor max_scale_factor_;

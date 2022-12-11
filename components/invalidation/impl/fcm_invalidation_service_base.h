@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
+#include "base/values.h"
 #include "components/gcm_driver/instance_id/instance_id.h"
 #include "components/invalidation/impl/fcm_invalidation_listener.h"
 #include "components/invalidation/impl/invalidation_logger.h"
@@ -66,13 +67,13 @@ class FCMInvalidationServiceBase : public InvalidationService,
   void RegisterInvalidationHandler(InvalidationHandler* handler) override;
   bool UpdateInterestedTopics(InvalidationHandler* handler,
                               const TopicSet& topics) override;
+  void UnsubscribeFromUnregisteredTopics(InvalidationHandler* handler) override;
   void UnregisterInvalidationHandler(InvalidationHandler* handler) override;
   InvalidatorState GetInvalidatorState() const override;
   std::string GetInvalidatorClientId() const override;
   InvalidationLogger* GetInvalidationLogger() override;
   void RequestDetailedStatus(
-      base::RepeatingCallback<void(const base::DictionaryValue&)> caller)
-      const override;
+      base::RepeatingCallback<void(base::Value::Dict)> caller) const override;
 
   // FCMInvalidationListener::Delegate implementation.
   void OnInvalidate(const TopicInvalidationMap& invalidation_map) override;
@@ -83,7 +84,7 @@ class FCMInvalidationServiceBase : public InvalidationService,
   void InitForTest(
       std::unique_ptr<FCMInvalidationListener> invalidation_listener);
 
-  virtual base::DictionaryValue CollectDebugData() const;
+  virtual base::Value::Dict CollectDebugData() const;
 
   // Returns true if the service is currently started and able to receive
   // invalidations.

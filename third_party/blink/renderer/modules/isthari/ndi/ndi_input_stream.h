@@ -27,7 +27,7 @@ private:
     void startInternal();
     void processVideoFrame(NDIlib_video_frame_v2_t, base::TimeDelta);
     void processAudio(NDIlib_audio_frame_v2_t, base::TimeDelta);
-    void OnAudioDataReceived(scoped_refptr<media::AudioBuffer>);
+    void OnAudioDataReceived();
     void OnVideoFrameReceived();
     void debugFourCC(NDIlib_video_frame_v2_t video_frame);
 
@@ -55,6 +55,9 @@ private:
     uint64_t startTimestamp_;
     int32_t frameCounter_;
     base::TimeDelta currentFrameTime_;
+
+    // por problema con CrossThreadBindOnce
+    scoped_refptr<media::AudioBuffer> audioFrameTransfer_;
 
     std::string url_;
     scoped_refptr<base::TaskRunner> taskRunner_;

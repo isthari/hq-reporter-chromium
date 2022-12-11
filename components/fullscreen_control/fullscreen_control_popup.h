@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -71,7 +71,7 @@ class FullscreenControlPopup : public views::AnimationDelegateViews {
 
   void OnVisibilityChanged();
 
-  const raw_ptr<FullscreenControlView> control_view_;
+  const raw_ptr<FullscreenControlView, DanglingUntriaged> control_view_;
   const std::unique_ptr<views::Widget> popup_;
   const std::unique_ptr<gfx::SlideAnimation> animation_;
 

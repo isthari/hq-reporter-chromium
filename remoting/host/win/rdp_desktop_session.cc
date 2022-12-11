@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,14 +20,14 @@ RdpDesktopSession::RdpDesktopSession() {
 RdpDesktopSession::~RdpDesktopSession() {
 }
 
-COM_DECLSPEC_NOTHROW STDMETHODIMP
-RdpDesktopSession::Connect(long width,
-                           long height,
-                           long dpi_x,
-                           long dpi_y,
-                           BSTR terminal_id,
-                           DWORD port_number,
-                           IRdpDesktopSessionEventHandler* event_handler) {
+STDMETHODIMP RdpDesktopSession::Connect(
+    long width,
+    long height,
+    long dpi_x,
+    long dpi_y,
+    BSTR terminal_id,
+    DWORD port_number,
+    IRdpDesktopSessionEventHandler* event_handler) {
   event_handler_ = event_handler;
 
   scoped_refptr<AutoThreadTaskRunner> task_runner =
@@ -42,17 +42,16 @@ RdpDesktopSession::Connect(long width,
   return S_OK;
 }
 
-COM_DECLSPEC_NOTHROW STDMETHODIMP RdpDesktopSession::Disconnect() {
+STDMETHODIMP RdpDesktopSession::Disconnect() {
   client_.reset();
   event_handler_ = nullptr;
   return S_OK;
 }
 
-COM_DECLSPEC_NOTHROW STDMETHODIMP
-RdpDesktopSession::ChangeResolution(long width,
-                                    long height,
-                                    long dpi_x,
-                                    long dpi_y) {
+STDMETHODIMP RdpDesktopSession::ChangeResolution(long width,
+                                                 long height,
+                                                 long dpi_x,
+                                                 long dpi_y) {
   if (client_) {
     client_->ChangeResolution(ScreenResolution(
         webrtc::DesktopSize(width, height),
@@ -61,7 +60,7 @@ RdpDesktopSession::ChangeResolution(long width,
   return S_OK;
 }
 
-COM_DECLSPEC_NOTHROW STDMETHODIMP RdpDesktopSession::InjectSas() {
+STDMETHODIMP RdpDesktopSession::InjectSas() {
   if (client_) {
     client_->InjectSas();
   }

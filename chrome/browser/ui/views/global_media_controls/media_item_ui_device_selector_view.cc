@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,11 @@
 #include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/observer_list.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/global_media_controls/media_item_ui_device_selector_delegate.h"
+#include "chrome/browser/ui/global_media_controls/media_item_ui_metrics.h"
 #include "chrome/browser/ui/media_router/cast_dialog_model.h"
 #include "chrome/browser/ui/media_router/ui_media_sink.h"
 #include "chrome/browser/ui/views/global_media_controls/media_item_ui_device_selector_observer.h"
@@ -19,7 +21,7 @@
 #include "components/media_message_center/media_notification_item.h"
 #include "components/media_router/browser/media_router_metrics.h"
 #include "components/media_router/common/media_sink.h"
-#include "components/media_router/common/mojom/media_route_provider_id.mojom-shared.h"
+#include "components/media_router/common/mojom/media_route_provider_id.mojom.h"
 #include "components/media_router/common/mojom/media_router.mojom.h"
 #include "components/vector_icons/vector_icons.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -29,6 +31,7 @@
 #include "services/media_session/public/mojom/media_session.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/ink_drop.h"
@@ -38,17 +41,15 @@
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/layout/box_layout.h"
 
-#include "components/media_router/common/mojom/media_route_provider_id.mojom.h"
-
 using media_router::MediaRouterMetrics;
 using media_router::mojom::MediaRouteProviderId;
 
 namespace {
 
 // Constants for the MediaItemUIDeviceSelectorView
-constexpr gfx::Insets kExpandButtonStripInsets{6, 15};
+constexpr auto kExpandButtonStripInsets = gfx::Insets::VH(6, 15);
 constexpr gfx::Size kExpandButtonStripSize{400, 30};
-constexpr gfx::Insets kExpandButtonBorderInsets{4, 8};
+constexpr auto kExpandButtonBorderInsets = gfx::Insets::VH(4, 8);
 
 // Constant for DropdownButton
 const int kDropdownButtonIconSize = 15;
@@ -61,15 +62,15 @@ constexpr gfx::Insets kDropdownButtonBorderInsets{4};
 // devices.
 const int kAudioDevicesCountHistogramMax = 30;
 
-media_router::MediaRouterDialogOpenOrigin ConvertToOrigin(
+media_router::MediaRouterDialogActivationLocation ConvertToOrigin(
     global_media_controls::GlobalMediaControlsEntryPoint entry_point) {
   switch (entry_point) {
     case global_media_controls::GlobalMediaControlsEntryPoint::kPresentation:
-      return media_router::MediaRouterDialogOpenOrigin::PAGE;
+      return media_router::MediaRouterDialogActivationLocation::PAGE;
     case global_media_controls::GlobalMediaControlsEntryPoint::kSystemTray:
-      return media_router::MediaRouterDialogOpenOrigin::SYSTEM_TRAY;
+      return media_router::MediaRouterDialogActivationLocation::SYSTEM_TRAY;
     case global_media_controls::GlobalMediaControlsEntryPoint::kToolbarIcon:
-      return media_router::MediaRouterDialogOpenOrigin::TOOLBAR;
+      return media_router::MediaRouterDialogActivationLocation::TOOLBAR;
   }
 }
 
@@ -95,6 +96,17 @@ void RecordCastDeviceCountMetrics(
                                                provider, is_available, count);
     }
   }
+}
+
+absl::optional<media_router::MediaCastMode> GetPreferredCastMode(
+    media_router::CastModeSet cast_mode) {
+  if (base::Contains(cast_mode, media_router::MediaCastMode::PRESENTATION)) {
+    return media_router::MediaCastMode::PRESENTATION;
+  } else if (base::Contains(cast_mode,
+                            media_router::MediaCastMode::REMOTE_PLAYBACK)) {
+    return media_router::MediaCastMode::REMOTE_PLAYBACK;
+  }
+  return absl::nullopt;
 }
 
 class ExpandDeviceSelectorLabel : public views::Label {
@@ -164,9 +176,9 @@ void ExpandDeviceSelectorButton::OnColorsChanged(SkColor foreground_color) {
   SetImage(views::Button::STATE_NORMAL,
            gfx::CreateVectorIcon(vector_icons::kCaretDownIcon,
                                  kDropdownButtonIconSize, foreground_color));
-  const auto caret_down_image = gfx::CreateVectorIcon(
-      vector_icons::kCaretUpIcon, kDropdownButtonIconSize, foreground_color);
-  SetToggledImage(views::Button::STATE_NORMAL, &caret_down_image);
+  const auto caret_down_image = ui::ImageModel::FromVectorIcon(
+      vector_icons::kCaretUpIcon, foreground_color, kDropdownButtonIconSize);
+  SetToggledImageModel(views::Button::STATE_NORMAL, caret_down_image);
   views::InkDrop::Get(this)->SetBaseColor(foreground_color);
 }
 
@@ -218,10 +230,9 @@ void MediaItemUIDeviceSelectorView::UpdateCurrentAudioDevice(
     current_audio_device_entry_view_->SetHighlighted(false);
 
   // Find DeviceEntryView* from |device_entry_ui_map_| with |current_device_id|.
-  auto it = base::ranges::find_if(
-      device_entry_ui_map_, [&current_device_id](const auto& pair) {
-        return pair.second->raw_device_id() == current_device_id;
-      });
+  auto it = base::ranges::find(
+      device_entry_ui_map_, current_device_id,
+      [](const auto& pair) { return pair.second->raw_device_id(); });
 
   if (it == device_entry_ui_map_.end()) {
     current_audio_device_entry_view_ = nullptr;
@@ -404,7 +415,7 @@ void MediaItemUIDeviceSelectorView::CreateExpandButtonStrip(
     dropdown_button_ = expand_button_strip_->AddChildView(
         std::make_unique<ExpandDeviceSelectorButton>(
             base::BindRepeating(
-                &MediaItemUIDeviceSelectorView::ExpandButtonPressed,
+                &MediaItemUIDeviceSelectorView::ShowOrHideDeviceList,
                 base::Unretained(this)),
             foreground_color_));
   }
@@ -413,7 +424,7 @@ void MediaItemUIDeviceSelectorView::CreateExpandButtonStrip(
     expand_button_strip_->SetVisible(false);
 }
 
-void MediaItemUIDeviceSelectorView::ExpandButtonPressed() {
+void MediaItemUIDeviceSelectorView::ShowOrHideDeviceList() {
   if (is_expanded_) {
     HideDevices();
   } else {
@@ -462,7 +473,9 @@ void MediaItemUIDeviceSelectorView::OnModelUpdated(
   has_cast_device_ = false;
   for (auto sink : model.media_sinks()) {
     if (!base::Contains(sink.cast_modes,
-                        media_router::MediaCastMode::PRESENTATION)) {
+                        media_router::MediaCastMode::PRESENTATION) &&
+        !base::Contains(sink.cast_modes,
+                        media_router::MediaCastMode::REMOTE_PLAYBACK)) {
       continue;
     }
     has_cast_device_ = true;
@@ -500,7 +513,7 @@ void MediaItemUIDeviceSelectorView::OnDeviceSelected(int tag) {
 }
 
 void MediaItemUIDeviceSelectorView::OnDropdownButtonClicked() {
-  ExpandButtonPressed();
+  ShowOrHideDeviceList();
 }
 
 bool MediaItemUIDeviceSelectorView::IsDeviceSelectorExpanded() {
@@ -509,6 +522,10 @@ bool MediaItemUIDeviceSelectorView::IsDeviceSelectorExpanded() {
 
 bool MediaItemUIDeviceSelectorView::OnMousePressed(
     const ui::MouseEvent& event) {
+  if (entry_point_ !=
+      global_media_controls::GlobalMediaControlsEntryPoint::kPresentation) {
+    ShowOrHideDeviceList();
+  }
   // Stop the mouse click event from bubbling to parent views.
   return true;
 }
@@ -576,7 +593,10 @@ void MediaItemUIDeviceSelectorView::StartCastSession(
   } else if (sink.state == media_router::UIMediaSinkState::CONNECTED) {
     // We record stopping casting here even if we are starting casting, because
     // the existing session is being stopped and replaced by a new session.
-    RecordStopCastingMetrics();
+    if (GetPreferredCastMode(sink.cast_modes)) {
+      MediaItemUIMetrics::RecordStopCastingMetrics(
+          GetPreferredCastMode(sink.cast_modes).value(), entry_point_);
+    }
     if (sink.provider == MediaRouteProviderId::DIAL) {
       DCHECK(sink.route);
       cast_controller_->StopCasting(sink.route->media_route_id());
@@ -588,87 +608,18 @@ void MediaItemUIDeviceSelectorView::StartCastSession(
 
 void MediaItemUIDeviceSelectorView::DoStartCastSession(
     media_router::UIMediaSink sink) {
-  DCHECK(base::Contains(sink.cast_modes,
-                        media_router::MediaCastMode::PRESENTATION));
-  cast_controller_->StartCasting(sink.id,
-                                 media_router::MediaCastMode::PRESENTATION);
-  RecordStartCastingMetrics(sink.icon_type);
-}
-
-void MediaItemUIDeviceSelectorView::RecordStartCastingMetrics(
-    media_router::SinkIconType sink_icon_type) {
-  MediaRouterMetrics::RecordMediaSinkTypeForGlobalMediaControls(sink_icon_type);
-  RecordStartCastingWithCastAndDialPresent(sink_icon_type);
-
-  global_media_controls::GlobalMediaControlsCastActionAndEntryPoint action;
-  switch (entry_point_) {
-    case global_media_controls::GlobalMediaControlsEntryPoint::kToolbarIcon:
-      action = global_media_controls::
-          GlobalMediaControlsCastActionAndEntryPoint::kStartViaToolbarIcon;
-      break;
-    case global_media_controls::GlobalMediaControlsEntryPoint::kPresentation:
-      action = global_media_controls::
-          GlobalMediaControlsCastActionAndEntryPoint::kStartViaPresentation;
-      break;
-    case global_media_controls::GlobalMediaControlsEntryPoint::kSystemTray:
-      action = global_media_controls::
-          GlobalMediaControlsCastActionAndEntryPoint::kStartViaSystemTray;
-      break;
+  auto cast_mode = GetPreferredCastMode(sink.cast_modes);
+  if (!cast_mode) {
+    NOTREACHED() << "Cast mode is not supported.";
+    return;
   }
-  base::UmaHistogramEnumeration(
-      media_message_center::MediaNotificationItem::kCastStartStopHistogramName,
-      action);
-}
-
-void MediaItemUIDeviceSelectorView::RecordStartCastingWithCastAndDialPresent(
-    media_router::SinkIconType type) {
-  bool has_cast = false;
-  bool has_dial = false;
-  for (views::View* view : device_entry_views_container_->children()) {
-    DeviceEntryUI* entry = GetDeviceEntryUI(view);
-    if (entry->GetType() != DeviceEntryUIType::kCast) {
-      continue;
-    }
-    const auto* cast_entry = static_cast<CastDeviceEntryView*>(entry);
-    // A sink gets disabled while we're trying to connect to it, but we consider
-    // those sinks available.
-    if (!cast_entry->GetEnabled() &&
-        cast_entry->sink().state !=
-            media_router::UIMediaSinkState::CONNECTING) {
-      continue;
-    }
-    if (cast_entry->sink().provider == MediaRouteProviderId::CAST) {
-      has_cast = true;
-    } else if (cast_entry->sink().provider == MediaRouteProviderId::DIAL) {
-      has_dial = true;
-    }
-    if (has_cast && has_dial) {
-      MediaRouterMetrics::RecordMediaSinkTypeWhenCastAndDialPresent(
-          type, media_router::UiType::kGlobalMediaControls);
-      return;
-    }
+  cast_controller_->StartCasting(sink.id, cast_mode.value());
+  if (cast_mode.value() == media_router::MediaCastMode::REMOTE_PLAYBACK) {
+    delegate_->OnMediaRemotingRequested(item_id_);
   }
-}
 
-void MediaItemUIDeviceSelectorView::RecordStopCastingMetrics() {
-  global_media_controls::GlobalMediaControlsCastActionAndEntryPoint action;
-  switch (entry_point_) {
-    case global_media_controls::GlobalMediaControlsEntryPoint::kToolbarIcon:
-      action = global_media_controls::
-          GlobalMediaControlsCastActionAndEntryPoint::kStopViaToolbarIcon;
-      break;
-    case global_media_controls::GlobalMediaControlsEntryPoint::kPresentation:
-      action = global_media_controls::
-          GlobalMediaControlsCastActionAndEntryPoint::kStopViaPresentation;
-      break;
-    case global_media_controls::GlobalMediaControlsEntryPoint::kSystemTray:
-      action = global_media_controls::
-          GlobalMediaControlsCastActionAndEntryPoint::kStopViaSystemTray;
-      break;
-  }
-  base::UmaHistogramEnumeration(
-      media_message_center::MediaNotificationItem::kCastStartStopHistogramName,
-      action);
+  MediaItemUIMetrics::RecordStartCastingMetrics(
+      sink.icon_type, cast_mode.value(), entry_point_);
 }
 
 void MediaItemUIDeviceSelectorView::RecordCastDeviceCountAfterDelay() {

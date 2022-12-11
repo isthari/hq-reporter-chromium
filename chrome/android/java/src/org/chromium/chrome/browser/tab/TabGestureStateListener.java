@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,10 +43,9 @@ public final class TabGestureStateListener extends TabWebContentsUserData {
     public void initWebContents(WebContents webContents) {
         GestureListenerManager manager = GestureListenerManager.fromWebContents(webContents);
         mGestureListener = new GestureStateListener() {
-            private int mLastScrollOffsetY;
-
             @Override
-            public void onFlingStartGesture(int scrollOffsetY, int scrollExtentY) {
+            public void onFlingStartGesture(
+                    int scrollOffsetY, int scrollExtentY, boolean isDirectionUp) {
                 onScrollingStateChanged();
             }
 
@@ -56,19 +55,14 @@ public final class TabGestureStateListener extends TabWebContentsUserData {
             }
 
             @Override
-            public void onScrollStarted(int scrollOffsetY, int scrollExtentY) {
+            public void onScrollStarted(
+                    int scrollOffsetY, int scrollExtentY, boolean isDirectionUp) {
                 onScrollingStateChanged();
-                mLastScrollOffsetY = scrollOffsetY;
             }
 
             @Override
             public void onScrollEnded(int scrollOffsetY, int scrollExtentY) {
                 onScrollingStateChanged();
-                RewindableIterator<TabObserver> observers = ((TabImpl) mTab).getTabObservers();
-                while (observers.hasNext()) {
-                    observers.next().onContentViewScrollingEnded(
-                            mLastScrollOffsetY - scrollOffsetY);
-                }
             }
 
             private void onScrollingStateChanged() {

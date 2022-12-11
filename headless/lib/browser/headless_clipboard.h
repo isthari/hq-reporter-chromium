@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include <map>
 
+#include "build/build_config.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
@@ -76,9 +77,9 @@ class HeadlessClipboard : public ui::Clipboard {
   void ReadData(const ui::ClipboardFormatType& format,
                 const ui::DataTransferEndpoint* data_dst,
                 std::string* result) const override;
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   bool IsSelectionBufferAvailable() const override;
-#endif  // defined(USE_OZONE)
+#endif  // BUILDFLAG(IS_OZONE)
   void WritePortableAndPlatformRepresentations(
       ui::ClipboardBuffer buffer,
       const ObjectMap& objects,

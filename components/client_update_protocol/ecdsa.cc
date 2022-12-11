@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,11 @@
 #include <stdint.h>
 
 #include "base/base64url.h"
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
-#include "base/strings/string_piece_forward.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "crypto/random.h"
@@ -53,7 +52,7 @@ bool ParseETagHeader(const base::StringPiece& etag_header_value_in,
   // Remove the weak prefix, then remove the begin and the end quotes.
   const char kWeakETagPrefix[] = "W/";
   if (base::StartsWith(etag_header_value, kWeakETagPrefix))
-    etag_header_value.remove_prefix(base::size(kWeakETagPrefix) - 1);
+    etag_header_value.remove_prefix(std::size(kWeakETagPrefix) - 1);
   if (etag_header_value.size() >= 2 &&
       base::StartsWith(etag_header_value, "\"") &&
       base::EndsWith(etag_header_value, "\"")) {
@@ -168,10 +167,7 @@ bool Ecdsa::ValidateResponse(const base::StringPiece& response_body,
   // request hash. (This is a quick rejection test; the signature test is
   // authoritative, but slower.)
   DCHECK_EQ(request_hash_.size(), crypto::kSHA256Length);
-  if (observed_request_hash.size() != crypto::kSHA256Length)
-    return false;
-  if (!std::equal(observed_request_hash.begin(), observed_request_hash.end(),
-                  request_hash_.begin()))
+  if (!base::ranges::equal(observed_request_hash, request_hash_))
     return false;
 
   // Next, build the buffer that the server will have signed on its end:

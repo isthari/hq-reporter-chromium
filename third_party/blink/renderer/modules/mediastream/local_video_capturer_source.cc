@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
@@ -44,6 +45,7 @@ media::VideoCaptureFormats LocalVideoCapturerSource::GetPreferredFormats() {
 void LocalVideoCapturerSource::StartCapture(
     const media::VideoCaptureParams& params,
     const VideoCaptureDeliverFrameCB& new_frame_callback,
+    const VideoCaptureCropVersionCB& crop_version_callback,
     const RunningCallback& running_callback) {
   DCHECK(params.requested_format.IsValid());
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -55,7 +57,7 @@ void LocalVideoCapturerSource::StartCapture(
           task_runner_, ConvertToBaseRepeatingCallback(CrossThreadBindRepeating(
                             &LocalVideoCapturerSource::OnStateUpdate,
                             weak_factory_.GetWeakPtr()))),
-      new_frame_callback);
+      new_frame_callback, crop_version_callback);
 }
 
 media::VideoCaptureFeedbackCB LocalVideoCapturerSource::GetFeedbackCallback()

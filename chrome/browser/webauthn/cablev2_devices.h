@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,15 +17,21 @@
 class PrefService;
 class Profile;
 
+namespace base {
+class Time;
+}
+
+namespace syncer {
+class DeviceInfo;
+}
+
 namespace user_prefs {
 class PrefRegistrySyncable;
 }
 
-namespace device {
-namespace cablev2 {
+namespace device::cablev2 {
 struct Pairing;
-}  // namespace cablev2
-}  // namespace device
+}
 
 namespace cablev2 {
 
@@ -33,6 +39,12 @@ namespace cablev2 {
 // must be called at browser startup otherwise the preferences won't be
 // usable.
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
+
+// PairingFromSyncedDevice parses a `Pairing` from Sync's information about a
+// device. This is exposed for testing.
+std::unique_ptr<device::cablev2::Pairing> PairingFromSyncedDevice(
+    syncer::DeviceInfo* device,
+    const base::Time& now);
 
 // KnownDevices reflects the browser's knowledge of known caBLEv2 devices.
 // caBLEv2 is the protocol used when phones are acting as security keys. (Except
@@ -83,10 +95,11 @@ std::vector<std::unique_ptr<device::cablev2::Pairing>> MergeDevices(
 
 // AddPairing records `pairing` in `pref_service`, displacing any existing
 // pairing with the same public key. The name in `pairing` will be updated to
-// avoid colliding with any name in `existing_names`.
-void AddPairing(PrefService* pref_service,
-                std::unique_ptr<device::cablev2::Pairing> pairing,
-                base::span<const base::StringPiece> existing_names);
+// avoid colliding with any existing pairing in `profile`. (Incognito profiles
+// are expected to be filtered out before calling this function, but it's
+// harmless to write devices into a transient `PrefService`.)
+void AddPairing(Profile* profile,
+                std::unique_ptr<device::cablev2::Pairing> pairing);
 
 // DeletePairingByPublicKey erases a pairing from `pref_service` by public key.
 void DeletePairingByPublicKey(

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "base/android/jni_android.h"
 #include "base/bind.h"
-#include "chrome/android/features/vr/jni_headers/VrShellDelegate_jni.h"
+#include "chrome/android/features/vr/split_jni_headers/VrShellDelegate_jni.h"
 #include "chrome/browser/android/vr/vr_shell.h"
 #include "chrome/browser/android/vr/vrcore_install_helper.h"
 #include "chrome/browser/browser_process.h"
@@ -53,7 +53,7 @@ VrShellDelegateProviderFactory::CreateGvrDelegateProvider() {
 }  // namespace
 
 VrShellDelegate::VrShellDelegate(JNIEnv* env, jobject obj)
-    : task_runner_(base::ThreadTaskRunnerHandle::Get()) {
+    : task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()) {
   DVLOG(1) << __FUNCTION__ << "=" << this;
   j_vr_shell_delegate_.Reset(env, obj);
 }
@@ -113,7 +113,6 @@ void VrShellDelegate::SetPresentResult(JNIEnv* env,
 }
 
 void VrShellDelegate::OnPresentResult(
-    device::mojom::VRDisplayInfoPtr display_info,
     device::mojom::XRRuntimeSessionOptionsPtr options,
     base::OnceCallback<void(device::mojom::XRSessionPtr)> callback,
     bool success) {
@@ -136,14 +135,13 @@ void VrShellDelegate::OnPresentResult(
     pending_successful_present_request_ = true;
     on_present_result_callback_ = base::BindOnce(
         &VrShellDelegate::OnPresentResult, base::Unretained(this),
-        std::move(display_info), std::move(options), std::move(callback));
+        std::move(options), std::move(callback));
     return;
   }
 
   DVLOG(1) << __FUNCTION__ << ": connecting presenting service";
   request_present_response_callback_ = std::move(callback);
-  vr_shell_->ConnectPresentingService(std::move(display_info),
-                                      std::move(options));
+  vr_shell_->ConnectPresentingService(std::move(options));
 }
 
 void VrShellDelegate::SendRequestPresentReply(
@@ -182,7 +180,6 @@ bool VrShellDelegate::ShouldDisableGvrDevice() {
 }
 
 void VrShellDelegate::StartWebXRPresentation(
-    device::mojom::VRDisplayInfoPtr display_info,
     device::mojom::XRRuntimeSessionOptionsPtr options,
     base::OnceCallback<void(device::mojom::XRSessionPtr)> callback) {
   if (!on_present_result_callback_.is_null() ||
@@ -193,9 +190,9 @@ void VrShellDelegate::StartWebXRPresentation(
     return;
   }
 
-  on_present_result_callback_ = base::BindOnce(
-      &VrShellDelegate::OnPresentResult, base::Unretained(this),
-      std::move(display_info), std::move(options), std::move(callback));
+  on_present_result_callback_ =
+      base::BindOnce(&VrShellDelegate::OnPresentResult, base::Unretained(this),
+                     std::move(options), std::move(callback));
 
   // If/When VRShell is ready for use it will call SetPresentResult.
   JNIEnv* env = AttachCurrentThread();

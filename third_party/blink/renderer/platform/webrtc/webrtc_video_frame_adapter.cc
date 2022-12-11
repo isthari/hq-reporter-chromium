@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,9 @@
 
 #include "base/containers/contains.h"
 #include "base/dcheck_is_on.h"
-#include "base/feature_list.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_restrictions.h"
-#include "build/build_config.h"
+#include "cc/trees/raster_context_provider_wrapper.h"
 #include "gpu/command_buffer/client/gpu_memory_buffer_manager.h"
 #include "gpu/command_buffer/client/raster_interface.h"
 #include "gpu/command_buffer/client/shared_image_interface.h"
@@ -20,8 +19,9 @@
 #include "media/base/wait_and_replace_sync_token_client.h"
 #include "media/renderers/video_frame_rgba_to_yuva_converter.h"
 #include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/renderer/platform/graphics/web_graphics_context_3d_video_frame_pool.h"
+#include "third_party/blink/renderer/platform/scheduler/public/main_thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
-#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/webrtc/convert_to_webrtc_video_frame_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/webrtc/rtc_base/ref_counted_object.h"
@@ -44,7 +44,11 @@ bool IsApproxEquals(const gfx::Rect& a, const gfx::Rect& b) {
 static void CreateContextProviderOnMainThread(
     scoped_refptr<viz::RasterContextProvider>* result,
     base::WaitableEvent* waitable_event) {
-  *result = blink::Platform::Current()->SharedCompositorWorkerContextProvider();
+  scoped_refptr<cc::RasterContextProviderWrapper> worker_context_provider =
+      blink::Platform::Current()->SharedCompositorWorkerContextProvider(
+          nullptr);
+  if (worker_context_provider)
+    *result = worker_context_provider->GetContext();
   waitable_event->Signal();
 }
 
@@ -181,7 +185,8 @@ WebRtcVideoFrameAdapter::SharedResources::GetRasterContextProvider() {
   // Recreate the context provider.
   base::WaitableEvent waitable_event;
   PostCrossThreadTask(
-      *Thread::MainThread()->GetTaskRunner(), FROM_HERE,
+      *Thread::MainThread()->GetTaskRunner(MainThreadTaskRunnerRestricted()),
+      FROM_HERE,
       CrossThreadBindOnce(&CreateContextProviderOnMainThread,
                           CrossThreadUnretained(&raster_context_provider_),
                           CrossThreadUnretained(&waitable_event)));
@@ -194,16 +199,6 @@ WebRtcVideoFrameAdapter::SharedResources::GetRasterContextProvider() {
   return raster_context_provider_;
 }
 
-const base::Feature kWebRTCGpuMemoryBufferReadback {
-  "WebRTCGpuMemoryBufferReadback",
-#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN) || \
-    (BUILDFLAG(IS_CHROMEOS) && defined(ARCH_CPU_X86_FAMILY))
-      base::FEATURE_ENABLED_BY_DEFAULT
-#else
-      base::FEATURE_DISABLED_BY_DEFAULT
-#endif
-};
-
 bool CanUseGpuMemoryBufferReadback(
     media::VideoPixelFormat format,
     media::GpuVideoAcceleratorFactories* gpu_factories) {
@@ -215,7 +210,8 @@ bool CanUseGpuMemoryBufferReadback(
           format == media::PIXEL_FORMAT_XRGB ||
           format == media::PIXEL_FORMAT_ABGR ||
           format == media::PIXEL_FORMAT_ARGB) &&
-         base::FeatureList::IsEnabled(kWebRTCGpuMemoryBufferReadback);
+         WebGraphicsContext3DVideoFramePool::
+             IsGpuMemoryBufferReadbackFromTextureEnabled();
 }
 
 scoped_refptr<media::VideoFrame>
@@ -231,7 +227,8 @@ WebRtcVideoFrameAdapter::SharedResources::ConstructVideoFrameFromTexture(
   viz::RasterContextProvider::ScopedRasterContextLock scoped_context(
       raster_context_provider.get());
 
-  if (CanUseGpuMemoryBufferReadback(source_frame->format(), gpu_factories_)) {
+  if (!disable_gmb_frames_ &&
+      CanUseGpuMemoryBufferReadback(source_frame->format(), gpu_factories_)) {
     if (!accelerated_frame_pool_) {
       accelerated_frame_pool_ =
           media::RenderableGpuMemoryBufferVideoFramePool::Create(
@@ -258,41 +255,43 @@ WebRtcVideoFrameAdapter::SharedResources::ConstructVideoFrameFromTexture(
       base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_wait;
       dst_frame = accelerated_frame_pool_->MaybeCreateVideoFrame(
           source_frame->coded_size(), gfx::ColorSpace::CreateREC709());
-      if (!dst_frame) {
-        return nullptr;
+    }
+
+    if (dst_frame) {
+      const bool copy_succeeded = media::CopyRGBATextureToVideoFrame(
+          raster_context_provider.get(), format, source_frame->coded_size(),
+          source_frame->ColorSpace(), origin, source_frame->mailbox_holder(0),
+          dst_frame.get());
+      if (copy_succeeded) {
+        // CopyRGBATextureToVideoFrame() operates on mailboxes and not frames,
+        // so we must manually copy over properties relevant to the encoder.
+        // TODO(https://crbug.com/1272852): Consider bailing out of this path if
+        // visible_rect or natural_size is much smaller than coded_size, or
+        // copying only the necessary part.
+        if (dst_frame->visible_rect() != source_frame->visible_rect() ||
+            dst_frame->natural_size() != source_frame->natural_size()) {
+          const auto dst_format = dst_frame->format();
+          dst_frame = media::VideoFrame::WrapVideoFrame(
+              std::move(dst_frame), dst_format, source_frame->visible_rect(),
+              source_frame->natural_size());
+          DCHECK(dst_frame);
+        }
+        dst_frame->set_timestamp(source_frame->timestamp());
+        dst_frame->set_metadata(source_frame->metadata());
+
+        // RI::Finish() makes sure that CopyRGBATextureToVideoFrame() finished
+        // texture copy before we call ConstructVideoFrameFromGpu(). It's not
+        // the best way to wait for completion, but it's the only sync way
+        // to wait, and making this function async is currently impractical.
+        raster_context_provider->RasterInterface()->Finish();
+        auto vf = ConstructVideoFrameFromGpu(std::move(dst_frame));
+        return vf;
       }
     }
 
-    gpu::SyncToken copy_done_sync_token;
-    const bool copy_succeeded = media::CopyRGBATextureToVideoFrame(
-        raster_context_provider.get(), format, source_frame->coded_size(),
-        source_frame->ColorSpace(), origin, source_frame->mailbox_holder(0),
-        dst_frame.get(), copy_done_sync_token);
-    if (!copy_succeeded) {
-      return nullptr;
-    }
-
-    // CopyRGBATextureToVideoFrame() operates on mailboxes and not frames, so we
-    // must manually copy over properties relevant to the encoder.
-    // TODO(https://crbug.com/1272852): Consider bailing out of this path if
-    // visible_rect or natural_size is much smaller than coded_size, or copying
-    // only the necessary part.
-    if (dst_frame->visible_rect() != source_frame->visible_rect() ||
-        dst_frame->natural_size() != source_frame->natural_size()) {
-      const auto format = dst_frame->format();
-      dst_frame = media::VideoFrame::WrapVideoFrame(
-          std::move(dst_frame), format, source_frame->visible_rect(),
-          source_frame->natural_size());
-      DCHECK(dst_frame);
-    }
-    dst_frame->set_timestamp(source_frame->timestamp());
-    dst_frame->set_metadata(source_frame->metadata());
-
-    // TODO(crbug.com/1224279): We should remove this wait by internalizing
-    // it into VideoFrame::Map().
-    raster_context_provider->RasterInterface()->Finish();
-    auto vf = ConstructVideoFrameFromGpu(std::move(dst_frame));
-    return vf;
+    DLOG(WARNING) << "Disabling GpuMemoryBuffer based readback due to failure.";
+    disable_gmb_frames_ = true;
+    accelerated_frame_pool_.reset();
   }
 
   auto* ri = scoped_context.RasterInterface();

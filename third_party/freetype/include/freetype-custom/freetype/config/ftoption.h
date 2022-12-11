@@ -586,12 +586,12 @@ FT_BEGIN_HEADER
   /**************************************************************************
    *
    * Define `TT_CONFIG_OPTION_POSTSCRIPT_NAMES` if you want to be able to
-   * load and enumerate the glyph Postscript names in a TrueType or OpenType
+   * load and enumerate Postscript names of glyphs in a TrueType or OpenType
    * file.
    *
-   * Note that when you do not compile the 'psnames' module by undefining the
-   * above `FT_CONFIG_OPTION_POSTSCRIPT_NAMES`, the 'sfnt' module will
-   * contain additional code used to read the PS Names table from a font.
+   * Note that if you do not compile the 'psnames' module by undefining the
+   * above `FT_CONFIG_OPTION_POSTSCRIPT_NAMES` macro, the 'sfnt' module will
+   * contain additional code to read the PostScript name table from a font.
    *
    * (By default, the module uses 'psnames' to extract glyph names.)
    */
@@ -739,6 +739,24 @@ FT_BEGIN_HEADER
    * also.  This has many similarities to Type~1 Multiple Masters support.
    */
 #define TT_CONFIG_OPTION_GX_VAR_SUPPORT
+
+
+  /**************************************************************************
+   *
+   * Define `TT_CONFIG_OPTION_NO_BORING_EXPANSION` if you want to exclude
+   * support for 'boring' OpenType specification expansions.
+   *
+   *   https://github.com/harfbuzz/boring-expansion-spec
+   *
+   * Right now, the following features are covered:
+   *
+   *   - 'avar' version 2.0
+   *
+   * Most likely, this is a temporary configuration option to be removed in
+   * the near future, since it is assumed that eventually those features are
+   * added to the OpenType standard.
+   */
+#define TT_CONFIG_OPTION_NO_BORING_EXPANSION
 
 
   /**************************************************************************

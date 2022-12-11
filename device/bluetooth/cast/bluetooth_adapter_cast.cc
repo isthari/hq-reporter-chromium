@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
-#include "base/task/post_task.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "chromecast/device/bluetooth/bluetooth_util.h"
 #include "chromecast/device/bluetooth/le/gatt_client_manager.h"
@@ -179,9 +178,9 @@ void BluetoothAdapterCast::ConnectDevice(
     const std::string& address,
     const absl::optional<BluetoothDevice::AddressType>& address_type,
     ConnectDeviceCallback callback,
-    ErrorCallback error_callback) {
+    ConnectDeviceErrorCallback error_callback) {
   NOTIMPLEMENTED() << __func__ << " GATT server mode not supported";
-  std::move(error_callback).Run();
+  std::move(error_callback).Run(/*error_message=*/std::string());
 }
 
 void BluetoothAdapterCast::ResetAdvertising(

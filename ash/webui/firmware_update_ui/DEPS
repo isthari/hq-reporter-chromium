@@ -1,5 +1,4 @@
 include_rules = [
-  "+ash/grit/ash_firmware_update_app_resources.h",
-  "+ash/grit/ash_firmware_update_app_resources_map.h",
+  "+chromeos/ash/components/fwupd",
   "+ui/resources",
 ]

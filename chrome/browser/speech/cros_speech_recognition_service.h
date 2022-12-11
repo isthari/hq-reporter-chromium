@@ -1,13 +1,18 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_SPEECH_CROS_SPEECH_RECOGNITION_SERVICE_H_
 #define CHROME_BROWSER_SPEECH_CROS_SPEECH_RECOGNITION_SERVICE_H_
 
+#include <memory>
+#include <string>
+
 #include "base/bind.h"
+#include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
 #include "chrome/browser/speech/chrome_speech_recognition_service.h"
+#include "media/mojo/mojom/speech_recognition.mojom.h"
 #include "media/mojo/mojom/speech_recognition_service.mojom.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -16,6 +21,10 @@ namespace content {
 class BrowserContext;
 }  // namespace content
 
+namespace network {
+class PendingSharedURLLoaderFactory;
+}  // namespace network
+
 namespace speech {
 
 // Provides a Mojo endpoint in the browser for the CROS system. This uses ML
@@ -23,6 +32,7 @@ namespace speech {
 // browser then regular chrome.
 class CrosSpeechRecognitionService
     : public ChromeSpeechRecognitionService,
+      public media::mojom::AudioSourceSpeechRecognitionContext,
       public media::mojom::SpeechRecognitionContext {
  public:
   explicit CrosSpeechRecognitionService(content::BrowserContext* context);
@@ -30,8 +40,14 @@ class CrosSpeechRecognitionService
   CrosSpeechRecognitionService& operator=(const SpeechRecognitionService&) =
       delete;
   ~CrosSpeechRecognitionService() override;
-  void Create(mojo::PendingReceiver<media::mojom::SpeechRecognitionContext>
-                  receiver) override;
+
+  // SpeechRecognitionService:
+  void BindSpeechRecognitionContext(
+      mojo::PendingReceiver<media::mojom::SpeechRecognitionContext> receiver)
+      override;
+  void BindAudioSourceSpeechRecognitionContext(
+      mojo::PendingReceiver<media::mojom::AudioSourceSpeechRecognitionContext>
+          receiver) override;
 
   // media::mojom::SpeechRecognitionContext
   void BindRecognizer(
@@ -40,6 +56,8 @@ class CrosSpeechRecognitionService
           client,
       media::mojom::SpeechRecognitionOptionsPtr options,
       BindRecognizerCallback callback) override;
+
+  // media::mojom::AudioSourceSpeechRecognitionContext:
   void BindAudioSourceFetcher(
       mojo::PendingReceiver<media::mojom::AudioSourceFetcher> fetcher_receiver,
       mojo::PendingRemote<media::mojom::SpeechRecognitionRecognizerClient>
@@ -48,14 +66,25 @@ class CrosSpeechRecognitionService
       BindRecognizerCallback callback) override;
 
  private:
-  void CreateAudioSourceFetcherOnIOThread(
+  void CreateAudioSourceFetcherForOnDeviceRecognitionOnIOThread(
       mojo::PendingReceiver<media::mojom::AudioSourceFetcher> fetcher_receiver,
       mojo::PendingRemote<media::mojom::SpeechRecognitionRecognizerClient>
           client,
       media::mojom::SpeechRecognitionOptionsPtr options,
       const base::FilePath& binary_path,
-      const base::FilePath& languagepack_path);
+      const base::flat_map<std::string, base::FilePath>& config_paths,
+      const std::string& primary_language_name);
 
+  void CreateAudioSourceFetcherForServerBasedRecognitionOnIOThread(
+      mojo::PendingReceiver<media::mojom::AudioSourceFetcher> fetcher_receiver,
+      mojo::PendingRemote<media::mojom::SpeechRecognitionRecognizerClient>
+          client,
+      media::mojom::SpeechRecognitionOptionsPtr options,
+      std::unique_ptr<network::PendingSharedURLLoaderFactory>
+          pending_loader_factory);
+
+  mojo::ReceiverSet<media::mojom::AudioSourceSpeechRecognitionContext>
+      audio_source_speech_recognition_contexts_;
   mojo::ReceiverSet<media::mojom::SpeechRecognitionContext>
       speech_recognition_contexts_;
   base::WeakPtrFactory<CrosSpeechRecognitionService> weak_factory_{this};

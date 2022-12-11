@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -20,6 +20,8 @@ static_library("camera_app_ui") {
     "camera_app_ui.cc",
     "camera_app_ui.h",
     "camera_app_ui_delegate.h",
+    "camera_app_untrusted_ui.cc",
+    "camera_app_untrusted_ui.h",
     "resources.h",
     "url_constants.cc",
     "url_constants.h",
@@ -36,6 +38,7 @@ static_library("camera_app_ui") {
     ":mojo_bindings_js",
     ":window_managemet",
     "//ash/public/cpp",
+    "//ash/webui/system_apps/public:system_web_app_config",
     "//ash/webui/web_applications",
     "//chromeos/utils",
     "//components/arc",
@@ -71,12 +74,18 @@ source_set("window_managemet") {
 
 source_set("document_scanning") {
   sources = [
+    "document_scanner_installer.cc",
+    "document_scanner_installer.h",
     "document_scanner_service_client.cc",
     "document_scanner_service_client.h",
   ]
 
+  public_deps = [ "//dbus" ]
+
   deps = [
     "//base",
+    "//chromeos/ash/components/dbus/dlcservice",
+    "//chromeos/ash/components/dbus/dlcservice:dlcservice_proto",
     "//chromeos/services/machine_learning/public/cpp",
     "//chromeos/services/machine_learning/public/mojom",
     "//components/device_event_log",
@@ -109,6 +118,7 @@ mojom("mojo_bindings") {
     "//ash/components/arc/mojom:camera_intent",
     "//chromeos/services/machine_learning/public/mojom:document_scanner_param_types",
     "//ui/gfx/geometry/mojom",
+    "//url/mojom:url_mojom_gurl",
   ]
   webui_module_path = "/ash/webui/camera_app_ui"
 }
@@ -133,7 +143,7 @@ generate_grd("build_grd") {
     generated_grdp_file,
   ]
 
-  manifest_files = [ "$target_gen_dir/resources/js/tsconfig.manifest" ]
+  manifest_files = [ "$target_gen_dir/resources/js/build_ts.manifest" ]
   input_files_base_dir = rebase_path("resources", "//")
   input_files = []
 

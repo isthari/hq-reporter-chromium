@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "components/cast_streaming/public/remoting_proto_enum_utils.h"
 #include "components/cast_streaming/public/remoting_proto_utils.h"
@@ -24,9 +25,30 @@ using openscreen::cast::RpcMessenger;
 namespace media {
 namespace remoting {
 
+namespace {
+// base::Bind* doesn't understand openscreen::WeakPtr, so we must manually
+// check the RpcMessenger pointer before calling into it.
+void RegisterForRpcTask(
+    openscreen::WeakPtr<openscreen::cast::RpcMessenger> rpc_messenger,
+    int rpc_handle,
+    openscreen::cast::RpcMessenger::ReceiveMessageCallback message_cb) {
+  if (rpc_messenger) {
+    rpc_messenger->RegisterMessageReceiverCallback(rpc_handle,
+                                                   std::move(message_cb));
+  }
+}
+void DeregisterFromRpcTask(
+    openscreen::WeakPtr<openscreen::cast::RpcMessenger> rpc_messenger,
+    int rpc_handle) {
+  if (rpc_messenger) {
+    rpc_messenger->UnregisterMessageReceiverCallback(rpc_handle);
+  }
+}
+}  // namespace
+
 DemuxerStreamAdapter::DemuxerStreamAdapter(
     scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
-    scoped_refptr<base::SingleThreadTaskRunner> media_task_runner,
+    scoped_refptr<base::SequencedTaskRunner> media_task_runner,
     const std::string& name,
     DemuxerStream* demuxer_stream,
     const openscreen::WeakPtr<RpcMessenger>& rpc_messenger,
@@ -53,44 +75,32 @@ DemuxerStreamAdapter::DemuxerStreamAdapter(
       bytes_written_to_pipe_(0) {
   DCHECK(main_task_runner_);
   DCHECK(media_task_runner_);
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   DCHECK(demuxer_stream);
   DCHECK(!error_callback_.is_null());
-  auto receive_callback = BindToCurrentLoop(base::BindRepeating(
-      &DemuxerStreamAdapter::OnReceivedRpc, weak_factory_.GetWeakPtr()));
-  main_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(
-          &RpcMessenger::RegisterMessageReceiverCallback, rpc_messenger_,
-          rpc_handle_,
-          [cb = std::move(receive_callback)](
-              std::unique_ptr<openscreen::cast::RpcMessage> message) {
-            cb.Run(std::move(message));
-          }));
+
+  RegisterForRpcMessaging();
 
   stream_sender_.Bind(std::move(stream_sender_remote));
   stream_sender_.set_disconnect_handler(
       base::BindOnce(&DemuxerStreamAdapter::OnFatalError,
-                     weak_factory_.GetWeakPtr(), MOJO_PIPE_ERROR));
+                     weak_factory_.GetWeakPtr(), MOJO_DISCONNECTED));
 }
 
 DemuxerStreamAdapter::~DemuxerStreamAdapter() {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
-  main_task_runner_->PostTask(
-      FROM_HERE,
-      base::BindOnce(&DemuxerStreamAdapter::DeregisterFromRpcMessaging,
-                     weak_factory_.GetWeakPtr()));
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
+  DeregisterFromRpcMessaging();
 }
 
 int64_t DemuxerStreamAdapter::GetBytesWrittenAndReset() {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   const int64_t current_count = bytes_written_to_pipe_;
   bytes_written_to_pipe_ = 0;
   return current_count;
 }
 
 absl::optional<uint32_t> DemuxerStreamAdapter::SignalFlush(bool flushing) {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   DEMUXER_VLOG(2) << "flushing=" << flushing;
 
   // Ignores if |pending_flush_| states is same.
@@ -115,7 +125,7 @@ absl::optional<uint32_t> DemuxerStreamAdapter::SignalFlush(bool flushing) {
 
 void DemuxerStreamAdapter::OnReceivedRpc(
     std::unique_ptr<openscreen::cast::RpcMessage> message) {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   DCHECK(message);
   DCHECK(rpc_handle_ == message->handle());
 
@@ -138,7 +148,7 @@ void DemuxerStreamAdapter::OnReceivedRpc(
 }
 
 void DemuxerStreamAdapter::Initialize(int remote_callback_handle) {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   DCHECK(!pending_flush_);
   DEMUXER_VLOG(2) << "Received RPC_DS_INITIALIZE with remote_callback_handle="
                   << remote_callback_handle;
@@ -199,7 +209,7 @@ void DemuxerStreamAdapter::Initialize(int remote_callback_handle) {
 
 void DemuxerStreamAdapter::ReadUntil(
     std::unique_ptr<openscreen::cast::RpcMessage> message) {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   DCHECK(message);
   if (!message->has_demuxerstream_readuntil_rpc()) {
     DEMUXER_VLOG(1) << "Missing required DemuxerStreamReadUntil struct in RPC";
@@ -235,18 +245,31 @@ void DemuxerStreamAdapter::ReadUntil(
 }
 
 void DemuxerStreamAdapter::EnableBitstreamConverter() {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   DEMUXER_VLOG(2) << "Received RPC_DS_ENABLEBITSTREAMCONVERTER";
+  bool is_command_sent = true;
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
   demuxer_stream_->EnableBitstreamConverter();
 #else
+  is_command_sent = false;
   DEMUXER_VLOG(1) << "Ignoring EnableBitstreamConverter() RPC: Proprietary "
                      "codecs not enabled in this Chromium build.";
 #endif
+
+  if (remote_callback_handle_ != RpcMessenger::kInvalidHandle) {
+    auto rpc = std::make_unique<openscreen::cast::RpcMessage>();
+    rpc->set_handle(remote_callback_handle_);
+    rpc->set_proc(
+        openscreen::cast::RpcMessage::RPC_DS_ENABLEBITSTREAMCONVERTER_CALLBACK);
+    rpc->set_boolean_value(is_command_sent);
+    main_task_runner_->PostTask(
+        FROM_HERE, base::BindOnce(&RpcMessenger::SendMessageToRemote,
+                                  rpc_messenger_, *rpc));
+  }
 }
 
 void DemuxerStreamAdapter::RequestBuffer() {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   if (!is_processing_read_request() || pending_flush_) {
     DEMUXER_VLOG(2) << "Skip actions since it's not in the reading state";
     return;
@@ -259,7 +282,7 @@ void DemuxerStreamAdapter::RequestBuffer() {
 void DemuxerStreamAdapter::OnNewBuffer(DemuxerStream::Status status,
                                        scoped_refptr<DecoderBuffer> input) {
   DEMUXER_VLOG(3) << "status=" << status;
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   if (!is_processing_read_request() || pending_flush_) {
     DEMUXER_VLOG(2) << "Skip actions since it's not in the reading state";
     return;
@@ -302,7 +325,7 @@ void DemuxerStreamAdapter::OnNewBuffer(DemuxerStream::Status status,
 }
 
 void DemuxerStreamAdapter::WriteFrame() {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   DCHECK(!pending_flush_);
   DCHECK(is_processing_read_request());
   DCHECK(!pending_frame_.empty());
@@ -320,7 +343,7 @@ void DemuxerStreamAdapter::WriteFrame() {
 
 void DemuxerStreamAdapter::OnFrameWritten(bool success) {
   if (!success) {
-    OnFatalError(MOJO_PIPE_ERROR);
+    OnFatalError(DATA_PIPE_WRITE_ERROR);
     return;
   }
 
@@ -344,7 +367,7 @@ void DemuxerStreamAdapter::OnFrameWritten(bool success) {
 }
 
 void DemuxerStreamAdapter::SendReadAck() {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   DEMUXER_VLOG(3) << "last_count_=" << last_count_
                   << ", remote_read_callback_handle="
                   << read_until_callback_handle_
@@ -398,13 +421,13 @@ void DemuxerStreamAdapter::SendReadAck() {
 }
 
 void DemuxerStreamAdapter::ResetPendingFrame() {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   pending_frame_.clear();
   pending_frame_is_eos_ = false;
 }
 
 void DemuxerStreamAdapter::OnFatalError(StopTrigger stop_trigger) {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
 
   DEMUXER_VLOG(1) << __func__ << " with StopTrigger " << stop_trigger;
 
@@ -416,10 +439,26 @@ void DemuxerStreamAdapter::OnFatalError(StopTrigger stop_trigger) {
   std::move(error_callback_).Run(stop_trigger);
 }
 
+void DemuxerStreamAdapter::RegisterForRpcMessaging() {
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
+  auto receive_callback = BindToCurrentLoop(base::BindRepeating(
+      &DemuxerStreamAdapter::OnReceivedRpc, weak_factory_.GetWeakPtr()));
+  main_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &RegisterForRpcTask, rpc_messenger_, rpc_handle_,
+          [cb = std::move(receive_callback)](
+              std::unique_ptr<openscreen::cast::RpcMessage> message) {
+            cb.Run(std::move(message));
+          }));
+}
+
 void DemuxerStreamAdapter::DeregisterFromRpcMessaging() {
-  DCHECK(media_task_runner_->BelongsToCurrentThread());
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   if (rpc_messenger_) {
-    rpc_messenger_->UnregisterMessageReceiverCallback(rpc_handle_);
+    main_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(&DeregisterFromRpcTask, rpc_messenger_, rpc_handle_));
   }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,7 +41,7 @@ using testing::StrictMock;
 ::media::AudioParameters GetAudioParams() {
   return ::media::AudioParameters(
       ::media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
-      ::media::CHANNEL_LAYOUT_STEREO, 48000, 1024);
+      ::media::ChannelLayoutConfig::Stereo(), 48000, 1024);
 }
 
 void SignalPull(
@@ -49,7 +49,7 @@ void SignalPull(
     base::TimeDelta delay) {
   std::unique_ptr<::media::AudioBus> audio_bus =
       ::media::AudioBus::Create(GetAudioParams());
-  source_callback->OnMoreData(delay, base::TimeTicks::Now(), 0,
+  source_callback->OnMoreData(delay, base::TimeTicks::Now(), {},
                               audio_bus.get());
 }
 
@@ -69,13 +69,16 @@ class MockAudioSourceCallback
   }
 
   MOCK_METHOD4(OnMoreData,
-               int(base::TimeDelta, base::TimeTicks, int, ::media::AudioBus*));
+               int(base::TimeDelta,
+                   base::TimeTicks,
+                   const ::media::AudioGlitchInfo&,
+                   ::media::AudioBus*));
   MOCK_METHOD1(OnError, void(ErrorType));
 
  private:
   int OnMoreDataImpl(base::TimeDelta /* delay */,
                      base::TimeTicks /* delay_timestamp */,
-                     int /* prior_frames_skipped */,
+                     const ::media::AudioGlitchInfo& /* glitch_info */,
                      ::media::AudioBus* dest) {
     dest->Zero();
     return dest->frames();
@@ -405,7 +408,7 @@ TEST_F(CastAudioMixerTest, Delay) {
   // |delay| is the same because the Mixer and stream are
   // using the same AudioParameters.
   base::TimeDelta delay = base::Microseconds(1000);
-  EXPECT_CALL(source, OnMoreData(delay, _, 0, _));
+  EXPECT_CALL(source, OnMoreData(delay, _, ::media::AudioGlitchInfo(), _));
   SignalPull(source_callback_, delay);
 
   EXPECT_CALL(mock_mixer_stream(), Stop());

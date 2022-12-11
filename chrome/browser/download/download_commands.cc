@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/files/file_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
@@ -139,7 +138,7 @@ GURL DownloadCommands::GetLearnMoreURLForInterruptedDownload() const {
       learn_more_url, g_browser_process->GetApplicationLocale());
   return net::AppendQueryParameter(
       learn_more_url, "ctx",
-      base::NumberToString(model_->download()->GetLastReason()));
+      base::NumberToString(model_->GetDownloadItem()->GetLastReason()));
 }
 
 bool DownloadCommands::IsCommandEnabled(Command command) const {

@@ -1,13 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationType, Error, GooglePromotedDestinationId, PrintPreviewHeaderElement, PrintPreviewPluralStringProxyImpl, State} from 'chrome://print/print_preview.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {Destination, DestinationOrigin, GooglePromotedDestinationId, PrintPreviewHeaderElement, PrintPreviewPluralStringProxyImpl, State} from 'chrome://print/print_preview.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {fakeDataBind} from 'chrome://webui-test/polymer_test_util.js';
 import {TestPluralStringProxy} from 'chrome://webui-test/test_plural_string_proxy.js';
-import {fakeDataBind} from 'chrome://webui-test/test_util.js';
 
 const header_test = {
   suiteName: 'HeaderTest',
@@ -26,7 +25,7 @@ suite(header_test.suiteName, function() {
   let pluralString: TestPluralStringProxy;
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
 
     pluralString = new TestPluralStringProxy();
     PrintPreviewPluralStringProxyImpl.setInstance(pluralString);
@@ -41,8 +40,8 @@ suite(header_test.suiteName, function() {
     model.set('settings.duplex.value', false);
 
     header.destination = new Destination(
-        'FooDevice', DestinationType.GOOGLE, DestinationOrigin.COOKIES,
-        'FooName', DestinationConnectionStatus.ONLINE);
+        'FooDevice', DestinationOrigin.EXTENSION, 'FooName',
+        {extensionId: 'aaa111', extensionName: 'myPrinterExtension'});
     header.state = State.READY;
     header.managed = false;
     header.sheetCount = 1;
@@ -54,14 +53,13 @@ suite(header_test.suiteName, function() {
     header.set(
         'destination',
         new Destination(
-            GooglePromotedDestinationId.SAVE_AS_PDF, DestinationType.LOCAL,
-            DestinationOrigin.LOCAL, loadTimeData.getString('printToPDF'),
-            DestinationConnectionStatus.ONLINE));
+            GooglePromotedDestinationId.SAVE_AS_PDF, DestinationOrigin.LOCAL,
+            loadTimeData.getString('printToPDF')));
   }
 
   // Tests that the 4 different messages (non-virtual printer singular and
   // plural, virtual printer singular and plural) all show up as expected.
-  test(assert(header_test.TestNames.HeaderPrinterTypes), async function() {
+  test(header_test.TestNames.HeaderPrinterTypes, async function() {
     const summary = header.shadowRoot!.querySelector('.summary')!;
     {
       const {messageName, itemCount} =
@@ -102,7 +100,7 @@ suite(header_test.suiteName, function() {
 
   // Tests that the correct message is shown for non-READY states, and that
   // the print button is disabled appropriately.
-  test(assert(header_test.TestNames.HeaderChangesForState), async function() {
+  test(header_test.TestNames.HeaderChangesForState, async function() {
     const summary = header.shadowRoot!.querySelector('.summary')!;
     await pluralString.whenCalled('getPluralString');
     assertEquals('1 sheet of paper', summary.textContent!.trim());
@@ -118,16 +116,10 @@ suite(header_test.suiteName, function() {
 
     header.state = State.ERROR;
     assertEquals('', summary.textContent!.trim());
-
-    const testError = 'Error printing to cloud print';
-    header.cloudPrintErrorMessage = testError;
-    header.error = Error.CLOUD_PRINT_ERROR;
-    header.state = State.FATAL_ERROR;
-    assertEquals(testError, summary.textContent!.trim());
   });
 
   // Tests that enterprise badge shows up if any setting is managed.
-  test(assert(header_test.TestNames.EnterprisePolicy), function() {
+  test(header_test.TestNames.EnterprisePolicy, function() {
     assertTrue(header.shadowRoot!.querySelector('iron-icon')!.hidden);
     header.managed = true;
     assertFalse(header.shadowRoot!.querySelector('iron-icon')!.hidden);

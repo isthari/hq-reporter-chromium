@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -300,12 +300,16 @@ class DisassemblerElfArm : public DisassemblerElf<TRAITS> {
   std::unique_ptr<ReferenceReader> MakeReadAbs32(offset_t lo, offset_t hi);
   std::unique_ptr<ReferenceWriter> MakeWriteAbs32(MutableBufferView image);
 
-  // Specialized Read/Write functions for different rel32 address types.
+  // Specialized Read/Write/Mix functions for different rel32 address types.
   template <class ADDR_TRAITS>
   std::unique_ptr<ReferenceReader> MakeReadRel32(offset_t lower,
                                                  offset_t upper);
   template <class ADDR_TRAITS>
   std::unique_ptr<ReferenceWriter> MakeWriteRel32(MutableBufferView image);
+
+  template <class ADDR_TRAITS>
+  std::unique_ptr<ReferenceMixer> MakeMixRel32(ConstBufferView old_image,
+                                               ConstBufferView new_image);
 
  protected:
   // Sorted file offsets of rel32 locations for each rel32 address type.

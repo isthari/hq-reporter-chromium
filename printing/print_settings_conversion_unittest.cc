@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "printing/print_settings_conversion.h"
 
 #include "base/containers/contains.h"
-#include "base/json/json_reader.h"
+#include "base/test/values_test_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "printing/print_settings.h"
@@ -45,48 +45,154 @@ const char kPrinterSettings[] = R"({
   "previewModifiable": true,
   "sendUserInfo": true,
   "username": "username@domain.net",
+  "chromeos-access-oauth-token": "this is an OAuth access token",
   "pinValue": "0000"
+})";
+
+const char kPrinterSettingsWithImageableArea[] = R"({
+  "headerFooterEnabled": false,
+  "title": "Test Doc",
+  "url": "http://localhost/",
+  "shouldPrintBackgrounds": false,
+  "shouldPrintSelectionOnly": false,
+  "mediaSize": {
+    "height_microns": 297000,
+    "imageable_area_bottom_microns": 1000,
+    "imageable_area_left_microns": 0,
+    "imageable_area_right_microns": 180000,
+    "imageable_area_top_microns": 297000,
+    "width_microns": 210000
+  },
+  "collate": false,
+  "copies": 1,
+  "color": 2,
+  "duplex": 0,
+  "landscape": false,
+  "deviceName": "printer",
+  "scaleFactor": 100,
+  "rasterizePDF": false,
+  "pagesPerSheet": 1,
+  "dpiHorizontal": 300,
+  "dpiVertical": 300,
 })";
 
 }  // namespace
 
-TEST(PrintSettingsConversionTest, ConversionTest_InvalidSettings) {
-  absl::optional<base::Value> value = base::JSONReader::Read("{}");
-  ASSERT_TRUE(value.has_value());
-  EXPECT_FALSE(PrintSettingsFromJobSettings(value.value()));
+TEST(PrintSettingsConversionTest, InvalidSettings) {
+  base::Value value = base::test::ParseJson("{}");
+  ASSERT_TRUE(value.is_dict());
+  EXPECT_FALSE(PrintSettingsFromJobSettings(value.GetDict()));
 }
 
-TEST(PrintSettingsConversionTest, ConversionTest) {
-  absl::optional<base::Value> value = base::JSONReader::Read(kPrinterSettings);
-  ASSERT_TRUE(value.has_value());
-  std::unique_ptr<PrintSettings> settings =
-      PrintSettingsFromJobSettings(value.value());
+TEST(PrintSettingsConversionTest, Conversion) {
+  base::Value value = base::test::ParseJson(kPrinterSettings);
+  ASSERT_TRUE(value.is_dict());
+  auto& dict = value.GetDict();
+  std::unique_ptr<PrintSettings> settings = PrintSettingsFromJobSettings(dict);
   ASSERT_TRUE(settings);
 #if BUILDFLAG(IS_CHROMEOS)
   EXPECT_TRUE(settings->send_user_info());
   EXPECT_EQ("username@domain.net", settings->username());
+  EXPECT_EQ("this is an OAuth access token", settings->oauth_token());
   EXPECT_EQ("0000", settings->pin_value());
 #endif
   EXPECT_EQ(settings->dpi_horizontal(), 300);
   EXPECT_EQ(settings->dpi_vertical(), 300);
-  value->SetIntKey("dpiVertical", 600);
-  settings = PrintSettingsFromJobSettings(value.value());
+
+  dict.Set("dpiVertical", 600);
+  settings = PrintSettingsFromJobSettings(dict);
   ASSERT_TRUE(settings);
   EXPECT_EQ(settings->rasterize_pdf_dpi(), 150);
   EXPECT_EQ(settings->dpi_horizontal(), 300);
   EXPECT_EQ(settings->dpi_vertical(), 600);
-  EXPECT_TRUE(value->RemoveKey("dpiVertical"));
-  settings = PrintSettingsFromJobSettings(value.value());
+
+  EXPECT_TRUE(dict.Remove("dpiVertical"));
+  settings = PrintSettingsFromJobSettings(dict);
   EXPECT_FALSE(settings);
 }
 
+TEST(PrintSettingsConversionTest, WithValidImageableArea) {
+#if BUILDFLAG(IS_MAC)
+  static constexpr gfx::Size kExpectedSize{595, 842};
+  static constexpr gfx::Rect kExpectedPrintableArea{0, 0, 510, 839};
+#else
+  static constexpr gfx::Size kExpectedSize{2480, 3508};
+  static constexpr gfx::Rect kExpectedPrintableArea{0, 0, 2126, 3496};
+#endif
+
+  base::Value value = base::test::ParseJson(kPrinterSettingsWithImageableArea);
+  ASSERT_TRUE(value.is_dict());
+  auto& dict = value.GetDict();
+  std::unique_ptr<PrintSettings> settings = PrintSettingsFromJobSettings(dict);
+  ASSERT_TRUE(settings);
+  EXPECT_EQ(settings->dpi_horizontal(), 300);
+  EXPECT_EQ(settings->dpi_vertical(), 300);
+  EXPECT_EQ(settings->page_setup_device_units().physical_size(), kExpectedSize);
+  EXPECT_EQ(settings->page_setup_device_units().printable_area(),
+            kExpectedPrintableArea);
+}
+
+TEST(PrintSettingsConversionTest, WithValidFlippedImageableArea) {
+#if BUILDFLAG(IS_MAC)
+  static constexpr gfx::Size kExpectedSize{842, 595};
+  static constexpr gfx::Rect kExpectedPrintableArea{0, 85, 839, 510};
+#else
+  static constexpr gfx::Size kExpectedSize{3508, 2480};
+  static constexpr gfx::Rect kExpectedPrintableArea{0, 354, 3496, 2126};
+#endif
+
+  base::Value value = base::test::ParseJson(kPrinterSettingsWithImageableArea);
+  ASSERT_TRUE(value.is_dict());
+  auto& dict = value.GetDict();
+  dict.Set("landscape", true);
+  std::unique_ptr<PrintSettings> settings = PrintSettingsFromJobSettings(dict);
+  ASSERT_TRUE(settings);
+  EXPECT_EQ(settings->page_setup_device_units().physical_size(), kExpectedSize);
+  EXPECT_EQ(settings->page_setup_device_units().printable_area(),
+            kExpectedPrintableArea);
+}
+
+TEST(PrintSettingsConversionTest, WithOutOfBoundsImageableArea) {
+  base::Value value = base::test::ParseJson(kPrinterSettingsWithImageableArea);
+  ASSERT_TRUE(value.is_dict());
+  auto& dict = value.GetDict();
+  auto* media_size_dict = dict.FindDict("mediaSize");
+  ASSERT_TRUE(media_size_dict);
+  media_size_dict->Set("imageable_area_left_microns", -500);
+  std::unique_ptr<PrintSettings> settings = PrintSettingsFromJobSettings(dict);
+  ASSERT_TRUE(settings);
+  EXPECT_TRUE(settings->page_setup_device_units().physical_size().IsEmpty());
+  EXPECT_TRUE(settings->page_setup_device_units().printable_area().IsEmpty());
+}
+
+TEST(PrintSettingsConversionTest, WithMissingImageableAreaValue) {
+  base::Value value = base::test::ParseJson(kPrinterSettingsWithImageableArea);
+  ASSERT_TRUE(value.is_dict());
+  auto& dict = value.GetDict();
+  auto* media_size_dict = dict.FindDict("mediaSize");
+  ASSERT_TRUE(media_size_dict);
+  media_size_dict->Remove("imageable_area_left_microns");
+  std::unique_ptr<PrintSettings> settings = PrintSettingsFromJobSettings(dict);
+  ASSERT_TRUE(settings);
+  EXPECT_TRUE(settings->page_setup_device_units().physical_size().IsEmpty());
+  EXPECT_TRUE(settings->page_setup_device_units().printable_area().IsEmpty());
+}
+
+TEST(PrintSettingsConversionTest, MissingDeviceName) {
+  base::Value value = base::test::ParseJson(kPrinterSettings);
+  ASSERT_TRUE(value.is_dict());
+  auto& dict = value.GetDict();
+  dict.Remove("deviceName");
+  EXPECT_FALSE(PrintSettingsFromJobSettings(dict));
+}
+
 #if BUILDFLAG(IS_CHROMEOS)
-TEST(PrintSettingsConversionTest, ConversionTest_DontSendUsername) {
-  absl::optional<base::Value> value = base::JSONReader::Read(kPrinterSettings);
-  ASSERT_TRUE(value.has_value());
-  value->SetKey(kSettingSendUserInfo, base::Value(false));
-  std::unique_ptr<PrintSettings> settings =
-      PrintSettingsFromJobSettings(value.value());
+TEST(PrintSettingsConversionTest, DontSendUsername) {
+  base::Value value = base::test::ParseJson(kPrinterSettings);
+  ASSERT_TRUE(value.is_dict());
+  auto& dict = value.GetDict();
+  dict.Set(kSettingSendUserInfo, false);
+  std::unique_ptr<PrintSettings> settings = PrintSettingsFromJobSettings(dict);
   ASSERT_TRUE(settings);
   EXPECT_FALSE(settings->send_user_info());
   EXPECT_EQ("", settings->username());
@@ -95,20 +201,20 @@ TEST(PrintSettingsConversionTest, ConversionTest_DontSendUsername) {
 
 #if BUILDFLAG(IS_CHROMEOS) || (BUILDFLAG(IS_LINUX) && defined(USE_CUPS))
 TEST(PrintSettingsConversionTest, FilterNonJobSettings) {
-  absl::optional<base::Value> value = base::JSONReader::Read(kPrinterSettings);
-  ASSERT_TRUE(value.has_value());
+  base::Value value = base::test::ParseJson(kPrinterSettings);
+  ASSERT_TRUE(value.is_dict());
+  auto& dict = value.GetDict();
 
   {
-    base::Value advanced_attributes(base::Value::Type::DICTIONARY);
-    advanced_attributes.SetStringKey("printer-info", "yada");
-    advanced_attributes.SetStringKey("printer-make-and-model", "yada");
-    advanced_attributes.SetStringKey("system_driverinfo", "yada");
-    advanced_attributes.SetStringKey("Foo", "Bar");
-    value->SetKey(kSettingAdvancedSettings, std::move(advanced_attributes));
+    base::Value::Dict advanced_attributes;
+    advanced_attributes.Set("printer-info", "yada");
+    advanced_attributes.Set("printer-make-and-model", "yada");
+    advanced_attributes.Set("system_driverinfo", "yada");
+    advanced_attributes.Set("Foo", "Bar");
+    dict.Set(kSettingAdvancedSettings, std::move(advanced_attributes));
   }
 
-  std::unique_ptr<PrintSettings> settings =
-      PrintSettingsFromJobSettings(value.value());
+  std::unique_ptr<PrintSettings> settings = PrintSettingsFromJobSettings(dict);
   ASSERT_TRUE(settings);
   EXPECT_EQ(settings->advanced_settings().size(), 1u);
   ASSERT_TRUE(base::Contains(settings->advanced_settings(), "Foo"));

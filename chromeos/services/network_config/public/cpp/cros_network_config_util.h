@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,6 +28,11 @@ int GetWirelessSignalStrength(const mojom::NetworkStateProperties* network);
 // Returns true if the device state InhibitReason property is set to anything
 // but kNotInhibited.
 bool IsInhibited(const mojom::DeviceStateProperties* device);
+
+// Returns an ONC dictionary for network with guid |network_guid| containing a
+// configuration of the network's user APN list.
+base::Value::Dict UserApnListToOnc(const std::string& network_guid,
+                                   const base::Value::List* user_apn_list);
 
 }  // namespace network_config
 }  // namespace chromeos

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "ash/components/arc/arc_util.h"
 #include "ash/constants/app_types.h"
+#include "ash/wm/window_properties.h"
 #include "base/strings/string_piece.h"
 #include "chrome/browser/ash/borealis/borealis_window_manager.h"
 #include "chromeos/crosapi/cpp/crosapi_constants.h"
@@ -47,16 +48,14 @@ void ExoAppTypeResolver::PopulateProperties(
                                          true);
     out_properties_container.SetProperty(app_restore::kLacrosWindowId,
                                          params.app_id);
-    const int32_t restore_window_id =
-        app_restore::GetLacrosRestoreWindowId(params.app_id);
-    out_properties_container.SetProperty(app_restore::kRestoreWindowIdKey,
-                                         restore_window_id);
-    out_properties_container.SetProperty(
-        app_restore::kParentToHiddenContainerKey,
-        restore_window_id == app_restore::kParentToHiddenContainer);
+
+    out_properties_container.SetProperty(ash::kWebAuthnRequestId,
+                                         new std::string(params.app_id));
     return;
-  } else if (borealis::BorealisWindowManager::IsBorealisWindowId(
-                 params.app_id.empty() ? params.startup_id : params.app_id)) {
+  }
+
+  if (borealis::BorealisWindowManager::IsBorealisWindowId(
+          params.app_id.empty() ? params.startup_id : params.app_id)) {
     // TODO(b/165865831): Stop using CROSTINI_APP for borealis windows.
     out_properties_container.SetProperty(
         aura::client::kAppType, static_cast<int>(ash::AppType::CROSTINI_APP));
@@ -91,6 +90,9 @@ void ExoAppTypeResolver::PopulateProperties(
       reinterpret_cast<exo::ProtectedNativePixmapQueryDelegate*>(
           &protected_native_pixmap_query_client_));
 
+  out_properties_container.SetProperty(
+      chromeos::kShouldHaveHighlightBorderOverlay, true);
+
   if (task_id.has_value())
     out_properties_container.SetProperty(app_restore::kWindowIdKey, *task_id);
 
@@ -112,4 +114,6 @@ void ExoAppTypeResolver::PopulateProperties(
     out_properties_container.SetProperty(
         app_restore::kParentToHiddenContainerKey, true);
   }
+
+  out_properties_container.SetProperty(aura::client::kSkipImeProcessing, true);
 }

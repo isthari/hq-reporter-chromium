@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -69,11 +69,12 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/numerics/safe_math.h"
+#include "base/ranges/algorithm.h"
 #include "base/sequence_checker.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/base/load_flags.h"
@@ -468,7 +469,7 @@ void Job::AttachRequest(
 void Job::DetachRequest(CertNetFetcherURLLoader::RequestCore* request) {
   std::unique_ptr<Job> delete_this;
 
-  auto it = std::find(requests_.begin(), requests_.end(), request);
+  auto it = base::ranges::find(requests_, request);
   DCHECK(it != requests_.end());
   requests_.erase(it);
 
@@ -745,7 +746,7 @@ class CertNetFetcherRequestImpl : public net::CertNetFetcher::Request {
 }  // namespace
 
 CertNetFetcherURLLoader::CertNetFetcherURLLoader()
-    : task_runner_(base::SequencedTaskRunnerHandle::Get()) {}
+    : task_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {}
 
 CertNetFetcherURLLoader::~CertNetFetcherURLLoader() = default;
 

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -82,12 +82,12 @@ std::unique_ptr<TrialToken> TrialToken::From(
   if (token) {
     token->signature_ = token_signature;
     *out_status = OriginTrialTokenStatus::kSuccess;
+    DVLOG(2) << "Well-formed origin trial token found for feature "
+             << token->feature_name();
   } else {
     DVLOG(2) << "Malformed origin trial token found (unable to parse)";
     *out_status = OriginTrialTokenStatus::kMalformed;
   }
-  DVLOG(2) << "Valid origin trial token found for feature "
-           << token->feature_name();
   return token;
 }
 

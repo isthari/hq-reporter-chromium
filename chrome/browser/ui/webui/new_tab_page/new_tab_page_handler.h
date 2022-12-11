@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,7 +65,6 @@ class NewTabPageHandler : public new_tab_page::mojom::PageHandler,
                     NtpCustomBackgroundService* ntp_custom_background_service,
                     ThemeService* theme_service,
                     search_provider_logos::LogoService* logo_service,
-                    const ui::ThemeProvider* theme_provider,
                     content::WebContents* web_contents,
                     const base::Time& ntp_navigation_start_time);
 
@@ -86,7 +85,8 @@ class NewTabPageHandler : public new_tab_page::mojom::PageHandler,
   void SetBackgroundImage(const std::string& attribution_1,
                           const std::string& attribution_2,
                           const GURL& attribution_url,
-                          const GURL& image_url) override;
+                          const GURL& image_url,
+                          const GURL& thumbnail_url) override;
   void SetDailyRefreshCollectionId(const std::string& collection_id) override;
   void SetNoBackgroundImage() override;
   void RevertBackgroundChanges() override;
@@ -98,15 +98,24 @@ class NewTabPageHandler : public new_tab_page::mojom::PageHandler,
   void GetDoodle(GetDoodleCallback callback) override;
   void ChooseLocalCustomBackground(
       ChooseLocalCustomBackgroundCallback callback) override;
-  void GetPromo(GetPromoCallback callback) override;
+  void UpdatePromoData() override;
+  void BlocklistPromo(const std::string& promo_id) override;
+  void UndoBlocklistPromo(const std::string& promo_id) override;
   void OnDismissModule(const std::string& module_id) override;
   void OnRestoreModule(const std::string& module_id) override;
   void SetModulesVisible(bool visible) override;
   void SetModuleDisabled(const std::string& module_id, bool disabled) override;
   void UpdateDisabledModules() override;
-  void OnModulesLoadedWithData() override;
+  void OnModulesLoadedWithData(
+      const std::vector<std::string>& module_ids) override;
   void SetModulesOrder(const std::vector<std::string>& module_ids) override;
   void GetModulesOrder(GetModulesOrderCallback callback) override;
+  void IncrementModulesShownCount() override;
+  void SetModulesFreVisible(bool visible) override;
+  void UpdateModulesFreVisibility() override;
+  void LogModulesFreOptInStatus(
+      new_tab_page::mojom::OptInStatus opt_in_status) override;
+  void ShowCustomizeChromeSidePanel() override;
   void OnAppRendered(double time) override;
   void OnOneGoogleBarRendered(double time) override;
   void OnPromoRendered(double time,
@@ -171,6 +180,7 @@ class NewTabPageHandler : public new_tab_page::mojom::PageHandler,
 
   bool IsCustomLinksEnabled() const;
   bool IsShortcutsVisible() const;
+  void NotifyCustomizeChromeSidePanelVisibilityChanged(bool is_open);
 
   ChooseLocalCustomBackgroundCallback choose_local_custom_background_callback_;
   raw_ptr<NtpBackgroundService> ntp_background_service_;
@@ -193,7 +203,6 @@ class NewTabPageHandler : public new_tab_page::mojom::PageHandler,
   std::unordered_map<const network::SimpleURLLoader*,
                      std::unique_ptr<network::SimpleURLLoader>>
       loader_map_;
-  std::vector<GetPromoCallback> promo_callbacks_;
   raw_ptr<PromoService> promo_service_;
   base::ScopedObservation<ui::NativeTheme, ui::NativeThemeObserver>
       native_theme_observation_{this};

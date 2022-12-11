@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,7 +67,8 @@ public class PlayerSwipeRefreshHandler implements OverscrollHandler {
 
     @Override
     public boolean start() {
-        return mSwipeRefreshLayout.start();
+        // TODO(1335416): Update this to |true| if experiment is successful
+        return mSwipeRefreshLayout.start(false);
     }
 
     @Override

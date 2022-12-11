@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
  * This file contains typedefs for chromeOS OOBE properties.
  */
 
-/* #export */ var OobeTypes = {};
+export const OobeTypes = {};
 
 /**
  * ChromeOS OOBE language descriptor.
@@ -123,6 +123,25 @@ OobeTypes.SecurityTokenPinDialogParameters;
  *   package_name: string,
  * }}
  */
+OobeTypes.RecommendedAppsOldExpectedAppData;
+
+/**
+ * Data type that is expected for each app that is shown on the RecommendApps
+ * screen.
+ * @typedef {{
+ *   title: string,
+ *   icon_url: string,
+ *   category: string,
+ *   description: string,
+ *   content_rating: number,
+ *   content_rating_icon: string,
+ *   in_app_purchases: boolean,
+ *   was_installed: boolean,
+ *   contains_ads: boolean,
+ *   package_name: string,
+ *   optimized_for_chrome: boolean,
+ * }}
+ */
 OobeTypes.RecommendedAppsExpectedAppData;
 
 /**
@@ -133,16 +152,6 @@ OobeTypes.RecommendedAppsExpectedAppData;
  * }}
  */
 OobeTypes.RecommendedAppsSelectionEventData;
-
-/**
- * Specifies the mechanism for calculating oobe-dialog inner padding.
- * @enum {string}
- */
-OobeTypes.DialogPaddingMode = {
-  AUTO: 'auto',
-  NARROW: 'narrow',
-  WIDE: 'wide',
-};
 
 /**
  * Fatal Error Codes from SignInFatalErrorScreen
@@ -162,6 +171,7 @@ OobeTypes.FatalErrorCode = {
  * @enum {string}
  */
 OobeTypes.EnrollmentStep = {
+  LOADING: 'loading',
   SIGNIN: 'signin',
   AD_JOIN: 'ad-join',
   WORKING: 'working',
@@ -170,11 +180,35 @@ OobeTypes.EnrollmentStep = {
   SUCCESS: 'success',
   CHECKING: 'checking',
   TPM_CHECKING: 'tpm-checking',
+  KIOSK_ENROLLMENT: 'kiosk-enrollment',
 
   /* TODO(dzhioev): define this step on C++ side.
    */
   ATTRIBUTE_PROMPT_ERROR: 'attribute-prompt-error',
   ACTIVE_DIRECTORY_JOIN_ERROR: 'active-directory-join-error',
+};
+
+/**
+ * Bottom buttons type of GAIA dialog.
+ * @enum {string}
+ */
+OobeTypes.GaiaDialogButtonsType = {
+  DEFAULT: 'default',
+  ENTERPRISE_PREFERRED: 'enterprise-preferred',
+  KIOSK_PREFERRED: 'kiosk-preferred',
+};
+
+/**
+ * Type of license used for enrollment.
+ * Numbers for supported licenses should be in sync with
+ * `LicenseType` from enrollment_config.h.
+ * @enum {number}
+ */
+OobeTypes.LicenseType = {
+  /* NONE: 0, not used in js */
+  ENTERPRISE: 1,
+  EDUCATION: 2,
+  KIOSK: 3,
 };
 
 /**

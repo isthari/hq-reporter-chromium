@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/feature_list.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/passwords/manage_passwords_test.h"
@@ -30,6 +31,8 @@
 #include "content/public/test/browser_test.h"
 #include "content/public/test/focus_changed_observer.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "ui/views/controls/editable_combobox/editable_combobox.h"
+#include "ui/views/focus/focus_manager.h"
 
 using net::test_server::BasicHttpResponse;
 using net::test_server::HttpRequest;
@@ -49,10 +52,11 @@ bool IsBubbleShowing() {
              ->IsVisible();
 }
 
-views::View* GetUsernameTextfield(const PasswordBubbleViewBase* bubble) {
+views::EditableCombobox* GetUsernameDropdown(
+    const PasswordBubbleViewBase* bubble) {
   const PasswordSaveUpdateView* save_bubble =
       static_cast<const PasswordSaveUpdateView*>(bubble);
-  return save_bubble->GetUsernameTextfieldForTest();
+  return save_bubble->username_dropdown_for_testing();
 }
 
 }  // namespace
@@ -94,8 +98,8 @@ IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest, BasicOpenAndClose) {
   bubble = PasswordBubbleViewBase::manage_password_bubble();
   // A pending password with empty username should initially focus on the
   // username field.
-  EXPECT_EQ(GetUsernameTextfield(bubble),
-            bubble->GetFocusManager()->GetFocusedView());
+  EXPECT_TRUE(GetUsernameDropdown(bubble)->Contains(
+      bubble->GetFocusManager()->GetFocusedView()));
   PasswordBubbleViewBase::CloseCurrentBubble();
   EXPECT_FALSE(IsBubbleShowing());
 }
@@ -288,13 +292,17 @@ IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest,
   ASSERT_TRUE(AddTabAtIndex(1, embedded_test_server()->GetURL("/empty.html"),
                             ui::PAGE_TRANSITION_TYPED));
   TabStripModel* tab_model = browser()->tab_strip_model();
-  tab_model->ActivateTabAt(1, {TabStripModel::GestureType::kOther});
+  tab_model->ActivateTabAt(
+      1, TabStripUserGestureDetails(
+             TabStripUserGestureDetails::GestureType::kOther));
   EXPECT_FALSE(IsBubbleShowing());
   EXPECT_EQ(1, tab_model->active_index());
   SetupPendingPassword();
   EXPECT_TRUE(IsBubbleShowing());
   // Back to the first tab.
-  tab_model->ActivateTabAt(0, {TabStripModel::GestureType::kOther});
+  tab_model->ActivateTabAt(
+      0, TabStripUserGestureDetails(
+             TabStripUserGestureDetails::GestureType::kOther));
   EXPECT_FALSE(IsBubbleShowing());
 }
 
@@ -304,13 +312,17 @@ IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest,
   ASSERT_TRUE(AddTabAtIndex(1, embedded_test_server()->GetURL("/empty.html"),
                             ui::PAGE_TRANSITION_TYPED));
   TabStripModel* tab_model = browser()->tab_strip_model();
-  tab_model->ActivateTabAt(1, {TabStripModel::GestureType::kOther});
+  tab_model->ActivateTabAt(
+      1, TabStripUserGestureDetails(
+             TabStripUserGestureDetails::GestureType::kOther));
   EXPECT_FALSE(IsBubbleShowing());
   EXPECT_EQ(1, tab_model->active_index());
   SetupPendingPassword();
   EXPECT_TRUE(IsBubbleShowing());
   // Back to the first tab. Set up the bubble.
-  tab_model->ActivateTabAt(0, {TabStripModel::GestureType::kOther});
+  tab_model->ActivateTabAt(
+      0, TabStripUserGestureDetails(
+             TabStripUserGestureDetails::GestureType::kOther));
   // Drain message pump to ensure the bubble view is cleared so that it can be
   // created again (it is checked on Mac to prevent re-opening the bubble when
   // clicking the location bar button repeatedly).
@@ -333,7 +345,7 @@ IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest,
   PasswordBubbleViewBase* bubble =
       PasswordBubbleViewBase::manage_password_bubble();
   bool ran_event_task = false;
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(press_button, bubble, &ran_event_task));
   EXPECT_TRUE(IsBubbleShowing());
 
@@ -389,13 +401,14 @@ IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest, AutoSigninNoFocus) {
   SetupAutoSignin(std::move(local_credentials));
   EXPECT_TRUE(IsBubbleShowing());
 
-  // Bring the first window back. The toast closes by timeout.
-  focused_window->window()->Close();
+  // Bring the first window back.
+  ui_test_utils::BrowserDeactivationWaiter waiter(focused_window);
   browser()->window()->Activate();
-  content::RunAllPendingInMessageLoop();
-  ui_test_utils::BrowserActivationWaiter waiter(browser());
-  waiter.WaitForActivation();
+  waiter.WaitForDeactivation();
 
+  // Let asynchronous tasks run until the bubble stops showing.
+  while (IsBubbleShowing())
+    base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(IsBubbleShowing());
 }
 
@@ -408,6 +421,21 @@ IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest, LeakPromptHidesBubble) {
 
   GetController()->OnCredentialLeak(
       password_manager::CredentialLeakFlags::kPasswordSaved,
-      GURL("https://example.com"));
+      GURL("https://example.com"), std::u16string(u"Eve"));
   EXPECT_FALSE(IsBubbleShowing());
+}
+
+// This is a regression test for crbug.com/1335418
+IN_PROC_BROWSER_TEST_F(PasswordBubbleInteractiveUiTest, SaveUiDismissalReason) {
+  base::HistogramTester histogram_tester;
+
+  SetupPendingPassword();
+  ASSERT_TRUE(IsBubbleShowing());
+  PasswordBubbleViewBase::manage_password_bubble()->AcceptDialog();
+  content::RunAllPendingInMessageLoop();
+  ASSERT_FALSE(IsBubbleShowing());
+
+  histogram_tester.ExpectUniqueSample(
+      "PasswordManager.SaveUIDismissalReason",
+      password_manager::metrics_util::CLICKED_ACCEPT, 1);
 }

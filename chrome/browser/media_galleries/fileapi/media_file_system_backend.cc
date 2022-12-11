@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/lazy_thread_pool_task_runner.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
@@ -197,8 +197,8 @@ bool MediaFileSystemBackend::AttemptAutoMountForURLRequest(
   const base::FilePath& virtual_path = filesystem_url.path();
   if (virtual_path.ReferencesParent())
     return false;
-  std::vector<base::FilePath::StringType> components;
-  virtual_path.GetComponents(&components);
+  std::vector<base::FilePath::StringType> components =
+      virtual_path.GetComponents();
   if (components.empty())
     return false;
   std::string mount_point = base::FilePath(components[0]).AsUTF8Unsafe();
@@ -232,9 +232,9 @@ void MediaFileSystemBackend::Initialize(storage::FileSystemContext* context) {
 
 void MediaFileSystemBackend::ResolveURL(const FileSystemURL& url,
                                         storage::OpenFileSystemMode mode,
-                                        OpenFileSystemCallback callback) {
+                                        ResolveURLCallback callback) {
   // We never allow opening a new FileSystem via usual ResolveURL.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), GURL(), std::string(),
                                 base::File::FILE_ERROR_SECURITY));
 }
@@ -253,12 +253,12 @@ storage::AsyncFileUtil* MediaFileSystemBackend::GetAsyncFileUtil(
     default:
       NOTREACHED();
   }
-  return NULL;
+  return nullptr;
 }
 
 storage::WatcherManager* MediaFileSystemBackend::GetWatcherManager(
     storage::FileSystemType type) {
-  return NULL;
+  return nullptr;
 }
 
 storage::CopyOrMoveFileValidatorFactory*
@@ -272,13 +272,13 @@ MediaFileSystemBackend::GetCopyOrMoveFileValidatorFactory(
     case storage::kFileSystemTypeDeviceMedia:
       if (!media_copy_or_move_file_validator_factory_) {
         *error_code = base::File::FILE_ERROR_SECURITY;
-        return NULL;
+        return nullptr;
       }
       return media_copy_or_move_file_validator_factory_.get();
     default:
       NOTREACHED();
   }
-  return NULL;
+  return nullptr;
 }
 
 std::unique_ptr<storage::FileSystemOperation>
@@ -344,20 +344,20 @@ MediaFileSystemBackend::CreateFileStreamWriter(
 
 storage::FileSystemQuotaUtil* MediaFileSystemBackend::GetQuotaUtil() {
   // No quota support.
-  return NULL;
+  return nullptr;
 }
 
 const storage::UpdateObserverList* MediaFileSystemBackend::GetUpdateObservers(
     storage::FileSystemType type) const {
-  return NULL;
+  return nullptr;
 }
 
 const storage::ChangeObserverList* MediaFileSystemBackend::GetChangeObservers(
     storage::FileSystemType type) const {
-  return NULL;
+  return nullptr;
 }
 
 const storage::AccessObserverList* MediaFileSystemBackend::GetAccessObservers(
     storage::FileSystemType type) const {
-  return NULL;
+  return nullptr;
 }

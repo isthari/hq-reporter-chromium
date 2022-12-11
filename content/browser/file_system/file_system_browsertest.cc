@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,7 +65,7 @@ class FileSystemBrowserTest : public ContentBrowserTest,
 
  protected:
   bool is_incognito_;
-  raw_ptr<Shell> browser_ = nullptr;
+  raw_ptr<Shell, DanglingUntriaged> browser_ = nullptr;
 };
 
 INSTANTIATE_TEST_SUITE_P(All, FileSystemBrowserTest, ::testing::Bool());
@@ -92,7 +92,7 @@ class FileSystemBrowserTestWithLowQuota : public FileSystemBrowserTest {
           const int kMeg = 1000 * 1024;
           storage::QuotaSettings settings;
           settings.pool_size = 25 * kMeg;
-          settings.per_host_quota = 5 * kMeg;
+          settings.per_storage_key_quota = 5 * kMeg;
           settings.must_remain_available = 10 * kMeg;
           settings.refresh_interval = base::TimeDelta::Max();
           qm->SetQuotaSettings(settings);

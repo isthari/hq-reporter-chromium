@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <string>
 #include <utility>
 
-#include "base/cxx17_backports.h"
+#include "base/containers/contains.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -72,8 +72,7 @@ class ClipboardRecentContentGenericTest : public testing::Test {
   void SetUp() override {
     // Make sure "chrome" as standard scheme for non chrome embedder.
     std::vector<std::string> standard_schemes = url::GetStandardSchemes();
-    if (std::find(standard_schemes.begin(), standard_schemes.end(),
-                  kChromeUIScheme) == standard_schemes.end()) {
+    if (!base::Contains(standard_schemes, kChromeUIScheme)) {
       url::AddStandardScheme(kChromeUIScheme, url::SCHEME_WITH_HOST);
     }
 
@@ -123,7 +122,7 @@ TEST_F(ClipboardRecentContentGenericTest, RecognizesURLs) {
 
   ClipboardRecentContentGeneric recent_content;
   base::Time now = base::Time::Now();
-  for (size_t i = 0; i < base::size(test_data); ++i) {
+  for (size_t i = 0; i < std::size(test_data); ++i) {
     test_clipboard_->WriteText(test_data[i].clipboard.data(),
                                test_data[i].clipboard.length());
     test_clipboard_->SetLastModifiedTime(now - base::Seconds(10));

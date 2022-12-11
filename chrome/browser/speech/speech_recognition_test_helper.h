@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,10 @@
 #include <string>
 #include <vector>
 
+#include "base/test/scoped_feature_list.h"
+
 class KeyedService;
 class Profile;
-
-namespace base {
-struct Feature;
-}  // namespace base
 
 namespace content {
 class BrowserContext;
@@ -51,17 +49,17 @@ class SpeechRecognitionTestHelper {
   void WaitForRecognitionStarted();
   // Waits for the speech recognition service to stop.
   void WaitForRecognitionStopped();
-  // Sends a fake speech result and waits for tasks to finish.
-  void SendFakeSpeechResultAndWait(const std::string& transcript,
-                                   bool is_final);
-  // Similar to above, but ensures that `is_final` is true.
-  void SendFinalFakeSpeechResultAndWait(const std::string& transcript);
+  // Sends an interim (non-finalized) fake speech result and waits for tasks to
+  // finish.
+  void SendInterimResultAndWait(const std::string& transcript);
+  // Sends a final fake speech result and waits for tasks to finish.
+  void SendFinalResultAndWait(const std::string& transcript);
   // Sends a fake speech recognition error and waits for tasks to finish.
-  void SendFakeSpeechRecognitionErrorAndWait();
+  void SendErrorAndWait();
   // Returns a list of features that should be enabled.
-  std::vector<base::Feature> GetEnabledFeatures();
+  std::vector<base::test::FeatureRef> GetEnabledFeatures();
   // Returns a list of features that should be disabled.
-  std::vector<base::Feature> GetDisabledFeatures();
+  std::vector<base::test::FeatureRef> GetDisabledFeatures();
 
  private:
   // Methods for setup.
@@ -69,6 +67,10 @@ class SpeechRecognitionTestHelper {
   void SetUpOnDeviceRecognition(Profile* profile);
   std::unique_ptr<KeyedService> CreateTestOnDeviceSpeechRecognitionService(
       content::BrowserContext* context);
+
+  // Sends a fake speech result and waits for tasks to finish.
+  void SendFakeSpeechResultAndWait(const std::string& transcript,
+                                   bool is_final);
 
   speech::SpeechRecognitionType type_;
   // For network recognition.

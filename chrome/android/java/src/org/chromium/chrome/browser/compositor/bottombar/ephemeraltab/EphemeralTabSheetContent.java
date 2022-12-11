@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.compositor.bottombar.ephemeraltab;
 
 import android.content.Context;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.TransitionDrawable;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -18,12 +17,13 @@ import android.widget.TextView;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 
-import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.supplier.UnownedUserDataSupplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.share.ShareDelegate;
 import org.chromium.chrome.browser.share.ShareDelegateSupplier;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
+import org.chromium.components.browser_ui.widget.ChromeTransitionDrawable;
 import org.chromium.components.browser_ui.widget.FadingShadow;
 import org.chromium.components.browser_ui.widget.FadingShadowView;
 import org.chromium.components.embedder_support.delegate.WebContentsDelegateAndroid;
@@ -36,6 +36,7 @@ import org.chromium.components.url_formatter.UrlFormatter;
 import org.chromium.content_public.browser.RenderCoordinates;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.IntentRequestTracker;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.url.GURL;
 
@@ -61,6 +62,8 @@ public class EphemeralTabSheetContent implements BottomSheetContent {
     private final int mToolbarHeightPx;
     private final UnownedUserDataSupplier<ShareDelegate> mShareDelegateSupplier =
             new ShareDelegateSupplier();
+    private final ObservableSupplierImpl<Boolean> mBackPressStateChangedSupplier =
+            new ObservableSupplierImpl<>();
 
     private ViewGroup mToolbarView;
     private ViewGroup mSheetContentView;
@@ -93,6 +96,8 @@ public class EphemeralTabSheetContent implements BottomSheetContent {
 
         createThinWebView((int) (maxViewHeight * FULL_HEIGHT_RATIO), intentRequestTracker);
         createToolbarView();
+
+        mBackPressStateChangedSupplier.set(true);
     }
 
     /**
@@ -138,9 +143,7 @@ public class EphemeralTabSheetContent implements BottomSheetContent {
         mToolbarView =
                 (ViewGroup) LayoutInflater.from(mContext).inflate(R.layout.sheet_tab_toolbar, null);
         mShadow = mToolbarView.findViewById(R.id.shadow);
-        mShadow.init(ApiCompatibilityUtils.getColor(
-                             mContext.getResources(), R.color.toolbar_shadow_color),
-                FadingShadow.POSITION_TOP);
+        mShadow.init(mContext.getColor(R.color.toolbar_shadow_color), FadingShadow.POSITION_TOP);
         ImageView openInNewTabButton = mToolbarView.findViewById(R.id.open_in_new_tab);
         openInNewTabButton.setOnClickListener(view -> mOpenNewTabCallback.run());
 
@@ -166,7 +169,7 @@ public class EphemeralTabSheetContent implements BottomSheetContent {
         // We scale it by |FULL_HEIGHT_RATIO| to make the size equal to that of
         // ThinWebView and so it can leave a portion of the page below it visible.
         layoutParams.height = (int) (maxViewHeight * FULL_HEIGHT_RATIO) - mToolbarHeightPx;
-        mSheetContentView.requestLayout();
+        ViewUtils.requestLayout(mSheetContentView, "EphemeralTabSheetContent.updateContentHeight");
     }
 
     /** Method to be called to start the favicon anmiation. */
@@ -179,11 +182,11 @@ public class EphemeralTabSheetContent implements BottomSheetContent {
 
         // TODO(shaktisahu): Find out if there is a better way for this animation.
         Drawable presentedDrawable = favicon;
-        if (mCurrentFavicon != null && !(mCurrentFavicon instanceof TransitionDrawable)) {
-            TransitionDrawable transitionDrawable =
-                    new TransitionDrawable(new Drawable[] {mCurrentFavicon, favicon});
+        if (mCurrentFavicon != null && !(mCurrentFavicon instanceof ChromeTransitionDrawable)) {
+            ChromeTransitionDrawable transitionDrawable =
+                    new ChromeTransitionDrawable(mCurrentFavicon, favicon);
             transitionDrawable.setCrossFadeEnabled(true);
-            transitionDrawable.startTransition(BASE_ANIMATION_DURATION_MS);
+            transitionDrawable.startTransition().setDuration(BASE_ANIMATION_DURATION_MS);
             presentedDrawable = transitionDrawable;
         }
 
@@ -290,6 +293,16 @@ public class EphemeralTabSheetContent implements BottomSheetContent {
     public boolean handleBackPress() {
         mCloseButtonCallback.run();
         return true;
+    }
+
+    @Override
+    public ObservableSupplierImpl<Boolean> getBackPressStateChangedSupplier() {
+        return mBackPressStateChangedSupplier;
+    }
+
+    @Override
+    public void onBackPressed() {
+        mCloseButtonCallback.run();
     }
 
     @Override

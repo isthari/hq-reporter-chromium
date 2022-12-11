@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/check_op.h"
-#include "base/strings/stringprintf.h"
 #include "media/base/audio_bus.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_audio_sink.h"
 #include "third_party/blink/public/platform/modules/mediastream/web_media_stream_source.h"
@@ -40,7 +39,7 @@ MediaStreamAudioTrack::~MediaStreamAudioTrack() {
 MediaStreamAudioTrack* MediaStreamAudioTrack::From(
     const MediaStreamComponent* component) {
   if (!component ||
-      component->Source()->GetType() != MediaStreamSource::kTypeAudio) {
+      component->GetSourceType() != MediaStreamSource::kTypeAudio) {
     return nullptr;
   }
   return static_cast<MediaStreamAudioTrack*>(component->GetPlatformTrack());

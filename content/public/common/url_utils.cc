@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,8 +22,13 @@
 namespace content {
 
 bool HasWebUIScheme(const GURL& url) {
-  return url.SchemeIs(kChromeDevToolsScheme) || url.SchemeIs(kChromeUIScheme) ||
-         url.SchemeIs(kChromeUIUntrustedScheme);
+  return HasWebUIOrigin(url::Origin::Create(url));
+}
+
+bool HasWebUIOrigin(const url::Origin& origin) {
+  return origin.scheme() == content::kChromeUIScheme ||
+         origin.scheme() == content::kChromeUIUntrustedScheme ||
+         origin.scheme() == content::kChromeDevToolsScheme;
 }
 
 bool IsSavableURL(const GURL& url) {

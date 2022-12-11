@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -109,7 +109,7 @@ void ArcPingRoutine::FetchManagedProperties(
   guids_remaining_ = guids.size();
 
   // Post delayed task to handle timeout error on GetManagedProperties.
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&ArcPingRoutine::HandleTimeout,
                      weak_ptr_factory_.GetWeakPtr()),

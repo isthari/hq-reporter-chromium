@@ -1,11 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -18,7 +17,6 @@
 #include "components/send_tab_to_self/features.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/driver/glue/sync_transport_data_prefs.h"
-#include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/driver/sync_service_impl.h"
 #include "content/public/test/browser_test.h"
 
@@ -30,7 +28,7 @@
 namespace {
 
 syncer::ModelTypeSet AllowedTypesInStandaloneTransportMode() {
-  static_assert(38 == syncer::GetNumModelTypes(),
+  static_assert(45 == syncer::GetNumModelTypes(),
                 "Add new types below if they run in transport mode");
   // Only some special allowlisted types (and control types) are allowed in
   // standalone transport mode.
@@ -38,22 +36,15 @@ syncer::ModelTypeSet AllowedTypesInStandaloneTransportMode() {
       syncer::DEVICE_INFO, syncer::USER_CONSENTS, syncer::SECURITY_EVENTS,
       syncer::AUTOFILL_WALLET_DATA, syncer::SHARING_MESSAGE);
   allowed_types.PutAll(syncer::ControlTypes());
-  if (base::FeatureList::IsEnabled(
-          send_tab_to_self::kSendTabToSelfWhenSignedIn)) {
-    allowed_types.Put(syncer::SEND_TAB_TO_SELF);
-  }
+  allowed_types.Put(syncer::SEND_TAB_TO_SELF);
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // OS sync types run in transport mode.
-  if (chromeos::features::IsSyncSettingsCategorizationEnabled()) {
-    allowed_types.PutAll({syncer::APPS, syncer::APP_SETTINGS, syncer::APP_LIST,
-                          syncer::APP_SETTINGS, syncer::ARC_PACKAGE,
-                          syncer::PRINTERS, syncer::OS_PREFERENCES,
-                          syncer::OS_PRIORITY_PREFERENCES, syncer::WEB_APPS,
-                          syncer::WORKSPACE_DESK});
-  }
-  if (base::FeatureList::IsEnabled(switches::kSyncWifiConfigurations)) {
-    allowed_types.Put(syncer::WIFI_CONFIGURATIONS);
-  }
+  allowed_types.PutAll(
+      {syncer::APPS, syncer::APP_SETTINGS, syncer::APP_LIST,
+       syncer::APP_SETTINGS, syncer::ARC_PACKAGE, syncer::PRINTERS,
+       syncer::PRINTERS_AUTHORIZATION_SERVERS, syncer::OS_PREFERENCES,
+       syncer::OS_PRIORITY_PREFERENCES, syncer::WEB_APPS,
+       syncer::WORKSPACE_DESK, syncer::WIFI_CONFIGURATIONS});
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   return allowed_types;
 }
@@ -182,25 +173,18 @@ IN_PROC_BROWSER_TEST_F(SingleClientStandaloneTransportSyncTest,
   ASSERT_TRUE(GetSyncService(0)->IsSyncFeatureActive());
 
   // Trigger a "Reset Sync" from the dashboard and wait for it to apply. This
-  // involves clearing the server data so that the birthday gets incremented,
-  // and also sending an appropriate error.
+  // involves clearing the server data so that the birthday gets incremented.
   GetFakeServer()->ClearServerData();
-  GetFakeServer()->TriggerActionableError(
-      sync_pb::SyncEnums::NOT_MY_BIRTHDAY, "Reset Sync from Dashboard",
-      "https://chrome.google.com/sync", sync_pb::SyncEnums::UNKNOWN_ACTION);
   EXPECT_TRUE(SyncDisabledByUserChecker(GetSyncService(0)).Wait());
-  GetFakeServer()->ClearActionableError();
 
   // On all platforms, Sync-the-feature should now be disabled.
   EXPECT_FALSE(GetSyncService(0)->IsSyncFeatureEnabled());
   EXPECT_TRUE(GetSyncService(0)->HasDisableReason(
       syncer::SyncService::DISABLE_REASON_USER_CHOICE));
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
-  // On ChromeOS, the primary account should remain, and Sync should start up
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // On Ash, the primary account should remain, and Sync should start up
   // again in standalone transport mode.
-  // TODO(https://crbug.com/1233933): Update this when Lacros profiles support
-  //                                  signed-in-but-not-consented-to-sync state.
   EXPECT_TRUE(GetSyncService(0)->HasSyncConsent());
   EXPECT_FALSE(GetSyncService(0)->HasDisableReason(
       syncer::SyncService::DISABLE_REASON_NOT_SIGNED_IN));
@@ -212,14 +196,14 @@ IN_PROC_BROWSER_TEST_F(SingleClientStandaloneTransportSyncTest,
             GetSyncService(0)->GetTransportState());
   EXPECT_FALSE(GetSyncService(0)->IsSyncFeatureEnabled());
 #else
-  // On non-ChromeOS platforms, the "Reset Sync" operation should also remove
-  // the primary account. Note that this behavior may change in the future, see
-  // crbug.com/246839.
+  // On platforms other than Ash, the "Reset Sync" operation should revoke
+  // the Sync consent. On Mobile, "Reset Sync" also clears the primary account.
   EXPECT_FALSE(GetSyncService(0)->HasSyncConsent());
-  // Note: In real life, the account would remain as an *unconsented* primary
-  // account, and so Sync would start up again in standalone transport mode.
-  // However, since we haven't set up cookies in this test, the account is *not*
-  // considered primary anymore (not even "unconsented").
+  // Note: In real life, on platforms other than Ash and Mobile the account
+  // would remain as an *unconsented* primary account, and so Sync would start
+  // up again in standalone transport mode. However, since we haven't set up
+  // cookies in this test, the account is *not* considered primary anymore
+  // (not even "unconsented").
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 

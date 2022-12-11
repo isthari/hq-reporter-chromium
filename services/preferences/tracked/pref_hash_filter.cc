@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 
 #include "base/bind.h"
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
@@ -38,7 +37,7 @@ void CleanupDeprecatedTrackedPreferences(
       // TODO(pmonette): Remove in 2022+.
       "module_blacklist_cache_md5_digest"};
 
-  for (size_t i = 0; i < base::size(kDeprecatedTrackedPreferences); ++i) {
+  for (size_t i = 0; i < std::size(kDeprecatedTrackedPreferences); ++i) {
     const char* key = kDeprecatedTrackedPreferences[i];
     pref_store_contents->RemovePath(key);
     hash_store_transaction->ClearHash(key);
@@ -144,7 +143,8 @@ void PrefHashFilter::ClearResetTime(PrefService* user_prefs) {
 }
 
 void PrefHashFilter::Initialize(base::DictionaryValue* pref_store_contents) {
-  DictionaryHashStoreContents dictionary_contents(pref_store_contents);
+  DictionaryHashStoreContents dictionary_contents(
+      pref_store_contents ? &pref_store_contents->GetDict() : nullptr);
   std::unique_ptr<PrefHashStoreTransaction> hash_store_transaction(
       pref_hash_store_->BeginTransaction(&dictionary_contents));
   for (auto it = tracked_paths_.begin(); it != tracked_paths_.end(); ++it) {
@@ -175,7 +175,8 @@ PrefFilter::OnWriteCallbackPair PrefHashFilter::FilterSerializeData(
   if (!changed_paths_.empty()) {
     base::TimeTicks checkpoint = base::TimeTicks::Now();
     {
-      DictionaryHashStoreContents dictionary_contents(pref_store_contents);
+      DictionaryHashStoreContents dictionary_contents(
+          pref_store_contents ? &pref_store_contents->GetDict() : nullptr);
       std::unique_ptr<PrefHashStoreTransaction> hash_store_transaction(
           pref_hash_store_->BeginTransaction(&dictionary_contents));
 
@@ -223,7 +224,8 @@ void PrefHashFilter::FinalizeFilterOnLoad(
 
   bool did_reset = false;
   {
-    DictionaryHashStoreContents dictionary_contents(pref_store_contents.get());
+    DictionaryHashStoreContents dictionary_contents(
+        pref_store_contents ? &pref_store_contents->GetDict() : nullptr);
     std::unique_ptr<PrefHashStoreTransaction> hash_store_transaction(
         pref_hash_store_->BeginTransaction(&dictionary_contents));
 
@@ -274,9 +276,8 @@ void PrefHashFilter::ClearFromExternalStore(
     const base::DictionaryValue* changed_paths_and_macs) {
   DCHECK(!changed_paths_and_macs->DictEmpty());
 
-  for (base::DictionaryValue::Iterator it(*changed_paths_and_macs);
-       !it.IsAtEnd(); it.Advance()) {
-    external_validation_hash_store_contents->RemoveEntry(it.key());
+  for (const auto item : changed_paths_and_macs->GetDict()) {
+    external_validation_hash_store_contents->RemoveEntry(item.first);
   }
 }
 
@@ -290,25 +291,23 @@ void PrefHashFilter::FlushToExternalStore(
   if (!write_success)
     return;
 
-  for (base::DictionaryValue::Iterator it(*changed_paths_and_macs);
-       !it.IsAtEnd(); it.Advance()) {
-    const std::string& changed_path = it.key();
+  for (const auto item : changed_paths_and_macs->GetDict()) {
+    const std::string& changed_path = item.first;
 
     const base::DictionaryValue* split_values = nullptr;
-    if (it.value().GetAsDictionary(&split_values)) {
-      for (base::DictionaryValue::Iterator inner_it(*split_values);
-           !inner_it.IsAtEnd(); inner_it.Advance()) {
-        const std::string* mac = inner_it.value().GetIfString();
+    if (item.second.GetAsDictionary(&split_values)) {
+      for (const auto inner_item : split_values->GetDict()) {
+        const std::string* mac = inner_item.second.GetIfString();
         bool is_string = !!mac;
         DCHECK(is_string);
 
         external_validation_hash_store_contents->SetSplitMac(
-            changed_path, inner_it.key(), *mac);
+            changed_path, inner_item.first, *mac);
       }
     } else {
-      DCHECK(it.value().is_string());
+      DCHECK(item.second.is_string());
       external_validation_hash_store_contents->SetMac(changed_path,
-                                                      it.value().GetString());
+                                                      item.second.GetString());
     }
   }
 }

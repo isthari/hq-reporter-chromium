@@ -41,11 +41,9 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/renderer/platform/fonts/fallback_list_composite_key.h"
 #include "third_party/blink/renderer/platform/fonts/font_cache_client.h"
-#include "third_party/blink/renderer/platform/fonts/font_cache_key.h"
 #include "third_party/blink/renderer/platform/fonts/font_data_cache.h"
 #include "third_party/blink/renderer/platform/fonts/font_face_creation_params.h"
 #include "third_party/blink/renderer/platform/fonts/font_fallback_priority.h"
-#include "third_party/blink/renderer/platform/fonts/font_platform_data.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_cache.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
@@ -75,7 +73,6 @@ namespace base {
 namespace trace_event {
 class ProcessMemoryDump;
 }  // namespace trace_event
-struct Feature;
 }  // namespace base
 
 namespace blink {
@@ -84,10 +81,10 @@ class FontDescription;
 class FontFaceCreationParams;
 class FontFallbackMap;
 class FontGlobalContext;
+class FontPlatformData;
+class FontPlatformDataCache;
 class SimpleFontData;
 class WebFontPrewarmer;
-
-PLATFORM_EXPORT extern const base::Feature kAsyncFontAccess;
 
 enum class AlternateFontName {
   kAllowAlternate,
@@ -96,14 +93,6 @@ enum class AlternateFontName {
   kLastResort
 };
 
-enum CreateIfNeeded { kDoNotCreate, kCreate };
-
-typedef HashMap<unsigned,
-                std::unique_ptr<FontPlatformData>,
-                WTF::IntHash<unsigned>,
-                WTF::UnsignedWithZeroKeyHashTraits<unsigned>>
-    SizedFontPlatformDataSet;
-typedef HashMap<FontCacheKey, SizedFontPlatformDataSet> FontPlatformDataCache;
 typedef HashMap<FallbackListCompositeKey,
                 std::unique_ptr<ShapeCache>,
                 FallbackListCompositeKeyHash,
@@ -118,7 +107,7 @@ extern const char kColorEmojiLocale[];
 extern const char kNotoColorEmojiCompat[];
 #endif
 
-class PLATFORM_EXPORT FontCache {
+class PLATFORM_EXPORT FontCache final {
   friend class FontCachePurgePreventer;
 
   USING_FAST_MALLOC(FontCache);
@@ -128,7 +117,7 @@ class PLATFORM_EXPORT FontCache {
   // configured through a call from the browser process. CreateIfNeeded helps
   // avoid early creation of a font cache when these globals have not yet
   // been set.
-  static FontCache* GetFontCache(CreateIfNeeded = kCreate);
+  static FontCache& Get();
 
   void ReleaseFontData(const SimpleFontData*);
 
@@ -205,6 +194,7 @@ class PLATFORM_EXPORT FontCache {
   static const AtomicString& SystemFontFamily();
 #else
   static const AtomicString& LegacySystemFontFamily();
+  static void InvalidateFromAnyThread();
 #endif
 
 #if !BUILDFLAG(IS_MAC)
@@ -298,7 +288,7 @@ class PLATFORM_EXPORT FontCache {
 
   FontCache(const FontCache&) = delete;
   FontCache& operator=(const FontCache&) = delete;
-  ~FontCache() = default;
+  ~FontCache();
 
  private:
   // BCP47 list used when requesting fallback font for a character.
@@ -368,14 +358,8 @@ class PLATFORM_EXPORT FontCache {
       const FontDescription&,
       UChar32);
 
-  // When true, the font size is removed from primary keys in
-  // |font_platform_data_cache_|. The font size is not necessary in the primary
-  // key, because per-size FontPlatformData are held in a nested map. This is
-  // controlled by a base::Feature to assess impact with an experiment.
-  const bool no_size_in_key_;
-
   // Don't purge if this count is > 0;
-  int purge_prevent_count_;
+  int purge_prevent_count_ = 0;
 
   sk_sp<SkFontMgr> font_manager_;
 
@@ -410,26 +394,19 @@ class PLATFORM_EXPORT FontCache {
   uint16_t generation_ = 0;
   bool platform_init_ = false;
   Persistent<HeapHashSet<WeakMember<FontCacheClient>>> font_cache_clients_;
-  FontPlatformDataCache font_platform_data_cache_;
+  std::unique_ptr<FontPlatformDataCache> font_platform_data_cache_;
   FallbackListShaperCache fallback_list_shaper_cache_;
-  FontDataCache font_data_cache_;
+
+  std::unique_ptr<FontDataCache> font_data_cache_;
 
   Persistent<FontFallbackMap> font_fallback_map_;
 
   void PurgePlatformFontDataCache();
   void PurgeFallbackListShaperCache();
 
-  // A maximum float value to which we limit incoming font sizes. This is the
-  // smallest float so that multiplying it by
-  // FontCacheKey::PrecisionMultiplier() is still smaller than
-  // std::numeric_limits<unsigned>::max() - 1 in order to avoid hitting HashMap
-  // sentinel values (placed at std::numeric_limits<unsigned>::max() and
-  // std::numeric_limits<unsigned>::max() - 1) for SizedFontPlatformDataSet and
-  // FontPlatformDataCache.
-  const float font_size_limit_;
-
   friend class SimpleFontData;  // For fontDataFromFontPlatformData
   friend class FontFallbackList;
+  friend class FontPlatformDataCache;
   FRIEND_TEST_ALL_PREFIXES(FontCacheAndroidTest, LocaleSpecificTypeface);
 };
 
@@ -437,10 +414,10 @@ class PLATFORM_EXPORT FontCachePurgePreventer {
   USING_FAST_MALLOC(FontCachePurgePreventer);
 
  public:
-  FontCachePurgePreventer() { FontCache::GetFontCache()->DisablePurging(); }
+  FontCachePurgePreventer() { FontCache::Get().DisablePurging(); }
   FontCachePurgePreventer(const FontCachePurgePreventer&) = delete;
   FontCachePurgePreventer& operator=(const FontCachePurgePreventer&) = delete;
-  ~FontCachePurgePreventer() { FontCache::GetFontCache()->EnablePurging(); }
+  ~FontCachePurgePreventer() { FontCache::Get().EnablePurging(); }
 };
 
 AtomicString ToAtomicString(const SkString&);

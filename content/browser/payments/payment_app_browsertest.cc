@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@
 #include "content/shell/browser/shell.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/payments/payment_app.mojom.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 
@@ -38,6 +39,13 @@ using ::payments::mojom::PaymentItem;
 using ::payments::mojom::PaymentMethodData;
 using ::payments::mojom::PaymentRequestEventData;
 using ::payments::mojom::PaymentRequestEventDataPtr;
+
+void OnPaymentAppInstall(base::OnceClosure done_callback,
+                         bool* out_success,
+                         bool success) {
+  *out_success = success;
+  std::move(done_callback).Run();
+}
 
 void GetAllPaymentAppsCallback(
     base::OnceClosure done_callback,
@@ -104,7 +112,24 @@ class PaymentAppBrowserTest : public ContentBrowserTest {
   std::string PopConsoleString() { return RunScript("resultQueue.pop()"); }
 
   void RegisterPaymentApp() {
-    ASSERT_EQ("registered", RunScript("registerPaymentApp()"));
+    SkBitmap app_icon;
+    constexpr int kBitmapDimension = 16;
+    app_icon.allocN32Pixels(kBitmapDimension, kBitmapDimension);
+    app_icon.eraseColor(SK_ColorRED);
+    GURL service_worker_javascript_file_url =
+        https_server_->GetURL("/payments/payment_app.js");
+    base::RunLoop run_loop;
+    bool success = false;
+    PaymentAppProvider::GetOrCreateForWebContents(shell()->web_contents())
+        ->InstallPaymentAppForTesting(
+            app_icon, service_worker_javascript_file_url,
+            /*service_worker_scope=*/
+            service_worker_javascript_file_url.GetWithoutFilename(),
+            /*payment_method_identifier=*/"https://bobpay.com",
+            base::BindOnce(&OnPaymentAppInstall, run_loop.QuitClosure(),
+                           &success));
+    run_loop.Run();
+    ASSERT_TRUE(success);
   }
 
   url::Origin GetTestServerOrigin() {
@@ -191,8 +216,9 @@ class PaymentAppBrowserTest : public ContentBrowserTest {
                                            ->GetBrowserContext()
                                            ->GetDefaultStoragePartition())
         ->ClearData(StoragePartition::REMOVE_DATA_MASK_SERVICE_WORKERS,
-                    StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL, GURL(),
-                    base::Time(), base::Time::Max(), run_loop.QuitClosure());
+                    StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL,
+                    blink::StorageKey(), base::Time(), base::Time::Max(),
+                    run_loop.QuitClosure());
 
     run_loop.Run();
   }
@@ -256,16 +282,8 @@ class PaymentAppBrowserTest : public ContentBrowserTest {
   std::unique_ptr<net::EmbeddedTestServer> https_server_;
 };
 
-// TODO(crbug.com/869790) Flakes on linux-chromeos-dbg
-#if BUILDFLAG(IS_CHROMEOS_ASH) && !defined(NDEBUG)
-#define MAYBE_AbortPaymentWithInvalidRegistrationId \
-  DISABLED_AbortPaymentWithInvalidRegistrationId
-#else
-#define MAYBE_AbortPaymentWithInvalidRegistrationId \
-  AbortPaymentWithInvalidRegistrationId
-#endif
 IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest,
-                       MAYBE_AbortPaymentWithInvalidRegistrationId) {
+                       AbortPaymentWithInvalidRegistrationId) {
   RegisterPaymentApp();
 
   std::vector<int64_t> registrationIds = GetAllPaymentAppRegistrationIDs();
@@ -279,13 +297,7 @@ IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest,
   ClearStoragePartitionData();
 }
 
-// TODO(crbug.com/869790) Flakes on linux-chromeos-dbg
-#if BUILDFLAG(IS_CHROMEOS_ASH) && !defined(NDEBUG)
-#define MAYBE_AbortPayment DISABLED_AbortPayment
-#else
-#define MAYBE_AbortPayment AbortPayment
-#endif
-IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest, MAYBE_AbortPayment) {
+IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest, AbortPayment) {
   RegisterPaymentApp();
 
   std::vector<int64_t> registrationIds = GetAllPaymentAppRegistrationIDs();
@@ -298,13 +310,7 @@ IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest, MAYBE_AbortPayment) {
   ClearStoragePartitionData();
 }
 
-// TODO(https://crbug.com/869790) Flakes on linux-chromeos-dbg
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#define MAYBE_CanMakePayment DISABLED_CanMakePayment
-#else
-#define MAYBE_CanMakePayment CanMakePayment
-#endif
-IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest, MAYBE_CanMakePayment) {
+IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest, CanMakePayment) {
   RegisterPaymentApp();
 
   std::vector<int64_t> registrationIds = GetAllPaymentAppRegistrationIDs();
@@ -329,15 +335,7 @@ IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest, MAYBE_CanMakePayment) {
   ClearStoragePartitionData();
 }
 
-// TODO(crbug.com/869790) Flakes on linux-chromeos-dbg
-#if BUILDFLAG(IS_CHROMEOS_ASH) && !defined(NDEBUG)
-#define MAYBE_PaymentAppInvocationAndFailed \
-  DISABLED_PaymentAppInvocationAndFailed
-#else
-#define MAYBE_PaymentAppInvocationAndFailed PaymentAppInvocationAndFailed
-#endif
-IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest,
-                       MAYBE_PaymentAppInvocationAndFailed) {
+IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest, PaymentAppInvocationAndFailed) {
   RegisterPaymentApp();
 
   std::vector<int64_t> registrationIds = GetAllPaymentAppRegistrationIDs();
@@ -354,13 +352,7 @@ IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest,
   ClearStoragePartitionData();
 }
 
-// TODO(https://crbug.com/869790) Flakes on linux-chromeos-dbg
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#define MAYBE_PaymentAppInvocation DISABLED_PaymentAppInvocation
-#else
-#define MAYBE_PaymentAppInvocation PaymentAppInvocation
-#endif
-IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest, MAYBE_PaymentAppInvocation) {
+IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest, PaymentAppInvocation) {
   RegisterPaymentApp();
 
   std::vector<int64_t> registrationIds = GetAllPaymentAppRegistrationIDs();
@@ -396,14 +388,7 @@ IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest, MAYBE_PaymentAppInvocation) {
   ASSERT_EQ(0U, registrationIds.size());
 }
 
-// TODO(https://crbug.com/869790) Flakes on linux-chromeos-dbg
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#define MAYBE_PaymentAppOpenWindowFailed DISABLED_PaymentAppOpenWindowFailed
-#else
-#define MAYBE_PaymentAppOpenWindowFailed PaymentAppOpenWindowFailed
-#endif
-IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest,
-                       MAYBE_PaymentAppOpenWindowFailed) {
+IN_PROC_BROWSER_TEST_F(PaymentAppBrowserTest, PaymentAppOpenWindowFailed) {
   RegisterPaymentApp();
 
   std::vector<int64_t> registrationIds = GetAllPaymentAppRegistrationIDs();

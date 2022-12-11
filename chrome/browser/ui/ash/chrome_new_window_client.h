@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,6 @@
 #include "ash/public/cpp/new_window_delegate.h"
 #include "components/arc/intent_helper/control_camera_app_delegate.h"
 #include "url/gurl.h"
-
-namespace content {
-class WebContents;
-}
 
 // Handles opening new tabs and windows on behalf of ash (over mojo) and the
 // ARC bridge (via a delegate in the browser process).
@@ -37,7 +33,9 @@ class ChromeNewWindowClient : public ash::NewWindowDelegate,
       aura::Window* source_window,
       const ui::OSExchangeData& drop_data,
       NewWindowForDetachingTabCallback closure) override;
-  void OpenUrl(const GURL& url, bool from_user_interaction) override;
+  void OpenUrl(const GURL& url,
+               OpenUrlFrom from,
+               Disposition disposition) override;
   void OpenCalculator() override;
   void OpenFileManager() override;
   void OpenDownloadsFolder() override;
@@ -51,10 +49,6 @@ class ChromeNewWindowClient : public ash::NewWindowDelegate,
                         const std::string& description_template) override;
   void OpenPersonalizationHub() override;
 
-  // TODO(crbug.com/1291192): Make this a part of NewWindowDelegate to support
-  // crosapi.
-  bool OpenUrlFromArc(const GURL& url);
-
   // arc::ControlCameraAppDelegate:
   void LaunchCameraApp(const std::string& queries, int32_t task_id) override;
   void CloseCameraApp() override;
@@ -62,14 +56,6 @@ class ChromeNewWindowClient : public ash::NewWindowDelegate,
 
  private:
   class TabRestoreHelper;
-
-  // Opens a URL in a new tab. Returns the WebContents for the tab that
-  // opened the URL. If the URL is for a chrome://settings page, opens settings
-  // in a new window and returns null. If the |from_user_interaction| is true
-  // then the page will load with a user activation. This means it will be able
-  // to autoplay media without restriction.
-  content::WebContents* OpenUrlImpl(const GURL& url,
-                                    bool from_user_interaction);
 
   std::unique_ptr<TabRestoreHelper> tab_restore_helper_;
 };

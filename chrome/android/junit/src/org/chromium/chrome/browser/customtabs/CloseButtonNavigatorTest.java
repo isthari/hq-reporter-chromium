@@ -1,11 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.customtabs;
 
-import static junit.framework.Assert.assertEquals;
-
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -18,6 +17,7 @@ import static org.mockito.Mockito.when;
 
 import android.os.Build;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -29,6 +29,8 @@ import org.robolectric.ParameterizedRobolectricTestRunner.Parameter;
 import org.robolectric.ParameterizedRobolectricTestRunner.Parameters;
 import org.robolectric.annotation.Config;
 
+import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.browserservices.intents.WebappExtras;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabController;
@@ -52,7 +54,7 @@ import java.util.Stack;
  * Tests for {@link CloseButtonNavigator}.
  */
 @RunWith(ParameterizedRobolectricTestRunner.class)
-@Config(sdk = Build.VERSION_CODES.M, manifest = Config.NONE)
+@Config(sdk = Build.VERSION_CODES.N, manifest = Config.NONE)
 public class CloseButtonNavigatorTest {
     @Parameters
     public static Collection<Object[]> data() {
@@ -100,12 +102,17 @@ public class CloseButtonNavigatorTest {
         });
     }
 
+    @After
+    public void tearDown() {
+        UmaRecorderHolder.resetForTesting();
+    }
+
     private Tab createTabWithNavigationHistory(GURL... urls) {
         NavigationHistory history = new NavigationHistory();
 
         for (GURL url : urls) {
-            history.addEntry(new NavigationEntry(0, url, GURL.emptyGURL(), GURL.emptyGURL(),
-                    GURL.emptyGURL(), "", null, 0, 0, /* isInitialEntry=*/false));
+            history.addEntry(new NavigationEntry(0, url, GURL.emptyGURL(), GURL.emptyGURL(), "",
+                    null, 0, 0, /* isInitialEntry=*/false));
         }
 
         // Point to the most recent entry in history.
@@ -152,6 +159,7 @@ public class CloseButtonNavigatorTest {
         mCloseButtonNavigator.navigateOnClose();
 
         assertTrue(mTabs.empty());
+        assertOnAllTabsClosedRecorded(1);
     }
 
     @Test
@@ -167,6 +175,7 @@ public class CloseButtonNavigatorTest {
             verify(currentTabsNavigationController(), never()).goToNavigationIndex(anyInt());
         } else {
             assertTrue(mTabs.empty());
+            assertOnAllTabsClosedRecorded(2);
         }
     }
 
@@ -179,6 +188,7 @@ public class CloseButtonNavigatorTest {
         mCloseButtonNavigator.navigateOnClose();
 
         assertTrue(mTabs.empty());
+        assertOnAllTabsClosedRecorded(1);
     }
 
     @Test
@@ -195,6 +205,7 @@ public class CloseButtonNavigatorTest {
             verify(currentTabsNavigationController(), never()).goToNavigationIndex(anyInt());
         } else {
             assertTrue(mTabs.empty());
+            assertOnAllTabsClosedRecorded(2);
         }
     }
 
@@ -209,6 +220,7 @@ public class CloseButtonNavigatorTest {
         mCloseButtonNavigator.navigateOnClose();
 
         assertFalse(mTabs.isEmpty());
+        assertOnAllTabsClosedRecorded(0);
         verify(currentTabsNavigationController()).goToNavigationIndex(eq(1));
         // Ensure it was only called with that value.
         verify(currentTabsNavigationController()).goToNavigationIndex(anyInt());
@@ -226,6 +238,7 @@ public class CloseButtonNavigatorTest {
         mCloseButtonNavigator.navigateOnClose();
 
         assertEquals(1, mTabs.size());
+        assertOnAllTabsClosedRecorded(0);
         verify(currentTabsNavigationController(), never()).goToNavigationIndex(anyInt());
     }
 
@@ -241,6 +254,7 @@ public class CloseButtonNavigatorTest {
         mCloseButtonNavigator.navigateOnClose();
 
         assertEquals(1, mTabs.size());
+        assertOnAllTabsClosedRecorded(0);
         if (mIsWebapp) {
             verify(currentTabsNavigationController(), never()).goToNavigationIndex(anyInt());
         } else {
@@ -264,6 +278,7 @@ public class CloseButtonNavigatorTest {
         mCloseButtonNavigator.navigateOnClose();
 
         assertEquals(1, mTabs.size());
+        assertOnAllTabsClosedRecorded(0);
         verify(currentTabsNavigationController()).goToNavigationIndex(eq(1));
         verify(currentTabsNavigationController()).goToNavigationIndex(anyInt());
     }
@@ -280,7 +295,19 @@ public class CloseButtonNavigatorTest {
         mCloseButtonNavigator.navigateOnClose();
 
         assertEquals(1, mTabs.size());
+        assertOnAllTabsClosedRecorded(0);
         verify(currentTabsNavigationController()).goToNavigationIndex(eq(1));
         verify(currentTabsNavigationController()).goToNavigationIndex(anyInt());
+    }
+
+    private void assertOnAllTabsClosedRecorded(int count) {
+        String histogram = "CustomTabs.TabCounts.OnClosingAllTabs";
+        if (count > 0) {
+            assertEquals(String.format("<%s> not recorded with sample <%d>.", histogram, count), 1,
+                    RecordHistogram.getHistogramValueCountForTesting(histogram, count));
+        } else {
+            assertEquals(String.format("<%s> should not be recorded.", histogram), 0,
+                    RecordHistogram.getHistogramTotalCountForTesting(histogram));
+        }
     }
 }

@@ -1,9 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/events/event_rewriter_delegate_impl.h"
 
+#include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/window_properties.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/notifications/deprecation_notification_controller.h"
@@ -45,7 +46,7 @@ bool EventRewriterDelegateImpl::RewriteModifierKeys() {
   if (user_manager::UserManager::Get()->IsLoggedInAsGuest() &&
       LoginDisplayHost::default_host())
     return false;
-  return true;
+  return !suppress_modifier_key_rewrites_;
 }
 
 bool EventRewriterDelegateImpl::GetKeyboardRemappedPrefValue(
@@ -76,7 +77,7 @@ bool EventRewriterDelegateImpl::TopRowKeysAreFunctionKeys() const {
   const PrefService* pref_service = GetPrefService();
   if (!pref_service)
     return false;
-  return pref_service->GetBoolean(prefs::kLanguageSendFunctionKeys);
+  return pref_service->GetBoolean(prefs::kSendFunctionKeys);
 }
 
 bool EventRewriterDelegateImpl::IsExtensionCommandRegistered(
@@ -117,10 +118,6 @@ bool EventRewriterDelegateImpl::NotifyDeprecatedRightClickRewrite() {
   return deprecation_controller_->NotifyDeprecatedRightClickRewrite();
 }
 
-bool EventRewriterDelegateImpl::NotifyDeprecatedFKeyRewrite() {
-  return deprecation_controller_->NotifyDeprecatedFKeyRewrite();
-}
-
 bool EventRewriterDelegateImpl::NotifyDeprecatedSixPackKeyRewrite(
     ui::KeyboardCode key_code) {
   return deprecation_controller_->NotifyDeprecatedSixPackKeyRewrite(key_code);
@@ -133,4 +130,8 @@ const PrefService* EventRewriterDelegateImpl::GetPrefService() const {
   return profile ? profile->GetPrefs() : nullptr;
 }
 
+void EventRewriterDelegateImpl::SuppressModifierKeyRewrites(
+    bool should_suppress) {
+  suppress_modifier_key_rewrites_ = should_suppress;
+}
 }  // namespace ash

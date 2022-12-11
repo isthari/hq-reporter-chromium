@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -96,9 +96,12 @@ void StyleRecalcRoot::SubtreeModified(ContainerNode& parent) {
   // next style recalc.
   auto opt_ancestor = FirstFlatTreeAncestorForChildDirty(parent);
   if (!opt_ancestor) {
-    Update(&parent, &parent);
+    ContainerNode* new_root = IsFlatTreeConnected(parent)
+                                  ? &parent
+                                  : parent.GetDocument().documentElement();
+    Update(new_root, new_root);
     DCHECK(!IsSingleRoot());
-    DCHECK_EQ(GetRootNode(), &parent);
+    DCHECK_EQ(GetRootNode(), new_root);
     return;
   }
   for (Element* ancestor = opt_ancestor.value(); ancestor;

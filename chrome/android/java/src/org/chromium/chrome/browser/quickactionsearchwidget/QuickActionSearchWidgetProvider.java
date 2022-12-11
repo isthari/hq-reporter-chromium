@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,6 @@ import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.searchwidget.SearchActivity;
 import org.chromium.chrome.browser.ui.quickactionsearchwidget.QuickActionSearchWidgetProviderDelegate;
 import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityPreferencesManager;
@@ -207,18 +206,15 @@ public abstract class QuickActionSearchWidgetProvider extends AppWidgetProvider 
      * This function is expected to be called exactly once after native libraries are initialized.
      */
     public static void initialize() {
-        PostTask.postTask(TaskTraits.BEST_EFFORT, () -> {
-            // Changing the widget enabled state, which is only required during the experimentation
-            // phase, can trigger disk access. This can be removed when the QuickActionSearchWidget
-            // launches.
-            setWidgetEnabled(
-                    ChromeFeatureList.isEnabled(ChromeFeatureList.QUICK_ACTION_SEARCH_WIDGET),
-                    ChromeFeatureList.isEnabled(
-                            ChromeFeatureList.QUICK_ACTION_SEARCH_WIDGET_DINO_VARIANT));
-        });
-
         QuickActionSearchWidgetProvider dinoWidget = new QuickActionSearchWidgetProviderDino();
         QuickActionSearchWidgetProvider smallWidget = new QuickActionSearchWidgetProviderSearch();
+
+        PostTask.postTask(TaskTraits.BEST_EFFORT, () -> {
+            // Make the Widget available to all Chrome users who participated in an experiment in
+            // the past. This can trigger disk access. Unfortunately, we need to keep it for a
+            // little bit longer -- see: https://crbug.com/1309116
+            setWidgetEnabled(true, true);
+        });
 
         SearchActivityPreferencesManager.addObserver(prefs -> {
             Context context = ContextUtils.getApplicationContext();

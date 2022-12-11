@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,22 @@
 #define CHROME_UPDATER_WIN_SETUP_SETUP_UTIL_H_
 
 #include <guiddef.h>
+#include <wrl/client.h>
+#include <wrl/implements.h>
 
+#include <ios>
 #include <string>
 #include <vector>
 
+#include "base/callback_helpers.h"
+#include "base/check.h"
+#include "base/check_op.h"
+#include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
+#include "base/synchronization/waitable_event.h"
+#include "base/task/thread_pool.h"
+#include "base/threading/thread_restrictions.h"
+#include "base/win/win_util.h"
 #include "base/win/windows_types.h"
 
 class WorkItemList;
@@ -43,11 +55,16 @@ std::wstring GetComTypeLibResourceIndex(REFIID iid);
 
 // Returns the interfaces ids of all interfaces declared in IDL of the updater
 // that can be installed side-by-side with other instances of the updater.
-std::vector<IID> GetSideBySideInterfaces();
+std::vector<IID> GetSideBySideInterfaces(UpdaterScope scope);
 
 // Returns the interfaces ids of all interfaces declared in IDL of the updater
 // that can only be installed for the active instance of the updater.
-std::vector<IID> GetActiveInterfaces();
+std::vector<IID> GetActiveInterfaces(UpdaterScope scope);
+
+// Returns the interfaces ids of all interfaces declared in IDL of the updater
+// that can be installed side-by-side (if `is_internal` is `true`) or for the
+// active instance (if `is_internal` is `false`) .
+std::vector<IID> GetInterfaces(bool is_internal, UpdaterScope scope);
 
 // Returns the CLSIDs of servers that can be installed side-by-side with other
 // instances of the updater.
@@ -56,6 +73,11 @@ std::vector<CLSID> GetSideBySideServers(UpdaterScope scope);
 // Returns the CLSIDs of servers that can only be installed for the active
 // instance of the updater.
 std::vector<CLSID> GetActiveServers(UpdaterScope scope);
+
+// Returns the CLSIDs of servers that can be installed side-by-side (if
+// `is_internal` is `true`) or for the active instance (if `is_internal` is
+// `false`) .
+std::vector<CLSID> GetServers(bool is_internal, UpdaterScope scope);
 
 // Helper function that joins two vectors and returns the resultant vector.
 template <typename T>
@@ -79,16 +101,15 @@ void AddInstallServerWorkItems(HKEY root,
                                bool internal_service,
                                WorkItemList* list);
 
-// Adds work items to `list` to install the COM service.
+// Adds work items to register the per-user COM server.
+void AddComServerWorkItems(const base::FilePath& com_server_path,
+                           bool is_internal,
+                           WorkItemList* list);
+
+// Adds work items to register the COM service.
 void AddComServiceWorkItems(const base::FilePath& com_service_path,
                             bool internal_service,
                             WorkItemList* list);
-
-// Parses the run time dependency file which contains all dependencies of
-// the `updater` target. This file is a text file, where each line of
-// text represents a single dependency. Some dependencies are not needed for
-// updater to run, and are filtered out from the return value of this function.
-std::vector<base::FilePath> ParseFilesFromDeps(const base::FilePath& deps);
 
 // Adds a worklist item to set a value in the Run key in the user registry under
 // the value `run_value_name` to start the specified `command`.

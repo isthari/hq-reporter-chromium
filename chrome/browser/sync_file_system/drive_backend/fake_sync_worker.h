@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,6 @@ class GURL;
 
 namespace base {
 class FilePath;
-class ListValue;
 }
 
 namespace storage {
@@ -62,8 +61,8 @@ class FakeSyncWorker : public SyncWorkerInterface {
   RemoteServiceState GetCurrentState() const override;
   void GetOriginStatusMap(
       RemoteFileSyncService::StatusMapCallback callback) override;
-  std::unique_ptr<base::ListValue> DumpFiles(const GURL& origin) override;
-  std::unique_ptr<base::ListValue> DumpDatabase() override;
+  base::Value::List DumpFiles(const GURL& origin) override;
+  base::Value::List DumpDatabase() override;
   void SetSyncEnabled(bool enabled) override;
   void PromoteDemotedChanges(base::OnceClosure callback) override;
   void ApplyLocalChange(const FileChange& local_change,
@@ -97,7 +96,7 @@ class FakeSyncWorker : public SyncWorkerInterface {
   std::unique_ptr<SyncEngineContext> sync_engine_context_;
 
   base::ObserverList<Observer>::Unchecked observers_;
-  base::SequenceChecker sequence_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
 };
 
 }  // namespace drive_backend

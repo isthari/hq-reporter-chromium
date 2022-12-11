@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,8 +48,9 @@ TestImageTransportFactory::~TestImageTransportFactory() = default;
 
 void TestImageTransportFactory::CreateLayerTreeFrameSink(
     base::WeakPtr<ui::Compositor> compositor) {
-  compositor->SetLayerTreeFrameSink(cc::FakeLayerTreeFrameSink::Create3d(),
-                                    nullptr);
+  compositor->SetLayerTreeFrameSink(
+      cc::FakeLayerTreeFrameSink::Create3d(),
+      mojo::AssociatedRemote<viz::mojom::DisplayPrivate>());
 }
 
 scoped_refptr<viz::ContextProvider>
@@ -62,7 +63,7 @@ TestImageTransportFactory::SharedMainThreadContextProvider() {
   constexpr bool kSupportsLocking = false;
   shared_main_context_provider_ = ui::InProcessContextProvider::CreateOffscreen(
       &gpu_memory_buffer_manager_, &image_factory_, kSupportsLocking);
-  auto result = shared_main_context_provider_->BindToCurrentThread();
+  auto result = shared_main_context_provider_->BindToCurrentSequence();
   if (result != gpu::ContextResult::kSuccess)
     shared_main_context_provider_ = nullptr;
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,7 @@ namespace {
 std::u16string FormatUrlToSubdomain(const GURL& url) {
   std::u16string formated_url = url_formatter::FormatUrl(
       url, url_formatter::kFormatUrlOmitTrivialSubdomains,
-      net::UnescapeRule::SPACES, nullptr, nullptr, nullptr);
+      base::UnescapeRule::SPACES, nullptr, nullptr, nullptr);
   return base::UTF8ToUTF16(GURL(formated_url).host());
 }
 

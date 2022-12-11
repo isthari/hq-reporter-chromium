@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,7 +58,7 @@ void OmniboxController::OnResultChanged(AutocompleteController* controller,
       omnibox_edit_model_->OnPopupResultChanged();
       omnibox_edit_model_->OnPopupDataChanged(
           std::u16string(),
-          /*is_temporary_text=*/false, std::u16string(), std::u16string(), {},
+          /*is_temporary_text=*/false, std::u16string(), std::u16string(),
           std::u16string(), false, std::u16string());
     }
   } else {

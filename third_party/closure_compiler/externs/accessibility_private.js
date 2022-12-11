@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,10 @@
 // Please run the closure compiler before committing changes.
 // See https://chromium.googlesource.com/chromium/src/+/main/docs/closure_compilation.md
 
-/** @fileoverview Externs generated from namespace: accessibilityPrivate */
+/**
+ * @fileoverview Externs generated from namespace: accessibilityPrivate
+ * @externs
+ */
 
 /** @const */
 chrome.accessibilityPrivate = {};
@@ -145,45 +148,6 @@ chrome.accessibilityPrivate.SwitchAccessMenuAction = {
   SELECT: 'select',
   SETTINGS: 'settings',
   START_TEXT_SELECTION: 'startTextSelection',
-  SHORTCUTS: 'shortcuts',
-  LEAVE_GROUP: 'leaveGroup',
-  WEB_MENU: 'webMenu',
-  WEB_BOOKMARK: 'webBookmark',
-  WEB_BOTTOM_OF_PAGE: 'webBottomOfPage',
-  WEB_TOP_OF_PAGE: 'webTopOfPage',
-  WEB_FIND_IN_PAGE: 'webFindInPage',
-  WEB_DOWNLOADS: 'webDownloads',
-  WEB_CLEAR_HISTORY: 'webClearHistory',
-  SYSTEM_MENU: 'systemMenu',
-  SYSTEM_STATUS_BAR: 'systemStatusBar',
-  SYSTEM_LAUNCHER: 'systemLauncher',
-  SYSTEM_TASK_MANAGER: 'systemTaskManager',
-  SYSTEM_DIAGNOSTICS: 'systemDiagnostics',
-  SYSTEM_SCREENSHOT: 'systemScreenshot',
-  SYSTEM_HELP: 'systemHelp',
-  MEDIA_MENU: 'mediaMenu',
-  MEDIA_MUTE: 'mediaMute',
-  MEDIA_VOLUME_DOWN: 'mediaVolumeDown',
-  MEDIA_VOLUME_UP: 'mediaVolumeUp',
-  MEDIA_REWIND: 'mediaRewind',
-  MEDIA_PLAY_PAUSE: 'mediaPlayPause',
-  MEDIA_FASTFORWARD: 'mediaFastforward',
-  DISPLAY_MENU: 'displayMenu',
-  DISPLAY_MIRROR: 'displayMirror',
-  DISPLAY_BRIGHTNESS_DOWN: 'displayBrightnessDown',
-  DISPLAY_BRIGHTNESS_UP: 'displayBrightnessUp',
-  DISPLAY_ROTATE: 'displayRotate',
-  DISPLAY_ZOOM_OUT: 'displayZoomOut',
-  DISPLAY_ZOOM_IN: 'displayZoomIn',
-  USER_MENU: 'userMenu',
-  USER_LOCK: 'userLock',
-  USER_PREVIOUS_USER: 'userPreviousUser',
-  USER_NEXT_USER: 'userNextUser',
-  USER_SIGN_OUT: 'userSignOut',
-  ACTION_RECORDER: 'actionRecorder',
-  START_RECORDING: 'startRecording',
-  STOP_RECORDING: 'stopRecording',
-  EXECUTE_MACRO: 'executeMacro',
 };
 
 /**
@@ -298,9 +262,12 @@ chrome.accessibilityPrivate.AcceleratorAction = {
  * @enum {string}
  */
 chrome.accessibilityPrivate.AccessibilityFeature = {
-  ENHANCED_NETWORK_VOICES: 'enhancedNetworkVoices',
-  DICTATION_COMMANDS: 'dictationCommands',
-  DICTATION_HINTS: 'dictationHints',
+  GOOGLE_TTS_LANGUAGE_PACKS: 'googleTtsLanguagePacks',
+  DICTATION_PUMPKIN_PARSING: 'dictationPumpkinParsing',
+  SELECT_TO_SPEAK_VOICE_SWITCHING: 'selectToSpeakVoiceSwitching',
+  DICTATION_MORE_COMMANDS: 'dictationMoreCommands',
+  SELECT_TO_SPEAK_CONTEXT_MENU_OPTION: 'selectToSpeakContextMenuOption',
+  DICTATION_CONTEXT_CHECKING: 'dictationContextChecking',
 };
 
 /**
@@ -325,6 +292,7 @@ chrome.accessibilityPrivate.SetNativeChromeVoxResponse = {
   TALKBACK_NOT_INSTALLED: 'talkbackNotInstalled',
   WINDOW_NOT_FOUND: 'windowNotFound',
   FAILURE: 'failure',
+  NEED_DEPRECATION_CONFIRMATION: 'needDeprecationConfirmation',
 };
 
 /**
@@ -347,6 +315,8 @@ chrome.accessibilityPrivate.DictationBubbleHintType = {
   SELECT_ALL: 'selectAll',
   UNDO: 'undo',
   HELP: 'help',
+  UNSELECT: 'unselect',
+  COPY: 'copy',
 };
 
 /**
@@ -358,6 +328,38 @@ chrome.accessibilityPrivate.DictationBubbleHintType = {
  * }}
  */
 chrome.accessibilityPrivate.DictationBubbleProperties;
+
+/**
+ * @enum {string}
+ */
+chrome.accessibilityPrivate.DlcType = {
+  TTS_ES_ES: 'ttsEsEs',
+  TTS_ES_US: 'ttsEsUs',
+  TTS_FR_FR: 'ttsFrFr',
+  TTS_HI_IN: 'ttsHiIn',
+  TTS_NL_NL: 'ttsNlNl',
+  TTS_PT_BR: 'ttsPtBr',
+  TTS_SV_SE: 'ttsSvSe',
+};
+
+/**
+ * @typedef {{
+ *   js_pumpkin_tagger_bin_js: ArrayBuffer,
+ *   tagger_wasm_main_js: ArrayBuffer,
+ *   tagger_wasm_main_wasm: ArrayBuffer,
+ *   en_us_action_config_binarypb: ArrayBuffer,
+ *   en_us_pumpkin_config_binarypb: ArrayBuffer,
+ *   fr_fr_action_config_binarypb: ArrayBuffer,
+ *   fr_fr_pumpkin_config_binarypb: ArrayBuffer,
+ *   it_it_action_config_binarypb: ArrayBuffer,
+ *   it_it_pumpkin_config_binarypb: ArrayBuffer,
+ *   de_de_action_config_binarypb: ArrayBuffer,
+ *   de_de_pumpkin_config_binarypb: ArrayBuffer,
+ *   es_es_action_config_binarypb: ArrayBuffer,
+ *   es_es_pumpkin_config_binarypb: ArrayBuffer
+ * }}
+ */
+chrome.accessibilityPrivate.PumpkinData;
 
 /**
  * Property to indicate whether event source should default to touch.
@@ -380,6 +382,13 @@ chrome.accessibilityPrivate.getDisplayNameForLocale = function(localeCodeToTrans
  *     string.
  */
 chrome.accessibilityPrivate.getBatteryDescription = function(callback) {};
+
+/**
+ * Called to request an install of the Pumpkin semantic parser for Dictation.
+ * @param {function(!chrome.accessibilityPrivate.PumpkinData): void} callback
+ *     Runs when Pumpkin download finishes.
+ */
+chrome.accessibilityPrivate.installPumpkinForDictation = function(callback) {};
 
 /**
  * Enables or disables native accessibility support. Once disabled, it is up to
@@ -462,8 +471,11 @@ chrome.accessibilityPrivate.setNativeChromeVoxArcSupportForCurrentApp = function
  * Sends a fabricated key event.
  * @param {!chrome.accessibilityPrivate.SyntheticKeyboardEvent} keyEvent The
  *     event to send.
+ * @param {boolean=} useRewriters If true, uses rewriters for the key event;
+ *     only allowed if used from Dictation. Otherwise indicates that rewriters
+ *     should be skipped.
  */
-chrome.accessibilityPrivate.sendSyntheticKeyEvent = function(keyEvent) {};
+chrome.accessibilityPrivate.sendSyntheticKeyEvent = function(keyEvent, useRewriters) {};
 
 /**
  * Enables or disables mouse events in accessibility extensions
@@ -584,6 +596,19 @@ chrome.accessibilityPrivate.getLocalizedDomKeyStringForKeyCode = function(keyCod
  *     Properties for the updated Dictation bubble UI.
  */
 chrome.accessibilityPrivate.updateDictationBubble = function(properties) {};
+
+/**
+ * Cancels the current and queued speech from ChromeVox.
+ */
+chrome.accessibilityPrivate.silenceSpokenFeedback = function() {};
+
+/**
+ * Returns the contents of a DLC.
+ * @param {!chrome.accessibilityPrivate.DlcType} dlc The DLC of interest.
+ * @param {function(ArrayBuffer): void} callback A callback that is run when the
+ *     contents are returned.
+ */
+chrome.accessibilityPrivate.getDlcContents = function(dlc, callback) {};
 
 /**
  * Fired whenever ChromeVox should output introduction.

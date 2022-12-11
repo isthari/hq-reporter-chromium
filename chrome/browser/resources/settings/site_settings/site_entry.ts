@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,30 +7,29 @@
  * 'site-entry' is an element representing a single eTLD+1 site entity.
  */
 import 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.m.js';
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
 import 'chrome://resources/polymer/v3_0/iron-collapse/iron-collapse.js';
-import '../settings_shared_css.js';
+import '../settings_shared.css.js';
 import '../site_favicon.js';
 
-import {CrIconButtonElement} from 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import {CrLazyRenderElement} from 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.m.js';
-import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
-import {FocusRowBehavior} from 'chrome://resources/js/cr/ui/focus_row_behavior.m.js';
-import {EventTracker} from 'chrome://resources/js/event_tracker.m.js';
-import {I18nMixin, I18nMixinInterface} from 'chrome://resources/js/i18n_mixin.js';
+import {CrIconButtonElement} from 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import {CrLazyRenderElement} from 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {assert, assertNotReached} from 'chrome://resources/js/assert_ts.js';
+import {EventTracker} from 'chrome://resources/js/event_tracker.js';
+import {FocusRowMixin} from 'chrome://resources/js/focus_row_mixin.js';
 import {IronCollapseElement} from 'chrome://resources/polymer/v3_0/iron-collapse/iron-collapse.js';
-import {DomRepeatEvent, html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {afterNextRender, DomRepeatEvent, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {BaseMixin, BaseMixinInterface} from '../base_mixin.js';
-import {loadTimeData} from '../i18n_setup.js';
+import {BaseMixin} from '../base_mixin.js';
 import {routes} from '../route.js';
 import {Router} from '../router.js';
 
 import {AllSitesAction2, SortMethod} from './constants.js';
-import {LocalDataBrowserProxy, LocalDataBrowserProxyImpl} from './local_data_browser_proxy.js';
-import {SiteSettingsMixin, SiteSettingsMixinInterface} from './site_settings_mixin.js';
+import {getTemplate} from './site_entry.html.js';
+import {SiteSettingsMixin} from './site_settings_mixin.js';
 import {OriginInfo, SiteGroup} from './site_settings_prefs_browser_proxy.js';
 
 
@@ -39,22 +38,15 @@ export interface SiteEntryElement {
     expandIcon: CrIconButtonElement,
     collapseParent: HTMLElement,
     cookies: HTMLElement,
+    fpsMembership: HTMLElement,
     displayName: HTMLElement,
     originList: CrLazyRenderElement<IronCollapseElement>,
     toggleButton: HTMLElement,
   };
-
-  // Declaring here because TypeScript default types seem to lack that method.
-  scrollIntoViewIfNeeded(): void;
 }
 
 const SiteEntryElementBase =
-    mixinBehaviors(
-        [FocusRowBehavior],
-        BaseMixin(SiteSettingsMixin(I18nMixin(PolymerElement)))) as {
-      new (): PolymerElement & I18nMixinInterface & SiteSettingsMixinInterface &
-      BaseMixinInterface
-    };
+    FocusRowMixin(BaseMixin(SiteSettingsMixin(I18nMixin(PolymerElement))));
 
 export class SiteEntryElement extends SiteEntryElementBase {
   static get is() {
@@ -62,7 +54,7 @@ export class SiteEntryElement extends SiteEntryElementBase {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -77,7 +69,9 @@ export class SiteEntryElement extends SiteEntryElementBase {
 
       /**
        * The name to display beside the icon. If grouped_() is true, it will be
-       * the eTLD+1 for all the origins, otherwise, it will return the host.
+       * the eTLD+1 for all the origins. For Isolated Web Apps instead of
+       * displaying the origin, the short name of the app will be displayed.
+       * Otherwise, it will return the host.
        */
       displayName_: String,
 
@@ -85,6 +79,19 @@ export class SiteEntryElement extends SiteEntryElementBase {
        * The string to display when there is a non-zero number of cookies.
        */
       cookieString_: String,
+
+      /**
+       * The first party set info for a site including owner and members count.
+       */
+      fpsMembershipLabel_: {
+        type: String,
+        value: '',
+      },
+
+      /**
+       * Mock preference used to power managed policy icon for first party sets.
+       */
+      fpsEnterprisePref_: Object,
 
       /**
        * The position of this site-entry in its parent list.
@@ -125,31 +132,32 @@ export class SiteEntryElement extends SiteEntryElementBase {
        * The selected sort method.
        */
       sortMethod: {type: String, observer: 'updateOrigins_'},
-
-      enableConsolidatedSiteStorageControls_: {
-        type: Boolean,
-        value: () =>
-            loadTimeData.getBoolean('consolidatedSiteStorageControlsEnabled'),
-      },
     };
+  }
+
+  static get observers() {
+    return [
+      'updateFpsMembershipLabel_(siteGroup.fpsNumMembers, siteGroup.fpsOwner)',
+      'updatePolicyPref_(siteGroup.fpsEnterpriseManaged)',
+      'updateFocus_(siteGroup.fpsOwner)',
+    ];
   }
 
   siteGroup: SiteGroup;
   private displayName_: string;
   private cookieString_: string;
+  private fpsMembershipLabel_: string;
   listIndex: number;
   private overallUsageString_: string;
-  private originUsages_: Array<string>;
-  private cookiesNum_: Array<string>;
+  private originUsages_: string[];
+  private cookiesNum_: string[];
   sortMethod?: SortMethod;
-  private enableConsolidatedSiteStorageControls_: boolean;
+  private fpsEnterprisePref_: chrome.settingsPrivate.PrefObject;
 
   private button_: Element|null = null;
-  private localDataBrowserProxy_: LocalDataBrowserProxy =
-      LocalDataBrowserProxyImpl.getInstance();
   private eventTracker_: EventTracker = new EventTracker();
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
     super.disconnectedCallback();
 
     if (this.button_) {
@@ -211,8 +219,9 @@ export class SiteEntryElement extends SiteEntryElementBase {
     }
     this.button_ =
         this.shadowRoot!.querySelector('#toggleButton *:not([hidden])');
+    assert(this.button_);
     this.eventTracker_.add(
-        assert(this.button_!), 'keydown',
+        this.button_, 'keydown',
         (e: KeyboardEvent) => this.onButtonKeydown_(e));
 
     if (!this.grouped_(siteGroup)) {
@@ -230,7 +239,8 @@ export class SiteEntryElement extends SiteEntryElementBase {
       this.cookieString_ = string;
     });
     this.updateOrigins_(this.sortMethod);
-    this.displayName_ = this.siteGroupRepresentation_(siteGroup);
+    this.displayName_ = siteGroup.isolatedWebAppName ??
+        this.siteGroupRepresentation_(siteGroup);
   }
 
   /**
@@ -309,6 +319,11 @@ export class SiteEntryElement extends SiteEntryElementBase {
     });
   }
 
+
+  private isFpsMember_(): boolean {
+    return this.siteGroup.fpsOwner !== undefined;
+  }
+
   /**
    * Get display string for number of cookies.
    */
@@ -316,7 +331,63 @@ export class SiteEntryElement extends SiteEntryElementBase {
     if (numCookies === 0) {
       return Promise.resolve('');
     }
-    return this.localDataBrowserProxy_.getNumCookiesString(numCookies);
+    return this.browserProxy.getNumCookiesString(numCookies);
+  }
+
+  /**
+   * Updates the display string for FPS information of owner and member count.
+   * @param fpsNumMembers The number of members in the first party set.
+   * @param fpsOwner The eTLD+1 for the first party set owner.
+   */
+  private updateFpsMembershipLabel_() {
+    if (!this.siteGroup.fpsOwner) {
+      this.fpsMembershipLabel_ = '';
+    } else {
+      this.browserProxy
+          .getFpsMembershipLabel(
+              this.siteGroup.fpsNumMembers!, this.siteGroup.fpsOwner!)
+          .then(label => this.fpsMembershipLabel_ = label);
+    }
+  }
+
+  /**
+   * Evaluates whether the policy icon should be shown.
+   * @returns True when `this.siteGroup.fpsEnterpriseManaged` is true,
+   * otherwise false.
+   */
+  private shouldShowPolicyPrefIndicator_(): boolean {
+    return !!this.siteGroup.fpsEnterpriseManaged;
+  }
+
+  /**
+   * Updates `fpsEnterprisePref_` based on `siteGroup.fpsEnterpriseManaged`.
+   */
+  private updatePolicyPref_() {
+    this.fpsEnterprisePref_ = this.siteGroup.fpsEnterpriseManaged ?
+        Object.assign({
+          enforcement: chrome.settingsPrivate.Enforcement.ENFORCED,
+          controlledBy: chrome.settingsPrivate.ControlledBy.DEVICE_POLICY,
+        }) :
+        Object.assign({
+          enforcement: undefined,
+          controlledBy: undefined,
+        });
+  }
+
+  private updateFocus_() {
+    // TODO(crbug.com/1378720): Re-focusing a changed entry (such as when an
+    // entry is removed from list) happens before the entry elements have been
+    // updated (e.g. different buttons shown / hidden). This causes the
+    // focusRowMixin to incorrectly identify an element which is about to be
+    // hidden / removed as a valid focus target.
+    const isCurrentlyFocused = this.isFocused;
+    afterNextRender(this, () => {
+      if (isCurrentlyFocused) {
+        (this.isFpsMember_() ?
+             this.$$<CrIconButtonElement>('#fpsOverflowMenuButton') :
+             this.$$<CrIconButtonElement>('#removeSiteButton'))!.focus();
+      }
+    });
   }
 
   /**
@@ -324,8 +395,7 @@ export class SiteEntryElement extends SiteEntryElementBase {
    * @param change The change record for the array.
    * @param index The index of the array item.
    */
-  private originUsagesItem_(change: {base: Array<string>}, index: number):
-      string {
+  private originUsagesItem_(change: {base: string[]}, index: number): string {
     return change.base[index];
   }
 
@@ -334,8 +404,7 @@ export class SiteEntryElement extends SiteEntryElementBase {
    * @param change The change record for the array.
    * @param index The index of the array item.
    */
-  private originCookiesItem_(change: {base: Array<string>}, index: number):
-      string {
+  private originCookiesItem_(change: {base: string[]}, index: number): string {
     return change.base[index];
   }
 
@@ -390,6 +459,8 @@ export class SiteEntryElement extends SiteEntryElementBase {
     collapseChild.toggle();
     this.$.toggleButton.setAttribute(
         'aria-expanded', collapseChild.opened ? 'true' : 'false');
+    this.$.expandIcon.setAttribute(
+        'aria-expanded', collapseChild.opened ? 'true' : 'false');
     this.$.expandIcon.toggleClass('icon-expand-more');
     this.$.expandIcon.toggleClass('icon-expand-less');
     this.fire('iron-resize');
@@ -430,11 +501,21 @@ export class SiteEntryElement extends SiteEntryElementBase {
     return index > 0 ? 'hr' : '';
   }
 
+  private getSubpageLabel_(target: string): string {
+    return this.i18n(
+        'siteSettingsSiteDetailsSubpageAccessibilityLabel',
+        this.originRepresentation(target));
+  }
+
   private getRemoveOriginButtonTitle_(origin: string): string {
     return this.i18n(
         'siteSettingsCookieRemoveSite', this.originRepresentation(origin));
   }
 
+  private getMoreActionsLabel_(): string {
+    return this.i18n(
+        'firstPartySetsMoreActionsTitle', this.siteGroup.etldPlus1);
+  }
   /**
    * Update the order and data display text for origins.
    */
@@ -488,7 +569,6 @@ export class SiteEntryElement extends SiteEntryElementBase {
       };
     }
     assertNotReached();
-    return (_origin1, _origin2) => 0;
   }
 }
 

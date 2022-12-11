@@ -1,8 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/modules/accessibility/ax_virtual_object.h"
+
+#include "base/auto_reset.h"
 #include "third_party/blink/renderer/modules/accessibility/ax_object_cache_impl.h"
 #include "third_party/blink/renderer/modules/accessibility/ax_sparse_attribute_setter.h"
 
@@ -12,7 +14,14 @@ AXVirtualObject::AXVirtualObject(AXObjectCacheImpl& axObjectCache,
                                  AccessibleNode* accessible_node)
     : AXObject(axObjectCache),
       accessible_node_(accessible_node),
-      aria_role_(ax::mojom::blink::Role::kUnknown) {}
+      aria_role_(ax::mojom::blink::Role::kUnknown) {
+  DCHECK(accessible_node_);
+  DCHECK(!accessible_node_->element())
+      << "The accessible node directly attached to an element should not "
+         "have its own AXObject, since the AXObject will be keyed off of "
+         "the element instead: "
+      << accessible_node_->element();
+}
 
 AXVirtualObject::~AXVirtualObject() = default;
 
@@ -32,7 +41,7 @@ bool AXVirtualObject::ComputeAccessibilityIsIgnored(
 }
 
 void AXVirtualObject::AddChildren() {
-#if DCHECK_IS_ON()
+#if defined(AX_FAIL_FAST_BUILD)
   DCHECK(!IsDetached());
   DCHECK(!is_adding_children_) << " Reentering method on " << GetNode();
   base::AutoReset<bool> reentrancy_protector(&is_adding_children_, true);
@@ -60,7 +69,7 @@ void AXVirtualObject::AddChildren() {
 
 void AXVirtualObject::ChildrenChangedWithCleanLayout() {
   ClearChildren();
-  AXObjectCache().PostNotification(this, ax::mojom::Event::kChildrenChanged);
+  AXObjectCache().MarkAXObjectDirtyWithCleanLayout(this);
 }
 
 const AtomicString& AXVirtualObject::GetAOMPropertyOrARIAAttribute(

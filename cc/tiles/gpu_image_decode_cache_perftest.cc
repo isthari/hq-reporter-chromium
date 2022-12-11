@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,17 +47,15 @@ class GpuImageDecodeCachePerfTest
                kTimeCheckInterval),
         context_provider_(
             base::MakeRefCounted<viz::TestInProcessContextProvider>(
-                /*enable_gles2_interface=*/false,
-                /*support_locking=*/false,
-                ParamToRasterInterfaceType(GetParam()))) {}
+                ParamToTestContextType(GetParam()),
+                /*support_locking=*/false)) {}
 
   void SetUp() override {
-    gpu::ContextResult result = context_provider_->BindToCurrentThread();
+    gpu::ContextResult result = context_provider_->BindToCurrentSequence();
     ASSERT_EQ(result, gpu::ContextResult::kSuccess);
     cache_ = std::make_unique<GpuImageDecodeCache>(
         context_provider_.get(), UseTransferCache(), kRGBA_8888_SkColorType,
-        kCacheSize, MaxTextureSize(), PaintImage::kDefaultGeneratorClientId,
-        nullptr);
+        kCacheSize, MaxTextureSize(), nullptr);
   }
 
  protected:
@@ -81,15 +79,12 @@ class GpuImageDecodeCachePerfTest
     }
   }
 
-  viz::RasterInterfaceType ParamToRasterInterfaceType(TestMode mode) {
+  viz::TestContextType ParamToTestContextType(TestMode mode) {
     switch (mode) {
       case TestMode::kGpu:
-        return viz::RasterInterfaceType::GPU;
+        return viz::TestContextType::kGpuRaster;
       case TestMode::kSw:
-        return viz::RasterInterfaceType::Software;
-      default:
-        NOTREACHED();
-        return viz::RasterInterfaceType::None;
+        return viz::TestContextType::kSoftwareRaster;
     }
   }
 
@@ -120,7 +115,7 @@ TEST_P(GpuImageDecodeCachePerfTest, DecodeWithColorConversion) {
             .TakePaintImage(),
         false, SkIRect::MakeWH(1024, 2048), PaintFlags::FilterQuality::kMedium,
         CreateMatrix(SkSize::Make(1.0f, 1.0f)), 0u,
-        gfx::ColorSpace::CreateXYZD50());
+        TargetColorParams(gfx::ColorSpace::CreateXYZD50()));
 
     DecodedDrawImage decoded_image = cache_->GetDecodedImageForDraw(image);
     cache_->DrawWithImageFinished(image, decoded_image);
@@ -151,7 +146,7 @@ TEST_P(GpuImageDecodeCachePerfTestNoSw, DecodeWithMips) {
             .set_image(CreateImage(1024, 2048), PaintImage::GetNextContentId())
             .TakePaintImage(),
         false, SkIRect::MakeWH(1024, 2048), PaintFlags::FilterQuality::kMedium,
-        CreateMatrix(SkSize::Make(0.6f, 0.6f)), 0u, gfx::ColorSpace());
+        CreateMatrix(SkSize::Make(0.6f, 0.6f)), 0u, TargetColorParams());
 
     DecodedDrawImage decoded_image = cache_->GetDecodedImageForDraw(image);
 
@@ -172,7 +167,7 @@ TEST_P(GpuImageDecodeCachePerfTest, AcquireExistingImages) {
           .TakePaintImage(),
       false, SkIRect::MakeWH(1024, 2048), PaintFlags::FilterQuality::kMedium,
       CreateMatrix(SkSize::Make(1.0f, 1.0f)), 0u,
-      gfx::ColorSpace::CreateXYZD50());
+      TargetColorParams(gfx::ColorSpace::CreateXYZD50()));
 
   DecodedDrawImage decoded_image = cache_->GetDecodedImageForDraw(image);
   cache_->DrawWithImageFinished(image, decoded_image);

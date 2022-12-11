@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,6 +33,7 @@
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/mock_callback.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
@@ -42,6 +43,7 @@
 #include "chrome/browser/download/download_core_service.h"
 #include "chrome/browser/download/download_core_service_factory.h"
 #include "chrome/browser/enterprise/connectors/connectors_service.h"
+#include "chrome/browser/enterprise/connectors/reporting/realtime_reporting_client_factory.h"
 #include "chrome/browser/extensions/api/safe_browsing_private/safe_browsing_private_event_router.h"
 #include "chrome/browser/extensions/api/safe_browsing_private/safe_browsing_private_event_router_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
@@ -50,9 +52,8 @@
 #include "chrome/browser/policy/dm_token_utils.h"
 #include "chrome/browser/safe_browsing/advanced_protection_status_manager.h"
 #include "chrome/browser/safe_browsing/advanced_protection_status_manager_factory.h"
-#include "chrome/browser/safe_browsing/chrome_user_population_helper.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/binary_upload_service.h"
-#include "chrome/browser/safe_browsing/cloud_content_scanning/binary_upload_service_factory.h"
+#include "chrome/browser/safe_browsing/cloud_content_scanning/cloud_binary_upload_service_factory.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_test_utils.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/test_binary_upload_service.h"
 #include "chrome/browser/safe_browsing/download_protection/check_file_system_access_write_request.h"
@@ -101,6 +102,7 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item_utils.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/navigation_simulator.h"
@@ -177,7 +179,7 @@ class FakeSafeBrowsingService : public TestSafeBrowsingService {
  public:
   explicit FakeSafeBrowsingService(Profile* profile) {
     services_delegate_ = ServicesDelegate::CreateForTest(this, this);
-    BinaryUploadServiceFactory::GetInstance()->SetTestingFactory(
+    CloudBinaryUploadServiceFactory::GetInstance()->SetTestingFactory(
         profile, base::BindRepeating(&CreateTestBinaryUploadService));
     mock_database_manager_ = new NiceMock<MockSafeBrowsingDatabaseManager>();
   }
@@ -199,10 +201,24 @@ class FakeSafeBrowsingService : public TestSafeBrowsingService {
     return it->second;
   }
 
-  void SendSerializedDownloadReport(Profile* profile,
-                                    const std::string& report) override {
+  bool SendDownloadReport(
+      download::DownloadItem* download,
+      ClientSafeBrowsingReportRequest::ReportType report_type,
+      bool did_proceed,
+      absl::optional<bool> show_download_in_folder) override {
+    auto report = std::make_unique<ClientSafeBrowsingReportRequest>();
+    report->set_type(report_type);
+    report->set_download_verdict(
+        DownloadProtectionService::GetDownloadProtectionVerdict(download));
+    report->set_url(download->GetURL().spec());
+    report->set_did_proceed(did_proceed);
+    EXPECT_TRUE(show_download_in_folder.has_value());
+    report->set_show_download_in_folder(show_download_in_folder.value());
+    report->set_token(
+        DownloadProtectionService::GetDownloadPingToken(download));
+    report->SerializeToString(&latest_report_);
     download_report_count_++;
-    latest_report_ = report;
+    return true;
   }
 
   network::TestURLLoaderFactory* GetTestURLLoaderFactory(Profile* profile) {
@@ -367,6 +383,10 @@ class DownloadProtectionServiceTestBase
         ->SetTestingFactory(
             profile(),
             base::BindRepeating(&BuildSafeBrowsingPrivateEventRouter));
+
+    enterprise_connectors::RealtimeReportingClientFactory::GetInstance()
+        ->SetTestingFactory(profile(),
+                            base::BindRepeating(&BuildRealtimeReportingClient));
     client_ = std::make_unique<policy::MockCloudPolicyClient>();
 
     SetDMTokenForTesting(
@@ -412,12 +432,12 @@ class DownloadProtectionServiceTestBase
     return factories;
   }
 
-  void EnableFeatures(const std::vector<base::Feature>& features) {
+  void EnableFeatures(const std::vector<base::test::FeatureRef>& features) {
     scoped_feature_list_.Reset();
     scoped_feature_list_.InitWithFeatures(features, {});
   }
 
-  void DisableFeatures(const std::vector<base::Feature>& features) {
+  void DisableFeatures(const std::vector<base::test::FeatureRef>& features) {
     scoped_feature_list_.Reset();
     scoped_feature_list_.InitWithFeatures({}, features);
   }
@@ -601,9 +621,9 @@ class DownloadProtectionServiceTestBase
   }
 
   void AddDomainToEnterpriseAllowlist(const std::string& domain) {
-    ListPrefUpdate update(profile()->GetPrefs(),
-                          prefs::kSafeBrowsingAllowlistDomains);
-    update.Get()->Append(domain);
+    ScopedListPrefUpdate update(profile()->GetPrefs(),
+                                prefs::kSafeBrowsingAllowlistDomains);
+    update->Append(domain);
   }
 
   // Helper function to simulate a user gesture, then a link click.
@@ -617,7 +637,7 @@ class DownloadProtectionServiceTestBase
         ->TestDidReceiveMouseDownEvent();
     std::unique_ptr<content::NavigationSimulator> navigation =
         content::NavigationSimulator::CreateRendererInitiated(
-            url, web_contents()->GetMainFrame());
+            url, web_contents()->GetPrimaryMainFrame());
 
     navigation->SetTransition(ui::PAGE_TRANSITION_LINK);
     navigation->Commit();
@@ -912,8 +932,8 @@ TEST_F(DownloadProtectionServiceTest,
     run_loop.Run();
     EXPECT_TRUE(IsResult(DownloadCheckResult::DANGEROUS));
     ASSERT_TRUE(HasClientDownloadRequest());
-    EXPECT_FALSE(GetClientDownloadRequest()->skipped_url_whitelist());
-    EXPECT_FALSE(GetClientDownloadRequest()->skipped_certificate_whitelist());
+    EXPECT_FALSE(GetClientDownloadRequest()->skipped_url_allowlist());
+    EXPECT_FALSE(GetClientDownloadRequest()->skipped_certificate_allowlist());
     ClearClientDownloadRequest();
   }
   {
@@ -928,8 +948,8 @@ TEST_F(DownloadProtectionServiceTest,
 
     EXPECT_TRUE(IsResult(DownloadCheckResult::DANGEROUS));
     ASSERT_TRUE(HasClientDownloadRequest());
-    EXPECT_FALSE(GetClientDownloadRequest()->skipped_url_whitelist());
-    EXPECT_FALSE(GetClientDownloadRequest()->skipped_certificate_whitelist());
+    EXPECT_FALSE(GetClientDownloadRequest()->skipped_url_allowlist());
+    EXPECT_FALSE(GetClientDownloadRequest()->skipped_certificate_allowlist());
     ClearClientDownloadRequest();
   }
 
@@ -945,8 +965,8 @@ TEST_F(DownloadProtectionServiceTest,
     run_loop.Run();
     EXPECT_TRUE(IsResult(DownloadCheckResult::DANGEROUS));
     ASSERT_TRUE(HasClientDownloadRequest());
-    EXPECT_FALSE(GetClientDownloadRequest()->skipped_url_whitelist());
-    EXPECT_FALSE(GetClientDownloadRequest()->skipped_certificate_whitelist());
+    EXPECT_FALSE(GetClientDownloadRequest()->skipped_url_allowlist());
+    EXPECT_FALSE(GetClientDownloadRequest()->skipped_certificate_allowlist());
     ClearClientDownloadRequest();
   }
   {
@@ -1054,8 +1074,8 @@ TEST_F(DownloadProtectionServiceTest,
     run_loop.Run();
     EXPECT_TRUE(IsResult(DownloadCheckResult::SAFE));
     ASSERT_TRUE(HasClientDownloadRequest());
-    EXPECT_TRUE(GetClientDownloadRequest()->skipped_url_whitelist());
-    EXPECT_FALSE(GetClientDownloadRequest()->skipped_certificate_whitelist());
+    EXPECT_TRUE(GetClientDownloadRequest()->skipped_url_allowlist());
+    EXPECT_FALSE(GetClientDownloadRequest()->skipped_certificate_allowlist());
     ClearClientDownloadRequest();
   }
 }
@@ -1817,7 +1837,9 @@ TEST_F(DownloadProtectionServiceTest, CheckClientDownloadReportDmgWithoutKoly) {
 
 // Test that a large DMG (size equals max value of 64 bit signed int) is not
 // unpacked for binary feature analysis.
-TEST_F(DownloadProtectionServiceTest, CheckClientDownloadReportLargeDmg) {
+// Disabled due to new CHECK failures: https://crbug.com/1393039
+TEST_F(DownloadProtectionServiceTest,
+       DISABLED_CheckClientDownloadReportLargeDmg) {
   PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
 
   base::FilePath unsigned_dmg;
@@ -2182,10 +2204,8 @@ TEST_F(DownloadProtectionServiceTest,
     redirects.push_back(tab_url);
     HistoryServiceFactory::GetForProfile(profile(),
                                          ServiceAccessType::EXPLICIT_ACCESS)
-        ->AddPage(tab_url, base::Time::Now(),
-                  reinterpret_cast<history::ContextID>(1), 0, GURL(), redirects,
-                  ui::PAGE_TRANSITION_TYPED, history::SOURCE_BROWSED, false,
-                  false);
+        ->AddPage(tab_url, base::Time::Now(), 1, 0, GURL(), redirects,
+                  ui::PAGE_TRANSITION_TYPED, history::SOURCE_BROWSED, false);
 
     PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
 
@@ -2496,15 +2516,34 @@ TEST_F(DownloadProtectionServiceTest, ShowDetailsForDownloadHasContext) {
                                             &mock_page_navigator);
 }
 
-TEST_F(DownloadProtectionServiceTest, GetAndSetDownloadPingToken) {
+TEST_F(DownloadProtectionServiceTest, GetAndSetDownloadProtectionData) {
   NiceMockDownloadItem item;
   EXPECT_TRUE(DownloadProtectionService::GetDownloadPingToken(&item).empty());
   std::string token = "download_ping_token";
-  DownloadProtectionService::SetDownloadPingToken(&item, token);
+  ClientDownloadResponse::Verdict verdict = ClientDownloadResponse::DANGEROUS;
+  ClientDownloadResponse::TailoredVerdict tailored_verdict;
+  tailored_verdict.set_tailored_verdict_type(
+      ClientDownloadResponse::TailoredVerdict::COOKIE_THEFT);
+  DownloadProtectionService::SetDownloadProtectionData(&item, token, verdict,
+                                                       tailored_verdict);
   EXPECT_EQ(token, DownloadProtectionService::GetDownloadPingToken(&item));
+  EXPECT_EQ(verdict,
+            DownloadProtectionService::GetDownloadProtectionVerdict(&item));
+  EXPECT_EQ(
+      ClientDownloadResponse::TailoredVerdict::COOKIE_THEFT,
+      DownloadProtectionService::GetDownloadProtectionTailoredVerdict(&item)
+          .tailored_verdict_type());
 
-  DownloadProtectionService::SetDownloadPingToken(&item, std::string());
+  DownloadProtectionService::SetDownloadProtectionData(
+      &item, std::string(), ClientDownloadResponse::SAFE,
+      ClientDownloadResponse::TailoredVerdict());
   EXPECT_TRUE(DownloadProtectionService::GetDownloadPingToken(&item).empty());
+  EXPECT_EQ(ClientDownloadResponse::SAFE,
+            DownloadProtectionService::GetDownloadProtectionVerdict(&item));
+  EXPECT_EQ(
+      ClientDownloadResponse::TailoredVerdict::VERDICT_TYPE_UNSPECIFIED,
+      DownloadProtectionService::GetDownloadProtectionTailoredVerdict(&item)
+          .tailored_verdict_type());
 }
 
 TEST_F(DownloadProtectionServiceTest, PPAPIDownloadRequest_Unsupported) {
@@ -2512,8 +2551,8 @@ TEST_F(DownloadProtectionServiceTest, PPAPIDownloadRequest_Unsupported) {
   std::vector<base::FilePath::StringType> alternate_extensions{
       FILE_PATH_LITERAL(".jpeg")};
   download_service_->CheckPPAPIDownloadRequest(
-      GURL("http://example.com/foo"), GURL(), nullptr, default_file_path,
-      alternate_extensions, profile(),
+      GURL("http://example.com/foo"), /*initiating_frame*/ nullptr,
+      default_file_path, alternate_extensions, profile(),
       base::BindOnce(&DownloadProtectionServiceTest::SyncCheckDoneCallback,
                      base::Unretained(this)));
   ASSERT_TRUE(IsResult(DownloadCheckResult::SAFE));
@@ -2546,7 +2585,7 @@ TEST_F(DownloadProtectionServiceTest, PPAPIDownloadRequest_SupportedDefault) {
     SetExtendedReportingPreference(true);
     RunLoop run_loop;
     download_service_->CheckPPAPIDownloadRequest(
-        GURL("http://example.com/foo"), GURL(), /*web_contents=*/nullptr,
+        GURL("http://example.com/foo"), /*initiating_frame*/ nullptr,
         default_file_path, alternate_extensions, profile(),
         base::BindOnce(&DownloadProtectionServiceTest::CheckDoneCallback,
                        base::Unretained(this), run_loop.QuitClosure()));
@@ -2568,8 +2607,8 @@ TEST_F(DownloadProtectionServiceTest, PPAPIDownloadRequest_SupportedAlternate) {
   SetExtendedReportingPreference(false);
   RunLoop run_loop;
   download_service_->CheckPPAPIDownloadRequest(
-      GURL("http://example.com/foo"), GURL(), nullptr, default_file_path,
-      alternate_extensions, profile(),
+      GURL("http://example.com/foo"), /*initiating_frame*/ nullptr,
+      default_file_path, alternate_extensions, profile(),
       base::BindOnce(&DownloadProtectionServiceTest::CheckDoneCallback,
                      base::Unretained(this), run_loop.QuitClosure()));
   run_loop.Run();
@@ -2588,8 +2627,8 @@ TEST_F(DownloadProtectionServiceTest, PPAPIDownloadRequest_AllowlistedURL) {
 
   RunLoop run_loop;
   download_service_->CheckPPAPIDownloadRequest(
-      GURL("http://example.com/foo"), GURL(), nullptr, default_file_path,
-      alternate_extensions, profile(),
+      GURL("http://example.com/foo"), /*initiating_frame*/ nullptr,
+      default_file_path, alternate_extensions, profile(),
       base::BindOnce(&DownloadProtectionServiceTest::CheckDoneCallback,
                      base::Unretained(this), run_loop.QuitClosure()));
   run_loop.Run();
@@ -2607,8 +2646,8 @@ TEST_F(DownloadProtectionServiceTest, PPAPIDownloadRequest_FetchFailed) {
       .WillRepeatedly(Return(false));
   RunLoop run_loop;
   download_service_->CheckPPAPIDownloadRequest(
-      GURL("http://example.com/foo"), GURL(), nullptr, default_file_path,
-      alternate_extensions, profile(),
+      GURL("http://example.com/foo"), /*initiating_frame*/ nullptr,
+      default_file_path, alternate_extensions, profile(),
       base::BindOnce(&DownloadProtectionServiceTest::CheckDoneCallback,
                      base::Unretained(this), run_loop.QuitClosure()));
   run_loop.Run();
@@ -2626,8 +2665,8 @@ TEST_F(DownloadProtectionServiceTest, PPAPIDownloadRequest_InvalidResponse) {
       .WillRepeatedly(Return(false));
   RunLoop run_loop;
   download_service_->CheckPPAPIDownloadRequest(
-      GURL("http://example.com/foo"), GURL(), nullptr, default_file_path,
-      alternate_extensions, profile(),
+      GURL("http://example.com/foo"), /*initiating_frame*/ nullptr,
+      default_file_path, alternate_extensions, profile(),
       base::BindOnce(&DownloadProtectionServiceTest::CheckDoneCallback,
                      base::Unretained(this), run_loop.QuitClosure()));
   run_loop.Run();
@@ -2645,8 +2684,8 @@ TEST_F(DownloadProtectionServiceTest, PPAPIDownloadRequest_Timeout) {
   download_service_->download_request_timeout_ms_ = 0;
   RunLoop run_loop;
   download_service_->CheckPPAPIDownloadRequest(
-      GURL("http://example.com/foo"), GURL(), nullptr, default_file_path,
-      alternate_extensions, profile(),
+      GURL("http://example.com/foo"), /*initiating_frame*/ nullptr,
+      default_file_path, alternate_extensions, profile(),
       base::BindOnce(&DownloadProtectionServiceTest::CheckDoneCallback,
                      base::Unretained(this), run_loop.QuitClosure()));
   run_loop.Run();
@@ -2674,8 +2713,8 @@ TEST_F(DownloadProtectionServiceTest, PPAPIDownloadRequest_Payload) {
   const GURL kRequestorUrl("http://example.com/foo");
   RunLoop run_loop;
   download_service_->CheckPPAPIDownloadRequest(
-      kRequestorUrl, GURL(), nullptr, default_file_path, alternate_extensions,
-      profile(),
+      kRequestorUrl, /*initiating_frame*/ nullptr, default_file_path,
+      alternate_extensions, profile(),
       base::BindOnce(&DownloadProtectionServiceTest::CheckDoneCallback,
                      base::Unretained(this), run_loop.QuitClosure()));
   run_loop.Run();
@@ -2704,7 +2743,7 @@ TEST_F(DownloadProtectionServiceTest,
   std::vector<base::FilePath::StringType> alternate_extensions{
       FILE_PATH_LITERAL(".tmp"), FILE_PATH_LITERAL(".asdfasdf")};
   download_service_->CheckPPAPIDownloadRequest(
-      GURL("http://example.com/foo"), GURL(), web_contents.get(),
+      GURL("http://example.com/foo"), web_contents->GetPrimaryMainFrame(),
       default_file_path, alternate_extensions, profile(),
       base::BindOnce(&DownloadProtectionServiceTest::SyncCheckDoneCallback,
                      base::Unretained(this)));
@@ -2728,7 +2767,9 @@ TEST_F(DownloadProtectionServiceTest,
   EXPECT_EQ(0, sb_service_->download_report_count());
 
   // No report sent if user is in incognito mode.
-  DownloadProtectionService::SetDownloadPingToken(&item, token);
+  DownloadProtectionService::SetDownloadProtectionData(
+      &item, token, ClientDownloadResponse::DANGEROUS,
+      ClientDownloadResponse::TailoredVerdict());
   content::DownloadItemUtils::AttachInfoForTesting(
       &item, profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true),
       nullptr);
@@ -2748,16 +2789,16 @@ TEST_F(DownloadProtectionServiceTest,
 
   // Report successfully sent if user opted-in extended reporting, not in
   // incognito, download item has a token stored and the download is detected to
-  // be dangerous.
-  EXPECT_CALL(item, IsDangerous()).WillRepeatedly(Return(true));
+  // be dangerous and bypassed by the user.
+  EXPECT_CALL(item, IsDangerous()).WillRepeatedly(Return(false));
+  EXPECT_CALL(item, GetDangerType())
+      .WillRepeatedly(Return(download::DOWNLOAD_DANGER_TYPE_USER_VALIDATED));
   auto validate_report_contents = [this, token](bool show_download_in_folder) {
     ClientSafeBrowsingReportRequest expected_report;
     expected_report.set_url(GURL::EmptyGURL().spec());
     expected_report.set_type(
         ClientSafeBrowsingReportRequest::DANGEROUS_DOWNLOAD_OPENED);
-    *expected_report.mutable_population() =
-        safe_browsing::GetUserPopulationForProfile(profile());
-    expected_report.set_download_verdict(ClientDownloadResponse::SAFE);
+    expected_report.set_download_verdict(ClientDownloadResponse::DANGEROUS);
     expected_report.set_did_proceed(true);
     expected_report.set_token(token);
     expected_report.set_show_download_in_folder(show_download_in_folder);
@@ -2777,7 +2818,8 @@ TEST_F(DownloadProtectionServiceTest,
 
 TEST_F(DownloadProtectionServiceTest,
        VerifyBypassReportSentImmediatelyIfVerdictDangerous) {
-  extensions::SafeBrowsingPrivateEventRouterFactory::GetForProfile(profile())
+  enterprise_connectors::RealtimeReportingClientFactory::GetForProfile(
+      profile())
       ->SetBrowserCloudPolicyClientForTesting(client_.get());
 
   safe_browsing::SetOnSecurityEventReporting(profile()->GetPrefs(), true);
@@ -2794,10 +2836,10 @@ TEST_F(DownloadProtectionServiceTest,
   std::set<std::string> expected_mimetypes{""};
   EventReportValidator validator(client_.get());
   validator.ExpectDangerousDownloadEvent(
-      "",                          // URL, not set in this test
-      final_path_.AsUTF8Unsafe(),  // Full path, including the directory
-      "68617368",                  // SHA256 of the fake download
-      "DANGEROUS_FILE_TYPE",       // expected_threat_type
+      "",                     // URL, not set in this test
+      "a.exe",                // Simple filename without the directory
+      "68617368",             // SHA256 of the fake download
+      "DANGEROUS_FILE_TYPE",  // expected_threat_type
       extensions::SafeBrowsingPrivateEventRouter::
           kTriggerFileDownload,  // expected_trigger
       &expected_mimetypes,
@@ -2808,7 +2850,9 @@ TEST_F(DownloadProtectionServiceTest,
       {} /* expected_scan_id */);
 
   content::DownloadItemUtils::AttachInfoForTesting(&item, profile(), nullptr);
-  DownloadProtectionService::SetDownloadPingToken(&item, "token");
+  DownloadProtectionService::SetDownloadProtectionData(
+      &item, "token", ClientDownloadResponse::SAFE,
+      ClientDownloadResponse::TailoredVerdict());
   SetExtendedReportingPreference(true);
   EXPECT_CALL(item, IsDangerous()).WillRepeatedly(Return(true));
   EXPECT_CALL(item, GetDangerType())
@@ -2820,7 +2864,8 @@ TEST_F(DownloadProtectionServiceTest,
 
 TEST_F(DownloadProtectionServiceTest,
        VerifyBypassReportSentImmediatelyIfVerdictSensitive) {
-  extensions::SafeBrowsingPrivateEventRouterFactory::GetForProfile(profile())
+  enterprise_connectors::RealtimeReportingClientFactory::GetForProfile(
+      profile())
       ->SetBrowserCloudPolicyClientForTesting(client_.get());
 
   safe_browsing::SetOnSecurityEventReporting(profile()->GetPrefs(), true);
@@ -2833,7 +2878,9 @@ TEST_F(DownloadProtectionServiceTest,
                            FILE_PATH_LITERAL("a.exe"));  // final_path
 
   content::DownloadItemUtils::AttachInfoForTesting(&item, profile(), nullptr);
-  DownloadProtectionService::SetDownloadPingToken(&item, "token");
+  DownloadProtectionService::SetDownloadProtectionData(
+      &item, "token", ClientDownloadResponse::SAFE,
+      ClientDownloadResponse::TailoredVerdict());
   SetExtendedReportingPreference(true);
   enterprise_connectors::ContentAnalysisResponse response;
   auto* result = response.add_results();
@@ -2855,9 +2902,11 @@ TEST_F(DownloadProtectionServiceTest,
   std::set<std::string> expected_mimetypes{"fake/mimetype"};
   EventReportValidator validator(client_.get());
   validator.ExpectSensitiveDataEvent(
-      "",                          // URL, not set in this test
-      final_path_.AsUTF8Unsafe(),  // Full path, including the directory
-      "68617368",                  // SHA256 of the fake download
+      "",             // URL, not set in this test
+      absl::nullopt,  // source, not used for file downloads.
+      absl::nullopt,  // destination, not used for file downloads.
+      "a.exe",        // Simple filename without the directory
+      "68617368",     // SHA256 of the fake download
       extensions::SafeBrowsingPrivateEventRouter::
           kTriggerFileDownload,  // expected_trigger
       response.results()[0], &expected_mimetypes,
@@ -2873,7 +2922,8 @@ TEST_F(DownloadProtectionServiceTest,
 
 TEST_F(DownloadProtectionServiceTest,
        VerifyBypassReportSentAfterDangerousVerdictReceived) {
-  extensions::SafeBrowsingPrivateEventRouterFactory::GetForProfile(profile())
+  enterprise_connectors::RealtimeReportingClientFactory::GetForProfile(
+      profile())
       ->SetBrowserCloudPolicyClientForTesting(client_.get());
 
   safe_browsing::SetOnSecurityEventReporting(profile()->GetPrefs(), true);
@@ -2885,7 +2935,9 @@ TEST_F(DownloadProtectionServiceTest,
                            FILE_PATH_LITERAL("a.tmp"),   // tmp_path
                            FILE_PATH_LITERAL("a.exe"));  // final_path
   content::DownloadItemUtils::AttachInfoForTesting(&item, profile(), nullptr);
-  DownloadProtectionService::SetDownloadPingToken(&item, "token");
+  DownloadProtectionService::SetDownloadProtectionData(
+      &item, "token", ClientDownloadResponse::SAFE,
+      ClientDownloadResponse::TailoredVerdict());
   SetExtendedReportingPreference(true);
   EXPECT_CALL(item, IsDangerous()).WillRepeatedly(Return(false));
   EXPECT_CALL(item, GetDangerType())
@@ -2902,10 +2954,10 @@ TEST_F(DownloadProtectionServiceTest,
   std::set<std::string> expected_mimetypes{""};
   EventReportValidator validator(client_.get());
   validator.ExpectDangerousDownloadEvent(
-      "",                          // URL, not set in this test
-      final_path_.AsUTF8Unsafe(),  // Full path, including the directory
-      "68617368",                  // SHA256 of the fake download
-      "DANGEROUS_FILE_TYPE",       // expected_threat_type
+      "",                     // URL, not set in this test
+      "a.exe",                // Simple filename without the directory
+      "68617368",             // SHA256 of the fake download
+      "DANGEROUS_FILE_TYPE",  // expected_threat_type
       extensions::SafeBrowsingPrivateEventRouter::
           kTriggerFileDownload,  // expected_trigger
       &expected_mimetypes,
@@ -2921,7 +2973,8 @@ TEST_F(DownloadProtectionServiceTest,
 
 TEST_F(DownloadProtectionServiceTest,
        VerifyBypassReportSentAfterDlpVerdictReceived) {
-  extensions::SafeBrowsingPrivateEventRouterFactory::GetForProfile(profile())
+  enterprise_connectors::RealtimeReportingClientFactory::GetForProfile(
+      profile())
       ->SetBrowserCloudPolicyClientForTesting(client_.get());
 
   safe_browsing::SetOnSecurityEventReporting(profile()->GetPrefs(), true);
@@ -2933,7 +2986,9 @@ TEST_F(DownloadProtectionServiceTest,
                            FILE_PATH_LITERAL("a.tmp"),   // tmp_path
                            FILE_PATH_LITERAL("a.exe"));  // final_path
   content::DownloadItemUtils::AttachInfoForTesting(&item, profile(), nullptr);
-  DownloadProtectionService::SetDownloadPingToken(&item, "token");
+  DownloadProtectionService::SetDownloadProtectionData(
+      &item, "token", ClientDownloadResponse::UNCOMMON,
+      ClientDownloadResponse::TailoredVerdict());
   SetExtendedReportingPreference(true);
   EXPECT_CALL(item, IsDangerous()).WillRepeatedly(Return(false));
   EXPECT_CALL(item, GetDangerType())
@@ -2959,9 +3014,11 @@ TEST_F(DownloadProtectionServiceTest,
   std::set<std::string> expected_mimetypes{"fake/mimetype"};
   EventReportValidator validator(client_.get());
   validator.ExpectSensitiveDataEvent(
-      "",                          // URL, not set in this test
-      final_path_.AsUTF8Unsafe(),  // Full path, including the directory
-      "68617368",                  // SHA256 of the fake download
+      "",             // URL, not set in this test
+      absl::nullopt,  // source, not used for file downloads.
+      absl::nullopt,  // destination, not used for file downloads.
+      "a.exe",        // Simple filename without the directory
+      "68617368",     // SHA256 of the fake download
       extensions::SafeBrowsingPrivateEventRouter::
           kTriggerFileDownload,  // expected_trigger
       response.results()[0], &expected_mimetypes,
@@ -2977,7 +3034,8 @@ TEST_F(DownloadProtectionServiceTest,
 
 TEST_F(DownloadProtectionServiceTest,
        VerifyBypassReportSentAfterDlpBlockVerdictReceived) {
-  extensions::SafeBrowsingPrivateEventRouterFactory::GetForProfile(profile())
+  enterprise_connectors::RealtimeReportingClientFactory::GetForProfile(
+      profile())
       ->SetBrowserCloudPolicyClientForTesting(client_.get());
 
   safe_browsing::SetOnSecurityEventReporting(profile()->GetPrefs(), true);
@@ -2989,7 +3047,9 @@ TEST_F(DownloadProtectionServiceTest,
                            FILE_PATH_LITERAL("a.tmp"),   // tmp_path
                            FILE_PATH_LITERAL("a.exe"));  // final_path
   content::DownloadItemUtils::AttachInfoForTesting(&item, profile(), nullptr);
-  DownloadProtectionService::SetDownloadPingToken(&item, "token");
+  DownloadProtectionService::SetDownloadProtectionData(
+      &item, "token", ClientDownloadResponse::UNCOMMON,
+      ClientDownloadResponse::TailoredVerdict());
   SetExtendedReportingPreference(true);
   EXPECT_CALL(item, IsDangerous()).WillRepeatedly(Return(false));
   EXPECT_CALL(item, GetDangerType())
@@ -3015,9 +3075,11 @@ TEST_F(DownloadProtectionServiceTest,
   std::set<std::string> expected_mimetypes{"fake/mimetype"};
   EventReportValidator validator(client_.get());
   validator.ExpectSensitiveDataEvent(
-      "",                          // URL, not set in this test
-      final_path_.AsUTF8Unsafe(),  // Full path, including the directory
-      "68617368",                  // SHA256 of the fake download
+      "",             // URL, not set in this test
+      absl::nullopt,  // source, not used for file downloads.
+      absl::nullopt,  // destination, not used for file downloads.
+      "a.exe",        // Simple filename without the directory
+      "68617368",     // SHA256 of the fake download
       extensions::SafeBrowsingPrivateEventRouter::
           kTriggerFileDownload,  // expected_trigger
       response.results()[0], &expected_mimetypes,
@@ -3288,68 +3350,6 @@ TEST_F(DownloadProtectionServiceTest, DoesNotSendPingForCancelledDownloads) {
   EXPECT_FALSE(HasClientDownloadRequest());
 }
 
-TEST_F(DownloadProtectionServiceTest, CheckClientDownloadDocumentSizeLogged) {
-  PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
-  base::HistogramTester histograms;
-  NiceMockDownloadItem item;
-  PrepareBasicDownloadItem(&item, {"http://www.example.com/a.docx"},  // url_chain
-                           "http://www.google.com/",                // referrer
-                           FILE_PATH_LITERAL("a.tmp"),              // tmp_path
-                           FILE_PATH_LITERAL("a.docx"));  // final_path
-  content::DownloadItemUtils::AttachInfoForTesting(&item, profile(), nullptr);
-
-  EXPECT_CALL(*sb_service_->mock_database_manager(),
-              MatchDownloadAllowlistUrl(_))
-      .WillRepeatedly(Return(false));
-
-#if !BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_WIN)
-  EXPECT_CALL(*binary_feature_extractor_.get(), CheckSignature(tmp_path_, _));
-  EXPECT_CALL(*binary_feature_extractor_.get(),
-              ExtractImageFeatures(
-                  tmp_path_, BinaryFeatureExtractor::kDefaultOptions, _, _));
-#endif
-
-  RunLoop run_loop;
-  download_service_->CheckClientDownload(
-      &item,
-      base::BindRepeating(&DownloadProtectionServiceTest::CheckDoneCallback,
-                          base::Unretained(this), run_loop.QuitClosure()));
-  run_loop.Run();
-
-  histograms.ExpectTotalCount("SafeBrowsing.Macros.DocumentSize",
-                              /* expected_count */ 1);
-}
-
-TEST_F(DownloadProtectionServiceTest,
-       CheckClientDownloadDocumentSizeNotLogged) {
-  PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
-  base::HistogramTester histograms;
-  NiceMockDownloadItem item;
-  PrepareBasicDownloadItem(&item, {"http://www.evil.test/a.exe"},  // url_chain
-                           "http://www.google.com/",               // referrer
-                           FILE_PATH_LITERAL("a.tmp"),             // tmp_path
-                           FILE_PATH_LITERAL("a.exe"));            // final_path
-  content::DownloadItemUtils::AttachInfoForTesting(&item, profile(), nullptr);
-
-  EXPECT_CALL(*sb_service_->mock_database_manager(),
-              MatchDownloadAllowlistUrl(_))
-      .WillRepeatedly(Return(false));
-  EXPECT_CALL(*binary_feature_extractor_.get(), CheckSignature(tmp_path_, _));
-  EXPECT_CALL(*binary_feature_extractor_.get(),
-              ExtractImageFeatures(
-                  tmp_path_, BinaryFeatureExtractor::kDefaultOptions, _, _));
-
-  RunLoop run_loop;
-  download_service_->CheckClientDownload(
-      &item,
-      base::BindRepeating(&DownloadProtectionServiceTest::CheckDoneCallback,
-                          base::Unretained(this), run_loop.QuitClosure()));
-  run_loop.Run();
-
-  histograms.ExpectTotalCount("SafeBrowsing.Macros.DocumentSize",
-                              /* expected_count */ 0);
-}
-
 TEST_P(DeepScanningDownloadTest, PasswordProtectedArchivesBlockedByPreference) {
   if (!flag_enabled())
     return;
@@ -3371,7 +3371,7 @@ TEST_P(DeepScanningDownloadTest, PasswordProtectedArchivesBlockedByPreference) {
 
   TestBinaryUploadService* test_upload_service =
       static_cast<TestBinaryUploadService*>(
-          BinaryUploadServiceFactory::GetForProfile(profile()));
+          CloudBinaryUploadServiceFactory::GetForProfile(profile()));
   test_upload_service->SetResponse(
       BinaryUploadService::Result::FILE_ENCRYPTED,
       enterprise_connectors::ContentAnalysisResponse());
@@ -3384,6 +3384,7 @@ TEST_P(DeepScanningDownloadTest, PasswordProtectedArchivesBlockedByPreference) {
                            "enable": [
                              {"url_list": ["*"], "tags": ["malware"]}
                            ],
+                           "block_until_verdict": 1,
                            "block_password_protected": true
                          })");
     PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
@@ -3410,6 +3411,7 @@ TEST_P(DeepScanningDownloadTest, PasswordProtectedArchivesBlockedByPreference) {
                            "enable": [
                              {"url_list": ["*"], "tags": ["malware"]}
                            ],
+                           "block_until_verdict": 1,
                            "block_password_protected": false
                          })");
     PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
@@ -3453,7 +3455,7 @@ TEST_P(DeepScanningDownloadTest, LargeFileBlockedByPreference) {
 
   TestBinaryUploadService* test_upload_service =
       static_cast<TestBinaryUploadService*>(
-          BinaryUploadServiceFactory::GetForProfile(profile()));
+          CloudBinaryUploadServiceFactory::GetForProfile(profile()));
   test_upload_service->SetResponse(
       BinaryUploadService::Result::FILE_TOO_LARGE,
       enterprise_connectors::ContentAnalysisResponse());
@@ -3466,6 +3468,7 @@ TEST_P(DeepScanningDownloadTest, LargeFileBlockedByPreference) {
                            "enable": [
                              {"url_list": ["*"], "tags": ["malware"]}
                            ],
+                           "block_until_verdict": 1,
                            "block_large_files": true
                          })");
     PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
@@ -3488,6 +3491,7 @@ TEST_P(DeepScanningDownloadTest, LargeFileBlockedByPreference) {
                            "enable": [
                              {"url_list": ["*"], "tags": ["malware"]}
                            ],
+                           "block_until_verdict": 1,
                            "block_large_files": false
                          })");
     PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
@@ -3525,7 +3529,7 @@ TEST_P(DeepScanningDownloadTest, UnsupportedFiletypeBlockedByPreference) {
 
   TestBinaryUploadService* test_upload_service =
       static_cast<TestBinaryUploadService*>(
-          BinaryUploadServiceFactory::GetForProfile(profile()));
+          CloudBinaryUploadServiceFactory::GetForProfile(profile()));
   test_upload_service->SetResponse(
       BinaryUploadService::Result::DLP_SCAN_UNSUPPORTED_FILE_TYPE,
       enterprise_connectors::ContentAnalysisResponse());
@@ -3548,6 +3552,7 @@ TEST_P(DeepScanningDownloadTest, UnsupportedFiletypeBlockedByPreference) {
                            "enable": [
                              {"url_list": ["evil.com"], "tags": ["dlp"]}
                            ],
+                           "block_until_verdict": 1,
                            "block_unsupported_file_types": true
                          })");
     PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
@@ -3570,6 +3575,7 @@ TEST_P(DeepScanningDownloadTest, UnsupportedFiletypeBlockedByPreference) {
                            "enable": [
                              {"url_list": ["evil.com"], "tags": ["dlp"]}
                            ],
+                           "block_until_verdict": 1,
                            "block_unsupported_file_types": false
                          })");
     PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
@@ -3974,10 +3980,8 @@ TEST_F(DownloadProtectionServiceTest,
     redirects.push_back(tab_url);
     HistoryServiceFactory::GetForProfile(profile(),
                                          ServiceAccessType::EXPLICIT_ACCESS)
-        ->AddPage(tab_url, base::Time::Now(),
-                  reinterpret_cast<history::ContextID>(1), 0, GURL(), redirects,
-                  ui::PAGE_TRANSITION_TYPED, history::SOURCE_BROWSED, false,
-                  false);
+        ->AddPage(tab_url, base::Time::Now(), 1, 0, GURL(), redirects,
+                  ui::PAGE_TRANSITION_TYPED, history::SOURCE_BROWSED, false);
 
     PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
 
@@ -4143,6 +4147,12 @@ TEST_F(EnhancedProtectionDownloadTest, AccessTokenOnlyWhenSignedIn) {
                     tmp_path_, BinaryFeatureExtractor::kDefaultOptions, _, _))
         .Times(1);
 
+    // Confirm that we don't try to request fetching the token
+    base::MockCallback<base::OnceClosure> access_token_requested;
+    EXPECT_CALL(access_token_requested, Run()).Times(0);
+    identity_test_env_adaptor_->identity_test_env()
+        ->SetCallbackForNextAccessTokenRequest(access_token_requested.Get());
+
     RunLoop run_loop;
     download_service_->CheckClientDownload(
         &item,
@@ -4154,6 +4164,8 @@ TEST_F(EnhancedProtectionDownloadTest, AccessTokenOnlyWhenSignedIn) {
         WebUIInfoSingleton::GetInstance()->client_download_requests_sent();
     ASSERT_EQ(requests.size(), 1u);
     EXPECT_TRUE(requests[0]->access_token().empty());
+    identity_test_env_adaptor_->identity_test_env()
+        ->SetCallbackForNextAccessTokenRequest(base::NullCallback());
   }
 
   identity_test_env_adaptor_->identity_test_env()->MakePrimaryAccountAvailable(
@@ -4345,12 +4357,13 @@ TEST_P(DeepScanningDownloadTest, PolicyEnabled) {
                                 "url_list": ["*"],
                                 "tags": ["malware"]
                               }
-                            ]
+                            ],
+                            "block_until_verdict": 1
                           })");
 
   TestBinaryUploadService* test_upload_service =
       static_cast<TestBinaryUploadService*>(
-          BinaryUploadServiceFactory::GetForProfile(profile()));
+          CloudBinaryUploadServiceFactory::GetForProfile(profile()));
 
   {
     PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
@@ -4397,7 +4410,7 @@ TEST_P(DeepScanningDownloadTest, PolicyDisabled) {
 
   TestBinaryUploadService* test_upload_service =
       static_cast<TestBinaryUploadService*>(
-          BinaryUploadServiceFactory::GetForProfile(profile()));
+          CloudBinaryUploadServiceFactory::GetForProfile(profile()));
 
   {
     PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
@@ -4450,12 +4463,13 @@ TEST_P(DeepScanningDownloadTest, SafeVerdictPrecedence) {
                              {"url_list": ["*"], "tags": ["malware"]},
                              {"url_list": ["evil.com"], "tags": ["dlp"]}
                            ],
+                           "block_until_verdict": 1,
                            "block_password_protected": true
                          })");
 
     TestBinaryUploadService* test_upload_service =
         static_cast<TestBinaryUploadService*>(
-            BinaryUploadServiceFactory::GetForProfile(profile()));
+            CloudBinaryUploadServiceFactory::GetForProfile(profile()));
 
     PrepareResponse(response.first, net::HTTP_OK, net::OK);
     test_upload_service->SetResponse(
@@ -4689,12 +4703,13 @@ TEST_P(EnterpriseCsdDownloadTest, SkipsConsumerCsdWhenEnabled) {
                            "service_provider": "google",
                            "enable": [
                              {"url_list": ["*"], "tags": ["malware"]}
-                           ]
+                           ],
+                           "block_until_verdict": 1
                          })");
 
   TestBinaryUploadService* test_upload_service =
       static_cast<TestBinaryUploadService*>(
-          BinaryUploadServiceFactory::GetForProfile(profile()));
+          CloudBinaryUploadServiceFactory::GetForProfile(profile()));
 
   PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
   test_upload_service->SetResponse(
@@ -4735,12 +4750,13 @@ TEST_P(EnterpriseCsdDownloadTest, PopulatesCsdFieldWhenEnabled) {
                            "service_provider": "google",
                            "enable": [
                              {"url_list": ["*"], "tags": ["malware"]}
-                           ]
+                           ],
+                           "block_until_verdict": 1
                          })");
 
   TestBinaryUploadService* test_upload_service =
       static_cast<TestBinaryUploadService*>(
-          BinaryUploadServiceFactory::GetForProfile(profile()));
+          CloudBinaryUploadServiceFactory::GetForProfile(profile()));
 
   PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
   test_upload_service->SetResponse(
@@ -4757,6 +4773,51 @@ TEST_P(EnterpriseCsdDownloadTest, PopulatesCsdFieldWhenEnabled) {
   EXPECT_TRUE(test_upload_service->was_called());
   EXPECT_EQ(test_upload_service->last_request().request_data().has_csd(),
             flag_enabled());
+}
+
+TEST_P(EnterpriseCsdDownloadTest, StillDoesMetadataCheckForLargeFile) {
+  NiceMockDownloadItem item;
+  PrepareBasicDownloadItem(&item, {"http://www.evil.com/a.exe"},  // url_chain
+                           "http://www.google.com/",              // referrer
+                           FILE_PATH_LITERAL("a.tmp"),            // tmp_path
+                           FILE_PATH_LITERAL("a.exe"));           // final_path
+  content::DownloadItemUtils::AttachInfoForTesting(&item, profile(), nullptr);
+  EXPECT_CALL(*sb_service_->mock_database_manager(),
+              MatchDownloadAllowlistUrl(_))
+      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*binary_feature_extractor_.get(), CheckSignature(tmp_path_, _));
+  EXPECT_CALL(*binary_feature_extractor_.get(),
+              ExtractImageFeatures(
+                  tmp_path_, BinaryFeatureExtractor::kDefaultOptions, _, _));
+
+  SetAnalysisConnector(profile()->GetPrefs(),
+                       enterprise_connectors::FILE_DOWNLOADED,
+                       R"({
+                           "service_provider": "google",
+                           "enable": [
+                             {"url_list": ["*"], "tags": ["malware"]}
+                           ],
+                           "block_until_verdict": 1
+                         })");
+
+  TestBinaryUploadService* test_upload_service =
+      static_cast<TestBinaryUploadService*>(
+          CloudBinaryUploadServiceFactory::GetForProfile(profile()));
+
+  PrepareResponse(ClientDownloadResponse::SAFE, net::HTTP_OK, net::OK);
+  test_upload_service->SetResponse(
+      BinaryUploadService::Result::FILE_TOO_LARGE,
+      enterprise_connectors::ContentAnalysisResponse());
+
+  RunLoop run_loop;
+  download_service_->MaybeCheckClientDownload(
+      &item,
+      base::BindRepeating(&DownloadProtectionServiceTest::CheckDoneCallback,
+                          base::Unretained(this), run_loop.QuitClosure()));
+  run_loop.Run();
+
+  EXPECT_TRUE(test_upload_service->was_called());
+  EXPECT_TRUE(IsResult(DownloadCheckResult::SAFE));
 }
 
 INSTANTIATE_TEST_SUITE_P(, EnterpriseCsdDownloadTest, testing::Bool());

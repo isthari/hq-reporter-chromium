@@ -1,12 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/test/with_feature_override.h"
+#include "base/run_loop.h"
+#include "build/build_config.h"
+#include "build/buildflag.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/pdf/pdf_extension_test_util.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_browsertest_util.h"
+#include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/browser_plugin_guest_manager.h"
@@ -17,9 +20,9 @@
 #include "content/public/test/focus_changed_observer.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/extensions_api_client.h"
+#include "extensions/browser/guest_view/mime_handler_view/mime_handler_view_guest.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
-#include "pdf/pdf_features.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-shared.h"
@@ -47,14 +50,11 @@ namespace {
 
 using ::pdf_extension_test_util::ConvertPageCoordToScreenCoord;
 using ::pdf_extension_test_util::EnsurePDFHasLoaded;
+using ::pdf_extension_test_util::GetOnlyMimeHandlerView;
+using ::pdf_extension_test_util::SetInputFocusOnPlugin;
 
-class PDFExtensionInteractiveUITest : public base::test::WithFeatureOverride,
-                                      public extensions::ExtensionApiTest {
+class PDFExtensionInteractiveUITest : public extensions::ExtensionApiTest {
  public:
-  PDFExtensionInteractiveUITest()
-      : WithFeatureOverride(chrome_pdf::features::kPdfUnseasoned) {}
-  ~PDFExtensionInteractiveUITest() override = default;
-
   void SetUpCommandLine(base::CommandLine* command_line) override {
     content::IsolateAllSitesForTesting(command_line);
   }
@@ -72,26 +72,30 @@ class PDFExtensionInteractiveUITest : public base::test::WithFeatureOverride,
     extensions::ExtensionApiTest::TearDownOnMainThread();
   }
 
-  content::WebContents* LoadPdfGetGuestContents(const GURL& url) {
+  extensions::MimeHandlerViewGuest* LoadPdfGetMimeHandlerView(const GURL& url) {
     ui_test_utils::NavigateToURLWithDisposition(
         browser(), url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
         ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
     if (!EnsurePDFHasLoaded(GetActiveWebContents()))
       return nullptr;
 
-    content::WebContents* contents = GetActiveWebContents();
-    content::BrowserPluginGuestManager* guest_manager =
-        contents->GetBrowserContext()->GetGuestManager();
-    return guest_manager->GetFullPageGuest(contents);
+    return GetOnlyMimeHandlerView(GetActiveWebContents());
+  }
+
+  // TODO(crbug.com/1261928): Prefer using `LoadPdfGetMimeHandlerView`.
+  content::WebContents* LoadPdfGetGuestContents(const GURL& url) {
+    extensions::MimeHandlerViewGuest* guest = LoadPdfGetMimeHandlerView(url);
+    return guest ? guest->web_contents() : nullptr;
   }
 
   content::WebContents* GetActiveWebContents() {
     return browser()->tab_strip_model()->GetActiveWebContents();
   }
 
-  content::FocusedNodeDetails TabAndWait(content::WebContents* guest_contents,
-                                         bool forward) {
-    content::FocusChangedObserver focus_observer(guest_contents);
+  content::FocusedNodeDetails TabAndWait(
+      extensions::MimeHandlerViewGuest* guest,
+      bool forward) {
+    content::FocusChangedObserver focus_observer(guest->web_contents());
     if (!ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_TAB,
                                          /*control=*/false,
                                          /*shift=*/!forward,
@@ -102,35 +106,104 @@ class PDFExtensionInteractiveUITest : public base::test::WithFeatureOverride,
     }
     return focus_observer.Wait();
   }
+
+  // TODO(crbug.com/1261928): Prefer the `MimeHandlerViewGuest` overload of this
+  // method in tests.
+  content::FocusedNodeDetails TabAndWait(content::WebContents* guest_contents,
+                                         bool forward) {
+    extensions::MimeHandlerViewGuest* guest =
+        extensions::MimeHandlerViewGuest::FromWebContents(guest_contents);
+    EXPECT_TRUE(guest);
+    return TabAndWait(guest, forward);
+  }
+};
+
+class TabChangedWaiter : public TabStripModelObserver {
+ public:
+  explicit TabChangedWaiter(Browser* browser) {
+    browser->tab_strip_model()->AddObserver(this);
+  }
+  TabChangedWaiter(const TabChangedWaiter&) = delete;
+  TabChangedWaiter& operator=(const TabChangedWaiter&) = delete;
+  ~TabChangedWaiter() override = default;
+
+  void Wait() { run_loop_.Run(); }
+
+  // TabStripModelObserver:
+  void OnTabStripModelChanged(
+      TabStripModel* tab_strip_model,
+      const TabStripModelChange& change,
+      const TabStripSelectionChange& selection) override {
+    if (change.type() == TabStripModelChange::kSelectionOnly)
+      run_loop_.Quit();
+  }
+
+ private:
+  base::RunLoop run_loop_;
 };
 
 }  // namespace
 
-IN_PROC_BROWSER_TEST_P(PDFExtensionInteractiveUITest, FocusForwardTraversal) {
-  content::WebContents* guest_contents = LoadPdfGetGuestContents(
+// For crbug.com/1038918
+IN_PROC_BROWSER_TEST_F(PDFExtensionInteractiveUITest,
+                       CtrlPageUpDownSwitchesTabs) {
+  extensions::MimeHandlerViewGuest* guest = LoadPdfGetMimeHandlerView(
+      embedded_test_server()->GetURL("/pdf/test.pdf"));
+
+  auto* tab_strip_model = browser()->tab_strip_model();
+  ASSERT_EQ(2, tab_strip_model->count());
+  EXPECT_EQ(1, tab_strip_model->active_index());
+
+  SetInputFocusOnPlugin(guest);
+
+  {
+    TabChangedWaiter tab_changed_waiter(browser());
+    ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_NEXT,
+                                                /*control=*/true,
+                                                /*shift=*/false,
+                                                /*alt=*/false,
+                                                /*command=*/false));
+    tab_changed_waiter.Wait();
+  }
+  ASSERT_EQ(2, tab_strip_model->count());
+  EXPECT_EQ(0, tab_strip_model->active_index());
+
+  {
+    TabChangedWaiter tab_changed_waiter(browser());
+    ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_PRIOR,
+                                                /*control=*/true,
+                                                /*shift=*/false,
+                                                /*alt=*/false,
+                                                /*command=*/false));
+    tab_changed_waiter.Wait();
+  }
+  ASSERT_EQ(2, tab_strip_model->count());
+  EXPECT_EQ(1, tab_strip_model->active_index());
+}
+
+IN_PROC_BROWSER_TEST_F(PDFExtensionInteractiveUITest, FocusForwardTraversal) {
+  extensions::MimeHandlerViewGuest* guest = LoadPdfGetMimeHandlerView(
       embedded_test_server()->GetURL("/pdf/test.pdf#toolbar=0"));
 
   // Tab in.
-  content::FocusedNodeDetails details =
-      TabAndWait(guest_contents, /*forward=*/true);
+  content::FocusedNodeDetails details = TabAndWait(guest, /*forward=*/true);
   EXPECT_EQ(blink::mojom::FocusType::kForward, details.focus_type);
 
   // Tab out.
-  details = TabAndWait(guest_contents, /*forward=*/true);
+  details = TabAndWait(guest, /*forward=*/true);
   EXPECT_EQ(blink::mojom::FocusType::kNone, details.focus_type);
 }
 
-IN_PROC_BROWSER_TEST_P(PDFExtensionInteractiveUITest, FocusReverseTraversal) {
-  content::WebContents* guest_contents = LoadPdfGetGuestContents(
+IN_PROC_BROWSER_TEST_F(PDFExtensionInteractiveUITest, FocusReverseTraversal) {
+  extensions::MimeHandlerViewGuest* guest = LoadPdfGetMimeHandlerView(
       embedded_test_server()->GetURL("/pdf/test.pdf#toolbar=0"));
 
   // Tab in.
-  content::FocusedNodeDetails details =
-      TabAndWait(guest_contents, /*forward=*/false);
+  content::FocusedNodeDetails details = TabAndWait(guest, /*forward=*/false);
   EXPECT_EQ(blink::mojom::FocusType::kBackward, details.focus_type);
 
   // Tab out.
-  details = TabAndWait(guest_contents, /*forward=*/false);
+  details = TabAndWait(guest, /*forward=*/false);
   EXPECT_EQ(blink::mojom::FocusType::kNone, details.focus_type);
 }
 
@@ -168,7 +241,7 @@ views::Widget* TouchSelectText(content::WebContents* contents,
 
 // On text selection, a touch selection menu should pop up. On clicking ellipsis
 // icon on the menu, the context menu should open up.
-IN_PROC_BROWSER_TEST_P(PDFExtensionInteractiveUITest,
+IN_PROC_BROWSER_TEST_F(PDFExtensionInteractiveUITest,
                        ContextMenuOpensFromTouchSelectionMenu) {
   const GURL url = embedded_test_server()->GetURL("/pdf/text_large.pdf");
   content::WebContents* const guest_contents = LoadPdfGetGuestContents(url);
@@ -203,7 +276,14 @@ IN_PROC_BROWSER_TEST_P(PDFExtensionInteractiveUITest,
            IDC_CONTENT_CONTEXT_ROTATECCW, IDC_CONTENT_CONTEXT_INSPECTELEMENT}));
 }
 
-IN_PROC_BROWSER_TEST_P(PDFExtensionInteractiveUITest, TouchSelectionBounds) {
+// TODO(crbug.com/1335822): Deflake this test.
+#if BUILDFLAG(IS_WIN)
+#define MAYBE_TouchSelectionBounds DISABLED_TouchSelectionBounds
+#else
+#define MAYBE_TouchSelectionBounds TouchSelectionBounds
+#endif  // BUILDFLAG(IS_WIN)
+IN_PROC_BROWSER_TEST_F(PDFExtensionInteractiveUITest,
+                       MAYBE_TouchSelectionBounds) {
   // Use test.pdf here because it has embedded font metrics. With a fixed zoom,
   // coordinates should be consistent across platforms.
   const GURL url = embedded_test_server()->GetURL("/pdf/test.pdf#zoom=100");
@@ -230,5 +310,3 @@ IN_PROC_BROWSER_TEST_P(PDFExtensionInteractiveUITest, TouchSelectionBounds) {
   EXPECT_POINTF_NEAR(gfx::PointF(492.0f, 171.0f), end_bound.edge_end(), 1.0f);
 }
 #endif  // defined(TOOLKIT_VIEWS) && defined(USE_AURA)
-
-INSTANTIATE_FEATURE_OVERRIDE_TEST_SUITE(PDFExtensionInteractiveUITest);

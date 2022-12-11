@@ -21,13 +21,52 @@ there.
 ## Before you start
 
 To make sure the inclusion of a new third_party project makes sense for the
-Chromium project, you should first obtain Chrome Eng Review approval.
-Googlers should see go/chrome-eng-review and review existing topics in
-g/chrome-eng-review. Please include information about the additional checkout
-size, build times, and binary size increase of
-[official](https://www.chromium.org/developers/gn-build-configuration) builds
-on Android and one desktop platform. Please also make sure that the motivation
-for your project is clear, e.g., a design doc has been circulated.
+Chromium project, you should first obtain
+[Chrome Eng Review](../ENG_REVIEW_OWNERS) approval. Please include the following information in an
+email to chrome-eng-review@google.com:
+* Motivation of your project
+* Design docs
+* Additional checkout size
+* Build time increase
+* Binary size increase on Android ([official](https://www.chromium.org/developers/gn-build-configuration)  builds)
+* Binary size increase on Windows
+
+Googlers can access [go/chrome-eng-review](https://goto.google.com/chrome-eng-review) and review
+existing topics in g/chrome-eng-review, and can also come to office hours to ask
+questions.
+
+### Rust
+
+Rust is allowed for third-party libraries as long as there is a business need,
+which includes the following:
+
+* The Rust implementation is the best (e.g., speed, memory, lack of bugs) or
+only existing implementation available for the third-party library.
+* The Rust implementation allows the operation to move to a higher privileged
+process, and this benefits the product by improving on guardrail metrics (e.g.
+through avoiding process startup, IPC overheads, or C++ memory-unsafety
+mitigations).
+* The Rust implementation can meaningfully reduce our expected risk of
+(memory/crashes/undefined behavior) bugs, when compared to the existing
+third-party library and related C++ code required to use the library. We realize
+assessing risk is quite complex and very nuanced. If this is the criteria by
+which the third-party library is being added, chrome-eng-review@google.com and
+chrome-rust@google.com may ask for more data.
+
+Support for third-party libraries written in Rust is in active development. If
+the library you wish to add is in Rust, reach out to chrome-rust@google.com
+first.
+
+### A note on size constraints
+
+The size of Chromium derived executables can impact overall performance of those binaries as they
+need to run on a wide range of devices including those with extremely limited RAM. Additionally, we
+have experience from Windows of the binary size impacting successful patch rate of updates as well
+as constraints from the Android Ecosystem where APKs included in the system image have hard
+limits on their size due to allocation size of the system partition. For more details and
+guidelines on size increases see
+[//docs/speed/binary_size/binary_size_explainer.md](speed/binary_size/binary_size_explainer.md) and Googlers can
+additionally check [go/chrome-binary-size](https://goto.google.com/chrome-binary-size)
 
 ## Get the code
 
@@ -169,7 +208,7 @@ false-negatives).
 You need a LICENSE file. Example:
 [//third_party/libjpeg/LICENSE](../third_party/libjpeg/LICENSE).
 
-Run `//tools/licenses.py scan`; this will complain about incomplete or missing
+Run `//tools/licenses/licenses.py scan`; this will complain about incomplete or missing
 data for third_party checkins. We use `licenses.py credits` to generate the
 about:credits page in Google Chrome builds.
 
@@ -186,8 +225,9 @@ Non-Googlers can email one of the people in
 
 * Make sure you have the approval from Chrome Eng Review as mentioned
   [above](#before-you-start).
-* Get security@chromium.org approval. Email the list with relevant details and
-  a link to the CL. Third party code is a hot spot for security vulnerabilities.
+* Get security@chromium.org (or chrome-security@google.com, Google-only)
+  approval. Email the list with relevant details and a link to the CL.
+  Third party code is a hot spot for security vulnerabilities.
   When adding a new package that could potentially carry security risk, make
   sure to highlight risk to security@chromium.org. You may be asked to add
   a README.security or, in dangerous cases, README.SECURITY.URGENTLY file.
@@ -196,13 +236,15 @@ Non-Googlers can email one of the people in
   licensing matters. These reviewers may not be able to +1 a change so look for
   verbal approval in the comments. (This list does not receive or deliver
   email, so only use it as a reviewer, not for other communication. Internally,
-  see [cl/221704656](https://cl/221704656) for details about how
+  see [cl/221704656](http://cl/221704656) for details about how
   this is configured.). If you have questions about the third-party process,
   ask one of the [//third_party/OWNERS](../third_party/OWNERS) instead.
 * Lastly, if all other steps are complete, get a positive code review from a
   member of [//third_party/OWNERS](../third_party/OWNERS) to land the change.
 
-Please send separate emails to the eng review and security lists.
+Please send separate emails to the eng review and security@chromium.org.
+You can skip the eng review and security@chromium.org when you are only moving
+existing directories in Chromium to //third_party/.
 
 Subsequent changes don't normally require third-party-owners or security
 approval; you can modify the code as much as you want. When you update code, be
@@ -221,6 +263,6 @@ That page displays a resource embedded in the browser as part of the
 GRIT file; the actual HTML text is generated in the
 [//components/resources:about_credits](../components/resources/BUILD.gn)
 build target using a template from the output of the
-[//tools/licenses.py](../tools/licenses.py) script. Assuming you've followed
+[//tools/licenses/licenses.py](../tools/licenses/licenses.py) script. Assuming you've followed
 the rules above to ensure that you have the proper LICENSE file and it passes
 the checks, it'll be included automatically.

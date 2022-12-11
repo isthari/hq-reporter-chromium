@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,27 +7,19 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_thread.h"
 
 using content::BrowserThread;
 
 // static
-IconLoader* IconLoader::Create(const base::FilePath& file_path,
-                               IconSize size,
-                               float scale,
-                               IconLoadedCallback callback) {
-  return new IconLoader(file_path, size, scale, std::move(callback));
-}
-
-void IconLoader::Start() {
-  target_task_runner_ = base::ThreadTaskRunnerHandle::Get();
-
-  base::ThreadPool::PostTask(
-      FROM_HERE, traits(),
-      base::BindOnce(&IconLoader::ReadGroup, base::Unretained(this)));
+void IconLoader::LoadIcon(const base::FilePath& file_path,
+                          IconSize size,
+                          float scale,
+                          IconLoadedCallback callback) {
+  (new IconLoader(file_path, size, scale, std::move(callback)))->Start();
 }
 
 IconLoader::IconLoader(const base::FilePath& file_path,
@@ -42,7 +34,16 @@ IconLoader::IconLoader(const base::FilePath& file_path,
       callback_(std::move(callback)) {
 }
 
-IconLoader::~IconLoader() {}
+IconLoader::~IconLoader() = default;
+
+#if !BUILDFLAG(IS_CHROMEOS)
+void IconLoader::Start() {
+  target_task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
+
+  base::ThreadPool::PostTask(
+      FROM_HERE, traits(),
+      base::BindOnce(&IconLoader::ReadGroup, base::Unretained(this)));
+}
 
 #if !BUILDFLAG(IS_WIN)
 void IconLoader::ReadGroup() {
@@ -52,3 +53,4 @@ void IconLoader::ReadGroup() {
       FROM_HERE, base::BindOnce(&IconLoader::ReadIcon, base::Unretained(this)));
 }
 #endif  // !BUILDFLAG(IS_WIN)
+#endif  // !BUILDFLAG(IS_CHROMEOS)

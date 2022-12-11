@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "chrome/browser/ash/input_method/text_utils.h"
 #include "chrome/browser/ash/input_method/ui/assistive_delegate.h"
 #include "chrome/browser/profiles/profile.h"
+#include "ui/base/ime/ash/text_input_method.h"
 #include "ui/events/event.h"
 
 namespace ash {
@@ -47,9 +48,9 @@ class GrammarManager {
   bool IsOnDeviceGrammarEnabled();
 
   // Indicates a new text field is focused, used to save context ID.
-  // |text_input_flags| are the flags for web input fields. Please refer to
-  // WebTextInputType.
-  void OnFocus(int context_id, int text_input_flags = 0);
+  void OnFocus(
+      int context_id,
+      ui::SpellcheckMode spellcheck_mode = ui::SpellcheckMode::kUnspecified);
 
   // This class intercepts keystrokes when the grammar suggestion pop up is
   // displayed. Returns whether the keypress has been handled.
@@ -68,6 +69,13 @@ class GrammarManager {
   void IgnoreSuggestion();
 
  private:
+  // Sends grammar check request to ml service or display existing grammar
+  // suggestion based on the surrounding text changes and cursor changes.
+  // Returns true is grammar suggestion window should show.
+  bool HandleSurroundingTextChange(const std::u16string& text,
+                                   int cursor_pos,
+                                   int anchor_pos);
+
   void Check(const Sentence& sentence);
 
   void OnGrammarCheckDone(const Sentence& sentence,
@@ -93,7 +101,7 @@ class GrammarManager {
   ui::ime::ButtonId highlighted_button_ = ui::ime::ButtonId::kNone;
   Sentence current_sentence_;
   Sentence last_sentence_;
-  int text_input_flags_ = 0;
+  ui::SpellcheckMode spellcheck_mode_ = ui::SpellcheckMode::kUnspecified;
   std::unordered_map<std::u16string, std::unordered_set<uint64_t>>
       ignored_marker_hashes_;
   std::unordered_set<uint64_t> recorded_marker_hashes_;

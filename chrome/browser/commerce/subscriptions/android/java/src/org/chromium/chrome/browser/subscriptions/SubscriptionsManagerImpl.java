@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,8 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.Callback;
 import org.chromium.base.ObserverList;
 import org.chromium.chrome.browser.price_tracking.PriceDropNotificationManager;
+import org.chromium.chrome.browser.price_tracking.PriceTrackingFeatures;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.tasks.tab_management.PriceTrackingUtilities;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -43,6 +43,7 @@ public class SubscriptionsManagerImpl implements SubscriptionsManager {
     private boolean mCanHandleRequests;
     private Queue<DeferredSubscriptionOperation> mDeferredTasks;
     private final ObserverList<SubscriptionObserver> mObservers;
+    private final PriceDropNotificationManager mPriceDropNotificationManager;
 
     private static class DeferredSubscriptionOperation {
         private final @Operation int mOperation;
@@ -69,16 +70,19 @@ public class SubscriptionsManagerImpl implements SubscriptionsManager {
         }
     }
 
-    public SubscriptionsManagerImpl(Profile profile) {
+    public SubscriptionsManagerImpl(
+            Profile profile, PriceDropNotificationManager priceDropNotificationManager) {
         this(profile, new CommerceSubscriptionsStorage(profile),
-                new CommerceSubscriptionsServiceProxy(profile));
+                new CommerceSubscriptionsServiceProxy(profile), priceDropNotificationManager);
     }
 
     @VisibleForTesting
     SubscriptionsManagerImpl(Profile profile, CommerceSubscriptionsStorage storage,
-            CommerceSubscriptionsServiceProxy proxy) {
+            CommerceSubscriptionsServiceProxy proxy,
+            PriceDropNotificationManager priceDropNotificationManager) {
         mStorage = storage;
         mServiceProxy = proxy;
+        mPriceDropNotificationManager = priceDropNotificationManager;
         mDeferredTasks = new LinkedList<>();
         mCanHandleRequests = false;
         initTypes(this::onInitComplete);
@@ -148,7 +152,7 @@ public class SubscriptionsManagerImpl implements SubscriptionsManager {
                 && CommerceSubscription.SubscriptionManagementType.USER_MANAGED.equals(
                         subscriptions.get(0).getManagementType())
                 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            (new PriceDropNotificationManager()).createNotificationChannel();
+            mPriceDropNotificationManager.createNotificationChannel();
         }
 
         if (!mCanHandleRequests) {
@@ -241,12 +245,21 @@ public class SubscriptionsManagerImpl implements SubscriptionsManager {
     void onIdentityChanged() {
         mStorage.deleteAll();
         // If the feature is still eligible to work, we should re-init and fetch the fresh data.
-        if (PriceTrackingUtilities.isPriceDropNotificationEligible()) {
+        if (PriceTrackingFeatures.isPriceDropNotificationEligible()) {
             initTypes((status) -> { assert status == SubscriptionsManager.StatusCode.OK; });
+            queryAndUpdateWaaEnabled();
         }
     }
 
-    private void unsubscribe(List<CommerceSubscription> subscriptions, Callback<Integer> callback) {
+    /**
+     * Query whether web and app activity is enabled on the server and update the local pref value.
+     */
+    public void queryAndUpdateWaaEnabled() {
+        mServiceProxy.queryAndUpdateWaaEnabled();
+    }
+
+    @Override
+    public void unsubscribe(List<CommerceSubscription> subscriptions, Callback<Integer> callback) {
         String type = subscriptions.get(0).getType();
         if (subscriptions == null || !isSubscriptionTypeSupported(type)) {
             callback.onResult(SubscriptionsManager.StatusCode.INVALID_ARGUMENT);
@@ -305,6 +318,7 @@ public class SubscriptionsManagerImpl implements SubscriptionsManager {
 
     // Calls the backend for known types and updates the local cache.
     private void initTypes(Callback<Integer> callback) {
+        mStorage.deleteAll();
         String type = CommerceSubscription.CommerceSubscriptionType.PRICE_TRACK;
         getSubscriptions(type, true,
                 remoteSubscriptions

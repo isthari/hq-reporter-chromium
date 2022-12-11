@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 namespace gfx {
 class Canvas;
 class Rect;
+class PointF;
 }  // namespace gfx
 
 namespace views {
@@ -25,10 +26,17 @@ constexpr gfx::Size ComboboxArrowSize() {
 extern const int kComboboxArrowPaddingWidth;
 extern const int kComboboxArrowContainerWidth;
 
+int GetComboboxArrowContainerWidthAndMargins();
+
 // Paints the arrow for a combobox.
 void PaintComboboxArrow(SkColor color,
                         const gfx::Rect& bounds,
                         gfx::Canvas* canvas);
+
+// Draws a background around the combobox arrow.
+void PaintComboboxArrowBackground(SkColor color,
+                                  gfx::Canvas* canvas,
+                                  gfx::PointF origin);
 
 }  // namespace views
 

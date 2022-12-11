@@ -1,32 +1,20 @@
 {
     "0": {
         "benchmarks": {
-            "media.mobile": {
-                "end": 14,
+            "jetstream2": {
                 "abridged": false
-            }
-        },
-        "executables": {
-            "base_perftests": {
-                "path": "bin/run_base_perftests",
-                "arguments": [
-                    "--test-launcher-jobs=1",
-                    "--test-launcher-retry-limit=0",
-                    "-d",
-                    "--os-check=update",
-                    "--system-image-dir=../../third_party/fuchsia-sdk/images-internal/sherlock-release/smart_display_max_eng_arrested"
-                ]
+            },
+            "rendering.mobile": {
+                "end": 77,
+                "abridged": false
             }
         }
     },
     "1": {
         "benchmarks": {
-            "media.mobile": {
-                "begin": 14,
-                "abridged": false
-            },
             "rendering.mobile": {
-                "end": 101,
+                "begin": 77,
+                "end": 165,
                 "abridged": false
             }
         }
@@ -34,8 +22,8 @@
     "2": {
         "benchmarks": {
             "rendering.mobile": {
-                "begin": 101,
-                "end": 205,
+                "begin": 165,
+                "end": 300,
                 "abridged": false
             }
         }
@@ -43,8 +31,8 @@
     "3": {
         "benchmarks": {
             "rendering.mobile": {
-                "begin": 205,
-                "end": 308,
+                "begin": 300,
+                "end": 388,
                 "abridged": false
             }
         }
@@ -52,34 +40,34 @@
     "4": {
         "benchmarks": {
             "rendering.mobile": {
-                "begin": 308,
-                "end": 412,
+                "begin": 388,
+                "abridged": false
+            },
+            "system_health.memory_desktop": {
+                "end": 33,
                 "abridged": false
             }
         }
     },
     "5": {
         "benchmarks": {
-            "rendering.mobile": {
-                "begin": 412,
-                "abridged": false
-            },
             "system_health.memory_desktop": {
+                "begin": 33,
                 "abridged": false
             }
         }
     },
     "extra_infos": {
-        "num_stories": 532,
-        "predicted_min_shard_time": 1030,
-        "predicted_min_shard_index": 1,
-        "predicted_max_shard_time": 1040.0,
-        "predicted_max_shard_index": 0,
-        "shard #0": 1040.0,
-        "shard #1": 1030,
-        "shard #2": 1040,
-        "shard #3": 1030,
-        "shard #4": 1040,
-        "shard #5": 1030
+        "num_stories": 504,
+        "predicted_min_shard_time": 2032.0,
+        "predicted_min_shard_index": 2,
+        "predicted_max_shard_time": 2058.0,
+        "predicted_max_shard_index": 1,
+        "shard #0": 2052.0,
+        "shard #1": 2058.0,
+        "shard #2": 2032.0,
+        "shard #3": 2047.0,
+        "shard #4": 2040.0,
+        "shard #5": 2045.0
     }
 }

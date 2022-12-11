@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/accessibility/magnification_manager.h"
@@ -140,7 +139,7 @@ class LoginScreenDefaultPolicyInSessionBrowsertest
 
 LoginScreenDefaultPolicyBrowsertestBase::
     LoginScreenDefaultPolicyBrowsertestBase()
-    : login_profile_(NULL) {}
+    : login_profile_(nullptr) {}
 
 LoginScreenDefaultPolicyBrowsertestBase::
     ~LoginScreenDefaultPolicyBrowsertestBase() {}
@@ -187,7 +186,7 @@ void LoginScreenDefaultPolicyLoginScreenBrowsertest::SetUpOnMainThread() {
 }
 
 void LoginScreenDefaultPolicyLoginScreenBrowsertest::TearDownOnMainThread() {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&chrome::AttemptExit));
   base::RunLoop().RunUntilIdle();
   LoginScreenDefaultPolicyBrowsertestBase::TearDownOnMainThread();

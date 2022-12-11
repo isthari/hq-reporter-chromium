@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #include <utility>
 
 #include "base/json/json_writer.h"
+#include "base/strings/escape.h"
 #include "chromeos/components/quick_answers/quick_answers_model.h"
 #include "chromeos/services/assistant/public/shared/constants.h"
-#include "net/base/escape.h"
 #include "net/base/url_util.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -92,11 +92,11 @@ SearchResultLoader::~SearchResultLoader() = default;
 void SearchResultLoader::BuildRequest(
     const PreprocessedOutput& preprocessed_output,
     BuildRequestCallback callback) const {
-  GURL url = GURL(ash::assistant::kKnowledgeApiEndpoint);
+  GURL url = GURL(chromeos::assistant::kKnowledgeApiEndpoint);
 
   // Add encoded request payload.
   url = net::AppendOrReplaceQueryParameter(
-      url, ash::assistant::kPayloadParamName,
+      url, chromeos::assistant::kPayloadParamName,
       BuildSearchRequestPayload(
           preprocessed_output.query,
           preprocessed_output.intent_info.device_language));

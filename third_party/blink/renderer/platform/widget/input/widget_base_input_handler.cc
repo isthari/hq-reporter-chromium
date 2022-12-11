@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "base/metrics/histogram_macros.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "cc/metrics/event_metrics.h"
 #include "cc/paint/element_id.h"
@@ -319,7 +320,7 @@ void WidgetBaseInputHandler::HandleInputEvent(
                "WidgetBaseInputHandler::OnHandleInputEvent", "event",
                WebInputEvent::GetName(input_event.GetType()));
   int64_t trace_id = coalesced_event.latency_info().trace_id();
-  TRACE_EVENT("input,benchmark", "LatencyInfo.Flow",
+  TRACE_EVENT("input,benchmark,latencyInfo", "LatencyInfo.Flow",
               [trace_id](perfetto::EventContext ctx) {
                 ChromeLatencyInfo* info =
                     ctx.event()->set_chrome_latency_info();

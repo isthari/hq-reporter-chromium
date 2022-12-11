@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chromeos/components/quick_answers/understanding/intent_generator.h"
 
+#include <cctype>
 #include <map>
 
 #include "base/i18n/break_iterator.h"
@@ -13,7 +14,9 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/components/quick_answers/public/cpp/quick_answers_state.h"
 #include "chromeos/components/quick_answers/quick_answers_model.h"
+#include "chromeos/components/quick_answers/utils/quick_answers_metrics.h"
 #include "chromeos/components/quick_answers/utils/quick_answers_utils.h"
+#include "chromeos/components/quick_answers/utils/spell_checker.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "chromeos/services/machine_learning/public/cpp/service_connection.h"
 #include "chromeos/services/machine_learning/public/mojom/machine_learning_service.mojom.h"
@@ -37,6 +40,8 @@ constexpr int kDefinitionIntentAndSelectionLengthDiffThreshold = 2;
 // model.
 // Set of invalid characters for definition annonations.
 constexpr char kInvalidCharactersSet[] = "()[]{}<>_&|!";
+
+constexpr char kEnglishLanguage[] = "en";
 
 const std::map<std::string, IntentType>& GetIntentTypeMap() {
   static base::NoDestructor<std::map<std::string, IntentType>> kIntentTypeMap(
@@ -90,10 +95,31 @@ IntentType RewriteIntent(const std::string& selected_text,
   return intent;
 }
 
+bool IsPreferredLanguage(const std::string& detected_language) {
+  auto preferred_languages_list =
+      base::SplitString(QuickAnswersState::Get()->preferred_languages(), ",",
+                        base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+
+  for (const std::string& locale : preferred_languages_list) {
+    if (l10n_util::GetLanguage(locale) == detected_language)
+      return true;
+  }
+  return false;
+}
+
 // TODO(b/169370175): There is an issue with text classifier that
 // concatenated words are annotated as definitions. Before we switch to v2
 // model, skip such kind of queries for definition annotation for now.
 bool ShouldSkipDefinition(const std::string& text) {
+  // Skip definition annotations if English is not device language or user
+  // preferred language (Currently the text classifier only works with English
+  // words).
+  auto device_language =
+      l10n_util::GetLanguage(QuickAnswersState::Get()->application_locale());
+  if (device_language != kEnglishLanguage &&
+      !IsPreferredLanguage(kEnglishLanguage))
+    return true;
+
   DCHECK(text.length());
   // Skip the query for definition annotation if the selected text contains
   // capitalized characters in the middle and not all capitalized.
@@ -112,14 +138,9 @@ bool ShouldSkipDefinition(const std::string& text) {
   return false;
 }
 
-bool IsPreferredLanguage(const std::string& detected_language,
-                         const std::string& preferred_languages_string) {
-  auto preferred_languages =
-      base::SplitString(preferred_languages_string, ",", base::TRIM_WHITESPACE,
-                        base::SPLIT_WANT_NONEMPTY);
-
-  for (const std::string& locale : preferred_languages) {
-    if (l10n_util::GetLanguage(locale) == detected_language)
+bool HasDigits(const std::string& word) {
+  for (const auto& character : word) {
+    if (std::isdigit(character))
       return true;
   }
   return false;
@@ -127,8 +148,10 @@ bool IsPreferredLanguage(const std::string& detected_language,
 
 }  // namespace
 
-IntentGenerator::IntentGenerator(IntentGeneratorCallback complete_callback)
-    : complete_callback_(std::move(complete_callback)) {}
+IntentGenerator::IntentGenerator(base::WeakPtr<SpellChecker> spell_checker,
+                                 IntentGeneratorCallback complete_callback)
+    : spell_checker_(std::move(spell_checker)),
+      complete_callback_(std::move(complete_callback)) {}
 
 IntentGenerator::~IntentGenerator() {
   if (complete_callback_)
@@ -137,27 +160,42 @@ IntentGenerator::~IntentGenerator() {
 }
 
 void IntentGenerator::GenerateIntent(const QuickAnswersRequest& request) {
-  if (chromeos::features::IsQuickAnswersAlwaysTriggerForSingleWord()) {
-    const std::u16string& u16_text = base::UTF8ToUTF16(request.selected_text);
-    base::i18n::BreakIterator iter(u16_text,
-                                   base::i18n::BreakIterator::BREAK_WORD);
-    if (!iter.Init() || !iter.Advance()) {
-      NOTREACHED() << "Failed to load BreakIterator.";
+  const std::u16string& u16_text = base::UTF8ToUTF16(request.selected_text);
+  base::i18n::BreakIterator iter(u16_text,
+                                 base::i18n::BreakIterator::BREAK_WORD);
+  if (!iter.Init() || !iter.Advance()) {
+    NOTREACHED() << "Failed to load BreakIterator.";
 
-      std::move(complete_callback_)
-          .Run(IntentInfo(request.selected_text, IntentType::kUnknown));
-      return;
-    }
-
-    // Generate dictionary intent if the selected text is a single word.
-    if (iter.IsWord() && iter.prev() == 0 && iter.pos() == u16_text.length()) {
-      std::move(complete_callback_)
-          .Run(IntentInfo(request.selected_text, IntentType::kDictionary,
-                          request.context.device_properties.language));
-      return;
-    }
+    std::move(complete_callback_)
+        .Run(IntentInfo(request.selected_text, IntentType::kUnknown));
+    return;
   }
 
+  DCHECK(spell_checker_.get()) << "spell_checker_ should exist when the "
+                                  "always trigger feature is enabled";
+  // Check spelling if the selected text is a valid single word.
+  if (iter.IsWord() && iter.prev() == 0 && iter.pos() == u16_text.length()) {
+    // Search server do not provide useful information for proper nouns and
+    // abbreviations (such as "Amy" and "ASAP"). Check spelling of the word in
+    // lower case to filter out such cases.
+    auto text = base::UTF16ToUTF8(
+        base::i18n::ToLower(base::UTF8ToUTF16(request.selected_text)));
+    spell_checker_->CheckSpelling(
+        text, base::BindOnce(&IntentGenerator::CheckSpellingCallback,
+                             weak_factory_.GetWeakPtr(), request));
+    return;
+  }
+
+  // Fallback to text classifier.
+  MaybeLoadTextClassifier(request);
+}
+
+void IntentGenerator::FlushForTesting() {
+  text_classifier_.FlushForTesting();
+}
+
+void IntentGenerator::MaybeLoadTextClassifier(
+    const QuickAnswersRequest& request) {
   if (QuickAnswersState::Get()->ShouldUseQuickAnswersTextAnnotator()) {
     // Load text classifier.
     chromeos::machine_learning::ServiceConnection::GetInstance()
@@ -173,8 +211,30 @@ void IntentGenerator::GenerateIntent(const QuickAnswersRequest& request) {
       .Run(IntentInfo(request.selected_text, IntentType::kUnknown));
 }
 
-void IntentGenerator::FlushForTesting() {
-  text_classifier_.FlushForTesting();
+void IntentGenerator::CheckSpellingCallback(const QuickAnswersRequest& request,
+                                            bool correctness,
+                                            const std::string& language) {
+  // Generate dictionary intent if the selected word passed spell check.
+  // The dictionaries treat digits as valid words, while we will not be able to
+  // grab any useful information from the Search server for words like that.
+  // Thus we filter out the words containing digits. We still fallback to the
+  // text classifier for unit conversion intent.
+  if (correctness && !HasDigits(request.selected_text)) {
+    std::move(complete_callback_)
+        .Run(IntentInfo(request.selected_text, IntentType::kDictionary,
+                        QuickAnswersState::Get()->application_locale(),
+                        language));
+
+    // Record intent source type and language for dictionary intent.
+    RecordDictionaryIntentSource(DictionaryIntentSource::kHunspell);
+    RecordDictionaryIntentLanguage(language);
+    return;
+  }
+
+  // If the selected word did not pass spell check, fallback to the text
+  // classifier. We may generate other intent type as well as definition intent
+  // if the word is not covered in the dictionary but in the model.
+  MaybeLoadTextClassifier(request);
 }
 
 void IntentGenerator::LoadModelCallback(const QuickAnswersRequest& request,
@@ -190,13 +250,10 @@ void IntentGenerator::LoadModelCallback(const QuickAnswersRequest& request,
     TextAnnotationRequestPtr text_annotation_request =
         TextAnnotationRequest::New();
 
-    // TODO(b/159664194): There is a issue with text classifier that some
-    // capitalized words are not annotated properly. Convert the text to lower
-    // case for now. Clean up after the issue is fixed.
-    text_annotation_request->text = base::UTF16ToUTF8(
-        base::i18n::ToLower(base::UTF8ToUTF16(request.selected_text)));
+    text_annotation_request->text = request.selected_text;
     text_annotation_request->default_locales =
-        request.context.device_properties.language;
+        QuickAnswersState::Get()->application_locale();
+    text_annotation_request->trigger_dictionary_on_beginner_words = true;
 
     text_classifier_->Annotate(
         std::move(text_annotation_request),
@@ -237,7 +294,15 @@ void IntentGenerator::AnnotationCallback(
           .Run(IntentInfo(
               entity_str,
               RewriteIntent(request.selected_text, entity_str, it->second),
-              request.context.device_properties.language));
+              QuickAnswersState::Get()->application_locale()));
+
+      // Record intent source type and language for dictionary intent.
+      if (it->second == IntentType::kDictionary) {
+        RecordDictionaryIntentSource(DictionaryIntentSource::kTextClassifier);
+        // Record the English language since currently the text classifier only
+        // works with English words.
+        RecordDictionaryIntentLanguage(kEnglishLanguage);
+      }
       return;
     }
   }
@@ -259,7 +324,7 @@ void IntentGenerator::MaybeGenerateTranslationIntent(
   // Don't generate translation intent if no device language is provided or the
   // length of selected text is above the threshold. Returns unknown intent
   // type.
-  if (request.context.device_properties.language.empty() ||
+  if (QuickAnswersState::Get()->application_locale().empty() ||
       request.selected_text.length() > kTranslationTextLengthThreshold) {
     std::move(complete_callback_)
         .Run(IntentInfo(request.selected_text, IntentType::kUnknown));
@@ -276,20 +341,22 @@ void IntentGenerator::MaybeGenerateTranslationIntent(
 
 void IntentGenerator::LanguageDetectorCallback(
     const QuickAnswersRequest& request,
-    absl::optional<std::string> detected_language) {
+    absl::optional<std::string> detected_locale) {
   language_detector_.reset();
+
+  auto device_language =
+      l10n_util::GetLanguage(QuickAnswersState::Get()->application_locale());
+  auto detected_language = detected_locale.has_value()
+                               ? l10n_util::GetLanguage(detected_locale.value())
+                               : std::string();
 
   // Generate translation intent if the detected language is different to the
   // system language and is not one of the preferred languages.
-  if (detected_language.has_value() &&
-      detected_language.value() != request.context.device_properties.language &&
-      !IsPreferredLanguage(
-          detected_language.value(),
-          request.context.device_properties.preferred_languages)) {
+  if (!detected_language.empty() && detected_language != device_language &&
+      !IsPreferredLanguage(detected_language)) {
     std::move(complete_callback_)
         .Run(IntentInfo(request.selected_text, IntentType::kTranslation,
-                        request.context.device_properties.language,
-                        detected_language.value()));
+                        device_language, detected_language));
     return;
   }
 

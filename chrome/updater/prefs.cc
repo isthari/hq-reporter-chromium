@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@
 #include "chrome/updater/persisted_data.h"
 #include "chrome/updater/prefs_impl.h"
 #include "chrome/updater/updater_scope.h"
-#include "chrome/updater/util.h"
+#include "chrome/updater/util/util.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -94,7 +94,7 @@ scoped_refptr<GlobalPrefs> CreateGlobalPrefs(UpdaterScope scope) {
     return nullptr;
 
   const absl::optional<base::FilePath> global_prefs_dir =
-      GetBaseDirectory(scope);
+      GetBaseDataDirectory(scope);
   if (!global_prefs_dir)
     return nullptr;
   VLOG(1) << "global_prefs_dir: " << global_prefs_dir;
@@ -117,7 +117,7 @@ scoped_refptr<GlobalPrefs> CreateGlobalPrefs(UpdaterScope scope) {
 
 scoped_refptr<LocalPrefs> CreateLocalPrefs(UpdaterScope scope) {
   const absl::optional<base::FilePath> local_prefs_dir =
-      GetVersionedDirectory(scope);
+      GetVersionedDataDirectory(scope);
   if (!local_prefs_dir)
     return nullptr;
 

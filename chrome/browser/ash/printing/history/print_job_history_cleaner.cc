@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/clock.h"
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
@@ -73,8 +73,8 @@ void PrintJobHistoryCleaner::OnPrefServiceInitialized(
       expiration_period == kPrintJobHistoryIndefinite ||
       !IsCompletionTimeExpired(oldest_print_job_completion_time_, clock_->Now(),
                                base::Days(expiration_period))) {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                     std::move(callback));
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(callback));
     return;
   }
   print_job_database_->GetPrintJobs(
@@ -85,10 +85,10 @@ void PrintJobHistoryCleaner::OnPrefServiceInitialized(
 void PrintJobHistoryCleaner::OnPrintJobsRetrieved(
     base::OnceClosure callback,
     bool success,
-    std::vector<chromeos::printing::proto::PrintJobInfo> print_job_infos) {
+    std::vector<printing::proto::PrintJobInfo> print_job_infos) {
   if (!success) {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                     std::move(callback));
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(callback));
     return;
   }
   std::vector<std::string> print_job_ids_to_remove;
@@ -115,8 +115,8 @@ void PrintJobHistoryCleaner::OnPrintJobsRetrieved(
 
 void PrintJobHistoryCleaner::OnPrintJobsDeleted(base::OnceClosure callback,
                                                 bool success) {
-  base::SequencedTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                   std::move(callback));
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,
+                                                           std::move(callback));
 }
 
 }  // namespace ash

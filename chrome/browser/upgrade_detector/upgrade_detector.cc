@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,9 @@
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
 #include "base/rand_util.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/clock.h"
 #include "base/time/tick_clock.h"
 #include "base/values.h"
@@ -346,6 +347,15 @@ void UpgradeDetector::NotifyCriticalUpgradeInstalled() {
     observer.OnCriticalUpgradeInstalled();
 }
 
+void UpgradeDetector::NotifyUpdateDeferred(bool use_notification) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (observer_list_.empty())
+    return;
+
+  for (auto& observer : observer_list_)
+    observer.OnUpdateDeferred(use_notification);
+}
+
 void UpgradeDetector::NotifyUpdateOverCellularAvailable() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (observer_list_.empty())
@@ -423,7 +433,7 @@ void UpgradeDetector::OnRelaunchPrefChanged() {
     return;
 
   pref_change_task_pending_ = true;
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(
                      [](base::WeakPtr<UpgradeDetector> weak_this) {
                        if (weak_this) {

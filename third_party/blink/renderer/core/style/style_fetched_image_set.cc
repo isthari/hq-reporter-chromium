@@ -26,6 +26,7 @@
 #include "third_party/blink/renderer/core/style/style_fetched_image_set.h"
 
 #include "third_party/blink/renderer/core/css/css_image_set_value.h"
+#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_content.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_for_container.h"
@@ -107,7 +108,7 @@ gfx::SizeF StyleFetchedImageSet::ImageSize(
     RespectImageOrientationEnum respect_orientation) const {
   Image* image = best_fit_image_->GetImage();
   if (auto* svg_image = DynamicTo<SVGImage>(image)) {
-    return ImageSizeForSVGImage(svg_image, multiplier, default_object_size);
+    return ImageSizeForSVGImage(*svg_image, multiplier, default_object_size);
   }
   respect_orientation = ForceOrientationIfNecessary(respect_orientation);
   gfx::SizeF natural_size(image->Size(respect_orientation));
@@ -116,7 +117,10 @@ gfx::SizeF StyleFetchedImageSet::ImageSize(
 }
 
 bool StyleFetchedImageSet::HasIntrinsicSize() const {
-  return best_fit_image_->GetImage()->HasIntrinsicSize();
+  const Image& image = *best_fit_image_->GetImage();
+  if (auto* svg_image = DynamicTo<SVGImage>(image))
+    return HasIntrinsicDimensionsForSVGImage(*svg_image);
+  return image.HasIntrinsicSize();
 }
 
 void StyleFetchedImageSet::AddClient(ImageResourceObserver* observer) {
@@ -129,7 +133,7 @@ void StyleFetchedImageSet::RemoveClient(ImageResourceObserver* observer) {
 
 scoped_refptr<Image> StyleFetchedImageSet::GetImage(
     const ImageResourceObserver&,
-    const Document&,
+    const Document& document,
     const ComputedStyle& style,
     const gfx::SizeF& target_size) const {
   Image* image = best_fit_image_->GetImage();
@@ -142,7 +146,8 @@ scoped_refptr<Image> StyleFetchedImageSet::GetImage(
   if (!svg_image)
     return image;
   return SVGImageForContainer::Create(svg_image, target_size,
-                                      style.EffectiveZoom(), url_);
+                                      style.EffectiveZoom(), url_,
+                                      document.GetPreferredColorScheme());
 }
 
 bool StyleFetchedImageSet::KnownToBeOpaque(const Document&,

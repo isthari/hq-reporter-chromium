@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -155,6 +155,16 @@ struct StructTraits<display::mojom::DisplaySnapshotDataView,
   static const gfx::Size& maximum_cursor_size(
       const std::unique_ptr<display::DisplaySnapshot>& snapshot) {
     return snapshot->maximum_cursor_size();
+  }
+
+  static display::VariableRefreshRateState variable_refresh_rate_state(
+      const std::unique_ptr<display::DisplaySnapshot>& snapshot) {
+    return snapshot->variable_refresh_rate_state();
+  }
+
+  static const absl::optional<gfx::Range>& vertical_display_range_limits(
+      const std::unique_ptr<display::DisplaySnapshot>& snapshot) {
+    return snapshot->vertical_display_range_limits();
   }
 
   static bool Read(display::mojom::DisplaySnapshotDataView data,

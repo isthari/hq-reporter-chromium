@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,7 +59,7 @@ class FakeWebPageMetadataAgent
 
   // Set |web_app_info| to respond on |GetWebAppInstallInfo|.
   void SetWebAppInstallInfo(const WebAppInstallInfo& web_app_info) {
-    web_app_info_ = web_app_info;
+    web_app_info_ = web_app_info.Clone();
   }
 
   void GetWebPageMetadata(GetWebPageMetadataCallback callback) override {
@@ -94,7 +94,7 @@ class WebAppDataRetrieverTest : public ChromeRenderViewHostTestHarness {
   // Set fake WebPageMetadataAgent to avoid mojo connection errors.
   void SetFakeWebPageMetadataAgent() {
     web_contents()
-        ->GetMainFrame()
+        ->GetPrimaryMainFrame()
         ->GetRemoteAssociatedInterfaces()
         ->OverrideBinderForTesting(
             webapps::mojom::WebPageMetadataAgent::Name_,
@@ -110,7 +110,7 @@ class WebAppDataRetrieverTest : public ChromeRenderViewHostTestHarness {
     // TODO(crbug.com/936696): Make WebAppDataRetriever support a change of
     // RenderFrames.
     content::DisableProactiveBrowsingInstanceSwapFor(
-        web_contents()->GetMainFrame());
+        web_contents()->GetPrimaryMainFrame());
   }
 
   void SetRendererWebAppInstallInfo(const WebAppInstallInfo& web_app_info) {
@@ -325,12 +325,12 @@ TEST_F(WebAppDataRetrieverTest, GetIcons_WebContentsDestroyed) {
 
   web_contents_tester()->NavigateAndCommit(GURL("https://foo.example"));
 
-  const std::vector<GURL> icon_urls;
   bool skip_page_favicons = true;
 
   base::RunLoop run_loop;
   WebAppDataRetriever retriever;
-  retriever.GetIcons(web_contents(), icon_urls, skip_page_favicons,
+  retriever.GetIcons(web_contents(), /*icon_urls=*/base::flat_set<GURL>(),
+                     skip_page_favicons,
                      base::BindLambdaForTesting(
                          [&](IconsDownloadedResult result, IconsMap icons_map,
                              DownloadedIconsHttpResults icons_http_results) {

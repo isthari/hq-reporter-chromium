@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,15 @@
 
 #include "base/check.h"
 #include "base/check_op.h"
+#include "base/containers/contains.h"
 #include "base/containers/span.h"
+#include "base/json/json_writer.h"
+#include "base/ranges/algorithm.h"
 #include "base/time/time.h"
+#include "base/values.h"
+#include "components/attribution_reporting/filters.h"
+#include "content/browser/attribution_reporting/attribution_source_type.h"
+#include "content/browser/attribution_reporting/common_source_info.h"
 
 namespace content {
 
@@ -16,36 +23,29 @@ namespace {
 constexpr base::TimeDelta kWindowDeadlineOffset = base::Hours(1);
 
 base::span<const base::TimeDelta> EarlyDeadlines(
-    CommonSourceInfo::SourceType source_type) {
+    AttributionSourceType source_type) {
   static constexpr base::TimeDelta kEarlyDeadlinesNavigation[] = {
-      base::Days(2) - kWindowDeadlineOffset,
-      base::Days(7) - kWindowDeadlineOffset,
+      base::Days(2),
+      base::Days(7),
   };
 
   switch (source_type) {
-    case CommonSourceInfo::SourceType::kNavigation:
+    case AttributionSourceType::kNavigation:
       return kEarlyDeadlinesNavigation;
-    case CommonSourceInfo::SourceType::kEvent:
+    case AttributionSourceType::kEvent:
       return base::span<const base::TimeDelta>();
   }
 }
 
 base::TimeDelta ExpiryDeadline(const CommonSourceInfo& source) {
-  base::TimeDelta expiry_deadline =
-      source.expiry_time() - source.impression_time();
-
-  constexpr base::TimeDelta kMinExpiryDeadline = base::Days(2);
-  if (expiry_deadline < kMinExpiryDeadline)
-    expiry_deadline = kMinExpiryDeadline;
-
-  return expiry_deadline;
+  return source.event_report_window_time() - source.source_time();
 }
 
-base::Time ReportTimeFromDeadline(base::Time impression_time,
+base::Time ReportTimeFromDeadline(base::Time source_time,
                                   base::TimeDelta deadline) {
   // Valid conversion reports should always have a valid reporting deadline.
   DCHECK(!deadline.is_zero());
-  return impression_time + deadline + kWindowDeadlineOffset;
+  return source_time + deadline + kWindowDeadlineOffset;
 }
 
 }  // namespace
@@ -78,17 +78,17 @@ base::Time ComputeReportTime(const CommonSourceInfo& source,
   for (base::TimeDelta early_deadline : EarlyDeadlines(source.source_type())) {
     // If this window is valid for the conversion, use it.
     // |trigger_time| is roughly ~now.
-    if (source.impression_time() + early_deadline >= trigger_time &&
+    if (source.source_time() + early_deadline >= trigger_time &&
         early_deadline < deadline_to_use) {
       deadline_to_use = early_deadline;
       break;
     }
   }
 
-  return ReportTimeFromDeadline(source.impression_time(), deadline_to_use);
+  return ReportTimeFromDeadline(source.source_time(), deadline_to_use);
 }
 
-int NumReportWindows(CommonSourceInfo::SourceType source_type) {
+int NumReportWindows(AttributionSourceType source_type) {
   // Add 1 for the expiry deadline.
   return 1 + EarlyDeadlines(source_type).size();
 }
@@ -106,27 +106,74 @@ base::Time ReportTimeAtWindow(const CommonSourceInfo& source,
           ? early_deadlines[window_index]
           : ExpiryDeadline(source);
 
-  return ReportTimeFromDeadline(source.impression_time(), deadline);
+  return ReportTimeFromDeadline(source.source_time(), deadline);
 }
 
-uint64_t TriggerDataCardinality(CommonSourceInfo::SourceType source_type) {
-  switch (source_type) {
-    case CommonSourceInfo::SourceType::kNavigation:
-      return 8;
-    case CommonSourceInfo::SourceType::kEvent:
-      return 2;
-  }
+std::string SerializeAttributionJson(base::ValueView body, bool pretty_print) {
+  int options = pretty_print ? base::JSONWriter::OPTIONS_PRETTY_PRINT : 0;
+
+  std::string output_json;
+  bool success =
+      base::JSONWriter::WriteWithOptions(body, options, &output_json);
+  DCHECK(success);
+  return output_json;
 }
 
-double RandomizedTriggerRate(CommonSourceInfo::SourceType source_type) {
-  // Note: When these values are changed from .0024 and/or .0000025, update
-  // `AttributionReport::ReportBody()` per the comment there.
-  switch (source_type) {
-    case CommonSourceInfo::SourceType::kNavigation:
-      return .0024;
-    case CommonSourceInfo::SourceType::kEvent:
-      return .0000025;
-  }
+bool AttributionFilterDataMatch(const attribution_reporting::FilterData& source,
+                                AttributionSourceType source_type,
+                                const attribution_reporting::Filters& trigger,
+                                bool negated) {
+  // A filter is considered matched if the filter key is only present either on
+  // the source or trigger, or the intersection of the filter values is
+  // non-empty.
+  // Returns true if all the filters matched.
+  //
+  // If the filters are negated, the behavior should be that every single filter
+  // key does not match between the two (negating the function result is not
+  // sufficient by the API definition).
+  return base::ranges::all_of(
+      trigger.filter_values(), [&](const auto& trigger_filter) {
+        if (trigger_filter.first ==
+            attribution_reporting::FilterData::kSourceTypeFilterKey) {
+          bool has_intersection = base::ranges::any_of(
+              trigger_filter.second, [&](const std::string& value) {
+                return value == AttributionSourceTypeToString(source_type);
+              });
+
+          return negated != has_intersection;
+        }
+
+        auto source_filter = source.filter_values().find(trigger_filter.first);
+        if (source_filter == source.filter_values().end())
+          return true;
+
+        // Desired behavior is to treat any empty set of values as a single
+        // unique value itself. This means:
+        //  - x:[] match x:[] is false when negated, and true otherwise.
+        //  - x:[1,2,3] match x:[] is true when negated, and false otherwise.
+        if (trigger_filter.second.empty())
+          return negated != source_filter->second.empty();
+
+        bool has_intersection = base::ranges::any_of(
+            trigger_filter.second, [&](const std::string& value) {
+              return base::Contains(source_filter->second, value);
+            });
+        // Negating filters are considered matched if the intersection of the
+        // filter values is empty.
+        return negated != has_intersection;
+      });
+}
+
+bool AttributionFiltersMatch(
+    const attribution_reporting::FilterData& source_filter_data,
+    AttributionSourceType source_type,
+    const attribution_reporting::Filters& trigger_filters,
+    const attribution_reporting::Filters& trigger_not_filters) {
+  return AttributionFilterDataMatch(source_filter_data, source_type,
+                                    trigger_filters) &&
+         AttributionFilterDataMatch(source_filter_data, source_type,
+                                    trigger_not_filters,
+                                    /*negated=*/true);
 }
 
 }  // namespace content

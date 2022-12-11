@@ -182,8 +182,8 @@
       for (let j = 0; j < actions[i].actions.length; j++) {
         if (actions[i].actions[j].type == "keyDown" ||
             actions[i].actions[j].type == "keyUp") {
-          return Promise.reject(new Error("we do not support keydown and keyup actions, " +
-                                          "please use test_driver.send_keys"));
+          return Promise.reject(new Error("We do not support keydown and keyup actions, " +
+                                          "please use test_driver.send_keys. See crbug.com/893480."));
         }
 
         if ('origin' in actions[i].actions[j]) {
@@ -431,8 +431,6 @@
   }
 
   window.test_driver_internal.set_permission = function(permission_params) {
-    // TODO(https://crbug.com/977612): Chromium currently lacks support for
-    // |permission_params.one_realm| and will always consider it is set to false.
     return internals.setPermission(permission_params.descriptor,
                                    permission_params.state);
   }
@@ -444,6 +442,30 @@
   window.test_driver_internal.delete_all_cookies = function() {
     return internals.deleteAllCookies();
   }
+
+  window.test_driver_internal.get_all_cookies = function() {
+    return internals.getAllCookies();
+  }
+
+  window.test_driver_internal.get_named_cookie = function(name) {
+    return internals.getNamedCookie(name);
+  }
+
+  window.test_driver_internal.minimize_window = async () => {
+    window.testRunner.setMainWindowHidden(true);
+    // Wait until the new state is reflected in the document
+    while (!document.hidden) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  };
+
+  window.test_driver_internal.set_window_rect = async () => {
+    window.testRunner.setMainWindowHidden(false);
+    // Wait until the new state is reflected in the document
+    while (document.hidden) {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  };
 
   // Enable automation so we don't wait for user input on unimplemented APIs
   window.test_driver_internal.in_automation = true;

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -240,14 +240,14 @@ TEST(InvalidationSetTest, Backing_Iterator) {
   }
 }
 
-TEST(InvalidationSetTest, Backing_GetAtomicString) {
+TEST(InvalidationSetTest, Backing_GetStringImpl) {
   BackingFlags flags;
   Backing<BackingType::kClasses> backing;
-  EXPECT_FALSE(backing.GetAtomicString(flags));
+  EXPECT_FALSE(backing.GetStringImpl(flags));
   backing.Add(flags, "a");
-  EXPECT_EQ("a", backing.GetAtomicString(flags));
+  EXPECT_EQ("a", AtomicString(backing.GetStringImpl(flags)));
   backing.Add(flags, "b");
-  EXPECT_FALSE(backing.GetAtomicString(flags));
+  EXPECT_FALSE(backing.GetStringImpl(flags));
   backing.Clear(flags);
 }
 

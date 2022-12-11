@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,6 +66,7 @@ class StrikeDatabase : public StrikeDatabaseBase {
   void ClearAllStrikes() override;
   std::string GetPrefixFromKey(const std::string& key) const override;
   void SetStrikeData(const std::string& key, int num_strikes) override;
+  int64_t GetLastUpdatedTimestamp(const std::string& key) override;
 
  protected:
   friend class StrikeDatabaseIntegratorBase;
@@ -140,9 +141,9 @@ class StrikeDatabase : public StrikeDatabaseBase {
                           const SetValueCallback& inner_callback);
 
   // Passes number of strikes to |outer_callback|.
-  void OnGetProtoStrikes(StrikesCallback outer_callback,
-                         bool success,
-                         std::unique_ptr<StrikeData> strike_data);
+  static void OnGetProtoStrikes(StrikesCallback outer_callback,
+                                bool success,
+                                std::unique_ptr<StrikeData> strike_data);
 
   // Exposed for testing purposes.
   void LoadKeys(const LoadKeysCallback& callback);

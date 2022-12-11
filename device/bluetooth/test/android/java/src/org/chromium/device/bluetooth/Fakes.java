@@ -1,11 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.device.bluetooth;
 
 import android.Manifest;
-import android.annotation.TargetApi;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.le.ScanFilter;
 import android.bluetooth.le.ScanSettings;
@@ -14,7 +13,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
-import android.os.Build;
+import android.os.Handler;
 import android.os.ParcelUuid;
 import android.test.mock.MockContext;
 import android.util.SparseArray;
@@ -41,7 +40,6 @@ import java.util.UUID;
  * each of these classes.
  */
 @JNINamespace("device")
-@TargetApi(Build.VERSION_CODES.M)
 class Fakes {
     private static final String TAG = "Bluetooth";
 
@@ -321,7 +319,14 @@ class Fakes {
         }
 
         @Override
-        public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter) {
+        public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter,
+                String permission, Handler scheduler) {
+            return null;
+        }
+
+        @Override
+        public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter,
+                String permission, Handler scheduler, int flags) {
             return null;
         }
 

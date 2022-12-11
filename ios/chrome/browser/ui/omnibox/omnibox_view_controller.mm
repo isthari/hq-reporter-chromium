@@ -1,31 +1,31 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/omnibox/omnibox_view_controller.h"
 
-#include "base/bind.h"
-#include "base/metrics/user_metrics.h"
-#include "base/metrics/user_metrics_action.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/omnibox/browser/omnibox_field_trial.h"
-#include "components/open_from_clipboard/clipboard_recent_content.h"
-#include "components/strings/grit/components_strings.h"
-#import "ios/chrome/browser/ui/commands/browser_commands.h"
-#import "ios/chrome/browser/ui/commands/load_query_commands.h"
-#import "ios/chrome/browser/ui/commands/omnibox_commands.h"
+#import "base/bind.h"
+#import "base/containers/contains.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/omnibox/browser/omnibox_field_trial.h"
+#import "components/open_from_clipboard/clipboard_recent_content.h"
+#import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/default_promo/default_browser_utils.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_constants.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_container_view.h"
-#include "ios/chrome/browser/ui/omnibox/omnibox_text_change_delegate.h"
+#import "ios/chrome/browser/ui/omnibox/omnibox_keyboard_delegate.h"
+#import "ios/chrome/browser/ui/omnibox/omnibox_text_change_delegate.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_text_field_delegate.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
-#include "ios/chrome/browser/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/pointer_interaction_util.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ios/public/provider/chrome/browser/lens/lens_api.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -40,6 +40,7 @@ const CGFloat kClearButtonSize = 28.0f;
 }  // namespace
 
 @interface OmniboxViewController () <OmniboxTextFieldDelegate,
+                                     OmniboxKeyboardDelegate,
                                      UIScribbleInteractionDelegate> {
   // Weak, acts as a delegate
   OmniboxTextChangeDelegate* _textChangeDelegate;
@@ -51,6 +52,10 @@ const CGFloat kClearButtonSize = 28.0f;
 // Whether the default search engine supports search-by-image. This controls the
 // edit menu option to do an image search.
 @property(nonatomic, assign) BOOL searchByImageEnabled;
+
+// Whether the default search engine supports Lens. This controls the
+// edit menu option to do a Lens search.
+@property(nonatomic, assign) BOOL lensImageEnabled;
 
 @property(nonatomic, assign) BOOL incognito;
 
@@ -80,10 +85,10 @@ const CGFloat kClearButtonSize = 28.0f;
 // Stores whether the clipboard currently stores copied content.
 @property(nonatomic, assign) BOOL hasCopiedContent;
 // Stores the current content type in the clipboard. This is only valid if
-// |hasCopiedContent| is YES.
+// `hasCopiedContent` is YES.
 @property(nonatomic, assign) ClipboardContentType copiedContentType;
 // Stores whether the cached clipboard state is currently being updated. See
-// |-updateCachedClipboardState| for more information.
+// `-updateCachedClipboardState` for more information.
 @property(nonatomic, assign) BOOL isUpdatingCachedClipboardState;
 
 @end
@@ -113,7 +118,10 @@ const CGFloat kClearButtonSize = 28.0f;
                                                  iconTint:iconTintColor];
   self.view.incognito = self.incognito;
 
+  self.view.shouldGroupAccessibilityChildren = YES;
+
   self.textField.delegate = self;
+  self.textField.omniboxKeyboardDelegate = self;
 
   SetA11yLabelAndUiAutomationName(self.textField, IDS_ACCNAME_LOCATION,
                                   @"Address");
@@ -129,6 +137,10 @@ const CGFloat kClearButtonSize = 28.0f;
   RegisterEditMenuItem([[UIMenuItem alloc]
       initWithTitle:l10n_util::GetNSString(IDS_IOS_SEARCH_COPIED_IMAGE)
              action:@selector(searchCopiedImage:)]);
+  RegisterEditMenuItem([[UIMenuItem alloc]
+      initWithTitle:l10n_util::GetNSString(
+                        IDS_IOS_SEARCH_COPIED_IMAGE_WITH_LENS)
+             action:@selector(lensCopiedImage:)]);
   RegisterEditMenuItem([[UIMenuItem alloc]
       initWithTitle:l10n_util::GetNSString(IDS_IOS_VISIT_COPIED_LINK)
              action:@selector(visitCopiedLink:)]);
@@ -150,6 +162,8 @@ const CGFloat kClearButtonSize = 28.0f;
 - (void)viewWillAppear:(BOOL)animated {
   [super viewWillAppear:animated];
 
+  [self.view attachLayoutGuides];
+
   [NSNotificationCenter.defaultCenter
       addObserver:self
          selector:@selector(pasteboardDidChange:)
@@ -164,12 +178,6 @@ const CGFloat kClearButtonSize = 28.0f;
          selector:@selector(applicationDidBecomeActive:)
              name:UIApplicationDidBecomeActiveNotification
            object:nil];
-}
-
-- (void)viewDidAppear:(BOOL)animated {
-  [super viewDidAppear:animated];
-
-  [self.view attachLayoutGuides];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -278,12 +286,12 @@ const CGFloat kClearButtonSize = 28.0f;
 
 // Delegate method for UITextField, called when user presses the "go" button.
 - (BOOL)textFieldShouldReturn:(UITextField*)textField {
-  if (!_textChangeDelegate) {
+  if (!self.returnKeyDelegate) {
     // This can happen when the view controller is still alive but the model is
     // already deconstructed on shutdown.
     return YES;
   }
-  _textChangeDelegate->OnAccept();
+  [self.returnKeyDelegate omniboxReturnPressed:self];
   return NO;
 }
 
@@ -373,6 +381,44 @@ const CGFloat kClearButtonSize = 28.0f;
   _textChangeDelegate->OnDeleteBackward();
 }
 
+- (BOOL)canPasteItemProviders:(NSArray<NSItemProvider*>*)itemProviders {
+  for (NSItemProvider* itemProvider in itemProviders) {
+    if (((self.searchByImageEnabled || self.shouldUseLensInMenu) &&
+         [itemProvider canLoadObjectOfClass:[UIImage class]]) ||
+        [itemProvider canLoadObjectOfClass:[NSURL class]] ||
+        [itemProvider canLoadObjectOfClass:[NSString class]]) {
+      return YES;
+    }
+  }
+  return NO;
+}
+
+- (void)pasteItemProviders:(NSArray<NSItemProvider*>*)itemProviders {
+  // Interacted while focused.
+  self.omniboxInteractedWhileFocused = YES;
+
+  [self.pasteDelegate didTapPasteToSearchButton:itemProviders];
+}
+
+- (BOOL)canPerformKeyboardAction:(OmniboxKeyboardAction)keyboardAction {
+  return [self.popupKeyboardDelegate canPerformKeyboardAction:keyboardAction] ||
+         [self.textField canPerformKeyboardAction:keyboardAction];
+}
+
+- (void)performKeyboardAction:(OmniboxKeyboardAction)keyboardAction {
+  if ([self.popupKeyboardDelegate canPerformKeyboardAction:keyboardAction]) {
+    if (keyboardAction == OmniboxKeyboardActionUpArrow ||
+        keyboardAction == OmniboxKeyboardActionDownArrow) {
+      [self.textField exitPreEditState];
+    }
+    [self.popupKeyboardDelegate performKeyboardAction:keyboardAction];
+  } else if ([self.textField canPerformKeyboardAction:keyboardAction]) {
+    [self.textField performKeyboardAction:keyboardAction];
+  } else {
+    NOTREACHED() << "Check canPerformKeyboardAction before!";
+  }
+}
+
 #pragma mark - OmniboxConsumer
 
 - (void)updateAutocompleteIcon:(UIImage*)icon {
@@ -381,6 +427,14 @@ const CGFloat kClearButtonSize = 28.0f;
 
 - (void)updateSearchByImageSupported:(BOOL)searchByImageSupported {
   self.searchByImageEnabled = searchByImageSupported;
+}
+
+- (void)updateLensImageSupported:(BOOL)lensImageSupported {
+  self.lensImageEnabled = lensImageSupported;
+}
+
+- (void)updateText:(NSAttributedString*)text {
+  [self.textField setText:text userTextLength:text.length];
 }
 
 #pragma mark - EditViewAnimatee
@@ -418,6 +472,26 @@ const CGFloat kClearButtonSize = 28.0f;
   return [UIColor colorNamed:kTextfieldPlaceholderColor];
 }
 
+- (BOOL)shouldUseLensInMenu {
+  return ios::provider::IsLensSupported() &&
+         base::FeatureList::IsEnabled(kEnableLensInOmniboxCopiedImage) &&
+         self.lensImageEnabled;
+}
+
+- (void)onClipboardContentTypesReceived:
+    (const std::set<ClipboardContentType>&)types {
+  self.hasCopiedContent = !types.empty();
+  if ((self.searchByImageEnabled || self.shouldUseLensInMenu) &&
+      base::Contains(types, ClipboardContentType::Image)) {
+    self.copiedContentType = ClipboardContentType::Image;
+  } else if (base::Contains(types, ClipboardContentType::URL)) {
+    self.copiedContentType = ClipboardContentType::URL;
+  } else if (base::Contains(types, ClipboardContentType::Text)) {
+    self.copiedContentType = ClipboardContentType::Text;
+  }
+  self.isUpdatingCachedClipboardState = NO;
+}
+
 #pragma mark notification callbacks
 
 // Called on UITextInputCurrentInputModeDidChangeNotification for self.textField
@@ -430,7 +504,7 @@ const CGFloat kClearButtonSize = 28.0f;
   [self.textField updateTextDirection];
   self.semanticContentAttribute = [self.textField bestSemanticContentAttribute];
 
-  [self.delegate omniboxViewControllerTextInputModeDidChange:self];
+  [self.textInputDelegate omniboxViewControllerTextInputModeDidChange:self];
 }
 
 - (void)updateCachedClipboardState {
@@ -453,19 +527,7 @@ const CGFloat kClearButtonSize = 28.0f;
   clipboardRecentContent->HasRecentContentFromClipboard(
       desired_types,
       base::BindOnce(^(std::set<ClipboardContentType> matched_types) {
-        weakSelf.hasCopiedContent = !matched_types.empty();
-        if (weakSelf.searchByImageEnabled &&
-            matched_types.find(ClipboardContentType::Image) !=
-                matched_types.end()) {
-          weakSelf.copiedContentType = ClipboardContentType::Image;
-        } else if (matched_types.find(ClipboardContentType::URL) !=
-                   matched_types.end()) {
-          weakSelf.copiedContentType = ClipboardContentType::URL;
-        } else if (matched_types.find(ClipboardContentType::Text) !=
-                   matched_types.end()) {
-          weakSelf.copiedContentType = ClipboardContentType::Text;
-        }
-        self.isUpdatingCachedClipboardState = NO;
+        [weakSelf onClipboardContentTypesReceived:matched_types];
       }));
 }
 
@@ -501,12 +563,12 @@ const CGFloat kClearButtonSize = 28.0f;
 
 // Omnibox uses a custom clear button. It has a custom tint and image, but
 // otherwise it should act exactly like a system button. To achieve this, a
-// custom button is used as the |rightView|. Textfield's setRightViewMode: is
+// custom button is used as the `rightView`. Textfield's setRightViewMode: is
 // used to make the button invisible when the textfield is empty; the visibility
 // is updated on textfield text changes and clear button presses.
 - (void)setupClearButton {
   // Do not use the system clear button. Use a custom "right view" instead.
-  // Note that |rightView| is an incorrect name, it's really a trailing view.
+  // Note that `rightView` is an incorrect name, it's really a trailing view.
   [self.textField setClearButtonMode:UITextFieldViewModeNever];
   [self.textField setRightViewMode:UITextFieldViewModeAlways];
 
@@ -573,12 +635,16 @@ const CGFloat kClearButtonSize = 28.0f;
 
 - (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
   if (action == @selector(searchCopiedImage:) ||
+      action == @selector(lensCopiedImage:) ||
       action == @selector(visitCopiedLink:) ||
       action == @selector(searchCopiedText:)) {
     if (!self.hasCopiedContent) {
       return NO;
     }
     if (self.copiedContentType == ClipboardContentType::Image) {
+      if (self.shouldUseLensInMenu) {
+        return action == @selector(lensCopiedImage:);
+      }
       return action == @selector(searchCopiedImage:);
     }
     if (self.copiedContentType == ClipboardContentType::URL) {
@@ -596,27 +662,22 @@ const CGFloat kClearButtonSize = 28.0f;
   RecordAction(
       UserMetricsAction("Mobile.OmniboxContextMenu.SearchCopiedImage"));
   self.omniboxInteractedWhileFocused = YES;
-  [self.delegate omniboxViewControllerSearchCopiedImage:self];
+  [self.pasteDelegate didTapSearchCopiedImage];
+}
+
+- (void)lensCopiedImage:(id)sender {
+  RecordAction(UserMetricsAction("Mobile.OmniboxContextMenu.LensCopiedImage"));
+  self.omniboxInteractedWhileFocused = YES;
+  [self.pasteDelegate didTapLensCopiedImage];
 }
 
 - (void)visitCopiedLink:(id)sender {
   // A search using clipboard link is activity that should indicate a user
   // that would be interested in setting Chrome as the default browser.
   LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoTypeGeneral);
-  [self.delegate omniboxViewControllerUserDidVisitCopiedLink:self];
   RecordAction(UserMetricsAction("Mobile.OmniboxContextMenu.VisitCopiedLink"));
   self.omniboxInteractedWhileFocused = YES;
-  ClipboardRecentContent::GetInstance()->GetRecentURLFromClipboard(
-      base::BindOnce(^(absl::optional<GURL> optionalURL) {
-        if (!optionalURL) {
-          return;
-        }
-        NSString* url = base::SysUTF8ToNSString(optionalURL.value().spec());
-        dispatch_async(dispatch_get_main_queue(), ^{
-          [self.dispatcher loadQuery:url immediately:YES];
-          [self.dispatcher cancelOmniboxEdit];
-        });
-      }));
+  [self.pasteDelegate didTapVisitCopiedLink];
 }
 
 - (void)searchCopiedText:(id)sender {
@@ -625,17 +686,7 @@ const CGFloat kClearButtonSize = 28.0f;
   LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoTypeGeneral);
   RecordAction(UserMetricsAction("Mobile.OmniboxContextMenu.SearchCopiedText"));
   self.omniboxInteractedWhileFocused = YES;
-  ClipboardRecentContent::GetInstance()->GetRecentTextFromClipboard(
-      base::BindOnce(^(absl::optional<std::u16string> optionalText) {
-        if (!optionalText) {
-          return;
-        }
-        NSString* query = base::SysUTF16ToNSString(optionalText.value());
-        dispatch_async(dispatch_get_main_queue(), ^{
-          [self.dispatcher loadQuery:query immediately:YES];
-          [self.dispatcher cancelOmniboxEdit];
-        });
-      }));
+  [self.pasteDelegate didTapSearchCopiedText];
 }
 
 #pragma mark - UIScribbleInteractionDelegate

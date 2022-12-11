@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,7 +65,6 @@ class ASH_PUBLIC_EXPORT AppListClient {
   // by user pressing ENTER key.
   virtual void OpenSearchResult(int profile_id,
                                 const std::string& result_id,
-                                AppListSearchResultType result_type,
                                 int event_flags,
                                 AppListLaunchedFrom launched_from,
                                 AppListLaunchType launch_type,
@@ -100,18 +99,17 @@ class ASH_PUBLIC_EXPORT AppListClient {
   // Activates (opens) the item with |id|.
   virtual void ActivateItem(int profile_id,
                             const std::string& id,
-                            int event_flags) = 0;
+                            int event_flags,
+                            ash::AppListLaunchedFrom launched_from) = 0;
   // Returns the context menu model for the item with |id|, or an empty array if
-  // there is currently no menu for the item (e.g. during install). Requests
-  // adding sort options that can sort the app list in the menu model if
-  // `add_sort_options` is true, where the value of `add_sort_options` is
-  // determined by the context of the AppListItemView and if the app list sort
-  // feature is enabled.
+  // there is currently no menu for the item (e.g. during install).
+  // `item_context` is where the item is being shown (e.g. apps grid or recent
+  // apps).
   using GetContextMenuModelCallback =
       base::OnceCallback<void(std::unique_ptr<ui::SimpleMenuModel>)>;
   virtual void GetContextMenuModel(int profile_id,
                                    const std::string& id,
-                                   bool add_sort_options,
+                                   AppListItemContext item_context,
                                    GetContextMenuModelCallback callback) = 0;
   // Invoked when a "quick setting" is changed.
   virtual void OnQuickSettingsChanged(
@@ -122,20 +120,19 @@ class ASH_PUBLIC_EXPORT AppListClient {
   virtual void OnSearchResultVisibilityChanged(const std::string& id,
                                                bool visibility) = 0;
 
-  // TODO(crbug.com/1076270): This method exists for chrome-side logging of UI
-  // actions, and can be folded into the AppListNotifier once it is
-  // complete.
-  virtual void NotifySearchResultsForLogging(
-      const std::u16string& trimmed_query,
-      const SearchResultIdWithPositionIndices& results,
-      int position_index) = 0;
-
   // Returns the AppListNotifier instance owned by this client. Depending on the
   // implementation, this can return nullptr.
   virtual AppListNotifier* GetNotifier() = 0;
 
   // Invoked to load an icon of the app identified by `app_id`.
   virtual void LoadIcon(int profile_id, const std::string& app_id) = 0;
+
+  // Returns the sorting order that is saved in perf service and gets shared
+  // among synced devices.
+  virtual ash::AppListSortOrder GetPermanentSortingOrder() const = 0;
+
+  // Invoked to commit the app list temporary sort order.
+  virtual void CommitTemporarySortOrder() = 0;
 
  protected:
   virtual ~AppListClient() = default;

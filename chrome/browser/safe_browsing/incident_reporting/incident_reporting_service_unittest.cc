@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,11 @@
 #include "base/lazy_instance.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/mock_entropy_provider.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_mock_time_message_loop_task_runner.h"
 #include "base/threading/thread_local.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/prefs/browser_prefs.h"
@@ -223,7 +223,7 @@ class IncidentReportingServiceTest : public testing::Test {
         safe_browsing::kIncidentReportingEnableUpload);
 
     instance_ = std::make_unique<TestIncidentReportingService>(
-        base::ThreadTaskRunnerHandle::Get(),
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
         base::BindRepeating(&IncidentReportingServiceTest::PreProfileAdd,
                             base::Unretained(this)),
         base::BindRepeating(
@@ -270,9 +270,9 @@ class IncidentReportingServiceTest : public testing::Test {
     // Boom (or fizzle).
     auto* profile = profile_manager_.CreateTestingProfile(
         profile_name, std::move(prefs), base::ASCIIToUTF16(profile_name),
-        0,              // avatar_id (unused)
-        std::string(),  // supervised_user_id (unused)
+        0,  // avatar_id (unused)
         TestingProfile::TestingFactories());
+
     mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
     return profile;
@@ -373,7 +373,7 @@ class IncidentReportingServiceTest : public testing::Test {
           on_deleted_(std::move(on_deleted)),
           result_(result) {
       // Post a task that will provide the response.
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(&FakeUploader::FinishUpload, base::Unretained(this)));
     }
@@ -406,7 +406,7 @@ class IncidentReportingServiceTest : public testing::Test {
             non_binary_download,
         safe_browsing::LastDownloadFinder::LastDownloadCallback callback) {
       // Post a task to run the callback.
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(std::move(callback), std::move(binary_download),
                          std::move(non_binary_download)));
@@ -478,7 +478,7 @@ class IncidentReportingServiceTest : public testing::Test {
 
   // Posts a task to delete the profile.
   void DelayedDeleteProfile(Profile* profile) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&TestingProfileManager::DeleteTestingProfile,
                                   base::Unretained(&profile_manager_),
                                   profile->GetProfileUserName()));
@@ -1336,12 +1336,12 @@ TEST_F(IncidentReportingServiceTest, CleanLegacyPruneState) {
   // Let all tasks run.
   mock_time_task_runner_->FastForwardUntilNoTasksRemain();
 
-  const base::Value* new_state =
-      profile->GetPrefs()->GetDictionary(prefs::kSafeBrowsingIncidentsSent);
+  const base::Value::Dict& new_state =
+      profile->GetPrefs()->GetDict(prefs::kSafeBrowsingIncidentsSent);
   // The legacy value must be gone.
-  ASSERT_FALSE(new_state->FindKey(blocklist_load_type));
+  ASSERT_FALSE(new_state.Find(blocklist_load_type));
   // But other data must be untouched.
-  ASSERT_TRUE(new_state->FindKey(preference_type));
+  ASSERT_TRUE(new_state.Find(preference_type));
 }
 
 // Tests that an identical incident added after an incident is pruned and

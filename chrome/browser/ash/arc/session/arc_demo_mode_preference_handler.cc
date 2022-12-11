@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,9 +52,9 @@ void ArcDemoModePreferenceHandler::OnPreferenceChanged() {
       pref_service_->GetInteger(prefs::kDemoModeConfig));
   switch (config) {
     case ash::DemoSession::DemoModeConfig::kNone:
+    case ash::DemoSession::DemoModeConfig::kOfflineDeprecated:
       return;
     case ash::DemoSession::DemoModeConfig::kOnline:
-    case ash::DemoSession::DemoModeConfig::kOffline:
       break;
   }
 

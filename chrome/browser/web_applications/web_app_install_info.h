@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,8 @@
 #include <string>
 #include <vector>
 
-#include "base/containers/flat_set.h"
 #include "base/values.h"
+#include "chrome/browser/web_applications/user_display_mode.h"
 #include "components/services/app_service/public/cpp/file_handler.h"
 #include "components/services/app_service/public/cpp/icon_info.h"
 #include "components/services/app_service/public/cpp/protocol_handler_info.h"
@@ -21,6 +21,7 @@
 #include "components/services/app_service/public/cpp/url_handler_info.h"
 #include "components/webapps/common/web_page_metadata.mojom-forward.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/common/permissions_policy/permissions_policy.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -116,7 +117,7 @@ struct WebAppShortcutsMenuItemInfo {
   struct Icon {
     Icon();
     Icon(const Icon&);
-    Icon(Icon&&);
+    Icon(Icon&&) noexcept;
     ~Icon();
     Icon& operator=(const Icon&);
     Icon& operator=(Icon&&);
@@ -172,10 +173,26 @@ struct WebAppInstallInfo {
     MOBILE_CAPABLE_APPLE
   };
 
+  // Returns a copy of the |other| that has only the fields that should be
+  // copied/derived from various sources (e.g generated icons, manifest
+  // properties). This will strip out app-like fields such as file handlers etc.
+  static WebAppInstallInfo CreateInstallInfoForCreateShortcut(
+      const GURL& document_url,
+      const WebAppInstallInfo& other);
+
   WebAppInstallInfo();
-  WebAppInstallInfo(const WebAppInstallInfo& other);
+
+  // Deleted to prevent accidental copying. Use Clone() to deep copy explicitly.
+  WebAppInstallInfo& operator=(const WebAppInstallInfo&) = delete;
+
+  WebAppInstallInfo(WebAppInstallInfo&&);
+  WebAppInstallInfo& operator=(WebAppInstallInfo&&);
+
   explicit WebAppInstallInfo(const webapps::mojom::WebPageMetadata& metadata);
   ~WebAppInstallInfo();
+
+  // Creates a deep copy of this struct.
+  WebAppInstallInfo Clone() const;
 
   // Id specified in the manifest.
   absl::optional<std::string> manifest_id;
@@ -223,9 +240,6 @@ struct WebAppInstallInfo {
   // tag.
   MobileCapable mobile_capable = MOBILE_CAPABLE_UNSPECIFIED;
 
-  // The color to use if an icon needs to be generated for the web app.
-  SkColor generated_icon_color = SK_ColorTRANSPARENT;
-
   // The color to use for the web app frame.
   absl::optional<SkColor> theme_color;
 
@@ -253,8 +267,8 @@ struct WebAppInstallInfo {
   // User preference for whether the app should be opened as a tab or in an app
   // window. Must be either kBrowser or kStandalone, this will be checked by
   // WebApp::SetUserDisplayMode().
-  blink::mojom::DisplayMode user_display_mode =
-      blink::mojom::DisplayMode::kBrowser;
+  absl::optional<web_app::UserDisplayMode> user_display_mode =
+      web_app::UserDisplayMode::kBrowser;
 
   // The extensions and mime types the app can handle.
   apps::FileHandlers file_handlers;
@@ -281,22 +295,18 @@ struct WebAppInstallInfo {
   // information.
   apps::UrlHandlers url_handlers;
 
+  // URL within scope to launch on the lock screen for a "show on lock screen"
+  // action. Valid iff this is considered a lock-screen-capable app.
+  GURL lock_screen_start_url;
+
   // URL within scope to launch for a "new note" action. Valid iff this is
   // considered a note-taking app.
   GURL note_taking_new_note_url;
-
-  // User preference as to whether to auto run the app on OS login.
-  // Currently only supported in Windows platform.
-  bool run_on_os_login = false;
 
   // The link capturing behaviour to use for navigations into in the app's
   // scope.
   blink::mojom::CaptureLinks capture_links =
       blink::mojom::CaptureLinks::kUndefined;
-
-  // Developer hint for whether app should handle links within its app scope.
-  blink::mojom::HandleLinks handle_links =
-      blink::mojom::HandleLinks::kUndefined;
 
   // Whether the app should be loaded in a dedicated storage partition.
   bool is_storage_isolated = false;
@@ -305,7 +315,29 @@ struct WebAppInstallInfo {
   absl::optional<blink::Manifest::LaunchHandler> launch_handler;
 
   // A mapping from locales to translated fields.
-  base::flat_map<std::u16string, blink::Manifest::TranslationItem> translations;
+  base::flat_map<std::string, blink::Manifest::TranslationItem> translations;
+
+  // The declared permissions policy to apply as the baseline policy for all
+  // documents belonging to the application.
+  blink::ParsedPermissionsPolicy permissions_policy;
+
+  // See ExternallyManagedAppManager for placeholder app documentation.
+  // Intended to be a temporary app while we wait for the install_url to
+  // successfully load.
+  bool is_placeholder = false;
+
+  // The install URL for the app. This does not always need to be
+  // populated (especially for user installed or sync installed apps)
+  // in which case the URL will not be written to the web_app DB.
+  GURL install_url;
+
+  // Customisations to the tab strip. This field is only used when the
+  // display mode is set to 'tabbed'.
+  absl::optional<blink::Manifest::TabStrip> tab_strip;
+
+ private:
+  // Used this method in Clone() method. Use Clone() to deep copy explicitly.
+  WebAppInstallInfo(const WebAppInstallInfo& other);
 };
 
 bool operator==(const IconSizes& icon_sizes1, const IconSizes& icon_sizes2);

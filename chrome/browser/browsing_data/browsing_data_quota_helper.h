@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/task/sequenced_task_runner_helpers.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 
 class BrowsingDataQuotaHelper;
 class Profile;
@@ -34,14 +35,13 @@ class BrowsingDataQuotaHelper
     : public base::RefCountedThreadSafe<BrowsingDataQuotaHelper,
                                         BrowsingDataQuotaHelperDeleter> {
  public:
-  // QuotaInfo contains host-based quota and usage information for persistent
-  // and temporary storage.
+  // QuotaInfo contains host-based quota and usage information for temporary
+  // storage.
   struct QuotaInfo {
     QuotaInfo();
     explicit QuotaInfo(const std::string& host);
     QuotaInfo(const std::string& host,
               int64_t temporary_usage,
-              int64_t persistent_usage,
               int64_t syncable_usage);
     ~QuotaInfo();
 
@@ -53,7 +53,6 @@ class BrowsingDataQuotaHelper
 
     std::string host;
     int64_t temporary_usage = 0;
-    int64_t persistent_usage = 0;
     int64_t syncable_usage = 0;
   };
 
@@ -67,7 +66,8 @@ class BrowsingDataQuotaHelper
 
   virtual void StartFetching(FetchResultCallback callback) = 0;
 
-  virtual void RevokeHostQuota(const std::string& host) = 0;
+  virtual void DeleteHostData(const std::string& host,
+                              blink::mojom::StorageType type) = 0;
 
  protected:
   BrowsingDataQuotaHelper();

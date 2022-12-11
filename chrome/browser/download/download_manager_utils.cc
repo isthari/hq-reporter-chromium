@@ -1,8 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/download/download_manager_utils.h"
+
+#include <utility>
 
 #include "base/bind.h"
 #include "base/no_destructor.h"
@@ -76,14 +78,14 @@ void BindWakeLockProvider(
 }  // namespace
 
 // static
-download::InProgressDownloadManager*
+std::unique_ptr<download::InProgressDownloadManager>
 DownloadManagerUtils::RetrieveInProgressDownloadManager(Profile* profile) {
   ProfileKey* key = profile->GetProfileKey();
   GetInProgressDownloadManager(key);
   auto& map = GetInProgressManagerMap();
   if (GetRetrieveInProgressDownloadManagerCallback())
     GetRetrieveInProgressDownloadManagerCallback().Run(map[key].get());
-  return map[key].release();
+  return std::move(map[key]);
 }
 
 // static

@@ -1,30 +1,31 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/sessions/session_restoration_browser_agent.h"
+#import "ios/chrome/browser/sessions/session_restoration_browser_agent.h"
 
 #import "base/ios/ios_util.h"
-#include "base/memory/ptr_util.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/favicon/ios/web_favicon_driver.h"
+#import "base/memory/ptr_util.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/favicon/ios/web_favicon_driver.h"
 #import "components/previous_session_info/previous_session_info.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/sessions/session_ios.h"
 #import "ios/chrome/browser/sessions/session_ios_factory.h"
 #import "ios/chrome/browser/sessions/session_restoration_observer.h"
 #import "ios/chrome/browser/sessions/session_service_ios.h"
 #import "ios/chrome/browser/sessions/session_window_ios.h"
+#import "ios/chrome/browser/url/chrome_url_constants.h"
 #import "ios/chrome/browser/web/page_placeholder_tab_helper.h"
 #import "ios/chrome/browser/web/session_state/web_session_state_tab_helper.h"
 #import "ios/chrome/browser/web_state_list/all_web_state_observation_forwarder.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_serialization.h"
 #import "ios/chrome/browser/web_state_list/web_usage_enabler/web_usage_enabler_browser_agent.h"
-#include "ios/web/public/navigation/navigation_item.h"
+#import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
+#import "ios/web/public/session/crw_session_storage.h"
 #import "ios/web/public/web_state.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -32,18 +33,6 @@
 #endif
 
 BROWSER_USER_DATA_KEY_IMPL(SessionRestorationBrowserAgent)
-
-// static
-void SessionRestorationBrowserAgent::CreateForBrowser(
-    Browser* browser,
-    SessionServiceIOS* session_service) {
-  DCHECK(browser);
-  if (!FromBrowser(browser)) {
-    browser->SetUserData(UserDataKey(),
-                         base::WrapUnique(new SessionRestorationBrowserAgent(
-                             browser, session_service)));
-  }
-}
 
 SessionRestorationBrowserAgent::SessionRestorationBrowserAgent(
     Browser* browser,
@@ -96,11 +85,6 @@ bool SessionRestorationBrowserAgent::RestoreSessionWindow(
   const int old_count = web_state_list_->count();
   DCHECK_GE(old_count, 0);
 
-  // Don't trigger the initial load for these restored WebStates since the
-  // number of WKWebViews is unbounded and may lead to an OOM crash.
-  const bool saved_triggers_initial_load = web_enabler_->TriggersInitialLoad();
-  web_enabler_->SetTriggersInitialLoad(false);
-
   web_state_list_->PerformBatchOperation(
       base::BindOnce(^(WebStateList* web_state_list) {
         web::WebState::CreateParams create_params(browser_state_);
@@ -110,8 +94,6 @@ bool SessionRestorationBrowserAgent::RestoreSessionWindow(
                                 create_params));
       }));
 
-  web_enabler_->SetTriggersInitialLoad(saved_triggers_initial_load);
-
   DCHECK_GT(web_state_list_->count(), old_count);
   int restored_count = web_state_list_->count() - old_count;
   DCHECK_EQ(window.sessions.count, static_cast<NSUInteger>(restored_count));
@@ -119,8 +101,13 @@ bool SessionRestorationBrowserAgent::RestoreSessionWindow(
   std::vector<web::WebState*> restored_web_states;
   restored_web_states.reserve(window.sessions.count);
 
+  std::vector<web::WebState*> web_states_to_remove;
   for (int index = old_count; index < web_state_list_->count(); ++index) {
     web::WebState* web_state = web_state_list_->GetWebStateAt(index);
+    if (window.sessions[index - old_count].itemStorages.count == 0) {
+      web_states_to_remove.push_back(web_state);
+      continue;
+    }
     const GURL& visible_url = web_state->GetVisibleURL();
 
     if (visible_url != kChromeUINewTabURL) {
@@ -134,6 +121,12 @@ bool SessionRestorationBrowserAgent::RestoreSessionWindow(
     }
 
     restored_web_states.push_back(web_state);
+  }
+
+  for (web::WebState* web_state_to_remove : web_states_to_remove) {
+    const int index = web_state_list_->GetIndexOfWebState(web_state_to_remove);
+    DCHECK(index != WebStateList::kInvalidIndex);
+    web_state_list_->CloseWebStateAt(index, WebStateList::CLOSE_NO_FLAGS);
   }
 
   // If there was only one tab and it was the new tab page, clobber it.
@@ -166,7 +159,8 @@ bool SessionRestorationBrowserAgent::RestoreSession() {
   DCHECK(session_identifier_.length != 0);
 
   PreviousSessionInfo* session_info = [PreviousSessionInfo sharedInstance];
-  auto scoped_restore = [session_info startSessionRestoration];
+  base::ScopedClosureRunner scoped_restore =
+      [session_info startSessionRestoration];
 
   SessionIOS* session = [session_service_
       loadSessionWithSessionID:session_identifier_
@@ -248,6 +242,19 @@ void SessionRestorationBrowserAgent::WillDetachWebStateAt(
     return;
 
   // Persist the session state if a background tab is detached.
+  SaveSession(/*immediately=*/false);
+}
+
+void SessionRestorationBrowserAgent::WebStateDetachedAt(
+    WebStateList* web_state_list,
+    web::WebState* web_state,
+    int index) {
+  if (!web_state_list_->empty())
+    return;
+
+  // Persist the session state after CloseAllWebStates. SaveSession will discard
+  // calls when the web_state_list is not empty and the active WebState is null,
+  // which is the order CloseAllWebStates uses.
   SaveSession(/*immediately=*/false);
 }
 

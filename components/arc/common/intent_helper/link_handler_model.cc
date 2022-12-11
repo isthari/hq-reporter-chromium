@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/notreached.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/chromeos_buildflags.h"
+#include "components/arc/common/intent_helper/arc_intent_helper_package.h"
 #include "components/google/core/common/google_util.h"
 #include "url/url_util.h"
 
@@ -36,7 +37,7 @@ bool GetQueryValue(const GURL& url,
   url::Component value;
 
   while (url::ExtractQueryKeyValue(str.c_str(), &query, &key, &value)) {
-    if (!value.is_nonempty())
+    if (value.is_empty())
       continue;
     if (str.substr(key.begin, key.len) == key_to_find) {
       if (value.len >= kMaxValueLen)
@@ -110,7 +111,7 @@ bool LinkHandlerModel::Init(content::BrowserContext* context, const GURL& url) {
 void LinkHandlerModel::OnUrlHandlerList(
     std::vector<ArcIntentHelperMojoDelegate::IntentHandlerInfo> handlers) {
   for (auto& handler : handlers) {
-    if (handler.package_name == "org.chromium.arc.intent_helper")
+    if (handler.package_name == kArcIntentHelperPackageName)
       continue;
     handlers_.push_back(std::move(handler));
   }
@@ -183,8 +184,8 @@ GURL LinkHandlerModel::RewriteUrlFromQueryIfAvailable(const GURL& url) {
   static const char kPathToFind[] = "/url";
   static const char kKeyToFind[] = "url";
 
-  if (!google_util::IsGoogleHostname(url.host_piece(),
-                                     google_util::DISALLOW_SUBDOMAIN)) {
+  if (!google_util::IsGoogleDomainUrl(url, google_util::DISALLOW_SUBDOMAIN,
+                                      google_util::ALLOW_NON_STANDARD_PORTS)) {
     return url;
   }
   if (!url.has_path() || url.path() != kPathToFind)

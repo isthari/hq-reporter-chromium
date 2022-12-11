@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,15 +15,22 @@ GEN_INCLUDE([
  */
 ChromeVoxIntentHandlerTest = class extends ChromeVoxNextE2ETest {
   /** @override */
-  setUp() {
+  async setUpDeferred() {
+    await super.setUpDeferred();
+
+    // Alphabetical based on file path.
+    await importModule(
+        'IntentHandler', '/chromevox/background/editing/intent_handler.js');
+    await importModule('Output', '/chromevox/background/output/output.js');
+    await importModule(
+        'OutputCustomEvent', '/chromevox/background/output/output_types.js');
+
     window.Dir = constants.Dir;
     window.IntentTextBoundaryType = chrome.automation.IntentTextBoundaryType;
-    window.Movement = cursors.Movement;
-    window.Unit = cursors.Unit;
   }
 };
 
-SYNC_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByCharacter', function() {
+AX_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByCharacter', function() {
   let calls = [];
   const fakeLine = class {
     constructor(startOffset) {
@@ -60,7 +67,7 @@ SYNC_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByCharacter', function() {
   assertEquals(3, calls.length);
   assertArraysEquals(['createCharRange'], calls[0]);
   assertArraysEquals(
-      ['withRichSpeechAndBraille', {}, null, OutputEventType.NAVIGATE],
+      ['withRichSpeechAndBraille', {}, null, OutputCustomEvent.NAVIGATE],
       calls[1]);
   assertArraysEquals(['go'], calls[2]);
 
@@ -70,20 +77,19 @@ SYNC_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByCharacter', function() {
   assertArraysEquals(['createCharRange'], calls[0]);
   assertArraysEquals(['createCharRange'], calls[1]);
   assertArraysEquals(
-      ['withRichSpeechAndBraille', {}, {}, OutputEventType.NAVIGATE], calls[2]);
+      ['withRichSpeechAndBraille', {}, {}, OutputCustomEvent.NAVIGATE],
+      calls[2]);
   assertArraysEquals(['go'], calls[3]);
 });
 
-SYNC_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByWord', function() {
+AX_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByWord', function() {
   let calls = [];
-  const fakeLine = new class {
-    constructor() {}
-
+  const fakeLine = new (class {
     createWordRange(...args) {
       calls.push(['createWordRange', ...args]);
       return {};
     }
-  };
+  })();
 
   Output.prototype.withSpeech = function(...args) {
     calls.push(['withSpeech', ...args]);
@@ -99,7 +105,7 @@ SYNC_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByWord', function() {
   assertEquals(3, calls.length);
   assertArraysEquals(['createWordRange', true], calls[0]);
   assertArraysEquals(
-      ['withSpeech', {}, null, OutputEventType.NAVIGATE], calls[1]);
+      ['withSpeech', {}, null, OutputCustomEvent.NAVIGATE], calls[1]);
   assertArraysEquals(['go'], calls[2]);
 
   calls = [];
@@ -108,7 +114,7 @@ SYNC_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByWord', function() {
   assertEquals(3, calls.length);
   assertArraysEquals(['createWordRange', false], calls[0]);
   assertArraysEquals(
-      ['withSpeech', {}, null, OutputEventType.NAVIGATE], calls[1]);
+      ['withSpeech', {}, null, OutputCustomEvent.NAVIGATE], calls[1]);
   assertArraysEquals(['go'], calls[2]);
 
   calls = [];
@@ -117,8 +123,8 @@ SYNC_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByWord', function() {
   assertEquals(0, calls.length);
 });
 
-SYNC_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByLine', function() {
-  const fakeLine = new class {
+AX_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByLine', function() {
+  const fakeLine = new (class {
     constructor() {
       this.speakLineCount = 0;
     }
@@ -128,11 +134,11 @@ SYNC_TEST_F('ChromeVoxIntentHandlerTest', 'MoveByLine', function() {
     }
 
     get start() {
-      return new class {
+      return new (class {
         move() {}
-      };
+      })();
     }
-  };
+  })();
 
   Output.prototype.withSpeech = function() {
     return this;

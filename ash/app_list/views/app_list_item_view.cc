@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "ash/app_list/app_list_metrics.h"
+#include "ash/app_list/app_list_util.h"
 #include "ash/app_list/app_list_view_delegate.h"
 #include "ash/app_list/model/app_list_folder_item.h"
 #include "ash/app_list/model/app_list_item.h"
@@ -18,11 +19,12 @@
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/app_list/app_list_color_provider.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
-#include "ash/public/cpp/app_list/app_list_switches.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
 #include "ash/public/cpp/style/color_provider.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/style/dot_indicator.h"
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/check.h"
@@ -34,27 +36,22 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
-#include "ui/gfx/animation/throb_animation.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/color_analysis.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/gfx/geometry/transform_util.h"
-#include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image_skia_operations.h"
-#include "ui/gfx/scoped_canvas.h"
 #include "ui/gfx/shadow_value.h"
-#include "ui/gfx/skia_paint_util.h"
-#include "ui/strings/grit/ui_strings.h"
-#include "ui/views/accessibility/accessibility_paint_checks.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/menu/menu_runner.h"
-#include "ui/views/drag_controller.h"
+#include "ui/views/focus/focus_manager.h"
+#include "ui/views/widget/widget.h"
 
 namespace ash {
 
@@ -71,9 +68,6 @@ constexpr int kTouchLongpressDelayInMs = 300;
 
 // The drag and drop app icon should get scaled by this factor.
 constexpr float kDragDropAppIconScale = 1.2f;
-
-// The app icon should get scaled by this factor when entering cardify mode.
-constexpr float kCardifyIconScale = 0.84f;
 
 // The drag and drop icon scaling up or down animation transition duration.
 constexpr int kDragDropAppIconScaleTransitionInMs = 200;
@@ -158,55 +152,35 @@ class DotView : public views::View {
   }
 };
 
+// Returns whether the `index` is considered on the left edge of a grid with
+// `cols` columns.
+bool IsIndexOnLeftEdge(GridIndex index, int cols) {
+  return (index.slot % cols) == 0;
+}
+
+// Returns whether the `index` is considered on the right edge of a grid with
+// `cols` columns.
+bool IsIndexOnRightEdge(GridIndex index, int cols) {
+  return ((index.slot + 1) % cols) == 0;
+}
+
+bool IsIndexMovingFromOneEdgeToAnother(GridIndex old_index,
+                                       GridIndex new_index,
+                                       int cols) {
+  return (IsIndexOnLeftEdge(new_index, cols) &&
+          IsIndexOnRightEdge(old_index, cols)) ||
+         (IsIndexOnLeftEdge(old_index, cols) &&
+          IsIndexOnRightEdge(new_index, cols));
+}
+
+bool IsIndexMovingToDifferentRow(GridIndex old_index,
+                                 GridIndex new_index,
+                                 int cols) {
+  return old_index.slot / cols != new_index.slot / cols ||
+         old_index.page != new_index.page;
+}
+
 }  // namespace
-
-// The badge which is activated when the app corresponding with this
-// AppListItemView receives a notification.
-class AppListItemView::AppNotificationIndicatorView : public views::View {
- public:
-  explicit AppNotificationIndicatorView(SkColor indicator_color)
-      : shadow_values_(gfx::ShadowValue::MakeMdShadowValues(2)),
-        indicator_color_(indicator_color) {}
-  AppNotificationIndicatorView(const AppNotificationIndicatorView& other) =
-      delete;
-  AppNotificationIndicatorView& operator=(
-      const AppNotificationIndicatorView& other) = delete;
-  ~AppNotificationIndicatorView() override = default;
-
-  void OnPaint(gfx::Canvas* canvas) override {
-    gfx::ScopedCanvas scoped(canvas);
-
-    canvas->SaveLayerAlpha(SK_AlphaOPAQUE);
-
-    DCHECK_EQ(width(), height());
-    const float dsf = canvas->UndoDeviceScaleFactor();
-
-    float radius = width() * kNotificationIndicatorWidthRatio / 2.0f;
-    float padding = width() * kNotificationIndicatorPaddingRatio;
-
-    float center_x =
-        base::i18n::IsRTL() ? padding + radius : width() - radius - padding;
-    float center_y = padding + radius;
-    gfx::PointF center = gfx::PointF(center_x, center_y);
-    center.Scale(dsf);
-
-    // Fill the center.
-    cc::PaintFlags flags;
-    flags.setLooper(gfx::CreateShadowDrawLooper(shadow_values_));
-    flags.setColor(indicator_color_);
-    flags.setAntiAlias(true);
-    canvas->DrawCircle(center, dsf * radius, flags);
-  }
-
-  void SetColor(SkColor new_color) {
-    indicator_color_ = new_color;
-    SchedulePaint();
-  }
-
- private:
-  const gfx::ShadowValues shadow_values_;
-  SkColor indicator_color_;
-};
 
 // ImageView for the item icon.
 class AppListItemView::IconImageView : public views::ImageView {
@@ -319,26 +293,24 @@ AppListItemView::AppListItemView(const AppListConfig* app_list_config,
       view_delegate_(view_delegate),
       context_(context) {
   DCHECK(app_list_config_);
-  // TODO(crbug.com/1218186): Remove this, this is in place temporarily to be
-  // able to submit accessibility checks. This crashes if fetching a11y node
-  // data during paint because message_view_ is null.
-  SetProperty(views::kSkipAccessibilityPaintChecks, true);
   DCHECK(grid_delegate_);
   DCHECK(view_delegate_);
   SetFocusBehavior(FocusBehavior::ALWAYS);
   set_suppress_default_focus_handling();
+  GetViewAccessibility().OverrideIsLeaf(true);
 
   auto title = std::make_unique<views::Label>();
   title->SetBackgroundColor(SK_ColorTRANSPARENT);
   title->SetHandlesTooltips(false);
   title->SetFontList(app_list_config_->app_title_font());
   title->SetHorizontalAlignment(gfx::ALIGN_CENTER);
-  title->SetEnabledColor(AppListColorProvider::Get()->GetAppListItemTextColor(
-      grid_delegate_->IsInFolder()));
 
   icon_ = AddChildView(std::make_unique<IconImageView>());
 
   if (is_folder_) {
+    icon_->SetBackground(views::CreateThemedSolidBackground(
+        kColorAshControlBackgroundColorInactive));
+
     // Set background blur for folder icon and use mask layer to clip it into
     // circle. Note that blur is only enabled in tablet mode to improve dragging
     // smoothness.
@@ -348,14 +320,9 @@ AppListItemView::AppListItemView(const AppListConfig* app_list_config,
                             false /*animate*/);
   }
 
-  if (!is_folder_) {
-    notification_indicator_ =
-        AddChildView(std::make_unique<AppNotificationIndicatorView>(
-            item->notification_badge_color()));
-    notification_indicator_->SetPaintToLayer();
-    notification_indicator_->layer()->SetFillsBoundsOpaquely(false);
-    notification_indicator_->SetVisible(item->has_notification_badge());
-  }
+  notification_indicator_ = AddChildView(
+      std::make_unique<DotIndicator>(item->GetNotificationBadgeColor(this)));
+  notification_indicator_->SetVisible(item->has_notification_badge());
 
   title_ = AddChildView(std::move(title));
 
@@ -377,19 +344,23 @@ AppListItemView::AppListItemView(const AppListConfig* app_list_config,
   SetAnimationDuration(base::TimeDelta());
 
   preview_circle_radius_ = 0;
+}
 
+void AppListItemView::InitializeIconLoader() {
+  DCHECK(item_weak_);
   // Creates app icon load helper. base::Unretained is safe because `this` owns
   // `icon_load_helper_` and `view_delegate_` outlives `this`.
   if (is_folder_) {
-    AppListFolderItem* folder_item = static_cast<AppListFolderItem*>(item);
+    AppListFolderItem* folder_item =
+        static_cast<AppListFolderItem*>(item_weak_);
     icon_load_helper_.emplace(
         folder_item->item_list(),
         base::BindRepeating(&AppListViewDelegate::LoadIcon,
                             base::Unretained(view_delegate_)));
   } else {
     icon_load_helper_.emplace(
-        item, base::BindRepeating(&AppListViewDelegate::LoadIcon,
-                                  base::Unretained(view_delegate_)));
+        item_weak_, base::BindRepeating(&AppListViewDelegate::LoadIcon,
+                                        base::Unretained(view_delegate_)));
   }
 }
 
@@ -456,13 +427,17 @@ void AppListItemView::SetUIState(UIState ui_state) {
   switch (ui_state) {
     case UI_STATE_NORMAL:
       title_->SetVisible(true);
-      if (ui_state_ == UI_STATE_DRAGGING)
+      if (ui_state_ == UI_STATE_DRAGGING) {
+        GetWidget()->SetCursor(ui::mojom::CursorType::kNull);
         ScaleAppIcon(false);
+      }
       break;
     case UI_STATE_DRAGGING:
       title_->SetVisible(false);
-      if (ui_state_ == UI_STATE_NORMAL && !in_cardified_grid_)
+      if (ui_state_ == UI_STATE_NORMAL && !in_cardified_grid_) {
+        GetWidget()->SetCursor(ui::mojom::CursorType::kGrabbing);
         ScaleAppIcon(true);
+      }
       break;
     case UI_STATE_DROPPING_IN_FOLDER:
       break;
@@ -527,6 +502,9 @@ void AppListItemView::SetTouchDragging(bool touch_dragging) {
 
   touch_dragging_ = touch_dragging;
 
+  if (context_menu_for_folder_)
+    context_menu_for_folder_->set_owner_touch_dragging(touch_dragging_);
+
   SetState(STATE_NORMAL);
   SetUIState(touch_dragging_ ? UI_STATE_DRAGGING : UI_STATE_NORMAL);
 
@@ -589,16 +567,20 @@ void AppListItemView::OnDragEnded() {
   touch_dragging_ = false;
   touch_drag_timer_.Stop();
 
+  if (context_menu_for_folder_)
+    context_menu_for_folder_->set_owner_touch_dragging(false);
+
   SetUIState(UI_STATE_NORMAL);
   drag_state_ = DragState::kNone;
 }
 
 void AppListItemView::CancelContextMenu() {
-  if (!item_menu_model_adapter_)
-    return;
-
-  menu_close_initiated_from_drag_ = true;
-  item_menu_model_adapter_->Cancel();
+  if (item_menu_model_adapter_) {
+    menu_close_initiated_from_drag_ = true;
+    item_menu_model_adapter_->Cancel();
+  }
+  if (context_menu_for_folder_)
+    context_menu_for_folder_->Cancel();
 }
 
 gfx::Point AppListItemView::GetDragImageOffset() {
@@ -646,11 +628,18 @@ void AppListItemView::SetItemName(const std::u16string& display_name,
 }
 
 void AppListItemView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  if (!item_weak_)
-    return;
-
+  // When this item is being removed, there will still be an accessible object
+  // in the accessibility tree until it is destroyed. Populating AXNodeData
+  // with the information from the button makes it possible for assistive
+  // technologies to obtain the name and role/type of the control along with
+  // relevant states such as disabled. It is also necessary to pass the
+  // accessibility paint checks: items that claim to be focusable must have
+  // a valid role.
   DCHECK(node_data);
   Button::GetAccessibleNodeData(node_data);
+
+  if (!item_weak_)
+    return;
 
   auto app_status = item_weak_->app_status();
   switch (app_status) {
@@ -665,6 +654,11 @@ void AppListItemView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
               IDS_APP_LIST_PAUSED_APP));
       break;
     default:
+      if (item_weak_->is_new_install()) {
+        node_data->SetDescription(
+            ui::ResourceBundle::GetSharedInstance().GetLocalizedString(
+                IDS_APP_LIST_NEW_INSTALL_ACCESSIBILE_DESCRIPTION));
+      }
       break;
   }
 }
@@ -686,11 +680,18 @@ void AppListItemView::OnContextMenuModelReceived(
 
   menu_show_initiated_from_key_ = source_type == ui::MENU_SOURCE_KEYBOARD;
 
+  // Clear the existing focus in other elements to prevent having a focus
+  // indicator on other non-selected views.
+  if (GetFocusManager()->GetFocusedView()) {
+    GetFocusManager()->ClearFocus();
+    focus_removed_by_context_menu_ = true;
+  }
+
   if (!grid_delegate_->IsSelectedView(this))
     grid_delegate_->ClearSelectedView();
 
   int run_types = views::MenuRunner::HAS_MNEMONICS |
-                  views::MenuRunner::USE_TOUCHABLE_LAYOUT |
+                  views::MenuRunner::USE_ASH_SYS_UI_LAYOUT |
                   views::MenuRunner::FIXED_ANCHOR |
                   views::MenuRunner::CONTEXT_MENU;
 
@@ -708,9 +709,7 @@ void AppListItemView::OnContextMenuModelReceived(
   AppLaunchedMetricParams metric_params;
   switch (context_) {
     case Context::kAppsGridView:
-      app_type = features::IsProductivityLauncherEnabled()
-                     ? AppListMenuModelAdapter::PRODUCTIVITY_LAUNCHER_APP_GRID
-                     : AppListMenuModelAdapter::FULLSCREEN_APP_GRID;
+      app_type = AppListMenuModelAdapter::PRODUCTIVITY_LAUNCHER_APP_GRID;
       metric_params.launched_from = AppListLaunchedFrom::kLaunchedFromGrid;
       metric_params.launch_type = AppListLaunchType::kApp;
       break;
@@ -754,13 +753,13 @@ void AppListItemView::ShowContextMenuForViewImpl(
     return;
   waiting_for_context_menu_options_ = true;
 
-  // If this item view is in the AppsGridView with the app sort feature enabled,
-  // request the context menu model to add sort options that can sort the app
-  // list.
-  bool add_sort_options = features::IsLauncherAppSortEnabled() &&
-                          context_ == Context::kAppsGridView;
+  // When the context menu comes from the apps grid it has sorting options. When
+  // it comes from recent apps it has an option to hide the continue section.
+  AppListItemContext item_context = context_ == Context::kAppsGridView
+                                        ? AppListItemContext::kAppsGrid
+                                        : AppListItemContext::kRecentApps;
   view_delegate_->GetContextMenuModel(
-      item_weak_->id(), add_sort_options,
+      item_weak_->id(), item_context,
       base::BindOnce(&AppListItemView::OnContextMenuModelReceived,
                      weak_ptr_factory_.GetWeakPtr(), point, source_type));
 }
@@ -778,32 +777,34 @@ void AppListItemView::PaintButtonContents(gfx::Canvas* canvas) {
   if (drag_state_ != DragState::kNone)
     return;
 
+  const views::Widget* app_list_widget = GetWidget();
   if ((grid_delegate_->IsSelectedView(this) || HasFocus()) &&
       (view_delegate_->KeyboardTraversalEngaged() ||
        waiting_for_context_menu_options_ || IsShowingAppMenu())) {
     cc::PaintFlags flags;
     flags.setAntiAlias(true);
-    // Clamshell ProductivityLauncher always has keyboard traversal engaged, so
-    // explicitly check HasFocus() before drawing focus ring. This allows
-    // right-click "selected" apps to avoid drawing the focus ring.
+    // Clamshell Launcher always has keyboard traversal engaged, so explicitly
+    // check HasFocus() before drawing focus ring. This allows right-click
+    // "selected" apps to avoid drawing the focus ring.
     const bool draw_focus_ring =
-        features::IsProductivityLauncherEnabled() &&
-                !view_delegate_->IsInTabletMode()
-            ? HasFocus()
-            : view_delegate_->KeyboardTraversalEngaged();
+        view_delegate_->IsInTabletMode()
+            ? view_delegate_->KeyboardTraversalEngaged()
+            : HasFocus();
     if (draw_focus_ring) {
-      flags.setColor(AppListColorProvider::Get()->GetFocusRingColor());
+      flags.setColor(
+          AppListColorProvider::Get()->GetFocusRingColor(app_list_widget));
       flags.setStyle(cc::PaintFlags::kStroke_Style);
       flags.setStrokeWidth(kFocusRingWidth);
     } else {
       // Draw a background highlight ("selected" in the UI spec).
       const AppListColorProvider* color_provider = AppListColorProvider::Get();
-      const SkColor bg_color = grid_delegate_->IsInFolder()
-                                   ? color_provider->GetFolderBackgroundColor()
-                                   : gfx::kPlaceholderColor;
-      flags.setColor(
-          SkColorSetA(color_provider->GetInkDropBaseColor(bg_color),
-                      color_provider->GetInkDropOpacity(bg_color) * 255));
+      const SkColor bg_color =
+          grid_delegate_->IsInFolder()
+              ? color_provider->GetFolderBackgroundColor(app_list_widget)
+              : gfx::kPlaceholderColor;
+      flags.setColor(SkColorSetA(
+          color_provider->GetInkDropBaseColor(app_list_widget, bg_color),
+          color_provider->GetInkDropOpacity(app_list_widget, bg_color) * 255));
       flags.setStyle(cc::PaintFlags::kFill_Style);
     }
     gfx::Rect selection_highlight_bounds = GetContentsBounds();
@@ -822,7 +823,8 @@ void AppListItemView::PaintButtonContents(gfx::Canvas* canvas) {
   cc::PaintFlags flags;
   flags.setStyle(cc::PaintFlags::kFill_Style);
   flags.setAntiAlias(true);
-  flags.setColor(AppListColorProvider::Get()->GetFolderBubbleColor());
+  flags.setColor(
+      GetColorProvider()->GetColor(kColorAshControlBackgroundColorInactive));
   canvas->DrawCircle(center, preview_circle_radius, flags);
 }
 
@@ -851,19 +853,34 @@ void AppListItemView::Layout() {
 
   gfx::Rect title_bounds = GetTitleBoundsForTargetViewBounds(
       app_list_config_, rect, title_->GetPreferredSize(), icon_scale_);
-  // Reserve space for the new install dot if it is visible. Otherwise it
-  // extends outside the app grid tile bounds and gets clipped.
-  if (new_install_dot_->GetVisible())
-    title_bounds.Inset(kNewInstallDotSize, 0, 0, 0);
+  if (new_install_dot_ && new_install_dot_->GetVisible()) {
+    // If the new install dot is showing, and the dot would extend outside the
+    // left edge of the tile, inset the title bounds to make space for the dot.
+    int dot_x = title_bounds.x() - kNewInstallDotSize - kNewInstallDotPadding;
+    if (dot_x < 0)
+      title_bounds.Inset(gfx::Insets::TLBR(0, kNewInstallDotSize, 0, 0));
+  }
   title_->SetBoundsRect(title_bounds);
 
-  new_install_dot_->SetBounds(
-      title_bounds.x() - kNewInstallDotSize - kNewInstallDotPadding,
-      title_bounds.y() + title_bounds.height() / 2 - kNewInstallDotSize / 2,
-      kNewInstallDotSize, kNewInstallDotSize);
+  if (new_install_dot_) {
+    new_install_dot_->SetBounds(
+        title_bounds.x() - kNewInstallDotSize - kNewInstallDotPadding,
+        title_bounds.y() + title_bounds.height() / 2 - kNewInstallDotSize / 2,
+        kNewInstallDotSize, kNewInstallDotSize);
+  }
 
-  if (notification_indicator_)
-    notification_indicator_->SetBoundsRect(icon_bounds);
+  const float indicator_size =
+      icon_bounds.width() * kNotificationIndicatorWidthRatio;
+  const float indicator_padding =
+      icon_bounds.width() * kNotificationIndicatorPaddingRatio;
+
+  const float indicator_x =
+      icon_bounds.right() - indicator_size - indicator_padding;
+  const float indicator_y = icon_bounds.y() + indicator_padding;
+
+  const gfx::Rect indicator_bounds = gfx::ToRoundedRect(
+      gfx::RectF(indicator_x, indicator_y, indicator_size, indicator_size));
+  notification_indicator_->SetIndicatorBounds(indicator_bounds);
 }
 
 gfx::Size AppListItemView::CalculatePreferredSize() const {
@@ -1002,8 +1019,13 @@ void AppListItemView::OnGestureEvent(ui::GestureEvent* event) {
 
 void AppListItemView::OnThemeChanged() {
   views::Button::OnThemeChanged();
-  title_->SetEnabledColor(AppListColorProvider::Get()->GetAppListItemTextColor(
-      grid_delegate_->IsInFolder()));
+  if (item_weak_) {
+    item_weak_->RequestFolderIconUpdate();
+    notification_indicator_->SetColor(
+        item_weak_->GetNotificationBadgeColor(this));
+  }
+  title_->SetEnabledColor(
+      AppListColorProvider::Get()->GetAppListItemTextColor(GetWidget()));
   SchedulePaint();
 }
 
@@ -1016,7 +1038,7 @@ std::u16string AppListItemView::GetTooltipText(const gfx::Point& p) const {
   title_->SetTooltipText(tooltip_text_);
   std::u16string tooltip = title_->GetTooltipText(p);
   title_->SetHandlesTooltips(false);
-  if (item_weak_ && item_weak_->is_new_install()) {
+  if (new_install_dot_ && new_install_dot_->GetVisible() && !is_folder_) {
     // Tooltip becomes two lines: "App Name" + "New install".
     tooltip = l10n_util::GetStringFUTF16(IDS_APP_LIST_NEW_INSTALL, tooltip);
   }
@@ -1084,12 +1106,41 @@ bool AppListItemView::IsShowingAppMenu() const {
 }
 
 bool AppListItemView::IsNotificationIndicatorShownForTest() const {
-  return notification_indicator_ && notification_indicator_->GetVisible();
+  return notification_indicator_->GetVisible();
 }
 
 void AppListItemView::SetContextMenuShownCallbackForTest(
     base::RepeatingClosure closure) {
   context_menu_shown_callback_ = std::move(closure);
+}
+
+gfx::Rect AppListItemView::GetDefaultTitleBoundsForTest() {
+  return GetTitleBoundsForTargetViewBounds(
+      app_list_config_, GetContentsBounds(), title_->GetPreferredSize(),
+      icon_scale_);
+}
+
+void AppListItemView::SetMostRecentGridIndex(GridIndex new_grid_index,
+                                             int columns) {
+  if (new_grid_index == most_recent_grid_index_) {
+    has_pending_row_change_ = false;
+    return;
+  }
+
+  if (most_recent_grid_index_.IsValid()) {
+    // Pending row changes are only flagged when the item index changes from one
+    // edge of the grid to the other and into a different row.
+    if (IsIndexMovingFromOneEdgeToAnother(most_recent_grid_index_,
+                                          new_grid_index, columns) &&
+        IsIndexMovingToDifferentRow(most_recent_grid_index_, new_grid_index,
+                                    columns)) {
+      has_pending_row_change_ = true;
+    } else {
+      has_pending_row_change_ = false;
+    }
+  }
+
+  most_recent_grid_index_ = new_grid_index;
 }
 
 void AppListItemView::AnimationProgressed(const gfx::Animation* animation) {
@@ -1118,6 +1169,12 @@ void AppListItemView::OnMenuClosed() {
   // Keep the item focused if the menu was shown via keyboard.
   if (!menu_show_initiated_from_key_)
     OnBlur();
+
+  if (focus_removed_by_context_menu_) {
+    // Restore the last focused view when exiting the menu.
+    GetFocusManager()->RestoreFocusedView();
+    focus_removed_by_context_menu_ = false;
+  }
 }
 
 void AppListItemView::OnSyncDragEnd() {
@@ -1156,9 +1213,10 @@ void AppListItemView::SetIconVisible(bool visible) {
 void AppListItemView::EnterCardifyState() {
   in_cardified_grid_ = true;
   gfx::FontList font_size = app_list_config_->app_title_font();
-  const int size_delta = font_size.GetFontSize() * (1 - kCardifyIconScale);
+  const float cardified_scale = GetAppsGridCardifiedScale();
+  const int size_delta = font_size.GetFontSize() * (1 - cardified_scale);
   title_->SetFontList(font_size.DeriveWithSizeDelta(-size_delta));
-  ScaleIconImmediatly(kCardifyIconScale);
+  ScaleIconImmediatly(cardified_scale);
 }
 
 void AppListItemView::ExitCardifyState() {
@@ -1174,7 +1232,8 @@ gfx::Rect AppListItemView::GetIconBoundsForTargetViewBounds(
     const gfx::Size& icon_size,
     const float icon_scale) {
   gfx::Rect rect(target_bounds);
-  rect.Inset(0, 0, 0, config->grid_icon_bottom_padding() * icon_scale);
+  rect.Inset(gfx::Insets::TLBR(
+      0, 0, config->grid_icon_bottom_padding() * icon_scale, 0));
   rect.ClampToCenteredSize(icon_size);
   return rect;
 }
@@ -1186,10 +1245,11 @@ gfx::Rect AppListItemView::GetTitleBoundsForTargetViewBounds(
     const gfx::Size& title_size,
     float icon_scale) {
   gfx::Rect rect(target_bounds);
-  rect.Inset(config->grid_title_horizontal_padding() * icon_scale,
-             config->grid_title_top_padding() * icon_scale,
-             config->grid_title_horizontal_padding() * icon_scale,
-             config->grid_title_bottom_padding() * icon_scale);
+  rect.Inset(
+      gfx::Insets::TLBR(config->grid_title_top_padding() * icon_scale,
+                        config->grid_title_horizontal_padding() * icon_scale,
+                        config->grid_title_bottom_padding() * icon_scale,
+                        config->grid_title_horizontal_padding() * icon_scale));
   rect.ClampToCenteredSize(title_size);
   // Respect the title preferred height, to ensure the text does not get clipped
   // due to padding if the item view gets too small.
@@ -1214,18 +1274,21 @@ void AppListItemView::ItemNameChanged() {
 }
 
 void AppListItemView::ItemBadgeVisibilityChanged() {
-  if (notification_indicator_ && icon_)
+  if (icon_)
     notification_indicator_->SetVisible(item_weak_->has_notification_badge());
 }
 
 void AppListItemView::ItemBadgeColorChanged() {
-  if (notification_indicator_)
-    notification_indicator_->SetColor(item_weak_->notification_badge_color());
+  notification_indicator_->SetColor(
+      item_weak_->GetNotificationBadgeColor(this));
 }
 
 void AppListItemView::ItemIsNewInstallChanged() {
   DCHECK(item_weak_);
-  new_install_dot_->SetVisible(item_weak_->is_new_install());
+  if (new_install_dot_) {
+    new_install_dot_->SetVisible(item_weak_->is_new_install());
+    Layout();
+  }
 }
 
 void AppListItemView::ItemBeingDestroyed() {
@@ -1254,11 +1317,6 @@ void AppListItemView::CreateDraggedViewHoverAnimation() {
 }
 
 void AppListItemView::AdaptBoundsForSelectionHighlight(gfx::Rect* bounds) {
-  // ProductivityLauncher draws the focus highlight around the whole tile.
-  if (!features::IsProductivityLauncherEnabled()) {
-    bounds->Inset(0, 0, 0, app_list_config_->grid_icon_bottom_padding());
-    bounds->ClampToCenteredSize(app_list_config_->grid_focus_size());
-  }
   // Update the bounds to account for the focus ring width - by default, the
   // focus ring is painted so the highlight bounds are centered within the
   // focus ring stroke - this should be overridden so the outer stroke bounds

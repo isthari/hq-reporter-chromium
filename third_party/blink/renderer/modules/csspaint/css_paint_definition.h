@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,8 +64,7 @@ class MODULES_EXPORT CSSPaintDefinition final
   sk_sp<PaintRecord> Paint(const gfx::SizeF& container_size,
                            float zoom,
                            StylePropertyMapReadOnly*,
-                           const CSSStyleValueVector*,
-                           float device_scale_factor);
+                           const CSSStyleValueVector*);
   const Vector<CSSPropertyID>& NativeInvalidationProperties() const {
     return native_invalidation_properties_;
   }

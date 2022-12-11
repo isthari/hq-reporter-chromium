@@ -1,10 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/api/platform_keys/platform_keys_api.h"
 
+#include <stdint.h>
+
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "base/strings/string_piece.h"
 #include "chrome/browser/extensions/api/platform_keys/verify_trust_api.h"
@@ -18,6 +22,7 @@
 #include "chromeos/crosapi/mojom/keystore_service.mojom.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "net/cert/asn1_util.h"
+#include "net/cert/cert_status_flags.h"
 #include "net/cert/x509_util.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -54,6 +59,13 @@ const char kErrorInteractiveCallFromBackground[] =
 
 const char kTokenIdUser[] = "user";
 const char kTokenIdSystem[] = "system";
+
+// Skip checking for interactive calls coming from a non-interactive
+// context.
+// TODO(crbug.com/1303197): We should move the interactive tests to a
+// separate test suite. This is a temporary workaround to allow these
+// tests to run from the test extension's background page.
+bool g_skip_interactive_check_for_test = false;
 
 const struct NameValuePair {
   const char* const name;
@@ -142,6 +154,11 @@ absl::optional<chromeos::platform_keys::TokenId> ApiIdToPlatformKeysTokenId(
 PlatformKeysInternalSelectClientCertificatesFunction::
     ~PlatformKeysInternalSelectClientCertificatesFunction() {}
 
+void PlatformKeysInternalSelectClientCertificatesFunction::
+    SetSkipInteractiveCheckForTest(bool skip_interactive_check) {
+  g_skip_interactive_check_for_test = skip_interactive_check;
+}
+
 ExtensionFunction::ResponseAction
 PlatformKeysInternalSelectClientCertificatesFunction::Run() {
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -201,9 +218,10 @@ PlatformKeysInternalSelectClientCertificatesFunction::Run() {
 
     // Ensure that this function is called in a context that allows opening
     // dialogs.
-    if (!web_contents ||
-        !web_modal::WebContentsModalDialogManager::FromWebContents(
-            web_contents)) {
+    if ((!web_contents ||
+         !web_modal::WebContentsModalDialogManager::FromWebContents(
+             web_contents)) &&
+        !g_skip_interactive_check_for_test) {
       return RespondNow(Error(kErrorInteractiveCallFromBackground));
     }
   }
@@ -253,15 +271,14 @@ void PlatformKeysInternalSelectClientCertificatesFunction::
     result_match.certificate.assign(der_encoded_cert.begin(),
                                     der_encoded_cert.end());
 
-    absl::optional<base::DictionaryValue> algorithm =
+    absl::optional<base::Value::Dict> algorithm =
         BuildWebCrypAlgorithmDictionary(key_info);
     if (!algorithm) {
       LOG(ERROR) << "Skipping unsupported certificate with key type "
                  << key_info.key_type;
       continue;
     }
-    result_match.key_algorithm.additional_properties =
-        std::move(algorithm.value());
+    result_match.key_algorithm.additional_properties = std::move(*algorithm);
 
     result_matches.push_back(std::move(result_match));
   }
@@ -280,8 +297,8 @@ PlatformKeysInternalGetPublicKeyFunction::Run() {
       api_pki::GetPublicKey::Params::Create(args()));
   EXTENSION_FUNCTION_VALIDATE(params);
 
-  std::string error = ValidateCrosapi(
-      KeystoreService::kDEPRECATED_GetPublicKeyMinVersion, browser_context());
+  std::string error = ValidateCrosapi(KeystoreService::kGetPublicKeyMinVersion,
+                                      browser_context());
   if (!error.empty()) {
     return RespondNow(Error(error));
   }
@@ -296,27 +313,28 @@ PlatformKeysInternalGetPublicKeyFunction::Run() {
   auto cb = base::BindOnce(
       &PlatformKeysInternalGetPublicKeyFunction::OnGetPublicKey, this);
   GetKeystoreService(browser_context())
-      ->DEPRECATED_GetPublicKey(params->certificate, algorithm_name.value(),
-                                std::move(cb));
+      ->GetPublicKey(params->certificate, algorithm_name.value(),
+                     std::move(cb));
   return RespondLater();
 }
 
 void PlatformKeysInternalGetPublicKeyFunction::OnGetPublicKey(
-    crosapi::mojom::DEPRECATED_GetPublicKeyResultPtr result) {
-  if (result->is_error_message()) {
-    Respond(Error(result->get_error_message()));
+    crosapi::mojom::GetPublicKeyResultPtr result) {
+  if (result->is_error()) {
+    Respond(Error(
+        chromeos::platform_keys::KeystoreErrorToString(result->get_error())));
     return;
   }
 
   api_pki::GetPublicKey::Results::Algorithm algorithm;
-  absl::optional<base::DictionaryValue> dict =
+  absl::optional<base::Value::Dict> dict =
       crosapi::keystore_service_util::DictionaryFromSigningAlgorithm(
           result->get_success_result()->algorithm_properties);
   if (!dict) {
     Respond(Error(kErrorInvalidSigningAlgorithm));
     return;
   }
-  algorithm.additional_properties = std::move(dict.value());
+  algorithm.additional_properties = std::move(*dict);
   Respond(ArgumentList(api_pki::GetPublicKey::Results::Create(
       result->get_success_result()->public_key, std::move(algorithm))));
 }
@@ -360,10 +378,10 @@ PlatformKeysInternalGetPublicKeyBySpkiFunction::Run() {
     return RespondNow(Error(StatusToString(check_result)));
 
   api_pki::GetPublicKeyBySpki::Results::Algorithm algorithm;
-  absl::optional<base::DictionaryValue> algorithm_dictionary =
+  absl::optional<base::Value::Dict> algorithm_dictionary =
       chromeos::platform_keys::BuildWebCrypAlgorithmDictionary(key_info);
   DCHECK(algorithm_dictionary);
-  algorithm.additional_properties = std::move(algorithm_dictionary.value());
+  algorithm.additional_properties = std::move(*algorithm_dictionary);
 
   return RespondNow(ArgumentList(api_pki::GetPublicKeyBySpki::Results::Create(
       public_key_spki_der, algorithm)));
@@ -409,10 +427,8 @@ ExtensionFunction::ResponseAction PlatformKeysInternalSignFunction::Run() {
     }
 
     service->SignRSAPKCS1Raw(
-        platform_keys_token_id,
-        std::string(params->data.begin(), params->data.end()),
-        std::string(params->public_key.begin(), params->public_key.end()),
-        extension_id(),
+        platform_keys_token_id, std::move(params->data),
+        std::move(params->public_key), extension_id(),
         base::BindOnce(&PlatformKeysInternalSignFunction::OnSigned, this));
   } else {
     chromeos::platform_keys::HashAlgorithm hash_algorithm;
@@ -440,10 +456,8 @@ ExtensionFunction::ResponseAction PlatformKeysInternalSignFunction::Run() {
     }
 
     service->SignDigest(
-        platform_keys_token_id,
-        std::string(params->data.begin(), params->data.end()),
-        std::string(params->public_key.begin(), params->public_key.end()),
-        key_type, hash_algorithm, extension_id(),
+        platform_keys_token_id, std::move(params->data),
+        std::move(params->public_key), key_type, hash_algorithm, extension_id(),
         base::BindOnce(&PlatformKeysInternalSignFunction::OnSigned, this));
   }
 
@@ -451,13 +465,12 @@ ExtensionFunction::ResponseAction PlatformKeysInternalSignFunction::Run() {
 }
 
 void PlatformKeysInternalSignFunction::OnSigned(
-    const std::string& signature,
+    std::vector<uint8_t> signature,
     absl::optional<crosapi::mojom::KeystoreError> error) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   if (!error) {
-    Respond(ArgumentList(api_pki::Sign::Results::Create(
-        std::vector<uint8_t>(signature.begin(), signature.end()))));
+    Respond(ArgumentList(api_pki::Sign::Results::Create(std::move(signature))));
   } else {
     Respond(
         Error(chromeos::platform_keys::KeystoreErrorToString(error.value())));
@@ -503,10 +516,9 @@ void PlatformKeysVerifyTLSServerCertificateFunction::FinishedVerification(
   if (net::IsCertificateError(verify_result)) {
     // Only report errors, not internal informational statuses.
     const int masked_cert_status = cert_status & net::CERT_STATUS_ALL_ERRORS;
-    for (size_t i = 0; i < base::size(kCertStatusErrors); ++i) {
-      if ((masked_cert_status & kCertStatusErrors[i].value) ==
-          kCertStatusErrors[i].value) {
-        result.debug_errors.push_back(kCertStatusErrors[i].name);
+    for (auto status_error : kCertStatusErrors) {
+      if ((masked_cert_status & status_error.value) == status_error.value) {
+        result.debug_errors.push_back(status_error.name);
       }
     }
   }

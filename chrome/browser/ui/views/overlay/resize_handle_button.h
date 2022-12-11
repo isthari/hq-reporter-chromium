@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_UI_VIEWS_OVERLAY_RESIZE_HANDLE_BUTTON_H_
 #define CHROME_BROWSER_UI_VIEWS_OVERLAY_RESIZE_HANDLE_BUTTON_H_
 
-#include "chrome/browser/ui/views/overlay/overlay_window_views.h"
+#include "chrome/browser/ui/views/overlay/video_overlay_window_views.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/image_button.h"
 
@@ -19,14 +19,18 @@ class ResizeHandleButton : public views::ImageButton {
   ResizeHandleButton& operator=(const ResizeHandleButton&) = delete;
   ~ResizeHandleButton() override;
 
+  void OnThemeChanged() override;
+
   void SetPosition(const gfx::Size& size,
-                   OverlayWindowViews::WindowQuadrant quadrant);
+                   VideoOverlayWindowViews::WindowQuadrant quadrant);
   int GetHTComponent() const;
+  void SetQuadrant(VideoOverlayWindowViews::WindowQuadrant quadrant);
 
  private:
-  void SetImageForQuadrant(OverlayWindowViews::WindowQuadrant quadrant);
+  void UpdateImageForQuadrant();
 
-  absl::optional<OverlayWindowViews::WindowQuadrant> current_quadrant_;
+  VideoOverlayWindowViews::WindowQuadrant current_quadrant_ =
+      VideoOverlayWindowViews::WindowQuadrant::kBottomRight;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_OVERLAY_RESIZE_HANDLE_BUTTON_H_

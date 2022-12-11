@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,24 +6,20 @@
 
 #include <algorithm>
 
-#include "ash/services/nearby/public/mojom/nearby_connections_types.mojom.h"
-#include "ash/services/nearby/public/mojom/webrtc.mojom.h"
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
-#include "base/metrics/histogram_functions.h"
 #include "base/synchronization/waitable_event.h"
-#include "base/task/post_task.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/browser/nearby_sharing/logging/logging.h"
 #include "chrome/services/sharing/nearby/nearby_connections_conversions.h"
 #include "chrome/services/sharing/nearby/platform/input_file.h"
+#include "chromeos/ash/services/nearby/public/mojom/nearby_connections_types.mojom.h"
+#include "chromeos/ash/services/nearby/public/mojom/webrtc.mojom.h"
 #include "services/network/public/mojom/p2p.mojom.h"
-#include "third_party/nearby/src/cpp/core/core.h"
+#include "third_party/nearby/src/connections/core.h"
 
-namespace location {
-namespace nearby {
-namespace connections {
+namespace location::nearby::connections {
 
 namespace {
 
@@ -95,94 +91,13 @@ NearbyConnections& NearbyConnections::GetInstance() {
 
 NearbyConnections::NearbyConnections(
     mojo::PendingReceiver<mojom::NearbyConnections> nearby_connections,
-    mojom::NearbyConnectionsDependenciesPtr dependencies,
-    scoped_refptr<base::SequencedTaskRunner> io_task_runner,
+    location::nearby::api::LogMessage::Severity min_log_severity,
     base::OnceClosure on_disconnect)
     : nearby_connections_(this, std::move(nearby_connections)),
-      on_disconnect_(std::move(on_disconnect)),
-      thread_task_runner_(base::ThreadTaskRunnerHandle::Get()) {
-  location::nearby::api::LogMessage::SetMinLogSeverity(
-      dependencies->min_log_severity);
+      thread_task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()) {
+  location::nearby::api::LogMessage::SetMinLogSeverity(min_log_severity);
 
-  nearby_connections_.set_disconnect_handler(base::BindOnce(
-      &NearbyConnections::OnDisconnect, weak_ptr_factory_.GetWeakPtr(),
-      MojoDependencyName::kNearbyConnections));
-
-  if (dependencies->bluetooth_adapter) {
-    bluetooth_adapter_.Bind(std::move(dependencies->bluetooth_adapter),
-                            io_task_runner);
-    bluetooth_adapter_.set_disconnect_handler(
-        base::BindOnce(&NearbyConnections::OnDisconnect,
-                       weak_ptr_factory_.GetWeakPtr(),
-                       MojoDependencyName::kBluetoothAdapter),
-        base::SequencedTaskRunnerHandle::Get());
-  }
-
-  socket_manager_.Bind(
-      std::move(dependencies->webrtc_dependencies->socket_manager),
-      io_task_runner);
-  socket_manager_.set_disconnect_handler(
-      base::BindOnce(&NearbyConnections::OnDisconnect,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     MojoDependencyName::kSocketManager),
-      base::SequencedTaskRunnerHandle::Get());
-
-  mdns_responder_factory_.Bind(
-      std::move(dependencies->webrtc_dependencies->mdns_responder_factory),
-      io_task_runner);
-  mdns_responder_factory_.set_disconnect_handler(
-      base::BindOnce(&NearbyConnections::OnDisconnect,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     MojoDependencyName::kMdnsResponder),
-      base::SequencedTaskRunnerHandle::Get());
-
-  ice_config_fetcher_.Bind(
-      std::move(dependencies->webrtc_dependencies->ice_config_fetcher),
-      io_task_runner);
-  ice_config_fetcher_.set_disconnect_handler(
-      base::BindOnce(&NearbyConnections::OnDisconnect,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     MojoDependencyName::kIceConfigFetcher),
-      base::SequencedTaskRunnerHandle::Get());
-
-  webrtc_signaling_messenger_.Bind(
-      std::move(dependencies->webrtc_dependencies->messenger), io_task_runner);
-  webrtc_signaling_messenger_.set_disconnect_handler(
-      base::BindOnce(&NearbyConnections::OnDisconnect,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     MojoDependencyName::kWebRtcSignalingMessenger),
-      base::SequencedTaskRunnerHandle::Get());
-
-  // TODO(https://crbug.com/1261238): This should always be true when the
-  // WifiLan feature flag is enabled. Remove when flag is enabled by default.
-  if (dependencies->wifilan_dependencies) {
-    cros_network_config_.Bind(
-        std::move(dependencies->wifilan_dependencies->cros_network_config),
-        io_task_runner);
-    cros_network_config_.set_disconnect_handler(
-        base::BindOnce(&NearbyConnections::OnDisconnect,
-                       weak_ptr_factory_.GetWeakPtr(),
-                       MojoDependencyName::kCrosNetworkConfig),
-        base::SequencedTaskRunnerHandle::Get());
-
-    firewall_hole_factory_.Bind(
-        std::move(dependencies->wifilan_dependencies->firewall_hole_factory),
-        io_task_runner);
-    firewall_hole_factory_.set_disconnect_handler(
-        base::BindOnce(&NearbyConnections::OnDisconnect,
-                       weak_ptr_factory_.GetWeakPtr(),
-                       MojoDependencyName::kFirewallHoleFactory),
-        base::SequencedTaskRunnerHandle::Get());
-
-    tcp_socket_factory_.Bind(
-        std::move(dependencies->wifilan_dependencies->tcp_socket_factory),
-        io_task_runner);
-    tcp_socket_factory_.set_disconnect_handler(
-        base::BindOnce(&NearbyConnections::OnDisconnect,
-                       weak_ptr_factory_.GetWeakPtr(),
-                       MojoDependencyName::kTcpSocketFactory),
-        base::SequencedTaskRunnerHandle::Get());
-  }
+  nearby_connections_.set_disconnect_handler(std::move(on_disconnect));
 
   // There should only be one instance of NearbyConnections in a process.
   DCHECK(!g_instance);
@@ -203,47 +118,6 @@ NearbyConnections::~NearbyConnections() {
   g_instance = nullptr;
 
   VLOG(1) << "Nearby Connections: shutdown complete";
-}
-
-std::string NearbyConnections::GetMojoDependencyName(
-    MojoDependencyName dependency_name) {
-  switch (dependency_name) {
-    case MojoDependencyName::kNearbyConnections:
-      return "Nearby Connections";
-    case MojoDependencyName::kBluetoothAdapter:
-      return "Bluetooth Adapter";
-    case MojoDependencyName::kSocketManager:
-      return "Socket Manager";
-    case MojoDependencyName::kMdnsResponder:
-      return "MDNS Responder";
-    case MojoDependencyName::kIceConfigFetcher:
-      return "ICE Config Fetcher";
-    case MojoDependencyName::kWebRtcSignalingMessenger:
-      return "WebRTC Signaling Messenger";
-    case MojoDependencyName::kCrosNetworkConfig:
-      return "CrOS Network Config";
-    case MojoDependencyName::kFirewallHoleFactory:
-      return "Firewall Hole Factory";
-    case MojoDependencyName::kTcpSocketFactory:
-      return "TCP socket Factory";
-  }
-}
-
-void NearbyConnections::OnDisconnect(MojoDependencyName dependency_name) {
-  if (!on_disconnect_) {
-    return;
-  }
-
-  LOG(WARNING) << "The utility process has detected that the browser process "
-                  "has disconnected from a mojo pipe: ["
-               << GetMojoDependencyName(dependency_name) << "]";
-  base::UmaHistogramEnumeration(
-      "Nearby.Connections.UtilityProcessShutdownReason."
-      "DisconnectedMojoDependency",
-      dependency_name);
-
-  std::move(on_disconnect_).Run();
-  // Note: |this| might be destroyed here.
 }
 
 void NearbyConnections::StartAdvertising(
@@ -421,7 +295,7 @@ void NearbyConnections::AcceptConnection(
               return;
 
             switch (payload.GetType()) {
-              case Payload::Type::kBytes: {
+              case PayloadType::kBytes: {
                 mojom::BytesPayloadPtr bytes_payload = mojom::BytesPayload::New(
                     ByteArrayToMojom(payload.AsBytes()));
                 remote->OnPayloadReceived(
@@ -431,7 +305,7 @@ void NearbyConnections::AcceptConnection(
                                             std::move(bytes_payload))));
                 break;
               }
-              case Payload::Type::kFile: {
+              case PayloadType::kFile: {
                 DCHECK(payload.AsFile());
                 // InputFile is created by Chrome, so it's safe to downcast.
                 chrome::InputFile& input_file = static_cast<chrome::InputFile&>(
@@ -451,10 +325,10 @@ void NearbyConnections::AcceptConnection(
                                             std::move(file_payload))));
                 break;
               }
-              case Payload::Type::kStream:
+              case PayloadType::kStream:
                 buffer_manager_.StartTrackingPayload(std::move(payload));
                 break;
-              case Payload::Type::kUnknown:
+              case PayloadType::kUnknown:
                 core->CancelPayload(payload.GetId(), /*callback=*/{});
                 return;
             }
@@ -530,12 +404,12 @@ void NearbyConnections::SendPayload(
     SendPayloadCallback callback) {
   Payload core_payload;
   switch (payload->content->which()) {
-    case mojom::PayloadContent::Tag::BYTES:
+    case mojom::PayloadContent::Tag::kBytes:
       core_payload =
           Payload(payload->id,
                   ByteArrayFromMojom(payload->content->get_bytes()->bytes));
       break;
-    case mojom::PayloadContent::Tag::FILE:
+    case mojom::PayloadContent::Tag::kFile:
       int64_t file_size = payload->content->get_file()->file.GetLength();
       {
         base::AutoLock al(input_file_lock_);
@@ -646,6 +520,4 @@ void NearbyConnections::SetServiceControllerRouterForTesting(
   service_controller_router_ = std::move(service_controller_router);
 }
 
-}  // namespace connections
-}  // namespace nearby
-}  // namespace location
+}  // namespace location::nearby::connections

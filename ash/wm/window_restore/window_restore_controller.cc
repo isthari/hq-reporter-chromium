@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "ash/shell.h"
 #include "ash/wm/container_finder.h"
 #include "ash/wm/desks/desks_util.h"
+#include "ash/wm/float/float_controller.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_positioning_utils.h"
@@ -24,10 +25,11 @@
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/check_op.h"
+#include "base/containers/adapters.h"
 #include "base/containers/contains.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/account_id/account_id.h"
-#include "components/app_restore/full_restore_info.h"
+#include "components/app_restore/app_restore_info.h"
 #include "components/app_restore/full_restore_utils.h"
 #include "components/app_restore/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
@@ -48,16 +50,16 @@ WindowRestoreController* g_instance = nullptr;
 WindowRestoreController::SaveWindowCallback g_save_window_callback_for_testing;
 
 // The list of possible app window parents.
-constexpr ShellWindowId kAppParentContainers[10] = {
-    kShellWindowId_DefaultContainerDeprecated,
-    kShellWindowId_DeskContainerB,
-    kShellWindowId_DeskContainerC,
-    kShellWindowId_DeskContainerD,
-    kShellWindowId_DeskContainerE,
-    kShellWindowId_DeskContainerF,
-    kShellWindowId_DeskContainerG,
-    kShellWindowId_DeskContainerH,
-    kShellWindowId_AlwaysOnTopContainer,
+constexpr ShellWindowId kAppParentContainers[19] = {
+    kShellWindowId_DeskContainerA,       kShellWindowId_DeskContainerB,
+    kShellWindowId_DeskContainerC,       kShellWindowId_DeskContainerD,
+    kShellWindowId_DeskContainerE,       kShellWindowId_DeskContainerF,
+    kShellWindowId_DeskContainerG,       kShellWindowId_DeskContainerH,
+    kShellWindowId_DeskContainerI,       kShellWindowId_DeskContainerJ,
+    kShellWindowId_DeskContainerK,       kShellWindowId_DeskContainerL,
+    kShellWindowId_DeskContainerM,       kShellWindowId_DeskContainerN,
+    kShellWindowId_DeskContainerO,       kShellWindowId_DeskContainerP,
+    kShellWindowId_AlwaysOnTopContainer, kShellWindowId_FloatContainer,
     kShellWindowId_UnparentedContainer,
 };
 
@@ -144,8 +146,8 @@ WindowRestoreController::WindowRestoreController() {
   g_instance = this;
 
   tablet_mode_observation_.Observe(Shell::Get()->tablet_mode_controller());
-  full_restore_info_observation_.Observe(
-      full_restore::FullRestoreInfo::GetInstance());
+  app_restore_info_observation_.Observe(
+      app_restore::AppRestoreInfo::GetInstance());
 }
 
 WindowRestoreController::~WindowRestoreController() {
@@ -159,9 +161,9 @@ WindowRestoreController* WindowRestoreController::Get() {
 }
 
 // static
-bool WindowRestoreController::CanActivateFullRestoredWindow(
+bool WindowRestoreController::CanActivateRestoredWindow(
     const aura::Window* window) {
-  if (!window->GetProperty(app_restore::kLaunchedFromFullRestoreKey))
+  if (!window->GetProperty(app_restore::kLaunchedFromAppRestoreKey))
     return true;
 
   // Only windows on the active desk should be activatable.
@@ -180,14 +182,13 @@ bool WindowRestoreController::CanActivateFullRestoredWindow(
   if (!desk_container || !desks_util::IsDeskContainer(desk_container))
     return true;
 
-  // Only the topmost unminimized Full Restore'd window can be activated.
+  // Only the topmost unminimize restored window can be activated.
   auto siblings = desk_container->children();
-  for (auto child_iter = siblings.rbegin(); child_iter != siblings.rend();
-       ++child_iter) {
-    if (WindowState::Get(*child_iter)->IsMinimized())
+  for (auto* const sibling : base::Reversed(siblings)) {
+    if (WindowState::Get(sibling)->IsMinimized())
       continue;
 
-    return window == (*child_iter);
+    return window == sibling;
   }
 
   return false;
@@ -216,7 +217,7 @@ bool WindowRestoreController::CanActivateAppList(const aura::Window* window) {
 
     if (topmost_visible_iter != active_desk_children.rend() &&
         (*topmost_visible_iter)
-            ->GetProperty(app_restore::kLaunchedFromFullRestoreKey)) {
+            ->GetProperty(app_restore::kLaunchedFromAppRestoreKey)) {
       return false;
     }
   }
@@ -355,17 +356,17 @@ void WindowRestoreController::OnWindowPropertyChanged(aura::Window* window,
   // the activation delay.
   if (key == app_restore::kRealArcTaskWindow &&
       window->GetProperty(app_restore::kRealArcTaskWindow)) {
-    window->SetProperty(app_restore::kLaunchedFromFullRestoreKey, true);
+    window->SetProperty(app_restore::kLaunchedFromAppRestoreKey, true);
     restore_property_clear_callbacks_.emplace(
         window, base::BindOnce(&WindowRestoreController::ClearLaunchedKey,
                                weak_ptr_factory_.GetWeakPtr(), window));
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, restore_property_clear_callbacks_[window].callback(),
         kAllowActivationDelay);
   }
 
-  if (key != app_restore::kLaunchedFromFullRestoreKey ||
-      window->GetProperty(app_restore::kLaunchedFromFullRestoreKey)) {
+  if (key != app_restore::kLaunchedFromAppRestoreKey ||
+      window->GetProperty(app_restore::kLaunchedFromAppRestoreKey)) {
     return;
   }
 
@@ -434,9 +435,9 @@ void WindowRestoreController::UpdateAndObserveWindow(aura::Window* window) {
   } else {
     to_be_shown_windows_.insert(window);
 
-    // Clear the pre minimized show state key in case for any reason the window
+    // Clear the restore show state key in case for any reason the window
     // did not restore its minimized state.
-    window->ClearProperty(aura::client::kPreMinimizedShowStateKey);
+    window->ClearProperty(aura::client::kRestoreShowStateKey);
   }
 
   StackWindow(window);
@@ -448,12 +449,17 @@ void WindowRestoreController::StackWindow(aura::Window* window) {
   if (!activation_index)
     return;
 
+  Shell::Get()->mru_window_tracker()->OnWindowAlteredByWindowRestore(window);
+
   // Stack the window.
   auto siblings = window->parent()->children();
-  auto insertion_point =
-      WindowRestoreController::GetWindowToInsertBefore(window, siblings);
+  auto insertion_point = GetWindowToInsertBefore(window, siblings);
   if (insertion_point != siblings.end())
     window->parent()->StackChildBelow(window, *insertion_point);
+}
+
+bool WindowRestoreController::IsRestoringWindow(aura::Window* window) const {
+  return windows_observation_.IsObservingSource(window);
 }
 
 void WindowRestoreController::SaveWindowImpl(
@@ -480,7 +486,7 @@ void WindowRestoreController::SaveWindowImpl(
   }
 
   // Do not save window data if the setting is turned off by active user.
-  if (!full_restore::FullRestoreInfo::GetInstance()->CanPerformRestore(
+  if (!app_restore::AppRestoreInfo::GetInstance()->CanPerformRestore(
           Shell::Get()->session_controller()->GetActiveAccountId())) {
     return;
   }
@@ -493,8 +499,8 @@ void WindowRestoreController::SaveWindowImpl(
     mru_windows =
         Shell::Get()->mru_window_tracker()->BuildMruWindowList(kAllDesks);
   }
-  std::unique_ptr<app_restore::WindowInfo> window_info =
-      BuildWindowInfo(window, activation_index, mru_windows);
+  std::unique_ptr<app_restore::WindowInfo> window_info = BuildWindowInfo(
+      window, activation_index, /*for_saved_desks=*/false, mru_windows);
   full_restore::SaveWindowInfo(*window_info);
 
   if (g_save_window_callback_for_testing)
@@ -508,6 +514,7 @@ void WindowRestoreController::RestoreStateTypeAndClearLaunchedKey(
     // Snap the window if necessary.
     auto state_type = window_info->window_state_type;
     if (state_type) {
+      auto* window_state = WindowState::Get(window);
       // Add the window to be tracked by the tablet mode window manager
       // manually. It is normally tracked when it becomes visible, but in snap
       // case we want to track it before it becomes visible. This will allow us
@@ -520,13 +527,17 @@ void WindowRestoreController::RestoreStateTypeAndClearLaunchedKey(
 
       if (*state_type == chromeos::WindowStateType::kPrimarySnapped ||
           *state_type == chromeos::WindowStateType::kSecondarySnapped) {
-        base::AutoReset<bool> auto_reset_is_restoring_snap_state(
-            &is_restoring_snap_state_, true);
-        const WMEvent snap_event(
+        base::AutoReset<aura::Window*> auto_reset_to_be_snapped(
+            &to_be_snapped_window_, window);
+        const WindowSnapWMEvent snap_event(
             *state_type == chromeos::WindowStateType::kPrimarySnapped
                 ? WM_EVENT_SNAP_PRIMARY
                 : WM_EVENT_SNAP_SECONDARY);
-        WindowState::Get(window)->OnWMEvent(&snap_event);
+        window_state->OnWMEvent(&snap_event);
+      }
+      if (*state_type == chromeos::WindowStateType::kFloated) {
+        const WMEvent float_event(WM_EVENT_FLOAT);
+        window_state->OnWMEvent(&float_event);
       }
     }
   }
@@ -537,15 +548,16 @@ void WindowRestoreController::RestoreStateTypeAndClearLaunchedKey(
   // is quite common for some widgets to explicitly call Show() after
   // initialized.
   // TODO(sammiequon): Instead of disabling activation when creating the widget
-  // and enabling it here, use ShowInactive() instead of Show() when the widget
-  // is created.
+  // and enabling it here, use `ShowInactive()` instead of `Show()` when the
+  // widget is created.
   restore_property_clear_callbacks_.emplace(
       window, base::BindOnce(&WindowRestoreController::ClearLaunchedKey,
                              weak_ptr_factory_.GetWeakPtr(), window));
 
   // Also, for some ARC and chrome apps, the client can request activation after
   // showing. We cannot detect this, so we use a timeout to keep the window not
-  // activatable for a while longer.
+  // activatable for a while longer. Classic browser and lacros windows are
+  // expected to call `ShowInactive()` where the browser is created.
   const AppType app_type =
       static_cast<AppType>(window->GetProperty(aura::client::kAppType));
   // Prevent apply activation delay on ARC ghost window. It should be only apply
@@ -557,7 +569,7 @@ void WindowRestoreController::RestoreStateTypeAndClearLaunchedKey(
               (app_type == AppType::ARC_APP && is_real_arc_window)
           ? kAllowActivationDelay
           : base::TimeDelta();
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, restore_property_clear_callbacks_[window].callback(), delay);
 }
 
@@ -567,7 +579,7 @@ void WindowRestoreController::ClearLaunchedKey(aura::Window* window) {
   // If the window is destroying then prevent extra work by not clearing the
   // property.
   if (!window->is_destroying())
-    window->SetProperty(app_restore::kLaunchedFromFullRestoreKey, false);
+    window->SetProperty(app_restore::kLaunchedFromAppRestoreKey, false);
 }
 
 void WindowRestoreController::CancelAndRemoveRestorePropertyClearCallback(

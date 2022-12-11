@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,13 +13,15 @@
 #include "ash/components/arc/session/arc_service_manager.h"
 #include "ash/components/arc/test/connection_holder_util.h"
 #include "ash/components/arc/test/fake_file_system_instance.h"
+#include "ash/constants/ash_switches.h"
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/ash/arc/fileapi/arc_content_file_system_url_util.h"
 #include "chrome/browser/ash/arc/fileapi/arc_file_system_operation_runner.h"
-#include "chrome/browser/chromeos/fileapi/external_file_url_util.h"
+#include "chrome/browser/ash/fileapi/external_file_url_util.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "content/public/test/browser_task_environment.h"
@@ -57,7 +59,7 @@ class ArcContentFileSystemAsyncFileUtilTest : public testing::Test {
 
   void SetUp() override {
     fake_file_system_.AddFile(
-        File(kArcUrl, kData, kMimeType, File::Seekable::NO));
+        File(kArcUrl, kData, kMimeType, File::Seekable::YES));
 
     arc_service_manager_ = std::make_unique<ArcServiceManager>();
     profile_ = std::make_unique<TestingProfile>();
@@ -74,6 +76,10 @@ class ArcContentFileSystemAsyncFileUtilTest : public testing::Test {
   }
 
   void TearDown() override {
+    // Before destroying objects, flush tasks posted to run
+    // ArcFileSystemOperationRunner::CloseFileSession().
+    task_environment_.RunUntilIdle();
+
     arc_service_manager_->arc_bridge_service()->file_system()->CloseInstance(
         &fake_file_system_);
   }
@@ -82,7 +88,7 @@ class ArcContentFileSystemAsyncFileUtilTest : public testing::Test {
   storage::FileSystemURL ExternalFileURLToFileSystemURL(const GURL& url) {
     base::FilePath mount_point_virtual_path =
         base::FilePath::FromASCII(kContentFileSystemMountPointName);
-    base::FilePath virtual_path = chromeos::ExternalFileURLToVirtualPath(url);
+    base::FilePath virtual_path = ash::ExternalFileURLToVirtualPath(url);
     base::FilePath path(kContentFileSystemMountPointPath);
     EXPECT_TRUE(
         mount_point_virtual_path.AppendRelativePath(virtual_path, &path));
@@ -119,6 +125,31 @@ TEST_F(ArcContentFileSystemAsyncFileUtilTest, GetFileInfo) {
           },
           &run_loop));
   run_loop.Run();
+}
+
+TEST_F(ArcContentFileSystemAsyncFileUtilTest, Truncate) {
+  // Currently, truncate() is disabled if ARCVM is not enabled.
+  // For this test, just pretend ARCVM is enabled.
+  // TODO(b/223247850) Fix this.
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      ash::switches::kEnableArcVm);
+
+  GURL externalfile_url = ArcUrlToExternalFileUrl(GURL(kArcUrl));
+  const uint64_t kLength = strlen(kData) / 2;
+
+  base::RunLoop run_loop;
+  async_file_util_->Truncate(
+      std::unique_ptr<storage::FileSystemOperationContext>(),
+      ExternalFileURLToFileSystemURL(externalfile_url), kLength,
+      base::BindOnce(
+          [](base::RunLoop* run_loop, base::File::Error error) {
+            EXPECT_EQ(base::File::FILE_OK, error);
+            run_loop->Quit();
+          },
+          &run_loop));
+  run_loop.Run();
+
+  EXPECT_EQ(fake_file_system_.GetFileContent(kArcUrl).size(), kLength);
 }
 
 }  // namespace arc

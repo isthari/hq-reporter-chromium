@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/css/css_anchor_query_type.h"
 #include "third_party/blink/renderer/core/css/css_custom_ident_value.h"
 #include "third_party/blink/renderer/core/css/css_function_value.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
@@ -14,7 +15,9 @@
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/core/css/css_value_list.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_mode.h"
+#include "third_party/blink/renderer/core/css/parser/css_parser_token.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_token_range.h"
+#include "third_party/blink/renderer/core/css/parser/css_property_parser.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/core/frame/web_feature_forward.h"
 #include "third_party/blink/renderer/core/style/grid_area.h"
@@ -46,6 +49,8 @@ namespace css_parsing_utils {
 enum class AllowInsetAndSpread { kAllow, kForbid };
 enum class AllowTextValue { kAllow, kForbid };
 enum class AllowPathValue { kAllow, kForbid };
+enum class AllowBasicShapeRectValue { kAllow, kForbid };
+enum class AllowBasicShapeXYWHValue { kAllow, kForbid };
 enum class DefaultFill { kFill, kNoFill };
 enum class ParsingStyle { kLegacy, kNotLegacy };
 enum class TrackListType {
@@ -55,6 +60,7 @@ enum class TrackListType {
   kGridTemplateSubgrid
 };
 enum class UnitlessQuirk { kAllow, kForbid };
+enum class AllowedColorKeywords { kAllowSystemColor, kNoSystemColor };
 
 using ConsumeAnimationItemValue = CSSValue* (*)(CSSPropertyID,
                                                 CSSParserTokenRange&,
@@ -62,7 +68,7 @@ using ConsumeAnimationItemValue = CSSValue* (*)(CSSPropertyID,
                                                 bool use_legacy_parsing);
 using IsPositionKeyword = bool (*)(CSSValueID);
 
-constexpr size_t kMaxNumAnimationLonghands = 9;
+constexpr size_t kMaxNumAnimationLonghands = 10;
 
 void Complete4Sides(CSSValue* side[4]);
 
@@ -82,8 +88,10 @@ CSSPrimitiveValue* ConsumeInteger(
     CSSParserTokenRange&,
     const CSSParserContext&,
     double minimum_value = -std::numeric_limits<double>::max());
-CSSPrimitiveValue* ConsumeIntegerOrNumberCalc(CSSParserTokenRange&,
-                                              const CSSParserContext&);
+CSSPrimitiveValue* ConsumeIntegerOrNumberCalc(
+    CSSParserTokenRange&,
+    const CSSParserContext&,
+    CSSPrimitiveValue::ValueRange = CSSPrimitiveValue::ValueRange::kInteger);
 CSSPrimitiveValue* ConsumePositiveInteger(CSSParserTokenRange&,
                                           const CSSParserContext&);
 bool ConsumeNumberRaw(CSSParserTokenRange&,
@@ -111,7 +119,8 @@ CSSPrimitiveValue* ConsumeLengthOrPercent(
     CSSParserTokenRange&,
     const CSSParserContext&,
     CSSPrimitiveValue::ValueRange,
-    UnitlessQuirk = UnitlessQuirk::kForbid);
+    UnitlessQuirk = UnitlessQuirk::kForbid,
+    CSSAnchorQueryTypes = kCSSAnchorQueryTypesNone);
 CSSPrimitiveValue* ConsumeSVGGeometryPropertyLength(
     CSSParserTokenRange&,
     const CSSParserContext&,
@@ -127,6 +136,9 @@ CORE_EXPORT CSSPrimitiveValue* ConsumeAngle(
     absl::optional<WebFeature> unitless_zero_feature,
     double minimum_value,
     double maximum_value);
+CSSPrimitiveValue* ConsumeHue(CSSParserTokenRange&,
+                              const CSSParserContext&,
+                              absl::optional<WebFeature> unitless_zero_feature);
 CSSPrimitiveValue* ConsumeTime(CSSParserTokenRange&,
                                const CSSParserContext&,
                                CSSPrimitiveValue::ValueRange);
@@ -150,12 +162,12 @@ StringView ConsumeUrlAsStringView(CSSParserTokenRange&,
                                   const CSSParserContext&);
 cssvalue::CSSURIValue* ConsumeUrl(CSSParserTokenRange&,
                                   const CSSParserContext&);
-CSSValue* ConsumeSelectorFunction(CSSParserTokenRange&);
-CORE_EXPORT CSSValue* ConsumeIdSelector(CSSParserTokenRange&);
 
-CSSValue* ConsumeColor(CSSParserTokenRange&,
-                       const CSSParserContext&,
-                       bool accept_quirky_colors = false);
+CORE_EXPORT CSSValue* ConsumeColor(CSSParserTokenRange&,
+                                   const CSSParserContext&,
+                                   bool accept_quirky_colors = false,
+                                   AllowedColorKeywords allowed_keywords =
+                                       AllowedColorKeywords::kAllowSystemColor);
 
 CSSValue* ConsumeLineWidth(CSSParserTokenRange&,
                            const CSSParserContext&,
@@ -203,6 +215,7 @@ CSSValue* ConsumeIntrinsicSizeLonghand(CSSParserTokenRange&,
                                        const CSSParserContext&);
 
 CSSIdentifierValue* ConsumeShapeBox(CSSParserTokenRange&);
+CSSIdentifierValue* ConsumeVisualBox(CSSParserTokenRange&);
 
 enum class IsImplicitProperty { kNotImplicit, kImplicit };
 
@@ -211,7 +224,7 @@ void AddProperty(CSSPropertyID resolved_property,
                  const CSSValue&,
                  bool important,
                  IsImplicitProperty,
-                 HeapVector<CSSPropertyValue, 256>& properties);
+                 HeapVector<CSSPropertyValue, 64>& properties);
 
 void CountKeywordOnlyPropertyUsage(CSSPropertyID,
                                    const CSSParserContext&,
@@ -227,26 +240,27 @@ bool ConsumeShorthandVia2Longhands(
     bool important,
     const CSSParserContext&,
     CSSParserTokenRange&,
-    HeapVector<CSSPropertyValue, 256>& properties);
+    HeapVector<CSSPropertyValue, 64>& properties);
 
 bool ConsumeShorthandVia4Longhands(
     const StylePropertyShorthand&,
     bool important,
     const CSSParserContext&,
     CSSParserTokenRange&,
-    HeapVector<CSSPropertyValue, 256>& properties);
+    HeapVector<CSSPropertyValue, 64>& properties);
 
 bool ConsumeShorthandGreedilyViaLonghands(
     const StylePropertyShorthand&,
     bool important,
     const CSSParserContext&,
     CSSParserTokenRange&,
-    HeapVector<CSSPropertyValue, 256>& properties);
+    HeapVector<CSSPropertyValue, 64>& properties,
+    bool use_initial_value_function = false);
 
 void AddExpandedPropertyForValue(CSSPropertyID prop_id,
                                  const CSSValue&,
                                  bool,
-                                 HeapVector<CSSPropertyValue, 256>& properties);
+                                 HeapVector<CSSPropertyValue, 64>& properties);
 
 CSSValue* ConsumeTransformValue(CSSParserTokenRange&, const CSSParserContext&);
 CSSValue* ConsumeTransformList(CSSParserTokenRange&, const CSSParserContext&);
@@ -263,6 +277,9 @@ CORE_EXPORT bool IsCSSWideKeyword(StringView);
 bool IsRevertKeyword(StringView);
 bool IsDefaultKeyword(StringView);
 bool IsHashIdentifier(const CSSParserToken&);
+CORE_EXPORT bool IsDashedIdent(const CSSParserToken&);
+
+CSSValue* ConsumeCSSWideKeyword(CSSParserTokenRange&);
 
 // This function returns false for CSS-wide keywords, 'default', and any
 // template parameters provided.
@@ -274,8 +291,6 @@ bool IsCustomIdent(CSSValueID);
 // https://drafts.csswg.org/scroll-animations-1/#typedef-timeline-name
 bool IsTimelineName(const CSSParserToken&);
 
-CSSValue* ConsumeScrollOffset(CSSParserTokenRange&, const CSSParserContext&);
-CSSValue* ConsumeElementOffset(CSSParserTokenRange&, const CSSParserContext&);
 CSSValue* ConsumeSelfPositionOverflowPosition(CSSParserTokenRange&,
                                               IsPositionKeyword);
 CSSValue* ConsumeSimplifiedDefaultPosition(CSSParserTokenRange&,
@@ -292,10 +307,20 @@ CSSValue* ConsumeAnimationIterationCount(CSSParserTokenRange&,
 CSSValue* ConsumeAnimationName(CSSParserTokenRange&,
                                const CSSParserContext&,
                                bool allow_quoted_name);
+CSSValue* ConsumeScroller(CSSParserTokenRange&, const CSSParserContext&);
+CSSValue* ConsumeScrollFunction(CSSParserTokenRange&, const CSSParserContext&);
 CSSValue* ConsumeAnimationTimeline(CSSParserTokenRange&,
                                    const CSSParserContext&);
 CSSValue* ConsumeAnimationTimingFunction(CSSParserTokenRange&,
                                          const CSSParserContext&);
+CSSValue* ConsumeAnimationDuration(CSSParserTokenRange&,
+                                   const CSSParserContext&);
+// https://drafts.csswg.org/scroll-animations-1/#typedef-timeline-range-name
+CSSValue* ConsumeTimelineRangeName(CSSParserTokenRange&);
+CSSValue* ConsumeTimelineRangeNameAndPercent(CSSParserTokenRange&,
+                                             const CSSParserContext&);
+CSSValue* ConsumeAnimationDelay(CSSParserTokenRange&, const CSSParserContext&);
+
 bool ConsumeAnimationShorthand(
     const StylePropertyShorthand&,
     HeapVector<Member<CSSValueList>, kMaxNumAnimationLonghands>&,
@@ -303,6 +328,12 @@ bool ConsumeAnimationShorthand(
     CSSParserTokenRange&,
     const CSSParserContext&,
     bool use_legacy_parsing);
+
+CSSValue* ConsumeSingleTimelineAxis(CSSParserTokenRange&);
+CSSValue* ConsumeSingleTimelineName(CSSParserTokenRange&,
+                                    const CSSParserContext&);
+CSSValue* ConsumeSingleTimelineInset(CSSParserTokenRange&,
+                                     const CSSParserContext&);
 
 void AddBackgroundValue(CSSValue*& list, CSSValue*);
 CSSValue* ConsumeBackgroundAttachment(CSSParserTokenRange&);
@@ -326,7 +357,7 @@ bool ParseBackgroundOrMask(bool,
                            CSSParserTokenRange&,
                            const CSSParserContext&,
                            const CSSParserLocalContext&,
-                           HeapVector<CSSPropertyValue, 256>&);
+                           HeapVector<CSSPropertyValue, 64>&);
 
 bool ConsumeRepeatStyleComponent(CSSParserTokenRange&,
                                  CSSValue*& value1,
@@ -402,6 +433,11 @@ CSSValue* ConsumeFontFeatureSettings(CSSParserTokenRange&,
 cssvalue::CSSFontFeatureValue* ConsumeFontFeatureTag(CSSParserTokenRange&,
                                                      const CSSParserContext&);
 CSSIdentifierValue* ConsumeFontVariantCSS21(CSSParserTokenRange&);
+CSSIdentifierValue* ConsumeFontTechIdent(CSSParserTokenRange&);
+CSSIdentifierValue* ConsumeFontFormatIdent(CSSParserTokenRange&);
+CSSValueID FontFormatToId(String);
+bool IsSupportedKeywordTech(CSSValueID keyword);
+bool IsSupportedKeywordFormat(CSSValueID keyword);
 
 CSSValue* ConsumeGridLine(CSSParserTokenRange&, const CSSParserContext&);
 CSSValue* ConsumeGridTrackList(CSSParserTokenRange&,
@@ -425,6 +461,9 @@ bool ConsumeGridTemplateShorthand(bool important,
                                   const CSSValue*& template_columns,
                                   const CSSValue*& template_areas);
 
+CSSValue* ConsumeHyphenateLimitChars(CSSParserTokenRange&,
+                                     const CSSParserContext&);
+
 // The fragmentation spec says that page-break-(after|before|inside) are to be
 // treated as shorthands for their break-(after|before|inside) counterparts.
 // We'll do the same for the non-standard properties
@@ -442,15 +481,20 @@ CSSValue* ConsumeWidthOrHeight(CSSParserTokenRange&,
 
 CSSValue* ConsumeMarginOrOffset(CSSParserTokenRange&,
                                 const CSSParserContext&,
-                                UnitlessQuirk);
+                                UnitlessQuirk,
+                                CSSAnchorQueryTypes = kCSSAnchorQueryTypesNone);
 CSSValue* ConsumeScrollPadding(CSSParserTokenRange&, const CSSParserContext&);
 CSSValue* ConsumeOffsetPath(CSSParserTokenRange&, const CSSParserContext&);
 CSSValue* ConsumePathOrNone(CSSParserTokenRange&);
 CSSValue* ConsumeOffsetRotate(CSSParserTokenRange&, const CSSParserContext&);
+CSSValue* ConsumeInitialLetter(CSSParserTokenRange&, const CSSParserContext&);
 
-CSSValue* ConsumeBasicShape(CSSParserTokenRange&,
-                            const CSSParserContext&,
-                            AllowPathValue);
+CSSValue* ConsumeBasicShape(
+    CSSParserTokenRange&,
+    const CSSParserContext&,
+    AllowPathValue,
+    AllowBasicShapeRectValue = AllowBasicShapeRectValue::kForbid,
+    AllowBasicShapeXYWHValue = AllowBasicShapeXYWHValue::kForbid);
 bool ConsumeRadii(CSSValue* horizontal_radii[4],
                   CSSValue* vertical_radii[4],
                   CSSParserTokenRange&,
@@ -458,6 +502,10 @@ bool ConsumeRadii(CSSValue* horizontal_radii[4],
                   bool use_legacy_parsing);
 
 CSSValue* ConsumeTextDecorationLine(CSSParserTokenRange&);
+
+CSSValue* ConsumeToggleGroup(CSSParserTokenRange&, const CSSParserContext&);
+CSSValue* ConsumeToggleSpecifier(CSSParserTokenRange&, const CSSParserContext&);
+CSSValue* ConsumeToggleTrigger(CSSParserTokenRange&, const CSSParserContext&);
 
 CSSValue* ConsumeTransformValue(CSSParserTokenRange&,
                                 const CSSParserContext&,
@@ -478,6 +526,8 @@ CSSValue* ConsumeBorderWidth(CSSParserTokenRange&,
 CSSValue* ConsumeSVGPaint(CSSParserTokenRange&, const CSSParserContext&);
 CSSValue* ParseSpacing(CSSParserTokenRange&, const CSSParserContext&);
 
+CSSValue* ConsumeSingleContainerName(CSSParserTokenRange&,
+                                     const CSSParserContext&);
 CSSValue* ConsumeContainerName(CSSParserTokenRange&, const CSSParserContext&);
 CSSValue* ConsumeContainerType(CSSParserTokenRange&);
 

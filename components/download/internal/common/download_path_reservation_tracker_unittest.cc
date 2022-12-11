@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -215,7 +215,7 @@ void DownloadPathReservationTrackerTest::CreateReservation(
   if (result != PathValidationResult::PATH_NOT_WRITABLE)
     EXPECT_TRUE(IsPathInUse(path));
   EXPECT_EQ(expected_result, result);
-  EXPECT_EQ(expected_reserved_path.value(), reserved_path.value());
+  EXPECT_EQ(expected_reserved_path, reserved_path);
 }
 
 }  // namespace
@@ -505,9 +505,16 @@ TEST_F(DownloadPathReservationTrackerTest, UnresolvedConflicts) {
     SetDownloadItemState(item.get(), DownloadItem::COMPLETE);
 }
 
+#if BUILDFLAG(IS_FUCHSIA)
+// TODO(crbug.com/1314073): Re-enable when UnwriteableDirectory works on
+// Fuchsia.
+#define MAYBE_UnwriteableDirectory DISABLED_UnwriteableDirectory
+#else
+#define MAYBE_UnwriteableDirectory UnwriteableDirectory
+#endif
 // If the target directory is unwriteable, then callback should be notified that
 // verification failed.
-TEST_F(DownloadPathReservationTrackerTest, UnwriteableDirectory) {
+TEST_F(DownloadPathReservationTrackerTest, MAYBE_UnwriteableDirectory) {
   std::unique_ptr<MockDownloadItem> item = CreateDownloadItem(1);
   base::FilePath path(
       GetPathInDownloadsDirectory(FILE_PATH_LITERAL("foo.txt")));

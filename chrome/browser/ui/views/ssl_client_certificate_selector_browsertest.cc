@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -90,7 +90,7 @@ class SSLClientCertificateSelectorTest : public InProcessBrowserTest {
   scoped_refptr<net::SSLCertRequestInfo> cert_request_info_;
   scoped_refptr<StrictMock<SSLClientAuthRequestorMock>> auth_requestor_;
   // The selector will be deleted when a cert is selected or the tab is closed.
-  raw_ptr<SSLClientCertificateSelector> selector_ = nullptr;
+  raw_ptr<SSLClientCertificateSelector, DanglingUntriaged> selector_ = nullptr;
 };
 
 class SSLClientCertificateSelectorMultiTabTest
@@ -118,9 +118,9 @@ class SSLClientCertificateSelectorMultiTabTest
         AddTabAtIndex(1, GURL("about:blank"), ui::PAGE_TRANSITION_LINK));
     ASSERT_TRUE(
         AddTabAtIndex(2, GURL("about:blank"), ui::PAGE_TRANSITION_LINK));
-    ASSERT_TRUE(NULL != browser()->tab_strip_model()->GetWebContentsAt(0));
-    ASSERT_TRUE(NULL != browser()->tab_strip_model()->GetWebContentsAt(1));
-    ASSERT_TRUE(NULL != browser()->tab_strip_model()->GetWebContentsAt(2));
+    ASSERT_TRUE(nullptr != browser()->tab_strip_model()->GetWebContentsAt(0));
+    ASSERT_TRUE(nullptr != browser()->tab_strip_model()->GetWebContentsAt(1));
+    ASSERT_TRUE(nullptr != browser()->tab_strip_model()->GetWebContentsAt(2));
     EXPECT_TRUE(content::WaitForLoadStop(
         browser()->tab_strip_model()->GetWebContentsAt(1)));
     EXPECT_TRUE(content::WaitForLoadStop(
@@ -166,8 +166,8 @@ class SSLClientCertificateSelectorMultiTabTest
   scoped_refptr<net::SSLCertRequestInfo> cert_request_info_2_;
   scoped_refptr<StrictMock<SSLClientAuthRequestorMock>> auth_requestor_1_;
   scoped_refptr<StrictMock<SSLClientAuthRequestorMock>> auth_requestor_2_;
-  raw_ptr<SSLClientCertificateSelector> selector_1_;
-  raw_ptr<SSLClientCertificateSelector> selector_2_;
+  raw_ptr<SSLClientCertificateSelector, DanglingUntriaged> selector_1_;
+  raw_ptr<SSLClientCertificateSelector, DanglingUntriaged> selector_2_;
 };
 
 class SSLClientCertificateSelectorMultiProfileTest
@@ -224,10 +224,10 @@ class SSLClientCertificateSelectorMultiProfileTest
   }
 
  protected:
-  raw_ptr<Browser> browser_1_;
+  raw_ptr<Browser, DanglingUntriaged> browser_1_;
   scoped_refptr<net::SSLCertRequestInfo> cert_request_info_1_;
   scoped_refptr<StrictMock<SSLClientAuthRequestorMock> > auth_requestor_1_;
-  raw_ptr<SSLClientCertificateSelector> selector_1_;
+  raw_ptr<SSLClientCertificateSelector, DanglingUntriaged> selector_1_;
 };
 
 IN_PROC_BROWSER_TEST_F(SSLClientCertificateSelectorTest, SelectNone) {

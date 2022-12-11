@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,7 @@
 #include "chrome/browser/android/android_theme_resources.h"
 #include "chrome/browser/download/android/download_dialog_utils.h"
 #include "chrome/browser/download/android/jni_headers/MixedContentDownloadDialogBridge_jni.h"
-#include "chrome/browser/profiles/profile.h"
 #include "chrome/grit/generated_resources.h"
-#include "content/public/browser/browser_context.h"
 #include "content/public/browser/download_item_utils.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/android/window_android.h"
@@ -49,7 +47,7 @@ void MixedContentDownloadDialogBridge::CreateDialog(
     ui::WindowAndroid* window_android,
     base::OnceCallback<void(bool /* accept */)> callback) {
   if (!window_android) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), false));
     return;
   }
@@ -57,6 +55,7 @@ void MixedContentDownloadDialogBridge::CreateDialog(
   intptr_t callback_id = reinterpret_cast<intptr_t>(
       new MixedContentDialogCallback(std::move(callback)));
   validator_.AddJavaCallback(callback_id);
+
   Java_MixedContentDownloadDialogBridge_showDialog(
       env, java_object_, window_android->GetJavaObject(),
       base::android::ConvertUTF16ToJavaString(

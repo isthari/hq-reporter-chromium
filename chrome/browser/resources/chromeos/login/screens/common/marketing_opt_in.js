@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,26 @@
  * opt-in screen.
  */
 
-/* #js_imports_placeholder */
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '//resources/polymer/v3_0/iron-iconset-svg/iron-iconset-svg.js';
+import '//resources/cr_elements/cr_toggle/cr_toggle.js';
+import '../../components/oobe_cr_lottie.js';
+import '../../components/oobe_icons.m.js';
+import '../../components/common_styles/oobe_common_styles.m.js';
+import '../../components/common_styles/oobe_dialog_host_styles.m.js';
+
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.m.js';
+import {MultiStepBehavior, MultiStepBehaviorInterface} from '../../components/behaviors/multi_step_behavior.m.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OobeBackButton} from '../../components/buttons/oobe_back_button.js';
+import {OobeIconButton} from '../../components/buttons/oobe_icon_button.js';
+import {OobeTextButton} from '../../components/buttons/oobe_text_button.js';
+import {OobeAdaptiveDialog} from '../../components/dialogs/oobe_adaptive_dialog.js';
+import {OOBE_UI_STATE, SCREEN_GAIA_SIGNIN} from '../../components/display_manager_types.js';
+import {OobeA11yOption} from '../../components/oobe_a11y_option.js';
+
 
 /**
  * @constructor
@@ -15,9 +34,8 @@
  * @implements {LoginScreenBehaviorInterface}
  * @implements {MultiStepBehaviorInterface}
  */
-const MarketingScreenElementBase = Polymer.mixinBehaviors(
-    [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior],
-    Polymer.Element);
+const MarketingScreenElementBase = mixinBehaviors(
+    [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior], PolymerElement);
 
 /**
  * Enum to represent each page in the marketing opt in screen.
@@ -29,8 +47,20 @@ const MarketingOptInStep = {
 };
 
 /**
+ * URL of the animation in the light mode.
+ * @type {string}
+ */
+const ANIMATION_LIGHT_URL = 'animations/all_set_light.json';
+
+/**
+ * URL of the animation in the dark mode.
+ * @type {string}
+ */
+const ANIMATION_DARK_URL = 'animations/all_set_dark.json';
+
+/**
  * @typedef {{
- *   marketingOptInOverviewDialog:  OobeAdaptiveDialogElement,
+ *   marketingOptInOverviewDialog:  OobeAdaptiveDialog,
  *   chromebookUpdatesOption:  CrToggleElement,
  *   a11yNavButtonToggle:  OobeA11yOption,
  * }}
@@ -41,10 +71,13 @@ MarketingScreenElementBase.$;
  * @polymer
  */
 class MarketingOptIn extends MarketingScreenElementBase {
+  static get is() {
+    return 'marketing-opt-in-element';
+  }
 
-  static get is() { return 'marketing-opt-in-element'; }
-
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -77,6 +110,24 @@ class MarketingOptIn extends MarketingScreenElementBase {
         type: Boolean,
         value: false,
       },
+
+      /**
+       * Whether the marketing opt-in page is being rendered in dark mode.
+       * @private {boolean}
+       */
+      isDarkModeActive_: {
+        type: Boolean,
+        value: false,
+      },
+
+      /**
+       * Whether the device is cloud gaming device, which will
+       * alternate different title, subtitle and animation.
+       */
+      isCloudGamingDevice_: {
+        type: Boolean,
+        value: false,
+      },
     };
   }
 
@@ -86,6 +137,10 @@ class MarketingOptIn extends MarketingScreenElementBase {
 
   defaultUIStep() {
     return MarketingOptInStep.OVERVIEW;
+  }
+
+  getOobeUIInitialState() {
+    return OOBE_UI_STATE.MARKETING_OPT_IN;
   }
 
   /** Overridden from LoginScreenBehavior. */
@@ -100,7 +155,7 @@ class MarketingOptIn extends MarketingScreenElementBase {
   /** @override */
   ready() {
     super.ready();
-    this.initializeLoginScreen('MarketingOptInScreen', {resetAllowed: true});
+    this.initializeLoginScreen('MarketingOptInScreen');
   }
 
   /** Shortcut method to control animation */
@@ -115,6 +170,8 @@ class MarketingOptIn extends MarketingScreenElementBase {
         'optInDefaultState' in data && data.optInDefaultState;
     this.hasLegalFooter_ =
         'legalFooterVisibility' in data && data.legalFooterVisibility;
+    this.isCloudGamingDevice_ =
+        'cloudGamingDevice' in data && data.cloudGamingDevice;
     this.setAnimationPlay_(true);
     this.$.marketingOptInOverviewDialog.show();
   }
@@ -129,9 +186,7 @@ class MarketingOptIn extends MarketingScreenElementBase {
    */
   onGetStarted_() {
     this.setAnimationPlay_(false);
-    chrome.send(
-        'login.MarketingOptInScreen.onGetStarted',
-        [this.$.chromebookUpdatesOption.checked]);
+    this.userActed(['get-started', this.$.chromebookUpdatesOption.checked]);
   }
 
   /**
@@ -170,9 +225,45 @@ class MarketingOptIn extends MarketingScreenElementBase {
    * @private
    */
   onA11yNavButtonsSettingChanged_() {
-    chrome.send('login.MarketingOptInScreen.setA11yNavigationButtonsEnabled', [
-      this.$.a11yNavButtonToggle.checked
-    ]);
+    this.userActed(
+        ['set-a11y-button-enable', this.$.a11yNavButtonToggle.checked]);
+  }
+
+  /**
+   * Returns the src of the icon.
+   * @private
+   */
+  getIcon_() {
+    return this.isCloudGamingDevice_ ? 'oobe-32:game-controller' :
+                                       'oobe-32:checkmark';
+  }
+
+  /**
+   * Returns the src of the illustration.
+   * @private
+   */
+  getImageSource_() {
+    return this.isDarkModeActive_ ? 'images/blazey_dark.svg' :
+                                    'images/blazey_light.svg';
+  }
+
+  /**
+   * Returns the src of the margin for the toggle.
+   * @private
+   */
+  getMarginTop_() {
+    return this.isCloudGamingDevice_ ? 'margin-top: 65px;' :
+                                       'margin-top: 20px;';
+  }
+
+
+
+  /**
+   * Returns the url of the animation asset.
+   * @private
+   */
+  getAnimationUrl_() {
+    return this.isDarkModeActive_ ? ANIMATION_DARK_URL : ANIMATION_LIGHT_URL;
   }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,12 +22,15 @@ import androidx.preference.PreferenceScreen;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.autofill.AutofillUiUtils;
+import org.chromium.chrome.browser.autofill.AutofillEditorBase;
 import org.chromium.chrome.browser.autofill.PersonalDataManager;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
+import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.payments.ServiceWorkerPaymentAppBridge;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.settings.ChromeManagedPreferenceDelegate;
+import org.chromium.components.autofill.VirtualCardEnrollmentState;
 import org.chromium.components.browser_ui.settings.ChromeSwitchPreference;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.components.payments.AndroidPaymentAppFactory;
@@ -63,8 +66,9 @@ public class AutofillPaymentMethodsFragment extends PreferenceFragmentCompat
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getItemId() == R.id.menu_id_targeted_help) {
-            AutofillUiUtils.launchAutofillHelpPage(
-                    getActivity(), Profile.getLastUsedRegularProfile());
+            HelpAndFeedbackLauncherImpl.getInstance().show(getActivity(),
+                    getActivity().getString(R.string.help_context_autofill),
+                    Profile.getLastUsedRegularProfile(), null);
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -101,7 +105,7 @@ public class AutofillPaymentMethodsFragment extends PreferenceFragmentCompat
             @Override
             public boolean isPreferenceClickDisabledByPolicy(Preference preference) {
                 return PersonalDataManager.isAutofillCreditCardManaged()
-                        && !PersonalDataManager.isAutofillProfileEnabled();
+                        && !PersonalDataManager.isAutofillCreditCardEnabled();
             }
         });
         getPreferenceScreen().addPreference(autofillSwitch);
@@ -127,7 +131,22 @@ public class AutofillPaymentMethodsFragment extends PreferenceFragmentCompat
             // line.
             card_pref.setSingleLineTitle(false);
             card_pref.setTitle(card.getCardLabel());
-            card_pref.setSummary(card.getFormattedExpirationDate(getActivity()));
+
+            // Show virtual card enrollment status for eligible cards, expiration date otherwise.
+            if (ChromeFeatureList.isEnabled(
+                        ChromeFeatureList.AUTOFILL_ENABLE_VIRTUAL_CARD_METADATA)) {
+                if (card.getVirtualCardEnrollmentState() == VirtualCardEnrollmentState.ENROLLED) {
+                    card_pref.setSummary(R.string.autofill_virtual_card_enrolled_text);
+                } else if (card.getVirtualCardEnrollmentState()
+                        == VirtualCardEnrollmentState.UNENROLLED_AND_ELIGIBLE) {
+                    card_pref.setSummary(R.string.autofill_virtual_card_enrollment_eligible_text);
+                } else {
+                    card_pref.setSummary(card.getFormattedExpirationDate(getActivity()));
+                }
+            } else {
+                card_pref.setSummary(card.getFormattedExpirationDate(getActivity()));
+            }
+
             card_pref.setIcon(
                     AppCompatResources.getDrawable(getActivity(), card.getIssuerIconDrawableId()));
 
@@ -135,7 +154,12 @@ public class AutofillPaymentMethodsFragment extends PreferenceFragmentCompat
                 card_pref.setFragment(AutofillLocalCardEditor.class.getName());
             } else {
                 card_pref.setFragment(AutofillServerCardEditor.class.getName());
-                card_pref.setWidgetLayoutResource(R.layout.autofill_server_data_label);
+                if (ChromeFeatureList.isEnabled(
+                            ChromeFeatureList.AUTOFILL_ENABLE_VIRTUAL_CARD_METADATA)) {
+                    card_pref.setWidgetLayoutResource(R.layout.autofill_server_data_label);
+                } else {
+                    card_pref.setWidgetLayoutResource(R.layout.autofill_server_data_text_label);
+                }
             }
 
             Bundle args = card_pref.getExtras();

@@ -1,18 +1,20 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_bottom_toolbar.h"
 
-#include "base/strings/sys_string_conversions.h"
-#import "ios/chrome/browser/ui/tab_switcher/tab_grid/features.h"
+#import "base/strings/sys_string_conversions.h"
+#import "ios/chrome/browser/ui/icons/symbols.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/grid/grid_constants.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_constants.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_new_tab_button.h"
+#import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_toolbars_utils.h"
 #import "ios/chrome/browser/ui/thumb_strip/thumb_strip_feature.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ios/chrome/common/ui/util/constraints_ui_util.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -34,15 +36,28 @@
   UIBarButtonItem* _closeTabsButton;
   UIBarButtonItem* _shareButton;
   BOOL _undoActive;
+  BOOL _scrolledToEdge;
+  UIView* _scrolledToBottomBackgroundView;
+  UIView* _scrolledBackgroundView;
 }
 
 #pragma mark - UIView
 
 - (void)willMoveToSuperview:(UIView*)newSuperview {
+  [super willMoveToSuperview:newSuperview];
   // The first time this moves to a superview, perform the view setup.
   if (newSuperview && self.subviews.count == 0) {
     [self setupViews];
   }
+}
+
+- (void)didMoveToSuperview {
+  if (_scrolledBackgroundView) {
+    [self.superview.bottomAnchor
+        constraintEqualToAnchor:_scrolledBackgroundView.bottomAnchor]
+        .active = YES;
+  }
+  [super didMoveToSuperview];
 }
 
 - (void)traitCollectionDidChange:(UITraitCollection*)previousTraitCollection {
@@ -55,38 +70,36 @@
   }
 }
 
-// Controls hit testing of the bottom toolbar. When the toolbar is transparent,
-// only respond to tapping on the new tab button.
+// `pointInside` is called as long as this view is on the screen (even if its
+// size is zero). It controls hit testing of the bottom toolbar. When the
+// toolbar is transparent and has the `_largeNewTabButton`, only respond to
+// tapping on that button.
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent*)event {
-  if ([self shouldShowFullBar]) {
-    return [super pointInside:point withEvent:event];
+  if ([self isShowingFloatingButton]) {
+    // Only floating new tab button is tappable.
+    return [_largeNewTabButton
+        pointInside:[self convertPoint:point toView:_largeNewTabButton]
+          withEvent:event];
   }
-  // Only floating new tab button is tappable.
-  return [_largeNewTabButton pointInside:[self convertPoint:point
-                                                     toView:_largeNewTabButton]
-                               withEvent:event];
+  return [super pointInside:point withEvent:event];
 }
 
-// Returns UIToolbar's intrinsicContentSize based on the orientation and the
-// mode.
+// Returns intrinsicContentSize based on the content of the toolbar.
+// When showing the floating Button the contentsize for the toolbar should be
+// zero so that the toolbar isn't accounted for when calculating the bottom
+// insets of the container view.
 - (CGSize)intrinsicContentSize {
-  if ([self shouldShowFullBar]) {
-    return _toolbar.intrinsicContentSize;
+  if ([self isShowingFloatingButton] || self.subviews.count == 0) {
+    return CGSizeZero;
   }
-  // Return CGSizeZero for floating button layout.
-  return CGSizeZero;
+  return _toolbar.intrinsicContentSize;
 }
 
 #pragma mark - Public
 
-// TODO(crbug.com/929981): "traitCollectionDidChange:" method won't get called
-// when the view is not displayed, and in that case the only chance
-// TabGridBottomToolbar can update its layout is when the TabGrid sets its
-// "page" property in the
-// "viewWillTransitionToSize:withTransitionCoordinator:" method. An early
-// return for "self.page == page" can be added here since iOS 13 where the bug
-// is fixed in UIKit.
 - (void)setPage:(TabGridPage)page {
+  if (_page == page)
+    return;
   _page = page;
   _smallNewTabButton.page = page;
   _largeNewTabButton.page = page;
@@ -146,7 +159,7 @@
   if (useUndo) {
     _closeAllOrUndoButton.title =
         l10n_util::GetNSString(IDS_IOS_TAB_GRID_UNDO_CLOSE_ALL_BUTTON);
-    // Setting the |accessibilityIdentifier| seems to trigger layout, which
+    // Setting the `accessibilityIdentifier` seems to trigger layout, which
     // causes an infinite loop.
     if (_closeAllOrUndoButton.accessibilityIdentifier !=
         kTabGridUndoCloseAllButtonIdentifier) {
@@ -156,7 +169,7 @@
   } else {
     _closeAllOrUndoButton.title =
         l10n_util::GetNSString(IDS_IOS_TAB_GRID_CLOSE_ALL_BUTTON);
-    // Setting the |accessibilityIdentifier| seems to trigger layout, which
+    // Setting the `accessibilityIdentifier` seems to trigger layout, which
     // causes an infinite loop.
     if (_closeAllOrUndoButton.accessibilityIdentifier !=
         kTabGridCloseAllButtonIdentifier) {
@@ -178,6 +191,15 @@
 - (void)show {
   _smallNewTabButton.alpha = 1.0;
   _largeNewTabButton.alpha = 1.0;
+}
+
+- (void)setScrollViewScrolledToEdge:(BOOL)scrolledToEdge {
+  if (!UseSymbols() || scrolledToEdge == _scrolledToEdge)
+    return;
+
+  _scrolledToEdge = scrolledToEdge;
+
+  [self updateBackgroundVisibility];
 }
 
 #pragma mark Close Tabs
@@ -229,8 +251,13 @@
   // zero rect frame. An arbitrary non-zero frame fixes this issue.
   _toolbar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 100, 100)];
   _toolbar.translatesAutoresizingMaskIntoConstraints = NO;
-  _toolbar.barStyle = UIBarStyleBlack;
-  _toolbar.translucent = YES;
+  if (UseSymbols()) {
+    [self createScrolledBackgrounds];
+    _toolbar.overrideUserInterfaceStyle = UIUserInterfaceStyleDark;
+  } else {
+    _toolbar.barStyle = UIBarStyleBlack;
+    _toolbar.translucent = YES;
+  }
   // Remove the border of UIToolbar.
   [_toolbar setShadowImage:[[UIImage alloc] init]
         forToolbarPosition:UIBarPositionAny];
@@ -250,10 +277,24 @@
                            target:nil
                            action:nil];
 
-  _smallNewTabButton = [[TabGridNewTabButton alloc]
-      initWithRegularImage:[UIImage imageNamed:@"new_tab_toolbar_button"]
-            incognitoImage:[UIImage
-                               imageNamed:@"new_tab_toolbar_button_incognito"]];
+  if (UseSymbols()) {
+    if (@available(iOS 15, *)) {
+      _smallNewTabButton = [[TabGridNewTabButton alloc] initWithLargeSize:NO];
+    } else {
+      _smallNewTabButton = [[TabGridNewTabButton alloc]
+          initWithRegularImage:[UIImage
+                                   imageNamed:@"tab_grid_new_tab_button_ios14"]
+                incognitoImage:
+                    [UIImage
+                        imageNamed:@"tab_grid_new_tab_button_incognito_ios14"]];
+    }
+  } else {
+    _smallNewTabButton = [[TabGridNewTabButton alloc]
+        initWithRegularImage:[UIImage imageNamed:@"new_tab_toolbar_button"]
+              incognitoImage:
+                  [UIImage imageNamed:@"new_tab_toolbar_button_incognito"]];
+  }
+
   _smallNewTabButton.translatesAutoresizingMaskIntoConstraints = NO;
   _smallNewTabButton.page = self.page;
 
@@ -291,18 +332,47 @@
   ];
 
   // For other layout, display a floating new tab button.
-  UIImage* incognitoImage =
-      [UIImage imageNamed:@"new_tab_floating_button_incognito"];
-  _largeNewTabButton = [[TabGridNewTabButton alloc]
-      initWithRegularImage:[UIImage imageNamed:@"new_tab_floating_button"]
-            incognitoImage:incognitoImage];
+  if (UseSymbols()) {
+    if (@available(iOS 15, *)) {
+      _largeNewTabButton = [[TabGridNewTabButton alloc] initWithLargeSize:YES];
+
+      // When a11y font size is used, long press on UIBarButtonItem will show a
+      // built-in a11y modal panel with image and title if set. The size is not
+      // taken into account.
+      _newTabButtonItem.image =
+          CustomSymbolWithPointSize(kPlusCircleFillSymbol, 0);
+    } else {
+      UIImage* regularImage =
+          [UIImage imageNamed:@"tab_grid_new_tab_floating_button_ios14"];
+      UIImage* incognitoImage = [UIImage
+          imageNamed:@"tab_grid_new_tab_floating_button_incognito_ios14"];
+      _largeNewTabButton =
+          [[TabGridNewTabButton alloc] initWithRegularImage:regularImage
+                                             incognitoImage:incognitoImage];
+
+      // When a11y font size is used, long press on UIBarButtonItem will show a
+      // built-in a11y modal panel with image and title if set. The size is not
+      // taken into account.
+      _newTabButtonItem.image = DefaultSymbolWithPointSize(kPlusSymbol, 0);
+    }
+  } else {
+    UIImage* incognitoImage =
+        [UIImage imageNamed:@"new_tab_floating_button_incognito"];
+    _largeNewTabButton = [[TabGridNewTabButton alloc]
+        initWithRegularImage:[UIImage imageNamed:@"new_tab_floating_button"]
+              incognitoImage:incognitoImage];
+
+    // When a11y font size is used, long press on UIBarButtonItem will show a
+    // built-in a11y modal panel with image and title if set. The image will be
+    // normalized into a bi-color image, so the incognito image is suitable
+    // because it has a transparent "+". Use the larger image for higher
+    // resolution.
+    _newTabButtonItem.image = incognitoImage;
+  }
   _largeNewTabButton.translatesAutoresizingMaskIntoConstraints = NO;
   _largeNewTabButton.page = self.page;
 
   CGFloat floatingButtonVerticalInset = kTabGridFloatingButtonVerticalInset;
-  if (ShowThumbStripInTraitCollection(self.traitCollection)) {
-    floatingButtonVerticalInset += kBVCHeightTabGrid;
-  }
 
   _largeNewTabButtonBottomAnchor = [_largeNewTabButton.bottomAnchor
       constraintEqualToAnchor:self.safeAreaLayoutGuide.bottomAnchor
@@ -316,12 +386,6 @@
                        constant:-kTabGridFloatingButtonHorizontalInset],
   ];
 
-  // When a11y font size is used, long press on UIBarButtonItem will show a
-  // built-in a11y modal panel with image and title if set. The image will be
-  // normalized into a bi-color image, so the incognito image is suitable
-  // because it has a transparent "+". Use the larger image for higher
-  // resolution.
-  _newTabButtonItem.image = incognitoImage;
   _newTabButtonItem.title = _largeNewTabButton.accessibilityLabel;
 }
 
@@ -331,26 +395,30 @@
 }
 
 - (void)updateLayout {
+  [self updateBackgroundVisibility];
+
   // Search mode doesn't have bottom toolbar or floating buttons, Handle it and
   // return early in that case.
   if (self.mode == TabGridModeSearch) {
     [NSLayoutConstraint deactivateConstraints:_compactConstraints];
-    [_toolbar removeFromSuperview];
     [NSLayoutConstraint deactivateConstraints:_floatingConstraints];
+    [_toolbar removeFromSuperview];
     [_largeNewTabButton removeFromSuperview];
+    self.hidden = YES;
     return;
   }
   _largeNewTabButtonBottomAnchor.constant =
       -kTabGridFloatingButtonVerticalInset;
 
   if (self.mode == TabGridModeSelection) {
+    [NSLayoutConstraint deactivateConstraints:_floatingConstraints];
+    [_largeNewTabButton removeFromSuperview];
     [_toolbar setItems:@[
       _closeTabsButton, _spaceItem, _shareButton, _spaceItem, _addToButton
     ]];
-    [NSLayoutConstraint deactivateConstraints:_floatingConstraints];
-    [_largeNewTabButton removeFromSuperview];
     [self addSubview:_toolbar];
     [NSLayoutConstraint activateConstraints:_compactConstraints];
+    self.hidden = NO;
     return;
   }
   UIBarButtonItem* leadingButton = _closeAllOrUndoButton;
@@ -359,6 +427,9 @@
   UIBarButtonItem* trailingButton = _doneButton;
 
   if ([self shouldUseCompactLayout]) {
+    [NSLayoutConstraint deactivateConstraints:_floatingConstraints];
+    [_largeNewTabButton removeFromSuperview];
+
     // For incognito/regular pages, display all 3 buttons;
     // For remote tabs page, only display new tab button.
     if (self.page == TabGridPageRemoteTabs) {
@@ -369,8 +440,6 @@
       ]];
     }
 
-    [NSLayoutConstraint deactivateConstraints:_floatingConstraints];
-    [_largeNewTabButton removeFromSuperview];
     [self addSubview:_toolbar];
     [NSLayoutConstraint activateConstraints:_compactConstraints];
   } else {
@@ -388,25 +457,55 @@
       [NSLayoutConstraint activateConstraints:_floatingConstraints];
     }
   }
+  self.hidden = !self.subviews.count;
 }
 
-// Returns YES if the full toolbar should be shown instead of the floating
-// button.
-- (BOOL)shouldShowFullBar {
-  return [self shouldUseCompactLayout] || self.mode == TabGridModeSelection;
+// Returns YES if the `_largeNewTabButton` is showing on the toolbar.
+- (BOOL)isShowingFloatingButton {
+  return _largeNewTabButton.superview &&
+         _largeNewTabButtonBottomAnchor.isActive;
 }
 
 // Returns YES if should use compact bottom toolbar layout.
 - (BOOL)shouldUseCompactLayout {
-  // TODO(crbug.com/929981): UIView's |traitCollection| can be wrong and
-  // contradict the keyWindow's |traitCollection| because UIView's
-  // |-traitCollectionDidChange:| is not properly called when the view rotates
-  // while it is in a ViewController deeper in the ViewController hierarchy. Use
-  // self.traitCollection since iOS 13 where the bug is fixed in UIKit.
-  return self.window.traitCollection.verticalSizeClass ==
+  return self.traitCollection.verticalSizeClass ==
              UIUserInterfaceSizeClassRegular &&
-         self.window.traitCollection.horizontalSizeClass ==
+         self.traitCollection.horizontalSizeClass ==
              UIUserInterfaceSizeClassCompact;
+}
+
+// Creates and configures the two background for the scrolled in the
+// middle/scrolled to the top states.
+- (void)createScrolledBackgrounds {
+  _scrolledToEdge = YES;
+
+  // Background when the content is scrolled to the middle.
+  _scrolledBackgroundView = CreateTabGridOverContentBackground();
+  _scrolledBackgroundView.hidden = YES;
+  _scrolledBackgroundView.translatesAutoresizingMaskIntoConstraints = NO;
+  [self addSubview:_scrolledBackgroundView];
+  AddSameConstraintsToSides(
+      self, _scrolledBackgroundView,
+      LayoutSides::kLeading | LayoutSides::kTop | LayoutSides::kTrailing);
+
+  // Background when the content is scrolled to the top.
+  _scrolledToBottomBackgroundView = CreateTabGridScrolledToEdgeBackground();
+  _scrolledToBottomBackgroundView.translatesAutoresizingMaskIntoConstraints =
+      NO;
+  [self addSubview:_scrolledToBottomBackgroundView];
+  AddSameConstraints(_scrolledBackgroundView, _scrolledToBottomBackgroundView);
+
+  // A non-nil UIImage has to be added in the background of the toolbar to avoid
+  // having an additional blur effect.
+  [_toolbar setBackgroundImage:[UIImage new]
+            forToolbarPosition:UIBarPositionAny
+                    barMetrics:UIBarMetricsDefault];
+}
+
+// Updates the visibility of the backgrounds based on the state of the TabGrid.
+- (void)updateBackgroundVisibility {
+  _scrolledToBottomBackgroundView.hidden = !_scrolledToEdge;
+  _scrolledBackgroundView.hidden = _scrolledToEdge;
 }
 
 @end

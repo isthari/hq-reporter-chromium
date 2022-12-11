@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/webshare/win/share_operation.h"
 
+#include "base/files/file_path.h"
 #include "base/guid.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
@@ -20,6 +21,7 @@
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/web_contents.h"
 #include "storage/browser/blob/blob_data_builder.h"
 #include "storage/browser/blob/blob_impl.h"
 #include "storage/browser/blob/blob_storage_context.h"
@@ -147,9 +149,10 @@ class ShareOperationUnitTest : public ChromeRenderViewHostTestHarness {
     ASSERT_HRESULT_SUCCEEDED(closable_input_stream->Close());
   }
 
-  blink::mojom::SharedFilePtr CreateSharedFile(const std::string& name,
-                                               const std::string& content_type,
-                                               const std::string& contents) {
+  blink::mojom::SharedFilePtr CreateSharedFile(
+      base::FilePath::StringPieceType name,
+      const std::string& content_type,
+      const std::string& contents) {
     auto blob = blink::mojom::SerializedBlob::New();
     const std::string uuid = base::GenerateGUID();
     blob->uuid = uuid;
@@ -171,7 +174,8 @@ class ShareOperationUnitTest : public ChromeRenderViewHostTestHarness {
         }),
         base::BindLambdaForTesting([&run_loop]() { run_loop.Quit(); }));
     run_loop.Run();
-    return blink::mojom::SharedFile::New(name, std::move(blob));
+    return blink::mojom::SharedFile::New(*base::SafeBaseName::Create(name),
+                                         std::move(blob));
   }
 
   // Fetches the FakeDataTransferManager associated with the current context.
@@ -292,8 +296,8 @@ TEST_F(ShareOperationUnitTest, BasicFile) {
 
   base::RunLoop run_loop;
   std::vector<blink::mojom::SharedFilePtr> files;
-  files.push_back(
-      CreateSharedFile("MyFile.txt", "text/plain", "Contents of the file"));
+  files.push_back(CreateSharedFile(FILE_PATH_LITERAL("MyFile.txt"),
+                                   "text/plain", "Contents of the file"));
   ShareOperation operation{"shared title", "", GURL::EmptyGURL(),
                            std::move(files), web_contents()};
   operation.Run(
@@ -326,7 +330,7 @@ TEST_F(ShareOperationUnitTest, SingleFileAtSizeLimit) {
   base::RunLoop run_loop;
   std::vector<blink::mojom::SharedFilePtr> files;
   files.push_back(
-      CreateSharedFile("MyFile.txt", "text/plain",
+      CreateSharedFile(FILE_PATH_LITERAL("MyFile.txt"), "text/plain",
                        std::string(kMaxSharedFileBytesForTest, '*')));
   ShareOperation operation{"", "", GURL::EmptyGURL(), std::move(files),
                            web_contents()};
@@ -360,7 +364,7 @@ TEST_F(ShareOperationUnitTest, SingleFileLargerThanSizeLimit) {
   base::RunLoop run_loop;
   std::vector<blink::mojom::SharedFilePtr> files;
   files.push_back(
-      CreateSharedFile("MyFile.txt", "text/plain",
+      CreateSharedFile(FILE_PATH_LITERAL("MyFile.txt"), "text/plain",
                        std::string(kMaxSharedFileBytesForTest + 1, '*')));
   ShareOperation operation{"", "", GURL::EmptyGURL(), std::move(files),
                            web_contents()};
@@ -396,10 +400,10 @@ TEST_F(ShareOperationUnitTest, FilesTotallingSizeLimit) {
   base::RunLoop run_loop;
   std::vector<blink::mojom::SharedFilePtr> files;
   files.push_back(
-      CreateSharedFile("File1.txt", "text/plain",
+      CreateSharedFile(FILE_PATH_LITERAL("File1.txt"), "text/plain",
                        std::string(kMaxSharedFileBytesForTest / 2, '*')));
   files.push_back(
-      CreateSharedFile("File2.txt", "text/plain",
+      CreateSharedFile(FILE_PATH_LITERAL("File2.txt"), "text/plain",
                        std::string(kMaxSharedFileBytesForTest / 2, '*')));
   ShareOperation operation{"", "", GURL::EmptyGURL(), std::move(files),
                            web_contents()};
@@ -439,10 +443,10 @@ TEST_F(ShareOperationUnitTest, FilesTotallingLargerThanSizeLimit) {
   base::RunLoop run_loop;
   std::vector<blink::mojom::SharedFilePtr> files;
   files.push_back(
-      CreateSharedFile("File1.txt", "text/plain",
+      CreateSharedFile(FILE_PATH_LITERAL("File1.txt"), "text/plain",
                        std::string(kMaxSharedFileBytesForTest / 2, '*')));
   files.push_back(
-      CreateSharedFile("File2.txt", "text/plain",
+      CreateSharedFile(FILE_PATH_LITERAL("File2.txt"), "text/plain",
                        std::string((kMaxSharedFileBytesForTest / 2) + 1, '*')));
   ShareOperation operation{"", "", GURL::EmptyGURL(), std::move(files),
                            web_contents()};

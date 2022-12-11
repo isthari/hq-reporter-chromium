@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,6 +56,12 @@ void ExtensionCacheFake::PutExtension(const std::string& id,
   } else {
     std::move(callback).Run(file_path, true);
   }
+}
+
+bool ExtensionCacheFake::OnInstallFailed(const std::string& id,
+                                         const std::string& hash,
+                                         const CrxInstallError& error) {
+  return false;
 }
 
 }  // namespace extensions

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,11 +14,9 @@
 // This test case verifies that chrome triggers LoadShillProfile for the
 // unmanaged user case and the managed user with/without network policy cases.
 
-#include "ash/components/cryptohome/cryptohome_parameters.h"
-#include "ash/components/login/auth/user_context.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "base/bind.h"
-#include "base/bind_internal.h"
+#include "base/functional/bind_internal.h"
 #include "base/run_loop.h"
 #include "chrome/browser/ash/login/login_manager_test.h"
 #include "chrome/browser/ash/login/startup_utils.h"
@@ -26,10 +24,12 @@
 #include "chrome/browser/ash/login/test/user_policy_mixin.h"
 #include "chrome/browser/ash/login/ui/user_adding_screen.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/dbus/cryptohome/rpc.pb.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
-#include "chromeos/dbus/shill/fake_shill_profile_client.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
+#include "chromeos/ash/components/dbus/cryptohome/rpc.pb.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/dbus/shill/fake_shill_profile_client.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
 #include "components/account_id/account_id.h"
 #include "components/policy/proto/chrome_settings.pb.h"
 #include "components/user_manager/user_names.h"
@@ -38,6 +38,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace ash {
+
 namespace {
 
 namespace em = ::enterprise_management;
@@ -104,7 +105,7 @@ class ShillProfileLoadingTest : public LoginManagerTest {
   void SetUpInProcessBrowserTestFixture() override {
     LoginManagerTest::SetUpInProcessBrowserTestFixture();
 
-    chromeos::SessionManagerClient::InitializeFakeInMemory();
+    SessionManagerClient::InitializeFakeInMemory();
   }
 
   const LoginManagerMixin::TestUserInfo unmanaged_user_{

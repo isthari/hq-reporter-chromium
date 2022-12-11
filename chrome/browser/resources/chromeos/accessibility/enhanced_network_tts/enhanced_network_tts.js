@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,7 +80,7 @@ export class EnhancedNetworkTts {
     const request = EnhancedNetworkTts.generateRequest(utterance, options);
     await (this.api_.getAudioDataWithCallback(
         request,
-        (response) => this.queueResponse_(
+        response => this.queueResponse_(
             response, audioStreamOptions, sendTtsAudio, sendError)));
   }
 
@@ -223,6 +223,9 @@ export class EnhancedNetworkTts {
     } catch (e) {
       console.warn('Could not decode audio data');
       return new Promise(resolve => resolve(null));
+    } finally {
+      // Release system resources.
+      context.close();
     }
 
     if (!audioBuffer) {

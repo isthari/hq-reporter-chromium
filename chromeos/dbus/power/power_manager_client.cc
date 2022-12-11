@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -240,7 +240,6 @@ class PowerManagerClientImpl : public PowerManagerClient {
     RegisterSuspendDelays();
     RequestStatusUpdate();
     RequestThermalState();
-    CheckAmbientColorSupport();
   }
 
   // PowerManagerClient overrides:
@@ -338,6 +337,21 @@ class PowerManagerClientImpl : public PowerManagerClient {
             weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
+  void SetKeyboardBrightness(
+      const power_manager::SetBacklightBrightnessRequest& request) override {
+    dbus::MethodCall method_call(power_manager::kPowerManagerInterface,
+                                 power_manager::kSetKeyboardBrightnessMethod);
+    if (!dbus::MessageWriter(&method_call).AppendProtoAsArrayOfBytes(request)) {
+      POWER_LOG(ERROR) << "Error serializing "
+                       << power_manager::kSetKeyboardBrightnessMethod
+                       << " request";
+      return;
+    }
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
+  }
+
   void RequestStatusUpdate() override {
     POWER_LOG(USER) << "RequestStatusUpdate";
     dbus::MethodCall method_call(
@@ -381,6 +395,8 @@ class PowerManagerClientImpl : public PowerManagerClient {
                       const std::string& description) override {
     POWER_LOG(USER) << "RequestRestart: " << reason << " (" << description
                     << ")";
+    for (auto& observer : observers_)
+      observer.RestartRequested(reason);
     dbus::MethodCall method_call(power_manager::kPowerManagerInterface,
                                  power_manager::kRequestRestartMethod);
     dbus::MessageWriter writer(&method_call);
@@ -489,26 +505,12 @@ class PowerManagerClientImpl : public PowerManagerClient {
                        weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
-  void SetKeyboardBacklightToggledOff(bool toggled_off) override {
-    dbus::MethodCall method_call(
-        power_manager::kPowerManagerInterface,
-        power_manager::kSetKeyboardBacklightToggledOffMethod);
-    dbus::MessageWriter(&method_call).AppendBool(toggled_off);
+  void ToggleKeyboardBacklight() override {
+    dbus::MethodCall method_call(power_manager::kPowerManagerInterface,
+                                 power_manager::kToggleKeyboardBacklightMethod);
     power_manager_proxy_->CallMethod(&method_call,
                                      dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
                                      base::DoNothing());
-  }
-
-  void GetKeyboardBacklightToggledOff(
-      DBusMethodCallback<bool> callback) override {
-    dbus::MethodCall method_call(
-        power_manager::kPowerManagerInterface,
-        power_manager::kGetKeyboardBacklightToggledOffMethod);
-    power_manager_proxy_->CallMethod(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(
-            &PowerManagerClientImpl::OnGetKeyboardBacklightToggledOff,
-            weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
   void GetSwitchStates(DBusMethodCallback<SwitchStates> callback) override {
@@ -555,10 +557,6 @@ class PowerManagerClientImpl : public PowerManagerClient {
 
     suspend_readiness_registry_.erase(registration);
     MaybeReportSuspendReadiness();
-  }
-
-  bool SupportsAmbientColor() override {
-    return device_supports_ambient_color_;
   }
 
   void CreateArcTimers(
@@ -625,17 +623,6 @@ class PowerManagerClientImpl : public PowerManagerClient {
     return max_dark_suspend_delay_timeout_;
   }
 
-  void RefreshBluetoothBattery(const std::string& address) override {
-    dbus::MethodCall method_call(power_manager::kPowerManagerInterface,
-                                 power_manager::kRefreshBluetoothBatteryMethod);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendString(address);
-    // This refresh request is best effort, so we don't have to handle errors.
-    power_manager_proxy_->CallMethod(&method_call,
-                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-                                     base::DoNothing());
-  }
-
   void SetExternalDisplayALSBrightness(bool enabled) override {
     dbus::MethodCall method_call(
         power_manager::kPowerManagerInterface,
@@ -657,6 +644,25 @@ class PowerManagerClientImpl : public PowerManagerClient {
         base::BindOnce(
             &PowerManagerClientImpl::OnGetExternalDisplayALSBrightness,
             weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+  }
+
+  void ChargeNowForAdaptiveCharging() override {
+    dbus::MethodCall method_call(
+        power_manager::kPowerManagerInterface,
+        power_manager::kChargeNowForAdaptiveChargingMethod);
+    power_manager_proxy_->CallMethod(&method_call,
+                                     dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+                                     base::DoNothing());
+  }
+
+  void GetChargeHistoryForAdaptiveCharging(
+      DBusMethodCallback<power_manager::ChargeHistoryState> callback) override {
+    dbus::MethodCall method_call(power_manager::kPowerManagerInterface,
+                                 power_manager::kGetChargeHistoryMethod);
+    power_manager_proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::BindOnce(&PowerManagerClientImpl::OnGetChargeHistory,
+                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
   }
 
  private:
@@ -914,50 +920,6 @@ class PowerManagerClientImpl : public PowerManagerClient {
     std::move(callback).Run(state);
   }
 
-  void OnGetKeyboardBacklightToggledOff(DBusMethodCallback<bool> callback,
-                                        dbus::Response* response) {
-    if (!response) {
-      POWER_LOG(ERROR) << "Error calling "
-                       << power_manager::kGetKeyboardBacklightToggledOffMethod;
-      std::move(callback).Run(absl::nullopt);
-      return;
-    }
-    dbus::MessageReader reader(response);
-    bool toggled_off = false;
-    if (!reader.PopBool(&toggled_off)) {
-      POWER_LOG(ERROR) << "Error reading response from powerd: "
-                       << response->ToString();
-      std::move(callback).Run(absl::nullopt);
-      return;
-    }
-    std::move(callback).Run(toggled_off);
-  }
-
-  void CheckAmbientColorSupport() {
-    dbus::MethodCall method_call(power_manager::kPowerManagerInterface,
-                                 power_manager::kHasAmbientColorDeviceMethod);
-    power_manager_proxy_->CallMethod(
-        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::BindOnce(&PowerManagerClientImpl::OnHasAmbientColorDevice,
-                       weak_ptr_factory_.GetWeakPtr()));
-  }
-
-  void OnHasAmbientColorDevice(dbus::Response* response) {
-    if (!response) {
-      device_supports_ambient_color_ = false;
-      return;
-    }
-    dbus::MessageReader reader(response);
-    bool is_supported = false;
-    if (!reader.PopBool(&is_supported)) {
-      POWER_LOG(ERROR) << "Error reading response from powerd: "
-                       << response->ToString();
-      device_supports_ambient_color_ = false;
-      return;
-    }
-    device_supports_ambient_color_ = is_supported;
-  }
-
   void OnGetSwitchStates(DBusMethodCallback<SwitchStates> callback,
                          dbus::Response* response) {
     if (!response) {
@@ -978,6 +940,38 @@ class PowerManagerClientImpl : public PowerManagerClient {
     std::move(callback).Run(
         SwitchStates{GetLidStateFromProtoEnum(proto.lid_state()),
                      GetTabletModeFromProtoEnum(proto.tablet_mode())});
+  }
+
+  void OnGetChargeHistory(
+      DBusMethodCallback<power_manager::ChargeHistoryState> callback,
+      dbus::Response* response) {
+    if (!response) {
+      POWER_LOG(ERROR) << "Error calling "
+                       << power_manager::kGetChargeHistoryMethod;
+      std::move(callback).Run(absl::nullopt);
+      return;
+    }
+
+    // powerd returns an error response if the charge history is not
+    // initialized yet.
+    if (response->GetMessageType() ==
+        dbus::ErrorResponse::MessageType::MESSAGE_ERROR) {
+      POWER_LOG(ERROR) << "Cannot get charge history from "
+                       << power_manager::kGetChargeHistoryMethod
+                       << " because it's not initialized yet.";
+      std::move(callback).Run(absl::nullopt);
+      return;
+    }
+
+    dbus::MessageReader reader(response);
+    power_manager::ChargeHistoryState proto;
+    if (!reader.PopArrayOfBytesAsProto(&proto)) {
+      POWER_LOG(ERROR) << "Error parsing response from "
+                       << power_manager::kGetChargeHistoryMethod;
+      std::move(callback).Run(absl::nullopt);
+      return;
+    }
+    std::move(callback).Run(proto);
   }
 
   void OnGetInactivityDelays(
@@ -1140,7 +1134,8 @@ class PowerManagerClientImpl : public PowerManagerClient {
     POWER_LOG(EVENT) << "Got " << power_manager::kSuspendDoneSignal
                      << " signal:"
                      << " suspend_id=" << proto.suspend_id()
-                     << " duration=" << duration.InSeconds() << " sec";
+                     << " duration=" << duration.InSeconds() << " sec"
+                     << " deepest_state=" << proto.deepest_state();
 
     // RenderProcessManagerDelegate is only notified that suspend is imminent
     // when readiness is being reported to powerd. If the suspend attempt was
@@ -1167,7 +1162,7 @@ class PowerManagerClientImpl : public PowerManagerClient {
     suspend_readiness_registry_.clear();
 
     for (auto& observer : observers_)
-      observer.SuspendDone(duration);
+      observer.SuspendDoneEx(proto);
     base::PowerMonitorDeviceSource::HandleSystemResumed();
   }
 
@@ -1413,10 +1408,6 @@ class PowerManagerClientImpl : public PowerManagerClient {
   // Last state passed to SetIsProjecting().
   bool last_is_projecting_ = false;
 
-  // Whether the device supports ambient color. This value is checked when the
-  // DBUS service starts and is cached.
-  bool device_supports_ambient_color_ = false;
-
   // The last proto received from D-Bus; initially empty.
   absl::optional<power_manager::PowerSupplyProperties> proto_;
 
@@ -1461,6 +1452,13 @@ void PowerManagerClient::Shutdown() {
 // static
 PowerManagerClient* PowerManagerClient::Get() {
   return g_instance;
+}
+
+void PowerManagerClient::Observer::SuspendDoneEx(
+    const power_manager::SuspendDone& proto) {
+  const base::TimeDelta duration =
+      base::TimeDelta::FromInternalValue(proto.suspend_duration());
+  this->SuspendDone(duration);
 }
 
 }  // namespace chromeos

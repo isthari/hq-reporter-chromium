@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include "base/base_paths.h"
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/cxx17_backports.h"
 #include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -76,7 +75,7 @@ void GetApplicationDirs(std::vector<base::FilePath>* locations) {
 
 void GetPathsFromEnvironment(std::vector<base::FilePath>* paths) {
   base::FilePath::StringType delimiter;
-  base::FilePath::StringType commonPath;
+  base::FilePath::StringType common_path;
   std::string path;
   std::unique_ptr<base::Environment> env(base::Environment::Create());
 
@@ -85,15 +84,15 @@ void GetPathsFromEnvironment(std::vector<base::FilePath>* paths) {
   }
 
 #if BUILDFLAG(IS_WIN)
-  commonPath = base::UTF8ToWide(path);
+  common_path = base::UTF8ToWide(path);
   delimiter = L";";
 #else
-  commonPath = path;
+  common_path = path;
   delimiter = ":";
 #endif
 
   std::vector<base::FilePath::StringType> path_entries = base::SplitString(
-      commonPath, delimiter, base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
+      common_path, delimiter, base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
 
   for (auto& path_entry : path_entries) {
 #if BUILDFLAG(IS_WIN)
@@ -153,7 +152,7 @@ bool FindChrome(base::FilePath* browser_exe) {
   LOG_IF(ERROR, browser_exes_array[0].empty()) << "Unsupported platform.";
 
   std::vector<base::FilePath> browser_exes(
-      browser_exes_array, browser_exes_array + base::size(browser_exes_array));
+      browser_exes_array, browser_exes_array + std::size(browser_exes_array));
   base::FilePath module_dir;
 #if BUILDFLAG(IS_FUCHSIA)
   // Use -1 to allow this to compile.

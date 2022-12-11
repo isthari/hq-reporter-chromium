@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,6 +45,7 @@ class PageInfoBubbleView : public PageInfoBubbleViewBase,
   void OpenPermissionPage(ContentSettingsType type) override;
   void OpenAboutThisSitePage(const page_info::proto::SiteInfo& info) override;
   void OpenAdPersonalizationPage() override;
+  void OpenCookiesPage() override;
   void CloseBubble() override;
 
   // WebContentsObserver:
@@ -66,6 +67,8 @@ class PageInfoBubbleView : public PageInfoBubbleViewBase,
   void OnWidgetDestroying(views::Widget* widget) override;
   void WebContentsDestroyed() override;
   void ChildPreferredSizeChanged(views::View* child) override;
+
+  void AnnouncePageOpened(std::u16string announcement);
 
   raw_ptr<PageSwitcherView> page_container_ = nullptr;
 

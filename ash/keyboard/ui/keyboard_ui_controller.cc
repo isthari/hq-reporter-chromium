@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,7 @@
 #include "base/containers/contains.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "ui/aura/client/aura_constants.h"
@@ -493,6 +493,7 @@ bool KeyboardUIController::IsKeyboardEnableRequested() const {
 
 void KeyboardUIController::UpdateKeyboardAsRequestedBy(
     KeyboardEnableFlag flag) {
+  this->NotifyKeyboardConfigChanged();
   if (IsKeyboardEnableRequested()) {
     // Note that there are two versions of the on-screen keyboard. A full layout
     // is provided for accessibility, which includes sticky modifier keys to
@@ -627,7 +628,7 @@ void KeyboardUIController::HideKeyboardImplicitlyBySystem() {
 
   ChangeState(KeyboardUIState::kWillHide);
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&KeyboardUIController::HideKeyboard,
                      weak_factory_will_hide_.GetWeakPtr(),
@@ -685,6 +686,10 @@ void KeyboardUIController::SetContainerBehaviorInternal(ContainerType type) {
 }
 
 void KeyboardUIController::ShowKeyboard(bool lock) {
+  // TODO(b/245019967): Delete lock arg.
+  // Outside of unittests, this function is only ever called with
+  // lock = false.
+  // Maybe it could be refactored to not support the lock = true case.
   DVLOG(1) << "ShowKeyboard";
   set_keyboard_locked(lock);
   ShowKeyboardInternal(layout_delegate_->GetContainerForDefaultDisplay());
@@ -950,7 +955,7 @@ void KeyboardUIController::ChangeState(KeyboardUIState state) {
   switch (model_.state()) {
     case KeyboardUIState::kLoading:
     case KeyboardUIState::kWillHide:
-      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
           FROM_HERE,
           base::BindOnce(&KeyboardUIController::ReportLingeringState,
                          weak_factory_report_lingering_state_.GetWeakPtr()),
@@ -1152,7 +1157,7 @@ void KeyboardUIController::EnsureCaretInWorkArea(
   TRACE_EVENT0("vk", "EnsureCaretInWorkArea");
 
   if (IsOverscrollAllowed()) {
-    ime->SetOnScreenKeyboardBounds(occluded_bounds_in_screen);
+    ime->SetVirtualKeyboardBounds(occluded_bounds_in_screen);
   } else if (ime->GetTextInputClient()) {
     ime->GetTextInputClient()->EnsureCaretNotInRect(occluded_bounds_in_screen);
   }

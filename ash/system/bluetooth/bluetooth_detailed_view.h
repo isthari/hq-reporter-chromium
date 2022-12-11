@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "ash/ash_export.h"
-#include "chromeos/services/bluetooth_config/public/mojom/cros_bluetooth_config.mojom.h"
+#include "chromeos/ash/services/bluetooth_config/public/mojom/cros_bluetooth_config.mojom.h"
 #include "ui/gfx/vector_icon_types.h"
 
 namespace views {
@@ -19,9 +19,6 @@ namespace ash {
 
 class BluetoothDeviceListItemView;
 class DetailedViewDelegate;
-class TriView;
-
-namespace tray {
 
 // This class defines both the interface used to interact with the detailed
 // Bluetooth page within the quick settings, including the view responsible for
@@ -40,8 +37,8 @@ class ASH_EXPORT BluetoothDetailedView {
     virtual void OnToggleClicked(bool new_state) = 0;
     virtual void OnPairNewDeviceRequested() = 0;
     virtual void OnDeviceListItemSelected(
-        const chromeos::bluetooth_config::mojom::
-            PairedBluetoothDevicePropertiesPtr& device) = 0;
+        const bluetooth_config::mojom::PairedBluetoothDevicePropertiesPtr&
+            device) = 0;
   };
 
   class Factory {
@@ -81,8 +78,8 @@ class ASH_EXPORT BluetoothDetailedView {
   // Adds a sticky sub-header to the end of the device list containing |icon|
   // and text represented by the |text_id| resource ID. The client is expected
   // to use the returned pointer for removing and rearranging the sub-header.
-  virtual ash::TriView* AddDeviceListSubHeader(const gfx::VectorIcon& icon,
-                                               int text_id) = 0;
+  virtual views::View* AddDeviceListSubHeader(const gfx::VectorIcon& icon,
+                                              int text_id) = 0;
 
   // Notifies that the device list has changed and the layout is invalid.
   virtual void NotifyDeviceListChanged() = 0;
@@ -99,7 +96,6 @@ class ASH_EXPORT BluetoothDetailedView {
   Delegate* delegate_;
 };
 
-}  // namespace tray
 }  // namespace ash
 
 #endif  // ASH_SYSTEM_BLUETOOTH_BLUETOOTH_DETAILED_VIEW_H_

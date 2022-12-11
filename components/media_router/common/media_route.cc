@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -83,7 +83,8 @@ MediaRoute::MediaRoute(const MediaRoute::Id& media_route_id,
 
 MediaRoute::MediaRoute(const MediaRoute& other) = default;
 
-MediaRoute::MediaRoute() = default;
+MediaRoute::MediaRoute() : media_source_("") {}
+
 MediaRoute::~MediaRoute() = default;
 
 bool MediaRoute::operator==(const MediaRoute& other) const {

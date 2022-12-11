@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,6 +80,10 @@ class ASH_PUBLIC_EXPORT CastConfigController {
 
   virtual void AddObserver(Observer* observer) = 0;
   virtual void RemoveObserver(Observer* observer) = 0;
+
+  // Returns true if the C++ MediaRouter service exists for the primary profile
+  // and is not disabled by policy.
+  virtual bool HasMediaRouterForPrimaryProfile() const = 0;
 
   // Return true if there are available cast devices.
   virtual bool HasSinksAndRoutes() const = 0;

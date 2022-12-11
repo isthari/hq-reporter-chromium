@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,7 @@ class XrInstallHelper;
 
 namespace content {
 // This class wraps a physical device's interfaces, and registers for events.
-// There is one BrowserXRRuntimeImpl per physical device runtime.  It manages
+// There is one BrowserXRRuntimeImpl per physical device runtime. It manages
 // browser-side handling of state, like which VRServiceImpl is listening for
 // device activation.
 class BrowserXRRuntimeImpl : public content::BrowserXRRuntime,
@@ -40,8 +40,7 @@ class BrowserXRRuntimeImpl : public content::BrowserXRRuntime,
   explicit BrowserXRRuntimeImpl(
       device::mojom::XRDeviceId id,
       device::mojom::XRDeviceDataPtr device_data,
-      mojo::PendingRemote<device::mojom::XRRuntime> runtime,
-      device::mojom::VRDisplayInfoPtr info);
+      mojo::PendingRemote<device::mojom::XRRuntime> runtime);
   ~BrowserXRRuntimeImpl() override;
 
   void ExitActiveImmersiveSession();
@@ -81,10 +80,6 @@ class BrowserXRRuntimeImpl : public content::BrowserXRRuntime,
     return presenting_service_;
   }
 
-  device::mojom::VRDisplayInfoPtr GetVRDisplayInfo() {
-    return display_info_.Clone();
-  }
-
   device::mojom::XRDeviceId GetId() const { return id_; }
 
 #if BUILDFLAG(IS_WIN)
@@ -101,8 +96,6 @@ class BrowserXRRuntimeImpl : public content::BrowserXRRuntime,
 
  private:
   // device::XRRuntimeEventListener
-  void OnDisplayInfoChanged(
-      device::mojom::VRDisplayInfoPtr vr_device_info) override;
   void OnExitPresent() override;
   void OnVisibilityStateChanged(
       device::mojom::XRVisibilityState visibility_state) override;
@@ -121,9 +114,9 @@ class BrowserXRRuntimeImpl : public content::BrowserXRRuntime,
   mojo::Remote<device::mojom::XRRuntime> runtime_;
   mojo::Remote<device::mojom::XRSessionController>
       immersive_session_controller_;
+  bool immersive_session_has_camera_access_ = false;
 
   std::set<VRServiceImpl*> services_;
-  device::mojom::VRDisplayInfoPtr display_info_;
 
   raw_ptr<VRServiceImpl> presenting_service_ = nullptr;
 
@@ -132,6 +125,7 @@ class BrowserXRRuntimeImpl : public content::BrowserXRRuntime,
 
   base::ObserverList<Observer> observers_;
   std::unique_ptr<content::XrInstallHelper> install_helper_;
+  std::unique_ptr<content::BrowserXRRuntime::Observer> runtime_observer_;
   base::OnceCallback<void(bool)> install_finished_callback_;
 
   base::WeakPtrFactory<BrowserXRRuntimeImpl> weak_ptr_factory_{this};

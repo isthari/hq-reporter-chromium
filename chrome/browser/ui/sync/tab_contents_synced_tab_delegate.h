@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,8 +40,6 @@ class TabContentsSyncedTabDelegate : public sync_sessions::SyncedTabDelegate {
   int GetCurrentEntryIndex() const override;
   int GetEntryCount() const override;
   GURL GetVirtualURLAtIndex(int i) const override;
-  GURL GetFaviconURLAtIndex(int i) const override;
-  ui::PageTransition GetTransitionAtIndex(int i) const override;
   std::string GetPageLanguageAtIndex(int i) const override;
   void GetSerializedNavigationAtIndex(
       int i,
@@ -62,7 +60,7 @@ class TabContentsSyncedTabDelegate : public sync_sessions::SyncedTabDelegate {
  private:
   const tasks::TaskTabHelper* task_tab_helper() const;
 
-  raw_ptr<content::WebContents> web_contents_;
+  raw_ptr<content::WebContents, DanglingUntriaged> web_contents_;
 };
 
 #endif  // CHROME_BROWSER_UI_SYNC_TAB_CONTENTS_SYNCED_TAB_DELEGATE_H_

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@
 #include "components/invalidation/public/invalidation_handler.h"
 #include "components/sync/base/extensions_activity.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/base/weak_handle.h"
 #include "components/sync/engine/configure_reason.h"
 #include "components/sync/engine/connection_status.h"
 #include "components/sync/engine/cycle/sync_cycle_snapshot.h"
@@ -27,6 +26,7 @@
 #include "components/sync/engine/sync_credentials.h"
 #include "components/sync/engine/sync_engine.h"
 #include "components/sync/engine/sync_status.h"
+#include "components/sync/invalidations/fcm_registration_token_observer.h"
 #include "components/sync/invalidations/invalidations_listener.h"
 
 namespace invalidation {
@@ -36,7 +36,6 @@ class InvalidationService;
 namespace syncer {
 
 class ActiveDevicesProvider;
-class DataTypeDebugInfoListener;
 class ModelTypeConnector;
 class ProtocolEvent;
 class SyncEngineBackend;
@@ -48,7 +47,8 @@ class SyncTransportDataPrefs;
 // definition for documentation of public methods.
 class SyncEngineImpl : public SyncEngine,
                        public invalidation::InvalidationHandler,
-                       public InvalidationsListener {
+                       public InvalidationsListener,
+                       public FCMRegistrationTokenObserver {
  public:
   using Status = SyncStatus;
 
@@ -77,7 +77,10 @@ class SyncEngineImpl : public SyncEngine,
   base::Time GetLastSyncedTimeForDebugging() const override;
   void StartConfiguration() override;
   void StartSyncingWithServer() override;
-  void SetEncryptionPassphrase(const std::string& passphrase) override;
+  void StartHandlingInvalidations() override;
+  void SetEncryptionPassphrase(
+      const std::string& passphrase,
+      const KeyDerivationParams& key_derivation_params) override;
   void SetExplicitPassphraseDecryptionKey(std::unique_ptr<Nigori> key) override;
   void AddTrustedVaultDecryptionKeys(
       const std::vector<std::vector<uint8_t>>& keys,
@@ -111,6 +114,9 @@ class SyncEngineImpl : public SyncEngine,
   // InvalidationsListener implementation.
   void OnInvalidationReceived(const std::string& payload) override;
 
+  // FCMRegistrationTokenObserver implementation.
+  void OnFCMRegistrationTokenChanged() override;
+
   static std::string GenerateCacheGUIDForTest();
 
  private:
@@ -126,7 +132,6 @@ class SyncEngineImpl : public SyncEngine,
   // |model_type_connector| is our ModelTypeConnector, which is owned because in
   // production it is a proxy object to the real ModelTypeConnector.
   void HandleInitializationSuccessOnFrontendLoop(
-      const WeakHandle<DataTypeDebugInfoListener> debug_info_listener,
       std::unique_ptr<ModelTypeConnector> model_type_connector,
       const std::string& birthday,
       const std::string& bag_of_chips);
@@ -176,6 +181,9 @@ class SyncEngineImpl : public SyncEngine,
   // Helper function that clears SyncTransportDataPrefs and also notifies
   // upper layers via |sync_transport_data_cleared_cb_|.
   void ClearLocalTransportDataAndNotify();
+
+  // Updates the current state of standalone invalidations.
+  void UpdateStandaloneInvalidationsState();
 
   // The task runner where all the sync engine operations happen.
   scoped_refptr<base::SequencedTaskRunner> sync_task_runner_;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,10 +17,8 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool.h"
 #include "base/version.h"
 #include "base/win/registry.h"
@@ -258,8 +256,8 @@ void ThirdPartyConflictsManager::OnModuleDatabaseIdle() {
   // The InstalledApplications instance is only needed for the incompatible
   // applications warning.
   if (IncompatibleApplicationsUpdater::IsWarningEnabled()) {
-    base::PostTaskAndReplyWithResult(
-        background_sequence_.get(), FROM_HERE, base::BindOnce([]() {
+    background_sequence_->PostTaskAndReplyWithResult(
+        FROM_HERE, base::BindOnce([]() {
           return std::make_unique<InstalledApplications>();
         }),
         base::BindOnce(
@@ -270,9 +268,8 @@ void ThirdPartyConflictsManager::OnModuleDatabaseIdle() {
   // And the initial blocklisted modules are only needed for the third-party
   // modules blocking.
   if (ModuleBlocklistCacheUpdater::IsBlockingEnabled()) {
-    base::PostTaskAndReplyWithResult(
-        background_sequence_.get(), FROM_HERE,
-        base::BindOnce(&ReadInitialBlocklistedModules),
+    background_sequence_->PostTaskAndReplyWithResult(
+        FROM_HERE, base::BindOnce(&ReadInitialBlocklistedModules),
         base::BindOnce(
             &ThirdPartyConflictsManager::OnInitialBlocklistedModulesRead,
             weak_ptr_factory_.GetWeakPtr()));
@@ -312,9 +309,8 @@ void ThirdPartyConflictsManager::LoadModuleList(const base::FilePath& path) {
 
   module_list_received_ = true;
 
-  base::PostTaskAndReplyWithResult(
-      background_sequence_.get(), FROM_HERE,
-      base::BindOnce(&CreateModuleListFilter, path),
+  background_sequence_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&CreateModuleListFilter, path),
       base::BindOnce(&ThirdPartyConflictsManager::OnModuleListFilterCreated,
                      weak_ptr_factory_.GetWeakPtr()));
 }

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
 #include "services/network/cors/cors_url_loader_factory.h"
+#include "services/network/is_browser_initiated.h"
 #include "services/network/network_context.h"
 #include "services/network/network_service.h"
 #include "services/network/public/cpp/features.h"
@@ -28,14 +29,13 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
-namespace network {
-namespace cors {
+namespace network::cors {
 
 namespace {
 
 constexpr int kProcessId = 123;
 constexpr int kRequestId = 456;
-constexpr int kRouteId = 789;
+constexpr ResourceScheduler::ClientId kResourceSchedulerClientId(99);
 
 }  // namespace
 
@@ -80,7 +80,8 @@ class CorsURLLoaderFactoryTest : public testing::Test {
         url::Origin::Create(test_server_.base_url());
     auto resource_scheduler_client =
         base::MakeRefCounted<ResourceSchedulerClient>(
-            kProcessId, kRouteId, &resource_scheduler_,
+            kResourceSchedulerClientId, IsBrowserInitiated(false),
+            &resource_scheduler_,
             url_request_context_->network_quality_estimator());
     cors_url_loader_factory_ = std::make_unique<CorsURLLoaderFactory>(
         network_context_.get(), std::move(factory_params),
@@ -90,7 +91,7 @@ class CorsURLLoaderFactoryTest : public testing::Test {
   }
 
   void CreateLoaderAndStart(const ResourceRequest& request) {
-    url_loaders_.emplace_back(mojo::Remote<mojom::URLLoader>());
+    url_loaders_.emplace_back();
     test_cors_loader_clients_.emplace_back(
         std::make_unique<TestURLLoaderClient>());
     cors_url_loader_factory_->CreateLoaderAndStart(
@@ -305,5 +306,4 @@ TEST_F(CorsURLLoaderFactoryTest,
       bad_message_observer.WaitForBadMessage());
 }
 
-}  // namespace cors
-}  // namespace network
+}  // namespace network::cors

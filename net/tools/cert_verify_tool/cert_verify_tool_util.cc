@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -198,7 +198,7 @@ void PrintDebugData(const base::SupportsUserData* debug_data) {
 std::string FingerPrintCryptoBuffer(const CRYPTO_BUFFER* cert_handle) {
   net::SHA256HashValue hash =
       net::X509Certificate::CalculateFingerprint256(cert_handle);
-  return base::HexEncode(hash.data, base::size(hash.data));
+  return base::HexEncode(hash.data, std::size(hash.data));
 }
 
 std::string SubjectFromX509Certificate(const net::X509Certificate* cert) {

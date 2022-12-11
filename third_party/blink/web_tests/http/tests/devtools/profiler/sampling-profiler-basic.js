@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
   TestRunner.addResult(`Tests that the sampling heap profiler works and supports nesting.\n`);
   await TestRunner.loadLegacyModule('profiler');
 
-  const profiler = SDK.targetManager.mainTarget().model(SDK.HeapProfilerModel);
+  const profiler = SDK.targetManager.mainFrameTarget().model(SDK.HeapProfilerModel);
   await profiler.startSampling();
   await profiler.startSampling();
   await TestRunner.evaluateInPagePromise(`let dump = new Array(5e4).fill(42.42)`);

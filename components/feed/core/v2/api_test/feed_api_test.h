@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/strings/string_piece_forward.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/time/time.h"
@@ -71,6 +72,9 @@ std::string SerializedOfflineBadgeContent();
 
 feedwire::ThereAndBackAgainData MakeThereAndBackAgainData(int64_t id);
 
+std::string DatastoreEntryToString(base::StringPiece key,
+                                   base::StringPiece value);
+
 class TestReliabilityLoggingBridge : public ReliabilityLoggingBridge {
  public:
   TestReliabilityLoggingBridge();
@@ -89,6 +93,8 @@ class TestReliabilityLoggingBridge : public ReliabilityLoggingBridge {
                                     base::TimeTicks timestamp) override;
   void LogWebFeedRequestStart(NetworkRequestId id,
                               base::TimeTicks timestamp) override;
+  void LogSingleWebFeedRequestStart(NetworkRequestId id,
+                                    base::TimeTicks timestamp) override;
   void LogRequestSent(NetworkRequestId id, base::TimeTicks timestamp) override;
   void LogResponseReceived(NetworkRequestId id,
                            int64_t server_receive_timestamp_ns,
@@ -140,6 +146,9 @@ class TestSurfaceBase : public FeedStreamSurface {
   std::string DescribeState();
 
   std::map<std::string, std::string> GetDataStoreEntries() const;
+  std::string DescribeDataStore() const;
+  std::vector<std::string> DescribeDataStoreUpdates();
+
   // Returns the logging parameters last sent to the surface.
   LoggingParameters GetLoggingParameters() const;
 
@@ -160,6 +169,7 @@ class TestSurfaceBase : public FeedStreamSurface {
   base::WeakPtr<FeedStream> stream_;
   std::vector<std::string> described_updates_;
   std::map<std::string, std::string> data_store_entries_;
+  std::vector<std::string> described_datastore_updates_;
   std::string last_logging_parameters_description_;
 };
 
@@ -170,6 +180,11 @@ class TestForYouSurface : public TestSurfaceBase {
 class TestWebFeedSurface : public TestSurfaceBase {
  public:
   explicit TestWebFeedSurface(FeedStream* stream = nullptr);
+};
+class TestSingleWebFeedSurface : public TestSurfaceBase {
+ public:
+  explicit TestSingleWebFeedSurface(FeedStream* stream = nullptr,
+                                    std::string = "");
 };
 
 class TestImageFetcher : public ImageFetcher {
@@ -211,6 +226,7 @@ class TestFeedNetwork : public FeedNetwork {
       base::StringPiece method,
       std::string request_bytes,
       const AccountInfo& account_info,
+      absl::optional<RequestMetadata> request_metadata,
       base::OnceCallback<void(RawResponse)> callback) override;
 
   void CancelRequests() override;
@@ -263,6 +279,9 @@ class TestFeedNetwork : public FeedNetwork {
     }
     InjectResponse(response);
   }
+  void InjectListWebFeedsResponse(const FeedNetwork::RawResponse& response) {
+    InjectApiRawResponse<ListWebFeedsDiscoverApi>(response);
+  }
 
   void InjectEmptyActionRequestResult();
 
@@ -292,6 +311,10 @@ class TestFeedNetwork : public FeedNetwork {
     auto iter = api_request_count_.find(request_type);
     return iter == api_request_count_.end() ? 0 : iter->second;
   }
+  std::map<NetworkRequestType, int> GetApiRequestCounts() const {
+    return api_request_count_;
+  }
+
   int GetActionRequestCount() const;
   int GetFollowRequestCount() const {
     return GetApiRequestCount<FollowWebFeedDiscoverApi>();
@@ -304,6 +327,13 @@ class TestFeedNetwork : public FeedNetwork {
   }
   int GetListFollowedWebFeedsRequestCount() const {
     return GetApiRequestCount<ListWebFeedsDiscoverApi>();
+  }
+  int GetWebFeedListContentsCount() const {
+    return GetApiRequestCount<WebFeedListContentsDiscoverApi>();
+  }
+
+  std::vector<NetworkRequestType> sent_request_types() const {
+    return sent_request_types_;
   }
 
   void ClearTestData();
@@ -334,6 +364,7 @@ class TestFeedNetwork : public FeedNetwork {
       injected_api_responses_;
   std::map<NetworkRequestType, std::string> api_requests_sent_;
   std::map<NetworkRequestType, int> api_request_count_;
+  std::vector<NetworkRequestType> sent_request_types_;
   absl::optional<feedwire::Response> injected_response_;
 };
 
@@ -386,14 +417,9 @@ class TestMetricsReporter : public MetricsReporter {
                           int index_in_stream,
                           int stream_slice_count) override;
   void OnLoadStream(const StreamType& stream_type,
-                    LoadStreamStatus load_from_store_status,
-                    LoadStreamStatus final_status,
-                    bool is_initial_load,
-                    bool loaded_new_content_from_network,
-                    base::TimeDelta stored_content_age,
+                    const LoadStreamResultSummary& result_summary,
                     const ContentStats& content_stats,
-                    const RequestMetadata& request_metadata,
-                    std::unique_ptr<LoadLatencyTimes> latencies) override;
+                    std::unique_ptr<LoadLatencyTimes> load_latencies) override;
   void OnLoadMoreBegin(const StreamType& stream_type,
                        SurfaceId surface_id) override;
   void OnLoadMore(const StreamType& stream_type,
@@ -441,11 +467,13 @@ class FeedApiTest : public testing::Test, public FeedStream::Delegate {
   DisplayMetrics GetDisplayMetrics() override;
   std::string GetLanguageTag() override;
   bool IsAutoplayEnabled() override;
+  TabGroupEnabledState GetTabGroupEnabledState() override;
   void ClearAll() override;
   AccountInfo GetAccountInfo() override;
   void PrefetchImage(const GURL& url) override;
   void RegisterExperiments(const Experiments& experiments) override {}
   void RegisterFollowingFeedFollowCountFieldTrial(size_t follow_count) override;
+  void RegisterFeedUserSettingsFieldTrial(base::StringPiece group) override;
 
   // For tests.
 
@@ -455,6 +483,9 @@ class FeedApiTest : public testing::Test, public FeedStream::Delegate {
   std::unique_ptr<StreamModel> CreateStreamModel();
   bool IsTaskQueueIdle() const;
   void WaitForIdleTaskQueue();
+  // Fast forwards the task environment enough for the in-memory model to
+  // auto-unload, which will only take place if there are no attached surfaces.
+  void WaitForModelToAutoUnload();
   void UnloadModel(const StreamType& stream_type);
   void FollowWebFeed(const WebFeedPageInformation page_info);
 
@@ -500,6 +531,7 @@ class FeedApiTest : public testing::Test, public FeedStream::Delegate {
   std::vector<GURL> prefetched_images_;
   base::RepeatingClosure on_clear_all_;
   std::vector<size_t> register_following_feed_follow_count_field_trial_calls_;
+  std::vector<std::string> register_feed_user_settings_field_trial_calls_;
 
  private:
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -528,7 +560,8 @@ class FeedNetworkEndpointTest
       public ::testing::WithParamInterface<::testing::tuple<bool, bool>> {
  public:
   static bool GetDiscoFeedEnabled() { return ::testing::get<0>(GetParam()); }
-  static bool GetWebFeedUsesFeedQueryRequests() {
+  // Whether Feed-Query is used instead, as request in snippets-internals.
+  static bool GetUseFeedQueryRequests() {
     return ::testing::get<1>(GetParam());
   }
 };

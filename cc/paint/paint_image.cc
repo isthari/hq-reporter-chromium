@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "cc/paint/paint_record.h"
 #include "cc/paint/paint_worklet_input.h"
 #include "cc/paint/skia_paint_image_generator.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "ui/gfx/geometry/skia_conversions.h"
 
@@ -70,6 +71,8 @@ bool PaintImage::operator==(const PaintImage& other) const {
     return false;
   if (paint_worklet_input_ != other.paint_worklet_input_)
     return false;
+  // Do not check may_be_lcp_candidate_ as it should not affect any rendering
+  // operation, only metrics collection.
   return true;
 }
 
@@ -155,6 +158,10 @@ SkImageInfo PaintImage::GetSkImageInfo() const {
     return texture_backing_->GetSkImageInfo();
   } else if (cached_sk_image_) {
     return cached_sk_image_->imageInfo();
+  } else if (paint_worklet_input_) {
+    auto size = paint_worklet_input_->GetSize();
+    return SkImageInfo::MakeUnknown(base::ClampCeil(size.width()),
+                                    base::ClampCeil(size.height()));
   } else {
     return SkImageInfo::MakeUnknown();
   }
@@ -225,7 +232,7 @@ bool PaintImage::DecodeYuv(const SkYUVAPixmaps& pixmaps,
   DCHECK(paint_image_generator_);
   const uint32_t lazy_pixel_ref = stable_id();
   return paint_image_generator_->GetYUVAPlanes(pixmaps, frame_index,
-                                               lazy_pixel_ref);
+                                               lazy_pixel_ref, client_id);
 }
 
 bool PaintImage::DecodeFromGenerator(void* memory,
@@ -283,14 +290,6 @@ PaintImage::ContentId PaintImage::GetContentIdForFrame(
   return content_id_;
 }
 
-SkColorType PaintImage::GetColorType() const {
-  return GetSkImageInfo().colorType();
-}
-
-SkAlphaType PaintImage::GetAlphaType() const {
-  return GetSkImageInfo().alphaType();
-}
-
 bool PaintImage::IsTextureBacked() const {
   if (texture_backing_)
     return true;
@@ -302,18 +301,6 @@ bool PaintImage::IsTextureBacked() const {
 void PaintImage::FlushPendingSkiaOps() {
   if (texture_backing_)
     texture_backing_->FlushPendingSkiaOps();
-}
-
-int PaintImage::width() const {
-  return paint_worklet_input_
-             ? static_cast<int>(paint_worklet_input_->GetSize().width())
-             : GetSkImageInfo().width();
-}
-
-int PaintImage::height() const {
-  return paint_worklet_input_
-             ? static_cast<int>(paint_worklet_input_->GetSize().height())
-             : GetSkImageInfo().height();
 }
 
 gfx::ContentColorUsage PaintImage::GetContentColorUsage(bool* is_hlg) const {
@@ -412,6 +399,7 @@ std::string PaintImage::ToString() const {
       << " animation_type_: " << static_cast<int>(animation_type_)
       << " completion_state_: " << static_cast<int>(completion_state_)
       << " is_multipart_: " << is_multipart_
+      << " may_be_lcp_candidate_: " << may_be_lcp_candidate_
       << " is YUV: " << IsYuv(SkYUVAPixmapInfo::SupportedDataTypes::All());
   return str.str();
 }

@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,5 +20,7 @@ function generateBid(
 
 function reportWin(
     auctionSignals, perBuyerSignals, sellerSignals, browserSignals) {
-  sendReportTo(browserSignals.interestGroupOwner + '/echo?report_bidder');
+  sendReportTo(
+      browserSignals.interestGroupOwner + '/echoall?report_bidder/' +
+      browserSignals.interestGroupName);
 }

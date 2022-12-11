@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,7 +49,7 @@ void AppListSyncModelSanitizer::SanitizePageBreaksForProductivityLauncher(
   std::vector<syncer::StringOrdinal> page_breaks_to_add;
   std::map<std::string, syncer::StringOrdinal> resolved_duplicate_positions;
 
-  size_t current_page_size = 0;
+  int current_page_size = 0;
   syncer::StringOrdinal last_valid_position;
   for (size_t i = 0; i < sync_items.size(); ++i) {
     const AppListSyncableService::SyncItem* item = sync_items[i];

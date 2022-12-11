@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "base/location.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "third_party/blink/renderer/platform/p2p/ipc_network_manager.h"
-#include "third_party/blink/renderer/platform/p2p/network_manager_uma.h"
 
 namespace blink {
 
@@ -53,9 +52,9 @@ void EmptyNetworkManager::StopUpdating() {
   DCHECK_GE(start_count_, 0);
 }
 
-void EmptyNetworkManager::GetNetworks(NetworkList* networks) const {
+std::vector<const rtc::Network*> EmptyNetworkManager::GetNetworks() const {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  networks->clear();
+  return {};
 }
 
 bool EmptyNetworkManager::GetDefaultLocalAddress(
@@ -73,10 +72,6 @@ void EmptyNetworkManager::OnNetworksChanged() {
   if (!start_count_)
     return;
 
-  if (!sent_first_update_)
-    blink::ReportIPPermissionStatus(blink::PERMISSION_NOT_REQUESTED);
-
-  sent_first_update_ = true;
   SignalNetworksChanged();
 }
 

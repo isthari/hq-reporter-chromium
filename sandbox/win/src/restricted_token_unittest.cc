@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include "base/win/atl.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/sid.h"
-#include "base/win/windows_version.h"
 #include "sandbox/win/src/acl.h"
 #include "sandbox/win/src/security_capabilities.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -579,20 +578,17 @@ TEST(RestrictedTokenTest, LockdownDefaultDaclNoLogonSid) {
 }
 
 TEST(RestrictedTokenTest, LowBoxToken) {
-  if (base::win::GetVersion() < base::win::Version::WIN8)
-    return;
   base::win::ScopedHandle token;
 
   auto package_sid = base::win::Sid::FromSddlString(L"S-1-15-2-1-2-3-4-5-6-7");
   ASSERT_TRUE(package_sid);
   SecurityCapabilities caps_no_capabilities(*package_sid);
 
-  ASSERT_EQ(DWORD{ERROR_INVALID_PARAMETER},
-            CreateLowBoxToken(nullptr, PRIMARY, &caps_no_capabilities, nullptr,
-                              0, nullptr));
+  ASSERT_EQ(
+      DWORD{ERROR_INVALID_PARAMETER},
+      CreateLowBoxToken(nullptr, PRIMARY, &caps_no_capabilities, nullptr));
   ASSERT_EQ(DWORD{ERROR_SUCCESS},
-            CreateLowBoxToken(nullptr, PRIMARY, &caps_no_capabilities, nullptr,
-                              0, &token));
+            CreateLowBoxToken(nullptr, PRIMARY, &caps_no_capabilities, &token));
   ASSERT_TRUE(token.IsValid());
   CheckLowBoxToken(token, false, &caps_no_capabilities);
 
@@ -600,9 +596,9 @@ TEST(RestrictedTokenTest, LowBoxToken) {
                                       *package_sid, TOKEN_ALL_ACCESS));
   CheckDaclForPackageSid(token, &caps_no_capabilities, false);
 
-  ASSERT_EQ(DWORD{ERROR_SUCCESS},
-            CreateLowBoxToken(nullptr, IMPERSONATION, &caps_no_capabilities,
-                              nullptr, 0, &token));
+  ASSERT_EQ(
+      DWORD{ERROR_SUCCESS},
+      CreateLowBoxToken(nullptr, IMPERSONATION, &caps_no_capabilities, &token));
   ASSERT_TRUE(token.IsValid());
   CheckLowBoxToken(token, true, &caps_no_capabilities);
 
@@ -611,9 +607,9 @@ TEST(RestrictedTokenTest, LowBoxToken) {
        base::win::WellKnownCapability::kPrivateNetworkClientServer});
   ASSERT_TRUE(capabilities);
   SecurityCapabilities caps_with_capabilities(*package_sid, *capabilities);
-  ASSERT_EQ(DWORD{ERROR_SUCCESS},
-            CreateLowBoxToken(nullptr, PRIMARY, &caps_with_capabilities,
-                              nullptr, 0, &token));
+  ASSERT_EQ(
+      DWORD{ERROR_SUCCESS},
+      CreateLowBoxToken(nullptr, PRIMARY, &caps_with_capabilities, &token));
   ASSERT_TRUE(token.IsValid());
   CheckLowBoxToken(token, false, &caps_with_capabilities);
 
@@ -627,30 +623,10 @@ TEST(RestrictedTokenTest, LowBoxToken) {
 
   ASSERT_EQ(DWORD{ERROR_SUCCESS},
             CreateLowBoxToken(token_handle.Get(), PRIMARY,
-                              &caps_with_capabilities, nullptr, 0, &token));
+                              &caps_with_capabilities, &token));
   ASSERT_TRUE(token.IsValid());
   CheckLowBoxToken(token, false, &caps_with_capabilities);
   CheckRestrictingSid(token.Get(), base::win::WellKnownSid::kWorld, 1);
-
-  auto caps_for_handles_sid =
-      base::win::Sid::FromSddlString(L"S-1-15-2-1-2-3-4-5-6-8");
-  ASSERT_TRUE(caps_for_handles_sid);
-  SecurityCapabilities caps_for_handles(*caps_for_handles_sid);
-  base::win::ScopedHandle object_handle;
-  ASSERT_EQ(
-      DWORD{ERROR_SUCCESS},
-      CreateLowBoxObjectDirectory(*caps_for_handles_sid, true, &object_handle));
-  HANDLE saved_handles[] = {object_handle.Get()};
-
-  ASSERT_EQ(DWORD{ERROR_SUCCESS},
-            CreateLowBoxToken(token_handle.Get(), PRIMARY, &caps_for_handles,
-                              saved_handles, 1, &token));
-  ASSERT_TRUE(token.IsValid());
-  object_handle.Close();
-  ASSERT_FALSE(object_handle.IsValid());
-  ASSERT_EQ(DWORD{ERROR_ALREADY_EXISTS},
-            CreateLowBoxObjectDirectory(*caps_for_handles_sid, false,
-                                        &object_handle));
 }
 
 // Checks the functionality of CanLowIntegrityAccessDesktop

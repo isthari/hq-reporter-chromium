@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #import <SafariServices/SafariServices.h>
 
 #include "base/feature_list.h"
+#include "base/no_destructor.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/browser_features.h"
 #include "net/base/mac/url_conversions.h"
@@ -16,6 +17,16 @@
 namespace apps {
 
 namespace {
+
+bool& UseFakeAppForTesting() {
+  static bool value = false;
+  return value;
+}
+
+std::string& FakeAppForTesting() {
+  static base::NoDestructor<std::string> value;
+  return *value;
+}
 
 IntentPickerAppInfo AppInfoForAppUrl(NSURL* app_url) {
   NSString* app_name = nil;
@@ -43,6 +54,15 @@ IntentPickerAppInfo AppInfoForAppUrl(NSURL* app_url) {
 }  // namespace
 
 absl::optional<IntentPickerAppInfo> FindMacAppForUrl(const GURL& url) {
+  if (UseFakeAppForTesting()) {
+    std::string fake_app = FakeAppForTesting();
+    if (fake_app.empty())
+      return absl::nullopt;
+
+    return AppInfoForAppUrl(
+        [NSURL fileURLWithPath:base::SysUTF8ToNSString(fake_app)]);
+  }
+
   static bool universal_links_enabled =
       base::FeatureList::IsEnabled(features::kEnableUniveralLinks);
   if (!universal_links_enabled)
@@ -64,13 +84,27 @@ absl::optional<IntentPickerAppInfo> FindMacAppForUrl(const GURL& url) {
 }
 
 void LaunchMacApp(const GURL& url, const std::string& launch_name) {
-  [[NSWorkspace sharedWorkspace]
-                  openURLs:@[ net::NSURLWithGURL(url) ]
-      withApplicationAtURL:[NSURL fileURLWithPath:base::SysUTF8ToNSString(
-                                                      launch_name)]
-                   options:0
-             configuration:@{}
-                     error:nil];
+  if (@available(macOS 10.15, *)) {
+    [[NSWorkspace sharedWorkspace]
+                    openURLs:@[ net::NSURLWithGURL(url) ]
+        withApplicationAtURL:[NSURL fileURLWithPath:base::SysUTF8ToNSString(
+                                                        launch_name)]
+               configuration:[NSWorkspaceOpenConfiguration configuration]
+           completionHandler:nil];
+  } else {
+    [[NSWorkspace sharedWorkspace]
+                    openURLs:@[ net::NSURLWithGURL(url) ]
+        withApplicationAtURL:[NSURL fileURLWithPath:base::SysUTF8ToNSString(
+                                                        launch_name)]
+                     options:0
+               configuration:@{}
+                       error:nil];
+  }
+}
+
+void OverrideMacAppForUrlForTesting(bool fake, const std::string& app_path) {
+  UseFakeAppForTesting() = fake;
+  FakeAppForTesting() = app_path;
 }
 
 }  // namespace apps

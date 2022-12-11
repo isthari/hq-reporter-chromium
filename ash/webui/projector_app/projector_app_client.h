@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <set>
 
+#include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/observer_list_types.h"
 #include "base/time/time.h"
@@ -27,10 +28,22 @@ class Value;
 
 namespace ash {
 
+class AnnotatorMessageHandler;
+struct AnnotatorTool;
+struct ProjectorScreencastVideo;
 struct NewScreencastPrecondition;
 
-// TODO(b/200179137): Add `failed_to_upload` field to PendingScreencast.
 struct PendingScreencast {
+  PendingScreencast();
+  explicit PendingScreencast(const base::FilePath& container_dir);
+  PendingScreencast(const base::FilePath& container_dir,
+                    const std::string& name,
+                    int64_t total_size_in_bytes,
+                    int64_t bytes_transferred);
+  PendingScreencast(const PendingScreencast&);
+  PendingScreencast& operator=(const PendingScreencast&);
+  ~PendingScreencast();
+
   base::Value ToValue() const;
   bool operator==(const PendingScreencast& rhs) const;
 
@@ -48,6 +61,12 @@ struct PendingScreencast {
 
   // The media file created time.
   base::Time created_time;
+
+  // True after observing drivefs::mojom::DriveError::kCantUploadStorageFull for
+  // the first time. Screencast's status might go through error -> uploading ->
+  // error -> ... -> uploaded, but it will display the error state until
+  // successfully uploaded to avoid over commnucation with user.
+  bool upload_failed = false;
 };
 
 struct PendingScreencastSetComparator {
@@ -62,6 +81,11 @@ using PendingScreencastSet =
 // ProjectorApp.
 class ProjectorAppClient {
  public:
+  // The callback used by the GetVideo() API.
+  using OnGetVideoCallback =
+      base::OnceCallback<void(std::unique_ptr<ProjectorScreencastVideo> video,
+                              const std::string& error_message)>;
+
   // Interface for observing events on the ProjectorAppClient.
   class Observer : public base::CheckedObserver {
    public:
@@ -109,11 +133,7 @@ class ProjectorAppClient {
   virtual const PendingScreencastSet& GetPendingScreencasts() const = 0;
 
   // Checks if device is eligible to trigger SODA installer.
-  virtual bool ShouldDownloadSoda() = 0;
-
-  // Returns true if SODA binary is downloaded and the language associated with
-  // the user's locale is installed.
-  virtual bool IsSpeechRecognitionAvailable() = 0;
+  virtual bool ShouldDownloadSoda() const = 0;
 
   // Triggers the installation of SODA (Speech On-Device API) binary and the
   // corresponding language pack for projector.
@@ -131,7 +151,39 @@ class ProjectorAppClient {
   virtual void OnSodaInstalled() = 0;
 
   // Triggers the opening of the Chrome feedback dialog.
-  virtual void OpenFeedbackDialog() = 0;
+  virtual void OpenFeedbackDialog() const = 0;
+
+  // Launches the given DriveFS video file with `video_file_id` into the
+  // Projector app. The `resource_key` is an additional security token needed to
+  // gain access to link-shared files. Since the `resource_key` is currently
+  // only used by Googlers, the `resource_key` might be empty.
+  virtual void GetVideo(const std::string& video_file_id,
+                        const std::string& resource_key,
+                        OnGetVideoCallback callback) const = 0;
+
+  // Registers the AnnotatorMessageHandler that is owned by the WebUI that
+  // contains the Projector annotator.
+  virtual void SetAnnotatorMessageHandler(AnnotatorMessageHandler* handler) = 0;
+
+  // Resets the stored AnnotatorMessageHandler if it matches the one that is
+  // passed in.
+  virtual void ResetAnnotatorMessageHandler(
+      AnnotatorMessageHandler* handler) = 0;
+
+  // Sets the tool inside the annotator WebUI.
+  virtual void SetTool(const AnnotatorTool& tool) = 0;
+
+  // Clears the contents of the annotator canvas.
+  virtual void Clear() = 0;
+
+  // Called with true by the initiation and false by the destruction of
+  // projector trusted UI .
+  virtual void NotifyAppUIActive(bool active) = 0;
+
+  // Toggles to suppress/resume the system notification for `screencast_paths`.
+  virtual void ToggleFileSyncingNotificationForPaths(
+      const std::vector<base::FilePath>& screencast_paths,
+      bool suppress) = 0;
 
  protected:
   ProjectorAppClient();

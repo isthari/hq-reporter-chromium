@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "ui/compositor/layer_animator.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/geometry/transform_util.h"
+#include "ui/views/view.h"
 
 namespace ash {
 
@@ -105,10 +106,16 @@ void PositionWindowsInOverview() {
   controller->overview_session()->PositionWindows(true);
 }
 
+void UpdateAccessibilityFocusInOverview() {
+  auto* controller = Shell::Get()->overview_controller();
+  DCHECK(controller->InOverviewSession());
+  controller->overview_session()->UpdateAccessibilityFocus();
+}
+
 // A self-deleting object that performs a fade out animation on
 // |removed_mini_view|'s layer by changing its opacity from 1 to 0 and scales
 // down it around the center of |bar_view| while switching back to zero state.
-// |removed_mini_view_| and the object itserlf will be deleted when the
+// |removed_mini_view_| and the object itself will be deleted when the
 // animation is complete.
 // TODO(afakhry): Consider generalizing HidingWindowAnimationObserverBase to be
 // reusable for the mini_view removal animation.
@@ -117,7 +124,7 @@ class RemovedMiniViewAnimation : public ui::ImplicitAnimationObserver {
   RemovedMiniViewAnimation(DeskMiniView* removed_mini_view,
                            DesksBarView* bar_view,
                            const bool to_zero_state)
-      : removed_mini_view_(removed_mini_view) {
+      : removed_mini_view_(removed_mini_view), bar_view_(bar_view) {
     removed_mini_view_->set_is_animating_to_remove(true);
     ui::Layer* layer = removed_mini_view_->layer();
     ui::ScopedLayerAnimationSettings settings{layer->GetAnimator()};
@@ -140,6 +147,12 @@ class RemovedMiniViewAnimation : public ui::ImplicitAnimationObserver {
   ~RemovedMiniViewAnimation() override {
     DCHECK(removed_mini_view_->parent());
     removed_mini_view_->parent()->RemoveChildViewT(removed_mini_view_);
+
+    if (Shell::Get()->overview_controller()->InOverviewSession()) {
+      DCHECK(bar_view_);
+      bar_view_->UpdateDeskButtonsVisibility();
+      UpdateAccessibilityFocusInOverview();
+    }
   }
 
   // ui::ImplicitAnimationObserver:
@@ -147,6 +160,7 @@ class RemovedMiniViewAnimation : public ui::ImplicitAnimationObserver {
 
  private:
   DeskMiniView* removed_mini_view_;
+  DesksBarView* const bar_view_;
 };
 
 // A self-deleting object that performs bounds changes animation for the desks
@@ -199,10 +213,15 @@ class DesksBarBoundsAnimation : public ui::ImplicitAnimationObserver {
   ~DesksBarBoundsAnimation() override {
     DCHECK(bar_view_);
     bar_view_->set_is_bounds_animation_on_going(false);
-    // Layout the desks bar to make sure the buttons visibility will be updated
-    // on desks bar state changes. Also make sure the button's text will be
-    // updated correctly while going back to zero state.
-    bar_view_->Layout();
+    if (Shell::Get()->overview_controller()->InOverviewSession()) {
+      // Updated the desk buttons and layout the desks bar to make sure the
+      // buttons visibility will be updated on desks bar state changes. Also
+      // make sure the button's text will be updated correctly while going back
+      // to zero state.
+      bar_view_->UpdateDeskButtonsVisibility();
+      bar_view_->Layout();
+      UpdateAccessibilityFocusInOverview();
+    }
   }
 
   // ui::ImplicitAnimationObserver:
@@ -215,51 +234,46 @@ class DesksBarBoundsAnimation : public ui::ImplicitAnimationObserver {
 }  // namespace
 
 void PerformNewDeskMiniViewAnimation(
-    DesksBarView* bar_view,
-    const std::vector<DeskMiniView*>& new_mini_views,
+    std::vector<DeskMiniView*> new_mini_views,
+    std::vector<DeskMiniView*> mini_views_left,
+    std::vector<DeskMiniView*> mini_views_right,
+    ExpandedDesksBarButton* expanded_state_new_desk_button,
+    ExpandedDesksBarButton* expanded_state_desks_templates_button,
     int shift_x) {
-  gfx::Transform begin_transform;
-  begin_transform.Translate(shift_x, 0);
+  DCHECK(expanded_state_new_desk_button);
+  gfx::Transform mini_views_left_begin_transform;
+  mini_views_left_begin_transform.Translate(shift_x, 0);
+  gfx::Transform mini_views_right_begin_transform;
+  mini_views_right_begin_transform.Translate(-shift_x, 0);
 
-  for (auto* mini_view : bar_view->mini_views()) {
-    const bool is_new = base::Contains(new_mini_views, mini_view);
-
+  for (auto* mini_view : new_mini_views) {
     ui::Layer* layer = mini_view->layer();
-    if (is_new)
-      layer->SetOpacity(0.f);
-    layer->SetTransform(begin_transform);
+    layer->SetOpacity(0);
+
+    if (!mini_view->desk()->is_desk_being_removed())
+      layer->SetTransform(mini_views_left_begin_transform);
 
     ui::ScopedLayerAnimationSettings settings{layer->GetAnimator()};
     InitScopedAnimationSettings(&settings, kExistingMiniViewsAnimationDuration);
-
-    // Fade in new desk mini_views and shift all of them (new & old) to the
-    // left.
-    if (is_new)
-      layer->SetOpacity(1);
+    layer->SetOpacity(1);
     layer->SetTransform(kEndTransform);
   }
 
-  // The new desk button and the desk templates button in the expanded desks bar
-  // moves at the opposite direction of the existing mini views while creating a
-  // new mini view. The existing mini views will move from right to left while
-  // the new desk button and the desk templates button will move from left to
-  // right. Since the newly added mini view will be added between the last mini
-  // view and the new desk button.
-  gfx::Transform new_desk_button_begin_transform;
-  new_desk_button_begin_transform.Translate(-shift_x, 0);
-  AnimateView(bar_view->expanded_state_new_desk_button(),
-              new_desk_button_begin_transform);
+  AnimateMiniViews(mini_views_left, mini_views_left_begin_transform);
+  AnimateMiniViews(mini_views_right, mini_views_right_begin_transform);
 
-  if (auto* expanded_state_desks_templates_button =
-          bar_view->expanded_state_desks_templates_button()) {
-    gfx::Transform desks_templates_begin_transform;
-    desks_templates_begin_transform.Translate(-shift_x, 0);
-    AnimateView(expanded_state_desks_templates_button,
-                desks_templates_begin_transform);
-  }
+  // The new desk button and the desk templates button in the expanded desks bar
+  // always move to the right when a new desk is added.
+  const auto& button_transform = base::i18n::IsRTL()
+                                     ? mini_views_left_begin_transform
+                                     : mini_views_right_begin_transform;
+  AnimateView(expanded_state_new_desk_button, button_transform);
+  if (expanded_state_desks_templates_button)
+    AnimateView(expanded_state_desks_templates_button, button_transform);
 }
 
 void PerformRemoveDeskMiniViewAnimation(
+    DesksBarView* bar_view,
     DeskMiniView* removed_mini_view,
     std::vector<DeskMiniView*> mini_views_left,
     std::vector<DeskMiniView*> mini_views_right,
@@ -271,16 +285,18 @@ void PerformRemoveDeskMiniViewAnimation(
   gfx::Transform mini_views_right_begin_transform;
   mini_views_right_begin_transform.Translate(-shift_x, 0);
 
-  new RemovedMiniViewAnimation(removed_mini_view, /*bar_view=*/nullptr,
+  new RemovedMiniViewAnimation(removed_mini_view, bar_view,
                                /*to_zero_state=*/false);
 
   AnimateMiniViews(mini_views_left, mini_views_left_begin_transform);
   AnimateMiniViews(mini_views_right, mini_views_right_begin_transform);
-  AnimateView(expanded_state_new_desk_button, mini_views_right_begin_transform);
-  if (expanded_state_desks_templates_button) {
-    AnimateView(expanded_state_desks_templates_button,
-                mini_views_right_begin_transform);
-  }
+
+  const auto& button_transform = base::i18n::IsRTL()
+                                     ? mini_views_left_begin_transform
+                                     : mini_views_right_begin_transform;
+  AnimateView(expanded_state_new_desk_button, button_transform);
+  if (expanded_state_desks_templates_button)
+    AnimateView(expanded_state_desks_templates_button, button_transform);
 }
 
 void PerformZeroStateToExpandedStateMiniViewAnimation(DesksBarView* bar_view) {
@@ -368,6 +384,16 @@ void PerformReorderDeskMiniViewAnimation(
   ui::ScopedLayerAnimationSettings settings{layer->GetAnimator()};
   InitScopedAnimationSettings(&settings, kExistingMiniViewsAnimationDuration);
   layer->SetTransform(kEndTransform);
+}
+
+void PerformDesksTemplatesButtonVisibilityAnimation(
+    const std::vector<DeskMiniView*>& mini_views,
+    views::View* new_desk_button,
+    int shift_x) {
+  gfx::Transform translation;
+  translation.Translate(shift_x, 0);
+  AnimateMiniViews(mini_views, translation);
+  AnimateView(new_desk_button, translation);
 }
 
 }  // namespace ash

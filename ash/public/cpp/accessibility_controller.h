@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -193,6 +193,9 @@ class ASH_PUBLIC_EXPORT AccessibilityController {
       DictationBubbleIconType icon,
       const absl::optional<std::u16string>& text,
       const absl::optional<std::vector<DictationBubbleHintType>>& hints) = 0;
+
+  // Cancels all of spoken feedback's current and queued speech immediately.
+  virtual void SilenceSpokenFeedback() = 0;
 
  protected:
   AccessibilityController();

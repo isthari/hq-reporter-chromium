@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -185,8 +185,8 @@ class ScopedWebTransport {
   // This constructor runs the event loop.
   explicit ScopedWebTransport(const V8TestingScope& scope) {
     creator_.Init(scope.GetScriptState(),
-                  base::BindRepeating(&ScopedWebTransport::CreateStub,
-                                      weak_ptr_factory_.GetWeakPtr()));
+                  WTF::BindRepeating(&ScopedWebTransport::CreateStub,
+                            weak_ptr_factory_.GetWeakPtr()));
   }
 
   WebTransport* GetWebTransport() const { return creator_.GetWebTransport(); }

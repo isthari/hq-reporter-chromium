@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,8 +18,8 @@ class GLImageZeroInitializeTest : public GLImageTest<GLImageTestDelegate> {};
 TYPED_TEST_SUITE_P(GLImageZeroInitializeTest);
 
 TYPED_TEST_P(GLImageZeroInitializeTest, ZeroInitialize) {
-  if (this->delegate_.SkipTest())
-    return;
+  if (this->delegate_.SkipTest(this->display_))
+    GTEST_SKIP() << "Skip ZeroInitialize because GL initialization failed";
 
   const gfx::Size image_size(256, 256);
 

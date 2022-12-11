@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,23 +27,19 @@
 #include "base/path_service.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
 #include "base/timer/wall_clock_timer.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/update_engine/update_engine_client.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_source.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/user_activity/user_activity_detector.h"
 
@@ -161,11 +157,12 @@ AutomaticRebootManager::AutomaticRebootManager(
       prefs::kRebootAfterUpdate,
       base::BindRepeating(&AutomaticRebootManager::Reschedule,
                           base::Unretained(this)));
-  notification_registrar_.Add(this, chrome::NOTIFICATION_APP_TERMINATING,
-      content::NotificationService::AllSources());
+  on_app_terminating_subscription_ =
+      browser_shutdown::AddAppTerminatingCallback(base::BindOnce(
+          &AutomaticRebootManager::OnAppTerminating, base::Unretained(this)));
 
-  PowerManagerClient::Get()->AddObserver(this);
-  DBusThreadManager::Get()->GetUpdateEngineClient()->AddObserver(this);
+  chromeos::PowerManagerClient::Get()->AddObserver(this);
+  UpdateEngineClient::Get()->AddObserver(this);
 
   // If no user is logged in, a reboot may be performed whenever the user is
   // idle. Start listening for user activity to determine whether the user is
@@ -175,7 +172,6 @@ AutomaticRebootManager::AutomaticRebootManager(
       ui::UserActivityDetector::Get()->AddObserver(this);
     session_manager_observation_.Observe(
         session_manager::SessionManager::Get());
-    VLOG(1) << "Enabling login screen idle timer";
     login_screen_idle_timer_ = std::make_unique<base::OneShotTimer>();
     OnUserActivity(nullptr);
   }
@@ -192,8 +188,8 @@ AutomaticRebootManager::~AutomaticRebootManager() {
   for (auto& observer : observers_)
     observer.WillDestroyAutomaticRebootManager();
 
-  PowerManagerClient::Get()->RemoveObserver(this);
-  DBusThreadManager::Get()->GetUpdateEngineClient()->RemoveObserver(this);
+  chromeos::PowerManagerClient::Get()->RemoveObserver(this);
+  UpdateEngineClient::Get()->RemoveObserver(this);
   if (ui::UserActivityDetector::Get())
     ui::UserActivityDetector::Get()->RemoveObserver(this);
 }
@@ -214,12 +210,11 @@ bool AutomaticRebootManager::WaitForInitForTesting(
 }
 
 void AutomaticRebootManager::SuspendDone(base::TimeDelta sleep_duration) {
-  VLOG(1) << "Attempting a reboot because device is unsuspended";
   // Ignore session to allow rebooting kiosk apps on resume. In case the session
   // is a user session, there is an additional check in the Reboot method below.
   // We post a delayed task to ensure that we run any due grace timers and
   // update |reboot_requested_| flag before we try to reboot.
-  base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&AutomaticRebootManager::MaybeReboot,
                      base::Unretained(this), true),
@@ -231,12 +226,6 @@ void AutomaticRebootManager::UpdateStatusChanged(
   // Ignore repeated notifications that a reboot is necessary. This is important
   // so that only the time of the first notification is taken into account and
   // repeated notifications do not postpone the reboot request and grace period.
-  VLOG(1) << "UpdateStatusChanged called with operation "
-          << update_engine::Operation_Name(status.current_operation())
-          << ", boot_time_ is " << (boot_time_.has_value() ? "" : "not ")
-          << "present, update_reboot_needed_time_ is "
-          << (update_reboot_needed_time_.has_value() ? "" : "not ")
-          << "present";
   if (status.current_operation() !=
           update_engine::Operation::UPDATED_NEED_REBOOT ||
       !boot_time_ || update_reboot_needed_time_) {
@@ -276,21 +265,7 @@ void AutomaticRebootManager::OnUserSessionStarted(bool is_primary_user) {
   if (ui::UserActivityDetector::Get())
     ui::UserActivityDetector::Get()->RemoveObserver(this);
   session_manager_observation_.Reset();
-  VLOG(1) << "Disabling login screen idle timer";
   login_screen_idle_timer_.reset();
-}
-
-void AutomaticRebootManager::Observe(
-    int type,
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  DCHECK_EQ(type, chrome::NOTIFICATION_APP_TERMINATING);
-  if (session_manager::SessionManager::Get()->IsSessionStarted()) {
-    // The browser is terminating during a session, either because the session
-    // is ending or because the browser is being restarted.
-    VLOG(1) << "Attempting a reboot since app is terminating";
-    MaybeReboot(true);
-  }
 }
 
 // static
@@ -315,11 +290,9 @@ void AutomaticRebootManager::Init(
     update_reboot_needed_time_ =
         *system_event_times.update_reboot_needed_time + offset;
   } else {
-    UpdateStatusChanged(
-        DBusThreadManager::Get()->GetUpdateEngineClient()->GetLastStatus());
+    UpdateStatusChanged(UpdateEngineClient::Get()->GetLastStatus());
   }
 
-  VLOG(1) << "Initialization finished";
   Reschedule();
 }
 
@@ -346,11 +319,6 @@ void AutomaticRebootManager::Reschedule() {
   // update has been applied, set the time at which a reboot should be
   // requested to the minimum of its current value and the time when the reboot
   // became necessary.
-  VLOG(1) << "Reboot after update is "
-          << (local_state_registrar_.prefs()->GetBoolean(
-                  prefs::kRebootAfterUpdate)
-                  ? "enabled"
-                  : "disabled");
   if (update_reboot_needed_time_ &&
       local_state_registrar_.prefs()->GetBoolean(prefs::kRebootAfterUpdate) &&
       (!have_reboot_request_time ||
@@ -412,7 +380,6 @@ void AutomaticRebootManager::RequestReboot() {
             reboot_reason_);
   for (auto& observer : observers_)
     observer.OnRebootRequested(reboot_reason_);
-  VLOG(1) << "Attempting a reboot after it has been requested";
   MaybeReboot(false);
 }
 
@@ -425,19 +392,6 @@ void AutomaticRebootManager::MaybeReboot(bool ignore_session) {
       (login_screen_idle_timer_ && login_screen_idle_timer_->IsRunning()) ||
       (!ignore_session &&
        session_manager::SessionManager::Get()->IsSessionStarted())) {
-    VLOG(1)
-        << "Skipping reboot: reboot is " << (reboot_requested_ ? "" : "not ")
-        << "requested, login screen idle timer is "
-        << (login_screen_idle_timer_
-                ? (login_screen_idle_timer_->IsRunning() ? "running"
-                                                         : "not running")
-                : "disabled")
-        << " and session is "
-        << (ignore_session
-                ? "ignored"
-                : (session_manager::SessionManager::Get()->IsSessionStarted()
-                       ? "started"
-                       : "not started"));
     return;
   }
 
@@ -456,8 +410,16 @@ void AutomaticRebootManager::Reboot() {
   grace_start_timer_.reset();
   grace_end_timer_.reset();
   VLOG(1) << "Rebooting immediately.";
-  PowerManagerClient::Get()->RequestRestart(
+  chromeos::PowerManagerClient::Get()->RequestRestart(
       power_manager::REQUEST_RESTART_OTHER, "automatic reboot manager");
+}
+
+void AutomaticRebootManager::OnAppTerminating() {
+  if (session_manager::SessionManager::Get()->IsSessionStarted()) {
+    // The browser is terminating during a session, either because the session
+    // is ending or because the browser is being restarted.
+    MaybeReboot(true);
+  }
 }
 
 }  // namespace system

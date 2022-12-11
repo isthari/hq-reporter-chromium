@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include "ash/components/arc/compat_mode/arc_window_property_util.h"
 #include "ash/components/arc/compat_mode/metrics.h"
 #include "ash/components/arc/compat_mode/resize_confirmation_dialog_view.h"
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/arc_resize_lock_type.h"
-#include "ash/public/cpp/system/toast_catalog.h"
 #include "ash/public/cpp/system/toast_data.h"
 #include "ash/public/cpp/system/toast_manager.h"
 #include "ash/public/cpp/window_properties.h"
@@ -121,7 +121,7 @@ void TurnOffResizeLock(views::Widget* target_widget,
   ash::ToastData toast(
       kTurnOffResizeLockToastId, ash::ToastCatalogName::kAppResizable,
       l10n_util::GetStringUTF16(IDS_ARC_COMPAT_MODE_DISABLE_RESIZE_LOCK_TOAST));
-  toast_manager->Show(toast);
+  toast_manager->Show(std::move(toast));
 }
 
 void TurnOffResizeLockWithConfirmationIfNeeded(

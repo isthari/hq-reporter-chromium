@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
 #include "components/safe_browsing/core/browser/db/v4_protocol_manager_util.h"
 #include "components/safe_browsing/core/browser/db/v4_store.h"
 #include "components/safe_browsing/core/common/proto/webui.pb.h"
@@ -30,8 +31,8 @@ class V4Database;
 
 // Scheduled when the database has been read from disk and is ready to process
 // resource reputation requests.
-using NewDatabaseReadyCallback =
-    base::OnceCallback<void(std::unique_ptr<V4Database>)>;
+using NewDatabaseReadyCallback = base::OnceCallback<void(
+    std::unique_ptr<V4Database, base::OnTaskRunnerDeleter>)>;
 
 // Scheduled when the checksum for all the stores in the database has been
 // verified to match the expected value. Stores for which the checksum did not
@@ -89,7 +90,7 @@ using ListInfos = std::vector<ListInfo>;
 class V4DatabaseFactory {
  public:
   virtual ~V4DatabaseFactory() {}
-  virtual std::unique_ptr<V4Database> Create(
+  virtual std::unique_ptr<V4Database, base::OnTaskRunnerDeleter> Create(
       const scoped_refptr<base::SequencedTaskRunner>& db_task_runner,
       std::unique_ptr<StoreMap> store_map);
 };
@@ -118,9 +119,8 @@ class V4Database {
   // Initialize state that lives on the IO thread.
   void InitializeOnIOSequence();
 
-  // Destroys the provided v4_database on its task_runner since this may be a
-  // long operation.
-  static void Destroy(std::unique_ptr<V4Database> v4_database);
+  // Destroy state that lives on the IO thread.
+  void StopOnIO();
 
   V4Database(const V4Database&) = delete;
   V4Database& operator=(const V4Database&) = delete;
@@ -238,6 +238,9 @@ class V4Database {
 
   bool IsStoreAvailable(const ListIdentifier& identifier) const;
 
+  // Log the difference in time between database updates in a UMA histogram.
+  void RecordDatabaseUpdateLatency();
+
   // Used to verify that certain methods are called on the client-designated IO
   // sequence (see InitializeOnIOSequence()).
   SEQUENCE_CHECKER(io_sequence_checker_);
@@ -251,6 +254,9 @@ class V4Database {
   // that needed updating and is ready for the next update. It should only be
   // accessed on the IO thread.
   int pending_store_updates_;
+
+  // Variable used to keep track of latency of database updates.
+  base::Time last_update_;
 
   // Only meant to be dereferenced and invalidated on the IO thread and hence
   // named. For details, see the comment at the top of weak_ptr.h

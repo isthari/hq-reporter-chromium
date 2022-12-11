@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -185,6 +185,12 @@ static void JNI_DownloadController_OnAcquirePermissionResult(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(callback_id);
 
+  if (!DownloadController::GetInstance()
+           ->validator()
+           ->ValidateAndClearJavaCallback(callback_id)) {
+    return;
+  }
+
   std::string permission_to_update;
   if (jpermission_to_update) {
     permission_to_update =
@@ -259,9 +265,10 @@ void DownloadController::CloseTabIfEmpty(content::WebContents* web_contents,
         DownloadOpenSource::kExternalApp);
     // For tablet, download home is opened in the current tab, so don't close
     // it.
-    if (ui::GetDeviceFormFactor() !=
-        ui::DeviceFormFactor::DEVICE_FORM_FACTOR_TABLET)
+    if (ui::GetDeviceFormFactor() ==
+        ui::DeviceFormFactor::DEVICE_FORM_FACTOR_TABLET) {
       return;
+    }
   }
   tab_model->CloseTabAt(tab_index);
 }
@@ -315,7 +322,7 @@ void DownloadController::AcquireFileAccessPermission(
   // Make copy on the heap so we can pass the pointer through JNI.
   intptr_t callback_id = reinterpret_cast<intptr_t>(
       new AcquirePermissionCallback(std::move(callback)));
-
+  validator_.AddJavaCallback(callback_id);
   Java_DownloadController_requestFileAccess(env, callback_id, jwindow_android);
 }
 
@@ -381,8 +388,8 @@ void DownloadController::StartAndroidDownloadInternal(
       ConvertUTF8ToJavaString(env, info.original_mime_type);
   ScopedJavaLocalRef<jstring> jcookie =
       ConvertUTF8ToJavaString(env, info.cookie);
-  ScopedJavaLocalRef<jstring> jreferer =
-      ConvertUTF8ToJavaString(env, info.referer);
+  ScopedJavaLocalRef<jobject> jreferer =
+      url::GURLAndroid::FromNativeGURL(env, info.referer);
   ScopedJavaLocalRef<jstring> jfile_name =
       base::android::ConvertUTF16ToJavaString(env, file_name);
   Java_DownloadController_enqueueAndroidDownloadManagerRequest(
@@ -476,22 +483,15 @@ void DownloadController::OnDangerousDownload(DownloadItem* item) {
     return;
   }
 
-  if (base::FeatureList::IsEnabled(
-          chrome::android::kEnableDangerousDownloadDialog)) {
-    ui::ViewAndroid* view_android =
-        web_contents ? web_contents->GetNativeView() : nullptr;
-    ui::WindowAndroid* window_android =
-        view_android ? view_android->GetWindowAndroid() : nullptr;
-    if (!dangerous_download_bridge_) {
-      dangerous_download_bridge_ =
-          std::make_unique<DangerousDownloadDialogBridge>();
-    }
-    dangerous_download_bridge_->Show(item, window_android);
-    return;
+  ui::ViewAndroid* view_android =
+      web_contents ? web_contents->GetNativeView() : nullptr;
+  ui::WindowAndroid* window_android =
+      view_android ? view_android->GetWindowAndroid() : nullptr;
+  if (!dangerous_download_bridge_) {
+    dangerous_download_bridge_ =
+        std::make_unique<DangerousDownloadDialogBridge>();
   }
-
-  DangerousDownloadInfoBarDelegate::Create(
-      infobars::ContentInfoBarManager::FromWebContents(web_contents), item);
+  dangerous_download_bridge_->Show(item, window_android);
 }
 
 void DownloadController::StartContextMenuDownload(

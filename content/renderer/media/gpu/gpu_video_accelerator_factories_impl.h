@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 
 #include "base/callback_list.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/unguessable_token.h"
@@ -122,6 +121,8 @@ class GpuVideoAcceleratorFactoriesImpl
   scoped_refptr<base::SequencedTaskRunner> GetTaskRunner() override;
 
   viz::RasterContextProvider* GetMediaContextProvider() override;
+
+  const gpu::Capabilities* ContextCapabilities() override;
 
   void SetRenderingColorSpace(const gfx::ColorSpace& color_space) override;
   const gfx::ColorSpace& GetRenderingColorSpace() const override;

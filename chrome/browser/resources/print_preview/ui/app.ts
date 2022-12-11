@@ -1,26 +1,22 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
-import './print_preview_vars_css.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
+import './print_preview_vars.css.js';
 import '../strings.m.js';
 import '../data/document_info.js';
 import './sidebar.js';
 
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import {assert} from 'chrome://resources/js/assert_ts.js';
-import {isMac, isWindows} from 'chrome://resources/js/cr.m.js';
-import {FocusOutlineManager} from 'chrome://resources/js/cr/ui/focus_outline_manager.m.js';
-import {EventTracker} from 'chrome://resources/js/event_tracker.m.js';
-import {hasKeyModifiers} from 'chrome://resources/js/util.m.js';
-import {WebUIListenerMixin} from 'chrome://resources/js/web_ui_listener_mixin.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import {isMac, isWindows} from 'chrome://resources/js/platform.js';
+import {FocusOutlineManager} from 'chrome://resources/js/focus_outline_manager.js';
+import {EventTracker} from 'chrome://resources/js/event_tracker.js';
+import {hasKeyModifiers} from 'chrome://resources/js/util_ts.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {CloudPrintInterface, CloudPrintInterfaceErrorEventDetail, CloudPrintInterfaceEventType} from '../cloud_print_interface.js';
-import {CloudPrintInterfaceImpl} from '../cloud_print_interface_impl.js';
-import {Destination, DestinationOrigin} from '../data/destination.js';
-import {getPrinterTypeForDestination, PrinterType} from '../data/destination_match.js';
+import {Destination, PrinterType} from '../data/destination.js';
 import {DocumentSettings, PrintPreviewDocumentInfoElement} from '../data/document_info.js';
 import {Margins} from '../data/margins.js';
 import {MeasurementSystem} from '../data/measurement_system.js';
@@ -28,13 +24,9 @@ import {DuplexMode, PrintPreviewModelElement, whenReady} from '../data/model.js'
 import {PrintableArea} from '../data/printable_area.js';
 import {Size} from '../data/size.js';
 import {Error, PrintPreviewStateElement, State} from '../data/state.js';
-import {MetricsContext, PrintPreviewInitializationEvents} from '../metrics.js';
 import {NativeInitialSettings, NativeLayer, NativeLayerImpl} from '../native_layer.js';
-// <if expr="chromeos_ash or chromeos_lacros">
-import {NativeLayerCros, NativeLayerCrosImpl} from '../native_layer_cros.js';
 
-// </if>
-
+import {getTemplate} from './app.html.js';
 import {DestinationState} from './destination_settings.js';
 import {PreviewAreaState, PrintPreviewPreviewAreaElement} from './preview_area.js';
 import {SettingsMixin} from './settings_mixin.js';
@@ -51,7 +43,7 @@ export interface PrintPreviewAppElement {
 }
 
 const PrintPreviewAppElementBase =
-    WebUIListenerMixin(SettingsMixin(PolymerElement));
+    WebUiListenerMixin(SettingsMixin(PolymerElement));
 
 export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
   static get is() {
@@ -59,7 +51,7 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -68,10 +60,6 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
         type: Number,
         observer: 'onStateChanged_',
       },
-
-      cloudPrintErrorMessage_: String,
-
-      cloudPrintInterface_: Object,
 
       controlsManaged_: {
         type: Boolean,
@@ -121,8 +109,6 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
   }
 
   state: State;
-  private cloudPrintErrorMessage_: string;
-  private cloudPrintInterface_: CloudPrintInterface;
   private controlsManaged_: boolean;
   private destination_: Destination;
   private destinationsManaged_: boolean;
@@ -138,9 +124,6 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
   private maxSheets_: number;
 
   private nativeLayer_: NativeLayer|null = null;
-  // <if expr="chromeos_ash or chromeos_lacros">
-  private nativeLayerCros_: NativeLayerCros|null = null;
-  // </if>
   private tracker_: EventTracker = new EventTracker();
   private cancelled_: boolean = false;
   private printRequested_: boolean = false;
@@ -163,35 +146,30 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
     }
   }
 
-  ready() {
+  override ready() {
     super.ready();
 
     FocusOutlineManager.forDocument(document);
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
     document.documentElement.classList.remove('loading');
     this.nativeLayer_ = NativeLayerImpl.getInstance();
-    // <if expr="chromeos_ash or chromeos_lacros">
-    this.nativeLayerCros_ = NativeLayerCrosImpl.getInstance();
-    // </if>
-    this.addWebUIListener('cr-dialog-open', this.onCrDialogOpen_.bind(this));
-    this.addWebUIListener('close', this.onCrDialogClose_.bind(this));
-    this.addWebUIListener('print-failed', this.onPrintFailed_.bind(this));
-    this.addWebUIListener(
+    this.addWebUiListener('cr-dialog-open', this.onCrDialogOpen_.bind(this));
+    this.addWebUiListener('close', this.onCrDialogClose_.bind(this));
+    this.addWebUiListener('print-failed', this.onPrintFailed_.bind(this));
+    this.addWebUiListener(
         'print-preset-options', this.onPrintPresetOptions_.bind(this));
     this.tracker_.add(window, 'keydown', this.onKeyDown_.bind(this));
     this.$.previewArea.setPluginKeyEventCallback(this.onKeyDown_.bind(this));
     this.whenReady_ = whenReady();
     this.nativeLayer_.getInitialSettings().then(
         this.onInitialSettingsSet_.bind(this));
-    MetricsContext.getInitialSettings().record(
-        PrintPreviewInitializationEvents.FUNCTION_INITIATED);
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
     super.disconnectedCallback();
 
     this.tracker_.removeAll();
@@ -228,13 +206,6 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
         e.preventDefault();
       }
 
-      // <if expr="chromeos_ash or chromeos_lacros">
-      if (this.destination_ &&
-          this.destination_.origin === DestinationOrigin.CROS) {
-        this.nativeLayerCros_!.recordPrinterStatusHistogram(
-            this.destination_.printerStatusReason, false);
-      }
-      // </if>
       return;
     }
 
@@ -249,7 +220,7 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
     // On Linux/Windows, shift + p means that e.key will be 'P' with caps lock
     // off or 'p' with caps lock on.
     // On Mac, alt + p means that e.key will be unicode 03c0 (pi).
-    // <if expr="not chromeos and not lacros">
+    // <if expr="not is_chromeos">
     if (e.key === 'P' || e.key === 'p' || e.key === '\u03c0') {
       if ((isMac && e.metaKey && e.altKey && !e.shiftKey && !e.ctrlKey) ||
           (!isMac && e.shiftKey && e.ctrlKey && !e.altKey && !e.metaKey)) {
@@ -303,21 +274,12 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
   }
 
   private onInitialSettingsSet_(settings: NativeInitialSettings) {
-    MetricsContext.getInitialSettings().record(
-        PrintPreviewInitializationEvents.FUNCTION_SUCCESSFUL);
     if (!this.whenReady_) {
       // This element and its corresponding model were detached while waiting
       // for the callback. This can happen in tests; return early.
       return;
     }
     this.whenReady_.then(() => {
-      // The cloud print interface should be initialized before initializing the
-      // sidebar, so that cloud printers can be selected automatically.
-      if (settings.cloudPrintURL) {
-        this.initializeCloudPrint_(
-            settings.cloudPrintURL, settings.isInAppKioskMode,
-            settings.uiLocale);
-      }
       this.$.documentInfo.init(
           settings.previewModifiable, settings.previewIsFromArc,
           settings.documentTitle, settings.documentHasSelection);
@@ -345,26 +307,6 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
   }
 
   /**
-   * Called when Google Cloud Print integration is enabled.
-   * @param cloudPrintUrl The URL to use for cloud print servers.
-   * @param appKioskMode Whether the browser is in app kiosk mode.
-   * @param uiLocale The UI locale.
-   */
-  private initializeCloudPrint_(
-      cloudPrintUrl: string, appKioskMode: boolean, uiLocale: string) {
-    assert(!this.cloudPrintInterface_);
-    this.cloudPrintInterface_ = CloudPrintInterfaceImpl.getInstance();
-    this.cloudPrintInterface_.configure(cloudPrintUrl, appKioskMode, uiLocale);
-    this.tracker_.add(
-        this.cloudPrintInterface_.getEventTarget(),
-        CloudPrintInterfaceEventType.SUBMIT_DONE, this.close_.bind(this));
-    this.tracker_.add(
-        this.cloudPrintInterface_.getEventTarget(),
-        CloudPrintInterfaceEventType.SUBMIT_FAILED,
-        this.onCloudPrintError_.bind(this, appKioskMode));
-  }
-
-  /**
    * @return Whether any of the print preview settings or destinations
    *     are managed.
    */
@@ -376,7 +318,6 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
 
   private onDestinationStateChange_() {
     switch (this.destinationState_) {
-      case DestinationState.SELECTED:
       case DestinationState.SET:
         if (this.state !== State.NOT_READY &&
             this.state !== State.FATAL_ERROR) {
@@ -395,7 +336,7 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
         break;
       case DestinationState.ERROR:
         let newState = State.ERROR;
-        // <if expr="chromeos_ash or chromeos_lacros">
+        // <if expr="is_chromeos">
         if (this.error_ === Error.NO_DESTINATIONS) {
           newState = State.FATAL_ERROR;
         }
@@ -438,9 +379,7 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
       this.remove();
       this.nativeLayer_!.dialogClose(this.cancelled_);
     } else if (this.state === State.HIDDEN) {
-      if (this.destination_.isLocal &&
-          getPrinterTypeForDestination(this.destination_) !==
-              PrinterType.PDF_PRINTER) {
+      if (this.destination_.type !== PrinterType.PDF_PRINTER) {
         // Only hide the preview for local, non PDF destinations.
         this.nativeLayer_!.hidePreview();
       }
@@ -449,20 +388,10 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
           this.nativeLayer_!.print(this.$.model.createPrintTicket(
               this.destination_, this.openPdfInPreview_,
               this.showSystemDialogBeforePrint_));
-      if (this.destination_.isLocal) {
-        const onError = getPrinterTypeForDestination(this.destination_) ===
-                PrinterType.PDF_PRINTER ?
-            this.onFileSelectionCancel_.bind(this) :
-            this.onPrintFailed_.bind(this);
-        whenPrintDone.then(this.close_.bind(this), onError);
-      } else {
-        // Cloud print resolves when print data is returned to submit to cloud
-        // print, or if print ticket cannot be read, no PDF data is found, or
-        // PDF is oversized.
-        whenPrintDone.then(
-            data => this.onPrintToCloud_(data!),
-            this.onPrintFailed_.bind(this));
-      }
+      const onError = this.destination_.type === PrinterType.PDF_PRINTER ?
+          this.onFileSelectionCancel_.bind(this) :
+          this.onPrintFailed_.bind(this);
+      whenPrintDone.then(this.close_.bind(this), onError);
     }
   }
 
@@ -471,25 +400,12 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
       this.printRequested_ = true;
       return;
     }
-    // <if expr="chromeos_ash or chromeos_lacros">
-    if (this.destination_ &&
-        this.destination_.origin === DestinationOrigin.CROS) {
-      this.nativeLayerCros_!.recordPrinterStatusHistogram(
-          this.destination_.printerStatusReason, true);
-    }
-    // </if>
+
     this.$.state.transitTo(
         this.$.previewArea.previewLoaded() ? State.PRINTING : State.HIDDEN);
   }
 
   private onCancelRequested_() {
-    // <if expr="chromeos_ash or chromeos_lacros">
-    if (this.destination_ &&
-        this.destination_.origin === DestinationOrigin.CROS) {
-      this.nativeLayerCros_!.recordPrinterStatusHistogram(
-          this.destination_.printerStatusReason, false);
-    }
-    // </if>
     this.cancelled_ = true;
     this.$.state.transitTo(State.CLOSING);
   }
@@ -510,21 +426,7 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
     this.$.state.transitTo(State.READY);
   }
 
-  /**
-   * Called when the native layer has retrieved the data to print to Google
-   * Cloud Print.
-   * @param data The body to send in the HTTP request.
-   */
-  private onPrintToCloud_(data: string) {
-    assert(
-        this.cloudPrintInterface_ !== null,
-        'Google Cloud Print is not enabled');
-    this.cloudPrintInterface_.submit(
-        this.destination_, this.$.model.createCloudJobTicket(this.destination_),
-        this.documentSettings_.title, data);
-  }
-
-  // <if expr="not chromeos and not lacros">
+  // <if expr="not is_chromeos">
   private onPrintWithSystemDialog_() {
     // <if expr="is_win">
     this.showSystemDialogBeforePrint_ = true;
@@ -546,7 +448,7 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
   // </if>
 
   /**
-   * Called when printing to a cloud, or extension printer fails.
+   * Called when printing to an extension printer fails.
    * @param httpError The HTTP error code, or -1 or a string describing
    *     the error, if not an HTTP error.
    */
@@ -573,31 +475,6 @@ export class PrintPreviewAppElement extends PrintPreviewAppElementBase {
         break;
       default:
         break;
-    }
-  }
-
-  /**
-   * Called when there was an error communicating with Google Cloud print.
-   * Displays an error message in the print header.
-   */
-  private onCloudPrintError_(
-      appKioskMode: boolean,
-      event: CustomEvent<CloudPrintInterfaceErrorEventDetail>) {
-    if (event.detail.status === 0 ||
-        (event.detail.status === 403 && !appKioskMode)) {
-      return;  // No internet connectivity or not signed in.
-    }
-    this.cloudPrintErrorMessage_ = event.detail.message;
-    this.error_ = Error.CLOUD_PRINT_ERROR;
-    this.$.state.transitTo(State.FATAL_ERROR);
-    if (event.detail.status === 200) {
-      console.warn(
-          'Google Cloud Print Error: ' +
-          `(${event.detail.errorCode}) ${event.detail.message}`);
-    } else {
-      console.warn(
-          'Google Cloud Print Error: ' +
-          `HTTP status ${event.detail.status}`);
     }
   }
 

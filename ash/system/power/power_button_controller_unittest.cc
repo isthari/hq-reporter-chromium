@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -1390,6 +1390,15 @@ TEST_F(PowerButtonControllerTest, DISABLED_LegacyPowerButtonIgnoreExtraPress) {
   // Make sure that power menu is still in partially shown state.
   ASSERT_TRUE(power_button_test_api_->IsMenuOpened());
   ASSERT_FALSE(power_button_test_api_->ShowMenuAnimationDone());
+}
+
+TEST_F(PowerButtonControllerTest,
+       ArcPowerButtonEventShowMenuWithoutPreShutdown) {
+  LaunchArcPowerButtonEvent();
+  ASSERT_TRUE(power_button_test_api_->IsMenuOpened());
+  EXPECT_FALSE(power_button_test_api_->TriggerPreShutdownTimeout());
+  EXPECT_FALSE(lock_state_test_api_->shutdown_timer_is_running());
+  EXPECT_TRUE(power_button_test_api_->IsMenuOpened());
 }
 
 INSTANTIATE_TEST_SUITE_P(AshPowerButtonPosition,

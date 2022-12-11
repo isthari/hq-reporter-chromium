@@ -1,40 +1,41 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <UIKit/UIKit.h>
 
-#include "ios/chrome/browser/prerender/preload_controller.h"
+#import "ios/chrome/browser/prerender/preload_controller.h"
 
-#include "base/check_op.h"
-#include "base/ios/device_util.h"
-#include "base/metrics/field_trial.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/check_op.h"
+#import "base/ios/device_util.h"
+#import "base/metrics/field_trial.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/time/time.h"
 #import "components/prefs/ios/pref_observer_bridge.h"
-#include "components/prefs/pref_service.h"
+#import "components/prefs/pref_service.h"
 #import "components/signin/ios/browser/account_consistency_service.h"
 #import "ios/chrome/browser/app_launcher/app_launcher_tab_helper.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/crash_report/crash_report_helper.h"
-#include "ios/chrome/browser/download/mime_type_util.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/crash_report/crash_report_helper.h"
+#import "ios/chrome/browser/download/mime_type_util.h"
 #import "ios/chrome/browser/history/history_tab_helper.h"
 #import "ios/chrome/browser/itunes_urls/itunes_urls_handler_tab_helper.h"
-#include "ios/chrome/browser/pref_names.h"
-#include "ios/chrome/browser/prerender/preload_controller_delegate.h"
+#import "ios/chrome/browser/prefs/pref_names.h"
+#import "ios/chrome/browser/prerender/preload_controller_delegate.h"
 #import "ios/chrome/browser/prerender/prerender_pref.h"
 #import "ios/chrome/browser/signin/account_consistency_service_factory.h"
 #import "ios/chrome/browser/tabs/tab_helper_util.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/navigation/web_state_policy_decider_bridge.h"
-#include "ios/web/public/thread/web_thread.h"
+#import "ios/web/public/thread/web_thread.h"
 #import "ios/web/public/ui/java_script_dialog_presenter.h"
-#include "ios/web/public/web_client.h"
+#import "ios/web/public/web_client.h"
 #import "ios/web/public/web_state.h"
 #import "ios/web/public/web_state_observer_bridge.h"
 #import "net/base/mac/url_conversions.h"
-#include "ui/base/page_transition_types.h"
+#import "ui/base/page_transition_types.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -88,7 +89,7 @@ bool IsPrerenderTabEvictionExperimentalGroup() {
   return trial && trial->group_name() == kPrerenderTabEvictionTrialGroup;
 }
 
-// Returns whether |url| can be prerendered.
+// Returns whether `url` can be prerendered.
 bool CanPrerenderURL(const GURL& url) {
   // Prerendering is only enabled for http and https URLs.
   return url.is_valid() &&
@@ -141,12 +142,29 @@ class PreloadJavaScriptDialogPresenter : public web::JavaScriptDialogPresenter {
   __weak id<PreloadCancelling> cancel_handler_ = nil;
 };
 
+class PreloadManageAccountsDelegate : public ManageAccountsDelegate {
+ public:
+  explicit PreloadManageAccountsDelegate(id<PreloadCancelling> canceler)
+      : canceler_(canceler) {}
+  ~PreloadManageAccountsDelegate() override {}
+
+  void OnRestoreGaiaCookies() override { [canceler_ schedulePrerenderCancel]; }
+  void OnManageAccounts() override { [canceler_ schedulePrerenderCancel]; }
+  void OnAddAccount() override { [canceler_ schedulePrerenderCancel]; }
+  void OnShowConsistencyPromo(const GURL& url,
+                              web::WebState* webState) override {
+    [canceler_ schedulePrerenderCancel];
+  }
+  void OnGoIncognito(const GURL& url) override {
+    [canceler_ schedulePrerenderCancel];
+  }
+
+ private:
+  __weak id<PreloadCancelling> canceler_;
+};
+
 // Maximum time to let a cancelled webState attempt to finish restore.
 static const size_t kMaximumCancelledWebStateDelay = 2;
-
-// Kill switch guarding a workaround for a WebKit crash, see crbug.com/1032928.
-const base::Feature kPreloadDelayWebStateReset{
-    "PreloadDelayWebStateReset", base::FEATURE_ENABLED_BY_DEFAULT};
 
 // Helper function to destroy a pre-rendering WebState. This is a free function
 // so that the code does not accidently try to access to PreloadController's
@@ -168,11 +186,7 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
   // See crbug.com/1032928 for an explanation for how to trigger this crash.
   // Note the timer should only be called if for some reason session restoration
   // fails to complete -- thus preventing a WebState leak.
-  static bool delay_preload_destroy_web_state =
-      base::FeatureList::IsEnabled(kPreloadDelayWebStateReset);
-
-  if (!delay_preload_destroy_web_state ||
-      !web_state->GetNavigationManager()->IsRestoreSessionInProgress()) {
+  if (!web_state->GetNavigationManager()->IsRestoreSessionInProgress()) {
     web_state.reset();
     return;
   }
@@ -206,7 +220,6 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
                                  CRWWebStateDelegate,
                                  CRWWebStateObserver,
                                  CRWWebStatePolicyDecider,
-                                 ManageAccountsDelegate,
                                  PrefObserverDelegate,
                                  PreloadCancelling> {
   std::unique_ptr<web::WebStateDelegateBridge> _webStateDelegate;
@@ -229,15 +242,17 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
   std::unique_ptr<web::JavaScriptDialogPresenter> _dialogPresenter;
 
   // A weak pointer to the webState that will be replaced with the prerendered
-  // one. This is needed by |startPrerender| to build the new webstate with the
+  // one. This is needed by `startPrerender` to build the new webstate with the
   // same sessions.
   web::WebState* _webStateToReplace;
+
+  std::unique_ptr<PreloadManageAccountsDelegate> _manageAccountsDelegate;
 }
 
 // The ChromeBrowserState passed on initialization.
 @property(nonatomic) ChromeBrowserState* browserState;
 
-// Redefine property as readwrite.  The URL that is prerendered in |_webState|.
+// Redefine property as readwrite.  The URL that is prerendered in `_webState`.
 // This can be different from the value returned by WebState last committed
 // navigation item, for example in cases where there was a redirect.
 //
@@ -276,10 +291,10 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
 // Called to start any scheduled prerendering requests.
 - (void)startPrerender;
 
-// Destroys the preview Tab and resets |prerenderURL_| to the empty URL.
+// Destroys the preview Tab and resets `prerenderURL_` to the empty URL.
 - (void)destroyPreviewContents;
 
-// Removes any scheduled prerender requests and resets |scheduledURL| to the
+// Removes any scheduled prerender requests and resets `scheduledURL` to the
 // empty URL.
 - (void)removeScheduledPrerenderRequests;
 
@@ -310,6 +325,8 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
     _observerBridge->ObserveChangesForPreference(
         prefs::kNetworkPredictionSetting, &_prefChangeRegistrar);
     _dialogPresenter = std::make_unique<PreloadJavaScriptDialogPresenter>(self);
+    _manageAccountsDelegate =
+        std::make_unique<PreloadManageAccountsDelegate>(self);
     if (_networkPredictionSetting ==
         prerender_prefs::NetworkPredictionSetting::kEnabledWifiOnly) {
       _connectionTypeObserver =
@@ -402,7 +419,7 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
 
   [self removeScheduledPrerenderRequests];
   _webStateToReplace = currentWebState;
-  // Observing the |_webStateToReplace| to make sure that if it's destructed
+  // Observing the `_webStateToReplace` to make sure that if it's destructed
   // the pre-rendering will be canceled.
   if (_webStateToReplace) {
     _webStateToReplace->AddObserver(_webStateToReplaceObserver.get());
@@ -439,7 +456,8 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
   [self removeScheduledPrerenderRequests];
 
   // Use the helper function to properly release the web::WebState.
-  auto webState = [self releasePrerenderContentsInternal];
+  std::unique_ptr<web::WebState> webState =
+      [self releasePrerenderContentsInternal];
 
   // The WebState will be converted to a proper tab. Record navigations that
   // happened during pre-rendering to the HistoryService.
@@ -531,7 +549,7 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
 
 - (void)webState:(web::WebState*)webState
     didFinishNavigation:(web::NavigationContext*)navigation {
-  // the |_webStateToReplace| is observed for destruction event only.
+  // the `_webStateToReplace` is observed for destruction event only.
   if (_webStateToReplace == webState)
     return;
   DCHECK_EQ(webState, _webState.get());
@@ -541,7 +559,7 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
 
 - (void)webState:(web::WebState*)webState
     didLoadPageWithSuccess:(BOOL)loadSuccess {
-  // the |_webStateToReplace| is observed for destruction event only.
+  // the `_webStateToReplace` is observed for destruction event only.
   if (_webStateToReplace == webState)
     return;
 
@@ -578,29 +596,6 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
     return;
   }
   decisionHandler(WebStatePolicyDecider::PolicyDecision::Allow());
-}
-
-#pragma mark - ManageAccountsDelegate
-
-- (void)onRestoreGaiaCookies {
-  [self schedulePrerenderCancel];
-}
-
-- (void)onManageAccounts {
-  [self schedulePrerenderCancel];
-}
-
-- (void)onShowConsistencyPromo:(const GURL&)url
-                      webState:(web::WebState*)webState {
-  [self schedulePrerenderCancel];
-}
-
-- (void)onAddAccount {
-  [self schedulePrerenderCancel];
-}
-
-- (void)onGoIncognito:(const GURL&)url {
-  [self schedulePrerenderCancel];
 }
 
 #pragma mark - PrefObserverDelegate
@@ -680,7 +675,7 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
   [self destroyPreviewContents];
   self.prerenderedURL = self.scheduledURL;
   std::unique_ptr<PrerenderRequest> request = std::move(_scheduledRequest);
-  // No need to observer the destruction of the |_webStateToReplace| anymore
+  // No need to observer the destruction of the `_webStateToReplace` anymore
   // as it will be used here.
   if (_webStateToReplace) {
     _webStateToReplace->RemoveObserver(_webStateToReplaceObserver.get());
@@ -704,8 +699,12 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
   // TODO(crbug.com/1291626): remove when there is a way to
   // clone a WebState navigation history.
   web::WebState::CreateParams createParams(self.browserState);
+  createParams.last_active_time = base::Time::Now();
   _webState = web::WebState::CreateWithStorageSession(
       createParams, _webStateToReplace->BuildSessionStorage());
+  // Do not trigger a CheckForOverRealization here, as it's expected
+  // that typing fast may trigger multiple prerenders.
+  web::IgnoreOverRealizationCheck();
   _webState->ForceRealized();
   _webStateToReplace = nullptr;
 
@@ -724,7 +723,8 @@ void DestroyPrerenderingWebState(std::unique_ptr<web::WebState> web_state) {
   if (AccountConsistencyService* accountConsistencyService =
           ios::AccountConsistencyServiceFactory::GetForBrowserState(
               self.browserState)) {
-    accountConsistencyService->SetWebStateHandler(_webState.get(), self);
+    accountConsistencyService->SetWebStateHandler(
+        _webState.get(), _manageAccountsDelegate.get());
   }
 
   HistoryTabHelper::FromWebState(_webState.get())

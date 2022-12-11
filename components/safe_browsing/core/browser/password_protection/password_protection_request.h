@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/ref_counted_delete_on_sequence.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/cancelable_task_tracker.h"
@@ -105,6 +106,12 @@ class PasswordProtectionRequest
 
   void set_request_outcome(RequestOutcome request_outcome) {
     request_outcome_ = request_outcome;
+  }
+
+  void finish_for_testing(
+      RequestOutcome outcome,
+      std::unique_ptr<LoginReputationClientResponse> response) {
+    Finish(outcome, std::move(response));
   }
 
  protected:
@@ -225,7 +232,7 @@ class PasswordProtectionRequest
   const GURL password_form_frame_url_;
 
   // The contents MIME type.
-  const std::string& mime_type_;
+  const raw_ref<const std::string, DanglingUntriaged> mime_type_;
 
   // The username of the reused password hash. The username can be an email or
   // a username for a non-GAIA or saved-password reuse. No validation has been
@@ -260,7 +267,8 @@ class PasswordProtectionRequest
 
   // The PasswordProtectionServiceBase instance owns |this|.
   // Can only be accessed on UI thread.
-  raw_ptr<PasswordProtectionServiceBase> password_protection_service_;
+  raw_ptr<PasswordProtectionServiceBase, DanglingUntriaged>
+      password_protection_service_;
 
   // The outcome of the password protection request.
   RequestOutcome request_outcome_;

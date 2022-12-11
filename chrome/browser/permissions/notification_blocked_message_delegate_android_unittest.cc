@@ -1,9 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/permissions/notification_blocked_message_delegate_android.h"
 
+#include "base/android/jni_android.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "components/messages/android/mock_message_dispatcher_bridge.h"
 #include "components/permissions/permission_prompt.h"
@@ -75,6 +77,11 @@ class NotificationBlockedMessageDelegateAndroidTest
 
   void TriggerManageClick() { controller_->HandleManageClick(); }
 
+  void TriggerDialogOnAllowForThisSite() {
+    controller_->OnAllowForThisSite();
+    controller_->OnDialogDismissed();
+  }
+
   void TriggerDialogDismiss() { controller_->OnDialogDismissed(); }
 
   messages::MessageWrapper* GetMessageWrapper() {
@@ -93,7 +100,7 @@ class NotificationBlockedMessageDelegateAndroidTest
   std::unique_ptr<NotificationBlockedMessageDelegate> controller_;
   messages::MockMessageDispatcherBridge message_dispatcher_bridge_;
   std::unique_ptr<MockDelegate> delegate_;
-  permissions::PermissionRequestManager* manager_ = nullptr;
+  raw_ptr<permissions::PermissionRequestManager> manager_ = nullptr;
 };
 
 void NotificationBlockedMessageDelegateAndroidTest::SetUp() {
@@ -114,7 +121,6 @@ void NotificationBlockedMessageDelegateAndroidTest::TearDown() {
 TEST_F(NotificationBlockedMessageDelegateAndroidTest, DismissByTimeout) {
   auto delegate = GetMockDelegate();
 
-  EXPECT_CALL(*delegate, Closing);
   EXPECT_CALL(*delegate, Accept).Times(0);
   EXPECT_CALL(*delegate, Deny).Times(0);
 
@@ -130,7 +136,6 @@ TEST_F(NotificationBlockedMessageDelegateAndroidTest, DismissByPrimaryAction) {
   EXPECT_CALL(*delegate, ShouldUseQuietUI)
       .WillRepeatedly(testing::Return(true));
 
-  EXPECT_CALL(*delegate, Closing);
   EXPECT_CALL(*delegate, Accept).Times(0);
   EXPECT_CALL(*delegate, Deny);
 
@@ -144,6 +149,7 @@ TEST_F(NotificationBlockedMessageDelegateAndroidTest, DismissByPrimaryAction) {
 TEST_F(NotificationBlockedMessageDelegateAndroidTest,
        DismissByDialogDismissed) {
   auto delegate = GetMockDelegate();
+
   EXPECT_CALL(*delegate, ShouldUseQuietUI)
       .WillRepeatedly(testing::Return(true));
   EXPECT_CALL(*delegate, ReasonForUsingQuietUi)
@@ -152,13 +158,35 @@ TEST_F(NotificationBlockedMessageDelegateAndroidTest,
 
   ExpectEnqueued();
 
-  EXPECT_CALL(*delegate, Closing);
   EXPECT_CALL(*delegate, Accept).Times(0);
   EXPECT_CALL(*delegate, Deny).Times(0);
+  EXPECT_CALL(*delegate, Closing);
 
   ShowMessage(std::move(delegate));
 
   TriggerManageClick();
   TriggerDismiss(messages::DismissReason::SECONDARY_ACTION);
   TriggerDialogDismiss();
+}
+
+TEST_F(NotificationBlockedMessageDelegateAndroidTest,
+       DismissByDialogOnAllowForThisSite) {
+  auto delegate = GetMockDelegate();
+
+  EXPECT_CALL(*delegate, ShouldUseQuietUI)
+      .WillRepeatedly(testing::Return(true));
+  EXPECT_CALL(*delegate, ReasonForUsingQuietUi)
+      .WillRepeatedly(testing::Return(
+          absl::optional<QuietUiReason>(QuietUiReason::kEnabledInPrefs)));
+
+  ExpectEnqueued();
+
+  EXPECT_CALL(*delegate, Accept);
+  EXPECT_CALL(*delegate, Deny).Times(0);
+
+  ShowMessage(std::move(delegate));
+
+  TriggerManageClick();
+  TriggerDismiss(messages::DismissReason::SECONDARY_ACTION);
+  TriggerDialogOnAllowForThisSite();
 }

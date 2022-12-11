@@ -1,15 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {ScanningBrowserProxy, SelectedPath} from 'chrome://scanning/scanning_browser_proxy.js';
 
-import {assertEquals} from '../../chai_assert.js';
-import {TestBrowserProxy} from '../../test_browser_proxy.js';
+import {assertEquals} from 'chrome://webui-test/chromeos/chai_assert.js';
+import {TestBrowserProxy} from 'chrome://webui-test/chromeos/test_browser_proxy.js';
 
 const EMPTY_SELECTED_PATH = {
   baseName: '',
-  filePath: ''
+  filePath: '',
 };
 
 /**

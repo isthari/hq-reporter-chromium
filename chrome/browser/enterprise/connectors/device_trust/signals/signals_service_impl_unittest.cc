@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,10 @@
 #include "base/callback.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/values.h"
 #include "chrome/browser/enterprise/connectors/device_trust/signals/decorators/common/mock_signals_decorator.h"
 #include "chrome/browser/enterprise/connectors/device_trust/signals/decorators/common/signals_decorator.h"
+#include "components/device_signals/core/common/signals_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -31,23 +33,24 @@ constexpr char kLatencyHistogram[] =
 
 TEST(SignalsServiceImplTest, CollectSignals_CallsAllDecorators) {
   base::HistogramTester histogram_tester;
-  std::string fake_obfuscated_customer_id = "fake_obfuscated_customer_id";
+  std::string fake_display_name = "fake_display_name";
   std::unique_ptr<MockSignalsDecorator> first_decorator =
       std::make_unique<MockSignalsDecorator>();
   EXPECT_CALL(*first_decorator.get(), Decorate(_, _))
-      .WillOnce([&fake_obfuscated_customer_id](SignalsType& signals,
-                                               base::OnceClosure done_closure) {
-        signals.set_obfuscated_customer_id(fake_obfuscated_customer_id);
+      .WillOnce([&fake_display_name](base::Value::Dict& signals,
+                                     base::OnceClosure done_closure) {
+        signals.Set(device_signals::names::kDisplayName, fake_display_name);
         std::move(done_closure).Run();
       });
 
-  std::string fake_device_id = "fake_device_id";
+  std::string fake_allow_lock_screen = "false";
   std::unique_ptr<MockSignalsDecorator> second_decorator =
       std::make_unique<MockSignalsDecorator>();
   EXPECT_CALL(*second_decorator.get(), Decorate(_, _))
-      .WillOnce([&fake_device_id](SignalsType& signals,
-                                  base::OnceClosure done_closure) {
-        signals.set_device_id(fake_device_id);
+      .WillOnce([&fake_allow_lock_screen](base::Value::Dict& signals,
+                                          base::OnceClosure done_closure) {
+        signals.Set(device_signals::names::kAllowScreenLock,
+                    fake_allow_lock_screen);
         std::move(done_closure).Run();
       });
 
@@ -59,10 +62,13 @@ TEST(SignalsServiceImplTest, CollectSignals_CallsAllDecorators) {
 
   bool callback_called = false;
   auto callback =
-      base::BindLambdaForTesting([&](std::unique_ptr<SignalsType> signals) {
-        EXPECT_EQ(signals->obfuscated_customer_id(),
-                  fake_obfuscated_customer_id);
-        EXPECT_EQ(signals->device_id(), fake_device_id);
+      base::BindLambdaForTesting([&](const base::Value::Dict signals) {
+        EXPECT_EQ(
+            signals.FindString(device_signals::names::kDisplayName)->c_str(),
+            fake_display_name);
+        EXPECT_EQ(signals.FindString(device_signals::names::kAllowScreenLock)
+                      ->c_str(),
+                  fake_allow_lock_screen);
         callback_called = true;
       });
 

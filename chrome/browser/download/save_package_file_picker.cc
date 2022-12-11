@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -113,7 +113,7 @@ void AddCompleteFileTypeInfo(
 // error pages (failed DNS lookups, SSL errors, etc), which shouldn't affect
 // functionality.
 bool IsErrorPage(content::WebContents* web_contents) {
-  if (web_contents->GetController().GetActiveEntry() == NULL)
+  if (web_contents->GetController().GetActiveEntry() == nullptr)
     return false;
   return web_contents->GetController().GetLastCommittedEntry()->GetPageType() ==
          content::PAGE_TYPE_ERROR;
@@ -148,7 +148,8 @@ SavePackageFilePicker::SavePackageFilePicker(
     bool can_save_as_complete,
     DownloadPrefs* download_prefs,
     content::SavePackagePathPickedCallback callback)
-    : render_process_id_(web_contents->GetMainFrame()->GetProcess()->GetID()),
+    : render_process_id_(
+          web_contents->GetPrimaryMainFrame()->GetProcess()->GetID()),
       can_save_as_complete_(can_save_as_complete),
       download_prefs_(download_prefs),
       callback_(std::move(callback)) {
@@ -235,27 +236,31 @@ SavePackageFilePicker::SavePackageFilePicker(
   if (g_should_prompt_for_filename) {
     select_file_dialog_ = ui::SelectFileDialog::Create(
         this, std::make_unique<ChromeSelectFilePolicy>(web_contents));
-    select_file_dialog_->SelectFile(
-        ui::SelectFileDialog::SELECT_SAVEAS_FILE, std::u16string(),
-        suggested_path_copy, &file_type_info, file_type_index,
-        default_extension_copy,
-        platform_util::GetTopLevel(web_contents->GetNativeView()), NULL);
-  } else {
-    // Just use 'suggested_path_copy' instead of opening the dialog prompt.
-    // Go through FileSelected() for consistency.
-    FileSelected(suggested_path_copy, file_type_index, NULL);
+    if (select_file_dialog_) {
+      select_file_dialog_->SelectFile(
+          ui::SelectFileDialog::SELECT_SAVEAS_FILE, std::u16string(),
+          suggested_path_copy, &file_type_info, file_type_index,
+          default_extension_copy,
+          platform_util::GetTopLevel(web_contents->GetNativeView()), nullptr);
+      return;
+    }
   }
+
+  // If |g_should_prompt_for_filename| is unset or |select_file_dialog_| could
+  // not be instantiated for some reason, just use 'suggested_path_copy' instead
+  // of opening the dialog prompt. Go through FileSelected() for consistency.
+  FileSelected(suggested_path_copy, file_type_index, nullptr);
 }
 
-SavePackageFilePicker::~SavePackageFilePicker() {
-}
+SavePackageFilePicker::~SavePackageFilePicker() = default;
 
 void SavePackageFilePicker::SetShouldPromptUser(bool should_prompt) {
   g_should_prompt_for_filename = should_prompt;
 }
 
-void SavePackageFilePicker::FileSelected(
-    const base::FilePath& path, int index, void* unused_params) {
+void SavePackageFilePicker::FileSelected(const base::FilePath& path,
+                                         int index,
+                                         void* unused_params) {
   std::unique_ptr<SavePackageFilePicker> delete_this(this);
   RenderProcessHost* process = RenderProcessHost::FromID(render_process_id_);
   if (!process)

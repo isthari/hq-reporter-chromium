@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,8 @@
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
+
+class SkBitmap;
 
 namespace gfx {
 class Size;
@@ -90,6 +92,7 @@ class ChromeRenderFrameObserver : public content::RenderFrameObserver,
       int32_t thumbnail_min_area_pixels,
       const gfx::Size& thumbnail_max_size_pixels,
       chrome::mojom::ImageFormat image_format,
+      int32_t quality,
       RequestImageForContextNodeCallback callback) override;
   void RequestReloadImageForContextNode() override;
 #if BUILDFLAG(IS_ANDROID)

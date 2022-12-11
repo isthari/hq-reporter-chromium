@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,10 +27,6 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "url/url_util.h"
-
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-#include "extensions/common/constants.h"  // nogncheck
-#endif
 
 #if BUILDFLAG(IS_ANDROID)
 #include "chromecast/common/media/cast_media_drm_bridge_client.h"
@@ -136,13 +132,6 @@ void CastContentClient::SetActiveURL(const GURL& url, std::string top_origin) {
 
 void CastContentClient::AddAdditionalSchemes(Schemes* schemes) {
   schemes->standard_schemes.push_back(kChromeResourceScheme);
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-  schemes->standard_schemes.push_back(extensions::kExtensionScheme);
-  // Treat as secure because we only load extension code written by us.
-  schemes->secure_schemes.push_back(extensions::kExtensionScheme);
-  schemes->service_worker_schemes.push_back(extensions::kExtensionScheme);
-  schemes->csp_bypassing_schemes.push_back(extensions::kExtensionScheme);
-#endif
 }
 
 std::u16string CastContentClient::GetLocalizedString(int message_id) {
@@ -164,6 +153,11 @@ base::RefCountedMemory* CastContentClient::GetDataResourceBytes(
       resource_id);
 }
 
+std::string CastContentClient::GetDataResourceString(int resource_id) {
+  return ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
+      resource_id);
+}
+
 gfx::Image& CastContentClient::GetNativeImageNamed(int resource_id) {
   return ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(
       resource_id);
@@ -179,7 +173,7 @@ void CastContentClient::ExposeInterfacesToBrowser(
     scoped_refptr<base::SequencedTaskRunner> io_task_runner,
     mojo::BinderMap* binders) {
 #if !BUILDFLAG(IS_FUCHSIA)
-  binders->Add(
+  binders->Add<heap_profiling::mojom::ProfilingClient>(
       base::BindRepeating(
           [](mojo::PendingReceiver<heap_profiling::mojom::ProfilingClient>
                  receiver) {

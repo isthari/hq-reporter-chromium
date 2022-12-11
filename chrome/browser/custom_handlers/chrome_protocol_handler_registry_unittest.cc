@@ -1,14 +1,17 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/test/base/testing_profile.h"
+#include "components/custom_handlers/protocol_handler.h"
+#include "components/custom_handlers/protocol_handler_registry.h"
 #include "components/custom_handlers/test_protocol_handler_registry_delegate.h"
 #include "content/public/test/browser_task_environment.h"
+#include "extensions/buildflags/buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/security/protocol_handler_security_level.h"
 
-using content::ProtocolHandler;
+using custom_handlers::ProtocolHandler;
 using custom_handlers::ProtocolHandlerRegistry;
 
 class ChromeProtocolHandlerRegistryTest : public testing::Test {
@@ -30,7 +33,7 @@ class ChromeProtocolHandlerRegistryTest : public testing::Test {
     CHECK(profile_->GetPrefs());
     auto delegate = std::make_unique<
         custom_handlers::TestProtocolHandlerRegistryDelegate>();
-    registry_ = std::make_unique<ProtocolHandlerRegistry>(profile_.get(),
+    registry_ = std::make_unique<ProtocolHandlerRegistry>(profile_->GetPrefs(),
                                                           std::move(delegate));
     registry_->InitProtocolSettings();
   }
@@ -48,6 +51,7 @@ class ChromeProtocolHandlerRegistryTest : public testing::Test {
   std::unique_ptr<ProtocolHandlerRegistry> registry_;
 };
 
+#if BUILDFLAG(ENABLE_EXTENSIONS)
 TEST_F(ChromeProtocolHandlerRegistryTest, ExtensionHandler) {
   GURL chrome_extension_handler_url(
       "chrome-extension://abcdefghijklmnopqrstuvwxyzabcdef/test.html");
@@ -64,3 +68,4 @@ TEST_F(ChromeProtocolHandlerRegistryTest, ExtensionHandler) {
       "news", chrome_extension_handler_url,
       blink::ProtocolHandlerSecurityLevel::kExtensionFeatures));
 }
+#endif

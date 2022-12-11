@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,47 @@
 #include "build/build_config.h"
 #include "ui/gl/gl_bindings.h"
 
-#if BUILDFLAG(IS_ANDROID)
-#include "base/android/scoped_hardware_buffer_fence_sync.h"
-#endif
-
 namespace gl {
+
+// NOTE: It is not possible to use static_cast in the below "safe downcast"
+// functions, as the compiler doesn't know that the various GLImage subclasses
+// do in fact inherit from GLImage. However, the reinterpret_casts used are
+// safe, as |image| actually is an instance of the type in question.
+
+// static
+GLImageD3D* GLImage::ToGLImageD3D(GLImage* image) {
+  if (!image || image->GetType() != Type::D3D)
+    return nullptr;
+  return reinterpret_cast<GLImageD3D*>(image);
+}
+
+// static
+GLImageMemory* GLImage::ToGLImageMemory(GLImage* image) {
+  if (!image || image->GetType() != Type::MEMORY)
+    return nullptr;
+  return reinterpret_cast<GLImageMemory*>(image);
+}
+
+// static
+GLImageIOSurface* GLImage::ToGLImageIOSurface(GLImage* image) {
+  if (!image || image->GetType() != Type::IOSURFACE)
+    return nullptr;
+  return reinterpret_cast<GLImageIOSurface*>(image);
+}
+
+// static
+GLImageDXGI* GLImage::ToGLImageDXGI(GLImage* image) {
+  if (!image || image->GetType() != Type::DXGI_IMAGE)
+    return nullptr;
+  return reinterpret_cast<GLImageDXGI*>(image);
+}
+
+// static
+media::GLImagePbuffer* GLImage::ToGLImagePbuffer(GLImage* image) {
+  if (!image || image->GetType() != Type::PBUFFER)
+    return nullptr;
+  return reinterpret_cast<media::GLImagePbuffer*>(image);
+}
 
 gfx::Size GLImage::GetSize() {
   NOTREACHED();
@@ -67,12 +103,6 @@ bool GLImage::BindTexImage(unsigned target) {
   return false;
 }
 
-bool GLImage::BindTexImageWithInternalformat(unsigned target,
-                                             unsigned internalformat) {
-  NOTREACHED();
-  return false;
-}
-
 void GLImage::ReleaseTexImage(unsigned target) {
   NOTREACHED();
 }
@@ -93,44 +123,21 @@ void GLImage::SetColorSpace(const gfx::ColorSpace& color_space) {
   color_space_ = color_space;
 }
 
-void GLImage::Flush() {
-  NOTREACHED();
-}
-
 void GLImage::OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
                            uint64_t process_tracing_id,
                            const std::string& dump_name) {
   NOTREACHED();
 }
 
-bool GLImage::EmulatingRGB() const {
-  return false;
-}
-
-bool GLImage::IsInUseByWindowServer() const {
-  return false;
-}
-
-void GLImage::DisableInUseByWindowServer() {
-  NOTIMPLEMENTED();
-}
-
 GLImage::Type GLImage::GetType() const {
   return Type::NONE;
 }
 
-#if BUILDFLAG(IS_ANDROID)
-std::unique_ptr<base::android::ScopedHardwareBufferFenceSync>
-GLImage::GetAHardwareBuffer() {
+scoped_refptr<gfx::NativePixmap> GLImage::GetNativePixmap() {
   return nullptr;
 }
-#endif
 
-bool GLImage::HasMutableState() const {
-  return true;
-}
-
-scoped_refptr<gfx::NativePixmap> GLImage::GetNativePixmap() {
+void* GLImage::GetEGLImage() const {
   return nullptr;
 }
 

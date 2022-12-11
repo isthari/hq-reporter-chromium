@@ -29,10 +29,11 @@
 #include "third_party/blink/renderer/core/svg/properties/svg_property_info.h"
 #include "third_party/blink/renderer/core/svg/svg_parsing_error.h"
 #include "third_party/blink/renderer/core/svg_names.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
 namespace blink {
 
@@ -68,7 +69,7 @@ class CORE_EXPORT SVGElement : public Element {
 
   String title() const override;
   bool HasRelativeLengths() const {
-    return !elements_with_relative_lengths_.IsEmpty();
+    return !elements_with_relative_lengths_.empty();
   }
   static bool IsAnimatableCSSProperty(const QualifiedName&);
 
@@ -175,6 +176,7 @@ class CORE_EXPORT SVGElement : public Element {
   MutableCSSPropertyValueSet* AnimatedSMILStyleProperties() const;
   MutableCSSPropertyValueSet* EnsureAnimatedSMILStyleProperties();
 
+  virtual void BuildPendingResource() {}
   virtual bool HaveLoadedRequiredResources();
 
   void InvalidateRelativeLengthClients(SubtreeLayoutScope* = nullptr);
@@ -188,7 +190,6 @@ class CORE_EXPORT SVGElement : public Element {
   void AddReferenceTo(SVGElement*);
   template <typename InvalidationFunction>
   void NotifyIncomingReferences(InvalidationFunction&&);
-  void RebuildAllIncomingReferences();
   void RemoveAllIncomingReferences();
   void RemoveAllOutgoingReferences();
 
@@ -342,7 +343,7 @@ struct SVGAttributeHashTranslator {
                                             key.NamespaceURI().Impl()};
       return HashComponents(components);
     }
-    return DefaultHash<QualifiedName>::Hash::GetHash(key);
+    return DefaultHash<QualifiedName>::GetHash(key);
   }
   static bool Equal(const QualifiedName& a, const QualifiedName& b) {
     return a.Matches(b);

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,13 +16,12 @@
 #include "ash/components/arc/arc_util.h"
 #include "ash/components/arc/enterprise/arc_data_snapshotd_manager.h"
 #include "ash/components/arc/session/arc_bridge_host_impl.h"
-#include "ash/components/cryptohome/cryptohome_parameters.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/cxx17_backports.h"
+#include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/posix/eintr_wrapper.h"
@@ -30,11 +29,12 @@
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
-#include "chromeos/memory/memory.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
+#include "chromeos/ash/components/dbus/spaced/spaced_client.h"
+#include "chromeos/ash/components/memory/memory.h"
 #include "chromeos/system/scheduler_configuration_manager_base.h"
 #include "components/user_manager/user_manager.h"
 #include "components/version_info/channel.h"
@@ -75,7 +75,7 @@ bool WaitForSocketReadable(int raw_socket_fd, int raw_cancel_fd) {
       {raw_cancel_fd, POLLIN, 0},
   };
 
-  if (HANDLE_EINTR(poll(fds, base::size(fds), -1)) <= 0) {
+  if (HANDLE_EINTR(poll(fds, std::size(fds), -1)) <= 0) {
     PLOG(ERROR) << "poll()";
     return false;
   }
@@ -250,11 +250,8 @@ base::ScopedFD ArcSessionDelegateImpl::ConnectMojo(
 
 void ArcSessionDelegateImpl::GetFreeDiskSpace(
     GetFreeDiskSpaceCallback callback) {
-  base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::MayBlock()},
-      base::BindOnce(&base::SysInfo::AmountOfFreeDiskSpace,
-                     base::FilePath("/home")),
-      std::move(callback));
+  ash::SpacedClient::Get()->GetFreeDiskSpace("/home/chronos/user",
+                                             std::move(callback));
 }
 
 version_info::Channel ArcSessionDelegateImpl::GetChannel() {
@@ -465,6 +462,11 @@ void ArcSessionImpl::DoStartMiniInstance(size_t num_cores_disabled) {
   params.num_cores_disabled = num_cores_disabled;
   params.enable_notifications_refresh =
       ash::features::IsNotificationsRefreshEnabled();
+  params.enable_tts_caching =
+      base::FeatureList::IsEnabled(kEnableTTSCacheSetup);
+  params.enable_consumer_auto_update_toggle = base::FeatureList::IsEnabled(
+      ash::features::kConsumerAutoUpdateToggleAllowed);
+  params.use_virtio_blk_data = use_virtio_blk_data_;
 
   // TODO (b/196460968): Remove after CTS run is complete.
   if (params.enable_notifications_refresh) {
@@ -489,12 +491,6 @@ void ArcSessionImpl::DoStartMiniInstance(size_t num_cores_disabled) {
                  << ash::switches::kArcPlayStoreAutoUpdate;
     }
   }
-
-  params.arc_disable_system_default_app =
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ash::switches::kArcDisableSystemDefaultApps);
-  if (params.arc_disable_system_default_app)
-    VLOG(1) << "System default app(s) are disabled";
 
   params.disable_media_store_maintenance =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -591,13 +587,13 @@ void ArcSessionImpl::DoUpgrade() {
                                              weak_factory_.GetWeakPtr()));
 }
 
-void ArcSessionImpl::OnFreeDiskSpace(int64_t space) {
+void ArcSessionImpl::OnFreeDiskSpace(absl::optional<int64_t> space) {
   // Ensure there's sufficient space on disk for the container.
-  if (space == -1) {
+  if (!space.has_value()) {
     LOG(ERROR) << "Could not determine free disk space";
     StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
     return;
-  } else if (space < kMinimumFreeDiskSpaceBytes) {
+  } else if (space.value() < kMinimumFreeDiskSpaceBytes) {
     VLOG(1) << "There is not enough disk space to start the ARC container";
     insufficient_disk_space_ = true;
     StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
@@ -712,7 +708,7 @@ void ArcSessionImpl::OnMojoConnected(
   state_ = State::RUNNING_FULL_INSTANCE;
 
   // Some memory parameters may be changed when ARC is launched.
-  chromeos::UpdateMemoryParameters();
+  ash::UpdateMemoryParameters();
 }
 
 void ArcSessionImpl::Stop() {
@@ -877,14 +873,19 @@ void ArcSessionImpl::SetDemoModeDelegate(
   client_->SetDemoModeDelegate(delegate);
 }
 
-void ArcSessionImpl::TrimVmMemory(TrimVmMemoryCallback callback) {
+void ArcSessionImpl::TrimVmMemory(TrimVmMemoryCallback callback,
+                                  int page_limit) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  client_->TrimVmMemory(std::move(callback));
+  client_->TrimVmMemory(std::move(callback), page_limit);
 }
 
 void ArcSessionImpl::SetDefaultDeviceScaleFactor(float scale_factor) {
   lcd_density_ = GetLcdDensityForDeviceScaleFactor(scale_factor);
   DCHECK_GT(lcd_density_, 0);
+}
+
+void ArcSessionImpl::SetUseVirtioBlkData(bool use_virtio_blk_data) {
+  use_virtio_blk_data_ = use_virtio_blk_data;
 }
 
 void ArcSessionImpl::OnConfigurationSet(bool success,

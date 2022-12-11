@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,6 @@ namespace apps {
 // throttle that work with the App Service. This only works with Chrome OS at
 // the moment and will work with all platforms after the App Service supports
 // apps for all platforms.
-// TODO(crbug.com/853604): Add metrics, add ARC auto pop up, add persistency.
 class CommonAppsNavigationThrottle : public apps::AppsNavigationThrottle {
  public:
   // Possibly creates a navigation throttle that checks if any installed apps
@@ -51,6 +50,9 @@ class CommonAppsNavigationThrottle : public apps::AppsNavigationThrottle {
   bool ShouldCancelNavigation(content::NavigationHandle* handle) override;
   bool ShouldShowDisablePage(content::NavigationHandle* handle) override;
   ThrottleCheckResult MaybeShowCustomResult() override;
+  bool ShouldOverrideUrlLoadingForOfficeExperiment(
+      const GURL& previous_url,
+      const GURL& current_url) override;
 
   // Used to create a unique timestamped URL to force reload apps.
   // Points to the base::DefaultTickClock by default.

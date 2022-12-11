@@ -1,7 +1,8 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_channel_mojo.h"
@@ -40,7 +41,7 @@ std::unique_ptr<Channel> Channel::CreateClient(
   return ChannelMojo::Create(
       mojo::ScopedMessagePipeHandle(channel_handle.mojo_handle),
       Channel::MODE_CLIENT, listener, ipc_task_runner,
-      base::ThreadTaskRunnerHandle::Get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
       mojo::internal::MessageQuotaChecker::MaybeCreate());
 #endif
 }
@@ -57,7 +58,7 @@ std::unique_ptr<Channel> Channel::CreateServer(
   return ChannelMojo::Create(
       mojo::ScopedMessagePipeHandle(channel_handle.mojo_handle),
       Channel::MODE_SERVER, listener, ipc_task_runner,
-      base::ThreadTaskRunnerHandle::Get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
       mojo::internal::MessageQuotaChecker::MaybeCreate());
 #endif
 }

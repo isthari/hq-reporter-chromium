@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -137,6 +137,12 @@ TEST_F(NativeFileUtilTest, CreateAndDeleteDirectory) {
   EXPECT_FALSE(NativeFileUtil::DirectoryExists(dir_name));
 }
 
+// TODO(https://crbug.com/702990): Remove this test once last_access_time has
+// been removed after PPAPI has been deprecated. Fuchsia does not support touch,
+// which breaks this test that relies on it. Since PPAPI is being deprecated,
+// this test is excluded from the Fuchsia build.
+// See https://crbug.com/1077456 for details.
+#if !BUILDFLAG(IS_FUCHSIA)
 TEST_F(NativeFileUtilTest, TouchFileAndGetFileInfo) {
   base::FilePath file_name = Path("test_file");
   base::File::Info native_info;
@@ -169,6 +175,7 @@ TEST_F(NativeFileUtilTest, TouchFileAndGetFileInfo) {
   EXPECT_EQ(new_accessed, info.last_accessed);
   EXPECT_EQ(new_modified, info.last_modified);
 }
+#endif  // !BUILDFLAG(IS_FUCHSIA)
 
 TEST_F(NativeFileUtilTest, CreateFileEnumerator) {
   base::FilePath path_1 = Path("dir1");
@@ -507,6 +514,7 @@ TEST_F(NativeFileUtilTest, PreserveLastModified) {
   EXPECT_EQ(file_info1.last_modified, file_info2.last_modified);
 }
 
+// This test is disabled on Fuchsia because file permissions are not supported.
 #if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_WIN)
 TEST_F(NativeFileUtilTest, PreserveDestinationPermissions) {
   // Ensure both the src and dest files exist.
@@ -584,6 +592,7 @@ TEST_F(NativeFileUtilTest, PreserveDestinationPermissions) {
 }
 #endif  // BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_WIN)
 
+// This test is disabled on Fuchsia because file permissions are not supported.
 #if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_WIN)
 TEST_F(NativeFileUtilTest, PreserveLastModifiedAndDestinationPermissions) {
   base::FilePath from_file = Path("fromfile");

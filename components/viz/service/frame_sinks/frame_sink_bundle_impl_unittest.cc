@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,10 @@
 #include "base/bind.h"
 #include "base/json/values_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/bind.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/test/task_environment.h"
@@ -102,14 +104,14 @@ struct TestRootFrameSink {
     params->display_private = display_private.BindNewEndpointAndPassReceiver();
     params->display_client = display_client.BindRemote();
 
-    manager_.RegisterFrameSinkId(kRootFrame, /*report_activation=*/true);
-    manager_.RegisterBeginFrameSource(&begin_frame_source, kRootFrame);
-    manager_.CreateRootCompositorFrameSink(std::move(params));
+    manager_->RegisterFrameSinkId(kRootFrame, /*report_activation=*/true);
+    manager_->RegisterBeginFrameSource(&begin_frame_source, kRootFrame);
+    manager_->CreateRootCompositorFrameSink(std::move(params));
   }
 
-  ~TestRootFrameSink() { manager_.InvalidateFrameSinkId(kRootFrame); }
+  ~TestRootFrameSink() { manager_->InvalidateFrameSinkId(kRootFrame); }
 
-  FrameSinkManagerImpl& manager_;
+  const raw_ref<FrameSinkManagerImpl> manager_;
   mojo::AssociatedRemote<mojom::CompositorFrameSink> compositor_frame_sink;
   MockCompositorFrameSinkClient compositor_frame_sink_client;
   mojo::AssociatedRemote<mojom::DisplayPrivate> display_private;
@@ -124,23 +126,23 @@ struct TestFrameSink {
       const FrameSinkId& parent_id,
       const absl::optional<FrameSinkBundleId>& bundle_id = absl::nullopt)
       : manager_(manager), id_(id) {
-    manager_.RegisterFrameSinkId(id, /*report_activation=*/true);
+    manager_->RegisterFrameSinkId(id, /*report_activation=*/true);
     if (parent_id.is_valid()) {
-      manager_.RegisterFrameSinkHierarchy(parent_id, id);
+      manager_->RegisterFrameSinkHierarchy(parent_id, id);
     }
-    manager_.CreateCompositorFrameSink(
+    manager_->CreateCompositorFrameSink(
         id, bundle_id, frame_sink.BindNewPipeAndPassReceiver(),
         client_receiver_.BindNewPipeAndPassRemote());
-    manager_.GetFrameSinkForId(id)->SetNeedsBeginFrame(true);
+    manager_->GetFrameSinkForId(id)->SetNeedsBeginFrame(true);
   }
 
   ~TestFrameSink() {
     base::RunLoop loop;
-    manager_.DestroyCompositorFrameSink(id_, loop.QuitClosure());
+    manager_->DestroyCompositorFrameSink(id_, loop.QuitClosure());
     loop.Run();
   }
 
-  FrameSinkManagerImpl& manager_;
+  const raw_ref<FrameSinkManagerImpl> manager_;
   const FrameSinkId id_;
   MockCompositorFrameSinkClient mock_client_;
   mojo::Receiver<mojom::CompositorFrameSinkClient> client_receiver_{
@@ -266,6 +268,9 @@ class FrameSinkBundleImplTest : public testing::Test {
   FrameSinkManagerImpl& manager() { return manager_; }
   TestBundleClient& test_client() { return test_client_; }
   mojo::Remote<mojom::FrameSinkBundle>& bundle() { return bundle_; }
+  FakeExternalBeginFrameSource& begin_frame_source() {
+    return begin_frame_source_;
+  }
 
  private:
   const gpu::SyncToken frame_sync_token_{MakeVerifiedSyncToken(42)};
@@ -292,17 +297,25 @@ TEST_F(FrameSinkBundleImplTest, DestroyOnDisconnect) {
 
   bundle().reset();
   base::RunLoop loop;
-  base::SequencedTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                   loop.QuitClosure());
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,
+                                                           loop.QuitClosure());
   loop.Run();
 
   EXPECT_EQ(nullptr, manager().GetFrameSinkBundle(kBundleId));
 }
 
 TEST_F(FrameSinkBundleImplTest, OnBeginFrame) {
+  // By default the bundle does not observe the BeginFrameSource. The only
+  // observer is the (non-bundled) main-frame sink.
+  EXPECT_EQ(1u, begin_frame_source().num_observers());
+
   TestFrameSink frame_a(manager(), kSubFrameA, kMainFrame, kBundleId);
   TestFrameSink frame_b(manager(), kSubFrameB, kMainFrame, kBundleId);
   TestFrameSink frame_c(manager(), kSubFrameC, kMainFrame, kBundleId);
+
+  // The bundle should observe the BeginFrameSource on behalf of all its sinks,
+  // so the only observers should now be the main-frame sink and the bundle.
+  EXPECT_EQ(2u, begin_frame_source().num_observers());
 
   // OnBeginFrame() should elicit a single batch of notifications to the bundle
   // client, with a notification for each frame in the bundle.
@@ -320,6 +333,14 @@ TEST_F(FrameSinkBundleImplTest, OnBeginFrame) {
   test_client().WaitForNextFlush(nullptr, &begin_frames, nullptr);
   EXPECT_THAT(begin_frames,
               UnorderedElementsAre(ForSink(kSubFrameA), ForSink(kSubFrameC)));
+
+  // Finally, if all sinks unsubscribe from BeginFrame notifications, the bundle
+  // should stop observing the BeginFrameSource.
+  EXPECT_EQ(2u, begin_frame_source().num_observers());
+  manager().GetFrameSinkForId(kSubFrameA)->SetNeedsBeginFrame(false);
+  EXPECT_EQ(2u, begin_frame_source().num_observers());
+  manager().GetFrameSinkForId(kSubFrameC)->SetNeedsBeginFrame(false);
+  EXPECT_EQ(1u, begin_frame_source().num_observers());
 }
 
 TEST_F(FrameSinkBundleImplTest, SubmitAndAck) {

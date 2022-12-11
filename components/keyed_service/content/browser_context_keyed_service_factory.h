@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -109,12 +109,22 @@ class KEYED_SERVICE_EXPORT BrowserContextKeyedServiceFactory
   // Interface for people building a concrete FooServiceFactory: --------------
 
   // Finds which browser context (if any) to use.
+  //
+  // Should return nullptr when the service should not be created for the given
+  // |context|.
   virtual content::BrowserContext* GetBrowserContextToUse(
       content::BrowserContext* context) const;
 
   // By default, we create instances of a service lazily and wait until
   // GetForBrowserContext() is called on our subclass. Some services need to be
   // created as soon as the BrowserContext has been brought up.
+  //
+  // Note: To ensure that this method takes effect, the Factory should be
+  // instantiated before any BrowserContext is created to be part of the
+  // dependency graph used to initialize all services on BrowserContext
+  // creation.
+  // The best practice is to initialize the factory in the appropriate
+  // `EnsureBrowserContextKeyedServiceFactoriesBuilt()` method.
   virtual bool ServiceIsCreatedWithBrowserContext() const;
 
   // By default, TestingBrowserContexts will be treated like normal contexts.
@@ -128,6 +138,9 @@ class KEYED_SERVICE_EXPORT BrowserContextKeyedServiceFactory
 
   // All subclasses of BrowserContextKeyedServiceFactory must return a
   // KeyedService instead of just a BrowserContextKeyedBase.
+  //
+  // This should not return nullptr; instead, return nullptr from
+  // `GetBrowserContextToUse()`.
   virtual KeyedService* BuildServiceInstanceFor(
       content::BrowserContext* context) const = 0;
 

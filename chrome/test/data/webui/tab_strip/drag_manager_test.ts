@@ -1,8 +1,8 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-import {isChromeOS} from 'chrome://resources/js/cr.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {isChromeOS} from 'chrome://resources/js/platform.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {DragManager, DragManagerDelegate, PLACEHOLDER_GROUP_ID, PLACEHOLDER_TAB_ID} from 'chrome://tab-strip.top-chrome/drag_manager.js';
 import {TabElement} from 'chrome://tab-strip.top-chrome/tab.js';
 import {TabGroupElement} from 'chrome://tab-strip.top-chrome/tab_group.js';
@@ -53,23 +53,23 @@ class MockDataTransfer extends DataTransfer {
     };
   }
 
-  get dropEffect() {
+  override get dropEffect() {
     return this.dropEffect_;
   }
 
-  set dropEffect(effect) {
+  override set dropEffect(effect) {
     this.dropEffect_ = effect;
   }
 
-  get effectAllowed() {
+  override get effectAllowed() {
     return this.effectAllowed_;
   }
 
-  set effectAllowed(effect) {
+  override set effectAllowed(effect) {
     this.effectAllowed_ = effect;
   }
 
-  setDragImage(image: Element, offsetX: number, offsetY: number) {
+  override setDragImage(image: Element, offsetX: number, offsetY: number) {
     this.dragImageData.image = image;
     this.dragImageData.offsetX = offsetX;
     this.dragImageData.offsetY = offsetY;
@@ -181,7 +181,7 @@ suite('DragManager', () => {
     const eventYWithinDragImageCenter =
         eventYPercentage * dragImageCenterRect.height;
 
-    let expectedOffsetX =
+    const expectedOffsetX =
         dragImageCenterLeftMargin + eventXWithinDragImageCenter;
     let expectedOffsetY =
         dragImageCenterTopMargin + eventYWithinDragImageCenter;

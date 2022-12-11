@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,6 @@
 #include <memory>
 #include <tuple>
 
-#include "ash/components/login/auth/auth_status_consumer.h"
-#include "ash/components/login/auth/user_context.h"
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -17,13 +15,16 @@
 #include "base/syslog_logging.h"
 #include "base/system/sys_info.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_types.h"
 #include "chrome/browser/ash/login/auth/chrome_login_performer.h"
+#include "chrome/browser/ash/login/session/user_session_manager.h"
+#include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/userdataauth/userdataauth_client.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/userdataauth/userdataauth_client.h"
+#include "chromeos/ash/components/login/auth/public/auth_failure.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/user_names.h"
 #include "content/public/browser/browser_thread.h"
@@ -34,7 +35,6 @@ namespace ash {
 
 namespace {
 
-using ::chromeos::UserDataAuthClient;
 using ::content::BrowserThread;
 
 KioskAppLaunchError::Error LoginFailureToKioskAppLaunchError(
@@ -89,7 +89,7 @@ class KioskProfileLoader::CryptohomedChecker
     }
 
     const int retry_delay_in_milliseconds = 500 * (1 << retry_count_);
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, base::BindOnce(&CryptohomedChecker::StartCheck, AsWeakPtr()),
         base::Milliseconds(retry_delay_in_milliseconds));
   }
@@ -154,7 +154,8 @@ void KioskProfileLoader::Start() {
 }
 
 void KioskProfileLoader::LoginAsKioskAccount() {
-  login_performer_ = std::make_unique<ChromeLoginPerformer>(this);
+  login_performer_ =
+      std::make_unique<ChromeLoginPerformer>(this, AuthMetricsRecorder::Get());
   switch (app_type_) {
     case KioskAppType::kArcApp:
       login_performer_->LoginAsArcKioskAccount(account_id_);
@@ -178,7 +179,7 @@ void KioskProfileLoader::ReportLaunchResult(KioskAppLaunchError::Error error) {
 
 void KioskProfileLoader::OnAuthSuccess(const UserContext& user_context) {
   // LoginPerformer will delete itself.
-  login_performer_->set_delegate(NULL);
+  login_performer_->set_delegate(nullptr);
   std::ignore = login_performer_.release();
 
   failed_mount_attempts_ = 0;
@@ -187,7 +188,7 @@ void KioskProfileLoader::OnAuthSuccess(const UserContext& user_context) {
       user_context, UserSessionManager::StartSessionType::kPrimary,
       false,  // has_auth_cookies
       false,  // Start session for user.
-      this);
+      AsWeakPtr());
 }
 
 void KioskProfileLoader::OnAuthFailure(const AuthFailure& error) {
@@ -216,17 +217,13 @@ void KioskProfileLoader::PolicyLoadFailed() {
 }
 
 void KioskProfileLoader::OnOldEncryptionDetected(
-    const UserContext& user_context,
+    std::unique_ptr<UserContext> user_context,
     bool has_incomplete_migration) {
-  delegate_->OnOldEncryptionDetected(user_context);
+  delegate_->OnOldEncryptionDetected(std::move(user_context));
 }
 
 void KioskProfileLoader::OnProfilePrepared(Profile* profile,
                                            bool browser_launched) {
-  // This object could be deleted any time after successfully reporting
-  // a profile load, so invalidate the delegate now.
-  UserSessionManager::GetInstance()->DelegateDeleted(this);
-
   delegate_->OnProfileLoaded(profile);
   ReportLaunchResult(KioskAppLaunchError::Error::kNone);
 }

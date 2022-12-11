@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -98,7 +98,7 @@ class FakeSpeechRecognitionManager : public SpeechRecognitionManager,
   void OnFakeErrorSent();
 
   int session_id_;
-  raw_ptr<SpeechRecognitionEventListener> listener_;
+  raw_ptr<SpeechRecognitionEventListener, DanglingUntriaged> listener_;
   SpeechRecognitionSessionConfig session_config_;
   SpeechRecognitionSessionContext session_ctx_;
   std::string fake_result_;
@@ -112,7 +112,8 @@ class FakeSpeechRecognitionManager : public SpeechRecognitionManager,
   base::OnceClosure recognition_ended_closure_;
   base::OnceClosure on_fake_response_sent_closure_;
   base::OnceClosure on_fake_error_sent_closure_;
-  raw_ptr<SpeechRecognitionManagerDelegate> delegate_ = nullptr;  // Not owned.
+  raw_ptr<SpeechRecognitionManagerDelegate, DanglingUntriaged> delegate_ =
+      nullptr;  // Not owned.
 };
 
 }  // namespace content

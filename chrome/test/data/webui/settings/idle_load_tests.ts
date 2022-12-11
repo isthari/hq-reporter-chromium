@@ -1,9 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // #clang-format off
 import 'chrome://settings/settings.js';
+
+import {getTrustedHTML} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 // #clang-format on
 
@@ -16,7 +18,7 @@ declare global {
 
 suite('Settings idle load tests', function() {
   setup(function() {
-    document.body.innerHTML = `
+    document.body.innerHTML = getTrustedHTML`
       <settings-idle-load>
         <template>
           <div></div>

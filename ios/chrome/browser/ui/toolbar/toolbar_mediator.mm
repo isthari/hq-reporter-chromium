@@ -1,44 +1,46 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/toolbar/toolbar_mediator.h"
 
-#include "base/memory/ptr_util.h"
-#include "base/metrics/user_metrics.h"
-#include "base/metrics/user_metrics_action.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/open_from_clipboard/clipboard_recent_content.h"
-#include "components/search_engines/template_url_service.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
+#import "base/memory/ptr_util.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/open_from_clipboard/clipboard_recent_content.h"
+#import "components/search_engines/template_url_service.h"
 #import "ios/chrome/browser/overlays/public/overlay_presenter.h"
 #import "ios/chrome/browser/overlays/public/overlay_presenter_observer_bridge.h"
-#include "ios/chrome/browser/policy/policy_features.h"
 #import "ios/chrome/browser/policy/policy_util.h"
-#include "ios/chrome/browser/search_engines/search_engines_util.h"
+#import "ios/chrome/browser/search_engines/search_engines_util.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/load_query_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
+#import "ios/chrome/browser/ui/icons/symbols.h"
 #import "ios/chrome/browser/ui/menu/browser_action_factory.h"
 #import "ios/chrome/browser/ui/ntp/ntp_util.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_consumer.h"
 #import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/url/chrome_url_constants.h"
 #import "ios/chrome/browser/url_loading/image_search_param_generator.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
+#import "ios/chrome/browser/web/web_navigation_browser_agent.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/public/provider/chrome/browser/voice_search/voice_search_api.h"
-#include "ios/web/public/favicon/favicon_status.h"
+#import "ios/web/public/favicon/favicon_status.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/web_client.h"
 #import "ios/web/public/web_state.h"
 #import "ios/web/public/web_state_observer_bridge.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "ui/gfx/image/image.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "ui/gfx/image/image.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -86,6 +88,7 @@
 
 - (void)disconnect {
   self.webContentAreaOverlayPresenter = nullptr;
+  self.navigationBrowserAgent = nullptr;
 
   if (_webStateList) {
     _webStateList->RemoveObserver(_webStateListObserver.get());
@@ -251,6 +254,9 @@
     if (self.consumer) {
       [self.consumer setTabCount:_webStateList->count() addedInBackground:NO];
     }
+  } else {
+    // Clear the web navigation browser agent if the webStateList is nil.
+    self.navigationBrowserAgent = nil;
   }
 }
 
@@ -296,9 +302,13 @@
 - (void)updateNavigationBackAndForwardStateForWebState:
     (web::WebState*)webState {
   DCHECK(webState);
-  [self.consumer
-      setCanGoForward:webState->GetNavigationManager()->CanGoForward()];
-  [self.consumer setCanGoBack:webState->GetNavigationManager()->CanGoBack()];
+  const id<ToolbarConsumer> consumer = self.consumer;
+  WebNavigationBrowserAgent* navigationBrowserAgent =
+      self.navigationBrowserAgent;
+  if (navigationBrowserAgent) {
+    [consumer setCanGoForward:navigationBrowserAgent->CanGoForward(webState)];
+    [consumer setCanGoBack:navigationBrowserAgent->CanGoBack(webState)];
+  }
 }
 
 // Updates the Share Menu button of the consumer.
@@ -329,7 +339,7 @@
 
 #pragma mark - Private
 
-// Returns a menu for the |navigationItems|.
+// Returns a menu for the `navigationItems`.
 - (UIMenu*)menuForNavigationItems:
     (const std::vector<web::NavigationItem*>)navigationItems {
   NSMutableArray<UIMenuElement*>* actions = [NSMutableArray array];
@@ -339,7 +349,18 @@
     if ([self shouldUseIncognitoNTPResourcesForURL:navigationItem
                                                        ->GetVirtualURL()]) {
       title = l10n_util::GetNSStringWithFixup(IDS_IOS_NEW_INCOGNITO_TAB);
-      image = [UIImage imageNamed:@"incognito_badge"];
+      if (UseSymbols()) {
+        if (@available(iOS 15, *)) {
+          image =
+              SymbolWithPalette(CustomSymbolWithPointSize(
+                                    kIncognitoSymbol, kInfobarSymbolPointSize),
+                                @[ UIColor.whiteColor ]);
+        } else {
+          image = [UIImage imageNamed:@"incognito_badge_ios14"];
+        }
+      } else {
+        image = [UIImage imageNamed:@"incognito_badge"];
+      }
     } else {
       title = base::SysUTF16ToNSString(navigationItem->GetTitleForDisplay());
       const gfx::Image& gfxImage = navigationItem->GetFaviconStatus().image;
@@ -355,7 +376,7 @@
         [UIAction actionWithTitle:title
                             image:image
                        identifier:nil
-                          handler:^(UIAction* action) {
+                          handler:^(UIAction* uiAction) {
                             [weakSelf navigateToPageForItem:navigationItem];
                           }];
     [actions addObject:action];
@@ -364,7 +385,7 @@
 }
 
 // Returns YES if incognito NTP title and image should be used for back/forward
-// item associated with |URL|.
+// item associated with `URL`.
 - (BOOL)shouldUseIncognitoNTPResourcesForURL:(const GURL&)URL {
   return URL.DeprecatedGetOriginAsURL() == kChromeUINewTabURL &&
          self.isIncognito &&
@@ -403,16 +424,10 @@
   UIAction* openNewIncognitoTab =
       [self.actionFactory actionToOpenNewIncognitoTab];
 
-  UIMenu* newTabActions =
-      [UIMenu menuWithTitle:@""
-                      image:nil
-                 identifier:nil
-                    options:UIMenuOptionsDisplayInline
-                   children:@[ openNewTab, openNewIncognitoTab ]];
-
   UIAction* closeTab = [self.actionFactory actionToCloseCurrentTab];
 
-  return [UIMenu menuWithTitle:@"" children:@[ newTabActions, closeTab ]];
+  return [UIMenu menuWithTitle:@""
+                      children:@[ closeTab, openNewTab, openNewIncognitoTab ]];
 }
 
 // Returns the UIMenuElement for the content of the pasteboard. Can return nil.
@@ -439,7 +454,7 @@
   return nil;
 }
 
-// Navigates to the page associated with |item|.
+// Navigates to the page associated with `item`.
 - (void)navigateToPageForItem:(web::NavigationItem*)item {
   if (!self.webState)
     return;

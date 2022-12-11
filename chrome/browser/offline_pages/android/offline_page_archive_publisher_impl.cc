@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,11 @@
 #include "base/files/file_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "chrome/android/chrome_jni_headers/OfflinePageArchivePublisherBridge_jni.h"
 #include "chrome/browser/offline_pages/android/offline_page_bridge.h"
 #include "components/offline_pages/core/archive_manager.h"
 #include "components/offline_pages/core/model/offline_page_model_utils.h"
+#include "components/offline_pages/core/offline_page_archive_publisher.h"
 #include "components/offline_pages/core/offline_store_utils.h"
 
 namespace offline_pages {
@@ -113,8 +113,8 @@ void OfflinePageArchivePublisherImpl::PublishArchive(
     const OfflinePageItem& offline_page,
     const scoped_refptr<base::SequencedTaskRunner>& background_task_runner,
     PublishArchiveDoneCallback publish_done_callback) const {
-  base::PostTaskAndReplyWithResult(
-      background_task_runner.get(), FROM_HERE,
+  background_task_runner->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&MoveAndRegisterArchive, offline_page,
                      archive_manager_->GetPublicArchivesDir(), delegate_),
       base::BindOnce(std::move(publish_done_callback), offline_page));
@@ -201,6 +201,11 @@ int OfflinePageArchivePublisherImpl::Delegate::Remove(
       base::android::ToJavaLongArray(env, android_download_manager_ids);
 
   return Java_OfflinePageArchivePublisherBridge_remove(env, j_ids);
+}
+
+base::WeakPtr<OfflinePageArchivePublisher>
+OfflinePageArchivePublisherImpl::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
 }
 
 }  // namespace offline_pages

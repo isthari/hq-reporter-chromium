@@ -12,8 +12,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#ifndef TENSORFLOW_LITE_SUPPORT_C_TASK_VISION_IMAGE_CLASSIFIER_H_
-#define TENSORFLOW_LITE_SUPPORT_C_TASK_VISION_IMAGE_CLASSIFIER_H_
+#ifndef TENSORFLOW_LITE_SUPPORT_C_TASK_VISION_OBJECT_DETECTOR_H_
+#define TENSORFLOW_LITE_SUPPORT_C_TASK_VISION_OBJECT_DETECTOR_H_
 
 #include <stdint.h>
 
@@ -111,7 +111,7 @@ typedef struct TfLiteObjectDetectorOptions {
 // .classification_options.label_allowlist.list,
 // options.classification_options.label_denylist.list are NULL.
 // 5. All other integer values are initialized to 0.
-TfLiteObjectDetectorOptions TfLiteObjectDetectorOptionsCreate();
+TfLiteObjectDetectorOptions TfLiteObjectDetectorOptionsCreate(void);
 
 // Creates TfLiteObjectDetector from options.
 // .base_options.model_file.file_path in TfLiteObjectDetectorOptions should be
@@ -197,4 +197,4 @@ void TfLiteObjectDetectorDelete(TfLiteObjectDetector* detector);
 }  // extern "C"
 #endif  // __cplusplus
 
-#endif  // TENSORFLOW_LITE_SUPPORT_C_TASK_VISION_IMAGE_CLASSIFIER_H_
+#endif  // TENSORFLOW_LITE_SUPPORT_C_TASK_VISION_OBJECT_DETECTOR_H_

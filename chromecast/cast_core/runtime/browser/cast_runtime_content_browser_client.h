@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,27 +7,34 @@
 
 #include <atomic>
 
+#include "base/memory/raw_ptr.h"
 #include "chromecast/browser/cast_content_browser_client.h"
-#include "chromecast/cast_core/runtime/browser/runtime_application_watcher.h"
+#include "components/cast_receiver/browser/public/application_client.h"
+
+namespace gfx {
+class Rect;
+}  // namespace gfx
+
+namespace media {
+struct VideoTransformation;
+}  // namespace media
+
+namespace cast_receiver {
+class RuntimeApplication;
+}  // namespace cast_receiver
 
 namespace chromecast {
 
-class CastRuntimeService;
-class CastFeatureListCreator;
-class RuntimeApplication;
+class RuntimeServiceImpl;
 
-class CastRuntimeContentBrowserClient : public shell::CastContentBrowserClient,
-                                        public RuntimeApplicationWatcher {
+class CastRuntimeContentBrowserClient : public shell::CastContentBrowserClient {
  public:
-  static std::unique_ptr<CastRuntimeContentBrowserClient> Create(
-      CastFeatureListCreator* feature_list_creator);
-
   explicit CastRuntimeContentBrowserClient(
       CastFeatureListCreator* feature_list_creator);
   ~CastRuntimeContentBrowserClient() override;
 
-  // Returns an instance of |CastRuntimeService|.
-  virtual CastRuntimeService* GetCastRuntimeService();
+  cast_receiver::ApplicationClient::NetworkContextGetter
+  GetNetworkContextGetter();
 
   // CastContentBrowserClient overrides:
   std::unique_ptr<CastService> CreateCastService(
@@ -37,16 +44,14 @@ class CastRuntimeContentBrowserClient : public shell::CastContentBrowserClient,
       media::VideoPlaneController* video_plane_controller,
       CastWindowManager* window_manager,
       CastWebService* web_service,
-      DisplaySettingsManager* display_settings_manager,
-      shell::AccessibilityServiceImpl* accessibility_service) override;
-  void OverrideWebkitPrefs(content::WebContents* web_contents,
-                           blink::web_pref::WebPreferences* prefs) override;
+      DisplaySettingsManager* display_settings_manager) override;
   std::unique_ptr<::media::CdmFactory> CreateCdmFactory(
       ::media::mojom::FrameInterfaceFactory* frame_interfaces) override;
-  // This function is used to allow/disallow WebUIs to make network requests.
   bool IsWebUIAllowedToMakeNetworkRequests(const url::Origin& origin) override;
   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
                                       int child_process_id) override;
+  bool IsBufferingEnabled() override;
+  void OnWebContentsCreated(content::WebContents* web_contents) override;
   std::vector<std::unique_ptr<blink::URLLoaderThrottle>>
   CreateURLLoaderThrottles(
       const network::ResourceRequest& request,
@@ -54,26 +59,47 @@ class CastRuntimeContentBrowserClient : public shell::CastContentBrowserClient,
       const base::RepeatingCallback<content::WebContents*()>& wc_getter,
       content::NavigationUIData* navigation_ui_data,
       int frame_tree_node_id) override;
-  bool IsBufferingEnabled() override;
+
+ protected:
+  void InitializeCoreComponents(CastWebService* web_service);
 
  private:
-  // RuntimeApplicationWatcher overrides:
-  void OnRuntimeApplicationChanged(RuntimeApplication* application) override;
+  class ApplicationClientObservers
+      : public cast_receiver::StreamingResolutionObserver,
+        public cast_receiver::ApplicationStateObserver {
+   public:
+    ~ApplicationClientObservers() override;
 
-  std::unique_ptr<blink::URLLoaderThrottle> CreateUrlRewriteRulesThrottle(
-      content::WebContents* web_contents);
+    void SetVideoPlaneController(
+        media::VideoPlaneController* video_plane_controller);
 
-  // The current application running in this runtime, or nullptr if no such app
-  // exists
-  RuntimeApplication* runtime_application_ = nullptr;
+    bool IsBufferingEnabled() const;
 
-  // Tracks whether the current application is a streaming application, for the
-  // purposes of disabling buffering.
-  std::atomic_bool is_runtime_application_for_streaming_{false};
+   private:
+    // cast_receiver::ApplicationStateObserver overrides:
+    void OnForegroundApplicationChanged(
+        cast_receiver::RuntimeApplication* app) override;
 
-  // An instance of |CastRuntimeService| created once during the lifetime of the
-  // runtime.
-  CastRuntimeService* cast_runtime_service_ = nullptr;
+    // cast_receiver::StreamResolutionObserver overrides:
+    //
+    // TODO(crbug.com/1358690): Remove this observer.
+    void OnStreamingResolutionChanged(
+        const gfx::Rect& size,
+        const ::media::VideoTransformation& transformation) override;
+
+    // Responsible for modifying the resolution of the screen for the embedded
+    // device. Set during the first (and only) call to CreateCastService().
+    base::raw_ptr<media::VideoPlaneController> video_plane_controller_ =
+        nullptr;
+
+    std::atomic_bool is_buffering_enabled_{false};
+  };
+
+  std::unique_ptr<cast_receiver::ApplicationClient> application_client_;
+
+  // Wrapper around the observers used with the cast_receiver component.
+  ApplicationClientObservers application_client_observers_;
+  std::unique_ptr<RuntimeServiceImpl> runtime_service_;
 };
 
 }  // namespace chromecast

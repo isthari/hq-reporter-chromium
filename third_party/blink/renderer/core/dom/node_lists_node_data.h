@@ -22,11 +22,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_LISTS_NODE_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_LISTS_NODE_DATA_H_
 
+#include "base/check_op.h"
 #include "third_party/blink/renderer/core/dom/child_node_list.h"
 #include "third_party/blink/renderer/core/dom/empty_node_list.h"
 #include "third_party/blink/renderer/core/dom/qualified_name.h"
 #include "third_party/blink/renderer/core/dom/tag_collection.h"
 #include "third_party/blink/renderer/core/html/collection_type.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
@@ -60,7 +62,7 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
   struct NodeListAtomicCacheMapEntryHash {
     STATIC_ONLY(NodeListAtomicCacheMapEntryHash);
     static unsigned GetHash(const NamedNodeListKey& entry) {
-      return DefaultHash<AtomicString>::Hash::GetHash(
+      return DefaultHash<AtomicString>::GetHash(
                  entry.second == CSSSelector::UniversalSelectorAtom()
                      ? g_star_atom
                      : entry.second) +
@@ -70,7 +72,7 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
       return a == b;
     }
     static const bool safe_to_compare_to_empty_or_deleted =
-        DefaultHash<AtomicString>::Hash::safe_to_compare_to_empty_or_deleted;
+        DefaultHash<AtomicString>::safe_to_compare_to_empty_or_deleted;
   };
 
   typedef HeapHashMap<NamedNodeListKey,
@@ -139,8 +141,8 @@ class NodeListsNodeData final : public GarbageCollected<NodeListsNodeData> {
   void InvalidateCaches(const QualifiedName* attr_name = nullptr);
 
   bool IsEmpty() const {
-    return !child_node_list_ && atomic_name_caches_.IsEmpty() &&
-           tag_collection_ns_caches_.IsEmpty();
+    return !child_node_list_ && atomic_name_caches_.empty() &&
+           tag_collection_ns_caches_.empty();
   }
 
   void AdoptTreeScope() { InvalidateCaches(); }

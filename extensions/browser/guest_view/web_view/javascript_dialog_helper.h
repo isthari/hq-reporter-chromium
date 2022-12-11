@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define EXTENSIONS_BROWSER_GUEST_VIEW_WEB_VIEW_JAVASCRIPT_DIALOG_HELPER_H_
 
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "content/public/browser/javascript_dialog_manager.h"
 
 namespace extensions {
@@ -46,6 +47,8 @@ class JavaScriptDialogHelper : public content::JavaScriptDialogManager {
 
   // Pointer to the webview that is being helped.
   const raw_ptr<WebViewGuest> web_view_guest_;
+
+  base::WeakPtrFactory<JavaScriptDialogHelper> weak_factory_{this};
 };
 
 }  // namespace extensions

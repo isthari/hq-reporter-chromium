@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,13 @@
 #include "base/memory/raw_ptr.h"
 #include "base/notreached.h"
 #include "base/strings/string_util.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "net/base/io_buffer.h"
-#include "net/quic/platform/impl/quic_mem_slice_impl.h"
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
-#include "net/third_party/quiche/src/quic/core/quic_time.h"
-#include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_mem_slice.h"
+#include "net/third_party/quiche/src/quiche/common/platform/api/quiche_mem_slice.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_session.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_time.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_types.h"
 #include "services/network/network_context.h"
 #include "services/network/public/mojom/web_transport.mojom.h"
 
@@ -28,7 +27,6 @@ net::WebTransportParameters CreateParameters(
     const std::vector<mojom::WebTransportCertificateFingerprintPtr>&
         fingerprints) {
   net::WebTransportParameters params;
-  params.enable_quic_transport = false;
   params.enable_web_transport_http3 = true;
 
   for (const auto& fingerprint : fingerprints) {
@@ -72,11 +70,11 @@ class WebTransport::Stream final {
 
     // Visitor implementation:
     void OnCanRead() override {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(&Stream::Receive, stream_));
     }
     void OnCanWrite() override {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(&Stream::Send, stream_));
     }
     void OnResetStreamReceived(quic::WebTransportStreamError error) override {
@@ -351,7 +349,7 @@ class WebTransport::Stream final {
       return;
     }
 
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&Stream::Dispose, weak_factory_.GetWeakPtr()));
   }
@@ -380,7 +378,7 @@ class WebTransport::Stream final {
 WebTransport::WebTransport(
     const GURL& url,
     const url::Origin& origin,
-    const net::NetworkIsolationKey& key,
+    const net::NetworkAnonymizationKey& key,
     const std::vector<mojom::WebTransportCertificateFingerprintPtr>&
         fingerprints,
     NetworkContext* context,
@@ -408,10 +406,10 @@ void WebTransport::SendDatagram(base::span<const uint8_t> data,
 
   datagram_callbacks_.emplace(std::move(callback));
 
-  auto buffer = base::MakeRefCounted<net::IOBuffer>(data.size());
-  memcpy(buffer->data(), data.data(), data.size());
-  quic::QuicMemSlice slice(
-      quic::QuicMemSliceImpl(std::move(buffer), data.size()));
+  quiche::QuicheBuffer buffer(quiche::SimpleBufferAllocator::Get(),
+                              data.size());
+  memcpy(buffer.data(), data.data(), data.size());
+  quiche::QuicheMemSlice slice(std::move(buffer));
   transport_->session()->SendOrQueueDatagram(std::move(slice));
 }
 
@@ -506,7 +504,7 @@ void WebTransport::StopSending(uint32_t stream, uint8_t code) {
 
 void WebTransport::SetOutgoingDatagramExpirationDuration(
     base::TimeDelta duration) {
-  if (torn_down_) {
+  if (torn_down_ || closing_) {
     return;
   }
 
@@ -515,7 +513,7 @@ void WebTransport::SetOutgoingDatagramExpirationDuration(
 }
 
 void WebTransport::Close(mojom::WebTransportCloseInfoPtr close_info) {
-  if (torn_down_) {
+  if (torn_down_ || closing_) {
     return;
   }
   closing_ = true;
@@ -546,7 +544,7 @@ void WebTransport::Close(mojom::WebTransportCloseInfoPtr close_info) {
 
 void WebTransport::OnConnected(
     scoped_refptr<net::HttpResponseHeaders> response_headers) {
-  if (torn_down_) {
+  if (torn_down_ || closing_) {
     return;
   }
 
@@ -565,7 +563,7 @@ void WebTransport::OnConnected(
 }
 
 void WebTransport::OnConnectionFailed(const net::WebTransportError& error) {
-  if (torn_down_) {
+  if (torn_down_ || closing_) {
     return;
   }
 
@@ -614,6 +612,10 @@ void WebTransport::OnError(const net::WebTransportError& error) {
 }
 
 void WebTransport::OnIncomingBidirectionalStreamAvailable() {
+  if (torn_down_ || closing_) {
+    return;
+  }
+
   DCHECK(!handshake_client_);
   DCHECK(client_);
 
@@ -656,6 +658,10 @@ void WebTransport::OnIncomingBidirectionalStreamAvailable() {
 }
 
 void WebTransport::OnIncomingUnidirectionalStreamAvailable() {
+  if (torn_down_ || closing_) {
+    return;
+  }
+
   DCHECK(!handshake_client_);
   DCHECK(client_);
 
@@ -690,7 +696,7 @@ void WebTransport::OnIncomingUnidirectionalStreamAvailable() {
 }
 
 void WebTransport::OnDatagramReceived(base::StringPiece datagram) {
-  if (torn_down_) {
+  if (torn_down_ || closing_) {
     return;
   }
 
@@ -721,7 +727,7 @@ void WebTransport::TearDown() {
   handshake_client_.reset();
   client_.reset();
 
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&WebTransport::Dispose, weak_factory_.GetWeakPtr()));
 }

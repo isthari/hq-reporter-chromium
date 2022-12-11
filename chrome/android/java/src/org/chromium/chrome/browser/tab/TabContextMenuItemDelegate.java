@@ -1,9 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.tab;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.net.MailTo;
@@ -192,18 +193,22 @@ public class TabContextMenuItemDelegate implements ContextMenuItemDelegate {
         TabDelegate tabDelegate = new TabDelegate(mTab.isIncognito());
         LoadUrlParams loadUrlParams = new LoadUrlParams(url.getSpec());
         loadUrlParams.setReferrer(referrer);
-        tabDelegate.createTabInOtherWindow(loadUrlParams, TabUtils.getActivity(mTab),
-                CriticalPersistedTabData.from(mTab).getParentId());
+        Activity activity = TabUtils.getActivity(mTab);
+        tabDelegate.createTabInOtherWindow(loadUrlParams, activity,
+                CriticalPersistedTabData.from(mTab).getParentId(),
+                MultiWindowUtils.getAdjacentWindowActivity(activity));
     }
 
     @Override
-    public void onOpenInNewTab(GURL url, Referrer referrer) {
+    public void onOpenInNewTab(GURL url, Referrer referrer, boolean navigateToTab) {
         RecordUserAction.record("MobileNewTabOpened");
         RecordUserAction.record("LinkOpenedInNewTab");
         LoadUrlParams loadUrlParams = new LoadUrlParams(url.getSpec());
         loadUrlParams.setReferrer(referrer);
-        mTabModelSelector.openNewTab(
-                loadUrlParams, TabLaunchType.FROM_LONGPRESS_BACKGROUND, mTab, isIncognito());
+        mTabModelSelector.openNewTab(loadUrlParams,
+                navigateToTab ? TabLaunchType.FROM_LONGPRESS_FOREGROUND
+                              : TabLaunchType.FROM_LONGPRESS_BACKGROUND,
+                mTab, isIncognito());
     }
 
     @Override
@@ -220,7 +225,7 @@ public class TabContextMenuItemDelegate implements ContextMenuItemDelegate {
     public void onOpenInNewIncognitoTab(GURL url) {
         RecordUserAction.record("MobileNewTabOpened");
         mTabModelSelector.openNewTab(new LoadUrlParams(url.getSpec()),
-                TabLaunchType.FROM_LONGPRESS_FOREGROUND, mTab, true);
+                TabLaunchType.FROM_LONGPRESS_INCOGNITO, mTab, true);
     }
 
     @Override
@@ -258,14 +263,14 @@ public class TabContextMenuItemDelegate implements ContextMenuItemDelegate {
         if (url == null || url.isEmpty()) return;
         assert url.isValid();
 
-        BookmarkModel bookmarkModel = new BookmarkModel();
+        BookmarkModel bookmarkModel =
+                BookmarkModel.getForProfile(Profile.getLastUsedRegularProfile());
         bookmarkModel.finishLoadingBookmarkModel(() -> {
             // Add to reading list.
             BookmarkUtils.addToReadingList(
                     url, title, mSnackbarManager.get(), bookmarkModel, mTab.getContext());
             TrackerFactory.getTrackerForProfile(Profile.getLastUsedRegularProfile())
                     .notifyEvent(EventConstants.READ_LATER_CONTEXT_MENU_TAPPED);
-            bookmarkModel.destroy();
 
             // Add to offline pages.
             RequestCoordinatorBridge.getForProfile(Profile.getLastUsedRegularProfile())
@@ -281,13 +286,13 @@ public class TabContextMenuItemDelegate implements ContextMenuItemDelegate {
         chromeIntent.setPackage(applicationContext.getPackageName());
         chromeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
-        if (PackageManagerUtils.queryIntentActivities(chromeIntent, 0).isEmpty()) {
+        if (!PackageManagerUtils.canResolveActivity(chromeIntent)) {
             // If Chrome can't handle intent fallback to using any other VIEW handlers.
             chromeIntent.setPackage(null);
 
             // Query again without the package name set and if there are still no handlers for the
             // URI fail gracefully, and do nothing, since this will still cause a crash if launched.
-            if (PackageManagerUtils.queryIntentActivities(chromeIntent, 0).isEmpty()) return;
+            if (!PackageManagerUtils.canResolveActivity(chromeIntent)) return;
         }
 
         boolean activityStarted = false;

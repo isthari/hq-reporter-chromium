@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@
 #include "base/run_loop.h"
 #include "base/sequence_checker.h"
 #include "base/synchronization/condition_variable.h"
-#include "base/task/post_task.h"
 #include "base/task/sequence_manager/task_queue_impl.h"
 #include "base/task/sequence_manager/test/mock_time_domain.h"
 #include "base/task/sequence_manager/test/sequence_manager_for_test.h"
@@ -115,7 +114,7 @@ class BaseSequenceManagerPerfTestDelegate : public PerfTestDelegate {
   scoped_refptr<TaskRunner> CreateTaskRunner() override {
     scoped_refptr<TestTaskQueue> task_queue =
         manager_->CreateTaskQueueWithType<TestTaskQueue>(
-            TaskQueue::Spec("test"));
+            TaskQueue::Spec(QueueName::TEST_TQ));
     owned_task_queues_.push_back(task_queue);
     return task_queue->task_runner();
   }
@@ -169,7 +168,7 @@ class SequenceManagerWithMessagePumpPerfTestDelegate
     // runner.
     scoped_refptr<TaskQueue> default_task_queue =
         GetManager()->template CreateTaskQueueWithType<TestTaskQueue>(
-            TaskQueue::Spec("default"));
+            TaskQueue::Spec(QueueName::DEFAULT_TQ));
     GetManager()->SetDefaultTaskRunner(default_task_queue->task_runner());
   }
 

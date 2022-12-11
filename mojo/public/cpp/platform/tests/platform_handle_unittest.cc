@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -165,14 +165,13 @@ class PlatformHandleTest : public testing::Test,
   // to verify that |handle| does in fact reference a shared memory object when
   // expected. See |GetObjectContents()|.
   std::string GetSharedMemoryContents(const PlatformHandle& handle) {
-    base::subtle::PlatformSharedMemoryRegion::ScopedPlatformHandle
-        region_handle(
+    base::subtle::ScopedPlatformSharedMemoryHandle region_handle(
 #if BUILDFLAG(IS_FUCHSIA)
-            handle.GetHandle().get()
+        handle.GetHandle().get()
 #elif BUILDFLAG(IS_MAC)
-            handle.GetMachSendRight().get()
+        handle.GetMachSendRight().get()
 #endif
-        );
+    );
     auto generic_region = base::subtle::PlatformSharedMemoryRegion::Take(
         std::move(region_handle),
         base::subtle::PlatformSharedMemoryRegion::Mode::kUnsafe,

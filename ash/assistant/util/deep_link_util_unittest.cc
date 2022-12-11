@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,16 +12,13 @@
 #include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/timer/timer.h"
-#include "chromeos/services/assistant/public/cpp/assistant_service.h"
+#include "chromeos/ash/services/assistant/public/cpp/assistant_service.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace ash {
 namespace assistant {
 namespace util {
-
-using chromeos::assistant::AssistantEntryPoint;
-using chromeos::assistant::AssistantQuerySource;
 
 using DeepLinkUtilTest = AshTestBase;
 

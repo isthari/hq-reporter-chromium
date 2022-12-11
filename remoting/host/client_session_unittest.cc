@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,13 @@
 
 #include <stdint.h>
 
-#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/containers/contains.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
@@ -56,6 +56,7 @@ using protocol::test::EqualsMouseMoveEvent;
 
 using testing::_;
 using testing::AtLeast;
+using testing::Eq;
 using testing::ReturnRef;
 using testing::StrictMock;
 
@@ -77,8 +78,7 @@ MATCHER_P(IncludesCapabilities, expected_capabilities, "") {
                         base::SPLIT_WANT_NONEMPTY);
 
   for (const auto& word : words_expected) {
-    if (std::find(words_args.begin(), words_args.end(), word) ==
-        words_args.end()) {
+    if (!base::Contains(words_args, word)) {
       return false;
     }
   }
@@ -121,9 +121,11 @@ class ClientSessionTest : public testing::Test {
       protocol::FakeDesktopCapturer::kWidth;  // 800
   static const int kDisplay1Height =
       protocol::FakeDesktopCapturer::kHeight;  // 600
+  static const int64_t kDisplay1Id = 1111111111111111;
   static const int kDisplay2Width = 1024;
   static const int kDisplay2Height = 768;
   static const int kDisplay2YOffset = 35;
+  static const int64_t kDisplay2Id = 2222222222222222;
 
   // Creates the client session from a FakeSession instance.
   void CreateClientSession(std::unique_ptr<protocol::FakeSession> session);
@@ -149,7 +151,8 @@ class ClientSessionTest : public testing::Test {
                           int width,
                           int height,
                           int dpi_x,
-                          int dpi_y);
+                          int dpi_y,
+                          int64_t display_id);
 
   // Fakes desktop display size notification from Webrtc.
   void NotifyDesktopDisplaySize(
@@ -169,6 +172,10 @@ class ClientSessionTest : public testing::Test {
   void MultiMon_SelectFirstDisplay();
   void MultiMon_SelectSecondDisplay();
   void MultiMon_SelectAllDisplays();
+  void MultiMon_SelectDisplay(std::string display_id);
+
+  // Return the identifier of the display that's currently selected.
+  webrtc::ScreenId GetSelectedSourceDisplayId();
 
   // Geometry info for displays being tested.
   DesktopDisplayInfo displays_;
@@ -332,7 +339,8 @@ void ClientSessionTest::AddDisplayToLayout(protocol::VideoLayout* displays,
                                            int width,
                                            int height,
                                            int dpi_x,
-                                           int dpi_y) {
+                                           int dpi_y,
+                                           int64_t display_id) {
   protocol::VideoTrackLayout* video_track = displays->add_video_track();
   video_track->set_position_x(x);
   video_track->set_position_y(y);
@@ -340,6 +348,7 @@ void ClientSessionTest::AddDisplayToLayout(protocol::VideoLayout* displays,
   video_track->set_height(height);
   video_track->set_x_dpi(dpi_x);
   video_track->set_y_dpi(dpi_y);
+  video_track->set_screen_id(display_id);
   displays_.AddDisplayFrom(*video_track);
 }
 
@@ -364,7 +373,7 @@ void ClientSessionTest::SetupSingleDisplay() {
   ResetDisplayInfo();
   auto displays = std::make_unique<protocol::VideoLayout>();
   AddDisplayToLayout(displays.get(), 0, 0, kDisplay1Width, kDisplay1Height,
-                     kDefaultDpi, kDefaultDpi);
+                     kDefaultDpi, kDefaultDpi, kDisplay1Id);
   NotifyVideoSizeAll();
   NotifyDesktopDisplaySize(std::move(displays));
 }
@@ -380,9 +389,10 @@ void ClientSessionTest::SetupMultiDisplay() {
   ResetDisplayInfo();
   auto displays = std::make_unique<protocol::VideoLayout>();
   AddDisplayToLayout(displays.get(), 0, 0, kDisplay1Width, kDisplay1Height,
-                     kDefaultDpi, kDefaultDpi);
+                     kDefaultDpi, kDefaultDpi, kDisplay1Id);
   AddDisplayToLayout(displays.get(), kDisplay1Width, kDisplay2YOffset,
-                     kDisplay2Width, kDisplay2Height, kDefaultDpi, kDefaultDpi);
+                     kDisplay2Width, kDisplay2Height, kDefaultDpi, kDefaultDpi,
+                     kDisplay2Id);
   NotifyVideoSizeAll();
   NotifyDesktopDisplaySize(std::move(displays));
 }
@@ -397,9 +407,10 @@ void ClientSessionTest::SetupMultiDisplay_SameSize() {
   ResetDisplayInfo();
   auto displays = std::make_unique<protocol::VideoLayout>();
   AddDisplayToLayout(displays.get(), 0, 0, kDisplay1Width, kDisplay1Height,
-                     kDefaultDpi, kDefaultDpi);
+                     kDefaultDpi, kDefaultDpi, kDisplay1Id);
   AddDisplayToLayout(displays.get(), kDisplay1Width, kDisplay2YOffset,
-                     kDisplay1Width, kDisplay1Height, kDefaultDpi, kDefaultDpi);
+                     kDisplay1Width, kDisplay1Height, kDefaultDpi, kDefaultDpi,
+                     kDisplay2Id);
   NotifyVideoSizeAll();
   NotifyDesktopDisplaySize(std::move(displays));
 }
@@ -417,6 +428,14 @@ void ClientSessionTest::MultiMon_SelectSecondDisplay() {
 void ClientSessionTest::MultiMon_SelectAllDisplays() {
   NotifySelectDesktopDisplay("all");
   NotifyVideoSizeAll();
+}
+
+void ClientSessionTest::MultiMon_SelectDisplay(std::string display_id) {
+  NotifySelectDesktopDisplay(display_id);
+}
+
+webrtc::ScreenId ClientSessionTest::GetSelectedSourceDisplayId() {
+  return connection_->last_video_stream()->selected_source();
 }
 
 TEST_F(ClientSessionTest, MultiMonMouseMove) {
@@ -600,7 +619,7 @@ TEST_F(ClientSessionTest, LocalInputTest) {
 
   connection_->input_stub()->InjectMouseEvent(MakeMouseMoveEvent(100, 101));
 
-#if !BUILDFLAG(IS_WIN)
+#if !BUILDFLAG(IS_WIN) && !BUILDFLAG(IS_CHROMEOS)
   // The OS echoes the injected event back.
   client_session_->OnLocalPointerMoved(webrtc::DesktopVector(100, 101),
                                        ui::ET_MOUSE_MOVED);
@@ -617,7 +636,7 @@ TEST_F(ClientSessionTest, LocalInputTest) {
   connection_->input_stub()->InjectMouseEvent(MakeMouseMoveEvent(300, 301));
 
   // Verify that we've received correct set of mouse events.
-  EXPECT_EQ(2U, mouse_events.size());
+  ASSERT_EQ(2U, mouse_events.size());
   EXPECT_THAT(mouse_events[0], EqualsMouseMoveEvent(100, 101));
   EXPECT_THAT(mouse_events[1], EqualsMouseMoveEvent(200, 201));
 
@@ -808,5 +827,60 @@ TEST_F(ClientSessionTest, ForwardHostSessionOptions2) {
                    .desktop_capture_options()
                    ->detect_updated_region());
 }
+
+// Display selection behaves quite differently if capturing of the full desktop
+// is enabled or not. To simplify things these tests only handle the ChromeOS
+// situation, where full desktop capturing is disabled.
+#if BUILDFLAG(IS_CHROMEOS)
+TEST_F(ClientSessionTest, ShouldSelectFirstDesktopByDefault) {
+  CreateClientSession();
+  ConnectClientSession();
+
+  SetupMultiDisplay();
+
+  EXPECT_THAT(GetSelectedSourceDisplayId(), Eq(kDisplay1Id));
+}
+
+TEST_F(ClientSessionTest,
+       ShouldChangeSelectedSourceDisplayWhenSwitchingDisplay) {
+  CreateClientSession();
+  ConnectClientSession();
+  SetupMultiDisplay();
+
+  MultiMon_SelectSecondDisplay();
+  EXPECT_THAT(GetSelectedSourceDisplayId(), Eq(kDisplay2Id));
+
+  MultiMon_SelectFirstDisplay();
+  EXPECT_THAT(GetSelectedSourceDisplayId(), Eq(kDisplay1Id));
+}
+
+TEST_F(ClientSessionTest,
+       ShouldFallBackToPrimaryDisplayWhenSwitchingToInvalidDisplay) {
+  CreateClientSession();
+  ConnectClientSession();
+  SetupMultiDisplay();
+
+  MultiMon_SelectDisplay("Not an integer");
+  EXPECT_THAT(GetSelectedSourceDisplayId(), Eq(kDisplay1Id));
+
+  MultiMon_SelectDisplay("123456");  // There is no display with this id.
+  EXPECT_THAT(GetSelectedSourceDisplayId(), Eq(kDisplay1Id));
+
+  // Full desktop capturing is not supported on ChromeOS.
+  MultiMon_SelectDisplay("all");
+  EXPECT_THAT(GetSelectedSourceDisplayId(), Eq(kDisplay1Id));
+}
+
+TEST_F(ClientSessionTest,
+       ShouldFallBackToPrimaryDisplayWhenSelectedDisplayIsDisconnected) {
+  CreateClientSession();
+  ConnectClientSession();
+  SetupMultiDisplay();
+  MultiMon_SelectSecondDisplay();
+
+  SetupSingleDisplay();
+  EXPECT_THAT(GetSelectedSourceDisplayId(), Eq(kDisplay1Id));
+}
+#endif  // if BUILDFLAG(IS_CHROMEOS)
 
 }  // namespace remoting

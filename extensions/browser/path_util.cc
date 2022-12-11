@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task/task_runner_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "build/build_config.h"
 #include "extensions/browser/extension_file_task_runner.h"
@@ -35,7 +34,7 @@ std::string GetDisplayBaseName(const base::FilePath& path) {
     return path.BaseName().value();
 
   CFStringRef str;
-  if (LSCopyDisplayNameForURL(url, &str) != noErr)
+  if (!CFURLCopyResourcePropertyForKey(url, kCFURLLocalizedNameKey, &str, NULL))
     return path.BaseName().value();
 
   std::string result(base::SysCFStringRefToUTF8(str));
@@ -82,8 +81,8 @@ base::FilePath PrettifyPath(const base::FilePath& source_path) {
   // and localized subfolders of the user's home directory.
   // Don't grab the display name of the first component, i.e., "/", as it'll
   // show up as the HDD name.
-  std::vector<base::FilePath::StringType> components;
-  source_path.GetComponents(&components);
+  std::vector<base::FilePath::StringType> components =
+      source_path.GetComponents();
   display_path = base::FilePath(components[0]);
   base::FilePath actual_path = display_path;
   for (std::vector<base::FilePath::StringType>::iterator i =
@@ -110,9 +109,8 @@ void CalculateAndFormatExtensionDirectorySize(
     const base::FilePath& extension_path,
     int message_id,
     base::OnceCallback<void(const std::u16string&)> callback) {
-  base::PostTaskAndReplyWithResult(
-      GetExtensionFileTaskRunner().get(), FROM_HERE,
-      base::BindOnce(&base::ComputeDirectorySize, extension_path),
+  GetExtensionFileTaskRunner()->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&base::ComputeDirectorySize, extension_path),
       base::BindOnce(&OnDirectorySizeCalculated, message_id,
                      std::move(callback)));
 }

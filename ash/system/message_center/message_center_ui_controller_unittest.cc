@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -115,7 +115,7 @@ class MessageCenterUiControllerTest : public AshTestBase,
         new message_center::Notification(
             message_center::NOTIFICATION_TYPE_SIMPLE, id,
             u"Test Web Notification", u"Notification message body.",
-            gfx::Image(), u"www.test.org", GURL(), notifier_id,
+            ui::ImageModel(), u"www.test.org", GURL(), notifier_id,
             message_center::RichNotificationData(),
             new TestNotificationDelegate()));
     message_center::Notification* notification_ptr = notification.get();

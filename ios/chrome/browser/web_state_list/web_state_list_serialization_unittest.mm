@@ -1,14 +1,14 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/web_state_list/web_state_list_serialization.h"
 
-#include <memory>
+#import <memory>
 
-#include "base/bind.h"
-#include "base/test/scoped_feature_list.h"
-#include "ios/chrome/browser/sessions/session_features.h"
+#import "base/bind.h"
+#import "base/test/scoped_feature_list.h"
+#import "ios/chrome/browser/sessions/session_features.h"
 #import "ios/chrome/browser/sessions/session_window_ios.h"
 #import "ios/chrome/browser/web_state_list/fake_web_state_list_delegate.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
@@ -16,8 +16,8 @@
 #import "ios/web/public/session/crw_session_storage.h"
 #import "ios/web/public/session/serializable_user_data_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "testing/platform_test.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -25,12 +25,20 @@
 
 namespace {
 
+std::unique_ptr<web::WebState> CreateWebStateWithNavigationItemCount(int cnt) {
+  auto web_state = std::make_unique<web::FakeWebState>();
+  web_state->SetNavigationItemCount(cnt);
+  return web_state;
+}
+
 std::unique_ptr<web::WebState> CreateWebState() {
-  return std::make_unique<web::FakeWebState>();
+  return CreateWebStateWithNavigationItemCount(1);
 }
 
 std::unique_ptr<web::WebState> CreateWebStateWithID(NSString* web_state_id) {
-  return std::make_unique<web::FakeWebState>(web_state_id);
+  auto web_state = std::make_unique<web::FakeWebState>(web_state_id);
+  web_state->SetNavigationItemCount(1);
+  return web_state;
 }
 
 std::unique_ptr<web::WebState> CreateWebStateWithSessionStorage(
@@ -41,9 +49,9 @@ std::unique_ptr<web::WebState> CreateWebStateWithSessionStorage(
   return web_state;
 }
 
-// Compares whether both WebStateList |original| and |restored| have the same
-// opener-opened relationship. The |restored| WebStateList may have additional
-// WebState, so only indices from |restored_index| to |count()| are compared.
+// Compares whether both WebStateList `original` and `restored` have the same
+// opener-opened relationship. The `restored` WebStateList may have additional
+// WebState, so only indices from `restored_index` to `count()` are compared.
 void ExpectRelationshipIdenticalFrom(int restored_index,
                                      WebStateList* original,
                                      WebStateList* restored) {
@@ -178,4 +186,31 @@ TEST_F(WebStateListSerializationTest, Serialize) {
       EXPECT_EQ(session_window.tabContents[web_state_id].length, 0u);
     }
   }
+}
+
+TEST_F(WebStateListSerializationTest, SerializationDropNoNavigation) {
+  WebStateList original_web_state_list(web_state_list_delegate());
+  original_web_state_list.InsertWebState(
+      0, CreateWebState(), WebStateList::INSERT_FORCE_INDEX, WebStateOpener());
+  original_web_state_list.InsertWebState(
+      1, CreateWebStateWithNavigationItemCount(0),
+      WebStateList::INSERT_FORCE_INDEX | WebStateList::INSERT_ACTIVATE,
+      WebStateOpener(original_web_state_list.GetWebStateAt(0), 3));
+  original_web_state_list.InsertWebState(
+      2, CreateWebStateWithNavigationItemCount(0),
+      WebStateList::INSERT_FORCE_INDEX,
+      WebStateOpener(original_web_state_list.GetWebStateAt(0), 2));
+  original_web_state_list.InsertWebState(
+      3, CreateWebState(), WebStateList::INSERT_FORCE_INDEX, WebStateOpener());
+  original_web_state_list.InsertWebState(
+      4, CreateWebState(), WebStateList::INSERT_FORCE_INDEX,
+      WebStateOpener(original_web_state_list.GetWebStateAt(1), 1));
+
+  SessionWindowIOS* session_window =
+      SerializeWebStateList(&original_web_state_list, [NSSet set]);
+
+  // Check that the two tabs with no navigation items have been closed,
+  // including the active tab (its next sibling should be selected).
+  EXPECT_EQ(3u, session_window.sessions.count);
+  EXPECT_EQ(static_cast<NSUInteger>(2), session_window.selectedIndex);
 }

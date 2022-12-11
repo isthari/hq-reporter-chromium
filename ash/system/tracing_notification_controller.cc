@@ -1,9 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/tracing_notification_controller.h"
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "ash/public/cpp/system_tray_client.h"
 #include "ash/resources/vector_icons/vector_icons.h"
@@ -25,8 +26,6 @@ namespace {
 const char kNotifierId[] = "ash.tracing";
 
 void HandleNotificationClick() {
-  Shell::Get()->metrics()->RecordUserMetricsAction(
-      UMA_STATUS_AREA_TRACING_DEFAULT_SELECTED);
   Shell::Get()->system_tray_model()->client()->ShowChromeSlow();
 }
 
@@ -59,14 +58,15 @@ void TracingNotificationController::OnTracingModeChanged() {
 }
 
 void TracingNotificationController::CreateNotification() {
-  std::unique_ptr<Notification> notification = CreateSystemNotification(
+  std::unique_ptr<Notification> notification = CreateSystemNotificationPtr(
       message_center::NOTIFICATION_TYPE_SIMPLE, kNotificationId,
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_TRACING_NOTIFICATION_TITLE),
       l10n_util::GetStringUTF16(
           IDS_ASH_STATUS_TRAY_TRACING_NOTIFICATION_MESSAGE),
       std::u16string() /* display_source */, GURL(),
       message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
-                                 kNotifierId),
+                                 kNotifierId,
+                                 NotificationCatalogName::kTracing),
       message_center::RichNotificationData(),
       base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
           base::BindRepeating(&HandleNotificationClick)),

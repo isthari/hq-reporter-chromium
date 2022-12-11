@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "components/content_settings/core/common/content_settings.h"
+#include "ui/base/interaction/element_identifier.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/tabbed_pane/tabbed_pane_listener.h"
 #include "ui/views/controls/tree/tree_view_controller.h"
@@ -18,6 +19,7 @@ class CookieInfoView;
 class CookiesTreeModel;
 class CookiesTreeViewDrawingProvider;
 class InfobarView;
+class PageSpecificSiteDataDialogController;
 
 namespace content {
 class WebContents;
@@ -40,15 +42,17 @@ class CollectedCookiesViews : public views::DialogDelegateView,
                               public views::TreeViewController {
  public:
   METADATA_HEADER(CollectedCookiesViews);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kTabbedPaneElementId);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kBlockedCookiesTreeElementId);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kAllowedCookiesTreeElementId);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kBlockButtonId);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kAllowButtonId);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kRemoveButtonId);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kClearOnExitButtonId);
+
   CollectedCookiesViews(const CollectedCookiesViews&) = delete;
   CollectedCookiesViews& operator=(const CollectedCookiesViews&) = delete;
   ~CollectedCookiesViews() override;
-
-  // Use BrowserWindow::ShowCollectedCookiesDialog to show.
-  static void CreateAndShowForWebContents(content::WebContents* web_contents);
-
-  static CollectedCookiesViews* GetDialogForTesting(
-      content::WebContents* web_contents);
 
   void set_status_changed_for_testing() { status_changed_ = true; }
 
@@ -62,7 +66,7 @@ class CollectedCookiesViews : public views::DialogDelegateView,
   gfx::Size GetMinimumSize() const override;
 
  private:
-  class WebContentsUserData;
+  friend class PageSpecificSiteDataDialogController;
 
   explicit CollectedCookiesViews(content::WebContents* web_contents);
 
@@ -86,8 +90,10 @@ class CollectedCookiesViews : public views::DialogDelegateView,
 
   void AddContentException(views::TreeView* tree_view, ContentSetting setting);
 
+  void DeleteSelectedCookieNode();
+
   // The web contents.
-  raw_ptr<content::WebContents> web_contents_;
+  base::WeakPtr<content::WebContents> web_contents_;
 
   // Assorted views.
   raw_ptr<views::Label> allowed_label_ = nullptr;

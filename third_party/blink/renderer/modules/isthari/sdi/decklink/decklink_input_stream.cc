@@ -5,12 +5,11 @@
 #include <stdlib.h>
 
 #include "media/base/audio_buffer.h"
+#include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
+#include "third_party/blink/renderer/platform/heap/cross_thread_persistent.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/libyuv/include/libyuv.h"
-
-#include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
-
 
 namespace blink {
     
@@ -214,8 +213,8 @@ void DecklinkInputStream::processVideoFrame(IDeckLinkVideoInputFrame *videoFrame
 
     PostDelayedCrossThreadTask(*main_task_runner_, 
         FROM_HERE, 
-        CrossThreadBindOnce(&DecklinkInputStream::onVideoFrameReceived,
-        WrapCrossThreadWeakPersistent(this)), base::Microseconds(0));    
+        CrossThreadBindOnce(&DecklinkInputStream::onVideoFrameReceived, WrapCrossThreadWeakPersistent(this)), 
+        base::Microseconds(0));            
 }
 
 void DecklinkInputStream::onVideoFrameReceived() {    
@@ -310,7 +309,11 @@ void DecklinkInputStream::processAudioData(IDeckLinkAudioInputPacket* audioFrame
 	    480, 
 	    audioDataTemp_,
 	    timeInCurrent_);
-    PostDelayedCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), frame), delay);
+        /*
+    PostDelayedCrossThreadTask(*main_task_runner_, 
+        FROM_HERE, 
+        CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived, WrapCrossThreadWeakPersistent(this), frame), 
+        delay);*/
     
     // rotar el audio
     free(audioDataCurrent_[0]);
@@ -348,7 +351,7 @@ void DecklinkInputStream::inputAudioCycle() {
 	        480, 
 	        audioDataTemp_,
 	        timeInCurrent_ + delay);			
-        PostDelayedCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), frame), delay);
+        //PostDelayedCrossThreadTask(*main_task_runner_, FROM_HERE, WTF::CrossThreadBindOnce(&DecklinkInputStream::OnAudioFrameReceived,WrapCrossThreadWeakPersistent(this), frame), delay);
     }
 }
 
@@ -375,9 +378,10 @@ void DecklinkInputStream::directAudioData(IDeckLinkAudioInputPacket* audioFrame)
         samples, 
         audioBuffer_,
         currentFrameTime_);    
+        
     PostCrossThreadTask(*main_task_runner_, 
         FROM_HERE, 
-        CrossThreadBindOnce(&DecklinkInputStream::directAudioCallback, WrapCrossThreadWeakPersistent(this)));
+        CrossThreadBindOnce(&DecklinkInputStream::directAudioCallback, WrapCrossThreadWeakPersistent(this)));        
 }
 
 void DecklinkInputStream::directAudioCallback() {    

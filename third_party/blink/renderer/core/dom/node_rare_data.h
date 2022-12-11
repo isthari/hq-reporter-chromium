@@ -22,13 +22,14 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_RARE_DATA_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_NODE_RARE_DATA_H_
 
+#include "base/check_op.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/thread_state_storage.h"
 #include "third_party/blink/renderer/platform/wtf/bit_field.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
-#include "third_party/blink/renderer/platform/wtf/hash_set.h"
 
 namespace blink {
 
@@ -86,8 +87,8 @@ class NodeData : public GarbageCollected<NodeData> {
     kLastType = kNodeRenderingData
   };
 
-  void Trace(Visitor*) const;
-  void TraceAfterDispatch(blink::Visitor*) const {}
+  virtual ~NodeData() = default;
+  virtual void Trace(Visitor*) const;
 
  protected:
   using BitField = WTF::ConcurrentlyReadBitField<uint16_t>;
@@ -142,7 +143,7 @@ struct DowncastTraits<ElementRareData> {
   }
 };
 
-class NodeRenderingData final : public NodeData {
+class CORE_EXPORT NodeRenderingData final : public NodeData {
  public:
   NodeRenderingData(LayoutObject*,
                     scoped_refptr<const ComputedStyle> computed_style);
@@ -163,7 +164,7 @@ class NodeRenderingData final : public NodeData {
   static NodeRenderingData& SharedEmptyData();
   bool IsSharedEmptyData() { return this == &SharedEmptyData(); }
 
-  void TraceAfterDispatch(Visitor* visitor) const;
+  void Trace(Visitor*) const override;
 
  private:
   Member<LayoutObject> layout_object_;
@@ -240,8 +241,9 @@ class NodeRareData : public NodeData {
 
   void RegisterScrollTimeline(ScrollTimeline*);
   void UnregisterScrollTimeline(ScrollTimeline*);
+  void InvalidateAssociatedAnimationEffects();
 
-  void TraceAfterDispatch(blink::Visitor*) const;
+  void Trace(blink::Visitor*) const override;
 
  protected:
   NodeRareData(ClassType class_type, NodeRenderingData* node_layout_data)

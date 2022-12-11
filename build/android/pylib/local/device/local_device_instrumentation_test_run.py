@@ -1,4 +1,4 @@
-# Copyright 2015 The Chromium Authors. All rights reserved.
+# Copyright 2015 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -26,6 +26,7 @@ from devil.android import device_errors
 from devil.android import device_temp_file
 from devil.android import flag_changer
 from devil.android.sdk import shared_prefs
+from devil.android.sdk import version_codes
 from devil.android import logcat_monitor
 from devil.android.tools import system_app
 from devil.android.tools import webview_app
@@ -98,6 +99,9 @@ EXTRA_TRACE_FILE = ('org.chromium.base.test.BaseJUnit4ClassRunner.TraceFile')
 _EXTRA_TEST_LIST = (
     'org.chromium.base.test.BaseChromiumAndroidJUnitRunner.TestList')
 
+_EXTRA_TEST_IS_UNIT = (
+    'org.chromium.base.test.BaseChromiumAndroidJUnitRunner.IsUnitTest')
+
 _EXTRA_PACKAGE_UNDER_TEST = ('org.chromium.chrome.test.pagecontroller.rules.'
                              'ChromeUiApplicationTestRule.PackageUnderTest')
 
@@ -111,7 +115,7 @@ _DEVICE_GOLD_DIR = 'skia_gold'
 # A map of Android product models to SDK ints.
 RENDER_TEST_MODEL_SDK_CONFIGS = {
     # Android x86 emulator.
-    'Android SDK built for x86': [23],
+    'Android SDK built for x86': [23, 24],
     # We would like this to be supported, but it is currently too prone to
     # introducing flakiness due to a combination of Gold and Chromium issues.
     # See crbug.com/1233700 and skbug.com/12149 for more information.
@@ -119,7 +123,8 @@ RENDER_TEST_MODEL_SDK_CONFIGS = {
 }
 
 _BATCH_SUFFIX = '_batch'
-_TEST_BATCH_MAX_GROUP_SIZE = 256
+# If the batch is too big it starts to fail for command line length reasons.
+_LOCAL_TEST_BATCH_MAX_GROUP_SIZE = 200
 
 
 @contextlib.contextmanager
@@ -133,6 +138,24 @@ def _LogTestEndpoints(device, test_name):
     device.RunShellCommand(
         ['log', '-p', 'i', '-t', _TAG, 'END %s' % test_name],
         check_return=True)
+
+
+@contextlib.contextmanager
+def _VoiceInteractionService(device, use_voice_interaction_service):
+  def set_voice_interaction_service(service):
+    device.RunShellCommand(
+        ['settings', 'put', 'secure', 'voice_interaction_service', service])
+
+  default_voice_interaction_service = None
+  try:
+    default_voice_interaction_service = device.RunShellCommand(
+        ['settings', 'get', 'secure', 'voice_interaction_service'],
+        single_line=True)
+
+    set_voice_interaction_service(use_voice_interaction_service)
+    yield
+  finally:
+    set_voice_interaction_service(default_voice_interaction_service)
 
 
 def DismissCrashDialogs(device):
@@ -171,14 +194,22 @@ class LocalDeviceInstrumentationTestRun(
     self._shared_prefs_to_restore = []
     self._skia_gold_session_manager = None
     self._skia_gold_work_dir = None
+    self._target_package = _GetTargetPackageName(test_instance.test_apk)
 
   #override
   def TestPackage(self):
     return self._test_instance.suite
 
+  def _GetDataStorageRootDirectory(self, device):
+    if self._test_instance.store_data_in_app_directory:
+      # TODO(rmhasan): Add check to makes sure api level > 27. Selinux
+      # policy on Oreo does not allow app to read files from app data dir
+      # that were not put there by the app.
+      return device.GetApplicationDataDirectory(self._target_package)
+    return device.GetExternalStoragePath()
+
   #override
   def SetUp(self):
-    target_package = _GetTargetPackageName(self._test_instance.test_apk)
 
     @local_device_environment.handle_shard_failures_with(
         self._env.DenylistDevice)
@@ -198,8 +229,7 @@ class LocalDeviceInstrumentationTestRun(
           # manually invoke its __enter__ and __exit__ methods in setup and
           # teardown.
           system_app_context = system_app.ReplaceSystemApp(
-              dev, self._test_instance.replace_system_package.package,
-              self._test_instance.replace_system_package.replacement_apk)
+              dev, replacement_apk=self._test_instance.replace_system_package)
           # Pylint is not smart enough to realize that this field has
           # an __enter__ method, and will complain loudly.
           # pylint: disable=no-member
@@ -224,7 +254,79 @@ class LocalDeviceInstrumentationTestRun(
         # concurrent adb with this option specified, this should be safe.
         steps.insert(0, remove_packages)
 
+      def install_helper(apk,
+                         modules=None,
+                         fake_modules=None,
+                         permissions=None,
+                         additional_locales=None,
+                         instant_app=False):
+
+        @instrumentation_tracing.no_tracing
+        @trace_event.traced
+        def install_helper_internal(d, apk_path=None):
+          # pylint: disable=unused-argument
+          d.Install(
+              apk,
+              modules=modules,
+              fake_modules=fake_modules,
+              permissions=permissions,
+              additional_locales=additional_locales,
+              instant_app=instant_app,
+              force_queryable=self._test_instance.IsApkForceQueryable(apk))
+
+        return install_helper_internal
+
+      def install_apex_helper(apex):
+        @instrumentation_tracing.no_tracing
+        @trace_event.traced
+        def install_helper_internal(d, apk_path=None):
+          # pylint: disable=unused-argument
+          d.InstallApex(apex)
+
+        return install_helper_internal
+
+      def incremental_install_helper(apk, json_path, permissions):
+
+        @trace_event.traced
+        def incremental_install_helper_internal(d, apk_path=None):
+          # pylint: disable=unused-argument
+          installer.Install(d, json_path, apk=apk, permissions=permissions)
+
+        return incremental_install_helper_internal
+
+      steps.extend(
+          install_apex_helper(apex)
+          for apex in self._test_instance.additional_apexs)
+
+      steps.extend(
+          install_helper(apk, instant_app=self._test_instance.IsApkInstant(apk))
+          for apk in self._test_instance.additional_apks)
+
+      permissions = self._test_instance.test_apk.GetPermissions()
+      if self._test_instance.test_apk_incremental_install_json:
+        if self._test_instance.test_apk_as_instant:
+          raise Exception('Test APK cannot be installed as an instant '
+                          'app if it is incremental')
+
+        steps.append(
+            incremental_install_helper(
+                self._test_instance.test_apk,
+                self._test_instance.test_apk_incremental_install_json,
+                permissions))
+      else:
+        steps.append(
+            install_helper(self._test_instance.test_apk,
+                           permissions=permissions,
+                           instant_app=self._test_instance.test_apk_as_instant))
+
+      # We'll potentially need the package names later for setting app
+      # compatibility workarounds.
+      for apk in (self._test_instance.additional_apks +
+                  [self._test_instance.test_apk]):
+        self._installed_packages.append(apk_helper.GetPackageName(apk))
+
       if self._test_instance.use_webview_provider:
+
         @trace_event.traced
         def use_webview_provider(dev):
           # We need the context manager to be applied before modifying any
@@ -235,6 +337,9 @@ class LocalDeviceInstrumentationTestRun(
           # applying the context manager up in test_runner. Instead, we
           # manually invoke its __enter__ and __exit__ methods in setup and
           # teardown.
+          # We do this after installing additional APKs so that
+          # we can install trichrome library before installing the webview
+          # provider
           webview_context = webview_app.UseWebViewProvider(
               dev, self._test_instance.use_webview_provider)
           # Pylint is not smart enough to realize that this field has
@@ -246,52 +351,21 @@ class LocalDeviceInstrumentationTestRun(
 
         steps.append(use_webview_provider)
 
-      def install_helper(apk,
-                         modules=None,
-                         fake_modules=None,
-                         permissions=None,
-                         additional_locales=None):
-
-        @instrumentation_tracing.no_tracing
-        @trace_event.traced
-        def install_helper_internal(d, apk_path=None):
-          # pylint: disable=unused-argument
-          d.Install(apk,
-                    modules=modules,
-                    fake_modules=fake_modules,
-                    permissions=permissions,
-                    additional_locales=additional_locales)
-
-        return install_helper_internal
-
-      def incremental_install_helper(apk, json_path, permissions):
+      if self._test_instance.use_voice_interaction_service:
 
         @trace_event.traced
-        def incremental_install_helper_internal(d, apk_path=None):
-          # pylint: disable=unused-argument
-          installer.Install(d, json_path, apk=apk, permissions=permissions)
-        return incremental_install_helper_internal
+        def use_voice_interaction_service(device):
+          voice_interaction_service_context = _VoiceInteractionService(
+              device, self._test_instance.use_voice_interaction_service)
+          # Pylint is not smart enough to realize that this field has
+          # an __enter__ method, and will complain loudly.
+          # pylint: disable=no-member
+          voice_interaction_service_context.__enter__()
+          # pylint: enable=no-member
+          self._context_managers[str(device)].append(
+              voice_interaction_service_context)
 
-      permissions = self._test_instance.test_apk.GetPermissions()
-      if self._test_instance.test_apk_incremental_install_json:
-        steps.append(incremental_install_helper(
-                         self._test_instance.test_apk,
-                         self._test_instance.
-                             test_apk_incremental_install_json,
-                         permissions))
-      else:
-        steps.append(
-            install_helper(
-                self._test_instance.test_apk, permissions=permissions))
-
-      steps.extend(
-          install_helper(apk) for apk in self._test_instance.additional_apks)
-
-      # We'll potentially need the package names later for setting app
-      # compatibility workarounds.
-      for apk in (self._test_instance.additional_apks +
-                  [self._test_instance.test_apk]):
-        self._installed_packages.append(apk_helper.GetPackageName(apk))
+        steps.append(use_voice_interaction_service)
 
       # The apk under test needs to be installed last since installing other
       # apks after will unintentionally clear the fake module directory.
@@ -313,6 +387,17 @@ class LocalDeviceInstrumentationTestRun(
                              self._test_instance.fake_modules, permissions,
                              self._test_instance.additional_locales))
 
+      # Execute any custom setup shell commands
+      if self._test_instance.run_setup_commands:
+
+        @trace_event.traced
+        def run_setup_commands(dev):
+          for cmd in self._test_instance.run_setup_commands:
+            logging.info('Running custom setup shell command: %s', cmd)
+            dev.RunShellCommand(cmd, shell=True, check_return=True)
+
+        steps.append(run_setup_commands)
+
       @trace_event.traced
       def set_debug_app(dev):
         # Set debug app in order to enable reading command line flags on user
@@ -320,7 +405,7 @@ class LocalDeviceInstrumentationTestRun(
         cmd = ['am', 'set-debug-app', '--persistent']
         if self._test_instance.wait_for_java_debugger:
           cmd.append('-w')
-        cmd.append(target_package)
+        cmd.append(self._target_package)
         dev.RunShellCommand(cmd, check_return=True)
 
       @trace_event.traced
@@ -337,6 +422,10 @@ class LocalDeviceInstrumentationTestRun(
               shared_pref, setting)
 
       @trace_event.traced
+      def approve_app_links(dev):
+        self._ToggleAppLinks(dev, 'STATE_APPROVED')
+
+      @trace_event.traced
       def set_vega_permissions(dev):
         # Normally, installation of VrCore automatically grants storage
         # permissions. However, since VrCore is part of the system image on
@@ -351,20 +440,32 @@ class LocalDeviceInstrumentationTestRun(
 
       @instrumentation_tracing.no_tracing
       def push_test_data(dev):
-        device_root = posixpath.join(dev.GetExternalStoragePath(),
-                                     'chromium_tests_root')
+        test_data_root_dir = posixpath.join(
+            self._GetDataStorageRootDirectory(dev), 'chromium_tests_root')
         host_device_tuples_substituted = [
-            (h, local_device_test_run.SubstituteDeviceRoot(d, device_root))
-            for h, d in host_device_tuples]
+            (h,
+             local_device_test_run.SubstituteDeviceRoot(d, test_data_root_dir))
+            for h, d in host_device_tuples
+        ]
         logging.info('Pushing data dependencies.')
         for h, d in host_device_tuples_substituted:
           logging.debug('  %r -> %r', h, d)
-        local_device_environment.place_nomedia_on_device(dev, device_root)
+
+        as_root = self._test_instance.store_data_in_app_directory
+        local_device_environment.place_nomedia_on_device(dev,
+                                                         test_data_root_dir,
+                                                         as_root=as_root)
         dev.PushChangedFiles(host_device_tuples_substituted,
-                             delete_device_stale=True)
+                             delete_device_stale=True,
+                             as_root=as_root)
+
         if not host_device_tuples_substituted:
-          dev.RunShellCommand(['rm', '-rf', device_root], check_return=True)
-          dev.RunShellCommand(['mkdir', '-p', device_root], check_return=True)
+          dev.RunShellCommand(['rm', '-rf', test_data_root_dir],
+                              check_return=True,
+                              as_root=as_root)
+          dev.RunShellCommand(['mkdir', '-p', test_data_root_dir],
+                              check_return=True,
+                              as_root=as_root)
 
       @trace_event.traced
       def create_flag_changer(dev):
@@ -378,8 +479,8 @@ class LocalDeviceInstrumentationTestRun(
             dev, self._test_instance.timeout_scale)
 
       steps += [
-          set_debug_app, edit_shared_prefs, push_test_data, create_flag_changer,
-          set_vega_permissions, DismissCrashDialogs
+          set_debug_app, edit_shared_prefs, approve_app_links, push_test_data,
+          create_flag_changer, set_vega_permissions, DismissCrashDialogs
       ]
 
       def bind_crash_handler(step, dev):
@@ -426,7 +527,7 @@ class LocalDeviceInstrumentationTestRun(
     if self._test_instance.wait_for_java_debugger:
       logging.warning('*' * 80)
       logging.warning('Waiting for debugger to attach to process: %s',
-                      target_package)
+                      self._target_package)
       logging.warning('*' * 80)
 
   #override
@@ -452,6 +553,11 @@ class LocalDeviceInstrumentationTestRun(
       # Remove package-specific configuration
       dev.RunShellCommand(['am', 'clear-debug-app'], check_return=True)
 
+      # Execute any custom teardown shell commands
+      for cmd in self._test_instance.run_teardown_commands:
+        logging.info('Running custom teardown shell command: %s', cmd)
+        dev.RunShellCommand(cmd, shell=True, check_return=True)
+
       valgrind_tools.SetChromeTimeoutScale(dev, None)
 
       # Restore any shared preference files that we stored during setup.
@@ -460,6 +566,9 @@ class LocalDeviceInstrumentationTestRun(
       # replaced system apps.
       for pref_to_restore in self._shared_prefs_to_restore:
         pref_to_restore.Commit(force_commit=True)
+
+      # If we've force approved app links for a package, undo that now.
+      self._ToggleAppLinks(dev, 'STATE_NO_RESPONSE')
 
       # Context manager exit handlers are applied in reverse order
       # of the enter handlers.
@@ -470,6 +579,24 @@ class LocalDeviceInstrumentationTestRun(
         # pylint: enable=no-member
 
     self._env.parallel_devices.pMap(individual_device_tear_down)
+
+  def _ToggleAppLinks(self, dev, state):
+    # The set-app-links command was added in Android 12 (sdk = 31). The
+    # restrictions that require us to set the app links were also added in
+    # Android 12, so doing nothing on earlier Android versions is fine.
+    if dev.build_version_sdk < version_codes.S:
+      return
+
+    package = self._test_instance.approve_app_links_package
+    domain = self._test_instance.approve_app_links_domain
+
+    if not package or not domain:
+      return
+
+    cmd = [
+        'pm', 'set-app-links', '--package', package, state, domain
+    ]
+    dev.RunShellCommand(cmd, check_return=True)
 
   def _CreateFlagChangerIfNeeded(self, device):
     if str(device) not in self._flag_changers:
@@ -484,7 +611,16 @@ class LocalDeviceInstrumentationTestRun(
           device, cmdline_file)
 
   #override
-  def _CreateShards(self, tests):
+  def _CreateShardsForDevices(self, tests):
+    """Create shards of tests to run on devices.
+
+    Args:
+      tests: List containing tests or test batches.
+
+    Returns:
+      List of tests or batches.
+    """
+    # Each test or test batch will be a single shard.
     return tests
 
   #override
@@ -498,6 +634,14 @@ class LocalDeviceInstrumentationTestRun(
         tests, self._test_instance.external_shard_index,
         self._test_instance.total_external_shards)
     return tests
+
+  #override
+  def GetTestsForListing(self):
+    # Parent class implementation assumes _GetTests() returns strings rather
+    # than dicts.
+    test_dicts = self._GetTests()
+    test_dicts = local_device_test_run.FlattenTestList(test_dicts)
+    return sorted('{}#{}'.format(d['class'], d['method']) for d in test_dicts)
 
   #override
   def _GroupTests(self, tests):
@@ -529,9 +673,7 @@ class LocalDeviceInstrumentationTestRun(
             batch_name += '|cmd_line_remove:' + ','.join(
                 sorted(annotations['CommandLineFlags$Remove']['value']))
 
-        if not batch_name in batched_tests:
-          batched_tests[batch_name] = []
-        batched_tests[batch_name].append(test)
+        batched_tests.setdefault(batch_name, []).append(test)
       else:
         other_tests.append(test)
 
@@ -544,13 +686,26 @@ class LocalDeviceInstrumentationTestRun(
         return tuple(dict2list(v) for v in d)
       return d
 
+    test_count = sum(
+        [len(test) - 1 for test in tests if self._CountTestsIndividually(test)])
+    test_count += len(tests)
+    if self._test_instance.total_external_shards > 1:
+      # Calculate suitable test batch max group size based on average partition
+      # size. The batch size should be below partition size to balance between
+      # shards. Choose to divide by 3 as it works fine with most of test suite
+      # without increasing too much setup/teardown time for batch tests.
+      test_batch_max_group_size = \
+        max(1, test_count // self._test_instance.total_external_shards // 3)
+    else:
+      test_batch_max_group_size = _LOCAL_TEST_BATCH_MAX_GROUP_SIZE
+
     all_tests = []
     for _, btests in list(batched_tests.items()):
       # Ensure a consistent ordering across external shards.
       btests.sort(key=dict2list)
       all_tests.extend([
-          btests[i:i + _TEST_BATCH_MAX_GROUP_SIZE]
-          for i in range(0, len(btests), _TEST_BATCH_MAX_GROUP_SIZE)
+          btests[i:i + test_batch_max_group_size]
+          for i in range(0, len(btests), test_batch_max_group_size)
       ])
     all_tests.extend(other_tests)
     # Sort all tests by hash.
@@ -564,6 +719,9 @@ class LocalDeviceInstrumentationTestRun(
   #override
   def _RunTest(self, device, test):
     extras = {}
+
+    if self._test_instance.is_unit_test:
+      extras[_EXTRA_TEST_IS_UNIT] = 'true'
 
     # Provide package name under test for apk_under_test.
     if self._test_instance.apk_under_test:
@@ -699,6 +857,9 @@ class LocalDeviceInstrumentationTestRun(
       self._CreateFlagChangerIfNeeded(device)
       self._flag_changers[str(device)].PushFlags(add=flags_to_add)
 
+    if self._test_instance.store_data_in_app_directory:
+      extras.update({'fetchTestDataFromAppDataDir': 'true'})
+
     time_ms = lambda: int(time.time() * 1e3)
     start_ms = time_ms()
 
@@ -739,9 +900,14 @@ class LocalDeviceInstrumentationTestRun(
           try:
             if not os.path.exists(self._test_instance.coverage_directory):
               os.makedirs(self._test_instance.coverage_directory)
-            device.PullFile(coverage_device_file,
-                            self._test_instance.coverage_directory)
-            device.RemovePath(coverage_device_file, True)
+            # Retries add time to test execution.
+            if device.PathExists(coverage_device_file, retries=0):
+              device.PullFile(coverage_device_file,
+                              self._test_instance.coverage_directory)
+              device.RemovePath(coverage_device_file, True)
+            else:
+              logging.warning('Coverage file does not exist: %s',
+                              coverage_device_file)
           except (OSError, base_error.BaseError) as e:
             logging.warning('Failed to handle coverage data after tests: %s', e)
 
@@ -864,7 +1030,7 @@ class LocalDeviceInstrumentationTestRun(
 
     # Handle failures by:
     #   - optionally taking a screenshot
-    #   - logging the raw output at INFO level
+    #   - logging the raw output at ERROR level
     #   - clearing the application state while persisting permissions
     if any(r.GetType() not in (base_test_result.ResultType.PASS,
                                base_test_result.ResultType.SKIP)
@@ -872,9 +1038,9 @@ class LocalDeviceInstrumentationTestRun(
       self._SaveScreenshot(device, screenshot_device_file, test_display_name,
                            results, 'post_test_screenshot')
 
-      logging.info('detected failure in %s. raw output:', test_display_name)
+      logging.error('detected failure in %s. raw output:', test_display_name)
       for l in output:
-        logging.info('  %s', l)
+        logging.error('  %s', l)
       if not self._env.skip_clear_data:
         if self._test_instance.package_info:
           permissions = (self._test_instance.apk_under_test.GetPermissions()
@@ -980,11 +1146,15 @@ class LocalDeviceInstrumentationTestRun(
       logging.info('Could not get tests from pickle: %s', e)
     logging.info('Getting tests by having %s list them.',
                  self._test_instance.junit4_runner_class)
+    # We need to use GetAppWritablePath instead of GetExternalStoragePath
+    # here because we will not have applied legacy storage workarounds on R+
+    # yet.
+    # TODO(rmhasan): Figure out how to create the temp file inside the test
+    # app's data directory. Currently when the temp file is created read
+    # permissions are only given to the app's user id. Therefore we can't
+    # pull the file from the device.
     def list_tests(d):
       def _run(dev):
-        # We need to use GetAppWritablePath instead of GetExternalStoragePath
-        # here because we will not have applied legacy storage workarounds on R+
-        # yet.
         with device_temp_file.DeviceTempFile(
             dev.adb, suffix='.json',
             dir=dev.GetAppWritablePath()) as dev_test_list_json:
@@ -1055,7 +1225,7 @@ class LocalDeviceInstrumentationTestRun(
       if logmon:
         logmon.Close()
       if logcat_file and logcat_file.Link():
-        logging.info('Logcat saved to %s', logcat_file.Link())
+        logging.critical('Logcat saved to %s', logcat_file.Link())
 
   def _SaveTraceData(self, trace_device_file, device, test_class):
     trace_host_file = self._env.trace_output
@@ -1137,27 +1307,6 @@ class LocalDeviceInstrumentationTestRun(
       return
     self._ProcessSkiaGoldRenderTestResults(device, results)
 
-  def _IsRetryWithoutPatch(self):
-    """Checks whether this test run is a retry without a patch/CL.
-
-    Returns:
-      True iff this is being run on a trybot and the current step is a retry
-      without the patch applied, otherwise False.
-    """
-    is_tryjob = self._test_instance.skia_gold_properties.IsTryjobRun()
-    # Builders automatically pass in --gtest_repeat,
-    # --test-launcher-retry-limit, --test-launcher-batch-limit, and
-    # --gtest_filter when running a step without a CL applied, but not for
-    # steps with the CL applied.
-    # TODO(skbug.com/12100): Check this in a less hacky way if a way can be
-    # found to check the actual step name. Ideally, this would not be necessary
-    # at all, but will be until Chromium stops doing step retries on trybots
-    # (extremely unlikely) or Gold is updated to not clobber earlier results
-    # (more likely, but a ways off).
-    has_filter = bool(self._test_instance.test_filter)
-    has_batch_limit = self._test_instance.test_launcher_batch_limit is not None
-    return is_tryjob and has_filter and has_batch_limit
-
   def _ProcessSkiaGoldRenderTestResults(self, device, results):
     gold_dir = posixpath.join(self._render_tests_device_output_dir,
                               _DEVICE_GOLD_DIR)
@@ -1200,8 +1349,12 @@ class LocalDeviceInstrumentationTestRun(
           # All the key/value pairs in the JSON file are strings, so convert
           # to a bool.
           json_dict = json.load(infile)
-          fail_on_unsupported = json_dict.get('fail_on_unsupported_configs',
-                                              'false')
+          optional_dict = json_dict.get('optional_keys', {})
+          if 'optional_keys' in json_dict:
+            should_rewrite = True
+            del json_dict['optional_keys']
+          fail_on_unsupported = optional_dict.get('fail_on_unsupported_configs',
+                                                  'false')
           fail_on_unsupported = fail_on_unsupported.lower() == 'true'
           # Grab the full test name so we can associate the comparison with a
           # particular test, which is necessary if tests are batched together.
@@ -1221,7 +1374,8 @@ class LocalDeviceInstrumentationTestRun(
         # should_ignore_in_gold != should_hide_failure.
         should_hide_failure = running_on_unsupported
         if should_ignore_in_gold:
-          should_rewrite = True
+          # This is put in the regular keys dict instead of the optional one
+          # because ignore rules do not apply to optional keys.
           json_dict['ignore'] = '1'
         if should_rewrite:
           with open(json_path, 'w') as outfile:
@@ -1236,7 +1390,7 @@ class LocalDeviceInstrumentationTestRun(
               png_file=image_path,
               output_manager=self._env.output_manager,
               use_luci=use_luci,
-              force_dryrun=self._IsRetryWithoutPatch())
+              optional_keys=optional_dict)
         except Exception as e:  # pylint: disable=broad-except
           _FailTestIfNecessary(results, full_test_name)
           _AppendToLog(results, full_test_name,
@@ -1344,7 +1498,13 @@ class LocalDeviceInstrumentationTestRun(
     return True
 
   #override
-  def _ShouldShard(self):
+  def _ShouldShardTestsForDevices(self):
+    """Shard tests across several devices.
+
+    Returns:
+      True if tests should be sharded across several devices,
+      False otherwise.
+    """
     return True
 
   @classmethod

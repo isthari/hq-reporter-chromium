@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,8 +22,10 @@
 
 namespace ash {
 
-ChromeLoginPerformer::ChromeLoginPerformer(Delegate* delegate)
-    : LoginPerformer(delegate) {}
+ChromeLoginPerformer::ChromeLoginPerformer(
+    Delegate* delegate,
+    AuthMetricsRecorder* metrics_recorder)
+    : LoginPerformer(delegate, metrics_recorder) {}
 
 ChromeLoginPerformer::~ChromeLoginPerformer() {}
 

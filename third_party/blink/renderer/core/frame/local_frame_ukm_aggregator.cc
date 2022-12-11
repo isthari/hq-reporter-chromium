@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,9 @@
 
 #include <memory>
 
+#include "base/cpu_reduction_experiment.h"
 #include "base/format_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/rand_util.h"
 #include "base/time/default_tick_clock.h"
@@ -15,6 +17,7 @@
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "third_party/blink/public/common/metrics/document_update_reason.h"
+#include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -48,7 +51,12 @@ LocalFrameUkmAggregator::ScopedUkmHierarchicalTimer::ScopedUkmHierarchicalTimer(
     : aggregator_(aggregator),
       metric_index_(metric_index),
       clock_(clock),
-      start_time_(clock_->NowTicks()) {}
+      start_time_(aggregator && aggregator->ShouldMeasureMetric(metric_index)
+                      ? clock_->NowTicks()
+                      : base::TimeTicks()) {
+  if (aggregator_ && !start_time_.is_null())
+    TRACE_EVENT_BEGIN0("blink", aggregator_->metrics_data()[metric_index].name);
+}
 
 LocalFrameUkmAggregator::ScopedUkmHierarchicalTimer::ScopedUkmHierarchicalTimer(
     ScopedUkmHierarchicalTimer&& other)
@@ -61,9 +69,13 @@ LocalFrameUkmAggregator::ScopedUkmHierarchicalTimer::ScopedUkmHierarchicalTimer(
 
 LocalFrameUkmAggregator::ScopedUkmHierarchicalTimer::
     ~ScopedUkmHierarchicalTimer() {
-  if (aggregator_ && base::TimeTicks::IsHighResolution()) {
-    aggregator_->RecordTimerSample(metric_index_, start_time_,
-                                   clock_->NowTicks());
+  if (aggregator_ && !start_time_.is_null()) {
+    if (base::TimeTicks::IsHighResolution()) {
+      aggregator_->RecordTimerSample(metric_index_, start_time_,
+                                     clock_->NowTicks());
+    }
+    TRACE_EVENT_END1("blink", aggregator_->metrics_data()[metric_index_].name,
+                     "preFCP", aggregator_->fcp_state_ == kBeforeFCPSignal);
   }
 }
 
@@ -73,27 +85,36 @@ LocalFrameUkmAggregator::IterativeTimer::IterativeTimer(
 }
 
 LocalFrameUkmAggregator::IterativeTimer::~IterativeTimer() {
-  if (aggregator_.get() && metric_index_ != -1)
-    Record();
+  if (aggregator_.get())
+    Record(aggregator_->ShouldMeasureMetric(metric_index_), false);
 }
 
 void LocalFrameUkmAggregator::IterativeTimer::StartInterval(
     int64_t metric_index) {
   if (aggregator_.get() && metric_index != metric_index_) {
-    Record();
-    metric_index_ = metric_index;
+    bool should_record_prev_metric =
+        aggregator_->ShouldMeasureMetric(metric_index_);
+    bool should_record_next_metric =
+        aggregator_->ShouldMeasureMetric(metric_index);
+    Record(should_record_prev_metric, should_record_next_metric);
+    if (should_record_next_metric)
+      metric_index_ = metric_index;
   }
 }
 
-void LocalFrameUkmAggregator::IterativeTimer::Record() {
+void LocalFrameUkmAggregator::IterativeTimer::Record(
+    bool should_record_prev_metric,
+    bool should_record_next_metric) {
   DCHECK(aggregator_.get());
-  base::TimeTicks now = aggregator_->GetClock()->NowTicks();
-  if (metric_index_ != -1) {
-    aggregator_->RecordTimerSample(base::saturated_cast<size_t>(metric_index_),
-                                   start_time_, now);
+  if (should_record_prev_metric || should_record_next_metric) {
+    base::TimeTicks now = aggregator_->GetClock()->NowTicks();
+    if (should_record_prev_metric) {
+      aggregator_->RecordTimerSample(
+          base::saturated_cast<size_t>(metric_index_), start_time_, now);
+    }
+    start_time_ = now;
   }
   metric_index_ = -1;
-  start_time_ = now;
 }
 
 void LocalFrameUkmAggregator::AbsoluteMetricRecord::reset() {
@@ -101,17 +122,19 @@ void LocalFrameUkmAggregator::AbsoluteMetricRecord::reset() {
   main_frame_count = 0;
 }
 
-LocalFrameUkmAggregator::LocalFrameUkmAggregator(int64_t source_id,
-                                                 ukm::UkmRecorder* recorder)
+LocalFrameUkmAggregator::LocalFrameUkmAggregator(
+    int64_t source_id,
+    ukm::UkmRecorder* recorder,
+    bool is_for_main_frame_local_frame_root)
     : source_id_(source_id),
       recorder_(recorder),
       clock_(base::DefaultTickClock::GetInstance()),
-      event_name_("Blink.UpdateTime") {
+      is_for_main_frame_(is_for_main_frame_local_frame_root) {
   // All of these are assumed to have one entry per sub-metric.
-  DCHECK_EQ(base::size(absolute_metric_records_), metrics_data().size());
-  DCHECK_EQ(base::size(current_sample_.sub_metrics_counts),
+  DCHECK_EQ(std::size(absolute_metric_records_), metrics_data().size());
+  DCHECK_EQ(std::size(current_sample_.sub_metrics_counts),
             metrics_data().size());
-  DCHECK_EQ(base::size(current_sample_.sub_main_frame_counts),
+  DCHECK_EQ(std::size(current_sample_.sub_main_frame_counts),
             metrics_data().size());
 
   // Record average and worst case for the primary metric.
@@ -127,8 +150,6 @@ LocalFrameUkmAggregator::LocalFrameUkmAggregator(int64_t source_id,
           "Blink.MainFrame.UpdateTime.AggregatedPreFCP", 1, 10000000, 50);
 
   // Set up the substrings to create the UMA names
-  const char* const uma_preamble = "Blink.";
-  const char* const uma_postscript = ".UpdateTime";
   const char* const uma_prefcp_postscript = ".PreFCP";
   const char* const uma_postfcp_postscript = ".PostFCP";
   const char* const uma_pre_fcp_aggregated_postscript = ".AggregatedPreFCP";
@@ -144,24 +165,20 @@ LocalFrameUkmAggregator::LocalFrameUkmAggregator(int64_t source_id,
     absolute_record.reset();
     absolute_record.pre_fcp_aggregate = 0;
     if (metric_data.has_uma) {
-      StringBuilder uma_name;
-      uma_name.Append(uma_preamble);
-      uma_name.Append(metric_data.name);
-      uma_name.Append(uma_postscript);
       StringBuilder pre_fcp_uma_name;
-      pre_fcp_uma_name.Append(uma_name);
+      pre_fcp_uma_name.Append(metric_data.name);
       pre_fcp_uma_name.Append(uma_prefcp_postscript);
       absolute_record.pre_fcp_uma_counter =
           std::make_unique<CustomCountHistogram>(
               pre_fcp_uma_name.ToString().Utf8().c_str(), 1, 10000000, 50);
       StringBuilder post_fcp_uma_name;
-      post_fcp_uma_name.Append(uma_name);
+      post_fcp_uma_name.Append(metric_data.name);
       post_fcp_uma_name.Append(uma_postfcp_postscript);
       absolute_record.post_fcp_uma_counter =
           std::make_unique<CustomCountHistogram>(
               post_fcp_uma_name.ToString().Utf8().c_str(), 1, 10000000, 50);
       StringBuilder aggregated_uma_name;
-      aggregated_uma_name.Append(uma_name);
+      aggregated_uma_name.Append(metric_data.name);
       aggregated_uma_name.Append(uma_pre_fcp_aggregated_postscript);
       absolute_record.uma_aggregate_counter =
           std::make_unique<CustomCountHistogram>(
@@ -174,6 +191,29 @@ LocalFrameUkmAggregator::LocalFrameUkmAggregator(int64_t source_id,
 
 LocalFrameUkmAggregator::~LocalFrameUkmAggregator() {
   ReportUpdateTimeEvent();
+
+  base::UmaHistogramBoolean("Blink.LocalFrameRoot.DidReachFirstContentfulPaint",
+                            fcp_state_ != kBeforeFCPSignal);
+  if (is_for_main_frame_) {
+    base::UmaHistogramBoolean(
+        "Blink.LocalFrameRoot.DidReachFirstContentfulPaint.MainFrame",
+        fcp_state_ != kBeforeFCPSignal);
+  }
+}
+
+bool LocalFrameUkmAggregator::ShouldMeasureMetric(int64_t metric_id) const {
+  if (metric_id < 0 || metric_id > kMainFrame)
+    return false;
+
+  // Downsample IntersectionObserver sub-categories. Note that
+  // kIntersectionObservation, which measures a single aggregated time for all
+  // IntersectionObserver-related work, is unaffected.
+  if (metric_id >= kDisplayLockIntersectionObserver &&
+      metric_id <= kUpdateViewportIntersection) {
+    return frames_since_last_report_ % intersection_observer_sample_period_ ==
+           0;
+  }
+  return true;
 }
 
 LocalFrameUkmAggregator::ScopedUkmHierarchicalTimer
@@ -209,6 +249,9 @@ LocalFrameUkmAggregator::GetBeginMainFrameMetrics() {
   metrics_data->layout_update = base::Microseconds(
       absolute_metric_records_[static_cast<unsigned>(MetricId::kLayout)]
           .main_frame_count);
+  metrics_data->accessibility = base::Microseconds(
+      absolute_metric_records_[static_cast<unsigned>(MetricId::kAccessibility)]
+          .main_frame_count);
   metrics_data->prepaint = base::Microseconds(
       absolute_metric_records_[static_cast<unsigned>(MetricId::kPrePaint)]
           .main_frame_count);
@@ -233,16 +276,9 @@ void LocalFrameUkmAggregator::SetTickClockForTesting(
   clock_ = clock;
 }
 
-void LocalFrameUkmAggregator::DidReachFirstContentfulPaint(
-    bool are_painting_main_frame) {
-  DCHECK(fcp_state_ != kHavePassedFCP);
-
-  if (!are_painting_main_frame) {
-    DCHECK(AllMetricsAreZero());
-    return;
-  }
-
-  fcp_state_ = kThisFrameReachedFCP;
+void LocalFrameUkmAggregator::DidReachFirstContentfulPaint() {
+  if (fcp_state_ == kBeforeFCPSignal)
+    fcp_state_ = kThisFrameReachedFCP;
 }
 
 void LocalFrameUkmAggregator::RecordTimerSample(size_t metric_index,
@@ -260,13 +296,17 @@ void LocalFrameUkmAggregator::RecordCountSample(size_t metric_index,
   bool is_pre_fcp = (fcp_state_ != kHavePassedFCP);
 
   // Accumulate for UKM and record the UMA
-  DCHECK_LT(metric_index, base::size(absolute_metric_records_));
+  DCHECK_LT(metric_index, std::size(absolute_metric_records_));
   auto& record = absolute_metric_records_[metric_index];
   record.interval_count += count;
   if (in_main_frame_update_)
     record.main_frame_count += count;
   if (is_pre_fcp)
     record.pre_fcp_aggregate += count;
+
+  if (!base::ShouldLogHistogramForCpuReductionExperiment())
+    return;
+
   // Record the UMA
   // ForcedStyleAndLayout happen so frequently on some pages that we overflow
   // the signed 32 counter for number of events in a 30 minute period. So
@@ -279,10 +319,16 @@ void LocalFrameUkmAggregator::RecordCountSample(size_t metric_index,
   }
 }
 
+void LocalFrameUkmAggregator::BeginForcedLayout() {
+  TRACE_EVENT_BEGIN0("blink", metrics_data()[kForcedStyleAndLayout].name);
+}
+
 void LocalFrameUkmAggregator::RecordForcedLayoutSample(
     DocumentUpdateReason reason,
     base::TimeTicks start,
     base::TimeTicks end) {
+  TRACE_EVENT_END1("blink", metrics_data()[kForcedStyleAndLayout].name,
+                   "preFCP", fcp_state_ == kBeforeFCPSignal);
   int64_t count = (end - start).InMicroseconds();
   bool is_pre_fcp = (fcp_state_ != kHavePassedFCP);
 
@@ -321,6 +367,7 @@ void LocalFrameUkmAggregator::RecordForcedLayoutSample(
     case DocumentUpdateReason::kEditing:
     case DocumentUpdateReason::kFindInPage:
     case DocumentUpdateReason::kFocus:
+    case DocumentUpdateReason::kFocusgroup:
     case DocumentUpdateReason::kForm:
     case DocumentUpdateReason::kInput:
     case DocumentUpdateReason::kInspector:
@@ -334,6 +381,7 @@ void LocalFrameUkmAggregator::RecordForcedLayoutSample(
     case DocumentUpdateReason::kAccessibility:
     case DocumentUpdateReason::kBaseColor:
     case DocumentUpdateReason::kDisplayLock:
+    case DocumentUpdateReason::kViewTransition:
     case DocumentUpdateReason::kIntersectionObservation:
     case DocumentUpdateReason::kOverlay:
     case DocumentUpdateReason::kPagePopup:
@@ -546,6 +594,7 @@ void LocalFrameUkmAggregator::ReportPreFCPEvent() {
   RECORD_METRIC(HitTestDocumentUpdate);
   RECORD_METRIC(JavascriptDocumentUpdate);
   RECORD_METRIC(ParseStyleSheet);
+  RECORD_METRIC(Accessibility);
 
   builder.Record(recorder_);
 #undef RECORD_METRIC
@@ -599,6 +648,7 @@ void LocalFrameUkmAggregator::ReportUpdateTimeEvent() {
   RECORD_METRIC(HitTestDocumentUpdate);
   RECORD_METRIC(JavascriptDocumentUpdate);
   RECORD_METRIC(ParseStyleSheet);
+  RECORD_METRIC(Accessibility);
 
   builder.Record(recorder_);
 #undef RECORD_METRIC
@@ -614,26 +664,16 @@ void LocalFrameUkmAggregator::ResetAllMetrics() {
     record.reset();
 }
 
-bool LocalFrameUkmAggregator::AllMetricsAreZero() {
-  if (primary_metric_.interval_count != 0)
-    return false;
-  for (auto& record : absolute_metric_records_) {
-    if (record.interval_count != 0) {
-      return false;
-    }
-    if (record.main_frame_count != 0) {
-      return false;
-    }
-  }
-  return true;
-}
-
 void LocalFrameUkmAggregator::ChooseNextFrameForTest() {
   next_frame_sample_control_for_test_ = kMustChooseNextFrame;
 }
 
 void LocalFrameUkmAggregator::DoNotChooseNextFrameForTest() {
   next_frame_sample_control_for_test_ = kMustNotChooseNextFrame;
+}
+
+bool LocalFrameUkmAggregator::IsBeforeFCPForTesting() const {
+  return fcp_state_ == kBeforeFCPSignal;
 }
 
 }  // namespace blink

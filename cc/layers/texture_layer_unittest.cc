@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,6 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "cc/animation/animation_host.h"
@@ -99,7 +98,7 @@ class MockLayerTreeHost : public LayerTreeHost {
   explicit MockLayerTreeHost(LayerTreeHost::InitParams params)
       : LayerTreeHost(std::move(params), CompositorMode::SINGLE_THREADED) {
     InitializeSingleThreaded(&single_thread_client_,
-                             base::ThreadTaskRunnerHandle::Get());
+                             base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 
   StubLayerTreeHostSingleThreadClient single_thread_client_;
@@ -136,12 +135,12 @@ struct CommonResourceObjects {
     const uint32_t arbitrary_target1 = GL_TEXTURE_2D;
     const uint32_t arbitrary_target2 = GL_TEXTURE_EXTERNAL_OES;
     gfx::Size size(128, 128);
-    resource1_ = viz::TransferableResource::MakeGL(
+    resource1_ = viz::TransferableResource::MakeGpu(
         mailbox_name1_, GL_LINEAR, arbitrary_target1, sync_token1_, size,
-        false /* is_overlay_candidate */);
-    resource2_ = viz::TransferableResource::MakeGL(
+        viz::RGBA_8888, false /* is_overlay_candidate */);
+    resource2_ = viz::TransferableResource::MakeGpu(
         mailbox_name2_, GL_LINEAR, arbitrary_target2, sync_token2_, size,
-        false /* is_overlay_candidate */);
+        viz::RGBA_8888, false /* is_overlay_candidate */);
     shared_bitmap_id_ = viz::SharedBitmap::GenerateId();
     sw_release_callback_ = base::BindRepeating(
         &MockReleaseCallback::Release2, base::Unretained(&mock_callback_),
@@ -220,6 +219,10 @@ TEST_F(TextureLayerTest, CheckPropertyChangeCausesCorrectBehavior) {
       gfx::PointF(0.25f, 0.25f), gfx::PointF(0.75f, 0.75f)));
   EXPECT_SET_NEEDS_COMMIT(1, test_layer->SetPremultipliedAlpha(false));
   EXPECT_SET_NEEDS_COMMIT(1, test_layer->SetBlendBackgroundColor(true));
+  EXPECT_SET_NEEDS_COMMIT(0, test_layer->SetHDRConfiguration(
+                                 gfx::HDRMode::kDefault, absl::nullopt));
+  EXPECT_SET_NEEDS_COMMIT(1, test_layer->SetHDRConfiguration(
+                                 gfx::HDRMode::kDefault, gfx::HDRMetadata()));
 }
 
 class RunOnCommitLayerTreeHostClient : public FakeLayerTreeHostClient {
@@ -252,7 +255,7 @@ TEST_F(TextureLayerTest, ShutdownWithResource) {
     params.mutator_host = animation_host_.get();
     LayerTreeSettings settings;
     params.settings = &settings;
-    params.main_task_runner = base::ThreadTaskRunnerHandle::Get();
+    params.main_task_runner = base::SingleThreadTaskRunner::GetCurrentDefault();
     auto host = LayerTreeHost::CreateSingleThreaded(&single_thread_client,
                                                     std::move(params));
 
@@ -697,10 +700,10 @@ class TextureLayerImplWithMailboxThreadedCallback : public LayerTreeTest {
         base::Unretained(this), mailbox_char);
 
     const gfx::Size size(64, 64);
-    auto resource = viz::TransferableResource::MakeGL(
+    auto resource = viz::TransferableResource::MakeGpu(
         MailboxFromChar(mailbox_char), GL_LINEAR, GL_TEXTURE_2D,
         SyncTokenFromUInt(static_cast<uint32_t>(mailbox_char)), size,
-        false /* is_overlay_candidate */);
+        viz::RGBA_8888, false /* is_overlay_candidate */);
     layer_->SetTransferableResource(resource, std::move(callback));
     // Damage the layer so we send a new frame with the new resource to the
     // Display compositor.
@@ -928,9 +931,10 @@ class TextureLayerNoExtraCommitForMailboxTest
     }
 
     constexpr gfx::Size size(64, 64);
-    *resource = viz::TransferableResource::MakeGL(
+    *resource = viz::TransferableResource::MakeGpu(
         MailboxFromChar('1'), GL_LINEAR, GL_TEXTURE_2D,
-        SyncTokenFromUInt(0x123), size, false /* is_overlay_candidate */);
+        SyncTokenFromUInt(0x123), size, viz::RGBA_8888,
+        false /* is_overlay_candidate */);
     *release_callback = base::BindOnce(
         &TextureLayerNoExtraCommitForMailboxTest::ResourceReleased,
         base::Unretained(this));
@@ -1012,9 +1016,9 @@ class TextureLayerChangeInvisibleMailboxTest
 
   viz::TransferableResource MakeResource(char name) {
     constexpr gfx::Size size(64, 64);
-    return viz::TransferableResource::MakeGL(
+    return viz::TransferableResource::MakeGpu(
         MailboxFromChar(name), GL_LINEAR, GL_TEXTURE_2D,
-        SyncTokenFromUInt(static_cast<uint32_t>(name)), size,
+        SyncTokenFromUInt(static_cast<uint32_t>(name)), size, viz::RGBA_8888,
         false /* is_overlay_candidate */);
   }
 
@@ -1031,7 +1035,7 @@ class TextureLayerChangeInvisibleMailboxTest
     solid_layer_ = SolidColorLayer::Create();
     solid_layer_->SetBounds(gfx::Size(10, 10));
     solid_layer_->SetIsDrawable(true);
-    solid_layer_->SetBackgroundColor(SK_ColorWHITE);
+    solid_layer_->SetBackgroundColor(SkColors::kWhite);
     root->AddChild(solid_layer_);
 
     parent_layer_ = Layer::Create();
@@ -1067,7 +1071,7 @@ class TextureLayerChangeInvisibleMailboxTest
         resource_changed_ = true;
         texture_layer_->SetNeedsDisplay();
         // Force a change to make sure we draw a frame.
-        solid_layer_->SetBackgroundColor(SK_ColorGRAY);
+        solid_layer_->SetBackgroundColor(SkColors::kGray);
         break;
       case 3:
         // Layer shouldn't have been updated.
@@ -1131,9 +1135,9 @@ class TextureLayerReleaseResourcesBase
       viz::TransferableResource* resource,
       viz::ReleaseCallback* release_callback) override {
     constexpr gfx::Size size(64, 64);
-    *resource = viz::TransferableResource::MakeGL(
+    *resource = viz::TransferableResource::MakeGpu(
         MailboxFromChar('1'), GL_LINEAR, GL_TEXTURE_2D, SyncTokenFromUInt(1),
-        size, false /* is_overlay_candidate */);
+        size, viz::RGBA_8888, false /* is_overlay_candidate */);
     *release_callback =
         base::BindOnce(&TextureLayerReleaseResourcesBase::ResourceReleased,
                        base::Unretained(this));
@@ -1209,10 +1213,10 @@ class TextureLayerWithResourceMainThreadDeleted : public LayerTreeTest {
         &TextureLayerWithResourceMainThreadDeleted::ReleaseCallback,
         base::Unretained(this));
     constexpr gfx::Size size(64, 64);
-    auto resource = viz::TransferableResource::MakeGL(
+    auto resource = viz::TransferableResource::MakeGpu(
         MailboxFromChar(mailbox_char), GL_LINEAR, GL_TEXTURE_2D,
         SyncTokenFromUInt(static_cast<uint32_t>(mailbox_char)), size,
-        false /* is_overlay_candidate */);
+        viz::RGBA_8888, false /* is_overlay_candidate */);
     layer_->SetTransferableResource(resource, std::move(callback));
   }
 
@@ -1280,10 +1284,10 @@ class TextureLayerWithResourceImplThreadDeleted : public LayerTreeTest {
         &TextureLayerWithResourceImplThreadDeleted::ReleaseCallback,
         base::Unretained(this));
     constexpr gfx::Size size(64, 64);
-    auto resource = viz::TransferableResource::MakeGL(
+    auto resource = viz::TransferableResource::MakeGpu(
         MailboxFromChar(mailbox_char), GL_LINEAR, GL_TEXTURE_2D,
         SyncTokenFromUInt(static_cast<uint32_t>(mailbox_char)), size,
-        false /* is_overlay_candidate */);
+        viz::RGBA_8888, false /* is_overlay_candidate */);
     layer_->SetTransferableResource(resource, std::move(callback));
   }
 
@@ -1374,6 +1378,8 @@ class SoftwareLayerTreeHostClient : public StubLayerTreeHostClient {
 
 class SoftwareTextureLayerTest : public LayerTreeTest {
  protected:
+  SoftwareTextureLayerTest() : LayerTreeTest(viz::RendererType::kSoftware) {}
+
   void SetupTree() override {
     root_ = Layer::Create();
     root_->SetBounds(gfx::Size(10, 10));
@@ -1381,7 +1387,7 @@ class SoftwareTextureLayerTest : public LayerTreeTest {
     // A drawable layer so that frames always get drawn.
     solid_color_layer_ = SolidColorLayer::Create();
     solid_color_layer_->SetIsDrawable(true);
-    solid_color_layer_->SetBackgroundColor(SK_ColorRED);
+    solid_color_layer_->SetBackgroundColor(SkColors::kRed);
     solid_color_layer_->SetBounds(gfx::Size(10, 10));
     root_->AddChild(solid_color_layer_);
 
@@ -1409,13 +1415,6 @@ class SoftwareTextureLayerTest : public LayerTreeTest {
     frame_sink_ = sink.get();
     num_frame_sinks_created_++;
     return sink;
-  }
-
-  std::unique_ptr<viz::OutputSurface> CreateDisplayOutputSurfaceOnThread(
-      scoped_refptr<viz::ContextProvider> compositor_context_provider)
-      override {
-    return viz::FakeOutputSurface::CreateSoftware(
-        std::make_unique<viz::SoftwareOutputDevice>());
   }
 
   StubTextureLayerClient client_;

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,27 @@
  * @fileoverview Polymer element for displaying material design OOBE.
  */
 
-/* #js_imports_placeholder */
+import '//resources/cr_elements/cr_input/cr_input.js';
+import '//resources/cr_elements/cr_shared_vars.css.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '../../components/oobe_icons.m.js';
+import '../../components/oobe_i18n_dropdown.js';
+import '../../components/common_styles/oobe_common_styles.m.js';
+import '../../components/common_styles/oobe_dialog_host_styles.m.js';
+import '../../components/dialogs/oobe_adaptive_dialog.js';
+
+import {loadTimeData} from '//resources/js/load_time_data.m.js';
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.m.js';
+import {MultiStepBehavior, MultiStepBehaviorInterface} from '../../components/behaviors/multi_step_behavior.m.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OobeModalDialog} from '../../components/dialogs/oobe_modal_dialog.js';
+import {getSelectedTitle, SelectListType} from '../../components/oobe_select.js';
+import {OobeTypes} from '../../components/oobe_types.js';
+import {Oobe} from '../../cr_ui.js';
+
+import {OobeWelcomeDialog} from './welcome_dialog.js';
 
 /** @const {string} */
 const DEFAULT_CHROMEVOX_HINT_LOCALE = 'en-US';
@@ -34,7 +54,6 @@ const WelcomeScreenState = {
   ADVANCED_OPTIONS: 'advanced-options',
 };
 
-
 /**
  * @constructor
  * @extends {PolymerElement}
@@ -42,17 +61,16 @@ const WelcomeScreenState = {
  * @implements {MultiStepBehaviorInterface}
  * @implements {OobeI18nBehaviorInterface}
  */
- const OobeWelcomeScreenBase = Polymer.mixinBehaviors(
-  [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior],
-  Polymer.Element);
+const OobeWelcomeScreenBase = mixinBehaviors(
+    [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior], PolymerElement);
 
 /**
  * @typedef {{
  *   welcomeScreen:  OobeWelcomeDialog,
- *   demoModeConfirmationDialog:  OobeModalDialogElement,
- *   editRequisitionDialog:  OobeModalDialogElement,
+ *   demoModeConfirmationDialog:  OobeModalDialog,
+ *   editRequisitionDialog:  OobeModalDialog,
  *   editRequisitionInput: CrInputElement,
- *   remoraRequisitionDialog: OobeModalDialogElement,
+ *   remoraRequisitionDialog: OobeModalDialog,
  * }}
  */
 OobeWelcomeScreenBase.$;
@@ -60,10 +78,13 @@ OobeWelcomeScreenBase.$;
  * @polymer
  */
 class OobeWelcomeScreen extends OobeWelcomeScreenBase {
+  static get is() {
+    return 'oobe-welcome-element';
+  }
 
-  static get is() { return 'oobe-welcome-element'; }
-
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -176,6 +197,7 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
       'showEditRequisitionDialog',
       'showRemoraRequisitionDialog',
       'maybeGiveChromeVoxHint',
+      'setQuickStartEnabled',
     ];
   }
 
@@ -186,9 +208,7 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
   /** @override */
   ready() {
     super.ready();
-    this.initializeLoginScreen('WelcomeScreen', {
-      resetAllowed: true,
-    });
+    this.initializeLoginScreen('WelcomeScreen');
     this.updateLocalizedContent();
   }
 
@@ -209,6 +229,18 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
    */
   onBeforeHide() {
     this.cleanupChromeVoxHint_();
+  }
+
+  cancel() {
+    if (this.uiStep === WelcomeScreenState.LANGUAGE) {
+      this.closeLanguageSection_();
+      return;
+    }
+
+    if (this.uiStep === WelcomeScreenState.ACCESSIBILITY) {
+      this.closeAccessibilitySection_();
+      return;
+    }
   }
 
   /**
@@ -246,8 +278,9 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
    * @param {!OobeTypes.OobeConfiguration} configuration
    */
   updateOobeConfiguration(configuration) {
-    if (!this.configuration_applied_)
+    if (!this.configuration_applied_) {
       window.setTimeout(() => void this.applyOobeConfiguration_(), 0);
+    }
   }
 
   /**
@@ -255,11 +288,13 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
    * @private
    */
   applyOobeConfiguration_() {
-    if (this.configuration_applied_)
+    if (this.configuration_applied_) {
       return;
+    }
     var configuration = Oobe.getInstance().getOobeConfiguration();
-    if (!configuration)
+    if (!configuration) {
       return;
+    }
 
     if (configuration.language) {
       var currentLanguage = loadTimeData.getString('language');
@@ -271,11 +306,13 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
         return;
       }
     }
-    if (configuration.inputMethod)
+    if (configuration.inputMethod) {
       this.applySelectedLkeyboard_(configuration.inputMethod);
+    }
 
-    if (configuration.welcomeNext)
+    if (configuration.welcomeNext) {
       this.onWelcomeNextButtonClicked_();
+    }
 
     if (configuration.enableDemoMode) {
       this.userActed('setupDemoModeGesture');
@@ -388,7 +425,7 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
    * @private
    */
   applySelectedLanguage_(languageId) {
-    chrome.send('WelcomeScreen.setLocaleId', [languageId]);
+    this.userActed(['setLocaleId', languageId]);
   }
 
   /**
@@ -411,12 +448,12 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
    * @private
    */
   applySelectedLkeyboard_(inputMethodId) {
-    chrome.send('WelcomeScreen.setInputMethodId', [inputMethodId]);
+    this.userActed(['setInputMethodId', inputMethodId]);
   }
 
   onLanguagesChanged_() {
-    this.currentLanguage =
-        getSelectedTitle(/** @type {!SelectListType} */ (this.languages));
+    this.currentLanguage = getSelectedTitle(
+        /** @type {!SelectListType} */ (this.languages));
   }
 
   onInputMethodIdSetFromBackend(keyboard_id) {
@@ -429,8 +466,9 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
       this.keyboards[i].selected = true;
       found = true;
     }
-    if (!found)
+    if (!found) {
       return;
+    }
 
     // Force i18n-dropdown to refresh.
     this.keyboards = this.keyboards.slice();
@@ -488,13 +526,13 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
   }
 
   onEditRequisitionCancel_() {
-    chrome.send('WelcomeScreen.setDeviceRequisition', ['none']);
+    this.userActed(['setDeviceRequisition', 'none']);
     this.$.editRequisitionDialog.hideDialog();
   }
 
   onEditRequisitionConfirm_() {
     const requisition = this.$.editRequisitionInput.value;
-    chrome.send('WelcomeScreen.setDeviceRequisition', [requisition]);
+    this.userActed(['setDeviceRequisition', requisition]);
     this.$.editRequisitionDialog.hideDialog();
   }
 
@@ -509,7 +547,7 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
    * Shows the special remora/shark device requisition prompt.
    */
   onRemoraCancel_() {
-    chrome.send('WelcomeScreen.setDeviceRequisition', ['none']);
+    this.userActed(['setDeviceRequisition', 'none']);
     this.$.remoraRequisitionDialog.hideDialog();
   }
 
@@ -517,7 +555,7 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
    * Shows the special remora/shark device requisition prompt.
    */
   onRemoraConfirm_() {
-    chrome.send('WelcomeScreen.setDeviceRequisition', ['remora']);
+    this.userActed(['setDeviceRequisition', 'remora']);
     this.$.remoraRequisitionDialog.hideDialog();
   }
 
@@ -597,10 +635,11 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
    */
   onTimezoneSelected_(event) {
     var item = event.detail;
-    if (!item)
+    if (!item) {
       return;
+    }
 
-    chrome.send('WelcomeScreen.setTimezoneId', [item.value]);
+    this.userActed(['setTimezoneId', item.value]);
   }
 
   /** ******************** AdvancedOptions section ******************* */
@@ -684,10 +723,16 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
         return;
       }
 
-      const ttsOptions =
-          /** @type {!chrome.tts.TtsOptions} */ ({lang: locale, voiceName});
+      const ttsOptions = /** @type {!chrome.tts.TtsOptions} */ ({
+        lang: locale,
+        voiceName,
+      });
       this.giveChromeVoxHint_(locale, ttsOptions, false);
     });
+  }
+
+  setQuickStartEnabled() {
+    this.$.welcomeScreen.isQuickStartEnabled = true;
   }
 
   /**
@@ -702,7 +747,7 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
    */
   findVoiceForLocale_(voices, locale) {
     const language = locale.toLowerCase().split('-')[0];
-    const voice = voices.find(voice => {
+    const voice = voices.find((voice) => {
       return !!(
           voice.lang && voice.lang.toLowerCase().split('-')[0] === language);
     });
@@ -732,7 +777,7 @@ class OobeWelcomeScreen extends OobeWelcomeScreenBase {
       // Set a timeout that gives the ChromeVox hint in the default locale.
       const ttsOptions = /** @type {!chrome.tts.TtsOptions} */ ({
         lang: DEFAULT_CHROMEVOX_HINT_LOCALE,
-        extensionId: DEFAULT_CHROMEVOX_HINT_VOICE_EXTENSION_ID
+        extensionId: DEFAULT_CHROMEVOX_HINT_VOICE_EXTENSION_ID,
       });
       this.defaultChromeVoxHintTimeoutId_ = window.setTimeout(
           () => this.giveChromeVoxHint_(

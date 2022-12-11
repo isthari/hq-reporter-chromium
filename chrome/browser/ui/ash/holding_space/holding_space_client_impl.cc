@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,8 @@
 #include "base/notreached.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "chrome/browser/ash/app_list/search/files/file_suggest_keyed_service.h"
+#include "chrome/browser/ash/app_list/search/files/file_suggest_keyed_service_factory.h"
 #include "chrome/browser/ash/file_manager/app_id.h"
 #include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/ash/file_manager/open_util.h"
@@ -23,6 +25,8 @@
 #include "chrome/browser/ui/ash/holding_space/holding_space_keyed_service.h"
 #include "chrome/browser/ui/ash/holding_space/holding_space_keyed_service_factory.h"
 #include "chrome/browser/ui/ash/holding_space/holding_space_util.h"
+#include "components/drive/drive_pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "net/base/mime_util.h"
 #include "storage/browser/file_system/file_system_context.h"
 
@@ -103,13 +107,6 @@ void HoldingSpaceClientImpl::AddScreenRecording(
   GetHoldingSpaceKeyedService(profile_)->AddScreenRecording(file_path);
 }
 
-void HoldingSpaceClientImpl::CancelItems(
-    const std::vector<const HoldingSpaceItem*>& items) {
-  auto* const service = GetHoldingSpaceKeyedService(profile_);
-  for (const HoldingSpaceItem* item : items)
-    service->CancelItem(item);
-}
-
 void HoldingSpaceClientImpl::CopyImageToClipboard(const HoldingSpaceItem& item,
                                                   SuccessCallback callback) {
   holding_space_metrics::RecordItemAction(
@@ -145,6 +142,10 @@ base::FilePath HoldingSpaceClientImpl::CrackFileSystemUrl(
   return file_manager::util::GetFileManagerFileSystemContext(profile_)
       ->CrackURLInFirstPartyContext(file_system_url)
       .path();
+}
+
+bool HoldingSpaceClientImpl::IsDriveDisabled() const {
+  return profile_->GetPrefs()->GetBoolean(drive::prefs::kDisableDrive);
 }
 
 void HoldingSpaceClientImpl::OpenDownloads(SuccessCallback callback) {
@@ -265,30 +266,21 @@ void HoldingSpaceClientImpl::OpenMyFiles(SuccessCallback callback) {
           std::move(callback)));
 }
 
-void HoldingSpaceClientImpl::PauseItems(
-    const std::vector<const HoldingSpaceItem*>& items) {
-  auto* const service = GetHoldingSpaceKeyedService(profile_);
-  for (const HoldingSpaceItem* item : items)
-    service->PauseItem(item);
-}
-
 void HoldingSpaceClientImpl::PinFiles(
     const std::vector<base::FilePath>& file_paths) {
   std::vector<storage::FileSystemURL> file_system_urls;
 
-  HoldingSpaceKeyedService* service = GetHoldingSpaceKeyedService(profile_);
   for (const base::FilePath& file_path : file_paths) {
     const GURL crack_url =
         holding_space_util::ResolveFileSystemUrl(profile_, file_path);
     const storage::FileSystemURL& file_system_url =
         file_manager::util::GetFileManagerFileSystemContext(profile_)
             ->CrackURLInFirstPartyContext(crack_url);
-    if (!service->ContainsPinnedFile(file_system_url))
-      file_system_urls.push_back(file_system_url);
+    file_system_urls.push_back(file_system_url);
   }
 
   if (!file_system_urls.empty())
-    service->AddPinnedFiles(file_system_urls);
+    GetHoldingSpaceKeyedService(profile_)->AddPinnedFiles(file_system_urls);
 }
 
 void HoldingSpaceClientImpl::PinItems(
@@ -312,11 +304,11 @@ void HoldingSpaceClientImpl::PinItems(
     service->AddPinnedFiles(file_system_urls);
 }
 
-void HoldingSpaceClientImpl::ResumeItems(
-    const std::vector<const HoldingSpaceItem*>& items) {
-  auto* const service = GetHoldingSpaceKeyedService(profile_);
-  for (const HoldingSpaceItem* item : items)
-    service->ResumeItem(item);
+void HoldingSpaceClientImpl::RemoveFileSuggestions(
+    const std::vector<base::FilePath>& absolute_file_paths) {
+  app_list::FileSuggestKeyedServiceFactory::GetInstance()
+      ->GetService(profile_)
+      ->RemoveSuggestionsAndNotify(absolute_file_paths);
 }
 
 void HoldingSpaceClientImpl::ShowItemInFolder(const HoldingSpaceItem& item,

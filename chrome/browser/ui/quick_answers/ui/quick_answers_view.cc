@@ -1,20 +1,27 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/quick_answers/ui/quick_answers_view.h"
 
 #include "base/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/quick_answers/quick_answers_ui_controller.h"
 #include "chrome/browser/ui/quick_answers/ui/quick_answers_pre_target_handler.h"
 #include "chromeos/components/quick_answers/quick_answers_model.h"
+#include "chromeos/components/quick_answers/utils/quick_answers_metrics.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "components/vector_icons/vector_icons.h"
+#include "content/browser/speech/tts_controller_impl.h"
+#include "content/public/browser/tts_utterance.h"
 #include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_id.h"
+#include "ui/color/color_provider.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
@@ -40,7 +47,9 @@
 
 namespace {
 
+using quick_answers::PhoneticsInfo;
 using quick_answers::QuickAnswer;
+using quick_answers::QuickAnswerResultText;
 using quick_answers::QuickAnswerText;
 using quick_answers::QuickAnswerUiElement;
 using quick_answers::QuickAnswerUiElementType;
@@ -52,14 +61,13 @@ using views::View;
 // Spacing between this view and the anchor view.
 constexpr int kMarginDip = 10;
 
-constexpr gfx::Insets kMainViewInsets(4, 0);
-constexpr gfx::Insets kContentViewInsets(8, 0, 8, 16);
-constexpr float kHoverStateAlpha = 0.06f;
+constexpr auto kMainViewInsets = gfx::Insets::VH(4, 0);
+constexpr auto kContentViewInsets = gfx::Insets::TLBR(8, 0, 8, 16);
 constexpr int kMaxRows = 3;
 
 // Google icon.
 constexpr int kGoogleIconSizeDip = 16;
-constexpr gfx::Insets kGoogleIconInsets(10, 10, 0, 10);
+constexpr auto kGoogleIconInsets = gfx::Insets::TLBR(10, 10, 0, 10);
 
 // Info icon.
 constexpr int kDogfoodIconSizeDip = 20;
@@ -67,43 +75,65 @@ constexpr int kDogfoodIconBorderDip = 8;
 
 // Spacing between lines in the main view.
 constexpr int kLineSpacingDip = 4;
-constexpr int kLineHeightDip = 20;
+constexpr int kDefaultLineHeightDip = 20;
 
 // Spacing between labels in the horizontal elements view.
 constexpr int kLabelSpacingDip = 2;
 
-// Settings button.
-constexpr int kSettingsButtonMarginDip = 4;
+// Buttons view.
+constexpr int kButtonsViewMarginDip = 4;
+constexpr int kButtonsSpacingDip = 4;
+constexpr int kDogfoodButtonSizeDip = 20;
 constexpr int kSettingsButtonSizeDip = 14;
 constexpr int kSettingsButtonBorderDip = 3;
-constexpr SkColor kSettingsButtonColor = gfx::kGoogleGrey500;
 
 // Phonetics audio button.
-constexpr gfx::Insets kPhoneticsAudioButtonMarginInsets(0, 4, 0, 4);
+constexpr auto kPhoneticsAudioButtonMarginInsets =
+    gfx::Insets::TLBR(0, 4, 0, 4);
 constexpr int kPhoneticsAudioButtonSizeDip = 14;
 constexpr int kPhoneticsAudioButtonBorderDip = 3;
-constexpr SkColor kPhoneticsAudioButtonColor = gfx::kGoogleBlue600;
 
 // ReportQueryView.
 constexpr char kGoogleSansFont[] = "Google Sans";
 constexpr int kReportQueryButtonMarginDip = 16;
 constexpr int kReportQueryViewFontSize = 12;
 
+// TTS audio.
+constexpr char kGoogleTtsEngineId[] = "com.google.android.tts";
+
 // Maximum height QuickAnswersView can expand to.
 int MaximumViewHeight() {
   return kMainViewInsets.height() + kContentViewInsets.height() +
-         kMaxRows * kLineHeightDip + (kMaxRows - 1) * kLineSpacingDip;
+         kMaxRows * kDefaultLineHeightDip + (kMaxRows - 1) * kLineSpacingDip;
 }
 
-// Adds |text_element| as label to the container.
-Label* AddTextElement(const QuickAnswerText& text_element, View* container) {
-  auto* label =
-      container->AddChildView(std::make_unique<Label>(text_element.text));
-  label->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
-  label->SetEnabledColor(text_element.color);
-  label->SetLineHeight(kLineHeightDip);
-  return label;
-}
+class QuickAnswersTextLabel : public views::Label {
+ public:
+  METADATA_HEADER(QuickAnswersTextLabel);
+
+  explicit QuickAnswersTextLabel(QuickAnswerText quick_answers_text)
+      : Label(quick_answers_text.text),
+        quick_answers_text_(quick_answers_text) {
+    SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
+  }
+
+  QuickAnswersTextLabel(const QuickAnswersTextLabel&) = delete;
+  QuickAnswersTextLabel& operator=(const QuickAnswersTextLabel&) = delete;
+
+  ~QuickAnswersTextLabel() override = default;
+
+  // views::View:
+  void OnThemeChanged() override {
+    views::Label::OnThemeChanged();
+    SetEnabledColor(GetColorProvider()->GetColor(quick_answers_text_.color_id));
+  }
+
+ private:
+  QuickAnswerText quick_answers_text_;
+};
+
+BEGIN_METADATA(QuickAnswersTextLabel, views::Label)
+END_METADATA
 
 // Adds the list of |QuickAnswerUiElement| horizontally to the container.
 View* AddHorizontalUiElements(
@@ -114,15 +144,14 @@ View* AddHorizontalUiElements(
   auto* layout =
       labels_container->SetLayoutManager(std::make_unique<views::FlexLayout>());
   layout->SetOrientation(views::LayoutOrientation::kHorizontal)
-      .SetDefault(views::kMarginsKey, gfx::Insets(/*top=*/0, /*left=*/0,
-                                                  /*bottom=*/0,
-                                                  /*right=*/kLabelSpacingDip));
+      .SetDefault(views::kMarginsKey,
+                  gfx::Insets::TLBR(0, 0, 0, kLabelSpacingDip));
 
   for (const auto& element : elements) {
     switch (element->type) {
       case QuickAnswerUiElementType::kText:
-        AddTextElement(*static_cast<QuickAnswerText*>(element.get()),
-                       labels_container);
+        labels_container->AddChildView(std::make_unique<QuickAnswersTextLabel>(
+            *static_cast<QuickAnswerText*>(element.get())));
         break;
       case QuickAnswerUiElementType::kImage:
         // TODO(yanxiao): Add image view
@@ -140,6 +169,8 @@ class MainView : public views::Button {
   METADATA_HEADER(MainView);
 
   explicit MainView(PressedCallback callback) : Button(std::move(callback)) {
+    SetAccessibleName(
+        l10n_util::GetStringUTF16(IDS_QUICK_ANSWERS_VIEW_A11Y_NAME_TEXT));
     SetInstallFocusRingOnFocus(false);
     set_suppress_default_focus_handling();
 
@@ -159,6 +190,11 @@ class MainView : public views::Button {
   // views::View:
   void OnFocus() override { SetBackgroundState(true); }
   void OnBlur() override { SetBackgroundState(false); }
+  void OnThemeChanged() override {
+    views::Button::OnThemeChanged();
+    SetBackground(views::CreateSolidBackground(
+        GetColorProvider()->GetColor(ui::kColorPrimaryBackground)));
+  }
 
   // views::Button:
   void StateChanged(views::Button::ButtonState old_state) override {
@@ -172,10 +208,12 @@ class MainView : public views::Button {
     if (highlight) {
       SetBackground(views::CreateBackgroundFromPainter(
           views::Painter::CreateSolidRoundRectPainter(
-              SkColorSetA(SK_ColorBLACK, kHoverStateAlpha * 0xFF),
+              GetColorProvider()->GetColor(
+                  ui::kColorMenuItemBackgroundHighlighted),
               /*radius=*/0, kMainViewInsets)));
     } else {
-      SetBackground(views::CreateSolidBackground(SK_ColorWHITE));
+      SetBackground(views::CreateSolidBackground(
+          GetColorProvider()->GetColor(ui::kColorPrimaryBackground)));
     }
   }
 };
@@ -189,42 +227,39 @@ class ReportQueryView : public views::Button {
 
   explicit ReportQueryView(PressedCallback callback)
       : Button(std::move(callback)) {
+    SetBackground(views::CreateThemedSolidBackground(
+        kColorQuickAnswersReportQueryButtonBackground));
+
     auto* layout = SetLayoutManager(std::make_unique<views::FlexLayout>());
     layout->SetOrientation(views::LayoutOrientation::kHorizontal)
         .SetMainAxisAlignment(views::LayoutAlignment::kStart);
-    SetBackground(views::CreateSolidBackground(gfx::kGoogleBlue050));
 
-    auto* dogfood_icon = AddChildView(std::make_unique<views::ImageView>());
-    dogfood_icon->SetBorder(
-        views::CreateEmptyBorder(gfx::Insets(kDogfoodIconBorderDip)));
-    dogfood_icon->SetImage(gfx::CreateVectorIcon(
-        vector_icons::kDogfoodIcon, kDogfoodIconSizeDip, gfx::kGoogleBlue600));
+    dogfood_icon_ = AddChildView(std::make_unique<views::ImageView>());
+    dogfood_icon_->SetBorder(views::CreateEmptyBorder(kDogfoodIconBorderDip));
 
-    auto* description_label = AddChildView(std::make_unique<Label>(
+    description_label_ = AddChildView(std::make_unique<Label>(
         l10n_util::GetStringUTF16(
-            IDS_ASH_QUICK_ANSWERS_VIEW_REPORT_QUERY_INTERNAL_LABEL),
+            IDS_QUICK_ANSWERS_VIEW_REPORT_QUERY_INTERNAL_LABEL),
         Label::CustomFont{gfx::FontList({kGoogleSansFont}, gfx::Font::ITALIC,
                                         kReportQueryViewFontSize,
                                         gfx::Font::Weight::NORMAL)}));
-    description_label->SetHorizontalAlignment(
+    description_label_->SetHorizontalAlignment(
         gfx::HorizontalAlignment::ALIGN_LEFT);
-    description_label->SetEnabledColor(gfx::kGoogleBlue600);
 
-    auto* report_label = AddChildView(std::make_unique<Label>(
+    report_label_ = AddChildView(std::make_unique<Label>(
         l10n_util::GetStringUTF16(
-            IDS_ASH_QUICK_ANSWERS_VIEW_REPORT_QUERY_REPORT_LABEL),
+            IDS_QUICK_ANSWERS_VIEW_REPORT_QUERY_REPORT_LABEL),
         Label::CustomFont{gfx::FontList({kGoogleSansFont}, gfx::Font::NORMAL,
                                         kReportQueryViewFontSize,
                                         gfx::Font::Weight::MEDIUM)}));
-    report_label->SetProperty(
+    report_label_->SetProperty(
         views::kFlexBehaviorKey,
         views::FlexSpecification(views::MinimumFlexSizeRule::kPreferred,
                                  views::MaximumFlexSizeRule::kUnbounded)
             .WithAlignment(views::LayoutAlignment::kEnd));
-    report_label->SetProperty(
-        views::kMarginsKey, gfx::Insets(/*top=*/0, /*left=*/0, /*bottom=*/0,
-                                        /*right=*/kReportQueryButtonMarginDip));
-    report_label->SetEnabledColor(gfx::kGoogleBlue600);
+    report_label_->SetProperty(
+        views::kMarginsKey,
+        gfx::Insets::TLBR(0, 0, 0, kReportQueryButtonMarginDip));
   }
 
   // Disallow copy and assign.
@@ -232,21 +267,88 @@ class ReportQueryView : public views::Button {
   ReportQueryView& operator=(const ReportQueryView&) = delete;
 
   ~ReportQueryView() override = default;
+
+  // views::View:
+  void OnThemeChanged() override {
+    views::Button::OnThemeChanged();
+
+    const auto* const color_provider = GetColorProvider();
+    const SkColor foreground_color =
+        color_provider->GetColor(kColorQuickAnswersReportQueryButtonForeground);
+    dogfood_icon_->SetImage(gfx::CreateVectorIcon(
+        vector_icons::kDogfoodIcon, kDogfoodIconSizeDip, foreground_color));
+    description_label_->SetEnabledColor(foreground_color);
+    report_label_->SetEnabledColor(foreground_color);
+  }
+
+ private:
+  raw_ptr<views::ImageView> dogfood_icon_ = nullptr;
+  raw_ptr<views::Label> description_label_ = nullptr;
+  raw_ptr<views::Label> report_label_ = nullptr;
 };
 
 BEGIN_METADATA(ReportQueryView, views::Button)
 END_METADATA
 
+// The lifetime of instances of this class is manually bound to the lifetime of
+// the associated TtsUtterance. See OnTtsEvent.
+class QuickAnswersUtteranceEventDelegate
+    : public content::UtteranceEventDelegate {
+ public:
+  QuickAnswersUtteranceEventDelegate() = default;
+  ~QuickAnswersUtteranceEventDelegate() override = default;
+
+  // UtteranceEventDelegate methods:
+  void OnTtsEvent(content::TtsUtterance* utterance,
+                  content::TtsEventType event_type,
+                  int char_index,
+                  int char_length,
+                  const std::string& error_message) override {
+    // For quick answers, the TTS events of interest are START, END, and ERROR.
+    switch (event_type) {
+      case content::TTS_EVENT_START:
+        quick_answers::RecordTtsEngineEvent(
+            quick_answers::TtsEngineEvent::TTS_EVENT_START);
+        break;
+      case content::TTS_EVENT_END:
+        quick_answers::RecordTtsEngineEvent(
+            quick_answers::TtsEngineEvent::TTS_EVENT_END);
+        break;
+      case content::TTS_EVENT_ERROR:
+        VLOG(1) << __func__ << ": " << error_message;
+        quick_answers::RecordTtsEngineEvent(
+            quick_answers::TtsEngineEvent::TTS_EVENT_ERROR);
+        break;
+      case content::TTS_EVENT_WORD:
+      case content::TTS_EVENT_SENTENCE:
+      case content::TTS_EVENT_MARKER:
+      case content::TTS_EVENT_INTERRUPTED:
+      case content::TTS_EVENT_CANCELLED:
+      case content::TTS_EVENT_PAUSE:
+      case content::TTS_EVENT_RESUME:
+        // Group the remaining TTS events that aren't of interest together
+        // into an unspecified "other" category.
+        quick_answers::RecordTtsEngineEvent(
+            quick_answers::TtsEngineEvent::TTS_EVENT_OTHER);
+        break;
+    }
+
+    if (utterance->IsFinished())
+      delete this;
+  }
+};
+
 }  // namespace
 
 // QuickAnswersView -----------------------------------------------------------
 
-QuickAnswersView::QuickAnswersView(const gfx::Rect& anchor_view_bounds,
-                                   const std::string& title,
-                                   bool is_internal,
-                                   QuickAnswersUiController* controller)
+QuickAnswersView::QuickAnswersView(
+    const gfx::Rect& anchor_view_bounds,
+    const std::string& title,
+    bool is_internal,
+    base::WeakPtr<QuickAnswersUiController> controller)
     : anchor_view_bounds_(anchor_view_bounds),
-      controller_(controller),
+      controller_(std::move(controller)),
       title_(title),
       is_internal_(is_internal),
       quick_answers_view_handler_(
@@ -287,27 +389,48 @@ void QuickAnswersView::OnFocus() {
     NotifyAccessibilityEvent(ax::mojom::Event::kFocus, true);
 }
 
+void QuickAnswersView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  SetBackground(views::CreateSolidBackground(
+      GetColorProvider()->GetColor(ui::kColorPrimaryBackground)));
+  if (settings_button_) {
+    settings_button_->SetImage(
+        views::Button::ButtonState::STATE_NORMAL,
+        gfx::CreateVectorIcon(
+            vector_icons::kSettingsOutlineIcon, kSettingsButtonSizeDip,
+            GetColorProvider()->GetColor(ui::kColorIconSecondary)));
+  }
+
+  if (dogfood_feedback_button_) {
+    dogfood_feedback_button_->SetImage(
+        views::Button::ButtonState::STATE_NORMAL,
+        gfx::CreateVectorIcon(
+            vector_icons::kDogfoodIcon, kDogfoodButtonSizeDip,
+            GetColorProvider()->GetColor(ui::kColorIconSecondary)));
+  }
+}
+
 views::FocusTraversable* QuickAnswersView::GetPaneFocusTraversable() {
   return focus_search_.get();
 }
 
 void QuickAnswersView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->role = ax::mojom::Role::kDialog;
+
   // The view itself is not focused for retry-mode, so should not be announced
   // by the screen reader.
   if (retry_label_) {
-    node_data->role = ax::mojom::Role::kNone;
-    node_data->SetName(std::string());
-    node_data->SetDescription(std::string());
+    node_data->SetNameExplicitlyEmpty();
     return;
   }
 
-  node_data->role = ax::mojom::Role::kDialog;
   node_data->SetName(
-      l10n_util::GetStringUTF8(IDS_ASH_QUICK_ANSWERS_VIEW_A11Y_NAME_TEXT));
+      l10n_util::GetStringUTF8(IDS_QUICK_ANSWERS_VIEW_A11Y_NAME_TEXT));
 }
 
 void QuickAnswersView::SendQuickAnswersQuery() {
-  controller_->OnQuickAnswersViewPressed();
+  if (controller_)
+    controller_->OnQuickAnswersViewPressed();
 }
 
 void QuickAnswersView::UpdateAnchorViewBounds(
@@ -331,16 +454,17 @@ void QuickAnswersView::ShowRetryView() {
     return;
 
   ResetContentView();
-  main_view_->SetBackground(views::CreateSolidBackground(SK_ColorTRANSPARENT));
+  main_view_->SetBackground(nullptr);
 
   // Add title.
-  AddTextElement(QuickAnswerText(title_), content_view_);
+  auto* title_label = content_view_->AddChildView(
+      std::make_unique<QuickAnswersTextLabel>(QuickAnswerText(title_)));
+  title_label->SetMaximumWidthSingleLine(GetLabelWidth());
 
   // Add error label.
   std::vector<std::unique_ptr<QuickAnswerUiElement>> description_labels;
-  description_labels.push_back(std::make_unique<QuickAnswerText>(
-      l10n_util::GetStringUTF8(IDS_ASH_QUICK_ANSWERS_VIEW_NETWORK_ERROR),
-      gfx::kGoogleGrey700));
+  description_labels.push_back(std::make_unique<QuickAnswerResultText>(
+      l10n_util::GetStringUTF8(IDS_QUICK_ANSWERS_VIEW_NETWORK_ERROR)));
   auto* description_container =
       AddHorizontalUiElements(description_labels, content_view_);
 
@@ -348,23 +472,22 @@ void QuickAnswersView::ShowRetryView() {
   retry_label_ =
       description_container->AddChildView(std::make_unique<views::LabelButton>(
           base::BindRepeating(&QuickAnswersUiController::OnRetryLabelPressed,
-                              base::Unretained(controller_)),
-          l10n_util::GetStringUTF16(IDS_ASH_QUICK_ANSWERS_VIEW_RETRY)));
-  retry_label_->SetEnabledTextColors(gfx::kGoogleBlue600);
+                              controller_),
+          l10n_util::GetStringUTF16(IDS_QUICK_ANSWERS_VIEW_RETRY)));
+  retry_label_->SetEnabledTextColors(
+      GetColorProvider()->GetColor(ui::kColorProgressBar));
   retry_label_->SetRequestFocusOnPress(true);
   retry_label_->button_controller()->set_notify_action(
       views::ButtonController::NotifyAction::kOnPress);
   retry_label_->SetAccessibleName(l10n_util::GetStringFUTF16(
-      IDS_ASH_QUICK_ANSWERS_VIEW_A11Y_RETRY_LABEL_NAME_TEMPLATE,
-      l10n_util::GetStringUTF16(IDS_ASH_QUICK_ANSWERS_VIEW_A11Y_NAME_TEXT)));
+      IDS_QUICK_ANSWERS_VIEW_A11Y_RETRY_LABEL_NAME_TEMPLATE,
+      l10n_util::GetStringUTF16(IDS_QUICK_ANSWERS_VIEW_A11Y_NAME_TEXT)));
   retry_label_->GetViewAccessibility().OverrideDescription(
-      l10n_util::GetStringUTF8(
-          IDS_ASH_QUICK_ANSWERS_VIEW_A11Y_RETRY_LABEL_DESC));
+      l10n_util::GetStringUTF8(IDS_QUICK_ANSWERS_VIEW_A11Y_RETRY_LABEL_DESC));
 }
 
 void QuickAnswersView::InitLayout() {
   SetLayoutManager(std::make_unique<views::FillLayout>());
-  SetBackground(views::CreateSolidBackground(SK_ColorWHITE));
 
   base_view_ = AddChildView(std::make_unique<View>());
   auto* base_layout =
@@ -386,7 +509,8 @@ void QuickAnswersView::InitLayout() {
 
   AddContentView();
 
-  AddSettingsButton();
+  // Add util buttons in the top-right corner.
+  AddFrameButtons();
 }
 
 void QuickAnswersView::InitWidget() {
@@ -417,37 +541,48 @@ void QuickAnswersView::AddContentView() {
   layout->SetOrientation(views::LayoutOrientation::kVertical)
       .SetInteriorMargin(kContentViewInsets)
       .SetDefault(views::kMarginsKey,
-                  gfx::Insets(/*top=*/0, /*left=*/0, /*bottom=*/kLineSpacingDip,
-                              /*right=*/0));
-  AddTextElement(QuickAnswerText(title_), content_view_);
+                  gfx::Insets::TLBR(0, 0, kLineSpacingDip, 0));
+  auto* title_label = content_view_->AddChildView(
+      std::make_unique<QuickAnswersTextLabel>(QuickAnswerText(title_)));
+  title_label->SetMaximumWidthSingleLine(GetLabelWidth());
   std::string loading =
-      l10n_util::GetStringUTF8(IDS_ASH_QUICK_ANSWERS_VIEW_LOADING);
-  AddTextElement(QuickAnswerText(loading, gfx::kGoogleGrey700), content_view_);
+      l10n_util::GetStringUTF8(IDS_QUICK_ANSWERS_VIEW_LOADING);
+  content_view_->AddChildView(
+      std::make_unique<QuickAnswersTextLabel>(QuickAnswerResultText(loading)));
 }
 
-void QuickAnswersView::AddSettingsButton() {
-  auto* settings_view = AddChildView(std::make_unique<views::View>());
+void QuickAnswersView::AddFrameButtons() {
+  auto* buttons_view = AddChildView(std::make_unique<views::View>());
   auto* layout =
-      settings_view->SetLayoutManager(std::make_unique<views::FlexLayout>());
-  layout->SetOrientation(views::LayoutOrientation::kVertical)
-      .SetInteriorMargin(gfx::Insets(kSettingsButtonMarginDip))
-      .SetCrossAxisAlignment(views::LayoutAlignment::kEnd);
-  settings_button_ = settings_view->AddChildView(
+      buttons_view->SetLayoutManager(std::make_unique<views::FlexLayout>());
+  layout->SetOrientation(views::LayoutOrientation::kHorizontal)
+      .SetMainAxisAlignment(views::LayoutAlignment::kEnd)
+      .SetCrossAxisAlignment(views::LayoutAlignment::kStart)
+      .SetInteriorMargin(gfx::Insets(kButtonsViewMarginDip))
+      .SetDefault(views::kMarginsKey,
+                  gfx::Insets::TLBR(0, kButtonsSpacingDip, 0, 0));
+
+  if (is_internal_) {
+    dogfood_feedback_button_ = buttons_view->AddChildView(
+        std::make_unique<views::ImageButton>(base::BindRepeating(
+            &QuickAnswersUiController::OnReportQueryButtonPressed,
+            controller_)));
+    dogfood_feedback_button_->SetTooltipText(l10n_util::GetStringUTF16(
+        IDS_QUICK_ANSWERS_DOGFOOD_FEEDBACK_BUTTON_TOOLTIP_TEXT));
+  }
+
+  settings_button_ = buttons_view->AddChildView(
       std::make_unique<views::ImageButton>(base::BindRepeating(
-          &QuickAnswersUiController::OnSettingsButtonPressed,
-          base::Unretained(controller_))));
-  settings_button_->SetImage(
-      views::Button::ButtonState::STATE_NORMAL,
-      gfx::CreateVectorIcon(vector_icons::kSettingsOutlineIcon,
-                            kSettingsButtonSizeDip, kSettingsButtonColor));
+          &QuickAnswersUiController::OnSettingsButtonPressed, controller_)));
   settings_button_->SetTooltipText(l10n_util::GetStringUTF16(
-      IDS_ASH_QUICK_ANSWERS_SETTINGS_BUTTON_TOOLTIP_TEXT));
+      IDS_QUICK_ANSWERS_SETTINGS_BUTTON_TOOLTIP_TEXT));
   settings_button_->SetBorder(
-      views::CreateEmptyBorder(gfx::Insets(kSettingsButtonBorderDip)));
+      views::CreateEmptyBorder(kSettingsButtonBorderDip));
 }
 
-void QuickAnswersView::AddPhoneticsAudioButton(const GURL& phonetics_audio,
-                                               View* container) {
+void QuickAnswersView::AddPhoneticsAudioButton(
+    const PhoneticsInfo& phonetics_info,
+    View* container) {
   auto* phonetics_audio_view =
       container->AddChildView(std::make_unique<views::View>());
 
@@ -464,16 +599,16 @@ void QuickAnswersView::AddPhoneticsAudioButton(const GURL& phonetics_audio,
   phonetics_audio_button_ =
       phonetics_audio_view->AddChildView(std::make_unique<views::ImageButton>(
           base::BindRepeating(&QuickAnswersView::OnPhoneticsAudioButtonPressed,
-                              base::Unretained(this), phonetics_audio)));
+                              base::Unretained(this), phonetics_info)));
   phonetics_audio_button_->SetImage(
       views::Button::ButtonState::STATE_NORMAL,
-      gfx::CreateVectorIcon(vector_icons::kVolumeUpIcon,
-                            kPhoneticsAudioButtonSizeDip,
-                            kPhoneticsAudioButtonColor));
+      gfx::CreateVectorIcon(
+          vector_icons::kVolumeUpIcon, kPhoneticsAudioButtonSizeDip,
+          GetColorProvider()->GetColor(ui::kColorButtonBackgroundProminent)));
   phonetics_audio_button_->SetTooltipText(l10n_util::GetStringUTF16(
-      IDS_ASH_QUICK_ANSWERS_PHONETICS_BUTTON_TOOLTIP_TEXT));
+      IDS_QUICK_ANSWERS_PHONETICS_BUTTON_TOOLTIP_TEXT));
   phonetics_audio_button_->SetBorder(
-      views::CreateEmptyBorder(gfx::Insets(kPhoneticsAudioButtonBorderDip)));
+      views::CreateEmptyBorder(kPhoneticsAudioButtonBorderDip));
 }
 
 void QuickAnswersView::AddGoogleIcon() {
@@ -486,23 +621,27 @@ void QuickAnswersView::AddGoogleIcon() {
                                               gfx::kPlaceholderColor));
 }
 
+int QuickAnswersView::GetBoundsWidth() {
+  return anchor_view_bounds_.width();
+}
+
+int QuickAnswersView::GetLabelWidth() {
+  return GetBoundsWidth() - kMainViewInsets.width() -
+         kContentViewInsets.width() - kGoogleIconInsets.width() -
+         kGoogleIconSizeDip;
+}
+
 void QuickAnswersView::ResetContentView() {
   content_view_->RemoveAllChildViews();
   first_answer_label_ = nullptr;
 }
 
 void QuickAnswersView::UpdateBounds() {
-  int desired_width = anchor_view_bounds_.width();
+  // Multi-line labels need to be resized to be compatible with bounds width.
+  if (first_answer_label_)
+    first_answer_label_->SizeToFit(GetLabelWidth());
 
-  // Multi-line labels need to be resized to be compatible with |desired_width|.
-  if (first_answer_label_) {
-    int label_desired_width = desired_width - kMainViewInsets.width() -
-                              kContentViewInsets.width() -
-                              kGoogleIconInsets.width() - kGoogleIconSizeDip;
-    first_answer_label_->SizeToFit(label_desired_width);
-  }
-
-  int height = GetHeightForWidth(desired_width);
+  int height = GetHeightForWidth(GetBoundsWidth());
   int y = anchor_view_bounds_.y() - kMarginDip - height;
 
   // Reserve space at the top since the view might expand for two-line answers.
@@ -516,8 +655,13 @@ void QuickAnswersView::UpdateBounds() {
     y = anchor_view_bounds_.bottom() + kMarginDip;
   }
 
-  gfx::Rect bounds = {{anchor_view_bounds_.x(), y}, {desired_width, height}};
+  gfx::Rect bounds = {{anchor_view_bounds_.x(), y}, {GetBoundsWidth(), height}};
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // For Ash, convert the position relative to the screen.
+  // For Lacros, `bounds` is already relative to the toplevel window and the
+  // position will be calculated on server side.
   wm::ConvertRectFromScreen(GetWidget()->GetNativeWindow()->parent(), &bounds);
+#endif
   GetWidget()->SetBounds(bounds);
 }
 
@@ -529,18 +673,20 @@ void QuickAnswersView::UpdateQuickAnswerResult(
   ResetContentView();
 
   if (report_query_view_) {
-    base_view_->RemoveChildViewT(report_query_view_);
+    base_view_->RemoveChildViewT(report_query_view_.get());
     report_query_view_ = nullptr;
   }
 
   // Add title.
   View* title_view = AddHorizontalUiElements(quick_answer.title, content_view_);
+  auto* title_label = static_cast<Label*>(title_view->children().front());
+  title_label->SetMaximumWidthSingleLine(GetLabelWidth());
 
   // Add phonetics audio button for definition results.
   if (quick_answer.result_type == ResultType::kDefinitionResult &&
-      !quick_answer.phonetics_audio.is_empty()) {
-    AddPhoneticsAudioButton(quick_answer.phonetics_audio, title_view);
-  }
+      (!quick_answer.phonetics_info.phonetics_audio.is_empty() ||
+       quick_answer.phonetics_info.tts_audio_enabled))
+    AddPhoneticsAudioButton(quick_answer.phonetics_info, title_view);
 
   // Add first row answer.
   View* first_answer_view = nullptr;
@@ -551,14 +697,13 @@ void QuickAnswersView::UpdateQuickAnswerResult(
   bool first_answer_is_single_label =
       first_answer_view->children().size() == 1 &&
       first_answer_view->children().front()->GetClassName() ==
-          views::Label::kViewClassName;
+          QuickAnswersTextLabel::kViewClassName;
   if (first_answer_is_single_label) {
     // Update announcement.
-    auto* title_label = static_cast<Label*>(title_view->children().front());
     auto* answer_label =
         static_cast<Label*>(first_answer_view->children().front());
     GetViewAccessibility().OverrideDescription(l10n_util::GetStringFUTF8(
-        IDS_ASH_QUICK_ANSWERS_VIEW_A11Y_INFO_DESC_TEMPLATE_V2,
+        IDS_QUICK_ANSWERS_VIEW_A11Y_INFO_DESC_TEMPLATE_V2,
         title_label->GetText(), answer_label->GetText()));
   }
 
@@ -570,8 +715,8 @@ void QuickAnswersView::UpdateQuickAnswerResult(
     // allow that label to wrap through to the row intended for the former.
     if (first_answer_is_single_label) {
       // Cache multi-line label for resizing when view bounds change.
-      first_answer_label_ =
-          static_cast<Label*>(first_answer_view->children().front());
+      first_answer_label_ = static_cast<QuickAnswersTextLabel*>(
+          first_answer_view->children().front());
       first_answer_label_->SetMultiLine(true);
       first_answer_label_->SetMaxLines(kMaxRows - /*exclude title*/ 1);
     }
@@ -582,15 +727,15 @@ void QuickAnswersView::UpdateQuickAnswerResult(
     RequestFocus();
   } else {
     // Announce that a Quick Answer is available.
-    GetViewAccessibility().AnnounceText(l10n_util::GetStringUTF16(
-        IDS_ASH_QUICK_ANSWERS_VIEW_A11Y_INFO_ALERT_TEXT));
+    GetViewAccessibility().AnnounceText(
+        l10n_util::GetStringUTF16(IDS_QUICK_ANSWERS_VIEW_A11Y_INFO_ALERT_TEXT));
   }
 
   if (quick_answer.result_type == ResultType::kNoResult && is_internal_) {
     report_query_view_ = base_view_->AddChildView(
         std::make_unique<ReportQueryView>(base::BindRepeating(
             &QuickAnswersUiController::OnReportQueryButtonPressed,
-            base::Unretained(controller_))));
+            controller_)));
   }
 }
 
@@ -600,6 +745,8 @@ std::vector<views::View*> QuickAnswersView::GetFocusableViews() {
   // retry-label, and so is not included when this is the case.
   if (!retry_label_)
     focusable_views.push_back(this);
+  if (dogfood_feedback_button_ && dogfood_feedback_button_->GetVisible())
+    focusable_views.push_back(dogfood_feedback_button_);
   if (settings_button_ && settings_button_->GetVisible())
     focusable_views.push_back(settings_button_);
   if (phonetics_audio_button_ && phonetics_audio_button_->GetVisible())
@@ -612,6 +759,28 @@ std::vector<views::View*> QuickAnswersView::GetFocusableViews() {
 }
 
 void QuickAnswersView::OnPhoneticsAudioButtonPressed(
-    const GURL& phonetics_audio) {
-  phonetics_audio_web_view_->LoadInitialURL(phonetics_audio);
+    const PhoneticsInfo& phonetics_info) {
+  // Use the phonetics audio URL if provided.
+  if (!phonetics_info.phonetics_audio.is_empty()) {
+    phonetics_audio_web_view_->LoadInitialURL(phonetics_info.phonetics_audio);
+    return;
+  }
+
+  // Otherwise, generate and use tts audio.
+  auto* tts_controller = content::TtsControllerImpl::GetInstance();
+  std::unique_ptr<content::TtsUtterance> tts_utterance =
+      content::TtsUtterance::Create(
+          phonetics_audio_web_view_->GetBrowserContext());
+
+  tts_controller->SetStopSpeakingWhenHidden(false);
+
+  tts_utterance->SetShouldClearQueue(false);
+  tts_utterance->SetText(phonetics_info.query_text);
+  tts_utterance->SetLang(phonetics_info.locale);
+  // TtsController will use the default TTS engine if the Google TTS engine
+  // is not available.
+  tts_utterance->SetEngineId(kGoogleTtsEngineId);
+  tts_utterance->SetEventDelegate(new QuickAnswersUtteranceEventDelegate());
+
+  tts_controller->SpeakOrEnqueue(std::move(tts_utterance));
 }

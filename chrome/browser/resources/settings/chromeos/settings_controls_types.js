@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -83,10 +83,10 @@ SettingsPersonalizationOptionsElement.prototype.getSearchSuggestToggle =
  * @constructor
  * @extends {HTMLElement}
  */
-function SettingsSyncEncryptionOptionsElement() {}
+function OsSettingsSyncEncryptionOptionsElement() {}
 
 /** @return {?HTMLElement} */
-SettingsSyncEncryptionOptionsElement.prototype.getEncryptionsRadioButtons =
+OsSettingsSyncEncryptionOptionsElement.prototype.getEncryptionsRadioButtons =
     function() {};
 
 
@@ -94,13 +94,13 @@ SettingsSyncEncryptionOptionsElement.prototype.getEncryptionsRadioButtons =
  * @constructor
  * @extends {HTMLElement}
  */
-function SettingsSyncPageElement() {}
+function OsSettingsSyncPageElement() {}
 
 /** @return {?SettingsPersonalizationOptionsElement} */
-SettingsSyncPageElement.prototype.getPersonalizationOptions = function() {};
+OsSettingsSyncPageElement.prototype.getPersonalizationOptions = function() {};
 
-/** @return {?SettingsSyncEncryptionOptionsElement} */
-SettingsSyncPageElement.prototype.getEncryptionOptions = function() {};
+/** @return {?OsSettingsSyncEncryptionOptionsElement} */
+OsSettingsSyncPageElement.prototype.getEncryptionOptions = function() {};
 
 /**
  * Must be kept in sync with the return values of getSyncErrorAction in
@@ -141,6 +141,8 @@ const StatusAction = {
  *   preferencesSynced: boolean,
  *   readingListRegistered: boolean,
  *   readingListSynced: boolean,
+ *   savedTabGroupsRegistered: boolean,
+ *   savedTabGroupsSynced: boolean,
  *   syncAllDataTypes: boolean,
  *   tabsRegistered: boolean,
  *   tabsSynced: boolean,
@@ -196,3 +198,16 @@ function ProfileInfoBrowserProxy() {}
 
 /** @return {!Promise<!ProfileInfo>} */
 ProfileInfoBrowserProxy.prototype.getProfileInfo = function() {};
+
+/** @interface */
+function OpenWindowProxy() {}
+
+/** @param {string} url */
+OpenWindowProxy.prototype.openURL = function(url) {};
+
+/** @interface */
+function LifetimeBrowserProxy() {}
+
+LifetimeBrowserProxy.prototype.factoryReset = function() {};
+LifetimeBrowserProxy.prototype.relaunch = function() {};
+LifetimeBrowserProxy.prototype.signOutAndRestart = function() {};

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
+#include "base/timer/timer.h"
+#include "chrome/browser/ui/views/download/bubble/download_toolbar_button_view.h"
 #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
 #include "chrome/browser/ui/views/location_bar/content_setting_image_view.h"
 #include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
@@ -77,6 +79,10 @@ class WebAppToolbarButtonContainer : public views::View,
     return extensions_container_;
   }
 
+  DownloadToolbarButtonView* download_button() {
+    return download_button_.get();
+  }
+
   WebAppMenuButton* web_app_menu_button() { return web_app_menu_button_; }
 
   WindowControlsOverlayToggleButton* window_controls_overlay_toggle_button() {
@@ -120,8 +126,6 @@ class WebAppToolbarButtonContainer : public views::View,
   content::WebContents* GetContentSettingWebContents() override;
   ContentSettingBubbleModelDelegate* GetContentSettingBubbleModelDelegate()
       override;
-  void OnContentSettingImageBubbleShown(
-      ContentSettingImageModel::ImageType type) const override;
 
   // ImmersiveModeController::Observer:
   void OnImmersiveRevealStarted() override;
@@ -157,6 +161,7 @@ class WebAppToolbarButtonContainer : public views::View,
   raw_ptr<ExtensionsToolbarContainer> extensions_container_ = nullptr;
   raw_ptr<WebAppMenuButton> web_app_menu_button_ = nullptr;
   raw_ptr<SystemAppAccessibleName> system_app_accessible_name_ = nullptr;
+  raw_ptr<DownloadToolbarButtonView> download_button_ = nullptr;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_WEB_APPS_FRAME_TOOLBAR_WEB_APP_TOOLBAR_BUTTON_CONTAINER_H_

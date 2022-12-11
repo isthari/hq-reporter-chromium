@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/native_io/native_io_context_impl.h"
 
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "content/browser/native_io/native_io_manager.h"
 #include "content/public/browser/browser_thread.h"
@@ -58,8 +58,7 @@ void NativeIOContextImpl::BindReceiver(
 
 void NativeIOContextImpl::DeleteStorageKeyData(
     const blink::StorageKey& storage_key,
-    storage::mojom::QuotaClient::DeleteStorageKeyDataCallback
-        success_callback) {
+    storage::mojom::QuotaClient::DeleteBucketDataCallback success_callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 #if DCHECK_IS_ON()
   DCHECK(initialize_called_) << __func__ << " called before Initialize()";
@@ -71,13 +70,12 @@ void NativeIOContextImpl::DeleteStorageKeyData(
           scoped_refptr<NativeIOContextImpl>(this), std::move(storage_key),
           base::BindOnce(
               [](scoped_refptr<base::SequencedTaskRunner> task_runner,
-                 storage::mojom::QuotaClient::DeleteStorageKeyDataCallback
-                     callback,
+                 storage::mojom::QuotaClient::DeleteBucketDataCallback callback,
                  blink::mojom::QuotaStatusCode result) {
                 task_runner->PostTask(
                     FROM_HERE, base::BindOnce(std::move(callback), result));
               },
-              base::SequencedTaskRunnerHandle::Get(),
+              base::SequencedTaskRunner::GetCurrentDefault(),
               std::move(success_callback))));
 }
 
@@ -101,7 +99,7 @@ void NativeIOContextImpl::GetStorageKeyUsageMap(
                 task_runner->PostTask(
                     FROM_HERE, base::BindOnce(std::move(callback), result));
               },
-              base::SequencedTaskRunnerHandle::Get(),
+              base::SequencedTaskRunner::GetCurrentDefault(),
               std::move(success_callback))));
 }
 
@@ -132,7 +130,7 @@ void NativeIOContextImpl::BindReceiverOnIOThread(
 
 void NativeIOContextImpl::DeleteStorageKeyDataOnIOThread(
     const blink::StorageKey& storage_key,
-    storage::mojom::QuotaClient::DeleteStorageKeyDataCallback callback) {
+    storage::mojom::QuotaClient::DeleteBucketDataCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   native_io_manager_->DeleteStorageKeyData(storage_key, std::move(callback));

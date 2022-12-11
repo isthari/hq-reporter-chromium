@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,12 @@
 
 #include <memory>
 
-#include "ash/constants/ash_features.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/dark_light_mode_controller_impl.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
+#include "chrome/browser/ash/web_applications/personalization_app/personalization_app_metrics.h"
 #include "chrome/test/base/chrome_ash_test_base.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
@@ -19,6 +20,9 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/test_web_ui.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkColor.h"
+
+namespace ash::personalization_app {
 
 namespace {
 
@@ -31,9 +35,19 @@ class TestThemeObserver
     dark_mode_enabled_ = dark_mode_enabled;
   }
 
+  void OnColorModeAutoScheduleChanged(bool enabled) override {
+    color_mode_auto_schedule_enabled_ = enabled;
+  }
+
+  void OnStaticColorChanged(absl::optional<::SkColor> static_color) override {
+    static_color_ = static_color;
+  }
+
   mojo::PendingRemote<ash::personalization_app::mojom::ThemeObserver>
   pending_remote() {
-    DCHECK(!theme_observer_receiver_.is_bound());
+    if (theme_observer_receiver_.is_bound()) {
+      theme_observer_receiver_.reset();
+    }
     return theme_observer_receiver_.BindNewPipeAndPassRemote();
   }
 
@@ -45,11 +59,26 @@ class TestThemeObserver
     return dark_mode_enabled_;
   }
 
+  bool is_color_mode_auto_schedule_enabled() {
+    if (theme_observer_receiver_.is_bound())
+      theme_observer_receiver_.FlushForTesting();
+    return color_mode_auto_schedule_enabled_;
+  }
+
+  absl::optional<SkColor> get_static_color() {
+    if (!theme_observer_receiver_.is_bound())
+      return absl::nullopt;
+    theme_observer_receiver_.FlushForTesting();
+    return static_color_;
+  }
+
  private:
   mojo::Receiver<ash::personalization_app::mojom::ThemeObserver>
       theme_observer_receiver_{this};
 
   bool dark_mode_enabled_ = false;
+  bool color_mode_auto_schedule_enabled_ = false;
+  absl::optional<::SkColor> static_color_ = absl::nullopt;
 };
 
 }  // namespace
@@ -58,7 +87,10 @@ class PersonalizationAppThemeProviderImplTest : public ChromeAshTestBase {
  public:
   PersonalizationAppThemeProviderImplTest()
       : scoped_user_manager_(std::make_unique<ash::FakeChromeUserManager>()),
-        profile_manager_(TestingBrowserProcess::GetGlobal()) {}
+        profile_manager_(TestingBrowserProcess::GetGlobal()) {
+    scoped_feature_list_.InitWithFeatures({chromeos::features::kDarkLightMode},
+                                          {});
+  }
   PersonalizationAppThemeProviderImplTest(
       const PersonalizationAppThemeProviderImplTest&) = delete;
   PersonalizationAppThemeProviderImplTest& operator=(
@@ -69,10 +101,7 @@ class PersonalizationAppThemeProviderImplTest : public ChromeAshTestBase {
   // testing::Test:
   void SetUp() override {
     ChromeAshTestBase::SetUp();
-    scoped_feature_list_.InitWithFeatures({ash::features::kPersonalizationHub,
-                                           chromeos::features::kDarkLightMode},
-                                          {});
-    ash::AshColorProvider::Get()->OnActiveUserPrefServiceChanged(
+    ash::DarkLightModeControllerImpl::Get()->OnActiveUserPrefServiceChanged(
         ash::Shell::Get()->session_controller()->GetActivePrefService());
 
     ASSERT_TRUE(profile_manager_.SetUp());
@@ -110,11 +139,27 @@ class PersonalizationAppThemeProviderImplTest : public ChromeAshTestBase {
   }
 
   absl::optional<bool> is_dark_mode_enabled() {
-    theme_provider_remote_.FlushForTesting();
+    if (theme_provider_remote_.is_bound())
+      theme_provider_remote_.FlushForTesting();
     return test_theme_observer_.is_dark_mode_enabled();
   }
 
+  bool is_color_mode_auto_schedule_enabled() {
+    if (theme_provider_remote_.is_bound())
+      theme_provider_remote_.FlushForTesting();
+    return test_theme_observer_.is_color_mode_auto_schedule_enabled();
+  }
+
+  absl::optional<SkColor> get_static_color() {
+    if (theme_provider_remote_.is_bound())
+      theme_provider_remote_.FlushForTesting();
+    return test_theme_observer_.get_static_color();
+  }
+
+  const base::HistogramTester& histogram_tester() { return histogram_tester_; }
+
  private:
+  base::test::ScopedFeatureList scoped_feature_list_;
   user_manager::ScopedUserManager scoped_user_manager_;
   TestingProfileManager profile_manager_;
   content::TestWebUI web_ui_;
@@ -124,7 +169,7 @@ class PersonalizationAppThemeProviderImplTest : public ChromeAshTestBase {
       theme_provider_remote_;
   TestThemeObserver test_theme_observer_;
   std::unique_ptr<PersonalizationAppThemeProviderImpl> theme_provider_;
-  base::test::ScopedFeatureList scoped_feature_list_;
+  base::HistogramTester histogram_tester_;
 };
 
 TEST_F(PersonalizationAppThemeProviderImplTest, SetColorModePref) {
@@ -134,15 +179,62 @@ TEST_F(PersonalizationAppThemeProviderImplTest, SetColorModePref) {
 
   theme_provider()->SetColorModePref(/*dark_mode_enabled=*/true);
   EXPECT_TRUE(is_dark_mode_enabled().value());
+  histogram_tester().ExpectBucketCount(
+      kPersonalizationThemeColorModeHistogramName, ColorMode::kDark, 1);
 }
 
 TEST_F(PersonalizationAppThemeProviderImplTest, OnColorModeChanged) {
   SetThemeObserver();
 
-  bool dark_mode_enabled = ash::AshColorProvider::Get()->IsDarkModeEnabled();
-  ash::AshColorProvider::Get()->ToggleColorMode();
+  auto* dark_light_mode_controller = ash::DarkLightModeControllerImpl::Get();
+  bool dark_mode_enabled = dark_light_mode_controller->IsDarkModeEnabled();
+  dark_light_mode_controller->ToggleColorMode();
   EXPECT_NE(is_dark_mode_enabled().value(), dark_mode_enabled);
 
-  ash::AshColorProvider::Get()->ToggleColorMode();
+  dark_light_mode_controller->ToggleColorMode();
   EXPECT_EQ(is_dark_mode_enabled().value(), dark_mode_enabled);
 }
+
+TEST_F(PersonalizationAppThemeProviderImplTest,
+       SetColorModeAutoScheduleEnabled) {
+  SetThemeObserver();
+  theme_provider_remote()->FlushForTesting();
+  theme_provider()->SetColorModeAutoScheduleEnabled(/*enabled=*/false);
+  EXPECT_FALSE(is_color_mode_auto_schedule_enabled());
+  histogram_tester().ExpectBucketCount(
+      kPersonalizationThemeColorModeHistogramName, ColorMode::kAuto, 0);
+
+  theme_provider()->SetColorModeAutoScheduleEnabled(/*enabled=*/true);
+  EXPECT_TRUE(is_color_mode_auto_schedule_enabled());
+  histogram_tester().ExpectBucketCount(
+      kPersonalizationThemeColorModeHistogramName, ColorMode::kAuto, 1);
+}
+
+class PersonalizationAppThemeProviderImplJellyTest
+    : public PersonalizationAppThemeProviderImplTest {
+ public:
+  PersonalizationAppThemeProviderImplJellyTest() {
+    scoped_feature_list_.InitAndEnableFeature(features::kJelly);
+  }
+
+  PersonalizationAppThemeProviderImplJellyTest(
+      const PersonalizationAppThemeProviderImplJellyTest&) = delete;
+  PersonalizationAppThemeProviderImplJellyTest& operator=(
+      const PersonalizationAppThemeProviderImplJellyTest&) = delete;
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+TEST_F(PersonalizationAppThemeProviderImplJellyTest, SetStaticColor) {
+  SetThemeObserver();
+  theme_provider_remote()->FlushForTesting();
+  SkColor color = SK_ColorMAGENTA;
+  EXPECT_NE(color, get_static_color());
+
+  theme_provider()->SetStaticColor(color);
+
+  EXPECT_EQ(color, get_static_color());
+}
+
+}  // namespace ash::personalization_app

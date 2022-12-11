@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,16 @@
 
 #include <stdint.h>
 
-#include <algorithm>
 #include <string>
 
 #include "base/bind.h"
 #include "base/build_time.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
+#include "base/ranges/algorithm.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/clock.h"
@@ -24,7 +23,6 @@
 #include "base/time/default_tick_clock.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
-#include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/buildflags.h"
@@ -72,11 +70,11 @@ constexpr auto kOutdatedBuildDetectorPeriod = base::Days(1);
 constexpr auto kOutdatedBuildAge = base::Days(7) * 8;
 
 constexpr bool ShouldDetectOutdatedBuilds() {
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#if BUILDFLAG(ENABLE_UPDATE_NOTIFICATIONS)
   return true;
-#else   // BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#else
   return false;
-#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#endif
 }
 
 // Check if one of the outdated simulation switches was present on the command
@@ -199,8 +197,8 @@ void UpgradeDetectorImpl::DoCalculateThresholds() {
 
 void UpgradeDetectorImpl::StartOutdatedBuildDetector() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  static constexpr base::Feature kOutdatedBuildDetector = {
-      "OutdatedBuildDetector", base::FEATURE_ENABLED_BY_DEFAULT};
+  static BASE_FEATURE(kOutdatedBuildDetector, "OutdatedBuildDetector",
+                      base::FEATURE_ENABLED_BY_DEFAULT);
 
   if (!base::FeatureList::IsEnabled(kOutdatedBuildDetector))
     return;
@@ -222,7 +220,7 @@ void UpgradeDetectorImpl::StartOutdatedBuildDetector() {
 #if BUILDFLAG(IS_WIN)
     // TODO(crbug/1027107): Replace with a more generic CBCM check.
     // Don't show the update bubbles to enterprise users.
-    if (base::IsMachineExternallyManaged() ||
+    if (base::IsEnterpriseDevice() ||
         policy::BrowserDMTokenStorage::Get()->RetrieveDMToken().is_valid()) {
       return;
     }
@@ -318,10 +316,8 @@ void UpgradeDetectorImpl::NotifyOnUpgradeWithTimePassed(
   } else {
     // |stages_| must be sorted by decreasing TimeDelta.
     std::array<base::TimeDelta, kNumStages>::iterator it =
-        std::find_if(stages_.begin(), stages_.end(),
-                     [time_passed](const base::TimeDelta& delta) {
-                       return time_passed >= delta;
-                     });
+        base::ranges::lower_bound(stages_, time_passed,
+                                  base::ranges::greater());
     if (it != stages_.end())
       new_stage = StageIndexToAnnoyanceLevel(it - stages_.begin());
     if (it != stages_.begin())
@@ -395,8 +391,8 @@ UpgradeDetectorImpl::StageIndexToAnnoyanceLevel(size_t index) {
       UpgradeDetector::UPGRADE_ANNOYANCE_ELEVATED,
       UpgradeDetector::UPGRADE_ANNOYANCE_LOW,
       UpgradeDetector::UPGRADE_ANNOYANCE_VERY_LOW};
-  static_assert(base::size(kIndexToLevel) == kNumStages, "mismatch");
-  DCHECK_LT(index, base::size(kIndexToLevel));
+  static_assert(std::size(kIndexToLevel) == kNumStages, "mismatch");
+  DCHECK_LT(index, std::size(kIndexToLevel));
   return kIndexToLevel[index];
 }
 
@@ -477,10 +473,7 @@ void UpgradeDetectorImpl::Init() {
     variations_service->AddObserver(this);
   }
 
-  // On Windows, only enable upgrade notifications for Google Chrome builds.
-  // Chromium does not use an auto-updater.
-#if !BUILDFLAG(IS_WIN) || BUILDFLAG(GOOGLE_CHROME_BRANDING) || \
-    BUILDFLAG(ENABLE_CHROMIUM_UPDATER)
+#if BUILDFLAG(ENABLE_UPDATE_NOTIFICATIONS)
 
   // On macOS, only enable upgrade notifications if the updater (Keystone) is
   // present.
@@ -488,9 +481,6 @@ void UpgradeDetectorImpl::Init() {
   if (!keystone_glue::KeystoneEnabled())
     return;
 #endif
-
-  // On non-macOS non-Windows, always enable upgrade notifications regardless
-  // of branding.
 
   // Start checking for outdated builds sometime after startup completes.
   content::GetUIThreadTaskRunner({base::TaskPriority::BEST_EFFORT,
@@ -503,7 +493,7 @@ void UpgradeDetectorImpl::Init() {
   auto* const build_state = g_browser_process->GetBuildState();
   build_state->AddObserver(this);
   installed_version_poller_.emplace(build_state);
-#endif
+#endif  // BUILDFLAG(ENABLE_UPDATE_NOTIFICATIONS)
 }
 
 void UpgradeDetectorImpl::Shutdown() {

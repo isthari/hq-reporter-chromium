@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 class PasswordGenerationPopupController;
 
 namespace views {
-class Label;
+class StyledLabel;
 }
 
 class PasswordGenerationPopupViewViews : public autofill::AutofillPopupBaseView,
@@ -32,9 +32,15 @@ class PasswordGenerationPopupViewViews : public autofill::AutofillPopupBaseView,
   [[nodiscard]] bool Show() override;
   void Hide() override;
   void UpdateState() override;
-  void UpdatePasswordValue() override;
+  void UpdateGeneratedPasswordValue() override;
   [[nodiscard]] bool UpdateBoundsAndRedrawPopup() override;
   void PasswordSelectionUpdated() override;
+
+#if defined(UNIT_TEST)
+  // Returns true if a minimized version with just a warning icon is created
+  // instead of the whole `password_view_`.
+  bool IsPopupMinimized() const { return !password_view_; }
+#endif
 
  private:
   class GeneratedPasswordBox;
@@ -43,6 +49,12 @@ class PasswordGenerationPopupViewViews : public autofill::AutofillPopupBaseView,
   // Creates all the children views and adds them into layout.
   void CreateLayoutAndChildren();
 
+  // Returns true if full generation popup with `password_view_` was created.
+  // The absence of this view means that only the minimized version of the popup
+  // was created (with just a warning icon signaling that the currently typed
+  // password is weak and expanding to password strength indicator on hover).
+  bool FullPopupVisible() const;
+
   // views:Views implementation.
   void OnThemeChanged() override;
   void OnPaint(gfx::Canvas* canvas) override;
@@ -50,10 +62,10 @@ class PasswordGenerationPopupViewViews : public autofill::AutofillPopupBaseView,
   gfx::Size CalculatePreferredSize() const override;
 
   // Sub view that displays the actual generated password.
-  raw_ptr<GeneratedPasswordBox> password_view_ = nullptr;
+  raw_ptr<GeneratedPasswordBox, DanglingUntriaged> password_view_ = nullptr;
 
   // The footer label.
-  raw_ptr<views::Label> help_label_ = nullptr;
+  raw_ptr<views::StyledLabel, DanglingUntriaged> help_styled_label_ = nullptr;
 
   // Controller for this view. Weak reference.
   base::WeakPtr<PasswordGenerationPopupController> controller_;

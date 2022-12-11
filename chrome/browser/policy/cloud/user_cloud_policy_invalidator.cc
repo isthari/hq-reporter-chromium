@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/default_clock.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -34,7 +34,7 @@ UserCloudPolicyInvalidator::UserCloudPolicyInvalidator(
     CloudPolicyManager* policy_manager)
     : CloudPolicyInvalidator(PolicyInvalidationScope::kUser,
                              policy_manager->core(),
-                             base::ThreadTaskRunnerHandle::Get(),
+                             base::SingleThreadTaskRunner::GetCurrentDefault(),
                              base::DefaultClock::GetInstance(),
                              0 /* highest_handled_invalidation_version */),
       profile_(profile) {

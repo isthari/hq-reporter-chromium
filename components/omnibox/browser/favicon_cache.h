@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -122,10 +122,8 @@ class FaviconCache : public history::HistoryServiceObserver {
 
   // history::HistoryServiceObserver:
   void OnURLVisited(history::HistoryService* history_service,
-                    ui::PageTransition transition,
-                    const history::URLRow& row,
-                    const history::RedirectList& redirects,
-                    base::Time visit_time) override;
+                    const history::URLRow& url_row,
+                    const history::VisitRow& new_visit) override;
   void OnURLsDeleted(history::HistoryService* history_service,
                      const history::DeletionInfo& deletion_info) override;
   void OnFaviconsChanged(const std::set<GURL>& page_urls, const GURL& icon_url);

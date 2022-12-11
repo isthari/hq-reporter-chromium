@@ -1,9 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/ime/ime_feature_pod_controller.h"
 
+#include "ash/constants/quick_settings_catalogs.h"
 #include "ash/ime/ime_controller_impl.h"
 #include "ash/keyboard/ui/keyboard_util.h"
 #include "ash/resources/vector_icons/vector_icons.h"
@@ -11,6 +12,7 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/system/unified/feature_pod_button.h"
+#include "ash/system/unified/quick_settings_metrics_util.h"
 #include "ash/system/unified/unified_system_tray_controller.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -70,16 +72,20 @@ FeaturePodButton* IMEFeaturePodController::CreateButton() {
   button_->SetIconAndLabelTooltips(GetTooltipString());
   button_->ShowDetailedViewArrow();
   button_->DisableLabelButtonFocus();
+  // Init the button with invisible state. The `Update` method will update the
+  // visibility based on the current condition.
+  button_->SetVisible(false);
   Update();
   return button_;
 }
 
-void IMEFeaturePodController::OnIconPressed() {
-  tray_controller_->ShowIMEDetailedView();
+QsFeatureCatalogName IMEFeaturePodController::GetCatalogName() {
+  return QsFeatureCatalogName::kIME;
 }
 
-SystemTrayItemUmaType IMEFeaturePodController::GetUmaType() const {
-  return SystemTrayItemUmaType::UMA_IME;
+void IMEFeaturePodController::OnIconPressed() {
+  TrackDiveInUMA();
+  tray_controller_->ShowIMEDetailedView();
 }
 
 void IMEFeaturePodController::OnIMERefresh() {
@@ -92,6 +98,10 @@ void IMEFeaturePodController::OnIMEMenuActivationChanged(bool is_active) {
 
 void IMEFeaturePodController::Update() {
   button_->SetSubLabel(GetLabelString());
+  // If the button's visibility changes from invisible to visible, log its
+  // visibility.
+  if (!button_->GetVisible() && IsButtonVisible())
+    TrackVisibilityUMA();
   button_->SetVisible(IsButtonVisible());
 }
 

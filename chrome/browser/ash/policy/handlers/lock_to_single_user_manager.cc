@@ -1,12 +1,9 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/policy/handlers/lock_to_single_user_manager.h"
 
-#include "ash/components/cryptohome/cryptohome_parameters.h"
-#include "ash/components/login/session/session_termination_manager.h"
-#include "ash/components/settings/cros_settings_names.h"
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
@@ -16,7 +13,10 @@
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chromeos/dbus/userdataauth/cryptohome_misc_client.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
+#include "chromeos/ash/components/dbus/userdataauth/cryptohome_misc_client.h"
+#include "chromeos/ash/components/login/session/session_termination_manager.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 
 using RebootOnSignOutPolicy =
@@ -30,8 +30,8 @@ namespace policy {
 
 namespace {
 
-chromeos::ConciergeClient* GetConciergeClient() {
-  return chromeos::ConciergeClient::Get();
+ash::ConciergeClient* GetConciergeClient() {
+  return ash::ConciergeClient::Get();
 }
 
 LockToSingleUserManager* g_lock_to_single_user_manager_instance;
@@ -142,7 +142,7 @@ void LockToSingleUserManager::LockToSingleUser() {
           user_manager::UserManager::Get()->GetPrimaryUser()->GetAccountId());
   RebootOnSignOutRequest request;
   request.mutable_account_id()->CopyFrom(account_id);
-  chromeos::CryptohomeMiscClient::Get()->LockToSingleUserMountUntilReboot(
+  ash::CryptohomeMiscClient::Get()->LockToSingleUserMountUntilReboot(
       request,
       base::BindOnce(
           &LockToSingleUserManager::OnLockToSingleUserMountUntilRebootDone,

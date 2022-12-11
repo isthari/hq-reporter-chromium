@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,13 +15,14 @@
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/sync/base/features.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/user_selectable_type.h"
 #include "components/sync/driver/glue/sync_transport_data_prefs.h"
 #include "components/sync/driver/sync_service_impl.h"
-#include "components/sync/driver/sync_user_settings_impl.h"
-#include "components/sync/test/fake_server/bookmark_entity_builder.h"
-#include "components/sync/test/fake_server/entity_builder_factory.h"
+#include "components/sync/engine/cycle/entity_change_metric_recording.h"
+#include "components/sync/test/bookmark_entity_builder.h"
+#include "components/sync/test/entity_builder_factory.h"
 #include "content/public/test/browser_test.h"
 
 namespace {
@@ -29,7 +30,6 @@ namespace {
 using syncer::ModelType;
 using syncer::ModelTypeSet;
 using syncer::ModelTypeToDebugString;
-using syncer::SyncUserSettings;
 using syncer::UserSelectableType;
 using syncer::UserSelectableTypeSet;
 
@@ -47,7 +47,7 @@ ModelTypeSet MultiGroupTypes(const ModelTypeSet& registered_types) {
   ModelTypeSet multi;
   for (UserSelectableType type : UserSelectableTypeSet::All()) {
     const ModelTypeSet grouped_types =
-        syncer::SyncUserSettingsImpl::ResolvePreferredTypesForTesting({type});
+        syncer::UserSelectableTypeToAllModelTypes(type);
     for (ModelType grouped_type : grouped_types) {
       if (seen.Has(grouped_type)) {
         multi.Put(grouped_type);
@@ -96,22 +96,26 @@ class EnableDisableSingleClientTest : public SyncTest {
  protected:
   void SetupTest(bool all_types_enabled) {
     ASSERT_TRUE(SetupClients());
-    if (all_types_enabled) {
-      ASSERT_TRUE(GetClient(0)->SetupSync());
-    } else {
-      ASSERT_TRUE(
-          GetClient(0)->SetupSyncNoWaitForCompletion(UserSelectableTypeSet()));
-      ASSERT_TRUE(GetClient(0)->AwaitSyncSetupCompletion());
-    }
+    ASSERT_TRUE(GetClient(0)->SetupSync(base::BindLambdaForTesting(
+        [all_types_enabled](syncer::SyncUserSettings* user_settings) {
+          user_settings->SetSelectedTypes(all_types_enabled, {});
+        })));
 
     registered_data_types_ = GetSyncService(0)->GetRegisteredDataTypesForTest();
+    if (base::FeatureList::IsEnabled(syncer::kSyncEnableHistoryDataType)) {
+      // The "SyncEnableHistoryDataType" feature soft-disables TYPES_URLS: It'll
+      // still be technically registered, but will never actually become active
+      // (due to the controller's GetPreconditionState()). For the purposes of
+      // these tests, consider it not registered.
+      registered_data_types_.Remove(syncer::TYPED_URLS);
+    }
     multi_grouped_types_ = MultiGroupTypes(registered_data_types_);
     registered_selectable_types_ = GetRegisteredSelectableTypes(0);
   }
 
   ModelTypeSet ResolveGroup(UserSelectableType type) {
     ModelTypeSet grouped_types =
-        syncer::SyncUserSettingsImpl::ResolvePreferredTypesForTesting({type});
+        syncer::UserSelectableTypeToAllModelTypes(type);
     grouped_types.RetainAll(registered_data_types_);
     return grouped_types;
   }
@@ -351,8 +355,19 @@ IN_PROC_BROWSER_TEST_F(EnableDisableSingleClientTest,
 
   // Create a bookmark on the server, then turn on Sync on the client.
   InjectSyncedBookmark();
-  ASSERT_TRUE(GetClient(0)->SetupSync());
+  // Disable any LowPriorityUserTypes() (in practice, history): This test
+  // inspects the last-sync-cycle state. If low-prio types are active, they
+  // cause another (uninteresting) cycle and mess up the stats we're interested
+  // in.
+  ASSERT_TRUE(GetClient(0)->SetupSync(
+      base::BindOnce([](syncer::SyncUserSettings* settings) {
+        UserSelectableTypeSet types = settings->GetRegisteredSelectableTypes();
+        types.Remove(syncer::UserSelectableType::kHistory);
+        settings->SetSelectedTypes(/*sync_everything=*/false, types);
+      })));
   ASSERT_TRUE(GetSyncService(0)->IsSyncFeatureActive());
+  ASSERT_FALSE(GetSyncService(0)->GetActiveDataTypes().HasAny(
+      syncer::LowPriorityUserTypes()));
 
   // Make sure the bookmark got synced down.
   ASSERT_TRUE(bookmarks_helper::GetBookmarkModel(0)->IsBookmarked(
@@ -381,8 +396,19 @@ IN_PROC_BROWSER_TEST_F(EnableDisableSingleClientTest,
 
   // Create a bookmark on the server, then turn on Sync on the client.
   InjectSyncedBookmark();
-  ASSERT_TRUE(GetClient(0)->SetupSync());
+  // Disable any LowPriorityUserTypes() (in practice, history): This test
+  // inspects the last-sync-cycle state. If low-prio types are active, they
+  // cause another (uninteresting) cycle and mess up the stats we're interested
+  // in.
+  ASSERT_TRUE(GetClient(0)->SetupSync(
+      base::BindOnce([](syncer::SyncUserSettings* settings) {
+        UserSelectableTypeSet types = settings->GetRegisteredSelectableTypes();
+        types.Remove(syncer::UserSelectableType::kHistory);
+        settings->SetSelectedTypes(/*sync_everything=*/false, types);
+      })));
   ASSERT_TRUE(GetSyncService(0)->IsSyncFeatureActive());
+  ASSERT_FALSE(GetSyncService(0)->GetActiveDataTypes().HasAny(
+      syncer::LowPriorityUserTypes()));
 
   // Make sure the bookmark got synced down.
   ASSERT_TRUE(bookmarks_helper::GetBookmarkModel(0)->IsBookmarked(
@@ -407,12 +433,12 @@ IN_PROC_BROWSER_TEST_F(EnableDisableSingleClientTest,
   ASSERT_TRUE(SetupSync());
   ASSERT_TRUE(bookmarks_helper::GetBookmarkModel(0)->IsBookmarked(
       GURL(kSyncedBookmarkURL)));
-  EXPECT_EQ(
-      0, histogram_tester.GetBucketCount("Sync.ModelTypeEntityChange3.BOOKMARK",
-                                         /*REMOTE_NON_INITIAL_UPDATE=*/4));
-  EXPECT_EQ(
-      0, histogram_tester.GetBucketCount("Sync.ModelTypeEntityChange3.BOOKMARK",
-                                         /*REMOTE_INITIAL_UPDATE=*/5));
+  EXPECT_EQ(0, histogram_tester.GetBucketCount(
+                   "Sync.ModelTypeEntityChange3.BOOKMARK",
+                   syncer::ModelTypeEntityChange::kRemoteNonInitialUpdate));
+  EXPECT_EQ(0, histogram_tester.GetBucketCount(
+                   "Sync.ModelTypeEntityChange3.BOOKMARK",
+                   syncer::ModelTypeEntityChange::kRemoteInitialUpdate));
 }
 
 IN_PROC_BROWSER_TEST_F(EnableDisableSingleClientTest, ResetsPrefsIfClearData) {

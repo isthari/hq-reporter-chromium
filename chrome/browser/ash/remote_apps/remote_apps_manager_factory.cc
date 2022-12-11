@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/app_list/app_list_syncable_service_factory.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_type.h"
 #include "content/public/browser/browser_context.h"
+#include "extensions/browser/event_router_factory.h"
 
 namespace ash {
 
@@ -30,11 +30,14 @@ RemoteAppsManagerFactory* RemoteAppsManagerFactory::GetInstance() {
 }
 
 RemoteAppsManagerFactory::RemoteAppsManagerFactory()
-    : BrowserContextKeyedServiceFactory(
-          "RemoteAppsManager",
-          BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory("RemoteAppsManager",
+                                 ProfileSelections::Builder()
+                                     .WithSystem(ProfileSelection::kNone)
+                                     .WithAshInternals(ProfileSelection::kNone)
+                                     .Build()) {
   DependsOn(app_list::AppListSyncableServiceFactory::GetInstance());
   DependsOn(apps::AppServiceProxyFactory::GetInstance());
+  DependsOn(extensions::EventRouterFactory::GetInstance());
 }
 
 RemoteAppsManagerFactory::~RemoteAppsManagerFactory() = default;
@@ -47,21 +50,12 @@ KeyedService* RemoteAppsManagerFactory::BuildServiceInstanceFor(
 
   Profile* profile = Profile::FromBrowserContext(context);
   user_manager::User* user = profile_helper->GetUserByProfile(profile);
-  if (!user || user->GetType() != user_manager::USER_TYPE_PUBLIC_ACCOUNT)
-    return nullptr;
-
-  return new RemoteAppsManager(profile);
-}
-
-content::BrowserContext* RemoteAppsManagerFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  Profile* profile = Profile::FromBrowserContext(context);
-  if (!profile || profile->IsSystemProfile() ||
-      !ProfileHelper::IsRegularProfile(profile)) {
+  if (!user || (user->GetType() != user_manager::USER_TYPE_PUBLIC_ACCOUNT &&
+                user->GetType() != user_manager::USER_TYPE_REGULAR)) {
     return nullptr;
   }
 
-  return BrowserContextKeyedServiceFactory::GetBrowserContextToUse(context);
+  return new RemoteAppsManager(profile);
 }
 
 bool RemoteAppsManagerFactory::ServiceIsCreatedWithBrowserContext() const {

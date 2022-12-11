@@ -51,6 +51,7 @@
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/editing/ephemeral_range.h"
 #include "third_party/blink/renderer/core/editing/iterators/text_iterator.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_control_element.h"
@@ -63,6 +64,7 @@
 #include "third_party/blink/renderer/core/html/html_head_element.h"
 #include "third_party/blink/renderer/core/html/html_link_element.h"
 #include "third_party/blink/renderer/core/html/plugin_document.h"
+#include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/platform/graphics/dom_node_id.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -79,6 +81,10 @@ static const blink::WebStyleSheetKey GenerateStyleSheetKey() {
 }  // namespace
 
 namespace blink {
+
+const DocumentToken& WebDocument::Token() const {
+  return ConstUnwrap<Document>()->Token();
+}
 
 WebURL WebDocument::Url() const {
   return ConstUnwrap<Document>()->Url();
@@ -201,11 +207,9 @@ WebVector<WebFormElement> WebDocument::Forms() const {
       const_cast<Document*>(ConstUnwrap<Document>())->forms();
 
   Vector<WebFormElement> form_elements;
-  form_elements.ReserveCapacity(forms->length());
+  form_elements.reserve(forms->length());
   for (Element* element : *forms) {
-    // Strange but true, sometimes node can be 0.
-    if (auto* html_form_element = DynamicTo<HTMLFormElement>(element))
-      form_elements.emplace_back(html_form_element);
+    form_elements.emplace_back(blink::To<HTMLFormElement>(element));
   }
   return form_elements;
 }
@@ -225,7 +229,7 @@ WebElement WebDocument::FocusedElement() const {
 WebStyleSheetKey WebDocument::InsertStyleSheet(
     const WebString& source_code,
     const WebStyleSheetKey* key,
-    CSSOrigin origin,
+    WebCssOrigin origin,
     BackForwardCacheAware back_forward_cache_aware) {
   Document* document = Unwrap<Document>();
   DCHECK(document);
@@ -245,7 +249,7 @@ WebStyleSheetKey WebDocument::InsertStyleSheet(
 }
 
 void WebDocument::RemoveInsertedStyleSheet(const WebStyleSheetKey& key,
-                                           CSSOrigin origin) {
+                                           WebCssOrigin origin) {
   Unwrap<Document>()->GetStyleEngine().RemoveInjectedSheet(key, origin);
 }
 
@@ -255,7 +259,7 @@ void WebDocument::WatchCSSSelectors(const WebVector<WebString>& web_selectors) {
   if (!watch && web_selectors.empty())
     return;
   Vector<String> selectors;
-  selectors.Append(web_selectors.Data(),
+  selectors.Append(web_selectors.data(),
                    base::checked_cast<wtf_size_t>(web_selectors.size()));
   CSSSelectorWatch::From(*document).WatchCSSSelectors(selectors);
 }

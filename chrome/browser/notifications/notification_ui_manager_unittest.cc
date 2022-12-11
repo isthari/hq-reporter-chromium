@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,7 +55,7 @@ class NotificationUIManagerTest : public BrowserWithTestWindowTest {
   const Notification GetANotification(const std::string& id) {
     return Notification(
         message_center::NOTIFICATION_TYPE_SIMPLE, id, std::u16string(),
-        std::u16string(), gfx::Image(), std::u16string(),
+        std::u16string(), ui::ImageModel(), std::u16string(),
         GURL("chrome-extension://adflkjsdflkdsfdsflkjdsflkdjfs"),
         NotifierId(NotifierType::APPLICATION, "adflkjsdflkdsfdsflkjdsflkdjfs"),
         message_center::RichNotificationData(),

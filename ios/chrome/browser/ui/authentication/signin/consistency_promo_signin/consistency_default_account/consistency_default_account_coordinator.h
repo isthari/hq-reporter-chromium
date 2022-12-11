@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,13 @@
 
 #import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
 
-@class ChromeIdentity;
 @class ConsistencyDefaultAccountCoordinator;
 @protocol ConsistencyLayoutDelegate;
+@protocol SystemIdentity;
+
+namespace signin_metrics {
+enum class AccessPoint : int;
+}  // namespace signin_metrics
 
 @protocol ConsistencyDefaultAccountCoordinatorDelegate <NSObject>
 
@@ -35,12 +39,21 @@
 // default account available on the device.
 @interface ConsistencyDefaultAccountCoordinator : ChromeCoordinator
 
+- (instancetype)initWithBaseViewController:(UIViewController*)baseViewController
+                                   browser:(Browser*)browser
+                               accessPoint:
+                                   (signin_metrics::AccessPoint)accessPoint
+    NS_DESIGNATED_INITIALIZER;
+
+- (instancetype)initWithBaseViewController:(UIViewController*)baseViewController
+                                   browser:(Browser*)browser NS_UNAVAILABLE;
+
 @property(nonatomic, strong, readonly) UIViewController* viewController;
 @property(nonatomic, weak) id<ConsistencyDefaultAccountCoordinatorDelegate>
     delegate;
 @property(nonatomic, weak) id<ConsistencyLayoutDelegate> layoutDelegate;
 // This property can be used only after the coordinator is started.
-@property(nonatomic, strong) ChromeIdentity* selectedIdentity;
+@property(nonatomic, strong) id<SystemIdentity> selectedIdentity;
 
 // Starts the spinner and disables buttons.
 - (void)startSigninSpinner;

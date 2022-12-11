@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,6 +25,7 @@
 #include "storage/browser/file_system/file_stream_writer.h"
 #include "storage/browser/file_system/file_system_context.h"
 #include "storage/browser/file_system/file_system_operation.h"
+#include "storage/browser/file_system/file_system_util.h"
 #include "storage/common/file_system/file_system_util.h"
 
 using content::BrowserThread;
@@ -84,12 +85,12 @@ void SyncFileSystemBackend::Initialize(storage::FileSystemContext* context) {
 
 void SyncFileSystemBackend::ResolveURL(const storage::FileSystemURL& url,
                                        storage::OpenFileSystemMode mode,
-                                       OpenFileSystemCallback callback) {
+                                       ResolveURLCallback callback) {
   DCHECK(CanHandleType(url.type()));
 
   if (skip_initialize_syncfs_service_for_testing_) {
     GetDelegate()->OpenFileSystem(
-        url.storage_key(), url.type(), mode, std::move(callback),
+        url.GetBucket(), url.type(), mode, std::move(callback),
         GetSyncableFileSystemRootURI(url.origin().GetURL()));
     return;
   }
@@ -266,7 +267,7 @@ void SyncFileSystemBackend::DidInitializeSyncFileSystemService(
     const GURL& origin_url,
     storage::FileSystemType type,
     storage::OpenFileSystemMode mode,
-    OpenFileSystemCallback callback,
+    ResolveURLCallback callback,
     SyncStatusCode status) {
   // Repost to switch from UI thread to IO thread.
   if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {

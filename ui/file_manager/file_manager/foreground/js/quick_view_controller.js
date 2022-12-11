@@ -1,12 +1,12 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {ImageLoaderClient} from 'chrome-extension://pmfjbimdmchhbnneeidfognadeopoehp/image_loader_client.js';
 import {LoadImageRequest, LoadImageResponse, LoadImageResponseStatus} from 'chrome-extension://pmfjbimdmchhbnneeidfognadeopoehp/load_image_request.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/js/assert.js';
 
-import {DialogType} from '../../common/js/dialog_type.js';
+import {DialogType, isModal} from '../../common/js/dialog_type.js';
 import {FileType} from '../../common/js/file_type.js';
 import {str, util} from '../../common/js/util.js';
 import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
@@ -156,7 +156,7 @@ export class QuickViewController {
    */
   init_(quickView) {
     this.quickView_ = quickView;
-    this.quickView_.isModal = DialogType.isModal(this.dialogType_);
+    this.quickView_.isModal = isModal(this.dialogType_);
 
     this.quickView_.setAttribute('files-ng', '');
 
@@ -441,7 +441,7 @@ export class QuickViewController {
         this.init_(quickView);
         return this.updateQuickView_();
       } catch (error) {
-        console.error(error);
+        console.warn(error);
         return;
       }
     }
@@ -468,7 +468,7 @@ export class QuickViewController {
       return this.onMetadataLoaded_(entry, items, tasks, canDelete);
     } catch (error) {
       if (error) {
-        console.error(error.stack || error);
+        console.warn(error.stack || error);
       }
     }
   }
@@ -487,7 +487,7 @@ export class QuickViewController {
    * @private
    */
   async onMetadataLoaded_(entry, items, fileTasks, canDelete) {
-    const tasks = fileTasks.getTaskItems();
+    const tasks = fileTasks.getAnnotatedTasks();
 
     const params =
         await this.getQuickViewParameters_(entry, items, tasks, canDelete);
@@ -501,7 +501,6 @@ export class QuickViewController {
     };
 
     this.quickView_.setProperties({
-      isLegacy: !window.isSWA,
       type: params.type || '',
       subtype: params.subtype || '',
       filePath: params.filePath || '',
@@ -603,7 +602,7 @@ export class QuickViewController {
         }
         return params;
       } catch (error) {
-        console.error(error);
+        console.warn(error);
       }
       return params;
     }
@@ -677,7 +676,7 @@ export class QuickViewController {
               };
               params.browsable = true;
             } catch (error) {
-              console.error(error);
+              console.warn(error);
             }
             return params;
           }
@@ -696,7 +695,7 @@ export class QuickViewController {
         };
       }
     } catch (error) {
-      console.error(error);
+      console.warn(error);
     }
     return params;
   }
@@ -763,6 +762,7 @@ QuickViewController.LOCAL_VOLUME_TYPES_ = [
   VolumeManagerCommon.VolumeType.REMOVABLE,
   VolumeManagerCommon.VolumeType.ANDROID_FILES,
   VolumeManagerCommon.VolumeType.CROSTINI,
+  VolumeManagerCommon.VolumeType.GUEST_OS,
   VolumeManagerCommon.VolumeType.MEDIA_VIEW,
   VolumeManagerCommon.VolumeType.DOCUMENTS_PROVIDER,
   VolumeManagerCommon.VolumeType.SMB,

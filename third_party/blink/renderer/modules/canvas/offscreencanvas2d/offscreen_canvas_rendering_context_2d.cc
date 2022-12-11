@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -96,6 +96,8 @@ OffscreenCanvasRenderingContext2D::OffscreenCanvasRenderingContext2D(
     OffscreenCanvas* canvas,
     const CanvasContextCreationAttributesCore& attrs)
     : CanvasRenderingContext(canvas, attrs, CanvasRenderingAPI::k2D),
+      BaseRenderingContext2D(canvas->GetTopExecutionContext()->GetTaskRunner(
+          TaskType::kInternalDefault)),
       color_params_(attrs.color_space, attrs.pixel_format, attrs.alpha) {
   identifiability_study_helper_.SetExecutionContext(
       canvas->GetTopExecutionContext());
@@ -107,8 +109,8 @@ OffscreenCanvasRenderingContext2D::OffscreenCanvasRenderingContext2D(
 
   ExecutionContext* execution_context = canvas->GetTopExecutionContext();
   if (auto* window = DynamicTo<LocalDOMWindow>(execution_context)) {
-    DCHECK(window->GetFrame() && window->GetFrame()->GetSettings());
-    if (window->GetFrame()->GetSettings()->GetDisableReadingFromCanvas())
+    if (window->GetFrame() && window->GetFrame()->GetSettings() &&
+        window->GetFrame()->GetSettings()->GetDisableReadingFromCanvas())
       canvas->SetDisableReadingFromCanvasTrue();
     return;
   }
@@ -773,7 +775,7 @@ bool OffscreenCanvasRenderingContext2D::IsCanvas2DBufferValid() const {
 
 void OffscreenCanvasRenderingContext2D::DispatchContextLostEvent(
     TimerBase* time) {
-  PostDeferrableAction(WTF::Bind(
+  PostDeferrableAction(WTF::BindOnce(
       [](BaseRenderingContext2D* context) { context->ResetInternal(); },
       WrapPersistent(this)));
   BaseRenderingContext2D::DispatchContextLostEvent(time);

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "chrome/browser/ui/bookmarks/bookmark_stats.h"
 #include "chrome/browser/ui/tabs/tab_group_theme.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_menu_controller_observer.h"
+#include "chrome/browser/ui/views/bookmarks/saved_tab_groups/saved_tab_group_bar.h"
 #include "components/bookmarks/browser/bookmark_model_observer.h"
 #include "components/bookmarks/browser/bookmark_node_data.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -35,7 +36,7 @@ class BookmarkContextMenu;
 class Browser;
 class BrowserView;
 class Profile;
-class ReadLaterButton;
+class SavedTabGroupBar;
 
 namespace bookmarks {
 class BookmarkModel;
@@ -127,8 +128,6 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // Returns the button used when not all the items on the bookmark bar fit.
   views::MenuButton* overflow_button() const { return overflow_button_; }
 
-  ReadLaterButton* read_later_button() const { return read_later_button_; }
-
   const gfx::Animation& size_animation() { return size_animation_; }
 
   // Returns the active MenuItemView, or NULL if a menu isn't showing.
@@ -173,7 +172,8 @@ class BookmarkBarView : public views::AccessiblePaneView,
   views::View::DropCallback GetDropCallback(
       const ui::DropTargetEvent& event) override;
   void OnThemeChanged() override;
-  void VisibilityChanged(View* starting_from, bool is_visible) override;
+  void VisibilityChanged(views::View* starting_from, bool is_visible) override;
+  void ChildPreferredSizeChanged(views::View* child) override;
 
   // AccessiblePaneView:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
@@ -201,7 +201,8 @@ class BookmarkBarView : public views::AccessiblePaneView,
                          size_t new_index) override;
   void BookmarkNodeAdded(bookmarks::BookmarkModel* model,
                          const bookmarks::BookmarkNode* parent,
-                         size_t index) override;
+                         size_t index,
+                         bool added_by_user) override;
   void BookmarkNodeRemoved(bookmarks::BookmarkModel* model,
                            const bookmarks::BookmarkNode* parent,
                            size_t old_index,
@@ -321,7 +322,7 @@ class BookmarkBarView : public views::AccessiblePaneView,
 
   // Returns the node corresponding to |sender|, which is one of the
   // |bookmark_buttons_|.
-  const bookmarks::BookmarkNode* GetNodeForSender(View* sender) const;
+  const bookmarks::BookmarkNode* GetNodeForSender(views::View* sender) const;
 
   // Writes a BookmarkNodeData for node to data.
   void WriteBookmarkDragData(const bookmarks::BookmarkNode* node,
@@ -355,9 +356,6 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // Updates the visibility of the apps shortcut based on the pref value.
   void OnAppsPageShortcutVisibilityPrefChanged();
 
-  // Updates the visibility of the reading list based on the pref value.
-  void OnReadingListVisibilityPrefChanged();
-
   void OnShowManagedBookmarksPrefChanged();
 
   void LayoutAndPaint() {
@@ -365,21 +363,14 @@ class BookmarkBarView : public views::AccessiblePaneView,
     SchedulePaint();
   }
 
-  // Inserts |button| in logical position |index| in the bar, maintaining
-  // correct focus traversal order.
-  void InsertBookmarkButtonAtIndex(std::unique_ptr<views::View> button,
+  // Inserts |bookmark_button| in logical position |index| in the bar,
+  // maintaining correct focus traversal order.
+  void InsertBookmarkButtonAtIndex(std::unique_ptr<views::View> bookmark_button,
                                    size_t index);
 
   // Returns the model index for the bookmark associated with |button|,
   // or size_t{-1} if |button| is not a bookmark button from this bar.
   size_t GetIndexForButton(views::View* button);
-
-  // Returns a callback that fetches the content::PageNavigator for
-  // opening bookmarks. This callback is passed to menus, eventually
-  // used by chrome::OpenAllIfAllowed(). A callback is used since
-  // opening many bookmarks is asynchronous and |page_navigator_| may
-  // change in the meantime.
-  base::RepeatingCallback<content::PageNavigator*()> GetPageNavigatorGetter();
 
   // Returns the target drop BookmarkNode parent pointer and updates `index`
   // with the right value.
@@ -399,11 +390,11 @@ class BookmarkBarView : public views::AccessiblePaneView,
   PrefChangeRegistrar profile_pref_registrar_;
 
   // Used for opening urls.
-  raw_ptr<content::PageNavigator> page_navigator_ = nullptr;
+  raw_ptr<content::PageNavigator, DanglingUntriaged> page_navigator_ = nullptr;
 
   // BookmarkModel that owns the entries and folders that are shown in this
   // view. This is owned by the Profile.
-  raw_ptr<bookmarks::BookmarkModel> model_ = nullptr;
+  raw_ptr<bookmarks::BookmarkModel> bookmark_model_ = nullptr;
 
   // ManagedBookmarkService. This is owned by the Profile.
   raw_ptr<bookmarks::ManagedBookmarkService> managed_ = nullptr;
@@ -420,6 +411,9 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // If non-NULL we're showing a context menu for one of the items on the
   // bookmark bar.
   std::unique_ptr<BookmarkContextMenu> context_menu_;
+
+  // Saved Tab Group section
+  raw_ptr<SavedTabGroupBar> saved_tab_group_bar_ = nullptr;
 
   // Shows the "Other Bookmarks" folder button.
   raw_ptr<views::MenuButton> other_bookmarks_button_ = nullptr;
@@ -439,13 +433,8 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // The individual bookmark buttons.
   std::vector<views::LabelButton*> bookmark_buttons_;
 
-  // The individual TAB GROUP bookmark buttons.
-  std::vector<views::LabelButton*> tab_group_buttons_;
-
   raw_ptr<ButtonSeparatorView> bookmarks_separator_view_ = nullptr;
-
-  raw_ptr<ReadLaterButton> read_later_button_ = nullptr;
-  raw_ptr<ButtonSeparatorView> read_later_separator_view_ = nullptr;
+  raw_ptr<ButtonSeparatorView> saved_tab_groups_separator_view_ = nullptr;
 
   const raw_ptr<Browser> browser_;
   raw_ptr<BrowserView> browser_view_;

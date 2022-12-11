@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
 import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
 
-import {CrIconButtonElement} from 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
+import {CrIconButtonElement} from 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
 import {CrLinkRowElement} from 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
@@ -15,8 +15,9 @@ suite('cr-link-row', function() {
   let linkRow: CrLinkRowElement;
 
   setup(() => {
-    document.body.innerHTML = '<cr-link-row></cr-link-row>';
-    linkRow = document.body.querySelector('cr-link-row')!;
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
+    linkRow = document.createElement('cr-link-row');
+    document.body.appendChild(linkRow);
   });
 
   test('check label visibility', () => {

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,17 +24,19 @@
 #include "chrome/browser/component_updater/cros_component_installer_chromeos.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/webui_url_constants.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
+#include "chromeos/ash/components/dbus/debug_daemon/debug_daemon_client.h"
 #include "chromeos/printing/ppd_provider.h"
 #include "chromeos/printing/printer_configuration.h"
 #include "components/device_event_log/device_event_log.h"
 #include "content/public/browser/browser_thread.h"
 #include "third_party/cros_system_api/dbus/debugd/dbus-constants.h"
 
-namespace chromeos {
+namespace ash {
 
 namespace {
+
+using ::chromeos::PpdProvider;
+using ::chromeos::Printer;
 
 // PrinterConfigurer override for testing.
 PrinterConfigurer* g_printer_configurer_for_test = nullptr;
@@ -107,7 +109,7 @@ PrinterSetupResult PrinterSetupResultFromDbusErrorCode(
 class PrinterConfigurerImpl : public PrinterConfigurer {
  public:
   explicit PrinterConfigurerImpl(Profile* profile)
-      : ppd_provider_(ash::CreatePpdProvider(profile)) {}
+      : ppd_provider_(CreatePpdProvider(profile)) {}
 
   PrinterConfigurerImpl(const PrinterConfigurerImpl&) = delete;
   PrinterConfigurerImpl& operator=(const PrinterConfigurerImpl&) = delete;
@@ -133,8 +135,7 @@ class PrinterConfigurerImpl : public PrinterConfigurer {
 
     PRINTER_LOG(DEBUG) << printer.make_and_model()
                        << " Attempting autoconf setup";
-    auto* client = DBusThreadManager::Get()->GetDebugDaemonClient();
-    client->CupsAddAutoConfiguredPrinter(
+    DebugDaemonClient::Get()->CupsAddAutoConfiguredPrinter(
         printer.id(), printer.uri().GetNormalized(true /*always_print_port*/),
         base::BindOnce(&PrinterConfigurerImpl::OnAddedPrinter,
                        weak_factory_.GetWeakPtr(), printer,
@@ -161,10 +162,8 @@ class PrinterConfigurerImpl : public PrinterConfigurer {
   void AddPrinter(const Printer& printer,
                   const std::string& ppd_contents,
                   PrinterSetupCallback cb) {
-    auto* client = DBusThreadManager::Get()->GetDebugDaemonClient();
-
     PRINTER_LOG(EVENT) << printer.make_and_model() << " Manual printer setup";
-    client->CupsAddManuallyConfiguredPrinter(
+    DebugDaemonClient::Get()->CupsAddManuallyConfiguredPrinter(
         printer.id(), printer.uri().GetNormalized(true /*always_print_port*/),
         ppd_contents,
         base::BindOnce(&PrinterConfigurerImpl::OnAddedPrinter,
@@ -306,4 +305,4 @@ std::string ResultCodeToMessage(const PrinterSetupResult result) {
   }
 }
 
-}  // namespace chromeos
+}  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,32 +6,33 @@ import * as animate from '../animation.js';
 import {
   assert,
   assertInstanceof,
+  assertNotReached,
 } from '../assert.js';
-import {CameraManager} from '../device/index.js';
+import * as customToast from '../custom_effect.js';
 import {
+  CameraConfig,
+  CameraManager,
   CameraViewUI,
   getDefaultScanCorners,
   GifResult,
   PhotoResult,
-  PortraitResult,
   setAvc1Parameters,
   VideoResult,
 } from '../device/index.js';
 import * as dom from '../dom.js';
 import * as error from '../error.js';
+import * as expert from '../expert.js';
 import {Flag} from '../flag.js';
 import {Point} from '../geometry.js';
 import {I18nString} from '../i18n_string.js';
 import * as metrics from '../metrics.js';
 import {Filenamer} from '../models/file_namer.js';
-import * as loadTimeData from '../models/load_time_data.js';
-import * as localStorage from '../models/local_storage.js';
+import {getChromeFlag, getI18nMessage} from '../models/load_time_data.js';
 import {ResultSaver} from '../models/result_saver.js';
 import {VideoSaver} from '../models/video_saver.js';
 import {ChromeHelper} from '../mojo/chrome_helper.js';
 import {DeviceOperator} from '../mojo/device_operator.js';
 import * as nav from '../nav.js';
-import * as newFeatureToast from '../new_feature_toast.js';
 import {PerfLogger} from '../perf.js';
 import * as sound from '../sound.js';
 import {speak} from '../spoken_msg.js';
@@ -43,9 +44,12 @@ import {
   ErrorType,
   Facing,
   ImageBlob,
+  LowStorageDialogType,
+  LowStorageError,
   MimeType,
   Mode,
   PerfEvent,
+  PortraitModeProcessError,
   Resolution,
   Rotation,
   ViewName,
@@ -60,10 +64,12 @@ import * as timertick from './camera/timertick.js';
 import {VideoEncoderOptions} from './camera/video_encoder_options.js';
 import {CropDocument} from './crop_document.js';
 import {Dialog} from './dialog.js';
+import {DocumentReview} from './document_review.js';
+import {OptionPanel} from './option_panel.js';
 import {PTZPanel} from './ptz_panel.js';
 import * as review from './review.js';
-import {PrimarySettings} from './settings.js';
-import {PTZPanelOptions, View} from './view.js';
+import {PrimarySettings} from './settings/primary.js';
+import {View} from './view.js';
 import {WarningType} from './warning.js';
 
 /**
@@ -71,14 +77,22 @@ import {WarningType} from './warning.js';
  */
 export class Camera extends View implements CameraViewUI {
   private readonly cropDocument = new CropDocument();
+
+  private readonly documentReview: DocumentReview;
+
   private readonly docModeDialogView =
       new Dialog(ViewName.DOCUMENT_MODE_DIALOG);
+
+  private currentLowStorageType: LowStorageDialogType|null = null;
+
+  private readonly lowStorageDialogView: Dialog;
+
   private readonly subViews: View[];
 
   /**
    * Layout handler for the camera view.
    */
-  private readonly layoutHandler = new Layout();
+  private readonly layoutHandler: Layout;
 
   private readonly scanOptions: ScanOptions;
 
@@ -98,36 +112,46 @@ export class Camera extends View implements CameraViewUI {
   private activeDeviceId: string|null = null;
 
   protected readonly review = new review.Review();
-  protected facing = Facing.NOT_SET;
+
+  protected facing: Facing|null = null;
+
   protected shutterType = metrics.ShutterType.UNKNOWN;
 
   /**
    * Event for tracking camera availability state.
    */
-  private cameraReady: WaitableEvent = new WaitableEvent();
+  private cameraReady = new WaitableEvent();
 
   /**
    * Promise for the current take of photo or recording.
    */
   private take: Promise<void>|null = null;
 
-  private readonly openPTZPanel = dom.get('#open-ptz-panel', HTMLButtonElement);
+  private readonly modesGroup = dom.get('#modes-group', HTMLElement);
 
   constructor(
       protected readonly resultSaver: ResultSaver,
-      private readonly cameraManager: CameraManager,
+      protected readonly cameraManager: CameraManager,
       readonly perfLogger: PerfLogger,
   ) {
     super(ViewName.CAMERA);
-
+    this.documentReview = new DocumentReview(resultSaver);
+    this.lowStorageDialogView = new Dialog(ViewName.LOW_STORAGE_DIALOG, {
+      onNegativeButtonClicked: () => this.openStorageManagement(),
+    });
     this.subViews = [
       new PrimarySettings(this.cameraManager),
+      new OptionPanel(),
       new PTZPanel(),
       this.review,
       this.cropDocument,
+      this.documentReview,
       this.docModeDialogView,
+      this.lowStorageDialogView,
       new View(ViewName.FLASH),
     ];
+
+    this.layoutHandler = new Layout(this.cameraManager);
 
     this.scanOptions = new ScanOptions(this.cameraManager);
 
@@ -141,20 +165,25 @@ export class Camera extends View implements CameraViewUI {
     /**
      * Gets type of ways to trigger shutter from click event.
      */
-    const getShutterType = (e: MouseEvent) => {
+    function getShutterType(e: MouseEvent) {
       if (e.clientX === 0 && e.clientY === 0) {
         return metrics.ShutterType.KEYBOARD;
       }
-      return e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents ?
+      return e.sourceCapabilities?.firesTouchEvents ?
           metrics.ShutterType.TOUCH :
           metrics.ShutterType.MOUSE;
-    };
-
-    dom.get('#start-takephoto', HTMLButtonElement)
-        .addEventListener('click', (e) => {
-          const mouseEvent = assertInstanceof(e, MouseEvent);
-          this.beginTake(getShutterType(mouseEvent));
-        });
+    }
+    const photoShutter = dom.get('#start-takephoto', HTMLButtonElement);
+    photoShutter.addEventListener('click', (e) => {
+      this.beginTake(getShutterType(e));
+    });
+    function checkPhotoShutter() {
+      const disabled = state.get(state.State.CAMERA_CONFIGURING) ||
+          state.get(state.State.TAKING);
+      photoShutter.disabled = disabled;
+    }
+    state.addObserver(state.State.CAMERA_CONFIGURING, checkPhotoShutter);
+    state.addObserver(state.State.TAKING, checkPhotoShutter);
 
     dom.get('#stop-takephoto', HTMLButtonElement)
         .addEventListener('click', () => this.endTake());
@@ -162,16 +191,28 @@ export class Camera extends View implements CameraViewUI {
     const videoShutter = dom.get('#recordvideo', HTMLButtonElement);
     videoShutter.addEventListener('click', (e) => {
       if (!state.get(state.State.TAKING)) {
-        this.beginTake(getShutterType(assertInstanceof(e, MouseEvent)));
+        this.beginTake(getShutterType(e));
       } else {
         this.endTake();
       }
     });
+    function checkVideoShutter() {
+      const disabled = state.get(state.State.CAMERA_CONFIGURING) &&
+          !state.get(state.State.TAKING);
+      videoShutter.disabled = disabled;
+    }
+    state.addObserver(state.State.CAMERA_CONFIGURING, checkVideoShutter);
+    state.addObserver(state.State.TAKING, checkVideoShutter);
 
-    dom.get('#video-snapshot', HTMLButtonElement)
-        .addEventListener('click', () => {
-          this.cameraManager.takeVideoSnapshot();
-        });
+    const videoSnapshotButton = dom.get('#video-snapshot', HTMLButtonElement);
+    videoSnapshotButton.addEventListener('click', () => {
+      this.cameraManager.takeVideoSnapshot();
+    });
+    function checkVideoSnapshotButton() {
+      const disabled = state.get(state.State.SNAPSHOTTING);
+      videoSnapshotButton.disabled = disabled;
+    }
+    state.addObserver(state.State.SNAPSHOTTING, checkVideoSnapshotButton);
 
     const pauseShutter = dom.get('#pause-recordvideo', HTMLButtonElement);
     pauseShutter.addEventListener('click', () => {
@@ -194,75 +235,132 @@ export class Camera extends View implements CameraViewUI {
     });
 
     this.cameraManager.registerCameraUI({
-      onUpdateConfig: () => {
+      onTryingNewConfig: (config: CameraConfig) => {
+        this.updateModeUI(config.mode);
+        this.updateShutterLabel(config.mode);
+      },
+      onUpdateConfig: async (config: CameraConfig) => {
         nav.close(ViewName.WARNING, WarningType.NO_CAMERA);
-        this.facing = this.cameraManager.getFacing();
-        this.updateActiveCamera(this.cameraManager.getDeviceId());
+        this.facing = config.facing;
+        this.updateActiveCamera(config.deviceId);
+
+        // Update current mode.
+        const supportedModes =
+            await this.cameraManager.getSupportedModes(config.deviceId);
+        const items = dom.getAll('div.mode-item', HTMLDivElement);
+        let first: HTMLElement|null = null;
+        let last: HTMLElement|null = null;
+        for (const el of items) {
+          const radio = dom.getFrom(el, 'input[type=radio]', HTMLInputElement);
+          const supported = supportedModes.includes(
+              util.assertEnumVariant(Mode, radio.dataset['mode']));
+          el.classList.toggle('hide', !supported);
+          if (supported) {
+            if (first === null) {
+              first = el;
+            }
+            last = el;
+          }
+        }
+        for (const el of items) {
+          el.classList.toggle('first', el === first);
+          el.classList.toggle('last', el === last);
+        }
       },
       onCameraUnavailable: () => {
         this.cameraReady = new WaitableEvent();
       },
-      onCameraAvailble: () => {
+      onCameraAvailable: () => {
         this.cameraReady.signal();
       },
     });
-    this.initOpenPTZPanel();
+
+    const checkModesGroupDisabled = () => {
+      const disabled =
+          !state.get(state.State.STREAMING) || state.get(state.State.TAKING);
+      const modes =
+          dom.getAllFrom(this.modesGroup, '.mode-item>input', HTMLInputElement);
+      for (const mode of modes) {
+        mode.disabled = disabled;
+      }
+    };
+    state.addObserver(state.State.STREAMING, checkModesGroupDisabled);
+    state.addObserver(state.State.TAKING, checkModesGroupDisabled);
+
+    for (const el of dom.getAll('.mode-item>input', HTMLInputElement)) {
+      el.addEventListener('click', (event) => {
+        if (!this.cameraReady.isSignaled()) {
+          event.preventDefault();
+        }
+      });
+      el.addEventListener('change', async () => {
+        if (el.checked) {
+          const mode = util.assertEnumVariant(Mode, el.dataset['mode']);
+          this.updateModeUI(mode);
+          this.updateShutterLabel(mode);
+          state.set(state.State.MODE_SWITCHING, true);
+          const isSuccess = await this.cameraManager.switchMode(mode);
+          state.set(state.State.MODE_SWITCHING, false, {hasError: !isSuccess});
+        }
+      });
+    }
+    dom.get('#back-to-review-document', HTMLButtonElement)
+        .addEventListener(
+            'click',
+            () => {
+              this.reviewMultiPageDocument();
+            },
+        );
   }
 
   /**
    * Initializes camera view.
    */
   async initialize(): Promise<void> {
-    state.addObserver(state.State.ENABLE_FULL_SIZED_VIDEO_SNAPSHOT, () => {
-      this.cameraManager.reconfigure();
-    });
-    state.addObserver(state.State.ENABLE_MULTISTREAM_RECORDING, () => {
-      this.cameraManager.reconfigure();
-    });
+    expert.addObserver(
+        expert.ExpertOption.ENABLE_FULL_SIZED_VIDEO_SNAPSHOT,
+        () => this.cameraManager.reconfigure());
+    expert.addObserver(
+        expert.ExpertOption.ENABLE_MULTISTREAM_RECORDING,
+        () => this.cameraManager.reconfigure());
+    expert.addObserver(
+        expert.ExpertOption.ENABLE_PTZ_FOR_BUILTIN,
+        () => this.cameraManager.reconfigure());
 
     this.initVideoEncoderOptions();
-    await this.initScanMode();
+    this.initScanMode();
   }
 
-  private initOpenPTZPanel() {
-    this.openPTZPanel.addEventListener('click', () => {
-      nav.open(ViewName.PTZ_PANEL, new PTZPanelOptions({
-                 stream: this.cameraManager.getPreviewVideo().getStream(),
-                 vidPid: this.cameraManager.getVidPid(),
-                 resetPTZ: () => this.cameraManager.resetPTZ(),
-               }));
-      highlight(false);
-    });
+  /**
+   * Gets current facing after |initialize()|.
+   */
+  protected getFacing(): Facing {
+    return util.assertEnumVariant(Facing, this.facing);
+  }
 
-    // Highlight effect for PTZ button.
-    let toastShown = false;
-    const highlight = (enabled: boolean) => {
-      if (!enabled) {
-        if (toastShown) {
-          newFeatureToast.hide();
-          toastShown = false;
-        }
-        return;
-      }
-      toastShown = true;
-      newFeatureToast.show(this.openPTZPanel);
-      newFeatureToast.focus();
-    };
-
-    this.cameraManager.registerCameraUI({
-      onUpdateConfig: () => {
-        const ptzToastKey = 'isPTZToastShown';
-        if (!state.get(state.State.ENABLE_PTZ) ||
-            state.get(state.State.IS_NEW_FEATURE_TOAST_SHOWN) ||
-            localStorage.getBool(ptzToastKey)) {
-          highlight(false);
-          return;
-        }
-        localStorage.set(ptzToastKey, true);
-        state.set(state.State.IS_NEW_FEATURE_TOAST_SHOWN, true);
-        highlight(true);
-      },
+  private updateModeUI(mode: Mode) {
+    for (const m of Object.values(Mode)) {
+      state.set(m, m === mode);
+    }
+    const element =
+        dom.get(`.mode-item>input[data-mode=${mode}]`, HTMLInputElement);
+    element.checked = true;
+    const wrapper = assertInstanceof(element.parentElement, HTMLDivElement);
+    const scrollLeft = wrapper.offsetLeft -
+        (this.modesGroup.offsetWidth - wrapper.offsetWidth) / 2;
+    this.modesGroup.scrollTo({
+      left: scrollLeft,
+      top: 0,
+      behavior: 'smooth',
     });
+  }
+
+  private updateShutterLabel(mode: Mode) {
+    const element = dom.get('#start-takephoto', HTMLButtonElement);
+    const label =
+        mode === 'scan' ? I18nString.SCAN_BUTTON : I18nString.TAKE_PHOTO_BUTTON;
+    element.setAttribute('i18n-label', label);
+    element.setAttribute('aria-label', getI18nMessage(label));
   }
 
   private initVideoEncoderOptions() {
@@ -283,86 +381,71 @@ export class Camera extends View implements CameraViewUI {
   }
 
   private async initScanMode() {
-    const isPlatformSupport =
-        await ChromeHelper.getInstance().isDocumentModeSupported();
-    state.set(state.State.SHOW_SCAN_MODE, isPlatformSupport);
-    if (!isPlatformSupport) {
+    const isLoaded = await this.scanOptions.checkDocumentModeReadiness();
+    if (!isLoaded) {
       return;
     }
-
-    // Check show toast.
-    const docModeToastKey = 'isDocModeToastShown';
-    if (!state.get(state.State.IS_NEW_FEATURE_TOAST_SHOWN) &&
-        !localStorage.getBool(docModeToastKey)) {
-      state.set(state.State.IS_NEW_FEATURE_TOAST_SHOWN, true);
-      localStorage.set(docModeToastKey, true);
-      // aria-owns don't work on HTMLInputElement, show toast on parent div
-      // instead.
-      const scanModeBtn = dom.get('input[data-mode="scan"]', HTMLInputElement);
-      const scanModeItem =
-          assertInstanceof(scanModeBtn.parentElement, HTMLDivElement);
-      newFeatureToast.show(scanModeItem);
-      scanModeBtn.addEventListener('click', () => {
-        newFeatureToast.hide();
-      });
-    }
-
-    const docModeDialogKey = 'isDocModeDialogShown';
-    if (!localStorage.getBool(docModeDialogKey)) {
-      this.cameraManager.registerCameraUI({
-        onUpdateConfig: () => {
-          if (localStorage.getBool(docModeDialogKey) || !state.get(Mode.SCAN) ||
-              !this.scanOptions.isDocumentModeEanbled()) {
-            return;
-          }
-          localStorage.set(docModeDialogKey, true);
-          const message = loadTimeData.getI18nMessage(
-              I18nString.DOCUMENT_MODE_DIALOG_INTRO_TITLE);
-          nav.open(ViewName.DOCUMENT_MODE_DIALOG, {message});
-        },
-      });
-    }
-
     // When entering document mode, refocus to shutter button for letting user
     // to take document photo with space key as shortcut. See b/196907822.
     const checkRefocus = () => {
       if (!state.get(state.State.CAMERA_CONFIGURING) && state.get(Mode.SCAN) &&
-          this.scanOptions.isDocumentModeEanbled() &&
-          nav.isTopMostView(this.name)) {
-        dom.getAll('button.shutter', HTMLButtonElement)
-            .forEach((btn) => btn.offsetParent && btn.focus());
+          this.scanOptions.isDocumentModeEnabled()) {
+        this.focusShutterButton();
       }
     };
     state.addObserver(state.State.CAMERA_CONFIGURING, checkRefocus);
-    this.scanOptions.onChange = checkRefocus;
+    this.scanOptions.addOnChangeListener(() => checkRefocus());
   }
 
-  getSubViews(): View[] {
+  override getSubViews(): View[] {
     return this.subViews;
   }
 
-  focus(): void {
-    (async () => {
-      await this.cameraReady.wait();
-
-      // Check the view is still on the top after await.
-      if (!nav.isTopMostView(ViewName.CAMERA)) {
-        return;
+  private focusShutterButton(): void {
+    if (!nav.isTopMostView(this.name)) {
+      return;
+    }
+    // Avoid focusing invisible shutters.
+    for (const btn of dom.getAll('button.shutter', HTMLButtonElement)) {
+      if (btn.offsetParent !== null) {
+        btn.focus();
       }
+    }
+  }
 
-      if (newFeatureToast.isShowing()) {
-        newFeatureToast.focus();
-        return;
-      }
+  private async defaultFocus(): Promise<void> {
+    await this.cameraReady.wait();
 
-      // Avoid focusing invisible shutters.
-      dom.getAll('button.shutter', HTMLButtonElement)
-          .forEach((btn) => btn.offsetParent && btn.focus());
-    })();
+    // Check the view is still on the top after await.
+    if (!nav.isTopMostView(ViewName.CAMERA)) {
+      return;
+    }
+
+    if (customToast.isShowing()) {
+      customToast.focus();
+      return;
+    }
+
+    this.focusShutterButton();
+  }
+
+  override onShownAsTop(): void {
+    this.defaultFocus();
+  }
+
+  override onUncoveredAsTop(viewName: ViewName): void {
+    if ([ViewName.SETTINGS, ViewName.OPTION_PANEL].includes(viewName)) {
+      // Don't refocus on shutter button when coming back from setting menu.
+      super.onUncoveredAsTop(viewName);
+    } else {
+      this.setFocusable();
+      this.defaultFocus();
+    }
   }
 
   /**
    * Begins to take photo or recording with the current options, e.g. timer.
+   *
    * @param shutterType The shutter is triggered by which shutter type.
    * @return Promise resolved when take action completes. Returns null if CCA
    *     can't start take action.
@@ -375,28 +458,33 @@ export class Camera extends View implements CameraViewUI {
 
     state.set(state.State.TAKING, true);
     this.shutterType = shutterType;
-    this.focus();  // Refocus the visible shutter button for ChromeVox.
+    // Refocus the visible shutter button for ChromeVox.
+    this.focusShutterButton();
     this.take = (async () => {
       let hasError = false;
       try {
         // Record and keep the rotation only at the instance the user starts the
         // capture. Users may change the device orientation while taking video.
         const cameraFrameRotation = await (async () => {
-          const deviceOperator = await DeviceOperator.getInstance();
+          const deviceOperator = DeviceOperator.getInstance();
           if (deviceOperator === null) {
             return 0;
           }
           assert(this.activeDeviceId !== null);
-          return await deviceOperator.getCameraFrameRotation(
-              this.activeDeviceId);
+          return deviceOperator.getCameraFrameRotation(this.activeDeviceId);
         })();
         // Translate the camera frame rotation back to the UI rotation, which is
         // what we need to rotate the captured video with.
         this.outputVideoRotation = (360 - cameraFrameRotation) % 360;
         await timertick.start();
-        const captureDone = await this.cameraManager.startCapture();
-        await captureDone();
+        const [captureDone] = await this.cameraManager.startCapture();
+        await captureDone;
       } catch (e) {
+        if (e instanceof LowStorageError) {
+          this.showLowStorageDialog(LowStorageDialogType.CANNOT_START);
+          // Don't send capture error.
+          return;
+        }
         hasError = true;
         if (e instanceof CanceledError) {
           return;
@@ -406,15 +494,20 @@ export class Camera extends View implements CameraViewUI {
             assertInstanceof(e, Error));
       } finally {
         this.take = null;
-        state.set(state.State.TAKING, false, {hasError, facing: this.facing});
-        this.focus();  // Refocus the visible shutter button for ChromeVox.
+        state.set(state.State.TAKING, false, {
+          hasError,
+          facing: this.getFacing(),
+        });
+        // Refocus the visible shutter button for ChromeVox.
+        this.focusShutterButton();
       }
     })();
     return this.take;
   }
 
   /**
-   * Ends the current take (or clears scheduled further takes if any.)
+   * Ends the current take (or clears scheduled further takes if any).
+   *
    * @return Promise for the operation.
    */
   private async endTake(): Promise<void> {
@@ -433,17 +526,19 @@ export class Camera extends View implements CameraViewUI {
     }
   }
 
-  async handleVideoSnapshot({resolution, blob, timestamp}: PhotoResult):
-      Promise<void> {
+  async handleVideoSnapshot({resolution, blob, timestamp, metadata}:
+                                PhotoResult): Promise<void> {
     metrics.sendCaptureEvent({
-      facing: this.facing,
+      facing: this.getFacing(),
       resolution,
       shutterType: this.shutterType,
       isVideoSnapshot: true,
+      resolutionLevel: this.cameraManager.getVideoResolutionLevel(resolution),
+      aspectRatioSet: this.cameraManager.getAspectRatioSet(resolution),
     });
     try {
       const name = (new Filenamer(timestamp)).newImageName();
-      await this.resultSaver.savePhoto(blob, name, /* metadata */ null);
+      await this.resultSaver.savePhoto(blob, name, metadata);
     } catch (e) {
       toast.show(I18nString.ERROR_MSG_SAVE_FILE_FAILED);
       throw e;
@@ -458,18 +553,36 @@ export class Camera extends View implements CameraViewUI {
     toast.show(I18nString.ERROR_MSG_TAKE_PORTRAIT_BOKEH_PHOTO_FAILED);
   }
 
+  async cropIfUsingSquareResolution(result: Promise<PhotoResult>):
+      Promise<PhotoResult> {
+    if (!this.cameraManager.useSquareResolution()) {
+      return result;
+    }
+    const photoResult = await result;
+    const croppedBlob = await util.cropSquare(photoResult.blob);
+    return {
+      ...photoResult,
+      blob: croppedBlob,
+    };
+  }
+
   async onPhotoCaptureDone(pendingPhotoResult: Promise<PhotoResult>):
       Promise<void> {
     state.set(PerfEvent.PHOTO_CAPTURE_POST_PROCESSING, true);
+
+    pendingPhotoResult = this.cropIfUsingSquareResolution(pendingPhotoResult);
+
     try {
       const {resolution, blob, timestamp, metadata} =
           await this.checkPhotoResult(pendingPhotoResult);
 
       metrics.sendCaptureEvent({
-        facing: this.facing,
+        facing: this.getFacing(),
         resolution,
         shutterType: this.shutterType,
         isVideoSnapshot: false,
+        resolutionLevel: this.cameraManager.getPhotoResolutionLevel(resolution),
+        aspectRatioSet: this.cameraManager.getAspectRatioSet(resolution),
       });
 
       try {
@@ -481,49 +594,63 @@ export class Camera extends View implements CameraViewUI {
       }
       state.set(
           PerfEvent.PHOTO_CAPTURE_POST_PROCESSING, false,
-          {resolution, facing: this.facing});
+          {resolution, facing: this.getFacing()});
     } catch (e) {
       state.set(
           PerfEvent.PHOTO_CAPTURE_POST_PROCESSING, false, {hasError: true});
       throw e;
     }
+    ChromeHelper.getInstance().maybeTriggerSurvey();
   }
 
-  async onPortraitCaptureDone(pendingPortraitResult: Promise<PortraitResult>):
-      Promise<void> {
+  async onPortraitCaptureDone(
+      pendingReference: Promise<PhotoResult>,
+      pendingPortrait: Promise<PhotoResult>): Promise<void> {
     state.set(PerfEvent.PORTRAIT_MODE_CAPTURE_POST_PROCESSING, true);
+
+    pendingReference = this.cropIfUsingSquareResolution(pendingReference);
+    pendingPortrait = this.cropIfUsingSquareResolution(pendingPortrait);
+
     let hasError = false;
     try {
-      const {timestamp, resolution, blob, metadata, pendingPortrait} =
-          await this.checkPhotoResult(pendingPortraitResult);
-      assert(pendingPortrait !== null);
-      const portraitBlobAndMetadata =
-          await this.checkPhotoResult(pendingPortrait);
+      const {timestamp, resolution, blob, metadata} =
+          await this.checkPhotoResult(pendingReference);
 
       metrics.sendCaptureEvent({
-        facing: this.facing,
+        facing: this.getFacing(),
         resolution,
         shutterType: this.shutterType,
         isVideoSnapshot: false,
+        resolutionLevel: this.cameraManager.getPhotoResolutionLevel(resolution),
+        aspectRatioSet: this.cameraManager.getAspectRatioSet(resolution),
       });
 
+      // Save reference.
+      const filenamer = new Filenamer(timestamp);
+      const name = filenamer.newBurstName(false);
       try {
-        // Save reference.
-        const filenamer = new Filenamer(timestamp);
-        const name = filenamer.newBurstName(false);
         await this.resultSaver.savePhoto(blob, name, metadata);
-
-        // Save portrait.
-        if (portraitBlobAndMetadata !== null) {
-          const {blob, metadata} = portraitBlobAndMetadata;
-          const name = filenamer.newBurstName(true);
-          await this.resultSaver.savePhoto(blob, name, metadata);
-        } else {
-          toast.show(I18nString.ERROR_MSG_TAKE_PORTRAIT_BOKEH_PHOTO_FAILED);
-        }
       } catch (e) {
         toast.show(I18nString.ERROR_MSG_SAVE_FILE_FAILED);
         throw e;
+      }
+
+      try {
+        // Save portrait.
+        const {blob: portraitBlob, metadata: portraitMetadata} =
+            await pendingPortrait;
+        const name = filenamer.newBurstName(true);
+        await this.resultSaver.savePhoto(portraitBlob, name, portraitMetadata);
+      } catch (e) {
+        if (e instanceof PortraitModeProcessError) {
+          // This error might be thrown when no face is detected or the
+          // segmentataion failed for the scene. Since there is not much we can
+          // do for either cases, we tolerate such error.
+          toast.show(I18nString.ERROR_MSG_TAKE_PORTRAIT_BOKEH_PHOTO_FAILED);
+        } else {
+          toast.show(I18nString.ERROR_MSG_SAVE_FILE_FAILED);
+          throw e;
+        }
       }
     } catch (e) {
       hasError = true;
@@ -531,12 +658,18 @@ export class Camera extends View implements CameraViewUI {
     } finally {
       state.set(
           PerfEvent.PORTRAIT_MODE_CAPTURE_POST_PROCESSING, false,
-          {hasError, facing: this.facing});
+          {hasError, facing: this.getFacing()});
     }
+    ChromeHelper.getInstance().maybeTriggerSurvey();
   }
 
   async onDocumentCaptureDone(pendingPhotoResult: Promise<PhotoResult>):
       Promise<void> {
+    // TODO(b/223089758): Replace onDocumentCaptureDone with
+    // onMultiPageDocumentCaptureDone once multi-page feature is fully launched.
+    if (getChromeFlag(Flag.MULTI_PAGE_DOC_SCAN)) {
+      return this.onMultiPageDocumentCaptureDone(pendingPhotoResult);
+    }
     const {blob: rawBlob, resolution, timestamp, metadata} =
         await this.checkPhotoResult(pendingPhotoResult);
     const helper = ChromeHelper.getInstance();
@@ -549,7 +682,7 @@ export class Camera extends View implements CameraViewUI {
     const {docBlob, mimeType} = reviewResult;
     let blob = docBlob;
     if (mimeType === MimeType.PDF) {
-      blob = await helper.convertToPdf(blob);
+      blob = await helper.convertToPdf([blob]);
     }
     try {
       const name = (new Filenamer(timestamp)).newDocumentName(mimeType);
@@ -558,6 +691,38 @@ export class Camera extends View implements CameraViewUI {
       toast.show(I18nString.ERROR_MSG_SAVE_FILE_FAILED);
       throw e;
     }
+    ChromeHelper.getInstance().maybeTriggerSurvey();
+  }
+
+  async onMultiPageDocumentCaptureDone(
+      pendingPhotoResult: Promise<PhotoResult>): Promise<void> {
+    nav.open(ViewName.FLASH);
+    let enterInFixMode = false;
+    try {
+      const {blob, resolution} =
+          await this.checkPhotoResult(pendingPhotoResult);
+      const helper = ChromeHelper.getInstance();
+      let corners = await helper.scanDocumentCorners(blob);
+      if (corners === null) {
+        corners = getDefaultScanCorners(resolution);
+        enterInFixMode = true;
+      }
+      await this.documentReview.addPage({
+        blob,
+        corners,
+        rotation: Rotation.ANGLE_0,
+      });
+      metrics.sendCaptureEvent({
+        facing: this.getFacing(),
+        resolution,
+        shutterType: this.shutterType,
+        resolutionLevel: this.cameraManager.getPhotoResolutionLevel(resolution),
+        aspectRatioSet: this.cameraManager.getAspectRatioSet(resolution),
+      });
+    } finally {
+      nav.close(ViewName.FLASH);
+    }
+    await this.reviewMultiPageDocument(enterInFixMode);
   }
 
   /**
@@ -585,35 +750,32 @@ export class Camera extends View implements CameraViewUI {
   private async reviewDocument(
       originImage: ImageBlob, refCorners: Point[]|null):
       Promise<{docBlob: Blob, mimeType: MimeType}|null> {
-    const needFirstRecrop = refCorners === null;
-    const allowRecrop = loadTimeData.getChromeFlag(Flag.DOCUMENT_MANUAL_CROP);
-    if (needFirstRecrop && !allowRecrop) {
-      const message = loadTimeData.getI18nMessage(
-          I18nString.DOCUMENT_MODE_DIALOG_NOT_DETECTED_TITLE);
-      nav.open(ViewName.DOCUMENT_MODE_DIALOG, {message});
-      throw new CanceledError(`Couldn't detect a document`);
-    }
-
     nav.open(ViewName.FLASH);
     const helper = ChromeHelper.getInstance();
     let result = null;
     try {
       await this.prepareReview(async () => {
-        const doCrop = (blob: Blob, corners: Point[], rotation: number) =>
-            helper.convertToDocument(blob, corners, rotation, MimeType.JPEG);
+        function doCrop(blob: Blob, corners: Point[], rotation: number) {
+          return helper.convertToDocument(
+              blob, corners, rotation, MimeType.JPEG);
+        }
         let corners =
-            refCorners || getDefaultScanCorners(originImage.resolution);
+            refCorners ?? getDefaultScanCorners(originImage.resolution);
         // This is definitely assigned in either the async doRecrop or the else
         // branch doCrop.
         let docBlob!: Blob;
         let fixType = metrics.DocFixType.NONE;
         const sendEvent = (docResult: metrics.DocResultType) => {
           metrics.sendCaptureEvent({
-            facing: this.facing,
+            facing: this.getFacing(),
             resolution: originImage.resolution,
             shutterType: this.shutterType,
             docResult,
             docFixType: fixType,
+            resolutionLevel: this.cameraManager.getPhotoResolutionLevel(
+                originImage.resolution),
+            aspectRatioSet:
+                this.cameraManager.getAspectRatioSet(originImage.resolution),
           });
         };
 
@@ -653,7 +815,7 @@ export class Camera extends View implements CameraViewUI {
         };
 
         await this.cropDocument.setReviewPhoto(originImage.blob);
-        if (needFirstRecrop) {
+        if (refCorners === null) {
           nav.close(ViewName.FLASH);
           await doRecrop();
         } else {
@@ -662,21 +824,25 @@ export class Camera extends View implements CameraViewUI {
           nav.close(ViewName.FLASH);
         }
 
-        const positive = new review.OptionGroup({
-          template: review.ButtonGroupTemplate.positive,
+        const negative = new review.OptionGroup({
+          template: review.ButtonGroupTemplate.NEGATIVE,
           options: [
-            new review.Option({text: I18nString.LABEL_SAVE_PDF_DOCUMENT}, {
+            new review.Option({text: I18nString.LABEL_RETAKE}, {
               callback: () => {
-                sendEvent(metrics.DocResultType.SAVE_AS_PDF);
+                sendEvent(metrics.DocResultType.CANCELED);
               },
-              exitValue: MimeType.PDF,
+              exitValue: null,
             }),
-            new review.Option({text: I18nString.LABEL_SAVE_PHOTO_DOCUMENT}, {
-              callback: () => {
-                sendEvent(metrics.DocResultType.SAVE_AS_PHOTO);
-              },
-              exitValue: MimeType.JPEG,
+            new review.Option({text: I18nString.LABEL_FIX_DOCUMENT}, {
+              callback: doRecrop,
+              hasPopup: true,
             }),
+          ],
+        });
+
+        const positive = new review.OptionGroup({
+          template: review.ButtonGroupTemplate.POSITIVE,
+          options: [
             new review.Option({text: I18nString.LABEL_SHARE}, {
               callback: async () => {
                 sendEvent(metrics.DocResultType.SHARE);
@@ -685,30 +851,22 @@ export class Camera extends View implements CameraViewUI {
                 await util.share(new File([docBlob], name, {type}));
               },
             }),
+            new review.Option({text: I18nString.LABEL_SAVE_PHOTO_DOCUMENT}, {
+              callback: () => {
+                sendEvent(metrics.DocResultType.SAVE_AS_PHOTO);
+              },
+              exitValue: MimeType.JPEG,
+            }),
+            new review.Option(
+                {text: I18nString.LABEL_SAVE_PDF_DOCUMENT, primary: true}, {
+                  callback: () => {
+                    sendEvent(metrics.DocResultType.SAVE_AS_PDF);
+                  },
+                  exitValue: MimeType.PDF,
+                }),
           ],
         });
-
-        const negOptions = [
-          new review.Option({text: I18nString.LABEL_RETAKE}, {
-            callback: () => {
-              sendEvent(metrics.DocResultType.CANCELED);
-            },
-            exitValue: null,
-          }),
-        ];
-        if (allowRecrop) {
-          negOptions.unshift(
-              new review.Option({text: I18nString.LABEL_FIX_DOCUMENT}, {
-                callback: doRecrop,
-                hasPopup: true,
-              }));
-        }
-        const negative = new review.OptionGroup({
-          template: review.ButtonGroupTemplate.negative,
-          options: negOptions,
-        });
-
-        const mimeType = await this.review.startReview(positive, negative);
+        const mimeType = await this.review.startReview(negative, positive);
         assert(mimeType !== undefined);
         if (mimeType !== null) {
           result = {docBlob, mimeType};
@@ -720,6 +878,15 @@ export class Camera extends View implements CameraViewUI {
     return result;
   }
 
+  private async reviewMultiPageDocument(enterInFixMode = false): Promise<void> {
+    await this.prepareReview(async () => {
+      const pageCount = await this.documentReview.open({fix: enterInFixMode});
+      dom.get('#document-page-count', HTMLDivElement).textContent =
+          getI18nMessage(I18nString.NEXT_PAGE_COUNT, pageCount + 1);
+      state.set(state.State.DOC_MODE_REVIEWING, pageCount > 0);
+    });
+  }
+
   createVideoSaver(): Promise<VideoSaver> {
     return this.resultSaver.startSaveVideo(this.outputVideoRotation);
   }
@@ -727,6 +894,44 @@ export class Camera extends View implements CameraViewUI {
   playShutterEffect(): void {
     sound.play(dom.get('#sound-shutter', HTMLAudioElement));
     animate.play(this.cameraManager.getPreviewVideo().video);
+  }
+
+  private getLowStorageDialogKeys(dialogType: LowStorageDialogType) {
+    switch (dialogType) {
+      case LowStorageDialogType.AUTO_STOP:
+        return {
+          title: I18nString.LOW_STORAGE_DIALOG_AUTO_STOP_TITLE,
+          description: I18nString.LOW_STORAGE_DIALOG_AUTO_STOP_DESC,
+          dialogAction: metrics.LowStorageActionType.SHOW_AUTO_STOP_DIALOG,
+          manageAction: metrics.LowStorageActionType.MANAGE_STORAGE_AUTO_STOP,
+        };
+      case LowStorageDialogType.CANNOT_START:
+        return {
+          title: I18nString.LOW_STORAGE_DIALOG_CANNOT_START_TITLE,
+          description: I18nString.LOW_STORAGE_DIALOG_CANNOT_START_DESC,
+          dialogAction: metrics.LowStorageActionType.SHOW_CANNOT_START_DIALOG,
+          manageAction:
+              metrics.LowStorageActionType.MANAGE_STORAGE_CANNOT_START,
+        };
+      default:
+        assertNotReached();
+    }
+  }
+
+  private openStorageManagement(): void {
+    assert(this.currentLowStorageType !== null);
+    const {manageAction} =
+        this.getLowStorageDialogKeys(this.currentLowStorageType);
+    metrics.sendLowStorageEvent(manageAction);
+    ChromeHelper.getInstance().openStorageManagement();
+  }
+
+  private showLowStorageDialog(dialogType: LowStorageDialogType): void {
+    const {description, dialogAction, title} =
+        this.getLowStorageDialogKeys(dialogType);
+    this.currentLowStorageType = dialogType;
+    metrics.sendLowStorageEvent(dialogAction);
+    nav.open(ViewName.LOW_STORAGE_DIALOG, {title, description});
   }
 
   async onGifCaptureDone({name, gifSaver, resolution, duration}: GifResult):
@@ -742,36 +947,39 @@ export class Camera extends View implements CameraViewUI {
     const sendEvent = (gifResult: metrics.GifResultType) => {
       metrics.sendCaptureEvent({
         recordType: metrics.RecordType.GIF,
-        facing: this.facing,
+        facing: this.getFacing(),
         resolution,
         duration,
         shutterType: this.shutterType,
         gifResult,
+        resolutionLevel: this.cameraManager.getVideoResolutionLevel(resolution),
+        aspectRatioSet: this.cameraManager.getAspectRatioSet(resolution),
       });
     };
 
     let result: boolean|null = false;
     await this.prepareReview(async () => {
       await this.review.setReviewPhoto(blob);
+      const negative = new review.OptionGroup({
+        template: review.ButtonGroupTemplate.NEGATIVE,
+        options: [new review.Option(
+            {text: I18nString.LABEL_RETAKE}, {exitValue: null})],
+      });
       const positive = new review.OptionGroup({
-        template: review.ButtonGroupTemplate.positive,
+        template: review.ButtonGroupTemplate.POSITIVE,
         options: [
-          new review.Option({text: I18nString.LABEL_SAVE}, {exitValue: true}),
           new review.Option({text: I18nString.LABEL_SHARE}, {
             callback: async () => {
               sendEvent(metrics.GifResultType.SHARE);
               await util.share(new File([blob], name, {type: MimeType.GIF}));
             },
           }),
+          new review.Option(
+              {text: I18nString.LABEL_SAVE, primary: true}, {exitValue: true}),
         ],
       });
-      const negative = new review.OptionGroup({
-        template: review.ButtonGroupTemplate.negative,
-        options: [new review.Option(
-            {text: I18nString.LABEL_RETAKE}, {exitValue: null})],
-      });
       nav.close(ViewName.FLASH);
-      result = (await this.review.startReview(positive, negative)) as boolean;
+      result = (await this.review.startReview(negative, positive)) as boolean;
     });
     if (result) {
       sendEvent(metrics.GifResultType.SAVE);
@@ -779,37 +987,45 @@ export class Camera extends View implements CameraViewUI {
     } else {
       sendEvent(metrics.GifResultType.RETAKE);
     }
+    ChromeHelper.getInstance().maybeTriggerSurvey();
   }
 
-  async onVideoCaptureDone({resolution, videoSaver, duration, everPaused}:
-                               VideoResult): Promise<void> {
+  async onVideoCaptureDone(
+      {resolution, videoSaver, duration, everPaused, autoStopped}: VideoResult):
+      Promise<void> {
+    if (autoStopped) {
+      this.showLowStorageDialog(LowStorageDialogType.AUTO_STOP);
+    }
     state.set(PerfEvent.VIDEO_CAPTURE_POST_PROCESSING, true);
     try {
       metrics.sendCaptureEvent({
         recordType: metrics.RecordType.NORMAL_VIDEO,
-        facing: this.facing,
+        facing: this.getFacing(),
         duration,
         resolution,
         shutterType: this.shutterType,
         everPaused,
+        resolutionLevel: this.cameraManager.getVideoResolutionLevel(resolution),
+        aspectRatioSet: this.cameraManager.getAspectRatioSet(resolution),
       });
       await this.resultSaver.finishSaveVideo(videoSaver);
       state.set(
           PerfEvent.VIDEO_CAPTURE_POST_PROCESSING, false,
-          {resolution, facing: this.facing});
+          {resolution, facing: this.getFacing()});
     } catch (e) {
       state.set(
           PerfEvent.VIDEO_CAPTURE_POST_PROCESSING, false, {hasError: true});
       throw e;
     }
+    ChromeHelper.getInstance().maybeTriggerSurvey();
   }
 
-  layout(): void {
+  override layout(): void {
     this.layoutHandler.update();
   }
 
-  handlingKey(key: string): boolean {
-    if (key === 'Ctrl-R') {
+  override handlingKey(key: util.KeyboardShortcut): boolean {
+    if (key === 'Ctrl-Alt-R') {
       toast.showDebugMessage(
           this.cameraManager.getPreviewResolution().toString());
       return true;
@@ -823,20 +1039,30 @@ export class Camera extends View implements CameraViewUI {
       }
       return true;
     }
+    if (key === ' ') {
+      this.focusShutterButton();
+      if (state.get(state.State.TAKING)) {
+        this.endTake();
+      } else {
+        this.beginTake(metrics.ShutterType.KEYBOARD);
+      }
+      return true;
+    }
     return false;
   }
 
   /**
    * Updates |this.activeDeviceId|.
    */
-  private updateActiveCamera(newDeviceId: string) {
+  private updateActiveCamera(newDeviceId: string|null) {
     // Make the different active camera announced by screen reader.
     if (newDeviceId === this.activeDeviceId) {
       return;
     }
     this.activeDeviceId = newDeviceId;
-    const info = this.cameraManager.getCameraInfo().getDeviceInfo(newDeviceId);
-    if (info !== null) {
+    if (newDeviceId !== null) {
+      const info =
+          this.cameraManager.getCameraInfo().getDeviceInfo(newDeviceId);
       speak(I18nString.STATUS_MSG_CAMERA_SWITCHED, info.label);
     }
   }

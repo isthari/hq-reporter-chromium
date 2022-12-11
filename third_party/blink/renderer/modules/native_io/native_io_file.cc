@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/location.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/numerics/checked_math.h"
+#include "base/synchronization/lock.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
@@ -37,9 +38,10 @@
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/worker_pool.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_std.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
-#include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
 
 #if BUILDFLAG(IS_MAC)
@@ -82,14 +84,14 @@ class NativeIOFile::FileState
   bool IsValid() {
     DCHECK(!IsMainThread());
 
-    WTF::MutexLocker locker(mutex_);
+    base::AutoLock auto_lock(lock_);
     return file_.IsValid();
   }
 
   void Close() {
     DCHECK(!IsMainThread());
 
-    WTF::MutexLocker locker(mutex_);
+    base::AutoLock auto_lock(lock_);
     DCHECK(file_.IsValid()) << __func__ << " called on invalid file";
 
     file_.Close();
@@ -100,7 +102,7 @@ class NativeIOFile::FileState
   std::pair<int64_t, base::File::Error> GetLength() {
     DCHECK(!IsMainThread());
 
-    WTF::MutexLocker mutex_locker(mutex_);
+    base::AutoLock auto_lock(lock_);
     DCHECK(file_.IsValid()) << __func__ << " called on invalid file";
 
     int64_t length = file_.GetLength();
@@ -116,7 +118,7 @@ class NativeIOFile::FileState
     DCHECK(!IsMainThread());
     DCHECK_GE(expected_length, 0);
 
-    WTF::MutexLocker mutex_locker(mutex_);
+    base::AutoLock auto_lock(lock_);
     DCHECK(file_.IsValid()) << __func__ << " called on invalid file";
 
     bool success = file_.SetLength(expected_length);
@@ -130,7 +132,7 @@ class NativeIOFile::FileState
 #if BUILDFLAG(IS_MAC)
   // Used to implement browser-side SetLength() on macOS < 10.15.
   base::File TakeFile() {
-    WTF::MutexLocker mutex_locker(mutex_);
+    base::AutoLock auto_lock(lock_);
     DCHECK(file_.IsValid()) << __func__ << " called on invalid file";
 
     return std::move(file_);
@@ -138,7 +140,7 @@ class NativeIOFile::FileState
 
   // Used to implement browser-side SetLength() on macOS < 10.15.
   void SetFile(base::File file) {
-    WTF::MutexLocker locker(mutex_);
+    base::AutoLock auto_lock(lock_);
     DCHECK(!file_.IsValid()) << __func__ << " called on valid file";
 
     file_ = std::move(file);
@@ -155,7 +157,7 @@ class NativeIOFile::FileState
     DCHECK_GE(file_offset, 0);
     DCHECK_GE(read_size, 0);
 
-    WTF::MutexLocker mutex_locker(mutex_);
+    base::AutoLock auto_lock(lock_);
     DCHECK(file_.IsValid()) << __func__ << " called on invalid file";
 
     int read_bytes = file_.Read(file_offset, buffer->Data(), read_size);
@@ -177,7 +179,7 @@ class NativeIOFile::FileState
     DCHECK_GE(file_offset, 0);
     DCHECK_GE(write_size, 0);
 
-    WTF::MutexLocker mutex_locker(mutex_);
+    base::AutoLock auto_lock(lock_);
     DCHECK(file_.IsValid()) << __func__ << " called on invalid file";
 
     int written_bytes = file_.Write(file_offset, buffer->Data(), write_size);
@@ -196,7 +198,7 @@ class NativeIOFile::FileState
   base::File::Error Flush() {
     DCHECK(!IsMainThread());
 
-    WTF::MutexLocker mutex_locker(mutex_);
+    base::AutoLock auto_lock(lock_);
     DCHECK(file_.IsValid()) << __func__ << " called on invalid file";
 
     bool success = file_.Flush();
@@ -205,10 +207,10 @@ class NativeIOFile::FileState
 
  private:
   // Lock coordinating cross-thread access to the state.
-  WTF::Mutex mutex_;
+  base::Lock lock_;
 
   // The file on disk backing this NativeIOFile.
-  base::File file_ GUARDED_BY(mutex_);
+  base::File file_ GUARDED_BY(lock_);
 };
 
 NativeIOFile::NativeIOFile(
@@ -226,8 +228,8 @@ NativeIOFile::NativeIOFile(
       capacity_tracker_(capacity_tracker) {
   DCHECK_GE(backing_file_length, 0);
   DCHECK(capacity_tracker);
-  backend_file_.set_disconnect_handler(
-      WTF::Bind(&NativeIOFile::OnBackendDisconnect, WrapWeakPersistent(this)));
+  backend_file_.set_disconnect_handler(WTF::BindOnce(
+      &NativeIOFile::OnBackendDisconnect, WrapWeakPersistent(this)));
 }
 
 NativeIOFile::~NativeIOFile() {
@@ -285,8 +287,8 @@ ScriptPromise NativeIOFile::getLength(ScriptState* script_state,
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   worker_pool::PostTask(
       FROM_HERE, {base::MayBlock()},
-      CrossThreadBindOnce(&DoGetLength, WrapCrossThreadPersistent(this),
-                          WrapCrossThreadPersistent(resolver), file_state_,
+      CrossThreadBindOnce(&DoGetLength, MakeCrossThreadHandle(this),
+                          MakeCrossThreadHandle(resolver), file_state_,
                           resolver_task_runner_));
   return resolver->Promise();
 }
@@ -360,16 +362,16 @@ ScriptPromise NativeIOFile::setLength(ScriptState* script_state,
     base::File file = file_state_->TakeFile();
     backend_file_->SetLength(
         expected_length, std::move(file),
-        WTF::Bind(&NativeIOFile::DidSetLengthIpc, WrapPersistent(this),
-                  WrapPersistent(resolver)));
+        WTF::BindOnce(&NativeIOFile::DidSetLengthIpc, WrapPersistent(this),
+                      WrapPersistent(resolver)));
     return resolver->Promise();
   }
 #endif  // BUILDFLAG(IS_MAC)
 
   worker_pool::PostTask(
       FROM_HERE, {base::MayBlock()},
-      CrossThreadBindOnce(&DoSetLength, WrapCrossThreadPersistent(this),
-                          WrapCrossThreadPersistent(resolver), file_state_,
+      CrossThreadBindOnce(&DoSetLength, MakeCrossThreadHandle(this),
+                          MakeCrossThreadHandle(resolver), file_state_,
                           resolver_task_runner_, expected_length));
   return resolver->Promise();
 }
@@ -418,8 +420,8 @@ ScriptPromise NativeIOFile::read(ScriptState* script_state,
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   worker_pool::PostTask(
       FROM_HERE, {base::MayBlock()},
-      CrossThreadBindOnce(&DoRead, WrapCrossThreadPersistent(this),
-                          WrapCrossThreadPersistent(resolver), file_state_,
+      CrossThreadBindOnce(&DoRead, MakeCrossThreadHandle(this),
+                          MakeCrossThreadHandle(resolver), file_state_,
                           resolver_task_runner_, std::move(result_buffer_data),
                           file_offset, read_size));
   return resolver->Promise();
@@ -499,8 +501,8 @@ ScriptPromise NativeIOFile::write(ScriptState* script_state,
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   worker_pool::PostTask(
       FROM_HERE, {base::MayBlock()},
-      CrossThreadBindOnce(&DoWrite, WrapCrossThreadPersistent(this),
-                          WrapCrossThreadPersistent(resolver), file_state_,
+      CrossThreadBindOnce(&DoWrite, MakeCrossThreadHandle(this),
+                          MakeCrossThreadHandle(resolver), file_state_,
                           resolver_task_runner_, std::move(result_buffer_data),
                           file_offset, write_size));
   return resolver->Promise();
@@ -531,8 +533,8 @@ ScriptPromise NativeIOFile::flush(ScriptState* script_state,
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   worker_pool::PostTask(
       FROM_HERE, {base::MayBlock()},
-      CrossThreadBindOnce(&DoFlush, WrapCrossThreadPersistent(this),
-                          WrapCrossThreadPersistent(resolver), file_state_,
+      CrossThreadBindOnce(&DoFlush, MakeCrossThreadHandle(this),
+                          MakeCrossThreadHandle(resolver), file_state_,
                           resolver_task_runner_));
   return resolver->Promise();
 }
@@ -565,15 +567,15 @@ void NativeIOFile::DispatchQueuedClose() {
 
   worker_pool::PostTask(
       FROM_HERE, {base::MayBlock()},
-      CrossThreadBindOnce(&DoClose, WrapCrossThreadPersistent(this),
-                          WrapCrossThreadPersistent(resolver),
+      CrossThreadBindOnce(&DoClose, MakeCrossThreadHandle(this),
+                          MakeCrossThreadHandle(resolver),
                           std::move(file_state), resolver_task_runner_));
 }
 
 // static
 void NativeIOFile::DoClose(
-    CrossThreadPersistent<NativeIOFile> native_io_file,
-    CrossThreadPersistent<ScriptPromiseResolver> resolver,
+    CrossThreadHandle<NativeIOFile> native_io_file,
+    CrossThreadHandle<ScriptPromiseResolver> resolver,
     scoped_refptr<NativeIOFile::FileState> file_state,
     scoped_refptr<base::SequencedTaskRunner> resolver_task_runner) {
   DCHECK(!IsMainThread()) << "File I/O should not happen on the main thread";
@@ -586,12 +588,13 @@ void NativeIOFile::DoClose(
 
   PostCrossThreadTask(
       *resolver_task_runner, FROM_HERE,
-      CrossThreadBindOnce(&NativeIOFile::DidClose, std::move(native_io_file),
-                          std::move(resolver)));
+      CrossThreadBindOnce(
+          &NativeIOFile::DidClose,
+          MakeUnwrappingCrossThreadHandle(std::move(native_io_file)),
+          MakeUnwrappingCrossThreadHandle(std::move(resolver))));
 }
 
-void NativeIOFile::DidClose(
-    CrossThreadPersistent<ScriptPromiseResolver> resolver) {
+void NativeIOFile::DidClose(ScriptPromiseResolver* resolver) {
   ScriptState* script_state = resolver->GetScriptState();
   if (!script_state->ContextIsValid()) {
     // If the context was torn down, the backend is disconnecting or
@@ -604,15 +607,15 @@ void NativeIOFile::DidClose(
     resolver->Resolve();
     return;
   }
-  backend_file_->Close(
-      WTF::Bind([](ScriptPromiseResolver* resolver) { resolver->Resolve(); },
-                WrapPersistent(resolver.Get())));
+  backend_file_->Close(WTF::BindOnce(
+      [](ScriptPromiseResolver* resolver) { resolver->Resolve(); },
+      WrapPersistent(resolver)));
 }
 
 // static
 void NativeIOFile::DoGetLength(
-    CrossThreadPersistent<NativeIOFile> native_io_file,
-    CrossThreadPersistent<ScriptPromiseResolver> resolver,
+    CrossThreadHandle<NativeIOFile> native_io_file,
+    CrossThreadHandle<ScriptPromiseResolver> resolver,
     scoped_refptr<NativeIOFile::FileState> file_state,
     scoped_refptr<base::SequencedTaskRunner> resolver_task_runner) {
   DCHECK(!IsMainThread()) << "File I/O should not happen on the main thread";
@@ -625,15 +628,16 @@ void NativeIOFile::DoGetLength(
 
   PostCrossThreadTask(
       *resolver_task_runner, FROM_HERE,
-      CrossThreadBindOnce(&NativeIOFile::DidGetLength,
-                          std::move(native_io_file), std::move(resolver),
-                          length, get_length_error));
+      CrossThreadBindOnce(
+          &NativeIOFile::DidGetLength,
+          MakeUnwrappingCrossThreadHandle(std::move(native_io_file)),
+          MakeUnwrappingCrossThreadHandle(std::move(resolver)), length,
+          get_length_error));
 }
 
-void NativeIOFile::DidGetLength(
-    CrossThreadPersistent<ScriptPromiseResolver> resolver,
-    int64_t length,
-    base::File::Error get_length_error) {
+void NativeIOFile::DidGetLength(ScriptPromiseResolver* resolver,
+                                int64_t length,
+                                base::File::Error get_length_error) {
   ScriptState* script_state = resolver->GetScriptState();
   if (!script_state->ContextIsValid())
     return;
@@ -665,8 +669,8 @@ void NativeIOFile::DidGetLength(
 
 // static
 void NativeIOFile::DoSetLength(
-    CrossThreadPersistent<NativeIOFile> native_io_file,
-    CrossThreadPersistent<ScriptPromiseResolver> resolver,
+    CrossThreadHandle<NativeIOFile> native_io_file,
+    CrossThreadHandle<ScriptPromiseResolver> resolver,
     scoped_refptr<NativeIOFile::FileState> file_state,
     scoped_refptr<base::SequencedTaskRunner> resolver_task_runner,
     int64_t expected_length) {
@@ -682,15 +686,16 @@ void NativeIOFile::DoSetLength(
 
   PostCrossThreadTask(
       *resolver_task_runner, FROM_HERE,
-      CrossThreadBindOnce(&NativeIOFile::DidSetLengthIo,
-                          std::move(native_io_file), std::move(resolver),
-                          actual_length, set_length_error));
+      CrossThreadBindOnce(
+          &NativeIOFile::DidSetLengthIo,
+          MakeUnwrappingCrossThreadHandle(std::move(native_io_file)),
+          MakeUnwrappingCrossThreadHandle(std::move(resolver)), actual_length,
+          set_length_error));
 }
 
-void NativeIOFile::DidSetLengthIo(
-    CrossThreadPersistent<ScriptPromiseResolver> resolver,
-    int64_t actual_length,
-    base::File::Error set_length_error) {
+void NativeIOFile::DidSetLengthIo(ScriptPromiseResolver* resolver,
+                                  int64_t actual_length,
+                                  base::File::Error set_length_error) {
   ScriptState* script_state = resolver->GetScriptState();
   if (!script_state->ContextIsValid())
     return;
@@ -790,8 +795,8 @@ void NativeIOFile::DidSetLengthIpc(
 
 // static
 void NativeIOFile::DoRead(
-    CrossThreadPersistent<NativeIOFile> native_io_file,
-    CrossThreadPersistent<ScriptPromiseResolver> resolver,
+    CrossThreadHandle<NativeIOFile> native_io_file,
+    CrossThreadHandle<ScriptPromiseResolver> resolver,
     scoped_refptr<NativeIOFile::FileState> file_state,
     scoped_refptr<base::SequencedTaskRunner> resolver_task_runner,
     std::unique_ptr<NativeIODataBuffer> result_buffer_data,
@@ -814,13 +819,15 @@ void NativeIOFile::DoRead(
 
   PostCrossThreadTask(
       *resolver_task_runner, FROM_HERE,
-      CrossThreadBindOnce(&NativeIOFile::DidRead, std::move(native_io_file),
-                          std::move(resolver), std::move(result_buffer_data),
-                          read_bytes, read_error));
+      CrossThreadBindOnce(
+          &NativeIOFile::DidRead,
+          MakeUnwrappingCrossThreadHandle(std::move(native_io_file)),
+          MakeUnwrappingCrossThreadHandle(std::move(resolver)),
+          std::move(result_buffer_data), read_bytes, read_error));
 }
 
 void NativeIOFile::DidRead(
-    CrossThreadPersistent<ScriptPromiseResolver> resolver,
+    ScriptPromiseResolver* resolver,
     std::unique_ptr<NativeIODataBuffer> result_buffer_data,
     int read_bytes,
     base::File::Error read_error) {
@@ -852,8 +859,8 @@ void NativeIOFile::DidRead(
 
 // static
 void NativeIOFile::DoWrite(
-    CrossThreadPersistent<NativeIOFile> native_io_file,
-    CrossThreadPersistent<ScriptPromiseResolver> resolver,
+    CrossThreadHandle<NativeIOFile> native_io_file,
+    CrossThreadHandle<ScriptPromiseResolver> resolver,
     scoped_refptr<NativeIOFile::FileState> file_state,
     scoped_refptr<base::SequencedTaskRunner> resolver_task_runner,
     std::unique_ptr<NativeIODataBuffer> result_buffer_data,
@@ -876,14 +883,16 @@ void NativeIOFile::DoWrite(
 
   PostCrossThreadTask(
       *resolver_task_runner, FROM_HERE,
-      CrossThreadBindOnce(&NativeIOFile::DidWrite, std::move(native_io_file),
-                          std::move(resolver), std::move(result_buffer_data),
-                          written_bytes, write_error, write_size,
-                          actual_file_length_on_failure));
+      CrossThreadBindOnce(
+          &NativeIOFile::DidWrite,
+          MakeUnwrappingCrossThreadHandle(std::move(native_io_file)),
+          MakeUnwrappingCrossThreadHandle(std::move(resolver)),
+          std::move(result_buffer_data), written_bytes, write_error, write_size,
+          actual_file_length_on_failure));
 }
 
 void NativeIOFile::DidWrite(
-    CrossThreadPersistent<ScriptPromiseResolver> resolver,
+    ScriptPromiseResolver* resolver,
     std::unique_ptr<NativeIODataBuffer> result_buffer_data,
     int written_bytes,
     base::File::Error write_error,
@@ -941,8 +950,8 @@ void NativeIOFile::DidWrite(
 
 // static
 void NativeIOFile::DoFlush(
-    CrossThreadPersistent<NativeIOFile> native_io_file,
-    CrossThreadPersistent<ScriptPromiseResolver> resolver,
+    CrossThreadHandle<NativeIOFile> native_io_file,
+    CrossThreadHandle<ScriptPromiseResolver> resolver,
     scoped_refptr<NativeIOFile::FileState> file_state,
     scoped_refptr<base::SequencedTaskRunner> resolver_task_runner) {
   DCHECK(!IsMainThread()) << "File I/O should not happen on the main thread";
@@ -954,13 +963,14 @@ void NativeIOFile::DoFlush(
 
   PostCrossThreadTask(
       *resolver_task_runner, FROM_HERE,
-      CrossThreadBindOnce(&NativeIOFile::DidFlush, std::move(native_io_file),
-                          std::move(resolver), flush_error));
+      CrossThreadBindOnce(
+          &NativeIOFile::DidFlush,
+          MakeUnwrappingCrossThreadHandle(std::move(native_io_file)),
+          MakeUnwrappingCrossThreadHandle(std::move(resolver)), flush_error));
 }
 
-void NativeIOFile::DidFlush(
-    CrossThreadPersistent<ScriptPromiseResolver> resolver,
-    base::File::Error flush_error) {
+void NativeIOFile::DidFlush(ScriptPromiseResolver* resolver,
+                            base::File::Error flush_error) {
   ScriptState* script_state = resolver->GetScriptState();
   if (!script_state->ContextIsValid())
     return;

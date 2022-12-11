@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,11 +17,12 @@
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "media/capture/video/mock_video_capture_device_client.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -29,6 +30,10 @@
 #include "third_party/webrtc/modules/desktop_capture/desktop_capturer.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_frame.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
+
+#if BUILDFLAG(IS_OZONE)
+#include "ui/ozone/buildflags.h"
+#endif  // BUILDFLAG(IS_OZONE)
 
 using ::testing::_;
 using ::testing::AnyNumber;
@@ -169,7 +174,7 @@ class FakeScreenCapturer : public webrtc::DesktopCapturer {
     }
 
     if (run_callback_asynchronously_) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(&FakeScreenCapturer::RunCallback,
                                     weak_factory_.GetWeakPtr(),
                                     webrtc::DesktopCapturer::Result::SUCCESS,
@@ -266,18 +271,22 @@ class DesktopCaptureDeviceTest : public testing::Test {
   std::unique_ptr<webrtc::DesktopFrame> output_frame_;
 };
 
-// There is currently no screen capturer implementation for ozone. So disable
-// the test that uses a real screen-capturer instead of FakeScreenCapturer.
-// http://crbug.com/260318
-#if defined(USE_OZONE)
-#define MAYBE_Capture DISABLED_Capture
-#else
-#define MAYBE_Capture Capture
-#endif
-TEST_F(DesktopCaptureDeviceTest, MAYBE_Capture) {
+TEST_F(DesktopCaptureDeviceTest, Capture) {
   std::unique_ptr<webrtc::DesktopCapturer> capturer(
       webrtc::DesktopCapturer::CreateScreenCapturer(
           webrtc::DesktopCaptureOptions::CreateDefault()));
+
+#if BUILDFLAG(IS_OZONE)
+#if !BUILDFLAG(OZONE_PLATFORM_X11)
+  // webrtc::DesktopCapturer is only supported on Ozone X11 by default.
+  // TODO(webrtc/13429): Enable for Wayland.
+  EXPECT_FALSE(capturer);
+  // Check return value to avoid compiler warnings.
+  if (!capturer)
+    return;
+#endif  // !BUILDFLAG(OZONE_PLATFORM_X11)
+#endif  // BUILDFLAG(IS_OZONE)
+
   CreateScreenCaptureDevice(std::move(capturer));
 
   media::VideoCaptureFormat format;
@@ -588,7 +597,8 @@ class DesktopCaptureDeviceThrottledTest : public DesktopCaptureDeviceTest {
     EXPECT_CALL(*client, OnStarted())
         .WillOnce(InvokeWithoutArgs([this, &task_runner,
                                      &message_loop_task_runner] {
-          message_loop_task_runner = base::ThreadTaskRunnerHandle::Get();
+          message_loop_task_runner =
+              base::SingleThreadTaskRunner::GetCurrentDefault();
           task_runner = new base::TestMockTimeTaskRunner(
               base::Time::Now(), base::TimeTicks::Now(),
               base::TestMockTimeTaskRunner::Type::kStandalone);

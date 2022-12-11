@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,15 @@
 #include <string>
 
 #include "ash/bubble/bubble_constants.h"
-#include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/system/tray/hover_highlight_view.h"
 #include "ash/system/tray/tray_constants.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
+#include "ash/wm/work_area_insets.h"
 #include "base/check.h"
 #include "base/strings/string_number_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -53,9 +53,7 @@ void SetupConnectedScrollListItem(HoverHighlightView* view,
   }
 
   view->sub_text_label()->SetAutoColorReadabilityEnabled(false);
-  view->sub_text_label()->SetEnabledColor(
-      AshColorProvider::Get()->GetContentLayerColor(
-          AshColorProvider::ContentLayerType::kTextColorPositive));
+  view->sub_text_label()->SetEnabledColorId(kColorAshTextColorPositive);
 }
 
 void SetupConnectingScrollListItem(HoverHighlightView* view) {
@@ -65,17 +63,18 @@ void SetupConnectingScrollListItem(HoverHighlightView* view) {
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_NETWORK_STATUS_CONNECTING));
 }
 
-SkColor TrayIconColor(session_manager::SessionState session_state) {
-  if (session_state == session_manager::SessionState::OOBE)
-    return kIconColorInOobe;
-  return AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kIconColorPrimary);
+void SetWarningSubText(HoverHighlightView* view, std::u16string subtext) {
+  DCHECK(view->is_populated());
+
+  view->SetSubText(subtext);
+  view->sub_text_label()->SetAutoColorReadabilityEnabled(false);
+  view->sub_text_label()->SetEnabledColorId(kColorAshTextColorWarning);
 }
 
 gfx::Insets GetTrayBubbleInsets() {
   // Decrease bottom and right insets to compensate for the adjustment of
   // the respective edges in Shelf::GetSystemTrayAnchorRect().
-  gfx::Insets insets = gfx::Insets(
+  gfx::Insets insets = gfx::Insets::TLBR(
       kBubbleMenuPadding, kBubbleMenuPadding, kBubbleMenuPadding - 1,
       kBubbleMenuPadding - (base::i18n::IsRTL() ? 0 : 1));
 
@@ -138,6 +137,28 @@ gfx::Insets GetSecondaryBubbleInsets() {
       break;
   }
   return insets;
+}
+
+gfx::Insets GetInkDropInsets(TrayPopupInkDropStyle ink_drop_style) {
+  if (ink_drop_style == TrayPopupInkDropStyle::HOST_CENTERED ||
+      ink_drop_style == TrayPopupInkDropStyle::INSET_BOUNDS) {
+    return gfx::Insets(kTrayPopupInkDropInset);
+  }
+  return gfx::Insets();
+}
+
+int CalculateMaxTrayBubbleHeight() {
+  Shelf* shelf = Shelf::ForWindow(Shell::GetPrimaryRootWindow());
+
+  // We calculate the available height from the top of the screen to the top of
+  // the bubble's anchor rect. We can not use the bottom of the screen since the
+  // anchor's position is not always exactly at the bottom of the screen.
+  int anchor_rect_top = shelf->GetSystemTrayAnchorRect().y();
+  WorkAreaInsets* work_area =
+      WorkAreaInsets::ForWindow(shelf->GetWindow()->GetRootWindow());
+  int free_space_height_above_anchor =
+      anchor_rect_top - work_area->user_work_area_bounds().y();
+  return free_space_height_above_anchor - kBubbleMenuPadding * 2;
 }
 
 }  // namespace ash

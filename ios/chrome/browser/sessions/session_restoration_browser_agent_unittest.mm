@@ -1,44 +1,52 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <objc/runtime.h>
 
-#include "base/files/file_path.h"
-#include "base/run_loop.h"
-#include "base/strings/sys_string_conversions.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
+#import "base/files/file_path.h"
+#import "base/run_loop.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/test/ios/wait_util.h"
+#import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/main/browser_web_state_list_delegate.h"
 #import "ios/chrome/browser/main/test_browser.h"
 #import "ios/chrome/browser/ntp/new_tab_page_tab_helper.h"
 #import "ios/chrome/browser/ntp/new_tab_page_tab_helper_delegate.h"
-#include "ios/chrome/browser/sessions/ios_chrome_session_tab_helper.h"
+#import "ios/chrome/browser/sessions/ios_chrome_session_tab_helper.h"
 #import "ios/chrome/browser/sessions/session_ios.h"
 #import "ios/chrome/browser/sessions/session_restoration_browser_agent.h"
-#include "ios/chrome/browser/sessions/session_restoration_observer.h"
+#import "ios/chrome/browser/sessions/session_restoration_observer.h"
 #import "ios/chrome/browser/sessions/session_window_ios.h"
 #import "ios/chrome/browser/sessions/test_session_service.h"
+#import "ios/chrome/browser/signin/authentication_service_factory.h"
+#import "ios/chrome/browser/signin/fake_authentication_service_delegate.h"
+#import "ios/chrome/browser/url/chrome_url_constants.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_list_delegate.h"
 #import "ios/chrome/browser/web_state_list/web_state_opener.h"
 #import "ios/chrome/browser/web_state_list/web_usage_enabler/web_usage_enabler_browser_agent.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/web/public/navigation/navigation_manager.h"
-#include "ios/web/public/navigation/referrer.h"
+#import "ios/web/public/navigation/referrer.h"
+#import "ios/web/public/session/crw_navigation_item_storage.h"
 #import "ios/web/public/session/crw_session_storage.h"
 #import "ios/web/public/session/serializable_user_data_manager.h"
-#include "ios/web/public/test/web_task_environment.h"
-#include "ios/web/public/thread/web_thread.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "testing/gtest_mac.h"
-#include "testing/platform_test.h"
+#import "ios/web/public/test/web_task_environment.h"
+#import "ios/web/public/thread/web_thread.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest_mac.h"
+#import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
-#include "third_party/ocmock/gtest_support.h"
+#import "third_party/ocmock/gtest_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
+
+using base::test::ios::kWaitForPageLoadTimeout;
+using base::test::ios::WaitUntilConditionOrTimeout;
 
 namespace {
 
@@ -68,8 +76,13 @@ class SessionRestorationBrowserAgentTest : public PlatformTest {
     DCHECK_CURRENTLY_ON(web::WebThread::UI);
 
     TestChromeBrowserState::Builder test_cbs_builder;
+    test_cbs_builder.AddTestingFactory(
+        AuthenticationServiceFactory::GetInstance(),
+        AuthenticationServiceFactory::GetDefaultFactory());
     chrome_browser_state_ = test_cbs_builder.Build();
-
+    AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
+        chrome_browser_state_.get(),
+        std::make_unique<FakeAuthenticationServiceDelegate>());
     // This test requires that some TabHelpers are attached to the WebStates, so
     // it needs to use a WebStateList with the full BrowserWebStateListDelegate,
     // rather than the TestWebStateList delegate used in the default TestBrowser
@@ -104,15 +117,19 @@ class SessionRestorationBrowserAgentTest : public PlatformTest {
   NSString* session_id() { return session_identifier_; }
 
  protected:
-  // Creates a session window with |sessions_count| and mark the
-  // |selected_index| entry as selected.
+  // Creates a session window with `sessions_count` and mark the
+  // `selected_index` entry as selected.
   SessionWindowIOS* CreateSessionWindow(int sessions_count,
                                         int selected_index) {
     NSMutableArray<CRWSessionStorage*>* sessions = [NSMutableArray array];
     for (int i = 0; i < sessions_count; i++) {
       CRWSessionStorage* session_storage = [[CRWSessionStorage alloc] init];
       session_storage.stableIdentifier = [[NSUUID UUID] UUIDString];
-      session_storage.lastCommittedItemIndex = -1;
+      session_storage.lastCommittedItemIndex = 0;
+      CRWNavigationItemStorage* item_storage =
+          [[CRWNavigationItemStorage alloc] init];
+      item_storage.virtualURL = GURL("http://init.test");
+      session_storage.itemStorages = @[ item_storage ];
       [sessions addObject:session_storage];
     }
     return [[SessionWindowIOS alloc] initWithSessions:sessions
@@ -135,7 +152,12 @@ class SessionRestorationBrowserAgentTest : public PlatformTest {
 
     std::unique_ptr<web::WebState> web_state =
         web::WebState::Create(create_params);
+    web_state->GetView();
     web_state->GetNavigationManager()->LoadURLWithParams(load_params);
+    web::WebState* web_state_ptr = web_state.get();
+    EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^bool {
+      return !web_state_ptr->IsLoading();
+    }));
 
     int insertion_flags = WebStateList::INSERT_FORCE_INDEX;
     if (!background)
@@ -146,6 +168,7 @@ class SessionRestorationBrowserAgentTest : public PlatformTest {
   }
 
   web::WebTaskEnvironment task_environment_;
+  IOSChromeScopedTestingLocalState scoped_testing_local_state_;
   std::unique_ptr<TestChromeBrowserState> chrome_browser_state_;
   std::unique_ptr<Browser> browser_;
 
@@ -154,6 +177,24 @@ class SessionRestorationBrowserAgentTest : public PlatformTest {
   WebUsageEnablerBrowserAgent* web_usage_enabler_;
   SessionRestorationBrowserAgent* session_restoration_agent_;
 };
+
+// Tests that CRWSessionStorage with empty item_storages are not restored.
+TEST_F(SessionRestorationBrowserAgentTest, RestoreEmptySessions) {
+  NSMutableArray<CRWSessionStorage*>* sessions = [NSMutableArray array];
+  for (int i = 0; i < 3; i++) {
+    CRWSessionStorage* session_storage = [[CRWSessionStorage alloc] init];
+    session_storage.stableIdentifier = [[NSUUID UUID] UUIDString];
+    session_storage.lastCommittedItemIndex = -1;
+    [sessions addObject:session_storage];
+  }
+  SessionWindowIOS* window = [[SessionWindowIOS alloc] initWithSessions:sessions
+                                                        sessionsSummary:nil
+                                                            tabContents:nil
+                                                          selectedIndex:2];
+
+  session_restoration_agent_->RestoreSessionWindow(window);
+  ASSERT_EQ(0, browser_->GetWebStateList()->count());
+}
 
 // Tests that restoring a session works correctly on empty WebStateList.
 TEST_F(SessionRestorationBrowserAgentTest, RestoreSessionOnEmptyWebStateList) {
@@ -273,6 +314,35 @@ TEST_F(SessionRestorationBrowserAgentTest, SaveAndRestoreSession) {
             browser_->GetWebStateList()->GetActiveWebState());
 }
 
+// Tests that saving a session with web states that are being restored, then
+// clearing the WebStatelist and restoring the session will restore the web
+// states correctly.
+TEST_F(SessionRestorationBrowserAgentTest, SaveInProgressAndRestoreSession) {
+  SessionWindowIOS* window(
+      CreateSessionWindow(/*sessions_count=*/5, /*selected_index=*/1));
+  [test_session_service_ setPerformIO:YES];
+  session_restoration_agent_->RestoreSessionWindow(window);
+  [test_session_service_ setPerformIO:NO];
+
+  ASSERT_EQ(5, browser_->GetWebStateList()->count());
+  EXPECT_EQ(browser_->GetWebStateList()->GetWebStateAt(1),
+            browser_->GetWebStateList()->GetActiveWebState());
+
+  // Close all the webStates
+  browser_->GetWebStateList()->CloseAllWebStates(WebStateList::CLOSE_NO_FLAGS);
+
+  const base::FilePath& state_path = chrome_browser_state_->GetStatePath();
+  SessionIOS* session =
+      [test_session_service_ loadSessionWithSessionID:session_id()
+                                            directory:state_path];
+  ASSERT_EQ(1u, session.sessionWindows.count);
+  SessionWindowIOS* session_window = session.sessionWindows[0];
+  session_restoration_agent_->RestoreSessionWindow(session_window);
+  ASSERT_EQ(5, browser_->GetWebStateList()->count());
+  EXPECT_EQ(browser_->GetWebStateList()->GetWebStateAt(1),
+            browser_->GetWebStateList()->GetActiveWebState());
+}
+
 // Tests that SessionRestorationObserver methods are called when sessions is
 // restored.
 TEST_F(SessionRestorationBrowserAgentTest, ObserverCalledWithRestore) {
@@ -326,7 +396,14 @@ TEST_F(SessionRestorationBrowserAgentTest,
   // Removing the last active webState.
   browser_->GetWebStateList()->CloseWebStateAt(/*index=*/0,
                                                WebStateList::CLOSE_USER_ACTION);
-  EXPECT_EQ(test_session_service_.saveSessionCallsCount, 5);
+  EXPECT_EQ(test_session_service_.saveSessionCallsCount, 6);
+
+  InsertNewWebState(GURL(kURL1), /*parent=*/nullptr, /*index=*/0,
+                    /*background=*/true);
+  InsertNewWebState(GURL(kURL2), /*parent=*/nullptr, /*index=*/1,
+                    /*background=*/true);
+  browser_->GetWebStateList()->CloseAllWebStates(WebStateList::CLOSE_NO_FLAGS);
+  EXPECT_EQ(test_session_service_.saveSessionCallsCount, 7);
 }
 
 }  // anonymous namespace

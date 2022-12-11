@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,7 @@ class ScopedDevZero::Server {
  public:
   // Creates the pseudo-dir representing /dev as `directory_request` and serves
   // up a "zero" file within it. `on_initialized` is run with the status.
-  Server(fidl::InterfaceRequest<::fuchsia::io::Directory> directory_request,
+  Server(fidl::InterfaceRequest<fuchsia::io::Directory> directory_request,
          OnceCallback<void(zx_status_t status)> on_initialized);
   Server(const Server&) = delete;
   Server& operator=(const Server&) = delete;
@@ -61,13 +61,13 @@ ScopedDevZero::Server::Server(
 
   if (status == ZX_OK) {
     status = dev_dir_.AddEntry(
-        "zero", std::make_unique<vfs::VmoFile>(std::move(vmo), /*offset=*/0,
-                                               /*length=*/UINT32_MAX));
+        "zero",
+        std::make_unique<vfs::VmoFile>(std::move(vmo), /*length=*/UINT32_MAX));
     ZX_LOG_IF(ERROR, status != ZX_OK, status);
   }
 
   if (status == ZX_OK) {
-    status = dev_dir_.Serve(fuchsia::io::OPEN_RIGHT_READABLE,
+    status = dev_dir_.Serve(fuchsia::io::OpenFlags::RIGHT_READABLE,
                             directory_request.TakeChannel());
     ZX_LOG_IF(ERROR, status != ZX_OK, status);
   }
@@ -118,7 +118,7 @@ bool ScopedDevZero::Initialize() {
   RunLoop run_loop;
   server_ = SequenceBound<Server>(
       io_thread_.task_runner(),
-      fidl::InterfaceRequest<::fuchsia::io::Directory>(std::move(request)),
+      fidl::InterfaceRequest<fuchsia::io::Directory>(std::move(request)),
       base::BindOnce(
           [](base::OnceClosure quit_loop, zx_status_t& status,
              zx_status_t init_status) {

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/supervised_user/kids_chrome_management/kids_chrome_management_client.h"
@@ -75,7 +75,7 @@ class KidsChromeManagementClientForTesting : public KidsChromeManagementClient {
       std::unique_ptr<kids_chrome_management::ClassifyUrlRequest> request_proto,
       KidsChromeManagementClient::KidsChromeManagementCallback callback)
       override {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback),
                                   std::move(response_proto_), error_code_));
   }

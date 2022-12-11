@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,14 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 
 #include "base/barrier_closure.h"
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/containers/queue.h"
 #include "base/feature_list.h"
 #include "base/i18n/i18n_constants.h"
@@ -19,7 +21,6 @@
 #include "base/process/process_handle.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "content/browser/background_sync/background_sync_manager.h"
 #include "content/browser/devtools/devtools_agent_host_impl.h"
@@ -578,9 +579,9 @@ std::unique_ptr<Network::ResourceTiming> GetTiming(
           timeDelta(load_timing.proxy_resolve_start, load_timing.request_start))
       .SetProxyEnd(
           timeDelta(load_timing.proxy_resolve_end, load_timing.request_start))
-      .SetDnsStart(timeDelta(load_timing.connect_timing.dns_start,
+      .SetDnsStart(timeDelta(load_timing.connect_timing.domain_lookup_start,
                              load_timing.request_start))
-      .SetDnsEnd(timeDelta(load_timing.connect_timing.dns_end,
+      .SetDnsEnd(timeDelta(load_timing.connect_timing.domain_lookup_end,
                            load_timing.request_start))
       .SetConnectStart(timeDelta(load_timing.connect_timing.connect_start,
                                  load_timing.request_start))
@@ -616,12 +617,10 @@ std::unique_ptr<Network::ConnectTiming> GetConnectTiming(
       .Build();
 }
 
-std::unique_ptr<Object> GetRawHeaders(
+std::unique_ptr<base::Value::Dict> GetRawHeaders(
     const std::vector<network::mojom::HttpRawHeaderPairPtr>& headers) {
-  std::unique_ptr<DictionaryValue> headers_dict(DictionaryValue::create());
+  auto headers_dict = std::make_unique<base::Value::Dict>();
   for (const auto& header : headers) {
-    std::string value;
-    bool merge_with_another = headers_dict->getString(header->key, &value);
     std::string header_value;
     if (!base::ConvertToUtf8AndNormalize(header->value, base::kCodepageLatin1,
                                          &header_value)) {
@@ -629,11 +628,16 @@ std::unique_ptr<Object> GetRawHeaders(
       // might fail; in that case this is the most useful thing we can do.
       header_value = header->value;
     }
-    headers_dict->setString(header->key, merge_with_another
-                                             ? value + '\n' + header_value
-                                             : header_value);
+    // TODO(https://crbug.com/1335607): Once there's an API to do this without
+    // a double lookup, switch do doing so.
+    base::Value* value = headers_dict->Find(header->key);
+    if (value) {
+      *value = base::Value(value->GetString() + '\n' + header_value);
+    } else {
+      headers_dict->Set(header->key, header_value);
+    }
   }
-  return Object::fromValue(headers_dict.get(), nullptr);
+  return headers_dict;
 }
 
 String GetProtocol(const GURL& url,
@@ -771,6 +775,12 @@ GetProtocolBlockedSetCookieReason(net::CookieInclusionStatus status) {
         Network::SetCookieBlockedReasonEnum::UserPreferences);
   }
   if (status.HasExclusionReason(
+          net::CookieInclusionStatus::
+              EXCLUDE_THIRD_PARTY_BLOCKED_WITHIN_FIRST_PARTY_SET)) {
+    blockedReasons->push_back(
+        Network::SetCookieBlockedReasonEnum::ThirdPartyBlockedInFirstPartySet);
+  }
+  if (status.HasExclusionReason(
           net::CookieInclusionStatus::EXCLUDE_SAMEPARTY_CROSS_PARTY_CONTEXT)) {
     blockedReasons->push_back(
         Network::SetCookieBlockedReasonEnum::SamePartyFromCrossPartyContext);
@@ -874,6 +884,12 @@ GetProtocolBlockedCookieReason(net::CookieInclusionStatus status) {
           net::CookieInclusionStatus::EXCLUDE_USER_PREFERENCES)) {
     blockedReasons->push_back(
         Network::CookieBlockedReasonEnum::UserPreferences);
+  }
+  if (status.HasExclusionReason(
+          net::CookieInclusionStatus::
+              EXCLUDE_THIRD_PARTY_BLOCKED_WITHIN_FIRST_PARTY_SET)) {
+    blockedReasons->push_back(
+        Network::CookieBlockedReasonEnum::ThirdPartyBlockedInFirstPartySet);
   }
   if (status.HasExclusionReason(
           net::CookieInclusionStatus::EXCLUDE_SAMEPARTY_CROSS_PARTY_CONTEXT)) {
@@ -1250,7 +1266,7 @@ void NetworkHandler::SetRenderer(int render_process_host_id,
     browser_context_ = nullptr;
   }
   host_ = frame_host;
-  if (background_sync_restorer_ && storage_partition_)
+  if (background_sync_restorer_)
     background_sync_restorer_->SetStoragePartition(storage_partition_);
 }
 
@@ -1289,19 +1305,15 @@ String BuildReportStatus(const net::ReportingReport::Status status) {
 
 std::vector<GURL> ComputeReportingURLs(RenderFrameHostImpl* frame_host) {
   std::vector<GURL> urls;
-  base::queue<FrameTreeNode*> queue;
-  queue.push(frame_host->frame_tree_node());
-  while (!queue.empty()) {
-    FrameTreeNode* node = queue.front();
-    queue.pop();
-    if (node != frame_host->frame_tree_node() &&
-        node->current_frame_host()->is_local_root_subframe())
-      continue;
-
-    urls.push_back(node->current_url());
-    for (size_t i = 0; i < node->child_count(); ++i)
-      queue.push(node->child_at(i));
-  }
+  frame_host->ForEachRenderFrameHostWithAction(
+      [frame_host, &urls](content::RenderFrameHostImpl* rfh) {
+        if (rfh != frame_host && (rfh->is_local_root_subframe() ||
+                                  &rfh->GetPage() != &frame_host->GetPage())) {
+          return content::RenderFrameHost::FrameIterationAction::kSkipChildren;
+        }
+        urls.push_back(frame_host->GetLastCommittedURL());
+        return content::RenderFrameHost::FrameIterationAction::kContinue;
+      });
   return urls;
 }
 
@@ -1313,9 +1325,7 @@ NetworkHandler::BuildProtocolReport(const net::ReportingReport& report) {
     return nullptr;
   }
   std::vector<GURL> reporting_filter_urls = ComputeReportingURLs(host_);
-  auto iter = std::find(reporting_filter_urls.begin(),
-                        reporting_filter_urls.end(), report.url);
-  if (iter != reporting_filter_urls.end()) {
+  if (base::Contains(reporting_filter_urls, report.url)) {
     return protocol::Network::ReportingApiReport::Create()
         .SetId(report.id.ToString())
         .SetInitiatorUrl(report.url.spec())
@@ -1325,8 +1335,7 @@ NetworkHandler::BuildProtocolReport(const net::ReportingReport& report) {
             (report.queued - base::TimeTicks::UnixEpoch()).InSecondsF())
         .SetDepth(report.depth)
         .SetCompletedAttempts(report.attempts)
-        .SetBody(protocol::DictionaryValue::cast(
-            protocol::toProtocolValue(*report.body.get(), 1000)))
+        .SetBody(std::make_unique<base::Value::Dict>(report.body.Clone()))
         .SetStatus(BuildReportStatus(report.status))
         .Build();
   }
@@ -1670,14 +1679,12 @@ void NetworkHandler::DeleteCookies(
 Response NetworkHandler::SetExtraHTTPHeaders(
     std::unique_ptr<protocol::Network::Headers> headers) {
   std::vector<std::pair<std::string, std::string>> new_headers;
-  std::unique_ptr<protocol::DictionaryValue> object = headers->toValue();
-  for (size_t i = 0; i < object->size(); ++i) {
-    auto entry = object->at(i);
-    std::string value;
-    if (!entry.second->asString(&value))
+  for (const auto entry : *headers) {
+    if (!entry.second.is_string())
       return Response::InvalidParams("Invalid header value, string expected");
     if (!net::HttpUtil::IsValidHeaderName(entry.first))
       return Response::InvalidParams("Invalid header name");
+    const std::string& value = entry.second.GetString();
     if (!net::HttpUtil::IsValidHeaderValue(value))
       return Response::InvalidParams("Invalid header value");
     new_headers.emplace_back(entry.first, value);
@@ -1796,6 +1803,7 @@ std::unique_ptr<protocol::Network::SecurityDetails> BuildSecurityDetails(
               std::move(signed_certificate_timestamp_list))
           .SetCertificateTransparencyCompliance(
               SerializeCTPolicyCompliance(ssl_info.ct_policy_compliance))
+          .SetEncryptedClientHello(ssl_info.encrypted_client_hello)
           .Build();
 
   if (ssl_info.key_exchange_group != 0) {
@@ -1806,25 +1814,44 @@ std::unique_ptr<protocol::Network::SecurityDetails> BuildSecurityDetails(
   }
   if (mac)
     security_details->SetMac(mac);
+  if (ssl_info.peer_signature_algorithm != 0) {
+    security_details->SetServerSignatureAlgorithm(
+        ssl_info.peer_signature_algorithm);
+  }
 
   return security_details;
 }
 
-std::unique_ptr<protocol::Object> BuildResponseHeaders(
-    scoped_refptr<net::HttpResponseHeaders> headers) {
-  auto headers_dict = DictionaryValue::create();
+std::unique_ptr<base::Value::Dict> BuildResponseHeaders(
+    const net::HttpResponseHeaders* headers) {
+  auto headers_dict = std::make_unique<base::Value::Dict>();
   if (!headers)
-    return std::make_unique<protocol::Object>(std::move(headers_dict));
+    return headers_dict;
   size_t iterator = 0;
   std::string name;
   std::string value;
   while (headers->EnumerateHeaderLines(&iterator, &name, &value)) {
-    std::string old_value;
-    bool merge_with_another = headers_dict->getString(name, &old_value);
-    headers_dict->setString(
-        name, merge_with_another ? old_value + '\n' + value : value);
+    base::Value* header_value = headers_dict->Find(name);
+    if (header_value)
+      *header_value = base::Value(header_value->GetString() + '\n' + value);
+    else
+      headers_dict->Set(name, value);
   }
-  return std::make_unique<protocol::Object>(std::move(headers_dict));
+  return headers_dict;
+}
+
+std::unique_ptr<base::Value::Dict> BuildRequestHeaders(
+    const net::HttpRequestHeaders& headers,
+    const GURL& referrer) {
+  auto headers_dict = std::make_unique<base::Value::Dict>();
+  for (net::HttpRequestHeaders::Iterator it(headers); it.GetNext();)
+    headers_dict->Set(it.name(), it.value());
+
+  // This is normally added down the stack, so we have to fake it here.
+  if (!referrer.is_empty())
+    headers_dict->Set(net::HttpRequestHeaders::kReferer, referrer.spec());
+
+  return headers_dict;
 }
 
 String BuildServiceWorkerResponseSource(
@@ -1839,6 +1866,38 @@ String BuildServiceWorkerResponseSource(
     case network::mojom::FetchResponseSource::kUnspecified:
       return protocol::Network::ServiceWorkerResponseSourceEnum::FallbackCode;
   }
+}
+
+String AlternateProtocolUsageToString(
+    net::AlternateProtocolUsage alternate_protocol_usage) {
+  switch (alternate_protocol_usage) {
+    case net::AlternateProtocolUsage::ALTERNATE_PROTOCOL_USAGE_NO_RACE:
+      return protocol::Network::AlternateProtocolUsageEnum::
+          AlternativeJobWonWithoutRace;
+    case net::AlternateProtocolUsage::ALTERNATE_PROTOCOL_USAGE_WON_RACE:
+      return protocol::Network::AlternateProtocolUsageEnum::
+          AlternativeJobWonRace;
+    case net::AlternateProtocolUsage::
+        ALTERNATE_PROTOCOL_USAGE_MAIN_JOB_WON_RACE:
+      return protocol::Network::AlternateProtocolUsageEnum::MainJobWonRace;
+    case net::AlternateProtocolUsage::ALTERNATE_PROTOCOL_USAGE_MAPPING_MISSING:
+      return protocol::Network::AlternateProtocolUsageEnum::MappingMissing;
+    case net::AlternateProtocolUsage::ALTERNATE_PROTOCOL_USAGE_BROKEN:
+      return protocol::Network::AlternateProtocolUsageEnum::Broken;
+    case net::AlternateProtocolUsage::
+        ALTERNATE_PROTOCOL_USAGE_DNS_ALPN_H3_JOB_WON_WITHOUT_RACE:
+      return protocol::Network::AlternateProtocolUsageEnum::
+          DnsAlpnH3JobWonWithoutRace;
+    case net::AlternateProtocolUsage::
+        ALTERNATE_PROTOCOL_USAGE_DNS_ALPN_H3_JOB_WON_RACE:
+      return protocol::Network::AlternateProtocolUsageEnum::DnsAlpnH3JobWonRace;
+    case net::AlternateProtocolUsage::
+        ALTERNATE_PROTOCOL_USAGE_UNSPECIFIED_REASON:
+      return protocol::Network::AlternateProtocolUsageEnum::UnspecifiedReason;
+    case net::AlternateProtocolUsage::ALTERNATE_PROTOCOL_USAGE_MAX:
+      return protocol::Network::AlternateProtocolUsageEnum::UnspecifiedReason;
+  }
+  return protocol::Network::AlternateProtocolUsageEnum::UnspecifiedReason;
 }
 
 std::unique_ptr<Network::Response> BuildResponse(
@@ -1860,7 +1919,7 @@ std::unique_ptr<Network::Response> BuildResponse(
           .SetUrl(NetworkHandler::ExtractFragment(url, &url_fragment))
           .SetStatus(status)
           .SetStatusText(status_text)
-          .SetHeaders(BuildResponseHeaders(info.headers))
+          .SetHeaders(BuildResponseHeaders(info.headers.get()))
           .SetMimeType(info.mime_type)
           .SetConnectionReused(info.load_timing.socket_reused)
           .SetConnectionId(info.load_timing.socket_log_id)
@@ -1885,6 +1944,12 @@ std::unique_ptr<Network::Response> BuildResponse(
   }
 
   response->SetProtocol(GetProtocol(url, info));
+  if (info.alternate_protocol_usage !=
+      net::AlternateProtocolUsage::
+          ALTERNATE_PROTOCOL_USAGE_UNSPECIFIED_REASON) {
+    response->SetAlternateProtocolUsage(
+        AlternateProtocolUsageToString(info.alternate_protocol_usage));
+  }
   response->SetRemoteIPAddress(
       net::HostPortPair::FromIPEndPoint(info.remote_endpoint).HostForURL());
   response->SetRemotePort(info.remote_endpoint.port());
@@ -2016,24 +2081,54 @@ std::unique_ptr<protocol::Network::TrustTokenParams> BuildTrustTokenParams(
 
 }  // namespace
 
+void NetworkHandler::PrefetchRequestWillBeSent(
+    const std::string& request_id,
+    const network::ResourceRequest& request,
+    const GURL& initiator_url,
+    Maybe<std::string> frame_token,
+    base::TimeTicks timestamp) {
+  if (!enabled_)
+    return;
+
+  std::string url = request.url.is_valid() ? request.url.spec() : "";
+  double current_ticks = timestamp.since_origin().InSecondsF();
+  double current_wall_time = base::Time::Now().ToDoubleT();
+  auto initiator =
+      Network::Initiator::Create()
+          .SetType(Network::Initiator::TypeEnum::Script)
+          .SetUrl(initiator_url.is_valid() ? initiator_url.spec() : "")
+          .Build();
+  // TODO: for now redirect is empty
+  bool redirect_emitted_extra_info = false;
+  std::unique_ptr<Network::Response> redirect_response;
+
+  auto request_info =
+      Network::Request::Create()
+          .SetUrl(url)
+          .SetMethod(request.method)
+          .SetHeaders(BuildRequestHeaders(request.headers, request.referrer))
+          .SetInitialPriority(resourcePriority(request.priority))
+          .SetReferrerPolicy(referrerPolicy(request.referrer_policy))
+          .Build();
+
+  frontend_->RequestWillBeSent(
+      request_id, request_id, url, std::move(request_info), current_ticks,
+      current_wall_time, std::move(initiator), redirect_emitted_extra_info,
+      std::move(redirect_response),
+      std::string(Network::ResourceTypeEnum::Prefetch), std::move(frame_token),
+      request.has_user_gesture);
+}
+
 void NetworkHandler::NavigationRequestWillBeSent(
     const NavigationRequest& nav_request,
     base::TimeTicks timestamp) {
   if (!enabled_)
     return;
 
-  net::HttpRequestHeaders headers;
-  headers.AddHeadersFromString(nav_request.begin_params().headers);
-  std::unique_ptr<DictionaryValue> headers_dict(DictionaryValue::create());
-  for (net::HttpRequestHeaders::Iterator it(headers); it.GetNext();)
-    headers_dict->setString(it.name(), it.value());
-
   const blink::mojom::CommonNavigationParams& common_params =
       nav_request.common_params();
-  GURL referrer = common_params.referrer->url;
-  // This is normally added down the stack, so we have to fake it here.
-  if (!referrer.is_empty())
-    headers_dict->setString(net::HttpRequestHeaders::kReferer, referrer.spec());
+  net::HttpRequestHeaders headers;
+  headers.AddHeadersFromString(nav_request.begin_params().headers);
 
   std::unique_ptr<Network::Response> redirect_response;
   const blink::mojom::CommitNavigationParams& commit_params =
@@ -2055,7 +2150,7 @@ void NetworkHandler::NavigationRequestWillBeSent(
       Network::Request::Create()
           .SetUrl(url_without_fragment)
           .SetMethod(common_params.method)
-          .SetHeaders(Object::fromValue(headers_dict.get(), nullptr))
+          .SetHeaders(BuildRequestHeaders(headers, common_params.referrer->url))
           .SetInitialPriority(resourcePriority(net::HIGHEST))
           .SetReferrerPolicy(referrerPolicy(common_params.referrer->policy))
           .Build();
@@ -2078,12 +2173,10 @@ void NetworkHandler::NavigationRequestWillBeSent(
   request->SetMixedContentType(Security::MixedContentTypeEnum::None);
 
   std::unique_ptr<Network::Initiator> initiator;
-  const absl::optional<base::Value>& initiator_optional =
+  const absl::optional<base::Value::Dict>& initiator_optional =
       nav_request.begin_params().devtools_initiator;
-  if (initiator_optional.has_value()) {
-    initiator = protocol::ValueTypeConverter<Network::Initiator>::FromValue(
-        *toProtocolValue(initiator_optional.value(), 1000));
-  }
+  if (initiator_optional.has_value())
+    crdtp::ConvertProtocolValue(initiator_optional.value(), &initiator);
   if (!initiator) {
     initiator = Network::Initiator::Create()
                     .SetType(Network::Initiator::TypeEnum::Other)
@@ -2092,8 +2185,10 @@ void NetworkHandler::NavigationRequestWillBeSent(
   std::string id = nav_request.devtools_navigation_token().ToString();
   double current_ticks = timestamp.since_origin().InSecondsF();
   double current_wall_time = base::Time::Now().ToDoubleT();
-  std::string frame_token =
-      nav_request.frame_tree_node()->devtools_frame_token().ToString();
+  std::string frame_token = nav_request.frame_tree_node()
+                                ->current_frame_host()
+                                ->devtools_frame_token()
+                                .ToString();
 
   const blink::mojom::BeginNavigationParams& begin_params =
       nav_request.begin_params();
@@ -2103,7 +2198,7 @@ void NetworkHandler::NavigationRequestWillBeSent(
   }
 
   if (host_) {
-    if (nav_request.frame_tree_node()->IsMainFrame()) {
+    if (nav_request.frame_tree_node()->IsOutermostMainFrame()) {
       request->SetIsSameSite(true);
     } else {
       request->SetIsSameSite(
@@ -2129,9 +2224,6 @@ void NetworkHandler::RequestSent(
     base::TimeTicks timestamp) {
   if (!enabled_)
     return;
-  std::unique_ptr<DictionaryValue> headers_dict(DictionaryValue::create());
-  for (net::HttpRequestHeaders::Iterator it(request_headers); it.GetNext();)
-    headers_dict->setString(it.name(), it.value());
   std::unique_ptr<Network::Initiator> initiator =
       Network::Initiator::Create().SetType(initiator_type).Build();
   if (initiator_url)
@@ -2145,7 +2237,7 @@ void NetworkHandler::RequestSent(
       Network::Request::Create()
           .SetUrl(url_without_fragment)
           .SetMethod(request_info.method)
-          .SetHeaders(Object::fromValue(headers_dict.get(), nullptr))
+          .SetHeaders(BuildRequestHeaders(request_headers, GURL()))
           .SetInitialPriority(resourcePriority(request_info.priority))
           .SetReferrerPolicy(referrerPolicy(request_info.referrer_policy))
           .Build();
@@ -2296,7 +2388,6 @@ void NetworkHandler::LoadingComplete(
     const network::URLLoaderCompletionStatus& status) {
   if (!enabled_)
     return;
-
   if (status.error_code != net::OK) {
     frontend_->LoadingFailed(
         request_id,
@@ -2335,9 +2426,9 @@ void NetworkHandler::OnSignedExchangeReceived(
           .Build();
 
   if (envelope) {
-    std::unique_ptr<DictionaryValue> headers_dict(DictionaryValue::create());
+    auto headers_dict = std::make_unique<base::Value::Dict>();
     for (const auto& it : envelope->response_headers())
-      headers_dict->setString(it.first, it.second);
+      headers_dict->Set(it.first, it.second);
 
     const SignedExchangeSignatureHeaderField::Signature& sig =
         envelope->signature();
@@ -2377,7 +2468,7 @@ void NetworkHandler::OnSignedExchangeReceived(
         Network::SignedExchangeHeader::Create()
             .SetRequestUrl(envelope->request_url().url.spec())
             .SetResponseCode(envelope->response_code())
-            .SetResponseHeaders(Object::fromValue(headers_dict.get(), nullptr))
+            .SetResponseHeaders(std::move(headers_dict))
             .SetSignatures(std::move(signatures))
             .SetHeaderIntegrity(
                 signed_exchange_utils::CreateHeaderIntegrityHashString(
@@ -2484,18 +2575,16 @@ void NetworkHandler::ContinueInterceptedRequest(
   std::unique_ptr<DevToolsURLLoaderInterceptor::Modifications::HeadersVector>
       override_headers;
   if (opt_headers.isJust()) {
-    std::unique_ptr<protocol::DictionaryValue> headers =
-        opt_headers.fromJust()->toValue();
+    const base::Value::Dict& headers = *opt_headers.fromJust();
     override_headers = std::make_unique<
         DevToolsURLLoaderInterceptor::Modifications::HeadersVector>();
-    for (size_t i = 0; i < headers->size(); ++i) {
-      const protocol::DictionaryValue::Entry& entry = headers->at(i);
+    for (const auto entry : headers) {
       std::string value;
-      if (!entry.second->asString(&value)) {
+      if (!entry.second.is_string()) {
         callback->sendFailure(Response::InvalidParams("Invalid header value"));
         return;
       }
-      override_headers->emplace_back(entry.first, value);
+      override_headers->emplace_back(entry.first, entry.second.GetString());
     }
   }
   using AuthChallengeResponse =
@@ -2552,6 +2641,23 @@ void NetworkHandler::GetResponseBodyForInterception(
                                            std::move(callback));
 }
 
+void NetworkHandler::BodyDataReceived(const String& request_id,
+                                      const String& body,
+                                      bool is_base64_encoded) {
+  received_body_data_[request_id] = {body, is_base64_encoded};
+}
+
+void NetworkHandler::GetResponseBody(
+    const String& request_id,
+    std::unique_ptr<GetResponseBodyCallback> callback) {
+  auto it = received_body_data_.find(request_id);
+  if (it != received_body_data_.end()) {
+    callback->sendSuccess(it->second.first, it->second.second);
+  } else {
+    callback->fallThrough();
+  }
+}
+
 void NetworkHandler::TakeResponseBodyForInterceptionAsStream(
     const String& interception_id,
     std::unique_ptr<TakeResponseBodyForInterceptionAsStreamCallback> callback) {
@@ -2603,22 +2709,17 @@ std::unique_ptr<Network::Request>
 NetworkHandler::CreateRequestFromResourceRequest(
     const network::ResourceRequest& request,
     const std::string& cookie_line) {
-  std::unique_ptr<DictionaryValue> headers_dict(DictionaryValue::create());
-  for (net::HttpRequestHeaders::Iterator it(request.headers); it.GetNext();)
-    headers_dict->setString(it.name(), it.value());
-  if (request.referrer.is_valid()) {
-    headers_dict->setString(net::HttpRequestHeaders::kReferer,
-                            request.referrer.spec());
-  }
+  std::unique_ptr<base::Value::Dict> headers_dict =
+      BuildRequestHeaders(request.headers, request.referrer);
   if (!cookie_line.empty())
-    headers_dict->setString(net::HttpRequestHeaders::kCookie, cookie_line);
+    headers_dict->Set(net::HttpRequestHeaders::kCookie, cookie_line);
 
   std::string url_fragment;
   std::unique_ptr<protocol::Network::Request> request_object =
       Network::Request::Create()
           .SetUrl(ExtractFragment(request.url, &url_fragment))
           .SetMethod(request.method)
-          .SetHeaders(Object::fromValue(headers_dict.get(), nullptr))
+          .SetHeaders(std::move(headers_dict))
           .SetInitialPriority(resourcePriority(request.priority))
           .SetReferrerPolicy(referrerPolicy(request.referrer_policy))
           .Build();
@@ -2681,7 +2782,7 @@ void NetworkHandler::RequestIntercepted(
   Maybe<protocol::Network::Headers> response_headers;
   if (info->response_headers) {
     status_code = info->response_headers->response_code();
-    response_headers = BuildResponseHeaders(info->response_headers);
+    response_headers = BuildResponseHeaders(info->response_headers.get());
   }
 
   std::unique_ptr<protocol::Network::AuthChallenge> auth_challenge;
@@ -2739,10 +2840,13 @@ makeCrossOriginOpenerPolicyValue(
     case network::mojom::CrossOriginOpenerPolicyValue::kSameOriginPlusCoep:
       return protocol::Network::CrossOriginOpenerPolicyValueEnum::
           SameOriginPlusCoep;
-    case network::mojom::CrossOriginOpenerPolicyValue::
-        kSameOriginAllowPopupsPlusCoep:
+    case network::mojom::CrossOriginOpenerPolicyValue::kRestrictProperties:
       return protocol::Network::CrossOriginOpenerPolicyValueEnum::
-          SameOriginAllowPopupsPlusCoep;
+          RestrictProperties;
+    case network::mojom::CrossOriginOpenerPolicyValue::
+        kRestrictPropertiesPlusCoep:
+      return protocol::Network::CrossOriginOpenerPolicyValueEnum::
+          RestrictPropertiesPlusCoep;
   }
 }
 protocol::Network::CrossOriginEmbedderPolicyValue
@@ -2820,14 +2924,18 @@ void NetworkHandler::OnRequestWillBeSentExtraInfo(
     const net::CookieAccessResultList& request_cookie_list,
     const std::vector<network::mojom::HttpRawHeaderPairPtr>& request_headers,
     const base::TimeTicks timestamp,
-    const network::mojom::ClientSecurityStatePtr& security_state) {
+    const network::mojom::ClientSecurityStatePtr& security_state,
+    const network::mojom::OtherPartitionInfoPtr& other_partition_info) {
   if (!enabled_)
     return;
 
   frontend_->RequestWillBeSentExtraInfo(
       devtools_request_id, BuildProtocolAssociatedCookies(request_cookie_list),
       GetRawHeaders(request_headers), GetConnectTiming(timestamp),
-      MaybeBuildClientSecurityState(security_state));
+      MaybeBuildClientSecurityState(security_state),
+      other_partition_info
+          ? other_partition_info->site_has_cookie_in_other_partition
+          : Maybe<bool>());
 }
 
 void NetworkHandler::OnResponseReceivedExtraInfo(
@@ -2881,19 +2989,7 @@ void NetworkHandler::OnLoadNetworkResourceFinished(
 
   if (rh) {
     result->SetHttpStatusCode(rh->response_code());
-    std::unique_ptr<protocol::DictionaryValue> headers_object =
-        protocol::DictionaryValue::create();
-    size_t iterator = 0;
-    std::string name;
-    std::string value;
-    // TODO(chromium:1069378): This probably needs to handle duplicate header
-    // names correctly by folding them.
-    while (rh->EnumerateHeaderLines(&iterator, &name, &value)) {
-      headers_object->setString(name, value);
-    }
-    protocol::ErrorSupport errors;
-    result->SetHeaders(
-        protocol::Network::Headers::fromValue(headers_object.get(), &errors));
+    result->SetHeaders(BuildResponseHeaders(rh));
   }
 
   callback->sendSuccess(std::move(result));

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,18 +15,28 @@
 namespace autofill {
 
 TestAutofillDriver::TestAutofillDriver()
-    : test_shared_loader_factory_(
+    :
+#if !BUILDFLAG(IS_IOS)
+      ContentAutofillDriver(/*render_frame_host=*/nullptr,
+                            /*autofill_router=*/nullptr),
+#endif
+      test_shared_loader_factory_(
           base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
-              &test_url_loader_factory_)) {}
+              &test_url_loader_factory_)) {
+}
 
-TestAutofillDriver::~TestAutofillDriver() {}
+TestAutofillDriver::~TestAutofillDriver() = default;
 
 bool TestAutofillDriver::IsIncognito() const {
   return is_incognito_;
 }
 
-bool TestAutofillDriver::IsInMainFrame() const {
-  return is_in_main_frame_;
+bool TestAutofillDriver::IsInActiveFrame() const {
+  return is_in_active_frame_;
+}
+
+bool TestAutofillDriver::IsInAnyMainFrame() const {
+  return is_in_any_main_frame_;
 }
 
 bool TestAutofillDriver::IsPrerendering() const {
@@ -51,77 +61,35 @@ bool TestAutofillDriver::RendererIsAvailable() {
   return true;
 }
 
-#if !BUILDFLAG(IS_IOS)
-webauthn::InternalAuthenticator*
-TestAutofillDriver::GetOrCreateCreditCardInternalAuthenticator() {
-  return test_authenticator_.get();
-}
-#endif
-
-base::flat_map<FieldGlobalId, ServerFieldType>
-TestAutofillDriver::FillOrPreviewForm(
-    int query_id,
+std::vector<FieldGlobalId> TestAutofillDriver::FillOrPreviewForm(
     mojom::RendererFormDataAction action,
     const FormData& form_data,
     const url::Origin& triggered_origin,
     const base::flat_map<FieldGlobalId, ServerFieldType>& field_type_map) {
-  base::flat_map<FieldGlobalId, ServerFieldType> result = field_type_map;
-  if (field_type_map_filter_) {
-    base::EraseIf(result, [&](const auto& p) {
-      return !field_type_map_filter_.Run(triggered_origin, p.first, p.second);
-    });
+  std::vector<FieldGlobalId> result;
+  for (const auto& [id, type] : field_type_map) {
+    if (!field_type_map_filter_ ||
+        field_type_map_filter_.Run(triggered_origin, id, type)) {
+      result.push_back(id);
+    }
   }
   return result;
-}
-
-void TestAutofillDriver::PropagateAutofillPredictions(
-    const std::vector<FormStructure*>& forms) {
-}
-
-void TestAutofillDriver::HandleParsedForms(
-    const std::vector<const FormData*>& forms) {}
-
-void TestAutofillDriver::SendAutofillTypePredictionsToRenderer(
-    const std::vector<FormStructure*>& forms) {
-}
-
-void TestAutofillDriver::RendererShouldAcceptDataListSuggestion(
-    const FieldGlobalId& field,
-    const std::u16string& value) {}
-
-void TestAutofillDriver::RendererShouldClearFilledSection() {}
-
-void TestAutofillDriver::RendererShouldClearPreviewedForm() {
-}
-
-void TestAutofillDriver::RendererShouldFillFieldWithValue(
-    const FieldGlobalId& field,
-    const std::u16string& value) {}
-
-void TestAutofillDriver::RendererShouldPreviewFieldWithValue(
-    const FieldGlobalId& field,
-    const std::u16string& value) {}
-
-void TestAutofillDriver::RendererShouldSetSuggestionAvailability(
-    const FieldGlobalId& field,
-    const mojom::AutofillState state) {}
-
-void TestAutofillDriver::PopupHidden() {
 }
 
 net::IsolationInfo TestAutofillDriver::IsolationInfo() {
   return isolation_info_;
 }
 
-void TestAutofillDriver::SendFieldsEligibleForManualFillingToRenderer(
-    const std::vector<FieldGlobalId>& fields) {}
-
 void TestAutofillDriver::SetIsIncognito(bool is_incognito) {
   is_incognito_ = is_incognito;
 }
 
-void TestAutofillDriver::SetIsInMainFrame(bool is_in_main_frame) {
-  is_in_main_frame_ = is_in_main_frame;
+void TestAutofillDriver::SetIsInActiveFrame(bool is_in_active_frame) {
+  is_in_active_frame_ = is_in_active_frame;
+}
+
+void TestAutofillDriver::SetIsInAnyMainFrame(bool is_in_any_main_frame) {
+  is_in_any_main_frame_ = is_in_any_main_frame;
 }
 
 void TestAutofillDriver::SetIsolationInfo(

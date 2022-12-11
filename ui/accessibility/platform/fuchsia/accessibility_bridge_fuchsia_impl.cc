@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,16 +51,15 @@ absl::optional<ax::mojom::Action> ConvertAction(
 AccessibilityBridgeFuchsiaImpl::AccessibilityBridgeFuchsiaImpl(
     aura::Window* window,
     fuchsia::ui::views::ViewRef view_ref,
-    base::RepeatingCallback<float()> get_pixel_scale,
     base::RepeatingCallback<void(bool)> on_semantics_enabled,
-    base::RepeatingCallback<bool()> on_connection_closed,
+    OnConnectionClosedCallback on_connection_closed,
     inspect::Node inspect_node)
     : root_window_(window),
       on_semantics_enabled_(std::move(on_semantics_enabled)),
       on_connection_closed_(std::move(on_connection_closed)),
       inspect_node_(std::move(inspect_node)) {
   semantic_provider_ = std::make_unique<ui::AXFuchsiaSemanticProviderImpl>(
-      std::move(view_ref), std::move(get_pixel_scale), this);
+      std::move(view_ref), this);
 
   ui::AccessibilityBridgeFuchsiaRegistry* registry =
       ui::AccessibilityBridgeFuchsiaRegistry::GetInstance();
@@ -232,9 +231,10 @@ void AccessibilityBridgeFuchsiaImpl::OnSemanticsEnabled(bool enabled) {
     on_semantics_enabled_.Run(enabled);
 }
 
-bool AccessibilityBridgeFuchsiaImpl::OnSemanticsManagerConnectionClosed() {
+bool AccessibilityBridgeFuchsiaImpl::OnSemanticsManagerConnectionClosed(
+    zx_status_t status) {
   if (on_connection_closed_)
-    return on_connection_closed_.Run();
+    return on_connection_closed_.Run(status);
 
   // If the user does not specify a callback, then we can assume no attempt to
   // reconnect should be made.
@@ -249,6 +249,10 @@ void AccessibilityBridgeFuchsiaImpl::set_semantic_provider_for_test(
 inspect::Node AccessibilityBridgeFuchsiaImpl::GetInspectNode() {
   return inspect_node_.CreateChild(
       base::StringPrintf("AXTree-%d", next_inspect_tree_number_++));
+}
+
+void AccessibilityBridgeFuchsiaImpl::SetPixelScale(float pixel_scale) {
+  semantic_provider_->SetPixelScale(pixel_scale);
 }
 
 }  // namespace ui

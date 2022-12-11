@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,13 @@
 #include "base/callback.h"
 #include "base/callback_forward.h"
 #include "base/command_line.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/endpoint_fetcher/endpoint_fetcher.h"
 #include "chrome/browser/media/router/discovery/access_code/discovery_resources.pb.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/access_code_cast/access_code_cast.mojom.h"
-#include "components/leveldb_proto/public/proto_database.h"
+#include "components/endpoint_fetcher/endpoint_fetcher.h"
+#include "components/media_router/browser/logger_impl.h"
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "services/network/public/cpp/resource_request.h"
@@ -36,13 +37,9 @@ class AccessCodeCastDiscoveryInterface {
   using AddSinkResultCode = access_code_cast::mojom::AddSinkResultCode;
 
   AccessCodeCastDiscoveryInterface(Profile* profile,
-                                   const std::string& access_code);
-
-  // Used for tests. Can be used if caller constructs their own EndpointFetcher.
-  AccessCodeCastDiscoveryInterface(
-      Profile* profile,
-      const std::string& access_code,
-      std::unique_ptr<EndpointFetcher> endpoint_fetcher);
+                                   const std::string& access_code,
+                                   LoggerImpl* logger,
+                                   signin::IdentityManager* identity_manager);
 
   virtual ~AccessCodeCastDiscoveryInterface();
 
@@ -59,8 +56,6 @@ class AccessCodeCastDiscoveryInterface {
   // AddSinkResultCode::OK is returned.
   void ValidateDiscoveryAccessCode(DiscoveryDeviceCallback callback);
 
-  static void EnableCommandLineSupportForTesting();
-
  private:
   friend class AccessCodeCastDiscoveryInterfaceTest;
   FRIEND_TEST_ALL_PREFIXES(AccessCodeCastDiscoveryInterfaceTest,
@@ -68,6 +63,14 @@ class AccessCodeCastDiscoveryInterface {
 
   std::unique_ptr<EndpointFetcher> CreateEndpointFetcher(
       const std::string& access_code);
+
+  // Used for tests. Can be used if caller constructs their own EndpointFetcher.
+  AccessCodeCastDiscoveryInterface(
+      Profile* profile,
+      const std::string& access_code,
+      LoggerImpl* logger,
+      signin::IdentityManager* identity_manager,
+      std::unique_ptr<EndpointFetcher> endpoint_fetcher);
 
   void SetDeviceCapabilitiesField(
       chrome_browser_media::proto::DeviceCapabilities* device_proto,
@@ -83,10 +86,18 @@ class AccessCodeCastDiscoveryInterface {
   void HandleServerResponse(std::unique_ptr<EndpointResponse> response);
   void ReportError(AddSinkResultCode error);
 
-  Profile* const profile_;
+  AddSinkResultCode GetErrorFromResponse(const base::Value& response);
+  AddSinkResultCode IsResponseValid(
+      const absl::optional<base::Value>& response);
+
+  const raw_ptr<Profile> profile_;
   // Access code passed down from the WebUI and used in the construction of the
   // discovery interface object.
   const std::string access_code_;
+
+  const raw_ptr<LoggerImpl> logger_;
+
+  const raw_ptr<signin::IdentityManager> identity_manager_;
 
   std::unique_ptr<EndpointFetcher> endpoint_fetcher_;
 

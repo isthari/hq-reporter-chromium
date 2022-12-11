@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,6 @@
 #include "chromecast/base/process_types.h"
 #include "chromecast/browser/cast_content_browser_client.h"
 #include "chromecast/browser/cast_feature_list_creator.h"
-#include "chromecast/browser/migration/migration_utils.h"
 #include "chromecast/chromecast_buildflags.h"
 #include "chromecast/common/cast_resource_delegate.h"
 #include "chromecast/common/global_descriptors.h"
@@ -35,14 +34,15 @@
 #include "chromecast/utility/cast_content_utility_client.h"
 #include "components/crash/core/app/crash_reporter_client.h"
 #include "components/crash/core/common/crash_key.h"
+#include "content/public/app/initialize_mojo_core.h"
 #include "content/public/browser/browser_main_runner.h"
 #include "content/public/common/content_switches.h"
+#include "third_party/abseil-cpp/absl/types/variant.h"
 #include "ui/base/resource/resource_bundle.h"
 
 #if BUILDFLAG(IS_ANDROID)
 #include "base/android/apk_assets.h"
 #include "chromecast/app/android/cast_crash_reporter_client_android.h"
-#include "chromecast/app/android/crash_handler.h"
 #include "ui/base/resource/resource_bundle_android.h"
 #elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 #include "chromecast/app/linux/cast_crash_reporter_client.h"
@@ -72,7 +72,7 @@ CastMainDelegate::CastMainDelegate() {}
 
 CastMainDelegate::~CastMainDelegate() {}
 
-bool CastMainDelegate::BasicStartupComplete(int* exit_code) {
+absl::optional<int> CastMainDelegate::BasicStartupComplete() {
   RegisterPathProvider();
 
   logging::LoggingSettings settings;
@@ -160,7 +160,7 @@ bool CastMainDelegate::BasicStartupComplete(int* exit_code) {
   if (settings.logging_dest & logging::LOG_TO_FILE) {
     LOG(INFO) << "Logging to file: " << settings.log_file_path;
   }
-  return false;
+  return absl::nullopt;
 }
 
 void CastMainDelegate::PreSandboxStartup() {
@@ -177,23 +177,18 @@ void CastMainDelegate::PreSandboxStartup() {
   std::string process_type =
       command_line->GetSwitchValueASCII(switches::kProcessType);
 
-  bool enable_crash_reporter = !command_line->HasSwitch(
-      switches::kDisableCrashReporter);
+  bool enable_crash_reporter =
+      !command_line->HasSwitch(switches::kDisableCrashReporter);
   if (enable_crash_reporter) {
     // TODO(crbug.com/1226159): Complete crash reporting integration on Fuchsia.
-#if BUILDFLAG(IS_ANDROID)
-    base::FilePath log_file;
-    base::PathService::Get(FILE_CAST_ANDROID_LOG, &log_file);
-    chromecast::CrashHandler::Initialize(process_type, log_file);
-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
     crash_reporter::SetCrashReporterClient(GetCastCrashReporter());
 
     if (process_type != switches::kZygoteProcess) {
       CastCrashReporterClient::InitCrashReporter(process_type);
     }
-#endif  // BUILDFLAG(IS_ANDROID)
-
     crash_reporter::InitializeCrashKeys();
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
   }
 
   InitializeResourceBundle();
@@ -233,11 +228,21 @@ void CastMainDelegate::ZygoteForked() {
 }
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 
-bool CastMainDelegate::ShouldCreateFeatureList() {
-  return false;
+bool CastMainDelegate::ShouldCreateFeatureList(InvokedIn invoked_in) {
+  return absl::holds_alternative<InvokedInChildProcess>(invoked_in);
 }
 
-void CastMainDelegate::PostEarlyInitialization(bool is_running_tests) {
+bool CastMainDelegate::ShouldInitializeMojo(InvokedIn invoked_in) {
+  return ShouldCreateFeatureList(invoked_in);
+}
+
+absl::optional<int> CastMainDelegate::PostEarlyInitialization(
+    InvokedIn invoked_in) {
+  if (ShouldCreateFeatureList(invoked_in)) {
+    // content is handling the feature list.
+    return absl::nullopt;
+  }
+
   DCHECK(cast_feature_list_creator_);
 
 #if !BUILDFLAG(IS_ANDROID)
@@ -248,27 +253,20 @@ void CastMainDelegate::PostEarlyInitialization(bool is_running_tests) {
   CHECK(base::CreateDirectory(home_dir));
 #endif  // !BUILDFLAG(IS_ANDROID)
 
-  const base::CommandLine* command_line =
-      base::CommandLine::ForCurrentProcess();
-  const bool use_browser_config =
-      command_line->HasSwitch(switches::kUseCastBrowserPrefConfig);
-  if (use_browser_config) {
-    cast_browser_migration::CopyPrefConfigsIfMissing();
-  }
-
   // TODO(crbug/1249485): If we're able to create the MetricsStateManager
   // earlier, clean up the below if and else blocks and call
   // MetricsStateManager::InstantiateFieldTrialList().
   //
   // The FieldTrialList is a dependency of the feature list. In tests, it is
   // constructed as part of the test suite.
-  if (is_running_tests) {
+  const auto* invoked_in_browser =
+      absl::get_if<InvokedInBrowserProcess>(&invoked_in);
+  if (invoked_in_browser && invoked_in_browser->is_running_test) {
     DCHECK(base::FieldTrialList::GetInstance());
   } else {
     // This is intentionally leaked since it needs to live for the duration of
     // the browser process and there's no benefit to cleaning it up at exit.
-    base::FieldTrialList* leaked_field_trial_list =
-        new base::FieldTrialList(nullptr);
+    base::FieldTrialList* leaked_field_trial_list = new base::FieldTrialList();
     ANNOTATE_LEAKING_OBJECT_PTR(leaked_field_trial_list);
     std::ignore = leaked_field_trial_list;
   }
@@ -276,9 +274,17 @@ void CastMainDelegate::PostEarlyInitialization(bool is_running_tests) {
   // Initialize the base::FeatureList and the PrefService (which it depends on),
   // so objects initialized after this point can use features from
   // base::FeatureList.
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
+  const bool use_browser_config =
+      command_line->HasSwitch(switches::kUseCastBrowserPrefConfig);
   ProcessType process_type = use_browser_config ? ProcessType::kCastBrowser
                                                 : ProcessType::kCastService;
   cast_feature_list_creator_->CreatePrefServiceAndFeatureList(process_type);
+
+  content::InitializeMojoCore();
+
+  return absl::nullopt;
 }
 
 void CastMainDelegate::InitializeResourceBundle() {

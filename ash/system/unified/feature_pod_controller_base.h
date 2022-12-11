@@ -1,16 +1,19 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_SYSTEM_UNIFIED_FEATURE_POD_CONTROLLER_BASE_H_
 #define ASH_SYSTEM_UNIFIED_FEATURE_POD_CONTROLLER_BASE_H_
 
+#include <memory>
+
 #include "ash/ash_export.h"
-#include "ash/system/tray/system_tray_item_uma_type.h"
+#include "ash/constants/quick_settings_catalogs.h"
 
 namespace ash {
 
 class FeaturePodButton;
+class FeatureTile;
 
 // Base class for controllers of feature pod buttons.
 // To add a new feature pod button, implement this class, and add to the list in
@@ -20,10 +23,21 @@ class ASH_EXPORT FeaturePodControllerBase {
   virtual ~FeaturePodControllerBase() {}
 
   // Create the view. Subclasses instantiate FeaturePodButton.
-  // The view will be onwed by views hierarchy. The view will be always deleted
+  // The view will be owned by views hierarchy. The view will be always deleted
   // after the controller is destructed (UnifiedSystemTrayBubble guarantees
   // this).
   virtual FeaturePodButton* CreateButton() = 0;
+
+  // Creates FeatureTile view.
+  // TODO(b/252871301): Make this function pure virtual after implementing
+  // every feature tile.
+  virtual std::unique_ptr<FeatureTile> CreateTile();
+
+  // Returns the feature catalog name which is used for UMA tracking. Please
+  // remember to call the corresponding tracking method (`TrackToggleUMA` and
+  // `TrackDiveInUMA`) in the `OnIconPressed` and `OnLabelPressed`
+  // implementation.
+  virtual QsFeatureCatalogName GetCatalogName() = 0;
 
   // Called when the icon of the feature pod button is clicked.
   // If the feature pod is togglable, it is expected to toggle the feature.
@@ -34,9 +48,20 @@ class ASH_EXPORT FeaturePodControllerBase {
   // view. Defaults to OnIconPressed().
   virtual void OnLabelPressed();
 
-  // Return histogram value for Ash.SystemMenu.DefaultView.VisibleRows. If the
-  // button is not recorded, UMA_NOT_RECORDED will be used.
-  virtual SystemTrayItemUmaType GetUmaType() const = 0;
+  // Tracks the toggling behavior, usually happens `OnIconPressed`. But this
+  // method can also be called in the `OnLabelPressed` method, when pressing on
+  // the label has the same behavior as pressing on the icon. If the feature has
+  // no `target_toggle_state` state, such as the screen capture feaure, pass
+  // `true` to this method.
+  void TrackToggleUMA(bool target_toggle_state);
+
+  // Tracks the navigating to detailed page behavior, usually happens
+  // `OnLabelPressed`, sometimes also happens `OnIconPressed`.
+  void TrackDiveInUMA();
+
+  // Tracks the visibility of this feature pod. Call this method if the
+  // visibility is set from `false` to `true`.
+  void TrackVisibilityUMA();
 };
 
 }  // namespace ash

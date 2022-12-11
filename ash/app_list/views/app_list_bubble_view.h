@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,11 @@
 
 #include <memory>
 
+#include "ash/app_list/app_list_view_provider.h"
 #include "ash/app_list/views/app_list_folder_controller.h"
+#include "ash/app_list/views/search_box_view_delegate.h"
 #include "ash/ash_export.h"
 #include "ash/public/cpp/app_list/app_list_types.h"
-#include "ash/search_box/search_box_view_delegate.h"
 #include "base/callback_forward.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/views/view.h"
@@ -25,6 +26,7 @@ class AppListBubbleSearchPage;
 class AppListFolderItem;
 class AppListFolderView;
 class AppListViewDelegate;
+class ButtonFocusSkipper;
 class FolderBackgroundView;
 class SearchBoxView;
 class SearchResultPageDialogController;
@@ -81,6 +83,9 @@ class ASH_EXPORT AppListBubbleView : public views::View,
   // apps grid. Used for computing the bubble height on large screens.
   int GetHeightToFitAllApps() const;
 
+  // Updates the continue section visibility based on user preference.
+  void UpdateContinueSectionVisibility();
+
   // Handles `AppListController::UpdateAppListWithNewSortingOrder()` for the
   // app list bubble view.
   void UpdateForNewSortingOrder(
@@ -95,9 +100,9 @@ class ASH_EXPORT AppListBubbleView : public views::View,
   void Layout() override;
 
   // SearchBoxViewDelegate:
-  void QueryChanged(SearchBoxViewBase* sender) override;
+  void QueryChanged(const std::u16string& trimmed_query,
+                    bool initiated_by_user) override;
   void AssistantButtonPressed() override;
-  void BackButtonPressed() override {}
   void CloseButtonPressed() override;
   void ActiveChanged(SearchBoxViewBase* sender) override {}
   void OnSearchBoxKeyEvent(ui::KeyEvent* event) override;
@@ -105,12 +110,33 @@ class ASH_EXPORT AppListBubbleView : public views::View,
 
   // AppListFolderController:
   void ShowFolderForItemView(AppListItemView* folder_item_view,
-                             bool focus_name_input) override;
+                             bool focus_name_input,
+                             base::OnceClosure hide_callback) override;
   void ShowApps(AppListItemView* folder_item_view, bool select_folder) override;
   void ReparentFolderItemTransit(AppListFolderItem* folder_item) override;
   void ReparentDragEnded() override;
 
+  // Initialize Assistant UIs for bubble view. Assistant UIs
+  // (AppListAssistantMainStage, SuggestionContainerView) expect that their
+  // OnUiVisibilityChanged methods get called via value update in
+  // AssistantUiModel.
+  //
+  // But it does not happen for bubble view as AppListBubblePresenter have an
+  // async call for OnZeroStateSearchDone. AppListBubbleView is instantiated
+  // after the async call and those UIs will miss the event.
+  //
+  // This is a helper method to manually trigger the UI initialization.
+  //
+  // This method is designed to be explicitly called from AppListBubblePresenter
+  // (i.e. instead of doing this in the constructor of AppListBubbleView) to
+  // make the intention clear.
+  //
+  // TODO(b/239754561): Clean up: refactor Assistant UI initialization
+  void InitializeUIForBubbleView();
+
+  AppListBubblePage current_page_for_test() { return current_page_; }
   ViewShadow* view_shadow_for_test() { return view_shadow_.get(); }
+  SearchBoxView* search_box_view_for_test() { return search_box_view_; }
   views::View* separator_for_test() { return separator_; }
   bool showing_folder_for_test() { return showing_folder_; }
   AppListBubbleAppsPage* apps_page_for_test() { return apps_page_; }
@@ -135,6 +161,20 @@ class ASH_EXPORT AppListBubbleView : public views::View,
 
   // Called when the hide animation ends or aborts.
   void OnHideAnimationEnded(const gfx::Rect& layer_bounds);
+
+  // Hides the folder view if it's currently shown. It can be called if the
+  // folder is not currently shown.
+  // `animate` - Whether the folder view should be hidden using an animation.
+  // `hide_for_reparent` - Whether the folder view is being hidden to initiate
+  // item reparent user action (e.g. when dragging folder item out of the folder
+  // view bounds).
+  void HideFolderView(bool animate, bool hide_for_reparent);
+
+  // Called when the reorder animation completes.
+  void OnAppListReorderAnimationDone();
+
+  // Focuses the search box if the view is not hiding.
+  void MaybeFocusAndActivateSearchBox();
 
   AppListViewDelegate* const view_delegate_;
 
@@ -169,8 +209,14 @@ class ASH_EXPORT AppListBubbleView : public views::View,
   // dragging an item out of a folder.
   bool showing_folder_ = false;
 
+  // Whether the view is animating hidden.
+  bool is_hiding_ = false;
+
   // Called after the hide animation ends or aborts.
   base::OnceClosure on_hide_animation_ended_;
+
+  // See class comment in .cc file.
+  std::unique_ptr<ButtonFocusSkipper> button_focus_skipper_;
 
   base::WeakPtrFactory<AppListBubbleView> weak_factory_{this};
 };

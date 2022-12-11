@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,8 +63,8 @@ enum ChromeTextContext {
   // Body text label in the IPH bubble. Usually 14pt.
   CONTEXT_IPH_BUBBLE_BODY,
 
-  // Button label in the IPH bubble. Usually 13pt.
-  CONTEXT_IPH_BUBBLE_BUTTON
+  // Title label in the browser side panel. Usually 13pt.
+  CONTEXT_SIDE_PANEL_TITLE,
 };
 
 enum ChromeTextStyle {
@@ -85,14 +85,6 @@ enum ChromeTextStyle {
 
   // A solid shade of green.
   STYLE_GREEN,
-
-  // Used to draw attention to a section of body text such as an extension name
-  // or hostname.
-  STYLE_EMPHASIZED,
-
-  // Emphasized secondary style. Like STYLE_EMPHASIZED but styled to match
-  // surrounding STYLE_SECONDARY text.
-  STYLE_EMPHASIZED_SECONDARY,
 };
 
 // Takes a desired font size and returns the size delta to request from

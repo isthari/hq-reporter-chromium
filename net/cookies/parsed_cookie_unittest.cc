@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -877,10 +877,6 @@ TEST(ParsedCookieTest, SetAttributes) {
 
 // Setting the domain attribute to the empty string should be valid.
 TEST(ParsedCookieTest, EmptyDomainAttributeValid) {
-  // Enable the feature flag for this test.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      features::kCookieDomainAttributeEmptyString);
   ParsedCookie pc("name=value; domain=");
   EXPECT_TRUE(pc.IsValid());
 }
@@ -888,10 +884,6 @@ TEST(ParsedCookieTest, EmptyDomainAttributeValid) {
 // Set the domain attribute twice in a cookie line. If the second attribute's
 // value is empty, it should equal the empty string.
 TEST(ParsedCookieTest, MultipleDomainAttributes) {
-  // Enable the feature flag for this test.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(
-      features::kCookieDomainAttributeEmptyString);
   ParsedCookie pc1("name=value; domain=foo.com; domain=bar.com");
   EXPECT_EQ("bar.com", pc1.Domain());
   ParsedCookie pc2("name=value; domain=foo.com; domain=");
@@ -1415,6 +1407,24 @@ TEST(ParsedCookieTest, TruncatingCharInCookieLine) {
   ParsedCookie cookie(cookie_string);
   EXPECT_EQ(cookie.GetTruncatingCharacterInCookieStringType(),
             TruncatingCharacterInCookieStringType::kTruncatingCharNone);
+}
+
+TEST(ParsedCookieTest, HtabInNameOrValue) {
+  std::string no_htab_string = "foo=bar";
+  ParsedCookie no_htab(no_htab_string);
+  EXPECT_FALSE(no_htab.HasInternalHtab());
+
+  std::string htab_leading_trailing_string = "\tfoo=bar\t";
+  ParsedCookie htab_leading_trailing(htab_leading_trailing_string);
+  EXPECT_FALSE(htab_leading_trailing.HasInternalHtab());
+
+  std::string htab_name_string = "f\too=bar";
+  ParsedCookie htab_name(htab_name_string);
+  EXPECT_TRUE(htab_name.HasInternalHtab());
+
+  std::string htab_value_string = "foo=b\tar";
+  ParsedCookie htab_value(htab_value_string);
+  EXPECT_TRUE(htab_value.HasInternalHtab());
 }
 
 }  // namespace net

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,9 @@
 #include "ash/login/ui/animated_rounded_image_view.h"
 #include "ash/login/ui/login_palette.h"
 #include "ash/public/cpp/session/user_info.h"
+#include "base/memory/weak_ptr.h"
 #include "ui/base/ime/ash/ime_keyboard.h"
+#include "ui/compositor/layer_animation_observer.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
 #include "ui/views/view.h"
@@ -52,9 +54,12 @@ enum class EasyUnlockIconState;
 //
 //  1 2 3 4 5 6    (o)  (=>)
 //  ------------------
-class ASH_EXPORT LoginPasswordView : public views::View,
-                                     public views::TextfieldController,
-                                     public ImeControllerImpl::Observer {
+class ASH_EXPORT LoginPasswordView
+    : public views::View,
+      public views::TextfieldController,
+      public ImeControllerImpl::Observer,
+      public ui::ImplicitAnimationObserver,
+      public base::SupportsWeakPtr<LoginPasswordView> {
  public:
   // TestApi is used for tests to get internal implementation details.
   class ASH_EXPORT TestApi {
@@ -134,6 +139,7 @@ class ASH_EXPORT LoginPasswordView : public views::View,
 
   // Makes the textfield read-only and enables/disables submitting.
   void SetReadOnly(bool read_only);
+  bool IsReadOnly() const;
 
   // views::View:
   const char* GetClassName() const override;
@@ -159,6 +165,9 @@ class ASH_EXPORT LoginPasswordView : public views::View,
   // ImeControllerImpl::Observer:
   void OnCapsLockChanged(bool enabled) override;
   void OnKeyboardLayoutNameChanged(const std::string&) override {}
+
+  // ui::ImplicitAnimationObserver:
+  void OnImplicitAnimationsCompleted() override;
 
   void HandleLeftIconsVisibilities(bool handling_capslock);
 

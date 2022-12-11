@@ -1,8 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/unified/unified_notifier_settings_controller.h"
+
+#include <memory>
 
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/message_center/notifier_settings_view.h"
@@ -61,8 +63,9 @@ UnifiedNotifierSettingsController::UnifiedNotifierSettingsController(
 UnifiedNotifierSettingsController::~UnifiedNotifierSettingsController() =
     default;
 
-views::View* UnifiedNotifierSettingsController::CreateView() {
-  return new UnifiedNotifierSettingsView(detailed_view_delegate_.get());
+std::unique_ptr<views::View> UnifiedNotifierSettingsController::CreateView() {
+  return std::make_unique<UnifiedNotifierSettingsView>(
+      detailed_view_delegate_.get());
 }
 
 std::u16string UnifiedNotifierSettingsController::GetAccessibleName() const {

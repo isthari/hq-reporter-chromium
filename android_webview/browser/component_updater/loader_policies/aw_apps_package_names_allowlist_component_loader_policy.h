@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 #define ANDROID_WEBVIEW_BROWSER_COMPONENT_UPDATER_LOADER_POLICIES_AW_APPS_PACKAGE_NAMES_ALLOWLIST_COMPONENT_LOADER_POLICY_H_
 
 #include <stdint.h>
-
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -15,16 +13,18 @@
 #include "base/callback.h"
 #include "base/containers/flat_map.h"
 #include "base/files/scoped_file.h"
+#include "base/values.h"
 #include "components/component_updater/android/component_loader_policy.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
-class DictionaryValue;
 class Time;
 class Version;
 }  // namespace base
 
 namespace android_webview {
+
+class AwMetricsServiceClient;
 
 // All these constants have to be kept in sync with the allowlist generation
 // server, see http://go/aw-package-names-allowlist-bloomfilter.
@@ -32,6 +32,15 @@ constexpr char kAllowlistBloomFilterFileName[] = "allowlistbloomfilter";
 constexpr char kBloomFilterNumHashKey[] = "bloomfilter_num_hash";
 constexpr char kBloomFilterNumBitsKey[] = "bloomfilter_num_bits";
 constexpr char kExpiryDateKey[] = "expiry_date";
+
+// Minimum time to throttle querying the app package names allowlist from the
+// component updater service, used when there is no valid cached allowlist
+// result. Exposed for testing only.
+extern const base::TimeDelta kWebViewAppsMinAllowlistThrottleTimeDelta;
+// Maximum time to throttle querying the app package names allowlist from the
+// component updater service, used when there is a valid cached allowlist
+// result. Exposed for testing only.
+extern const base::TimeDelta kWebViewAppsMaxAllowlistThrottleTimeDelta;
 
 // A callback for the result of loading and looking up the allowlist. If the
 // allowlist loading fails, it will be called with a null record.
@@ -74,10 +83,9 @@ class AwAppsPackageNamesAllowlistComponentLoaderPolicy
       const AwAppsPackageNamesAllowlistComponentLoaderPolicy&) = delete;
 
   // The following methods override ComponentLoaderPolicy.
-  void ComponentLoaded(
-      const base::Version& version,
-      base::flat_map<std::string, base::ScopedFD>& fd_map,
-      std::unique_ptr<base::DictionaryValue> manifest) override;
+  void ComponentLoaded(const base::Version& version,
+                       base::flat_map<std::string, base::ScopedFD>& fd_map,
+                       base::Value::Dict manifest) override;
   void ComponentLoadFailed(
       component_updater::ComponentLoadResult error) override;
   void GetHash(std::vector<uint8_t>* hash) const override;
@@ -91,7 +99,8 @@ class AwAppsPackageNamesAllowlistComponentLoaderPolicy
 };
 
 void LoadPackageNamesAllowlistComponent(
-    component_updater::ComponentLoaderPolicyVector& policies);
+    component_updater::ComponentLoaderPolicyVector& policies,
+    AwMetricsServiceClient* metrics_service_client);
 
 }  // namespace android_webview
 

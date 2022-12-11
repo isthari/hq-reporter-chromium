@@ -1,19 +1,24 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_WEBUI_ECHE_APP_UI_ECHE_NOTIFICATION_CLICK_HANDLER_H_
 #define ASH_WEBUI_ECHE_APP_UI_ECHE_NOTIFICATION_CLICK_HANDLER_H_
 
-#include "ash/components/phonehub/notification.h"
-#include "ash/components/phonehub/notification_click_handler.h"
-#include "ash/components/phonehub/notification_interaction_handler.h"
-// TODO(https://crbug.com/1164001): move to forward declaration.
-#include "ash/components/phonehub/phone_hub_manager.h"
 #include "ash/webui/eche_app_ui/feature_status_provider.h"
+#include "ash/webui/eche_app_ui/mojom/eche_app.mojom.h"
 #include "base/callback.h"
+#include "chromeos/ash/components/phonehub/notification.h"
+#include "chromeos/ash/components/phonehub/notification_click_handler.h"
+#include "chromeos/ash/components/phonehub/notification_interaction_handler.h"
+#include "chromeos/ash/components/phonehub/phone_model.h"
 
 namespace ash {
+
+namespace phonehub {
+class PhoneHubManager;
+}
+
 namespace eche_app {
 
 class LaunchAppHelper;
@@ -42,9 +47,8 @@ class EcheNotificationClickHandler : public phonehub::NotificationClickHandler,
  private:
   bool IsClickable(FeatureStatus status);
 
-  bool NeedClose(FeatureStatus status);
-
   phonehub::NotificationInteractionHandler* handler_;
+  phonehub::PhoneModel* phone_model_;
   FeatureStatusProvider* feature_status_provider_;
   LaunchAppHelper* launch_app_helper_;
   bool is_click_handler_set_ = false;

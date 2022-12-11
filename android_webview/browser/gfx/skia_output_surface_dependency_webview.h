@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,20 +49,19 @@ class SkiaOutputSurfaceDependencyWebView
   gpu::ImageFactory* GetGpuImageFactory() override;
   void ScheduleGrContextCleanup() override;
   void ScheduleDelayedGPUTaskFromGPUThread(base::OnceClosure task) override;
-  void PostTaskToClientThread(base::OnceClosure closure) override;
+  scoped_refptr<base::TaskRunner> GetClientTaskRunner() override;
   bool IsOffscreen() override;
   gpu::SurfaceHandle GetSurfaceHandle() override;
   scoped_refptr<gl::GLSurface> CreateGLSurface(
       base::WeakPtr<gpu::ImageTransportSurfaceDelegate> stub,
       gl::GLSurfaceFormat format) override;
   base::ScopedClosureRunner CacheGLSurface(gl::GLSurface* surface) override;
-  void RegisterDisplayContext(gpu::DisplayContext* display_context) override;
-  void UnregisterDisplayContext(gpu::DisplayContext* display_context) override;
   void DidLoseContext(gpu::error::ContextLostReason reason,
                       const GURL& active_url) override;
 
   base::TimeDelta GetGpuBlockedTimeSinceLastSwap() override;
   bool NeedsSupportForExternalStencil() override;
+  bool IsUsingCompositorGpuThread() override;
 
  private:
   const raw_ptr<gl::GLSurface> gl_surface_;

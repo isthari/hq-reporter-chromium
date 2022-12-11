@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -131,6 +131,10 @@ class TestBrowserUi {
   // it was successfully shown.  Most test cases can simply invoke this directly
   // with no other code.
   void ShowAndVerifyUi();
+
+  // Returns whether or not the test was invoked with the interactive ui flag.
+  // This is useful for some SetUp() calls that may be interested in that state.
+  bool IsInteractiveUi() const;
 
  private:
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch

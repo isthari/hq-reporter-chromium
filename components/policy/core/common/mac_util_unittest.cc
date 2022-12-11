@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,48 +15,56 @@
 
 namespace policy {
 
-TEST(PolicyMacUtilTest, PropertyToValue) {
+// Test checks that base::Value converted to CFPropertyList with
+// ValueToProperty() is successfully restored from the property with
+// PropertyToValue().
+TEST(PolicyMacUtilTest, ValueToPropertyRoundTrip) {
   base::DictionaryValue root;
 
   // base::Value::Type::NONE
   root.Set("null", std::make_unique<base::Value>());
 
   // base::Value::Type::BOOLEAN
-  root.SetBoolean("false", false);
-  root.SetBoolean("true", true);
+  root.SetBoolKey("false", false);
+  root.SetBoolKey("true", true);
 
   // base::Value::Type::INTEGER
-  root.SetInteger("int", 123);
-  root.SetInteger("zero", 0);
+  root.SetIntKey("int", 123);
+  root.SetIntKey("zero", 0);
 
   // base::Value::Type::DOUBLE
-  root.SetDouble("double", 123.456);
-  root.SetDouble("zerod", 0.0);
+  root.SetDoubleKey("double", 123.456);
+  root.SetDoubleKey("zerod", 0.0);
 
   // base::Value::Type::STRING
-  root.SetString("string", "the fox jumps over something");
-  root.SetString("empty", "");
+  root.SetStringKey("string", "the fox jumps over something");
+  root.SetStringKey("empty", "");
 
   // base::Value::Type::LIST
   root.Set("emptyl", std::make_unique<base::Value>(base::Value::Type::LIST));
   base::ListValue list;
-  for (base::DictionaryValue::Iterator it(root); !it.IsAtEnd(); it.Advance())
-    list.Append(std::make_unique<base::Value>(it.value().Clone()));
+  for (const auto item : root.GetDict())
+    list.GetList().Append(item.second.Clone());
   EXPECT_EQ(root.DictSize(), list.GetList().size());
-  list.Append(std::make_unique<base::Value>(root.Clone()));
+  list.GetList().Append(root.Clone());
   root.SetKey("list", list.Clone());
 
   // base::Value::Type::DICTIONARY
   root.Set("emptyd",
            std::make_unique<base::Value>(base::Value::Type::DICTIONARY));
+
+  // Key with dots.
+  root.SetIntKey("key.with.dots", 789);
+
   // Very meta.
   root.SetKey("dict", root.Clone());
 
+  // base::Value -> property list -> base::Value.
   base::ScopedCFTypeRef<CFPropertyListRef> property(ValueToProperty(root));
   ASSERT_TRUE(property);
   std::unique_ptr<base::Value> value = PropertyToValue(property);
   ASSERT_TRUE(value);
-  EXPECT_TRUE(root.Equals(value.get()));
+  EXPECT_EQ(root, *value);
 }
 
 }  // namespace policy

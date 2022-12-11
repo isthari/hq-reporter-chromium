@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,24 +14,15 @@ namespace aura {
 class Window;
 }
 
-namespace views {
-namespace corewm {
+namespace wm {
+class TooltipObserver;
+}
 
-enum class TooltipPositionBehavior {
-  // A centered tooltip will have its horizontal center aligned with the anchor
-  // point x value. The top of the tooltip will be aligned with the anchor point
-  // y value.
-  kCentered,
-  // A tooltip positioned relatively to the cursor will have its top-left corner
-  // aligned with the anchor point. It will have an additional offset the size
-  // of the cursor, resulting in the tooltip being positioned at the
-  // bottom-right of the cursor.
-  kRelativeToCursor,
-};
+namespace views::corewm {
 
-struct VIEWS_EXPORT TooltipPosition {
-  gfx::Point anchor_point;
-  TooltipPositionBehavior behavior = TooltipPositionBehavior::kRelativeToCursor;
+enum class TooltipTrigger {
+  kCursor,
+  kKeyboard,
 };
 
 // Tooltip is responsible for showing the tooltip in an appropriate manner.
@@ -40,13 +31,18 @@ class VIEWS_EXPORT Tooltip {
  public:
   virtual ~Tooltip() = default;
 
+  virtual void AddObserver(wm::TooltipObserver* observer) = 0;
+  virtual void RemoveObserver(wm::TooltipObserver* observer) = 0;
+
   // Returns the max width of the tooltip when shown at the specified location.
   virtual int GetMaxWidth(const gfx::Point& location) const = 0;
 
   // Updates the text on the tooltip and resizes to fit.
+  // `position` is relative to `window` and in `window` coordinate space.
   virtual void Update(aura::Window* window,
                       const std::u16string& tooltip_text,
-                      const TooltipPosition& position) = 0;
+                      const gfx::Point& position,
+                      const TooltipTrigger trigger) = 0;
 
   // Shows the tooltip at the specified location (in screen coordinates).
   virtual void Show() = 0;
@@ -58,7 +54,6 @@ class VIEWS_EXPORT Tooltip {
   virtual bool IsVisible() = 0;
 };
 
-}  // namespace corewm
-}  // namespace views
+}  // namespace views::corewm
 
 #endif  // UI_VIEWS_COREWM_TOOLTIP_H_

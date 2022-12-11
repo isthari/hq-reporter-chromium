@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,18 @@
  * when the current range is over an editable; restores sticky mode when not on
  * an editable.
  */
+import {AutomationUtil} from '../../common/automation_util.js';
+import {CursorRange} from '../../common/cursors/range.js';
+import {LocalStorage} from '../../common/local_storage.js';
+import {Earcon} from '../common/abstract_earcons.js';
 
-goog.provide('SmartStickyMode');
-
-goog.require('AutomationUtil');
-goog.require('ChromeVox');
-goog.require('ChromeVoxState');
+import {ChromeVox} from './chromevox.js';
+import {ChromeVoxState, ChromeVoxStateObserver} from './chromevox_state.js';
+import {ChromeVoxBackground} from './classic_background.js';
+import {ChromeVoxPrefs} from './prefs.js';
 
 /** @implements {ChromeVoxStateObserver} */
-SmartStickyMode = class {
+export class SmartStickyMode {
   constructor() {
     /** @private {boolean} */
     this.ignoreRangeChanges_ = false;
@@ -32,11 +35,19 @@ SmartStickyMode = class {
     ChromeVoxState.addObserver(this);
   }
 
-  /** @override */
-  onCurrentRangeChanged(newRange) {
+  static init() {
+    SmartStickyMode.instance = new SmartStickyMode();
+  }
+
+  /**
+   * @param {?CursorRange} newRange
+   * @param {boolean=} opt_fromEditing
+   * @override
+   */
+  onCurrentRangeChanged(newRange, opt_fromEditing) {
     if (!newRange || this.ignoreRangeChanges_ ||
-        ChromeVoxState.isReadingContinuously ||
-        localStorage['smartStickyMode'] !== 'true') {
+        ChromeVoxState.instance.isReadingContinuously || opt_fromEditing ||
+        !LocalStorage.get('smartStickyMode')) {
       return;
     }
 
@@ -57,38 +68,37 @@ SmartStickyMode = class {
     // Several cases arise which may lead to a sticky mode toggle:
     // The node is either editable itself or a descendant of an editable.
     // The node is a relation target of an editable.
-    const shouldTurnOffStickyMode = !!this.getEditableOrRelatedEditable_(node);
+    const shouldTurnOffStickyMode =
+        Boolean(this.getEditableOrRelatedEditable_(node));
 
     // This toggler should not make any changes when the range isn't what we're
-    // lloking for and we haven't previously tracked any sticky mode state from
+    // looking for and we haven't previously tracked any sticky mode state from
     // the user.
     if (!shouldTurnOffStickyMode && !this.didTurnOffStickyMode_) {
       return;
     }
 
     if (shouldTurnOffStickyMode) {
-      if (!ChromeVox.isStickyPrefOn) {
+      if (!ChromeVoxPrefs.isStickyPrefOn) {
         // Sticky mode was already off; do not track the current sticky state
         // since we may have set it ourselves.
         return;
       }
 
       if (this.didTurnOffStickyMode_) {
-        // This should not be possible with |ChromeVox.isStickyPrefOn| set to
-        // true.
+        // This should not be possible with |ChromeVoxPrefs.isStickyPrefOn| set
+        // to true.
         throw 'Unexpected sticky state value encountered.';
       }
 
       // Save the sticky state for restoration later.
       this.didTurnOffStickyMode_ = true;
       ChromeVox.earcons.playEarcon(Earcon.SMART_STICKY_MODE_OFF);
-      ChromeVoxBackground.setPref(
-          'sticky', false /* value */, true /* announce */);
+      ChromeVoxPrefs.instance.setAndAnnounceStickyPref(false);
     } else if (this.didTurnOffStickyMode_) {
       // Restore the previous sticky mode state.
       ChromeVox.earcons.playEarcon(Earcon.SMART_STICKY_MODE_ON);
-      ChromeVoxBackground.setPref(
-          'sticky', true /* value */, true /* announce */);
+      ChromeVoxPrefs.instance.setAndAnnounceStickyPref(true);
       this.didTurnOffStickyMode_ = false;
     }
   }
@@ -112,7 +122,7 @@ SmartStickyMode = class {
   /**
    * Called whenever a user toggles sticky mode. In this case, we need to ensure
    * we reset our internal state appropriately.
-   * @param {!cursors.Range} range The range when the sticky mode command was
+   * @param {!CursorRange} range The range when the sticky mode command was
    *     received.
    */
   onStickyModeCommand(range) {
@@ -166,7 +176,7 @@ SmartStickyMode = class {
       while (!found && focus) {
         if (focus.activeDescendantFor && focus.activeDescendantFor.length) {
           found = focus.activeDescendantFor.find(
-              (n) => n.state[chrome.automation.StateType.EDITABLE]);
+              n => n.state[chrome.automation.StateType.EDITABLE]);
         }
 
         if (found) {
@@ -175,7 +185,7 @@ SmartStickyMode = class {
 
         if (focus.controlledBy && focus.controlledBy.length) {
           found = focus.controlledBy.find(
-              (n) => n.state[chrome.automation.StateType.EDITABLE]);
+              n => n.state[chrome.automation.StateType.EDITABLE]);
         }
 
         if (found) {
@@ -188,4 +198,7 @@ SmartStickyMode = class {
 
     return null;
   }
-};
+}
+
+/** @public {SmartStickyMode} */
+SmartStickyMode.instance;

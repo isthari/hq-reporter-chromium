@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -148,7 +148,7 @@ static const struct normalize_name_encoding_test_cases {
 };
 
 TEST_F(FileUtilICUTest, NormalizeFileNameEncoding) {
-  for (size_t i = 0; i < size(kNormalizeFileNameEncodingTestCases); i++) {
+  for (size_t i = 0; i < std::size(kNormalizeFileNameEncodingTestCases); i++) {
     FilePath path(kNormalizeFileNameEncodingTestCases[i].original_path);
     NormalizeFileNameEncoding(&path);
     EXPECT_EQ(FilePath(kNormalizeFileNameEncodingTestCases[i].normalized_path),

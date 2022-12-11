@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,9 +23,13 @@
 #include "chrome/common/buildflags.h"
 #include "chrome/common/webui_url_constants.h"
 #include "content/public/common/url_constants.h"
+#include "net/net_buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
 
 namespace chrome {
+
+// "Learn more" URL linked in the dialog to cast using a code.
+extern const char kAccessCodeCastLearnMoreURL[];
 
 // "Learn more" URL for accessibility image labels, linked from the permissions
 // dialog shown when a user enables the feature.
@@ -39,6 +43,9 @@ extern const char kAdvancedProtectionDownloadLearnMoreURL[];
 
 // "Chrome Settings" URL for website notifications linked out from OSSettings.
 extern const char kAppNotificationsBrowserSettingsURL[];
+
+// "Learn more" URL for Battery Saver Mode.
+extern const char kBatterySaverModeLearnMoreUrl[];
 
 // The URL for providing help when the Bluetooth adapter is off.
 extern const char kBluetoothAdapterOffHelpURL[];
@@ -72,6 +79,10 @@ extern const char kChromeHelpViaWebUIURL[];
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 extern const char kChromeOsHelpViaWebUIURL[];
 #endif
+
+// The isolated-app: scheme is used for Isolated Web Apps. A public explainer
+// can be found here: https://github.com/reillyeon/isolated-web-apps
+extern const char kIsolatedAppScheme[];
 
 // The chrome-native: scheme is used show pages rendered with platform specific
 // widgets instead of using HTML.
@@ -118,12 +129,6 @@ extern const char kChromeUIUntrustedNewTabPageUrl[];
 // The URL for the Chromium project used in the About dialog.
 extern const char kChromiumProjectURL[];
 
-// "Learn more" URL for the Cloud Print section under Options.
-extern const char kCloudPrintLearnMoreURL[];
-
-// "Learn more" URL for the Cloud Print Preview certificate error.
-extern const char kCloudPrintCertificateErrorLearnMoreURL[];
-
 extern const char kContentSettingsExceptionsLearnMoreURL[];
 
 // "Learn more" URL for cookies.
@@ -161,8 +166,8 @@ extern const char kGoogleAccountLanguagesURL[];
 extern const char kGoogleAccountActivityControlsURL[];
 
 // URL of the 'Activity controls' section of the privacy settings page, with
-// privacy review parameters and a link for users to manage data.
-extern const char kGoogleAccountActivityControlsURLInPrivacyReview[];
+// privacy guide parameters and a link for users to manage data.
+extern const char kGoogleAccountActivityControlsURLInPrivacyGuide[];
 
 // URL of the Google Account.
 extern const char kGoogleAccountURL[];
@@ -178,6 +183,9 @@ extern const char kGooglePasswordManagerURL[];
 
 // URL of the Google Photos.
 extern const char kGooglePhotosURL[];
+
+// The URL for the "Learn more" link for the High Efficiency Mode.
+extern const char kHighEfficiencyModeLearnMoreUrl[];
 
 // The URL for the "Learn more" page for the usage/crash reporting option in the
 // first run dialog.
@@ -209,7 +217,8 @@ extern const char kPasswordManagerLearnMoreURL[];
 // Help URL for the Payment methods page of the Google Pay site.
 extern const char kPaymentMethodsURL[];
 
-extern const char kPaymentMethodsLearnMoreURL[];
+// The URL for the "Fill out forms automatically" support page.
+extern const char kAddressesAndPaymentMethodsLearnMoreURL[];
 
 // "Learn more" URL for the Privacy section under Options.
 extern const char kPrivacyLearnMoreURL[];
@@ -251,6 +260,10 @@ extern const char kSyncGoogleDashboardURL[];
 // The URL for the "Learn more" page for sync setup on the personal stuff page.
 extern const char kSyncLearnMoreURL[];
 
+// The URL for the "Learn more" link in the enterprise disclaimer for managed
+// profile in the Signin Intercept bubble.
+extern const char kSigninInterceptManagedDisclaimerLearnMoreURL[];
+
 #if !BUILDFLAG(IS_ANDROID)
 // The URL for the trusted vault sync passphrase opt in.
 extern const char kSyncTrustedVaultOptInURL[];
@@ -275,12 +288,21 @@ extern const char kCwsEnhancedSafeBrowsingLearnMoreURL[];
 extern const char kEnhancedPlaybackNotificationLearnMoreURL[];
 #endif
 
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+// Chrome OS default pre-defined custom handlers
+extern const char kChromeOSDefaultMailtoHandler[];
+extern const char kChromeOSDefaultWebcalHandler[];
+#endif
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // Help center URL for Chrome OS Account Manager.
 extern const char kAccountManagerLearnMoreURL[];
 
 // The URL for the "Account recovery" page.
 extern const char kAccountRecoveryURL[];
+
+// The URL for the "How to add a new user account on a Chromebook" page.
+extern const char kAddNewUserURL[];
 
 // The URL for the "learn more" link for Google Play Store (ARC) settings.
 extern const char kAndroidAppsLearnMoreURL[];
@@ -342,12 +364,6 @@ extern const char kInstantTetheringLearnMoreURL[];
 // The URL for the "Learn more" link for Kerberos accounts.
 extern const char kKerberosAccountsLearnMoreURL[];
 
-// The URL for the "Learn more" link in the connected devices.
-extern const char kMultiDeviceLearnMoreURL[];
-
-// The URL for the "Learn more" link for Android Messages.
-extern const char kAndroidMessagesLearnMoreURL[];
-
 // The URL for the "Learn more" link in the language settings.
 extern const char kLanguageSettingsLearnMoreUrl[];
 
@@ -361,11 +377,11 @@ extern const char kLearnMoreEnterpriseURL[];
 // The URL for the Learn More page about Linux for Chromebooks.
 extern const char kLinuxAppsLearnMoreURL[];
 
-// The URL for additional help that is given when Linux export/import fails.
-extern const char kLinuxExportImportHelpURL[];
-
 // The URL for the "Learn more" link for natural scrolling on ChromeOS.
 extern const char kNaturalScrollHelpURL[];
+
+// The URL for the "Learn more" link for touchpad haptic feedback on Chrome OS.
+extern const char kHapticFeedbackHelpURL[];
 
 // The URL path to offline OEM EULA.
 extern const char kOemEulaURLPath[];
@@ -376,6 +392,10 @@ extern const char kOsSettingsSearchHelpURL[];
 // The URL for the "Learn more" link in the peripheral data access protection
 // settings.
 extern const char kPeripheralDataAccessHelpURL[];
+
+// The URL for the "Learn more" link for Enhanced network voices in Chrome OS
+// settings for Select-to-speak.
+extern const char kSelectToSpeakLearnMoreURL[];
 
 // The URL path to offline ARC++ Terms of Service.
 extern const char kArcTermsURLPath[];
@@ -394,6 +414,9 @@ extern const char kTPMFirmwareUpdateLearnMoreURL[];
 
 // The URL for the "Learn more" page for the time zone settings page.
 extern const char kTimeZoneSettingsLearnMoreURL[];
+
+// The URL for the "Learn more" page for screen privacy protections.
+extern const char kSmartPrivacySettingsLearnMoreURL[];
 
 // The URL for the "Learn more" page for the network file shares settings page.
 extern const char kSmbSharesLearnMoreURL[];
@@ -425,8 +448,8 @@ extern const char kFingerprintLearnMoreURL[];
 // "Learn more" URL for the enterprise sign-in confirmation dialog.
 extern const char kChromeEnterpriseSignInLearnMoreURL[];
 
-// The URL for the "learn more" link on the 10.10 obsolescence infobar.
-extern const char kMac10_10_ObsoleteURL[];
+// The URL for the "learn more" link on the macOS version obsolescence infobar.
+extern const char kMacOsObsoleteURL[];
 #endif
 
 #if BUILDFLAG(IS_WIN)
@@ -435,12 +458,13 @@ extern const char kChromeCleanerLearnMoreURL[];
 
 // The URL for the Windows XP/Vista deprecation help center article.
 extern const char kWindowsXPVistaDeprecationURL[];
+
+// The URL for the Windows 7/8.1 deprecation help center article.
+extern const char kWindows78DeprecationURL[];
 #endif
 
-#if BUILDFLAG(ENABLE_ONE_CLICK_SIGNIN)
 // "Learn more" URL for the one click signin infobar.
 extern const char kChromeSyncLearnMoreURL[];
-#endif
 
 #if BUILDFLAG(ENABLE_PLUGINS)
 
@@ -450,6 +474,17 @@ extern const char kOutdatedPluginLearnMoreURL[];
 
 // "Learn more" URL for the phone hub notifications and apps access setup.
 extern const char kPhoneHubPermissionLearnMoreURL[];
+
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_FUCHSIA)
+
+// "Learn more" URL for the chrome apps deprecation dialog.
+extern const char kChromeAppsDeprecationLearnMoreURL[];
+#endif
+
+#if BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)
+extern const char kChromeRootStoreSettingsHelpCenterURL[];
+#endif
 
 // Please do not append entries here. See the comments at the top of the file.
 

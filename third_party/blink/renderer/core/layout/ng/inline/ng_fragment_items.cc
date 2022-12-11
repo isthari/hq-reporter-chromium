@@ -1,9 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_items.h"
 
+#include "base/ranges/algorithm.h"
 #include "third_party/blink/renderer/core/layout/layout_block.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_items_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
@@ -71,7 +72,7 @@ NGFragmentItems::NGFragmentItems(const NGFragmentItems& other)
 }
 
 NGFragmentItems::~NGFragmentItems() {
-  for (unsigned i = 0; i < size_; ++i)
+  for (wtf_size_t i = 0; i < size_; ++i)
     items_[i].~NGFragmentItem();
 }
 
@@ -81,7 +82,7 @@ bool NGFragmentItems::IsSubSpan(const Span& span) const {
 }
 
 void NGFragmentItems::FinalizeAfterLayout(
-    const Vector<scoped_refptr<const NGLayoutResult>, 1>& results) {
+    const HeapVector<Member<const NGLayoutResult>, 1>& results) {
 #if DCHECK_IS_ON()
   if (!RuntimeEnabledFeatures::LayoutNGBlockFragmentationEnabled()) {
     for (const auto& result : results) {
@@ -434,11 +435,10 @@ void NGFragmentItems::DirtyFirstItem(const LayoutBlockFlow& container) {
 // static
 void NGFragmentItems::DirtyLinesFromNeedsLayout(
     const LayoutBlockFlow& container) {
-  DCHECK(std::any_of(container.PhysicalFragments().begin(),
-                     container.PhysicalFragments().end(),
-                     [](const NGPhysicalBoxFragment& fragment) {
-                       return fragment.HasItems();
-                     }));
+  DCHECK(base::ranges::any_of(container.PhysicalFragments(),
+                              [](const NGPhysicalBoxFragment& fragment) {
+                                return fragment.HasItems();
+                              }));
 
   // Mark dirty for the first top-level child that has |NeedsLayout|.
   //
@@ -459,6 +459,22 @@ void NGFragmentItems::DirtyLinesFromNeedsLayout(
       return;
     }
   }
+}
+
+// static
+bool NGFragmentItems::ReplaceBoxFragment(
+    const NGPhysicalBoxFragment& old_fragment,
+    const NGPhysicalBoxFragment& new_fragment,
+    const NGPhysicalBoxFragment& containing_fragment) {
+  for (NGInlineCursor cursor(containing_fragment); cursor;
+       cursor.MoveToNext()) {
+    const NGFragmentItem* item = cursor.Current().Item();
+    if (item->BoxFragment() != &old_fragment)
+      continue;
+    item->GetMutableForCloning().ReplaceBoxFragment(new_fragment);
+    return true;
+  }
+  return false;
 }
 
 // static
@@ -489,5 +505,10 @@ void NGFragmentItems::CheckAllItemsAreValid() const {
     DCHECK(!item.IsLayoutObjectDestroyedOrMoved());
 }
 #endif
+
+void NGFragmentItems::Trace(Visitor* visitor) const {
+  for (const NGFragmentItem& item : Items())
+    visitor->Trace(item);
+}
 
 }  // namespace blink

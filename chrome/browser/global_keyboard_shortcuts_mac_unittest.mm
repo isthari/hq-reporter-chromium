@@ -1,6 +1,8 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright 2009 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "chrome/browser/global_keyboard_shortcuts_mac.h"
 
 #include <AppKit/NSEvent.h>
 #include <Carbon/Carbon.h>
@@ -8,10 +10,7 @@
 
 #include <initializer_list>
 
-#include "chrome/browser/global_keyboard_shortcuts_mac.h"
-
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/buildflags.h"
@@ -41,24 +40,33 @@ int CommandForKeys(int vkey_code,
                    ShiftKeyState shift = ShiftKeyState::kUp,
                    OptionKeyState option = OptionKeyState::kUp,
                    ControlKeyState control = ControlKeyState::kUp) {
-  NSUInteger modifierFlags = 0;
+  NSUInteger modifier_flags = 0;
   if (command == CommandKeyState::kDown)
-    modifierFlags |= NSCommandKeyMask;
+    modifier_flags |= NSEventModifierFlagCommand;
   if (shift == ShiftKeyState::kDown)
-    modifierFlags |= NSShiftKeyMask;
+    modifier_flags |= NSEventModifierFlagShift;
   if (option == OptionKeyState::kDown)
-    modifierFlags |= NSAlternateKeyMask;
+    modifier_flags |= NSEventModifierFlagOption;
   if (control == ControlKeyState::kDown)
-    modifierFlags |= NSControlKeyMask;
+    modifier_flags |= NSEventModifierFlagControl;
 
   switch (vkey_code) {
     case kVK_UpArrow:
     case kVK_DownArrow:
     case kVK_LeftArrow:
     case kVK_RightArrow:
-      // Docs say this is set whenever a key came from the numpad *or* the arrow
-      // keys.
-      modifierFlags |= NSEventModifierFlagNumericPad;
+      // Docs say that this is set for numpad *and* arrow keys.
+      modifier_flags |= NSEventModifierFlagNumericPad;
+      [[fallthrough]];
+    case kVK_Help:
+    case kVK_ForwardDelete:
+    case kVK_Home:
+    case kVK_End:
+    case kVK_PageUp:
+    case kVK_PageDown:
+      // Docs say that this is set for function keys *and* the cluster of six
+      // navigation keys in the center of the keyboard *and* arrow keys.
+      modifier_flags |= NSEventModifierFlagFunction;
       break;
     default:
       break;
@@ -67,14 +75,14 @@ int CommandForKeys(int vkey_code,
   unichar shifted_character;
   unichar character;
   int result = ui::MacKeyCodeForWindowsKeyCode(
-      ui::KeyboardCodeFromKeyCode(vkey_code), modifierFlags, &shifted_character,
-      &character);
+      ui::KeyboardCodeFromKeyCode(vkey_code), modifier_flags,
+      &shifted_character, &character);
   DCHECK_NE(result, -1);
 
   NSEvent* event = [NSEvent
-                 keyEventWithType:NSKeyDown
+                 keyEventWithType:NSEventTypeKeyDown
                          location:NSZeroPoint
-                    modifierFlags:modifierFlags
+                    modifierFlags:modifier_flags
                         timestamp:0.0
                      windowNumber:0
                           context:nil
@@ -143,35 +151,19 @@ TEST(GlobalKeyboardShortcuts, KeypadNumberKeysMatch) {
   // We only consider unshifted keys. A shifted numpad key gives a different
   // keyEquivalent than a shifted number key.
   const ShiftKeyState shift = ShiftKeyState::kUp;
-  for (unsigned int i = 0; i < base::size(equivalents); ++i) {
+  for (auto equivalent : equivalents) {
     for (CommandKeyState command :
          {CommandKeyState::kUp, CommandKeyState::kDown}) {
       for (OptionKeyState option :
            {OptionKeyState::kUp, OptionKeyState::kDown}) {
         for (ControlKeyState control :
              {ControlKeyState::kUp, ControlKeyState::kDown}) {
-          EXPECT_EQ(CommandForKeys(equivalents[i].keycode, command, shift,
-                                   option, control),
-                    CommandForKeys(equivalents[i].keypad_keycode, command,
-                                   shift, option, control));
+          EXPECT_EQ(CommandForKeys(equivalent.keycode, command, shift, option,
+                                   control),
+                    CommandForKeys(equivalent.keypad_keycode, command, shift,
+                                   option, control));
         }
       }
     }
   }
-}
-
-// Test that the extra View -> Zoom shortcuts exist.
-TEST(GlobalKeyboardShortcuts, ExtraZoomInOutShortcutsExist) {
-  const int zoomIn = CommandForKeys(kVK_ANSI_Equal, CommandKeyState::kDown,
-                                    ShiftKeyState::kDown);
-  ASSERT_EQ(IDC_ZOOM_PLUS, zoomIn);
-  const int zoomOut = CommandForKeys(kVK_ANSI_Minus, CommandKeyState::kDown);
-  ASSERT_EQ(IDC_ZOOM_MINUS, zoomOut);
-
-  const int cmdPlusFromKeypad =
-      CommandForKeys(kVK_ANSI_KeypadPlus, CommandKeyState::kDown);
-  EXPECT_EQ(cmdPlusFromKeypad, zoomIn);
-  const int cmdMinusFromKeypad =
-      CommandForKeys(kVK_ANSI_KeypadMinus, CommandKeyState::kDown);
-  EXPECT_EQ(cmdMinusFromKeypad, zoomOut);
 }

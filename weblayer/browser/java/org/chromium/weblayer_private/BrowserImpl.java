@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@ import android.os.RemoteException;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.View;
-import android.webkit.ValueCallback;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -27,14 +26,10 @@ import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.base.IntentRequestTracker;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.weblayer_private.interfaces.APICallException;
-import org.chromium.weblayer_private.interfaces.BrowserEmbeddabilityMode;
 import org.chromium.weblayer_private.interfaces.DarkModeStrategy;
 import org.chromium.weblayer_private.interfaces.IBrowser;
 import org.chromium.weblayer_private.interfaces.IBrowserClient;
-import org.chromium.weblayer_private.interfaces.IObjectWrapper;
 import org.chromium.weblayer_private.interfaces.ITab;
-import org.chromium.weblayer_private.interfaces.IUrlBarController;
-import org.chromium.weblayer_private.interfaces.ObjectWrapper;
 import org.chromium.weblayer_private.interfaces.StrictModeWorkaround;
 import org.chromium.weblayer_private.media.MediaRouteDialogFragmentImpl;
 
@@ -45,7 +40,7 @@ import java.util.List;
  * Implementation of {@link IBrowser}.
  */
 @JNINamespace("weblayer")
-public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChangeListener {
+public class BrowserImpl extends IBrowser.Stub {
     private final ObserverList<VisibleSecurityStateObserver> mVisibleSecurityStateObservers =
             new ObserverList<VisibleSecurityStateObserver>();
 
@@ -65,15 +60,10 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
     private final ProfileImpl mProfile;
     private Context mEmbedderActivityContext;
     private BrowserViewController mViewController;
-    // Used to save UI state between destroyAttachmentState() and createAttachmentState() calls so
-    // it can be preserved during device rotations or other events that cause the Fragment to be
-    // recreated.
-    private BrowserViewController.State mViewControllerState;
     private FragmentWindowAndroid mWindowAndroid;
     private IBrowserClient mClient;
     private LocaleChangedBroadcastReceiver mLocaleReceiver;
     private boolean mInDestroy;
-    private final UrlBarControllerImpl mUrlBarController;
     private boolean mFragmentStarted;
     private boolean mFragmentResumed;
 
@@ -84,12 +74,6 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
     // the WebContents may be prematurely hidden.
     private boolean mInConfigurationChangeAndWasAttached;
 
-    // If true, the WebContents is forced visible. This value may be changed by the embedder for
-    // temporary detach operations (such as fullscreen or rotations) that should not impact the
-    // visibility of the WebContents (otherwise video may stop). As this value is only temporarily
-    // true, the value is implicitly reset on attach.
-    private boolean mForcedVisible = false;
-
     // Cache the value instead of querying system every time.
     private Boolean mPasswordEchoEnabled;
     private Boolean mDarkThemeEnabled;
@@ -97,14 +81,10 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
     private int mDarkModeStrategy = DarkModeStrategy.WEB_THEME_DARKENING_ONLY;
     private Float mFontScale;
     private boolean mViewAttachedToWindow;
-    private boolean mNotifyOnBrowserControlsOffsetsChanged;
 
     // Created in the constructor from saved state.
     private FullPersistenceInfo mFullPersistenceInfo;
     private MinimalPersistenceInfo mMinimalPersistenceInfo;
-
-    private int mMinimumSurfaceWidth;
-    private int mMinimumSurfaceHeight;
 
     // This persistence state is saved to disk, and loaded async.
     private static final class FullPersistenceInfo {
@@ -165,7 +145,6 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
 
         createAttachmentState(embedderAppContext, windowAndroid);
         mNativeBrowser = BrowserImplJni.get().createBrowser(profile.getNativeProfile(), this);
-        mUrlBarController = new UrlBarControllerImpl(this, mNativeBrowser);
     }
 
     public WindowAndroid getWindowAndroid() {
@@ -177,10 +156,6 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
         return mViewController.getContentView();
     }
 
-    public UrlBarControllerImpl getUrlBarControllerImpl() {
-        return mUrlBarController;
-    }
-
     // Called from constructor and onFragmentAttached() to configure state needed when attached.
     private void createAttachmentState(
             Context embedderAppContext, FragmentWindowAndroid windowAndroid) {
@@ -189,11 +164,14 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
         assert mEmbedderActivityContext == null;
         mWindowAndroid = windowAndroid;
         mEmbedderActivityContext = embedderAppContext;
-        mViewController = new BrowserViewController(
-                windowAndroid, this, mViewControllerState, mInConfigurationChangeAndWasAttached);
-        mViewController.setMinimumSurfaceSize(mMinimumSurfaceWidth, mMinimumSurfaceHeight);
+        mViewController =
+                new BrowserViewController(windowAndroid, mInConfigurationChangeAndWasAttached);
         mLocaleReceiver = new LocaleChangedBroadcastReceiver(windowAndroid.getContext().get());
         mPasswordEchoEnabled = null;
+        mViewAttachedToWindow = true;
+        if (mFragmentStarted) {
+            mInConfigurationChangeAndWasAttached = false;
+        }
     }
 
     public void onFragmentAttached(
@@ -244,72 +222,12 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
     }
 
     @Override
-    public void setTopView(IObjectWrapper viewWrapper) {
-        StrictModeWorkaround.apply();
-        getViewController().setTopView(ObjectWrapper.unwrap(viewWrapper, View.class));
-    }
-
-    @Override
-    public void setTopViewAndScrollingBehavior(IObjectWrapper viewWrapper, int minHeight,
-            boolean onlyExpandControlsAtPageTop, boolean animate) {
-        StrictModeWorkaround.apply();
-        if (minHeight < 0) {
-            throw new IllegalArgumentException("Top view min height must be non-negative.");
-        }
-
-        getViewController().setTopControlsAnimationsEnabled(animate);
-        getViewController().setTopView(ObjectWrapper.unwrap(viewWrapper, View.class));
-        getViewController().setTopControlsMinHeight(minHeight);
-        getViewController().setOnlyExpandTopControlsAtPageTop(onlyExpandControlsAtPageTop);
-    }
-
-    @Override
-    public void setBottomView(IObjectWrapper viewWrapper) {
-        StrictModeWorkaround.apply();
-        getViewController().setBottomView(ObjectWrapper.unwrap(viewWrapper, View.class));
-    }
-
-    @Override
     public TabImpl createTab() {
         TabImpl tab = new TabImpl(this, mProfile, mWindowAndroid);
         // This needs |alwaysAdd| set to true as the Tab is created with the Browser already set to
         // this.
         addTab(tab, /* alwaysAdd */ true);
         return tab;
-    }
-
-    @Override
-    public void setSupportsEmbedding(boolean enable, IObjectWrapper valueCallback) {
-        StrictModeWorkaround.apply();
-        getViewController().setEmbeddabilityMode(
-                enable ? BrowserEmbeddabilityMode.SUPPORTED : BrowserEmbeddabilityMode.UNSUPPORTED,
-                (ValueCallback<Boolean>) ObjectWrapper.unwrap(valueCallback, ValueCallback.class));
-    }
-
-    @Override
-    public void setEmbeddabilityMode(
-            @BrowserEmbeddabilityMode int mode, IObjectWrapper valueCallback) {
-        StrictModeWorkaround.apply();
-        getViewController().setEmbeddabilityMode(mode,
-                (ValueCallback<Boolean>) ObjectWrapper.unwrap(valueCallback, ValueCallback.class));
-    }
-
-    @Override
-    public void setChangeVisibilityOnNextDetach(boolean changeVisibility) {
-        StrictModeWorkaround.apply();
-        if (isViewAttachedToWindow()) {
-            mForcedVisible = !changeVisibility;
-        }
-    }
-
-    @Override
-    public void setMinimumSurfaceSize(int width, int height) {
-        StrictModeWorkaround.apply();
-        mMinimumSurfaceWidth = width;
-        mMinimumSurfaceHeight = height;
-        BrowserViewController viewController = getPossiblyNullViewController();
-        if (viewController == null) return;
-        viewController.setMinimumSurfaceSize(width, height);
     }
 
     // Only call this if it's guaranteed that Browser is attached to an activity.
@@ -378,12 +296,6 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
             boolean newEnabled = getDarkThemeEnabled();
             changed = changed || oldEnabled != newEnabled;
         }
-        if (mFontScale != null) {
-            float oldFontScale = mFontScale;
-            mFontScale = null;
-            float newFontScale = getFontScale();
-            changed = changed || oldFontScale != newFontScale;
-        }
         if (changed) {
             BrowserImplJni.get().webPreferencesChanged(mNativeBrowser);
         }
@@ -411,16 +323,6 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
                     (uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         }
         return mDarkThemeEnabled;
-    }
-
-    @CalledByNative
-    private float getFontScale() {
-        Context context = getContext();
-        if (context == null) return 1.0f;
-        if (mFontScale == null) {
-            mFontScale = context.getResources().getConfiguration().fontScale;
-        }
-        return mFontScale;
     }
 
     Context getEmbedderActivityContext() {
@@ -476,7 +378,7 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
     }
 
     @Override
-    public List getTabs() {
+    public List<TabImpl> getTabs() {
         StrictModeWorkaround.apply();
         return Arrays.asList(BrowserImplJni.get().getTabs(mNativeBrowser));
     }
@@ -485,6 +387,17 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
     public int getActiveTabId() {
         StrictModeWorkaround.apply();
         return getActiveTab() != null ? getActiveTab().getId() : 0;
+    }
+
+    @Override
+    public int[] getTabIds() {
+        StrictModeWorkaround.apply();
+        List<TabImpl> tabs = getTabs();
+        int[] ids = new int[tabs.size()];
+        for(int i = 0; i < tabs.size(); i++) {
+            ids[i] = tabs.get(i).getId();
+        }
+        return ids;
     }
 
     @Override
@@ -536,29 +449,13 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
     }
 
     @Override
-    public IUrlBarController getUrlBarController() {
-        StrictModeWorkaround.apply();
-        return mUrlBarController;
-    }
-
-    @Override
-    public void setBrowserControlsOffsetsEnabled(boolean enable) {
-        mNotifyOnBrowserControlsOffsetsChanged = enable;
-    }
-
-    public void onBrowserControlsOffsetsChanged(TabImpl tab, boolean isTop, int controlsOffset) {
-        if (mNotifyOnBrowserControlsOffsetsChanged && tab == getActiveTab()) {
-            try {
-                mClient.onBrowserControlsOffsetsChanged(isTop, controlsOffset);
-            } catch (RemoteException e) {
-                throw new APICallException(e);
-            }
-        }
-    }
-
-    @Override
     public boolean isRestoringPreviousState() {
-        return BrowserImplJni.get().isRestoringPreviousState(mNativeBrowser);
+        // In the case of minimal restore, the C++ side will return true if actively restoring
+        // minimal state. By returning true if mMinimalPersistenceInfo is non-null,
+        // isRestoringPreviousState() will return true from the the time the fragment is created
+        // until start.
+        return mMinimalPersistenceInfo != null
+                || BrowserImplJni.get().isRestoringPreviousState(mNativeBrowser);
     }
 
     @CalledByNative
@@ -579,9 +476,6 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
         }
         destroyAttachmentState();
 
-        // mUrlBarController keeps a reference to mNativeBrowser, and hence must be destroyed before
-        // mNativeBrowser.
-        mUrlBarController.destroy();
         BrowserImplJni.get().deleteBrowser(mNativeBrowser);
 
         if (--sInstanceCount == 0) {
@@ -601,6 +495,11 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
             boolean setActiveResult = setActiveTab(createTab());
             assert setActiveResult;
         }
+        try {
+            onRestoreCompleted();
+        } catch (RemoteException e) {
+            throw new APICallException(e);
+        }
     }
 
     public void onFragmentStart() {
@@ -615,7 +514,6 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
 
         if (mViewAttachedToWindow) {
             mInConfigurationChangeAndWasAttached = false;
-            mForcedVisible = false;
         }
         BrowserImplJni.get().onFragmentStart(mNativeBrowser);
         updateAllTabs();
@@ -630,7 +528,7 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
 
     public void onFragmentResume() {
         mFragmentResumed = true;
-        WebLayerAccessibilityUtil.get().onBrowserResumed();
+        WebLayerAccessibilityUtil.get().onBrowserResumed(mProfile);
         BrowserImplJni.get().onFragmentResume(mNativeBrowser);
     }
 
@@ -659,24 +557,6 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
         return mNativeBrowser;
     }
 
-    @Override
-    public void onViewAttachedToWindow(View v) {
-        mViewAttachedToWindow = true;
-        if (mFragmentStarted) {
-            mInConfigurationChangeAndWasAttached = false;
-            mForcedVisible = false;
-        }
-        updateAllTabsViewAttachedState();
-    }
-
-    @Override
-    public void onViewDetachedFromWindow(View v) {
-        // Note this separate state is needed because v.isAttachedToWindow()
-        // still returns true inside this call.
-        mViewAttachedToWindow = false;
-        updateAllTabsViewAttachedState();
-    }
-
     public MediaRouteDialogFragmentImpl createMediaRouteDialogFragment() {
         try {
             return MediaRouteDialogFragmentImpl.fromRemoteFragment(
@@ -698,7 +578,6 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
             mLocaleReceiver = null;
         }
         if (mViewController != null) {
-            mViewControllerState = mViewController.getState();
             mViewController.destroy();
             mViewController = null;
             mViewAttachedToWindow = false;
@@ -717,8 +596,7 @@ public class BrowserImpl extends IBrowser.Stub implements View.OnAttachStateChan
      * Returns true if the active tab should be considered visible.
      */
     public boolean isActiveTabVisible() {
-        return mForcedVisible || mInConfigurationChangeAndWasAttached
-                || (isStarted() && isViewAttachedToWindow());
+        return mInConfigurationChangeAndWasAttached || (isStarted() && isViewAttachedToWindow());
     }
 
     private void updateAllTabsAndSetActive() {

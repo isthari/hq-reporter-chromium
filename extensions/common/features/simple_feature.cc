@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "base/strings/stringprintf.h"
 #include "components/crx_file/id_util.h"
 #include "extensions/common/extension_api.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/features/feature_channel.h"
 #include "extensions/common/features/feature_developer_mode_only.h"
 #include "extensions/common/features/feature_flags.h"
@@ -66,16 +67,6 @@ Feature::Availability IsAvailableToManifestForBind(
     const Feature* feature) {
   return feature->IsAvailableToManifest(hashed_id, type, location,
                                         manifest_version, platform);
-}
-
-Feature::Availability IsAvailableToContextForBind(const Extension* extension,
-                                                  Feature::Context context,
-                                                  const GURL& url,
-                                                  Feature::Platform platform,
-                                                  int context_id,
-                                                  const Feature* feature) {
-  return feature->IsAvailableToContext(extension, context, url, platform,
-                                       context_id);
 }
 
 Feature::Availability IsAvailableToEnvironmentForBind(int context_id,
@@ -140,6 +131,8 @@ std::string GetDisplayName(Feature::Context context) {
       return "webui untrusted";
     case Feature::LOCK_SCREEN_EXTENSION_CONTEXT:
       return "lock screen app";
+    case Feature::OFFSCREEN_EXTENSION_CONTEXT:
+      return "offscreen document";
   }
   NOTREACHED();
   return "";
@@ -241,9 +234,9 @@ Feature::Availability SimpleFeature::IsAvailableToManifest(
     int manifest_version,
     Platform platform,
     int context_id) const {
-  Availability environment_availability =
-      GetEnvironmentAvailability(platform, GetCurrentChannel(),
-                                 GetCurrentFeatureSessionType(), context_id);
+  Availability environment_availability = GetEnvironmentAvailability(
+      platform, GetCurrentChannel(), GetCurrentFeatureSessionType(), context_id,
+      true);
   if (!environment_availability.is_available())
     return environment_availability;
   Availability manifest_availability =
@@ -256,15 +249,27 @@ Feature::Availability SimpleFeature::IsAvailableToManifest(
                           location, manifest_version, platform, context_id));
 }
 
-Feature::Availability SimpleFeature::IsAvailableToContext(
+Feature::Availability SimpleFeature::IsAvailableToContextForBind(
+    const Extension* extension,
+    Feature::Context context,
+    const GURL& url,
+    Feature::Platform platform,
+    int context_id,
+    const Feature* feature) {
+  return feature->IsAvailableToContextImpl(extension, context, url, platform,
+                                           context_id, true);
+}
+
+Feature::Availability SimpleFeature::IsAvailableToContextImpl(
     const Extension* extension,
     Feature::Context context,
     const GURL& url,
     Platform platform,
-    int context_id) const {
-  Availability environment_availability =
-      GetEnvironmentAvailability(platform, GetCurrentChannel(),
-                                 GetCurrentFeatureSessionType(), context_id);
+    int context_id,
+    bool check_developer_mode) const {
+  Availability environment_availability = GetEnvironmentAvailability(
+      platform, GetCurrentChannel(), GetCurrentFeatureSessionType(), context_id,
+      check_developer_mode);
   if (!environment_availability.is_available())
     return environment_availability;
 
@@ -300,9 +305,9 @@ Feature::Availability SimpleFeature::IsAvailableToContext(
 
 Feature::Availability SimpleFeature::IsAvailableToEnvironment(
     int context_id) const {
-  Availability environment_availability =
-      GetEnvironmentAvailability(GetCurrentPlatform(), GetCurrentChannel(),
-                                 GetCurrentFeatureSessionType(), context_id);
+  Availability environment_availability = GetEnvironmentAvailability(
+      GetCurrentPlatform(), GetCurrentChannel(), GetCurrentFeatureSessionType(),
+      context_id, true);
   if (!environment_availability.is_available())
     return environment_availability;
   return CheckDependencies(
@@ -604,7 +609,8 @@ Feature::Availability SimpleFeature::GetEnvironmentAvailability(
     Platform platform,
     version_info::Channel channel,
     mojom::FeatureSessionType session_type,
-    int context_id) const {
+    int context_id,
+    bool check_developer_mode) const {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (!platforms_.empty() && !base::Contains(platforms_, platform))
     return CreateAvailability(INVALID_PLATFORM);
@@ -631,8 +637,12 @@ Feature::Availability SimpleFeature::GetEnvironmentAvailability(
   if (!MatchesSessionTypes(session_type))
     return CreateAvailability(INVALID_SESSION_TYPE, session_type);
 
-  if (developer_mode_only_ && !GetCurrentDeveloperMode(context_id))
+  if (check_developer_mode &&
+      base::FeatureList::IsEnabled(
+          extensions_features::kRestrictDeveloperModeAPIs) &&
+      developer_mode_only_ && !GetCurrentDeveloperMode(context_id)) {
     return CreateAvailability(REQUIRES_DEVELOPER_MODE);
+  }
 
   return CreateAvailability(IS_AVAILABLE);
 }

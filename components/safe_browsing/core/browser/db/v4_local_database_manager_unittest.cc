@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,6 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_simple_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "components/safe_browsing/core/browser/db/v4_database.h"
@@ -63,7 +62,7 @@ class FakeGetHashProtocolManager : public V4GetHashProtocolManager {
                      const std::vector<std::string>&,
                      FullHashCallback callback) override {
     // Async, since the real manager might use a fetcher.
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), full_hash_infos_));
   }
 
@@ -116,7 +115,7 @@ class FakeV4Database : public V4Database {
       int64_t store_file_size) {
     // Mimics V4Database::Create
     const scoped_refptr<base::SequencedTaskRunner>& callback_task_runner =
-        base::SequencedTaskRunnerHandle::Get();
+        base::SequencedTaskRunner::GetCurrentDefault();
     db_task_runner->PostTask(
         FROM_HERE,
         base::BindOnce(&FakeV4Database::CreateOnTaskRunner, db_task_runner,
@@ -166,9 +165,11 @@ class FakeV4Database : public V4Database {
       bool stores_available,
       int64_t store_file_size) {
     // Mimics the semantics of V4Database::CreateOnTaskRunner
-    std::unique_ptr<FakeV4Database> fake_v4_database(new FakeV4Database(
-        db_task_runner, std::move(store_map), store_and_hash_prefixes,
-        stores_available, store_file_size));
+    std::unique_ptr<FakeV4Database, base::OnTaskRunnerDeleter> fake_v4_database(
+        new FakeV4Database(db_task_runner, std::move(store_map),
+                           store_and_hash_prefixes, stores_available,
+                           store_file_size),
+        base::OnTaskRunnerDeleter(db_task_runner));
     callback_task_runner->PostTask(FROM_HERE,
                                    base::BindOnce(std::move(new_db_callback),
                                                   std::move(fake_v4_database)));
@@ -267,13 +268,6 @@ class TestAllowlistClient : public SafeBrowsingDatabaseManager::Client {
     callback_called_ = true;
   }
 
-  void OnCheckUrlForHighConfidenceAllowlist(bool is_allowlisted) override {
-    EXPECT_EQ(match_expected_, is_allowlisted);
-    EXPECT_EQ(SB_THREAT_TYPE_HIGH_CONFIDENCE_ALLOWLIST,
-              expected_sb_threat_type_);
-    callback_called_ = true;
-  }
-
   bool callback_called() { return callback_called_; }
 
  private:
@@ -310,14 +304,15 @@ class FakeV4LocalDatabaseManager : public V4LocalDatabaseManager {
       scoped_refptr<base::SequencedTaskRunner> task_runner)
       : V4LocalDatabaseManager(base_path,
                                extended_reporting_level_callback,
-                               base::SequencedTaskRunnerHandle::Get(),
-                               base::SequencedTaskRunnerHandle::Get(),
+                               base::SequencedTaskRunner::GetCurrentDefault(),
+                               base::SequencedTaskRunner::GetCurrentDefault(),
                                task_runner),
         perform_full_hash_check_called_(false) {}
 
   // V4LocalDatabaseManager impl:
   void PerformFullHashCheck(std::unique_ptr<PendingCheck> check) override {
     perform_full_hash_check_called_ = true;
+    RemovePendingCheck(pending_checks_.find(check.get()));
   }
 
   static bool PerformFullHashCheckCalled(
@@ -325,6 +320,12 @@ class FakeV4LocalDatabaseManager : public V4LocalDatabaseManager {
     FakeV4LocalDatabaseManager* fake =
         static_cast<FakeV4LocalDatabaseManager*>(v4_ldbm.get());
     return fake->perform_full_hash_check_called_;
+  }
+
+  void OnFullHashResponse(
+      std::unique_ptr<PendingCheck> check,
+      const std::vector<FullHashInfo>& full_hash_infos) override {
+    RemovePendingCheck(pending_checks_.find(check.get()));
   }
 
  private:
@@ -355,8 +356,8 @@ class V4LocalDatabaseManagerTest : public PlatformTest {
     v4_local_database_manager_ =
         base::WrapRefCounted(new V4LocalDatabaseManager(
             base_dir_.GetPath(), erl_callback_,
-            base::SequencedTaskRunnerHandle::Get(),
-            base::SequencedTaskRunnerHandle::Get(), task_runner_));
+            base::SequencedTaskRunner::GetCurrentDefault(),
+            base::SequencedTaskRunner::GetCurrentDefault(), task_runner_));
 
     StartLocalDatabaseManager();
   }
@@ -377,6 +378,10 @@ class V4LocalDatabaseManagerTest : public PlatformTest {
 
   const V4LocalDatabaseManager::QueuedChecks& GetQueuedChecks() {
     return v4_local_database_manager_->queued_checks_;
+  }
+
+  const V4LocalDatabaseManager::PendingChecks& GetPendingChecks() {
+    return v4_local_database_manager_->pending_checks_;
   }
 
   ExtendedReportingLevel GetExtendedReportingLevel() {
@@ -416,14 +421,12 @@ class V4LocalDatabaseManagerTest : public PlatformTest {
     v4_local_database_manager_ =
         base::WrapRefCounted(new V4LocalDatabaseManager(
             base_dir_.GetPath(), erl_callback_,
-            base::SequencedTaskRunnerHandle::Get(),
-            base::SequencedTaskRunnerHandle::Get(), task_runner_));
+            base::SequencedTaskRunner::GetCurrentDefault(),
+            base::SequencedTaskRunner::GetCurrentDefault(), task_runner_));
     StartLocalDatabaseManager();
   }
 
-  void ResetV4Database() {
-    V4Database::Destroy(std::move(v4_local_database_manager_->v4_database_));
-  }
+  void ResetV4Database() { v4_local_database_manager_->v4_database_.reset(); }
 
   void StartLocalDatabaseManager() {
     v4_local_database_manager_->StartOnIOThread(test_shared_loader_factory_,
@@ -478,11 +481,6 @@ TEST_F(V4LocalDatabaseManagerTest, TestGetThreatSource) {
             v4_local_database_manager_->GetThreatSource());
 }
 
-TEST_F(V4LocalDatabaseManagerTest, TestIsSupported) {
-  WaitForTasksOnTaskRunner();
-  EXPECT_TRUE(v4_local_database_manager_->IsSupported());
-}
-
 TEST_F(V4LocalDatabaseManagerTest, TestCanCheckUrl) {
   WaitForTasksOnTaskRunner();
   EXPECT_TRUE(
@@ -504,6 +502,9 @@ TEST_F(V4LocalDatabaseManagerTest,
 }
 
 TEST_F(V4LocalDatabaseManagerTest, TestCheckBrowseUrlWithFakeDbReturnsMatch) {
+  // Setup to receive full-hash misses. We won't make URL requests.
+  ScopedFakeGetHashProtocolManagerFactory pin(FullHashInfos({}));
+  ResetLocalDatabaseManager();
   WaitForTasksOnTaskRunner();
 
   std::string url_bad_no_scheme("example.com/bad/");
@@ -514,8 +515,9 @@ TEST_F(V4LocalDatabaseManagerTest, TestCheckBrowseUrlWithFakeDbReturnsMatch) {
   ReplaceV4Database(store_and_hash_prefixes);
 
   const GURL url_bad("https://" + url_bad_no_scheme);
+  TestClient client(SB_THREAT_TYPE_SAFE, url_bad);
   EXPECT_FALSE(v4_local_database_manager_->CheckBrowseUrl(
-      url_bad, usual_threat_types_, nullptr));
+      url_bad, usual_threat_types_, &client));
 
   // Wait for PerformFullHashCheck to complete.
   WaitForTasksOnTaskRunner();
@@ -664,179 +666,97 @@ TEST_F(V4LocalDatabaseManagerTest,
       GURL("http://example.com/a/"), usual_threat_types_, nullptr));
 }
 
-// Hash prefix matches on the high confidence allowlist, but full hash match
-// fails.
+// Hash prefix matches on the high confidence allowlist, but not a full hash
+// match, so it says there is no match and does not perform a full hash check.
+// This can only happen with an invalid db setup.
 TEST_F(V4LocalDatabaseManagerTest,
-       TestCheckUrlForHCAllowlistWithPrefixMatchButNoFullHashMatch) {
+       TestCheckUrlForHCAllowlistWithPrefixMatchButNoLocalFullHashMatch) {
+  SetupFakeManager();
   std::string url_safe_no_scheme("example.com/safe/");
   FullHash safe_full_hash(crypto::SHA256HashString(url_safe_no_scheme));
-
-  // Setup to receive full-hash misses. We won't make URL requests.
-  ScopedFakeGetHashProtocolManagerFactory pin(FullHashInfos({}));
-  ResetLocalDatabaseManager();
-  WaitForTasksOnTaskRunner();
 
   // Setup to match hash prefix in the local database.
   const HashPrefix safe_hash_prefix(safe_full_hash.substr(0, 5));
   StoreAndHashPrefixes store_and_hash_prefixes;
   store_and_hash_prefixes.emplace_back(GetUrlHighConfidenceAllowlistId(),
                                        safe_hash_prefix);
-  ReplaceV4Database(store_and_hash_prefixes, /* stores_available= */ true,
-                    /* store_file_size= */ 10000);
+  ReplaceV4Database(store_and_hash_prefixes, /* stores_available= */ true);
 
-  // Setup the allowlist client to verify the callback.
-  TestAllowlistClient client(
-      /* match_expected= */ false,
-      /* expected_sb_threat_type= */ SB_THREAT_TYPE_HIGH_CONFIDENCE_ALLOWLIST);
-
-  // Lookup the high confidence allowlist.
+  // Confirm there is no match and the full hash check is not performed.
   const GURL url_check("https://" + url_safe_no_scheme);
-  EXPECT_EQ(AsyncMatch::ASYNC,
-            v4_local_database_manager_->CheckUrlForHighConfidenceAllowlist(
-                url_check, &client));
-
-  EXPECT_FALSE(client.callback_called());
-
-  // Wait for PerformFullHashCheck to complete.
+  EXPECT_FALSE(v4_local_database_manager_->CheckUrlForHighConfidenceAllowlist(
+      url_check));
   WaitForTasksOnTaskRunner();
-  EXPECT_TRUE(client.callback_called());
+  EXPECT_FALSE(FakeV4LocalDatabaseManager::PerformFullHashCheckCalled(
+      v4_local_database_manager_));
 }
 
-// Hash prefix matches on the high confidence allowlist, and subsequently the
-// full hash also matches.
-TEST_F(V4LocalDatabaseManagerTest,
-       TestCheckUrlForHCAllowlistWithPrefixMatchAndFullHashMatch) {
-  std::string url_safe_no_scheme("example.com/safe/");
-  FullHash safe_full_hash(crypto::SHA256HashString(url_safe_no_scheme));
-
-  // Setup to receive full-hash hit. We won't make URL requests.
-  FullHashInfos infos(
-      {{safe_full_hash, GetUrlHighConfidenceAllowlistId(), base::Time::Now()}});
-  ScopedFakeGetHashProtocolManagerFactory pin(infos);
-  ResetLocalDatabaseManager();
-  WaitForTasksOnTaskRunner();
-
-  // Setup to match hash prefix in the local database.
-  const HashPrefix safe_hash_prefix(safe_full_hash.substr(0, 5));
-  StoreAndHashPrefixes store_and_hash_prefixes;
-  store_and_hash_prefixes.emplace_back(GetUrlHighConfidenceAllowlistId(),
-                                       safe_hash_prefix);
-  ReplaceV4Database(store_and_hash_prefixes, /* stores_available= */ true,
-                    /* store_file_size= */ 100000);
-
-  // Setup the allowlist client to verify the callback.
-  TestAllowlistClient client(
-      /* match_expected= */ true,
-      /* expected_sb_threat_type= */ SB_THREAT_TYPE_HIGH_CONFIDENCE_ALLOWLIST);
-
-  // Lookup the high confidence allowlist.
-  const GURL url_check("https://" + url_safe_no_scheme);
-  EXPECT_EQ(AsyncMatch::ASYNC,
-            v4_local_database_manager_->CheckUrlForHighConfidenceAllowlist(
-                url_check, &client));
-
-  EXPECT_FALSE(client.callback_called());
-
-  // Wait for PerformFullHashCheck to complete.
-  WaitForTasksOnTaskRunner();
-  EXPECT_TRUE(client.callback_called());
-}
-
-// Full hash match on the high confidence allowlist. Returns |MATCH|
-// synchronously and callback isn't called.
+// Full hash match on the high confidence allowlist. Returns true
+// synchronously and the full hash check is not performed.
 TEST_F(V4LocalDatabaseManagerTest,
        TestCheckUrlForHCAllowlistWithLocalFullHashMatch) {
+  SetupFakeManager();
   std::string url_safe_no_scheme("example.com/safe/");
   FullHash safe_full_hash(crypto::SHA256HashString(url_safe_no_scheme));
-
-  // Setup to receive full-hash misses. We won't make URL requests.
-  ScopedFakeGetHashProtocolManagerFactory pin(FullHashInfos({}));
-  ResetLocalDatabaseManager();
-  WaitForTasksOnTaskRunner();
 
   // Setup to match full hash in the local database.
   StoreAndHashPrefixes store_and_hash_prefixes;
   store_and_hash_prefixes.emplace_back(GetUrlHighConfidenceAllowlistId(),
                                        safe_full_hash);
-  ReplaceV4Database(store_and_hash_prefixes, /* stores_available= */ true,
-                    /* store_file_size= */ 100000);
+  ReplaceV4Database(store_and_hash_prefixes, /* stores_available= */ true);
 
-  // Setup the allowlist client to verify the callback isn't called.
-  TestAllowlistClient client(
-      /* match_expected= */ false,
-      /* expected_sb_threat_type= */ SB_THREAT_TYPE_HIGH_CONFIDENCE_ALLOWLIST);
+  // Confirm there is a match and the full hash check is not performed.
   const GURL url_check("https://" + url_safe_no_scheme);
-  EXPECT_EQ(AsyncMatch::MATCH,
-            v4_local_database_manager_->CheckUrlForHighConfidenceAllowlist(
-                url_check, &client));
-
+  EXPECT_TRUE(v4_local_database_manager_->CheckUrlForHighConfidenceAllowlist(
+      url_check));
   WaitForTasksOnTaskRunner();
-  EXPECT_FALSE(client.callback_called());
+  EXPECT_FALSE(FakeV4LocalDatabaseManager::PerformFullHashCheckCalled(
+      v4_local_database_manager_));
 }
 
-// Hash prefix has no match on the high confidence allowlist. Returns |NO_MATCH|
-// synchronously and callback isn't called.
+// Hash prefix has no match on the high confidence allowlist. Returns false
+// synchronously and the full hash check is not performed.
 TEST_F(V4LocalDatabaseManagerTest, TestCheckUrlForHCAllowlistWithNoMatch) {
+  SetupFakeManager();
   std::string url_safe_no_scheme("example.com/safe/");
   FullHash safe_full_hash(crypto::SHA256HashString(url_safe_no_scheme));
 
-  // Setup to receive full-hash misses. We won't make URL requests.
-  ScopedFakeGetHashProtocolManagerFactory pin(FullHashInfos({}));
-  ResetLocalDatabaseManager();
-  WaitForTasksOnTaskRunner();
-
   // Add a full hash that won't match the URL we check.
   StoreAndHashPrefixes store_and_hash_prefixes;
-  store_and_hash_prefixes.emplace_back(GetUrlMalwareId(), safe_full_hash);
-  ReplaceV4Database(store_and_hash_prefixes, /* stores_available= */ true,
-                    /* store_file_size= */ 100000);
+  store_and_hash_prefixes.emplace_back(GetUrlHighConfidenceAllowlistId(),
+                                       safe_full_hash);
+  ReplaceV4Database(store_and_hash_prefixes, /* stores_available= */ true);
 
-  // Setup the allowlist client to verify the callback isn't called.
-  TestAllowlistClient client(
-      /* match_expected= */ false,
-      /* expected_sb_threat_type= */ SB_THREAT_TYPE_HIGH_CONFIDENCE_ALLOWLIST);
+  // Confirm there is no match and the full hash check is not performed.
   const GURL url_check("https://example.com/other/");
-  EXPECT_EQ(AsyncMatch::NO_MATCH,
-            v4_local_database_manager_->CheckUrlForHighConfidenceAllowlist(
-                url_check, &client));
-
+  EXPECT_FALSE(v4_local_database_manager_->CheckUrlForHighConfidenceAllowlist(
+      url_check));
   WaitForTasksOnTaskRunner();
-  EXPECT_FALSE(client.callback_called());
+  EXPECT_FALSE(FakeV4LocalDatabaseManager::PerformFullHashCheckCalled(
+      v4_local_database_manager_));
 }
 
-// When allowlist is unavailable, all URLS should be considered MATCH.
+// When allowlist is unavailable, all URLs should be considered as matches.
 TEST_F(V4LocalDatabaseManagerTest, TestCheckUrlForHCAllowlistUnavailable) {
-  // Setup to receive full-hash misses. We won't make URL requests.
-  ScopedFakeGetHashProtocolManagerFactory pin(FullHashInfos({}));
-  ResetLocalDatabaseManager();
-  WaitForTasksOnTaskRunner();
+  SetupFakeManager();
 
   // Setup local database as unavailable.
   StoreAndHashPrefixes store_and_hash_prefixes;
-  ReplaceV4Database(store_and_hash_prefixes, /* stores_available= */ false,
-                    /* store_file_size= */ 100000);
+  ReplaceV4Database(store_and_hash_prefixes, /* stores_available= */ false);
 
-  // Setup the allowlist client to verify the callback isn't called.
-  TestAllowlistClient client(
-      /* match_expected= */ false,
-      /* expected_sb_threat_type= */ SB_THREAT_TYPE_HIGH_CONFIDENCE_ALLOWLIST);
-
+  // Confirm there is a match and the full hash check is not performed.
   const GURL url_check("https://example.com/safe");
-  EXPECT_EQ(AsyncMatch::MATCH,
-            v4_local_database_manager_->CheckUrlForHighConfidenceAllowlist(
-                url_check, &client));
-
+  EXPECT_TRUE(v4_local_database_manager_->CheckUrlForHighConfidenceAllowlist(
+      url_check));
   WaitForTasksOnTaskRunner();
-  EXPECT_FALSE(client.callback_called());
+  EXPECT_FALSE(FakeV4LocalDatabaseManager::PerformFullHashCheckCalled(
+      v4_local_database_manager_));
 }
 
-// When allowlist is available but the size is too small, all URLS should be
-// considered MATCH.
+// When allowlist is available but the size is too small, all URLs should be
+// considered as matches.
 TEST_F(V4LocalDatabaseManagerTest, TestCheckUrlForHCAllowlistSmallSize) {
-  // Setup to receive full-hash misses. We won't make URL requests.
-  ScopedFakeGetHashProtocolManagerFactory pin(FullHashInfos({}));
-  ResetLocalDatabaseManager();
-  WaitForTasksOnTaskRunner();
+  SetupFakeManager();
 
   // Setup the size of the allowlist to be smaller than the threshold. (10
   // entries)
@@ -844,18 +764,13 @@ TEST_F(V4LocalDatabaseManagerTest, TestCheckUrlForHCAllowlistSmallSize) {
   ReplaceV4Database(store_and_hash_prefixes, /* stores_available= */ true,
                     /* store_file_size= */ 32 * 10);
 
-  // Setup the allowlist client to verify the callback isn't called.
-  TestAllowlistClient client(
-      /* match_expected= */ false,
-      /* expected_sb_threat_type= */ SB_THREAT_TYPE_HIGH_CONFIDENCE_ALLOWLIST);
-
+  // Confirm there is a match and the full hash check is not performed.
   const GURL url_check("https://example.com/safe");
-  EXPECT_EQ(AsyncMatch::MATCH,
-            v4_local_database_manager_->CheckUrlForHighConfidenceAllowlist(
-                url_check, &client));
-
+  EXPECT_TRUE(v4_local_database_manager_->CheckUrlForHighConfidenceAllowlist(
+      url_check));
   WaitForTasksOnTaskRunner();
-  EXPECT_FALSE(client.callback_called());
+  EXPECT_FALSE(FakeV4LocalDatabaseManager::PerformFullHashCheckCalled(
+      v4_local_database_manager_));
 }
 
 TEST_F(V4LocalDatabaseManagerTest, TestGetSeverestThreatTypeAndMetadata) {
@@ -969,6 +884,20 @@ TEST_F(V4LocalDatabaseManagerTest, CancelPending) {
     WaitForTasksOnTaskRunner();
     EXPECT_FALSE(client.on_check_browse_url_result_called());
   }
+
+  // Test that the client gets a safe response for a pending check when safe
+  // browsing is stopped.
+  {
+    TestClient client(SB_THREAT_TYPE_SAFE, url_bad);
+    EXPECT_FALSE(v4_local_database_manager_->CheckBrowseUrl(
+        url_bad, usual_threat_types_, &client));
+    EXPECT_EQ(1ul, GetPendingChecks().size());
+    EXPECT_FALSE(client.on_check_browse_url_result_called());
+    EXPECT_TRUE((*GetPendingChecks().begin())->is_in_pending_checks);
+    StopLocalDatabaseManager();
+    EXPECT_TRUE(GetPendingChecks().empty());
+    EXPECT_TRUE(client.on_check_browse_url_result_called());
+  }
 }
 
 // When the database load flushes the queued requests, make sure that
@@ -1030,8 +959,9 @@ TEST_F(V4LocalDatabaseManagerTest, UsingWeakPtrDropsCallback) {
   ReplaceV4Database(store_and_hash_prefixes);
 
   const GURL url_bad("https://" + url_bad_no_scheme);
+  TestClient client(SB_THREAT_TYPE_SAFE, url_bad);
   EXPECT_FALSE(v4_local_database_manager_->CheckBrowseUrl(
-      url_bad, usual_threat_types_, nullptr));
+      url_bad, usual_threat_types_, &client));
   v4_local_database_manager_->StopOnIOThread(true);
 
   // Release the V4LocalDatabaseManager object right away before the callback
@@ -1355,6 +1285,7 @@ TEST_F(V4LocalDatabaseManagerTest, FlagOneUrlAsPhishing) {
   EXPECT_TRUE(v4_local_database_manager_->CheckBrowseUrl(
       url_good, usual_threat_types_, nullptr));
 
+  WaitForTasksOnTaskRunner();
   StopLocalDatabaseManager();
 }
 
@@ -1376,6 +1307,7 @@ TEST_F(V4LocalDatabaseManagerTest, FlagOneUrlAsMalware) {
   EXPECT_TRUE(v4_local_database_manager_->CheckBrowseUrl(
       url_good, usual_threat_types_, nullptr));
 
+  WaitForTasksOnTaskRunner();
   StopLocalDatabaseManager();
 }
 
@@ -1397,6 +1329,7 @@ TEST_F(V4LocalDatabaseManagerTest, FlagOneUrlAsUWS) {
   EXPECT_TRUE(v4_local_database_manager_->CheckBrowseUrl(
       url_good, usual_threat_types_, nullptr));
 
+  WaitForTasksOnTaskRunner();
   StopLocalDatabaseManager();
 }
 
@@ -1411,22 +1344,26 @@ TEST_F(V4LocalDatabaseManagerTest, FlagMultipleUrls) {
   PopulateArtificialDatabase();
 
   const GURL url_phishing("https://example.com/1/");
+  TestClient client_phishing(SB_THREAT_TYPE_SAFE, url_phishing);
   EXPECT_FALSE(v4_local_database_manager_->CheckBrowseUrl(
-      url_phishing, usual_threat_types_, nullptr));
+      url_phishing, usual_threat_types_, &client_phishing));
   const GURL url_malware("https://2.example.com");
+  TestClient client_malware(SB_THREAT_TYPE_SAFE, url_malware);
   EXPECT_FALSE(v4_local_database_manager_->CheckBrowseUrl(
-      url_malware, usual_threat_types_, nullptr));
+      url_malware, usual_threat_types_, &client_malware));
   const GURL url_uws("https://example.test.com");
+  TestClient client_uws(SB_THREAT_TYPE_SAFE, url_uws);
   EXPECT_FALSE(v4_local_database_manager_->CheckBrowseUrl(
-      url_uws, usual_threat_types_, nullptr));
+      url_uws, usual_threat_types_, &client_uws));
   // PerformFullHashCheck will not be called if there is a match within the
   // artificial database
   EXPECT_FALSE(FakeV4LocalDatabaseManager::PerformFullHashCheckCalled(
       v4_local_database_manager_));
 
   const GURL url_good("https://other.example.com");
+  TestClient client_good(SB_THREAT_TYPE_SAFE, url_good);
   EXPECT_TRUE(v4_local_database_manager_->CheckBrowseUrl(
-      url_good, usual_threat_types_, nullptr));
+      url_good, usual_threat_types_, &client_good));
 
   StopLocalDatabaseManager();
 }

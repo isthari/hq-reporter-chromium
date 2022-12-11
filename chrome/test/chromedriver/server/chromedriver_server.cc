@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,6 @@
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_local.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/test/chromedriver/constants/version.h"
@@ -107,10 +106,11 @@ void HandleRequestOnIOThread(
     const HttpResponseSenderFunc& send_response_func) {
   cmd_task_runner->PostTask(
       FROM_HERE,
-      base::BindOnce(handle_request_on_cmd_func, request,
-                     base::BindRepeating(&SendResponseOnCmdThread,
-                                         base::ThreadTaskRunnerHandle::Get(),
-                                         send_response_func)));
+      base::BindOnce(
+          handle_request_on_cmd_func, request,
+          base::BindRepeating(&SendResponseOnCmdThread,
+                              base::SingleThreadTaskRunner::GetCurrentDefault(),
+                              send_response_func)));
 }
 
 base::LazyInstance<base::ThreadLocalPointer<HttpServer>>::DestructorAtExit
@@ -121,11 +121,11 @@ base::LazyInstance<base::ThreadLocalPointer<HttpServer>>::DestructorAtExit
 void StopServerOnIOThread() {
   // Note, |server| may be NULL.
   HttpServer* server = lazy_tls_server_ipv4.Pointer()->Get();
-  lazy_tls_server_ipv4.Pointer()->Set(NULL);
+  lazy_tls_server_ipv4.Pointer()->Set(nullptr);
   delete server;
 
   server = lazy_tls_server_ipv6.Pointer()->Get();
-  lazy_tls_server_ipv6.Pointer()->Set(NULL);
+  lazy_tls_server_ipv6.Pointer()->Set(nullptr);
   delete server;
 }
 
@@ -336,15 +336,15 @@ int main(int argc, char *argv[]) {
       "add readable timestamps to log",
       "enable-chrome-logs",
       "show logs from the browser (overrides other logging options)",
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
+    // TODO(crbug.com/1052397): Revisit the macro expression once build flag
+    // switch of lacros-chrome is complete.
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
       "disable-dev-shm-usage",
       "do not use /dev/shm "
       "(add this switch if seeing errors related to shared memory)",
 #endif
     };
-    for (size_t i = 0; i < base::size(kOptionAndDescriptions) - 1; i += 2) {
+    for (size_t i = 0; i < std::size(kOptionAndDescriptions) - 1; i += 2) {
       options += base::StringPrintf(
           "  --%-30s%s\n",
           kOptionAndDescriptions[i], kOptionAndDescriptions[i + 1]);

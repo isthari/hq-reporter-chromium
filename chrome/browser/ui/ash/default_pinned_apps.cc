@@ -1,21 +1,21 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/ash/default_pinned_apps.h"
 
 #include "ash/constants/ash_switches.h"
-#include "base/cxx17_backports.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ash/file_manager/app_id.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/web_applications/web_app_id_constants.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "extensions/common/constants.h"
 
 namespace {
 
-base::span<StaticAppId> GetDefaultPinnedApps() {
-  constexpr const char* kDefaultPinnedApps[] = {
+std::vector<StaticAppId> GetDefaultPinnedApps() {
+  std::vector<StaticAppId> app_ids{
       extension_misc::kGmailAppId,
       web_app::kGmailAppId,
 
@@ -37,12 +37,17 @@ base::span<StaticAppId> GetDefaultPinnedApps() {
 
       arc::kGooglePhotosAppId,
   };
-  return base::span<StaticAppId>(kDefaultPinnedApps,
-                                 base::size(kDefaultPinnedApps));
+
+  if (chromeos::features::IsCloudGamingDeviceEnabled()) {
+    app_ids.push_back(web_app::kCloudGamingPartnerPlatform);
+    app_ids.push_back(web_app::kStadiaAppId);
+  }
+
+  return app_ids;
 }
 
-base::span<StaticAppId> GetTabletFormFactorDefaultPinnedApps() {
-  constexpr const char* kTabletFormFactorDefaultPinnedApps[] = {
+std::vector<StaticAppId> GetTabletFormFactorDefaultPinnedApps() {
+  std::vector<StaticAppId> app_ids{
       arc::kGmailAppId,
 
       arc::kGoogleCalendarAppId,
@@ -53,14 +58,12 @@ base::span<StaticAppId> GetTabletFormFactorDefaultPinnedApps() {
 
       arc::kGooglePhotosAppId,
   };
-  return base::span<StaticAppId>(
-      kTabletFormFactorDefaultPinnedApps,
-      base::size(kTabletFormFactorDefaultPinnedApps));
+  return app_ids;
 }
 
 }  // namespace
 
-base::span<StaticAppId> GetDefaultPinnedAppsForFormFactor() {
+std::vector<StaticAppId> GetDefaultPinnedAppsForFormFactor() {
   if (ash::switches::IsTabletFormFactor()) {
     return GetTabletFormFactorDefaultPinnedApps();
   }

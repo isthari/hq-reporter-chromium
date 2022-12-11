@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,10 +50,9 @@ class SaveCardBubbleControllerImplTest : public DialogBrowserTest {
         "     } ]"
         "  } ]"
         "}"));
-    base::DictionaryValue* dictionary;
-    value->GetAsDictionary(&dictionary);
+    EXPECT_TRUE(value->is_dict());
     LegalMessageLines legal_message_lines;
-    LegalMessageLine::Parse(*dictionary, &legal_message_lines,
+    LegalMessageLine::Parse(*value, &legal_message_lines,
                             /*escape_apostrophes=*/true);
     return legal_message_lines;
   }
@@ -115,7 +114,8 @@ class SaveCardBubbleControllerImplTest : public DialogBrowserTest {
   SaveCardBubbleControllerImpl* controller() { return controller_; }
 
  private:
-  raw_ptr<SaveCardBubbleControllerImpl> controller_ = nullptr;
+  raw_ptr<SaveCardBubbleControllerImpl, DanglingUntriaged> controller_ =
+      nullptr;
 };
 
 // Invokes a bubble asking the user if they want to save a credit card locally.

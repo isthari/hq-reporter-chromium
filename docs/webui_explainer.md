@@ -258,7 +258,7 @@ void OvenHandler::RegisterMessages() {
                           base::Unretained(this)));
 }
 
-void OvenHandler::HandleBakeDonuts(base::Value::ConstListView args) {
+void OvenHandler::HandleBakeDonuts(const base::Value::List& args) {
   AllowJavascript();
 
   // IMPORTANT: Fully validate `args`.
@@ -379,7 +379,7 @@ if (loadTimeData.getBoolean('myFeatureIsEnabled')) {
 <div class="note">
 Data sources are not recreated on refresh, and therefore values that are dynamic
 (i.e. that can change while Chrome is running) may easily become stale. It may
-be preferable to use <code>cr.sendWithPromise()</code> to initialize dynamic
+be preferable to use <code>sendWithPromise()</code> to initialize dynamic
 values and call <code>FireWebUIListener()</code> to update them.
 
 If you really want or need to use <code>AddBoolean()</code> for a dynamic value,
@@ -461,7 +461,7 @@ window.onload = function() {
 In the C++:
 
 ```c++
-void OvenHandler::HandleStartPilotLight(cont base::ListValue* /*args*/) {
+void OvenHandler::HandleStartPilotLight(const base::Value::List& /*args*/) {
   AllowJavascript();
   // CallJavascriptFunction() and FireWebUIListener() are now safe to do.
   GetOven()->StartPilotLight();
@@ -513,7 +513,7 @@ alternatives:
 * [`FireWebUIListener()`](#FireWebUIListener) allows easily notifying the page
   when an event occurs in C++ and is more loosely coupled (nothing blows up if
   the event dispatch is ignored). JS subscribes to notifications via
-  [`cr.addWebUIListener`](#cr_addWebUIListener).
+  [`addWebUiListener`](#addWebUiListener).
 * [`ResolveJavascriptCallback`](#ResolveJavascriptCallback) and
   [`RejectJavascriptCallback`](#RejectJavascriptCallback) are useful
   when Javascript requires a response to an inquiry about C++-canonical state
@@ -529,7 +529,7 @@ happen in timely manner, or may be caused to happen by unpredictable events
 Here's some example to detect a change to Chrome's theme:
 
 ```js
-cr.addWebUIListener("theme-changed", refreshThemeStyles);
+addWebUiListener("theme-changed", refreshThemeStyles);
 ```
 
 This Javascript event listener can be triggered in C++ via:
@@ -544,7 +544,7 @@ Because it's not clear when a user might want to change their theme nor what
 theme they'll choose, this is a good candidate for an event listener.
 
 If you simply need to get a response in Javascript from C++, consider using
-[`cr.sendWithPromise()`](#cr_sendWithPromise) and
+[`sendWithPromise()`](#sendWithPromise) and
 [`ResolveJavascriptCallback`](#ResolveJavascriptCallback).
 
 ### WebUIMessageHandler::OnJavascriptAllowed()
@@ -626,7 +626,7 @@ imperatively unsubscribe in `OnJavascriptDisallowed()`.
 ### WebUIMessageHandler::RejectJavascriptCallback()
 
 This method is called in response to
-[`cr.sendWithPromise()`](#cr_sendWithPromise) to reject the issued Promise. This
+[`sendWithPromise()`](#sendWithPromise) to reject the issued Promise. This
 runs the rejection (second) callback in the [Promise's
 executor](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise)
 and any
@@ -634,10 +634,10 @@ and any
 callbacks in the chain.
 
 ```c++
-void OvenHandler::HandleBakeDonuts(const base::ListValue* args) {
+void OvenHandler::HandleBakeDonuts(const base::Value::List& args) {
   AllowJavascript();
   if (!GetOven()->HasGas()) {
-    RejectJavascriptCallback(args->GetList()[0],
+    RejectJavascriptCallback(args[0],
                              base::StringValue("need gas to cook the donuts!"));
   }
 ```
@@ -657,16 +657,16 @@ See also: [`ResolveJavascriptCallback`](#ResolveJavascriptCallback)
 ### WebUIMessageHandler::ResolveJavascriptCallback()
 
 This method is called in response to
-[`cr.sendWithPromise()`](#cr_sendWithPromise) to fulfill an issued Promise,
+[`sendWithPromise()`](#sendWithPromise) to fulfill an issued Promise,
 often with a value. This results in runnings any fulfillment (first) callbacks
 in the associate Promise executor and any registered
 [`then()`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/then)
 callbacks.
 
-So, given this JS code:
+So, given this TypeScript code:
 
 ```js
-cr.sendWithPromise('bakeDonuts').then(function(numDonutsBaked) {
+sendWithPromise('bakeDonuts').then(function(numDonutsBaked: number) {
   shop.donuts += numDonutsBaked;
 });
 ```
@@ -674,10 +674,10 @@ cr.sendWithPromise('bakeDonuts').then(function(numDonutsBaked) {
 Some handling C++ might do this:
 
 ```c++
-void OvenHandler::HandleBakeDonuts(const base::ListValue* args) {
+void OvenHandler::HandleBakeDonuts(const base::Value::List& args) {
   AllowJavascript();
   double num_donuts_baked = GetOven()->BakeDonuts();
-  ResolveJavascriptCallback(args->GetList()[0], base::Value(num_donuts_baked));
+  ResolveJavascriptCallback(args[0], base::Value(num_donuts_baked));
 }
 ```
 
@@ -734,21 +734,23 @@ callback with the deserialized arguments:
 message_callbacks_.find(message)->second.Run(&args);
 ```
 
-### cr.addWebUIListener()
+### addWebUiListener()
 
 WebUI listeners are a convenient way for C++ to inform JavaScript of events.
 
 Older WebUI code exposed public methods for event notification, similar to how
 responses to [chrome.send()](#chrome_send) used to work. They both
 resulted in global namespace pollution, but it was additionally hard to stop
-listening for events in some cases. **cr.addWebUIListener** is preferred in new
+listening for events in some cases. **addWebUiListener** is preferred in new
 code.
 
 Adding WebUI listeners creates and inserts a unique ID into a map in JavaScript,
-just like [cr.sendWithPromise()](#cr_sendWithPromise).
+just like [sendWithPromise()](#sendWithPromise).
+
+addWebUiListener can be imported from 'chrome://resources/js/cr.m.js'.
 
 ```js
-// addWebUIListener():
+// addWebUiListener():
 webUIListenerMap[eventName] = webUIListenerMap[eventName] || {};
 webUIListenerMap[eventName][createUid()] = callback;
 ```
@@ -774,18 +776,18 @@ void OvenHandler::OnBakingDonutsFinished(size_t num_donuts) {
 }
 ```
 
-JavaScript can listen for WebUI events via:
+TypeScript can listen for WebUI events via:
 
 ```js
-var donutsReady = 0;
-cr.addWebUIListener('donuts-baked', function(numFreshlyBakedDonuts) {
+let donutsReady: number = 0;
+addWebUiListener('donuts-baked', function(numFreshlyBakedDonuts: number) {
   donutsReady += numFreshlyBakedDonuts;
 });
 ```
 
-### cr.sendWithPromise()
+### sendWithPromise()
 
-`cr.sendWithPromise()` is a wrapper around `chrome.send()`. It's used when
+`sendWithPromise()` is a wrapper around `chrome.send()`. It's used when
 triggering a message requires a response:
 
 ```js
@@ -799,22 +801,24 @@ to make request specific or do from deeply nested code.
 In newer WebUI pages, you see code like this:
 
 ```js
-cr.sendWithPromise('getNumberOfDonuts').then(function(numDonuts) {
+sendWithPromise('getNumberOfDonuts').then(function(numDonuts: number) {
   alert('Yay, there are ' + numDonuts + ' delicious donuts left!');
 });
 ```
+
+Note that sendWithPromise can be imported from 'chrome://resources/js/cr.js';
 
 On the C++ side, the message registration is similar to
 [`chrome.send()`](#chrome_send) except that the first argument in the
 message handler's list is a callback ID. That ID is passed to
 `ResolveJavascriptCallback()`, which ends up resolving the `Promise` in
-JavaScript and calling the `then()` function.
+JavaScript/TypeScript and calling the `then()` function.
 
 ```c++
-void DonutHandler::HandleGetNumberOfDonuts(const base::ListValue* args) {
+void DonutHandler::HandleGetNumberOfDonuts(const base::Value::List& args) {
   AllowJavascript();
 
-  const base::Value& callback_id = args->GetList()[0];
+  const base::Value& callback_id = args[0];
   size_t num_donuts = GetOven()->GetNumberOfDonuts();
   ResolveJavascriptCallback(callback_id, base::Value(num_donuts));
 }
@@ -826,7 +830,7 @@ The callback ID is just a namespaced, ever-increasing number. It's used to
 insert a `Promise` into the JS-side map when created.
 
 ```js
-// cr.sendWithPromise():
+// sendWithPromise():
 var id = methodName + '_' + uidCounter++;
 chromeSendResolverMap[id] = new PromiseResolver;
 chrome.send(methodName, [id].concat(args));
@@ -888,25 +892,37 @@ therefore it is not advisable to use for any sensitive content.
 
 ## JavaScript Error Reporting
 
-By default, errors in the JavaScript of a WebUI page will generate error reports
-which appear in Google's internal crash/ reports page. These error reports will
-only be generated for Google Chrome builds, not Chromium or other Chromium-based
-browsers.
+By default, errors in the JavaScript or TypeScript of a WebUI page will generate
+error reports which appear in Google's internal [go/crash](http://go/crash)
+reports page. These error reports will only be generated for Google Chrome
+builds, not Chromium or other Chromium-based browsers.
 
-Specifically, an error report will be generated when the JavaScript for a
-WebUI-based chrome:// page does one of the following:
+Specifically, an error report will be generated when the JavaScript or
+TypeScript for a WebUI-based chrome:// page does one of the following:
 * Generates an uncaught exception,
 * Has a promise which is rejected, and no rejection handler is provided, or
 * Calls `console.error()`.
 
 Such errors will appear alongside other crashes in the
-`product_name=Chrome_ChromeOS` or `product_name=Chrome_Linux` lists on crash/.
-The signature of the error is simply the error message. To avoid
-spamming the system, only one error report with a given message will be
+`product_name=Chrome_ChromeOS`, `product_name=Chrome_Lacros`, or
+`product_name=Chrome_Linux` lists on [go/crash](http://go/crash).
+
+The signature of the error is the error message followed by the URL on which the
+error appeared. For example, if chrome://settings/lazy_load.js throws a
+TypeError with a message `Cannot read properties of null (reading 'select')` and
+does not catch it, the magic signature would be 
+```
+Uncaught TypeError: Cannot read properties of null (reading 'select') (chrome://settings)
+```
+To avoid spamming the system, only one error report with a given message will be
 generated per hour.
 
 If you are getting error reports for an expected condition, you can turn off the
-reports simply by changing `console.error()` into `console.warn()`.
+reports simply by changing `console.error()` into `console.warn()`. For
+instance, if JavaScript is calling `console.error()` when the user tries to
+connect to an unavailable WiFi network at the same time the page shows the user
+an error message, the `console.error()` should be replaced with a
+`console.warn()`.
 
 If you wish to get more control of the JavaScript error messages, for example
 to change the product name or to add additional data, you may wish to switch to
@@ -914,8 +930,28 @@ using `CrashReportPrivate.reportError()`. If you do so, be sure to override
 `WebUIController::IsJavascriptErrorReportingEnabled()` to return false for your
 page; this will avoid generating redundant error reports.
 
-Known issues:
-1. Error reporting is currently enabled only on ChromeOS and Linux.
+### Are JavaScript errors actually crashes?
+JavaScript errors are not "crashes" in the C++ sense. They do not stop a process
+from running, they do not cause a "sad tab" page. Some tooling refers to them as
+crashes because they are going through the same pipeline as the C++ crashes, and
+that pipeline was originally designed to handle crashes.
+
+### How much impact does this JavaScript error have?
+That depends on the JavaScript error. In some cases, the errors have no user
+impact; for instance, the "unavailable WiFi network calling `console.error()`"
+example above. In other cases, JavaScript errors may be serious errors that
+block the user from completing critical user journeys. For example, if the
+JavaScript is supposed to un-hide one of several variants of settings page, but
+the JavaScript has an unhandled exception before un-hiding any of them, then
+the user will see a blank page and be unable to change that setting.
+
+Because it is difficult to automatically determine the severity of a given
+error, JavaScript errors are currently all classified as "WARNING" level when
+computing stability metrics.
+
+### Known issues
+1. Error reporting is currently enabled only on ChromeOS (ash and Lacros) and
+   Linux.
 2. Errors are only reported for chrome:// URLs.
 3. Unhandled promise rejections do not have a good stack.
 4. The line numbers and column numbers in the stacks are for the minified
@@ -925,6 +961,134 @@ Known issues:
    error message includes the name of a network, each network name will be its
    own signature.
 
+## Common TypeScript build issue: Missing dependencies
+Similar to how builds can flakily fail when a C++ file adds an include without
+updating the DEPS file appropriately, builds can flakily (or consistently) fail
+if TypeScript code adds an import but doesn't update the dependencies for its
+`ts_library()` target to include the library that contains that import. This
+has caused confusion for both developers and sheriffs in the past.
+
+### Example Failure
+The following is an example build flake that occurred due to the file
+`personalization_app.ts` adding an import of `colors_css_updater.js`, but not
+updating its dependencies appropriately:
+
+```
+gen/ash/webui/personalization_app/resources/preprocessed/js/personalization_app.ts:38:39 - error TS2792: Cannot find module 'chrome://resources/cr_components/color_change_listener/colors_css_updater.js'. Did you mean to set the 'moduleResolution' option to 'node', or to add aliases to the 'paths' option?
+
+38 import {startColorChangeUpdater} from 'chrome://resources/cr_components/color_change_listener/colors_css_updater.js';
+                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+Found 1 error in gen/ash/webui/personalization_app/resources/preprocessed/js/personalization_app.ts:38
+```
+
+### For Chromium Sheriffs
+If you see a failure like the one in the example, there is a high chance that
+the regression range given by automated tools will not include the CL that is
+the root cause of the failure. There are 2 possible approaches to take to fix
+the build. One is described below at "fixing the error" - typically these are 1
+line fixes, but do require a few steps to identify the exact fix. An
+alternative workaround is as follows:
+1. Note that the file that failed ("1 error in") is `personalization_app.ts`.
+   Find this file in the repo: in this case, it was at
+   `ash/webui/personalization_app/resources/js/personalization_app.ts`.
+2. Find the failed import in the repo (line 38, as noted by the bot failure).
+3. Use "Blame" in Chromium code search to find out what CL added this import
+   line.
+4. Either contact the CL owner or try reverting the CL that made the addition.
+
+### Fixing the error
+The [fix](https://chromium-review.googlesource.com/c/chromium/src/+/3952957)
+for this example was just 1 line and was identified as follows:
+
+1. Observe from this failure that the module that can't be found is
+   `chrome://resources/cr_components/color_change_listener/colors_css_updater.js`.
+2. Find `colors_css_updater.ts` in the repository at
+   `ui/webui/resources/cr_components/color_change_listener/colors_css_updater.ts`.
+3. Find the BUILD.gn file that compiles this TS file. The BUILD.gn file will in
+   most cases be in the same folder as the TS file or one of its ancestors. In
+   this case, it was
+   `ui/webui/resources/cr_components/color_change_listener/BUILD.gn`.
+4. Observe the target name for the `ts_library()` target that compiled the file
+   is `"build_ts"`, so the full target path is
+   `//ui/webui/resources/cr_components/color_change_listener:build_ts`.
+5. Observe that the file where the import failed is `personalization_app.ts`,
+   which is `ash/webui/personalization_app/resourcesjs/personalization_app.ts` in
+   the repo.
+6. Find the `ts_library` target that compiles `personalization_app.ts` at
+   `ash/webui/personalization_app/resources/BUILD.gn`.
+7. Observe that this target doesn't have the
+   `//ui/webui/resources/cr_components/color_change_listener:build_ts` target
+   listed in `deps`. Add the missing dependency there.
+
+Note that if `colors_css_updater.js` was actually checked into the repo as a
+JavaScript file, steps 3, 4, and 7 would be slightly different as follows:
+
+3. Find the BUILD.gn file that either copies or generates a
+   `colors_css_updater.d.ts`. Generally, this will contain a
+   `ts_definitions()` target, where the JS file is either passed as an input,
+   or a target copying the checked in definitions file is a dependency.
+4. Observe the name of the target - usually `"generate_definitions"`.
+7. Look for this target in the `extra_deps` of the `ts_library()` target that
+   depends on it. Add it to `extra_deps` if it's missing.
+
+### For developers - Prevent missing dependency build errors
+When adding a new import (e.g. `import {FooSharedClass} from 'chrome://resources/foo/foo_shared.js';`) to a TypeScript file in your project:
+1. If the file in the repo is TypeScript (e.g.
+   `ui/webui/resources/foo/foo_shared.ts`), find which `ts_library()` target
+   compiles this file.
+2. If, for example, `ui/webui/resources/foo/BUILD.gn` contains:
+   `ts_library("library")`, which has `foo_shared.ts` listed in its `in_files`,
+   then add `//ui/webui/resources/foo:library` to your `ts_library()` target's
+   deps as follows:
+
+```
+ts_library("build_ts") {
+  root_dir = my_root_dir
+  out_dir = "$target_gen_dir/tsc"
+  tsconfig_base = "tsconfig_base.json"
+  deps = [
+    "//ui/webui/resources:library",
+    "//ui/webui/resources/foo:library", # This line is new
+  ]
+  in_files = my_project_ts_files
+}
+```
+
+Alternatively:
+1. If the file in the repo is JavaScript (i.e.
+   `ui/webui/resources/foo/foo_shared.js`), look for which `ts_definitions()`
+   target generates the corresponding `.d.ts` file or depends on a target
+   copying a manually checked in `foo_shared.d.ts` file.
+2. If, for example, `ui/webui/resources/foo/BUILD.gn` contains
+   `ts_definitions("generate_definitions")`, which lists `foo_shared.js` in
+   `js_files` or alternatively depends on `:copy_definitions` which copies
+   `foo_shared.d.ts`, then add `//ui/webui/resources/foo:generate_definitions`
+   to your `ts_library()` target's `extra_deps` as follows:
+
+```
+ts_library("build_ts") {
+  root_dir = my_root_dir
+  out_dir = "$target_gen_dir/tsc"
+  tsconfig_base = "tsconfig_base.json"
+  deps = [ "//ui/webui/resources:library" ]
+
+  # This line is new
+  extra_deps = [ "//ui/webui/resources/foo:generate_definitions" ]
+
+  in_files = my_project_ts_files
+}
+```
+
+Note: If using the `build_webui()` wrapper rule, add the new dependency to
+`ts_deps` (for a TypeScript file) or `ts_extra_deps` (for a JavaScript file
+with definitions).
+
+Failure to follow these steps can lead to other developers hitting flaky build
+errors and/or having their unrelated CLs reverted by sheriffs who aren't always
+aware that the regression range given in automated tools may not contain the
+true culprit for TypeScript related build flakes.
 
 ## See also
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -121,8 +121,6 @@ void ContentRendererClientImpl::RenderFrameCreated(
       render_frame, false /* should_whitelist */,
       std::make_unique<content_settings::ContentSettingsAgentImpl::Delegate>());
   if (weblayer_observer_) {
-    agent->SetContentSettingRules(weblayer_observer_->content_setting_rules());
-
     if (weblayer_observer_->content_settings_manager()) {
       mojo::Remote<content_settings::mojom::ContentSettingsManager> manager;
       weblayer_observer_->content_settings_manager()->Clone(
@@ -174,7 +172,10 @@ void ContentRendererClientImpl::RenderFrameCreated(
   }
 }
 
-void ContentRendererClientImpl::WebViewCreated(blink::WebView* web_view) {
+void ContentRendererClientImpl::WebViewCreated(
+    blink::WebView* web_view,
+    bool was_created_by_renderer,
+    const url::Origin* outermost_origin) {
   new prerender::NoStatePrefetchClient(web_view);
 }
 
@@ -215,12 +216,16 @@ ContentRendererClientImpl::CreateURLLoaderThrottleProvider(
       browser_interface_broker_.get(), provider_type);
 }
 
-void ContentRendererClientImpl::AddSupportedKeySystems(
-    std::vector<std::unique_ptr<::media::KeySystemProperties>>* key_systems) {
+void ContentRendererClientImpl::GetSupportedKeySystems(
+    media::GetSupportedKeySystemsCB cb) {
+  media::KeySystemInfos key_systems;
 #if BUILDFLAG(IS_ANDROID)
-  cdm::AddAndroidWidevine(key_systems);
-  cdm::AddAndroidPlatformKeySystems(key_systems);
-#endif
+#if BUILDFLAG(ENABLE_WIDEVINE)
+  cdm::AddAndroidWidevine(&key_systems);
+#endif  // BUILDFLAG(ENABLE_WIDEVINE)
+  cdm::AddAndroidPlatformKeySystems(&key_systems);
+#endif  // BUILDFLAG(IS_ANDROID)
+  std::move(cb).Run(std::move(key_systems));
 }
 
 void ContentRendererClientImpl::

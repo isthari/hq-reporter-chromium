@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,8 @@ import java.lang.annotation.RetentionPolicy;
 /**
  * Coordinates the interactions with the UrlBar text component.
  */
-public class UrlBarCoordinator implements UrlBarEditingTextStateProvider, UrlFocusChangeListener {
+public class UrlBarCoordinator implements UrlBarEditingTextStateProvider, UrlFocusChangeListener,
+                                          KeyboardVisibilityDelegate.KeyboardVisibilityListener {
     private static final int KEYBOARD_HIDE_DELAY_MS = 150;
     private static final int KEYBOARD_MODE_CHANGE_DELAY_MS = 300;
 
@@ -54,6 +55,7 @@ public class UrlBarCoordinator implements UrlBarEditingTextStateProvider, UrlFoc
     private Runnable mKeyboardResizeModeTask = NO_OP_RUNNABLE;
     private Runnable mKeyboardHideTask = NO_OP_RUNNABLE;
     private Callback<Boolean> mFocusChangeCallback;
+    private boolean mShouldShowModernizeVisualUpdate;
 
     /**
      * Constructs a coordinator for the given UrlBar view.
@@ -69,12 +71,15 @@ public class UrlBarCoordinator implements UrlBarEditingTextStateProvider, UrlFoc
      *         visibility.
      * @param isIncognito Whether incognito mode is initially enabled. This can later be changed
      *         using {@link #setIncognitoColorsEnabled(boolean)}.
+     * @param reportExceptionCallback A {@link Callback} to report exceptions.
      */
     public UrlBarCoordinator(@NonNull UrlBar urlBar, @Nullable WindowDelegate windowDelegate,
             @NonNull ActionMode.Callback actionModeCallback,
             @NonNull Callback<Boolean> focusChangeCallback, @NonNull UrlBarDelegate delegate,
-            @NonNull KeyboardVisibilityDelegate keyboardVisibilityDelegate, boolean isIncognito) {
+            @NonNull KeyboardVisibilityDelegate keyboardVisibilityDelegate, boolean isIncognito,
+            Callback<Throwable> reportExceptionCallback) {
         mUrlBar = urlBar;
+        urlBar.setTag(R.id.report_exception_callback, reportExceptionCallback);
         mKeyboardVisibilityDelegate = keyboardVisibilityDelegate;
         mWindowDelegate = windowDelegate;
         mFocusChangeCallback = focusChangeCallback;
@@ -89,11 +94,13 @@ public class UrlBarCoordinator implements UrlBarEditingTextStateProvider, UrlFoc
         PropertyModelChangeProcessor.create(model, urlBar, UrlBarViewBinder::bind);
 
         mMediator = new UrlBarMediator(model, this::onUrlFocusChangeInternal);
+        mKeyboardVisibilityDelegate.addKeyboardVisibilityListener(this);
     }
 
     public void destroy() {
         mMediator.destroy();
         mMediator = null;
+        mKeyboardVisibilityDelegate.removeKeyboardVisibilityListener(this);
         mUrlBar.removeCallbacks(mKeyboardResizeModeTask);
         mUrlBar.removeCallbacks(mKeyboardHideTask);
         mUrlBar.destroy();
@@ -177,10 +184,25 @@ public class UrlBarCoordinator implements UrlBarEditingTextStateProvider, UrlFoc
         return mUrlBar.getTextWithoutAutocomplete();
     }
 
+    /** @see UrlBar#getVisibleTextPrefixHint() */
+    public CharSequence getVisibleTextPrefixHint() {
+        return mUrlBar.getVisibleTextPrefixHint();
+    }
+
     // LocationBarLayout.UrlFocusChangeListener implementation.
     @Override
     public void onUrlFocusChange(boolean hasFocus) {
         mUrlBar.removeCallbacks(mKeyboardResizeModeTask);
+    }
+
+    // KeyboardVisibilityDelegate.KeyboardVisibilityListener implementation.
+    @Override
+    public void keyboardVisibilityChanged(boolean isKeyboardShowing) {
+        if (mShouldShowModernizeVisualUpdate) {
+            // The cursor visibility should follow soft keyboard visibility and should be hidden
+            // when keyboard is dismissed for any reason (including scroll).
+            mUrlBar.setCursorVisible(isKeyboardShowing);
+        }
     }
 
     /* package */ boolean hasFocus() {
@@ -193,6 +215,10 @@ public class UrlBarCoordinator implements UrlBarEditingTextStateProvider, UrlFoc
 
     /* package */ void clearFocus() {
         mUrlBar.clearFocus();
+    }
+
+    /* package */ void requestAccessibilityFocus() {
+        mUrlBar.requestAccessibilityFocus();
     }
 
     /**
@@ -259,6 +285,7 @@ public class UrlBarCoordinator implements UrlBarEditingTextStateProvider, UrlFoc
             // the correct active view if ViewGroup.addView() or ViewGroup.removeView() is called
             // to update a view that accepts text input.
             imm.viewClicked(mUrlBar);
+            mUrlBar.setCursorVisible(true);
         } else {
             // Moving focus away from UrlBar(EditText) to a non-editable focus holder, such as
             // ToolbarPhone, won't automatically hide keyboard app, but restart it with TYPE_NULL,
@@ -269,5 +296,12 @@ public class UrlBarCoordinator implements UrlBarEditingTextStateProvider, UrlFoc
             if (imm.isActive(mUrlBar)) setKeyboardVisibility(false, false);
         }
         mFocusChangeCallback.onResult(hasFocus);
+    }
+
+    /** Signals that's it safe to call code that requires native to be loaded. */
+    public void onFinishNativeInitialization() {
+        mUrlBar.onFinishNativeInitialization();
+        mShouldShowModernizeVisualUpdate =
+                OmniboxFeatures.shouldShowModernizeVisualUpdate(mUrlBar.getContext());
     }
 }

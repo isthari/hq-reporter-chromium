@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,10 +16,17 @@
 #include "gpu/command_buffer/common/mailbox.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkImage.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
+#include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkYUVAPixmaps.h"
 #include "ui/gfx/display_color_spaces.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/hdr_metadata.h"
+
+class SkBitmap;
+class SkColorSpace;
+struct SkISize;
 
 namespace blink {
 class VideoFrame;
@@ -33,17 +40,7 @@ class PaintWorkletInput;
 class TextureBacking;
 using PaintRecord = PaintOpBuffer;
 
-enum class ImageType {
-  kPNG,
-  kJPEG,
-  kWEBP,
-  kGIF,
-  kICO,
-  kBMP,
-  kAVIF,
-  kJXL,
-  kInvalid
-};
+enum class ImageType { kPNG, kJPEG, kWEBP, kGIF, kICO, kBMP, kAVIF, kInvalid };
 
 enum class YUVSubsampling { k410, k411, k420, k422, k440, k444, kUnknown };
 
@@ -64,6 +61,9 @@ struct CC_PAINT_EXPORT ImageHeaderMetadata {
 
   // The subsampling format used for the chroma planes, e.g., YUV 4:2:0.
   YUVSubsampling yuv_subsampling = YUVSubsampling::kUnknown;
+
+  // The HDR metadata included with the image, if present.
+  absl::optional<gfx::HDRMetadata> hdr_metadata;
 
   // The visible size of the image (i.e., the area that contains meaningful
   // pixels).
@@ -258,6 +258,7 @@ class CC_PAINT_EXPORT PaintImage {
   CompletionState completion_state() const { return completion_state_; }
   bool is_multipart() const { return is_multipart_; }
   bool is_high_bit_depth() const { return is_high_bit_depth_; }
+  bool may_be_lcp_candidate() const { return may_be_lcp_candidate_; }
   int repetition_count() const { return repetition_count_; }
   bool ShouldAnimate() const;
   AnimationSequenceId reset_animation_sequence_id() const {
@@ -276,8 +277,8 @@ class CC_PAINT_EXPORT PaintImage {
   // Skia internally buffers commands and flushes them as necessary but there
   // are some cases where we need to force a flush.
   void FlushPendingSkiaOps();
-  int width() const;
-  int height() const;
+  int width() const { return GetSkImageInfo().width(); }
+  int height() const { return GetSkImageInfo().height(); }
   SkColorSpace* color_space() const {
     return paint_worklet_input_ ? nullptr : GetSkImageInfo().colorSpace();
   }
@@ -293,8 +294,8 @@ class CC_PAINT_EXPORT PaintImage {
              SkYUVAPixmapInfo* info = nullptr) const;
 
   // Get metadata associated with this image.
-  SkColorType GetColorType() const;
-  SkAlphaType GetAlphaType() const;
+  SkColorType GetColorType() const { return GetSkImageInfo().colorType(); }
+  SkAlphaType GetAlphaType() const { return GetSkImageInfo().alphaType(); }
 
   // Returns general information about the underlying image. Returns nullptr if
   // there is no available |paint_image_generator_|.
@@ -382,6 +383,12 @@ class CC_PAINT_EXPORT PaintImage {
 
   // Whether this image has more than 8 bits per color channel.
   bool is_high_bit_depth_ = false;
+
+  // Whether this image may untimately be a candidate for Largest Contentful
+  // Paint. The final LCP contribution of an image is unknown until we present
+  // it, but this flag is intended for metrics on when we do not present the
+  // image when the system claims.
+  bool may_be_lcp_candidate_ = false;
 
   // An incrementing sequence number maintained by the painter to indicate if
   // this animation should be reset in the compositor. Incrementing this number

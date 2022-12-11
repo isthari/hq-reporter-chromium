@@ -1,31 +1,46 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import '../module_header.js';
-import 'chrome://resources/cr_elements/hidden_style_css.m.js';
+import 'chrome://resources/cr_elements/cr_hidden_style.css.js';
 import 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import 'chrome://resources/cr_elements/cr_icons_css.m.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/cr_icons.css.js';
 import 'chrome://resources/cr_elements/cr_auto_img/cr_auto_img.js';
 import 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
 
 import {CrActionMenuElement} from 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
+import {CrIconButtonElement} from 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import {CrLazyRenderElement} from 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.js';
 import {CrToastElement} from 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
-import {DomRepeat, DomRepeatEvent, html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {DomIf, DomRepeat, DomRepeatEvent, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {MerchantCart} from '../../chrome_cart.mojom-webui.js';
 import {I18nMixin, loadTimeData} from '../../i18n_setup.js';
 import {ChromeCartProxy} from '../cart/chrome_cart_proxy.js';
+import {InfoDialogElement} from '../info_dialog.js';
 import {ModuleDescriptorV2, ModuleHeight} from '../module_descriptor.js';
 
-interface ChromeCartModuleElement {
+import {getTemplate} from './module.html.js';
+
+export interface ChromeCartModuleElement {
   $: {
     cartActionMenu: CrActionMenuElement,
     cartCarousel: HTMLElement,
     cartItemRepeat: DomRepeat,
+    confirmDiscountConsentButton: HTMLElement,
     confirmDiscountConsentToast: CrToastElement,
+    confirmDiscountConsentMessage: HTMLElement,
+    consentCardElement: DomIf,
     dismissCartToast: CrToastElement,
+    dismissCartToastMessage: HTMLElement,
+    hideCartButton: HTMLElement,
+    infoDialogRender: CrLazyRenderElement<InfoDialogElement>,
+    leftScrollButton: CrIconButtonElement,
+    removeCartButton: HTMLElement,
+    rightScrollButton: CrIconButtonElement,
+    undoDismissCartButton: HTMLElement,
   };
 }
 
@@ -33,10 +48,14 @@ interface ChromeCartModuleElement {
  * Implements the UI of chrome cart module. This module shows pending carts for
  * users on merchant sites so that users can resume shopping journey.
  */
-class ChromeCartModuleElement extends I18nMixin
+export class ChromeCartModuleElement extends I18nMixin
 (PolymerElement) {
   static get is() {
     return 'ntp-modules-redesigned';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -69,6 +88,7 @@ class ChromeCartModuleElement extends I18nMixin
   headerChipText: string;
   headerDescriptionText: string;
   showDiscountConsent: boolean;
+  scrollBehavior: ScrollBehavior = 'smooth';
   private showLeftScrollButton_: boolean;
   private showRightScrollButton_: boolean;
   private cartMenuHideItem_: string;
@@ -78,10 +98,9 @@ class ChromeCartModuleElement extends I18nMixin
   private confirmDiscountConsentString_: string;
 
   private intersectionObserver_: IntersectionObserver|null = null;
-  private scrollBehavior: ScrollBehavior = 'smooth';
   private currentMenuIndex_: number = 0;
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
     const leftProbe = this.$.cartCarousel.querySelector('#leftProbe');
     const rightProbe = this.$.cartCarousel.querySelector('#rightProbe');
@@ -109,7 +128,7 @@ class ChromeCartModuleElement extends I18nMixin
         el => this.intersectionObserver_!.observe(el));
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
     super.disconnectedCallback();
     this.intersectionObserver_!.disconnect();
   }
@@ -210,6 +229,10 @@ class ChromeCartModuleElement extends I18nMixin
           'NewTabPage.Carts.DismissLastCartHidesModule');
     }
     return isModuleVisible;
+  }
+
+  private onInfoButtonClick_() {
+    this.$.infoDialogRender.get().showModal();
   }
 
   private onDisableButtonClick_() {
@@ -334,10 +357,6 @@ class ChromeCartModuleElement extends I18nMixin
   private onConfirmDiscountConsentClick_() {
     this.$.confirmDiscountConsentToast.hide();
   }
-
-  static get template() {
-    return html`{__html_template__}`;
-  }
 }
 
 customElements.define(ChromeCartModuleElement.is, ChromeCartModuleElement);
@@ -356,7 +375,7 @@ async function createCartElement(): Promise<HTMLElement> {
       'NewTabPage.Carts.CartCount', carts.length);
   const element = new ChromeCartModuleElement();
   if (welcomeVisible) {
-    element.headerChipText = loadTimeData.getString('modulesCartHeaderNew');
+    element.headerChipText = loadTimeData.getString('modulesNewTagLabel');
     element.headerDescriptionText =
         loadTimeData.getString('modulesCartWarmWelcome');
   }

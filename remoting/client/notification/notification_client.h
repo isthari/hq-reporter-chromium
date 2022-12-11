@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,8 @@
 
 #include "base/callback_forward.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/values.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-
-namespace base {
-class Value;
-}  // namespace base
 
 namespace remoting {
 
@@ -67,7 +64,7 @@ class NotificationClient final {
   // and the rule should apply to the user. |message_text| and |link_text| will
   // not be set and caller needs to call FetchTranslatedText to fill them up.
   absl::optional<NotificationMessage> ParseAndMatchRule(
-      const base::Value& rule,
+      const base::Value::Dict& rule,
       const std::string& user_email,
       std::string* out_message_text_filename,
       std::string* out_link_text_filename);

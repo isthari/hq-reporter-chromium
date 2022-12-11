@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/unguessable_token.h"
 #include "content/browser/devtools/protocol/devtools_domain_handler.h"
 #include "content/browser/devtools/protocol/network.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "net/base/net_errors.h"
 #include "net/cookies/canonical_cookie.h"
@@ -187,6 +188,9 @@ class NetworkHandler : public DevToolsDomainHandler,
       const String& interception_id,
       std::unique_ptr<GetResponseBodyForInterceptionCallback> callback)
       override;
+  void GetResponseBody(
+      const String& request_id,
+      std::unique_ptr<GetResponseBodyCallback> callback) override;
   void TakeResponseBodyForInterceptionAsStream(
       const String& interception_id,
       std::unique_ptr<TakeResponseBodyForInterceptionAsStreamCallback> callback)
@@ -210,6 +214,11 @@ class NetworkHandler : public DevToolsDomainHandler,
       bool* disable_cache,
       absl::optional<std::vector<net::SourceStream::SourceType>>*
           accepted_stream_types);
+  void PrefetchRequestWillBeSent(const std::string& request_id,
+                                 const network::ResourceRequest& request,
+                                 const GURL& initiator_url,
+                                 Maybe<std::string> frame_token,
+                                 base::TimeTicks timestamp);
   void NavigationRequestWillBeSent(const NavigationRequest& nav_request,
                                    base::TimeTicks timestamp);
   void RequestSent(const std::string& request_id,
@@ -250,7 +259,8 @@ class NetworkHandler : public DevToolsDomainHandler,
       const net::CookieAccessResultList& request_cookie_list,
       const std::vector<network::mojom::HttpRawHeaderPairPtr>& request_headers,
       const base::TimeTicks timestamp,
-      const network::mojom::ClientSecurityStatePtr& security_state);
+      const network::mojom::ClientSecurityStatePtr& security_state,
+      const network::mojom::OtherPartitionInfoPtr& other_partition_info);
   void OnResponseReceivedExtraInfo(
       const std::string& devtools_request_id,
       const net::CookieAndLineAccessResultList& response_cookie_list,
@@ -302,6 +312,10 @@ class NetworkHandler : public DevToolsDomainHandler,
   static std::unique_ptr<protocol::Network::CorsErrorStatus>
   BuildCorsErrorStatus(const network::CorsErrorStatus& status);
 
+  void BodyDataReceived(const String& request_id,
+                        const String& body,
+                        bool is_base64_encoded);
+
  private:
   void OnLoadNetworkResourceFinished(DevToolsNetworkResourceLoader* loader,
                                      const net::HttpResponseHeaders* rh,
@@ -344,6 +358,7 @@ class NetworkHandler : public DevToolsDomainHandler,
   absl::optional<std::set<net::SourceStream::SourceType>>
       accepted_stream_types_;
   const bool allow_file_access_;
+  std::unordered_map<String, std::pair<String, bool>> received_body_data_;
   base::WeakPtrFactory<NetworkHandler> weak_factory_{this};
 };
 

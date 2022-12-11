@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,7 +35,7 @@ ZipFileInstaller::DoneCallback MakeRegisterInExtensionServiceCallback(
             zip_file, error, extension_service_weak->profile(),
             /*noisy_on_failure=*/true);
       },
-      service->AsWeakPtr());
+      service->AsExtensionServiceWeakPtr());
 }
 
 }  // namespace extensions

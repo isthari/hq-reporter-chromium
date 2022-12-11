@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/files/file_util.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
 #include "chrome/browser/extensions/component_loader.h"
@@ -40,9 +41,9 @@
 #include "components/sync/protocol/app_specifics.pb.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "components/sync/protocol/extension_specifics.pb.h"
-#include "components/sync/test/model/fake_sync_change_processor.h"
-#include "components/sync/test/model/sync_change_processor_wrapper_for_test.h"
-#include "components/sync/test/model/sync_error_factory_mock.h"
+#include "components/sync/test/fake_sync_change_processor.h"
+#include "components/sync/test/sync_change_processor_wrapper_for_test.h"
+#include "components/sync/test/sync_error_factory_mock.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
@@ -274,7 +275,7 @@ TEST_F(ExtensionServiceSyncTest, DeferredSyncStartupPreInstalledNormal) {
 
   ASSERT_FALSE(extension_system()->is_ready());
   service()->Init();
-  ASSERT_EQ(3u, loaded_.size());
+  ASSERT_EQ(3u, loaded_extensions().size());
   ASSERT_TRUE(extension_system()->is_ready());
 
   // Extensions added before service is_ready() don't trigger sync startup.
@@ -333,7 +334,7 @@ TEST_F(ExtensionServiceSyncTest, DisableExtensionFromSync) {
   service()->Init();
   ASSERT_TRUE(extension_system()->is_ready());
 
-  ASSERT_EQ(3u, loaded_.size());
+  ASSERT_EQ(3u, loaded_extensions().size());
 
   // We start enabled.
   const Extension* extension = registry()->enabled_extensions().GetByID(good0);
@@ -518,7 +519,7 @@ TEST_F(ExtensionServiceSyncTest, IgnoreSyncChangesWhenLocalStateIsMoreRecent) {
 
   service()->Init();
   ASSERT_TRUE(extension_system()->is_ready());
-  ASSERT_EQ(3u, loaded_.size());
+  ASSERT_EQ(3u, loaded_extensions().size());
 
   ASSERT_TRUE(service()->IsExtensionEnabled(good0));
   ASSERT_TRUE(service()->IsExtensionEnabled(good2));
@@ -580,7 +581,7 @@ TEST_F(ExtensionServiceSyncTest, DontSelfNotify) {
 
   service()->Init();
   ASSERT_TRUE(extension_system()->is_ready());
-  ASSERT_EQ(3u, loaded_.size());
+  ASSERT_EQ(3u, loaded_extensions().size());
   ASSERT_TRUE(service()->IsExtensionEnabled(good0));
 
   syncer::FakeSyncChangeProcessor* processor =
@@ -1601,7 +1602,8 @@ TEST_F(ExtensionServiceSyncCustomGalleryTest,
 
   struct TestCase {
     const char* name;  // For failure output only.
-    const std::string& sync_version;  // The version coming in from Sync.
+    const raw_ref<const std::string>
+        sync_version;  // The version coming in from Sync.
     // The disable reason(s) coming in from Sync, or -1 for "not set".
     int sync_disable_reasons;
     // The expected set of disable reasons after processing the Sync update. The
@@ -1613,16 +1615,16 @@ TEST_F(ExtensionServiceSyncCustomGalleryTest,
       // Sync tells us to re-enable an older version. No permissions should be
       // granted, since we can't be sure if the user actually approved the right
       // set of permissions.
-      {"OldVersion", v1, 0,
+      {"OldVersion", raw_ref(v1), 0,
        extensions::disable_reason::DISABLE_PERMISSIONS_INCREASE, false},
       // Legacy case: Sync tells us to re-enable the extension, but doesn't
       // specify disable reasons. No permissions should be granted.
-      {"Legacy", v2, -1,
+      {"Legacy", raw_ref(v2), -1,
        extensions::disable_reason::DISABLE_PERMISSIONS_INCREASE, false},
       // Sync tells us to re-enable the extension and explicitly removes the
       // disable reasons. Now the extension should have its permissions granted.
-      {"GrantPermissions", v2, 0, extensions::disable_reason::DISABLE_NONE,
-       true},
+      {"GrantPermissions", raw_ref(v2), 0,
+       extensions::disable_reason::DISABLE_NONE, true},
   };
 
   for (const TestCase& test_case : test_cases) {
@@ -1666,7 +1668,7 @@ TEST_F(ExtensionServiceSyncCustomGalleryTest,
     sync_pb::ExtensionSpecifics* ext_specifics = specifics.mutable_extension();
     ext_specifics->set_id(id);
     ext_specifics->set_enabled(true);
-    ext_specifics->set_version(test_case.sync_version);
+    ext_specifics->set_version(*test_case.sync_version);
     if (test_case.sync_disable_reasons != -1)
       ext_specifics->set_disable_reasons(test_case.sync_disable_reasons);
 
@@ -1683,7 +1685,7 @@ TEST_F(ExtensionServiceSyncCustomGalleryTest,
         prefs->GetGrantedPermissions(id);
     if (test_case.expect_permissions_granted) {
       std::unique_ptr<const PermissionSet> active_permissions =
-          prefs->GetActivePermissions(id);
+          prefs->GetDesiredActivePermissions(id);
       EXPECT_EQ(*granted_permissions, *active_permissions);
     } else {
       EXPECT_EQ(*granted_permissions, *granted_permissions_v1);

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -137,10 +137,6 @@ void DownloadFeedbackService::BeginFeedbackForDownload(
       base::BindOnce(&DownloadFeedbackService::BeginFeedbackOrDeleteFile,
                      file_task_runner_, weak_ptr_factory_.GetWeakPtr(), profile,
                      pings->ping_request(), pings->ping_response()));
-  if (download_command == DownloadCommands::KEEP) {
-    DownloadItemModel model(download);
-    DownloadCommands(model.GetWeakPtr()).ExecuteCommand(download_command);
-  }
 }
 
 // static
@@ -156,8 +152,7 @@ void DownloadFeedbackService::BeginFeedbackOrDeleteFile(
       return;
     service->BeginFeedback(profile, ping_request, ping_response, path);
   } else {
-    file_task_runner->PostTask(
-        FROM_HERE, base::BindOnce(base::GetDeleteFileCallback(), path));
+    file_task_runner->PostTask(FROM_HERE, base::GetDeleteFileCallback(path));
   }
 }
 

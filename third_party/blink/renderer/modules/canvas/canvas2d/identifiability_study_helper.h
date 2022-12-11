@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -180,7 +180,7 @@ class IdentifiabilityStudyHelper final {
   void AddTokens() {}
 
   const bool is_canvas_type_allowed_ =
-      IdentifiabilityStudySettings::Get()->IsTypeAllowed(
+      IdentifiabilityStudySettings::Get()->ShouldSampleType(
           blink::IdentifiableSurface::Type::kCanvasReadback);
 
   Member<ExecutionContext> execution_context_;

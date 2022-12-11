@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,8 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/offline_pages/offline_page_utils.h"
 #include "components/offline_pages/core/archive_validator.h"
 #include "components/offline_pages/core/model/offline_page_model_utils.h"
@@ -29,12 +28,14 @@
 
 namespace offline_pages {
 namespace {
+
 void DeleteFileOnFileThread(const base::FilePath& file_path,
                             base::OnceClosure callback) {
-  base::ThreadPool::PostTaskAndReply(
+  base::ThreadPool::PostTask(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-      base::BindOnce(base::GetDeleteFileCallback(), file_path),
-      std::move(callback));
+      base::GetDeleteFileCallback(
+          file_path, base::OnceCallback<void(bool)>(base::DoNothing())
+                         .Then(std::move(callback))));
 }
 
 // Compute a SHA256 digest using a background thread. The computed digest will
@@ -98,8 +99,6 @@ void OfflinePageMHTMLArchiver::GenerateMHTML(
   content::MHTMLGenerationParams params(file_path);
   params.use_binary_encoding = true;
   params.remove_popup_overlay = create_archive_params.remove_popup_overlay;
-  params.use_page_problem_detectors =
-      create_archive_params.use_page_problem_detectors;
 
   web_contents->GenerateMHTMLWithResult(
       params,
@@ -160,7 +159,7 @@ void OfflinePageMHTMLArchiver::OnComputeDigestDone(
         OfflineTimeNow() - digest_start_time);
   }
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback_), ArchiverResult::SUCCESSFULLY_CREATED,
                      url, file_path, title, file_size, digest));
@@ -176,7 +175,7 @@ void OfflinePageMHTMLArchiver::DeleteFileAndReportFailure(
 
 void OfflinePageMHTMLArchiver::ReportFailure(ArchiverResult result) {
   DCHECK(result != ArchiverResult::SUCCESSFULLY_CREATED);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback_), result, GURL(), base::FilePath(),
                      std::u16string(), 0, std::string()));

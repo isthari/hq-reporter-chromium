@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,330 @@ namespace {
 const char kAcceptFailedString[] = "Failed to accept connection.";
 const char kInvalidUUIDString[] = "Invalid UUID";
 const char kSocketNotListeningString[] = "Socket is not listening.";
+
+// Top Popular peripherals and first party devices. These device
+// model names should be kept in sync with the FastPairTrackedModelID
+// enum in src/tools/metrics/histograms/enums.xml. Devices may have multiple
+// Model IDs associated with the same device (for example, each Pixel Bud Pros
+// have different Model IDs for each different color) so we append '_*' to the
+// naming for subsequent Model IDs after the first one.
+const char kPopularPeripheral_JBLLIVEPROTWS_ModelId[] = "461BB8";
+const char kPopularPeripheral_JBLLIVEPROTWS_Name[] = "JBLLIVEPROTWS";
+const char kPopularPeripheral_JBLLIVEPROTWS_1_ModelId[] = "C6936A";
+const char kPopularPeripheral_JBLLIVEPROTWS_1_Name[] = "JBLLIVEPROTWS_1";
+const char kPopularPeripheral_JBLLIVEPROTWS_2_ModelId[] = "F52494";
+const char kPopularPeripheral_JBLLIVEPROTWS_2_Name[] = "JBLLIVEPROTWS_2";
+const char kPopularPeripheral_JBLLIVEPROTWS_3_ModelId[] = "15BA5F";
+const char kPopularPeripheral_JBLLIVEPROTWS_3_Name[] = "JBLLIVEPROTWS_3";
+const char kPopularPeripheral_JBLLIVEPROTWS_4_ModelId[] = "56DB24";
+const char kPopularPeripheral_JBLLIVEPROTWS_4_Name[] = "JBLLIVEPROTWS_4";
+const char kPopularPeripheral_JBLLIVEPROTWS_5_ModelId[] = "8CB05C";
+const char kPopularPeripheral_JBLLIVEPROTWS_5_Name[] = "JBLLIVEPROTWS_5";
+const char kPopularPeripheral_JBLLIVEPROTWS_6_ModelId[] = "F8013A";
+const char kPopularPeripheral_JBLLIVEPROTWS_6_Name[] = "JBLLIVEPROTWS_6";
+
+const char kPopularPeripheral_JBLLIVE300TWS_ModelId[] = "718FA4";
+const char kPopularPeripheral_JBLLIVE300TWS_Name[] = "JBLLIVE300TWS";
+const char kPopularPeripheral_JBLLIVE300TWS_1_ModelId[] = "7C1C37";
+const char kPopularPeripheral_JBLLIVE300TWS_1_Name[] = "JBLLIVE300TWS_1";
+const char kPopularPeripheral_JBLLIVE300TWS_2_ModelId[] = "2A35AD";
+const char kPopularPeripheral_JBLLIVE300TWS_2_Name[] = "JBLLIVE300TWS_2";
+
+const char kPopularPeripheral_JBLLIVE400BT_ModelId[] = "F00209";
+const char kPopularPeripheral_JBLLIVE400BT_Name[] = "JBLLIVE400BT";
+const char kPopularPeripheral_JBLLIVE400BT_1_ModelId[] = "F0020B";
+const char kPopularPeripheral_JBLLIVE400BT_1_Name[] = "JBLLIVE400BT_1";
+const char kPopularPeripheral_JBLLIVE400BT_2_ModelId[] = "F0020C";
+const char kPopularPeripheral_JBLLIVE400BT_2_Name[] = "JBLLIVE400BT_2";
+const char kPopularPeripheral_JBLLIVE400BT_3_ModelId[] = "F0020D";
+const char kPopularPeripheral_JBLLIVE400BT_3_Name[] = "JBLLIVE400BT_3";
+const char kPopularPeripheral_JBLLIVE400BT_4_ModelId[] = "F0020A";
+const char kPopularPeripheral_JBLLIVE400BT_4_Name[] = "JBLLIVE400BT_4";
+
+const char kPopularPeripheral_JBLTUNE125TWS_ModelId[] = "FF1B63";
+const char kPopularPeripheral_JBLTUNE125TWS_Name[] = "JBLTUNE125TWS";
+const char kPopularPeripheral_JBLTUNE125TWS_1_ModelId[] = "054B2D";
+const char kPopularPeripheral_JBLTUNE125TWS_1_Name[] = "JBLTUNE125TWS_1";
+const char kPopularPeripheral_JBLTUNE125TWS_2_ModelId[] = "D97EBA";
+const char kPopularPeripheral_JBLTUNE125TWS_2_Name[] = "JBLTUNE125TWS_2";
+const char kPopularPeripheral_JBLTUNE125TWS_3_ModelId[] = "565EAA";
+const char kPopularPeripheral_JBLTUNE125TWS_3_Name[] = "JBLTUNE125TWS_3";
+const char kPopularPeripheral_JBLTUNE125TWS_4_ModelId[] = "E1DD91";
+const char kPopularPeripheral_JBLTUNE125TWS_4_Name[] = "JBLTUNE125TWS_4";
+const char kPopularPeripheral_JBLTUNE125TWS_5_ModelId[] = "BD193B";
+const char kPopularPeripheral_JBLTUNE125TWS_5_Name[] = "JBLTUNE125TWS_5";
+
+const char kPopularPeripheral_JBLTUNE225TWS_ModelId[] = "5C0C84";
+const char kPopularPeripheral_JBLTUNE225TWS_Name[] = "JBLTUNE225TWS";
+const char kPopularPeripheral_JBLTUNE225TWS_1_ModelId[] = "FAA6C3";
+const char kPopularPeripheral_JBLTUNE225TWS_1_Name[] = "JBLTUNE225TWS_1";
+const char kPopularPeripheral_JBLTUNE225TWS_2_ModelId[] = "9BC64D";
+const char kPopularPeripheral_JBLTUNE225TWS_2_Name[] = "JBLTUNE225TWS_2";
+const char kPopularPeripheral_JBLTUNE225TWS_3_ModelId[] = "B8393A";
+const char kPopularPeripheral_JBLTUNE225TWS_3_Name[] = "JBLTUNE225TWS_3";
+const char kPopularPeripheral_JBLTUNE225TWS_4_ModelId[] = "5BD6C9";
+const char kPopularPeripheral_JBLTUNE225TWS_4_Name[] = "JBLTUNE225TWS_4";
+const char kPopularPeripheral_JBLTUNE225TWS_5_ModelId[] = "9C98DB";
+const char kPopularPeripheral_JBLTUNE225TWS_5_Name[] = "JBLTUNE225TWS_5";
+
+const char kPopularPeripheral_JBLTUNE130NCTWS_ModelId[] = "BDB433";
+const char kPopularPeripheral_JBLTUNE130NCTWS_Name[] = "JBLTUNE130NCTWS";
+const char kPopularPeripheral_JBLTUNE130NCTWS_1_ModelId[] = "1115E7";
+const char kPopularPeripheral_JBLTUNE130NCTWS_1_Name[] = "JBLTUNE130NCTWS_1";
+const char kPopularPeripheral_JBLTUNE130NCTWS_2_ModelId[] = "436FD1";
+const char kPopularPeripheral_JBLTUNE130NCTWS_2_Name[] = "JBLTUNE130NCTWS_2";
+const char kPopularPeripheral_JBLTUNE130NCTWS_3_ModelId[] = "B73DBA";
+const char kPopularPeripheral_JBLTUNE130NCTWS_3_Name[] = "JBLTUNE130NCTWS_3";
+
+const char kPopularPeripheral_NothingEar1_ModelId[] = "31D53D";
+const char kPopularPeripheral_NothingEar1_Name[] = "NOTHINGEAR1";
+const char kPopularPeripheral_NothingEar1_1_ModelId[] = "624011";
+const char kPopularPeripheral_NothingEar1_1_Name[] = "NOTHINGEAR1_1";
+
+const char kPopularPeripheral_OnePlusBudsZ_ModelId[] = "A41C91";
+const char kPopularPeripheral_OnePlusBudsZ_Name[] = "OnePlusBudsZ";
+const char kPopularPeripheral_OnePlusBudsZ_1_ModelId[] = "1393DE";
+const char kPopularPeripheral_OnePlusBudsZ_1_Name[] = "OnePlusBudsZ_1";
+const char kPopularPeripheral_OnePlusBudsZ_2_ModelId[] = "E07634";
+const char kPopularPeripheral_OnePlusBudsZ_2_Name[] = "OnePlusBudsZ_2";
+
+const char kPopularPeripheral_PixelBuds_ModelId[] = "060000";
+const char kPopularPeripheral_PixelBuds_Name[] = "PixelBuds";
+
+const char kPopularPeripheral_PixelBudsASeries_ModelId[] = "718C17";
+const char kPopularPeripheral_PixelBudsASeries_Name[] = "PixelBudsASeries";
+const char kPopularPeripheral_PixelBudsASeries_1_ModelId[] = "8B66AB";
+const char kPopularPeripheral_PixelBudsASeries_1_Name[] = "PixelBudsASeries_1";
+const char kPopularPeripheral_PixelBudsASeries_2_ModelId[] = "3E7540";
+const char kPopularPeripheral_PixelBudsASeries_2_Name[] = "PixelBudsASeries_2";
+
+const char kPopularPeripheral_PixelBudsPro_ModelId[] = "F2020E";
+const char kPopularPeripheral_PixelBudsPro_Name[] = "PixelBudsPro";
+const char kPopularPeripheral_PixelBudsPro_1_ModelId[] = "6EDAF7";
+const char kPopularPeripheral_PixelBudsPro_1_Name[] = "PixelBudsPro_1";
+const char kPopularPeripheral_PixelBudsPro_2_ModelId[] = "5A36A5";
+const char kPopularPeripheral_PixelBudsPro_2_Name[] = "PixelBudsPro_2";
+const char kPopularPeripheral_PixelBudsPro_3_ModelId[] = "F58DE7";
+const char kPopularPeripheral_PixelBudsPro_3_Name[] = "PixelBudsPro_3";
+const char kPopularPeripheral_PixelBudsPro_4_ModelId[] = "9ADB11";
+const char kPopularPeripheral_PixelBudsPro_4_Name[] = "PixelBudsPro_4";
+
+const char kPopularPeripheral_RealMeBudsAirPro_ModelId[] = "8CD10F";
+const char kPopularPeripheral_RealMeBudsAirPro_Name[] = "RealMeBudsAirPro";
+const char kPopularPeripheral_RealMeBudsAirPro_1_ModelId[] = "A6E1A6";
+const char kPopularPeripheral_RealMeBudsAirPro_1_Name[] = "RealMeBudsAirPro_1";
+const char kPopularPeripheral_RealMeBudsAirPro_2_ModelId[] = "2F208E";
+const char kPopularPeripheral_RealMeBudsAirPro_2_Name[] = "RealMeBudsAirPro_2";
+
+const char kPopularPeripheral_RealMeBudsAir2_ModelId[] = "BA5D56";
+const char kPopularPeripheral_RealMeBudsAir2_Name[] = "RealMeBudsAir2";
+
+const char kPopularPeripheral_RealMeBudsAir2Neo_ModelId[] = "0B5374";
+const char kPopularPeripheral_RealMeBudsAir2Neo_Name[] = "RealMeBudsAir2Neo";
+
+const char kPopularPeripheral_SonyWF1000XM3_ModelId[] = "38C95C";
+const char kPopularPeripheral_SonyWF1000XM3_Name[] = "SonyWF1000XM3";
+const char kPopularPeripheral_SonyWF1000XM3_1_ModelId[] = "9C98DB";
+const char kPopularPeripheral_SonyWF1000XM3_1_Name[] = "SonyWF1000XM3_1";
+const char kPopularPeripheral_SonyWF1000XM3_2_ModelId[] = "3BC95C";
+const char kPopularPeripheral_SonyWF1000XM3_2_Name[] = "SonyWF1000XM3_2";
+const char kPopularPeripheral_SonyWF1000XM3_3_ModelId[] = "3AC95C";
+const char kPopularPeripheral_SonyWF1000XM3_3_Name[] = "SonyWF1000XM3_3";
+const char kPopularPeripheral_SonyWF1000XM3_4_ModelId[] = "0AC95C";
+const char kPopularPeripheral_SonyWF1000XM3_4_Name[] = "SonyWF1000XM3_4";
+const char kPopularPeripheral_SonyWF1000XM3_5_ModelId[] = "0DC95C";
+const char kPopularPeripheral_SonyWF1000XM3_5_Name[] = "SonyWF1000XM3_5";
+const char kPopularPeripheral_SonyWF1000XM3_6_ModelId[] = "0BC95C";
+const char kPopularPeripheral_SonyWF1000XM3_6_Name[] = "SonyWF1000XM3_6";
+const char kPopularPeripheral_SonyWF1000XM3_7_ModelId[] = "0CC95C";
+const char kPopularPeripheral_SonyWF1000XM3_7_Name[] = "SonyWF1000XM3_7";
+
+const char kPopularPeripheral_SonyWH1000XM3_ModelId[] = "0BC95C";
+const char kPopularPeripheral_SonyWH1000XM3_Name[] = "SonyWH1000XM3";
+const char kPopularPeripheral_SonyWH1000XM3_1_ModelId[] = "AC95C";
+const char kPopularPeripheral_SonyWH1000XM3_1_Name[] = "SonyWH1000XM3_1";
+
+const char kPopularPeripheral_SRSXB23_ModelId[] = "30D222";
+const char kPopularPeripheral_SRSXB23_Name[] = "SRSXB23";
+const char kPopularPeripheral_SRSXB23_1_ModelId[] = "438188";
+const char kPopularPeripheral_SRSXB23_1_Name[] = "SRSXB23_1";
+const char kPopularPeripheral_SRSXB23_2_ModelId[] = "4A9EF6";
+const char kPopularPeripheral_SRSXB23_2_Name[] = "SRSXB23_2";
+const char kPopularPeripheral_SRSXB23_3_ModelId[] = "6ABCC9";
+const char kPopularPeripheral_SRSXB23_3_Name[] = "SRSXB23_3";
+const char kPopularPeripheral_SRSXB23_4_ModelId[] = "3414EB";
+const char kPopularPeripheral_SRSXB23_4_Name[] = "SRSXB23_4";
+
+const char kPopularPeripheral_SRSXB33_ModelId[] = "20330C";
+const char kPopularPeripheral_SRSXB33_Name[] = "SRSXB33";
+const char kPopularPeripheral_SRSXB33_1_ModelId[] = "91DABC";
+const char kPopularPeripheral_SRSXB33_1_Name[] = "SRSXB33_1";
+const char kPopularPeripheral_SRSXB33_2_ModelId[] = "E5B91B";
+const char kPopularPeripheral_SRSXB33_2_Name[] = "SRSXB33_2";
+const char kPopularPeripheral_SRSXB33_3_ModelId[] = "5A0DDA";
+const char kPopularPeripheral_SRSXB33_3_Name[] = "SRSXB33_3";
+
+const char kPopularPeripheral_Other_Name[] = "Other";
+
+const std::string GetFastPairTrackedModelId(const std::string& model_id) {
+  if (model_id == kPopularPeripheral_JBLLIVE300TWS_ModelId)
+    return kPopularPeripheral_JBLLIVE300TWS_Name;
+  if (model_id == kPopularPeripheral_JBLLIVE300TWS_1_ModelId)
+    return kPopularPeripheral_JBLLIVE300TWS_1_Name;
+  if (model_id == kPopularPeripheral_JBLLIVE300TWS_2_ModelId)
+    return kPopularPeripheral_JBLLIVE300TWS_2_Name;
+
+  if (model_id == kPopularPeripheral_JBLLIVE400BT_ModelId)
+    return kPopularPeripheral_JBLLIVE400BT_Name;
+  if (model_id == kPopularPeripheral_JBLLIVE400BT_1_ModelId)
+    return kPopularPeripheral_JBLLIVE400BT_1_Name;
+  if (model_id == kPopularPeripheral_JBLLIVE400BT_2_ModelId)
+    return kPopularPeripheral_JBLLIVE400BT_2_Name;
+  if (model_id == kPopularPeripheral_JBLLIVE400BT_3_ModelId)
+    return kPopularPeripheral_JBLLIVE400BT_3_Name;
+  if (model_id == kPopularPeripheral_JBLLIVE400BT_4_ModelId)
+    return kPopularPeripheral_JBLLIVE400BT_4_Name;
+
+  if (model_id == kPopularPeripheral_JBLTUNE125TWS_ModelId)
+    return kPopularPeripheral_JBLTUNE125TWS_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE125TWS_1_ModelId)
+    return kPopularPeripheral_JBLTUNE125TWS_1_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE125TWS_2_ModelId)
+    return kPopularPeripheral_JBLTUNE125TWS_2_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE125TWS_3_ModelId)
+    return kPopularPeripheral_JBLTUNE125TWS_3_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE125TWS_4_ModelId)
+    return kPopularPeripheral_JBLTUNE125TWS_4_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE125TWS_5_ModelId)
+    return kPopularPeripheral_JBLTUNE125TWS_5_Name;
+
+  if (model_id == kPopularPeripheral_JBLTUNE225TWS_ModelId)
+    return kPopularPeripheral_JBLTUNE225TWS_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE225TWS_1_ModelId)
+    return kPopularPeripheral_JBLTUNE225TWS_1_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE225TWS_2_ModelId)
+    return kPopularPeripheral_JBLTUNE225TWS_2_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE225TWS_3_ModelId)
+    return kPopularPeripheral_JBLTUNE225TWS_3_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE225TWS_4_ModelId)
+    return kPopularPeripheral_JBLTUNE225TWS_4_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE225TWS_5_ModelId)
+    return kPopularPeripheral_JBLTUNE225TWS_5_Name;
+
+  if (model_id == kPopularPeripheral_OnePlusBudsZ_ModelId)
+    return kPopularPeripheral_OnePlusBudsZ_Name;
+  if (model_id == kPopularPeripheral_OnePlusBudsZ_1_ModelId)
+    return kPopularPeripheral_OnePlusBudsZ_1_Name;
+  if (model_id == kPopularPeripheral_OnePlusBudsZ_2_ModelId)
+    return kPopularPeripheral_OnePlusBudsZ_2_Name;
+
+  if (model_id == kPopularPeripheral_PixelBuds_ModelId)
+    return kPopularPeripheral_PixelBuds_Name;
+
+  if (model_id == kPopularPeripheral_PixelBudsASeries_ModelId)
+    return kPopularPeripheral_PixelBudsASeries_Name;
+  if (model_id == kPopularPeripheral_PixelBudsASeries_1_ModelId)
+    return kPopularPeripheral_PixelBudsASeries_1_Name;
+  if (model_id == kPopularPeripheral_PixelBudsASeries_2_ModelId)
+    return kPopularPeripheral_PixelBudsASeries_2_Name;
+
+  if (model_id == kPopularPeripheral_PixelBudsPro_ModelId)
+    return kPopularPeripheral_PixelBudsPro_Name;
+  if (model_id == kPopularPeripheral_PixelBudsPro_1_ModelId)
+    return kPopularPeripheral_PixelBudsPro_1_Name;
+  if (model_id == kPopularPeripheral_PixelBudsPro_2_ModelId)
+    return kPopularPeripheral_PixelBudsPro_2_Name;
+  if (model_id == kPopularPeripheral_PixelBudsPro_3_ModelId)
+    return kPopularPeripheral_PixelBudsPro_3_Name;
+  if (model_id == kPopularPeripheral_PixelBudsPro_4_ModelId)
+    return kPopularPeripheral_PixelBudsPro_4_Name;
+
+  if (model_id == kPopularPeripheral_RealMeBudsAir2_ModelId)
+    return kPopularPeripheral_RealMeBudsAir2_Name;
+
+  if (model_id == kPopularPeripheral_SonyWF1000XM3_ModelId)
+    return kPopularPeripheral_SonyWF1000XM3_Name;
+  if (model_id == kPopularPeripheral_SonyWF1000XM3_1_ModelId)
+    return kPopularPeripheral_SonyWF1000XM3_1_Name;
+  if (model_id == kPopularPeripheral_SonyWF1000XM3_2_ModelId)
+    return kPopularPeripheral_SonyWF1000XM3_2_Name;
+  if (model_id == kPopularPeripheral_SonyWF1000XM3_3_ModelId)
+    return kPopularPeripheral_SonyWF1000XM3_3_Name;
+  if (model_id == kPopularPeripheral_SonyWF1000XM3_4_ModelId)
+    return kPopularPeripheral_SonyWF1000XM3_4_Name;
+  if (model_id == kPopularPeripheral_SonyWF1000XM3_5_ModelId)
+    return kPopularPeripheral_SonyWF1000XM3_5_Name;
+  if (model_id == kPopularPeripheral_SonyWF1000XM3_6_ModelId)
+    return kPopularPeripheral_SonyWF1000XM3_6_Name;
+  if (model_id == kPopularPeripheral_SonyWF1000XM3_7_ModelId)
+    return kPopularPeripheral_SonyWF1000XM3_7_Name;
+
+  if (model_id == kPopularPeripheral_NothingEar1_ModelId)
+    return kPopularPeripheral_NothingEar1_Name;
+  if (model_id == kPopularPeripheral_NothingEar1_1_ModelId)
+    return kPopularPeripheral_NothingEar1_1_Name;
+
+  if (model_id == kPopularPeripheral_RealMeBudsAir2Neo_ModelId)
+    return kPopularPeripheral_RealMeBudsAir2Neo_Name;
+
+  if (model_id == kPopularPeripheral_JBLTUNE130NCTWS_ModelId)
+    return kPopularPeripheral_JBLTUNE130NCTWS_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE130NCTWS_1_ModelId)
+    return kPopularPeripheral_JBLTUNE130NCTWS_1_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE130NCTWS_2_ModelId)
+    return kPopularPeripheral_JBLTUNE130NCTWS_2_Name;
+  if (model_id == kPopularPeripheral_JBLTUNE130NCTWS_3_ModelId)
+    return kPopularPeripheral_JBLTUNE130NCTWS_3_Name;
+
+  if (model_id == kPopularPeripheral_SonyWH1000XM3_ModelId)
+    return kPopularPeripheral_SonyWH1000XM3_Name;
+  if (model_id == kPopularPeripheral_SonyWH1000XM3_1_ModelId)
+    return kPopularPeripheral_SonyWH1000XM3_1_Name;
+
+  if (model_id == kPopularPeripheral_JBLLIVEPROTWS_ModelId)
+    return kPopularPeripheral_JBLLIVEPROTWS_Name;
+  if (model_id == kPopularPeripheral_JBLLIVEPROTWS_1_ModelId)
+    return kPopularPeripheral_JBLLIVEPROTWS_1_Name;
+  if (model_id == kPopularPeripheral_JBLLIVEPROTWS_2_ModelId)
+    return kPopularPeripheral_JBLLIVEPROTWS_2_Name;
+  if (model_id == kPopularPeripheral_JBLLIVEPROTWS_3_ModelId)
+    return kPopularPeripheral_JBLLIVEPROTWS_3_Name;
+  if (model_id == kPopularPeripheral_JBLLIVEPROTWS_4_ModelId)
+    return kPopularPeripheral_JBLLIVEPROTWS_4_Name;
+  if (model_id == kPopularPeripheral_JBLLIVEPROTWS_5_ModelId)
+    return kPopularPeripheral_JBLLIVEPROTWS_5_Name;
+  if (model_id == kPopularPeripheral_JBLLIVEPROTWS_6_ModelId)
+    return kPopularPeripheral_JBLLIVEPROTWS_6_Name;
+
+  if (model_id == kPopularPeripheral_RealMeBudsAirPro_ModelId)
+    return kPopularPeripheral_RealMeBudsAirPro_Name;
+  if (model_id == kPopularPeripheral_RealMeBudsAirPro_1_ModelId)
+    return kPopularPeripheral_RealMeBudsAirPro_1_Name;
+  if (model_id == kPopularPeripheral_RealMeBudsAirPro_2_ModelId)
+    return kPopularPeripheral_RealMeBudsAirPro_2_Name;
+
+  if (model_id == kPopularPeripheral_SRSXB33_ModelId)
+    return kPopularPeripheral_SRSXB33_Name;
+  if (model_id == kPopularPeripheral_SRSXB33_1_ModelId)
+    return kPopularPeripheral_SRSXB33_1_Name;
+  if (model_id == kPopularPeripheral_SRSXB33_2_ModelId)
+    return kPopularPeripheral_SRSXB33_2_Name;
+  if (model_id == kPopularPeripheral_SRSXB33_3_ModelId)
+    return kPopularPeripheral_SRSXB33_3_Name;
+
+  if (model_id == kPopularPeripheral_SRSXB23_ModelId)
+    return kPopularPeripheral_SRSXB23_Name;
+  if (model_id == kPopularPeripheral_SRSXB23_1_ModelId)
+    return kPopularPeripheral_SRSXB23_1_Name;
+  if (model_id == kPopularPeripheral_SRSXB23_2_ModelId)
+    return kPopularPeripheral_SRSXB23_2_Name;
+  if (model_id == kPopularPeripheral_SRSXB23_3_ModelId)
+    return kPopularPeripheral_SRSXB23_3_Name;
+  if (model_id == kPopularPeripheral_SRSXB23_4_ModelId)
+    return kPopularPeripheral_SRSXB23_4_Name;
+
+  return kPopularPeripheral_Other_Name;
+}
 
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused. This enum should be kept in sync
@@ -50,9 +374,9 @@ const char kEngagementFlowSubsequentMetric[] =
     "Bluetooth.ChromeOS.FastPair.EngagementFunnel.Steps."
     "SubsequentPairingProtocol";
 const char kTotalUxPairTimeInitialMetric[] =
-    "Bluetooth.ChromeOS.FastPair.TotalUxPairTime.InitialPairingProtocol";
+    "Bluetooth.ChromeOS.FastPair.TotalUxPairTime.InitialPairingProtocol2";
 const char kTotalUxPairTimeSubsequentMetric[] =
-    "Bluetooth.ChromeOS.FastPair.TotalUxPairTime.SubsequentPairingProtocol";
+    "Bluetooth.ChromeOS.FastPair.TotalUxPairTime.SubsequentPairingProtocol2";
 const char kRetroactiveEngagementFlowMetric[] =
     "Bluetooth.ChromeOS.FastPair.RetroactiveEngagementFunnel.Steps";
 const char kPairingMethodMetric[] = "Bluetooth.ChromeOS.FastPair.PairingMethod";
@@ -64,6 +388,10 @@ const char kGattConnectionResult[] =
     "Bluetooth.ChromeOS.FastPair.GattConnection.Result";
 const char kGattConnectionErrorMetric[] =
     "Bluetooth.ChromeOS.FastPair.GattConnection.ErrorReason";
+const char kGattConnectionEffectiveSuccessRate[] =
+    "Bluetooth.ChromeOS.FastPair.GattConnection.EffectiveSuccessRate";
+const char kGattConnectionAttemptCount[] =
+    "Bluetooth.ChromeOS.FastPair.GattConnection.AttemptCount";
 const char kFastPairPairFailureInitialMetric[] =
     "Bluetooth.ChromeOS.FastPair.PairFailure.InitialPairingProtocol";
 const char kFastPairPairFailureSubsequentMetric[] =
@@ -87,8 +415,6 @@ const char kFastPairAccountKeyWriteResultRetroactiveMetric[] =
     "RetroactivePairingProtocol";
 const char kFastPairAccountKeyWriteFailureInitialMetric[] =
     "Bluetooth.ChromeOS.FastPair.AccountKey.Failure.InitialPairingProtocol";
-const char kFastPairAccountKeyWriteFailureSubsequentMetric[] =
-    "Bluetooth.ChromeOS.FastPair.AccountKey.Failure.SubsequentPairingProtocol";
 const char kFastPairAccountKeyWriteFailureRetroactiveMetric[] =
     "Bluetooth.ChromeOS.FastPair.AccountKey.Failure.RetroactivePairingProtocol";
 const char kKeyGenerationResultMetric[] =
@@ -165,6 +491,12 @@ const char kFootprintsFetcherGetHttpResponseError[] =
 const char kFastPairRepositoryCacheResult[] =
     "Bluetooth.ChromeOS.FastPair.FastPairRepository.Cache.Result";
 const char kHandshakeResult[] = "Bluetooth.ChromeOS.FastPair.Handshake.Result";
+const char kFastPairHandshakeStepInitial[] =
+    "Bluetooth.ChromeOS.FastPair.Handshake.Steps.InitialPairingProtocol";
+const char kFastPairHandshakeStepSubsequent[] =
+    "Bluetooth.ChromeOS.FastPair.Handshake.Steps.SubsequentPairingProtocol";
+const char kFastPairHandshakeStepRetroactive[] =
+    "Bluetooth.ChromeOS.FastPair.Handshake.Steps.RetroactivePairingProtocol";
 const char kHandshakeFailureReason[] =
     "Bluetooth.ChromeOS.FastPair.Handshake.FailureReason";
 const char kBleScanSessionResult[] =
@@ -187,6 +519,53 @@ const char kConfirmPasskeyConfirmTime[] =
     "Bluetooth.ChromeOS.FastPair.ConfirmPasskey.Latency";
 const char kFastPairRetryCount[] =
     "Bluetooth.ChromeOS.FastPair.PairRetry.Count";
+const char kSavedDeviceRemoveResult[] =
+    "Bluetooth.ChromeOS.FastPair.SavedDevices.Remove.Result";
+const char kSavedDeviceUpdateOptInStatusInitialResult[] =
+    "Bluetooth.ChromeOS.FastPair.SavedDevices.UpdateOptInStatus.Result."
+    "InitialPairingProtocol";
+const char kSavedDeviceUpdateOptInStatusRetroactiveResult[] =
+    "Bluetooth.ChromeOS.FastPair.SavedDevices.UpdateOptInStatus.Result."
+    "RetroactivePairingProtocol";
+const char kSavedDeviceUpdateOptInStatusSubsequentResult[] =
+    "Bluetooth.ChromeOS.FastPair.SavedDevices.UpdateOptInStatus.Result."
+    "SubsequentPairingProtocol";
+const char kSavedDeviceGetDevicesResult[] =
+    "Bluetooth.ChromeOS.FastPair.SavedDevices.GetSavedDevices.Result";
+const char kSavedDevicesTotalUxLoadTime[] =
+    "Bluetooth.ChromeOS.FastPair.SavedDevices.TotalUxLoadTime";
+const char kSavedDevicesCount[] =
+    "Bluetooth.ChromeOS.FastPair.SavedDevices.DeviceCount";
+constexpr char kFastPairGattConnectionStep[] = "FastPair.GattConnection";
+constexpr char kInitialSuccessFunnelMetric[] = "FastPair.InitialPairing";
+constexpr char kSubsequentSuccessFunnelMetric[] = "FastPair.SubsequentPairing";
+
+const std::string GetEngagementFlowInitialModelIdMetric(
+    const ash::quick_pair::Device& device) {
+  return std::string(kEngagementFlowInitialMetric) + "." +
+         GetFastPairTrackedModelId(device.metadata_id);
+}
+
+const std::string GetEngagementFlowSubsequentModelIdMetric(
+    const ash::quick_pair::Device& device) {
+  return std::string(kEngagementFlowSubsequentMetric) + "." +
+         GetFastPairTrackedModelId(device.metadata_id);
+}
+
+const std::string GetRetroactiveEngagementFlowModelIdMetric(
+    const ash::quick_pair::Device& device) {
+  return std::string(kRetroactiveEngagementFlowMetric) + "." +
+         GetFastPairTrackedModelId(device.metadata_id);
+}
+
+// The retroactive engagement flow doesn't record retroactive successes
+// properly due to b/240581398, so we use the account key write metric
+// to record metrics split by model ID.
+const std::string GetAccountKeyWriteResultRetroactiveModelIdMetric(
+    const ash::quick_pair::Device& device) {
+  return std::string(kFastPairAccountKeyWriteResultRetroactiveMetric) + "." +
+         GetFastPairTrackedModelId(device.metadata_id);
+}
 
 }  // namespace
 
@@ -199,27 +578,45 @@ void AttemptRecordingFastPairEngagementFlow(const Device& device,
     case Protocol::kFastPairInitial:
       base::UmaHistogramSparse(kEngagementFlowInitialMetric,
                                static_cast<int>(event));
+      // Also record engagement flow metrics split per tracked model ID.
+      base::UmaHistogramSparse(GetEngagementFlowInitialModelIdMetric(device),
+                               static_cast<int>(event));
       break;
     case Protocol::kFastPairRetroactive:
       break;
     case Protocol::kFastPairSubsequent:
       base::UmaHistogramSparse(kEngagementFlowSubsequentMetric,
                                static_cast<int>(event));
+      // Also record engagement flow metrics split per tracked model ID.
+      base::UmaHistogramSparse(GetEngagementFlowSubsequentModelIdMetric(device),
+                               static_cast<int>(event));
       break;
   }
+}
+
+void RecordInitialSuccessFunnelFlow(FastPairInitialSuccessFunnelEvent event) {
+  base::UmaHistogramEnumeration(kInitialSuccessFunnelMetric, event);
+}
+
+void RecordSubsequentSuccessFunnelFlow(
+    FastPairSubsequentSuccessFunnelEvent event) {
+  base::UmaHistogramEnumeration(kSubsequentSuccessFunnelMetric, event);
 }
 
 void AttemptRecordingTotalUxPairTime(const Device& device,
                                      base::TimeDelta total_pair_time) {
   switch (device.protocol) {
     case Protocol::kFastPairInitial:
-      base::UmaHistogramTimes(kTotalUxPairTimeInitialMetric, total_pair_time);
+      base::UmaHistogramCustomTimes(kTotalUxPairTimeInitialMetric,
+                                    total_pair_time, base::Milliseconds(1),
+                                    base::Seconds(25), 50);
       break;
     case Protocol::kFastPairRetroactive:
       break;
     case Protocol::kFastPairSubsequent:
-      base::UmaHistogramTimes(kTotalUxPairTimeSubsequentMetric,
-                              total_pair_time);
+      base::UmaHistogramCustomTimes(kTotalUxPairTimeSubsequentMetric,
+                                    total_pair_time, base::Milliseconds(1),
+                                    base::Seconds(25), 50);
       break;
   }
 }
@@ -234,6 +631,10 @@ void AttemptRecordingFastPairRetroactiveEngagementFlow(
     case Protocol::kFastPairRetroactive:
       base::UmaHistogramSparse(kRetroactiveEngagementFlowMetric,
                                static_cast<int>(event));
+      // Also record engagement flow metrics split per tracked model ID.
+      base::UmaHistogramSparse(
+          GetRetroactiveEngagementFlowModelIdMetric(device),
+          static_cast<int>(event));
       break;
   }
 }
@@ -260,6 +661,15 @@ void RecordGattConnectionErrorCode(
   base::UmaHistogramEnumeration(
       kGattConnectionErrorMetric, error_code,
       device::BluetoothDevice::ConnectErrorCode::NUM_CONNECT_ERROR_CODES);
+}
+
+void RecordEffectiveGattConnectionSuccess(bool success) {
+  base::UmaHistogramBoolean(kGattConnectionEffectiveSuccessRate, success);
+}
+
+void RecordGattConnectionAttemptCount(int num_attempts) {
+  base::UmaHistogramExactLinear(kGattConnectionAttemptCount, num_attempts,
+                                /*exclusive_max=*/10);
 }
 
 void RecordPairingResult(const Device& device, bool success) {
@@ -304,8 +714,6 @@ void RecordAccountKeyFailureReason(const Device& device,
           kFastPairAccountKeyWriteFailureRetroactiveMetric, failure);
       break;
     case Protocol::kFastPairSubsequent:
-      base::UmaHistogramEnumeration(
-          kFastPairAccountKeyWriteFailureSubsequentMetric, failure);
       break;
   }
 }
@@ -319,6 +727,9 @@ void RecordAccountKeyResult(const Device& device, bool success) {
     case Protocol::kFastPairRetroactive:
       base::UmaHistogramBoolean(kFastPairAccountKeyWriteResultRetroactiveMetric,
                                 success);
+      // Also record engagement flow metrics split per tracked model ID.
+      base::UmaHistogramBoolean(
+          GetAccountKeyWriteResultRetroactiveModelIdMetric(device), success);
       break;
     case Protocol::kFastPairSubsequent:
       base::UmaHistogramBoolean(kFastPairAccountKeyWriteResultSubsequentMetric,
@@ -488,11 +899,36 @@ void RecordFastPairRepositoryCacheResult(bool success) {
   base::UmaHistogramBoolean(kFastPairRepositoryCacheResult, success);
 }
 
+void RecordGattInitializationStep(
+    FastPairGattConnectionSteps initialization_step) {
+  base::UmaHistogramEnumeration(kFastPairGattConnectionStep,
+                                initialization_step);
+}
+
 void RecordHandshakeResult(bool success) {
   base::UmaHistogramBoolean(kHandshakeResult, success);
 }
+
 void RecordHandshakeFailureReason(HandshakeFailureReason failure_reason) {
   base::UmaHistogramEnumeration(kHandshakeFailureReason, failure_reason);
+}
+
+void RecordHandshakeStep(FastPairHandshakeSteps handshake_step,
+                         const Device& device) {
+  switch (device.protocol) {
+    case Protocol::kFastPairInitial:
+      base::UmaHistogramEnumeration(kFastPairHandshakeStepInitial,
+                                    handshake_step);
+      break;
+    case Protocol::kFastPairRetroactive:
+      base::UmaHistogramEnumeration(kFastPairHandshakeStepRetroactive,
+                                    handshake_step);
+      break;
+    case Protocol::kFastPairSubsequent:
+      base::UmaHistogramEnumeration(kFastPairHandshakeStepSubsequent,
+                                    handshake_step);
+      break;
+  }
 }
 
 void RecordBluetoothLowEnergyScannerStartSessionResult(bool success) {
@@ -537,6 +973,41 @@ void RecordConfirmPasskeyAskTime(base::TimeDelta total_ask_time) {
 void RecordPairFailureRetry(int num_retries) {
   base::UmaHistogramExactLinear(kFastPairRetryCount, num_retries,
                                 /*exclusive_max=*/10);
+}
+
+void RecordSavedDevicesRemoveResult(bool success) {
+  base::UmaHistogramBoolean(kSavedDeviceRemoveResult, success);
+}
+
+void RecordSavedDevicesUpdatedOptInStatusResult(const Device& device,
+                                                bool success) {
+  switch (device.protocol) {
+    case Protocol::kFastPairInitial:
+      base::UmaHistogramBoolean(kSavedDeviceUpdateOptInStatusInitialResult,
+                                success);
+      break;
+    case Protocol::kFastPairRetroactive:
+      base::UmaHistogramBoolean(kSavedDeviceUpdateOptInStatusRetroactiveResult,
+                                success);
+      break;
+    case Protocol::kFastPairSubsequent:
+      base::UmaHistogramBoolean(kSavedDeviceUpdateOptInStatusSubsequentResult,
+                                success);
+      break;
+  }
+}
+
+void RecordGetSavedDevicesResult(bool success) {
+  base::UmaHistogramBoolean(kSavedDeviceGetDevicesResult, success);
+}
+
+void RecordSavedDevicesTotalUxLoadTime(base::TimeDelta total_load_time) {
+  base::UmaHistogramCustomTimes(kSavedDevicesTotalUxLoadTime, total_load_time,
+                                base::Milliseconds(1), base::Seconds(25), 50);
+}
+
+void RecordSavedDevicesCount(int num_devices) {
+  base::UmaHistogramCounts100(kSavedDevicesCount, num_devices);
 }
 
 }  // namespace quick_pair

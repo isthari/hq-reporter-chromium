@@ -24,8 +24,8 @@
 
 #include "third_party/blink/renderer/core/css/css_computed_style_declaration.h"
 
-#include "base/cxx17_backports.h"
 #include "base/memory/values_equivalent.h"
+#include "third_party/blink/renderer/core/animation/css/css_animation_data.h"
 #include "third_party/blink/renderer/core/css/computed_style_css_value_mapping.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
@@ -38,12 +38,14 @@
 #include "third_party/blink/renderer/core/css/properties/css_property_ref.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/css/zoom_adjusted_pixel_value.h"
+#include "third_party/blink/renderer/core/display_lock/display_lock_document_state.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/pseudo_element.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
+#include "third_party/blink/renderer/core/layout/deferred_shaping_controller.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -74,16 +76,28 @@ void LogUnimplementedPropertyID(const CSSProperty& property) {
               << property.GetPropertyName() << "'.";
 }
 
+void UseCountAnimationDelayZero(Document& document,
+                                const ComputedStyle& style) {
+  if (const CSSAnimationData* animation_data = style.Animations()) {
+    const Vector<absl::optional<double>>& duration =
+        animation_data->DurationList();
+    if (duration.size() == 1u && duration[0] == 0.0) {
+      UseCounter::Count(document,
+                        WebFeature::kCSSGetComputedAnimationDelayZero);
+    }
+  }
+}
+
 }  // namespace
 
 const Vector<const CSSProperty*>&
 CSSComputedStyleDeclaration::ComputableProperties(
     const ExecutionContext* execution_context) {
   DEFINE_STATIC_LOCAL(Vector<const CSSProperty*>, properties, ());
-  if (properties.IsEmpty()) {
+  if (properties.empty()) {
     CSSProperty::FilterWebExposedCSSPropertiesIntoVector(
         execution_context, kCSSComputableProperties,
-        base::size(kCSSComputableProperties), properties);
+        std::size(kCSSComputableProperties), properties);
   }
   return properties;
 }
@@ -182,9 +196,10 @@ Node* CSSComputedStyleDeclaration::StyledNode() const {
     return nullptr;
 
   if (auto* node_element = DynamicTo<Element>(node_.Get())) {
-    if (PseudoElement* element =
-            node_element->GetPseudoElement(pseudo_element_specifier_))
+    if (PseudoElement* element = node_element->GetNestedPseudoElement(
+            pseudo_element_specifier_, pseudo_argument_)) {
       return element;
+    }
   }
   return node_.Get();
 }
@@ -246,12 +261,26 @@ void CSSComputedStyleDeclaration::UpdateStyleAndLayoutTreeIfNeeded(
         property_name && !property_name->IsCustomProperty() &&
         CSSProperty::Get(property_name->Id()).IsLayoutDependentProperty();
     if (is_for_layout_dependent_property) {
-      owner->GetDocument().UpdateStyleAndLayout(
-          DocumentUpdateReason::kJavaScript);
+      auto& owner_doc = owner->GetDocument();
+      if (auto* ds_controller = DeferredShapingController::From(owner_doc)) {
+        ds_controller->ReshapeDeferred(ReshapeReason::kComputedStyle,
+                                       *styled_node, property_name->Id());
+      }
+      owner_doc.UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);
       // The style recalc could have caused the styled node to be discarded or
       // replaced if it was a PseudoElement so we need to update it.
       styled_node = StyledNode();
     }
+  }
+
+  // Transition pseudo-elements require data computed in pre-paint to generate
+  // the UA stylesheet for these pseudo-elements.
+  // TODO(khushalsagar): We can probably optimize this to run only when a
+  // property set by the UA stylesheet is queried.
+  if (IsTransitionPseudoElement(styled_node->GetPseudoId())) {
+    if (auto* view = document.View())
+      view->UpdateLifecycleToPrePaintClean(DocumentUpdateReason::kJavaScript);
+    return;
   }
 
   document.UpdateStyleAndLayoutTreeForNode(styled_node);
@@ -264,12 +293,18 @@ void CSSComputedStyleDeclaration::UpdateStyleAndLayoutIfNeeded(
     return;
 
   bool is_for_layout_dependent_property =
-      property &&
-      property->IsLayoutDependent(ComputeComputedStyle(), StyledLayoutObject());
+      property && property->IsLayoutDependent(styled_node->GetComputedStyle(),
+                                              StyledLayoutObject());
 
   if (is_for_layout_dependent_property) {
-    styled_node->GetDocument().UpdateStyleAndLayoutForNode(
-        styled_node, DocumentUpdateReason::kJavaScript);
+    auto& doc = styled_node->GetDocument();
+    // EditingStyle uses this class with DisallowTransitionScope.
+    if (!doc.Lifecycle().StateTransitionDisallowed() && doc.View()) {
+      DeferredShapingController::From(doc)->ReshapeDeferred(
+          ReshapeReason::kComputedStyle, *styled_node, property->PropertyID());
+      doc.UpdateStyleAndLayoutForNode(styled_node,
+                                      DocumentUpdateReason::kJavaScript);
+    }
   }
 }
 
@@ -292,6 +327,11 @@ const CSSValue* CSSComputedStyleDeclaration::GetPropertyCSSValue(
 
   if (!style)
     return nullptr;
+
+  if (property_class.PropertyID() == CSSPropertyID::kAnimation ||
+      property_class.PropertyID() == CSSPropertyID::kAnimationDelay) {
+    UseCountAnimationDelayZero(styled_node->GetDocument(), *style);
+  }
 
   const CSSValue* value = property_class.CSSValueFromComputedStyle(
       *style, StyledLayoutObject(), allow_visited_style_);
@@ -372,7 +412,7 @@ MutableCSSPropertyValueSet* CSSComputedStyleDeclaration::CopyProperties()
 
 MutableCSSPropertyValueSet* CSSComputedStyleDeclaration::CopyPropertiesInSet(
     const Vector<const CSSProperty*>& properties) const {
-  HeapVector<CSSPropertyValue, 256> list;
+  HeapVector<CSSPropertyValue, 64> list;
   list.ReserveInitialCapacity(properties.size());
   for (unsigned i = 0; i < properties.size(); ++i) {
     CSSPropertyName name = properties[i]->GetCSSPropertyName();
@@ -455,6 +495,20 @@ const CSSValue* CSSComputedStyleDeclaration::GetPropertyCSSValueInternal(
 String CSSComputedStyleDeclaration::GetPropertyValueInternal(
     CSSPropertyID property_id) {
   return GetPropertyValue(property_id);
+}
+
+String CSSComputedStyleDeclaration::GetPropertyValueWithHint(
+    const String& property_name,
+    unsigned index) {
+  NOTREACHED();
+  return "";
+}
+
+String CSSComputedStyleDeclaration::GetPropertyPriorityWithHint(
+    const String& property_name,
+    unsigned index) {
+  NOTREACHED();
+  return "";
 }
 
 void CSSComputedStyleDeclaration::SetPropertyInternal(

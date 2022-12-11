@@ -1,34 +1,35 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
 import 'chrome://settings/lazy_load.js';
 
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
-// <if expr="not chromeos and not lacros">
-import {listenOnce} from 'chrome://resources/js/util.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
+// <if expr="not is_chromeos">
+import {listenOnce} from 'chrome://resources/js/util_ts.js';
 // </if>
 
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-// <if expr="not chromeos and not lacros">
+// <if expr="not is_chromeos">
 import {CrCheckboxElement} from 'chrome://settings/lazy_load.js';
 // </if>
 
-// <if expr="not lacros">
+// <if expr="not chromeos_lacros">
 import {loadTimeData} from 'chrome://settings/settings.js';
 // </if>
 
 import {pageVisibility, ProfileInfoBrowserProxyImpl, Router, routes, SettingsPeoplePageElement, StatusAction, SyncBrowserProxyImpl} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-// <if expr="not chromeos and not lacros">
+// <if expr="not is_chromeos">
 import {assertLT} from 'chrome://webui-test/chai_assert.js';
-import {flushTasks, waitBeforeNextRender} from 'chrome://webui-test/test_util.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
+import {waitBeforeNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
 // </if>
 
 import {simulateSyncStatus} from './sync_test_util.js';
-// <if expr="not chromeos and not lacros">
+// <if expr="not is_chromeos">
 import {simulateStoredAccounts} from './sync_test_util.js';
 // </if>
 
@@ -43,7 +44,7 @@ let syncBrowserProxy: TestSyncBrowserProxy;
 
 suite('ProfileInfoTests', function() {
   suiteSetup(function() {
-    // <if expr="chromeos">
+    // <if expr="chromeos_ash">
     loadTimeData.overrideValues({
       // Account Manager is tested in people_page_test_cros.js
       isAccountManagerEnabled: false,
@@ -58,7 +59,7 @@ suite('ProfileInfoTests', function() {
     syncBrowserProxy = new TestSyncBrowserProxy();
     SyncBrowserProxyImpl.setInstance(syncBrowserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     peoplePage = document.createElement('settings-people-page');
     peoplePage.pageVisibility = pageVisibility;
     document.body.appendChild(peoplePage);
@@ -99,7 +100,7 @@ suite('ProfileInfoTests', function() {
   });
 });
 
-// <if expr="not chromeos and not lacros">
+// <if expr="not is_chromeos">
 suite('SigninDisallowedTests', function() {
   setup(function() {
     loadTimeData.overrideValues({signinAllowed: false});
@@ -110,7 +111,7 @@ suite('SigninDisallowedTests', function() {
     profileInfoBrowserProxy = new TestProfileInfoBrowserProxy();
     ProfileInfoBrowserProxyImpl.setInstance(profileInfoBrowserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     peoplePage = document.createElement('settings-people-page');
     peoplePage.pageVisibility = pageVisibility;
     document.body.appendChild(peoplePage);
@@ -148,7 +149,7 @@ suite('SyncStatusTests', function() {
     profileInfoBrowserProxy = new TestProfileInfoBrowserProxy();
     ProfileInfoBrowserProxyImpl.setInstance(profileInfoBrowserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     peoplePage = document.createElement('settings-people-page');
     peoplePage.pageVisibility = pageVisibility;
     document.body.appendChild(peoplePage);
@@ -297,6 +298,23 @@ suite('SyncStatusTests', function() {
     assertFalse(deleteProfile);
   });
 
+  // <if expr="chromeos_lacros">
+  test('SignoutDialogLacrosMainProfile', function() {
+    loadTimeData.overrideValues({
+      isSecondaryUser: false,
+    });
+    // Navigate to chrome://settings/signOut
+    Router.getInstance().navigateTo(routes.SIGN_OUT);
+
+    await flushTasks();
+    const signoutDialog =
+        peoplePage.shadowRoot!.querySelector('settings-signout-dialog')!;
+    assertTrue(signoutDialog.$.dialog.open);
+    // Delete profile is not allowed for Lacros main profile.
+    assertFalse(!!signoutDialog.shadowRoot!.querySelector('#deleteProfile'));
+  });
+  // </if>
+
   test('SignOutDialogManagedProfile', async function() {
     let accountControl = null;
     await syncBrowserProxy.whenCalled('getSyncStatus');
@@ -434,7 +452,7 @@ suite('SyncSettings', function() {
     profileInfoBrowserProxy = new TestProfileInfoBrowserProxy();
     ProfileInfoBrowserProxyImpl.setInstance(profileInfoBrowserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     peoplePage = document.createElement('settings-people-page');
     peoplePage.pageVisibility = pageVisibility;
     document.body.appendChild(peoplePage);

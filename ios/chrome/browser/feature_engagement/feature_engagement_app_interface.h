@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,6 +44,21 @@
 // after the BottomToolbar tip is displayed. Returns NO if
 // FeatureEngagementTracker failed to load.
 + (BOOL)enableLongPressTipTriggering [[nodiscard]];
+
+// Enables the Default Site View tip to be triggered. The tip is triggered only
+// once after requesting the desktop version 3 times. Returns NO if
+// FeatureEngagementTracker failed to load.
++ (BOOL)enableDefaultSiteViewTipTriggering [[nodiscard]];
+
+// Enables the Password Suggestions tip to be triggered. The tip is triggered
+// only once the first time Autofill password suggestions are shown. Returns NO
+// if FeatureEngagementTracker failed to load.
++ (BOOL)enablePasswordSuggestionsTipTriggering [[nodiscard]];
+
+// Enables the Overflow Menu tip to be triggered. The tip is triggered
+// after the user has opened the overflow menu twice and not scrolled. Returns
+// NO if FeatureEngagementTracker failed to load.
++ (BOOL)enableOverflowMenuTipTriggering [[nodiscard]];
 
 // Starts manual page translation.
 + (void)showTranslate;

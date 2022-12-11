@@ -1,32 +1,27 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/sync/os_sync_util.h"
 
-#include "ash/constants/ash_features.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
-#include "chrome/browser/ui/webui/settings/chromeos/os_settings_ui.h"
-#include "chrome/browser/ui/webui/settings/chromeos/pref_names.h"
+#include "chrome/browser/ui/webui/settings/ash/os_settings_ui.h"
+#include "chrome/browser/ui/webui/settings/ash/pref_names.h"
 #include "components/sync/base/pref_names.h"
 #include "components/sync/base/sync_prefs.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace sp = syncer::prefs;
-namespace csp = chromeos::settings::prefs;
+namespace csp = ::ash::settings::prefs;
 
 class OsSyncUtilTest : public testing::Test {
  public:
   OsSyncUtilTest() {
-    feature_list_.InitAndEnableFeature(
-        chromeos::features::kSyncSettingsCategorization);
     syncer::SyncPrefs::RegisterProfilePrefs(prefs_.registry());
-    chromeos::settings::OSSettingsUI::RegisterProfilePrefs(prefs_.registry());
+    ash::settings::OSSettingsUI::RegisterProfilePrefs(prefs_.registry());
   }
 
-  base::test::ScopedFeatureList feature_list_;
   sync_preferences::TestingPrefServiceSyncable prefs_;
 };
 
@@ -81,34 +76,6 @@ TEST_F(OsSyncUtilTest, MigrationOnlyHappensOnce) {
   EXPECT_FALSE(prefs_.GetBoolean(sp::kSyncAllOsTypes));
   EXPECT_FALSE(prefs_.GetBoolean(sp::kSyncOsApps));
   EXPECT_FALSE(prefs_.GetBoolean(sp::kSyncOsPreferences));
-}
-
-TEST_F(OsSyncUtilTest, Rollback) {
-  // Do initial migration.
-  os_sync_util::MigrateOsSyncPreferences(&prefs_);
-  EXPECT_TRUE(prefs_.GetBoolean(sp::kOsSyncPrefsMigrated));
-
-  {
-    // Simulate disabling the feature (e.g. disabling via Finch).
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitAndDisableFeature(
-        chromeos::features::kSyncSettingsCategorization);
-    os_sync_util::MigrateOsSyncPreferences(&prefs_);
-
-    // OS sync is marked as not migrated.
-    EXPECT_FALSE(prefs_.GetBoolean(sp::kOsSyncPrefsMigrated));
-  }
-
-  // Simulate re-enabling the feature.
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitAndEnableFeature(
-        chromeos::features::kSyncSettingsCategorization);
-    os_sync_util::MigrateOsSyncPreferences(&prefs_);
-
-    // OS sync is marked as migrated.
-    EXPECT_TRUE(prefs_.GetBoolean(sp::kOsSyncPrefsMigrated));
-  }
 }
 
 TEST_F(OsSyncUtilTest, MigrationMetrics) {

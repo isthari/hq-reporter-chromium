@@ -1,9 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/app_list/chrome_app_list_item_manager.h"
 
+#include "base/ranges/algorithm.h"
 #include "chrome/browser/ui/app_list/chrome_app_list_item.h"
 
 ChromeAppListItemManager::ChromeAppListItemManager() = default;
@@ -108,8 +109,7 @@ std::vector<ChromeAppListItem*> ChromeAppListItemManager::GetTopLevelItems()
     ChromeAppListItem* item = entry.second.get();
     DCHECK(item->position().IsValid())
         << "Item with invalid position: id=" << item->id()
-        << ", name=" << item->name() << ", is_folder=" << item->is_folder()
-        << ", is_page_break=" << item->is_page_break();
+        << ", name=" << item->name() << ", is_folder=" << item->is_folder();
     if (item->folder_id().empty() && item->position().IsValid())
       top_level_items.emplace_back(item);
   }
@@ -170,8 +170,8 @@ void ChromeAppListItemManager::RemoveChildFromFolderItemMapping(
   std::vector<ChromeAppListItem*>* sorted_children_ptr =
       &folder_item_mappings_iter->second;
 
-  auto children_array_iter = std::find(sorted_children_ptr->cbegin(),
-                                       sorted_children_ptr->cend(), child_item);
+  auto children_array_iter =
+      base::ranges::find(*sorted_children_ptr, child_item);
   DCHECK(children_array_iter != sorted_children_ptr->cend());
 
   // Delete `child_item` from `src_folder`'s children list.

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -163,7 +163,7 @@ class ManagePasswordsState {
   password_manager::ui::State state_;
 
   // The client used for logging.
-  raw_ptr<password_manager::PasswordManagerClient> client_;
+  raw_ptr<password_manager::PasswordManagerClient, DanglingUntriaged> client_;
 
   // Whether the last attempt to authenticate to opt-in using password account
   // storage failed.

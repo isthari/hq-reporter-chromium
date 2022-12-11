@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "content/public/common/content_features.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "services/network/public/cpp/features.h"
+#include "services/network/public/cpp/record_ontransfersizeupdate_utils.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
 #include "services/network/public/mojom/early_hints.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
@@ -32,7 +33,7 @@ SignedExchangePrefetchHandler::SignedExchangePrefetchHandler(
     scoped_refptr<network::SharedURLLoaderFactory> network_loader_factory,
     URLLoaderThrottlesGetter loader_throttles_getter,
     network::mojom::URLLoaderClient* forwarding_client,
-    const net::NetworkIsolationKey& network_isolation_key,
+    const net::NetworkAnonymizationKey& network_anonymization_key,
     scoped_refptr<SignedExchangePrefetchMetricRecorder> metric_recorder,
     const std::string& accept_langs,
     bool keep_entry_for_prefetch_cache)
@@ -45,7 +46,7 @@ SignedExchangePrefetchHandler::SignedExchangePrefetchHandler(
 
   auto reporter = SignedExchangeReporter::MaybeCreate(
       resource_request.url, resource_request.referrer.spec(), *response_head,
-      network_isolation_key, frame_tree_node_id);
+      network_anonymization_key, frame_tree_node_id);
   auto devtools_proxy = std::make_unique<SignedExchangeDevToolsProxy>(
       resource_request.url, response_head.Clone(), frame_tree_node_id,
       absl::nullopt /* devtools_navigation_token */,
@@ -56,7 +57,7 @@ SignedExchangePrefetchHandler::SignedExchangePrefetchHandler(
       network::mojom::kURLLoadOptionNone,
       false /* should_redirect_to_fallback */, std::move(devtools_proxy),
       std::move(reporter), std::move(url_loader_factory),
-      loader_throttles_getter, network_isolation_key, frame_tree_node_id,
+      loader_throttles_getter, network_anonymization_key, frame_tree_node_id,
       std::move(metric_recorder), accept_langs, keep_entry_for_prefetch_cache);
 }
 
@@ -87,7 +88,8 @@ void SignedExchangePrefetchHandler::OnReceiveEarlyHints(
 
 void SignedExchangePrefetchHandler::OnReceiveResponse(
     network::mojom::URLResponseHeadPtr head,
-    mojo::ScopedDataPipeConsumerHandle body) {
+    mojo::ScopedDataPipeConsumerHandle body,
+    absl::optional<mojo_base::BigBuffer> cached_metadata) {
   NOTREACHED();
 }
 
@@ -104,18 +106,10 @@ void SignedExchangePrefetchHandler::OnUploadProgress(
   NOTREACHED();
 }
 
-void SignedExchangePrefetchHandler::OnReceiveCachedMetadata(
-    mojo_base::BigBuffer data) {
-  NOTREACHED();
-}
-
 void SignedExchangePrefetchHandler::OnTransferSizeUpdated(
     int32_t transfer_size_diff) {
-  NOTREACHED();
-}
-
-void SignedExchangePrefetchHandler::OnStartLoadingResponseBody(
-    mojo::ScopedDataPipeConsumerHandle body) {
+  network::RecordOnTransferSizeUpdatedUMA(
+      network::OnTransferSizeUpdatedFrom::kSignedExchangePrefetchHandler);
   NOTREACHED();
 }
 

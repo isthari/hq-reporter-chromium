@@ -1,11 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'chrome://extensions/extensions.js';
 
 import {ExtensionsManagerElement, navigation, Page} from 'chrome://extensions/extensions.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
@@ -29,7 +28,7 @@ suite(extension_manager_tests.suiteName, function() {
   }
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     window.history.replaceState(
         {}, '', '/?id=ldnnhddmnhbkjipkidpdiheffobcpfmf');
 
@@ -46,15 +45,14 @@ suite(extension_manager_tests.suiteName, function() {
 
 
   test(
-      assert(
-          extension_manager_tests.TestNames.UrlNavigationToActivityLogSuccess),
+      extension_manager_tests.TestNames.UrlNavigationToActivityLogSuccess,
       function() {
         assertTrue(manager.showActivityLog);
 
         // Try to open activity log with a valid ID.
         navigation.navigateTo({
           page: Page.ACTIVITY_LOG,
-          extensionId: 'ldnnhddmnhbkjipkidpdiheffobcpfmf'
+          extensionId: 'ldnnhddmnhbkjipkidpdiheffobcpfmf',
         });
         flush();
 

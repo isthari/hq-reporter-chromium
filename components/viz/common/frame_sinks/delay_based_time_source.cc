@@ -1,4 +1,4 @@
-// Copyright 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -158,7 +158,7 @@ void DelayBasedTimeSource::PostNextTickTask(base::TimeTicks now) {
     DCHECK_GT(next_tick_time_, now);
   }
   timer_.Start(FROM_HERE, next_tick_time_, tick_closure_,
-               base::ExactDeadline(true));
+               base::subtle::DelayPolicy::kPrecise);
 }
 
 std::string DelayBasedTimeSource::TypeString() const {

@@ -1,9 +1,8 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {CrButtonElement, Destination, DestinationConnectionStatus, DestinationOrigin, DestinationType, PrintPreviewButtonStripElement, State} from 'chrome://print/print_preview.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {CrButtonElement, Destination, DestinationOrigin, PrintPreviewButtonStripElement, State} from 'chrome://print/print_preview.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
@@ -22,12 +21,12 @@ suite(button_strip_test.suiteName, function() {
   let buttonStrip: PrintPreviewButtonStripElement;
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     buttonStrip = document.createElement('print-preview-button-strip');
 
     buttonStrip.destination = new Destination(
-        'FooDevice', DestinationType.GOOGLE, DestinationOrigin.COOKIES,
-        'FooName', DestinationConnectionStatus.ONLINE);
+        'FooDevice', DestinationOrigin.EXTENSION, 'FooName',
+        {extensionId: 'aaa111', extensionName: 'myPrinterExtension'});
     buttonStrip.state = State.READY;
     // No max sheets limit is specified.
     buttonStrip.maxSheets = 0;
@@ -37,8 +36,7 @@ suite(button_strip_test.suiteName, function() {
   // Tests that the correct message is shown for non-READY states, and that
   // the print button is disabled appropriately.
   test(
-      assert(button_strip_test.TestNames.ButtonStripChangesForState),
-      function() {
+      button_strip_test.TestNames.ButtonStripChangesForState, function() {
         const printButton =
             buttonStrip.shadowRoot!.querySelector<CrButtonElement>(
                 '.action-button')!;
@@ -59,7 +57,7 @@ suite(button_strip_test.suiteName, function() {
 
   // Tests that the buttons are in the correct order for different platforms.
   // See https://crbug.com/880562.
-  test(assert(button_strip_test.TestNames.ButtonOrder), function() {
+  test(button_strip_test.TestNames.ButtonOrder, function() {
     // Verify that there are only 2 buttons.
     assertEquals(
         2, buttonStrip.shadowRoot!.querySelectorAll('cr-button').length);
@@ -86,7 +84,7 @@ suite(button_strip_test.suiteName, function() {
 
   // Tests that the button strip fires print-requested and cancel-requested
   // events.
-  test(assert(button_strip_test.TestNames.ButtonStripFiresEvents), function() {
+  test(button_strip_test.TestNames.ButtonStripFiresEvents, function() {
     const printButton = buttonStrip.shadowRoot!.querySelector<HTMLElement>(
         'cr-button.action-button')!;
     const cancelButton = buttonStrip.shadowRoot!.querySelector<HTMLElement>(

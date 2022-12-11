@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,14 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace arc {
+
+void AddStandardAction(mojom::AccessibilityNodeInfoData* node,
+                       mojom::AccessibilityActionType action_type,
+                       absl::optional<std::string> label = absl::nullopt);
+
+void AddCustomAction(mojom::AccessibilityNodeInfoData* node,
+                     int id,
+                     std::string label);
 
 template <class PropType, class ValueType>
 void SetProperty(

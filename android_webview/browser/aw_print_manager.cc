@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,11 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/file_descriptor_posix.h"
 #include "base/files/file_util.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "components/printing/browser/print_manager_utils.h"
@@ -63,7 +63,7 @@ void AwPrintManager::PdfWritingDone(int page_count) {
 
 bool AwPrintManager::PrintNow() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  auto* rfh = web_contents()->GetMainFrame();
+  auto* rfh = web_contents()->GetPrimaryMainFrame();
   if (!rfh->IsRenderFrameLive())
     return false;
   GetPrintRenderFrame(rfh)->PrintRequestedPages();
@@ -109,7 +109,7 @@ void AwPrintManager::ScriptedPrint(
 
   printing::RenderParamsFromPrintSettings(*settings_, params->params.get());
   params->params->document_cookie = scripted_params->cookie;
-  params->pages = printing::PageRange::GetPages(settings_->ranges());
+  params->pages = settings_->ranges();
   std::move(callback).Run(std::move(params));
 }
 
@@ -148,14 +148,13 @@ void AwPrintManager::DidPrintDocument(
   }
 
   DCHECK(pdf_writing_done_callback());
-  base::PostTaskAndReplyWithResult(
-      base::ThreadPool::CreateTaskRunner(
-          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})
-          .get(),
-      FROM_HERE, base::BindOnce(&SaveDataToFd, fd_, number_pages(), data),
-      base::BindOnce(&AwPrintManager::OnDidPrintDocumentWritingDone,
-                     pdf_writing_done_callback(), std::move(callback)));
+  base::ThreadPool::CreateTaskRunner(
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+       base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})
+      ->PostTaskAndReplyWithResult(
+          FROM_HERE, base::BindOnce(&SaveDataToFd, fd_, number_pages(), data),
+          base::BindOnce(&AwPrintManager::OnDidPrintDocumentWritingDone,
+                         pdf_writing_done_callback(), std::move(callback)));
 }
 
 // static

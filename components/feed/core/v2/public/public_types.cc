@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,12 +49,12 @@ WebFeedPageInformation& WebFeedPageInformation::operator=(
 WebFeedPageInformation& WebFeedPageInformation::operator=(
     WebFeedPageInformation&&) = default;
 void WebFeedPageInformation::SetUrl(const GURL& url) {
-  url::Replacements<char> clear_ref;
+  GURL::Replacements clear_ref;
   clear_ref.ClearRef();
   url_ = url.ReplaceComponents(clear_ref);
 }
 void WebFeedPageInformation::SetCanonicalUrl(const GURL& url) {
-  url::Replacements<char> clear_ref;
+  GURL::Replacements clear_ref;
   clear_ref.ClearRef();
   canonical_url_ = url.ReplaceComponents(clear_ref);
 }

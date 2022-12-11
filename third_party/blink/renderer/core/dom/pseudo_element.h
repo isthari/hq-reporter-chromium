@@ -37,22 +37,22 @@ class ComputedStyle;
 
 class CORE_EXPORT PseudoElement : public Element {
  public:
-  // |document_transition_tag| is used to uniquely identify a pseudo element
+  // |view_transition_name| is used to uniquely identify a pseudo element
   // from a set of pseudo elements which share the same |pseudo_id|. The current
   // usage of this ID is limited to pseudo elements generated for a
-  // DocumentTransition. See
-  // third_party/blink/renderer/core/document_transition/README.md
+  // ViewTransition. See
+  // third_party/blink/renderer/core/view_transition/README.md
   static PseudoElement* Create(
       Element* parent,
       PseudoId pseudo_id,
-      const AtomicString& document_transition_tag = g_null_atom);
+      const AtomicString& view_transition_name = g_null_atom);
 
   PseudoElement(Element*,
                 PseudoId,
-                const AtomicString& document_transition_tag = g_null_atom);
+                const AtomicString& view_transition_name = g_null_atom);
 
-  const AtomicString& document_transition_tag() const {
-    return document_transition_tag_;
+  const AtomicString& view_transition_name() const {
+    return view_transition_name_;
   }
   scoped_refptr<ComputedStyle> CustomStyleForLayoutObject(
       const StyleRecalcContext&) override;
@@ -66,7 +66,7 @@ class CORE_EXPORT PseudoElement : public Element {
   scoped_refptr<ComputedStyle> LayoutStyleForDisplayContents(
       const ComputedStyle&);
 
-  static const AtomicString& PseudoElementNameForEvents(PseudoId);
+  static AtomicString PseudoElementNameForEvents(Element*);
   static bool IsWebExposed(PseudoId, const Node*);
 
   // Pseudo element are not allowed to be the inner node for hit testing. Find
@@ -96,10 +96,10 @@ class CORE_EXPORT PseudoElement : public Element {
   };
 
   PseudoId pseudo_id_;
-  const AtomicString document_transition_tag_;
+  const AtomicString view_transition_name_;
 };
 
-const QualifiedName& PseudoElementTagName(PseudoId);
+CORE_EXPORT const QualifiedName& PseudoElementTagName(PseudoId);
 
 bool PseudoElementLayoutObjectIsNeeded(const ComputedStyle* pseudo_style,
                                        const Element* originating_element);

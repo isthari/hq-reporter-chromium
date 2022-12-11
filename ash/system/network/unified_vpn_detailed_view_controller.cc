@@ -1,8 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
 #include "ash/system/network/unified_vpn_detailed_view_controller.h"
+
+#include <memory>
 
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
@@ -21,13 +23,14 @@ UnifiedVPNDetailedViewController::UnifiedVPNDetailedViewController(
 
 UnifiedVPNDetailedViewController::~UnifiedVPNDetailedViewController() = default;
 
-views::View* UnifiedVPNDetailedViewController::CreateView() {
+std::unique_ptr<views::View> UnifiedVPNDetailedViewController::CreateView() {
   DCHECK(!view_);
-  view_ =
-      new tray::VPNListView(detailed_view_delegate_.get(),
-                            Shell::Get()->session_controller()->login_status());
+  auto view = std::make_unique<VPNListView>(
+      detailed_view_delegate_.get(),
+      Shell::Get()->session_controller()->login_status());
+  view_ = view.get();
   view_->Init();
-  return view_;
+  return view;
 }
 
 std::u16string UnifiedVPNDetailedViewController::GetAccessibleName() const {

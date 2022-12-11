@@ -1,21 +1,24 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/wm/desks/desks_textfield.h"
 
+#include "ash/shell.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/style/style_util.h"
 #include "ash/wm/overview/overview_constants.h"
+#include "ash/wm/overview/overview_controller.h"
+#include "ash/wm/overview/overview_grid.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_id.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/text_elider.h"
-#include "ui/views/accessibility/accessibility_paint_checks.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/focus_ring.h"
-#include "ui/views/native_cursor.h"
+#include "ui/views/widget/widget.h"
 
 namespace ash {
 
@@ -26,16 +29,33 @@ constexpr int kDesksTextfieldBorderRadius = 4;
 
 constexpr int kDesksTextfieldMinHeight = 16;
 
+#if DCHECK_IS_ON()
+bool IsDesksBarOrSavedDeskLibraryWidget(const views::Widget* widget) {
+  if (!widget)
+    return false;
+
+  auto* overview_controller = Shell::Get()->overview_controller();
+  if (!overview_controller->InOverviewSession())
+    return false;
+
+  auto* session = overview_controller->overview_session();
+  for (const auto& grid : session->grid_list()) {
+    if (widget == grid->saved_desk_library_widget() ||
+        widget == grid->desks_widget()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+#endif  // DCHECK_IS_ON()
+
 }  // namespace
 
 DesksTextfield::DesksTextfield() {
   views::Builder<DesksTextfield>(this)
       .SetBorder(nullptr)
       .SetCursorEnabled(true)
-      // TODO(crbug.com/1218186): Remove this, this is in place temporarily to
-      // be able to submit accessibility checks, but this focusable View needs
-      // to add a name so that the screen reader knows what to announce.
-      .SetProperty(views::kSkipAccessibilityPaintChecks, true)
       .BuildChildren();
 
   views::FocusRing* focus_ring =
@@ -44,6 +64,8 @@ DesksTextfield::DesksTextfield() {
     return static_cast<DesksTextfield*>(view)->IsViewHighlighted() ||
            view->HasFocus();
   });
+  focus_ring->SetColorId(ui::kColorAshFocusRing);
+
   GetRenderText()->SetElideBehavior(gfx::ELIDE_TAIL);
 }
 
@@ -52,12 +74,17 @@ DesksTextfield::~DesksTextfield() = default;
 // static
 constexpr size_t DesksTextfield::kMaxLength;
 
-void DesksTextfield::UpdateViewAppearance() {
-  background()->SetNativeControlColor(GetBackgroundColor());
-  // Paint the whole view to update the background. The `SchedulePaint` in
-  // `UpdateFocusRingState` will only repaint the focus ring.
-  SchedulePaint();
-  UpdateFocusRingState();
+// static
+void DesksTextfield::CommitChanges(views::Widget* widget) {
+#if DCHECK_IS_ON()
+  DCHECK(IsDesksBarOrSavedDeskLibraryWidget(widget));
+#endif  // DCHECK_IS_ON()
+
+  auto* focus_manager = widget->GetFocusManager();
+  focus_manager->ClearFocus();
+  // Avoid having the focus restored to the same view when the parent view is
+  // refocused.
+  focus_manager->SetStoredFocusView(nullptr);
 }
 
 gfx::Size DesksTextfield::CalculatePreferredSize() const {
@@ -87,9 +114,13 @@ bool DesksTextfield::SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) {
   return event.key_code() == ui::VKEY_TAB;
 }
 
+std::u16string DesksTextfield::GetTooltipText(const gfx::Point& p) const {
+  return GetPreferredSize().width() > width() ? GetText() : std::u16string();
+}
+
 void DesksTextfield::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   Textfield::GetAccessibleNodeData(node_data);
-  node_data->SetName(GetAccessibleName());
+  node_data->SetNameChecked(GetAccessibleName());
 }
 
 void DesksTextfield::OnMouseEntered(const ui::MouseEvent& event) {
@@ -114,24 +145,37 @@ void DesksTextfield::OnThemeChanged() {
       AshColorProvider::ControlsLayerType::kFocusAuraColor);
   SetSelectionBackgroundColor(selection_color);
 
-  views::FocusRing::Get(this)->SetColor(color_provider->GetControlsLayerColor(
-      AshColorProvider::ControlsLayerType::kFocusRingColor));
-
   UpdateFocusRingState();
 }
 
-gfx::NativeCursor DesksTextfield::GetCursor(const ui::MouseEvent& event) {
-  return views::GetNativeIBeamCursor();
+ui::Cursor DesksTextfield::GetCursor(const ui::MouseEvent& event) {
+  return ui::mojom::CursorType::kIBeam;
 }
 
 void DesksTextfield::OnFocus() {
   GetRenderText()->SetElideBehavior(gfx::NO_ELIDE);
   views::Textfield::OnFocus();
+  UpdateViewAppearance();
 }
 
 void DesksTextfield::OnBlur() {
   GetRenderText()->SetElideBehavior(gfx::ELIDE_TAIL);
   views::Textfield::OnBlur();
+  UpdateViewAppearance();
+
+  // Avoid having the focus restored to the same DeskNameView when the desk bar
+  // widget is refocused. Use a post task to avoid calling
+  // `FocusManager::SetStoredFocusView()` while `FocusManager::ClearFocus()` is
+  // still being activated. In this case, we want to set the stored focus view
+  // to nullptr after the stack of the call to `FocusManager::ClearFocus()`
+  // returns completely.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](base::WeakPtr<views::Widget> w) {
+                       if (w)
+                         w->GetFocusManager()->SetStoredFocusView(nullptr);
+                     },
+                     GetWidget()->GetWeakPtr()));
 }
 
 void DesksTextfield::OnDragEntered(const ui::DropTargetEvent& event) {
@@ -152,7 +196,7 @@ void DesksTextfield::MaybeActivateHighlightedView() {
   RequestFocus();
 }
 
-void DesksTextfield::MaybeCloseHighlightedView() {}
+void DesksTextfield::MaybeCloseHighlightedView(bool primary_action) {}
 
 void DesksTextfield::MaybeSwapHighlightedView(bool right) {}
 
@@ -170,7 +214,19 @@ void DesksTextfield::UpdateFocusRingState() {
   focus_ring->SchedulePaint();
 }
 
+void DesksTextfield::UpdateViewAppearance() {
+  background()->SetNativeControlColor(GetBackgroundColor());
+  // Paint the whole view to update the background. The `SchedulePaint` in
+  // `UpdateFocusRingState` will only repaint the focus ring.
+  SchedulePaint();
+  UpdateFocusRingState();
+}
+
 SkColor DesksTextfield::GetBackgroundColor() const {
+  // Admin desk templates may be read only.
+  if (GetReadOnly())
+    return SK_ColorTRANSPARENT;
+
   return HasFocus() || IsMouseHovered()
              ? AshColorProvider::Get()->GetControlsLayerColor(
                    AshColorProvider::ControlsLayerType::

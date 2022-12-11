@@ -1,12 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/updater/device_management/dm_client.h"
 
-#include <stdint.h>
-
-#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -25,10 +23,10 @@
 #include "chrome/updater/device_management/dm_policy_builder_for_testing.h"
 #include "chrome/updater/device_management/dm_response_validator.h"
 #include "chrome/updater/device_management/dm_storage.h"
-#include "chrome/updater/policy/manager.h"
+#include "chrome/updater/net/network.h"
 #include "chrome/updater/policy/service.h"
 #include "chrome/updater/protos/omaha_settings.pb.h"
-#include "chrome/updater/unittest_util.h"
+#include "chrome/updater/util/unittest_util.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/update_client/network.h"
 #include "net/base/url_util.h"
@@ -39,18 +37,9 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if BUILDFLAG(IS_WIN)
-#include "chrome/updater/win/net/network.h"
-#elif BUILDFLAG(IS_MAC)
-#include "chrome/updater/mac/net/network.h"
-#elif BUILDFLAG(IS_LINUX)
-#include "chrome/updater/linux/net/network.h"
-#endif
-
 using base::test::RunClosure;
 
 namespace updater {
-
 namespace {
 
 class TestTokenService : public TokenServiceInterface {
@@ -63,6 +52,8 @@ class TestTokenService : public TokenServiceInterface {
   // Overrides for TokenServiceInterface.
   std::string GetDeviceID() const override { return "test-device-id"; }
 
+  bool IsEnrollmentMandatory() const override { return false; }
+
   bool StoreEnrollmentToken(const std::string& enrollment_token) override {
     enrollment_token_ = enrollment_token;
     return true;
@@ -74,6 +65,12 @@ class TestTokenService : public TokenServiceInterface {
     dm_token_ = dm_token;
     return true;
   }
+
+  bool DeleteDmToken() override {
+    dm_token_.clear();
+    return true;
+  }
+
   std::string GetDmToken() const override { return dm_token_; }
 
  private:
@@ -104,16 +101,10 @@ class TestConfigurator : public DMClient::Configurator {
   const std::string server_url_;
 };
 
-// A policy service with default values.
-scoped_refptr<PolicyService> CreateTestPolicyService() {
-  PolicyService::PolicyManagerVector managers;
-  managers.push_back(GetPolicyManager());
-  return base::MakeRefCounted<PolicyService>(std::move(managers));
-}
-
 TestConfigurator::TestConfigurator(const GURL& url)
     : network_fetcher_factory_(base::MakeRefCounted<NetworkFetcherFactory>(
-          CreateTestPolicyService())),
+          PolicyServiceProxyConfiguration::Get(
+              test::CreateTestPolicyService()))),
       server_url_(url.spec()) {}
 
 class DMRequestCallbackHandler
@@ -133,6 +124,7 @@ class DMRequestCallbackHandler
                                            init_dm_token ? kDmToken : ""));
 
     if (init_cache_info) {
+      ASSERT_TRUE(storage_->CanPersistPolicies());
       std::unique_ptr<::enterprise_management::DeviceManagementResponse>
           dm_response = GetDefaultTestingPolicyFetchDMResponse(
               /*first_request=*/true, /*rotate_to_new_key=*/false,
@@ -184,7 +176,7 @@ class DMRegisterRequestCallbackHandler : public DMRequestCallbackHandler {
     if (expect_registered_) {
       EXPECT_EQ(result, expected_result_);
       if (result == DMClient::RequestResult::kSuccess ||
-          result == DMClient::RequestResult::kAleadyRegistered) {
+          result == DMClient::RequestResult::kAlreadyRegistered) {
         EXPECT_EQ(storage_->GetDmToken(), "test-dm-token");
       } else {
         EXPECT_TRUE(storage_->GetDmToken().empty());
@@ -215,8 +207,6 @@ class DMPolicyFetchRequestCallbackHandler : public DMRequestCallbackHandler {
       DMClient::RequestResult result,
       const std::vector<PolicyValidationResult>& validation_results) {
     EXPECT_EQ(result, expected_result_);
-    if (expected_http_status_ == net::HTTP_GONE)
-      EXPECT_TRUE(storage_->IsDeviceDeregistered());
 
     if (expected_http_status_ != net::HTTP_OK ||
         expected_result_ == DMClient::RequestResult::kNoDMToken) {
@@ -226,10 +216,11 @@ class DMPolicyFetchRequestCallbackHandler : public DMRequestCallbackHandler {
 
     std::unique_ptr<CachedPolicyInfo> info = storage_->GetCachedPolicyInfo();
     EXPECT_FALSE(info->public_key().empty());
-    if (expect_new_public_key_)
+    if (expect_new_public_key_) {
       EXPECT_EQ(info->public_key(), GetTestKey2()->GetPublicKeyString());
-    else
+    } else {
       EXPECT_EQ(info->public_key(), GetTestKey1()->GetPublicKeyString());
+    }
 
     if (result == DMClient::RequestResult::kSuccess) {
       std::unique_ptr<::wireless_android_enterprise_devicemanagement::
@@ -241,7 +232,7 @@ class DMPolicyFetchRequestCallbackHandler : public DMRequestCallbackHandler {
       EXPECT_EQ(omaha_settings->proxy_mode(), "pac_script");
       const ::wireless_android_enterprise_devicemanagement::ApplicationSettings&
           chrome_settings = omaha_settings->application_settings()[0];
-      EXPECT_EQ(chrome_settings.app_guid(), kChromeAppId);
+      EXPECT_EQ(chrome_settings.app_guid(), test::kChromeAppId);
       EXPECT_EQ(chrome_settings.update(),
                 ::wireless_android_enterprise_devicemanagement::
                     AUTOMATIC_UPDATES_ONLY);
@@ -330,7 +321,7 @@ class DMClientTest : public ::testing::Test {
   net::HttpStatusCode response_http_status_ = net::HTTP_OK;
   std::string response_body_;
 
-  base::test::SingleThreadTaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_;
 };
 
 class DMRegisterClientTest : public DMClientTest {
@@ -438,6 +429,29 @@ TEST_F(DMRegisterClientTest, Deregister) {
   run_loop.Run();
 }
 
+TEST_F(DMRegisterClientTest, DeregisterWithDeletion) {
+  callback_handler_ =
+      base::MakeRefCounted<DMRegisterRequestCallbackHandler>(true);
+  callback_handler_->CreateStorage(/*init_dm_token=*/false,
+                                   /*init_cache_info=*/false);
+  callback_handler_->SetExpectedRequestResult(
+      DMClient::RequestResult::kNoDMToken);
+
+  enterprise_management::DeviceManagementResponse response;
+  response.add_error_detail(
+      enterprise_management::CBCM_DELETION_POLICY_PREFERENCE_DELETE_TOKEN);
+
+  StartTestServerWithResponse(net::HTTP_GONE, response.SerializeAsString());
+
+  base::RunLoop run_loop;
+  base::RepeatingClosure quit_closure = run_loop.QuitClosure();
+  EXPECT_CALL(*callback_handler_, PostRequestCompleted())
+      .WillOnce(RunClosure(quit_closure));
+
+  PostRequest();
+  run_loop.Run();
+}
+
 TEST_F(DMRegisterClientTest, BadRequest) {
   callback_handler_ =
       base::MakeRefCounted<DMRegisterRequestCallbackHandler>(true);
@@ -462,7 +476,7 @@ TEST_F(DMRegisterClientTest, AlreadyRegistered) {
   callback_handler_->CreateStorage(/*init_dm_token=*/true,
                                    /*init_cache_info=*/false);
   callback_handler_->SetExpectedRequestResult(
-      DMClient::RequestResult::kAleadyRegistered);
+      DMClient::RequestResult::kAlreadyRegistered);
   StartTestServerWithResponse(net::HTTP_OK, GetDefaultResponse());
 
   base::RunLoop run_loop;
@@ -660,6 +674,33 @@ TEST_F(DMPolicyFetchClientTest, Deregister) {
 
   PostRequest();
   run_loop.Run();
+
+  EXPECT_TRUE(callback_handler_->GetStorage()->IsDeviceDeregistered());
+}
+
+TEST_F(DMPolicyFetchClientTest, DeregisterWithDeletion) {
+  callback_handler_ =
+      base::MakeRefCounted<DMPolicyFetchRequestCallbackHandler>();
+  callback_handler_->CreateStorage(/*init_dm_token=*/true,
+                                   /*init_cache_info=*/true);
+  callback_handler_->SetExpectedRequestResult(
+      DMClient::RequestResult::kNoDMToken);
+  callback_handler_->SetExpectedHttpStatus(net::HTTP_GONE);
+
+  enterprise_management::DeviceManagementResponse response;
+  response.add_error_detail(
+      enterprise_management::CBCM_DELETION_POLICY_PREFERENCE_DELETE_TOKEN);
+
+  StartTestServerWithResponse(net::HTTP_GONE, response.SerializeAsString());
+  base::RunLoop run_loop;
+  base::RepeatingClosure quit_closure = run_loop.QuitClosure();
+  EXPECT_CALL(*callback_handler_, PostRequestCompleted())
+      .WillOnce(RunClosure(quit_closure));
+
+  PostRequest();
+  run_loop.Run();
+
+  EXPECT_TRUE(callback_handler_->GetStorage()->GetDmToken().empty());
 }
 
 TEST_F(DMPolicyFetchClientTest, BadResponse) {

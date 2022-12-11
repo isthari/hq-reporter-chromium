@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,17 @@
 
 #include <vector>
 
+#include "ash/ash_export.h"
 #include "ash/public/cpp/tablet_mode.h"
 #include "ash/public/cpp/tablet_mode_observer.h"
 #include "chrome/browser/sharesheet/sharesheet_types.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/cpp/intent.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/widget/widget.h"
 
 namespace views {
-class GridLayout;
+class TableLayoutView;
 class Separator;
 }  // namespace views
 
@@ -46,16 +47,24 @@ class SharesheetBubbleView : public views::BubbleDialogDelegateView,
   // or the intent has been delivered to a target selected by the user.
   // |close_callback| is run to inform the caller when the bubble is closed.
   void ShowBubble(std::vector<TargetInfo> targets,
-                  apps::mojom::IntentPtr intent,
+                  apps::IntentPtr intent,
                   ::sharesheet::DeliveredCallback delivered_callback,
                   ::sharesheet::CloseCallback close_callback);
   void ShowNearbyShareBubbleForArc(
-      apps::mojom::IntentPtr intent,
+      apps::IntentPtr intent,
       ::sharesheet::DeliveredCallback delivered_callback,
       ::sharesheet::CloseCallback close_callback);
   void ShowActionView();
   void ResizeBubble(const int& width, const int& height);
   void CloseBubble(views::Widget::ClosedReason reason);
+
+  // --- Added for debugging purposes. Remove after bug fixed.
+
+  ASH_EXPORT void PerformLoggingAndChecks(gfx::NativeWindow native_window);
+  ASH_EXPORT void SetUpDialog();
+  ASH_EXPORT void SetUpParentWindow(gfx::NativeWindow native_window);
+
+  // --- End of functions added for debugging.
 
  private:
   class SharesheetParentWidgetObserver;
@@ -83,8 +92,8 @@ class SharesheetBubbleView : public views::BubbleDialogDelegateView,
   std::unique_ptr<views::View> MakeScrollableTargetView(
       std::vector<TargetInfo> targets);
   void PopulateLayoutsWithTargets(std::vector<TargetInfo> targets,
-                                  views::GridLayout* default_layout,
-                                  views::GridLayout* expanded_layout);
+                                  views::TableLayoutView* default_view,
+                                  views::TableLayoutView* expanded_view);
   void ExpandButtonPressed();
   void AnimateToExpandedState();
   void TargetButtonPressed(TargetInfo target);
@@ -97,7 +106,7 @@ class SharesheetBubbleView : public views::BubbleDialogDelegateView,
   // Owns this class.
   ::sharesheet::SharesheetServiceDelegator* delegator_;
   std::u16string active_target_;
-  apps::mojom::IntentPtr intent_;
+  apps::IntentPtr intent_;
   ::sharesheet::DeliveredCallback delivered_callback_;
   ::sharesheet::CloseCallback close_callback_;
 

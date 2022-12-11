@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@ import androidx.fragment.app.DialogFragment;
 
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.ui.text.SpanApplier;
 import org.chromium.ui.text.SpanApplier.SpanInfo;
@@ -62,7 +63,7 @@ public class PassphraseCreationDialogFragment extends DialogFragment {
         instructionsView.setText(getInstructionsText());
 
         AlertDialog dialog =
-                new AlertDialog.Builder(getActivity(), R.style.Theme_Chromium_AlertDialog)
+                new AlertDialog.Builder(getActivity(), R.style.ThemeOverlay_BrowserUI_AlertDialog)
                         .setView(view)
                         .setTitle(R.string.sync_passphrase_type_custom_dialog_title)
                         .setPositiveButton(R.string.save, null)
@@ -74,7 +75,11 @@ public class PassphraseCreationDialogFragment extends DialogFragment {
 
     private SpannableString getInstructionsText() {
         final Activity activity = getActivity();
-        return SpanApplier.applySpans(activity.getString(R.string.sync_custom_passphrase),
+        return SpanApplier.applySpans(
+                activity.getString(
+                        ChromeFeatureList.isEnabled(ChromeFeatureList.SYNC_ENABLE_HISTORY_DATA_TYPE)
+                                ? R.string.new_sync_custom_passphrase
+                                : R.string.sync_custom_passphrase),
                 new SpanInfo("<learnmore>", "</learnmore>", new ClickableSpan() {
                     @Override
                     public void onClick(View view) {

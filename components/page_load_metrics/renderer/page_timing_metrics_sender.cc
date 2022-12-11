@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,8 +18,8 @@
 #include "services/network/public/cpp/url_loader_completion_status.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-shared.h"
 #include "third_party/blink/public/mojom/use_counter/use_counter_feature.mojom-shared.h"
-#include "third_party/blink/public/mojom/web_feature/web_feature.mojom-shared.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace page_load_metrics {
@@ -58,7 +58,6 @@ PageTimingMetricsSender::PageTimingMetricsSender(
       last_cpu_timing_(mojom::CpuTiming::New()),
       input_timing_delta_(mojom::InputTiming::New()),
       metadata_(mojom::FrameMetadata::New()),
-      new_deferred_resource_data_(mojom::DeferredResourceCounts::New()),
       buffer_timer_delay_ms_(GetBufferTimerDelayMillis(TimerType::kRenderer)),
       metadata_recorder_(initial_monotonic_timing) {
   InitiateUserInteractionTiming();
@@ -87,12 +86,39 @@ void PageTimingMetricsSender::DidObserveLoadingBehavior(
   EnsureSendTimer();
 }
 
+void PageTimingMetricsSender::DidObserveSubresourceLoad(
+    uint32_t number_of_subresources_loaded,
+    uint32_t number_of_subresource_loads_handled_by_service_worker) {
+  if (!subresource_load_metrics_) {
+    subresource_load_metrics_ = mojom::SubresourceLoadMetrics::New();
+  }
+  if (subresource_load_metrics_->number_of_subresources_loaded ==
+          number_of_subresources_loaded &&
+      subresource_load_metrics_
+              ->number_of_subresource_loads_handled_by_service_worker ==
+          number_of_subresource_loads_handled_by_service_worker) {
+    return;
+  }
+  subresource_load_metrics_->number_of_subresources_loaded =
+      number_of_subresources_loaded;
+  subresource_load_metrics_
+      ->number_of_subresource_loads_handled_by_service_worker =
+      number_of_subresource_loads_handled_by_service_worker;
+  EnsureSendTimer();
+}
+
 void PageTimingMetricsSender::DidObserveNewFeatureUsage(
     const blink::UseCounterFeature& feature) {
   if (feature_tracker_.TestAndSet(feature))
     return;
 
   new_features_.push_back(feature);
+  EnsureSendTimer();
+}
+
+void PageTimingMetricsSender::DidObserveSoftNavigation(uint32_t count) {
+  DCHECK(count > soft_navigation_count_);
+  soft_navigation_count_ = count;
   EnsureSendTimer();
 }
 
@@ -119,32 +145,8 @@ void PageTimingMetricsSender::DidObserveLayoutNg(uint32_t all_block_count,
   EnsureSendTimer();
 }
 
-void PageTimingMetricsSender::DidObserveLazyLoadBehavior(
-    blink::WebLocalFrameClient::LazyLoadBehavior lazy_load_behavior) {
-  switch (lazy_load_behavior) {
-    case blink::WebLocalFrameClient::LazyLoadBehavior::kDeferredFrame:
-      ++new_deferred_resource_data_->deferred_frames;
-      break;
-    case blink::WebLocalFrameClient::LazyLoadBehavior::kDeferredImage:
-      ++new_deferred_resource_data_->deferred_images;
-      break;
-    case blink::WebLocalFrameClient::LazyLoadBehavior::kLazyLoadedFrame:
-      ++new_deferred_resource_data_->frames_loaded_after_deferral;
-      break;
-    case blink::WebLocalFrameClient::LazyLoadBehavior::kLazyLoadedImage:
-      ++new_deferred_resource_data_->images_loaded_after_deferral;
-      break;
-  }
-}
-
-void PageTimingMetricsSender::DidObserveMobileFriendlinessChanged(
-    const blink::MobileFriendliness& mf) {
-  mobile_friendliness_ = mf;
-  EnsureSendTimer();
-}
-
 void PageTimingMetricsSender::DidStartResponse(
-    const GURL& response_url,
+    const url::SchemeHostPort& final_response_url,
     int resource_id,
     const network::mojom::URLResponseHead& response_head,
     network::mojom::RequestDestination request_destination) {
@@ -154,7 +156,7 @@ void PageTimingMetricsSender::DidStartResponse(
       std::piecewise_construct, std::forward_as_tuple(resource_id),
       std::forward_as_tuple(std::make_unique<PageResourceDataUse>()));
   resource_it.first->second->DidStartResponse(
-      response_url, resource_id, response_head, request_destination);
+      final_response_url, resource_id, response_head, request_destination);
 }
 
 void PageTimingMetricsSender::DidReceiveTransferSizeUpdate(
@@ -224,9 +226,14 @@ void PageTimingMetricsSender::DidLoadResourceFromMemoryCache(
 }
 
 void PageTimingMetricsSender::OnMainFrameIntersectionChanged(
-    const gfx::Rect& main_frame_intersection) {
-  metadata_->intersection_update =
-      mojom::FrameIntersectionUpdate::New(main_frame_intersection);
+    const gfx::Rect& main_frame_intersection_rect) {
+  metadata_->main_frame_intersection_rect = main_frame_intersection_rect;
+  EnsureSendTimer();
+}
+
+void PageTimingMetricsSender::OnMainFrameViewportRectangleChanged(
+    const gfx::Rect& main_frame_viewport_rect) {
+  metadata_->main_frame_viewport_rect = main_frame_viewport_rect;
   EnsureSendTimer();
 }
 
@@ -331,16 +338,15 @@ void PageTimingMetricsSender::SendNow() {
       page_resource_data_use_.erase(resource->resource_id());
     }
   }
-  sender_->SendTiming(last_timing_, metadata_, std::move(new_features_),
-                      std::move(resources), render_data_, last_cpu_timing_,
-                      std::move(new_deferred_resource_data_),
-                      std::move(input_timing_delta_), mobile_friendliness_);
+  sender_->SendTiming(
+      last_timing_, metadata_, std::move(new_features_), std::move(resources),
+      render_data_, last_cpu_timing_, std::move(input_timing_delta_),
+      subresource_load_metrics_.Clone(), soft_navigation_count_);
   input_timing_delta_ = mojom::InputTiming::New();
-  mobile_friendliness_ = absl::nullopt;
   InitiateUserInteractionTiming();
-  new_deferred_resource_data_ = mojom::DeferredResourceCounts::New();
   new_features_.clear();
-  metadata_->intersection_update.reset();
+  metadata_->main_frame_intersection_rect.reset();
+  metadata_->main_frame_viewport_rect.reset();
   last_cpu_timing_->task_time = base::TimeDelta();
   modified_resources_.clear();
   render_data_.new_layout_shifts.clear();
@@ -350,6 +356,9 @@ void PageTimingMetricsSender::SendNow() {
   render_data_.ng_layout_block_count_delta = 0;
   render_data_.all_layout_call_count_delta = 0;
   render_data_.ng_layout_call_count_delta = 0;
+  // As PageTimingMetricsSender is owned by MetricsRenderFrameObserver, which is
+  // instantiated for each frame, there's no need to make soft_navigation_count_
+  // zero here, as its value only increments through the lifetime of the frame.
 }
 
 void PageTimingMetricsSender::DidObserveInputDelay(
@@ -363,47 +372,17 @@ void PageTimingMetricsSender::DidObserveInputDelay(
 }
 
 void PageTimingMetricsSender::InitiateUserInteractionTiming() {
-  if (base::FeatureList::IsEnabled(
-          blink::features::kSendAllUserInteractionLatencies)) {
-    input_timing_delta_->max_event_durations =
-        mojom::UserInteractionLatencies::NewUserInteractionLatencies({});
-    input_timing_delta_->total_event_durations =
-        mojom::UserInteractionLatencies::NewUserInteractionLatencies({});
-  } else {
-    input_timing_delta_->max_event_durations =
-        mojom::UserInteractionLatencies::NewWorstInteractionLatency(
-            base::TimeDelta());
-    input_timing_delta_->total_event_durations =
-        mojom::UserInteractionLatencies::NewWorstInteractionLatency(
-            base::TimeDelta());
-  }
+  input_timing_delta_->max_event_durations =
+      mojom::UserInteractionLatencies::NewUserInteractionLatencies({});
 }
 
 void PageTimingMetricsSender::DidObserveUserInteraction(
     base::TimeDelta max_event_duration,
-    base::TimeDelta total_event_duration,
     blink::UserInteractionType interaction_type) {
   input_timing_delta_->num_interactions++;
-  if (base::FeatureList::IsEnabled(
-          blink::features::kSendAllUserInteractionLatencies)) {
-    input_timing_delta_->max_event_durations->get_user_interaction_latencies()
-        .emplace_back(mojom::UserInteractionLatency::New(
-            max_event_duration, UserInteractionTypeForMojom(interaction_type)));
-    input_timing_delta_->total_event_durations->get_user_interaction_latencies()
-        .emplace_back(mojom::UserInteractionLatency::New(
-            total_event_duration,
-            UserInteractionTypeForMojom(interaction_type)));
-  } else {
-    input_timing_delta_->max_event_durations->set_worst_interaction_latency(
-        std::max(input_timing_delta_->max_event_durations
-                     ->get_worst_interaction_latency(),
-                 max_event_duration));
-    input_timing_delta_->total_event_durations->set_worst_interaction_latency(
-        std::max(input_timing_delta_->total_event_durations
-                     ->get_worst_interaction_latency(),
-                 total_event_duration));
-  }
-
+  input_timing_delta_->max_event_durations->get_user_interaction_latencies()
+      .emplace_back(mojom::UserInteractionLatency::New(
+          max_event_duration, UserInteractionTypeForMojom(interaction_type)));
   EnsureSendTimer();
 }
 

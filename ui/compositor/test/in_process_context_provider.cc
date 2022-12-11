@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,7 @@
 #include "base/callback_helpers.h"
 #include "base/lazy_instance.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/strings/stringprintf.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "components/viz/common/gpu/context_cache_controller.h"
 #include "components/viz/service/gl/gpu_service_impl.h"
@@ -27,19 +26,6 @@
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
 
 namespace ui {
-
-// static
-scoped_refptr<InProcessContextProvider> InProcessContextProvider::Create(
-    const gpu::ContextCreationAttribs& attribs,
-    gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
-    gpu::ImageFactory* image_factory,
-    gpu::SurfaceHandle window,
-    const std::string& debug_name,
-    bool support_locking) {
-  return new InProcessContextProvider(attribs, gpu_memory_buffer_manager,
-                                      image_factory, window, debug_name,
-                                      support_locking);
-}
 
 // static
 scoped_refptr<InProcessContextProvider>
@@ -62,23 +48,17 @@ InProcessContextProvider::CreateOffscreen(
   attribs.enable_gles2_interface = !is_worker;
   attribs.enable_oop_rasterization = is_worker;
   return new InProcessContextProvider(attribs, gpu_memory_buffer_manager,
-                                      image_factory, gpu::kNullSurfaceHandle,
-                                      "Offscreen", is_worker);
+                                      image_factory, is_worker);
 }
 
 InProcessContextProvider::InProcessContextProvider(
     const gpu::ContextCreationAttribs& attribs,
     gpu::GpuMemoryBufferManager* gpu_memory_buffer_manager,
     gpu::ImageFactory* image_factory,
-    gpu::SurfaceHandle window,
-    const std::string& debug_name,
     bool support_locking)
     : support_locking_(support_locking),
       attribs_(attribs),
-      gpu_memory_buffer_manager_(gpu_memory_buffer_manager),
-      image_factory_(image_factory),
-      window_(window),
-      debug_name_(debug_name) {
+      image_factory_(image_factory) {
   DCHECK(main_thread_checker_.CalledOnValidThread());
   context_thread_checker_.DetachFromThread();
 }
@@ -96,7 +76,7 @@ void InProcessContextProvider::Release() const {
   base::RefCountedThreadSafe<InProcessContextProvider>::Release();
 }
 
-gpu::ContextResult InProcessContextProvider::BindToCurrentThread() {
+gpu::ContextResult InProcessContextProvider::BindToCurrentSequence() {
   // This is called on the thread the context will be used.
   DCHECK(context_thread_checker_.CalledOnValidThread());
 
@@ -107,28 +87,20 @@ gpu::ContextResult InProcessContextProvider::BindToCurrentThread() {
   auto* holder = viz::TestGpuServiceHolder::GetInstance();
 
   if (attribs_.enable_oop_rasterization) {
-    DCHECK_EQ(window_, gpu::kNullSurfaceHandle);
     DCHECK(!attribs_.enable_gles2_interface);
     DCHECK(!attribs_.enable_grcontext);
 
     raster_context_ = std::make_unique<gpu::RasterInProcessContext>();
     bind_result_ = raster_context_->Initialize(
         holder->task_executor(), attribs_, gpu::SharedMemoryLimits(),
-        gpu_memory_buffer_manager_, image_factory_,
-        /*gpu_channel_manager_delegate=*/nullptr,
-        holder->gpu_service()->gr_shader_cache(), nullptr);
+        image_factory_, holder->gpu_service()->gr_shader_cache(), nullptr);
 
     impl_base_ = raster_context_->GetImplementation();
   } else {
     gles2_context_ = std::make_unique<gpu::GLInProcessContext>();
     bind_result_ = gles2_context_->Initialize(
-        viz::TestGpuServiceHolder::GetInstance()->task_executor(),
-        /*surface=*/nullptr,
-        /*is_offscreen=*/window_ == gpu::kNullSurfaceHandle, window_, attribs_,
-        gpu::SharedMemoryLimits(), gpu_memory_buffer_manager_, image_factory_,
-        /*gpu_task_scheduler=*/nullptr,
-        /*display_controller_on_gpu=*/nullptr,
-        base::ThreadTaskRunnerHandle::Get());
+        viz::TestGpuServiceHolder::GetInstance()->task_executor(), attribs_,
+        gpu::SharedMemoryLimits(), image_factory_);
 
     impl_base_ = gles2_context_->GetImplementation();
   }
@@ -137,7 +109,7 @@ gpu::ContextResult InProcessContextProvider::BindToCurrentThread() {
     return bind_result_;
 
   cache_controller_ = std::make_unique<viz::ContextCacheController>(
-      impl_base_, base::ThreadTaskRunnerHandle::Get());
+      impl_base_, base::SingleThreadTaskRunner::GetCurrentDefault());
   if (support_locking_)
     cache_controller_->SetLock(GetLock());
 

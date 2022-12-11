@@ -1,28 +1,26 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/authentication/enterprise/enterprise_prompt/enterprise_prompt_coordinator.h"
 
-#import "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/browser/main/browser.h"
+#import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/ui/authentication/enterprise/enterprise_prompt/enterprise_prompt_view_controller.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/commands/policy_change_commands.h"
+#import "ios/chrome/browser/url/chrome_url_constants.h"
 #import "ios/chrome/common/ui/confirmation_alert/confirmation_alert_action_handler.h"
-#include "url/gurl.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-#if !TARGET_OS_MACCATALYST
 namespace {
 constexpr CGFloat kHalfSheetCornerRadius = 20;
 }  // namespace
-#endif
 
 @interface EnterprisePromptCoordinator () <
     ConfirmationAlertActionHandler,
@@ -56,7 +54,6 @@ constexpr CGFloat kHalfSheetCornerRadius = 20;
   self.viewController.presentationController.delegate = self;
   self.viewController.actionHandler = self;
 
-#if !TARGET_OS_MACCATALYST
   if (@available(iOS 15, *)) {
     self.viewController.modalPresentationStyle = UIModalPresentationPageSheet;
     UISheetPresentationController* presentationController =
@@ -68,9 +65,6 @@ constexpr CGFloat kHalfSheetCornerRadius = 20;
     ];
     presentationController.preferredCornerRadius = kHalfSheetCornerRadius;
   } else {
-#else
-  {
-#endif
     self.viewController.modalPresentationStyle = UIModalPresentationFormSheet;
   }
 

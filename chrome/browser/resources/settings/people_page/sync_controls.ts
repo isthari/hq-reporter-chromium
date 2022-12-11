@@ -1,27 +1,29 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import '//resources/js/util.m.js';
-import '//resources/cr_elements/cr_radio_button/cr_radio_button.m.js';
-import '//resources/cr_elements/cr_radio_group/cr_radio_group.m.js';
-import '//resources/cr_elements/cr_toggle/cr_toggle.m.js';
-import '//resources/cr_elements/shared_style_css.m.js';
-import '//resources/cr_elements/shared_vars_css.m.js';
+import '//resources/js/util_ts.js';
+import '//resources/cr_components/localized_link/localized_link.js';
+import '//resources/cr_elements/cr_radio_button/cr_radio_button.js';
+import '//resources/cr_elements/cr_radio_group/cr_radio_group.js';
+import '//resources/cr_elements/cr_toggle/cr_toggle.js';
+import '//resources/cr_elements/cr_shared_style.css.js';
+import '//resources/cr_elements/cr_shared_vars.css.js';
 import '//resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
-import '../settings_shared_css.js';
+import '../settings_shared.css.js';
 
-import {assert} from '//resources/js/assert.m.js';
-import {WebUIListenerMixin} from '//resources/js/web_ui_listener_mixin.js';
-import {html, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {assert} from '//resources/js/assert_ts.js';
+import {WebUiListenerMixin} from '//resources/cr_elements/web_ui_listener_mixin.js';
+import {PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-// <if expr="chromeos_ash or chromeos_lacros">
+// <if expr="is_chromeos">
 import {loadTimeData} from '../i18n_setup.js';
 // </if>
 
 import {Route, Router} from '../router.js';
 
 import {StatusAction, SyncBrowserProxy, SyncBrowserProxyImpl, SyncPrefs, syncPrefsIndividualDataTypes, SyncStatus} from './sync_browser_proxy.js';
+import {getTemplate} from './sync_controls.html.js';
 
 /**
  * Names of the radio buttons which allow the user to choose their data sync
@@ -37,7 +39,7 @@ enum RadioButtonNames {
  * 'settings-sync-controls' contains all sync data type controls.
  */
 
-const SettingsSyncControlsElementBase = WebUIListenerMixin(PolymerElement);
+const SettingsSyncControlsElementBase = WebUiListenerMixin(PolymerElement);
 
 export class SettingsSyncControlsElement extends
     SettingsSyncControlsElementBase {
@@ -46,7 +48,7 @@ export class SettingsSyncControlsElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -74,7 +76,7 @@ export class SettingsSyncControlsElement extends
     };
   }
 
-  hidden: boolean;
+  override hidden: boolean;
   syncPrefs?: SyncPrefs;
   syncStatus: SyncStatus;
   private browserProxy_: SyncBrowserProxy = SyncBrowserProxyImpl.getInstance();
@@ -90,10 +92,10 @@ export class SettingsSyncControlsElement extends
     this.cachedSyncPrefs_ = null;
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
-    this.addWebUIListener(
+    this.addWebUiListener(
         'sync-prefs-changed', this.handleSyncPrefsChanged_.bind(this));
 
     const router = Router.getInstance();
@@ -104,7 +106,7 @@ export class SettingsSyncControlsElement extends
   }
 
 
-  // <if expr="chromeos_ash or chromeos_lacros">
+  // <if expr="is_chromeos">
   private shouldShowLacrosSideBySideWarning_(): boolean {
     return loadTimeData.getBoolean('shouldShowLacrosSideBySideWarning');
   }
@@ -183,14 +185,7 @@ export class SettingsSyncControlsElement extends
     this.onSingleSyncDataTypeChanged_();
   }
 
-  /**
-   * Handler for when the autofill data type checkbox is changed.
-   */
-  private onTypedUrlsDataTypeChanged_() {
-    this.onSingleSyncDataTypeChanged_();
-  }
-
-  shouldPaymentsCheckboxBeDisabled_(
+  private shouldPaymentsCheckboxBeDisabled_(
       syncAllDataTypes: boolean, autofillSynced: boolean): boolean {
     return syncAllDataTypes || !autofillSynced;
   }

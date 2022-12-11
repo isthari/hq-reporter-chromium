@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "content/browser/loader/navigation_url_loader.h"
-#include "content/browser/loader/single_request_url_loader_factory.h"
 #include "content/browser/navigation_subresource_loader_params.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/content_browser_client.h"
@@ -19,6 +18,10 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/url_request/url_request.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
+#include "services/network/public/cpp/record_ontransfersizeupdate_utils.h"
+#include "services/network/public/cpp/single_request_url_loader_factory.h"
 #include "services/network/public/mojom/accept_ch_frame_observer.mojom.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
@@ -139,7 +142,6 @@ class CONTENT_EXPORT NavigationURLLoaderImpl
   scoped_refptr<network::SharedURLLoaderFactory>
   PrepareForNonInterceptedRequest(uint32_t* out_options);
 
-
 #if BUILDFLAG(ENABLE_PLUGINS)
   void CheckPluginAndContinueOnReceiveResponse(
       network::mojom::URLResponseHeadPtr head,
@@ -187,21 +189,19 @@ class CONTENT_EXPORT NavigationURLLoaderImpl
   void OnReceiveEarlyHints(network::mojom::EarlyHintsPtr early_hints) override;
   void OnReceiveResponse(
       network::mojom::URLResponseHeadPtr head,
-      mojo::ScopedDataPipeConsumerHandle response_body) override;
-  void OnStartLoadingResponseBody(
-      mojo::ScopedDataPipeConsumerHandle response_body) override;
+      mojo::ScopedDataPipeConsumerHandle response_body,
+      absl::optional<mojo_base::BigBuffer> cached_metadata) override;
   void OnReceiveRedirect(const net::RedirectInfo& redirect_info,
                          network::mojom::URLResponseHeadPtr head) override;
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback callback) override;
-  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override;
-  void OnTransferSizeUpdated(int32_t transfer_size_diff) override {}
+  void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
   void OnComplete(const network::URLLoaderCompletionStatus& status) override;
 
   // network::mojom::AcceptCHFrameObserver implementation
   void OnAcceptCHFrameReceived(
-      const GURL& url,
+      const url::Origin& origin,
       const std::vector<network::mojom::WebClientHintsType>& accept_ch_frame,
       OnAcceptCHFrameReceivedCallback callback) override;
   void Clone(mojo::PendingReceiver<network::mojom::AcceptCHFrameObserver>
@@ -215,10 +215,14 @@ class CONTENT_EXPORT NavigationURLLoaderImpl
       const net::HttpRequestHeaders& modified_cors_exempt_headers) override;
   bool SetNavigationTimeout(base::TimeDelta timeout) override;
 
-  raw_ptr<NavigationURLLoaderDelegate> delegate_;
+  // Records UKM for the navigation load.
+  void RecordReceivedResponseUkmForOutermostMainFrame();
+
+  raw_ptr<NavigationURLLoaderDelegate, DanglingUntriaged> delegate_;
   raw_ptr<BrowserContext> browser_context_;
   raw_ptr<StoragePartitionImpl> storage_partition_;
-  raw_ptr<ServiceWorkerMainResourceHandle> service_worker_handle_;
+  raw_ptr<ServiceWorkerMainResourceHandle, DanglingUntriaged>
+      service_worker_handle_;
 
   std::unique_ptr<network::ResourceRequest> resource_request_;
   std::unique_ptr<NavigationRequestInfo> request_info_;
@@ -234,11 +238,11 @@ class CONTENT_EXPORT NavigationURLLoaderImpl
   const WeakDocumentPtr initiator_document_;
   net::RedirectInfo redirect_info_;
   int redirect_limit_ = net::URLRequest::kMaxRedirects;
+  int accept_ch_restart_limit_ = net::URLRequest::kMaxRedirects;
   base::RepeatingCallback<WebContents*()> web_contents_getter_;
   std::unique_ptr<NavigationUIData> navigation_ui_data_;
 
   scoped_refptr<network::SharedURLLoaderFactory> network_loader_factory_;
-  std::unique_ptr<blink::ThrottlingURLLoader> url_loader_;
 
   // Caches the modified request headers provided by clients during redirect,
   // will be consumed by next `url_loader_->FollowRedirect()`.
@@ -265,7 +269,7 @@ class CONTENT_EXPORT NavigationURLLoaderImpl
   mojo::PendingRemote<network::mojom::URLLoader> response_url_loader_;
 
   // Set to true if we receive a valid response from a URLLoader, i.e.
-  // URLLoaderClient::OnStartLoadingResponseBody() is called.
+  // URLLoaderClient::OnReceiveResponse() is called.
   bool received_response_ = false;
 
   bool started_ = false;
@@ -315,6 +319,11 @@ class CONTENT_EXPORT NavigationURLLoaderImpl
   std::map<std::string, mojo::Remote<network::mojom::URLLoaderFactory>>
       non_network_url_loader_factory_remotes_;
 
+  // This needs to be declared here because the underlying object might take a
+  // reference on a URLLoaderFactory stored in
+  // `non_network_url_loader_factory_remotes_`.
+  std::unique_ptr<blink::ThrottlingURLLoader> url_loader_;
+
   std::unique_ptr<NavigationEarlyHintsManager> early_hints_manager_;
 
   // Set on the constructor and runs in Start(). This is used for transferring
@@ -332,6 +341,12 @@ class CONTENT_EXPORT NavigationURLLoaderImpl
 
   // The time this loader was created.
   base::TimeTicks loader_creation_time_;
+
+  // Whether the navigation processed an ACCEPT_CH frame in the TLS handshake.
+  bool received_accept_ch_frame_ = false;
+
+  // UKM source id used for recording events associated with navigation loading.
+  const ukm::SourceId ukm_source_id_;
 
   base::WeakPtrFactory<NavigationURLLoaderImpl> weak_factory_{this};
 };

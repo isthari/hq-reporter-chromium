@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,11 @@
 
 #include "ash/public/cpp/ash_public_export.h"
 #include "base/time/time.h"
-#include "media/mojo/mojom/speech_recognition_service.mojom.h"
+#include "media/mojo/mojom/speech_recognition.mojom.h"
 
 namespace ash {
 
-struct AnnotatorTool;
 struct NewScreencastPrecondition;
-
-// File extension of Projector metadata file. It is used to identify Projector
-// screencasts at processing pending screencasts and fetching screencast list.
-constexpr char kProjectorMetadataFileExtension[] = "projector";
 
 class ProjectorClient;
 
@@ -32,7 +27,9 @@ enum class ASH_PUBLIC_EXPORT SpeechRecognitionAvailability {
   // SODA binary and language packs are downloading.
   kSodaInstalling,
   // SODA installation failed.
-  kSodaInstallationError,
+  kSodaInstallationErrorUnspecified,
+  // SODA installation error needs reboot
+  kSodaInstallationErrorNeedsReboot,
   // SODA is available to be used.
   kAvailable
 };
@@ -74,22 +71,23 @@ class ASH_PUBLIC_EXPORT ProjectorController {
   // Called when speech recognition stopped.
   virtual void OnSpeechRecognitionStopped() = 0;
 
-  // Returns true if Projector screen recording feature is available on the
-  // device. If on device speech recognition is not available on device, then
-  // Projector is not eligible.
-  virtual bool IsEligible() const = 0;
-
   // Returns true if we can start a new Projector session.
   virtual NewScreencastPrecondition GetNewScreencastPrecondition() const = 0;
 
   // The following functions are callbacks from the annotator back to the
   // ProjectorController.
 
-  // Callback indicating that the annotator tool has changed.
-  virtual void OnToolSet(const AnnotatorTool& tool) = 0;
   // Callback indicating availability of undo and redo functionalities.
   virtual void OnUndoRedoAvailabilityChanged(bool undo_available,
                                              bool redo_available) = 0;
+  // Called when the ink canvas has either succeeded or failed in initializing.
+  virtual void OnCanvasInitialized(bool success) = 0;
+
+  // Returns if the annotatotion canvas is available.
+  virtual bool GetAnnotatorAvailability() = 0;
+
+  // Toggles the Projector annotation tray UI and marker enabled state.
+  virtual void ToggleAnnotationTray() = 0;
 };
 
 }  // namespace ash

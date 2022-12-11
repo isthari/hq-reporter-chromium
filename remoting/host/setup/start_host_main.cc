@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,12 +18,13 @@
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "mojo/core/embedder/embedder.h"
-#include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "remoting/base/breakpad.h"
 #include "remoting/base/logging.h"
 #include "remoting/base/url_request_context_getter.h"
 #include "remoting/host/setup/host_starter.h"
 #include "remoting/host/setup/pin_validator.h"
+#include "remoting/host/usage_stats_consent.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/transitional_url_loader_factory_owner.h"
 
@@ -147,6 +148,12 @@ int StartHostMain(int argc, char** argv) {
       logging::LOG_TO_SYSTEM_DEBUG_LOG | logging::LOG_TO_STDERR;
   logging::InitLogging(settings);
 
+#if defined(REMOTING_ENABLE_BREAKPAD)
+  if (IsUsageStatsAllowed()) {
+    InitializeCrashReporting();
+  }
+#endif  // defined(REMOTING_ENABLE_BREAKPAD)
+
   base::ThreadPoolInstance::CreateAndStartWithDefaultParams(
       "RemotingHostSetup");
 
@@ -247,8 +254,6 @@ int StartHostMain(int argc, char** argv) {
       new remoting::URLRequestContextGetter(io_thread.task_runner()));
   network::TransitionalURLLoaderFactoryOwner url_loader_factory_owner(
       url_request_context_getter);
-
-  net::URLFetcher::SetIgnoreCertificateRequests(true);
 
   // Start the host.
   std::unique_ptr<HostStarter> host_starter(HostStarter::Create(

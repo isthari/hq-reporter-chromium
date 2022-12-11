@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/clipboard_constants.h"
 #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
@@ -189,11 +190,11 @@ void HeadlessClipboard::ReadData(const ui::ClipboardFormatType& format,
     *result = it->second;
 }
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 bool HeadlessClipboard::IsSelectionBufferAvailable() const {
   return false;
 }
-#endif  // defined(USE_OZONE)
+#endif  // BUILDFLAG(IS_OZONE)
 
 // |data_src| is not used. It's only passed to be consistent with other
 // platforms.

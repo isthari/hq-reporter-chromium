@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,12 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.CommandLine;
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
+import org.chromium.components.metrics.LowEntropySource;
+import org.chromium.components.variations.NormalizedMurmurHashEntropyProvider;
 import org.chromium.components.version_info.Channel;
 import org.chromium.components.version_info.VersionConstants;
 
@@ -34,12 +37,37 @@ import java.util.Random;
  */
 public class FREMobileIdentityConsistencyFieldTrial {
     private static final Object LOCK = new Object();
-    private static final String ENABLED_GROUP = "Enabled2";
+    private static final String ENABLED_GROUP = "Enabled9";
     @VisibleForTesting
-    public static final String DISABLED_GROUP = "Disabled2";
+    public static final String DISABLED_GROUP = "Disabled9";
     private static final String DEFAULT_GROUP = "Default";
     @VisibleForTesting
-    public static final String OLD_FRE_WITH_UMA_DIALOG_GROUP = "OldFreWithUmaDialog";
+    public static final String OLD_FRE_WITH_UMA_DIALOG_GROUP = "OldFreWithUmaDialog9";
+
+    /**
+     * Shows the new flow with separate sign-in and sync pages. Uses the new initialization logic
+     * that doesn't require native initialization to be finished for showing continue/dismiss
+     * buttons on the welcome screen.
+     */
+    @VisibleForTesting
+    public static final String INITIALIZATION_FLOW_NEW_GROUP = "InitializationFlowNew9";
+    /**
+     * Shows the new flow with separate sign-in and sync pages. Uses the old initialization logic
+     * in which continue/dismiss buttons on the welcome screen are shown after native is
+     * initialized. This group is used to check the effect of the delay introduced by the native
+     * initialization.
+     */
+    public static final String INITIALIZATION_FLOW_OLD_GROUP = "InitializationFlowOld9";
+    /**
+     * Shows the flow without the sign-in page but with UMA controls in a dialog.
+     * This group is used as control for {@link #INITIALIZATION_FLOW_NEW_GROUP} and
+     * {@link #INITIALIZATION_FLOW_OLD_GROUP}.
+     */
+    private static final String INITIALIZATION_FLOW_CONTROL_GROUP = "InitializationFlowControl9";
+    /**
+     * Used as a seed while selecting the group for the trial.
+     */
+    private static final int STUDY_RANDOMIZATION_SALT = 0xf2689bf8;
 
     /**
      * The group variation values should be consecutive starting from zero. WELCOME_TO_CHROME acts
@@ -104,17 +132,23 @@ public class FREMobileIdentityConsistencyFieldTrial {
         int MAX_VALUE = 6;
     }
 
-    @CalledByNative
     @AnyThread
     public static boolean isEnabled() {
         // Switch used for tests. Disabled by default otherwise.
         if (CommandLine.getInstance().hasSwitch(ChromeSwitches.FORCE_DISABLE_SIGNIN_FRE)) {
             return false;
         }
+        if (CommandLine.getInstance().hasSwitch(ChromeSwitches.FORCE_ENABLE_SIGNIN_FRE)) {
+            return true;
+        }
+        if (getFirstRunTrialGroup().equals(INITIALIZATION_FLOW_NEW_GROUP)
+                || getFirstRunTrialGroup().equals(INITIALIZATION_FLOW_OLD_GROUP)) {
+            return true;
+        }
+
         // Group names were changed from 'Enabled' to 'Enabled2' starting from Beta experiment.
         // getFirstRunTrialGroup.startWith() matches old groups alongside new groups.
-        return CommandLine.getInstance().hasSwitch(ChromeSwitches.FORCE_ENABLE_SIGNIN_FRE)
-                || getFirstRunTrialGroup().startsWith("Enabled");
+        return getFirstRunTrialGroup().startsWith("Enabled");
     }
 
     @MainThread
@@ -123,7 +157,16 @@ public class FREMobileIdentityConsistencyFieldTrial {
         if (CommandLine.getInstance().hasSwitch(ChromeSwitches.FORCE_DISABLE_SIGNIN_FRE)) {
             return false;
         }
-        return OLD_FRE_WITH_UMA_DIALOG_GROUP.equals(getFirstRunTrialGroup());
+        return OLD_FRE_WITH_UMA_DIALOG_GROUP.equals(getFirstRunTrialGroup())
+                || INITIALIZATION_FLOW_CONTROL_GROUP.equals(getFirstRunTrialGroup());
+    }
+
+    @MainThread
+    public static boolean shouldUseNewInitializationFlow() {
+        if (CommandLine.getInstance().hasSwitch(ChromeSwitches.FORCE_DISABLE_SIGNIN_FRE)) {
+            return false;
+        }
+        return getFirstRunTrialGroup().equals(INITIALIZATION_FLOW_NEW_GROUP);
     }
 
     @CalledByNative
@@ -136,6 +179,57 @@ public class FREMobileIdentityConsistencyFieldTrial {
     }
 
     @CalledByNative
+    @AnyThread
+    private static int getFirstRunTrialVariationId(int lowEntropySource, int lowEntropySize) {
+        String groupFromLowEntropySource =
+                generateFirstRunTrialGroup(lowEntropySource, lowEntropySize);
+        boolean isGroupConsistent = getFirstRunTrialGroup().equals(groupFromLowEntropySource);
+        RecordHistogram.recordBooleanHistogram(
+                "Signin.AndroidIsFREStudyGroupConsistent", isGroupConsistent);
+
+        final int variationsEmptyID = 0; // This should be identical to variations::EMPTY_ID.
+        if (!isGroupConsistent) {
+            return variationsEmptyID; // Do not send variations ID if there's a mismatch.
+        }
+        if (VersionConstants.CHANNEL == Channel.STABLE) {
+            // IDs in this method were obtained following go/finch-allocating-gws-ids.
+            switch (getFirstRunTrialGroup()) {
+                case DISABLED_GROUP:
+                    return 3354002;
+                case ENABLED_GROUP:
+                    return 3354003;
+                case OLD_FRE_WITH_UMA_DIALOG_GROUP:
+                    return 3354004;
+                case INITIALIZATION_FLOW_CONTROL_GROUP:
+                    return 3356513;
+                case INITIALIZATION_FLOW_NEW_GROUP:
+                    return 3356514;
+                case INITIALIZATION_FLOW_OLD_GROUP:
+                    return 3356515;
+                default:
+                    break;
+            }
+        } else if (VersionConstants.CHANNEL == Channel.BETA) {
+            switch (getFirstRunTrialGroup()) {
+                case DISABLED_GROUP:
+                    return 3356552;
+                case ENABLED_GROUP:
+                    return 3356553;
+                case OLD_FRE_WITH_UMA_DIALOG_GROUP:
+                    return 3356554;
+                case INITIALIZATION_FLOW_CONTROL_GROUP:
+                    return 3356555;
+                case INITIALIZATION_FLOW_NEW_GROUP:
+                    return 3356556;
+                case INITIALIZATION_FLOW_OLD_GROUP:
+                    return 3356557;
+                default:
+                    break;
+            }
+        }
+        return variationsEmptyID; // In other channels, the experiment is not GWS-visible.
+    }
+
     @AnyThread
     public static String getFirstRunVariationsTrialGroup() {
         @VariationsGroup
@@ -210,47 +304,81 @@ public class FREMobileIdentityConsistencyFieldTrial {
             }
         }
 
+        String group = generateFirstRunTrialGroup(
+                LowEntropySource.generateLowEntropySourceForFirstRunTrial(),
+                LowEntropySource.MAX_LOW_ENTROPY_SIZE);
+        synchronized (LOCK) {
+            SharedPreferencesManager.getInstance().writeString(
+                    ChromePreferenceKeys.FIRST_RUN_FIELD_TRIAL_GROUP, group);
+        }
+    }
+
+    private static String generateFirstRunTrialGroup(int lowEntropyValue, int lowEntropySize) {
         // Tweak these values for different builds to create the percentage of group population.
         // For A/B testing all 3 experiment groups should have the same percentages.
         int enabledPercent = 0;
         int disabledPercent = 0;
         int oldFreWithUmaDialogPercent = 0;
+        int initializationFlowNewPercent = 0;
+        int initializationFlowOldPercent = 0;
+        int initializationFlowControlPercent = 0;
         switch (VersionConstants.CHANNEL) {
             case Channel.DEFAULT:
             case Channel.CANARY:
             case Channel.DEV:
-                enabledPercent = 33;
-                disabledPercent = 33;
-                oldFreWithUmaDialogPercent = 33;
+                enabledPercent = 16;
+                disabledPercent = 16;
+                oldFreWithUmaDialogPercent = 16;
+                initializationFlowNewPercent = 16;
+                initializationFlowOldPercent = 16;
+                initializationFlowControlPercent = 16;
                 break;
             case Channel.BETA:
                 enabledPercent = 10;
                 disabledPercent = 10;
                 oldFreWithUmaDialogPercent = 10;
+                initializationFlowNewPercent = 10;
+                initializationFlowOldPercent = 10;
+                initializationFlowControlPercent = 10;
                 break;
             case Channel.STABLE:
-                enabledPercent = 1;
-                disabledPercent = 1;
-                oldFreWithUmaDialogPercent = 1;
+                enabledPercent = 30;
+                disabledPercent = 30;
+                oldFreWithUmaDialogPercent = 30;
+                initializationFlowNewPercent = 1;
+                initializationFlowOldPercent = 1;
+                initializationFlowControlPercent = 1;
                 break;
         }
-        assert enabledPercent + disabledPercent + oldFreWithUmaDialogPercent <= 100;
+        assert enabledPercent + disabledPercent + oldFreWithUmaDialogPercent
+                        + initializationFlowNewPercent + initializationFlowOldPercent
+                        + initializationFlowControlPercent
+                <= 100;
 
-        final int randomBucket = new Random().nextInt(100);
-        String group = DEFAULT_GROUP;
-        if (randomBucket < enabledPercent) {
-            group = ENABLED_GROUP;
-            createFirstRunVariationsTrial();
-        } else if (randomBucket < enabledPercent + disabledPercent) {
-            group = DISABLED_GROUP;
-        } else if (randomBucket < enabledPercent + disabledPercent + oldFreWithUmaDialogPercent) {
-            group = OLD_FRE_WITH_UMA_DIALOG_GROUP;
-        }
+        NormalizedMurmurHashEntropyProvider entropyProvider =
+                new NormalizedMurmurHashEntropyProvider(lowEntropyValue, lowEntropySize);
+        double entropyForTrial = entropyProvider.getEntropyForTrial(STUDY_RANDOMIZATION_SALT);
+        double randomBucket = entropyForTrial * 100;
 
-        synchronized (LOCK) {
-            SharedPreferencesManager.getInstance().writeString(
-                    ChromePreferenceKeys.FIRST_RUN_FIELD_TRIAL_GROUP, group);
+        if (randomBucket < enabledPercent) return ENABLED_GROUP;
+        randomBucket -= enabledPercent;
+
+        if (randomBucket < disabledPercent) return DISABLED_GROUP;
+        randomBucket -= disabledPercent;
+
+        if (randomBucket < oldFreWithUmaDialogPercent) return OLD_FRE_WITH_UMA_DIALOG_GROUP;
+        randomBucket -= oldFreWithUmaDialogPercent;
+
+        if (randomBucket < initializationFlowNewPercent) return INITIALIZATION_FLOW_NEW_GROUP;
+        randomBucket -= initializationFlowNewPercent;
+
+        if (randomBucket < initializationFlowOldPercent) return INITIALIZATION_FLOW_OLD_GROUP;
+        randomBucket -= initializationFlowOldPercent;
+
+        if (randomBucket < initializationFlowControlPercent) {
+            return INITIALIZATION_FLOW_CONTROL_GROUP;
         }
+        return DEFAULT_GROUP;
     }
 
     /**
@@ -278,9 +406,9 @@ public class FREMobileIdentityConsistencyFieldTrial {
             case Channel.DEFAULT:
             case Channel.CANARY:
             case Channel.DEV:
-            case Channel.BETA:
                 variationsPercentage = 10;
                 break;
+            case Channel.BETA:
             case Channel.STABLE:
         }
         // For A/B testing all experiment groups should have the same percentages.

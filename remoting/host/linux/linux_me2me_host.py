@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Copyright (c) 2012 The Chromium Authors. All rights reserved.
+# Copyright 2012 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -32,6 +32,7 @@ import re
 import shlex
 import signal
 import socket
+import struct
 import subprocess
 import syslog
 import tempfile
@@ -50,18 +51,11 @@ HOST_EXTRA_PARAMS_ENV_VAR = "CHROME_REMOTE_DESKTOP_HOST_EXTRA_PARAMS"
 # list of sizes in this environment variable.
 DEFAULT_SIZES_ENV_VAR = "CHROME_REMOTE_DESKTOP_DEFAULT_DESKTOP_SIZES"
 
-# By default, this script launches Xvfb as the virtual X display. When this
-# environment variable is set, the script will instead launch an instance of
-# Xorg using the dummy display driver and void input device. In order for this
-# to work, both the dummy display driver and void input device need to be
-# installed:
-#
-#     sudo apt-get install xserver-xorg-video-dummy
-#     sudo apt-get install xserver-xorg-input-void
-#
-# TODO(rkjnsn): Add xserver-xorg-video-dummy and xserver-xorg-input-void as
-# package dependencies at the same time we switch the default to Xorg
-USE_XORG_ENV_VAR = "CHROME_REMOTE_DESKTOP_USE_XORG"
+# By default, this script launches Xorg as the virtual X display, using the
+# dummy display driver and void input device, unless Xorg+Dummy is deemed
+# unsupported. When this environment variable is set, the script will instead
+# launch Xvfb.
+USE_XVFB_ENV_VAR = "CHROME_REMOTE_DESKTOP_USE_XVFB"
 
 # The amount of video RAM the dummy driver should claim to have, which limits
 # the maximum possible resolution.
@@ -76,13 +70,13 @@ XORG_DUMMY_VIDEO_RAM = 1048576 # KiB
 # defaults can be overridden in ~/.profile.
 DEFAULT_SIZES = "1600x1200,3840x2560"
 
-# Xorg's dummy driver only supports switching between preconfigured sizes. To
-# make resize-to-fit somewhat useful, include several common resolutions by
-# default.
-DEFAULT_SIZES_XORG = ("1600x1200,1600x900,1440x900,1366x768,1360x768,1280x1024,"
-                      "1280x800,1280x768,1280x720,1152x864,1024x768,1024x600,"
-                      "800x600,1680x1050,1920x1080,1920x1200,2560x1440,"
-                      "2560x1600,3840x2160,3840x2560")
+# Decides number of monitors and their resolution that should be run for the
+# wayland session.
+WAYLAND_DESKTOP_SIZES_ENV = "CHROME_REMOTE_DESKTOP_WAYLAND_DESKTOP_SIZES"
+
+# Default wayland monitor size if `CHROME_REMOTE_DESKTOP_DEFAULT_DESKTOP_SIZES`
+# env variable is not set.
+DEFAULT_WAYLAND_DESKTOP_SIZES = "1280x720"
 
 SCRIPT_PATH = os.path.abspath(sys.argv[0])
 SCRIPT_DIR = os.path.dirname(SCRIPT_PATH)
@@ -125,8 +119,15 @@ MAX_LAUNCH_FAILURES = SHORT_BACKOFF_THRESHOLD + 10
 # Number of seconds to save session output to the log.
 SESSION_OUTPUT_TIME_LIMIT_SECONDS = 300
 
+# Number of seconds to save the display server output to the log.
+SERVER_OUTPUT_TIME_LIMIT_SECONDS = 300
+
 # Host offline reason if the X server retry count is exceeded.
 HOST_OFFLINE_REASON_X_SERVER_RETRIES_EXCEEDED = "X_SERVER_RETRIES_EXCEEDED"
+
+# Host offline reason if the wayland server retry count is exceeded.
+HOST_OFFLINE_REASON_WAYLAND_SERVER_RETRIES_EXCEEDED = (
+  "WAYLAND_SERVER_RETRIES_EXCEEDED")
 
 # Host offline reason if the X session retry count is exceeded.
 HOST_OFFLINE_REASON_SESSION_RETRIES_EXCEEDED = "SESSION_RETRIES_EXCEEDED"
@@ -153,11 +154,15 @@ COMMAND_NOT_FOUND_EXIT_CODE = 127
 # This exit code is returned when a needed binary exists but cannot be executed.
 COMMAND_NOT_EXECUTABLE_EXIT_CODE = 126
 
+# User runtime directory. This is where the wayland socket is created by the
+# wayland compositor/server for clients to connect to.
+RUNTIME_DIR_TEMPLATE = "/run/user/%s"
+
 # Globals needed by the atexit cleanup() handler.
 g_desktop = None
 g_host_hash = hashlib.md5(socket.gethostname().encode()).hexdigest()
 
-def gen_xorg_config(sizes):
+def gen_xorg_config():
   return (
       # This causes X to load the default GLX module, even if a proprietary one
       # is installed in a different directory.
@@ -183,6 +188,11 @@ def gen_xorg_config(sizes):
       # add additional devices.
       '  Option "CoreKeyboard" "true"\n'
       '  Option "CorePointer" "true"\n'
+      # The "void" driver is no longer available since Debian 11, but having an
+      # InputDevice section with an invalid driver will still prevent the Xorg
+      # server from using a fallback InputDevice setting. However, "Chrome
+      # Remote Desktop Input" will not appear in the device list if the driver
+      # is not available.
       '  Driver "void"\n'
       'EndSection\n'
       '\n'
@@ -194,16 +204,6 @@ def gen_xorg_config(sizes):
       '\n'
       'Section "Monitor"\n'
       '  Identifier "Chrome Remote Desktop Monitor"\n'
-      # The horizontal sync rate was calculated from the vertical refresh rate
-      # and the modline template:
-      # (33000 (vert total) * 0.1 Hz = 3.3 kHz)
-      '  HorizSync   3.3\n' # kHz
-      # The vertical refresh rate was chosen both to be low enough to have an
-      # acceptable dot clock at high resolutions, and then bumped down a little
-      # more so that in the unlikely event that a low refresh rate would break
-      # something, it would break obviously.
-      '  VertRefresh 0.1\n' # Hz
-      '{modelines}'
       'EndSection\n'
       '\n'
       'Section "Screen"\n'
@@ -214,7 +214,6 @@ def gen_xorg_config(sizes):
       '  SubSection "Display"\n'
       '    Viewport 0 0\n'
       '    Depth 24\n'
-      '    Modes {modes}\n'
       '  EndSubSection\n'
       'EndSection\n'
       '\n'
@@ -223,21 +222,6 @@ def gen_xorg_config(sizes):
       '  Screen       "Chrome Remote Desktop Screen"\n'
       '  InputDevice  "Chrome Remote Desktop Input"\n'
       'EndSection\n'.format(
-          # This Modeline template allows resolutions up to the dummy driver's
-          # max supported resolution of 32767x32767 without additional
-          # calculation while meeting the driver's dot clock requirements. Note
-          # that VP8 (and thus the amount of video RAM chosen) only support a
-          # maximum resolution of 16384x16384.
-          # 32767x32767 should be possible if we switch fully to VP9 and
-          # increase the video RAM to 4GiB.
-          # The dot clock was calculated to match the VirtRefresh chosen above.
-          # (33000 * 33000 * 0.1 Hz = 108.9 MHz)
-          # Changes this line require matching changes to HorizSync and
-          # VertRefresh.
-          modelines="".join(
-              '  Modeline "{0}x{1}" 108.9 {0} 32998 32999 33000 '
-              '{1} 32998 32999 33000\n'.format(w, h) for w, h in sizes),
-          modes=" ".join('"{0}x{1}"'.format(w, h) for w, h in sizes),
           video_ram=XORG_DUMMY_VIDEO_RAM))
 
 
@@ -440,7 +424,6 @@ class Desktop(abc.ABC):
     self.host_proc = None
     self.child_env = None
     self.host_ready = False
-    self.server_supports_exact_resize = False
     self.server_inhibitor = server_inhibitor
     self.session_inhibitor = session_inhibitor
     self.host_inhibitor = host_inhibitor
@@ -506,6 +489,7 @@ class Desktop(abc.ABC):
     """Launches process required for session and records the backoff time
     for inhibitors so that process restarts are not attempted again until
     that time has passed."""
+    logging.info("Setting up and launching session")
     self._init_child_env()
     self.setup_audio()
     self._setup_gnubby()
@@ -518,14 +502,21 @@ class Desktop(abc.ABC):
     self.session_inhibitor.record_started(MINIMUM_PROCESS_LIFETIME,
                                      backoff_time)
 
+  def _wait_for_setup_before_host_launch(self):
+    """
+    If a virtual desktop needs to do some setup before launching the host
+    process, it can override this method and ensure that the required setup is
+    done before returning from this process.
+    """
+    pass
 
   def launch_host(self, host_config, extra_start_host_args, backoff_time):
+    self._wait_for_setup_before_host_launch()
+    logging.info("Launching host process")
     # Start remoting host
     args = [HOST_BINARY_PATH, "--host-config=-"]
     if self.audio_pipe:
       args.append("--audio-pipe-name=%s" % self.audio_pipe)
-    if self.server_supports_exact_resize:
-      args.append("--server-supports-exact-resize")
     if self.ssh_auth_sockname:
       args.append("--ssh-auth-sockname=%s" % self.ssh_auth_sockname)
 
@@ -561,7 +552,7 @@ class Desktop(abc.ABC):
       self.host_proc.stdin.close()
     self.host_inhibitor.record_started(MINIMUM_PROCESS_LIFETIME, backoff_time)
 
-  def shutdown_all_procs(self):
+  def cleanup(self):
     """Send SIGTERM to all procs and wait for them to exit. Will fallback to
     SIGKILL if a process doesn't exit within 10 seconds.
     """
@@ -569,9 +560,9 @@ class Desktop(abc.ABC):
                        (self.session_proc, "session"),
                        (self.pre_session_proc, "pre-session"),
                        (self.server_proc, "display server")]:
-      logging.info("Shutting down %s: %s", name, proc and proc.pid)
       if proc is not None:
-        logging.info("Sending SIGTERM to %s proc.", name)
+        logging.info("Sending SIGTERM to %s proc (pid=%s)",
+                     name, proc and proc.pid)
         try:
           psutil_proc = psutil.Process(proc.pid)
           psutil_proc.terminate()
@@ -704,60 +695,7 @@ class Desktop(abc.ABC):
       failure_count += inhibitor.failures
     return failure_count
 
-  @abc.abstractmethod
   def setup_audio(self):
-    pass
-
-  @abc.abstractmethod
-  def launch_desktop_session(self):
-    """Start desktop session."""
-    pass
-
-  @abc.abstractmethod
-  def check_server_responding(self):
-    """Checks if the display server is responding to connections."""
-    return False
-
-
-class XDesktop(Desktop):
-  """Manage a single virtual X desktop"""
-
-  def __init__(self, sizes):
-    super(XDesktop, self).__init__(sizes)
-    self.xorg_conf = None
-    self.audio_pipe = None
-    self.server_supports_randr = False
-    self.randr_add_sizes = False
-    self.ssh_auth_sockname = None
-    global g_desktop
-    assert(g_desktop is None)
-    g_desktop = self
-
-  @staticmethod
-  def get_unused_display_number():
-    """Return a candidate display number for which there is currently no
-    X Server lock file"""
-    display = FIRST_X_DISPLAY_NUMBER
-    while os.path.exists(X_LOCK_FILE_TEMPLATE % display):
-      display += 1
-    return display
-
-  def _init_child_env(self):
-    super(XDesktop, self)._init_child_env()
-    # Force GDK to use the X11 backend, as otherwise parts of the host that use
-    # GTK can end up connecting to an active Wayland display instead of the
-    # CRD X11 session.
-    self.child_env["GDK_BACKEND"] = "x11"
-
-
-  def launch_session(self, *args, **kwargs):
-    logging.info("Launching X server and X session.")
-    super(XDesktop, self).launch_session(*args, **kwargs)
-
-  def setup_audio(self):
-    self._setup_pulseaudio()
-
-  def _setup_pulseaudio(self):
     self.audio_pipe = None
 
     # pulseaudio uses UNIX sockets for communication. Length of UNIX socket
@@ -806,6 +744,311 @@ class XDesktop(Desktop):
     self.audio_pipe = pipe_name
 
     return True
+
+
+  @abc.abstractmethod
+  def launch_desktop_session(self):
+    """Start desktop session."""
+    pass
+
+  @abc.abstractmethod
+  def check_server_responding(self):
+    """Checks if the display server is responding to connections."""
+    return False
+
+
+class WaylandDesktop(Desktop):
+  """Manage a single virtual wayland based desktop"""
+
+  WL_SOCKET_CHECK_DELAY_SECONDS = 1
+  WL_SOCKET_CHECK_TIMEOUT_SECONDS = 30
+  WL_SERVER_REPLY_TIMEOUT_SECONDS = 1
+  # We scan for the unused socket starting from number 1. If we are not able to
+  # find anything between 1 and 100 then we error out since there could be a
+  # socket leak and we don't want to keep retrying forever.
+  MAX_WAYLAND_SOCKET_NUM = 100
+
+  def __init__(self, sizes):
+    super(WaylandDesktop, self).__init__(sizes)
+    self.debug = False
+    self._wayland_socket = None
+    self._runtime_dir = None
+    self.inhibitors = {
+        self.server_inhibitor:
+          HOST_OFFLINE_REASON_WAYLAND_SERVER_RETRIES_EXCEEDED,
+        self.host_inhibitor: HOST_OFFLINE_REASON_HOST_RETRIES_EXCEEDED
+    }
+    global g_desktop
+    assert(g_desktop is None)
+    g_desktop = self
+
+  @property
+  def runtime_dir(self):
+    if not self._runtime_dir:
+      self._runtime_dir = RUNTIME_DIR_TEMPLATE % os.getuid()
+    return self._runtime_dir
+
+  def _init_child_env(self):
+    super(WaylandDesktop, self)._init_child_env()
+    self.child_env["GDK_BACKEND"] = "wayland,x11"
+    self.child_env["XDG_SESSION_TYPE"] = "wayland"
+    self.child_env["XDG_RUNTIME_DIR"] = self.runtime_dir
+    self._wayland_socket = self._get_unused_wayland_socket()
+    if self._wayland_socket is None:
+      logging.error("Unable to find unused wayland socket, running compositor "
+                    "is going to fail")
+      sys.exit(1)
+    else:
+      self.child_env["WAYLAND_DISPLAY"] = self._wayland_socket
+    self.child_env["CHROME_REMOTE_DESKTOP_SESSION"] = "1"
+    chrome_profile = os.path.join(CONFIG_DIR, "chrome-profile")
+    chrome_config_home = os.path.join(CONFIG_DIR, "chrome-config")
+    if (os.path.exists(chrome_profile)
+        and not os.path.exists(chrome_config_home)):
+      self.child_env["CHROME_USER_DATA_DIR"] = chrome_profile
+    elif os.path.exists(chrome_config_home):
+      self.child_env["CHROME_CONFIG_HOME"] = chrome_config_home
+
+    if self.debug:
+      self.child_env["G_MESSAGES_DEBUG"] = "all"
+      self.child_env["GDK_DEBUG"]  = "all"
+      self.child_env["G_DEBUG"] = "fatal-criticals"
+      self.child_env["WAYLAND_DEBUG"] = 1
+
+  def _get_unused_wayland_socket(self):
+    """
+    Return a candidate wayland socket that is not already taken by another
+    compositor.
+    """
+    socket_num = starting_socket_num = 0
+    full_sock_path = os.path.join(self.runtime_dir, "wayland-%s" % socket_num)
+    while ((os.path.exists(full_sock_path)) and
+            socket_num <= self.MAX_WAYLAND_SOCKET_NUM):
+      socket_num += 1
+      full_sock_path = os.path.join(self.runtime_dir, "wayland-%s" % socket_num)
+    if socket_num > self.MAX_WAYLAND_SOCKET_NUM:
+      logging.error("Unable to find an unused wayland socket (searched between "
+                    "'wayland-%s' to 'wayland-%s' under runtime directory",
+                    starting_socket_num,
+                    self.MAX_WAYLAND_SOCKET_NUM, self.runtime_dir)
+      return None
+    return "wayland-%s" % socket_num
+
+  @staticmethod
+  def _is_gnome_shell_present():
+    try:
+      subprocess.check_output(["gnome-shell", "--help"],
+                              stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as err:
+      logging.warning("Unable to find 'gnome-shell' on the host, "
+                      "returncode: %s, output: %s" % (err.returncode,
+                                                      err.output))
+      return False
+    return True
+
+  def _gnome_shell_cmd(self):
+    gnome_shell_cmd = [
+      "gnome-shell", "--wayland", "--headless", "--wayland-display",
+      self._wayland_socket, "--replace"]
+    return gnome_shell_cmd
+
+  def _launch_server(self, *args, **kwargs):
+    if not self._is_gnome_shell_present():
+      logging.error("Only GNOME based wayland hosts are supported currently. "
+                    "If the host is a GNOME host, please ensure that "
+                    "'gnome-shell' is installed on it")
+      # Error won't be fixed without user intervention so we quit here without
+      # attempting to relaunch.
+      sys.exit(1)
+    logging.info("Launching wayland server.")
+    if self.ssh_auth_sockname:
+      self.child_env["SSH_AUTH_SOCK"] = self.ssh_auth_sockname
+    self.server_proc = subprocess.Popen(self._gnome_shell_cmd(),
+                                         stdout=subprocess.PIPE,
+                                         stderr=subprocess.STDOUT,
+                                         env=self.child_env)
+
+    if not self.server_proc.pid:
+      raise Exception("Could not start wayland session")
+
+    output_filter_thread = SessionOutputFilterThread(self.server_proc.stdout,
+        "Wayland server output: ", SERVER_OUTPUT_TIME_LIMIT_SECONDS)
+    output_filter_thread.start()
+
+  def _wait_for_wayland_compositor_running(self):
+    """
+    Waits for wayland socket to be created by the wayland compositor. Returns
+    true if socket is created within the allowed timeout, else false.
+    """
+    full_socket_path = os.path.join(self.runtime_dir, self._wayland_socket)
+    start_time = time.time()
+    while not (os.path.exists(full_socket_path) and
+               time.time() - start_time < self.WL_SOCKET_CHECK_TIMEOUT_SECONDS):
+      logging.info("Wayland socket not yet present. Will wait for %s seconds "
+                   "for compositor to create it" %
+                   self.WL_SOCKET_CHECK_DELAY_SECONDS)
+      time.sleep(self.WL_SOCKET_CHECK_DELAY_SECONDS)
+    if not os.path.exists(full_socket_path):
+      logging.error("Waited for wayland compositor to create wayland "
+                    "socket: %s, but it didn't happen in %s seconds" %
+                    (full_socket_path, self.WL_SOCKET_CHECK_TIMEOUT_SECONDS))
+      return False
+    logging.info("Wayland socket detected in %s seconds: " %
+                 str(time.time() - start_time))
+    return True
+
+  def launch_desktop_session(self):
+    """
+    Restarts the portal services so that they can connect to the wayland socket.
+    This helps host process to talk to call into the the xdg-desktop-portal
+    APIs.
+    """
+    if not self._wait_for_wayland_compositor_running():
+      logging.error("Aborting wayland session since compositor isn't running")
+      return
+    logging.info("Wayland compositor is running, restarting the portal "
+                 "services now")
+    try:
+      subprocess.check_output(["systemctl", "--user", "import-environment"],
+                              stderr=subprocess.STDOUT,
+                              env=self.child_env)
+    except subprocess.CalledProcessError as err:
+      logging.error("Unable to import env vars into systemd, "
+                    "returncode: %s, output: %s" % (err.returncode,
+                                                    err.output))
+      # Host process will not be functional without these services.
+      sys.exit(1)
+
+    try:
+      subprocess.check_output(["systemctl", "--user", "restart",
+                               "xdg-desktop-portal",
+                               "xdg-desktop-portal-gnome",
+                               "xdg-desktop-portal-gtk"],
+                               stderr=subprocess.STDOUT, env=self.child_env)
+    except subprocess.CalledProcessError as err:
+      logging.error("Unable to restart portal services on the host, "
+                    "returncode: %s, output: %s" % (err.returncode, err.output))
+      # Host process will not be functional without these services.
+      sys.exit(1)
+    logging.info("Done restarting the portal services")
+
+  def _wait_for_setup_before_host_launch(self):
+    return self._wait_for_wayland_compositor_running()
+
+  def cleanup(self):
+    super(WaylandDesktop, self).cleanup()
+    if self._wayland_socket:
+      full_socket_path = os.path.join(self.runtime_dir, self._wayland_socket)
+      for to_remove in (full_socket_path, "%s.lock" % full_socket_path):
+        try:
+          os.remove(to_remove)
+        except FileNotFoundError:
+          pass
+      self._wayland_socket = None
+
+  def check_server_responding(self):
+    """
+    Connects to the server that is listening on the wayland socket.
+    If the connection succeeds, it means that the server is still up and
+    running.
+    """
+    try:
+      with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.connect(os.path.join(self.runtime_dir, self._wayland_socket))
+        # Asks the server for the global registry object
+        # (See: https://wayland-book.com/registry.html)
+        sock.sendall(struct.pack("<III", 0x00000001, 0x000C0001, 0x00000002))
+
+        num_bytes_received = 0
+        NUM_BYTES_EXPECTED = 32
+        # We don't want to wait forever for a reply so we set a timeout here.
+        sock.settimeout(self.WL_SERVER_REPLY_TIMEOUT_SECONDS)
+        while num_bytes_received < NUM_BYTES_EXPECTED:
+            data = sock.recv(NUM_BYTES_EXPECTED)
+            if len(data) == 0:  # Expect empty reply if server dies
+               break
+            num_bytes_received += len(data)
+            logging.debug("Wayland server replied with: %s" % data)
+        if not num_bytes_received:
+          # If we don't receive a reply at all then the server is likely not
+          # listening on the socket.
+          return False
+    except socket.error as err:
+        logging.error("Wayland server is not responding: %s" % err)
+        return False
+    return True
+
+
+class XDesktop(Desktop):
+  """Manage a single virtual X desktop"""
+
+  def __init__(self, sizes):
+    super(XDesktop, self).__init__(sizes)
+    self.xorg_conf = None
+    self.audio_pipe = None
+    self.server_supports_randr = False
+    self.randr_add_sizes = False
+    self.ssh_auth_sockname = None
+    self.use_xvfb = self.should_use_xvfb()
+    global g_desktop
+    assert(g_desktop is None)
+    g_desktop = self
+
+  @staticmethod
+  def should_use_xvfb():
+    """Return whether XVFB should be used. This will be true if USE_XVFB_ENV_VAR
+    is set, or if installed dependencies can't support Xorg+Dummy. Note that
+    this method performs expensive IO so the output should be cached."""
+
+    if USE_XVFB_ENV_VAR in os.environ:
+      return True
+
+    # Check if xserver-xorg-video-dummy is up-to-date. Older versions don't
+    # support the DUMMY* outputs and can't be used.
+    # Unfortunately, dummy_drv.so doesn't seem to have any version info so we
+    # have to query the dpkg database.
+    try:
+      video_dummy_info = subprocess.check_output(
+          ['dpkg-query', '-s', 'xserver-xorg-video-dummy'])
+      matches = re.search(
+          br'^Version: (\S+)$', video_dummy_info, re.MULTILINE)
+      if not matches:
+        logging.error('Version line is not found')
+        return False
+      version = matches[1]
+      retcode = subprocess.call(
+          ['dpkg', '--compare-versions', version, 'ge', '1:0.4.0'])
+      if retcode != 0:
+        logging.info('xserver-xorg-video-dummy is not up-to-date')
+        return True
+    except subprocess.CalledProcessError:
+      logging.info('xserver-xorg-video-dummy is not installed')
+      return True
+    except Exception as e:
+      logging.warning(
+          'Failed to get xserver-xorg-video-dummy version: ' + str(e))
+
+    return False
+
+  @staticmethod
+  def get_unused_display_number():
+    """Return a candidate display number for which there is currently no
+    X Server lock file"""
+    display = FIRST_X_DISPLAY_NUMBER
+    while os.path.exists(X_LOCK_FILE_TEMPLATE % display):
+      display += 1
+    return display
+
+  def _init_child_env(self):
+    super(XDesktop, self)._init_child_env()
+    # Force GDK to use the X11 backend, as otherwise parts of the host that use
+    # GTK can end up connecting to an active Wayland display instead of the
+    # CRD X11 session.
+    self.child_env["GDK_BACKEND"] = "x11"
+
+  def launch_session(self, *args, **kwargs):
+    logging.info("Launching X server and X session.")
+    super(XDesktop, self).launch_session(*args, **kwargs)
 
   # Returns child environment not containing TMPDIR.
   # Certain values of TMPDIR can break the X server (crbug.com/672684), so we
@@ -858,7 +1101,6 @@ class XDesktop(Desktop):
                                 stderr=subprocess.DEVNULL)
     if exit_code == 0:
       # RandR is supported
-      self.server_supports_exact_resize = True
       self.server_supports_randr = True
       self.randr_add_sizes = True
 
@@ -866,22 +1108,24 @@ class XDesktop(Desktop):
     with tempfile.NamedTemporaryFile(
         prefix="chrome_remote_desktop_",
         suffix=".conf", delete=False) as config_file:
-      config_file.write(gen_xorg_config(self.sizes).encode())
+      config_file.write(gen_xorg_config().encode())
 
-    # We can't support exact resize with the current Xorg dummy driver.
-    self.server_supports_exact_resize = False
-    # But dummy does support RandR 1.0.
     self.server_supports_randr = True
+    self.randr_add_sizes = True
     self.xorg_conf = config_file.name
 
-    logging.info("Starting Xorg on display :%d" % display)
+    xorg_binary = "/usr/lib/xorg/Xorg";
+    if not os.access(xorg_binary, os.X_OK):
+      xorg_binary = "Xorg";
+
+    logging.info("Starting %s on display :%d" % (xorg_binary, display))
     # We use the child environment so the Xorg server picks up the Mesa libGL
     # instead of any proprietary versions that may be installed, thanks to
     # LD_LIBRARY_PATH.
     # Note: This prevents any environment variable the user has set from
     # affecting the Xorg server.
     self.server_proc = subprocess.Popen(
-        ["Xorg", ":%d" % display,
+        [xorg_binary, ":%d" % display,
          "-auth", x_auth_file,
          "-nolisten", "tcp",
          "-noreset",
@@ -918,9 +1162,12 @@ class XDesktop(Desktop):
     self.child_env["DISPLAY"] = ":%d" % display
     self.child_env["CHROME_REMOTE_DESKTOP_SESSION"] = "1"
 
-    # Use a separate profile for any instances of Chrome that are started in
-    # the virtual session. Chrome doesn't support sharing a profile between
-    # multiple DISPLAYs, but Chrome Sync allows for a reasonable compromise.
+    # We used to create a separate profile/chrome config home for the virtual
+    # session since the virtual session was independent of the local session in
+    # curtain mode, and using the same Chrome profile between sessions would
+    # lead to cross talk issues. This is no longer the case given modern desktop
+    # environments don't support running two graphical sessions simultaneously.
+    # Therefore, we don't set the env var unless the directory already exists.
     #
     # M61 introduced CHROME_CONFIG_HOME, which allows specifying a different
     # config base path while still using different user data directories for
@@ -932,17 +1179,17 @@ class XDesktop(Desktop):
     if (os.path.exists(chrome_profile)
         and not os.path.exists(chrome_config_home)):
       self.child_env["CHROME_USER_DATA_DIR"] = chrome_profile
-    else:
+    elif os.path.exists(chrome_config_home):
       self.child_env["CHROME_CONFIG_HOME"] = chrome_config_home
 
     # Set SSH_AUTH_SOCK to the file name to listen on.
     if self.ssh_auth_sockname:
       self.child_env["SSH_AUTH_SOCK"] = self.ssh_auth_sockname
 
-    if USE_XORG_ENV_VAR in os.environ:
-      self._launch_xorg(display, x_auth_file, extra_x_args)
-    else:
+    if self.use_xvfb:
       self._launch_xvfb(display, x_auth_file, extra_x_args)
+    else:
+      self._launch_xorg(display, x_auth_file, extra_x_args)
 
     # The remoting host expects the server to use "evdev" keycodes, but Xvfb
     # starts configured to use the "base" ruleset, resulting in XKB configuring
@@ -963,12 +1210,16 @@ class XDesktop(Desktop):
     # the "-screen" option.
     if self.randr_add_sizes:
       for width, height in self.sizes:
+        # This sets dot-clock, vtotal and htotal such that the computed
+        # refresh-rate will have a realistic value:
+        # 60Hz = dot-clock / (vtotal * htotal).
         label = "%dx%d" % (width, height)
-        args = ["xrandr", "--newmode", label, "0", str(width), "0", "0", "0",
-                str(height), "0", "0", "0"]
+        args = ["xrandr", "--newmode", label, "60", str(width), "0", "0",
+                "1000", str(height), "0", "0", "1000"]
         subprocess.call(args, env=self.child_env, stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL)
-        args = ["xrandr", "--addmode", "screen", label]
+        output_name = "screen" if self.use_xvfb else "DUMMY0"
+        args = ["xrandr", "--addmode", output_name, label]
         subprocess.call(args, env=self.child_env, stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL)
 
@@ -988,15 +1239,20 @@ class XDesktop(Desktop):
     subprocess.call(args, env=self.child_env, stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL)
 
-    # Monitor for any automatic resolution changes from the desktop
-    # environment.
-    args = [SCRIPT_PATH, "--watch-resolution", str(initial_size[0]),
-            str(initial_size[1])]
+    if self.use_xvfb:
+      # Monitor for any automatic resolution changes from the desktop
+      # environment. This is needed only for Xvfb sessions because Xvfb sets
+      # the first mode to be the maximum supported resolution, and some
+      # desktop-environments would mistakenly set this as the preferred mode,
+      # leading to a huge desktop with tiny text. With Xorg, the modes are
+      # all reasonably sized, so the problem doesn't occur.
+      args = [SCRIPT_PATH, "--watch-resolution", str(initial_size[0]),
+              str(initial_size[1])]
 
-    # It is not necessary to wait() on the process here, as this script's main
-    # loop will reap the exit-codes of all child processes.
-    subprocess.Popen(args, env=self.child_env, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL)
+      # It is not necessary to wait() on the process here, as this script's main
+      # loop will reap the exit-codes of all child processes.
+      subprocess.Popen(args, env=self.child_env, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
 
   def launch_desktop_session(self):
     # Start desktop session.
@@ -1446,12 +1702,13 @@ def cleanup():
 
   global g_desktop
   if g_desktop is not None:
-    g_desktop.shutdown_all_procs()
-    if g_desktop.xorg_conf is not None:
+    g_desktop.cleanup()
+    if getattr(g_desktop, 'xorg_conf', None) is not None:
       os.remove(g_desktop.xorg_conf)
 
   g_desktop = None
   ParentProcessLogger.release_parent_if_connected(False)
+
 
 class SignalHandler:
   """Reload the config file on SIGHUP. Since we pass the configuration to the
@@ -1699,6 +1956,9 @@ Web Store: https://chrome.google.com/remotedesktop"""
                       type=int, nargs=2, default=False, action="store",
                       help=argparse.SUPPRESS)
   parser.add_argument(dest="args", nargs="*", help=argparse.SUPPRESS)
+  parser.add_argument("--is-wayland", dest="is_wayland",
+                      default=False, action="store_true",
+                      help="If true, starts wayland session on the host.")
   return parser
 
 
@@ -1863,10 +2123,7 @@ def main():
     # message if they go searching.
     syslog.syslog(syslog.LOG_WARNING | syslog.LOG_DAEMON, gdm_message)
 
-  if USE_XORG_ENV_VAR in os.environ:
-    default_sizes = DEFAULT_SIZES_XORG
-  else:
-    default_sizes = DEFAULT_SIZES
+  default_sizes = DEFAULT_SIZES
 
   # Collate the list of sizes that XRANDR should support.
   if not options.size:
@@ -1920,7 +2177,10 @@ def main():
   if host.host_id:
     logging.info("Using host_id: " + host.host_id)
 
-  desktop = XDesktop(sizes)
+  if options.is_wayland:
+    desktop = WaylandDesktop(sizes)
+  else:
+    desktop = XDesktop(sizes)
 
   # Whether we are tearing down because the display server and/or session
   # exited. This keeps us from counting processes exiting because we've
@@ -1932,7 +2192,7 @@ def main():
     # user logged out), terminate all processes. The session will be restarted
     # once everything has exited.
     if tear_down:
-      desktop.shutdown_all_procs()
+      desktop.cleanup()
 
       failure_count = desktop.aggregate_failure_count()
       tear_down = False
@@ -1974,7 +2234,6 @@ def main():
           desktop.session_proc is None):
         desktop.launch_session(options.args, backoff_time)
       if desktop.host_proc is None:
-        logging.info("Launching host process")
         extra_start_host_args = []
         if HOST_EXTRA_PARAMS_ENV_VAR in os.environ:
             extra_start_host_args = \

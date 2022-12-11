@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,14 +11,10 @@
 #include "components/media_router/common/media_route.h"
 #include "components/media_router/common/media_sink.h"
 
-namespace content {
-class WebContents;
-}
-
 namespace media_router {
 
 class CastDialogModel;
-class StartPresentationContext;
+class MediaRouteStarter;
 
 // Controller component of the Cast dialog. Responsible for handling user input,
 // updating the CastDialogModel, and notifying CastDialogView of updates.
@@ -53,16 +49,12 @@ class CastDialogController {
   // Removes the specified issue. No-op if the ID is invalid.
   virtual void ClearIssue(const Issue::Id& issue_id) = 0;
 
-  // Gets the tab contents (if any) that was used to initiate this dialog box.
-  virtual content::WebContents* GetInitiator() = 0;
-
-  // Returns the StartPresentationContext that this dialog was going to use for
-  // presentation mode. The dialog box is relinquishing ownership of the context
-  // and so will not start a presentation mode after this point. It's intended
-  // this API should only be used to transfer ownership to some new component
-  // that will want to start a presentation mode route.
-  virtual std::unique_ptr<StartPresentationContext>
-  TakeStartPresentationContext() = 0;
+  // Returns the MediaRouteStarter that this dialog was going to use to create
+  // the mirroring or presentation routes. The dialog box is relinquishing
+  // ownership, and so will be unable to start casting after this point. It's
+  // intended that this API should only be used to transfer ownership to some
+  // new component that will want to start casting on this dialog box's behalf.
+  virtual std::unique_ptr<MediaRouteStarter> TakeMediaRouteStarter() = 0;
 };
 
 }  // namespace media_router

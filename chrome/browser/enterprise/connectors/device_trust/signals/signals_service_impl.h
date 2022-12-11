@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
+#include "base/values.h"
 #include "chrome/browser/enterprise/connectors/device_trust/signals/signals_service.h"
 
 namespace enterprise_connectors {
@@ -32,7 +33,7 @@ class SignalsServiceImpl : public SignalsService {
  private:
   void OnSignalsDecorated(CollectSignalsCallback callback,
                           base::TimeTicks start_time,
-                          std::unique_ptr<SignalsType> signals);
+                          std::unique_ptr<base::Value::Dict> signals);
 
   std::vector<std::unique_ptr<SignalsDecorator>> signals_decorators_;
 

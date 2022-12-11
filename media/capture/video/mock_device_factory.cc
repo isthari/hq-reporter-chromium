@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,9 +39,8 @@ class RawPointerVideoCaptureDevice : public media::VideoCaptureDevice {
   void TakePhoto(TakePhotoCallback callback) override {
     device_->TakePhoto(std::move(callback));
   }
-  void OnUtilizationReport(int frame_feedback_id,
-                           media::VideoCaptureFeedback feedback) override {
-    device_->OnUtilizationReport(frame_feedback_id, feedback);
+  void OnUtilizationReport(media::VideoCaptureFeedback feedback) override {
+    device_->OnUtilizationReport(feedback);
   }
 
  private:

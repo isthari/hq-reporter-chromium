@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/files/file_path.h"
-#include "base/token.h"
 #include "base/version.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
@@ -23,12 +22,9 @@
 namespace content {
 
 #if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(USE_CHROMEOS_PROTECTED_MEDIA)
-// TODO(crbug.com/1231162): Remove the string identifier once we've migrated off
-// of the PluginPrivateFileSystem.
 // CdmType for Chrome OS.
-const CONTENT_EXPORT media::CdmType kChromeOsCdmType{
-    base::Token{0xa6ecd3fc63b3ded2ull, 0x9306d3270227ce5full},
-    "application_chromeos-cdm-factory-daemon"};
+const CONTENT_EXPORT media::CdmType kChromeOsCdmType{0xa6ecd3fc63b3ded2ull,
+                                                     0x9306d3270227ce5full};
 #endif  // BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(USE_CHROMEOS_PROTECTED_MEDIA)
 
 // Represents a Content Decryption Module implementation and its capabilities.
@@ -38,6 +34,23 @@ struct CONTENT_EXPORT CdmInfo {
     kSoftwareSecure,
   };
 
+  // Status of the `capability`. These values are persisted to logs. Entries
+  // should not be renumbered and numeric values should never be reused.
+  enum class Status {
+    kUninitialized,  // Uninitialized; `capability` must be nullopt.
+    kEnabled,  // Initialized and enabled; if `capability` is nullopt, then no
+               // capability is supported.
+    kCommandLineOverridden,  // Overridden from command line and enabled
+    kHardwareSecureDecryptionDisabled,  // kHardwareSecureDecryption disabled
+    kAcceleratedVideoDecodeDisabled,    // kDisableAcceleratedVideoDecode
+    kGpuFeatureDisabled,      // gpu::DISABLE_MEDIA_FOUNDATION_HARDWARE_SECURITY
+    kGpuCompositionDisabled,  // GPU (direct) composition disabled
+    kDisabledByPref,  // Disabled due to previous errors (stored in Local State)
+    kDisabledOnError,  // Disabled after errors or crashes
+    kMaxValue = kDisabledOnError,
+  };
+
+  // If `capability` is nullopt, the `capability` will be lazy initialized.
   CdmInfo(const std::string& key_system,
           Robustness robustness,
           absl::optional<media::CdmCapability> capability,
@@ -64,9 +77,10 @@ struct CONTENT_EXPORT CdmInfo {
   Robustness robustness;
 
   // CDM capability, e.g. video codecs, encryption schemes and session types.
-  // Optional to allow lazy initialization, i.e. to populate the capability
-  // after registration.
   absl::optional<media::CdmCapability> capability;
+
+  // Whether the CdmInfo is enabled etc. This only affects capability query.
+  Status status = Status::kEnabled;
 
   // Whether we also support sub key systems of the `key_system`.
   // A sub key system to a key system is like a sub domain to a domain.

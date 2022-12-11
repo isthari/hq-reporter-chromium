@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "components/autofill/core/browser/geo/country_names.h"
 #include "components/autofill/core/browser/proto/autofill_sync.pb.h"
 #include "components/autofill/core/browser/webdata/autofill_table.h"
+#include "components/autofill/core/common/autofill_features.h"
 #include "components/sync/protocol/entity_data.h"
 
 using autofill::data_util::TruncateUTF8;
@@ -85,6 +86,13 @@ std::unique_ptr<EntityData> CreateEntityDataFromAutofillProfile(
     const AutofillProfile& entry) {
   // Validity of the guid is guaranteed by the database layer.
   DCHECK(base::IsValidGUID(entry.guid()));
+
+  // Profiles fall into two categories, kLocalOrSyncable and kAccount.
+  // kLocalOrSyncable profiles are synced through the AutofillProfileSyncBridge,
+  // while kAccount profiles are synced through the ContactInfoSyncBridge. Make
+  // sure that syncing a profile through the wrong sync bridge fails early.
+  if (entry.source() != AutofillProfile::Source::kLocalOrSyncable)
+    return nullptr;
 
   auto entity_data = std::make_unique<EntityData>();
   entity_data->name = entry.guid();
@@ -235,6 +243,11 @@ std::unique_ptr<EntityData> CreateEntityDataFromAutofillProfile(
       ConvertProfileToSpecificsVerificationStatus(
           entry.GetVerificationStatus(ADDRESS_HOME_HOUSE_NUMBER)));
 
+  // Set birthdate-related values.
+  specifics->set_birthdate_day(entry.GetRawInfoAsInt(BIRTHDATE_DAY));
+  specifics->set_birthdate_month(entry.GetRawInfoAsInt(BIRTHDATE_MONTH));
+  specifics->set_birthdate_year(entry.GetRawInfoAsInt(BIRTHDATE_4_DIGIT_YEAR));
+
   return entity_data;
 }
 
@@ -243,8 +256,9 @@ std::unique_ptr<AutofillProfile> CreateAutofillProfileFromSpecifics(
   if (!IsAutofillProfileSpecificsValid(specifics)) {
     return nullptr;
   }
-  std::unique_ptr<AutofillProfile> profile =
-      std::make_unique<AutofillProfile>(specifics.guid(), specifics.origin());
+  std::unique_ptr<AutofillProfile> profile = std::make_unique<AutofillProfile>(
+      specifics.guid(), specifics.origin(),
+      AutofillProfile::Source::kLocalOrSyncable);
 
   // Set info that has a default value (and does not distinguish whether it is
   // set or not).
@@ -456,6 +470,11 @@ std::unique_ptr<AutofillProfile> CreateAutofillProfileFromSpecifics(
       UTF8ToUTF16(specifics.address_home_subpremise_name()),
       ConvertSpecificsToProfileVerificationStatus(
           specifics.address_home_subpremise_name_status()));
+
+  // Set birthdate-related fields.
+  profile->SetRawInfoAsInt(BIRTHDATE_DAY, specifics.birthdate_day());
+  profile->SetRawInfoAsInt(BIRTHDATE_MONTH, specifics.birthdate_month());
+  profile->SetRawInfoAsInt(BIRTHDATE_4_DIGIT_YEAR, specifics.birthdate_year());
 
   // The profile may be in a legacy state. By calling |FinalizeAfterImport()|
   // * The profile is migrated if the name structure is in legacy state.

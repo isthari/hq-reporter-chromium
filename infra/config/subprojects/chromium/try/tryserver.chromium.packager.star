@@ -1,4 +1,4 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Definitions of builders in the tryserver.chromium.packager builder group."""
@@ -23,7 +23,7 @@ try_.builder(
     name = "3pp-linux-amd64-packager",
     builderless = False,
     cores = 8,
-    os = os.LINUX_XENIAL_OR_BIONIC_SWITCH_TO_DEFAULT,
+    os = os.LINUX_DEFAULT,
     properties = {
         "$build/chromium_3pp": {
             "platform": "linux-amd64",
@@ -41,10 +41,10 @@ try_.builder(
         },
     },
     tryjob = try_.job(
-        location_regexp = [
+        location_filters = [
             # Enable for CLs touching files under "3pp" directories which are
             # two level deep or more from the repo root.
-            ".+/[+]/.+/3pp/.+",
+            ".+/3pp/.+",
         ],
     ),
 )

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,35 +13,35 @@ MathMLPaddedElement::MathMLPaddedElement(Document& document)
     : MathMLRowElement(mathml_names::kMpaddedTag, document) {}
 
 void MathMLPaddedElement::AddMathBaselineIfNeeded(
-    ComputedStyle& style,
+    ComputedStyleBuilder& builder,
     const CSSToLengthConversionData& conversion_data) {
   if (auto length_or_percentage_value = AddMathLengthToComputedStyle(
           conversion_data, mathml_names::kHeightAttr, AllowPercentages::kNo))
-    style.SetMathBaseline(std::move(*length_or_percentage_value));
+    builder.SetMathBaseline(std::move(*length_or_percentage_value));
 }
 
 void MathMLPaddedElement::AddMathPaddedDepthIfNeeded(
-    ComputedStyle& style,
+    ComputedStyleBuilder& builder,
     const CSSToLengthConversionData& conversion_data) {
   if (auto length_or_percentage_value = AddMathLengthToComputedStyle(
           conversion_data, mathml_names::kDepthAttr, AllowPercentages::kNo))
-    style.SetMathPaddedDepth(std::move(*length_or_percentage_value));
+    builder.SetMathPaddedDepth(std::move(*length_or_percentage_value));
 }
 
 void MathMLPaddedElement::AddMathPaddedLSpaceIfNeeded(
-    ComputedStyle& style,
+    ComputedStyleBuilder& builder,
     const CSSToLengthConversionData& conversion_data) {
   if (auto length_or_percentage_value = AddMathLengthToComputedStyle(
           conversion_data, mathml_names::kLspaceAttr))
-    style.SetMathLSpace(std::move(*length_or_percentage_value));
+    builder.SetMathLSpace(std::move(*length_or_percentage_value));
 }
 
 void MathMLPaddedElement::AddMathPaddedVOffsetIfNeeded(
-    ComputedStyle& style,
+    ComputedStyleBuilder& builder,
     const CSSToLengthConversionData& conversion_data) {
   if (auto length_or_percentage_value = AddMathLengthToComputedStyle(
           conversion_data, mathml_names::kVoffsetAttr))
-    style.SetMathPaddedVOffset(std::move(*length_or_percentage_value));
+    builder.SetMathPaddedVOffset(std::move(*length_or_percentage_value));
 }
 
 void MathMLPaddedElement::ParseAttribute(
@@ -87,9 +87,8 @@ void MathMLPaddedElement::CollectStyleForPresentationAttribute(
 LayoutObject* MathMLPaddedElement::CreateLayoutObject(
     const ComputedStyle& style,
     LegacyLayout legacy) {
-  DCHECK(!style.IsDisplayMathType() || legacy != LegacyLayout::kForce);
   if (!RuntimeEnabledFeatures::MathMLCoreEnabled() ||
-      !style.IsDisplayMathType())
+      !style.IsDisplayMathType() || legacy == LegacyLayout::kForce)
     return MathMLElement::CreateLayoutObject(style, legacy);
   return MakeGarbageCollected<LayoutNGMathMLBlockWithAnonymousMrow>(this);
 }

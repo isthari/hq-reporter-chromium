@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <map>
 
-#include "chrome/browser/web_applications/os_integration_manager.h"
+#include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
 #include "chrome/browser/web_applications/web_app_id.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -60,6 +60,10 @@ class FakeOsIntegrationManager : public OsIntegrationManager {
     return num_register_run_on_os_login_calls_;
   }
 
+  size_t num_unregister_run_on_os_login_calls() const {
+    return num_unregister_run_on_os_login_calls_;
+  }
+
   size_t num_add_app_to_quick_launch_bar_calls() const {
     return num_add_app_to_quick_launch_bar_calls_;
   }
@@ -85,11 +89,11 @@ class FakeOsIntegrationManager : public OsIntegrationManager {
   void SetFileHandlerManager(
       std::unique_ptr<WebAppFileHandlerManager> file_handler_manager);
 
-  void SetProtocolHandlerManager(
-      std::unique_ptr<WebAppProtocolHandlerManager> protocol_handler_manager);
-
   void SetUrlHandlerManager(
       std::unique_ptr<UrlHandlerManager> url_handler_manager);
+
+  void SetShortcutManager(
+      std::unique_ptr<WebAppShortcutManager> shortcut_manager);
 
   FakeOsIntegrationManager* AsTestOsIntegrationManager() override;
 
@@ -98,6 +102,7 @@ class FakeOsIntegrationManager : public OsIntegrationManager {
   size_t num_create_file_handlers_calls_ = 0;
   size_t num_update_file_handlers_calls_ = 0;
   size_t num_register_run_on_os_login_calls_ = 0;
+  size_t num_unregister_run_on_os_login_calls_ = 0;
   size_t num_add_app_to_quick_launch_bar_calls_ = 0;
   size_t num_register_url_handlers_calls_ = 0;
   absl::optional<bool> did_add_to_desktop_;
@@ -120,7 +125,8 @@ class TestShortcutManager : public WebAppShortcutManager {
   void GetAppExistingShortCutLocation(
       ShortcutLocationCallback callback,
       std::unique_ptr<ShortcutInfo> shortcut_info) override;
-  void SetAppExistingShortcuts(GURL app_url, ShortcutLocations locations) {
+  void SetAppExistingShortcuts(const GURL& app_url,
+                               ShortcutLocations locations) {
     existing_shortcut_locations_[app_url] = locations;
   }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,10 +17,12 @@
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
+#include "components/policy/core/common/cloud/component_cloud_policy_service_observer.h"
 #include "components/policy/core/common/policy_bundle.h"
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/schema_registry.h"
+#include "components/policy/core/common/values_util.h"
 #include "components/policy/policy_export.h"
 
 namespace base {
@@ -112,6 +114,12 @@ class POLICY_EXPORT ComponentCloudPolicyService
   // Returns the current policies for components.
   const PolicyBundle& policy() const { return policy_; }
 
+  // Add/Remove observer to notify about component policy changes. AddObserver
+  // triggers an OnComponentPolicyUpdated notification to be posted to the newly
+  // added observer.
+  void AddObserver(ComponentCloudPolicyServiceObserver* observer);
+  void RemoveObserver(ComponentCloudPolicyServiceObserver* observer);
+
   // Deletes all the cached component policy.
   void ClearCache();
 
@@ -141,8 +149,10 @@ class POLICY_EXPORT ComponentCloudPolicyService
   void UpdateFromClient();
   void UpdateFromSchemaRegistry();
   void Disconnect();
-  void SetPolicy(std::unique_ptr<PolicyBundle> policy);
+  void SetPolicy(std::unique_ptr<PolicyBundle> policy,
+                 const ComponentPolicyMap& component_policy);
   void FilterAndInstallPolicy();
+  void NotifyComponentPolicyUpdated(const ComponentPolicyMap& component_policy);
 
   std::string policy_type_;
   raw_ptr<Delegate> delegate_;
@@ -171,6 +181,8 @@ class POLICY_EXPORT ComponentCloudPolicyService
 
   // Whether policies are being served.
   bool policy_installed_ = false;
+
+  base::ObserverList<ComponentCloudPolicyServiceObserver> observers_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -106,7 +106,7 @@ class DatabaseTask : public DatabaseTaskHost {
   ServiceWorkerContextWrapper* service_worker_context();
   std::set<std::string>& ref_counted_unique_ids();
   ChromeBlobStorageContext* blob_storage_context();
-  storage::QuotaManagerProxy* quota_manager_proxy();
+  const scoped_refptr<storage::QuotaManagerProxy>& quota_manager_proxy();
 
   // DatabaseTaskHost implementation.
   void OnTaskFinished(DatabaseTask* finished_subtask) override;

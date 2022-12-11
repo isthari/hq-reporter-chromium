@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/win/scoped_gdi_object.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
-#include "chrome/browser/ui/views/frame/windows_10_caption_button.h"
+#include "chrome/browser/ui/views/frame/windows_caption_button.h"
 #include "chrome/browser/ui/views/tab_icon_view.h"
 #include "chrome/browser/ui/views/tab_icon_view_model.h"
 #include "ui/base/metadata/metadata_header_macros.h"
@@ -22,11 +22,6 @@ class GlassBrowserFrameView : public BrowserNonClientFrameView,
                               public TabIconViewModel {
  public:
   METADATA_HEADER(GlassBrowserFrameView);
-  // Alpha to use for features in the titlebar (the window title and caption
-  // buttons) when the window is inactive. They are opaque when active.
-  static constexpr SkAlpha kInactiveTitlebarFeatureAlpha = 0x66;
-
-  static SkColor GetReadableFeatureColor(SkColor background_color);
 
   // Constructs a non-client view for an BrowserFrame.
   GlassBrowserFrameView(BrowserFrame* frame, BrowserView* browser_view);

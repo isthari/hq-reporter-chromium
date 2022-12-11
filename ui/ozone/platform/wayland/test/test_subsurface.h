@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <wayland-server-protocol.h>
 
-
+#include "base/memory/raw_ptr.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/ozone/platform/wayland/test/server_object.h"
@@ -29,7 +29,11 @@ class TestSubSurface : public ServerObject {
   TestSubSurface(const TestSubSurface& rhs) = delete;
   TestSubSurface& operator=(const TestSubSurface& rhs) = delete;
 
-  void SetPosition(float x, float y);
+  MOCK_METHOD1(PlaceAbove, void(wl_resource* reference_resource));
+  MOCK_METHOD1(PlaceBelow, void(wl_resource* sibling_resource));
+  MOCK_METHOD2(SetPosition, void(float x, float y));
+
+  void SetPositionImpl(float x, float y);
   gfx::PointF position() const { return position_; }
 
   void set_sync(bool sync) { sync_ = sync; }
@@ -49,12 +53,12 @@ class TestSubSurface : public ServerObject {
   bool sync_ = false;
 
   // Surface resource that is the ground for this subsurface.
-  wl_resource* surface_ = nullptr;
+  raw_ptr<wl_resource> surface_ = nullptr;
 
   // Parent surface resource.
-  wl_resource* parent_resource_ = nullptr;
+  raw_ptr<wl_resource> parent_resource_ = nullptr;
 
-  TestAugmentedSubSurface* augmented_subsurface_ = nullptr;
+  raw_ptr<TestAugmentedSubSurface> augmented_subsurface_ = nullptr;
 };
 
 }  // namespace wl

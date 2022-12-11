@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,26 +14,59 @@ namespace autofill {
 
 using base::TimeTicks;
 
-// static
-std::unique_ptr<AutofillManager> AndroidAutofillManager::Create(
-    AutofillDriver* driver,
+void AndroidDriverInitHook(
     AutofillClient* client,
-    const std::string& /*app_locale*/,
-    AutofillManager::AutofillDownloadManagerState enable_download_manager) {
-  return base::WrapUnique(
-      new AndroidAutofillManager(driver, client, enable_download_manager));
+    AutofillManager::EnableDownloadManager enable_download_manager,
+    ContentAutofillDriver* driver) {
+  driver->set_autofill_manager(base::WrapUnique(
+      new AndroidAutofillManager(driver, client, enable_download_manager)));
+  driver->GetAutofillAgent()->SetUserGestureRequired(false);
+  driver->GetAutofillAgent()->SetSecureContextRequired(true);
+  driver->GetAutofillAgent()->SetFocusRequiresScroll(false);
+  driver->GetAutofillAgent()->SetQueryPasswordSuggestion(true);
 }
 
 AndroidAutofillManager::AndroidAutofillManager(
     AutofillDriver* driver,
     AutofillClient* client,
-    AutofillManager::AutofillDownloadManagerState enable_download_manager)
+    EnableDownloadManager enable_download_manager)
     : AutofillManager(driver,
                       client,
-                      enable_download_manager,
-                      version_info::Channel::UNKNOWN) {}
+                      version_info::Channel::UNKNOWN,
+                      enable_download_manager) {}
 
 AndroidAutofillManager::~AndroidAutofillManager() = default;
+
+base::WeakPtr<AutofillManager> AndroidAutofillManager::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
+}
+
+AutofillOfferManager* AndroidAutofillManager::GetOfferManager() {
+  return nullptr;
+}
+
+CreditCardAccessManager* AndroidAutofillManager::GetCreditCardAccessManager() {
+  return nullptr;
+}
+
+bool AndroidAutofillManager::ShouldClearPreviewedForm() {
+  return false;
+}
+
+void AndroidAutofillManager::FillCreditCardFormImpl(
+    const FormData& form,
+    const FormFieldData& field,
+    const CreditCard& credit_card,
+    const std::u16string& cvc) {
+  NOTREACHED();
+}
+
+void AndroidAutofillManager::FillProfileFormImpl(
+    const FormData& form,
+    const FormFieldData& field,
+    const autofill::AutofillProfile& profile) {
+  NOTREACHED();
+}
 
 void AndroidAutofillManager::OnFormSubmittedImpl(
     const FormData& form,
@@ -61,14 +94,15 @@ void AndroidAutofillManager::OnTextFieldDidScrollImpl(
 }
 
 void AndroidAutofillManager::OnAskForValuesToFillImpl(
-    int query_id,
     const FormData& form,
     const FormFieldData& field,
     const gfx::RectF& bounding_box,
-    bool autoselect_first_suggestion) {
+    AutoselectFirstSuggestion autoselect_first_suggestion,
+    FormElementWasClicked form_element_was_clicked) {
   if (auto* provider = GetAutofillProvider()) {
-    provider->OnAskForValuesToFill(this, query_id, form, field, bounding_box,
-                                   autoselect_first_suggestion);
+    provider->OnAskForValuesToFill(this, form, field, bounding_box,
+                                   autoselect_first_suggestion,
+                                   form_element_was_clicked);
   }
 }
 
@@ -97,28 +131,25 @@ bool AndroidAutofillManager::ShouldParseForms(
   return true;
 }
 
-void AndroidAutofillManager::OnFocusNoLongerOnForm(bool had_interacted_form) {
+void AndroidAutofillManager::OnFocusNoLongerOnFormImpl(
+    bool had_interacted_form) {
   if (auto* provider = GetAutofillProvider())
     provider->OnFocusNoLongerOnForm(this, had_interacted_form);
 }
 
-void AndroidAutofillManager::OnDidFillAutofillFormData(
+void AndroidAutofillManager::OnDidFillAutofillFormDataImpl(
     const FormData& form,
     const base::TimeTicks timestamp) {
   if (auto* provider = GetAutofillProvider())
     provider->OnDidFillAutofillFormData(this, form, timestamp);
 }
 
-void AndroidAutofillManager::OnHidePopup() {
+void AndroidAutofillManager::OnHidePopupImpl() {
   if (auto* provider = GetAutofillProvider())
     provider->OnHidePopup(this);
 }
 
-void AndroidAutofillManager::SelectFieldOptionsDidChange(const FormData& form) {
-}
-
 void AndroidAutofillManager::PropagateAutofillPredictions(
-    content::RenderFrameHost* rfh,
     const std::vector<FormStructure*>& forms) {
   has_server_prediction_ = true;
   if (auto* provider = GetAutofillProvider())
@@ -140,6 +171,13 @@ void AndroidAutofillManager::Reset() {
     provider->Reset(this);
 }
 
+void AndroidAutofillManager::OnContextMenuShownInField(
+    const FormGlobalId& form_global_id,
+    const FieldGlobalId& field_global_id) {
+  // Not relevant for Android. Only called via context menu in Desktop.
+  NOTREACHED();
+}
+
 AutofillProvider* AndroidAutofillManager::GetAutofillProvider() {
   if (autofill_provider_for_testing_)
     return autofill_provider_for_testing_;
@@ -155,11 +193,10 @@ AutofillProvider* AndroidAutofillManager::GetAutofillProvider() {
 }
 
 void AndroidAutofillManager::FillOrPreviewForm(
-    int query_id,
     mojom::RendererFormDataAction action,
-    const FormData& form) {
-  driver()->FillOrPreviewForm(query_id, action, form, form.main_frame_origin,
-                              {});
+    const FormData& form,
+    const url::Origin& triggered_origin) {
+  driver()->FillOrPreviewForm(action, form, triggered_origin, {});
 }
 
 }  // namespace autofill

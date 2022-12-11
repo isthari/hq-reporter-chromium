@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <memory>
 #include <utility>
 
-#include "ash/components/settings/cros_settings_names.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/callback_list.h"
@@ -19,17 +18,18 @@
 #include "base/task/thread_pool.h"
 #include "chrome/browser/ash/printing/history/print_job_info.pb.h"
 #include "chrome/browser/ash/settings/cros_settings.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/reporting/client/report_queue.h"
 #include "components/reporting/client/report_queue_factory.h"
 #include "components/reporting/proto/synced/record_constants.pb.h"
+#include "components/reporting/proto/synced/status.pb.h"
 #include "components/reporting/util/status.h"
-#include "components/reporting/util/status.pb.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 
-namespace print = ::chromeos::printing::proto;
+namespace print = ::ash::printing::proto;
 namespace em = ::enterprise_management;
 
 namespace ash {
@@ -70,7 +70,7 @@ class PrintJobReportingServiceImpl : public PrintJobReportingService {
     em::PrintJobEvent event = Convert(print_job_info);
     VLOG(1) << "Enqueuing event for print job: "
             << event.job_configuration().id();
-    Enqueue(event);
+    Enqueue(std::move(event));
   }
 
  private:
@@ -84,10 +84,11 @@ class PrintJobReportingServiceImpl : public PrintJobReportingService {
     cros_settings_->GetBoolean(kReportDevicePrintJobs, &should_report_);
   }
 
-  void Enqueue(const em::PrintJobEvent& event) {
+  void Enqueue(em::PrintJobEvent event) {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-    report_queue_->Enqueue(&event, ::reporting::Priority::SLOW_BATCH,
-                           base::DoNothing());
+    report_queue_->Enqueue(
+        std::make_unique<em::PrintJobEvent>(std::move(event)),
+        ::reporting::Priority::SLOW_BATCH, base::DoNothing());
   }
 
   static em::PrintJobEvent Convert(const print::PrintJobInfo& print_job_info) {

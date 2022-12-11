@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/memory/raw_ref.h"
 #include "content/public/browser/navigation_handle_user_data.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -100,24 +101,23 @@ class ObjectNavigationFallbackBodyLoader
 
   // URLLoaderClient overrides:
   void OnReceiveEarlyHints(network::mojom::EarlyHintsPtr) override;
-  void OnReceiveResponse(network::mojom::URLResponseHeadPtr,
-                         mojo::ScopedDataPipeConsumerHandle body) override;
+  void OnReceiveResponse(
+      network::mojom::URLResponseHeadPtr,
+      mojo::ScopedDataPipeConsumerHandle body,
+      absl::optional<mojo_base::BigBuffer> cached_metadata) override;
   void OnReceiveRedirect(const net::RedirectInfo&,
                          network::mojom::URLResponseHeadPtr) override;
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback) override;
-  void OnReceiveCachedMetadata(mojo_base::BigBuffer data) override;
   void OnTransferSizeUpdated(int32_t transfer_size_diff) override;
-  void OnStartLoadingResponseBody(
-      mojo::ScopedDataPipeConsumerHandle body) override;
   void OnComplete(const network::URLLoaderCompletionStatus& status) override;
 
   // DataPipeDrainer::Client overrides:
   void OnDataAvailable(const void* data, size_t num_bytes) override;
   void OnDataComplete() override;
 
-  NavigationRequest& navigation_request_;
+  const raw_ref<NavigationRequest> navigation_request_;
   // `url_loader_` must be kept alive while reading the response body.
   mojo::Remote<network::mojom::URLLoader> url_loader_;
   mojo::Receiver<network::mojom::URLLoaderClient> url_loader_client_receiver_;

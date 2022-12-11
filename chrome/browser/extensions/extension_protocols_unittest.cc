@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <utility>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -87,10 +86,11 @@ scoped_refptr<Extension> CreateTestExtension(const std::string& name,
                                              bool incognito_split_mode,
                                              const ExtensionId& extension_id) {
   base::DictionaryValue manifest;
-  manifest.SetString("name", name);
-  manifest.SetString("version", "1");
-  manifest.SetInteger("manifest_version", 2);
-  manifest.SetString("incognito", incognito_split_mode ? "split" : "spanning");
+  manifest.SetStringKey("name", name);
+  manifest.SetStringKey("version", "1");
+  manifest.SetIntKey("manifest_version", 2);
+  manifest.SetStringKey("incognito",
+                        incognito_split_mode ? "split" : "spanning");
 
   base::FilePath path = GetTestPath("response_headers");
 
@@ -153,7 +153,7 @@ network::ResourceRequest CreateResourceRequest(
       url::Origin::Create(url);  // ensure initiator set.
   request.referrer_policy = blink::ReferrerUtils::GetDefaultNetReferrerPolicy();
   request.destination = destination;
-  request.is_main_frame =
+  request.is_outermost_main_frame =
       destination == network::mojom::RequestDestination::kDocument;
   return request;
 }
@@ -353,7 +353,7 @@ class ExtensionProtocolsTestBase : public testing::Test {
   content::WebContents* web_contents() { return contents_.get(); }
 
   content::RenderFrameHost* main_rfh() {
-    return web_contents()->GetMainFrame();
+    return web_contents()->GetPrimaryMainFrame();
   }
 
   content::BrowserTaskEnvironment task_environment_;
@@ -404,7 +404,7 @@ TEST_F(ExtensionProtocolsIncognitoTest, IncognitoRequest) {
       {"split enabled", true, true, true, false},
   };
 
-  for (size_t i = 0; i < base::size(cases); ++i) {
+  for (size_t i = 0; i < std::size(cases); ++i) {
     scoped_refptr<Extension> extension =
         CreateTestExtension(cases[i].name, cases[i].incognito_split_mode);
     AddExtension(extension, cases[i].incognito_enabled, false);
@@ -778,8 +778,8 @@ TEST_F(ExtensionProtocolsTest, MimeTypesForKnownFiles) {
         "web_accessible_resources": ["*"]
       })";
   test_dir.WriteManifest(kManifest);
-  std::unique_ptr<base::DictionaryValue> manifest =
-      base::DictionaryValue::From(base::test::ParseJsonDeprecated(kManifest));
+  std::unique_ptr<base::DictionaryValue> manifest = base::DictionaryValue::From(
+      base::Value::ToUniquePtrValue(base::test::ParseJson(kManifest)));
   ASSERT_TRUE(manifest);
 
   test_dir.WriteFile(FILE_PATH_LITERAL("json_file.json"), "{}");

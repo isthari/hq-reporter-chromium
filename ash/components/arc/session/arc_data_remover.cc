@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/logging.h"
-#include "chromeos/dbus/upstart/upstart_client.h"
+#include "chromeos/ash/components/dbus/upstart/upstart_client.h"
 
 namespace arc {
 
@@ -46,7 +46,7 @@ void ArcDataRemover::Run(RunCallback callback) {
   }
 
   VLOG(1) << "Starting ARC data removal";
-  auto* upstart_client = chromeos::UpstartClient::Get();
+  auto* upstart_client = ash::UpstartClient::Get();
   if (!upstart_client) {
     // May be null in tests
     std::move(callback).Run(absl::nullopt);

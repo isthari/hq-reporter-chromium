@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "services/device/public/cpp/generic_sensor/sensor_reading.h"
 
 namespace device {
@@ -25,6 +24,7 @@ class PlatformSensorFusionAlgorithm {
   virtual ~PlatformSensorFusionAlgorithm();
 
   void set_threshold(double threshold) { threshold_ = threshold; }
+  double threshold() const { return threshold_; }
 
   void set_fusion_sensor(PlatformSensorFusion* fusion_sensor) {
     fusion_sensor_ = fusion_sensor;
@@ -35,9 +35,6 @@ class PlatformSensorFusionAlgorithm {
   }
 
   mojom::SensorType fused_type() const { return fused_type_; }
-
-  bool IsReadingSignificantlyDifferent(const SensorReading& reading1,
-                                       const SensorReading& reading2);
 
   bool GetFusedData(mojom::SensorType which_sensor_changed,
                     SensorReading* fused_reading);

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,9 @@
 #include "base/memory/scoped_refptr.h"
 
 namespace updater {
-class UpdateServiceInternal;
 class UpdateService;
 class AppServerMac;
-}
+}  // namespace updater
 
 @interface CRUUpdateCheckServiceXPCDelegate : NSObject <NSXPCListenerDelegate>
 
@@ -24,20 +23,6 @@ class AppServerMac;
     initWithUpdateService:(scoped_refptr<updater::UpdateService>)service
                 appServer:(scoped_refptr<updater::AppServerMac>)appServer
     NS_DESIGNATED_INITIALIZER;
-
-@end
-
-@interface CRUUpdateServiceInternalXPCDelegate
-    : NSObject <NSXPCListenerDelegate>
-
-- (instancetype)init NS_UNAVAILABLE;
-
-// Designated initializer.
-- (instancetype)initWithUpdateServiceInternal:
-                    (scoped_refptr<updater::UpdateServiceInternal>)service
-                                    appServer:
-                                        (scoped_refptr<updater::AppServerMac>)
-                                            appServer NS_DESIGNATED_INITIALIZER;
 
 @end
 

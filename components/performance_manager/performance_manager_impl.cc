@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,8 @@
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
 #include "base/task/lazy_thread_pool_task_runner.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/performance_manager/graph/frame_node_impl.h"
 #include "components/performance_manager/graph/page_node_impl.h"
 #include "components/performance_manager/graph/process_node_impl.h"
@@ -202,7 +201,7 @@ void PerformanceManagerImpl::SetOnDestroyedCallbackForTesting(
   // Bind the callback in one that can be called on the PM sequence (it also
   // binds the main thread, and bounces a task back to that thread).
   scoped_refptr<base::SequencedTaskRunner> main_thread =
-      base::SequencedTaskRunnerHandle::Get();
+      base::SequencedTaskRunner::GetCurrentDefault();
   base::OnceClosure pm_callback = base::BindOnce(
       [](scoped_refptr<base::SequencedTaskRunner> main_thread,
          base::OnceClosure callback) {

@@ -1,14 +1,16 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {EmojiPicker} from 'chrome://emoji-picker/emoji_picker.js';
 import {EmojiPickerApiProxyImpl} from 'chrome://emoji-picker/emoji_picker_api_proxy.js';
-import {EMOJI_BUTTON_CLICK, V2_CONTENT_LOADED} from 'chrome://emoji-picker/events.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {EMOJI_PICKER_READY} from 'chrome://emoji-picker/events.js';
+import {assert} from 'chrome://resources/js/assert.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
-import {deepQuerySelector, isGroupButtonActive, waitForCondition, waitWithTimeout} from './emoji_picker_test_util.js';
+
+import {assertEquals, assertFalse} from 'chrome://webui-test/chromeos/chai_assert.js';
+
+import {completePendingMicrotasks, deepQuerySelector, isGroupButtonActive, timeout, waitForCondition} from './emoji_picker_test_util.js';
 
 const ACTIVE_CATEGORY_BUTTON = 'category-button-active';
 
@@ -22,52 +24,52 @@ suite('emoji-picker-extension', () => {
   let emojiPicker;
   /** @type {function(...!string): ?HTMLElement} */
   let findInEmojiPicker;
+  /** @type {function(...!string): ?HTMLElement} */
+  let findEmojiFirstButton;
+  /** @type {Array<string>} */
+  const categoryList = ['emoji', 'symbol', 'emoticon'];
 
   setup(() => {
     // Reset DOM state.
     document.body.innerHTML = '';
     window.localStorage.clear();
 
+     // Set default incognito state to False.
+    EmojiPickerApiProxyImpl.getInstance().isIncognitoTextField = () =>
+        new Promise((resolve) => resolve({incognito: false}));
+    EmojiPicker.configs = () => ({
+      'dataUrls': {
+        'emoji': [
+          '/emoji_test_ordering_start.json',
+          '/emoji_test_ordering_remaining.json',
+        ],
+        'emoticon': ['/emoticon_test_ordering.json'],
+        'symbol': ['/symbol_test_ordering.json'],
+      },
+    });
+
     emojiPicker =
         /** @type {!EmojiPicker} */ (document.createElement('emoji-picker'));
-    emojiPicker.emojiDataUrl = '/emoji_test_ordering';
 
     findInEmojiPicker = (...path) => deepQuerySelector(emojiPicker, path);
 
+    findEmojiFirstButton = (...path) => {
+        const emojiElement = deepQuerySelector(emojiPicker, path);
+        if (emojiElement) {
+            return emojiElement.firstEmojiButton();
+        }
+        return null;
+    };
+
     // Wait until emoji data is loaded before executing tests.
     return new Promise((resolve) => {
-      emojiPicker.addEventListener(V2_CONTENT_LOADED, () => {
+      emojiPicker.addEventListener(EMOJI_PICKER_READY, () => {
         flush();
         resolve();
       });
       document.body.appendChild(emojiPicker);
     });
   });
-
-  test('emoji category button should be active by default.', () => {
-    const emojiCategoryButton = findInEmojiPicker(
-        'emoji-search', 'emoji-category-button', 'cr-icon-button');
-    assertTrue(isCategoryButtonActive(emojiCategoryButton));
-  });
-
-  test('emoticon category button should be inactive by default.', () => {
-    const emoticonCategoryButton = findInEmojiPicker(
-        'emoji-search', 'emoji-category-button:last-of-type', 'cr-icon-button');
-    assertFalse(isCategoryButtonActive(emoticonCategoryButton));
-  });
-
-  test(
-      'emoticon category button should be active after clicking at it.', () => {
-        const emojiCategoryButton = findInEmojiPicker(
-            'emoji-search', 'emoji-category-button', 'cr-icon-button');
-        const emoticonCategoryButton = findInEmojiPicker(
-            'emoji-search', 'emoji-category-button:last-of-type',
-            'cr-icon-button');
-        emoticonCategoryButton.click();
-        flush();
-        assertTrue(isCategoryButtonActive(emoticonCategoryButton));
-        assertFalse(isCategoryButtonActive(emojiCategoryButton));
-      });
 
   test(
       `the first tab of the next pagination should be active when clicking at
@@ -85,6 +87,7 @@ suite('emoji-picker-extension', () => {
         const firstEmoticonTabInSecondPage = findInEmojiPicker(
             '.pagination + .pagination', 'text-group-button', 'cr-button');
         rightChevron.click();
+
         await flush();
         await waitForCondition(
             () => !isGroupButtonActive(firstEmoticonTabInFirstPage) &&
@@ -96,143 +99,33 @@ suite('emoji-picker-extension', () => {
                 isGroupButtonActive(firstEmoticonTabInFirstPage));
       });
 
-  test('all emoticon groups should be rendered.', () => {
-    assertEquals(
-        emojiPicker.emoticonData.length,
-        emojiPicker.shadowRoot.querySelectorAll('emoticon-group').length);
-  });
-
   test(
-      'each emoticon group should have the correct heading and correct' +
-          'number of emoticon entries.',
+      'Scrolling to an emoticon group should activate the emoticon category ' +
+          'button.',
       async () => {
-        const allEmoticonGroups =
-            emojiPicker.shadowRoot.querySelectorAll('emoticon-group');
-        for (let idx = 0; idx < allEmoticonGroups.length; ++idx) {
-          const group = allEmoticonGroups[idx];
-          const actualFirstGroupName =
-              group.shadowRoot.querySelector('#heading').innerHTML.trim();
-          const expectedFirstGroupName = emojiPicker.emoticonData[idx].group;
-          assertEquals(expectedFirstGroupName, actualFirstGroupName);
-
-          const expectedNumberOfEmoticons =
-              emojiPicker.emoticonData[idx].emoji.length;
-          await waitForCondition(
-              () => expectedNumberOfEmoticons ===
-                  group.shadowRoot.querySelectorAll('.emoticon-button').length);
-        }
-      });
-
-  test(
-      'clicking at an emoticon button should trigger the clicking event with ' +
-          'correct emoticon string and name.',
-      async () => {
-        const firstEmoticonButton = await waitForCondition(
-            () => findInEmojiPicker('emoticon-group', '.emoticon-button'));
-        const expectedEmoticonString =
-            emojiPicker.emoticonData[0].emoji[0].base.string;
-        const expectedEmoticonName =
-            emojiPicker.emoticonData[0].emoji[0].base.name;
-        const buttonClickPromise = new Promise(
-            (resolve) =>
-                emojiPicker.addEventListener(EMOJI_BUTTON_CLICK, (event) => {
-                  assertEquals(expectedEmoticonString, event.detail.text);
-                  assertEquals(expectedEmoticonName, event.detail.name);
-                  resolve();
-                }));
-        firstEmoticonButton.click();
-        await flush();
-        await waitWithTimeout(
-            buttonClickPromise, 1000,
-            'Failed to receive emoticon button click event');
-      });
-
-  test('there should be no recently used emoticon group when empty.', () => {
-    assert(!findInEmojiPicker('[data-group=emoticon-history] emoticon-group'));
-  });
-
-  test(
-      'history tab button must be disabled when the emoticon history is empty.',
-      () => {
+        const emojiCategoryButton = findInEmojiPicker(
+            'emoji-search', 'emoji-category-button', 'cr-icon-button');
         const emoticonCategoryButton = findInEmojiPicker(
             'emoji-search', 'emoji-category-button:last-of-type',
             'cr-icon-button');
-        emoticonCategoryButton.click();
-        flush();
-        const emoticonHistoryTab = findInEmojiPicker(
-            '.pagination [data-group=emoticon-history]', 'cr-icon-button');
-        assertTrue(emoticonHistoryTab.disabled);
-      });
 
-  test(
-      'clicking at recently used emoticon buttons should trigger emoticon ' +
-          'insertion.',
-      async () => {
-        EmojiPickerApiProxyImpl.getInstance().isIncognitoTextField = () =>
-            new Promise((resolve) => resolve({incognito: false}));
+        const emoticonTestGroupId = '20';
+        emojiPicker.scrollToGroup(emoticonTestGroupId);
 
-        const emoticonButton = findInEmojiPicker('emoticon-group', 'button');
-        emoticonButton.click();
-
-        const recentEmoticonGroup = await waitForCondition(
-            () => findInEmojiPicker(
-                '[data-group=emoticon-history] emoticon-group'));
-
-        const recentlyUsedEmoticonButton =
-            deepQuerySelector(recentEmoticonGroup, ['.emoticon-button']);
-        const buttonClickPromise = new Promise(
-            (resolve) =>
-                emojiPicker.addEventListener(EMOJI_BUTTON_CLICK, (event) => {
-                  assertEquals(
-                      emoticonButton.innerHTML.trim(), event.detail.text);
-                  assertEquals(
-                      emoticonButton.getAttribute('emoticon-name'),
-                      event.detail.name);
-                  resolve();
-                }));
-
-        recentlyUsedEmoticonButton.click();
-        await waitWithTimeout(
-            buttonClickPromise, 1000,
-            'Clicking at recently used emoticon buttons does not trigger ' +
-                'emoticon insertion.');
-      });
-
-  test(
-      'recently used emoticon group should contain the correct emoticon ' +
-          'after it is clicked.',
-      async () => {
-        EmojiPickerApiProxyImpl.getInstance().isIncognitoTextField = () =>
-            new Promise((resolve) => resolve({incognito: false}));
-
-        const emoticonButton = findInEmojiPicker('emoticon-group', 'button');
-        emoticonButton.click();
-
-        const recentEmoticonGroup = await waitForCondition(
-            () => findInEmojiPicker(
-                '[data-group=emoticon-history] emoticon-group'));
-        assert(recentEmoticonGroup);
-
-        const recentlyUsedEmoticons =
-            recentEmoticonGroup.shadowRoot.querySelectorAll('.emoticon-button');
-        assertEquals(1, recentlyUsedEmoticons.length);
+        await waitForCondition(
+            () => isCategoryButtonActive(emoticonCategoryButton) &&
+                !isCategoryButtonActive(emojiCategoryButton));
       });
 
   test(
       'Scrolling to an emoticon group should activate the corresponding ' +
           'subcategory tab.',
       async () => {
-        // TODO(b/216103506): Remove emoticon button click
-        const emoticonCategoryButton = findInEmojiPicker(
-            'emoji-search', 'emoji-category-button:last-of-type',
-            'cr-icon-button');
-        emoticonCategoryButton.click();
-        await flush();
-
-        const emoticonTestGroupId = '10';
-        const emoticonTabButton = findInEmojiPicker(
-            `.tab[data-group='${emoticonTestGroupId}']`, 'cr-button');
+        const emoticonTestGroupId = '20';
         emojiPicker.scrollToGroup(emoticonTestGroupId);
+        const emoticonTabButton = await waitForCondition(
+            () => findInEmojiPicker(
+                `.tab[data-group='${emoticonTestGroupId}']`, 'cr-button'));
 
         await waitForCondition(
             () => isGroupButtonActive(emoticonTabButton),
@@ -240,15 +133,9 @@ suite('emoji-picker-extension', () => {
       });
 
   test('Scrolling to an emoticon group should update chevrons.', async () => {
-    const emoticonCategoryButton = findInEmojiPicker(
-        'emoji-search', 'emoji-category-button:last-of-type', 'cr-icon-button');
     const leftChevron = findInEmojiPicker('#left-chevron');
     const rightChevron = findInEmojiPicker('#right-chevron');
-    const emoticonTestGroupId = '15';
-
-    // TODO(b/216103506): Remove emoticon button click
-    emoticonCategoryButton.click();
-    await flush();
+    const emoticonTestGroupId = '25';
 
     emojiPicker.scrollToGroup(emoticonTestGroupId);
     // when scrolling to the next page, the chevron display needs to be updated.
@@ -256,4 +143,63 @@ suite('emoji-picker-extension', () => {
         () => leftChevron.style.display === 'flex' &&
             rightChevron.style.display === 'flex');
   });
+
+  test(
+      'Clicking on a category during search clears search and scrolls to the' +
+          'correct location',
+      async () => {
+        const emojiCategoryButton = findInEmojiPicker(
+            'emoji-search', 'emoji-category-button', 'cr-icon-button');
+        const emoticonCategoryButton = findInEmojiPicker(
+            'emoji-search', 'emoji-category-button:last-of-type',
+            'cr-icon-button');
+        const emojiGroups = findInEmojiPicker('#groups');
+        emoticonCategoryButton.click();
+        const targetScroll = emojiGroups.scrollTop;
+        emojiCategoryButton.click();
+
+        findInEmojiPicker('emoji-search').setSearchQuery('face');
+        await waitForCondition(
+            () => findInEmojiPicker('emoji-search', 'emoji-group'));
+        emoticonCategoryButton.click();
+
+        await waitForCondition(() => emojiGroups.scrollTop === targetScroll);
+        assertFalse(findInEmojiPicker('emoji-search').searchNotEmpty());
+      });
+
+  test(
+      'Focusing on emoji tab groups does should not scroll the tabs section',
+      async () => {
+        const emojiGroupButton = findInEmojiPicker(
+            '#tabs', 'emoji-group-button:last-of-type', 'cr-icon-button');
+        emojiGroupButton.focus();
+        await waitForCondition(
+            () => findInEmojiPicker(
+                '#tabs', 'emoji-group-button:last-of-type:focus-within'));
+        // wait for any potential smooth scrolling to take place
+        await timeout(400);
+
+        assertEquals(findInEmojiPicker('#tabs').scrollLeft, 0);
+      });
+
+  test(
+      'Focusing on emoticon tab groups does should not scroll the tabs section',
+      async () => {
+        const categoryButton = findInEmojiPicker(
+            'emoji-search', 'emoji-category-button:last-of-type',
+            'cr-icon-button');
+        categoryButton.click();
+        await waitForCondition(() => isCategoryButtonActive(categoryButton));
+        await completePendingMicrotasks();
+        const emojiGroupButton = findInEmojiPicker(
+            '#tabs', 'text-group-button:last-of-type', 'cr-button');
+        emojiGroupButton.focus();
+        await waitForCondition(
+            () => findInEmojiPicker(
+                '#tabs', 'text-group-button:last-of-type:focus-within'));
+        // wait for any potential smooth scrolling to take place
+        await timeout(400);
+
+        assertEquals(findInEmojiPicker('#tabs').scrollLeft, 0);
+      });
 });

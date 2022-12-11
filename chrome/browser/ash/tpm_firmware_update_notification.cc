@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "base/bind.h"
 #include "base/memory/scoped_refptr.h"
@@ -73,25 +74,22 @@ void OnAvailableUpdateModes(Profile* profile,
     return;
   }
 
-  std::unique_ptr<message_center::Notification> notification =
-      CreateSystemNotification(
-          message_center::NOTIFICATION_TYPE_SIMPLE,
-          kTPMFirmwareUpdateNotificationId,
-          l10n_util::GetStringUTF16(IDS_TPM_FIRMWARE_UPDATE_NOTIFICATION_TITLE),
-          l10n_util::GetStringFUTF16(
-              IDS_TPM_FIRMWARE_UPDATE_NOTIFICATION_MESSAGE,
-              ui::GetChromeOSDeviceName()),
-          std::u16string(), GURL(kTPMFirmwareUpdateNotificationId),
-          message_center::NotifierId(
-              message_center::NotifierType::SYSTEM_COMPONENT,
-              kTPMFirmwareUpdateNotificationId),
-          message_center::RichNotificationData(),
-          base::MakeRefCounted<TPMFirmwareUpdateNotificationDelegate>(profile),
-          gfx::kNoneIcon,
-          message_center::SystemNotificationWarningLevel::WARNING);
+  message_center::Notification notification = CreateSystemNotification(
+      message_center::NOTIFICATION_TYPE_SIMPLE,
+      kTPMFirmwareUpdateNotificationId,
+      l10n_util::GetStringUTF16(IDS_TPM_FIRMWARE_UPDATE_NOTIFICATION_TITLE),
+      l10n_util::GetStringFUTF16(IDS_TPM_FIRMWARE_UPDATE_NOTIFICATION_MESSAGE,
+                                 ui::GetChromeOSDeviceName()),
+      std::u16string(), GURL(kTPMFirmwareUpdateNotificationId),
+      message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
+                                 kTPMFirmwareUpdateNotificationId,
+                                 NotificationCatalogName::kTPMFirmwareUpdate),
+      message_center::RichNotificationData(),
+      base::MakeRefCounted<TPMFirmwareUpdateNotificationDelegate>(profile),
+      gfx::kNoneIcon, message_center::SystemNotificationWarningLevel::WARNING);
 
   NotificationDisplayServiceFactory::GetForProfile(profile)->Display(
-      NotificationHandler::Type::TRANSIENT, *notification,
+      NotificationHandler::Type::TRANSIENT, notification,
       /*metadata=*/nullptr);
 }
 

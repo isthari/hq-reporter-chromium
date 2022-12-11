@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,8 +65,8 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
     kAddNewProfileButton = 15,
     kSyncSettingsButton = 16,
     kEditProfileButton = 17,
-    kCreateIncognitoShortcutButton = 18,
-    kMaxValue = kCreateIncognitoShortcutButton,
+    // DEPRECATED: kCreateIncognitoShortcutButton = 18,
+    kMaxValue = kEditProfileButton,
   };
 
   struct EditButtonParams {
@@ -83,21 +83,6 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
 
   // Size of the large identity image in the menu.
   static constexpr int kIdentityImageSize = 64;
-
-  // Shows the bubble if one is not already showing.  This allows us to easily
-  // make a button toggle the bubble on and off when clicked: we unconditionally
-  // call this function when the button is clicked and if the bubble isn't
-  // showing it will appear while if it is showing, nothing will happen here and
-  // the existing bubble will auto-close due to focus loss.
-  static void ShowBubble(profiles::BubbleViewMode view_mode,
-                         views::Button* anchor_button,
-                         Browser* browser,
-                         bool is_source_accelerator);
-
-  static bool IsShowing();
-  static void Hide();
-
-  static ProfileMenuViewBase* GetBubbleForTesting();
 
   ProfileMenuViewBase(views::Button* anchor_button,
                       Browser* browser);
@@ -140,19 +125,22 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
                         const gfx::VectorIcon& icon = gfx::kNoneIcon,
                         float icon_to_image_ratio = 1.0f);
   void SetProfileManagementHeading(const std::u16string& heading);
-  void AddSelectableProfile(const ui::ImageModel& image_model,
-                            const std::u16string& name,
-                            bool is_guest,
-                            base::RepeatingClosure action);
+  void AddAvailableProfile(const ui::ImageModel& image_model,
+                           const std::u16string& name,
+                           bool is_guest,
+                           bool is_enabled,
+                           base::RepeatingClosure action);
   void AddProfileManagementShortcutFeatureButton(const gfx::VectorIcon& icon,
                                                  const std::u16string& text,
                                                  base::RepeatingClosure action);
+  void AddProfileManagementManagedHint(const gfx::VectorIcon& icon,
+                                       const std::u16string& text);
   void AddProfileManagementFeatureButton(const gfx::VectorIcon& icon,
                                          const std::u16string& text,
                                          base::RepeatingClosure action);
 
   gfx::ImageSkia ColoredImageForMenu(const gfx::VectorIcon& icon,
-                                     SkColor color) const;
+                                     ui::ColorId color) const;
   // Should be called inside each button/link action.
   void RecordClick(ActionableItem item);
 
@@ -172,6 +160,7 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
  private:
   class AXMenuWidgetObserver;
 
+  friend class ProfileMenuCoordinator;
   friend class ProfileMenuViewExtensionsTest;
 
   void Reset();
@@ -195,12 +184,13 @@ class ProfileMenuViewBase : public content::WebContentsDelegate,
 
   void ButtonPressed(base::RepeatingClosure action);
 
+  void CreateAXWidgetObserver(views::Widget* widget);
+
   const raw_ptr<Browser> browser_;
 
   const raw_ptr<views::Button> anchor_button_;
 
   // Component containers.
-  raw_ptr<views::View> heading_container_ = nullptr;
   raw_ptr<views::View> identity_info_container_ = nullptr;
   raw_ptr<views::View> sync_info_container_ = nullptr;
   raw_ptr<views::View> shortcut_features_container_ = nullptr;

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -79,6 +79,15 @@ class VirtualDeviceEnabledDeviceFactory::VirtualDeviceEntry {
 
   void ResetConsumerReceiver() { consumer_receiver_.reset(); }
 
+  Device* GetDevice() {
+    if (shared_memory_device_)
+      return shared_memory_device_.get();
+    else if (texture_device_)
+      return texture_device_.get();
+    else
+      return gmb_device_.get();
+  }
+
   void StopDevice() {
     if (shared_memory_device_)
       shared_memory_device_->Stop();
@@ -155,10 +164,31 @@ void VirtualDeviceEnabledDeviceFactory::CreateDevice(
                                 std::move(callback));
 }
 
+void VirtualDeviceEnabledDeviceFactory::CreateDeviceInProcess(
+    const std::string& device_id,
+    CreateDeviceInProcessCallback callback) {
+  auto virtual_device_iter = virtual_devices_by_id_.find(device_id);
+  if (virtual_device_iter != virtual_devices_by_id_.end()) {
+    // The requested virtual device is already used by another client.
+    // Revoke the access for the current client.
+    VirtualDeviceEntry& device_entry = virtual_device_iter->second;
+    DeviceInProcessInfo info{device_entry.GetDevice(),
+                             media::VideoCaptureError::kNone};
+    std::move(callback).Run(std::move(info));
+    return;
+  }
+
+  return device_factory_->CreateDeviceInProcess(device_id, std::move(callback));
+}
+
+void VirtualDeviceEnabledDeviceFactory::StopDeviceInProcess(
+    const std::string device_id) {
+  device_factory_->StopDeviceInProcess(device_id);
+}
+
 void VirtualDeviceEnabledDeviceFactory::AddSharedMemoryVirtualDevice(
     const media::VideoCaptureDeviceInfo& device_info,
     mojo::PendingRemote<mojom::Producer> producer_pending_remote,
-    bool send_buffer_handles_to_producer_as_raw_file_descriptors,
     mojo::PendingReceiver<mojom::SharedMemoryVirtualDevice>
         virtual_device_receiver) {
   auto device_id = device_info.descriptor.device_id;
@@ -175,8 +205,7 @@ void VirtualDeviceEnabledDeviceFactory::AddSharedMemoryVirtualDevice(
                          OnVirtualDeviceProducerConnectionErrorOrClose,
                      base::Unretained(this), device_id));
   auto device = std::make_unique<SharedMemoryVirtualDeviceMojoAdapter>(
-      std::move(producer),
-      send_buffer_handles_to_producer_as_raw_file_descriptors);
+      std::move(producer));
   auto producer_receiver =
       std::make_unique<mojo::Receiver<mojom::SharedMemoryVirtualDevice>>(
           device.get(), std::move(virtual_device_receiver));
@@ -301,5 +330,12 @@ void VirtualDeviceEnabledDeviceFactory::OnDevicesChangedObserverDisconnected(
     }
   }
 }
+
+#if BUILDFLAG(IS_WIN)
+void VirtualDeviceEnabledDeviceFactory::OnGpuInfoUpdate(
+    const CHROME_LUID& luid) {
+  device_factory_->OnGpuInfoUpdate(luid);
+}
+#endif
 
 }  // namespace video_capture

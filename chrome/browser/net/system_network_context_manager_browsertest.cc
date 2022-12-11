@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,11 @@
 #include <string>
 #include <vector>
 
+#include "base/files/file_path.h"
+#include "base/strings/strcat.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/values_test_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -16,6 +19,8 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/component_updater/first_party_sets_component_installer.h"
 #include "chrome/browser/net/stub_resolver_config_reader.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
@@ -29,9 +34,13 @@
 #include "content/public/common/network_service_util.h"
 #include "content/public/common/user_agent.h"
 #include "content/public/test/browser_test.h"
+#include "content/public/test/browser_test_utils.h"
+#include "content/public/test/frame_test_utils.h"
 #include "content/public/test/test_utils.h"
+#include "net/base/features.h"
+#include "net/cookies/canonical_cookie_test_helpers.h"
+#include "net/dns/mock_host_resolver.h"
 #include "net/net_buildflags.h"
-#include "services/cert_verifier/test_cert_verifier_service_factory.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/network_service_buildflags.h"
 #include "services/network/public/mojom/network_context.mojom.h"
@@ -43,46 +52,10 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/features.h"
 
-#if BUILDFLAG(BUILTIN_CERT_VERIFIER_FEATURE_SUPPORTED)
-#include "chrome/browser/policy/policy_test_utils.h"
-#include "components/policy/core/common/policy_map.h"
-#include "components/policy/policy_constants.h"
-#include "net/base/features.h"
-#endif
-
-namespace {
-
-int64_t GetFirstPartySetEntriesCountFromNetworkService() {
-  // The test interface isn't supported in the in-process case.
-  DCHECK(!content::IsInProcessNetworkService());
-
-  mojo::Remote<network::mojom::NetworkServiceTest> network_service_test;
-  content::GetNetworkService()->BindTestInterface(
-      network_service_test.BindNewPipeAndPassReceiver());
-
-  int64_t count = 0;
-  base::RunLoop run_loop;
-  network_service_test->GetFirstPartySetEntriesCount(
-      base::BindLambdaForTesting([&](int64_t count_from_network_service) {
-        count = count_from_network_service;
-        run_loop.Quit();
-      }));
-  run_loop.Run();
-
-  return count;
-}
-
-void PollForFirstPartySetEntryCount(int64_t expected_count) {
-  auto has_expected_count = base::BindLambdaForTesting([expected_count]() {
-    return GetFirstPartySetEntriesCountFromNetworkService() == expected_count;
-  });
-  while (!has_expected_count.Run()) {
-  }
-}
-
-}  // namespace
-
 using SystemNetworkContextManagerBrowsertest = InProcessBrowserTest;
+
+const char* kSamePartyCookieName = "SamePartyCookie";
+const char* kHostA = "a.test";
 
 IN_PROC_BROWSER_TEST_F(SystemNetworkContextManagerBrowsertest,
                        StaticAuthParams) {
@@ -90,7 +63,7 @@ IN_PROC_BROWSER_TEST_F(SystemNetworkContextManagerBrowsertest,
   network::mojom::HttpAuthStaticParamsPtr static_params =
       SystemNetworkContextManager::GetHttpAuthStaticParamsForTesting();
   EXPECT_EQ("", static_params->gssapi_library_name);
-#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
   // Test that prefs are reflected in params.
 
   PrefService* local_state = g_browser_process->local_state();
@@ -99,7 +72,8 @@ IN_PROC_BROWSER_TEST_F(SystemNetworkContextManagerBrowsertest,
   static_params =
       SystemNetworkContextManager::GetHttpAuthStaticParamsForTesting();
   EXPECT_EQ(dev_null, static_params->gssapi_library_name);
-#endif
+#endif  // BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) &&
+        // !BUILDFLAG(IS_CHROMEOS)
 }
 
 IN_PROC_BROWSER_TEST_F(SystemNetworkContextManagerBrowsertest, AuthParams) {
@@ -211,7 +185,7 @@ IN_PROC_BROWSER_TEST_F(SystemNetworkContextManagerBrowsertest, AuthParams) {
   EXPECT_TRUE(dynamic_params->patterns_allowed_to_use_all_schemes.empty());
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   // The kerberos.enabled pref is false and the device is not Active Directory
   // managed by default.
   EXPECT_FALSE(dynamic_params->allow_gssapi_library_load);
@@ -220,7 +194,7 @@ IN_PROC_BROWSER_TEST_F(SystemNetworkContextManagerBrowsertest, AuthParams) {
       SystemNetworkContextManager::GetHttpAuthDynamicParamsForTesting();
   EXPECT_TRUE(dynamic_params->allow_gssapi_library_load);
   EXPECT_TRUE(dynamic_params->patterns_allowed_to_use_all_schemes.empty());
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
   base::Value patterns_allowed_to_use_all_schemes(base::Value::Type::LIST);
   patterns_allowed_to_use_all_schemes.Append(
@@ -240,20 +214,118 @@ IN_PROC_BROWSER_TEST_F(SystemNetworkContextManagerBrowsertest, AuthParams) {
             dynamic_params->patterns_allowed_to_use_all_schemes);
 }
 
+class SystemNetworkContextManagerWithCustomProxyConfigBrowserTest
+    : public SystemNetworkContextManagerBrowsertest {
+ protected:
+  void SetUpDefaultCommandLine(base::CommandLine* command_line) override {
+    command_line->AppendSwitchASCII(switches::kIPAnonymizationProxyServer,
+                                    "testproxy:80");
+    command_line->AppendSwitchASCII(
+        switches::kIPAnonymizationProxyAllowList,
+        "a.test, foo.a.test, foo.test, b.test:1234");
+    command_line->AppendSwitchASCII(switches::kIPAnonymizationProxyPassword,
+                                    "value");
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(
+    SystemNetworkContextManagerWithCustomProxyConfigBrowserTest,
+    InitialCustomProxyConfig) {
+  network::mojom::NetworkContextParamsPtr network_context_params =
+      g_browser_process->system_network_context_manager()
+          ->CreateDefaultNetworkContextParams();
+
+  // Check that command line switches were correctly set in
+  // `initial_custom_proxy_config`
+  EXPECT_TRUE(network_context_params->initial_custom_proxy_config->rules
+                  .reverse_bypass);
+  EXPECT_TRUE(network_context_params->initial_custom_proxy_config
+                  ->should_replace_direct);
+  EXPECT_FALSE(network_context_params->initial_custom_proxy_config
+                   ->should_override_existing_config);
+
+  EXPECT_EQ(network_context_params->initial_custom_proxy_config->rules
+                .single_proxies.ToValue(),
+            base::test::ParseJson(R"(["testproxy:80"])"));
+  EXPECT_EQ(network_context_params->initial_custom_proxy_config->rules
+                .bypass_rules.ToString(),
+            "a.test;foo.a.test;foo.test;b.test:1234;");
+
+  net::HttpRequestHeaders expected_header;
+  expected_header.SetHeader("password", "value");
+  EXPECT_EQ(network_context_params->initial_custom_proxy_config
+                ->connect_tunnel_headers.ToString(),
+            expected_header.ToString());
+
+  // Check that rules are applied correctly
+  net::ProxyInfo result;
+  network_context_params->initial_custom_proxy_config->rules.Apply(
+      GURL("http://example.test"), &result);
+  EXPECT_TRUE(result.did_bypass_proxy());
+  EXPECT_EQ(result.proxy_server(), net::ProxyServer::Direct());
+
+  network_context_params->initial_custom_proxy_config->rules.Apply(
+      GURL("http://foo.test"), &result);
+  EXPECT_FALSE(result.did_bypass_proxy());
+  EXPECT_EQ(result.ToPacString(), "PROXY testproxy:80");
+
+  network_context_params->initial_custom_proxy_config->rules.Apply(
+      GURL("http://a.test"), &result);
+  EXPECT_FALSE(result.did_bypass_proxy());
+  EXPECT_EQ(result.ToPacString(), "PROXY testproxy:80");
+
+  network_context_params->initial_custom_proxy_config->rules.Apply(
+      GURL("https://a.test"), &result);
+  EXPECT_FALSE(result.did_bypass_proxy());
+  EXPECT_EQ(result.ToPacString(), "PROXY testproxy:80");
+
+  network_context_params->initial_custom_proxy_config->rules.Apply(
+      GURL("https://foo.a.test"), &result);
+  EXPECT_FALSE(result.did_bypass_proxy());
+  EXPECT_EQ(result.ToPacString(), "PROXY testproxy:80");
+
+  network_context_params->initial_custom_proxy_config->rules.Apply(
+      GURL("https://bar.a.test"), &result);
+  EXPECT_TRUE(result.did_bypass_proxy());
+  EXPECT_EQ(result.proxy_server(), net::ProxyServer::Direct());
+
+  network_context_params->initial_custom_proxy_config->rules.Apply(
+      GURL("https://b.test:1234"), &result);
+  EXPECT_FALSE(result.did_bypass_proxy());
+  EXPECT_EQ(result.ToPacString(), "PROXY testproxy:80");
+
+  network_context_params->initial_custom_proxy_config->rules.Apply(
+      GURL("https://b.test:5678"), &result);
+  EXPECT_TRUE(result.did_bypass_proxy());
+  EXPECT_EQ(result.proxy_server(), net::ProxyServer::Direct());
+}
+
 class SystemNetworkContextManagerWithFirstPartySetComponentBrowserTest
-    : public SystemNetworkContextManagerBrowsertest,
-      public testing::WithParamInterface<bool> {
+    : public SystemNetworkContextManagerBrowsertest {
  public:
-  SystemNetworkContextManagerWithFirstPartySetComponentBrowserTest() = default;
+  SystemNetworkContextManagerWithFirstPartySetComponentBrowserTest()
+      : https_server_(net::EmbeddedTestServer::TYPE_HTTPS) {}
+
+  void SetUpOnMainThread() override {
+    SystemNetworkContextManagerBrowsertest::SetUpOnMainThread();
+    host_resolver()->AddRule("*", "127.0.0.1");
+    https_server()->SetSSLConfig(net::EmbeddedTestServer::CERT_TEST_NAMES);
+    https_server()->AddDefaultHandlers(
+        base::FilePath(FILE_PATH_LITERAL("content/test/data")));
+    ASSERT_TRUE(https_server()->Start());
+  }
 
   void SetUpInProcessBrowserTestFixture() override {
     SystemNetworkContextManagerBrowsertest::SetUpInProcessBrowserTestFixture();
-    feature_list_.InitAndEnableFeature(features::kFirstPartySets);
+    feature_list_.InitWithFeatures(
+        {features::kFirstPartySets, net::features::kSamePartyAttributeEnabled},
+        {});
     CHECK(component_dir_.CreateUniqueTempDir());
     base::ScopedAllowBlockingForTesting allow_blocking;
 
     component_updater::FirstPartySetsComponentInstallerPolicy::
-        WriteComponentForTesting(component_dir_.GetPath(),
+        WriteComponentForTesting(base::Version("1.2.3"),
+                                 component_dir_.GetPath(),
                                  GetComponentContents());
   }
 
@@ -266,55 +338,80 @@ class SystemNetworkContextManagerWithFirstPartySetComponentBrowserTest
         default_command_line, switches::kDisableComponentUpdate, command_line);
   }
 
- private:
-  bool UseV2Format() const { return GetParam(); }
+  net::test_server::EmbeddedTestServer* https_server() {
+    return &https_server_;
+  }
 
+  content::WebContents* web_contents() {
+    return browser()->tab_strip_model()->GetActiveWebContents();
+  }
+
+  GURL EchoCookiesUrl(const std::string& host) {
+    return https_server_.GetURL(host, "/echoheader?Cookie");
+  }
+
+ private:
   std::string GetComponentContents() const {
-    if (UseV2Format()) {
-      // Use the V2 format of the component.
-      return "{\"owner\": \"https://example.test\", \"members\": [ "
-             "\"https://member1.test\", \"https://member2.test\"]}\n"
-             "{\"owner\": \"https://example2.test\", \"members\": [ "
-             "\"https://member3.test\", \"https://member4.test\"]}";
-    }
-    return R"([{
-          "owner": "https://example.test",
-          "members": [
-            "https://member1.test",
-            "https://member2.test"
-            ]
-          },
-          {
-            "owner": "https://example2.test",
-            "members": [
-              "https://member3.test",
-              "https://member4.test"
-              ]
-          }])";
+    return "{\"primary\": \"https://a.test\", \"associatedSites\": [ "
+           "\"https://b.test\", \"https://associatedsite1.test\"]}\n"
+           "{\"primary\": \"https://c.test\", \"associatedSites\": [ "
+           "\"https://d.test\", \"https://associatedsite2.test\"]}";
   }
 
   base::test::ScopedFeatureList feature_list_;
   base::ScopedTempDir component_dir_;
+  net::test_server::EmbeddedTestServer https_server_;
 };
 
-IN_PROC_BROWSER_TEST_P(
+IN_PROC_BROWSER_TEST_F(
+    SystemNetworkContextManagerWithFirstPartySetComponentBrowserTest,
+    PRE_ReloadsFirstPartySetsAfterCrash) {
+  // Network service is not running out of process, so cannot be crashed.
+  if (!content::IsOutOfProcessNetworkService())
+    return;
+
+  // Set a persistent cookie that will still be there after the network service
+  // is crashed. We don't use the system network context here (which wouldn't
+  // persist the cookie to disk), but that's ok - this test only cares that the
+  // NetworkService gets reconfigured after a crash, and that that
+  // reconfiguration includes setting up First-Party Sets.
+  const GURL host_root = https_server()->GetURL(kHostA, "/");
+  ASSERT_TRUE(content::SetCookie(
+      browser()->profile(), host_root,
+      base::StrCat(
+          {kSamePartyCookieName,
+           "=1; samesite=lax; secure; sameparty; max-age=2147483647"})));
+  ASSERT_THAT(content::GetCookies(browser()->profile(), host_root),
+              net::CookieStringIs(testing::UnorderedElementsAre(
+                  testing::Key(kSamePartyCookieName))));
+}
+
+IN_PROC_BROWSER_TEST_F(
     SystemNetworkContextManagerWithFirstPartySetComponentBrowserTest,
     ReloadsFirstPartySetsAfterCrash) {
   // Network service is not running out of process, so cannot be crashed.
   if (!content::IsOutOfProcessNetworkService())
     return;
 
-  PollForFirstPartySetEntryCount(/*expected_count=*/6);
+  const GURL host_root = https_server()->GetURL(kHostA, "/");
+  ASSERT_THAT(content::GetCookies(browser()->profile(), host_root),
+              net::CookieStringIs(testing::UnorderedElementsAre(
+                  testing::Key(kSamePartyCookieName))));
+
+  EXPECT_THAT(content::ArrangeFramesAndGetContentFromLeaf(
+                  web_contents(), https_server(), "b.test(%s)", {0},
+                  EchoCookiesUrl(kHostA)),
+              net::CookieStringIs(testing::UnorderedElementsAre(
+                  testing::Key(kSamePartyCookieName))));
 
   SimulateNetworkServiceCrash();
 
-  PollForFirstPartySetEntryCount(/*expected_count=*/6);
+  EXPECT_THAT(content::ArrangeFramesAndGetContentFromLeaf(
+                  web_contents(), https_server(), "b.test(%s)", {0},
+                  EchoCookiesUrl(kHostA)),
+              net::CookieStringIs(testing::UnorderedElementsAre(
+                  testing::Key(kSamePartyCookieName))));
 }
-
-INSTANTIATE_TEST_SUITE_P(
-    /* no prefix */,
-    SystemNetworkContextManagerWithFirstPartySetComponentBrowserTest,
-    testing::Bool());
 
 class SystemNetworkContextManagerReferrersFeatureBrowsertest
     : public SystemNetworkContextManagerBrowsertest,
@@ -424,117 +521,3 @@ class SystemNetworkContextManagerCertificateTransparencyBrowsertest
         absl::nullopt);
   }
 };
-
-#if BUILDFLAG(BUILTIN_CERT_VERIFIER_FEATURE_SUPPORTED)
-class SystemNetworkContextServiceCertVerifierBuiltinPermissionsPolicyTest
-    : public policy::PolicyTest,
-      public testing::WithParamInterface<bool> {
- public:
-  SystemNetworkContextServiceCertVerifierBuiltinPermissionsPolicyTest() {
-    bool use_builtin_cert_verifier = GetParam();
-    cert_verifier_impl_ =
-        use_builtin_cert_verifier
-            ? cert_verifier::mojom::CertVerifierCreationParams::
-                  CertVerifierImpl::kBuiltin
-            : cert_verifier::mojom::CertVerifierCreationParams::
-                  CertVerifierImpl::kSystem;
-  }
-
-  void SetUpInProcessBrowserTestFixture() override {
-    scoped_feature_list_.InitWithFeatureState(
-        net::features::kCertVerifierBuiltinFeature,
-        cert_verifier_impl_ ==
-            cert_verifier::mojom::CertVerifierCreationParams::CertVerifierImpl::
-                kBuiltin);
-
-    content::SetCertVerifierServiceFactoryForTesting(
-        &test_cert_verifier_service_factory_);
-
-    policy::PolicyTest::SetUpInProcessBrowserTestFixture();
-  }
-
-  void TearDownInProcessBrowserTestFixture() override {
-    content::SetCertVerifierServiceFactoryForTesting(nullptr);
-  }
-
-  void SetUpOnMainThread() override {
-    test_cert_verifier_service_factory_.ReleaseAllCertVerifierParams();
-  }
-
-  void ExpectUseBuiltinCertVerifierCorrect(
-      network::mojom::NetworkContextParamsPtr& network_context_params_ptr,
-      cert_verifier::mojom::CertVerifierCreationParams::CertVerifierImpl
-          use_builtin_cert_verifier) {
-    ASSERT_TRUE(network_context_params_ptr);
-    ASSERT_TRUE(network_context_params_ptr->cert_verifier_params);
-    ASSERT_EQ(1ul, test_cert_verifier_service_factory_.num_captured_params());
-    ASSERT_TRUE(test_cert_verifier_service_factory_.GetParamsAtIndex(0)
-                    ->creation_params);
-    EXPECT_EQ(use_builtin_cert_verifier,
-              test_cert_verifier_service_factory_.GetParamsAtIndex(0)
-                  ->creation_params->use_builtin_cert_verifier);
-    // Send it to the actual CertVerifierServiceFactory.
-    test_cert_verifier_service_factory_.ReleaseNextCertVerifierParams();
-  }
-
-  cert_verifier::mojom::CertVerifierCreationParams::CertVerifierImpl
-  cert_verifier_impl() const {
-    return cert_verifier_impl_;
-  }
-
- private:
-  cert_verifier::mojom::CertVerifierCreationParams::CertVerifierImpl
-      cert_verifier_impl_;
-  base::test::ScopedFeatureList scoped_feature_list_;
-
-  cert_verifier::TestCertVerifierServiceFactoryImpl
-      test_cert_verifier_service_factory_;
-};
-
-IN_PROC_BROWSER_TEST_P(
-    SystemNetworkContextServiceCertVerifierBuiltinPermissionsPolicyTest,
-    Test) {
-  network::mojom::NetworkContextParamsPtr network_context_params_ptr;
-
-  // If no BuiltinCertificateVerifierEnabled policy is set, the
-  // use_builtin_cert_verifier param should be set from the feature flag.
-  network_context_params_ptr =
-      g_browser_process->system_network_context_manager()
-          ->CreateDefaultNetworkContextParams();
-  ExpectUseBuiltinCertVerifierCorrect(network_context_params_ptr,
-                                      cert_verifier_impl());
-#if BUILDFLAG(BUILTIN_CERT_VERIFIER_POLICY_SUPPORTED)
-  // If the BuiltinCertificateVerifierEnabled policy is set it should
-  // override the feature flag.
-  policy::PolicyMap policies;
-  SetPolicy(&policies, policy::key::kBuiltinCertificateVerifierEnabled,
-            base::Value(true));
-  UpdateProviderPolicy(policies);
-
-  network_context_params_ptr =
-      g_browser_process->system_network_context_manager()
-          ->CreateDefaultNetworkContextParams();
-  ExpectUseBuiltinCertVerifierCorrect(
-      network_context_params_ptr,
-      cert_verifier::mojom::CertVerifierCreationParams::CertVerifierImpl::
-          kBuiltin);
-
-  SetPolicy(&policies, policy::key::kBuiltinCertificateVerifierEnabled,
-            base::Value(false));
-  UpdateProviderPolicy(policies);
-
-  network_context_params_ptr =
-      g_browser_process->system_network_context_manager()
-          ->CreateDefaultNetworkContextParams();
-  ExpectUseBuiltinCertVerifierCorrect(
-      network_context_params_ptr,
-      cert_verifier::mojom::CertVerifierCreationParams::CertVerifierImpl::
-          kSystem);
-#endif  // BUILDFLAG(BUILTIN_CERT_VERIFIER_POLICY_SUPPORTED)
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    All,
-    SystemNetworkContextServiceCertVerifierBuiltinPermissionsPolicyTest,
-    ::testing::Bool());
-#endif  // BUILDFLAG(BUILTIN_CERT_VERIFIER_FEATURE_SUPPORTED)

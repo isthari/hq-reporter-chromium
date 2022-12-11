@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,8 @@ import android.content.res.Configuration;
 import android.graphics.Point;
 import android.os.Build;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.uiautomator.UiDevice;
+
+import androidx.test.uiautomator.UiDevice;
 
 import org.json.JSONArray;
 import org.json.JSONException;

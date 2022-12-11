@@ -1,12 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/modules/webcodecs/video_encoder.h"
 
+#include "base/run_loop.h"
 #include "media/base/mock_filters.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_tester.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
@@ -22,6 +24,7 @@
 #include "third_party/blink/renderer/modules/webcodecs/codec_pressure_manager.h"
 #include "third_party/blink/renderer/modules/webcodecs/codec_pressure_manager_provider.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_encoder.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 
 namespace blink {
@@ -52,10 +55,10 @@ class FakeVideoEncoder : public VideoEncoder {
     EXPECT_CALL(*next_mock_encoder_, Initialize(_, _, _, _))
         .WillOnce([quit_closure](Unused, Unused, Unused,
                                  media::VideoEncoder::EncoderStatusCB done_cb) {
-          base::SequencedTaskRunnerHandle::Get()->PostTask(
+          scheduler::GetSequencedTaskRunnerForTesting()->PostTask(
               FROM_HERE, base::BindOnce(std::move(done_cb),
                                         media::EncoderStatus::Codes::kOk));
-          base::SequencedTaskRunnerHandle::Get()->PostTask(
+          scheduler::GetSequencedTaskRunnerForTesting()->PostTask(
               FROM_HERE, std::move(quit_closure));
         });
   }
@@ -161,8 +164,7 @@ TEST_F(VideoEncoderTest, RejectFlushAfterClose) {
       MakeVideoFrame(script_state, config->width(), config->height(), 1),
       MakeGarbageCollected<VideoEncoderEncodeOptions>(), es);
 
-  auto promise = encoder->flush(es);
-  ScriptPromiseTester tester(script_state, promise);
+  ScriptPromiseTester tester(script_state, encoder->flush(es));
   ASSERT_FALSE(es.HadException());
   ASSERT_FALSE(tester.IsFulfilled());
   ASSERT_FALSE(tester.IsRejected());

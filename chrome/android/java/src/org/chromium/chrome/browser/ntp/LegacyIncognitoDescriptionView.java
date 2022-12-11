@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,11 +25,10 @@ import androidx.annotation.IdRes;
 import androidx.annotation.StringRes;
 import androidx.appcompat.widget.SwitchCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.components.content_settings.CookieControlsEnforcement;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.text.NoUnderlineClickableSpan;
 import org.chromium.ui.text.SpanApplier;
 import org.chromium.ui.widget.ChromeBulletSpan;
@@ -164,8 +163,7 @@ public class LegacyIncognitoDescriptionView
 
         view.setText(SpanApplier.applySpans(text,
                 new SpanApplier.SpanInfo("<em>", "</em>",
-                        new ForegroundColorSpan(ApiCompatibilityUtils.getColor(
-                                getContext().getResources(), R.color.incognito_emphasis))),
+                        new ForegroundColorSpan(getContext().getColor(R.color.incognito_emphasis))),
                 new SpanApplier.SpanInfo("<li1>", "</li1>", new ChromeBulletSpan(getContext())),
                 new SpanApplier.SpanInfo("<li2>", "</li2>", new ChromeBulletSpan(getContext())),
                 new SpanApplier.SpanInfo("<li3>", "</li3>", new ChromeBulletSpan(getContext()))));
@@ -261,7 +259,7 @@ public class LegacyIncognitoDescriptionView
 
         LinearLayout.LayoutParams params = (LayoutParams) mLearnMore.getLayoutParams();
         params.setMargins(0, learnMoreSpacingTop, 0, learnMoreSpacingBottom);
-        mLearnMore.requestLayout();
+        ViewUtils.requestLayout(mLearnMore, "LegacyIncognitoDescriptionView.adjustLayout");
 
         ((LinearLayout.LayoutParams) mHeader.getLayoutParams())
                 .setMargins(0, totalSpaceBetweenViews, 0, 0);
@@ -287,7 +285,7 @@ public class LegacyIncognitoDescriptionView
 
     /** Adjust the "Learn More" link. */
     private void adjustLearnMore() {
-        boolean readLaterEnabled = CachedFeatureFlags.isEnabled(ChromeFeatureList.READ_LATER);
+        boolean readLaterEnabled = ChromeFeatureList.sReadLater.isEnabled();
         final String subtitleText = getContext().getResources().getString(readLaterEnabled
                         ? R.string.new_tab_otr_subtitle_with_reading_list
                         : R.string.new_tab_otr_subtitle);
@@ -310,7 +308,7 @@ public class LegacyIncognitoDescriptionView
         SpannableString textWithLearnMoreLink = new SpannableString(concatenatedText.toString());
 
         NoUnderlineClickableSpan span = new NoUnderlineClickableSpan(
-                getResources(), R.color.modern_blue_300, (view) -> mLearnMore.callOnClick());
+                getContext(), R.color.modern_blue_300, (view) -> mLearnMore.callOnClick());
         textWithLearnMoreLink.setSpan(
                 span, subtitleText.length() + 1, textWithLearnMoreLink.length(), 0 /* flags */);
         mSubtitle.setText(textWithLearnMoreLink);

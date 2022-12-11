@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,7 +70,8 @@ MATCHER_P(QuickAnswersRequestWithOutputEqual, quick_answers_request, "") {
 class MockIntentGenerator : public IntentGenerator {
  public:
   explicit MockIntentGenerator(IntentGeneratorCallback complete_callback)
-      : IntentGenerator(std::move(complete_callback)) {}
+      : IntentGenerator(/*spell_checker=*/nullptr,
+                        std::move(complete_callback)) {}
 
   MockIntentGenerator(const MockIntentGenerator&) = delete;
   MockIntentGenerator& operator=(const MockIntentGenerator&) = delete;
@@ -130,11 +131,12 @@ class QuickAnswersClientTest : public QuickAnswersTestBase {
     return std::move(mock_intent_generator_);
   }
 
+  base::test::TaskEnvironment task_environment_;
+
   std::unique_ptr<QuickAnswersClient> client_;
   std::unique_ptr<MockQuickAnswersDelegate> mock_delegate_;
   std::unique_ptr<MockResultLoader> mock_result_loader_;
   std::unique_ptr<MockIntentGenerator> mock_intent_generator_;
-  base::test::SingleThreadTaskEnvironment task_environment_;
   network::TestURLLoaderFactory test_url_loader_factory_;
   scoped_refptr<network::SharedURLLoaderFactory> test_shared_loader_factory_;
   QuickAnswersClient::ResultLoaderFactoryCallback

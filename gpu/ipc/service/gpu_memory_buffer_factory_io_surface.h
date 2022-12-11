@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,25 +60,17 @@ class GPU_IPC_SERVICE_EXPORT GpuMemoryBufferFactoryIOSurface
       gfx::GpuMemoryBufferHandle handle,
       const gfx::Size& size,
       gfx::BufferFormat format,
+      const gfx::ColorSpace& color_space,
       gfx::BufferPlane plane,
       int client_id,
       SurfaceHandle surface_handle) override;
-  bool SupportsCreateAnonymousImage() const override;
-  scoped_refptr<gl::GLImage> CreateAnonymousImage(const gfx::Size& size,
-                                                  gfx::BufferFormat format,
-                                                  gfx::BufferUsage usage,
-                                                  SurfaceHandle surface_handle,
-                                                  bool* is_cleared) override;
-  unsigned RequiredTextureType() override;
-  bool SupportsFormatRGB() override;
 
  private:
   typedef std::pair<gfx::IOSurfaceId, int> IOSurfaceMapKey;
   typedef std::unordered_map<IOSurfaceMapKey,
                              base::ScopedCFTypeRef<IOSurfaceRef>>
       IOSurfaceMap;
-  // TODO(reveman): Remove |io_surfaces_| and allow IOSurface backed GMBs to be
-  // used with any GPU process by passing a mach_port to CreateImageCHROMIUM.
+
   IOSurfaceMap io_surfaces_;
   base::Lock io_surfaces_lock_;
 };

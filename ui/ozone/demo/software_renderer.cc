@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,6 +63,9 @@ void SoftwareRenderer::RenderFrame() {
   canvas->clear(color);
 
   software_surface_->PresentCanvas(gfx::Rect(size_));
+
+  if (software_surface_->SupportsAsyncBufferSwap())
+    software_surface_->OnSwapBuffers(base::DoNothing(), gl::FrameData());
 
   if (vsync_provider_) {
     vsync_provider_->GetVSyncParameters(

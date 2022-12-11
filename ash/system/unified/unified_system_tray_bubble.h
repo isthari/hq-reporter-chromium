@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "ash/system/time/calendar_metrics.h"
 #include "ash/system/tray/time_to_click_recorder.h"
 #include "ash/system/tray/tray_bubble_base.h"
+#include "ash/system/unified/quick_settings_view.h"
 #include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -33,6 +34,7 @@ namespace ash {
 class UnifiedSystemTray;
 class UnifiedSystemTrayController;
 class UnifiedSystemTrayView;
+class QuickSettingsView;
 
 // Manages the bubble that contains UnifiedSystemTrayView.
 // Shows the bubble on the constructor, and closes the bubble on the destructor.
@@ -41,7 +43,6 @@ class UnifiedSystemTrayView;
 class ASH_EXPORT UnifiedSystemTrayBubble
     : public TrayBubbleBase,
       public ScreenLayoutObserver,
-      public views::WidgetObserver,
       public ShelfObserver,
       public ::wm::ActivationChangeObserver,
       public TimeToClickRecorder::Delegate,
@@ -53,6 +54,11 @@ class ASH_EXPORT UnifiedSystemTrayBubble
   UnifiedSystemTrayBubble& operator=(const UnifiedSystemTrayBubble&) = delete;
 
   ~UnifiedSystemTrayBubble() override;
+
+  // Add observers that can delete `this`. This needs to be done separately
+  // after `UnifiedSystemTrayBubble` and `UnifiedMessageCenterBubble` have been
+  // completely constructed to prevent crashes. (crbug/1310675)
+  void InitializeObservers();
 
   // Return the bounds of the bubble in the screen.
   gfx::Rect GetBoundsInScreen() const;
@@ -80,17 +86,13 @@ class ASH_EXPORT UnifiedSystemTrayBubble
 
   // Show calendar view.
   void ShowCalendarView(calendar_metrics::CalendarViewShowSource show_source,
-                        const ui::Event& event);
+                        calendar_metrics::CalendarEventSource event_source);
 
   // Show network settings detailed view.
   void ShowNetworkDetailedView(bool force);
 
   // Update bubble bounds and focus if necessary.
   void UpdateBubble();
-
-  // Return the maximum height available for both the system tray and
-  // the message center.
-  int CalculateMaxHeight() const;
 
   // Return the current visible height of the tray, even when partially
   // collapsed / expanded.
@@ -108,8 +110,9 @@ class ASH_EXPORT UnifiedSystemTrayBubble
   // Fire a notification that an accessibility event has occured on this object.
   void NotifyAccessibilityEvent(ax::mojom::Event event, bool send_native_event);
 
-  // Whether the bubble is currently showing audio details view.
+  // Whether the bubble is currently showing audio details or calendar view.
   bool ShowingAudioDetailedView() const;
+  bool ShowingCalendarView() const;
 
   // TrayBubbleBase:
   TrayBackgroundView* GetTray() const override;
@@ -139,7 +142,9 @@ class ASH_EXPORT UnifiedSystemTrayBubble
 
   UnifiedSystemTrayView* unified_view() { return unified_view_; }
 
-  UnifiedSystemTrayController* controller_for_test() {
+  QuickSettingsView* quick_settings_view() { return quick_settings_view_; }
+
+  UnifiedSystemTrayController* unified_system_tray_controller() {
     return controller_.get();
   }
 
@@ -170,6 +175,7 @@ class ASH_EXPORT UnifiedSystemTrayBubble
 
   TrayBubbleView* bubble_view_ = nullptr;
   UnifiedSystemTrayView* unified_view_ = nullptr;
+  QuickSettingsView* quick_settings_view_ = nullptr;
 };
 
 }  // namespace ash

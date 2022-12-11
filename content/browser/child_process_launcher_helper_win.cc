@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -73,7 +73,7 @@ ChildProcessLauncherHelper::LaunchProcessOnLauncherThread(
     win_options.start_hidden = true;
     win_options.elevated = true;
     ChildProcessLauncherHelper::Process process;
-    process.process = base::LaunchElevatedProcess(*command_line(), win_options);
+    process.process = base::LaunchProcess(*command_line(), win_options);
     *launch_result = process.process.IsValid() ? LAUNCH_RESULT_SUCCESS
                                                : LAUNCH_RESULT_FAILURE;
     return process;

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 class Browser;
-class GURL;
 class Profile;
 class PrefService;
 
@@ -89,9 +88,10 @@ struct SyncStatusLabels {
 
 // Returns the high-level sync status by querying |sync_service| and
 // |identity_manager|.
-SyncStatusLabels GetSyncStatusLabels(syncer::SyncService* sync_service,
-                                     signin::IdentityManager* identity_manager,
-                                     bool is_user_signout_allowed);
+SyncStatusLabels GetSyncStatusLabels(
+    syncer::SyncService* sync_service,
+    signin::IdentityManager* identity_manager,
+    bool is_user_clear_primary_account_allowed);
 
 // Returns the high-level sync status by querying |profile|. This is a
 // convenience version of GetSyncStatusLabels that use the |sync_service| and
@@ -147,10 +147,5 @@ void OpenTabForSyncKeyRetrieval(
 void OpenTabForSyncKeyRecoverabilityDegraded(
     Browser* browser,
     syncer::TrustedVaultUserActionTriggerForUMA trigger);
-
-// Testing-only variant for the two above which allows the caller to specify the
-// URL.
-void OpenTabForSyncTrustedVaultUserActionForTesting(Browser* browser,
-                                                    const GURL& url);
 
 #endif  // CHROME_BROWSER_SYNC_SYNC_UI_UTIL_H_

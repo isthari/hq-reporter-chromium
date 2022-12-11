@@ -28,11 +28,12 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SVG_GRAPHICS_SVG_IMAGE_H_
 
 #include "base/gtest_prod_util.h"
-#include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
+#include "third_party/blink/public/mojom/css/preferred_color_scheme.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/geometry/layout_size.h"
 #include "third_party/blink/renderer/platform/graphics/image.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record.h"
+#include "third_party/blink/renderer/platform/scheduler/public/agent_group_scheduler.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
@@ -114,6 +115,9 @@ class CORE_EXPORT SVGImage final : public Image {
 
   PaintImage PaintImageForCurrentFrame() override;
 
+  void SetPreferredColorScheme(
+      mojom::blink::PreferredColorScheme preferred_color_scheme);
+
  protected:
   // Whether or not size is available yet.
   bool IsSizeAvailable() override;
@@ -129,6 +133,8 @@ class CORE_EXPORT SVGImage final : public Image {
   ~SVGImage() override;
 
   String FilenameExtension() const override;
+
+  const AtomicString& MimeType() const override;
 
   SizeAvailability DataChanged(bool all_data_received) override;
 
@@ -193,7 +199,6 @@ class CORE_EXPORT SVGImage final : public Image {
                     const gfx::RectF& unzoomed_src_rect);
   bool ApplyShader(cc::PaintFlags&,
                    const SkMatrix& local_matrix,
-                   const gfx::RectF& dst_rect,
                    const gfx::RectF& src_rect,
                    const ImageDrawOptions&) override;
   bool ApplyShaderForContainer(const DrawInfo&,
@@ -220,7 +225,7 @@ class CORE_EXPORT SVGImage final : public Image {
   Persistent<SVGImageChromeClient> chrome_client_;
   Persistent<Page> page_;
   std::unique_ptr<PaintController> paint_controller_;
-  std::unique_ptr<scheduler::WebAgentGroupScheduler> agent_group_scheduler_;
+  Persistent<AgentGroupScheduler> agent_group_scheduler_;
 
   // When an SVG image has no intrinsic size, the size depends on the default
   // object size, which in turn depends on the container. One SVGImage may

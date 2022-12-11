@@ -108,8 +108,8 @@ class DataListIndicatorElement final : public HTMLDivElement {
   }
 };
 
-TextFieldInputType::TextFieldInputType(HTMLInputElement& element)
-    : InputType(element), InputTypeView(element) {}
+TextFieldInputType::TextFieldInputType(Type type, HTMLInputElement& element)
+    : InputType(type, element), InputTypeView(element) {}
 
 TextFieldInputType::~TextFieldInputType() = default;
 
@@ -144,7 +144,7 @@ bool TextFieldInputType::IsTextField() const {
 bool TextFieldInputType::ValueMissing(const String& value) const {
   // For text-mode input elements, the value is missing only if it is mutable.
   // https://html.spec.whatwg.org/multipage/input.html#the-required-attribute
-  return GetElement().IsRequired() && value.IsEmpty() &&
+  return GetElement().IsRequired() && value.empty() &&
          !GetElement().IsDisabledOrReadOnly();
 }
 
@@ -280,24 +280,22 @@ void TextFieldInputType::HandleBlurEvent() {
 }
 
 bool TextFieldInputType::ShouldSubmitImplicitly(const Event& event) {
-  return (event.type() == event_type_names::kTextInput &&
-          event.HasInterface(event_interface_names::kTextEvent) &&
-          To<TextEvent>(event).data() == "\n") ||
-         InputTypeView::ShouldSubmitImplicitly(event);
+  if (const TextEvent* text_event = DynamicTo<TextEvent>(event)) {
+    if (!text_event->IsPaste() && !text_event->IsDrop() &&
+        text_event->data() == "\n") {
+      return true;
+    }
+  }
+  return InputTypeView::ShouldSubmitImplicitly(event);
 }
 
-void TextFieldInputType::CustomStyleForLayoutObject(ComputedStyle& style) {
+scoped_refptr<ComputedStyle> TextFieldInputType::CustomStyleForLayoutObject(
+    scoped_refptr<ComputedStyle> original_style) {
   // The flag is necessary in order that a text field <input> with non-'visible'
   // overflow property doesn't change its baseline.
-  style.SetShouldIgnoreOverflowPropertyForInlineBlockBaseline();
-}
-
-bool TextFieldInputType::TypeShouldForceLegacyLayout() const {
-  if (RuntimeEnabledFeatures::LayoutNGTextControlEnabled())
-    return false;
-  UseCounter::Count(GetElement().GetDocument(),
-                    WebFeature::kLegacyLayoutByTextControl);
-  return true;
+  ComputedStyleBuilder builder(*original_style);
+  builder.SetShouldIgnoreOverflowPropertyForInlineBlockBaseline();
+  return builder.TakeStyle();
 }
 
 LayoutObject* TextFieldInputType::CreateLayoutObject(
@@ -305,6 +303,10 @@ LayoutObject* TextFieldInputType::CreateLayoutObject(
     LegacyLayout legacy) const {
   return LayoutObjectFactory::CreateTextControlSingleLine(GetElement(), style,
                                                           legacy);
+}
+
+ControlPart TextFieldInputType::AutoAppearance() const {
+  return kTextFieldPart;
 }
 
 void TextFieldInputType::CreateShadowSubtree() {
@@ -510,7 +512,7 @@ void TextFieldInputType::UpdatePlaceholderText(bool is_suggested_value) {
     return;
   HTMLElement* placeholder = GetElement().PlaceholderElement();
   String placeholder_text = GetElement().GetPlaceholderValue();
-  if (placeholder_text.IsEmpty()) {
+  if (placeholder_text.empty()) {
     if (placeholder)
       placeholder->remove(ASSERT_NO_EXCEPTION);
     return;
@@ -592,7 +594,7 @@ void TextFieldInputType::SpinButtonStepUp() {
 }
 
 void TextFieldInputType::UpdateView() {
-  if (GetElement().SuggestedValue().IsEmpty() &&
+  if (GetElement().SuggestedValue().empty() &&
       GetElement().NeedsToUpdateViewValue()) {
     // Update the view only if needsToUpdateViewValue is true. It protects
     // an unacceptable view value from being overwritten with the DOM value.
@@ -606,7 +608,7 @@ void TextFieldInputType::UpdateView() {
 }
 
 void TextFieldInputType::FocusAndSelectSpinButtonOwner() {
-  GetElement().focus();
+  GetElement().Focus();
   GetElement().SetSelectionRange(0, std::numeric_limits<int>::max());
 }
 

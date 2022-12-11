@@ -1,24 +1,24 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/first_run/sync/sync_screen_coordinator.h"
 
 #import "base/metrics/histogram_functions.h"
-#include "components/sync/driver/sync_service.h"
+#import "components/sync/driver/sync_service.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/first_run/first_run_metrics.h"
-#include "ios/chrome/browser/main/browser.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/consent_auditor/consent_auditor_factory.h"
+#import "ios/chrome/browser/first_run/first_run_metrics.h"
+#import "ios/chrome/browser/main/browser.h"
 #import "ios/chrome/browser/policy/policy_watcher_browser_agent.h"
 #import "ios/chrome/browser/policy/policy_watcher_browser_agent_observer_bridge.h"
 #import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service_factory.h"
 #import "ios/chrome/browser/signin/identity_manager_factory.h"
-#import "ios/chrome/browser/sync/consent_auditor_factory.h"
-#include "ios/chrome/browser/sync/sync_service_factory.h"
-#include "ios/chrome/browser/sync/sync_setup_service.h"
+#import "ios/chrome/browser/sync/sync_service_factory.h"
+#import "ios/chrome/browser/sync/sync_setup_service.h"
 #import "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #import "ios/chrome/browser/ui/authentication/enterprise/enterprise_prompt/enterprise_prompt_coordinator.h"
 #import "ios/chrome/browser/ui/authentication/enterprise/enterprise_utils.h"
@@ -26,13 +26,14 @@
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/browsing_data_commands.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "ios/chrome/browser/ui/first_run/first_run_util.h"
 #import "ios/chrome/browser/ui/first_run/sync/sync_screen_mediator.h"
 #import "ios/chrome/browser/ui/first_run/sync/sync_screen_mediator_delegate.h"
 #import "ios/chrome/browser/ui/first_run/sync/sync_screen_view_controller.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
 #import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #import "ios/chrome/browser/unified_consent/unified_consent_service_factory.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -59,7 +60,7 @@
     EnterprisePromptCoordinator* enterprisePromptCoordinator;
 
 // The consent string ids of texts on the sync screen.
-@property(nonatomic, assign, readonly) NSMutableArray* consentStringIDs;
+@property(nonatomic, strong, readonly) NSMutableArray* consentStringIDs;
 
 // Whether the user requested the advanced settings when starting the sync.
 @property(nonatomic, assign) BOOL advancedSettingsRequested;
@@ -90,6 +91,7 @@
     _delegate = delegate;
     _policyWatcherObserverBridge =
         std::make_unique<PolicyWatcherBrowserAgentObserverBridge>(self);
+    _consentStringIDs = [NSMutableArray array];
   }
   return self;
 }
@@ -105,7 +107,7 @@
   if (!authenticationService->GetPrimaryIdentity(
           signin::ConsentLevel::kSignin)) {
     // Don't show sync screen if no logged-in user account.
-    [self.delegate willFinishPresenting];
+    [self.delegate screenWillFinishPresenting];
     return;
   }
 
@@ -119,7 +121,7 @@
           syncer::SyncService::DISABLE_REASON_ENTERPRISE_POLICY) ||
       syncSetupService->IsFirstSetupComplete();
   if (shouldSkipSyncScreen) {
-    [self.delegate willFinishPresenting];
+    [self.delegate screenWillFinishPresenting];
     return;
   }
 
@@ -131,8 +133,8 @@
 
   self.viewController = [[SyncScreenViewController alloc] init];
   self.viewController.delegate = self;
-  self.viewController.syncTypesRestricted =
-      HasManagedSyncDataType(browserState);
+  PrefService* prefService = browserState->GetPrefs();
+  self.viewController.syncTypesRestricted = HasManagedSyncDataType(prefService);
   // Setup mediator.
   self.mediator = [[SyncScreenMediator alloc]
       initWithAuthenticationService:authenticationService
@@ -202,15 +204,25 @@
   // user entered it before canceling the sync opt-in flow, and also to set
   // sync as requested.
   syncService->StopAndClear();
-  [self.delegate willFinishPresenting];
+  [self.delegate screenWillFinishPresenting];
 }
 
-- (void)showSyncSettings {
+- (void)didTapURLInDisclaimer:(NSURL*)URL {
+  // Currently there is only one link to show sync settings in the disclaimer.
   [self startSyncOrAdvancedSettings:YES];
 }
 
 - (void)addConsentStringID:(const int)stringID {
   [self.consentStringIDs addObject:[NSNumber numberWithInt:stringID]];
+}
+
+- (void)logScrollButtonVisible:(BOOL)scrollButtonVisible {
+  if (!self.firstRun) {
+    return;
+  }
+  RecordFirstRunScrollButtonVisibilityMetrics(
+      first_run::FirstRunScreenType::kSyncScreenWithoutIdentityPicker,
+      scrollButtonVisible);
 }
 
 #pragma mark - SyncScreenMediatorDelegate
@@ -226,24 +238,29 @@
       base::UmaHistogramEnumeration("FirstRun.Stage",
                                     first_run::kSyncScreenCompletionWithSync);
     }
-    [self.delegate willFinishPresenting];
+    [self.delegate screenWillFinishPresenting];
   }
 }
 
 - (void)userRemoved {
-  [self.delegate willFinishPresenting];
+  [self.delegate screenWillFinishPresenting];
 }
 
 #pragma mark - PolicyWatcherBrowserAgentObserving
 
 - (void)policyWatcherBrowserAgentNotifySignInDisabled:
     (PolicyWatcherBrowserAgent*)policyWatcher {
-  self.enterprisePromptCoordinator = [[EnterprisePromptCoordinator alloc]
-      initWithBaseViewController:self.viewController
-                         browser:self.browser
-                      promptType:EnterprisePromptTypeForceSignOut];
-  self.enterprisePromptCoordinator.delegate = self;
-  [self.enterprisePromptCoordinator start];
+  __weak __typeof(self) weakSelf = self;
+  ProceduralBlock completion = ^{
+    [weakSelf openEnterprisePromptDialog];
+  };
+  if (!self.advancedSettingsSigninCoordinator) {
+    completion();
+    return;
+  }
+  [self.advancedSettingsSigninCoordinator
+      interruptWithAction:SigninCoordinatorInterruptActionDismissWithAnimation
+               completion:completion];
 }
 
 #pragma mark - EnterprisePromptCoordinatorDelegate
@@ -268,21 +285,18 @@
 
 #pragma mark - Private
 
-// Dismisses the Signed Out modal if it is still present and |skipScreens|.
+// Dismisses the Signed Out modal if it is still present and `skipScreens`.
 - (void)dismissSignedOutModalAndSkipScreens:(BOOL)skipScreens {
   [self.enterprisePromptCoordinator stop];
   self.enterprisePromptCoordinator = nil;
-  [self.delegate skipAll];
+  [self.delegate skipAllScreens];
 }
 
-// Starts syncing or opens |advancedSettings|.
+// Starts syncing or opens `advancedSettings`.
 - (void)startSyncOrAdvancedSettings:(BOOL)advancedSettings {
   self.advancedSettingsRequested = advancedSettings;
-  int confirmationID = advancedSettings
-                           ? self.viewController.openSettingsStringID
-                           : self.viewController.activateSyncButtonID;
 
-  ChromeIdentity* identity =
+  id<SystemIdentity> identity =
       AuthenticationServiceFactory::GetForBrowserState(
           self.browser->GetBrowserState())
           ->GetPrimaryIdentity(signin::ConsentLevel::kSignin);
@@ -299,10 +313,11 @@
       self.browser->GetCommandDispatcher(), BrowsingDataCommands);
   authenticationFlow.delegate = self.viewController;
 
-  [self.mediator startSyncWithConfirmationID:confirmationID
-                                  consentIDs:self.consentStringIDs
-                          authenticationFlow:authenticationFlow
-           advancedSyncSettingsLinkWasTapped:advancedSettings];
+  [self.mediator
+            startSyncWithConfirmationID:self.viewController.activateSyncButtonID
+                             consentIDs:self.consentStringIDs
+                     authenticationFlow:authenticationFlow
+      advancedSyncSettingsLinkWasTapped:advancedSettings];
 }
 
 // Shows the advanced sync settings.
@@ -331,6 +346,16 @@
 
   [self.advancedSettingsSigninCoordinator stop];
   self.advancedSettingsSigninCoordinator = nil;
+}
+
+// Opens EnterprisePromptCoordinator.
+- (void)openEnterprisePromptDialog {
+  self.enterprisePromptCoordinator = [[EnterprisePromptCoordinator alloc]
+      initWithBaseViewController:self.viewController
+                         browser:self.browser
+                      promptType:EnterprisePromptTypeForceSignOut];
+  self.enterprisePromptCoordinator.delegate = self;
+  [self.enterprisePromptCoordinator start];
 }
 
 @end

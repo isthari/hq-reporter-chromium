@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,16 @@
 #include <utility>
 
 #include "base/hash/hash.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "chrome/browser/ui/hats/hats_service.h"
+#include "chrome/browser/ui/hats/hats_service_factory.h"
+#include "chrome/grit/generated_resources.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/search/ntp_features.h"
@@ -19,13 +25,16 @@
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
 #include "components/signin/public/identity_manager/scope_set.h"
 #include "components/variations/net/variations_http_headers.h"
+#include "content/public/browser/web_contents.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "net/base/load_flags.h"
 #include "services/network/public/cpp/resource_request.h"
+#include "ui/base/l10n/l10n_util.h"
 
 namespace {
 // Maximum accepted size of an API response. 1MB.
 constexpr int kMaxResponseSize = 1024 * 1024;
+const int kMaxPersonalizedMessageLength = 20;
 const char server_url[] =
     "https://photosfirstparty-pa.googleapis.com/v1/ntp/memories:read";
 constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
@@ -92,7 +101,9 @@ const char PhotosService::kLastSoftOptedOutTimePrefName[] =
 // static
 const base::TimeDelta PhotosService::kDismissDuration = base::Days(1);
 const base::TimeDelta PhotosService::kSoftOptOutDuration = base::Days(2);
-const int PhotosService::kMaxSoftOptOuts = 2;
+const int PhotosService::kMaxSoftOptOuts = 1;
+const char kRecentHighlightsTitle[] = "recent highlights";
+const char kNYearsAgoSubstring[] = "years ago";
 
 PhotosService::PhotosService(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
@@ -127,9 +138,9 @@ void PhotosService::OnPrimaryAccountChanged(
   }
 }
 
-void PhotosService::GetMemories(GetMemoriesCallback callback) {
+void PhotosService::GetMemories(GetMemoriesCallback get_memories_callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  callbacks_.push_back(std::move(callback));
+  callbacks_.push_back(std::move(get_memories_callback));
   if (callbacks_.size() > 1) {
     return;
   }
@@ -220,12 +231,98 @@ void PhotosService::SoftOptOut() {
       pref_service_->GetInteger(kSoftOptOutCountPrefName) + 1);
 }
 
-void PhotosService::OnUserOptIn(bool accept) {
+void PhotosService::OnUserOptIn(bool accept,
+                                content::WebContents* web_contents,
+                                Profile* profile) {
   pref_service_->SetBoolean(kOptInAcknowledgedPrefName, accept);
+
+  // Trigger a HaTS survey when user opts-out.
+  if (!accept && web_contents && profile) {
+    HatsService* hats_service = HatsServiceFactory::GetForProfile(
+        profile, /*create_if_necessary=*/true);
+    CHECK(hats_service);
+    hats_service->LaunchDelayedSurveyForWebContents(
+        kHatsSurveyTriggerNtpPhotosModuleOptOut, web_contents, 0);
+  }
 }
 
 void PhotosService::OnMemoryOpen() {
   pref_service_->SetTime(kLastMemoryOpenTimePrefName, base::Time::Now());
+}
+
+std::string PhotosService::GetOptInTitleText(
+    std::vector<photos::mojom::MemoryPtr> memories) {
+  std::string customTitleChoiceString = base::GetFieldTrialParamValueByFeature(
+      ntp_features::kNtpPhotosModuleCustomizedOptInTitle,
+      ntp_features::kNtpPhotosModuleOptInTitleParam);
+  int customTitle = -1;
+
+  if (customTitleChoiceString != "") {
+    base::StringToInt(customTitleChoiceString, &customTitle);
+  }
+
+  if (customTitle == static_cast<int>(OptInCardTitle::kOptInRHTitle)) {
+    return l10n_util::GetStringUTF8(
+        IDS_NTP_MODULES_PHOTOS_MEMORIES_RH_WELCOME_TITLE);
+  }
+
+  if (customTitle == static_cast<int>(OptInCardTitle::kOptInFavoritesTitle)) {
+    return l10n_util::GetStringUTF8(
+        IDS_NTP_MODULES_PHOTOS_MEMORIES_FAVORITE_PEOPLE_WELCOME_TITLE);
+  }
+
+  if (customTitle == static_cast<int>(OptInCardTitle::kOptInpersonalizedTitle)) {
+    return ConstructPersonalizedString(std::move(memories));
+  }
+
+  if (customTitle == static_cast<int>(OptInCardTitle::kOptInTripsTitle)) {
+    return l10n_util::GetStringUTF8(
+        IDS_NTP_MODULES_PHOTOS_MEMORIES_TRIPS_WELCOME_TITLE);
+  }
+
+  return l10n_util::GetStringUTF8(
+      IDS_NTP_MODULES_PHOTOS_MEMORIES_WELCOME_TITLE);
+}
+
+std::string PhotosService::ConstructPersonalizedString(
+    std::vector<photos::mojom::MemoryPtr> memories) {
+  std::string personalizedTitle;
+  bool recentHighlightsPresent = false;
+  for (photos::mojom::MemoryPtr& memory : memories) {
+    // TODO(crbug/1297769): Fetch memory type from BE to filter RH and NYA
+    // memories. Ignore the recent highlights memory but mark
+    // recentHighlightsPresent to true.
+    if (base::EqualsCaseInsensitiveASCII(memory->title,
+                                         kRecentHighlightsTitle)) {
+      recentHighlightsPresent = true;
+      continue;
+    }
+
+    // Memory is a suitable candidate if the memory is not "N Years Ago" memory
+    // and its length is < 20.
+    // TODO(crbug/1297769): Fetch memory type from BE to filter RH and NYA
+    // memories.
+    if (!base::EndsWith(memory->title, kNYearsAgoSubstring,
+                        base::CompareCase::INSENSITIVE_ASCII) &&
+        memory->title.length() <= kMaxPersonalizedMessageLength) {
+      personalizedTitle = memory->title;
+      break;
+    }
+  }
+
+  // If no suitable memory is found return default title or title emphasizing
+  // recent highlights depending on the presence of Recent Highlights memory.
+  if (personalizedTitle.empty()) {
+    return recentHighlightsPresent
+               ? l10n_util::GetStringUTF8(
+                     IDS_NTP_MODULES_PHOTOS_MEMORIES_RH_WELCOME_TITLE)
+               : l10n_util::GetStringUTF8(
+                     IDS_NTP_MODULES_PHOTOS_MEMORIES_WELCOME_TITLE);
+  }
+
+  return l10n_util::GetStringFUTF8(
+      IDS_NTP_MODULES_PHOTOS_MEMORIES_PERSONALIZED_WELCOME_TITLE_TEMPLATE,
+      base::ASCIIToUTF16(personalizedTitle));
 }
 
 void PhotosService::OnTokenReceived(GoogleServiceAuthError error,
@@ -316,7 +413,7 @@ void PhotosService::OnJsonReceived(
 void PhotosService::OnJsonParsed(
     const std::string& token,
     data_decoder::DataDecoder::ValueOrError result) {
-  if (!result.value) {
+  if (!result.has_value()) {
     for (auto& callback : callbacks_) {
       std::move(callback).Run(std::vector<photos::mojom::MemoryPtr>());
     }
@@ -324,7 +421,7 @@ void PhotosService::OnJsonParsed(
     return;
   }
 
-  auto* memories = result.value->FindListPath("memory");
+  auto* memories = result->FindListPath("memory");
   if (!memories) {
     base::UmaHistogramCustomCounts("NewTabPage.Photos.DataResponseCount", 0, 0,
                                    10, 11);
@@ -350,9 +447,19 @@ void PhotosService::OnJsonParsed(
     auto mojo_memory = photos::mojom::Memory::New();
     mojo_memory->id = *memory_id;
     mojo_memory->title = *title;
-    mojo_memory->item_url =
-        GURL("https://photos.google.com/memory/featured/" + *memory_id +
-             "/photo/" + *cover_id + "?referrer=CHROME_NTP");
+
+    // If fake data, use photos homepage for url.
+    std::string fake_data_choice = base::GetFieldTrialParamValueByFeature(
+        ntp_features::kNtpPhotosModule,
+        ntp_features::kNtpPhotosModuleDataParam);
+    if (fake_data_choice != "") {
+      mojo_memory->item_url = GURL("https://photos.google.com");
+    } else {
+      mojo_memory->item_url =
+          GURL("https://photos.google.com/memory/featured/" + *memory_id +
+               "/photo/" + *cover_id + "?referrer=CHROME_NTP");
+    }
+
     if (cover_url) {
       mojo_memory->cover_url = GURL(*cover_url + "?access_token=" + token);
     } else if (cover_dat_url) {
@@ -361,6 +468,7 @@ void PhotosService::OnJsonParsed(
 
     memory_list.push_back(std::move(mojo_memory));
   }
+
   for (auto& callback : callbacks_) {
     std::move(callback).Run(mojo::Clone(memory_list));
   }

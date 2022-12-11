@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -223,7 +223,6 @@ TEST_F(LayoutTextTest, ContainsOnlyWhitespaceOrNbsp) {
 
 #if BUILDFLAG(IS_WIN)
 TEST_F(LayoutTextTest, PrewarmFamily) {
-  base::test::ScopedFeatureList features(kAsyncFontAccess);
   test::ScopedTestFontPrewarmer prewarmer;
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -242,7 +241,6 @@ TEST_F(LayoutTextTest, PrewarmFamily) {
 
 // Test `@font-face` fonts are NOT prewarmed.
 TEST_F(LayoutTextTest, PrewarmFontFace) {
-  base::test::ScopedFeatureList features(kAsyncFontAccess);
   test::ScopedTestFontPrewarmer prewarmer;
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -264,7 +262,6 @@ TEST_F(LayoutTextTest, PrewarmFontFace) {
 }
 
 TEST_F(LayoutTextTest, PrewarmGenericFamily) {
-  base::test::ScopedFeatureList features(kAsyncFontAccess);
   test::ScopedTestFontPrewarmer prewarmer;
   SetBodyInnerHTML(R"HTML(
     <style>
@@ -1123,7 +1120,7 @@ TEST_P(ParameterizedLayoutTextTest, PhysicalLinesBoundingBox) {
 }
 
 TEST_P(ParameterizedLayoutTextTest, PhysicalLinesBoundingBoxTextCombine) {
-  ScopedLayoutNGTextCombineForTest enable_layout_ng_text_combine(true);
+  ScopedLayoutNGForTest enable_layout_ng(true);
   LoadAhem();
   InsertStyleElement(
       "body { font: 100px/130px Ahem; }"
@@ -1149,15 +1146,10 @@ TEST_P(ParameterizedLayoutTextTest, PhysicalLinesBoundingBoxTextCombine) {
   //
 
   EXPECT_EQ(PhysicalRect(15, 0, 100, 100), text_a.PhysicalLinesBoundingBox());
-  if (text_01234.Parent()->IsLayoutNGTextCombine()) {
-    // Note: Width 110 comes from |100px * kTextCombineMargin| in
-    // |LayoutNGTextCombine::DesiredWidth()|.
-    EXPECT_EQ(PhysicalRect(-5, 0, 110, 100),
-              text_01234.PhysicalLinesBoundingBox());
-  } else {
-    EXPECT_EQ(PhysicalRect(15, 100, 100, 100),
-              text_01234.PhysicalLinesBoundingBox());
-  }
+  // Note: Width 110 comes from |100px * kTextCombineMargin| in
+  // |LayoutNGTextCombine::DesiredWidth()|.
+  EXPECT_EQ(PhysicalRect(-5, 0, 110, 100),
+            text_01234.PhysicalLinesBoundingBox());
   EXPECT_EQ(PhysicalRect(15, 200, 100, 100), text_b.PhysicalLinesBoundingBox());
 }
 

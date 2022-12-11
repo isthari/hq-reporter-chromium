@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,13 @@
 
 #include <ostream>
 
+#include "base/check_op.h"
 #include "base/containers/contains.h"
 #include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/notreached.h"
+#include "base/numerics/checked_math.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
@@ -22,6 +24,7 @@
 
 #if BUILDFLAG(IS_WIN)
 #include <windows.h>
+
 #include <shellapi.h>
 
 #include "base/strings/string_util_win.h"
@@ -50,7 +53,7 @@ constexpr CommandLine::StringPieceType kSwitchPrefixes[] = {L"--", L"-", L"/"};
 // Unixes don't use slash as a switch.
 constexpr CommandLine::StringPieceType kSwitchPrefixes[] = {"--", "-"};
 #endif
-size_t switch_prefix_count = base::size(kSwitchPrefixes);
+size_t switch_prefix_count = std::size(kSwitchPrefixes);
 
 #if BUILDFLAG(IS_WIN)
 // Switch string that specifies the single argument to the command line.
@@ -196,7 +199,7 @@ void CommandLine::set_slash_is_not_a_switch() {
   // The last switch prefix should be slash, so adjust the size to skip it.
   static_assert(base::make_span(kSwitchPrefixes).back() == L"/",
                 "Error: Last switch prefix is not a slash.");
-  switch_prefix_count = base::size(kSwitchPrefixes) - 1;
+  switch_prefix_count = std::size(kSwitchPrefixes) - 1;
 }
 
 // static
@@ -361,7 +364,8 @@ void CommandLine::AppendSwitchNative(StringPiece switch_string,
   if (!value.empty())
     base::StrAppend(&combined_switch_string, {kSwitchValueSeparator, value});
   // Append the switch and update the switches/arguments divider |begin_args_|.
-  argv_.insert(argv_.begin() + begin_args_++, combined_switch_string);
+  argv_.insert(argv_.begin() + begin_args_, combined_switch_string);
+  begin_args_ = (CheckedNumeric(begin_args_) + 1).ValueOrDie();
 }
 
 void CommandLine::AppendSwitchASCII(StringPiece switch_string,
@@ -507,6 +511,7 @@ void CommandLine::ParseFromString(StringPieceType command_line) {
   if (downlevel_shell32_dll)
     ::FreeLibrary(downlevel_shell32_dll);
 }
+
 #endif  // BUILDFLAG(IS_WIN)
 
 void CommandLine::AppendSwitchesAndArguments(
@@ -550,6 +555,10 @@ CommandLine::StringType CommandLine::GetArgumentsStringInternal(
   StringType params;
   // Append switches and arguments.
   bool parse_switches = true;
+#if BUILDFLAG(IS_WIN)
+  bool appended_single_argument_switch = false;
+#endif
+
   for (size_t i = 1; i < argv_.size(); ++i) {
     StringType arg = argv_[i];
     StringType switch_string;
@@ -568,7 +577,16 @@ CommandLine::StringType CommandLine::GetArgumentsStringInternal(
       }
     } else {
 #if BUILDFLAG(IS_WIN)
-      arg = QuoteForCommandLineToArgvW(arg, allow_unsafe_insert_sequences);
+      if (has_single_argument_switch_) {
+        // Check that we don't have multiple arguments when
+        // `has_single_argument_switch_` is true.
+        DCHECK(!appended_single_argument_switch);
+        appended_single_argument_switch = true;
+        params.append(base::StrCat(
+            {kSwitchPrefixes[0], kSingleArgument, FILE_PATH_LITERAL(" ")}));
+      } else {
+        arg = QuoteForCommandLineToArgvW(arg, allow_unsafe_insert_sequences);
+      }
 #endif
       params.append(arg);
     }
@@ -631,7 +649,7 @@ void CommandLine::ParseAsSingleArgument(
   DCHECK(!raw_command_line_string_.empty());
 
   // Remove any previously parsed arguments.
-  argv_.resize(begin_args_);
+  argv_.resize(static_cast<size_t>(begin_args_));
 
   // Locate "--single-argument" in the process's raw command line. Results are
   // unpredictable if "--single-argument" appears as part of a previous
@@ -647,6 +665,7 @@ void CommandLine::ParseAsSingleArgument(
       single_arg_switch_position + single_arg_switch.length() + 1;
   if (arg_position >= raw_command_line_string_.length())
     return;
+  has_single_argument_switch_ = true;
   const StringPieceType arg = raw_command_line_string_.substr(arg_position);
   if (!arg.empty()) {
     AppendArgNative(arg);

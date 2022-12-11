@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,7 @@
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/ash/arc/test/test_arc_session_manager.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -44,10 +43,7 @@ class ArcPowerThrottleObserverTest : public testing::Test {
 
   void SetUp() override {
     chromeos::PowerManagerClient::InitializeFake();
-    // Need to initialize DBusThreadManager before ArcSessionManager's
-    // constructor calls DBusThreadManager::Get().
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
+    ash::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
     service_manager_ = std::make_unique<ArcServiceManager>();
     session_manager_ =
         CreateTestArcSessionManager(std::make_unique<ArcSessionRunner>(
@@ -66,7 +62,6 @@ class ArcPowerThrottleObserverTest : public testing::Test {
     testing_profile_.reset();
     session_manager_.reset();
     service_manager_.reset();
-    chromeos::DBusThreadManager::Shutdown();
     chromeos::PowerManagerClient::Shutdown();
   }
 
@@ -210,6 +205,31 @@ TEST_F(ArcPowerThrottleObserverTest, ActiveTimePreserved) {
   task_environment().FastForwardBy(base::Milliseconds(1000));
   EXPECT_EQ(3, call_count);
   EXPECT_EQ(2, active_count);
+  EXPECT_FALSE(observer.active());
+}
+
+TEST_F(ArcPowerThrottleObserverTest, Broadcast) {
+  ArcPowerThrottleObserver observer;
+  int call_count = 0;
+  int active_count = 0;
+  observer.StartObserving(
+      profile(),
+      base::BindRepeating(&TestCallback, &call_count, &active_count));
+
+  observer.OnPreAnr(mojom::AnrType::BROADCAST);
+  EXPECT_EQ(1, call_count);
+  EXPECT_EQ(1, active_count);
+  EXPECT_TRUE(observer.active());
+
+  task_environment().FastForwardBy(base::Milliseconds(9999));
+  EXPECT_EQ(1, call_count);
+  EXPECT_EQ(1, active_count);
+  EXPECT_TRUE(observer.active());
+
+  // Only now the lock becomes inactive.
+  task_environment().FastForwardBy(base::Milliseconds(1));
+  EXPECT_EQ(2, call_count);
+  EXPECT_EQ(1, active_count);
   EXPECT_FALSE(observer.active());
 }
 

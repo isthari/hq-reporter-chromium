@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,16 +9,21 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_multi_source_observation.h"
+#include "base/time/time.h"
+#include "chrome/browser/metrics/desktop_session_duration/desktop_session_duration_tracker.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_observer.h"
+#include "components/browsing_data/core/browsing_data_utils.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 
 // Service which receives events from Trust & Safety features and determines
 // whether or not to launch a HaTS survey on the NTP for the user.
-class TrustSafetySentimentService : public KeyedService,
-                                    public ProfileObserver {
+class TrustSafetySentimentService
+    : public KeyedService,
+      public ProfileObserver,
+      public metrics::DesktopSessionDurationTracker::Observer {
  public:
   explicit TrustSafetySentimentService(Profile* profile);
   ~TrustSafetySentimentService() override;
@@ -66,9 +71,24 @@ class TrustSafetySentimentService : public KeyedService,
   // the user uses a card on a website.
   virtual void SavedCard();
 
+  // Called when the user runs password check. Virtual to allow mocking in
+  // tests.
+  virtual void RanPasswordCheck();
+
+  // Called when the user deletes data from Clear Browsing Data dialog.
+  virtual void ClearedBrowsingData(browsing_data::BrowsingDataType datatype);
+
+  // Called when the user finishes the privacy guide. Virtual to allow mocking
+  // in tests.
+  virtual void FinishedPrivacyGuide();
+
   // Profile Observer:
   void OnOffTheRecordProfileCreated(Profile* off_the_record) override;
   void OnProfileWillBeDestroyed(Profile* profile) override;
+
+  // metrics::DesktopSessionDurationTracker::Observer
+  void OnSessionEnded(base::TimeDelta session_length,
+                      base::TimeTicks session_end) override;
 
   // The feature areas that the service delivers HaTS surveys for. Each feature
   // area is associated with a different Listnr survey, and has a different set
@@ -78,14 +98,30 @@ class TrustSafetySentimentService : public KeyedService,
   // determining elibigility for a survey.
 
   // These values are persisted to logs and entries should not be renumbered or
-  // reused.
+  // reused and kept up to date with TrustSafetySentimentFeatureArea in
+  // enums.xml.
   enum class FeatureArea {
     kIneligible = 0,
     kPrivacySettings = 1,
     kTrustedSurface = 2,
     kTransactions = 3,
-    kMaxValue = kTransactions,
+    kPrivacySandbox3ConsentAccept = 4,
+    kPrivacySandbox3ConsentDecline = 5,
+    kPrivacySandbox3NoticeDismiss = 6,
+    kPrivacySandbox3NoticeOk = 7,
+    kPrivacySandbox3NoticeSettings = 8,
+    kPrivacySandbox3NoticeLearnMore = 9,
+    kSafetyCheck = 10,
+    kPasswordCheck = 11,
+    kBrowsingData = 12,
+    kPrivacyGuide = 13,
+    kControlGroup = 14,
+    kMaxValue = kControlGroup,
   };
+
+  // Called when the user interacts with Privacy Sandbox 3, |feature_area|
+  // specifies what type of interaction occurred.
+  virtual void InteractedWithPrivacySandbox3(FeatureArea feature_area);
 
  private:
   friend class TrustSafetySentimentServiceTest;
@@ -102,6 +138,18 @@ class TrustSafetySentimentService : public KeyedService,
   FRIEND_TEST_ALL_PREFIXES(TrustSafetySentimentServiceTest, RanSafetyCheck);
   FRIEND_TEST_ALL_PREFIXES(TrustSafetySentimentServiceTest,
                            PrivacySettingsProductSpecificData);
+  FRIEND_TEST_ALL_PREFIXES(TrustSafetySentimentServiceTest,
+                           InteractedWithPrivacySandbox3ConsentAccept);
+  FRIEND_TEST_ALL_PREFIXES(TrustSafetySentimentServiceTest,
+                           Eligibility_V1FeatureWhileV2Enabled);
+  FRIEND_TEST_ALL_PREFIXES(TrustSafetySentimentServiceTest, V2_SafetyCheck);
+  FRIEND_TEST_ALL_PREFIXES(TrustSafetySentimentServiceTest, V2_TrustedSurface);
+  FRIEND_TEST_ALL_PREFIXES(TrustSafetySentimentServiceTest, V2_PasswordCheck);
+  FRIEND_TEST_ALL_PREFIXES(TrustSafetySentimentServiceTest, V2_BrowsingData);
+  FRIEND_TEST_ALL_PREFIXES(TrustSafetySentimentServiceTest,
+                           V2_BrowsingData_NotInterested);
+  FRIEND_TEST_ALL_PREFIXES(TrustSafetySentimentServiceTest, V2_PrivacyGuide);
+  FRIEND_TEST_ALL_PREFIXES(TrustSafetySentimentServiceTest, V2_ControlGroup);
 
   // Struct representing a trigger (user action relevant to T&S) that previously
   // occurred, and is awaiting the appropriate eligibility steps before causing
@@ -174,6 +222,7 @@ class TrustSafetySentimentService : public KeyedService,
   std::unique_ptr<PageInfoState> page_info_state_;
   base::ScopedMultiSourceObservation<Profile, ProfileObserver>
       observed_profiles_{this};
+  bool performed_control_group_dice_roll_;
   base::WeakPtrFactory<TrustSafetySentimentService> weak_ptr_factory_{this};
 };
 

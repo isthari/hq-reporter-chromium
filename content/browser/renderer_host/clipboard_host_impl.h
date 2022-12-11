@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,13 +46,16 @@ class CONTENT_EXPORT ClipboardHostImpl
  protected:
   // These types and methods are protected for testing.
 
-  using ClipboardPasteContentAllowed =
-      RenderFrameHostImpl::ClipboardPasteContentAllowed;
   using IsClipboardPasteContentAllowedCallback =
       RenderFrameHostImpl::IsClipboardPasteContentAllowedCallback;
 
+  // Represents the underlying type of the argument passed to
+  // IsClipboardPasteContentAllowedCallback without the const& part.
+  using IsClipboardPasteContentAllowedCallbackArgType =
+      absl::optional<std::string>;
+
   // Keeps track of a request to see if some clipboard content, identified by
-  // its sequence number, is allowed to be pasted into the render frame host
+  // its sequence number, is allowed to be pasted into the RenderFrameHost
   // that owns this clipboard host.
   //
   // A request starts in the state incomplete until Complete() is called with
@@ -70,7 +73,7 @@ class CONTENT_EXPORT ClipboardHostImpl
 
     // Mark this request as completed with the specified result.
     // Invoke all callbacks now.
-    void Complete(ClipboardPasteContentAllowed allowed);
+    void Complete(IsClipboardPasteContentAllowedCallbackArgType data);
 
     // Returns true if this request is obsolete.  An obsolete request
     // is one that is completed, all registered callbacks have been
@@ -88,7 +91,10 @@ class CONTENT_EXPORT ClipboardHostImpl
     void InvokeCallbacks();
 
     base::Time time_{base::Time::Now()};
-    absl::optional<ClipboardPasteContentAllowed> allowed_;
+
+    // The data argument to pass to the IsClipboardPasteContentAllowedCallback.
+    // This member is null until Complete() is called.
+    absl::optional<IsClipboardPasteContentAllowedCallbackArgType> data_;
     std::vector<IsClipboardPasteContentAllowedCallback> callbacks_;
   };
 
@@ -96,12 +102,12 @@ class CONTENT_EXPORT ClipboardHostImpl
   static const base::TimeDelta kIsPasteContentAllowedRequestTooOld;
 
   explicit ClipboardHostImpl(
-      RenderFrameHost* render_frame_host,
+      RenderFrameHost& render_frame_host,
       mojo::PendingReceiver<blink::mojom::ClipboardHost> receiver);
 
   // Performs a check to see if pasting `data` is allowed by data transfer
   // policies and invokes PasteIfPolicyAllowedCallback upon completion.
-  // PerformPasteIfContentAllowed maybe be invoked immediately if the policy
+  // PerformPasteIfContentAllowed may be invoked immediately if the policy
   // controller doesn't exist.
   void PasteIfPolicyAllowed(ui::ClipboardBuffer clipboard_buffer,
                             const ui::ClipboardFormatType& data_type,
@@ -129,7 +135,7 @@ class CONTENT_EXPORT ClipboardHostImpl
   // status for the clipboard data corresponding to sequence number |seqno|.
   void FinishPasteIfContentAllowed(
       const ui::ClipboardSequenceNumberToken& seqno,
-      ClipboardPasteContentAllowed allowed);
+      const absl::optional<std::string>& data);
 
   const std::map<ui::ClipboardSequenceNumberToken,
                  IsPasteContentAllowedRequest>&

@@ -1,12 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_COMPONENTS_ARC_COMPAT_MODE_ARC_SPLASH_SCREEN_DIALOG_VIEW_H_
 #define ASH_COMPONENTS_ARC_COMPAT_MODE_ARC_SPLASH_SCREEN_DIALOG_VIEW_H_
 
+#include "ash/style/ash_color_id.h"
 #include "base/callback_forward.h"
+#include "base/scoped_multi_source_observation.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
+#include "ui/views/view.h"
+#include "ui/views/view_observer.h"
 #include "ui/wm/public/activation_change_observer.h"
 #include "ui/wm/public/activation_client.h"
 
@@ -15,7 +19,6 @@ class Window;
 }  // namespace aura
 
 namespace views {
-class View;
 class MdTextButton;
 }  // namespace views
 
@@ -27,6 +30,7 @@ namespace arc {
 // inserted into a window. The content container contains a logo, a heading
 // text, a message box in vertical alignment.
 class ArcSplashScreenDialogView : public views::BubbleDialogDelegateView,
+                                  public views::ViewObserver,
                                   public wm::ActivationChangeObserver {
  public:
   // TestApi is used for tests to get internal implementation details.
@@ -57,6 +61,10 @@ class ArcSplashScreenDialogView : public views::BubbleDialogDelegateView,
   // views::View:
   gfx::Size CalculatePreferredSize() const override;
   void AddedToWidget() override;
+  void OnThemeChanged() override;
+
+  // views::ViewObserver:
+  void OnViewIsDeleting(View* observed_view) override;
 
   // wm::ActivationChangeObserver:
   void OnWindowActivated(ActivationReason reason,
@@ -68,11 +76,17 @@ class ArcSplashScreenDialogView : public views::BubbleDialogDelegateView,
 
   void OnCloseButtonClicked();
 
-  views::View* const anchor_;
+  views::View* anchor_;
   views::View* highlight_border_{nullptr};
 
   base::OnceClosure close_callback_;
   views::MdTextButton* close_button_ = nullptr;
+
+  const ui::ColorId background_color_id_ = ash::kColorAshDialogBackgroundColor;
+
+  base::ScopedMultiSourceObservation<views::View, views::ViewObserver>
+      anchor_highlight_observations_{this};
+
   std::unique_ptr<ArcSplashScreenWindowObserver> window_observer_;
 
   bool forwarding_activation_{false};

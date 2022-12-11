@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,27 @@
 
 #include <string>
 
+#include "base/callback.h"
 #include "base/memory/raw_ptr.h"
 
 namespace captions {
 
 class CaptionBubble;
 class CaptionBubbleContext;
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum CaptionBubbleErrorType {
+  kGeneric = 0,
+  kMediaFoundationRendererUnsupported = 1,
+  kMaxValue = kMediaFoundationRendererUnsupported
+};
+
+using OnErrorClickedCallback = base::RepeatingCallback<void()>;
+using OnDoNotShowAgainClickedCallback =
+    base::RepeatingCallback<void(CaptionBubbleErrorType, bool)>;
+using OnCaptionBubbleClosedCallback =
+    base::RepeatingCallback<void(const std::string&)>;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Caption Bubble Model
@@ -38,7 +53,8 @@ class CaptionBubbleContext;
 //
 class CaptionBubbleModel {
  public:
-  explicit CaptionBubbleModel(CaptionBubbleContext* context);
+  CaptionBubbleModel(CaptionBubbleContext* context,
+                     OnCaptionBubbleClosedCallback callback);
   ~CaptionBubbleModel();
   CaptionBubbleModel(const CaptionBubbleModel&) = delete;
   CaptionBubbleModel& operator=(const CaptionBubbleModel&) = delete;
@@ -53,20 +69,23 @@ class CaptionBubbleModel {
   void CommitPartialText();
 
   // Set that the bubble has an error and alert the observer.
-  void OnError();
+  void OnError(CaptionBubbleErrorType error_type,
+               OnErrorClickedCallback error_clicked_callback,
+               OnDoNotShowAgainClickedCallback error_silenced_callback);
 
-  // Mark the bubble as closed, clear the partial and final text, and alert the
+  // Mark the bubble as closed.
+  void CloseButtonPressed();
+
+  // Clear the partial and final text, and alert the
   // observer.
   void Close();
-
-  // Marks the bubble as open.
-  void Open();
 
   // Clears the partial and final text and alerts the observer.
   void ClearText();
 
   bool IsClosed() const { return is_closed_; }
   bool HasError() const { return has_error_; }
+  CaptionBubbleErrorType ErrorType() const { return error_type_; }
   std::string GetFullText() const { return final_text_ + partial_text_; }
   CaptionBubbleContext* GetContext() { return context_; }
 
@@ -80,13 +99,18 @@ class CaptionBubbleModel {
   // Whether the bubble has been closed by the user.
   bool is_closed_ = false;
 
-  // Whether an error should be displayed one the bubble.
+  // Whether an error should be displayed in the bubble.
   bool has_error_ = false;
 
-  // The CaptionBubble observing changes to this model.
-  raw_ptr<CaptionBubble> observer_ = nullptr;
+  // The most recent error type encountered.
+  CaptionBubbleErrorType error_type_ = CaptionBubbleErrorType::kGeneric;
 
-  const raw_ptr<CaptionBubbleContext> context_;
+  // The CaptionBubble observing changes to this model.
+  raw_ptr<CaptionBubble, DanglingUntriaged> observer_ = nullptr;
+
+  OnCaptionBubbleClosedCallback caption_bubble_closed_callback_;
+
+  const raw_ptr<CaptionBubbleContext, DanglingUntriaged> context_;
 };
 
 }  // namespace captions

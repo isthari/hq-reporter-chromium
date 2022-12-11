@@ -1,10 +1,9 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/login/ui/login_auth_factors_view.h"
 
-#include "ash/constants/ash_features.h"
 #include "ash/login/login_screen_controller.h"
 #include "ash/login/ui/arrow_button_view.h"
 #include "ash/login/ui/auth_factor_model.h"
@@ -14,9 +13,7 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "base/callback_helpers.h"
-#include "base/feature_list.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
@@ -111,41 +108,41 @@ class ScopedAXEventObserver : public views::AXEventObserver {
 
 }  // namespace
 
-class LoginAuthFactorsViewUnittest : public AshTestBase {
+class LoginAuthFactorsViewUnittest : public LoginTestBase {
  public:
   LoginAuthFactorsViewUnittest(const LoginAuthFactorsViewUnittest&) = delete;
   LoginAuthFactorsViewUnittest& operator=(const LoginAuthFactorsViewUnittest&) =
       delete;
 
  protected:
-  LoginAuthFactorsViewUnittest()
-      : AshTestBase(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {
-    feature_list_.InitAndEnableFeature(features::kSmartLockUIRevamp);
-  }
-
+  LoginAuthFactorsViewUnittest() = default;
   ~LoginAuthFactorsViewUnittest() override = default;
 
   // LoginTestBase:
   void SetUp() override {
-    AshTestBase::SetUp();
+    LoginTestBase::SetUp();
 
     // We proxy |view_| inside of |container_| so we can control layout.
     // TODO(crbug.com/1233614): Add layout tests to check
     // positioning/ordering of icons.
-    container_ = std::make_unique<views::View>();
+    container_ = new views::View();
     container_->SetLayoutManager(std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kVertical));
 
-    view_ = container_->AddChildView(
-        std::make_unique<LoginAuthFactorsView>(base::BindRepeating(
+    view_ = container_->AddChildView(std::make_unique<LoginAuthFactorsView>(
+        base::BindRepeating(
             &LoginAuthFactorsViewUnittest::set_click_to_enter_called,
-            base::Unretained(this), true)));
+            base::Unretained(this), /*click_to_enter_called=*/true),
+        base::BindRepeating(
+            &LoginAuthFactorsViewUnittest::set_auth_factor_is_hiding_password,
+            base::Unretained(this))));
+    SetWidget(CreateWidgetWithContent(container_));
   }
 
   void TearDown() override {
-    container_.reset();
+    container_ = nullptr;
     view_ = nullptr;
-    AshTestBase::TearDown();
+    LoginTestBase::TearDown();
   }
 
   void AddAuthFactors(std::vector<AuthFactorType> types) {
@@ -169,8 +166,12 @@ class LoginAuthFactorsViewUnittest : public AshTestBase {
 
   bool ShouldHidePasswordField() { return view_->ShouldHidePasswordField(); }
 
-  void set_click_to_enter_called(bool called) {
-    click_to_enter_called_ = called;
+  void set_click_to_enter_called(bool click_to_enter_called) {
+    click_to_enter_called_ = click_to_enter_called;
+  }
+
+  void set_auth_factor_is_hiding_password(bool auth_factor_is_hiding_password) {
+    auth_factor_is_hiding_password_ = auth_factor_is_hiding_password;
   }
 
   void VerifyAuthenticatedUiState(
@@ -189,37 +190,31 @@ class LoginAuthFactorsViewUnittest : public AshTestBase {
               ShouldHidePasswordField());
   }
 
-  base::test::ScopedFeatureList feature_list_;
-  std::unique_ptr<views::View> container_;
+  void TestArrowButtonClearsFocus(AuthFactorState state_after_click_required) {
+    ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+        ui::ScopedAnimationDurationScaleMode::NORMAL_DURATION);
+    AddAuthFactors({AuthFactorType::kFingerprint, AuthFactorType::kSmartLock});
+
+    LoginAuthFactorsView::TestApi test_api(view_);
+    auth_factors_[0]->state_ = AuthFactorState::kReady;
+    auth_factors_[1]->state_ = AuthFactorState::kClickRequired;
+    test_api.UpdateState();
+
+    EXPECT_TRUE(view_->GetFocusManager()->GetFocusedView());
+    EXPECT_TRUE(test_api.arrow_button()->HasFocus());
+
+    auth_factors_[1]->state_ = state_after_click_required;
+    test_api.UpdateState();
+
+    EXPECT_FALSE(view_->GetFocusManager()->GetFocusedView());
+  }
+
+  views::View* container_ = nullptr;
   LoginAuthFactorsView* view_ = nullptr;  // Owned by container.
   std::vector<FakeAuthFactorModel*> auth_factors_;
   bool click_to_enter_called_ = false;
+  bool auth_factor_is_hiding_password_ = false;
 };
-
-TEST_F(LoginAuthFactorsViewUnittest, NotVisibleIfNoAuthFactors) {
-  AddAuthFactors({AuthFactorType::kFingerprint, AuthFactorType::kSmartLock});
-  EXPECT_TRUE(view_->GetVisible());
-
-  LoginAuthFactorsView::TestApi test_api(view_);
-  auto& auth_factors = test_api.auth_factors();
-  auth_factors.clear();
-  test_api.UpdateState();
-
-  EXPECT_FALSE(view_->GetVisible());
-}
-
-TEST_F(LoginAuthFactorsViewUnittest, NotVisibleIfAuthFactorsUnavailable) {
-  AddAuthFactors({AuthFactorType::kFingerprint, AuthFactorType::kSmartLock});
-  EXPECT_TRUE(view_->GetVisible());
-
-  for (auto* factor : auth_factors_) {
-    factor->state_ = AuthFactorState::kUnavailable;
-  }
-  LoginAuthFactorsView::TestApi test_api(view_);
-  test_api.UpdateState();
-
-  EXPECT_FALSE(view_->GetVisible());
-}
 
 TEST_F(LoginAuthFactorsViewUnittest, TapOrClickCalled) {
   AddAuthFactors({AuthFactorType::kFingerprint, AuthFactorType::kSmartLock});
@@ -238,7 +233,6 @@ TEST_F(LoginAuthFactorsViewUnittest, TapOrClickCalled) {
 
 TEST_F(LoginAuthFactorsViewUnittest, ShouldAnnounceLabel) {
   AddAuthFactors({AuthFactorType::kFingerprint, AuthFactorType::kSmartLock});
-  auto* factor = auth_factors_[0];
   LoginAuthFactorsView::TestApi test_api(view_);
   views::Label* label = test_api.label();
   ScopedAXEventObserver alert_observer(label, ax::mojom::Event::kAlert);
@@ -246,6 +240,7 @@ TEST_F(LoginAuthFactorsViewUnittest, ShouldAnnounceLabel) {
     factor->state_ = AuthFactorState::kAvailable;
   }
 
+  auto* factor = auth_factors_[0];
   ASSERT_FALSE(factor->ShouldAnnounceLabel());
   ASSERT_FALSE(alert_observer.event_called);
 
@@ -323,6 +318,9 @@ TEST_F(LoginAuthFactorsViewUnittest, ClickRequired_SmartLock) {
   auth_factors_[0]->state_ = AuthFactorState::kReady;
   auth_factors_[1]->state_ = AuthFactorState::kClickRequired;
   test_api.UpdateState();
+
+  // Allow icon time to finish drawing/painting.
+  task_environment()->FastForwardBy(base::Seconds(1));
 
   // Check that the arrow button and arrow nudge animation is shown and that the
   // label has been updated.
@@ -548,6 +546,59 @@ TEST_F(LoginAuthFactorsViewUnittest, CanUsePin) {
     EXPECT_EQ(can_use_pin, auth_factors_[0]->can_use_pin());
     EXPECT_EQ(can_use_pin, auth_factors_[1]->can_use_pin());
   }
+}
+
+// Ensure that when Smart Lock state is kClickRequired, the arrow button
+// automatically becomes focused.
+TEST_F(LoginAuthFactorsViewUnittest, ArrowButtonRequestsFocus) {
+  ui::ScopedAnimationDurationScaleMode non_zero_duration_mode(
+      ui::ScopedAnimationDurationScaleMode::NORMAL_DURATION);
+  AddAuthFactors({AuthFactorType::kFingerprint, AuthFactorType::kSmartLock});
+  LoginAuthFactorsView::TestApi test_api(view_);
+  auth_factors_[0]->state_ = AuthFactorState::kReady;
+  auth_factors_[1]->state_ = AuthFactorState::kReady;
+  test_api.UpdateState();
+
+  // Check that there is no focus initially.
+  EXPECT_FALSE(view_->GetFocusManager()->GetFocusedView());
+  EXPECT_FALSE(test_api.arrow_button()->HasFocus());
+
+  auth_factors_[1]->state_ = AuthFactorState::kClickRequired;
+  test_api.UpdateState();
+
+  // Check that the arrow button becomes focused.
+  EXPECT_TRUE(view_->GetFocusManager()->GetFocusedView());
+  EXPECT_TRUE(test_api.arrow_button()->HasFocus());
+}
+
+// Regression test for b/215754583.
+// The arrow button automatically becomes focused when Smart Lock state is
+// kClickRequired. After the state changes, the button loses visibility and the
+// entire view should have its focus cleared.
+TEST_F(LoginAuthFactorsViewUnittest, ArrowButtonClearsFocus_Authenticated) {
+  GetSessionControllerClient()->SetSessionState(
+      session_manager::SessionState::LOCKED);
+  Shell::Get()->login_screen_controller()->ShowLockScreen();
+
+  TestArrowButtonClearsFocus(
+      /*state_after_click_required=*/AuthFactorState::kAuthenticated);
+}
+
+// When the state transitions from kClickRequired to kReady, kErrorTemporary
+// or kErrorPermanent, the focus is also cleared. The actual experience seems
+// as though the focus is not cleared and instead jumps to the password input.
+// This focus happens inside LoginAuthUserView when the state change causes
+// the password input to become visible.
+TEST_F(LoginAuthFactorsViewUnittest, ArrowButtonClearsFocus_Ready) {
+  TestArrowButtonClearsFocus(
+      /*state_after_click_required=*/AuthFactorState::kReady);
+}
+
+TEST_F(LoginAuthFactorsViewUnittest, ArrowButtonClearsFocus_Error) {
+  TestArrowButtonClearsFocus(
+      /*state_after_click_required=*/AuthFactorState::kErrorTemporary);
+  TestArrowButtonClearsFocus(
+      /*state_after_click_required=*/AuthFactorState::kErrorPermanent);
 }
 
 }  // namespace ash

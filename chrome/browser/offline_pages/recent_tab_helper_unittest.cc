@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include "base/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_mock_time_message_loop_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/offline_pages/offline_page_model_factory.h"
 #include "chrome/browser/offline_pages/request_coordinator_factory.h"
 #include "chrome/browser/offline_pages/test_offline_page_model_builder.h"
@@ -28,6 +28,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/navigation_simulator.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/features.h"
 
 namespace offline_pages {
 
@@ -197,7 +198,7 @@ std::unique_ptr<OfflinePageArchiver> TestDelegate::CreatePageArchiver(
   std::unique_ptr<OfflinePageTestArchiver> archiver(new OfflinePageTestArchiver(
       observer_, web_contents->GetLastCommittedURL(), archive_result_,
       std::u16string(), kArchiveSizeToReport, std::string(),
-      base::ThreadTaskRunnerHandle::Get()));
+      base::SingleThreadTaskRunner::GetCurrentDefault()));
   return std::move(archiver);
 }
 
@@ -1108,6 +1109,55 @@ TEST_F(RecentTabHelperTest, NoSaveOfflinePageCacheForPost) {
   RunUntilIdle();
   EXPECT_EQ(1U, page_added_count());
   ASSERT_EQ(1U, GetAllPages().size());
+}
+
+class RecentTabHelperFencedFrameTest : public RecentTabHelperTest {
+ public:
+  RecentTabHelperFencedFrameTest() {
+    scoped_feature_list_.InitAndEnableFeatureWithParameters(
+        blink::features::kFencedFrames, {{"implementation_type", "mparch"}});
+  }
+  ~RecentTabHelperFencedFrameTest() override = default;
+
+  content::RenderFrameHost* CreateFencedFrame(
+      content::RenderFrameHost* parent) {
+    content::RenderFrameHost* fenced_frame =
+        content::RenderFrameHostTester::For(parent)->AppendFencedFrame();
+    return fenced_frame;
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// Tests that FencedFrame does not change the current page quality via resetting
+// the snapshot controller.
+TEST_F(RecentTabHelperFencedFrameTest, FencedFrameDoesNotChangePageQuality) {
+  // Navigate and finish loading, then move the snapshot controller's time
+  // forward so it sets the current page quality to FAIR_AND_IMPROVING.
+  NavigateAndCommitPost(GURL("http://mystery.site/foo.html"));
+
+  recent_tab_helper()->PrimaryMainDocumentElementAvailable();
+  FastForwardSnapshotController();
+
+  EXPECT_EQ(recent_tab_helper()->snapshot_controller_->current_page_quality(),
+            SnapshotController::PageQuality::FAIR_AND_IMPROVING);
+
+  // Create a fenced frame.
+  content::RenderFrameHostTester::For(main_rfh())
+      ->InitializeRenderFrameIfNeeded();
+  content::RenderFrameHost* fenced_frame_rfh = CreateFencedFrame(main_rfh());
+  GURL kFencedFrameUrl("https://fencedframe.com");
+  std::unique_ptr<content::NavigationSimulator> navigation_simulator =
+      content::NavigationSimulator::CreateRendererInitiated(kFencedFrameUrl,
+                                                            fenced_frame_rfh);
+  navigation_simulator->Commit();
+  EXPECT_TRUE(fenced_frame_rfh->IsFencedFrameRoot());
+
+  // Navigating the fenced frame to the fenced frame url should not change the
+  // current page quality to POOR.
+  EXPECT_EQ(recent_tab_helper()->snapshot_controller_->current_page_quality(),
+            SnapshotController::PageQuality::FAIR_AND_IMPROVING);
 }
 
 }  // namespace offline_pages

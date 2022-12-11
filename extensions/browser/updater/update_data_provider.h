@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,6 +66,12 @@ class UpdateDataProvider : public base::RefCounted<UpdateDataProvider> {
                           const base::FilePath& unpacked_dir,
                           bool install_immediately,
                           UpdateClientCallback update_client_callback);
+
+  void InstallUpdateCallback(const std::string& extension_id,
+                             const std::string& public_key,
+                             const base::FilePath& unpacked_dir,
+                             bool install_immediately,
+                             UpdateClientCallback update_client_callback);
 
   raw_ptr<content::BrowserContext> browser_context_;
 };

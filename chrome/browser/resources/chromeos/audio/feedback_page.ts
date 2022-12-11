@@ -1,12 +1,16 @@
-import {$} from 'chrome://resources/js/util.m.js';
+// Copyright 2022 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+import {getRequiredElement} from 'chrome://resources/js/util_ts.js';
 
 import {AudioBroker} from './audio_broker.js';
 import {InputPage} from './input_page.js';
 import {OutputPage} from './output_page.js';
 import {Page} from './page.js';
 
-interface feedbackObject {
-  [key: string]: any
+interface FeedbackObject {
+  [key: string]: any;
 }
 
 export class FeedbackPage extends Page {
@@ -20,17 +24,17 @@ export class FeedbackPage extends Page {
     this.registerButtons();
   }
 
-  showPage() {
+  override showPage() {
     super.showPage();
     this.updateAudioInfo();
     this.updateDownloadButton();
   }
 
   registerButtons() {
-    $('copy-btn').addEventListener('click', () => {
+    getRequiredElement('copy-btn').addEventListener('click', () => {
       navigator.clipboard.writeText(this.audioInfoString);
     });
-    $('submit-btn').addEventListener('click', () => {
+    getRequiredElement('submit-btn').addEventListener('click', () => {
       AudioBroker.getInstance().handler.openFeedbackDialog();
     });
   }
@@ -39,19 +43,21 @@ export class FeedbackPage extends Page {
     if (this.inputFeedbackMap.has('audioUrl')) {
       const url = this.inputFeedbackMap.get('audioUrl');
       if (url) {
-        const downloadBtn = <HTMLAnchorElement>$('download-btn');
-        const inputAudio = <HTMLAudioElement>$('test-input-audio');
+        const downloadBtn =
+            getRequiredElement<HTMLAnchorElement>('download-btn');
+        const inputAudio =
+            getRequiredElement<HTMLAudioElement>('test-input-audio');
         inputAudio.src = url;
         downloadBtn.href = url;
         downloadBtn.download =
             'test_input_' + new Date().toISOString() + '.wav';
-        $('input-replay').hidden = false;
+        getRequiredElement('input-replay').hidden = false;
       }
     }
   }
 
   updateAudioInfo() {
-    var audioInfoJson: feedbackObject = {};
+    var audioInfoJson: FeedbackObject = {};
 
     const inputFeedbackObject = this.mapToObject(this.inputFeedbackMap);
     const outputFeedbackObject = this.mapToObject(this.outputFeedbackMap);
@@ -66,11 +72,12 @@ export class FeedbackPage extends Page {
     3. Any specific behavior you notice during the testing process?: \n
     4. audio info: `;
     this.audioInfoString = guidedQuestions + infoString;
-    (<HTMLTextAreaElement>$('audio-info')).value = this.audioInfoString;
+    getRequiredElement<HTMLTextAreaElement>('audio-info').value =
+        this.audioInfoString;
   }
 
   mapToObject(map: Map<string, any>) {
-    const tempObject: feedbackObject = {};
+    const tempObject: FeedbackObject = {};
     map.forEach((value: any, key: string) => {
       tempObject[key] = value;
     });

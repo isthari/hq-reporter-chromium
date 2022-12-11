@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,23 @@
 
 namespace policy {
 namespace policy_prefs {
+
+#if BUILDFLAG(IS_WIN)
+// Integer pref that stores Azure Active Directory management authority.
+const char kAzureActiveDirectoryManagement[] =
+    "management.platform.azure_active_directory";
+
+// Integer pref that stores the Windows enterprise MDM management authority.
+const char kEnterpriseMDMManagementWindows[] =
+    "management.platform.enterprise_mdm_win";
+#elif BUILDFLAG(IS_MAC)
+// Integer pref that stores the Mac enterprise MDM management authority.
+const char kEnterpriseMDMManagementMac[] =
+    "management.platform.enterprise_mdm_mac";
+// Boolean pref that indicates whether integration with macOS Screen Time should
+// be enabled.
+const char kScreenTimeEnabled[] = "policy.screen_time";
+#endif
 
 // 64-bit serialization of the time last policy usage statistics were collected
 // by UMA_HISTOGRAM_ENUMERATION.
@@ -62,32 +79,52 @@ const char kNativeWindowOcclusionEnabled[] =
 const char kIntensiveWakeUpThrottlingEnabled[] =
     "policy.intensive_wake_up_throttling_enabled";
 
-// Boolean that controls whether a window spawned from an anchor targeting
-// _blank receives an opener. TODO(crbug.com/898942): Remove this in Chrome 95.
-const char kTargetBlankImpliesNoOpener[] =
-    "policy.target_blank_implies_noopener";
+// Boolean policy preference for force enabling or disabling the
+// MaxUnthrottledTimeoutNestingLevel web feature.
+const char kUnthrottledNestedTimeoutEnabled[] =
+    "policy.unthrottled_nested_timeout";
 
 #if BUILDFLAG(IS_ANDROID)
 // Boolean policy preference to disable the BackForwardCache feature.
 const char kBackForwardCacheEnabled[] = "policy.back_forward_cache_enabled";
 #endif  // BUILDFLAG(IS_ANDROID)
 
-// Boolean policy to force enable WebSQL in third-party contexts.
-const char kWebSQLInThirdPartyContextEnabled[] =
-    "policy.web_sql_in_third_party_context_enabled";
-
 // Boolean policy preference to disable the User-Agent Client Hints
 // updated GREASE algorithm feature.
 const char kUserAgentClientHintsGREASEUpdateEnabled[] =
     "policy.user_agent_client_hints_grease_update_enabled";
 
-// A boolean indicating whether the window-placement permission is automatically
-// granted for all sites by enterprise policy. If true, the permission is
-// automatically enabled for sites.  If false, sites behave as default with
-// users choosing to enable this permission if they want.  When this permission
-// is enabled, sites can use information about screens to open and place
-// windows.
-const char kWindowPlacementAlwaysAllowed[] = "window_placement_always_allowed";
+// Boolean policy to allow isolated apps developer mode.
+const char kIsolatedAppsDeveloperModeAllowed[] =
+    "policy.isolated_apps_developer_mode_allowed";
+
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+// Last time that a check for cloud policy management was done. This time is
+// recorded on Android and iOS so that retries aren't attempted on every
+// startup. Instead the cloud policy registration is retried at least 1 or 3
+// days later.
+const char kLastPolicyCheckTime[] = "policy.last_policy_check_time";
+#endif
+
+#if BUILDFLAG(IS_IOS)
+const char kUserPolicyNotificationWasShown[] =
+    "policy.user_policy_notification_was_shown";
+#endif
+
+// A boolean indicating whether the deprecated API Event.path is enabled. It
+// should eventually be disabled and removed.
+// https://chromestatus.com/feature/5726124632965120
+const char kEventPathEnabled[] = "policy.event_path_enabled";
+
+// A boolean indicating whether the newly specified behavior for
+// Element.offsetParent is in effect.
+const char kOffsetParentNewSpecBehaviorEnabled[] =
+    "policy.offset_parent_new_spec_behavior_enabled";
+
+// A boolean indicating whether the new behavior for event dispatching on
+// disabled form controls is in effect.
+const char kSendMouseEventsDisabledFormControlsEnabled[] =
+    "policy.send_mouse_events_disabled_form_controls_enabled";
 
 }  // namespace policy_prefs
 }  // namespace policy

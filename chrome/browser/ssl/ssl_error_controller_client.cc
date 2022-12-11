@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/process/launch.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -110,8 +109,9 @@ void SSLErrorControllerClient::Proceed() {
           profile->GetSSLHostStateDelegate());
   // StatefulSSLHostStateDelegate can be null during tests.
   if (state) {
-    state->AllowCert(request_url_.host(), *ssl_info_.cert.get(), cert_error_,
-                     web_contents_);
+    state->AllowCert(
+        request_url_.host(), *ssl_info_.cert.get(), cert_error_,
+        web_contents_->GetPrimaryMainFrame()->GetStoragePartition());
     Reload();
   }
 }

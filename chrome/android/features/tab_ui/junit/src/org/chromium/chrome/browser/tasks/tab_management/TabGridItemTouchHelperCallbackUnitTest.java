@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -756,36 +756,6 @@ public class TabGridItemTouchHelperCallbackUnitTest {
     @Test(expected = AssertionError.class)
     public void messageItemOnMoveFail() {
         when(mMockViewHolder1.getItemViewType()).thenReturn(TabProperties.UiType.MESSAGE);
-        setupItemTouchHelperCallback(false);
-        mItemTouchHelperCallback.onMove(mRecyclerView, mMockViewHolder1, mMockViewHolder2);
-    }
-
-    @Test
-    public void newTabTileNotDraggable() {
-        when(mMockViewHolder1.getItemViewType()).thenReturn(TabProperties.UiType.NEW_TAB_TILE);
-        setupItemTouchHelperCallback(false);
-        assertFalse(
-                mItemTouchHelperCallback.hasDragFlagForTesting(mRecyclerView, mMockViewHolder1));
-    }
-
-    @Test
-    public void newTabTileNotSwipeable() {
-        when(mMockViewHolder1.getItemViewType()).thenReturn(TabProperties.UiType.NEW_TAB_TILE);
-        setupItemTouchHelperCallback(false);
-        assertFalse(mItemTouchHelperCallback.hasSwipeFlag(mRecyclerView, mMockViewHolder1));
-    }
-
-    @Test
-    public void newTabTileNotDropable() {
-        when(mMockViewHolder1.getItemViewType()).thenReturn(TabProperties.UiType.NEW_TAB_TILE);
-        setupItemTouchHelperCallback(false);
-        assertFalse(mItemTouchHelperCallback.canDropOver(
-                mRecyclerView, mMockViewHolder2, mMockViewHolder1));
-    }
-
-    @Test(expected = AssertionError.class)
-    public void newTabTileOnMoveFail() {
-        when(mMockViewHolder1.getItemViewType()).thenReturn(TabProperties.UiType.NEW_TAB_TILE);
         setupItemTouchHelperCallback(false);
         mItemTouchHelperCallback.onMove(mRecyclerView, mMockViewHolder1, mMockViewHolder2);
     }

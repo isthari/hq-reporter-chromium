@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/translate/translate_bubble_test_utils.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
@@ -32,8 +33,6 @@
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/browser_autofill_manager.h"
 #include "components/autofill/core/browser/browser_autofill_manager_test_delegate.h"
-#include "components/autofill/core/browser/data_model/autofill_profile.h"
-#include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/geo/state_names.h"
 #include "components/autofill/core/browser/proto/server.pb.h"
@@ -88,15 +87,22 @@ class AutofillCapturedSitesInteractiveTest
                     content::RenderFrameHost* frame) override {
     content::WebContents* web_contents =
         content::WebContents::FromRenderFrameHost(frame);
-    BrowserAutofillManager* autofill_manager =
+    auto* autofill_manager = static_cast<BrowserAutofillManager*>(
         ContentAutofillDriverFactory::FromWebContents(web_contents)
             ->DriverForFrame(frame->GetMainFrame())
-            ->browser_autofill_manager();
+            ->autofill_manager());
     autofill_manager->SetTestDelegate(test_delegate());
 
     int tries = 0;
     while (tries < attempts) {
       tries++;
+
+      // Translation bubbles and address-save prompts and others may overlap
+      // with and thus prevent the Autofill popup, so we preemptively close all
+      // bubbles.
+      translate::test_utils::CloseCurrentBubble(browser());
+      TryToCloseAllPrompts(web_contents);
+
       autofill_manager->client()->HideAutofillPopup(
           autofill::PopupHidingReason::kViewDestroyed);
 
@@ -137,31 +143,12 @@ class AutofillCapturedSitesInteractiveTest
 
   bool AddAutofillProfileInfo(const std::string& field_type,
                               const std::string& field_value) override {
-    ServerFieldType type;
-    if (!StringToFieldType(field_type, &type)) {
-      ADD_FAILURE() << "Unable to recognize autofill field type '" << field_type
-                    << "'!";
-      return false;
-    }
-
-    if (base::StartsWith(field_type, "HTML_TYPE_CREDIT_CARD_",
-                         base::CompareCase::INSENSITIVE_ASCII) ||
-        base::StartsWith(field_type, "CREDIT_CARD_",
-                         base::CompareCase::INSENSITIVE_ASCII)) {
-      if (type == autofill::CREDIT_CARD_NAME_FIRST ||
-          type == autofill::CREDIT_CARD_NAME_LAST) {
-        card_.SetRawInfo(autofill::CREDIT_CARD_NAME_FULL, u"");
-      }
-      card_.SetRawInfo(type, base::UTF8ToUTF16(field_value));
-    } else {
-      profile_.SetRawInfo(type, base::UTF8ToUTF16(field_value));
-    }
-
-    return true;
+    return profile_controller_->AddAutofillProfileInfo(field_type, field_value);
   }
 
   bool SetupAutofillProfile() override {
-    AddTestAutofillData(browser()->profile(), profile(), credit_card());
+    AddTestAutofillData(browser()->profile(), profile_controller_->profile(),
+                        profile_controller_->credit_card());
     // Disable the Password Manager to prevent password bubbles from occurring.
     // The password bubbles could overlap with the Autofill popups, in which
     // case the Autofill popup would not be shown (crbug.com/1223898).
@@ -171,26 +158,7 @@ class AutofillCapturedSitesInteractiveTest
   }
 
  protected:
-  AutofillCapturedSitesInteractiveTest()
-      : profile_(test::GetIncompleteProfile2()),
-        card_(CreditCard(base::GenerateGUID(), "http://www.example.com")) {
-    for (size_t i = NO_SERVER_DATA; i < MAX_VALID_FIELD_TYPE; ++i) {
-      ServerFieldType field_type = static_cast<ServerFieldType>(i);
-      string_to_field_type_map_[AutofillType(field_type).ToString()] =
-          field_type;
-    }
-
-    for (size_t i = HTML_TYPE_UNSPECIFIED; i < HTML_TYPE_UNRECOGNIZED; ++i) {
-      AutofillType field_type(static_cast<HtmlFieldType>(i), HTML_MODE_NONE);
-      string_to_field_type_map_[field_type.ToString()] =
-          field_type.GetStorableType();
-    }
-
-    // Initialize the credit card with default values, in case the test recipe
-    // file does not contain pre-saved credit card info.
-    test::SetCreditCardInfo(&card_, "Buddy Holly", "5187654321098765", "10",
-                            "2998", "1");
-  }
+  AutofillCapturedSitesInteractiveTest() = default;
 
   ~AutofillCapturedSitesInteractiveTest() override {}
 
@@ -244,11 +212,11 @@ class AutofillCapturedSitesInteractiveTest
     // feature forces input elements on a form to display their autofill type
     // prediction. Test will check this attribute on all the relevant input
     // elements in a form to determine if the form is ready for interaction.
-    feature_list_.InitWithFeatures(
-        /*enabled_features=*/{features::kAutofillAcrossIframes,
-                              features::kAutofillDisplaceRemovedForms,
-                              features::kAutofillShowTypePredictions,
-                              features::kAutofillUseUnassociatedListedElements},
+    feature_list_.InitWithFeaturesAndParameters(
+        /*enabled_features=*/{{features::kAutofillAcrossIframes, {}},
+                              {features::kAutofillShowTypePredictions, {}},
+                              {features::kAutofillParsingPatternProvider,
+                               {{"prediction_source", "nextgen"}}}},
         /*disabled_features=*/{});
     command_line->AppendSwitchASCII(
         variations::switches::kVariationsOverrideCountry, "us");
@@ -266,10 +234,6 @@ class AutofillCapturedSitesInteractiveTest
   captured_sites_test_utils::TestRecipeReplayer* recipe_replayer() {
     return recipe_replayer_.get();
   }
-
-  const CreditCard& credit_card() { return card_; }
-
-  const AutofillProfile& profile() { return profile_; }
 
  private:
   bool ShowAutofillSuggestion(const std::string& target_element_xpath,
@@ -301,18 +265,11 @@ class AutofillCapturedSitesInteractiveTest
     return test_delegate()->Wait();
   }
 
-  bool StringToFieldType(const std::string& str, ServerFieldType* type) {
-    if (string_to_field_type_map_.count(str) == 0)
-      return false;
-    *type = string_to_field_type_map_[str];
-    return true;
-  }
-
-  AutofillProfile profile_;
-  CreditCard card_;
   std::unique_ptr<captured_sites_test_utils::TestRecipeReplayer>
       recipe_replayer_;
-  std::map<const std::string, ServerFieldType> string_to_field_type_map_;
+  std::unique_ptr<captured_sites_test_utils::ProfileDataController>
+      profile_controller_ =
+          std::make_unique<captured_sites_test_utils::ProfileDataController>();
 
   base::test::ScopedFeatureList feature_list_;
 
@@ -323,8 +280,13 @@ IN_PROC_BROWSER_TEST_P(AutofillCapturedSitesInteractiveTest, Recipe) {
   captured_sites_test_utils::PrintInstructions(
       "autofill_captured_sites_interactive_uitest");
 
-  // Prints the path of the test to be executed.
-  VLOG(1) << GetParam().site_name;
+  // Prints the name of the site to be executed. Prints bug number if exists.
+  if (GetParam().bug_number) {
+    VLOG(1) << GetParam().site_name << ": crbug.com/"
+            << GetParam().bug_number.value();
+  } else {
+    VLOG(1) << GetParam().site_name;
+  }
 
   base::FilePath src_dir;
   ASSERT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &src_dir));

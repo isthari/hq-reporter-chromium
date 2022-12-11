@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,6 +64,9 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
 
+  // views::View:
+  void OnGestureEvent(ui::GestureEvent* event) override;
+
   // views::FocusChangeListener:
   void OnWillChangeFocus(views::View* focused_before,
                          views::View* focused_now) override {}
@@ -80,13 +83,15 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
       const base::flat_set<media_session::mojom::MediaSessionAction>& actions)
       override;
   void OnMediaArtworkChanged(const gfx::ImageSkia& image) override;
-  void OnColorsChanged(SkColor foreground, SkColor background) override;
+  void OnColorsChanged(SkColor foreground,
+                       SkColor foreground_disabled,
+                       SkColor background) override;
   void OnHeaderClicked() override;
 
   // views::SlideOutControllerDelegate:
   ui::Layer* GetSlideOutLayer() override;
   void OnSlideStarted() override {}
-  void OnSlideChanged(bool in_progress) override {}
+  void OnSlideChanged(bool in_progress) override;
   void OnSlideOut() override;
 
   // global_media_controls::MediaItemUI:
@@ -99,6 +104,9 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
 
   const std::u16string& GetTitle() const;
 
+  // Set the scroll view that is currently holding this item.
+  void SetScrollView(views::ScrollView* scroll_view);
+
   views::ImageButton* GetDismissButtonForTesting();
 
   media_message_center::MediaNotificationViewImpl* view_for_testing() {
@@ -107,6 +115,10 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
   }
   MediaItemUIDeviceSelector* device_selector_view_for_testing() {
     return device_selector_view_;
+  }
+  MediaItemUIFooter* footer_view_for_testing() { return footer_view_; }
+  views::SlideOutController* slide_out_controller_for_testing() {
+    return slide_out_controller_.get();
   }
 
   bool is_playing_for_testing() { return is_playing_; }
@@ -130,6 +142,9 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
 
   std::u16string title_;
 
+  // The scroll view that is currently holding this item.
+  raw_ptr<views::ScrollView> scroll_view_ = nullptr;
+
   // Always "visible" so that it reserves space in the header so that the
   // dismiss button can appear without forcing things to shift.
   raw_ptr<views::View> dismiss_button_placeholder_ = nullptr;
@@ -146,8 +161,9 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
 
   raw_ptr<MediaItemUIDeviceSelector> device_selector_view_ = nullptr;
 
-  SkColor foreground_color_;
-  SkColor background_color_;
+  SkColor foreground_color_ = kDefaultForegroundColor;
+  SkColor foreground_disabled_color_ = kDefaultForegroundColor;
+  SkColor background_color_ = kDefaultBackgroundColor;
 
   bool has_artwork_ = false;
   bool has_many_actions_ = false;
@@ -155,6 +171,8 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
   bool is_playing_ = false;
 
   bool is_expanded_ = false;
+
+  bool is_sliding_ = false;
 
   base::ObserverList<global_media_controls::MediaItemUIObserver> observers_;
 

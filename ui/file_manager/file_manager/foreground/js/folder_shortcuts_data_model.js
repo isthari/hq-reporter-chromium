@@ -1,16 +1,15 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
+import {NativeEventTarget as EventTarget} from 'chrome://resources/ash/common/event_target.js';
 
 import {getPreferences} from '../../common/js/api.js';
-import {AsyncUtil} from '../../common/js/async_util.js';
+import {AsyncQueue, Group} from '../../common/js/async_util.js';
 import {FilteredVolumeManager} from '../../common/js/filtered_volume_manager.js';
 import {metrics} from '../../common/js/metrics.js';
 import {util} from '../../common/js/util.js';
 import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
-import {xfm} from '../../common/js/xfm.js';
 
 /**
  * The drive mount path used in the persisted storage. It must be '/drive'.
@@ -21,8 +20,6 @@ const STORED_DRIVE_MOUNT_PATH = '/drive';
 /**
  * Model for the folder shortcuts. This object is ArrayDataModel-like
  * object with additional methods for the folder shortcut feature.
- * This used to use xfm.storage as backend. Now it's migrated to Chrome
- * preferences.
  *
  * Items are always sorted by URL.
  */
@@ -40,7 +37,7 @@ export class FolderShortcutsDataModel extends EventTarget {
     this.lastDriveRootURL_ = null;
 
     // Queue to serialize resolving entries.
-    this.queue_ = new AsyncUtil.Queue();
+    this.queue_ = new AsyncQueue();
     this.queue_.run(
         this.volumeManager_.ensureInitialized.bind(this.volumeManager_));
 
@@ -146,7 +143,7 @@ export class FolderShortcutsDataModel extends EventTarget {
       };
 
       // Resolve the items all at once, in parallel.
-      const group = new AsyncUtil.Group();
+      const group = new Group();
       list.forEach(function(path) {
         group.add(((path, callback) => {
                     const url = this.lastDriveRootURL_ &&
@@ -211,27 +208,6 @@ export class FolderShortcutsDataModel extends EventTarget {
   }
 
   /**
-   * Fetches the shortcut paths from the legacy chrome.storage.sync.
-   *
-   * This can be removed after M108, when we expect all users to have migrated
-   * to the SWA/prefs version.
-   *
-   * @return {!Promise<!Array<string>>}
-   * @private
-   */
-  async getPersistedShortcutPathsLegacy_() {
-    const value =
-        await xfm.storage.sync.getAsync(FolderShortcutsDataModel.NAME);
-    if (value) {
-      const shortcutPaths =
-          /** @type {!Array} */ (value[FolderShortcutsDataModel.NAME] || []);
-      return shortcutPaths;
-    }
-
-    return [];
-  }
-
-  /**
    * Fetches the shortcut paths from the persistent storage (preferences) it
    * migrates from the legacy storage.chrome.sync if needed.
    *
@@ -239,23 +215,6 @@ export class FolderShortcutsDataModel extends EventTarget {
    * @private
    */
   async getPersistedShortcutPaths_() {
-    if (!window.isSWA) {
-      // Migration code works for non SWA.
-      const legacyPaths = await this.getPersistedShortcutPathsLegacy_();
-      if (legacyPaths.length) {
-        // Migrate to prefs. The onPreferencesChanged listener will make the
-        // value to be reloaded from prefs.
-        chrome.fileManagerPrivate.setPreferences(
-            {folderShortcuts: legacyPaths});
-
-        // Remove from legacy storage: xfm.storage.sync.
-        const prefs = {};
-        prefs[FolderShortcutsDataModel.NAME] = [];
-        xfm.storage.sync.setAsync(prefs);
-        return legacyPaths;
-      }
-    }
-
     const prefs = await getPreferences();
     if (prefs.folderShortcuts && prefs.folderShortcuts.length) {
       return prefs.folderShortcuts;
@@ -590,10 +549,3 @@ export class FolderShortcutsDataModel extends EventTarget {
         decodeURIComponent(url.substr(this.lastDriveRootURL_.length));
   }
 }
-
-/**
- * Key name in xfm.storage. The array are stored with this name.
- * @type {string}
- * @const
- */
-FolderShortcutsDataModel.NAME = 'folder-shortcuts-list';

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,11 @@
  * @fileoverview Handles speech parsing for dictation.
  */
 
-import {InputController} from './../input_controller.js';
-import {Macro} from './../macros/macro.js';
+import {InputController} from '../input_controller.js';
+import {LocaleInfo} from '../locale_info.js';
+import {Macro} from '../macros/macro.js';
+import {MetricsUtils} from '../metrics_utils.js';
+
 import {InputTextStrategy} from './input_text_strategy.js';
 import {ParseStrategy} from './parse_strategy.js';
 import {PumpkinParseStrategy} from './pumpkin_parse_strategy.js';
@@ -17,35 +20,26 @@ import {SimpleParseStrategy} from './simple_parse_strategy.js';
 export class SpeechParser {
   /** @param {!InputController} inputController to interact with the IME. */
   constructor(inputController) {
-    /** @private {boolean} */
-    this.isRTLLocale_ = false;
-
     /** @private {!InputController} */
     this.inputController_ = inputController;
 
-    /** @private {ParseStrategy} */
+    /** @private {!ParseStrategy} */
     this.inputTextStrategy_ = new InputTextStrategy(this.inputController_);
 
-    /** @private {?ParseStrategy} */
-    this.simpleParseStrategy_ = null;
+    /** @private {!ParseStrategy} */
+    this.simpleParseStrategy_ = new SimpleParseStrategy(this.inputController_);
 
-    /** @private {?ParseStrategy} */
-    this.pumpkinParseStrategy_ = null;
+    /** @private {!ParseStrategy} */
+    this.pumpkinParseStrategy_ =
+        new PumpkinParseStrategy(this.inputController_);
   }
 
-  /**
-   * Enables commands.
-   * @param {string} locale The Dictation recognition locale. Only some locales
-   *     are supported by Pumpkin.
-   */
-  async setCommandsEnabled(locale) {
-    this.isRTLLocale_ = SpeechParser.RTLLocales.has(locale);
-
-    // Initialize additional parsing strategies.
-    this.simpleParseStrategy_ =
-        new SimpleParseStrategy(this.inputController_, this.isRTLLocale_);
-    this.pumpkinParseStrategy_ = await PumpkinParseStrategy.create(
-        this.inputController_, this.isRTLLocale_, locale);
+  /** Refreshes the speech parser when the locale changes. */
+  refresh() {
+    // Pumpkin has its own strings for command parsing, but we disable it when
+    // commands aren't supported for consistency.
+    this.simpleParseStrategy_.refresh();
+    this.pumpkinParseStrategy_.refresh();
   }
 
   /**
@@ -55,16 +49,17 @@ export class SpeechParser {
    * @return {!Promise<!Macro>}
    */
   async parse(text) {
-    // Try pumpkin parsing first.
-    if (this.pumpkinParseStrategy_) {
+    // Use either `pumpkinParseStrategy_` or `simpleParseStrategy_` because if
+    // `pumpkinParseStrategy_` fails, then `simpleParseStrategy_` will also
+    // fail.
+    if (this.pumpkinParseStrategy_.isEnabled()) {
+      MetricsUtils.recordPumpkinUsed(true);
       const macro = await this.pumpkinParseStrategy_.parse(text);
       if (macro) {
         return macro;
       }
-    }
-
-    // Fall-back to simple parsing.
-    if (this.simpleParseStrategy_) {
+    } else if (this.simpleParseStrategy_.isEnabled()) {
+      MetricsUtils.recordPumpkinUsed(false);
       return await /** @type {!Promise<!Macro>} */ (
           this.simpleParseStrategy_.parse(text));
     }
@@ -73,11 +68,9 @@ export class SpeechParser {
     return await /** @type {!Promise<!Macro>} */ (
         this.inputTextStrategy_.parse(text));
   }
-}
 
-// All RTL locales from Dictation::GetAllSupportedLocales.
-SpeechParser.RTLLocales = new Set([
-  'ar-AE', 'ar-BH', 'ar-DZ', 'ar-EG', 'ar-IL', 'ar-IQ', 'ar-JO',
-  'ar-KW', 'ar-LB', 'ar-MA', 'ar-OM', 'ar-PS', 'ar-QA', 'ar-SA',
-  'ar-TN', 'ar-YE', 'fa-IR', 'iw-IL', 'ur-IN', 'ur-PK'
-]);
+  /** For testing purposes only. */
+  disablePumpkinForTesting() {
+    this.pumpkinParseStrategy_.setEnabled(false);
+  }
+}

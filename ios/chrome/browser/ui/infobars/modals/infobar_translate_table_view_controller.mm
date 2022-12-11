@@ -1,22 +1,23 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/infobars/modals/infobar_translate_table_view_controller.h"
 
-#include "base/mac/foundation_util.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/mac/foundation_util.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/translate/core/common/translate_util.h"
 #import "ios/chrome/browser/ui/infobars/modals/infobar_modal_constants.h"
 #import "ios/chrome/browser/ui/infobars/modals/infobar_translate_modal_constants.h"
 #import "ios/chrome/browser/ui/infobars/modals/infobar_translate_modal_delegate.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_button_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_edit_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -42,9 +43,11 @@ typedef NS_ENUM(NSInteger, ItemType) {
 @property(nonatomic, strong) id<InfobarTranslateModalDelegate>
     infobarModalDelegate;
 
-// Prefs updated by |modalConsumer|.
+// Prefs updated by `modalConsumer`.
 // The source language from which to translate.
 @property(nonatomic, copy) NSString* sourceLanguage;
+// Whether the source language is unknown.
+@property(nonatomic, assign) BOOL sourceLanguageIsUnknown;
 // The target language to which to translate.
 @property(nonatomic, copy) NSString* targetLanguage;
 // YES if the pref is set to enable the Translate button.
@@ -120,7 +123,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (void)loadModel {
   [super loadModel];
-
   TableViewModel* model = self.tableViewModel;
   [model addSectionWithIdentifier:SectionIdentifierContent];
 
@@ -181,6 +183,13 @@ typedef NS_ENUM(NSInteger, ItemType) {
   alwaysTranslateSourceItem.buttonBackgroundColor = [UIColor clearColor];
   alwaysTranslateSourceItem.buttonAccessibilityIdentifier =
       kTranslateInfobarModalAlwaysTranslateButtonAXId;
+  alwaysTranslateSourceItem.enabled = !self.sourceLanguageIsUnknown;
+  if (self.sourceLanguageIsUnknown) {
+    DCHECK(translate::IsForceTranslateEnabled());
+    alwaysTranslateSourceItem.dimBackgroundWhenDisabled = NO;
+    alwaysTranslateSourceItem.buttonTextColor = [UIColor tertiaryLabelColor];
+    alwaysTranslateSourceItem.buttonBackgroundColor = [UIColor clearColor];
+  }
   [model addItem:alwaysTranslateSourceItem
       toSectionWithIdentifier:SectionIdentifierContent];
 
@@ -192,6 +201,14 @@ typedef NS_ENUM(NSInteger, ItemType) {
     neverTranslateSourceItem.buttonBackgroundColor = [UIColor clearColor];
     neverTranslateSourceItem.buttonAccessibilityIdentifier =
         kTranslateInfobarModalNeverTranslateButtonAXId;
+    neverTranslateSourceItem.enabled = !self.sourceLanguageIsUnknown;
+    if (self.sourceLanguageIsUnknown) {
+      DCHECK(translate::IsForceTranslateEnabled());
+      neverTranslateSourceItem.dimBackgroundWhenDisabled = NO;
+
+      neverTranslateSourceItem.buttonTextColor = [UIColor tertiaryLabelColor];
+      neverTranslateSourceItem.buttonBackgroundColor = [UIColor clearColor];
+    }
     [model addItem:neverTranslateSourceItem
         toSectionWithIdentifier:SectionIdentifierContent];
   }
@@ -213,6 +230,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 - (void)setupModalViewControllerWithPrefs:(NSDictionary*)prefs {
   self.sourceLanguage = prefs[kSourceLanguagePrefKey];
+  self.sourceLanguageIsUnknown =
+      [prefs[kSourceLanguageIsUnknownPrefKey] boolValue];
   self.targetLanguage = prefs[kTargetLanguagePrefKey];
   self.enableTranslateActionButton =
       [prefs[kEnableTranslateButtonPrefKey] boolValue];
@@ -241,11 +260,16 @@ typedef NS_ENUM(NSInteger, ItemType) {
                      cellForRowAtIndexPath:indexPath];
   ItemType itemType = static_cast<ItemType>(
       [self.tableViewModel itemTypeForIndexPath:indexPath]);
+  TableViewTextButtonCell* tableViewTextButtonCell =
+      base::mac::ObjCCast<TableViewTextButtonCell>(cell);
+  // Clear the existing targets before adding the new ones.
+  [tableViewTextButtonCell.button removeTarget:nil
+                                        action:nil
+                              forControlEvents:UIControlEventAllEvents];
 
   switch (itemType) {
     case ItemTypeTranslateButton: {
-      TableViewTextButtonCell* tableViewTextButtonCell =
-          base::mac::ObjCCastStrict<TableViewTextButtonCell>(cell);
+      DCHECK(tableViewTextButtonCell);
       tableViewTextButtonCell.selectionStyle =
           UITableViewCellSelectionStyleNone;
       [tableViewTextButtonCell.button
@@ -256,8 +280,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
       break;
     }
     case ItemTypeShowOriginalButton: {
-      TableViewTextButtonCell* tableViewTextButtonCell =
-          base::mac::ObjCCastStrict<TableViewTextButtonCell>(cell);
+      DCHECK(tableViewTextButtonCell);
       tableViewTextButtonCell.selectionStyle =
           UITableViewCellSelectionStyleNone;
       [tableViewTextButtonCell.button addTarget:self.infobarModalDelegate
@@ -266,8 +289,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
       break;
     }
     case ItemTypeAlwaysTranslateSource: {
-      TableViewTextButtonCell* tableViewTextButtonCell =
-          base::mac::ObjCCastStrict<TableViewTextButtonCell>(cell);
+      DCHECK(tableViewTextButtonCell);
       tableViewTextButtonCell.selectionStyle =
           UITableViewCellSelectionStyleNone;
       if (self.shouldAlwaysTranslate) {
@@ -284,8 +306,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
       break;
     }
     case ItemTypeNeverTranslateSource: {
-      TableViewTextButtonCell* tableViewTextButtonCell =
-          base::mac::ObjCCastStrict<TableViewTextButtonCell>(cell);
+      DCHECK(tableViewTextButtonCell);
       tableViewTextButtonCell.selectionStyle =
           UITableViewCellSelectionStyleNone;
       if (self.isTranslatableLanguage) {
@@ -302,8 +323,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
       break;
     }
     case ItemTypeNeverTranslateSite: {
-      TableViewTextButtonCell* tableViewTextButtonCell =
-          base::mac::ObjCCastStrict<TableViewTextButtonCell>(cell);
+      DCHECK(tableViewTextButtonCell);
       tableViewTextButtonCell.selectionStyle =
           UITableViewCellSelectionStyleNone;
       if (self.isSiteOnNeverPromptList) {
@@ -386,7 +406,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
 // Returns the text of the modal button allowing the user to always translate
 // the source language or revert back to offering to translate.
 - (NSString*)shouldAlwaysTranslateButtonText {
-  NSString* sourceLanguage = self.sourceLanguage;
+  NSString* sourceLanguage =
+      self.sourceLanguageIsUnknown ? @"" : self.sourceLanguage;
   if (self.shouldAlwaysTranslate) {
     return l10n_util::GetNSStringF(
         IDS_IOS_TRANSLATE_INFOBAR_OFFER_TRANSLATE_SOURCE_BUTTON_TITLE,
@@ -401,7 +422,8 @@ typedef NS_ENUM(NSInteger, ItemType) {
 // Returns the text of the modal button allowing the user to never translate the
 // source language or revert back to offering to translate.
 - (NSString*)shouldNeverTranslateSourceButtonText {
-  NSString* sourceLanguage = self.sourceLanguage;
+  NSString* sourceLanguage =
+      self.sourceLanguageIsUnknown ? @"" : self.sourceLanguage;
   if (self.isTranslatableLanguage) {
     return l10n_util::GetNSStringF(
         IDS_IOS_TRANSLATE_INFOBAR_NEVER_TRANSLATE_SOURCE_BUTTON_TITLE,

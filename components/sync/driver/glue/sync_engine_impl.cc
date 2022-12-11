@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,18 +16,19 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/rand_util.h"
-#include "base/task/task_runner_util.h"
 #include "build/build_config.h"
 #include "components/invalidation/impl/invalidation_switches.h"
+#include "components/invalidation/public/invalidation_handler.h"
 #include "components/invalidation/public/invalidation_service.h"
+#include "components/invalidation/public/invalidator_state.h"
 #include "components/invalidation/public/topic_invalidation_map.h"
 #include "components/sync/base/bind_to_task_runner.h"
+#include "components/sync/base/features.h"
 #include "components/sync/base/invalidation_helper.h"
 #include "components/sync/base/sync_prefs.h"
 #include "components/sync/driver/active_devices_provider.h"
 #include "components/sync/driver/glue/sync_engine_backend.h"
 #include "components/sync/driver/glue/sync_transport_data_prefs.h"
-#include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/engine/data_type_activation_response.h"
 #include "components/sync/engine/engine_components_factory.h"
 #include "components/sync/engine/engine_components_factory_impl.h"
@@ -38,12 +39,16 @@
 #include "components/sync/engine/sync_engine_host.h"
 #include "components/sync/engine/sync_string_conversions.h"
 #include "components/sync/invalidations/fcm_handler.h"
-#include "components/sync/invalidations/switches.h"
 #include "components/sync/invalidations/sync_invalidations_service.h"
 
 namespace syncer {
 
 namespace {
+
+// Enables updating invalidator state for Sync standalone invalidations.
+BASE_FEATURE(kSyncUpdateInvalidatorState,
+             "SyncUpdateInvalidatorState",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 // Reads from prefs into a struct, to be posted across sequences.
 SyncEngineBackend::RestoredLocalTransportData
@@ -137,6 +142,9 @@ SyncEngineImpl::SyncEngineImpl(
   DCHECK(prefs_);
   backend_ = base::MakeRefCounted<SyncEngineBackend>(
       name_, sync_data_folder, weak_ptr_factory_.GetWeakPtr());
+  if (sync_invalidations_service_) {
+    sync_invalidations_service_->AddTokenObserver(this);
+  }
 }
 
 SyncEngineImpl::~SyncEngineImpl() {
@@ -177,14 +185,14 @@ void SyncEngineImpl::Initialize(InitParams params) {
   // enabled, then the SyncService doesn't need to communicate with the old
   // InvalidationService anymore.
   if (invalidator_ &&
-      base::FeatureList::IsEnabled(switches::kSyncSendInterestedDataTypes) &&
-      base::FeatureList::IsEnabled(switches::kUseSyncInvalidations) &&
-      base::FeatureList::IsEnabled(
-          switches::kUseSyncInvalidationsForWalletAndOffer)) {
+      base::FeatureList::IsEnabled(kSyncSendInterestedDataTypes) &&
+      base::FeatureList::IsEnabled(kUseSyncInvalidations) &&
+      base::FeatureList::IsEnabled(kUseSyncInvalidationsForWalletAndOffer)) {
     DCHECK(!invalidation_handler_registered_);
     invalidator_->RegisterInvalidationHandler(this);
     bool success = invalidator_->UpdateInterestedTopics(this, /*topics=*/{});
     DCHECK(success);
+    invalidator_->UnsubscribeFromUnregisteredTopics(this);
     invalidator_->UnregisterInvalidationHandler(this);
     invalidator_ = nullptr;
   }
@@ -245,11 +253,25 @@ void SyncEngineImpl::StartSyncingWithServer() {
                                 last_poll_time));
 }
 
-void SyncEngineImpl::SetEncryptionPassphrase(const std::string& passphrase) {
+void SyncEngineImpl::StartHandlingInvalidations() {
+  if (sync_invalidations_service_) {
+    // Sync invalidation service must be subscribed to data types by this time.
+    // Without that, incoming invalidations would be filtered out.
+    DCHECK(sync_invalidations_service_->GetInterestedDataTypes().has_value());
+
+    // Adding a listener several times is safe. Only first adding replays last
+    // incoming messages.
+    sync_invalidations_service_->AddListener(this);
+  }
+}
+
+void SyncEngineImpl::SetEncryptionPassphrase(
+    const std::string& passphrase,
+    const KeyDerivationParams& key_derivation_params) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   sync_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&SyncEngineBackend::DoSetEncryptionPassphrase,
-                                backend_, passphrase));
+                                backend_, passphrase, key_derivation_params));
 }
 
 void SyncEngineImpl::SetExplicitPassphraseDecryptionKey(
@@ -300,6 +322,7 @@ void SyncEngineImpl::Shutdown(ShutdownReason reason) {
     // It's safe to call RemoveListener even if AddListener wasn't called
     // before.
     sync_invalidations_service_->RemoveListener(this);
+    sync_invalidations_service_->RemoveTokenObserver(this);
     sync_invalidations_service_ = nullptr;
   }
   last_enabled_types_.Clear();
@@ -359,8 +382,8 @@ const SyncEngineImpl::Status& SyncEngineImpl::GetDetailedStatus() const {
 void SyncEngineImpl::HasUnsyncedItemsForTest(
     base::OnceCallback<void(bool)> cb) const {
   DCHECK(IsInitialized());
-  base::PostTaskAndReplyWithResult(
-      sync_task_runner_.get(), FROM_HERE,
+  sync_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&SyncEngineBackend::HasUnsyncedItemsForTest, backend_),
       std::move(cb));
 }
@@ -378,7 +401,7 @@ void SyncEngineImpl::GetThrottledDataTypesForTest(
              base::OnceCallback<void(ModelTypeSet)> cb) {
             std::move(cb).Run(engine->cached_status_.throttled_types);
           },
-          weak_ptr_factory_.GetWeakPtr(), std::move(cb)));
+          weak_ptr_factory_.GetMutableWeakPtr(), std::move(cb)));
 }
 
 void SyncEngineImpl::RequestBufferedProtocolEventsAndEnableForwarding() {
@@ -406,7 +429,6 @@ void SyncEngineImpl::FinishConfigureDataTypesOnFrontendLoop(
 }
 
 void SyncEngineImpl::HandleInitializationSuccessOnFrontendLoop(
-    const WeakHandle<DataTypeDebugInfoListener> debug_info_listener,
     std::unique_ptr<ModelTypeConnector> model_type_connector,
     const std::string& birthday,
     const std::string& bag_of_chips) {
@@ -422,12 +444,10 @@ void SyncEngineImpl::HandleInitializationSuccessOnFrontendLoop(
 
     // Fake a state change to initialize the SyncManager's cached invalidator
     // state.
-    // TODO(crbug.com/1132868): Do this for the new invalidations as well.
     OnInvalidatorStateChange(invalidator_->GetInvalidatorState());
-  }
-
-  if (sync_invalidations_service_) {
-    sync_invalidations_service_->AddListener(this);
+  } else {
+    DCHECK(base::FeatureList::IsEnabled(kUseSyncInvalidations));
+    UpdateStandaloneInvalidationsState();
   }
 
   active_devices_provider_->SetActiveDevicesChangedCallback(base::BindRepeating(
@@ -450,15 +470,14 @@ void SyncEngineImpl::HandleInitializationSuccessOnFrontendLoop(
     UpdateLastSyncedTime();
   }
 
-  host_->OnEngineInitialized(debug_info_listener, /*success=*/true,
-                             is_first_time_sync_configure);
+  host_->OnEngineInitialized(/*success=*/true, is_first_time_sync_configure);
 }
 
 void SyncEngineImpl::HandleInitializationFailureOnFrontendLoop() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  host_->OnEngineInitialized(WeakHandle<DataTypeDebugInfoListener>(),
-                             /*success=*/false,
-                             /*is_first_time_sync_configure=*/false);
+  host_->OnEngineInitialized(
+      /*success=*/false,
+      /*is_first_time_sync_configure=*/false);
 }
 
 void SyncEngineImpl::HandleSyncCycleCompletedOnFrontendLoop(
@@ -572,10 +591,23 @@ void SyncEngineImpl::OnInvalidatorClientIdChange(const std::string& client_id) {
 
 void SyncEngineImpl::OnInvalidationReceived(const std::string& payload) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // TODO(crbug.com/1082122): check that sync engine is fully initialized.
+
+  absl::optional<ModelTypeSet> interested_data_types =
+      sync_invalidations_service_->GetInterestedDataTypes();
+
+  // Interested data types must be initialized before handling invalidations to
+  // prevent missing incoming invalidations which were received during
+  // configuration.
+  DCHECK(interested_data_types.has_value());
   sync_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(&SyncEngineBackend::DoOnInvalidationReceived,
-                                backend_, payload));
+      FROM_HERE,
+      base::BindOnce(&SyncEngineBackend::DoOnStandaloneInvalidationReceived,
+                     backend_, payload, *interested_data_types));
+}
+
+void SyncEngineImpl::OnFCMRegistrationTokenChanged() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  UpdateStandaloneInvalidationsState();
 }
 
 // static
@@ -600,10 +632,15 @@ void SyncEngineImpl::SendInterestedTopicsToInvalidator() {
   if (!sessions_invalidation_enabled_) {
     invalidation_enabled_types.Remove(syncer::SESSIONS);
   }
-  // switches::kUseSyncInvalidations means that the new invalidations system is
+#if BUILDFLAG(IS_ANDROID)
+  // On Android, don't subscribe to HISTORY invalidations, to save network
+  // traffic.
+  invalidation_enabled_types.Remove(HISTORY);
+#endif
+  // kUseSyncInvalidations means that the new invalidations system is
   // used for all data types except Wallet and Offer, so only keep these types.
-  if (base::FeatureList::IsEnabled(switches::kSyncSendInterestedDataTypes) &&
-      base::FeatureList::IsEnabled(switches::kUseSyncInvalidations)) {
+  if (base::FeatureList::IsEnabled(kSyncSendInterestedDataTypes) &&
+      base::FeatureList::IsEnabled(kUseSyncInvalidations)) {
     invalidation_enabled_types.RetainAll(
         {AUTOFILL_WALLET_DATA, AUTOFILL_WALLET_OFFER});
   }
@@ -629,6 +666,22 @@ void SyncEngineImpl::UpdateLastSyncedTime() {
 void SyncEngineImpl::ClearLocalTransportDataAndNotify() {
   prefs_->ClearAll();
   sync_transport_data_cleared_cb_.Run();
+}
+
+void SyncEngineImpl::UpdateStandaloneInvalidationsState() {
+  DCHECK(sync_invalidations_service_);
+  if (!sync_invalidations_service_->GetFCMRegistrationToken().has_value() &&
+      base::FeatureList::IsEnabled(kSyncUpdateInvalidatorState)) {
+    OnInvalidatorStateChange(invalidation::TRANSIENT_INVALIDATION_ERROR);
+    return;
+  }
+
+  // This code should not be called when the token is empty (which means that
+  // sync standalone invalidations are disabled). DCHECK_NE does not support
+  // comparison between an optional and a string, so use has_value() directly.
+  DCHECK(!sync_invalidations_service_->GetFCMRegistrationToken().has_value() ||
+         sync_invalidations_service_->GetFCMRegistrationToken().value() != "");
+  OnInvalidatorStateChange(invalidation::INVALIDATIONS_ENABLED);
 }
 
 }  // namespace syncer

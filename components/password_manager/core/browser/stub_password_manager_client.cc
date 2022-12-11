@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/stl_util.h"
+#include "base/types/optional_util.h"
 #include "components/password_manager/core/browser/credentials_filter.h"
 #include "components/password_manager/core/browser/password_form_manager_for_ui.h"
 #include "components/version_info/channel.h"
@@ -66,6 +66,14 @@ PrefService* StubPasswordManagerClient::GetPrefs() const {
   return nullptr;
 }
 
+PrefService* StubPasswordManagerClient::GetLocalStatePrefs() const {
+  return nullptr;
+}
+
+const syncer::SyncService* StubPasswordManagerClient::GetSyncService() const {
+  return nullptr;
+}
+
 PasswordStoreInterface* StubPasswordManagerClient::GetProfilePasswordStore()
     const {
   return nullptr;
@@ -103,7 +111,7 @@ const CredentialsFilter* StubPasswordManagerClient::GetStoreResultFilter()
   return &credentials_filter_;
 }
 
-const autofill::LogManager* StubPasswordManagerClient::GetLogManager() const {
+autofill::LogManager* StubPasswordManagerClient::GetLogManager() {
   return &log_manager_;
 }
 
@@ -132,7 +140,9 @@ void StubPasswordManagerClient::CheckProtectedPasswordEntry(
     metrics_util::PasswordType reused_password_type,
     const std::string& username,
     const std::vector<MatchingReusedCredential>& matching_reused_credentials,
-    bool password_field_exists) {}
+    bool password_field_exists,
+    uint64_t reused_password_hash,
+    const std::string& domain) {}
 
 void StubPasswordManagerClient::LogPasswordReuseDetectedEvent() {}
 
@@ -143,9 +153,9 @@ ukm::SourceId StubPasswordManagerClient::GetUkmSourceId() {
 PasswordManagerMetricsRecorder*
 StubPasswordManagerClient::GetMetricsRecorder() {
   if (!metrics_recorder_) {
-    metrics_recorder_.emplace(GetUkmSourceId(), nullptr);
+    metrics_recorder_.emplace(GetUkmSourceId());
   }
-  return base::OptionalOrNullptr(metrics_recorder_);
+  return base::OptionalToPtr(metrics_recorder_);
 }
 
 signin::IdentityManager* StubPasswordManagerClient::GetIdentityManager() {
@@ -172,10 +182,6 @@ bool StubPasswordManagerClient::IsNewTabPage() const {
 
 FieldInfoManager* StubPasswordManagerClient::GetFieldInfoManager() const {
   return nullptr;
-}
-
-bool StubPasswordManagerClient::IsAutofillAssistantUIVisible() const {
-  return false;
 }
 
 version_info::Channel StubPasswordManagerClient::GetChannel() const {

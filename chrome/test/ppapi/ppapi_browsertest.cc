@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "base/test/scoped_feature_list.h"
@@ -130,7 +131,7 @@ using content::RenderViewHost;
 
 #define MAYBE_PPAPI_NACL(test_name) test_name
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \
-    defined(OS_MACOSX) || defined(ADDRESS_SANITIZER)
+    BUILDFLAG(IS_MAC) || defined(ADDRESS_SANITIZER)
 // http://crbug.com/633067, http://crbug.com/727989, http://crbug.com/1076806
 #define MAYBE_PPAPI_PNACL(test_name) DISABLED_##test_name
 #else
@@ -291,6 +292,7 @@ IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, TCPSocketPrivateCrash_Resolve) {
   mojo::Remote<network::mojom::NetworkServiceTest> network_service_test;
   content::GetNetworkService()->BindTestInterface(
       network_service_test.BindNewPipeAndPassReceiver());
+  IgnoreNetworkServiceCrashes();
   network_service_test->CrashOnResolveHost("crash.com");
 
   RunTestViaHTTP(STRIP_PREFIXES(TCPSocketPrivateCrash_Resolve));
@@ -763,20 +765,24 @@ class MockNetworkContext : public network::TestNetworkContext {
         tcp_failure_type_, std::move(receiver), std::move(callback)));
   }
 
-  void ResolveHost(const net::HostPortPair& host,
-                   const net::NetworkIsolationKey& network_isolation_key,
-                   network::mojom::ResolveHostParametersPtr optional_parameters,
-                   mojo::PendingRemote<network::mojom::ResolveHostClient>
-                       pending_response_client) override {
+  void ResolveHost(
+      network::mojom::HostResolverHostPtr host,
+      const net::NetworkAnonymizationKey& network_anonymization_key,
+      network::mojom::ResolveHostParametersPtr optional_parameters,
+      mojo::PendingRemote<network::mojom::ResolveHostClient>
+          pending_response_client) override {
     EXPECT_EQ(browser_->tab_strip_model()
                   ->GetActiveWebContents()
-                  ->GetMainFrame()
-                  ->GetNetworkIsolationKey(),
-              network_isolation_key);
+                  ->GetPrimaryMainFrame()
+                  ->GetIsolationInfoForSubresources()
+                  .network_anonymization_key(),
+              network_anonymization_key);
     mojo::Remote<network::mojom::ResolveHostClient> response_client(
         std::move(pending_response_client));
-    response_client->OnComplete(net::OK, net::ResolveErrorInfo(net::OK),
-                                net::AddressList(LocalAddress()));
+    response_client->OnComplete(
+        net::OK, net::ResolveErrorInfo(net::OK),
+        net::AddressList(LocalAddress()),
+        /*endpoint_results_with_metadata=*/absl::nullopt);
   }
 
  private:
@@ -1223,9 +1229,9 @@ TEST_PPAPI_NACL_DISALLOWED_SOCKETS(TCPSocketPrivateDisallowed)
 TEST_PPAPI_NACL_DISALLOWED_SOCKETS(UDPSocketPrivateDisallowed)
 
 // Checks that a hostname used by the HostResolver tests ("host_resolver.test")
-// is present in the DNS cache with the NetworkIsolationKey associated with the
-// foreground WebContents - this is needed so as not to leak what hostnames were
-// looked up across tabs with different first party origins.
+// is present in the DNS cache with the NetworkAnonymizationKey associated with
+// the foreground WebContents - this is needed so as not to leak what hostnames
+// were looked up across tabs with different first party origins.
 void CheckTestHostNameUsedWithCorrectNetworkIsolationKey(Browser* browser) {
   network::mojom::NetworkContext* network_context =
       browser->profile()->GetDefaultStoragePartition()->GetNetworkContext();
@@ -1238,13 +1244,15 @@ void CheckTestHostNameUsedWithCorrectNetworkIsolationKey(Browser* browser) {
   params->source = net::HostResolverSource::LOCAL_ONLY;
   // Match the parameters used by the test.
   params->include_canonical_name = true;
-  net::NetworkIsolationKey network_isolation_key =
+  net::NetworkAnonymizationKey network_anonymization_key =
       browser->tab_strip_model()
           ->GetActiveWebContents()
-          ->GetMainFrame()
-          ->GetNetworkIsolationKey();
-  network::DnsLookupResult result1 = network::BlockingDnsLookup(
-      network_context, kHostPortPair, std::move(params), network_isolation_key);
+          ->GetPrimaryMainFrame()
+          ->GetIsolationInfoForSubresources()
+          .network_anonymization_key();
+  network::DnsLookupResult result1 =
+      network::BlockingDnsLookup(network_context, kHostPortPair,
+                                 std::move(params), network_anonymization_key);
   EXPECT_EQ(net::OK, result1.error);
   ASSERT_TRUE(result1.resolved_addresses.has_value());
   ASSERT_EQ(1u, result1.resolved_addresses->size());
@@ -1255,15 +1263,15 @@ void CheckTestHostNameUsedWithCorrectNetworkIsolationKey(Browser* browser) {
             result1.resolved_addresses.value()[0].ToStringWithoutPort());
 
   // Check that the entry isn't present in the cache with the empty
-  // NetworkIsolationKey().
+  // NetworkAnonymizationKey().
   params = network::mojom::ResolveHostParameters::New();
   // Cache only lookup.
   params->source = net::HostResolverSource::LOCAL_ONLY;
   // Match the parameters used by the test.
   params->include_canonical_name = true;
-  network::DnsLookupResult result2 =
-      network::BlockingDnsLookup(network_context, kHostPortPair,
-                                 std::move(params), net::NetworkIsolationKey());
+  network::DnsLookupResult result2 = network::BlockingDnsLookup(
+      network_context, kHostPortPair, std::move(params),
+      net::NetworkAnonymizationKey());
   EXPECT_EQ(net::ERR_NAME_NOT_RESOLVED, result2.error);
 }
 
@@ -1281,6 +1289,7 @@ IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, HostResolverCrash_Basic) {
   mojo::Remote<network::mojom::NetworkServiceTest> network_service_test;
   content::GetNetworkService()->BindTestInterface(
       network_service_test.BindNewPipeAndPassReceiver());
+  IgnoreNetworkServiceCrashes();
   network_service_test->CrashOnResolveHost("crash.com");
 
   RunTestViaHTTP(STRIP_PREFIXES(HostResolverCrash_Basic));
@@ -1934,7 +1943,8 @@ IN_PROC_BROWSER_TEST_F(OutOfProcessPPAPITest, DISABLED_View_PageHideShow) {
 
   // Switch back to the test tab.
   browser()->tab_strip_model()->ActivateTabAt(
-      0, {TabStripModel::GestureType::kOther});
+      0, TabStripUserGestureDetails(
+             TabStripUserGestureDetails::GestureType::kOther));
 
   ASSERT_TRUE(observer.Run()) << handler.error_message();
   EXPECT_STREQ("PASS", handler.message().c_str());
@@ -2070,8 +2080,6 @@ TEST_PPAPI_NACL(MAYBE_MessageHandler)
 TEST_PPAPI_NACL(MessageLoop_Basics)
 TEST_PPAPI_NACL(MessageLoop_Post)
 
-TEST_PPAPI_OUT_OF_PROCESS(PDF)
-
 #if BUILDFLAG(ENABLE_NACL)
 class PackagedAppTest : public extensions::ExtensionBrowserTest {
  public:
@@ -2094,9 +2102,8 @@ class PackagedAppTest : public extensions::ExtensionBrowserTest {
     ASSERT_TRUE(extension);
 
     apps::AppLaunchParams params(
-        extension->id(), apps::mojom::LaunchContainer::kLaunchContainerNone,
-        WindowOpenDisposition::NEW_WINDOW,
-        apps::mojom::LaunchSource::kFromTest);
+        extension->id(), apps::LaunchContainer::kLaunchContainerNone,
+        WindowOpenDisposition::NEW_WINDOW, apps::LaunchSource::kFromTest);
     params.command_line = *base::CommandLine::ForCurrentProcess();
     apps::AppServiceProxyFactory::GetForProfile(browser()->profile())
         ->BrowserAppLauncher()
@@ -2104,7 +2111,7 @@ class PackagedAppTest : public extensions::ExtensionBrowserTest {
   }
 
   void RunTests(const std::string& extension_dirname) {
-    ExtensionTestMessageListener listener("PASS", false);
+    ExtensionTestMessageListener listener("PASS");
     LaunchTestingApp(extension_dirname);
     EXPECT_TRUE(listener.WaitUntilSatisfied());
   }

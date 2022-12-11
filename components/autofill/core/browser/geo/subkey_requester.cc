@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include "base/cancelable_callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "third_party/libaddressinput/chromium/chrome_address_validator.h"
 #include "third_party/libaddressinput/src/cpp/include/libaddressinput/address_data.h"
@@ -38,10 +38,9 @@ class SubKeyRequest : public SubKeyRequester::Request {
         language_(language),
         address_validator_(address_validator),
         on_subkeys_received_(std::move(on_subkeys_received)),
-        has_responded_(false),
         on_timeout_(base::BindOnce(&SubKeyRequest::OnRulesLoaded,
                                    base::Unretained(this))) {
-    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, on_timeout_.callback(), base::Seconds(timeout_seconds));
   }
 
@@ -61,9 +60,9 @@ class SubKeyRequest : public SubKeyRequester::Request {
         address_validator_->GetRegionSubKeys(region_code_, language_);
     std::vector<std::string> subkeys_codes;
     std::vector<std::string> subkeys_names;
-    for (auto s : subkeys) {
-      subkeys_codes.push_back(s.first);
-      subkeys_names.push_back(s.second);
+    for (const auto& [code, name] : subkeys) {
+      subkeys_codes.push_back(code);
+      subkeys_names.push_back(name);
     }
     std::move(on_subkeys_received_).Run(subkeys_codes, subkeys_names);
   }
@@ -76,7 +75,7 @@ class SubKeyRequest : public SubKeyRequester::Request {
 
   SubKeyReceiverCallback on_subkeys_received_;
 
-  bool has_responded_;
+  bool has_responded_ = false;
   base::CancelableOnceClosure on_timeout_;
 };
 

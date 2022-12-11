@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,11 +20,13 @@
 #include "components/omnibox/browser/autocomplete_controller.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
+#include "components/omnibox/browser/omnibox.mojom-shared.h"
 #include "components/omnibox/browser/omnibox_controller.h"
 #include "components/omnibox/browser/omnibox_popup_selection.h"
 #include "components/omnibox/browser/omnibox_view.h"
 #include "components/omnibox/common/omnibox_focus_state.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
@@ -193,6 +195,11 @@ class OmniboxEditModel {
   void StartAutocomplete(bool has_selected_text,
                          bool prevent_inline_autocomplete);
 
+  // Starts an autocomplete prefetch request so that zero-prefix providers can
+  // optionally start a prefetch request to warm up the their underlying
+  // service(s) and/or optionally cache their otherwise async response.
+  void StartPrefetch();
+
   // Closes the popup and cancels any pending asynchronous queries.
   void StopAutocomplete();
 
@@ -337,11 +344,6 @@ class OmniboxEditModel {
   // Called when the view is losing focus.  Resets some state.
   void OnKillFocus();
 
-  // Returns whether the omnibox will handle a press of the escape key.  The
-  // caller can use this to decide whether the browser should process escape as
-  // "stop current page load".
-  bool WillHandleEscapeKey() const;
-
   // Called when the user presses the escape key.  Decides what, if anything, to
   // revert about any current edits.  Returns whether the key was handled.
   bool OnEscapeKeyPressed();
@@ -374,8 +376,8 @@ class OmniboxEditModel {
   //     |is_temporary_test| is false.
   //   |is_temporary_text| is true if invoked because of a temporary text change
   //     or false if |temporary_text| should be ignored.
-  //   |inline_autocompletion|, |prefix_autocompletion|, and
-  //     |split_autocompletion| are the autocompletion.
+  //   |inline_autocompletion| and |prefix_autocompletion| are the
+  //     autocompletions.
   //   |destination_for_temporary_text_change| is NULL (if temporary text should
   //     not change) or the pre-change destination URL (if temporary text should
   //     change) so we can save it off to restore later.
@@ -385,15 +387,13 @@ class OmniboxEditModel {
   //   |additional_text| is additional omnibox text to be displayed adjacent to
   //     the omnibox view.
   // Virtual to allow testing.
-  virtual void OnPopupDataChanged(
-      const std::u16string& temporary_text,
-      bool is_temporary_text,
-      const std::u16string& inline_autocompletion,
-      const std::u16string& prefix_autocompletion,
-      const SplitAutocompletion& split_autocompletion,
-      const std::u16string& keyword,
-      bool is_keyword_hint,
-      const std::u16string& additional_text);
+  virtual void OnPopupDataChanged(const std::u16string& temporary_text,
+                                  bool is_temporary_text,
+                                  const std::u16string& inline_autocompletion,
+                                  const std::u16string& prefix_autocompletion,
+                                  const std::u16string& keyword,
+                                  bool is_keyword_hint,
+                                  const std::u16string& additional_text);
 
   // Called by the OmniboxView after something changes, with details about what
   // state changes occurred.  Updates internal state, updates the popup if
@@ -412,6 +412,9 @@ class OmniboxEditModel {
 
   // Used for testing purposes only.
   std::u16string GetUserTextForTesting() const { return user_text_; }
+
+  // Name of the histogram tracking cut or copy omnibox commands.
+  static const char kCutOrCopyAllTextHistogram[];
 
   // Just forwards the call to the OmniboxView referred within.
   void SetAccessibilityLabel(const AutocompleteMatch& match);
@@ -495,6 +498,8 @@ class OmniboxEditModel {
       int* label_prefix_length = nullptr);
 
   // Invoked any time the result set of the controller changes.
+  // TODO(orinj): This method seems like a good candidate for removal; it is
+  // preserved here only to prevent possible behavior change while refactoring.
   void OnPopupResultChanged();
 
   // Lookup the bitmap for |result_index|. Returns nullptr if not found.
@@ -502,6 +507,12 @@ class OmniboxEditModel {
 
   // Stores the image in a local data member and schedules a repaint.
   void SetPopupRichSuggestionBitmap(int result_index, const SkBitmap& bitmap);
+
+  // Called to indicate a navigation may occur based on
+  // |navigation_predictor| to the suggestion on |line|.
+  void OnNavigationLikely(
+      size_t line,
+      omnibox::mojom::NavigationPredictor navigation_predictor);
 
  protected:
   // Utility method to get current PrefService; protected instead of private
@@ -635,7 +646,9 @@ class OmniboxEditModel {
   // not yet accepted them.  We use this to determine when we need to save
   // state (on switching tabs) and whether changes to the page URL should be
   // immediately displayed.
-  // This flag will be true in a superset of the cases where the popup is open.
+  // This flag *should* be true in a superset of the cases where the popup is
+  // open. Except (crbug.com/1340378) for zero suggestions when the popup was
+  // opened with ctrl+L or a mouse click (as opposed to the down arrow).
   bool user_input_in_progress_;
 
   // The text that the user has entered.  This does not include inline
@@ -692,7 +705,6 @@ class OmniboxEditModel {
   bool just_deleted_text_;
   std::u16string inline_autocompletion_;
   std::u16string prefix_autocompletion_;
-  SplitAutocompletion split_autocompletion_;
 
   // Used by OnPopupDataChanged to keep track of whether there is currently a
   // temporary text.

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,11 +37,5 @@ class EmbeddedTestServerSetupMixin : public InProcessBrowserTestMixin {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::EmbeddedTestServerSetupMixin;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_TEST_EMBEDDED_TEST_SERVER_SETUP_MIXIN_H_

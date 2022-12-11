@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -71,10 +71,5 @@ class LoginManagerTest : public MixinBasedInProcessBrowserTest {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove once the migration is finished.
-namespace chromeos {
-using ::ash::LoginManagerTest;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_LOGIN_MANAGER_TEST_H_

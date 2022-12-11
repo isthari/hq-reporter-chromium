@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -170,7 +170,8 @@ public class ContactsProviderTest {
      */
     @Test
     @SmallTest
-    @CommandLineFlags.Add({"enable-features=FencedFrames<Study", "force-fieldtrials=Study/Group",
+    @CommandLineFlags.Add({"enable-features=FencedFrames<Study,PrivacySandboxAdsAPIsOverride",
+            "force-fieldtrials=Study/Group",
             "force-fieldtrial-params=Study.Group:implementation_type/mparch"})
     public void
     testDontGetContactsInFencedFrame() throws TimeoutException {
@@ -184,6 +185,8 @@ public class ContactsProviderTest {
                 FencedFrameUtils.createFencedFrame(mActivityTestRule.getWebContents(), frame, url);
         executeJavaScript(fencedFrame, CONTACTS_SCRIPT, true);
         waitUntilHasValue(fencedFrame);
-        Assert.assertEquals("\"Unable to open a contact selector\"", getValue(fencedFrame));
+        Assert.assertEquals(
+                "\"Failed to execute 'select' on 'ContactsManager': The contacts API can only be used in the top frame\"",
+                getValue(fencedFrame));
     }
 }

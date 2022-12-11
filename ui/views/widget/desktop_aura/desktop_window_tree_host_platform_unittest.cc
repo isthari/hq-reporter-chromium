@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,18 +8,21 @@
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "build/build_config.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/aura/window_tree_host_observer.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/compositor/layer.h"
 #include "ui/display/display_switches.h"
+#include "ui/display/types/display_constants.h"
 #include "ui/platform_window/platform_window.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/widget_observer.h"
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "ui/ozone/public/ozone_platform.h"
 #endif
 
@@ -99,7 +102,7 @@ class TestWidgetObserver : public WidgetObserver {
     run_loop_->Quit();
   }
 
-  Widget* widget_;
+  raw_ptr<Widget> widget_;
   std::unique_ptr<base::RunLoop> run_loop_;
   bool on_widget_destroying_ = false;
   bool visible_ = false;
@@ -126,14 +129,14 @@ std::unique_ptr<Widget> CreateWidgetWithNativeWidget() {
 
 class DesktopWindowTreeHostPlatformTest : public ViewsTestBase {
  public:
-  DesktopWindowTreeHostPlatformTest() {}
+  DesktopWindowTreeHostPlatformTest() = default;
 
   DesktopWindowTreeHostPlatformTest(const DesktopWindowTreeHostPlatformTest&) =
       delete;
   DesktopWindowTreeHostPlatformTest& operator=(
       const DesktopWindowTreeHostPlatformTest&) = delete;
 
-  ~DesktopWindowTreeHostPlatformTest() override {}
+  ~DesktopWindowTreeHostPlatformTest() override = default;
 };
 
 TEST_F(DesktopWindowTreeHostPlatformTest, CallOnNativeWidgetDestroying) {
@@ -211,7 +214,7 @@ TEST_F(DesktopWindowTreeHostPlatformTest, UpdateWindowShapeFromWindowMask) {
 
   // When fullscreen mode, clip_path_ is set to empty since there is no
   // |NonClientView::GetWindowMask|.
-  host_platform->SetFullscreen(true);
+  host_platform->SetFullscreen(true, display::kInvalidDisplayId);
   widget->SetBounds(gfx::Rect(800, 800));
   EXPECT_TRUE(host_platform->GetWindowMaskForWindowShapeInPixels().isEmpty());
   EXPECT_TRUE(host_platform->GetWindowMaskForClipping().isEmpty());
@@ -281,7 +284,7 @@ class ResizeObserver : public aura::WindowTreeHostObserver {
   }
 
  private:
-  aura::WindowTreeHost* const host_;
+  const raw_ptr<aura::WindowTreeHost> host_;
   int resize_count_ = 0;
   int bounds_change_count_ = 0;
 };
@@ -309,7 +312,7 @@ TEST_F(DesktopWindowTreeHostPlatformTest, SetBoundsWithUnchangedSize) {
 
 TEST_F(DesktopWindowTreeHostPlatformTest, MakesParentChildRelationship) {
   bool context_is_also_parent = false;
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   if (ui::OzonePlatform::GetInstance()
           ->GetPlatformProperties()
           .set_parent_for_non_top_level_windows) {

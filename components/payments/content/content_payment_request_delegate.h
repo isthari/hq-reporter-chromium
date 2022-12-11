@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,10 @@
 
 template <class T>
 class scoped_refptr;
+
+namespace content {
+class RenderFrameHost;
+}  // namespace content
 
 namespace webauthn {
 class InternalAuthenticator;
@@ -31,6 +35,10 @@ class SecurePaymentConfirmationNoCreds;
 class ContentPaymentRequestDelegate : public PaymentRequestDelegate {
  public:
   ~ContentPaymentRequestDelegate() override;
+
+  // Returns the RenderFrameHost for the frame that initiated the
+  // PaymentRequest.
+  virtual content::RenderFrameHost* GetRenderFrameHost() const = 0;
 
   // Creates and returns an instance of the InternalAuthenticator interface for
   // communication with WebAuthn.
@@ -66,10 +74,6 @@ class ContentPaymentRequestDelegate : public PaymentRequestDelegate {
   // parameter will return an "Invalid certificate" error message.
   virtual std::string GetInvalidSslCertificateErrorMessage() = 0;
 
-  // Returns whether the UI should be skipped for a "basic-card" scenario. This
-  // will only be true in tests.
-  virtual bool SkipUiForBasicCard() const = 0;
-
   // Returns the Android package name of the Trusted Web Activity that invoked
   // this browser, if any. Otherwise, an empty string.
   virtual std::string GetTwaPackageName() const = 0;
@@ -83,7 +87,9 @@ class ContentPaymentRequestDelegate : public PaymentRequestDelegate {
 
   virtual void ShowNoMatchingPaymentCredentialDialog(
       const std::u16string& merchant_name,
-      base::OnceClosure response_callback) = 0;
+      const std::string& rp_id,
+      base::OnceClosure response_callback,
+      base::OnceClosure opt_out_callback) = 0;
 
   // Returns a weak pointer to this delegate.
   base::WeakPtr<ContentPaymentRequestDelegate> GetContentWeakPtr();

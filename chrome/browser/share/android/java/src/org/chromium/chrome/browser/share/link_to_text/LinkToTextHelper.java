@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@ import android.net.Uri;
 import org.chromium.base.Callback;
 import org.chromium.blink.mojom.TextFragmentReceiver;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.tab.SadTab;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.browser.WebContents;
@@ -63,6 +64,36 @@ public class LinkToTextHelper {
                         callback.onResult(matches);
                     }
                 });
+    }
+
+    /**
+     * Fetch the canonical url for sharing
+     *
+     * @param tab The tab to fetch the canonical url from.
+     * @param callback The {@link Callback} to return the tab's canonical url or an empty string
+     */
+    public static void requestCanonicalUrl(Tab tab, Callback<String> callback) {
+        if (!shouldRequestCanonicalUrl(tab)) {
+            callback.onResult("");
+            return;
+        }
+
+        tab.getWebContents().getMainFrame().getCanonicalUrlForSharing(new Callback<GURL>() {
+            @Override
+            public void onResult(GURL result) {
+                callback.onResult(result.getSpec());
+            }
+        });
+    }
+
+    private static boolean shouldRequestCanonicalUrl(Tab tab) {
+        if (tab.getWebContents() == null) return false;
+        if (tab.getWebContents().getMainFrame() == null) return false;
+        if (tab.getUrl().isEmpty()) return false;
+        if (tab.isShowingErrorPage() || SadTab.isShowing(tab)) {
+            return false;
+        }
+        return true;
     }
 
     /**

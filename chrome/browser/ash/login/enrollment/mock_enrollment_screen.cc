@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,31 +7,18 @@
 namespace ash {
 
 MockEnrollmentScreen::MockEnrollmentScreen(
-    EnrollmentScreenView* view,
+    base::WeakPtr<EnrollmentScreenView> view,
     const ScreenExitCallback& exit_callback)
-    : EnrollmentScreen(view, exit_callback) {}
+    : EnrollmentScreen(std::move(view), exit_callback) {}
 
 void MockEnrollmentScreen::ExitScreen(Result screen_result) {
   exit_callback()->Run(screen_result);
 }
 
-MockEnrollmentScreen::~MockEnrollmentScreen() {}
+MockEnrollmentScreen::~MockEnrollmentScreen() = default;
 
-MockEnrollmentScreenView::MockEnrollmentScreenView() {}
+MockEnrollmentScreenView::MockEnrollmentScreenView() = default;
 
-MockEnrollmentScreenView::~MockEnrollmentScreenView() {
-  if (screen_)
-    screen_->OnViewDestroyed(this);
-}
-
-void MockEnrollmentScreenView::Bind(EnrollmentScreen* screen) {
-  screen_ = screen;
-  MockBind(screen);
-}
-
-void MockEnrollmentScreenView::Unbind() {
-  screen_ = nullptr;
-  MockUnbind();
-}
+MockEnrollmentScreenView::~MockEnrollmentScreenView() = default;
 
 }  // namespace ash

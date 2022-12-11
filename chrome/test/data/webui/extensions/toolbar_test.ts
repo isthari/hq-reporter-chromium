@@ -1,14 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {ExtensionsToolbarElement, getToastManager} from 'chrome://extensions/extensions.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-
-// <if expr="is_mac or chromeos_ash">
+// <if expr="chromeos_ash">
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
+
 // </if>
 
 import {TestService} from './test_service.js';
@@ -36,7 +35,7 @@ suite(extension_toolbar_tests.suiteName, function() {
   let toolbar: ExtensionsToolbarElement;
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     toolbar = document.createElement('extensions-toolbar');
     document.body.appendChild(toolbar);
     toolbar.inDevMode = false;
@@ -56,7 +55,7 @@ suite(extension_toolbar_tests.suiteName, function() {
     document.body.appendChild(toastManager);
   });
 
-  test(assert(extension_toolbar_tests.TestNames.Layout), function() {
+  test(extension_toolbar_tests.TestNames.Layout, function() {
     const boundTestVisible = testVisible.bind(null, toolbar);
     boundTestVisible('#devMode', true);
     assertEquals(toolbar.$.devMode.disabled, false);
@@ -81,7 +80,7 @@ suite(extension_toolbar_tests.suiteName, function() {
     boundTestVisible('#updateNow', true);
   });
 
-  test(assert(extension_toolbar_tests.TestNames.DevModeToggle), function() {
+  test(extension_toolbar_tests.TestNames.DevModeToggle, function() {
     const toggle = toolbar.$.devMode;
     assertFalse(toggle.disabled);
 
@@ -100,66 +99,50 @@ suite(extension_toolbar_tests.suiteName, function() {
     assertTrue(toggle.disabled);
   });
 
-  test(assert(extension_toolbar_tests.TestNames.ClickHandlers), function() {
+  test(extension_toolbar_tests.TestNames.ClickHandlers, async function() {
     toolbar.set('inDevMode', true);
     flush();
     const toastManager = getToastManager();
     toolbar.$.devMode.click();
-    return mockDelegate.whenCalled('setProfileInDevMode')
-        .then(function(arg) {
-          assertFalse(arg);
-          mockDelegate.reset();
-          toolbar.$.devMode.click();
-          return mockDelegate.whenCalled('setProfileInDevMode');
-        })
-        .then(function(arg) {
-          assertTrue(arg);
-          mockDelegate.setLoadUnpackedSuccess(true);
-          toolbar.$.loadUnpacked.click();
-          return mockDelegate.whenCalled('loadUnpacked').then(() => {
-            assertTrue(toastManager.isToastOpen);
-          });
-        })
-        .then(function() {
-          // Hide toast since it is open for 3000ms in previous Promise.
-          toastManager.hide();
-          mockDelegate.setLoadUnpackedSuccess(false);
-          toolbar.$.loadUnpacked.click();
-          return mockDelegate.whenCalled('loadUnpacked').then(() => {
-            assertFalse(toastManager.isToastOpen);
-          });
-        })
-        .then(function() {
-          assertFalse(toastManager.isToastOpen);
-          toolbar.$.updateNow.click();
-          // Simulate user rapidly clicking update button multiple times.
-          toolbar.$.updateNow.click();
-          assertTrue(toastManager.isToastOpen);
-          return mockDelegate.whenCalled('updateAllExtensions');
-        })
-        .then(function() {
-          assertEquals(1, mockDelegate.getCallCount('updateAllExtensions'));
-          assertFalse(
-              !!toolbar.shadowRoot!.querySelector('extensions-pack-dialog'));
-          toolbar.$.packExtensions.click();
-          flush();
-          const dialog =
-              toolbar.shadowRoot!.querySelector('extensions-pack-dialog');
-          assertTrue(!!dialog);
+    let arg = await mockDelegate.whenCalled('setProfileInDevMode');
+    assertFalse(arg);
 
-          // <if expr="is_mac">
-          const whenFocused = eventToPromise('focus', toolbar.$.packExtensions);
-          dialog!.$.dialog.cancel();
-          return whenFocused;
-          // </if>
-        });
+    mockDelegate.reset();
+    toolbar.$.devMode.click();
+    arg = await mockDelegate.whenCalled('setProfileInDevMode');
+    assertTrue(arg);
+
+    mockDelegate.setLoadUnpackedSuccess(true);
+    toolbar.$.loadUnpacked.click();
+    await mockDelegate.whenCalled('loadUnpacked');
+    assertTrue(toastManager.isToastOpen);
+
+    // Hide toast since it is open for 3000ms in previous Promise.
+    toastManager.hide();
+    mockDelegate.setLoadUnpackedSuccess(false);
+    toolbar.$.loadUnpacked.click();
+    await mockDelegate.whenCalled('loadUnpacked');
+    assertFalse(toastManager.isToastOpen);
+    assertFalse(toastManager.isToastOpen);
+
+    toolbar.$.updateNow.click();
+    // Simulate user rapidly clicking update button multiple times.
+    toolbar.$.updateNow.click();
+    assertTrue(toastManager.isToastOpen);
+    await mockDelegate.whenCalled('updateAllExtensions');
+    assertEquals(1, mockDelegate.getCallCount('updateAllExtensions'));
+    assertFalse(!!toolbar.shadowRoot!.querySelector('extensions-pack-dialog'));
+    toolbar.$.packExtensions.click();
+    flush();
+    const dialog = toolbar.shadowRoot!.querySelector('extensions-pack-dialog');
+    assertTrue(!!dialog);
   });
 
   /** Tests that the update button properly fires the load-error event. */
   test(
-      assert(extension_toolbar_tests.TestNames.FailedUpdateFiresLoadError),
-      function() {
-        let item = document.createElement('extensions-item');
+      extension_toolbar_tests.TestNames.FailedUpdateFiresLoadError,
+      async function() {
+        const item = document.createElement('extensions-item');
         item.data = createExtensionInfo();
         item.delegate = mockDelegate;
         document.body.appendChild(item);
@@ -188,23 +171,18 @@ suite(extension_toolbar_tests.suiteName, function() {
 
         toolbar.$.devMode.click();
         toolbar.$.updateNow.click();
-        return proxyDelegate.whenCalled('updateAllExtensions')
-            .then(function() {
-              return verifyLoadErrorFired(false);
-            })
-            .then(function() {
-              proxyDelegate.resetResolver('updateAllExtensions');
-              proxyDelegate.setForceReloadItemError(true);
-              toolbar.$.updateNow.click();
-              return proxyDelegate.whenCalled('updateAllExtensions');
-            })
-            .then(function() {
-              return verifyLoadErrorFired(true);
-            });
+        await proxyDelegate.whenCalled('updateAllExtensions');
+        await verifyLoadErrorFired(false);
+
+        proxyDelegate.resetResolver('updateAllExtensions');
+        proxyDelegate.setForceReloadItemError(true);
+        toolbar.$.updateNow.click();
+        await proxyDelegate.whenCalled('updateAllExtensions');
+        await verifyLoadErrorFired(true);
       });
 
   // <if expr="chromeos_ash">
-  test(assert(extension_toolbar_tests.TestNames.KioskMode), function() {
+  test(extension_toolbar_tests.TestNames.KioskMode, function() {
     const button = toolbar.$.kioskExtensions;
     assertTrue(button.hidden);
     toolbar.kioskEnabled = true;

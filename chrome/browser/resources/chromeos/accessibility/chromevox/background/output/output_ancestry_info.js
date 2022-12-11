@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,13 @@
  * @fileoverview Provides a class which computes various types of ancestor
  * chains given the current node.
  */
+import {AutomationPredicate} from '../../../common/automation_predicate.js';
+import {AutomationUtil} from '../../../common/automation_util.js';
+import {constants} from '../../../common/constants.js';
 
-goog.provide('OutputAncestryInfo');
+import {OutputRoleInfo} from './output_role_info.js';
+import {OutputContextOrder} from './output_types.js';
 
-goog.require('constants');
-goog.require('OutputRoleInfo');
-
-goog.scope(function() {
 const AutomationNode = chrome.automation.AutomationNode;
 const Dir = constants.Dir;
 const RoleType = chrome.automation.RoleType;
@@ -24,7 +24,7 @@ const RoleType = chrome.automation.RoleType;
  * so are generally valid for the current call stack, wherein ancestry data is
  * stable.
  */
-OutputAncestryInfo = class {
+export class OutputAncestryInfo {
   /**
    * @param {!AutomationNode} node The primary node to consider for ancestry
    *     computation.
@@ -156,5 +156,4 @@ OutputAncestryInfo = class {
     }
     return rest.concat(contextFirst.reverse());
   }
-};
-});  // goog.scope
+}

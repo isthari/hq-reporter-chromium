@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,14 @@
 #include "base/run_loop.h"
 #include "chrome/browser/ash/crosapi/crosapi_manager.h"
 #include "chrome/browser/ash/crosapi/idle_service_ash.h"
+#include "chrome/browser/ash/crosapi/test_crosapi_dependency_registry.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/extensions/api/login_state.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "chromeos/ash/components/login/login_state/login_state.h"
 #include "chromeos/crosapi/mojom/login_state.mojom.h"
-#include "chromeos/login/login_state/login_state.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/session_manager/session_manager_types.h"
 #include "content/public/test/browser_task_environment.h"
@@ -61,9 +62,8 @@ bool WasSessionStateChangedEventDispatched(
   }
 
   const extensions::Event& event = *iter->second;
-  CHECK(event.event_args);
-  CHECK_EQ(1u, event.event_args->GetList().size());
-  std::string session_state = (event.event_args->GetList())[0].GetString();
+  CHECK_EQ(1u, event.event_args.size());
+  std::string session_state = event.event_args[0].GetString();
   return extensions::api::login_state::ParseSessionState(session_state) ==
          expected_state;
 }
@@ -81,7 +81,7 @@ class SessionStateChangedEventDispatcherAshUnittest : public testing::Test {
     explicit MockSessionStateChangedEventDispatcher(
         content::BrowserContext* context)
         : SessionStateChangedEventDispatcher(context) {}
-    ~MockSessionStateChangedEventDispatcher() = default;
+    ~MockSessionStateChangedEventDispatcher() override = default;
     MOCK_METHOD1(OnSessionStateChanged,
                  void(crosapi::mojom::SessionState state));
   };
@@ -108,8 +108,8 @@ class SessionStateChangedEventDispatcherAshUnittest : public testing::Test {
         profile_manager_->CreateTestingProfile(chrome::kInitialProfile);
 
     crosapi::IdleServiceAsh::DisableForTesting();
-    chromeos::LoginState::Initialize();
-    manager_ = std::make_unique<crosapi::CrosapiManager>();
+    ash::LoginState::Initialize();
+    manager_ = crosapi::CreateCrosapiManagerWithTestRegistry();
 
     dispatcher_ =
         std::make_unique<SessionStateChangedEventDispatcher>(testing_profile_);
@@ -124,7 +124,7 @@ class SessionStateChangedEventDispatcherAshUnittest : public testing::Test {
     manager_.reset();
     testing_profile_ = nullptr;
     profile_manager_->DeleteTestingProfile(chrome::kInitialProfile);
-    chromeos::LoginState::Shutdown();
+    ash::LoginState::Shutdown();
   }
 
  protected:

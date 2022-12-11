@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,7 +54,8 @@ class DataObserver : public bookmarks::BookmarkModelObserver,
                          size_t new_index) override;
   void BookmarkNodeAdded(bookmarks::BookmarkModel* model,
                          const bookmarks::BookmarkNode* parent,
-                         size_t index) override;
+                         size_t index,
+                         bool added_by_user) override;
   void BookmarkNodeRemoved(bookmarks::BookmarkModel* model,
                            const bookmarks::BookmarkNode* parent,
                            size_t old_index,
@@ -73,12 +74,8 @@ class DataObserver : public bookmarks::BookmarkModelObserver,
 
   // HistoryServiceObserver implementation.
   void OnURLVisited(history::HistoryService* history_service,
-                    ui::PageTransition transition,
-                    const history::URLRow& row,
-                    const history::RedirectList& redirects,
-                    base::Time visit_time) override;
-  void OnURLsModified(history::HistoryService* history_service,
-                      const history::URLRows& changed_urls) override;
+                    const history::URLRow& url_row,
+                    const history::VisitRow& new_visit) override;
   void OnURLsDeleted(history::HistoryService* history_service,
                      const history::DeletionInfo& deletion_info) override;
   void HistoryServiceBeingDeleted(

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,9 @@
 #include "ash/system/virtual_keyboard/virtual_keyboard_observer.h"
 
 namespace ash {
-namespace tray {
-class IMEDetailedView;
-}  // namespace tray
 
 class DetailedViewDelegate;
+class IMEDetailedView;
 class UnifiedSystemTrayController;
 
 // Controller of IME detailed view in UnifiedSystemTray.
@@ -36,8 +34,8 @@ class UnifiedIMEDetailedViewController : public DetailedViewController,
 
   ~UnifiedIMEDetailedViewController() override;
 
-  // DetailedViewControllerBase:
-  views::View* CreateView() override;
+  // DetailedViewController:
+  std::unique_ptr<views::View> CreateView() override;
   std::u16string GetAccessibleName() const override;
 
   // VirtualKeyboardObserver:
@@ -51,14 +49,20 @@ class UnifiedIMEDetailedViewController : public DetailedViewController,
   void OnIMEMenuActivationChanged(bool is_active) override;
 
  private:
+  // Updates the view with the active IME and the list of installed IMEs.
   void Update();
 
+  // Returns true if an item should be added with an on/off toggle for the
+  // 'On-screen keyboard'.
   bool ShouldShowKeyboardToggle() const;
 
   const std::unique_ptr<DetailedViewDelegate> detailed_view_delegate_;
 
-  tray::IMEDetailedView* view_ = nullptr;
+  // The view being controlled.
+  IMEDetailedView* view_ = nullptr;
 
+  // Whether the on-screen keyboard is suppressed, for example by being in
+  // tablet mode with an external keyboard attached.
   bool keyboard_suppressed_ = false;
 };
 

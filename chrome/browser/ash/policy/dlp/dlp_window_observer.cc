@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,6 +29,11 @@ void DlpWindowObserver::OnWindowDestroying(aura::Window* window) {
 void DlpWindowObserver::OnWindowOcclusionChanged(aura::Window* window) {
   DCHECK_EQ(window_, window);
   delegate_->OnWindowOcclusionChanged(window_);
+}
+
+void DlpWindowObserver::OnWindowTitleChanged(aura::Window* window) {
+  DCHECK_EQ(window_, window);
+  delegate_->OnWindowTitleChanged(window_);
 }
 
 }  // namespace policy

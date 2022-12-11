@@ -1,16 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/ash/holding_space/holding_space_downloads_delegate.h"
 
-#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/holding_space/holding_space_constants.h"
 #include "ash/public/cpp/holding_space/holding_space_metrics.h"
 #include "ash/public/cpp/holding_space/holding_space_progress.h"
 #include "ash/public/cpp/image_util.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/dark_light_mode_controller_impl.h"
 #include "base/containers/contains.h"
 #include "base/containers/cxx20_erase.h"
 #include "chrome/browser/ash/crosapi/crosapi_ash.h"
@@ -71,10 +71,7 @@ gfx::ImageSkia CreateErrorPlaceholderImageSkia(
               color_name,
               /*is_dark_mode=*/
               dark_background.value_or(
-                  AshColorProvider::Get()->IsDarkModeEnabled()),
-              /*use_debug_colors=*/
-              base::FeatureList::IsEnabled(
-                  features::kSemanticColorsDebugOverride))));
+                  DarkLightModeControllerImpl::Get()->IsDarkModeEnabled()))));
 }
 
 // Returns the singleton `crosapi::DownloadControllerAsh` if it exists.
@@ -308,7 +305,7 @@ class HoldingSpaceDownloadsDelegate::InProgressDownload {
           return HoldingSpaceImage::CreateDefaultPlaceholderImageSkiaResolver()
               .Run(rewritten_file_path, size, dark_background, is_folder);
         },
-        weak_factory_.GetWeakPtr());
+        weak_factory_.GetMutableWeakPtr());
   }
 
   // Returns the text to display for the underlying download.
@@ -629,36 +626,6 @@ HoldingSpaceDownloadsDelegate::~HoldingSpaceDownloadsDelegate() {
     download_controller_ash->RemoveObserver(this);
 }
 
-void HoldingSpaceDownloadsDelegate::Cancel(const HoldingSpaceItem* item) {
-  DCHECK(HoldingSpaceItem::IsDownload(item->type()));
-  for (const auto& in_progress_download : in_progress_downloads_) {
-    if (in_progress_download->GetHoldingSpaceItem() == item) {
-      in_progress_download->Cancel();
-      return;
-    }
-  }
-}
-
-void HoldingSpaceDownloadsDelegate::Pause(const HoldingSpaceItem* item) {
-  DCHECK(HoldingSpaceItem::IsDownload(item->type()));
-  for (const auto& in_progress_download : in_progress_downloads_) {
-    if (in_progress_download->GetHoldingSpaceItem() == item) {
-      in_progress_download->Pause();
-      return;
-    }
-  }
-}
-
-void HoldingSpaceDownloadsDelegate::Resume(const HoldingSpaceItem* item) {
-  DCHECK(HoldingSpaceItem::IsDownload(item->type()));
-  for (const auto& in_progress_download : in_progress_downloads_) {
-    if (in_progress_download->GetHoldingSpaceItem() == item) {
-      in_progress_download->Resume();
-      return;
-    }
-  }
-}
-
 absl::optional<holding_space_metrics::ItemFailureToLaunchReason>
 HoldingSpaceDownloadsDelegate::OpenWhenComplete(const HoldingSpaceItem* item) {
   DCHECK(HoldingSpaceItem::IsDownload(item->type()));
@@ -671,12 +638,12 @@ HoldingSpaceDownloadsDelegate::OpenWhenComplete(const HoldingSpaceItem* item) {
 
 void HoldingSpaceDownloadsDelegate::OnPersistenceRestored() {
   // ARC downloads.
-  // NOTE: The `arc_intent_helper_bridge` may be `nullptr` if the `profile()`
+  // NOTE: The `arc_file_system_bridge` may be `nullptr` if the `profile()`
   // is not allowed to use ARC, e.g. if the `profile()` is OTR.
-  auto* const arc_intent_helper_bridge =
-      arc::ArcIntentHelperBridge::GetForBrowserContext(profile());
-  if (arc_intent_helper_bridge)
-    arc_intent_helper_observation_.Observe(arc_intent_helper_bridge);
+  auto* const arc_file_system_bridge =
+      arc::ArcFileSystemBridge::GetForBrowserContext(profile());
+  if (arc_file_system_bridge)
+    arc_file_system_bridge_observation_.Observe(arc_file_system_bridge);
 
   // Ash Chrome downloads.
   download_notifier_.AddProfile(profile());
@@ -762,25 +729,26 @@ void HoldingSpaceDownloadsDelegate::OnDownloadUpdated(
       std::make_unique<InProgressAshDownload>(this, manager, download_item));
 }
 
-void HoldingSpaceDownloadsDelegate::OnArcDownloadAdded(
-    const base::FilePath& relative_path,
-    const std::string& owner_package_name) {
+void HoldingSpaceDownloadsDelegate::OnMediaStoreUriAdded(
+    const GURL& uri,
+    const arc::mojom::MediaStoreMetadata& metadata) {
   if (is_restoring_persistence())
     return;
 
-  // It is expected that `owner_package_name` be non-empty. Media files from
-  // Chrome are synced to ARC via media scan and have `NULL` owning packages but
-  // are expected *not* to have generated `OnArcDownloadAdded()` events.
-  if (owner_package_name.empty()) {
-    NOTREACHED();
+  // Holding space is only interested in download added events.
+  if (!metadata.is_download())
     return;
-  }
+
+  const auto& download = metadata.get_download();
+  const base::FilePath& relative_path = download->relative_path;
+  const std::string& display_name = download->display_name;
 
   // It is expected that `relative_path` always be contained within `Download/`
-  // which refers to the public downloads folder for the current `profile()`.
+  // which refers to the public downloads folder for the associated `profile()`.
   base::FilePath path(
       file_manager::util::GetDownloadsFolderForProfile(profile()));
-  if (!base::FilePath("Download/").AppendRelativePath(relative_path, &path)) {
+  if (!base::FilePath("Download/")
+           .AppendRelativePath(relative_path.Append(display_name), &path)) {
     NOTREACHED();
     return;
   }
@@ -825,11 +793,6 @@ void HoldingSpaceDownloadsDelegate::OnLacrosDownloadsSynced(
 void HoldingSpaceDownloadsDelegate::OnDownloadUpdated(
     InProgressDownload* in_progress_download,
     bool invalidate_image) {
-  // If in-progress downloads integration is disabled, a holding space item will
-  // be associated with a download only upon download completion.
-  if (!features::IsHoldingSpaceInProgressDownloadsIntegrationEnabled())
-    return;
-
   // Downloads will not have an associated file path until the target file path
   // is set. In some cases, this requires the user to actively select the target
   // file path from a selection dialog. Only once file path information is set
@@ -897,6 +860,31 @@ void HoldingSpaceDownloadsDelegate::CreateOrUpdateHoldingSpaceItem(
   if (!item)
     return;
 
+  // Commands.
+  std::vector<HoldingSpaceItem::InProgressCommand> in_progress_commands;
+  if (!in_progress_download->GetProgress().IsComplete()) {
+    if (!(in_progress_download->IsDangerous() ||
+          in_progress_download->IsMixedContent())) {
+      in_progress_commands.push_back(
+          in_progress_download->IsPaused()
+              ? HoldingSpaceItem::InProgressCommand(
+                    HoldingSpaceCommandId::kResumeItem,
+                    IDS_ASH_HOLDING_SPACE_CONTEXT_MENU_RESUME, &kResumeIcon,
+                    base::BindRepeating(&HoldingSpaceDownloadsDelegate::Resume,
+                                        weak_factory_.GetWeakPtr()))
+              : HoldingSpaceItem::InProgressCommand(
+                    HoldingSpaceCommandId::kPauseItem,
+                    IDS_ASH_HOLDING_SPACE_CONTEXT_MENU_PAUSE, &kPauseIcon,
+                    base::BindRepeating(&HoldingSpaceDownloadsDelegate::Pause,
+                                        weak_factory_.GetWeakPtr())));
+    }
+    in_progress_commands.emplace_back(
+        HoldingSpaceCommandId::kCancelItem,
+        IDS_ASH_HOLDING_SPACE_CONTEXT_MENU_CANCEL, &kCancelIcon,
+        base::BindRepeating(&HoldingSpaceDownloadsDelegate::Cancel,
+                            weak_factory_.GetWeakPtr()));
+  }
+
   // Update.
   service()
       ->UpdateItem(item->id())
@@ -904,12 +892,54 @@ void HoldingSpaceDownloadsDelegate::CreateOrUpdateHoldingSpaceItem(
       .SetBackingFile(in_progress_download->GetFilePath(),
                       holding_space_util::ResolveFileSystemUrl(
                           profile(), in_progress_download->GetFilePath()))
+      .SetInProgressCommands(std::move(in_progress_commands))
       .SetInvalidateImage(invalidate_image)
       .SetText(in_progress_download->GetText())
       .SetSecondaryText(in_progress_download->GetSecondaryText())
       .SetSecondaryTextColor(in_progress_download->GetSecondaryTextColor())
-      .SetPaused(in_progress_download->IsPaused())
       .SetProgress(in_progress_download->GetProgress());
+}
+
+void HoldingSpaceDownloadsDelegate::Cancel(const HoldingSpaceItem* item,
+                                           HoldingSpaceCommandId command_id) {
+  DCHECK(HoldingSpaceItem::IsDownload(item->type()));
+  DCHECK_EQ(HoldingSpaceCommandId::kCancelItem, command_id);
+  for (const auto& in_progress_download : in_progress_downloads_) {
+    if (in_progress_download->GetHoldingSpaceItem() == item) {
+      holding_space_metrics::RecordItemAction(
+          {item}, holding_space_metrics::ItemAction::kCancel);
+      in_progress_download->Cancel();
+      return;
+    }
+  }
+}
+
+void HoldingSpaceDownloadsDelegate::Pause(const HoldingSpaceItem* item,
+                                          HoldingSpaceCommandId command_id) {
+  DCHECK(HoldingSpaceItem::IsDownload(item->type()));
+  DCHECK_EQ(HoldingSpaceCommandId::kPauseItem, command_id);
+  for (const auto& in_progress_download : in_progress_downloads_) {
+    if (in_progress_download->GetHoldingSpaceItem() == item) {
+      holding_space_metrics::RecordItemAction(
+          {item}, holding_space_metrics::ItemAction::kPause);
+      in_progress_download->Pause();
+      return;
+    }
+  }
+}
+
+void HoldingSpaceDownloadsDelegate::Resume(const HoldingSpaceItem* item,
+                                           HoldingSpaceCommandId command_id) {
+  DCHECK(HoldingSpaceItem::IsDownload(item->type()));
+  DCHECK_EQ(HoldingSpaceCommandId::kResumeItem, command_id);
+  for (const auto& in_progress_download : in_progress_downloads_) {
+    if (in_progress_download->GetHoldingSpaceItem() == item) {
+      holding_space_metrics::RecordItemAction(
+          {item}, holding_space_metrics::ItemAction::kResume);
+      in_progress_download->Resume();
+      return;
+    }
+  }
 }
 
 }  // namespace ash

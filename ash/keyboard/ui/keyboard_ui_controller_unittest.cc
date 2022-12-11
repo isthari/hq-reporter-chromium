@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,10 +39,6 @@
 #include "ui/compositor/test/layer_animator_test_controller.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/geometry/rect.h"
-
-#if defined(USE_OZONE)
-#include "ui/ozone/public/ozone_platform.h"
-#endif
 
 namespace keyboard {
 namespace {
@@ -248,14 +244,7 @@ class KeyboardUIControllerTest : public aura::test::AuraTestBase,
             contents_window->IsVisible() && controller_.IsKeyboardVisible());
   }
 
-  void RunLoop(base::RunLoop* run_loop) {
-#if defined(USE_OZONE)
-    // TODO(crbug/776357): Figure out why the initializer randomly doesn't run
-    // for some tests. In the mean time, prevent flaky Ozone crash.
-    ui::OzonePlatform::InitializeForGPU(ui::OzonePlatform::InitParams());
-#endif
-    run_loop->Run();
-  }
+  void RunLoop(base::RunLoop* run_loop) { run_loop->Run(); }
 
   std::unique_ptr<TestFocusController> focus_controller_;
 
@@ -278,7 +267,8 @@ class KeyboardUIControllerTest : public aura::test::AuraTestBase,
 // TODO(https://crbug.com/849995): This is testing KeyboardLayoutManager /
 // ContainerFullWidthBehavior. Put this test there.
 TEST_F(KeyboardUIControllerTest, KeyboardSize) {
-  root_window()->SetLayoutManager(new KeyboardLayoutManager(&controller()));
+  root_window()->SetLayoutManager(
+      std::make_unique<KeyboardLayoutManager>(&controller()));
 
   // The keyboard window should not be visible.
   aura::Window* keyboard_window = controller().GetKeyboardWindow();
@@ -800,6 +790,10 @@ class MockKeyboardControllerObserver : public ash::KeyboardControllerObserver {
 
   // KeyboardControllerObserver:
   MOCK_METHOD(void, OnKeyboardEnabledChanged, (bool is_enabled), (override));
+  MOCK_METHOD(void,
+              OnKeyboardConfigChanged,
+              (const keyboard::KeyboardConfig& config),
+              (override));
 };
 
 TEST_F(KeyboardUIControllerTest, OnKeyboardEnabledChangedToEnabled) {
@@ -839,6 +833,24 @@ TEST_F(KeyboardUIControllerTest, OnKeyboardEnabledChangedToDisabled) {
   SetTouchKeyboardEnabled(false);
 
   controller().RemoveObserver(&mock_observer);
+}
+
+TEST_F(KeyboardUIControllerTest, OnFlagChangeObserverIsCalled) {
+  MockKeyboardControllerObserver mock_observer;
+  controller().AddObserver(&mock_observer);
+
+  EXPECT_CALL(mock_observer,
+              OnKeyboardConfigChanged(keyboard::KeyboardConfig()))
+      .WillOnce(testing::InvokeWithoutArgs([]() {
+        auto* controller = KeyboardUIController::Get();
+        ASSERT_TRUE(controller);
+        EXPECT_TRUE(controller->IsEnableFlagSet(
+            keyboard::KeyboardEnableFlag::kAccessibilityEnabled));
+      }));
+
+  controller().SetEnableFlag(KeyboardEnableFlag::kAccessibilityEnabled);
+  controller().RemoveObserver(&mock_observer);
+  controller().Shutdown();
 }
 
 }  // namespace keyboard

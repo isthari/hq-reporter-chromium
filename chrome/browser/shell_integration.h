@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,6 +48,12 @@ enum DefaultWebClientSetPermission {
 // current user.
 DefaultWebClientSetPermission GetDefaultWebClientSetPermission();
 
+// Returns requirements for making the running browser either the default
+// browser or the default client application for a specific protocols for the
+// current user, according to a specific platform.
+DefaultWebClientSetPermission
+GetPlatformSpecificDefaultWebClientSetPermission();
+
 // Returns true if the running browser can be set as the default browser,
 // whether user interaction is needed or not. Use
 // GetDefaultWebClientSetPermission() if this distinction is important.
@@ -62,6 +68,13 @@ bool IsElevationNeededForSettingDefaultProtocolClient();
 // neither is guaranteed and it should only be used as a display string.
 // Returns an empty string on failure.
 std::u16string GetApplicationNameForProtocol(const GURL& url);
+
+#if BUILDFLAG(IS_MAC)
+// Returns a vector which containing all the application paths that can be used
+// to launch the requested URL.
+// Returns an empty vector if no application is found.
+std::vector<base::FilePath> GetAllApplicationPathsForURL(const GURL& url);
+#endif
 
 // Chrome's default web client state as a browser as a protocol client. If the
 // current install mode is not default, the brand's other modes are
@@ -144,6 +157,11 @@ std::u16string GetAppShortcutsSubdirName();
 // DefaultBrowserWorker and DefaultProtocolClientWorker.
 using DefaultWebClientWorkerCallback =
     base::OnceCallback<void(DefaultWebClientState)>;
+
+// The type of callback used to communicate processing state to consumers of
+// DefaultBrowserWorker and DefaultProtocolClientWorker.
+using DefaultProtocolHandlerWorkerCallback =
+    base::OnceCallback<void(DefaultWebClientState, const std::u16string&)>;
 
 //  Helper objects that handle checking if Chrome is the default browser
 //  or application for a url protocol on Windows and Linux, and also setting
@@ -249,24 +267,48 @@ class DefaultBrowserWorker : public DefaultWebClientWorker {
 class DefaultProtocolClientWorker : public DefaultWebClientWorker {
  public:
   explicit DefaultProtocolClientWorker(const std::string& protocol);
+  explicit DefaultProtocolClientWorker(const GURL& url);
 
   DefaultProtocolClientWorker(const DefaultProtocolClientWorker&) = delete;
   DefaultProtocolClientWorker& operator=(const DefaultProtocolClientWorker&) =
       delete;
 
+  // Checks to see if Chrome is the default application for the |url_|.
+  // The provided callback will be run to communicate the default state to the
+  // caller, and also return the name of the default client if available.
+  void StartCheckIsDefaultAndGetDefaultClientName(
+      DefaultProtocolHandlerWorkerCallback callback);
+
   const std::string& protocol() const { return protocol_; }
+  const GURL& url() const { return url_; }
 
  protected:
   ~DefaultProtocolClientWorker() override;
 
+  // Communicates the result via |callback|.
+  void OnCheckIsDefaultAndGetDefaultClientNameComplete(
+      DefaultWebClientState state,
+      std::u16string program_name,
+      DefaultProtocolHandlerWorkerCallback callback);
+
  private:
+  // Checks whether Chrome is the default client for |url_|. This also returns
+  // the default client name if available.
+  void CheckIsDefaultAndGetDefaultClientName(
+      DefaultProtocolHandlerWorkerCallback callback);
+
   // Check if Chrome is the default handler for this protocol.
   DefaultWebClientState CheckIsDefaultImpl() override;
+
+  // Gets the default client name for |protocol_|. Always called on a blocking
+  // sequence.
+  virtual std::u16string GetDefaultClientNameImpl();
 
   // Set Chrome as the default handler for this protocol.
   void SetAsDefaultImpl(base::OnceClosure on_finished_callback) override;
 
-  std::string protocol_;
+  const std::string protocol_;
+  const GURL url_;
 };
 
 }  // namespace shell_integration

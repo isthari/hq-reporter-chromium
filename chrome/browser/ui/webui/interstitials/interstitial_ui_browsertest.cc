@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -113,6 +113,16 @@ IN_PROC_BROWSER_TEST_F(InterstitialUITest, CTInterstitial) {
                    u"NET::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED");
 }
 
+IN_PROC_BROWSER_TEST_F(InterstitialUITest, EnterpriseBlockInterstitial) {
+  TestInterstitial(GURL("chrome://interstitials/enterprise-block"),
+                   "Blocked by Admin", IDS_ENTERPRISE_BLOCK_HEADING);
+}
+
+IN_PROC_BROWSER_TEST_F(InterstitialUITest, EnterpriseWarnInterstitial) {
+  TestInterstitial(GURL("chrome://interstitials/enterprise-warn"),
+                   "Admin warning", IDS_ENTERPRISE_WARN_HEADING);
+}
+
 IN_PROC_BROWSER_TEST_F(InterstitialUITest, MalwareInterstitial) {
   TestInterstitial(GURL("chrome://interstitials/safebrowsing?type=malware"),
                    "Security error", IDS_MALWARE_V3_HEADING);
@@ -177,12 +187,6 @@ IN_PROC_BROWSER_TEST_F(InterstitialUITest, CaptivePortalInterstitial) {
 IN_PROC_BROWSER_TEST_F(InterstitialUITest, CaptivePortalInterstitialWifi) {
   TestInterstitial(GURL("chrome://interstitials/captiveportal?is_wifi=1"),
                    "Connect to Wi-Fi");
-}
-
-IN_PROC_BROWSER_TEST_F(InterstitialUITest, OriginPolicyErrorInterstitial) {
-  TestInterstitial(GURL("chrome://interstitials/origin_policy"),
-                   "Origin Policy Error",
-                   u"has requested that an origin policy");
 }
 
 IN_PROC_BROWSER_TEST_F(InterstitialUITest, BlockedInterceptionInterstitial) {

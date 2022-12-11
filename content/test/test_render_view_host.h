@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,7 +50,6 @@ class Rect;
 namespace content {
 
 class FrameTree;
-class SiteInstance;
 class TestRenderFrameHost;
 class TestPageBroadcast;
 class TestWebContents;
@@ -259,19 +258,21 @@ class TestRenderWidgetHostViewChildFrame
 class TestRenderViewHost : public RenderViewHostImpl,
                            public RenderViewHostTester {
  public:
-  TestRenderViewHost(FrameTree* frame_tree,
-                     SiteInstance* instance,
-                     std::unique_ptr<RenderWidgetHostImpl> widget,
-                     RenderViewHostDelegate* delegate,
-                     int32_t routing_id,
-                     int32_t main_frame_routing_id,
-                     bool swapped_out);
+  TestRenderViewHost(
+      FrameTree* frame_tree,
+      SiteInstanceGroup* group,
+      const StoragePartitionConfig& storage_partition_config,
+      std::unique_ptr<RenderWidgetHostImpl> widget,
+      RenderViewHostDelegate* delegate,
+      int32_t routing_id,
+      int32_t main_frame_routing_id,
+      scoped_refptr<BrowsingContextState> main_browsing_context_state);
 
   TestRenderViewHost(const TestRenderViewHost&) = delete;
   TestRenderViewHost& operator=(const TestRenderViewHost&) = delete;
 
   // RenderViewHostImpl overrides.
-  MockRenderProcessHost* GetProcess() override;
+  MockRenderProcessHost* GetProcess() const override;
   bool CreateRenderView(
       const absl::optional<blink::FrameToken>& opener_frame_token,
       int proxy_route_id,
@@ -343,16 +344,16 @@ class RenderViewHostImplTestHarness : public RenderViewHostTestHarness {
   // RVH/RFH getters are shorthand for oft-used bits of web_contents().
 
   // test_rvh() is equivalent to any of the following:
-  //   contents()->GetMainFrame()->GetRenderViewHost()
+  //   contents()->GetPrimaryMainFrame()->GetRenderViewHost()
   //   contents()->GetRenderViewHost()
   //   static_cast<TestRenderViewHost*>(rvh())
   //
   // Since most functionality will eventually shift from RVH to RFH, you may
-  // prefer to use the GetMainFrame() method in tests.
+  // prefer to use the GetPrimaryMainFrame() method in tests.
   TestRenderViewHost* test_rvh();
 
-  // main_test_rfh() is equivalent to contents()->GetMainFrame()
-  // TODO(nick): Replace all uses with contents()->GetMainFrame()
+  // main_test_rfh() is equivalent to contents()->GetPrimaryMainFrame()
+  // TODO(nick): Replace all uses with contents()->GetPrimaryMainFrame()
   TestRenderFrameHost* main_test_rfh();
 
  private:

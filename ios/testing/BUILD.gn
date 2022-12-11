@@ -1,4 +1,4 @@
-# Copyright 2015 The Chromium Authors. All rights reserved.
+# Copyright 2015 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -116,6 +116,7 @@ bundle_data("http_server_bundle_data") {
     "data/http_server_files/console_with_iframe.html",
     "data/http_server_files/context_menu.html",
     "data/http_server_files/destination.html",
+    "data/http_server_files/download_test_page.html",
     "data/http_server_files/fullscreen.html",
     "data/http_server_files/generic.pkpass",
     "data/http_server_files/history.html",
@@ -130,11 +131,15 @@ bundle_data("http_server_bundle_data") {
     "data/http_server_files/onload_replacestate_reload.html",
     "data/http_server_files/onload_replacestate_reload.js",
     "data/http_server_files/opensearch.xml",
+    "data/http_server_files/permissions/camera_and_microphone.html",
+    "data/http_server_files/permissions/camera_only.html",
+    "data/http_server_files/permissions/microphone_only.html",
     "data/http_server_files/pony.html",
     "data/http_server_files/profile_form.html",
     "data/http_server_files/readonly_form.html",
     "data/http_server_files/redchair.usdz",
     "data/http_server_files/redirect_refresh.html",
+    "data/http_server_files/sample.ics",
     "data/http_server_files/sample.mobileconfig",
     "data/http_server_files/simple_login_form.html",
     "data/http_server_files/simple_signup_form.html",

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,7 @@ class ImmersiveModeControllerStub : public ImmersiveModeController {
   bool IsRevealed() const override;
   int GetTopContainerVerticalOffset(
       const gfx::Size& top_container_size) const override;
-  [[nodiscard]] ImmersiveRevealedLock* GetRevealedLock(
+  std::unique_ptr<ImmersiveRevealedLock> GetRevealedLock(
       AnimateReveal animate_reveal) override;
   void OnFindBarVisibleBoundsChanged(
       const gfx::Rect& new_visible_bounds_in_screen) override;

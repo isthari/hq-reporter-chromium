@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,16 +19,23 @@
 #include "base/timer/timer.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "build/build_config.h"
+#include "components/omnibox/browser/autocomplete_controller_metrics.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_provider_client.h"
+#include "components/omnibox/browser/autocomplete_provider_debouncer.h"
 #include "components/omnibox/browser/autocomplete_provider_listener.h"
 #include "components/omnibox/browser/autocomplete_result.h"
+#include "components/omnibox/browser/autocomplete_scoring_signals_annotator.h"
+#include "components/omnibox/browser/bookmark_provider.h"
 #include "components/omnibox/browser/omnibox_log.h"
+#include "components/omnibox/browser/open_tab_provider.h"
+#include "third_party/omnibox_proto/types.pb.h"
 
 class ClipboardProvider;
 class DocumentProvider;
 class HistoryURLProvider;
+class HistoryQuickProvider;
 class KeywordProvider;
 class SearchProvider;
 class TemplateURLService;
@@ -59,7 +66,7 @@ class OnDeviceHeadProvider;
 class AutocompleteController : public AutocompleteProviderListener,
                                public base::trace_event::MemoryDumpProvider {
  public:
-  typedef std::vector<scoped_refptr<AutocompleteProvider> > Providers;
+  typedef std::vector<scoped_refptr<AutocompleteProvider>> Providers;
 
   class Observer : public base::CheckedObserver {
    public:
@@ -78,16 +85,15 @@ class AutocompleteController : public AutocompleteProviderListener,
                                  bool default_match_changed) {}
   };
 
-  // Converts the given match to a type (and possibly subtype) based on the AQS
-  // specification. For more details, see go/binary-clients-logging.
-  // Note: the `subtypes` parameter passed over to this function may be filled
-  // with subtypes reported by the suggest server. This call will update this
-  // set with Chrome-specific subtypes.
-  // TODO(https://crbug.com/1103056): relocate subtype updates to appropriate
-  //  sites that construct these matches.
-  static void GetMatchTypeAndExtendSubtypes(const AutocompleteMatch& match,
-                                            size_t* type,
-                                            base::flat_set<int>* subtypes);
+  // Given a match, returns the appropriate type and zero or more subtypes
+  // corresponding to the SuggestType and SuggestSubtype enums in types.proto.
+  // This is needed to update Chrome's native types/subtypes to those expected
+  // by the server. For more details, see go/chrome-suggest-logging.
+  // Note: `subtypes` may be prepopulated with server-reported subtypes.
+  static void GetMatchTypeAndExtendSubtypes(
+      const AutocompleteMatch& match,
+      omnibox::SuggestType* type,
+      base::flat_set<omnibox::SuggestSubtype>* subtypes);
 
   // |provider_types| is a bitmap containing AutocompleteProvider::Type values
   // that will (potentially, depending on platform, flags, etc.) be
@@ -97,7 +103,8 @@ class AutocompleteController : public AutocompleteProviderListener,
   // updated.
   AutocompleteController(
       std::unique_ptr<AutocompleteProviderClient> provider_client,
-      int provider_types);
+      int provider_types,
+      bool is_cros_launcher = false);
   ~AutocompleteController() override;
   AutocompleteController(const AutocompleteController&) = delete;
   AutocompleteController& operator=(const AutocompleteController&) = delete;
@@ -122,8 +129,9 @@ class AutocompleteController : public AutocompleteProviderListener,
   // Made virtual for mocking in tests.
   virtual void Start(const AutocompleteInput& input);
 
-  // Simply calls StartPrefetch() on all providers so those providers that
-  // override it could perform a prefetch request and populate their caches.
+  // Calls StartPrefetch() on all eligible providers so that they can optionally
+  // perform a prefetch request to warm up their underlying service(s) and/or
+  // optionally cache their otherwise async response.
   // Made virtual for mocking in tests.
   virtual void StartPrefetch(const AutocompleteInput& input);
 
@@ -139,12 +147,22 @@ class AutocompleteController : public AutocompleteProviderListener,
   // no query is running.
   void DeleteMatch(const AutocompleteMatch& match);
 
+  // Asks the relevant provider to partially delete match, and ensures observers
+  // are notified of resulting changes immediately.  This should only be called
+  // when no query is running.
+  // Calling this method does not imply removal of the AutocompleteMatch.
+  // |element_index| parameter specifies which part of the match should be
+  // deleted. For cases where the entire AutocompleteMatch should be removed,
+  // please see |DeleteMatch| method.
+  void DeleteMatchElement(const AutocompleteMatch& match, size_t element_index);
+
   // Removes any entries that were copied from the last result. This is used by
   // the popup to ensure it's not showing an out-of-date query.
   void ExpireCopiedEntries();
 
   // AutocompleteProviderListener:
-  void OnProviderUpdate(bool updated_matches) override;
+  void OnProviderUpdate(bool updated_matches,
+                        const AutocompleteProvider* provider) override;
 
   // Called when an omnibox event log entry is generated.
   // Populates |log.provider_info| with diagnostic information about the status
@@ -169,13 +187,6 @@ class AutocompleteController : public AutocompleteProviderListener,
   // Constructs and sets the final destination URL on the given match.
   void SetMatchDestinationURL(AutocompleteMatch* match) const;
 
-  // Populates tail_suggest_common_prefix on the matches as well as prepends
-  // ellipses.
-  void SetTailSuggestContentPrefixes();
-
-  // Populates tail_suggest_common_prefix on the matches.
-  void SetTailSuggestCommonPrefixes();
-
   HistoryURLProvider* history_url_provider() const {
     return history_url_provider_;
   }
@@ -185,10 +196,20 @@ class AutocompleteController : public AutocompleteProviderListener,
   VoiceSuggestProvider* voice_suggest_provider() const {
     return voice_suggest_provider_;
   }
+  OpenTabProvider* open_tab_provider() const { return open_tab_provider_; }
 
   const AutocompleteInput& input() const { return input_; }
-  const AutocompleteResult& result() const { return result_; }
+  const AutocompleteResult& result() const;
+  // Groups result_ by search vs URL.
+  // See also AutocompleteResult::GroupSuggestionsBySearchVsURL()
+  void GroupSuggestionsBySearchVsURL(size_t begin, size_t end);
   bool done() const { return done_; }
+  bool in_start() const { return in_start_; }
+  // TODO(manukh): Once we have a smarter `expire_timer_` that early runs when
+  //  the controller is done, `expire_timer_done()` will be unnecessary. Until
+  //  then, neither, either, or both `done()` and `expire_timer_done()` can be
+  //  true.
+  bool expire_timer_done() const { return !expire_timer_.IsRunning(); }
   const Providers& providers() const { return providers_; }
 
   const base::TimeTicks& last_time_default_match_changed() const {
@@ -204,6 +225,7 @@ class AutocompleteController : public AutocompleteProviderListener,
   }
 
  private:
+  friend class FakeAutocompleteController;
   friend class AutocompleteProviderTest;
   friend class OmniboxSuggestionButtonRowBrowserTest;
   friend class ZeroSuggestPrefetchTabHelperBrowserTest;
@@ -260,29 +282,32 @@ class AutocompleteController : public AutocompleteProviderListener,
   void UpdateResult(bool regenerate_result,
                     bool force_notify_default_match_changed);
 
-  // Updates |result| to populate each match's |associated_keyword| if that
-  // match can show a keyword hint.  |result| should be sorted by
-  // relevance before this is called.
+  // Updates ML scoring signals of suggestions in the autocomplete result.
+  void UpdateScoringSignals();
+
+  // Updates `result` to populate each match's `associated_keyword` if that
+  // match can show a keyword hint. `result` should be sorted by relevance
+  // before this is called.
   void UpdateAssociatedKeywords(AutocompleteResult* result);
 
-  // Updates |result| with the suggestion group ID to header string mapping as
-  // well as the set of hidden suggestion group IDs.
-  // Called for zero-prefix suggestions only. This call is followed by
-  // AutocompleteResult::GroupAndDemoteMatchesWithHeaders() which groups and
-  // demotes matches with suggestion group IDs to the bottom of the result set.
-  void UpdateHeaderInfoFromZeroSuggestProvider(AutocompleteResult* result);
-
   // For each group of contiguous matches from the same TemplateURL, show the
-  // provider name as a description on the first match in the group.
+  // provider name as a description on the first match in the group. Starter
+  // Pack matches show their URLs as descriptions instead of the provider name.
   void UpdateKeywordDescriptions(AutocompleteResult* result);
 
-  // For each AutocompleteMatch in |result|, updates the assisted query stats
+  // For each AutocompleteMatch in `result`, updates the assisted query stats
   // iff the provider's TemplateURL supports it.
   void UpdateAssistedQueryStats(AutocompleteResult* result);
 
+  // Update the tail suggestions' `tail_suggest_common_prefix`.
+  void UpdateTailSuggestPrefix(AutocompleteResult* result);
+
   // Calls AutocompleteController::Observer::OnResultChanged() and if done sends
   // AUTOCOMPLETE_CONTROLLER_RESULT_READY.
-  void NotifyChanged(bool notify_default_match);
+  void NotifyChanged();
+
+  // Invokes `NotifyChanged()` through `notify_changed_debouncer_`.
+  void DelayedNotifyChanged(bool notify_default_match);
 
   // Updates |done_| to be accurate with respect to current providers' statuses.
   void CheckIfDone();
@@ -295,8 +320,7 @@ class AutocompleteController : public AutocompleteProviderListener,
 
   // Helper function for Stop().  |due_to_user_inactivity| means this call was
   // triggered by a user's idleness, i.e., not an explicit user action.
-  void StopHelper(bool clear_result,
-                  bool due_to_user_inactivity);
+  void StopHelper(bool clear_result, bool due_to_user_inactivity);
 
   // Helper for UpdateKeywordDescriptions(). Returns whether curbing the keyword
   // descriptions is enabled, and whether there is enough input to guarantee
@@ -313,8 +337,18 @@ class AutocompleteController : public AutocompleteProviderListener,
   // The client passed to the providers.
   std::unique_ptr<AutocompleteProviderClient> provider_client_;
 
+  // Returns whether the given provider should be ran based on whether we're in
+  // keyword mode and which keyword we're searching. Currently runs all enabled
+  // providers unless in a Starter Pack scope, except for OpenTabProvider which
+  // only runs on Lacros and the @tabs scope.
+  bool ShouldRunProvider(AutocompleteProvider* provider) const;
+
   // A list of all providers.
   Providers providers_;
+
+  raw_ptr<BookmarkProvider> bookmark_provider_;
+
+  raw_ptr<HistoryQuickProvider> history_quick_provider_;
 
   raw_ptr<DocumentProvider> document_provider_;
 
@@ -332,11 +366,31 @@ class AutocompleteController : public AutocompleteProviderListener,
 
   raw_ptr<VoiceSuggestProvider> voice_suggest_provider_;
 
+  raw_ptr<OpenTabProvider> open_tab_provider_;
+
+  // A vector of scoring signals annotators for URL suggestions.
+  // Unlike the other existing annotators (e.g., pedals and keywords), these
+  // signal annotations should be done before the sort and cull pass.
+  std::vector<std::unique_ptr<AutocompleteScoringSignalsAnnotator>>
+      url_scoring_signals_annotators_;
+
   // Input passed to Start.
   AutocompleteInput input_;
 
   // Data from the autocomplete query.
   AutocompleteResult result_;
+
+  // When debouncing is enabled, `result_` may change without invoking
+  // `NotifyChanged()`. To ensure `result()` is stable between `NotifyChanged()`
+  // calls, `published_result_` snapshots `result_` before invoking
+  // `NotifyChanged()`, and observers only see the stable `published_result_`.
+  // When `kUpdateResultDebounce` is disabled, `published_result_` is always
+  // empty and unused.
+  AutocompleteResult published_result_;
+
+  // Used for logging the changes between updates.
+  std::vector<AutocompleteResult::MatchDedupComparator>
+      last_result_for_logging_;
 
   // The most recent time the default match (inline match) changed.  This may
   // be earlier than the most recent keystroke if the recent keystrokes didn't
@@ -348,6 +402,8 @@ class AutocompleteController : public AutocompleteProviderListener,
   // asynchronous provider that returned and changed the default
   // match.  See UpdateResult() for details on when we consider a
   // match to have changed.
+  // This is very similar to `metrics_.last_default_change_time_`, but whereas
+  // that is reset on `::Start()`, this is not.
   base::TimeTicks last_time_default_match_changed_;
 
   // Timer used to remove any matches copied from the last result. When run
@@ -361,7 +417,21 @@ class AutocompleteController : public AutocompleteProviderListener,
   // to every provider.  This is intended to avoid the disruptive effect of
   // belated omnibox updates, updates that come after the user has had to time
   // to read the whole dropdown and doesn't expect it to change.
-  base::TimeDelta stop_timer_duration_;
+  base::TimeDelta stop_timer_duration_ = base::Milliseconds(1500);
+
+  // Debouncer to avoid invoking `NotifyChange()` after updating results in
+  // quick succession. The last call, i.e. when all providers complete and
+  // `done_` is set true; and the 1st call, i.e. the sync update, are immune to
+  // this restriction. Calls not succeeding a result update (i.e. a call from
+  // closing the popup) bypass the delay as well./ Only applies when the
+  // `kAutocompleteStability` is enabled with the corresponding params set.
+  AutocompleteProviderDebouncer notify_changed_debouncer_;
+
+  // Tracks if any delayed `DelayedNotifyChanged()` call since the last
+  // `NotifyChanged()` call changed the default match. Otherwise, if there have
+  // been 2 delayed calls, the 1st having changed the default, the latter not,
+  // `NotifyChanged()` couldn't know of the former.
+  bool notify_changed_default_match_ = false;
 
   // True if a query is not currently running.
   bool done_;
@@ -370,6 +440,14 @@ class AutocompleteController : public AutocompleteProviderListener,
   // notifications until Start() has been invoked on all providers. When this
   // boolean is true, we are definitely within the synchronous pass.
   bool in_start_;
+
+  // True if this instance of AutocompleteController is owned by the CrOS
+  // launcher. This is currently used to determine whether to enable the Open
+  // Tab provider always (CrOS launcher) or just in keyword mode (!launcher).
+  bool is_cros_launcher_;
+
+  // Logs stability and timing metrics for updates.
+  AutocompleteControllerMetrics metrics_{*this};
 
   // True if the signal predicting a likely search has already been sent to the
   // service worker context during the current input session. False on

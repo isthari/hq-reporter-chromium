@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,17 +10,18 @@
 
 #include "ash/constants/ash_switches.h"
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/ash/settings/device_settings_test_helper.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_install_attributes_client.h"
+#include "chromeos/ash/components/dbus/userdataauth/install_attributes_util.h"
+#include "chromeos/ash/components/install_attributes/install_attributes.h"
 #include "chromeos/components/onc/onc_test_utils.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/userdataauth/fake_install_attributes_client.h"
-#include "chromeos/dbus/userdataauth/install_attributes_util.h"
-#include "chromeos/tpm/install_attributes.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_store.h"
 #include "components/policy/core/common/cloud/test/policy_builder.h"
@@ -38,8 +39,8 @@ namespace policy {
 namespace {
 
 void CopyLockResult(base::RunLoop* loop,
-                    chromeos::InstallAttributes::LockResult* out,
-                    chromeos::InstallAttributes::LockResult result) {
+                    ash::InstallAttributes::LockResult* out,
+                    ash::InstallAttributes::LockResult result) {
   *out = result;
   loop->Quit();
 }
@@ -61,30 +62,30 @@ class DeviceCloudPolicyStoreAshTest : public ash::DeviceSettingsTestBase {
   void SetUp() override {
     DeviceSettingsTestBase::SetUp();
 
-    chromeos::InstallAttributesClient::InitializeFake();
-    install_attributes_ = std::make_unique<chromeos::InstallAttributes>(
-        chromeos::InstallAttributesClient::Get());
+    ash::InstallAttributesClient::InitializeFake();
+    install_attributes_ = std::make_unique<ash::InstallAttributes>(
+        ash::InstallAttributesClient::Get());
     store_ = std::make_unique<DeviceCloudPolicyStoreAsh>(
         device_settings_service_.get(), install_attributes_.get(),
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
     store_->AddObserver(&observer_);
 
     base::RunLoop loop;
-    chromeos::InstallAttributes::LockResult result;
+    ash::InstallAttributes::LockResult result;
     install_attributes_->LockDevice(
         DEVICE_MODE_ENTERPRISE, PolicyBuilder::kFakeDomain,
         std::string(),  // realm
         PolicyBuilder::kFakeDeviceId,
         base::BindOnce(&CopyLockResult, &loop, &result));
     loop.Run();
-    ASSERT_EQ(chromeos::InstallAttributes::LOCK_SUCCESS, result);
+    ASSERT_EQ(ash::InstallAttributes::LOCK_SUCCESS, result);
   }
 
   void TearDown() override {
     store_->RemoveObserver(&observer_);
     store_.reset();
     install_attributes_.reset();
-    chromeos::InstallAttributesClient::Shutdown();
+    ash::InstallAttributesClient::Shutdown();
     DeviceSettingsTestBase::TearDown();
   }
 
@@ -107,7 +108,8 @@ class DeviceCloudPolicyStoreAshTest : public ash::DeviceSettingsTestBase {
     EXPECT_TRUE(store_->policy());
     base::Value expected(false);
     EXPECT_EQ(expected, *store_->policy_map().GetValue(
-                            key::kDeviceMetricsReportingEnabled));
+                            key::kDeviceMetricsReportingEnabled,
+                            base::Value::Type::BOOLEAN));
     EXPECT_FALSE(store_->policy_signature_public_key().empty());
   }
 
@@ -130,18 +132,18 @@ class DeviceCloudPolicyStoreAshTest : public ash::DeviceSettingsTestBase {
   void ResetToNonEnterprise() {
     store_->RemoveObserver(&observer_);
     store_.reset();
-    chromeos::install_attributes_util::InstallAttributesSet("enterprise.owned",
-                                                            std::string());
-    install_attributes_ = std::make_unique<chromeos::InstallAttributes>(
-        chromeos::FakeInstallAttributesClient::Get());
+    ash::install_attributes_util::InstallAttributesSet("enterprise.owned",
+                                                       std::string());
+    install_attributes_ = std::make_unique<ash::InstallAttributes>(
+        ash::FakeInstallAttributesClient::Get());
     store_ = std::make_unique<DeviceCloudPolicyStoreAsh>(
         device_settings_service_.get(), install_attributes_.get(),
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
     store_->AddObserver(&observer_);
   }
 
   ScopedTestingLocalState local_state_;
-  std::unique_ptr<chromeos::InstallAttributes> install_attributes_;
+  std::unique_ptr<ash::InstallAttributes> install_attributes_;
 
   std::unique_ptr<DeviceCloudPolicyStoreAsh> store_;
   MockCloudPolicyStoreObserver observer_;

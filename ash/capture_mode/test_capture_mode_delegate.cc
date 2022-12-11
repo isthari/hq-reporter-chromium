@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 #include "ash/capture_mode/capture_mode_types.h"
 #include "ash/capture_mode/fake_video_source_provider.h"
 #include "ash/public/cpp/capture_mode/recording_overlay_view.h"
-#include "ash/services/recording/public/mojom/recording_service.mojom.h"
-#include "ash/services/recording/recording_service_test_api.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "base/files/file_util.h"
 #include "base/threading/thread_restrictions.h"
+#include "chromeos/ash/services/recording/public/mojom/recording_service.mojom.h"
+#include "chromeos/ash/services/recording/recording_service_test_api.h"
 
 namespace ash {
 
@@ -31,12 +31,13 @@ class TestRecordingOverlayView : public RecordingOverlayView {
 TestCaptureModeDelegate::TestCaptureModeDelegate()
     : video_source_provider_(std::make_unique<FakeVideoSourceProvider>()) {
   base::ScopedAllowBlockingForTesting allow_blocking;
-  bool created_dir =
-      base::CreateNewTempDirectory(/*prefix=*/"", &fake_downloads_dir_);
+  bool created_dir = fake_downloads_dir_.CreateUniqueTempDir();
   DCHECK(created_dir);
   created_dir = fake_drive_fs_mount_path_.CreateUniqueTempDir();
   DCHECK(created_dir);
   created_dir = fake_android_files_path_.CreateUniqueTempDir();
+  DCHECK(created_dir);
+  created_dir = fake_linux_files_path_.CreateUniqueTempDir();
   DCHECK(created_dir);
 }
 
@@ -77,7 +78,7 @@ void TestCaptureModeDelegate::RequestAndWaitForVideoFrame() {
 base::FilePath TestCaptureModeDelegate::GetUserDefaultDownloadsFolder() const {
   DCHECK(Shell::Get()->session_controller()->IsActiveUserSessionStarted());
 
-  return fake_downloads_dir_;
+  return fake_downloads_dir_.GetPath();
 }
 
 void TestCaptureModeDelegate::ShowScreenCaptureItemInFolder(
@@ -158,6 +159,10 @@ base::FilePath TestCaptureModeDelegate::GetAndroidFilesPath() const {
   return fake_android_files_path_.GetPath();
 }
 
+base::FilePath TestCaptureModeDelegate::GetLinuxFilesPath() const {
+  return fake_linux_files_path_.GetPath();
+}
+
 std::unique_ptr<RecordingOverlayView>
 TestCaptureModeDelegate::CreateRecordingOverlayView() const {
   return std::make_unique<TestRecordingOverlayView>();
@@ -166,6 +171,19 @@ TestCaptureModeDelegate::CreateRecordingOverlayView() const {
 void TestCaptureModeDelegate::ConnectToVideoSourceProvider(
     mojo::PendingReceiver<video_capture::mojom::VideoSourceProvider> receiver) {
   video_source_provider_->Bind(std::move(receiver));
+}
+
+void TestCaptureModeDelegate::GetDriveFsFreeSpaceBytes(
+    OnGotDriveFsFreeSpace callback) {
+  std::move(callback).Run(fake_drive_fs_free_bytes_);
+}
+
+bool TestCaptureModeDelegate::IsCameraDisabledByPolicy() const {
+  return is_camera_disabled_by_policy_;
+}
+
+bool TestCaptureModeDelegate::IsAudioCaptureDisabledByPolicy() const {
+  return is_audio_capture_disabled_by_policy_;
 }
 
 }  // namespace ash

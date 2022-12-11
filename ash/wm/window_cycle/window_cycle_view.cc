@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/style/system_shadow.h"
 #include "ash/wm/window_cycle/window_cycle_controller.h"
 #include "ash/wm/window_cycle/window_cycle_item_view.h"
 #include "base/bind.h"
@@ -17,6 +18,7 @@
 #include "base/cxx17_backports.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/aura/window.h"
@@ -35,7 +37,9 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/text_constants.h"
+#include "ui/views/background.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/highlight_border.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/view.h"
 
@@ -44,7 +48,7 @@ namespace ash {
 namespace {
 
 // Shield rounded corner radius.
-constexpr gfx::RoundedCornersF kBackgroundCornerRadius{16.f};
+constexpr int kBackgroundCornerRadius = 16;
 
 // Shield horizontal inset.
 constexpr int kBackgroundHorizontalInsetDp = 8;
@@ -98,17 +102,19 @@ WindowCycleView::WindowCycleView(aura::Window* root_window,
   occlusion_tracker_pauser_ =
       std::make_unique<aura::WindowOcclusionTracker::ScopedPause>();
 
-  // The layer for |this| is responsible for showing color, background blur
-  // and fading in.
-  SetPaintToLayer(ui::LAYER_SOLID_COLOR);
-  ui::Layer* layer = this->layer();
-  SkColor background_color = AshColorProvider::Get()->GetBaseLayerColor(
-      AshColorProvider::BaseLayerType::kTransparent80);
-  layer->SetColor(background_color);
-  layer->SetBackgroundBlur(ColorProvider::kBackgroundBlurSigma);
-  layer->SetBackdropFilterQuality(ColorProvider::kBackgroundBlurQuality);
-  layer->SetName("WindowCycleView");
-  layer->SetMasksToBounds(true);
+  // The layer for `this` is responsible for showing background blur and fade
+  // and clip animations.
+  SetPaintToLayer();
+  layer()->SetFillsBoundsOpaquely(false);
+  layer()->SetBackgroundBlur(ColorProvider::kBackgroundBlurSigma);
+  layer()->SetBackdropFilterQuality(ColorProvider::kBackgroundBlurQuality);
+  layer()->SetName("WindowCycleView");
+  layer()->SetMasksToBounds(true);
+
+  SetBackground(views::CreateRoundedRectBackground(
+      AshColorProvider::Get()->GetBaseLayerColor(
+          AshColorProvider::BaseLayerType::kTransparent80),
+      kBackgroundCornerRadius));
 
   // |mirror_container_| may be larger than |this|. In this case, it will be
   // shifted along the x-axis when the user tabs through. It is a container
@@ -119,12 +125,12 @@ WindowCycleView::WindowCycleView(aura::Window* root_window,
   views::BoxLayout* layout =
       mirror_container_->SetLayoutManager(std::make_unique<views::BoxLayout>(
           views::BoxLayout::Orientation::kHorizontal,
-          gfx::Insets(is_interactive_alt_tab_mode_allowed
-                          ? kMirrorContainerVerticalPaddingDp
-                          : kInsideBorderVerticalPaddingDp,
-                      WindowCycleView::kInsideBorderHorizontalPaddingDp,
-                      kInsideBorderVerticalPaddingDp,
-                      WindowCycleView::kInsideBorderHorizontalPaddingDp),
+          gfx::Insets::TLBR(is_interactive_alt_tab_mode_allowed
+                                ? kMirrorContainerVerticalPaddingDp
+                                : kInsideBorderVerticalPaddingDp,
+                            WindowCycleView::kInsideBorderHorizontalPaddingDp,
+                            kInsideBorderVerticalPaddingDp,
+                            WindowCycleView::kInsideBorderHorizontalPaddingDp),
           kBetweenChildPaddingDp));
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kStart);
@@ -135,8 +141,6 @@ WindowCycleView::WindowCycleView(aura::Window* root_window,
 
     no_recent_items_label_ = AddChildView(std::make_unique<views::Label>(
         l10n_util::GetStringUTF16(IDS_ASH_OVERVIEW_NO_RECENT_ITEMS)));
-    no_recent_items_label_->SetPaintToLayer();
-    no_recent_items_label_->layer()->SetFillsBoundsOpaquely(false);
     no_recent_items_label_->SetHorizontalAlignment(gfx::ALIGN_CENTER);
     no_recent_items_label_->SetVerticalAlignment(gfx::ALIGN_MIDDLE);
 
@@ -178,6 +182,10 @@ WindowCycleView::WindowCycleView(aura::Window* root_window,
                                : window_view_map_.begin()->second->GetInsets();
   layout->set_between_child_spacing(kBetweenChildPaddingDp -
                                     cycle_item_insets.width());
+
+  shadow_ = SystemShadow::CreateShadowOnNinePatchLayerForView(
+      this, SystemShadow::Type::kElevation4);
+  shadow_->SetRoundedCornerRadius(kBackgroundCornerRadius);
 }
 
 WindowCycleView::~WindowCycleView() = default;
@@ -218,6 +226,10 @@ void WindowCycleView::ScaleCycleView(const gfx::Rect& screen_bounds) {
         gfx::Vector2d((old_bounds.width() - new_bounds.width()) / 2, 0);
     defer_widget_bounds_update_ = true;
   }
+
+  // Hide the shadow while animating because the clip rect animation clips away
+  // visible portions of `this` while the shadow remains the size of `this`.
+  shadow_->GetLayer()->SetVisible(false);
 
   layer()->SetClipRect(old_bounds);
   ui::ScopedLayerAnimationSettings settings(layer_animator);
@@ -464,7 +476,8 @@ void WindowCycleView::Layout() {
   // work properly.
   if (first_layout) {
     mirror_container_->SizeToPreferredSize();
-    layer()->SetRoundedCornerRadius(kBackgroundCornerRadius);
+    layer()->SetRoundedCornerRadius(
+        gfx::RoundedCornersF{kBackgroundCornerRadius});
   }
 
   gfx::RectF target_bounds;
@@ -587,6 +600,21 @@ void WindowCycleView::OnImplicitAnimationsCompleted() {
     // calling SetBounds() to prevent the mirror container from animating.
     GetWidget()->SetBounds(GetTargetBounds());
     defer_widget_bounds_update_ = false;
+  }
+
+  shadow_->GetLayer()->SetVisible(true);
+}
+
+void WindowCycleView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  background()->SetNativeControlColor(
+      AshColorProvider::Get()->GetBaseLayerColor(
+          AshColorProvider::BaseLayerType::kTransparent80));
+  if (chromeos::features::IsDarkLightModeEnabled()) {
+    SetBorder(std::make_unique<views::HighlightBorder>(
+        kBackgroundCornerRadius,
+        views::HighlightBorder::Type::kHighlightBorder1,
+        /*use_light_colors=*/false));
   }
 }
 

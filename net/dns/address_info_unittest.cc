@@ -1,17 +1,24 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/dns/address_info.h"
 
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <array>
 #include <memory>
 
+#include "base/check_op.h"
+#include "base/numerics/safe_conversions.h"
+#include "base/strings/string_piece.h"
 #include "base/sys_byteorder.h"
 #include "build/build_config.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
 #include "net/base/sys_addrinfo.h"
-#include "net/dns/address_info_test_util.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -21,52 +28,136 @@ namespace {
 
 class MockAddrInfoGetter : public AddrInfoGetter {
  public:
-  addrinfo* getaddrinfo(const std::string& host,
-                        const addrinfo* hints,
-                        int* out_os_error) override;
-  void freeaddrinfo(addrinfo* ai) override;
+  std::unique_ptr<addrinfo, FreeAddrInfoFunc> getaddrinfo(
+      const std::string& host,
+      const addrinfo* hints,
+      int* out_os_error,
+      handles::NetworkHandle network) override;
+
+ private:
+  struct IpAndPort {
+    struct Ip {
+      uint8_t a;
+      uint8_t b;
+      uint8_t c;
+      uint8_t d;
+    };
+    Ip ip;
+    int port;
+  };
+
+  // Initialises `addr` and `ai` from `ip_and_port`, `canonical_name` and
+  // `ai_next`.
+  static void InitializeAddrinfo(const IpAndPort& ip_and_port,
+                                 char* canonical_name,
+                                 addrinfo* ai_next,
+                                 sockaddr_in* addr,
+                                 addrinfo* ai);
+
+  // Allocates and initialises an addrinfo structure containing the ip addresses
+  // and ports from `ipp` and the name `canonical_name`. This function is
+  // designed to be used within getaddrinfo(), which returns a raw pointer even
+  // though it transfers ownership. So this function does the same. Since
+  // addrinfo is a C-style variable-sized structure it cannot be allocated with
+  // new. It is allocated with malloc() instead, so it must be freed with
+  // free().
+  template <size_t N>
+  static std::unique_ptr<addrinfo, FreeAddrInfoFunc> MakeAddrInfoList(
+      const IpAndPort (&ipp)[N],
+      base::StringPiece canonical_name);
+
+  static std::unique_ptr<addrinfo, FreeAddrInfoFunc> MakeAddrInfo(
+      IpAndPort ipp,
+      base::StringPiece canonical_name);
 };
 
-addrinfo* MockAddrInfoGetter::getaddrinfo(const std::string& host,
-                                          const addrinfo* /* hints */,
-                                          int* out_os_error) {
+template <size_t N>
+std::unique_ptr<addrinfo, FreeAddrInfoFunc>
+MockAddrInfoGetter::MakeAddrInfoList(const IpAndPort (&ipp)[N],
+                                     base::StringPiece canonical_name) {
+  struct Buffer {
+    addrinfo ai[N];
+    sockaddr_in addr[N];
+    char canonical_name[256];
+  };
+
+  CHECK_LE(canonical_name.size(), 255u);
+
+  Buffer* const buffer = new Buffer();
+  memset(buffer, 0x0, sizeof(Buffer));
+
+  // At least one trailing nul byte on buffer->canonical_name was added by
+  // memset() above.
+  memcpy(buffer->canonical_name, canonical_name.data(), canonical_name.size());
+
+  for (size_t i = 0; i < N; ++i) {
+    InitializeAddrinfo(ipp[i], buffer->canonical_name,
+                       i + 1 < N ? buffer->ai + i + 1 : nullptr,
+                       buffer->addr + i, buffer->ai + i);
+  }
+
+  return {reinterpret_cast<addrinfo*>(buffer),
+          [](addrinfo* ai) { delete reinterpret_cast<Buffer*>(ai); }};
+}
+
+std::unique_ptr<addrinfo, FreeAddrInfoFunc> MockAddrInfoGetter::MakeAddrInfo(
+    IpAndPort ipp,
+    base::StringPiece canonical_name) {
+  return MakeAddrInfoList({ipp}, canonical_name);
+}
+
+void MockAddrInfoGetter::InitializeAddrinfo(const IpAndPort& ip_and_port,
+                                            char* canonical_name,
+                                            addrinfo* ai_next,
+                                            sockaddr_in* addr,
+                                            addrinfo* ai) {
+  const uint8_t ip[4] = {ip_and_port.ip.a, ip_and_port.ip.b, ip_and_port.ip.c,
+                         ip_and_port.ip.d};
+  memcpy(&addr->sin_addr, ip, 4);
+  addr->sin_family = AF_INET;
+  addr->sin_port =
+      base::HostToNet16(base::checked_cast<uint16_t>(ip_and_port.port));
+
+  ai->ai_family = AF_INET;
+  ai->ai_socktype = SOCK_STREAM;
+  ai->ai_addrlen = sizeof(sockaddr_in);
+  ai->ai_addr = reinterpret_cast<sockaddr*>(addr);
+  ai->ai_canonname =
+      reinterpret_cast<decltype(ai->ai_canonname)>(canonical_name);
+  if (ai_next)
+    ai->ai_next = ai_next;
+}
+
+std::unique_ptr<addrinfo, FreeAddrInfoFunc> MockAddrInfoGetter::getaddrinfo(
+    const std::string& host,
+    const addrinfo* /* hints */,
+    int* out_os_error,
+    handles::NetworkHandle) {
   // Presume success
   *out_os_error = 0;
 
   if (host == std::string("canonical.bar.com"))
-    return reinterpret_cast<addrinfo*>(
-        test::make_addrinfo({{1, 2, 3, 4}, 80}, "canonical.bar.com").release());
+    return MakeAddrInfo({{1, 2, 3, 4}, 80}, "canonical.bar.com");
   else if (host == "iteration.test")
-    return reinterpret_cast<addrinfo*>(
-        test::make_addrinfo_list<3>({{{10, 20, 30, 40}, 80},
-                                     {{11, 21, 31, 41}, 81},
-                                     {{12, 22, 32, 42}, 82}},
-                                    "iteration.test")
-            .release());
+    return MakeAddrInfoList({{{10, 20, 30, 40}, 80},
+                             {{11, 21, 31, 41}, 81},
+                             {{12, 22, 32, 42}, 82}},
+                            "iteration.test");
   else if (host == "alllocalhost.com")
-    return reinterpret_cast<addrinfo*>(
-        test::make_addrinfo_list<3>(
-            {{{127, 0, 0, 1}, 80}, {{127, 0, 0, 2}, 80}, {{127, 0, 0, 3}, 80}},
-            "alllocalhost.com")
-            .release());
+    return MakeAddrInfoList(
+        {{{127, 0, 0, 1}, 80}, {{127, 0, 0, 2}, 80}, {{127, 0, 0, 3}, 80}},
+        "alllocalhost.com");
   else if (host == "not.alllocalhost.com")
-    return reinterpret_cast<addrinfo*>(
-        test::make_addrinfo_list<3>(
-            {{{128, 0, 0, 1}, 80}, {{127, 0, 0, 2}, 80}, {{127, 0, 0, 3}, 80}},
-            "not.alllocalhost.com")
-            .release());
+    return MakeAddrInfoList(
+        {{{128, 0, 0, 1}, 80}, {{127, 0, 0, 2}, 80}, {{127, 0, 0, 3}, 80}},
+        "not.alllocalhost.com");
   else if (host == "www.example.com")
-    return reinterpret_cast<addrinfo*>(
-        test::make_addrinfo({{8, 8, 8, 8}, 80}, "www.example.com").release());
+    return MakeAddrInfo({{8, 8, 8, 8}, 80}, "www.example.com");
 
   // Failure
   *out_os_error = 1;
 
-  return nullptr;
-}
-
-void MockAddrInfoGetter::freeaddrinfo(addrinfo* ai) {
-  std::unique_ptr<char[]> mock_addrinfo(reinterpret_cast<char*>(ai));
+  return {nullptr, [](addrinfo*) {}};
 }
 
 std::unique_ptr<addrinfo> MakeHints(AddressFamily address_family,
@@ -158,8 +249,9 @@ TEST(AddressInfoTest, Iteration) {
 
   {
     int count = 0;
-    for (auto aii = ai->begin(); aii != ai->end(); ++aii) {
-      const sockaddr_in* addr = reinterpret_cast<sockaddr_in*>(aii->ai_addr);
+    for (const auto& addr_info : *ai) {
+      const sockaddr_in* addr =
+          reinterpret_cast<sockaddr_in*>(addr_info.ai_addr);
       EXPECT_EQ(base::HostToNet16(addr->sin_port) % 10, count % 10);
       ++count;
     }

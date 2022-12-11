@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.omaha;
 
 import android.app.Activity;
 import android.app.Instrumentation.ActivityResult;
-import android.content.Context;
 import android.os.Build;
 
 import androidx.test.espresso.intent.Intents;
@@ -29,11 +28,12 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.layouts.LayoutTestUtils;
+import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuTestSupport;
 import org.chromium.chrome.browser.ui.appmenu.TestAppMenuObserver;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.OverviewModeBehaviorWatcher;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -71,14 +71,14 @@ public class UpdateMenuItemHelperTest {
         }
 
         @Override
-        public String getCurrentlyUsedVersion(Context applicationContext) {
+        public String getCurrentlyUsedVersion() {
             Assert.assertNotNull("Never set the current version", mCurrentVersion);
             mAskedForCurrentVersion = true;
             return mCurrentVersion;
         }
 
         @Override
-        public String getLatestKnownVersion(Context applicationContext) {
+        public String getLatestKnownVersion() {
             Assert.assertNotNull("Never set the latest version", mLatestVersion);
             mAskedForLatestVersion = true;
             return mLatestVersion;
@@ -223,11 +223,8 @@ public class UpdateMenuItemHelperTest {
         hideAppMenuAndAssertMenuShown();
 
         // Enter the tab switcher.
-        OverviewModeBehaviorWatcher overviewModeWatcher = new OverviewModeBehaviorWatcher(
-                mActivityTestRule.getActivity().getLayoutManager(), true, false);
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> mActivityTestRule.getActivity().getLayoutManager().showOverview(false));
-        overviewModeWatcher.waitForBehavior();
+        LayoutTestUtils.startShowingAndWaitForLayout(
+                mActivityTestRule.getActivity().getLayoutManager(), LayoutType.TAB_SWITCHER, false);
 
         // Make sure the item is not shown in tab switcher app menu.
         showAppMenuAndAssertMenuShown();

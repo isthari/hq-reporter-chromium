@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,11 @@
 #include "ash/system/accessibility/dictation_bubble_view.h"
 
 namespace ash {
+
+DictationBubbleTestHelper::DictationBubbleTestHelper() {
+  // Ensure the bubble UI is initialized.
+  GetController()->MaybeInitialize();
+}
 
 bool DictationBubbleTestHelper::IsVisible() {
   return GetController()->widget_->IsVisible();

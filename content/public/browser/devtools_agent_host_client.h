@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@ class GURL;
 namespace content {
 
 class DevToolsAgentHost;
+class RenderFrameHost;
 
 // DevToolsAgentHostClient can attach to a DevToolsAgentHost and start
 // debugging it.
@@ -32,13 +33,16 @@ class CONTENT_EXPORT DevToolsAgentHostClient {
   // Note: this method may be called before navigation commits.
   virtual bool MayAttachToURL(const GURL& url, bool is_webui);
 
-  // Returns true if the client is allowed to attach to the browser agent host.
-  // Browser client is allowed to discover other DevTools targets and generally
-  // manipulate browser altogether.
-  virtual bool MayAttachToBrowser();
+  // Returns true if the client is allowed to attach to the given
+  // RenderFrameHost.
+  virtual bool MayAttachToRenderFrameHost(RenderFrameHost* render_frame_host);
 
-  // Returns true if the client is allowed to send input events to the browser.
-  virtual bool MaySendInputEventsToBrowser();
+  // Returns true if the client is considered to be in the same trust domain
+  // from security perspective. It implies that the client is allowed to attach
+  // to the browser agent host and perform other privileged operations. Browser
+  // client is allowed to discover other DevTools targets and generally
+  // manipulate browser altogether.
+  virtual bool IsTrusted();
 
   // Returns true if the client is allowed to read local files over the
   // protocol. Example would be exposing file content to the page under debug.

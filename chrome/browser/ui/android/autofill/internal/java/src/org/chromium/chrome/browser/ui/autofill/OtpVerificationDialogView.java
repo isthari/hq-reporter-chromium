@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -158,7 +158,7 @@ public class OtpVerificationDialogView extends RelativeLayout {
                         org.chromium.chrome.browser.ui.autofill.internal.R.string
                                 .autofill_payments_otp_verification_dialog_cant_find_code_message),
                 new SpanInfo("<link>", "</link>",
-                        new NoUnderlineClickableSpan(context.getResources(),
-                                textView -> { viewDelegate.onResendLinkClicked(); })));
+                        new NoUnderlineClickableSpan(
+                                context, textView -> { viewDelegate.onResendLinkClicked(); })));
     }
 }

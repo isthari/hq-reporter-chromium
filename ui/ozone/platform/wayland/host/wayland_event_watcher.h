@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define UI_OZONE_PLATFORM_WAYLAND_HOST_WAYLAND_EVENT_WATCHER_H_
 
 #include "base/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/message_loop/message_pump_for_ui.h"
 
 struct wl_display;
@@ -43,15 +44,15 @@ class WaylandEventWatcher {
   // are already bound and properly initialized.
   void StartProcessingEvents();
 
-  // Stops polling for events from input devices.
-  void StopProcessingEvents();
-
   // Calls wl_display_roundtrip_queue. Might be required during initialization
   // of some objects that should block until they are initialized.
   void RoundTripQueue();
 
  protected:
   WaylandEventWatcher(wl_display* display, wl_event_queue* event_queue);
+
+  // Stops polling for events from input devices.
+  void StopProcessingEvents();
 
   // Starts watching the fd. Returns true on success
   virtual bool StartWatchingFD(int fd) = 0;
@@ -81,8 +82,8 @@ class WaylandEventWatcher {
   // and false is returned.
   void WlDisplayCheckForErrors();
 
-  wl_display* const display_;  // Owned by WaylandConnection.
-  wl_event_queue* const event_queue_;  // Owned by WaylandConnection.
+  const raw_ptr<wl_display> display_;          // Owned by WaylandConnection.
+  const raw_ptr<wl_event_queue> event_queue_;  // Owned by WaylandConnection.
 
   bool watching_ = false;
   bool prepared_ = false;

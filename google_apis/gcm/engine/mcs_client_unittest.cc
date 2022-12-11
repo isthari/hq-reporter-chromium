@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -223,7 +223,7 @@ void MCSClientTest::BuildMCSClient() {
       base::WrapUnique<Encryptor>(new FakeEncryptor));
   mcs_client_ = std::make_unique<TestMCSClient>(
       &clock_, &connection_factory_, gcm_store_.get(),
-      base::ThreadTaskRunnerHandle::Get(), &recorder_);
+      base::SingleThreadTaskRunner::GetCurrentDefault(), &recorder_);
 }
 
 void MCSClientTest::InitializeClient() {

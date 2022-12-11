@@ -1,10 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/ntp_snippets/pref_util.h"
 
 #include <memory>
+#include <ostream>
 
 #include "base/values.h"
 #include "components/prefs/pref_service.h"
@@ -15,8 +16,8 @@ namespace prefs {
 std::set<std::string> ReadDismissedIDsFromPrefs(const PrefService& pref_service,
                                                 const std::string& pref_name) {
   std::set<std::string> dismissed_ids;
-  const base::Value* list = pref_service.GetList(pref_name);
-  for (const base::Value& value : list->GetList()) {
+  const base::Value::List& list = pref_service.GetList(pref_name);
+  for (const base::Value& value : list) {
     DCHECK(value.is_string())
         << "Failed to parse dismissed id from prefs param " << pref_name
         << " into string.";

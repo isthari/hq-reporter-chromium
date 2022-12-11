@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -171,5 +171,13 @@ public class LoadingView extends ProgressBar {
     @VisibleForTesting
     public static void setDisableAnimationForTest(boolean disableAnimation) {
         sDisableAnimationForTest = disableAnimation;
+    }
+
+    /**
+     * Check if the Loading View Observer is empty or not.
+     * @return If the observers is empty then return true.
+     */
+    public boolean isObserverListEmpty() {
+        return mObservers.isEmpty();
     }
 }

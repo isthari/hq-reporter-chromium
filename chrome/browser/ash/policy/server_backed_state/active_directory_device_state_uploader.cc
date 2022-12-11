@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,9 +16,9 @@
 #include "chrome/browser/ash/settings/device_settings_service.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/dbus/login_manager/policy_descriptor.pb.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
-#include "chromeos/tpm/install_attributes.h"
+#include "chromeos/ash/components/dbus/login_manager/policy_descriptor.pb.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/install_attributes/install_attributes.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/dmserver_job_configurations.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -309,9 +309,9 @@ void ActiveDirectoryDeviceStateUploader::OnPolicyFetched(
     CloudPolicyClient* client) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  VLOG(1) << "Cloud policy fetched. Status = " << client->status();
+  VLOG(1) << "Cloud policy fetched. Status = " << client->last_dm_status();
 
-  bool success = (client->status() == DM_STATUS_SUCCESS);
+  bool success = (client->last_dm_status() == DM_STATUS_SUCCESS);
   if (!success) {
     LOG(ERROR) << "Failed to fetch policy to upload state keys";
   }
@@ -323,7 +323,8 @@ void ActiveDirectoryDeviceStateUploader::OnClientError(
     CloudPolicyClient* client) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  LOG(ERROR) << "Failed to upload state keys. Status = " << client->status();
+  LOG(ERROR) << "Failed to upload state keys. Status = "
+             << client->last_dm_status();
 
   MaybeRunStatusCallback(std::move(state_keys_callback_for_testing_),
                          /*success=*/false);

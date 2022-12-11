@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -122,8 +122,7 @@ public class CustomTabsConnectionTest {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             WarmupManager warmupManager = WarmupManager.getInstance();
             Assert.assertTrue(warmupManager.hasSpareWebContents());
-            WebContents webContents =
-                    warmupManager.takeSpareWebContents(false, false, WarmupManager.FOR_CCT);
+            WebContents webContents = warmupManager.takeSpareWebContents(false, false);
             Assert.assertNotNull(webContents);
             Assert.assertFalse(warmupManager.hasSpareWebContents());
             webContents.destroy();
@@ -287,7 +286,7 @@ public class CustomTabsConnectionTest {
                     tabDestroyedHelper.notifyCalled();
                 }
             });
-            WebContentsUtils.simulateRendererKilled(speculationTab.getWebContents(), false);
+            WebContentsUtils.simulateRendererKilled(speculationTab.getWebContents());
         });
         tabDestroyedHelper.waitForCallback("The speculated tab was not destroyed", 0);
     }
@@ -365,13 +364,12 @@ public class CustomTabsConnectionTest {
         mCustomTabsConnection.mayLaunchUrl(token, Uri.parse(URL), null, urls);
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
-                        -> Assert.assertNull(WarmupManager.getInstance().takeSpareWebContents(
-                                false, false, WarmupManager.FOR_CCT)));
+                        -> Assert.assertNull(
+                                WarmupManager.getInstance().takeSpareWebContents(false, false)));
     }
 
     private void assertSpareWebContentsNotNullAndDestroy() {
-        WebContents webContents = WarmupManager.getInstance().takeSpareWebContents(
-                false, false, WarmupManager.FOR_CCT);
+        WebContents webContents = WarmupManager.getInstance().takeSpareWebContents(false, false);
         Assert.assertNotNull(webContents);
         webContents.destroy();
     }
@@ -587,8 +585,8 @@ public class CustomTabsConnectionTest {
         Assert.assertTrue(mCustomTabsConnection.mayLaunchUrl(token, Uri.parse(URL), null, null));
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
-                        -> Assert.assertNull(WarmupManager.getInstance().takeSpareWebContents(
-                                false, false, WarmupManager.FOR_CCT)));
+                        -> Assert.assertNull(
+                                WarmupManager.getInstance().takeSpareWebContents(false, false)));
     }
 
     @Test

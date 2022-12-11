@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,8 +26,16 @@ BASE_EXPORT void StartThreadCachePeriodicPurge();
 BASE_EXPORT void StartMemoryReclaimer(
     scoped_refptr<SequencedTaskRunner> task_runner);
 
-BASE_EXPORT std::map<std::string, std::string> ProposeSyntheticFinchTrials(
-    bool is_enterprise);
+BASE_EXPORT std::map<std::string, std::string> ProposeSyntheticFinchTrials();
+
+// Install handlers for when dangling raw_ptr(s) have been detected. This prints
+// two StackTraces. One where the memory is freed, one where the last dangling
+// raw_ptr stopped referencing it.
+//
+// This is currently effective, only when compiled with
+// `enable_dangling_raw_ptr_checks` build flag.
+BASE_EXPORT void InstallDanglingRawPtrChecks();
+BASE_EXPORT void InstallUnretainedDanglingRawPtrChecks();
 
 }  // namespace allocator
 }  // namespace base

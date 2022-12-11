@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,14 +70,6 @@ void LogScreenOnBubbleClose(Screen screen) {
 void LogScreenOnSettingsButtonClicked(Screen screen) {
   base::UmaHistogramEnumeration("PhoneHub.ScreenOnSettingsButtonClicked",
                                 screen);
-}
-
-void LogNotificationOptInEvent(InterstitialScreenEvent event) {
-  base::UmaHistogramEnumeration("PhoneHub.NotificationOptInEvents", event);
-}
-
-void LogCameraRollOptInEvent(InterstitialScreenEvent event) {
-  base::UmaHistogramEnumeration("PhoneHub.CameraRoll.OptInEvents", event);
 }
 
 void LogTabContinuationChipClicked(int tab_index) {
@@ -206,6 +198,10 @@ void LogCameraRollContextMenuDownload(int index,
           static_cast<int>(CameraRollContextMenuDownload::kDownloadGTE5));
       break;
   }
+}
+
+void LogCameraRollContentPresent() {
+  base::UmaHistogramBoolean("PhoneHub.CameraRoll.Content.Present", true);
 }
 
 }  // namespace phone_hub_metrics

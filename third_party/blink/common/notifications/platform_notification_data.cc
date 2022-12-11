@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,8 @@
 namespace blink {
 
 PlatformNotificationData::PlatformNotificationData()
-    : direction(mojom::NotificationDirection::LEFT_TO_RIGHT) {}
+    : direction(mojom::NotificationDirection::LEFT_TO_RIGHT),
+      scenario(mojom::NotificationScenario::DEFAULT) {}
 
 PlatformNotificationData::PlatformNotificationData(
     const PlatformNotificationData& other) {
@@ -37,6 +38,7 @@ PlatformNotificationData& PlatformNotificationData::operator=(
   for (auto& action : other.actions)
     actions.push_back(action.Clone());
   show_trigger_timestamp = other.show_trigger_timestamp;
+  scenario = other.scenario;
 
   return *this;
 }

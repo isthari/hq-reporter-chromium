@@ -1,9 +1,9 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ash/components/login/auth/user_context.h"
 #include "ash/constants/ash_features.h"
+#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "base/command_line.h"
 #include "base/containers/contains.h"
@@ -31,14 +31,17 @@
 #include "chrome/browser/ash/settings/stub_cros_settings_provider.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/ui/ash/login_screen_shown_observer.h"
-#include "chrome/browser/ui/webui/chromeos/login/user_creation_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/user_creation_screen_handler.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/known_user.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 
 namespace ash {
+
 namespace {
 
 namespace em = ::enterprise_management;
@@ -279,6 +282,8 @@ void LoginUIKeyboardTestWithUsersAndOwner::CheckGaiaKeyboard() {
   std::vector<std::string> expected_input_methods;
   // kPreferredKeyboardLayout is now set to last focused POD.
   expected_input_methods.push_back(user_input_methods[0]);
+  // Owner input method.
+  expected_input_methods.push_back(user_input_methods[2]);
   // Locale default input methods (the first one also is hardware IM).
   Append_en_US_InputMethods(&expected_input_methods);
 
@@ -438,6 +443,11 @@ class FirstLoginKeyboardTest : public LoginManagerTest {
   FirstLoginKeyboardTest() = default;
   ~FirstLoginKeyboardTest() override = default;
 
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    LoginManagerTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitch(switches::kOobeSkipPostLogin);
+  }
+
  protected:
   AccountId test_user_{
       AccountId::FromUserEmailGaiaId(kTestUser1, kTestUser1GaiaId)};
@@ -450,8 +460,6 @@ class FirstLoginKeyboardTest : public LoginManagerTest {
 IN_PROC_BROWSER_TEST_F(FirstLoginKeyboardTest,
                        UsersLastInputMethodPersistsOnLoginOrUnlock) {
   EXPECT_TRUE(lock_screen_utils::GetUserLastInputMethodId(test_user_).empty());
-
-  WizardController::SkipPostLoginScreensForTesting();
 
   // Non canonical display email (typed) should not affect input method storage.
   LoginDisplayHost::default_host()->SetDisplayEmail(
@@ -496,7 +504,7 @@ class EphemeralUserKeyboardTest : public LoginManagerTest {
 
 // Check that ephemeral users have last input method set.
 IN_PROC_BROWSER_TEST_F(EphemeralUserKeyboardTest, PersistToProfile) {
-  WizardController::SkipPostLoginScreensForTesting();
+  login_manager_.SkipPostLoginScreens();
   login_manager_.LoginAsNewRegularUser();
   login_manager_.WaitForActiveSession();
 

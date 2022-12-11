@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/bind.h"
+#include "base/notreached.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -131,7 +132,8 @@ void ExtensionEnableFlow::CheckPermissionAndMaybePromptUser() {
 
   if (profiles::IsProfileLocked(profile_->GetPath())) {
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-    ProfilePicker::Show(ProfilePicker::EntryPoint::kProfileLocked);
+    ProfilePicker::Show(ProfilePicker::Params::FromEntryPoint(
+        ProfilePicker::EntryPoint::kProfileLocked));
 
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
     return;
@@ -265,13 +267,21 @@ void ExtensionEnableFlow::EnableExtension() {
 
 void ExtensionEnableFlow::InstallPromptDone(
     ExtensionInstallPrompt::DoneCallbackPayload payload) {
-  if (payload.result == ExtensionInstallPrompt::Result::ACCEPTED) {
-    EnableExtension();
-  } else {
-    delegate_->ExtensionEnableFlowAborted(/*user_initiated=*/
-                                          payload.result ==
-                                          ExtensionInstallPrompt::Result::
-                                              USER_CANCELED);
-    // |delegate_| may delete us.
+  switch (payload.result) {
+    case ExtensionInstallPrompt::Result::ACCEPTED:
+      EnableExtension();
+      break;
+    case ExtensionInstallPrompt::Result::ACCEPTED_WITH_WITHHELD_PERMISSIONS:
+      // This dialog doesn't support the "withhold permissions" checkbox.
+      NOTREACHED();
+      break;
+    case ExtensionInstallPrompt::Result::USER_CANCELED:
+    case ExtensionInstallPrompt::Result::ABORTED:
+      delegate_->ExtensionEnableFlowAborted(/*user_initiated=*/
+                                            payload.result ==
+                                            ExtensionInstallPrompt::Result::
+                                                USER_CANCELED);
+      // `delegate_` may delete us.
+      break;
   }
 }

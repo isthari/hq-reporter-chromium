@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,11 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/memory/shared_memory_mapping.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_piece.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/unguessable_token.h"
 #include "chrome/browser/ash/wilco_dtc_supportd/mojo_utils.h"
 #include "chrome/browser/ash/wilco_dtc_supportd/wilco_dtc_supportd_bridge.h"
@@ -47,7 +46,7 @@ const char* const kWilcoDtcSupportdHostOrigins[] = {
 
 // Size of |kWilcoDtcSupportdHostOrigins| array.
 const size_t kWilcoDtcSupportdHostOriginsSize =
-    base::size(kWilcoDtcSupportdHostOrigins);
+    std::size(kWilcoDtcSupportdHostOrigins);
 
 // Native application name that is used for passing UI messages between the
 // wilco_dtc daemon and extensions.
@@ -200,7 +199,7 @@ class WilcoDtcSupportdExtensionOwnedMessageHost final
   }
 
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_ =
-      base::ThreadTaskRunnerHandle::Get();
+      base::SingleThreadTaskRunner::GetCurrentDefault();
 
   // Unowned.
   Client* client_ = nullptr;
@@ -278,7 +277,7 @@ class WilcoDtcSupportdDaemonOwnedMessageHost final
 
  private:
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_ =
-      base::ThreadTaskRunnerHandle::Get();
+      base::SingleThreadTaskRunner::GetCurrentDefault();
   const std::string json_message_to_send_;
   base::OnceCallback<void(const std::string& response)> send_response_callback_;
   // Unowned.

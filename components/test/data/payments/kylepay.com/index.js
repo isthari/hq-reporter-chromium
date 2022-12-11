@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 The Chromium Authors. All rights reserved.
+ * Copyright 2019 The Chromium Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
@@ -9,7 +9,7 @@
  * @param {String} method - The payment method name that this app supports.
  * @return {string} The 'success' or error message.
  */
-async function install(method) { // eslint-disable-line no-unused-vars
+async function install(method) {
   try {
     let registration = await navigator.serviceWorker.getRegistration('app.js');
     if (registration) {

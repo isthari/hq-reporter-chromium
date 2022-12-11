@@ -1,19 +1,22 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/passwords/well_known_change_password_navigation_throttle.h"
 
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/password_manager/affiliation_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
-#include "components/password_manager/core/browser/site_affiliation/affiliation_service.h"
+#include "components/password_manager/content/browser/password_change_success_tracker_factory.h"
+#include "components/password_manager/core/browser/affiliation/affiliation_service.h"
+#include "components/password_manager/core/browser/password_change_success_tracker.h"
 #include "components/password_manager/core/browser/well_known_change_password_state.h"
 #include "components/password_manager/core/browser/well_known_change_password_util.h"
 #include "components/password_manager/core/common/password_manager_features.h"
-#include "components/ukm/content/source_url_recorder.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/page_navigator.h"
@@ -34,6 +37,7 @@ using content::NavigationHandle;
 using content::NavigationThrottle;
 using content::WebContents;
 using password_manager::IsWellKnownChangePasswordUrl;
+using password_manager::PasswordChangeSuccessTracker;
 using password_manager::WellKnownChangePasswordResult;
 using password_manager::WellKnownChangePasswordState;
 
@@ -63,7 +67,9 @@ bool IsTriggeredByGoogleOwnedUI(NavigationHandle* handle) {
 std::unique_ptr<WellKnownChangePasswordNavigationThrottle>
 WellKnownChangePasswordNavigationThrottle::MaybeCreateThrottleFor(
     NavigationHandle* handle) {
-  if (handle->IsInMainFrame() &&
+  // Don't handle navigations in subframes or main frames that are in a nested
+  // frame tree (e.g. portals, fenced frames)
+  if (handle->IsInOutermostMainFrame() &&
       IsWellKnownChangePasswordUrl(handle->GetURL()) &&
       IsTriggeredByGoogleOwnedUI(handle)) {
     return std::make_unique<WellKnownChangePasswordNavigationThrottle>(handle);
@@ -76,11 +82,12 @@ WellKnownChangePasswordNavigationThrottle::
     WellKnownChangePasswordNavigationThrottle(NavigationHandle* handle)
     : NavigationThrottle(handle),
       request_url_(handle->GetURL()),
-      source_id_(
-          ukm::GetSourceIdForWebContentsDocument(handle->GetWebContents())) {
-  // If we're in a non-primary frame tree (e.g. prerendering) we're only
-  // constructing the throttle so it can cancel the prerender.
-  if (!handle->IsInPrimaryMainFrame())
+      source_id_(handle->GetWebContents()
+                     ->GetPrimaryMainFrame()
+                     ->GetPageUkmSourceId()) {
+  // If this is a prerender navigation, we're only constructing the throttle
+  // so it can cancel the prerender.
+  if (handle->IsInPrerenderedMainFrame())
     return;
 
   affiliation_service_ =
@@ -100,7 +107,7 @@ WellKnownChangePasswordNavigationThrottle::WillStartRequest() {
   // The logic in Redirect will navigate the primary FrameTree if we're in a
   // prerender. We don't have a way to navigate the prerendered page so just
   // cancel the prerender.
-  if (!navigation_handle()->IsInPrimaryMainFrame()) {
+  if (navigation_handle()->IsInPrerenderedMainFrame()) {
     return NavigationThrottle::CANCEL;
   }
 
@@ -135,13 +142,11 @@ WellKnownChangePasswordNavigationThrottle::WillProcessResponse() {
   // PostTask because the Throttle needs to be deferred before the status code
   // is set. After setting the status code Resume() can be called synchronous
   // and thereby before the throttle is deferred. This would result in a crash.
-  // Unretained is safe because the NavigationThrottle is deferred and can only
-  // be continued after the callback finished.
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           &WellKnownChangePasswordState::SetChangePasswordResponseCode,
-          base::Unretained(&well_known_change_password_state_),
+          weak_ptr_factory_.GetWeakPtr(),
           navigation_handle()->GetResponseHeaders()->response_code()));
   return NavigationThrottle::DEFER;
 }
@@ -154,19 +159,35 @@ void WellKnownChangePasswordNavigationThrottle::OnProcessingFinished(
     bool is_supported) {
   GURL redirect_url = affiliation_service_->GetChangePasswordURL(request_url_);
 
+  // Extend the information of precisely what kind of flow the manual
+  // password change flow is.
+  raw_ptr<PasswordChangeSuccessTracker> password_change_success_tracker =
+      password_manager::PasswordChangeSuccessTrackerFactory::
+          GetForBrowserContext(
+              navigation_handle()->GetWebContents()->GetBrowserContext());
+
   // If affiliation service returns .well-known/change-password as change
   // password url - show it even if Chrome doesn't detect it as supported.
   if (is_supported || redirect_url == request_url_) {
     RecordMetric(WellKnownChangePasswordResult::kUsedWellKnownChangePassword);
+    password_change_success_tracker->OnChangePasswordFlowModified(
+        request_url_,
+        PasswordChangeSuccessTracker::StartEvent::kManualWellKnownUrlFlow);
     Resume();
     return;
   }
 
   if (redirect_url.is_valid()) {
     RecordMetric(WellKnownChangePasswordResult::kFallbackToOverrideUrl);
+    password_change_success_tracker->OnChangePasswordFlowModified(
+        request_url_,
+        PasswordChangeSuccessTracker::StartEvent::kManualChangePasswordUrlFlow);
     Redirect(redirect_url);
   } else {
     RecordMetric(WellKnownChangePasswordResult::kFallbackToOriginUrl);
+    password_change_success_tracker->OnChangePasswordFlowModified(
+        request_url_,
+        PasswordChangeSuccessTracker::StartEvent::kManualHomepageFlow);
     Redirect(request_url_.DeprecatedGetOriginAsURL());
   }
   CancelDeferredNavigation(NavigationThrottle::CANCEL);
@@ -182,7 +203,7 @@ void WellKnownChangePasswordNavigationThrottle::Redirect(const GURL& url) {
   if (!web_contents)
     return;
 
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(
                      [](base::WeakPtr<content::WebContents> web_contents,
                         const content::OpenURLParams& params) {
@@ -195,6 +216,8 @@ void WellKnownChangePasswordNavigationThrottle::Redirect(const GURL& url) {
 
 void WellKnownChangePasswordNavigationThrottle::RecordMetric(
     WellKnownChangePasswordResult result) {
+  base::UmaHistogramEnumeration("PasswordManager.WellKnownChangePasswordResult",
+                                result);
   ukm::builders::PasswordManager_WellKnownChangePasswordResult(source_id_)
       .SetWellKnownChangePasswordResult(static_cast<int64_t>(result))
       .Record(ukm::UkmRecorder::Get());

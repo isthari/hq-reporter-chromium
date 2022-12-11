@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/common/buildflags.h"
+#include "extensions/buildflags/buildflags.h"
 
 namespace features {
 
@@ -22,67 +23,85 @@ namespace features {
 
 // TODO(https://crbug.com/896640): Remove this when the tab dragging
 // interactive_ui_tests pass on Wayland.
-extern const base::Feature kAllowWindowDragUsingSystemDragDrop;
+BASE_DECLARE_FEATURE(kAllowWindowDragUsingSystemDragDrop);
 
-extern const base::Feature kChromeLabs;
+#if !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_ANDROID)
+BASE_DECLARE_FEATURE(kDesktopPWAsAppHomePage);
+#endif  // !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_ANDROID)
 
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-extern const base::Feature kChromeTipsInMainMenu;
-
-extern const base::Feature kChromeTipsInMainMenuNewBadge;
-#endif
-
-extern const base::Feature kChromeWhatsNewUI;
-extern const base::FeatureParam<bool> kChromeWhatsNewUIFeedbackButton;
+BASE_DECLARE_FEATURE(kChromeLabs);
 
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-extern const base::Feature kChromeWhatsNewInMainMenuNewBadge;
+BASE_DECLARE_FEATURE(kChromeTipsInMainMenu);
+
+BASE_DECLARE_FEATURE(kChromeTipsInMainMenuNewBadge);
 #endif
 
-extern const base::Feature kCommander;
+BASE_DECLARE_FEATURE(kChromeWhatsNewUI);
 
-extern const base::Feature kDownloadBubble;
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+BASE_DECLARE_FEATURE(kChromeWhatsNewInMainMenuNewBadge);
+#endif
 
 #if !defined(ANDROID)
-extern const base::Feature kAccessCodeCastUI;
+BASE_DECLARE_FEATURE(kAccessCodeCastUI);
 #endif
 
-extern const base::Feature kEvDetailsInPageInfo;
+BASE_DECLARE_FEATURE(kDisplayOpenLinkAsProfile);
 
-extern const base::Feature kExtensionsMenuAccessControl;
+BASE_DECLARE_FEATURE(kEvDetailsInPageInfo);
 
-extern const base::Feature kForceSignInReauth;
+#if BUILDFLAG(ENABLE_EXTENSIONS)
+BASE_DECLARE_FEATURE(kLightweightExtensionOverrideConfirmations);
+#endif
 
-extern const base::Feature kProminentDarkModeActiveTabTitle;
+BASE_DECLARE_FEATURE(kPowerBookmarksSidePanel);
 
-extern const base::Feature kReadLaterNewBadgePromo;
+BASE_DECLARE_FEATURE(kProminentDarkModeActiveTabTitle);
 
-extern const base::Feature kReadLaterAddFromDialog;
+BASE_DECLARE_FEATURE(kQuickCommands);
 
-extern const base::Feature kScrollableTabStrip;
+BASE_DECLARE_FEATURE(kScrollableTabStrip);
 extern const char kMinimumTabWidthFeatureParameterName[];
 
-extern const base::Feature kScrollableTabStripButtons;
+BASE_DECLARE_FEATURE(kScrollableTabStripWithDragging);
+extern const char kTabScrollingWithDraggingModeName[];
+
+BASE_DECLARE_FEATURE(kSplitTabStrip);
+
+BASE_DECLARE_FEATURE(kTabScrollingButtonPosition);
+extern const char kTabScrollingButtonPositionParameterName[];
+
+BASE_DECLARE_FEATURE(kScrollableTabStripOverflow);
+extern const char kScrollableTabStripOverflowModeName[];
 
 // TODO(pbos): Once kReadLater is cleaned up on Desktop, move definition into
 // ui_features.cc. This is currently temporarily in reading_list_switches.h.
-extern const base::Feature kSidePanel;
-extern const base::Feature kSidePanelDragAndDrop;
+BASE_DECLARE_FEATURE(kSidePanelImprovedClobbering);
 
-#if BUILDFLAG(ENABLE_SIDE_SEARCH)
-extern const base::Feature kSideSearch;
-extern const base::Feature kSideSearchClearCacheWhenClosed;
-extern const base::Feature kSideSearchFeedback;
-extern const base::Feature kSideSearchStatePerTab;
-#endif  // BUILDFLAG(ENABLE_SIDE_SEARCH)
+BASE_DECLARE_FEATURE(kSidePanelWebView);
 
-extern const base::Feature kTabGroupsAutoCreate;
+BASE_DECLARE_FEATURE(kSidePanelJourneys);
+extern const base::FeatureParam<bool> kSidePanelJourneysOpensFromOmnibox;
+BASE_DECLARE_FEATURE(kSidePanelJourneysQueryless);
 
-extern const base::Feature kTabGroupsNewBadgePromo;
+BASE_DECLARE_FEATURE(kSideSearch);
+BASE_DECLARE_FEATURE(kSideSearchFeedback);
+BASE_DECLARE_FEATURE(kSideSearchDSESupport);
+BASE_DECLARE_FEATURE(kSearchWebInSidePanel);
+BASE_DECLARE_FEATURE(kClobberAllSideSearchSidePanels);
 
-extern const base::Feature kTabGroupsSave;
+BASE_DECLARE_FEATURE(kSideSearchAutoTriggering);
+extern const base::FeatureParam<int> kSideSearchAutoTriggeringReturnCount;
 
-extern const base::Feature kTabHoverCardImages;
+BASE_DECLARE_FEATURE(kTabGroupsCollapseFreezing);
+
+BASE_DECLARE_FEATURE(kTabGroupsNewBadgePromo);
+
+BASE_DECLARE_FEATURE(kTabGroupsSave);
+extern const base::FeatureParam<bool> kTabGroupsSaveSyncIntegration;
+
+BASE_DECLARE_FEATURE(kTabHoverCardImages);
 
 // These parameters control how long the hover card system waits before
 // requesting a preview image from a tab where no preview image is available.
@@ -111,21 +130,19 @@ extern const char kTabHoverCardAdditionalMaxWidthDelay[];
 // on top. 0 is the default layout.
 extern const char kTabHoverCardAlternateFormat[];
 
-extern const base::Feature kTabOutlinesInLowContrastThemes;
+BASE_DECLARE_FEATURE(kTabOutlinesInLowContrastThemes);
 
-extern const base::Feature kTabSearchChevronIcon;
+BASE_DECLARE_FEATURE(kTabSearchChevronIcon);
 
-extern const base::Feature kTabSearchFeedback;
+BASE_DECLARE_FEATURE(kTabSearchFeedback);
 
-extern const base::Feature kTabSearchFuzzySearch;
+BASE_DECLARE_FEATURE(kTabSearchFuzzySearch);
 
 extern const char kTabSearchSearchThresholdName[];
 
 // Setting this to true will ignore the distance parameter when finding matches.
 // This means that it will not matter where in the string the pattern occurs.
 extern const base::FeatureParam<bool> kTabSearchSearchIgnoreLocation;
-
-extern const base::Feature kTabSearchMediaTabs;
 
 extern const char kTabSearchAlsoShowMediaTabsinOpenTabsSectionParameterName[];
 
@@ -159,7 +176,7 @@ extern const base::FeatureParam<double> kTabSearchGroupTitleWeight;
 // Whether to move the active tab to the bottom of the list.
 extern const base::FeatureParam<bool> kTabSearchMoveActiveTabToBottom;
 
-extern const base::Feature kTabSearchRecentlyClosed;
+BASE_DECLARE_FEATURE(kTabSearchRecentlyClosed);
 
 // Default number of recently closed entries to display by default when no
 // search text is provided.
@@ -171,47 +188,45 @@ extern const base::FeatureParam<int>
 // count have been met.
 extern const base::FeatureParam<int> kTabSearchRecentlyClosedTabCountThreshold;
 
+BASE_DECLARE_FEATURE(kTabSearchUseMetricsReporter);
+
 // Determines how screenshots of the toolbar uses Software or Hardware drawing.
 // Works on Android 10+.
-extern const base::Feature kToolbarUseHardwareBitmapDraw;
+BASE_DECLARE_FEATURE(kToolbarUseHardwareBitmapDraw);
 
-extern const base::Feature kUnifiedSidePanel;
+BASE_DECLARE_FEATURE(kTopChromeWebUIUsesSpareRenderer);
 
-extern const base::Feature kWebUIBubblePerProfilePersistence;
+BASE_DECLARE_FEATURE(kUnifiedSidePanel);
 
-#if !defined(ANDROID)
-extern const base::Feature kWebUIBrandingUpdate;
-#endif
+BASE_DECLARE_FEATURE(kWebUIBubblePerProfilePersistence);
 
-extern const base::Feature kWebUIDownloadShelf;
-
-extern const base::Feature kWebUITabStrip;
+BASE_DECLARE_FEATURE(kWebUITabStrip);
 
 // Controls whether the context menu is shown on a touch press or a touch
 // tap gesture on the WebUI Tab Strip.
-extern const base::Feature kWebUITabStripContextMenuAfterTap;
-
-extern const base::Feature kWebUIFeedback;
+BASE_DECLARE_FEATURE(kWebUITabStripContextMenuAfterTap);
 
 #if BUILDFLAG(IS_CHROMEOS)
-extern const base::Feature kChromeOSTabSearchCaptionButton;
+BASE_DECLARE_FEATURE(kChromeOSTabSearchCaptionButton);
 #endif
 
 // Cocoa to views migration.
 #if BUILDFLAG(IS_MAC)
-extern const base::Feature kLocationPermissionsExperiment;
+BASE_DECLARE_FEATURE(kLocationPermissionsExperiment);
 
-extern const base::Feature kViewsFirstRunDialog;
-extern const base::Feature kViewsTaskManager;
-extern const base::Feature kViewsJSAppModalDialog;
+BASE_DECLARE_FEATURE(kViewsFirstRunDialog);
+BASE_DECLARE_FEATURE(kViewsTaskManager);
+BASE_DECLARE_FEATURE(kViewsJSAppModalDialog);
 
 int GetLocationPermissionsExperimentBubblePromptLimit();
 int GetLocationPermissionsExperimentLabelPromptLimit();
 #endif
 
 #if BUILDFLAG(IS_WIN)
-extern const base::Feature kWin10TabSearchCaptionButton;
+BASE_DECLARE_FEATURE(kWin10TabSearchCaptionButton);
 #endif
+
+BASE_DECLARE_FEATURE(kStopLoadingAnimationForHiddenWindow);
 
 }  // namespace features
 

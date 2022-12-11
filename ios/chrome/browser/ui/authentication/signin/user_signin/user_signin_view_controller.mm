@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/chrome/common/ui/util/pointer_interaction_util.h"
 #import "ios/chrome/grit/ios_strings.h"
-#include "ui/base/device_form_factor.h"
+#import "ui/base/device_form_factor.h"
 #import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -274,9 +274,9 @@ enum AuthenticationButtonType {
 
   [NSLayoutConstraint activateConstraints:@[
     // Note that the bottom constraint of the container view and
-    // |embeddedViewController.view| is dependent on the selected
+    // `embeddedViewController.view` is dependent on the selected
     // Accessibility options in Settings, e.g. text size. These constraints
-    // are computed in |setAccessibilityLayoutConstraints|.
+    // are computed in `setAccessibilityLayoutConstraints`.
     [self.containerView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
     [self.containerView.leadingAnchor
         constraintEqualToAnchor:self.view.leadingAnchor],
@@ -358,10 +358,6 @@ enum AuthenticationButtonType {
 }
 
 - (NSString*)secondaryActionButtonTitle {
-  if (self.useFirstRunSkipButton) {
-    return l10n_util::GetNSString(
-        IDS_IOS_FIRSTRUN_ACCOUNT_CONSISTENCY_SKIP_BUTTON);
-  }
   return l10n_util::GetNSString(IDS_IOS_ACCOUNT_CONSISTENCY_SETUP_SKIP_BUTTON);
 }
 
@@ -376,7 +372,10 @@ enum AuthenticationButtonType {
 
 - (UIView*)gradientView {
   if (!_gradientView) {
-    _gradientView = [[GradientView alloc] init];
+    _gradientView = [[GradientView alloc]
+        initWithTopColor:[[UIColor colorNamed:kPrimaryBackgroundColor]
+                             colorWithAlphaComponent:0]
+             bottomColor:[UIColor colorNamed:kPrimaryBackgroundColor]];
   }
   return _gradientView;
 }
@@ -443,10 +442,10 @@ enum AuthenticationButtonType {
       [self.embeddedViewController.view.widthAnchor
           constraintEqualToConstant:kUserConsentMaxSize],
     ];
-    for (NSLayoutConstraint* constraints in lowerPriorityConstraints) {
-      // We do not use |UILayoutPriorityDefaultHigh| because it makes some
+    for (NSLayoutConstraint* layout_constraints in lowerPriorityConstraints) {
+      // We do not use `UILayoutPriorityDefaultHigh` because it makes some
       // multiline labels on one line and truncated on iPad.
-      constraints.priority = UILayoutPriorityRequired - 1;
+      layout_constraints.priority = UILayoutPriorityRequired - 1;
     }
     [constraints addObjectsFromArray:lowerPriorityConstraints];
     _regularSizeClassConstraints = constraints;
@@ -509,7 +508,7 @@ enum AuthenticationButtonType {
       CreateOpaqueOrTransparentButtonPointerStyleProvider();
 }
 
-// Applies font and inset to |button| according to the current size class.
+// Applies font and inset to `button` according to the current size class.
 - (void)applyDefaultSizeWithButton:(UIButton*)button
                          fontStyle:(UIFontTextStyle)fontStyle {
   const AuthenticationViewConstants& constants =

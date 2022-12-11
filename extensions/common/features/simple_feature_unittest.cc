@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,13 @@
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_command_line.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/values.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/common/extension_builder.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/features/complex_feature.h"
 #include "extensions/common/features/feature_channel.h"
 #include "extensions/common/features/feature_developer_mode_only.h"
@@ -118,7 +118,7 @@ TEST_F(SimpleFeatureTest, IsAvailableNullCase) {
        Feature::IS_AVAILABLE}};
 
   SimpleFeature feature;
-  for (size_t i = 0; i < base::size(tests); ++i) {
+  for (size_t i = 0; i < std::size(tests); ++i) {
     const IsAvailableTestData& test = tests[i];
     EXPECT_EQ(test.expected_result,
               feature
@@ -339,10 +339,10 @@ TEST_F(SimpleFeatureTest, Context) {
   feature.set_max_manifest_version(25);
 
   base::DictionaryValue manifest;
-  manifest.SetString("name", "test");
-  manifest.SetString("version", "1");
-  manifest.SetInteger("manifest_version", 21);
-  manifest.SetString("app.launch.local_path", "foo.html");
+  manifest.SetStringKey("name", "test");
+  manifest.SetStringKey("version", "1");
+  manifest.SetIntKey("manifest_version", 21);
+  manifest.SetStringPath("app.launch.local_path", "foo.html");
 
   std::string error;
   scoped_refptr<const Extension> extension(
@@ -457,10 +457,10 @@ TEST_F(SimpleFeatureTest, Context) {
 
 TEST_F(SimpleFeatureTest, SessionType) {
   base::DictionaryValue manifest;
-  manifest.SetString("name", "test");
-  manifest.SetString("version", "1");
-  manifest.SetInteger("manifest_version", 2);
-  manifest.SetString("app.launch.local_path", "foo.html");
+  manifest.SetStringKey("name", "test");
+  manifest.SetStringKey("version", "1");
+  manifest.SetIntKey("manifest_version", 2);
+  manifest.SetStringPath("app.launch.local_path", "foo.html");
 
   std::string error;
   scoped_refptr<const Extension> extension(
@@ -546,7 +546,7 @@ TEST_F(SimpleFeatureTest, SessionType) {
        mojom::FeatureSessionType::kAutolaunchedKiosk,
        {mojom::FeatureSessionType::kKiosk}}};
 
-  for (size_t i = 0; i < base::size(kTestData); ++i) {
+  for (size_t i = 0; i < std::size(kTestData); ++i) {
     std::unique_ptr<base::AutoReset<mojom::FeatureSessionType>> current_session(
         ScopedCurrentFeatureSessionType(kTestData[i].current_session_type));
 
@@ -748,28 +748,30 @@ TEST_F(SimpleFeatureTest, CommandLineSwitch) {
 }
 
 TEST_F(SimpleFeatureTest, FeatureFlags) {
-  const std::vector<base::Feature> features(
-      {{"stub_feature_1", base::FEATURE_ENABLED_BY_DEFAULT},
-       {"stub_feature_2", base::FEATURE_DISABLED_BY_DEFAULT}});
+  static BASE_FEATURE(kStubFeature1, "StubFeature1",
+                      base::FEATURE_ENABLED_BY_DEFAULT);
+  static BASE_FEATURE(kStubFeature2, "StubFeature2",
+                      base::FEATURE_DISABLED_BY_DEFAULT);
+  const base::Feature* kOverriddenFeatures[] = {&kStubFeature1, &kStubFeature2};
   auto scoped_feature_override =
-      CreateScopedFeatureFlagsOverrideForTesting(&features);
+      CreateScopedFeatureFlagsOverrideForTesting(kOverriddenFeatures);
 
   SimpleFeature simple_feature_1;
-  simple_feature_1.set_feature_flag(features[0].name);
+  simple_feature_1.set_feature_flag(kStubFeature1.name);
   EXPECT_EQ(Feature::IS_AVAILABLE,
             simple_feature_1.IsAvailableToEnvironment(kUnspecifiedContextId)
                 .result());
 
   SimpleFeature simple_feature_2;
-  simple_feature_2.set_feature_flag(features[1].name);
+  simple_feature_2.set_feature_flag(kStubFeature2.name);
   EXPECT_EQ(Feature::FEATURE_FLAG_DISABLED,
             simple_feature_2.IsAvailableToEnvironment(kUnspecifiedContextId)
                 .result());
 
   // Ensure we take any base::Feature overrides into account.
   base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitWithFeatures({features[1]} /* enabled_features */,
-                                       {features[0]} /* disabled_features */);
+  scoped_feature_list.InitWithFeatures({kStubFeature2} /* enabled_features */,
+                                       {kStubFeature1} /* disabled_features */);
   EXPECT_EQ(Feature::FEATURE_FLAG_DISABLED,
             simple_feature_1.IsAvailableToEnvironment(kUnspecifiedContextId)
                 .result());
@@ -788,13 +790,13 @@ TEST_F(SimpleFeatureTest, IsIdInArray) {
     // aaaabbbbccccddddeeeeffffgggghhhh
     "9A0417016F345C934A1A88F55CA17C05014EEEBA"
   };
-  EXPECT_FALSE(SimpleFeature::IsIdInArray("", kIdArray, base::size(kIdArray)));
+  EXPECT_FALSE(SimpleFeature::IsIdInArray("", kIdArray, std::size(kIdArray)));
   EXPECT_FALSE(SimpleFeature::IsIdInArray("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                                          kIdArray, base::size(kIdArray)));
+                                          kIdArray, std::size(kIdArray)));
   EXPECT_TRUE(SimpleFeature::IsIdInArray("bbbbccccdddddddddeeeeeeffffgghhh",
-                                         kIdArray, base::size(kIdArray)));
+                                         kIdArray, std::size(kIdArray)));
   EXPECT_TRUE(SimpleFeature::IsIdInArray("aaaabbbbccccddddeeeeffffgggghhhh",
-                                         kIdArray, base::size(kIdArray)));
+                                         kIdArray, std::size(kIdArray)));
 }
 
 // Tests that all combinations of feature channel and Chrome channel correctly
@@ -1075,34 +1077,86 @@ TEST(SimpleFeatureUnitTest, TestExperimentalExtensionApisSwitch) {
   }
 }
 
-TEST_F(SimpleFeatureTest, DeveloperModeOnly) {
+TEST_F(SimpleFeatureTest, EnableRestrictDeveloperModeAPIs) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      extensions_features::kRestrictDeveloperModeAPIs);
+
   constexpr int kContextId1 = 1;
   constexpr int kContextId2 = 2;
-  SimpleFeature feature;
+  SimpleFeature dev_mode_only_feature;
+  dev_mode_only_feature.set_developer_mode_only(true);
+  SimpleFeature other_feature;
 
-  EXPECT_EQ(Feature::IS_AVAILABLE,
-            feature.IsAvailableToEnvironment(kContextId1).result());
-  EXPECT_EQ(Feature::IS_AVAILABLE,
-            feature.IsAvailableToEnvironment(kContextId2).result());
-
+  // With kDeveloperModeRestriction enabled, developer mode-only APIs
+  // should be available if and only if the user is in dev mode.
   SetCurrentDeveloperMode(kContextId1, true);
+  EXPECT_EQ(
+      Feature::IS_AVAILABLE,
+      dev_mode_only_feature.IsAvailableToEnvironment(kContextId1).result());
   EXPECT_EQ(Feature::IS_AVAILABLE,
-            feature.IsAvailableToEnvironment(kContextId1).result());
+            other_feature.IsAvailableToEnvironment(kContextId1).result());
+
+  SetCurrentDeveloperMode(kContextId1, false);
+  EXPECT_EQ(
+      Feature::REQUIRES_DEVELOPER_MODE,
+      dev_mode_only_feature.IsAvailableToEnvironment(kContextId1).result());
+  EXPECT_EQ(Feature::IS_AVAILABLE,
+            other_feature.IsAvailableToEnvironment(kContextId1).result());
 
   SetCurrentDeveloperMode(kContextId2, true);
+  EXPECT_EQ(
+      Feature::IS_AVAILABLE,
+      dev_mode_only_feature.IsAvailableToEnvironment(kContextId2).result());
   EXPECT_EQ(Feature::IS_AVAILABLE,
-            feature.IsAvailableToEnvironment(kContextId2).result());
+            other_feature.IsAvailableToEnvironment(kContextId2).result());
 
-  feature.set_developer_mode_only(true);
-  SetCurrentDeveloperMode(kContextId1, false);
-  EXPECT_EQ(Feature::REQUIRES_DEVELOPER_MODE,
-            feature.IsAvailableToEnvironment(kContextId1).result());
+  SetCurrentDeveloperMode(kContextId2, false);
+  EXPECT_EQ(
+      Feature::REQUIRES_DEVELOPER_MODE,
+      dev_mode_only_feature.IsAvailableToEnvironment(kContextId2).result());
   EXPECT_EQ(Feature::IS_AVAILABLE,
-            feature.IsAvailableToEnvironment(kContextId2).result());
+            other_feature.IsAvailableToEnvironment(kContextId2).result());
+}
+
+TEST_F(SimpleFeatureTest, DisableRestrictDeveloperModeAPIs) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      extensions_features::kRestrictDeveloperModeAPIs);
+
+  constexpr int kContextId1 = 1;
+  constexpr int kContextId2 = 2;
+  SimpleFeature dev_mode_only_feature;
+  dev_mode_only_feature.set_developer_mode_only(true);
+  SimpleFeature other_feature;
 
   SetCurrentDeveloperMode(kContextId1, true);
+  EXPECT_EQ(
+      Feature::IS_AVAILABLE,
+      dev_mode_only_feature.IsAvailableToEnvironment(kContextId1).result());
   EXPECT_EQ(Feature::IS_AVAILABLE,
-            feature.IsAvailableToEnvironment(kContextId1).result());
+            other_feature.IsAvailableToEnvironment(kContextId1).result());
+
+  SetCurrentDeveloperMode(kContextId1, false);
+  EXPECT_EQ(
+      Feature::IS_AVAILABLE,
+      dev_mode_only_feature.IsAvailableToEnvironment(kContextId1).result());
+  EXPECT_EQ(Feature::IS_AVAILABLE,
+            other_feature.IsAvailableToEnvironment(kContextId1).result());
+
+  SetCurrentDeveloperMode(kContextId2, true);
+  EXPECT_EQ(
+      Feature::IS_AVAILABLE,
+      dev_mode_only_feature.IsAvailableToEnvironment(kContextId2).result());
+  EXPECT_EQ(Feature::IS_AVAILABLE,
+            other_feature.IsAvailableToEnvironment(kContextId2).result());
+
+  SetCurrentDeveloperMode(kContextId2, false);
+  EXPECT_EQ(
+      Feature::IS_AVAILABLE,
+      dev_mode_only_feature.IsAvailableToEnvironment(kContextId2).result());
+  EXPECT_EQ(Feature::IS_AVAILABLE,
+            other_feature.IsAvailableToEnvironment(kContextId2).result());
 }
 
 TEST(SimpleFeatureUnitTest, DisallowForServiceWorkers) {

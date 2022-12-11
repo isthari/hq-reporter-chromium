@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,9 @@ enum LaunchTypeAtCreation:int {
     FROM_TAB_GROUP_UI = 13,
     FROM_LONGPRESS_BACKGROUND_IN_GROUP = 14,
     FROM_APP_WIDGET = 15,
+    FROM_LONGPRESS_INCOGNITO = 16,
+    FROM_RECENT_TABS = 17,
+    FROM_READING_LIST = 18,
     // Add new values here and don't change existing values
     // as they are persisted across restarts. Changing existing
     // values will lead to backwards compatibility issues crbug.com/1286984.

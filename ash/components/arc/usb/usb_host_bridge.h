@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,17 +37,6 @@ class ArcUsbHostBridge : public KeyedService,
                          public device::mojom::UsbDeviceManagerClient,
                          public mojom::UsbHostHost {
  public:
-  class Delegate {
-   public:
-    virtual ~Delegate() = default;
-
-    // Attaches the unclaimed USB devices to the ARCVM instance if ARCVM is
-    // enabled. Called by ArcUsbHostBridge once it successfully established the
-    // Mojo connection to the ARC instance. This may be called multiple times
-    // within the lifetime of a single ArcUsbHostBridge instance.
-    virtual void AttachDevicesToArcVm() = 0;
-  };
-
   // Returns singleton instance for the given BrowserContext,
   // or nullptr if the browser |context| is not allowed to use ARC.
   static ArcUsbHostBridge* GetForBrowserContext(
@@ -87,9 +76,6 @@ class ArcUsbHostBridge : public KeyedService,
 
   void SetUiDelegate(ArcUsbHostUiDelegate* ui_delegate);
 
-  // Sets the Delegate instance.
-  void SetDelegate(std::unique_ptr<Delegate> delegate);
-
  private:
   // Init |devices_| once the device list has been returned, so that we
   // can get UsbDeviceInfo from |guid| for other methods.
@@ -120,7 +106,6 @@ class ArcUsbHostBridge : public KeyedService,
   std::map<std::string, device::mojom::UsbDeviceInfoPtr> devices_;
 
   ArcUsbHostUiDelegate* ui_delegate_ = nullptr;
-  std::unique_ptr<Delegate> delegate_;
 
   // WeakPtrFactory to use for callbacks.
   base::WeakPtrFactory<ArcUsbHostBridge> weak_factory_{this};

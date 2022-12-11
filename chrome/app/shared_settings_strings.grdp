@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Settings-specific strings shared by Browser and Chrome OS settings -->
+<!-- Settings-specific strings shared by Browser and ChromeOS settings -->
 <grit-part>
   <!-- All subpages -->
   <message name="IDS_SETTINGS_SUBPAGE_BACK_BUTTON_ARIA_LABEL" desc="Text read by screen readers when focusing on the back button. If the back button is activated, it will navigate to the previous page. This text will only be announced by ChromeVox and will not be visible in the UI.">
@@ -215,9 +215,18 @@
   <message name="IDS_SETTINGS_ENABLE_LOGGING_PREF" desc="The label of the checkbox to enable/disable crash and user metrics logging. This string does not need a Chromium counter-part because it will only be visible if Google-branded.">
     Help improve Chrome's features and performance
   </message>
-  <message name="IDS_SETTINGS_ENABLE_LOGGING_PREF_DESC" desc="The description of the checkbox to enable/disable crash and user metrics logging">
-    Automatically sends usage statistics and crash reports to Google
-  </message>
+  <if expr="is_fuchsia">
+    <then>
+      <message name="IDS_SETTINGS_ENABLE_LOGGING_PREF_DESC" desc="The description of the checkbox to enable/disable crash and user metrics logging">
+        Automatically sends usage statistics to Google. You can turn crash reports on or off in your device's settings.
+      </message>
+    </then>
+    <else>
+      <message name="IDS_SETTINGS_ENABLE_LOGGING_PREF_DESC" desc="The description of the checkbox to enable/disable crash and user metrics logging">
+        Automatically sends usage statistics and crash reports to Google
+      </message>
+    </else>
+  </if>
   <message name="IDS_SETTINGS_LINKDOCTOR_PREF" desc="The documentation string of the 'Use Link Doctor' preference to help with navigation errors.">
     Show suggestions for similar pages when a page can't be found
   </message>
@@ -333,9 +342,6 @@
   <message name="IDS_SETTINGS_INCORRECT_PASSPHRASE_ERROR" desc="Message when the passphrase is incorrect.">
     The passphrase you entered is incorrect
   </message>
-  <message name="IDS_SETTINGS_MANAGE_SYNCED_DATA_TITLE_UNIFIED_CONSENT" desc="Title for the link to manage Chrome Sync data via Google Dashboard when unified consent is enabled.">
-    Data from Chrome sync
-  </message>
   <message name="IDS_SETTINGS_NEW_MANAGE_SYNCED_DATA_TITLE_UNIFIED_CONSENT" desc="Title for the link to manage Chrome Sync data via Google Dashboard when unified consent is enabled.">
     Review your synced data
   </message>
@@ -363,17 +369,23 @@
   <message name="IDS_SETTINGS_SYNC_SETUP_CANCEL_DIALOG_BODY" desc="The body text of the dialog to confirm the sync cancellation.">
     You can turn on sync anytime in settings
   </message>
-    <if expr="chromeos">
+    <if expr="chromeos_ash">
     <!-- TODO(crbug.com/1231500): Remove this string after Lacros side-by-side rollout stage. -->
     <message name="IDS_SYNC_SETTINGS_SIDE_BY_SIDE_WARNING_ASH" desc="The warning message that is shown when lacros side-by-side mode is enabled.">
       Changes you make here apply only to Chrome Browser. To make changes to your Lacros Chrome Browser settings, open Lacros Chrome Browser and go to settings.
     </message>
   </if>
 
-  <if expr="lacros">
+  <if expr="chromeos_lacros">
     <!-- TODO(crbug.com/1231500): Remove this string after Lacros side-by-side rollout stage. -->
     <message name="IDS_SYNC_SETTINGS_SIDE_BY_SIDE_WARNING_LACROS" desc="The warning message that is shown when lacros side-by-side mode is enabled.">
       Changes you make here apply only to Lacros Chrome Browser. To make changes to your Chrome Browser settings, open Chrome Browser and go to settings.
+    </message>
+  </if>
+
+  <if expr="is_chromeos">
+    <message name="IDS_BROWSER_SETTINGS_SYNC_FEATURE_LABEL" desc="Label describing the browser sync feature.">
+      Your data will be synced across all Chrome browsers where you have turned on sync for this account. For ChromeOS sync options, go to <ph name="LINK_BEGIN">&lt;a&gt;</ph>ChromeOS settings<ph name="LINK_END">&lt;/a&gt;</ph>.
     </message>
   </if>
 
@@ -382,19 +394,17 @@
     Checking for updates
   </message>
 
-  <if expr="chromeos">
+  <if expr="chromeos_ash">
     <message name="IDS_SETTINGS_THEMES_AND_WALLPAPERS_CHECKBOX_LABEL" desc="Label for the checkbox which enables or disables syncing themes and wallpapers between multiple browser instances.">
-        Theme &amp; Wallpaper
-      </message>
-    </if>
-  <if expr="not chromeos">
-      <message name="IDS_SETTINGS_THEMES_AND_WALLPAPERS_CHECKBOX_LABEL" desc="Label for the checkbox which enables or disables syncing themes and wallpapers between multiple browser instances.">
-        Theme
+      Theme &amp; Wallpaper
     </message>
   </if>
+  <message name="IDS_SETTINGS_THEME_CHECKBOX_LABEL" desc="Label for the checkbox which enables or disables syncing themes between multiple browser instances.">
+    Theme
+  </message>
 
   <!-- Password Prompt Dialog -->
-  <if expr="chromeos_ash or chromeos_lacros">
+  <if expr="is_chromeos">
     <message name="IDS_SETTINGS_PEOPLE_PASSWORD_PROMPT_TITLE" desc="Title of the password prompt dialog popup.">
       Confirm your password
     </message>

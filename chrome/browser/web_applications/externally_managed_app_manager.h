@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,15 +18,17 @@
 #include "chrome/browser/web_applications/web_app_id.h"
 #include "url/gurl.h"
 
+namespace webapps {
+enum class InstallResultCode;
+}
+
 namespace web_app {
 
-enum class InstallResultCode;
-
 class WebAppRegistrar;
-class OsIntegrationManager;
 class WebAppInstallFinalizer;
-class WebAppInstallManager;
+class WebAppCommandScheduler;
 class WebAppUiManager;
+class WebAppSyncBridge;
 
 enum class RegistrationResultCode { kSuccess, kAlreadyRegistered, kTimeout };
 
@@ -54,7 +56,7 @@ class ExternallyManagedAppManager {
  public:
   struct InstallResult {
     InstallResult();
-    explicit InstallResult(InstallResultCode code,
+    explicit InstallResult(webapps::InstallResultCode code,
                            absl::optional<AppId> app_id = absl::nullopt,
                            bool did_uninstall_and_replace = false);
     InstallResult(const InstallResult&);
@@ -62,23 +64,24 @@ class ExternallyManagedAppManager {
 
     bool operator==(const InstallResult& other) const;
 
-    InstallResultCode code;
+    webapps::InstallResultCode code;
     absl::optional<AppId> app_id;
     bool did_uninstall_and_replace = false;
   };
 
   using OnceInstallCallback =
-      base::OnceCallback<void(const GURL& app_url, InstallResult result)>;
+      base::OnceCallback<void(const GURL& install_url, InstallResult result)>;
   using RepeatingInstallCallback =
-      base::RepeatingCallback<void(const GURL& app_url, InstallResult result)>;
+      base::RepeatingCallback<void(const GURL& install_url,
+                                   InstallResult result)>;
   using RegistrationCallback =
       base::RepeatingCallback<void(const GURL& launch_url,
                                    RegistrationResultCode code)>;
   using UninstallCallback =
-      base::RepeatingCallback<void(const GURL& app_url, bool succeeded)>;
-  using SynchronizeCallback =
-      base::OnceCallback<void(std::map<GURL, InstallResult> install_results,
-                              std::map<GURL, bool> uninstall_results)>;
+      base::RepeatingCallback<void(const GURL& install_url, bool succeeded)>;
+  using SynchronizeCallback = base::OnceCallback<void(
+      std::map<GURL /*install_url*/, InstallResult> install_results,
+      std::map<GURL /*install_url*/, bool /*succeeded*/> uninstall_results)>;
 
   ExternallyManagedAppManager();
   ExternallyManagedAppManager(const ExternallyManagedAppManager&) = delete;
@@ -87,10 +90,10 @@ class ExternallyManagedAppManager {
   virtual ~ExternallyManagedAppManager();
 
   void SetSubsystems(WebAppRegistrar* registrar,
-                     OsIntegrationManager* os_integration_manager,
                      WebAppUiManager* ui_manager,
                      WebAppInstallFinalizer* finalizer,
-                     WebAppInstallManager* install_manager);
+                     WebAppCommandScheduler* command_scheduler,
+                     WebAppSyncBridge* sync_bridge);
 
   // Queues an installation operation with the highest priority. Essentially
   // installing the app immediately if there are no ongoing operations or
@@ -157,12 +160,10 @@ class ExternallyManagedAppManager {
 
  protected:
   WebAppRegistrar* registrar() { return registrar_; }
-  OsIntegrationManager* os_integration_manager() {
-    return os_integration_manager_;
-  }
   WebAppUiManager* ui_manager() { return ui_manager_; }
   WebAppInstallFinalizer* finalizer() { return finalizer_; }
-  WebAppInstallManager* install_manager() { return install_manager_; }
+  WebAppCommandScheduler* command_scheduler() { return command_scheduler_; }
+  WebAppSyncBridge* sync_bridge() { return sync_bridge_; }
 
   virtual void OnRegistrationFinished(const GURL& launch_url,
                                       RegistrationResultCode result);
@@ -191,18 +192,19 @@ class ExternallyManagedAppManager {
 
   void InstallForSynchronizeCallback(
       ExternalInstallSource source,
-      const GURL& app_url,
+      const GURL& install_url,
       ExternallyManagedAppManager::InstallResult result);
   void UninstallForSynchronizeCallback(ExternalInstallSource source,
-                                       const GURL& app_url,
+                                       const GURL& install_url,
                                        bool succeeded);
   void ContinueOrCompleteSynchronization(ExternalInstallSource source);
 
   raw_ptr<WebAppRegistrar> registrar_ = nullptr;
-  raw_ptr<OsIntegrationManager> os_integration_manager_ = nullptr;
-  raw_ptr<WebAppUiManager> ui_manager_ = nullptr;
+  raw_ptr<WebAppUiManager, DanglingUntriaged> ui_manager_ = nullptr;
   raw_ptr<WebAppInstallFinalizer> finalizer_ = nullptr;
-  raw_ptr<WebAppInstallManager> install_manager_ = nullptr;
+  raw_ptr<WebAppCommandScheduler, DanglingUntriaged> command_scheduler_ =
+      nullptr;
+  raw_ptr<WebAppSyncBridge> sync_bridge_ = nullptr;
 
   base::flat_map<ExternalInstallSource, SynchronizeRequest>
       synchronize_requests_;

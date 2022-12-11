@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,7 +35,6 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.IntentUtils;
 import org.chromium.chrome.browser.download.DownloadNotificationUmaHelper.UmaDownloadResumption;
 import org.chromium.chrome.browser.download.items.OfflineContentAggregatorNotificationBridgeUiFactory;
-import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.init.BrowserParts;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
@@ -217,8 +216,7 @@ public class DownloadBroadcastManagerImpl extends DownloadBroadcastManager.Impl 
             @Override
             public boolean startMinimalBrowser() {
                 if (!LegacyHelpers.isLegacyDownload(id)) return false;
-                return CachedFeatureFlags.isEnabled(ChromeFeatureList.SERVICE_MANAGER_FOR_DOWNLOAD)
-                        && !ACTION_DOWNLOAD_OPEN.equals(intent.getAction());
+                return !ACTION_DOWNLOAD_OPEN.equals(intent.getAction());
             }
         };
 

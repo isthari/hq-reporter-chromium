@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 
 #include "base/guid.h"
 #include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "components/sync/base/unique_position.h"
 #include "components/sync/engine/commit_and_get_updates_types.h"
 
@@ -31,9 +32,8 @@ class SyncedBookmarkTracker;
 
 // Responsible for merging local and remote bookmark models when bookmark sync
 // is enabled for the first time by the user (i.e. no sync metadata exists
-// locally), so we need a best-effort merge based on similarity. It implements
-// similar logic to that in BookmarkModelAssociator::AssociateModels() to be
-// used by the BookmarkModelTypeProcessor().
+// locally), so we need a best-effort merge based on similarity. It is used by
+// the BookmarkModelTypeProcessor().
 class BookmarkModelMerger {
  public:
   // |bookmark_model|, |favicon_service| and |bookmark_tracker| must not be
@@ -117,8 +117,8 @@ class BookmarkModelMerger {
   // matched by GUID. They are guaranteed to have the same type and URL (if
   // applicable).
   struct GuidMatch {
-    const bookmarks::BookmarkNode* local_node;
-    const RemoteTreeNode* remote_node;
+    raw_ptr<const bookmarks::BookmarkNode> local_node;
+    raw_ptr<const RemoteTreeNode> remote_node;
   };
 
   // Constructs the remote bookmark tree to be merged. Each entry in the
@@ -212,9 +212,17 @@ class BookmarkModelMerger {
       size_t index,
       const std::string& suffix) const;
 
+  void ReportTimeMetrics();
+
+  // The base time used to calculate elapsed time at different stages during the
+  // initial merge. Should be the first member to initialize before any other
+  // long operations like BuildRemoteForest().
+  const base::TimeTicks started_ = base::TimeTicks::Now();
+
   const raw_ptr<bookmarks::BookmarkModel> bookmark_model_;
   const raw_ptr<favicon::FaviconService> favicon_service_;
   const raw_ptr<SyncedBookmarkTracker> bookmark_tracker_;
+  const size_t remote_updates_size_;
   // Preprocessed remote nodes in the form a forest where each tree's root is a
   // permanent node. Computed upon construction via BuildRemoteForest().
   const RemoteForest remote_forest_;

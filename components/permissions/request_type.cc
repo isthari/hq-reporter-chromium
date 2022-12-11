@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,10 @@
 
 #include "base/check.h"
 #include "base/notreached.h"
+#include "base/ranges/algorithm.h"
 #include "build/build_config.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/permissions/permission_request.h"
 #include "components/permissions/permissions_client.h"
 
 #if BUILDFLAG(IS_ANDROID)
@@ -76,12 +78,12 @@ const gfx::VectorIcon& GetIconIdDesktop(RequestType type) {
       return vector_icons::kContentPasteIcon;
     case RequestType::kDiskQuota:
       return vector_icons::kFolderIcon;
-    case RequestType::kFontAccess:
-      return vector_icons::kFontDownloadIcon;
     case RequestType::kGeolocation:
       return vector_icons::kLocationOnIcon;
     case RequestType::kIdleDetection:
       return vector_icons::kDevicesIcon;
+    case RequestType::kLocalFonts:
+      return vector_icons::kFontDownloadIcon;
     case RequestType::kMicStream:
       return vector_icons::kMicIcon;
     case RequestType::kMidiSysex:
@@ -104,7 +106,7 @@ const gfx::VectorIcon& GetIconIdDesktop(RequestType type) {
       return kUsbSecurityKeyIcon;
     case RequestType::kStorageAccess:
       return vector_icons::kCookieIcon;
-    case RequestType::kWindowPlacement:
+    case RequestType::kWindowManagement:
       return vector_icons::kSelectWindowIcon;
   }
   NOTREACHED();
@@ -154,8 +156,8 @@ absl::optional<RequestType> ContentSettingsTypeToRequestTypeIfExists(
     case ContentSettingsType::CLIPBOARD_READ_WRITE:
       return RequestType::kClipboard;
 #if !BUILDFLAG(IS_ANDROID)
-    case ContentSettingsType::FONT_ACCESS:
-      return RequestType::kFontAccess;
+    case ContentSettingsType::LOCAL_FONTS:
+      return RequestType::kLocalFonts;
 #endif
     case ContentSettingsType::GEOLOCATION:
       return RequestType::kGeolocation;
@@ -180,8 +182,8 @@ absl::optional<RequestType> ContentSettingsTypeToRequestTypeIfExists(
     case ContentSettingsType::VR:
       return RequestType::kVrSession;
 #if !BUILDFLAG(IS_ANDROID)
-    case ContentSettingsType::WINDOW_PLACEMENT:
-      return RequestType::kWindowPlacement;
+    case ContentSettingsType::WINDOW_MANAGEMENT:
+      return RequestType::kWindowManagement;
 #endif
     default:
       return absl::nullopt;
@@ -218,8 +220,8 @@ absl::optional<ContentSettingsType> RequestTypeToContentSettingsType(
     case RequestType::kClipboard:
       return ContentSettingsType::CLIPBOARD_READ_WRITE;
 #if !BUILDFLAG(IS_ANDROID)
-    case RequestType::kFontAccess:
-      return ContentSettingsType::FONT_ACCESS;
+    case RequestType::kLocalFonts:
+      return ContentSettingsType::LOCAL_FONTS;
 #endif
     case RequestType::kGeolocation:
       return ContentSettingsType::GEOLOCATION;
@@ -244,13 +246,24 @@ absl::optional<ContentSettingsType> RequestTypeToContentSettingsType(
     case RequestType::kVrSession:
       return ContentSettingsType::VR;
 #if !BUILDFLAG(IS_ANDROID)
-    case RequestType::kWindowPlacement:
-      return ContentSettingsType::WINDOW_PLACEMENT;
+    case RequestType::kWindowManagement:
+      return ContentSettingsType::WINDOW_MANAGEMENT;
 #endif
     default:
       // Not associated with a ContentSettingsType.
       return absl::nullopt;
   }
+}
+
+// Returns whether confirmation chips can be displayed
+bool IsConfirmationChipSupported(RequestType for_request_type) {
+  return base::ranges::any_of(
+      std::vector<RequestType>{
+          RequestType::kNotifications, RequestType::kGeolocation,
+          RequestType::kCameraStream, RequestType::kMicStream},
+      [for_request_type](permissions::RequestType request_type) {
+        return request_type == for_request_type;
+      });
 }
 
 IconId GetIconId(RequestType type) {
@@ -289,8 +302,8 @@ const char* PermissionKeyForRequestType(permissions::RequestType request_type) {
     case permissions::RequestType::kDiskQuota:
       return "disk_quota";
 #if !BUILDFLAG(IS_ANDROID)
-    case permissions::RequestType::kFontAccess:
-      return "font_access";
+    case permissions::RequestType::kLocalFonts:
+      return "local_fonts";
 #endif
     case permissions::RequestType::kGeolocation:
       return "geolocation";
@@ -327,7 +340,7 @@ const char* PermissionKeyForRequestType(permissions::RequestType request_type) {
     case permissions::RequestType::kVrSession:
       return "vr_session";
 #if !BUILDFLAG(IS_ANDROID)
-    case permissions::RequestType::kWindowPlacement:
+    case permissions::RequestType::kWindowManagement:
       return "window_placement";
 #endif
   }

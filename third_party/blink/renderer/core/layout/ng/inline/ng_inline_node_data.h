@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,11 +17,13 @@ class NGInlineItemsBuilderTemplate;
 // Data which is required for inline nodes.
 struct CORE_EXPORT NGInlineNodeData final : NGInlineItemsData {
  public:
+  NGInlineNodeData() : shaping_state_(kShapingNone) {}
   bool IsBidiEnabled() const { return is_bidi_enabled_; }
   TextDirection BaseDirection() const {
     return static_cast<TextDirection>(base_direction_);
   }
 
+  bool HasInitialLetterBox() const { return has_initial_letter_box_; }
   bool HasRuby() const { return has_ruby_; }
 
   bool IsBlockLevel() const { return is_block_level_; }
@@ -31,6 +33,10 @@ struct CORE_EXPORT NGInlineNodeData final : NGInlineItemsData {
                ? (const NGInlineItemsData&)*this
                : *first_line_items_;
   }
+
+  bool IsShapingDeferred() const { return shaping_state_ == kShapingDeferred; }
+  bool IsShapingDone() const { return shaping_state_ == kShapingDone; }
+  void StopDeferringShaping() { shaping_state_ = kShapingNone; }
 
   void Trace(Visitor* visitor) const override;
 
@@ -59,6 +65,16 @@ struct CORE_EXPORT NGInlineNodeData final : NGInlineItemsData {
   unsigned is_bidi_enabled_ : 1;
   unsigned base_direction_ : 1;  // TextDirection
 
+  // True if this node contains initial letter box. This value is used for
+  // clearing. To control whether subsequent blocks overlap with initial
+  // letter[1].
+  //   ****** his node ends here.
+  //     *    This text from subsequent block one.
+  //     *    This text from subsequent block two.
+  //     *    This text from subsequent block three.
+  // [1] https://drafts.csswg.org/css-inline/#initial-letter-paragraphs
+  unsigned has_initial_letter_box_ : 1;
+
   // The node contains <ruby>.
   unsigned has_ruby_ : 1;
 
@@ -72,6 +88,9 @@ struct CORE_EXPORT NGInlineNodeData final : NGInlineItemsData {
   // May not be able to use line caches even when the line or earlier lines are
   // not dirty.
   unsigned changes_may_affect_earlier_lines_ : 1;
+
+  enum ShapingState { kShapingNone, kShapingDone, kShapingDeferred };
+  unsigned shaping_state_ : 2;
 };
 
 }  // namespace blink

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "ash/keyboard/ui/resources/keyboard_resource_util.h"
+#include "ash/style/color_util.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/feature_list.h"
@@ -24,8 +25,10 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/view_type_utils.h"
+#include "extensions/common/api/virtual_keyboard_private.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/mojom/view_type.mojom.h"
 #include "third_party/blink/public/common/input/web_gesture_event.h"
@@ -151,6 +154,7 @@ ChromeKeyboardWebContents::ChromeKeyboardWebContents(
   web_contents_params.initially_hidden = true;
   web_contents_ = content::WebContents::Create(web_contents_params);
   web_contents_->SetDelegate(new ChromeKeyboardContentsDelegate());
+  web_contents_->SetColorProviderSource(&color_provider_source_);
 
   extensions::SetViewType(web_contents_.get(),
                           extensions::mojom::ViewType::kComponent);
@@ -162,7 +166,7 @@ ChromeKeyboardWebContents::ChromeKeyboardWebContents(
 
   // Set the background to be transparent for custom keyboard window shape.
   content::RenderWidgetHostView* view =
-      web_contents_->GetMainFrame()->GetView();
+      web_contents_->GetPrimaryMainFrame()->GetView();
   view->SetBackgroundColor(SK_ColorTRANSPARENT);
   view->GetNativeView()->SetTransparent(true);
 
@@ -216,14 +220,12 @@ void ChromeKeyboardWebContents::SetInitialContentsSize(const gfx::Size& size) {
 
 void ChromeKeyboardWebContents::RenderFrameCreated(
     content::RenderFrameHost* frame_host) {
-  if (frame_host->GetParent())
+  if (!frame_host->IsInPrimaryMainFrame())
     return;
   content::HostZoomMap* zoom_map =
       content::HostZoomMap::GetDefaultForBrowserContext(
           frame_host->GetBrowserContext());
-  zoom_map->SetTemporaryZoomLevel(
-      frame_host->GetProcess()->GetID(),
-      frame_host->GetRenderViewHost()->GetRoutingID(), 0 /* level */);
+  zoom_map->SetTemporaryZoomLevel(frame_host->GetGlobalId(), 0 /* level */);
 }
 
 void ChromeKeyboardWebContents::DidStopLoading() {
@@ -231,6 +233,32 @@ void ChromeKeyboardWebContents::DidStopLoading() {
   // ReloadKeyboardIfNeeded to also have a callback.
   if (!load_callback_.is_null())
     std::move(load_callback_).Run();
+}
+
+void ChromeKeyboardWebContents::OnColorProviderChanged() {
+  if (!web_contents_)
+    return;
+
+  auto* browser_context = web_contents_->GetBrowserContext();
+
+  if (!browser_context)
+    return;
+
+  auto* router = extensions::EventRouter::Get(browser_context);
+
+  if (!router ||
+      !router->HasEventListener(extensions::api::virtual_keyboard_private::
+                                    OnColorProviderChanged::kEventName)) {
+    return;
+  }
+
+  auto event = std::make_unique<extensions::Event>(
+      extensions::events::VIRTUAL_KEYBOARD_PRIVATE_ON_COLOR_PROVIDER_CHANGED,
+      extensions::api::virtual_keyboard_private::OnColorProviderChanged::
+          kEventName,
+      base::Value::List(), browser_context);
+
+  router->BroadcastEvent(std::move(event));
 }
 
 void ChromeKeyboardWebContents::LoadContents(const GURL& url) {

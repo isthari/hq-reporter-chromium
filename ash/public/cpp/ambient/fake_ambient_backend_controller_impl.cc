@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,9 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/check.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "url/gurl.h"
 
 namespace ash {
 
@@ -85,23 +86,32 @@ FakeAmbientBackendControllerImpl::~FakeAmbientBackendControllerImpl() = default;
 
 void FakeAmbientBackendControllerImpl::FetchScreenUpdateInfo(
     int num_topics,
+    bool show_pair_personal_portraits,
+    const gfx::Size& screen_size,
     OnScreenUpdateInfoFetchedCallback callback) {
   ash::ScreenUpdate update;
 
-  int num_topics_to_return =
-      custom_num_topics_to_return_.has_value()
-          ? std::min(custom_num_topics_to_return_.value(), num_topics)
-          : num_topics;
-  for (int i = 0; i < num_topics_to_return; i++) {
-    ash::AmbientModeTopic topic;
-    topic.url = kFakeUrl;
-    topic.details = kFakeDetails;
-    topic.is_portrait = is_portrait_;
-    if (has_related_image_)
-      topic.related_image_url = kFakeUrl;
-    topic.topic_type = topic_type_;
+  if (custom_topic_generator_) {
+    update.next_topics = custom_topic_generator_.Run(num_topics, screen_size);
+  } else {
+    int num_topics_to_return =
+        custom_num_topics_to_return_.has_value()
+            ? std::min(custom_num_topics_to_return_.value(), num_topics)
+            : num_topics;
+    for (int i = 0; i < num_topics_to_return; ++i) {
+      ash::AmbientModeTopic topic;
+      topic.url = kFakeUrl;
+      topic.details = kFakeDetails;
+      topic.is_portrait = is_portrait_;
+      if ((show_pair_personal_portraits &&
+           topic_type_ == ::ambient::kPersonal && is_portrait_) ||
+          has_related_image_) {
+        topic.related_image_url = kFakeUrl;
+      }
+      topic.topic_type = topic_type_;
 
-    update.next_topics.emplace_back(topic);
+      update.next_topics.emplace_back(topic);
+    }
   }
 
   // Only respond weather info when there is no active weather testing.
@@ -114,14 +124,14 @@ void FakeAmbientBackendControllerImpl::FetchScreenUpdateInfo(
   }
 
   // Pretend to respond asynchronously.
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), update));
 }
 
 void FakeAmbientBackendControllerImpl::GetSettings(
     GetSettingsCallback callback) {
   // Pretend to respond asynchronously.
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), CreateFakeSettings()));
 }
 
@@ -140,7 +150,7 @@ void FakeAmbientBackendControllerImpl::FetchPersonalAlbums(
     const std::string& resume_token,
     OnPersonalAlbumsFetchedCallback callback) {
   // Pretend to respond asynchronously.
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), CreateFakeAlbums()));
 }
 
@@ -155,6 +165,15 @@ void FakeAmbientBackendControllerImpl::FetchSettingsAndAlbums(
 void FakeAmbientBackendControllerImpl::FetchWeather(
     FetchWeatherCallback callback) {
   std::move(callback).Run(weather_info_);
+}
+
+void FakeAmbientBackendControllerImpl::GetGooglePhotosAlbumsPreview(
+    const std::vector<std::string>& album_ids,
+    int preview_width,
+    int preview_height,
+    int num_previews,
+    GetGooglePhotosAlbumsPreviewCallback callback) {
+  std::move(callback).Run({GURL("http://example.com/0")});
 }
 
 const std::array<const char*, 2>&

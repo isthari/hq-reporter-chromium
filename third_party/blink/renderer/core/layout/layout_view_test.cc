@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -71,8 +71,6 @@ TEST_F(LayoutViewTest, DisplayNoneFrame) {
 }
 
 TEST_F(LayoutViewTest, NamedPages) {
-  ScopedNamedPagesForTest named_pages_enabler(true);
-
   SetBodyInnerHTML(R"HTML(
     <!DOCTYPE html>
     <style>
@@ -106,21 +104,55 @@ TEST_F(LayoutViewTest, NamedPages) {
 
   ScopedPrintContext print_context(&GetDocument().View()->GetFrame());
   print_context->BeginPrintMode(500, 500);
-  const NamedPagesMapper* mapper = view->GetNamedPagesMapper();
-  ASSERT_TRUE(mapper);
 
-  EXPECT_EQ(mapper->NamedPageAtIndex(0), AtomicString());
-  EXPECT_EQ(mapper->NamedPageAtIndex(1), AtomicString());
-  EXPECT_EQ(mapper->NamedPageAtIndex(2), "yksi");
-  EXPECT_EQ(mapper->NamedPageAtIndex(3), "yksi");
-  EXPECT_EQ(mapper->NamedPageAtIndex(4), "yksi");
-  EXPECT_EQ(mapper->NamedPageAtIndex(5), "kaksi");
-  EXPECT_EQ(mapper->NamedPageAtIndex(6), "maksitaksi");
-  EXPECT_EQ(mapper->NamedPageAtIndex(7), AtomicString());
-  EXPECT_EQ(mapper->NamedPageAtIndex(8), "yksi");
-  EXPECT_EQ(mapper->NamedPageAtIndex(9), "yksi");
-  EXPECT_EQ(mapper->NamedPageAtIndex(100), "yksi");
-  EXPECT_EQ(mapper->LastPageName(), "yksi");
+  EXPECT_EQ(view->NamedPageAtIndex(0), AtomicString());
+  EXPECT_EQ(view->NamedPageAtIndex(1), AtomicString());
+  EXPECT_EQ(view->NamedPageAtIndex(2), "yksi");
+  EXPECT_EQ(view->NamedPageAtIndex(3), "yksi");
+  EXPECT_EQ(view->NamedPageAtIndex(4), "yksi");
+  EXPECT_EQ(view->NamedPageAtIndex(5), "kaksi");
+  EXPECT_EQ(view->NamedPageAtIndex(6), "maksitaksi");
+  EXPECT_EQ(view->NamedPageAtIndex(7), AtomicString());
+  EXPECT_EQ(view->NamedPageAtIndex(8), "yksi");
+
+  if (RuntimeEnabledFeatures::LayoutNGPrintingEnabled()) {
+    // LayoutNGPrinting doesn't provide a name for pages that don't exist.
+    EXPECT_EQ(view->NamedPageAtIndex(9), AtomicString());
+    EXPECT_EQ(view->NamedPageAtIndex(100), AtomicString());
+  } else {
+    // The legacy API, on the other hand, has no clue about how many pages we
+    // have, so it will just return the last page name, for good measure.
+    EXPECT_EQ(view->NamedPageAtIndex(9), "yksi");
+    EXPECT_EQ(view->NamedPageAtIndex(100), "yksi");
+  }
+}
+
+TEST_F(LayoutViewTest, NamedPagesAbsPos) {
+  SetBodyInnerHTML(R"HTML(
+    <!DOCTYPE html>
+    <div style="page:woohoo;">
+      <div style="height:10px;"></div>
+      <div style="break-before:page; height:10px;"></div>
+      <div style="break-before:page; height:10px;">
+        <div style="position:absolute; height:150vh;"></div>
+      </div>
+      <div style="break-before:page; height:10px;"></div>
+      <div style="break-before:page; height:10px;"></div>
+    </div>
+  )HTML");
+
+  UpdateAllLifecyclePhasesForTest();
+  const LayoutView* view = GetDocument().GetLayoutView();
+  ASSERT_TRUE(view);
+
+  ScopedPrintContext print_context(&GetDocument().View()->GetFrame());
+  print_context->BeginPrintMode(500, 500);
+
+  EXPECT_EQ(view->NamedPageAtIndex(0), "woohoo");
+  EXPECT_EQ(view->NamedPageAtIndex(1), "woohoo");
+  EXPECT_EQ(view->NamedPageAtIndex(2), "woohoo");
+  EXPECT_EQ(view->NamedPageAtIndex(3), "woohoo");
+  EXPECT_EQ(view->NamedPageAtIndex(4), "woohoo");
 }
 
 struct HitTestConfig {
@@ -1502,7 +1534,7 @@ TEST_P(LayoutViewHitTestTest, TextAndInputsWithRtlDirection) {
 }
 
 TEST_P(LayoutViewHitTestTest, TextCombineOneTextNode) {
-  ScopedLayoutNGTextCombineForTest enable_layout_ng_text_combine(true);
+  ScopedLayoutNGForTest enable_layout_ng(true);
   LoadAhem();
   InsertStyleElement(
       "body { margin: 0px; font: 100px/110px Ahem; }"
@@ -1577,7 +1609,7 @@ TEST_P(LayoutViewHitTestTest, TextCombineOneTextNode) {
 }
 
 TEST_P(LayoutViewHitTestTest, TextCombineTwoTextNodes) {
-  ScopedLayoutNGTextCombineForTest enable_layout_ng_text_combine(true);
+  ScopedLayoutNGForTest enable_layout_ng(true);
   LoadAhem();
   InsertStyleElement(
       "body { margin: 0px; font: 100px/110px Ahem; }"

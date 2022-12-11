@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/process/kill.h"
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
+#include "chrome/browser/preloading/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_handle.h"
@@ -306,7 +306,7 @@ void TabLoadTrackerTest::StateTransitionsTest(bool use_non_ui_tabs) {
                                    LoadingState::UNLOADED));
   content::MockRenderProcessHost* rph =
       static_cast<content::MockRenderProcessHost*>(
-          contents1()->GetMainFrame()->GetProcess());
+          contents1()->GetPrimaryMainFrame()->GetProcess());
   rph->SimulateCrash();
   if (use_non_ui_tabs) {
     EXPECT_TAB_COUNTS(3, 1, 0, 2);
@@ -351,7 +351,7 @@ TEST_F(TabLoadTrackerTest, NoStatePrefetchContentsDoesNotChangeUiTabCounts) {
   std::unique_ptr<prerender::NoStatePrefetchHandle> no_state_prefetch_handle(
       no_state_prefetch_manager->StartPrefetchingFromOmnibox(
           url, contents1()->GetController().GetDefaultSessionStorageNamespace(),
-          kSize));
+          kSize, nullptr));
   EXPECT_NE(nullptr, no_state_prefetch_handle);
   const std::vector<content::WebContents*> contentses =
       no_state_prefetch_manager->GetAllNoStatePrefetchingContentsForTesting();

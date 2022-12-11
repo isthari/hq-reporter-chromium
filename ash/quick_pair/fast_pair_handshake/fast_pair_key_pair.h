@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 
 #include <array>
 
-constexpr inline int kPrivateKeyByteSize = 16;
-constexpr inline int kPublicKeyByteSize = 64;
+inline constexpr int kPrivateKeyByteSize = 16;
+inline constexpr int kPublicKeyByteSize = 64;
 
 namespace ash {
 namespace quick_pair {

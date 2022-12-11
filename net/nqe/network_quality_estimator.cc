@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
 #include "base/location.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram.h"
@@ -22,11 +21,11 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/histogram_macros_local.h"
 #include "base/notreached.h"
+#include "base/observer_list.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/task/lazy_thread_pool_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_tick_clock.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -93,9 +92,6 @@ NetworkQualityEstimator::NetworkQualityEstimator(
     std::unique_ptr<NetworkQualityEstimatorParams> params,
     NetLog* net_log)
     : params_(std::move(params)),
-      end_to_end_rtt_observation_count_at_last_ect_computation_(0),
-      use_localhost_requests_(false),
-      disable_offline_check_(false),
       tick_clock_(base::DefaultTickClock::GetInstance()),
       last_connection_change_(tick_clock_->NowTicks()),
       current_network_id_(nqe::internal::NetworkID(
@@ -123,39 +119,29 @@ NetworkQualityEstimator::NetworkQualityEstimator(
               tick_clock_,
               params_->weight_multiplier_per_second(),
               1.0 /*params_->weight_multiplier_per_signal_strength_level()*/)},
-      effective_connection_type_at_last_main_frame_(
-          EFFECTIVE_CONNECTION_TYPE_UNKNOWN),
-      effective_connection_type_recomputation_interval_(base::Seconds(10)),
-      rtt_observations_size_at_last_ect_computation_(0),
-      throughput_observations_size_at_last_ect_computation_(0),
-      transport_rtt_observation_count_last_ect_computation_(0),
-      new_rtt_observations_since_last_ect_computation_(0),
-      new_throughput_observations_since_last_ect_computation_(0),
-      effective_connection_type_(EFFECTIVE_CONNECTION_TYPE_UNKNOWN),
-      cached_estimate_applied_(false),
       net_log_(NetLogWithSource::Make(
           net_log,
           net::NetLogSourceType::NETWORK_QUALITY_ESTIMATOR)),
       event_creator_(net_log_) {
   DCHECK_EQ(nqe::internal::OBSERVATION_CATEGORY_COUNT,
-            base::size(rtt_ms_observations_));
+            std::size(rtt_ms_observations_));
 
   network_quality_store_ =
       std::make_unique<nqe::internal::NetworkQualityStore>();
   NetworkChangeNotifier::AddConnectionTypeObserver(this);
   throughput_analyzer_ = std::make_unique<nqe::internal::ThroughputAnalyzer>(
-      this, params_.get(), base::ThreadTaskRunnerHandle::Get(),
+      this, params_.get(), base::SingleThreadTaskRunner::GetCurrentDefault(),
       base::BindRepeating(
           &NetworkQualityEstimator::OnNewThroughputObservationAvailable,
           weak_ptr_factory_.GetWeakPtr()),
       tick_clock_, net_log_);
 
   watcher_factory_ = std::make_unique<nqe::internal::SocketWatcherFactory>(
-      base::ThreadTaskRunnerHandle::Get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
       params_->min_socket_watcher_notification_interval(),
       // OnUpdatedTransportRTTAvailable() may be called via PostTask() by
       // socket watchers that live on a different thread than the current thread
-      // (i.e., base::ThreadTaskRunnerHandle::Get()).
+      // (i.e., base::SingleThreadTaskRunner::GetCurrentDefault()).
       // Use WeakPtr() to avoid crashes where the socket watcher is destroyed
       // after |this| is destroyed.
       base::BindRepeating(
@@ -163,10 +149,10 @@ NetworkQualityEstimator::NetworkQualityEstimator(
           weak_ptr_factory_.GetWeakPtr()),
       // ShouldSocketWatcherNotifyRTT() below is called by only the socket
       // watchers that live on the same thread as the current thread
-      // (i.e., base::ThreadTaskRunnerHandle::Get()). Also, network quality
-      // estimator is destroyed after network contexts and URLRequestContexts.
-      // It's safe to use base::Unretained() below since the socket watcher
-      // (owned by sockets) would be destroyed before |this|.
+      // (i.e., base::SingleThreadTaskRunner::GetCurrentDefault()). Also,
+      // network quality estimator is destroyed after network contexts and
+      // URLRequestContexts. It's safe to use base::Unretained() below since the
+      // socket watcher (owned by sockets) would be destroyed before |this|.
       base::BindRepeating(
           &NetworkQualityEstimator::ShouldSocketWatcherNotifyRTT,
           base::Unretained(this)),
@@ -473,7 +459,7 @@ void NetworkQualityEstimator::OnConnectionTypeChanged(
   // This can happen if the device switches from one WiFi SSID to another.
 
   DCHECK_EQ(nqe::internal::OBSERVATION_CATEGORY_COUNT,
-            base::size(rtt_ms_observations_));
+            std::size(rtt_ms_observations_));
 
   // Write the estimates of the previous network to the cache.
   network_quality_store_->Add(
@@ -484,8 +470,8 @@ void NetworkQualityEstimator::OnConnectionTypeChanged(
   // Clear the local state.
   last_connection_change_ = tick_clock_->NowTicks();
   http_downstream_throughput_kbps_observations_.Clear();
-  for (int i = 0; i < nqe::internal::OBSERVATION_CATEGORY_COUNT; ++i)
-    rtt_ms_observations_[i].Clear();
+  for (auto& rtt_ms_observation : rtt_ms_observations_)
+    rtt_ms_observation.Clear();
 
   current_network_id_.signal_strength = INT32_MIN;
   network_quality_ = nqe::internal::NetworkQuality();
@@ -525,7 +511,7 @@ void NetworkQualityEstimator::GatherEstimatesForNextConnectionType() {
                   FROM_HERE, base::BindOnce(std::move(reply_callback),
                                             DoGetCurrentNetworkID(nullptr)));
             },
-            base::ThreadTaskRunnerHandle::Get(),
+            base::SingleThreadTaskRunner::GetCurrentDefault(),
             base::BindOnce(&NetworkQualityEstimator::
                                ContinueGatherEstimatesForNextConnectionType,
                            weak_ptr_factory_.GetWeakPtr())));
@@ -842,6 +828,11 @@ NetworkQualityEstimator::GetRecentEffectiveConnectionTypeUsingMetrics(
     return EFFECTIVE_CONNECTION_TYPE_OFFLINE;
   }
 
+  if (force_report_wifi_as_slow_2g_for_testing_ &&
+      current_network_id_.type == NetworkChangeNotifier::CONNECTION_WIFI) {
+    return EFFECTIVE_CONNECTION_TYPE_SLOW_2G;
+  }
+
   if (!GetRecentRTT(nqe::internal::OBSERVATION_CATEGORY_HTTP, base::TimeTicks(),
                     http_rtt, nullptr)) {
     *http_rtt = nqe::internal::InvalidRTT();
@@ -907,11 +898,12 @@ void NetworkQualityEstimator::AddEffectiveConnectionTypeObserver(
 
   // Notify the |observer| on the next message pump since |observer| may not
   // be completely set up for receiving the callbacks.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&NetworkQualityEstimator::
                          NotifyEffectiveConnectionTypeObserverIfPresent,
-                     weak_ptr_factory_.GetWeakPtr(), observer));
+                     weak_ptr_factory_.GetWeakPtr(),
+                     base::UnsafeDanglingUntriaged(observer)));
 }
 
 void NetworkQualityEstimator::RemoveEffectiveConnectionTypeObserver(
@@ -928,11 +920,12 @@ void NetworkQualityEstimator::AddPeerToPeerConnectionsCountObserver(
 
   // Notify the |observer| on the next message pump since |observer| may not
   // be completely set up for receiving the callbacks.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&NetworkQualityEstimator::
                          NotifyPeerToPeerConnectionsCountObserverIfPresent,
-                     weak_ptr_factory_.GetWeakPtr(), observer));
+                     weak_ptr_factory_.GetWeakPtr(),
+                     base::UnsafeDanglingUntriaged(observer)));
 }
 
 void NetworkQualityEstimator::RemovePeerToPeerConnectionsCountObserver(
@@ -949,7 +942,7 @@ void NetworkQualityEstimator::AddRTTAndThroughputEstimatesObserver(
 
   // Notify the |observer| on the next message pump since |observer| may not
   // be completely set up for receiving the callbacks.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&NetworkQualityEstimator::
                          NotifyRTTAndThroughputEstimatesObserverIfPresent,
@@ -988,7 +981,7 @@ base::TimeDelta NetworkQualityEstimator::GetRTTEstimateInternal(
     size_t* observations_count) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(nqe::internal::OBSERVATION_CATEGORY_COUNT,
-            base::size(rtt_ms_observations_));
+            std::size(rtt_ms_observations_));
 
   // RTT observations are sorted by duration from shortest to longest, thus
   // a higher percentile RTT will have a longer RTT than a lower percentile.
@@ -1114,8 +1107,8 @@ void NetworkQualityEstimator::SetTickClockForTesting(
     const base::TickClock* tick_clock) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   tick_clock_ = tick_clock;
-  for (int i = 0; i < nqe::internal::OBSERVATION_CATEGORY_COUNT; ++i)
-    rtt_ms_observations_[i].SetTickClockForTesting(tick_clock_);
+  for (auto& rtt_ms_observation : rtt_ms_observations_)
+    rtt_ms_observation.SetTickClockForTesting(tick_clock_);  // IN-TEST
   http_downstream_throughput_kbps_observations_.SetTickClockForTesting(
       tick_clock_);
   throughput_analyzer_->SetTickClockForTesting(tick_clock_);
@@ -1234,7 +1227,7 @@ void NetworkQualityEstimator::OnNewThroughputObservationAvailable(
 bool NetworkQualityEstimator::ShouldComputeEffectiveConnectionType() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(nqe::internal::OBSERVATION_CATEGORY_COUNT,
-            base::size(rtt_ms_observations_));
+            std::size(rtt_ms_observations_));
 
   const base::TimeTicks now = tick_clock_->NowTicks();
   // Recompute effective connection type only if
@@ -1484,6 +1477,11 @@ void NetworkQualityEstimator::SimulateNetworkQualityChangeForTesting(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   params_->SetForcedEffectiveConnectionTypeForTesting(type);
   ComputeEffectiveConnectionType();
+}
+
+void NetworkQualityEstimator::ForceReportWifiAsSlow2GForTesting() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  force_report_wifi_as_slow_2g_for_testing_ = true;
 }
 
 void NetworkQualityEstimator::RecordSpdyPingLatency(

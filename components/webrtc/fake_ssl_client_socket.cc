@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,13 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <cstdlib>
 #include <cstring>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -81,12 +81,12 @@ scoped_refptr<net::DrainableIOBuffer> NewDrainableIOBufferWithSize(int size) {
 
 base::StringPiece FakeSSLClientSocket::GetSslClientHello() {
   return base::StringPiece(reinterpret_cast<const char*>(kSslClientHello),
-                           base::size(kSslClientHello));
+                           std::size(kSslClientHello));
 }
 
 base::StringPiece FakeSSLClientSocket::GetSslServerHello() {
   return base::StringPiece(reinterpret_cast<const char*>(kSslServerHello),
-                           base::size(kSslServerHello));
+                           std::size(kSslServerHello));
 }
 
 FakeSSLClientSocket::FakeSSLClientSocket(
@@ -94,10 +94,10 @@ FakeSSLClientSocket::FakeSSLClientSocket(
     : transport_socket_(std::move(transport_socket)),
       next_handshake_state_(STATE_NONE),
       handshake_completed_(false),
-      write_buf_(NewDrainableIOBufferWithSize(base::size(kSslClientHello))),
-      read_buf_(NewDrainableIOBufferWithSize(base::size(kSslServerHello))) {
+      write_buf_(NewDrainableIOBufferWithSize(std::size(kSslClientHello))),
+      read_buf_(NewDrainableIOBufferWithSize(std::size(kSslServerHello))) {
   CHECK(transport_socket_.get());
-  std::memcpy(write_buf_->data(), kSslClientHello, base::size(kSslClientHello));
+  std::memcpy(write_buf_->data(), kSslClientHello, std::size(kSslClientHello));
 }
 
 FakeSSLClientSocket::~FakeSSLClientSocket() {}
@@ -301,7 +301,7 @@ net::Error FakeSSLClientSocket::ProcessVerifyServerHelloDone(size_t read) {
     return net::ERR_UNEXPECTED;
   }
   const uint8_t* expected_data_start =
-      &kSslServerHello[base::size(kSslServerHello) -
+      &kSslServerHello[std::size(kSslServerHello) -
                        read_buf_->BytesRemaining()];
   if (std::memcmp(expected_data_start, read_buf_->data(), read) != 0) {
     return net::ERR_UNEXPECTED;
@@ -359,11 +359,6 @@ net::NextProto FakeSSLClientSocket::GetNegotiatedProtocol() const {
 
 bool FakeSSLClientSocket::GetSSLInfo(net::SSLInfo* ssl_info) {
   return transport_socket_->GetSSLInfo(ssl_info);
-}
-
-void FakeSSLClientSocket::GetConnectionAttempts(
-    net::ConnectionAttempts* out) const {
-  out->clear();
 }
 
 int64_t FakeSSLClientSocket::GetTotalReceivedBytes() const {

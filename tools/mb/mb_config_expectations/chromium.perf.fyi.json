@@ -2,6 +2,7 @@
   "android-cfi-builder-perf-fyi": {
     "gn_args": {
       "clang_use_default_sample_profile": false,
+      "debuggable_apks": false,
       "ffmpeg_branding": "Chrome",
       "is_chrome_branded": true,
       "is_official_build": true,
@@ -16,6 +17,7 @@
   "android_arm64-cfi-builder-perf-fyi": {
     "gn_args": {
       "clang_use_default_sample_profile": false,
+      "debuggable_apks": false,
       "ffmpeg_branding": "Chrome",
       "is_chrome_branded": true,
       "is_official_build": true,
@@ -40,7 +42,8 @@
       "use_goma": true
     }
   },
-  "fuchsia-builder-perf-fyi": {
+  "fuchsia-builder-perf-arm64": {
+    "args_file": "//build/config/fuchsia/size_optimized_cast_receiver_args_internal.gn",
     "gn_args": {
       "ffmpeg_branding": "Chrome",
       "fuchsia_additional_boot_images": [
@@ -52,6 +55,20 @@
       "proprietary_codecs": true,
       "symbol_level": 1,
       "target_cpu": "arm64",
+      "target_os": "fuchsia",
+      "test_isolate_uses_emulator": false,
+      "use_goma": true
+    }
+  },
+  "fuchsia-builder-perf-x64": {
+    "gn_args": {
+      "ffmpeg_branding": "Chrome",
+      "fuchsia_browser_type": "chrome",
+      "is_chrome_branded": true,
+      "is_official_build": true,
+      "proprietary_codecs": true,
+      "symbol_level": 1,
+      "target_cpu": "x64",
       "target_os": "fuchsia",
       "test_isolate_uses_emulator": false,
       "use_goma": true

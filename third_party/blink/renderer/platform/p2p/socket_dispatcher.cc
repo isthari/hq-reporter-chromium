@@ -1,10 +1,11 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/platform/p2p/socket_dispatcher.h"
 
 #include "base/memory/scoped_refptr.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/types/pass_key.h"
 #include "services/network/public/cpp/p2p_param_traits.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
@@ -146,6 +147,8 @@ void P2PSocketDispatcher::OnConnectionError() {
 
 void P2PSocketDispatcher::ReconnectP2PSocketManager() {
   network_notification_client_receiver_.reset();
+  if (GetSupplementable()->IsContextDestroyed())
+    return;
   GetP2PSocketManager()->StartNetworkNotifications(
       network_notification_client_receiver_.BindNewPipeAndPassRemote(
           GetSupplementable()->GetTaskRunner(TaskType::kNetworking)));

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,9 +18,10 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/modules/video_capture/web_video_capture_impl_manager.h"
+#include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/renderer/platform/video_capture/gpu_memory_buffer_test_support.h"
 #include "third_party/blink/renderer/platform/video_capture/video_capture_impl.h"
-#include "third_party/blink/renderer/platform/wtf/cross_thread_copier.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 using base::test::RunOnceClosure;
@@ -53,7 +54,7 @@ class MockVideoCaptureImpl : public VideoCaptureImpl,
                        PauseResumeCallback* pause_callback,
                        base::OnceClosure destruct_callback)
       : VideoCaptureImpl(session_id,
-                         base::ThreadTaskRunnerHandle::Get(),
+                         scheduler::GetSingleThreadTaskRunnerForTesting(),
                          &GetEmptyBrowserInterfaceBroker()),
         pause_callback_(pause_callback),
         destruct_callback_(std::move(destruct_callback)) {}
@@ -127,8 +128,9 @@ class MockVideoCaptureImplManager : public WebVideoCaptureImplManager {
   ~MockVideoCaptureImplManager() override {}
 
  private:
-  std::unique_ptr<VideoCaptureImpl> CreateVideoCaptureImplForTesting(
-      const media::VideoCaptureSessionId& session_id) const override {
+  std::unique_ptr<VideoCaptureImpl> CreateVideoCaptureImpl(
+      const media::VideoCaptureSessionId& session_id,
+      BrowserInterfaceBrokerProxy*) const override {
     auto video_capture_impl = std::make_unique<MockVideoCaptureImpl>(
         session_id, pause_callback_, stop_capture_callback_);
     video_capture_impl->SetVideoCaptureHostForTesting(video_capture_impl.get());
@@ -235,7 +237,8 @@ class VideoCaptureImplManagerTest : public ::testing::Test,
             CrossThreadUnretained(this), id)),
         ConvertToBaseRepeatingCallback(
             CrossThreadBindRepeating(&VideoCaptureImplManagerTest::OnFrameReady,
-                                     CrossThreadUnretained(this))));
+                                     CrossThreadUnretained(this))),
+        base::DoNothing());
   }
 
   base::test::TaskEnvironment task_environment_;

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,10 @@ using Microsoft::WRL::ComPtr;
 
 // The Texture Count was determined empirically initially having a count of 30
 // and running many different video presentations in frame server mode and
-// recording the number of textures in use and the count never exceeded 2.
-// Therefore for a max of 2 in flight with the 3 being written requires that
-// we allocate 3 textures.
-constexpr int kTexturePoolCount = 3;
+// recording the number of textures in use and the count never exceeded 3.
+// Therefore for a max of 3 in flight with the 3 being written requires that
+// we allocate 4 textures.
+constexpr int kTexturePoolCount = 4;
 
 }  // namespace
 
@@ -122,8 +122,9 @@ ComPtr<ID3D11Texture2D> MediaFoundationTexturePool::AcquireTexture(
 
 void MediaFoundationTexturePool::ReleaseTexture(
     const base::UnguessableToken& texture_token) {
-  if (texture_pool_.count(texture_token) > 0) {
-    texture_pool_.at(texture_token).texture_in_use_ = false;
+  auto it = texture_pool_.find(texture_token);
+  if (it != texture_pool_.end()) {
+    it->second.texture_in_use_ = false;
   }
 }
 

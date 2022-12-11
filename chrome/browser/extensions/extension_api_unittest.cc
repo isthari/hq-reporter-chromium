@@ -1,10 +1,9 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/extension_api_unittest.h"
 
-#include "base/values.h"
 #include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "extensions/browser/extension_function.h"
@@ -32,20 +31,20 @@ std::unique_ptr<base::Value> ExtensionApiUnittest::RunFunctionAndReturnValue(
   return utils::RunFunctionAndReturnSingleResult(function, args, browser());
 }
 
-std::unique_ptr<base::DictionaryValue>
+absl::optional<base::Value::Dict>
 ExtensionApiUnittest::RunFunctionAndReturnDictionary(
     ExtensionFunction* function,
     const std::string& args) {
-  base::Value* value = RunFunctionAndReturnValue(function, args).release();
-  base::DictionaryValue* dict = NULL;
+  std::unique_ptr<base::Value> value =
+      RunFunctionAndReturnValue(function, args);
+  // We expect to either have successfully retrieved a dictionary from the
+  // value or the value to have been nullptr.
+  EXPECT_TRUE(!value || value->is_dict());
 
-  if (value && !value->GetAsDictionary(&dict))
-    delete value;
+  if (!value || !value->is_dict())
+    return absl::nullopt;
 
-  // We expect to either have successfuly retrieved a dictionary from the value,
-  // or the value to have been NULL.
-  EXPECT_TRUE(dict || !value);
-  return std::unique_ptr<base::DictionaryValue>(dict);
+  return std::move(*value).TakeDict();
 }
 
 std::unique_ptr<base::Value> ExtensionApiUnittest::RunFunctionAndReturnList(

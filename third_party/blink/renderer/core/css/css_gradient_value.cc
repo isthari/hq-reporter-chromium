@@ -30,8 +30,9 @@
 #include <tuple>
 #include <utility>
 
-#include "base/cxx17_backports.h"
 #include "base/memory/values_equivalent.h"
+#include "base/notreached.h"
+#include "base/ranges/algorithm.h"
 #include "third_party/blink/renderer/core/css/css_color.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_math_expression_node.h"
@@ -40,6 +41,7 @@
 #include "third_party/blink/renderer/core/css/css_to_length_conversion_data.h"
 #include "third_party/blink/renderer/core/css/css_value_pair.h"
 #include "third_party/blink/renderer/core/css/properties/computed_style_utils.h"
+#include "third_party/blink/renderer/core/css/properties/longhands.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/text_link_colors.h"
@@ -53,8 +55,7 @@
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "ui/gfx/geometry/size.h"
 
-namespace blink {
-namespace cssvalue {
+namespace blink::cssvalue {
 
 namespace {
 
@@ -118,6 +119,7 @@ scoped_refptr<Image> CSSGradientValue::GetImage(
     const ImageResourceObserver& client,
     const Document& document,
     const ComputedStyle& style,
+    const ContainerSizes& container_sizes,
     const gfx::SizeF& size) const {
   if (size.IsEmpty())
     return nullptr;
@@ -133,10 +135,9 @@ scoped_refptr<Image> CSSGradientValue::GetImage(
   // We need to create an image.
   const ComputedStyle* root_style =
       document.documentElement()->GetComputedStyle();
-  // TOOD(crbug.com/1223030): Handle container relative units.
   CSSToLengthConversionData conversion_data(
-      &style, root_style, document.GetLayoutView(),
-      /* nearest_container */ nullptr, style.EffectiveZoom());
+      &style, &style, root_style, document.GetLayoutView(), container_sizes,
+      style.EffectiveZoom());
 
   scoped_refptr<Gradient> gradient;
   switch (GetClassType()) {
@@ -266,18 +267,29 @@ static void ReplaceColorHintsWithColorStops(
     }
 
     GradientStop new_stops[9];
-    // Position the new color stops.
+    // Position the new color stops. These must be in the range
+    // [offset_left, offset_right], and in non-decreasing order, even in the
+    // face of floating-point rounding.
     if (left_dist > right_dist) {
       for (size_t y = 0; y < 7; ++y)
-        new_stops[y].offset = offset_left + left_dist * (7 + y) / 13;
-      new_stops[7].offset = offset + right_dist / 3;
-      new_stops[8].offset = offset + right_dist * 2 / 3;
+        new_stops[y].offset = offset_left + left_dist * ((7.0f + y) / 13.0f);
+      new_stops[7].offset = offset + right_dist * (1.0f / 3.0f);
+      new_stops[8].offset = offset + right_dist * (2.0f / 3.0f);
     } else {
-      new_stops[0].offset = offset_left + left_dist / 3;
-      new_stops[1].offset = offset_left + left_dist * 2 / 3;
+      new_stops[0].offset = offset_left + left_dist * (1.0f / 3.0f);
+      new_stops[1].offset = offset_left + left_dist * (2.0f / 3.0f);
       for (size_t y = 0; y < 7; ++y)
-        new_stops[y + 2].offset = offset + right_dist * y / 13;
+        new_stops[y + 2].offset = offset + right_dist * (y / 13.0f);
     }
+
+#if DCHECK_IS_ON()
+    // Verify that offset_left <= x_0 <= x_1 <= ... <= x_8 <= offset_right.
+    DCHECK_GE(new_stops[0].offset, offset_left);
+    for (int j = 1; j < 8; ++j) {
+      DCHECK_GE(new_stops[j].offset, new_stops[j - 1].offset);
+    }
+    DCHECK_GE(offset_right, new_stops[8].offset);
+#endif  // DCHECK_IS_ON()
 
     // calculate colors for the new color hints.
     // The color weighting for the new color stops will be
@@ -349,7 +361,7 @@ void CSSGradientValue::AddComputedStops(
       case CSSValueID::kCurrentcolor:
         if (allow_visited_style) {
           stop.color_ = CSSColor::Create(
-              style.VisitedDependentColor(GetCSSPropertyColor()).Rgb());
+              style.VisitedDependentColor(GetCSSPropertyColor()));
         } else {
           stop.color_ = ComputedStyleUtils::CurrentColorOrValidColor(
               style, StyleColor(), CSSValuePhase::kComputedValue);
@@ -357,10 +369,8 @@ void CSSGradientValue::AddComputedStops(
         break;
       default:
         // TODO(crbug.com/929098) Need to pass an appropriate color scheme here.
-        stop.color_ =
-            CSSColor::Create(StyleColor::ColorFromKeyword(
-                                 value_id, mojom::blink::ColorScheme::kLight)
-                                 .Rgb());
+        stop.color_ = CSSColor::Create(StyleColor::ColorFromKeyword(
+            value_id, mojom::blink::ColorScheme::kLight));
     }
     AddStop(stop);
   }
@@ -808,6 +818,32 @@ void CSSGradientValue::TraceAfterDispatch(blink::Visitor* visitor) const {
   CSSImageGeneratorValue::TraceAfterDispatch(visitor);
 }
 
+bool CSSGradientValue::ShouldSerializeColorSpace() const {
+  if (color_interpolation_space_ == Color::ColorInterpolationSpace::kNone)
+    return false;
+
+  bool has_only_legacy_colors =
+      base::ranges::all_of(stops_, [](const CSSGradientColorStop& stop) {
+        const auto* color_value =
+            DynamicTo<cssvalue::CSSColor>(stop.color_.Get());
+        return !color_value || color_value->Value().IsLegacyColor();
+      });
+
+  // OKLab is the default and should not be serialized unless all colors are
+  // legacy colors.
+  if (!has_only_legacy_colors &&
+      color_interpolation_space_ == Color::ColorInterpolationSpace::kOklab)
+    return false;
+
+  // sRGB is the default if all colors are legacy colors and should not be
+  // serialized.
+  if (has_only_legacy_colors &&
+      color_interpolation_space_ == Color::ColorInterpolationSpace::kSRGB)
+    return false;
+
+  return true;
+}
+
 String CSSLinearGradientValue::CustomCSSText() const {
   StringBuilder result;
   if (gradient_type_ == kCSSDeprecatedLinearGradient) {
@@ -869,6 +905,15 @@ String CSSLinearGradientValue::CustomCSSText() const {
       else
         result.Append(first_y_->CssText());
       wrote_something = true;
+    }
+
+    if (ShouldSerializeColorSpace()) {
+      if (wrote_something)
+        result.Append(" ");
+      wrote_something = true;
+      result.Append("in ");
+      result.Append(Color::ColorInterpolationSpaceToString(
+          color_interpolation_space_, hue_interpolation_method_));
     }
 
     AppendCSSTextForColorStops(result, wrote_something);
@@ -1029,7 +1074,8 @@ scoped_refptr<Gradient> CSSLinearGradientValue::CreateGradient(
       Gradient::CreateLinear(desc.p0, desc.p1, desc.spread_method,
                              Gradient::ColorInterpolation::kPremultiplied);
 
-  // Now add the stops.
+  gradient->SetColorInterpolationSpace(color_interpolation_space_,
+                                       hue_interpolation_method_);
   gradient->AddColorStops(desc.stops);
 
   return gradient;
@@ -1081,6 +1127,9 @@ CSSLinearGradientValue* CSSLinearGradientValue::ComputedCSSValue(
   CSSLinearGradientValue* result = MakeGarbageCollected<CSSLinearGradientValue>(
       first_x_, first_y_, second_x_, second_y_, angle_,
       repeating_ ? kRepeating : kNonRepeating, GradientType());
+
+  result->SetColorInterpolationSpace(color_interpolation_space_,
+                                     hue_interpolation_method_);
   result->AddComputedStops(style, allow_visited_style, stops_);
   return result;
 }
@@ -1097,8 +1146,26 @@ static bool IsUsingCurrentColor(
   return false;
 }
 
+static bool IsUsingContainerRelativeUnits(const CSSValue* value) {
+  const auto* primitive_value = DynamicTo<CSSPrimitiveValue>(value);
+  return primitive_value && primitive_value->HasContainerRelativeUnits();
+}
+
+static bool IsUsingContainerRelativeUnits(
+    const HeapVector<CSSGradientColorStop, 2>& stops) {
+  for (const CSSGradientColorStop& stop : stops) {
+    if (IsUsingContainerRelativeUnits(stop.offset_.Get()))
+      return true;
+  }
+  return false;
+}
+
 bool CSSLinearGradientValue::IsUsingCurrentColor() const {
   return blink::cssvalue::IsUsingCurrentColor(stops_);
+}
+
+bool CSSLinearGradientValue::IsUsingContainerRelativeUnits() const {
+  return blink::cssvalue::IsUsingContainerRelativeUnits(stops_);
 }
 
 void CSSLinearGradientValue::TraceAfterDispatch(blink::Visitor* visitor) const {
@@ -1206,8 +1273,14 @@ String CSSRadialGradientValue::CustomCSSText() const {
       result.Append(' ');
       result.Append(end_vertical_size_->CssText());
     }
-
     constexpr bool kAppendSeparator = true;
+
+    if (ShouldSerializeColorSpace()) {
+      result.Append(" in ");
+      result.Append(Color::ColorInterpolationSpaceToString(
+          color_interpolation_space_, hue_interpolation_method_));
+    }
+
     AppendCSSTextForColorStops(result, kAppendSeparator);
   } else {
     if (repeating_)
@@ -1244,6 +1317,15 @@ String CSSRadialGradientValue::CustomCSSText() const {
 
     wrote_something |=
         AppendPosition(result, first_x_, first_y_, wrote_something);
+
+    if (ShouldSerializeColorSpace()) {
+      if (wrote_something)
+        result.Append(" ");
+      result.Append("in ");
+      wrote_something = true;
+      result.Append(Color::ColorInterpolationSpaceToString(
+          color_interpolation_space_, hue_interpolation_method_));
+    }
 
     AppendCSSTextForColorStops(result, wrote_something);
   }
@@ -1322,7 +1404,7 @@ gfx::SizeF RadiusToCorner(const gfx::PointF& point,
 
   unsigned corner_index = 0;
   float distance = (point - corners[corner_index]).Length();
-  for (unsigned i = 1; i < base::size(corners); ++i) {
+  for (unsigned i = 1; i < std::size(corners); ++i) {
     float new_distance = (point - corners[i]).Length();
     if (compare(new_distance, distance)) {
       corner_index = i;
@@ -1432,7 +1514,8 @@ scoped_refptr<Gradient> CSSRadialGradientValue::CreateGradient(
       is_degenerate ? 1 : second_radius.AspectRatio(), desc.spread_method,
       Gradient::ColorInterpolation::kPremultiplied);
 
-  // Now add the stops.
+  gradient->SetColorInterpolationSpace(color_interpolation_space_,
+                                       hue_interpolation_method_);
   gradient->AddColorStops(desc.stops);
 
   return gradient;
@@ -1498,12 +1581,18 @@ CSSRadialGradientValue* CSSRadialGradientValue::ComputedCSSValue(
       first_x_, first_y_, first_radius_, second_x_, second_y_, second_radius_,
       shape_, sizing_behavior_, end_horizontal_size_, end_vertical_size_,
       repeating_ ? kRepeating : kNonRepeating, GradientType());
+  result->SetColorInterpolationSpace(color_interpolation_space_,
+                                     hue_interpolation_method_);
   result->AddComputedStops(style, allow_visited_style, stops_);
   return result;
 }
 
 bool CSSRadialGradientValue::IsUsingCurrentColor() const {
   return blink::cssvalue::IsUsingCurrentColor(stops_);
+}
+
+bool CSSRadialGradientValue::IsUsingContainerRelativeUnits() const {
+  return blink::cssvalue::IsUsingContainerRelativeUnits(stops_);
 }
 
 void CSSRadialGradientValue::TraceAfterDispatch(blink::Visitor* visitor) const {
@@ -1537,6 +1626,15 @@ String CSSConicGradientValue::CustomCSSText() const {
 
   wrote_something |= AppendPosition(result, x_, y_, wrote_something);
 
+  if (ShouldSerializeColorSpace()) {
+    if (wrote_something)
+      result.Append(" ");
+    result.Append("in ");
+    wrote_something = true;
+    result.Append(Color::ColorInterpolationSpaceToString(
+        color_interpolation_space_, hue_interpolation_method_));
+  }
+
   AppendCSSTextForColorStops(result, wrote_something);
 
   result.Append(')');
@@ -1565,6 +1663,9 @@ scoped_refptr<Gradient> CSSConicGradientValue::CreateGradient(
   scoped_refptr<Gradient> gradient = Gradient::CreateConic(
       position, angle, desc.start_angle, desc.end_angle, desc.spread_method,
       Gradient::ColorInterpolation::kPremultiplied);
+
+  gradient->SetColorInterpolationSpace(color_interpolation_space_,
+                                       hue_interpolation_method_);
   gradient->AddColorStops(desc.stops);
 
   return gradient;
@@ -1583,12 +1684,20 @@ CSSConicGradientValue* CSSConicGradientValue::ComputedCSSValue(
     bool allow_visited_style) const {
   auto* result = MakeGarbageCollected<CSSConicGradientValue>(
       x_, y_, from_angle_, repeating_ ? kRepeating : kNonRepeating);
+  result->SetColorInterpolationSpace(color_interpolation_space_,
+                                     hue_interpolation_method_);
   result->AddComputedStops(style, allow_visited_style, stops_);
   return result;
 }
 
 bool CSSConicGradientValue::IsUsingCurrentColor() const {
   return blink::cssvalue::IsUsingCurrentColor(stops_);
+}
+
+bool CSSConicGradientValue::IsUsingContainerRelativeUnits() const {
+  return blink::cssvalue::IsUsingContainerRelativeUnits(stops_) ||
+         blink::cssvalue::IsUsingContainerRelativeUnits(x_.Get()) ||
+         blink::cssvalue::IsUsingContainerRelativeUnits(y_.Get());
 }
 
 void CSSConicGradientValue::TraceAfterDispatch(blink::Visitor* visitor) const {
@@ -1598,5 +1707,4 @@ void CSSConicGradientValue::TraceAfterDispatch(blink::Visitor* visitor) const {
   CSSGradientValue::TraceAfterDispatch(visitor);
 }
 
-}  // namespace cssvalue
-}  // namespace blink
+}  // namespace blink::cssvalue

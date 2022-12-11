@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,13 @@
 #include "base/scoped_observation.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/views/menu_test_base.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
+#include "ui/gfx/native_widget_types.h"
 #include "ui/views/controls/menu/menu_controller.h"
 #include "ui/views/controls/menu/menu_item_view.h"
 #include "ui/views/controls/menu/menu_runner.h"
@@ -83,7 +85,6 @@ class TestTargetView : public views::View {
   bool CanDrop(const OSExchangeData& data) override;
   void OnDragEntered(const ui::DropTargetEvent& event) override;
   int OnDragUpdated(const ui::DropTargetEvent& event) override;
-  DragOperation OnPerformDrop(const ui::DropTargetEvent& event) override;
   DropCallback GetDropCallback(const ui::DropTargetEvent& event) override;
   void OnDragExited() override;
 
@@ -134,13 +135,6 @@ void TestTargetView::OnDragEntered(const ui::DropTargetEvent& event) {
 
 int TestTargetView::OnDragUpdated(const ui::DropTargetEvent& event) {
   return ui::DragDropTypes::DRAG_MOVE;
-}
-
-DragOperation TestTargetView::OnPerformDrop(const ui::DropTargetEvent& event) {
-  auto drop_cb = GetDropCallback(event);
-  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
-  std::move(drop_cb).Run(event, output_drag_op);
-  return output_drag_op;
 }
 
 views::View::DropCallback TestTargetView::GetDropCallback(
@@ -271,7 +265,7 @@ void MenuViewDragAndDropTest::OnDragEntered() {
       FROM_HERE,
       base::BindOnce(base::IgnoreResult(&ui_controls::SendMouseEvents),
                      ui_controls::LEFT, ui_controls::UP,
-                     ui_controls::kNoAccelerator));
+                     ui_controls::kNoAccelerator, ui_controls::kNoWindowHint));
 }
 
 bool MenuViewDragAndDropTest::GetDropFormats(
@@ -357,8 +351,9 @@ void MenuViewDragAndDropTestTestInMenuDrag::OnWidgetDragWillStart(
   const gfx::Point target =
       ui_test_utils::GetCenterInScreenCoordinates(drop_target_view);
   GetDragTaskRunner()->PostTask(
-      FROM_HERE, base::BindOnce(base::IgnoreResult(&ui_controls::SendMouseMove),
-                                target.x(), target.y()));
+      FROM_HERE,
+      base::BindOnce(base::IgnoreResult(&ui_controls::SendMouseMove),
+                     target.x(), target.y(), ui_controls::kNoWindowHint));
 }
 
 void MenuViewDragAndDropTestTestInMenuDrag::OnWidgetDragComplete(
@@ -437,8 +432,9 @@ void MenuViewDragAndDropTestNestedDrag::OnWidgetDragWillStart(
   const gfx::Point target =
       ui_test_utils::GetCenterInScreenCoordinates(drop_target_view);
   GetDragTaskRunner()->PostTask(
-      FROM_HERE, base::BindOnce(base::IgnoreResult(&ui_controls::SendMouseMove),
-                                target.x(), target.y()));
+      FROM_HERE,
+      base::BindOnce(base::IgnoreResult(&ui_controls::SendMouseMove),
+                     target.x(), target.y(), ui_controls::kNoWindowHint));
 }
 
 void MenuViewDragAndDropTestNestedDrag::OnWidgetDragComplete(

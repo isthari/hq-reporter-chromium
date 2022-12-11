@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "ash/constants/ash_features.h"
-#include "ash/constants/devicetype.h"
 #include "ash/public/cpp/tablet_mode.h"
 #include "ash/webui/camera_app_ui/url_constants.h"
 #include "base/feature_list.h"
@@ -23,21 +22,24 @@
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
-// TODO(b/174811949): Hide behind ChromeOS build flag.
+#include "chrome/browser/ash/system_web_apps/system_web_app_manager.h"
+#include "chrome/browser/ash/web_applications/camera_app/camera_app_survey_handler.h"
 #include "chrome/browser/ash/web_applications/camera_app/chrome_camera_app_ui_constants.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/ash/system_web_apps/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/chrome_pages.h"
-#include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
+#include "chrome/browser/ui/settings_window_manager_chromeos.h"
+#include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
 #include "chrome/browser/web_applications/web_app_id_constants.h"
+#include "chrome/browser/web_applications/web_app_launch_queue.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_tab_helper.h"
-#include "chrome/browser/web_applications/web_launch_params_helper.h"
+#include "chromeos/constants/devicetype.h"
 #include "chromeos/ui/base/window_properties.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_data_source.h"
@@ -63,6 +65,8 @@ std::string DeviceTypeToString(chromeos::DeviceType device_type) {
       return "unknown";
   }
 }
+const int64_t kStorageLowThreshold = 128 * 1024 * 1024;           // 128MB
+const int64_t kStorageCriticallyLowThreshold = 32 * 1024 * 1024;  // 32MB
 
 }  // namespace
 
@@ -77,10 +81,10 @@ void ChromeCameraAppUIDelegate::CameraAppDialog::ShowIntent(
 
 ChromeCameraAppUIDelegate::CameraAppDialog::CameraAppDialog(
     const std::string& url)
-    : chromeos::SystemWebDialogDelegate(GURL(url),
-                                        /*title=*/std::u16string()) {}
+    : ash::SystemWebDialogDelegate(GURL(url),
+                                   /*title=*/std::u16string()) {}
 
-ChromeCameraAppUIDelegate::CameraAppDialog::~CameraAppDialog() {}
+ChromeCameraAppUIDelegate::CameraAppDialog::~CameraAppDialog() = default;
 
 ui::ModalType ChromeCameraAppUIDelegate::CameraAppDialog::GetDialogModalType()
     const {
@@ -102,6 +106,8 @@ void ChromeCameraAppUIDelegate::CameraAppDialog::AdjustWidgetInitParams(
   auto grey_900 = cros_styles::ResolveColor(
       cros_styles::ColorName::kGoogleGrey900, /*is_dark_mode=*/false,
       /*use_debug_colors=*/false);
+  params->init_properties_container.SetProperty(
+      chromeos::kTrackDefaultFrameColors, false);
   params->init_properties_container.SetProperty(chromeos::kFrameActiveColorKey,
                                                 grey_900);
   params->init_properties_container.SetProperty(
@@ -129,7 +135,7 @@ bool ChromeCameraAppUIDelegate::CameraAppDialog::CheckMediaAccessPermission(
       ->CheckMediaAccessPermission(render_frame_host, security_origin, type);
 }
 
-ChromeCameraAppUIDelegate::FileMonitor::FileMonitor() {}
+ChromeCameraAppUIDelegate::FileMonitor::FileMonitor() = default;
 
 ChromeCameraAppUIDelegate::FileMonitor::~FileMonitor() = default;
 
@@ -173,20 +179,96 @@ void ChromeCameraAppUIDelegate::FileMonitor::OnFileDeletion(
   std::move(callback_).Run(FileMonitorResult::DELETED);
 }
 
+ChromeCameraAppUIDelegate::StorageMonitor::StorageMonitor(
+    scoped_refptr<base::SequencedTaskRunner> task_runner)
+    : task_runner_(task_runner) {}
+
+ChromeCameraAppUIDelegate::StorageMonitor::~StorageMonitor() {
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  StopMonitoring();
+}
+
+void ChromeCameraAppUIDelegate::StorageMonitor::StartMonitoring(
+    base::FilePath monitor_path,
+    base::RepeatingCallback<void(StorageMonitorStatus)> callback) {
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  // Initialize and set most properties
+  monitor_path_ = std::move(monitor_path);
+  callback_ = callback;
+
+  // Get initial status.
+  status_ = GetCurrentStatus();
+  callback_.Run(status_);
+
+  // Set the timer to monitor status changes.
+  timer_.Start(
+      FROM_HERE, base::Seconds(5), this,
+      &ChromeCameraAppUIDelegate::StorageMonitor::MonitorCurrentStatus);
+}
+
+void ChromeCameraAppUIDelegate::StorageMonitor::StopMonitoring() {
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  if (timer_.IsRunning()) {
+    timer_.Stop();
+  }
+}
+
+base::WeakPtr<ChromeCameraAppUIDelegate::StorageMonitor>
+ChromeCameraAppUIDelegate::StorageMonitor::GetWeakPtr() {
+  return weak_factory_.GetWeakPtr();
+}
+
+ChromeCameraAppUIDelegate::StorageMonitorStatus
+ChromeCameraAppUIDelegate::StorageMonitor::GetCurrentStatus() {
+  auto current_storage = base::SysInfo::AmountOfFreeDiskSpace(monitor_path_);
+  auto status = StorageMonitorStatus::NORMAL;
+  if (current_storage < 0) {
+    status = StorageMonitorStatus::ERROR;
+  } else if (current_storage < kStorageCriticallyLowThreshold) {
+    status = StorageMonitorStatus::CRITICALLY_LOW;
+  } else if (current_storage < kStorageLowThreshold) {
+    status = StorageMonitorStatus::LOW;
+  }
+  return status;
+}
+
+void ChromeCameraAppUIDelegate::StorageMonitor::MonitorCurrentStatus() {
+  if (callback_.is_null()) {
+    return;
+  }
+
+  auto current_status = GetCurrentStatus();
+
+  if (status_ != current_status) {
+    callback_.Run(current_status);
+    status_ = current_status;
+  }
+}
+
 ChromeCameraAppUIDelegate::ChromeCameraAppUIDelegate(content::WebUI* web_ui)
     : web_ui_(web_ui),
+      session_start_time_(base::Time::Now()),
       file_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::USER_VISIBLE})),
+      storage_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskPriority::USER_VISIBLE})) {
   file_task_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(&ChromeCameraAppUIDelegate::InitFileMonitorOnFileThread,
                      base::Unretained(this)));
+
+  IntializeStorageMonitor();
 }
 
 ChromeCameraAppUIDelegate::~ChromeCameraAppUIDelegate() {
   // Destroy |file_monitor_| on |file_task_runner_|.
   // TODO(wtlee): Ensure there is no lifetime issue before actually deleting it.
   file_task_runner_->DeleteSoon(FROM_HERE, std::move(file_monitor_));
+
+  storage_task_runner_->DeleteSoon(FROM_HERE, std::move(storage_monitor_));
+
+  // Try triggering the HaTS survey when leaving the app.
+  MaybeTriggerSurvey();
 }
 
 void ChromeCameraAppUIDelegate::SetLaunchDirectory() {
@@ -196,21 +278,28 @@ void ChromeCameraAppUIDelegate::SetLaunchDirectory() {
   auto my_files_folder_path =
       file_manager::util::GetMyFilesFolderForProfile(profile);
 
-  auto* provider = web_app::WebAppProvider::GetForSystemWebApps(profile);
+  auto* swa_manager = ash::SystemWebAppManager::Get(profile);
+  if (!swa_manager)
+    return;
+
   absl::optional<web_app::AppId> app_id =
-      provider->system_web_app_manager().GetAppIdForSystemApp(
-          web_app::SystemAppType::CAMERA);
+      swa_manager->GetAppIdForSystemApp(ash::SystemWebAppType::CAMERA);
+  if (!app_id.has_value())
+    return;
 
   // The launch directory is passed here rather than
   // `SystemWebAppDelegate::LaunchAndNavigateSystemWebApp()` to handle the case
   // of the app being opened to handle an Android intent, i.e. when it's shown
   // as a dialog via `CameraAppDialog`.
-  web_app::WebLaunchParamsHelper::EnqueueLaunchParams(
-      web_contents, provider->registrar(), *app_id,
-      /*await_navigation=*/true,
-      /*launch_url=*/GURL(ash::kChromeUICameraAppMainURL), my_files_folder_path,
-      /*launch_paths=*/{});
+  web_app::WebAppLaunchParams launch_params;
+  launch_params.started_new_navigation = true;
+  launch_params.app_id = *app_id;
+  launch_params.target_url = GURL(ash::kChromeUICameraAppMainURL);
+  launch_params.dir = my_files_folder_path;
   web_app::WebAppTabHelper::CreateForWebContents(web_contents);
+  web_app::WebAppTabHelper::FromWebContents(web_contents)
+      ->EnsureLaunchQueue()
+      .Enqueue(std::move(launch_params));
 }
 
 void ChromeCameraAppUIDelegate::PopulateLoadTimeData(
@@ -219,10 +308,12 @@ void ChromeCameraAppUIDelegate::PopulateLoadTimeData(
   source->AddString("board_name", base::SysInfo::GetLsbReleaseBoard());
   source->AddString("device_type",
                     DeviceTypeToString(chromeos::GetDeviceType()));
-  // Add chrome flags.
-  source->AddBoolean("cameraAppDocumentManualCrop",
-                     base::FeatureList::IsEnabled(
-                         chromeos::features::kCameraAppDocumentManualCrop));
+  source->AddBoolean(
+      "multiPageDocScan",
+      base::FeatureList::IsEnabled(ash::features::kCameraAppMultiPageDocScan));
+  source->AddBoolean(
+      "lowStorageWarning",
+      base::FeatureList::IsEnabled(ash::features::kCameraAppLowStorageWarning));
 }
 
 bool ChromeCameraAppUIDelegate::IsMetricsAndCrashReportingEnabled() {
@@ -238,11 +329,11 @@ void ChromeCameraAppUIDelegate::OpenFileInGallery(const std::string& name) {
     return;
   }
 
-  web_app::SystemAppLaunchParams params;
+  ash::SystemAppLaunchParams params;
   params.launch_paths = {path};
-  params.launch_source = apps::mojom::LaunchSource::kFromOtherApp;
-  web_app::LaunchSystemWebAppAsync(Profile::FromWebUI(web_ui_),
-                                   web_app::SystemAppType::MEDIA, params);
+  params.launch_source = apps::LaunchSource::kFromOtherApp;
+  ash::LaunchSystemWebAppAsync(Profile::FromWebUI(web_ui_),
+                               ash::SystemWebAppType::MEDIA, params);
 }
 
 void ChromeCameraAppUIDelegate::OpenFeedbackDialog(
@@ -299,14 +390,56 @@ void ChromeCameraAppUIDelegate::MonitorFileDeletion(
   }
 
   // We should return the response on current thread (mojo thread).
-  auto callback_on_current_thread = base::BindPostTask(
-      base::SequencedTaskRunnerHandle::Get(), std::move(callback), FROM_HERE);
+  auto callback_on_current_thread =
+      base::BindPostTask(base::SequencedTaskRunner::GetCurrentDefault(),
+                         std::move(callback), FROM_HERE);
   file_task_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(
           &ChromeCameraAppUIDelegate::MonitorFileDeletionOnFileThread,
           base::Unretained(this), file_monitor_.get(), std::move(file_path),
           std::move(callback_on_current_thread)));
+}
+
+void ChromeCameraAppUIDelegate::MaybeTriggerSurvey() {
+  static constexpr base::TimeDelta kMinSurveyDuration = base::Seconds(15);
+
+  if (base::Time::Now() - session_start_time_ < kMinSurveyDuration) {
+    return;
+  }
+  CameraAppSurveyHandler::GetInstance()->MaybeTriggerSurvey();
+}
+
+void ChromeCameraAppUIDelegate::StartStorageMonitor(
+    base::RepeatingCallback<void(StorageMonitorStatus)> monitor_callback) {
+  auto monitor_callback_on_current_thread =
+      base::BindPostTask(base::SequencedTaskRunner::GetCurrentDefault(),
+                         monitor_callback, FROM_HERE);
+  auto monitor_path = GetMyFilesFolder();
+  storage_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &ChromeCameraAppUIDelegate::StorageMonitor::StartMonitoring,
+          storage_monitor_weak_ptr_, std::move(monitor_path),
+          monitor_callback_on_current_thread));
+}
+
+void ChromeCameraAppUIDelegate::StopStorageMonitor() {
+  storage_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&ChromeCameraAppUIDelegate::StorageMonitor::StopMonitoring,
+                     storage_monitor_weak_ptr_));
+}
+
+void ChromeCameraAppUIDelegate::OpenStorageManagement() {
+  chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
+      Profile::FromWebUI(web_ui_),
+      chromeos::settings::mojom::kStorageSubpagePath);
+}
+
+base::FilePath ChromeCameraAppUIDelegate::GetMyFilesFolder() {
+  Profile* profile = Profile::FromWebUI(web_ui_);
+  return file_manager::util::GetMyFilesFolderForProfile(profile);
 }
 
 base::FilePath ChromeCameraAppUIDelegate::GetFilePathByName(
@@ -316,11 +449,7 @@ base::FilePath ChromeCameraAppUIDelegate::GetFilePathByName(
   if (name_component.ReferencesParent())
     return base::FilePath();
 
-  Profile* profile = Profile::FromWebUI(web_ui_);
-
-  return file_manager::util::GetMyFilesFolderForProfile(profile)
-      .Append("Camera")
-      .Append(name_component);
+  return GetMyFilesFolder().Append("Camera").Append(name_component);
 }
 
 void ChromeCameraAppUIDelegate::InitFileMonitorOnFileThread() {
@@ -336,4 +465,25 @@ void ChromeCameraAppUIDelegate::MonitorFileDeletionOnFileThread(
   DCHECK(file_task_runner_->RunsTasksInCurrentSequence());
 
   file_monitor->Monitor(file_path, std::move(callback));
+}
+
+void ChromeCameraAppUIDelegate::IntializeStorageMonitor() {
+  storage_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
+      base::BindOnce(
+          [](scoped_refptr<base::SequencedTaskRunner> task_runner) {
+            return std::make_unique<StorageMonitor>(task_runner);
+          },
+          storage_task_runner_),
+      base::BindOnce(&ChromeCameraAppUIDelegate::OnStorageMonitorInitialized,
+                     weak_factory_.GetWeakPtr()));
+}
+
+void ChromeCameraAppUIDelegate::OnStorageMonitorInitialized(
+    std::unique_ptr<StorageMonitor> monitor) {
+  storage_monitor_ = std::move(monitor);
+  // It's safe to get weak_ptr here as it will be used only with
+  // |storage_task_runner_|, so it will be dereferenced and invalidated on the
+  // same sequence.
+  storage_monitor_weak_ptr_ = storage_monitor_.get()->GetWeakPtr();
 }

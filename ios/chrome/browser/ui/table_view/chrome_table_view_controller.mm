@@ -1,12 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_controller.h"
 
-#include "base/check.h"
-#include "base/mac/foundation_util.h"
-#import "ios/chrome/browser/ui/material_components/chrome_app_bar_view_controller.h"
+#import "base/check.h"
+#import "base/mac/foundation_util.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_cell.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_header_footer_item.h"
 #import "ios/chrome/browser/ui/table_view/cells/table_view_item.h"
@@ -56,7 +55,6 @@ const CGFloat kTableViewSeparatorInsetWithIcon = 60;
   [super viewDidLoad];
 
   [self.tableView setBackgroundColor:self.styler.tableViewBackgroundColor];
-  [self.tableView setSeparatorColor:self.styler.cellSeparatorColor];
   [self.tableView
       setSeparatorInset:UIEdgeInsetsMake(0, kTableViewSeparatorInsetWithIcon, 0,
                                          0)];
@@ -167,6 +165,20 @@ const CGFloat kTableViewSeparatorInsetWithIcon = 60;
                                                   subtitle:subtitle];
 }
 
+- (void)addEmptyTableViewWithImage:(UIImage*)image
+                             title:(NSString*)title
+                attributedSubtitle:(NSAttributedString*)subtitle
+                          delegate:(id<TableViewIllustratedEmptyViewDelegate>)
+                                       delegate {
+  TableViewIllustratedEmptyView* illustratedEmptyView =
+      [[TableViewIllustratedEmptyView alloc] initWithFrame:self.view.bounds
+                                                     image:image
+                                                     title:title
+                                        attributedSubtitle:subtitle];
+  illustratedEmptyView.delegate = delegate;
+  self.emptyView = illustratedEmptyView;
+}
+
 - (void)updateEmptyTableViewAccessibilityLabel:(NSString*)newLabel {
   self.emptyView.viewAccessibilityLabel = newLabel;
 }
@@ -192,8 +204,8 @@ const CGFloat kTableViewSeparatorInsetWithIcon = 60;
   NSArray* sortedIndexPaths =
       [indexPaths sortedArrayUsingSelector:@selector(compare:)];
   for (NSIndexPath* indexPath in [sortedIndexPaths reverseObjectEnumerator]) {
-    NSInteger sectionIdentifier =
-        [self.tableViewModel sectionIdentifierForSection:indexPath.section];
+    NSInteger sectionIdentifier = [self.tableViewModel
+        sectionIdentifierForSectionIndex:indexPath.section];
     NSInteger itemType = [self.tableViewModel itemTypeForIndexPath:indexPath];
     NSUInteger index =
         [self.tableViewModel indexInItemTypeForIndexPath:indexPath];
@@ -207,14 +219,16 @@ const CGFloat kTableViewSeparatorInsetWithIcon = 60;
 
 - (void)reconfigureCellsForItems:(NSArray*)items {
   for (TableViewItem* item in items) {
-    NSIndexPath* indexPath = [self.tableViewModel indexPathForItem:item];
-    UITableViewCell* cell = [self.tableView cellForRowAtIndexPath:indexPath];
+    if ([self.tableViewModel hasItem:item]) {
+      NSIndexPath* indexPath = [self.tableViewModel indexPathForItem:item];
+      UITableViewCell* cell = [self.tableView cellForRowAtIndexPath:indexPath];
 
-    // |cell| may be nil if the row is not currently on screen.
-    if (cell) {
-      TableViewCell* tableViewCell =
-          base::mac::ObjCCastStrict<TableViewCell>(cell);
-      [item configureCell:tableViewCell withStyler:self.styler];
+      // `cell` may be nil if the row is not currently on screen.
+      if (cell) {
+        TableViewCell* tableViewCell =
+            base::mac::ObjCCastStrict<TableViewCell>(cell);
+        [item configureCell:tableViewCell withStyler:self.styler];
+      }
     }
   }
 }
@@ -271,7 +285,7 @@ const CGFloat kTableViewSeparatorInsetWithIcon = 60;
 - (UIView*)tableView:(UITableView*)tableView
     viewForHeaderInSection:(NSInteger)section {
   TableViewHeaderFooterItem* item =
-      [self.tableViewModel headerForSection:section];
+      [self.tableViewModel headerForSectionIndex:section];
   if (!item)
     return [[UIView alloc] initWithFrame:CGRectZero];
   Class headerFooterClass = [item cellClass];
@@ -287,7 +301,7 @@ const CGFloat kTableViewSeparatorInsetWithIcon = 60;
 - (UIView*)tableView:(UITableView*)tableView
     viewForFooterInSection:(NSInteger)section {
   TableViewHeaderFooterItem* item =
-      [self.tableViewModel footerForSection:section];
+      [self.tableViewModel footerForSectionIndex:section];
   if (!item)
     return [[UIView alloc] initWithFrame:CGRectZero];
   Class headerFooterClass = [item cellClass];

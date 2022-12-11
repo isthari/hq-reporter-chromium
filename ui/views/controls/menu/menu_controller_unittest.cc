@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,9 +17,13 @@
 #include "base/test/bind.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/accessibility/ax_action_data.h"
+#include "ui/accessibility/ax_mode.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/accessibility/platform/ax_platform_node.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
+#include "ui/base/owned_window_anchor.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
@@ -59,7 +63,7 @@
 #include "ui/views/controls/menu/menu_pre_target_handler.h"
 #endif
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "ui/ozone/buildflags.h"
 #include "ui/ozone/public/ozone_platform.h"
 #if BUILDFLAG(OZONE_PLATFORM_X11)
@@ -71,14 +75,17 @@
 #include "ui/events/test/events_test_utils_x11.h"
 #endif
 
-namespace views {
-namespace test {
+#if BUILDFLAG(IS_WIN)
+#include "base/win/windows_version.h"
+#endif
+
+namespace views::test {
 namespace {
 
 using ::ui::mojom::DragOperation;
 
 bool ShouldIgnoreScreenBoundsForMenus() {
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   // Some platforms, such as Wayland, disallow client applications to manipulate
   // global screen coordinates, requiring menus to be positioned relative to
   // their parent windows. See comment in ozone_platform_wayland.cc.
@@ -213,8 +220,7 @@ class GestureTestWidget : public Widget {
 class TestDragDropClient : public aura::client::DragDropClient {
  public:
   explicit TestDragDropClient(base::RepeatingClosure callback)
-      : start_drag_and_drop_callback_(std::move(callback)),
-        drag_in_progress_(false) {}
+      : start_drag_and_drop_callback_(std::move(callback)) {}
 
   TestDragDropClient(const TestDragDropClient&) = delete;
   TestDragDropClient& operator=(const TestDragDropClient&) = delete;
@@ -228,6 +234,10 @@ class TestDragDropClient : public aura::client::DragDropClient {
                                  const gfx::Point& screen_location,
                                  int allowed_operations,
                                  ui::mojom::DragEventSource source) override;
+#if BUILDFLAG(IS_LINUX)
+  void UpdateDragImage(const gfx::ImageSkia& image,
+                       const gfx::Vector2d& offset) override {}
+#endif
   void DragCancel() override;
   bool IsDragDropInProgress() override;
 
@@ -237,7 +247,7 @@ class TestDragDropClient : public aura::client::DragDropClient {
 
  private:
   base::RepeatingClosure start_drag_and_drop_callback_;
-  bool drag_in_progress_;
+  bool drag_in_progress_ = false;
 };
 
 DragOperation TestDragDropClient::StartDragAndDrop(
@@ -505,8 +515,7 @@ class MenuControllerTest : public ViewsTestBase,
 
     // Adjust the final bounds to not include the shadow and border.
     const gfx::Insets border_and_shadow_insets =
-        BubbleBorder::GetBorderAndShadowInsets(
-            MenuConfig::instance().touchable_menu_shadow_elevation);
+        GetBorderAndShadowInsets(/*is_submenu=*/false);
     final_bounds.Inset(border_and_shadow_insets);
 
     // Test that the menu will show on screen.
@@ -552,8 +561,7 @@ class MenuControllerTest : public ViewsTestBase,
 
     // Adjust the final bounds to not include the shadow and border.
     const gfx::Insets border_and_shadow_insets =
-        BubbleBorder::GetBorderAndShadowInsets(
-            MenuConfig::instance().touchable_menu_shadow_elevation);
+        GetBorderAndShadowInsets(/*is_submenu=*/false);
     final_bounds.Inset(border_and_shadow_insets);
 
     // Test that the menu is within the monitor bounds.
@@ -603,8 +611,7 @@ class MenuControllerTest : public ViewsTestBase,
 
     // Adjust the final bounds to not include the shadow and border.
     const gfx::Insets border_and_shadow_insets =
-        BubbleBorder::GetBorderAndShadowInsets(
-            MenuConfig::instance().touchable_menu_shadow_elevation);
+        GetBorderAndShadowInsets(/*is_submenu=*/false);
 
     options.anchor_bounds = gfx::Rect(monitor_bounds.origin(), anchor_size);
     gfx::Rect final_bounds = CalculateBubbleMenuBounds(options);
@@ -655,8 +662,7 @@ class MenuControllerTest : public ViewsTestBase,
 
     // Adjust the final bounds to not include the shadow and border.
     const gfx::Insets border_and_shadow_insets =
-        BubbleBorder::GetBorderAndShadowInsets(
-            MenuConfig::instance().touchable_menu_shadow_elevation);
+        GetBorderAndShadowInsets(/*is_submenu=*/true);
 
     MenuItemView* parent_item = item->GetParentMenuItem();
     SubmenuView* sub_menu = parent_item->GetSubmenu();
@@ -720,17 +726,6 @@ class MenuControllerTest : public ViewsTestBase,
         parent, MenuController::INCREMENT_SELECTION_UP);
   }
 
-  MenuItemView* FindNextSelectableMenuItem(MenuItemView* parent, int index) {
-    return menu_controller_->FindNextSelectableMenuItem(
-        parent, index, MenuController::INCREMENT_SELECTION_DOWN, false);
-  }
-
-  MenuItemView* FindPreviousSelectableMenuItem(MenuItemView* parent,
-                                               int index) {
-    return menu_controller_->FindNextSelectableMenuItem(
-        parent, index, MenuController::INCREMENT_SELECTION_UP, false);
-  }
-
   internal::MenuControllerDelegate* GetCurrentDelegate() {
     return menu_controller_->delegate_;
   }
@@ -767,6 +762,10 @@ class MenuControllerTest : public ViewsTestBase,
 
   // Note that coordinates of events passed to MenuController must be in that of
   // the MenuScrollViewContainer.
+  void ProcessGestureEvent(SubmenuView* source, ui::GestureEvent& event) {
+    menu_controller_->OnGestureEvent(source, &event);
+  }
+
   void ProcessMousePressed(SubmenuView* source, const ui::MouseEvent& event) {
     menu_controller_->OnMousePressed(source, event);
   }
@@ -876,6 +875,23 @@ class MenuControllerTest : public ViewsTestBase,
 
   void OpenMenu(MenuItemView* parent) {
     menu_controller_->OpenMenuImpl(parent, true);
+  }
+
+  gfx::Insets GetBorderAndShadowInsets(bool is_submenu) {
+    const MenuConfig& menu_config = MenuConfig::instance();
+    int elevation = menu_config.touchable_menu_shadow_elevation;
+    BubbleBorder::Shadow shadow_type = BubbleBorder::STANDARD_SHADOW;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    // Increase the submenu shadow elevation and change the shadow style to
+    // ChromeOS system UI shadow style when using Ash System UI layout.
+    if (menu_controller_->use_ash_system_ui_layout()) {
+      if (is_submenu)
+        elevation = menu_config.touchable_submenu_shadow_elevation;
+
+      shadow_type = BubbleBorder::CHROMEOS_SYSTEM_UI_SHADOW;
+    }
+#endif
+    return BubbleBorder::GetBorderAndShadowInsets(elevation, shadow_type);
   }
 
  private:
@@ -1047,11 +1063,6 @@ TEST_F(MenuControllerTest, InitialSelectedItem) {
   ASSERT_NE(nullptr, last_selectable);
   EXPECT_EQ(2, last_selectable->GetCommand());
 
-  // There should be no next or previous selectable item since there is only a
-  // single enabled item in the menu.
-  EXPECT_EQ(nullptr, FindNextSelectableMenuItem(menu_item(), 1));
-  EXPECT_EQ(nullptr, FindPreviousSelectableMenuItem(menu_item(), 1));
-
   // Clear references in menu controller to the menu item that is going away.
   ResetSelection();
 }
@@ -1063,8 +1074,7 @@ TEST_F(MenuControllerTest, VerifyMenuBubblePositionAfterSizeChanges) {
   constexpr gfx::Rect monitor_bounds(0, 0, 500, 500);
   constexpr gfx::Size menu_size(100, 200);
   const gfx::Insets border_and_shadow_insets =
-      BubbleBorder::GetBorderAndShadowInsets(
-          MenuConfig::instance().touchable_menu_shadow_elevation);
+      GetBorderAndShadowInsets(/*is_submenu=*/false);
 
   // Calculate the suitable anchor point to ensure that if the menu shows below
   // the anchor point, the bottom of the menu should be one pixel off the
@@ -1128,8 +1138,7 @@ TEST_F(MenuControllerTest, VerifyContextMenuBubblePositionAfterSizeChanges) {
   constexpr gfx::Rect kMonitorBounds(0, 0, 500, 500);
   constexpr gfx::Size kMenuSize(100, 200);
   const gfx::Insets border_and_shadow_insets =
-      BubbleBorder::GetBorderAndShadowInsets(
-          MenuConfig::instance().touchable_menu_shadow_elevation);
+      GetBorderAndShadowInsets(/*is_submenu=*/false);
 
   // Calculate the suitable anchor point to ensure that if the menu shows below
   // the anchor point, the bottom of the menu should be one pixel off the
@@ -2418,7 +2427,7 @@ TEST_P(MenuControllerTest, TestMenuFitsOnSmallScreen) {
 
 // Test that submenus are displayed within the screen bounds on smaller screens.
 TEST_P(MenuControllerTest, TestSubmenuFitsOnScreen) {
-  menu_controller()->set_use_touchable_layout(true);
+  menu_controller()->set_use_ash_system_ui_layout(true);
   MenuItemView* sub_item = menu_item()->GetSubmenu()->GetMenuItemAt(0);
   sub_item->AppendMenuItem(11, u"Subitem.One");
 
@@ -2613,6 +2622,13 @@ TEST_F(MenuControllerTest, DestroyedDuringViewsRelease) {
 // that a request to relaunch the context menu is received, and that
 // subsequently pressing ESC does not crash the browser.
 TEST_F(MenuControllerTest, RepostEventToEmptyMenuItem) {
+#if BUILDFLAG(IS_WIN)
+  // TODO(crbug.com/1286137): This test is consistently failing on Win11.
+  if (base::win::OSInfo::GetInstance()->version() >=
+      base::win::Version::WIN11) {
+    GTEST_SKIP() << "Skipping test for WIN11_21H2 and greater";
+  }
+#endif
   // Setup a submenu. Additionally hook up appropriate Widget and View
   // containers, with bounds, so that hit testing works.
   MenuController* controller = menu_controller();
@@ -2792,6 +2808,13 @@ TEST_F(MenuControllerTest, AuraWindowIsInitializedWithMenuHostInitParams) {
 // Tests that |aura::Window| has the correct properties when a context menu is
 // shown.
 TEST_F(MenuControllerTest, ContextMenuInitializesAuraWindowWhenShown) {
+#if BUILDFLAG(IS_WIN)
+  // TODO(crbug.com/1286137): This test is consistently failing on Win11.
+  if (base::win::OSInfo::GetInstance()->version() >=
+      base::win::Version::WIN11) {
+    GTEST_SKIP() << "Skipping test for WIN11_21H2 and greater";
+  }
+#endif
   SubmenuView* sub_menu = menu_item()->GetSubmenu();
 
   // Checking that context menu properties are calculated correctly.
@@ -2809,7 +2832,6 @@ TEST_F(MenuControllerTest, ContextMenuInitializesAuraWindowWhenShown) {
             anchor->anchor_position);
   EXPECT_EQ(ui::OwnedWindowAnchorGravity::kBottomRight, anchor->anchor_gravity);
   EXPECT_EQ((ui::OwnedWindowConstraintAdjustment::kAdjustmentSlideX |
-             ui::OwnedWindowConstraintAdjustment::kAdjustmentSlideY |
              ui::OwnedWindowConstraintAdjustment::kAdjustmentFlipY |
              ui::OwnedWindowConstraintAdjustment::kAdjustmentRezizeY),
             anchor->constraint_adjustment);
@@ -2846,6 +2868,13 @@ TEST_F(MenuControllerTest, ContextMenuInitializesAuraWindowWhenShown) {
 // Tests that |aura::Window| has the correct properties when a root or a child
 // menu is shown.
 TEST_F(MenuControllerTest, RootAndChildMenusInitializeAuraWindowWhenShown) {
+#if BUILDFLAG(IS_WIN)
+  // TODO(crbug.com/1286137): This test is consistently failing on Win11.
+  if (base::win::OSInfo::GetInstance()->version() >=
+      base::win::Version::WIN11) {
+    GTEST_SKIP() << "Skipping test for WIN11_21H2 and greater";
+  }
+#endif
   SubmenuView* sub_menu = menu_item()->GetSubmenu();
 
   // Checking that root menu properties are calculated correctly.
@@ -2946,6 +2975,13 @@ TEST_F(MenuControllerTest, NoUseAfterFreeWhenMenuCanceledOnMousePress) {
 }
 
 TEST_F(MenuControllerTest, SetSelectionIndices_MenuItemsOnly) {
+#if BUILDFLAG(IS_WIN)
+  // TODO(crbug.com/1286137): This test is consistently failing on Win11.
+  if (base::win::OSInfo::GetInstance()->version() >=
+      base::win::Version::WIN11) {
+    GTEST_SKIP() << "Skipping test for WIN11_21H2 and greater";
+  }
+#endif
   MenuItemView* const item1 = menu_item()->GetSubmenu()->GetMenuItemAt(0);
   MenuItemView* const item2 = menu_item()->GetSubmenu()->GetMenuItemAt(1);
   MenuItemView* const item3 = menu_item()->GetSubmenu()->GetMenuItemAt(2);
@@ -2972,6 +3008,13 @@ TEST_F(MenuControllerTest, SetSelectionIndices_MenuItemsOnly) {
 
 TEST_F(MenuControllerTest,
        SetSelectionIndices_MenuItemsOnly_SkipHiddenAndDisabled) {
+#if BUILDFLAG(IS_WIN)
+  // TODO(crbug.com/1286137): This test is consistently failing on Win11.
+  if (base::win::OSInfo::GetInstance()->version() >=
+      base::win::Version::WIN11) {
+    GTEST_SKIP() << "Skipping test for WIN11_21H2 and greater";
+  }
+#endif
   MenuItemView* const item1 = menu_item()->GetSubmenu()->GetMenuItemAt(0);
   item1->SetEnabled(false);
   MenuItemView* const item2 = menu_item()->GetSubmenu()->GetMenuItemAt(1);
@@ -2991,6 +3034,13 @@ TEST_F(MenuControllerTest,
 }
 
 TEST_F(MenuControllerTest, SetSelectionIndices_Buttons) {
+#if BUILDFLAG(IS_WIN)
+  // TODO(crbug.com/1286137): This test is consistently failing on Win11.
+  if (base::win::OSInfo::GetInstance()->version() >=
+      base::win::Version::WIN11) {
+    GTEST_SKIP() << "Skipping test for WIN11_21H2 and greater";
+  }
+#endif
   AddButtonMenuItems(/*single_child=*/false);
   MenuItemView* const item1 = menu_item()->GetSubmenu()->GetMenuItemAt(0);
   MenuItemView* const item2 = menu_item()->GetSubmenu()->GetMenuItemAt(1);
@@ -3033,6 +3083,13 @@ TEST_F(MenuControllerTest, SetSelectionIndices_Buttons) {
 }
 
 TEST_F(MenuControllerTest, SetSelectionIndices_Buttons_SkipHiddenAndDisabled) {
+#if BUILDFLAG(IS_WIN)
+  // TODO(crbug.com/1286137): This test is consistently failing on Win11.
+  if (base::win::OSInfo::GetInstance()->version() >=
+      base::win::Version::WIN11) {
+    GTEST_SKIP() << "Skipping test for WIN11_21H2 and greater";
+  }
+#endif
   AddButtonMenuItems(/*single_child=*/false);
   MenuItemView* const item1 = menu_item()->GetSubmenu()->GetMenuItemAt(0);
   MenuItemView* const item2 = menu_item()->GetSubmenu()->GetMenuItemAt(1);
@@ -3069,6 +3126,13 @@ TEST_F(MenuControllerTest, SetSelectionIndices_Buttons_SkipHiddenAndDisabled) {
 }
 
 TEST_F(MenuControllerTest, SetSelectionIndices_NestedButtons) {
+#if BUILDFLAG(IS_WIN)
+  // TODO(crbug.com/1286137): This test is consistently failing on Win11.
+  if (base::win::OSInfo::GetInstance()->version() >=
+      base::win::Version::WIN11) {
+    GTEST_SKIP() << "Skipping test for WIN11_21H2 and greater";
+  }
+#endif
   MenuItemView* const item1 = menu_item()->GetSubmenu()->GetMenuItemAt(0);
   MenuItemView* const item2 = menu_item()->GetSubmenu()->GetMenuItemAt(1);
   MenuItemView* const item3 = menu_item()->GetSubmenu()->GetMenuItemAt(2);
@@ -3118,6 +3182,69 @@ TEST_F(MenuControllerTest, SetSelectionIndices_NestedButtons) {
   EXPECT_EQ(5, data.GetIntAttribute(ax::mojom::IntAttribute::kSetSize));
 }
 
+TEST_F(MenuControllerTest, SetSelectionIndices_ChildrenChanged) {
+#if BUILDFLAG(IS_WIN)
+  // TODO(crbug.com/1286137): This test is consistently failing on Win11.
+  if (base::win::OSInfo::GetInstance()->version() >=
+      base::win::Version::WIN11) {
+    GTEST_SKIP() << "Skipping test for WIN11_21H2 and greater";
+  }
+#endif
+  AddButtonMenuItems(/*single_child=*/false);
+  MenuItemView* const item1 = menu_item()->GetSubmenu()->GetMenuItemAt(0);
+  MenuItemView* item2 = menu_item()->GetSubmenu()->GetMenuItemAt(1);
+  MenuItemView* const item3 = menu_item()->GetSubmenu()->GetMenuItemAt(2);
+  MenuItemView* const item4 = menu_item()->GetSubmenu()->GetMenuItemAt(3);
+  MenuItemView* const item5 = menu_item()->GetSubmenu()->GetMenuItemAt(4);
+  Button* const button1 = Button::AsButton(item5->children()[0]);
+  Button* const button2 = Button::AsButton(item5->children()[1]);
+  Button* const button3 = Button::AsButton(item5->children()[2]);
+  OpenMenu(menu_item());
+
+  auto expect_coordinates = [](View* v, absl::optional<int> pos,
+                               absl::optional<int> size) {
+    ui::AXNodeData data;
+    v->GetViewAccessibility().GetAccessibleNodeData(&data);
+    if (pos.has_value()) {
+      EXPECT_EQ(pos.value(),
+                data.GetIntAttribute(ax::mojom::IntAttribute::kPosInSet));
+    } else {
+      EXPECT_FALSE(data.HasIntAttribute(ax::mojom::IntAttribute::kPosInSet));
+    }
+    if (size.has_value()) {
+      EXPECT_EQ(size.value(),
+                data.GetIntAttribute(ax::mojom::IntAttribute::kSetSize));
+    } else {
+      EXPECT_FALSE(data.HasIntAttribute(ax::mojom::IntAttribute::kSetSize));
+    }
+  };
+
+  expect_coordinates(item1, 1, 7);
+  expect_coordinates(item2, 2, 7);
+  expect_coordinates(item3, 3, 7);
+  expect_coordinates(item4, 4, 7);
+  expect_coordinates(button1, 5, 7);
+  expect_coordinates(button2, 6, 7);
+  expect_coordinates(button3, 7, 7);
+
+  // Simulate a menu model update.
+  item1->SetEnabled(false);
+  button1->SetEnabled(false);
+  MenuItemView* item6 = menu_item()->AppendMenuItem(6, u"Six");
+  menu_item()->RemoveMenuItem(item2);
+  item2 = nullptr;
+  MenuChildrenChanged(menu_item());
+
+  // Verify that disabled menu items no longer have PosInSet or SetSize.
+  expect_coordinates(item1, absl::nullopt, absl::nullopt);
+  expect_coordinates(button1, absl::nullopt, absl::nullopt);
+  expect_coordinates(item3, 1, 5);
+  expect_coordinates(item4, 2, 5);
+  expect_coordinates(button2, 3, 5);
+  expect_coordinates(button3, 4, 5);
+  expect_coordinates(item6, 5, 5);
+}
+
 // Tests that a menu opened asynchronously, will notify its
 // MenuControllerDelegate when accessibility performs a do default action.
 TEST_F(MenuControllerTest, AccessibilityDoDefaultCallsAccept) {
@@ -3157,6 +3284,45 @@ TEST_F(MenuControllerTest, AccessibilityEmitsSelectChildrenChanged) {
   EXPECT_EQ(ax_counter.GetCount(ax::mojom::Event::kSelectedChildrenChanged), 2);
 }
 
+// Test that in accessibility mode disabled menu items are taken into account
+// during items indices assignment.
+TEST_F(MenuControllerTest, AccessibilityDisabledItemsIndices) {
+  ScopedAXModeSetter ax_mode_setter_{ui::AXMode::kNativeAPIs};
+
+#if BUILDFLAG(IS_WIN)
+  // TODO(crbug.com/1286137): This test is consistently failing on Win11.
+  if (base::win::OSInfo::GetInstance()->version() >=
+      base::win::Version::WIN11) {
+    GTEST_SKIP() << "Skipping test for WIN11_21H2 and greater";
+  }
+#endif
+  MenuItemView* const item1 = menu_item()->GetSubmenu()->GetMenuItemAt(0);
+  MenuItemView* const item2 = menu_item()->GetSubmenu()->GetMenuItemAt(1);
+  MenuItemView* const item3 = menu_item()->GetSubmenu()->GetMenuItemAt(2);
+  MenuItemView* const item4 = menu_item()->GetSubmenu()->GetMenuItemAt(3);
+
+  item2->SetEnabled(false);
+
+  OpenMenu(menu_item());
+
+  ui::AXNodeData data;
+  item1->GetViewAccessibility().GetAccessibleNodeData(&data);
+  EXPECT_EQ(1, data.GetIntAttribute(ax::mojom::IntAttribute::kPosInSet));
+  EXPECT_EQ(4, data.GetIntAttribute(ax::mojom::IntAttribute::kSetSize));
+
+  item2->GetViewAccessibility().GetAccessibleNodeData(&data);
+  EXPECT_EQ(2, data.GetIntAttribute(ax::mojom::IntAttribute::kPosInSet));
+  EXPECT_EQ(4, data.GetIntAttribute(ax::mojom::IntAttribute::kSetSize));
+
+  item3->GetViewAccessibility().GetAccessibleNodeData(&data);
+  EXPECT_EQ(3, data.GetIntAttribute(ax::mojom::IntAttribute::kPosInSet));
+  EXPECT_EQ(4, data.GetIntAttribute(ax::mojom::IntAttribute::kSetSize));
+
+  item4->GetViewAccessibility().GetAccessibleNodeData(&data);
+  EXPECT_EQ(4, data.GetIntAttribute(ax::mojom::IntAttribute::kPosInSet));
+  EXPECT_EQ(4, data.GetIntAttribute(ax::mojom::IntAttribute::kSetSize));
+}
+
 #if BUILDFLAG(IS_MAC)
 // This test exercises a Mac-specific behavior, by which hotkeys using modifiers
 // cause menus to close and the hotkeys to be handled by the browser window.
@@ -3184,5 +3350,74 @@ TEST_F(MenuControllerTest, BrowserHotkeysCancelMenusAndAreRedispatched) {
 }
 #endif
 
-}  // namespace test
-}  // namespace views
+class ExecuteCommandWithoutClosingMenuTest : public MenuControllerTest {
+ public:
+  void SetUp() override {
+    MenuControllerTest::SetUp();
+
+    views::test::DisableMenuClosureAnimations();
+    menu_controller()->Run(owner(), nullptr, menu_item(), gfx::Rect(),
+                           MenuAnchorPosition::kTopLeft, false, false);
+
+    MenuHost::InitParams params;
+    params.parent = owner();
+    params.bounds = gfx::Rect(0, 0, 100, 100);
+    params.do_capture = false;
+    menu_item()->GetSubmenu()->ShowAt(params);
+
+    menu_delegate()->set_should_execute_command_without_closing_menu(true);
+  }
+};
+
+TEST_F(ExecuteCommandWithoutClosingMenuTest, OnClick) {
+  TestMenuControllerDelegate* delegate = menu_controller_delegate();
+  EXPECT_EQ(0, delegate->on_menu_closed_called());
+
+  MenuItemView* menu_item_view = menu_item()->GetSubmenu()->GetMenuItemAt(0);
+  gfx::Point press_location(menu_item_view->bounds().CenterPoint());
+  ui::MouseEvent press_event(ui::ET_MOUSE_PRESSED, press_location,
+                             press_location, ui::EventTimeForNow(),
+                             ui::EF_LEFT_MOUSE_BUTTON, 0);
+  ui::MouseEvent release_event(ui::ET_MOUSE_RELEASED, press_location,
+                               press_location, ui::EventTimeForNow(),
+                               ui::EF_LEFT_MOUSE_BUTTON, 0);
+  ProcessMousePressed(menu_item()->GetSubmenu(), press_event);
+  ProcessMouseReleased(menu_item()->GetSubmenu(), release_event);
+
+  EXPECT_EQ(0, delegate->on_menu_closed_called());
+  EXPECT_TRUE(IsShowing());
+  EXPECT_EQ(menu_delegate()->execute_command_id(),
+            menu_item_view->GetCommand());
+}
+
+TEST_F(ExecuteCommandWithoutClosingMenuTest, OnTap) {
+  TestMenuControllerDelegate* delegate = menu_controller_delegate();
+  EXPECT_EQ(0, delegate->on_menu_closed_called());
+
+  MenuItemView* menu_item_view = menu_item()->GetSubmenu()->GetMenuItemAt(0);
+  gfx::Point tap_location(menu_item_view->bounds().CenterPoint());
+  ui::GestureEvent event(tap_location.x(), tap_location.y(), 0,
+                         ui::EventTimeForNow(),
+                         ui::GestureEventDetails(ui::ET_GESTURE_TAP));
+  ProcessGestureEvent(menu_item()->GetSubmenu(), event);
+
+  EXPECT_EQ(0, delegate->on_menu_closed_called());
+  EXPECT_TRUE(IsShowing());
+  EXPECT_EQ(menu_delegate()->execute_command_id(),
+            menu_item_view->GetCommand());
+}
+
+TEST_F(ExecuteCommandWithoutClosingMenuTest, OnReturnKey) {
+  TestMenuControllerDelegate* delegate = menu_controller_delegate();
+  EXPECT_EQ(0, delegate->on_menu_closed_called());
+
+  DispatchKey(ui::VKEY_DOWN);
+  DispatchKey(ui::VKEY_RETURN);
+
+  EXPECT_EQ(0, delegate->on_menu_closed_called());
+  EXPECT_TRUE(IsShowing());
+  EXPECT_EQ(menu_delegate()->execute_command_id(),
+            menu_item()->GetSubmenu()->GetMenuItemAt(0)->GetCommand());
+}
+
+}  // namespace views::test

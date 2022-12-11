@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,7 +40,6 @@ DownloadShelfContextMenu::DownloadShelfContextMenu(
     base::WeakPtr<DownloadUIModel> download)
     : download_(download), download_commands_(new DownloadCommands(download)) {
   DCHECK(download_);
-  download_->AddObserver(this);
 }
 
 void DownloadShelfContextMenu::RecordCommandsEnabled(
@@ -51,10 +50,9 @@ void DownloadShelfContextMenu::RecordCommandsEnabled(
     return;
   }
 
-  for (int command_int = 1;
-       command_int < DownloadCommands::Command::BYPASS_DEEP_SCANNING;
+  for (int command_int = 1; command_int < DownloadCommands::Command::MAX;
        command_int++) {
-    if (model->GetIndexOfCommandId(command_int) != -1 &&
+    if (model->GetIndexOfCommandId(command_int).has_value() &&
         IsCommandIdEnabled(command_int)) {
       DownloadCommands::Command download_command =
           static_cast<DownloadCommands::Command>(command_int);
@@ -76,7 +74,7 @@ ui::SimpleMenuModel* DownloadShelfContextMenu::GetMenuModel() {
 
   DCHECK(WantsContextMenu(download_.get()));
 
-  bool is_download = download_->download() != nullptr;
+  bool is_download = download_->GetDownloadItem() != nullptr;
 
   if (download_->IsMixedContent()) {
     model = GetMixedContentDownloadMenuModel();
@@ -197,8 +195,7 @@ std::u16string DownloadShelfContextMenu::GetLabelForCommandId(
       id = IDS_DOWNLOAD_MENU_LEARN_MORE_MIXED_CONTENT;
       break;
     case DownloadCommands::COPY_TO_CLIPBOARD:
-    case DownloadCommands::ANNOTATE:
-      // These commands are implemented only for the Download notification.
+      // This command is implemented only for the Download notification.
       NOTREACHED();
       break;
     case DownloadCommands::DEEP_SCAN:
@@ -207,6 +204,9 @@ std::u16string DownloadShelfContextMenu::GetLabelForCommandId(
     case DownloadCommands::BYPASS_DEEP_SCANNING:
       id = IDS_OPEN_DOWNLOAD_NOW;
       break;
+    // These commands are not supported on the context menu.
+    case DownloadCommands::REVIEW:
+    case DownloadCommands::RETRY:
     case DownloadCommands::MAX:
       NOTREACHED();
       break;
@@ -220,7 +220,6 @@ void DownloadShelfContextMenu::DetachFromDownloadItem() {
     return;
 
   download_commands_.reset();
-  download_->RemoveObserver(this);
   download_ = nullptr;
 }
 
@@ -449,7 +448,7 @@ void DownloadShelfContextMenu::AddAutoOpenToMenu(ui::SimpleMenuModel* menu) {
         DownloadCommands::ALWAYS_OPEN_TYPE,
         GetLabelForCommandId(DownloadCommands::ALWAYS_OPEN_TYPE),
         ui::ImageModel::FromVectorIcon(vector_icons::kBusinessIcon,
-                                       gfx::kChromeIconGrey,
+                                       ui::kColorIcon,
                                        ui::SimpleMenuModel::kDefaultIconSize));
   } else {
     menu->AddCheckItem(

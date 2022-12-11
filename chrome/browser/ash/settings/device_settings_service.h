@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include "base/containers/circular_deque.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
 #include "components/ownership/owner_settings_service.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_validator.h"
@@ -24,7 +24,7 @@
 namespace ownership {
 class OwnerKeyUtil;
 class PublicKey;
-}
+}  // namespace ownership
 
 namespace policy {
 namespace off_hours {
@@ -48,7 +48,7 @@ class SessionManagerOperation;
 //
 // DeviceSettingsService generates notifications for key and policy update
 // events so interested parties can reload state as appropriate.
-class DeviceSettingsService : public chromeos::SessionManagerClient::Observer {
+class DeviceSettingsService : public SessionManagerClient::Observer {
  public:
   // Indicates ownership status of the device (listed in upgrade order).
   enum OwnershipStatus {
@@ -60,7 +60,9 @@ class DeviceSettingsService : public chromeos::SessionManagerClient::Observer {
     OWNERSHIP_TAKEN
   };
 
-  typedef base::OnceCallback<void(OwnershipStatus)> OwnershipStatusCallback;
+  using OwnershipStatusCallback = base::OnceCallback<void(OwnershipStatus)>;
+  using PolicyDataCallback =
+      base::OnceCallback<void(enterprise_management::PolicyData*)>;
 
   // Status codes for Load() and Store().
   // These values are logged to UMA. Entries should not be renumbered and
@@ -112,7 +114,7 @@ class DeviceSettingsService : public chromeos::SessionManagerClient::Observer {
   ~DeviceSettingsService() override;
 
   // To be called on startup once threads are initialized and D-Bus is ready.
-  void SetSessionManager(chromeos::SessionManagerClient* session_manager_client,
+  void SetSessionManager(SessionManagerClient* session_manager_client,
                          scoped_refptr<ownership::OwnerKeyUtil> owner_key_util);
 
   // Prevents the service from making further calls to session_manager_client
@@ -134,8 +136,8 @@ class DeviceSettingsService : public chromeos::SessionManagerClient::Observer {
 
   // Returns the currently active device settings. Returns nullptr if the device
   // settings have not been retrieved from session_manager yet.
-  const enterprise_management::ChromeDeviceSettingsProto*
-      device_settings() const {
+  const enterprise_management::ChromeDeviceSettingsProto* device_settings()
+      const {
     return device_settings_.get();
   }
 
@@ -162,6 +164,13 @@ class DeviceSettingsService : public chromeos::SessionManagerClient::Observer {
   // Triggers an attempt to pull the public half of the owner key from disk and
   // load the device settings.
   void Load();
+
+  // Attempts to load asynchronously the settings if they haven't been loaded
+  // already and no request is in the queue. The aim is to avoid additional
+  // request when not needed. Should NOT be used when the settings need to be
+  // renewed, like in invalidations flow or when an explicit request from user
+  // to reload is received.
+  void LoadIfNotPresent();
 
   // Synchronously pulls the public key and loads the device settings.
   void LoadImmediately();
@@ -209,6 +218,12 @@ class DeviceSettingsService : public chromeos::SessionManagerClient::Observer {
   // of owner is fully loaded.
   void MarkWillEstablishConsumerOwnership();
 
+  // Returns whether the current user should take ownership of the device
+  // (effectively whether the user is the first consumer user on the device).
+  bool GetWillEstablishConsumerOwnership() const {
+    return will_establish_consumer_ownership_;
+  }
+
   // Adds an observer.
   void AddObserver(Observer* observer);
   // Removes an observer.
@@ -246,6 +261,10 @@ class DeviceSettingsService : public chromeos::SessionManagerClient::Observer {
                                      SessionManagerOperation* operation,
                                      Status status);
 
+  // Helper method for GetOwnershipStatusAsync to avoid data race upon
+  // user sign-in.
+  void ValidateOwnershipStatusAndNotify(OwnershipStatusCallback callback);
+
   // Run OwnershipStatusChanged() for observers.
   void NotifyOwnershipStatusChanged() const;
 
@@ -255,7 +274,7 @@ class DeviceSettingsService : public chromeos::SessionManagerClient::Observer {
   // Processes pending callbacks from GetOwnershipStatusAsync().
   void RunPendingOwnershipStatusCallbacks();
 
-  chromeos::SessionManagerClient* session_manager_client_ = nullptr;
+  SessionManagerClient* session_manager_client_ = nullptr;
   scoped_refptr<ownership::OwnerKeyUtil> owner_key_util_;
 
   Status store_status_ = STORE_SUCCESS;
@@ -307,16 +326,5 @@ class ScopedTestDeviceSettingsService {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when Chrome OS code migration is
-// done.
-namespace chromeos {
-using ::ash::DeviceSettingsService;
-}  // namespace chromeos
-
-// TODO(https://crbug.com/1164001): remove once the migration is finished.
-namespace ash {
-using ::chromeos::DeviceSettingsService;
-}
 
 #endif  // CHROME_BROWSER_ASH_SETTINGS_DEVICE_SETTINGS_SERVICE_H_

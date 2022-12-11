@@ -11,6 +11,11 @@
       "all"
     ]
   },
+  "android-arm64-archive-rel": {
+    "additional_compile_targets": [
+      "all"
+    ]
+  },
   "android-official": {
     "additional_compile_targets": [
       "all"
@@ -21,17 +26,27 @@
       "all"
     ]
   },
+  "lacros-arm-archive-rel": {
+    "additional_compile_targets": [
+      "chrome"
+    ]
+  },
+  "lacros-arm64-archive-rel": {
+    "additional_compile_targets": [
+      "chrome"
+    ]
+  },
+  "lacros64-archive-rel": {
+    "additional_compile_targets": [
+      "chrome"
+    ]
+  },
   "linux-archive-dbg": {
     "additional_compile_targets": [
       "all"
     ]
   },
   "linux-archive-rel": {
-    "additional_compile_targets": [
-      "all"
-    ]
-  },
-  "linux-archive-tagged": {
     "additional_compile_targets": [
       "all"
     ]
@@ -51,22 +66,12 @@
       "all"
     ]
   },
-  "mac-archive-tagged": {
-    "additional_compile_targets": [
-      "all"
-    ]
-  },
   "mac-arm64-archive-dbg": {
     "additional_compile_targets": [
       "all"
     ]
   },
   "mac-arm64-archive-rel": {
-    "additional_compile_targets": [
-      "all"
-    ]
-  },
-  "mac-arm64-archive-tagged": {
     "additional_compile_targets": [
       "all"
     ]
@@ -93,18 +98,6 @@
       }
     ]
   },
-  "win-archive-tagged": {
-    "additional_compile_targets": [
-      "all"
-    ],
-    "scripts": [
-      {
-        "name": "checkbins",
-        "script": "checkbins.py",
-        "swarming": {}
-      }
-    ]
-  },
   "win-official": {
     "additional_compile_targets": [
       "all"
@@ -116,18 +109,6 @@
     ]
   },
   "win32-archive-rel": {
-    "additional_compile_targets": [
-      "all"
-    ],
-    "scripts": [
-      {
-        "name": "checkbins",
-        "script": "checkbins.py",
-        "swarming": {}
-      }
-    ]
-  },
-  "win32-archive-tagged": {
     "additional_compile_targets": [
       "all"
     ],

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define GOOGLE_APIS_COMMON_TASK_UTIL_H_
 
 #include "base/bind.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 
 namespace google_apis {
 
@@ -78,7 +78,7 @@ template <typename Sig>
 base::OnceCallback<Sig> CreateRelayCallback(base::OnceCallback<Sig> callback) {
   return CreateComposedCallback(
       base::BindOnce(&RunTaskWithTaskRunner,
-                     base::ThreadTaskRunnerHandle::Get()),
+                     base::SingleThreadTaskRunner::GetCurrentDefault()),
       std::move(callback));
 }
 
@@ -87,7 +87,7 @@ base::RepeatingCallback<Sig> CreateRelayCallback(
     base::RepeatingCallback<Sig> callback) {
   return CreateComposedCallback(
       base::BindRepeating(&RunTaskWithTaskRunner,
-                          base::ThreadTaskRunnerHandle::Get()),
+                          base::SingleThreadTaskRunner::GetCurrentDefault()),
       std::move(callback));
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <utility>
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/common/pref_names.h"
 #include "components/history/core/browser/history_service.h"
@@ -52,7 +52,7 @@ void HistoryStatisticsReporter::ScheduleReportStatistics() {
   if (last_report_time > base::Time::Now() - base::Days(7))
     return;
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&HistoryStatisticsReporter::MaybeReportStatistics,
                      weak_ptr_factory_.GetWeakPtr()),

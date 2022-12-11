@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,6 +64,10 @@ class ArcResizeLockManager : public KeyedService,
   void DisableResizeLock(aura::Window* window);
   void UpdateResizeLockState(aura::Window* window);
   void UpdateShadow(aura::Window* window);
+
+  // virtual for unittest.
+  virtual void ShowSplashScreenDialog(aura::Window* window,
+                                      bool is_fully_locked);
 
   ArcResizeLockPrefDelegate* pref_delegate_{nullptr};
 

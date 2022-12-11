@@ -1,23 +1,28 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/timing/event_counts.h"
 
+#include "third_party/blink/renderer/core/event_type_names.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
 
 namespace blink {
 
 class EventCountsIterationSource final
-    : public PairIterable<AtomicString, IDLString, uint32_t, IDLUnsignedLong>::
-          IterationSource {
+    : public PairIterable<AtomicString,
+                          IDLString,
+                          uint64_t,
+                          IDLUnsignedLongLong>::IterationSource {
  public:
   explicit EventCountsIterationSource(const EventCounts& map)
       : map_(map), iterator_(map_->Map().begin()) {}
 
   bool Next(ScriptState* script_state,
             AtomicString& map_key,
-            uint32_t& map_value,
+            uint64_t& map_value,
             ExceptionState&) override {
     if (iterator_ == map_->Map().end())
       return false;
@@ -29,14 +34,14 @@ class EventCountsIterationSource final
 
   void Trace(Visitor* visitor) const override {
     visitor->Trace(map_);
-    PairIterable<AtomicString, IDLString, uint32_t,
-                 IDLUnsignedLong>::IterationSource::Trace(visitor);
+    PairIterable<AtomicString, IDLString, uint64_t,
+                 IDLUnsignedLongLong>::IterationSource::Trace(visitor);
   }
 
  private:
   // Needs to be kept alive while we're iterating over it.
   const Member<const EventCounts> map_;
-  HashMap<AtomicString, uint32_t>::const_iterator iterator_;
+  HashMap<AtomicString, uint64_t>::const_iterator iterator_;
 };
 
 void EventCounts::Add(const AtomicString& event_type) {
@@ -46,7 +51,7 @@ void EventCounts::Add(const AtomicString& event_type) {
 }
 
 void EventCounts::AddMultipleEvents(const AtomicString& event_type,
-                                    uint32_t count) {
+                                    uint64_t count) {
   auto iterator = event_count_map_.find(event_type);
   if (iterator == event_count_map_.end())
     return;
@@ -93,7 +98,7 @@ EventCounts::EventCounts() {
   }
 }
 
-PairIterable<AtomicString, IDLString, uint32_t, IDLUnsignedLong>::
+PairIterable<AtomicString, IDLString, uint64_t, IDLUnsignedLongLong>::
     IterationSource*
     EventCounts::StartIteration(ScriptState*, ExceptionState&) {
   return MakeGarbageCollected<EventCountsIterationSource>(*this);
@@ -101,7 +106,7 @@ PairIterable<AtomicString, IDLString, uint32_t, IDLUnsignedLong>::
 
 bool EventCounts::GetMapEntry(ScriptState*,
                               const AtomicString& key,
-                              uint32_t& value,
+                              uint64_t& value,
                               ExceptionState&) {
   auto it = event_count_map_.find(key);
   if (it == event_count_map_.end())

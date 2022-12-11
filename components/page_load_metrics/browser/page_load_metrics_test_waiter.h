@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,8 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
-#include "components/page_load_metrics/browser/metrics_web_contents_observer.h"
+#include "base/time/time.h"
+#include "components/page_load_metrics/browser/metrics_lifecycle_observer.h"
 #include "components/page_load_metrics/browser/page_load_tracker.h"
 #include "content/public/browser/render_frame_host.h"
 #include "third_party/blink/public/common/use_counter/use_counter_feature_tracker.h"
@@ -18,8 +19,9 @@
 
 namespace page_load_metrics {
 
-class PageLoadMetricsTestWaiter
-    : public page_load_metrics::MetricsWebContentsObserver::TestingObserver {
+class WaiterMetricsObserver;
+
+class PageLoadMetricsTestWaiter : public MetricsLifecycleObserver {
  public:
   // A bitvector to express which timing fields to match on.
   enum class TimingField : int {
@@ -36,13 +38,26 @@ class PageLoadMetricsTestWaiter
     kFirstInputDelay = 1 << 8,
     kFirstPaintAfterBackForwardCacheRestore = 1 << 9,
     kFirstInputDelayAfterBackForwardCacheRestore = 1 << 10,
-    kLayoutShift = 1 << 11,
-    kRequestAnimationFrameAfterBackForwardCacheRestore = 1 << 12,
+    kRequestAnimationFrameAfterBackForwardCacheRestore = 1 << 11,
+    kFirstScrollDelay = 1 << 12,
+    kSoftNavigationCountUpdated = 1 << 13,
+    kTotalInputDelay = 1 << 14,
   };
+
+  // Identify which frame the layout shift happens.
+  enum class ShiftFrame {
+    LayoutShiftOnlyInMainFrame,
+    LayoutShiftOnlyInSubFrame,
+    LayoutShiftOnlyInBothFrames,
+    NoLayoutShift,
+  };
+
   using FrameTreeNodeId =
       page_load_metrics::PageLoadMetricsObserver::FrameTreeNodeId;
 
   explicit PageLoadMetricsTestWaiter(content::WebContents* web_contents);
+  explicit PageLoadMetricsTestWaiter(content::WebContents* web_contents,
+                                     const char* observer_name_);
 
   ~PageLoadMetricsTestWaiter() override;
 
@@ -65,6 +80,11 @@ class PageLoadMetricsTestWaiter
   // any rect allowed.
   // TODO(skobes): Unify this API with AddMainFrameIntersectionExpectation.
   void SetMainFrameIntersectionExpectation();
+
+  // Add a main frame viewport intersection expectation. Expects that the
+  // mainframe receives its viewport rectangle in the main frame document's
+  // coornidate. Subsequent calls overwrite unmet expectations.
+  void AddMainFrameViewportRectExpectation(const gfx::Rect& rect);
 
   // Add a single WebFeature expectation.
   void AddWebFeatureExpectation(blink::mojom::WebFeature web_feature);
@@ -96,6 +116,10 @@ class PageLoadMetricsTestWaiter
   // set of expected behaviors.
   void AddLoadingBehaviorExpectation(int behavior_flags);
 
+  // Add a main/sub frame layout shift expectation.
+  void AddPageLayoutShiftExpectation(
+      ShiftFrame frame = ShiftFrame::LayoutShiftOnlyInMainFrame);
+
   // Whether the given TimingField was observed in the page.
   bool DidObserveInPage(TimingField field) const;
 
@@ -113,8 +137,19 @@ class PageLoadMetricsTestWaiter
     return current_network_body_bytes_;
   }
 
+  // Add the number of input events count expectation.
+  void AddNumInputEventsExpectation(uint64_t expected_num_input_events) {
+    expected_num_input_events_ = expected_num_input_events;
+  }
+
+  // Add the number of interactions count expectation.
+  void AddNumInteractionsExpectation(uint64_t expected_num_interactions) {
+    expected_num_interactions_ = expected_num_interactions;
+  }
+
  protected:
   virtual bool ExpectationsSatisfied() const;
+  void AssertExpectationsSatisfied() const;
 
   // Intended to be overridden in tests to allow tests to wait on other resource
   // conditions.
@@ -125,56 +160,7 @@ class PageLoadMetricsTestWaiter
   virtual void ResetExpectations();
 
  private:
-  // PageLoadMetricsObserver used by the PageLoadMetricsTestWaiter to observe
-  // metrics updates.
-  class WaiterMetricsObserver
-      : public page_load_metrics::PageLoadMetricsObserver {
-   public:
-    using FrameTreeNodeId =
-        page_load_metrics::PageLoadMetricsObserver::FrameTreeNodeId;
-    // We use a WeakPtr to the PageLoadMetricsTestWaiter because |waiter| can be
-    // destroyed before this WaiterMetricsObserver.
-    explicit WaiterMetricsObserver(
-        base::WeakPtr<PageLoadMetricsTestWaiter> waiter);
-    ~WaiterMetricsObserver() override;
-
-    void OnTimingUpdate(
-        content::RenderFrameHost* subframe_rfh,
-        const page_load_metrics::mojom::PageLoadTiming& timing) override;
-
-    void OnCpuTimingUpdate(
-        content::RenderFrameHost* subframe_rfh,
-        const page_load_metrics::mojom::CpuTiming& timing) override;
-
-    void OnLoadingBehaviorObserved(content::RenderFrameHost* rfh,
-                                   int behavior_flags) override;
-    void OnLoadedResource(const page_load_metrics::ExtraRequestCompleteInfo&
-                              extra_request_complete_info) override;
-
-    void OnResourceDataUseObserved(
-        content::RenderFrameHost* rfh,
-        const std::vector<page_load_metrics::mojom::ResourceDataUpdatePtr>&
-            resources) override;
-
-    void OnFeaturesUsageObserved(
-        content::RenderFrameHost* rfh,
-        const std::vector<blink::UseCounterFeature>&) override;
-
-    void OnDidFinishSubFrameNavigation(
-        content::NavigationHandle* navigation_handle) override;
-    void FrameSizeChanged(content::RenderFrameHost* render_frame_host,
-                          const gfx::Size& frame_size) override;
-    void OnFrameIntersectionUpdate(
-        content::RenderFrameHost* rfh,
-        const page_load_metrics::mojom::FrameIntersectionUpdate&
-            frame_intersection_update) override;
-
-    void OnV8MemoryChanged(
-        const std::vector<MemoryUpdate>& memory_updates) override;
-
-   private:
-    const base::WeakPtr<PageLoadMetricsTestWaiter> waiter_;
-  };
+  const char* observer_name_;
 
   // Manages a bitset of TimingFields.
   class TimingFieldBitSet {
@@ -208,6 +194,17 @@ class PageLoadMetricsTestWaiter
       return !((bitmask_ & other.bitmask_) ^ bitmask_);
     }
 
+    // Returns the string representation of the TimingFields this bitset
+    // contains. This method is not called anywhere and is for debug purpose
+    // only.
+    std::string ToDebugString() const;
+
+    // Returns true if the bitset contains the TimingField. This method is not
+    // called anywhere and is for debug purpose only.
+    bool ContainsTimingField(TimingField time_field) const {
+      return (bitmask_ & static_cast<int>(time_field)) > 0;
+    }
+
    private:
     int bitmask_ = 0;
   };
@@ -218,14 +215,21 @@ class PageLoadMetricsTestWaiter
 
   TimingFieldBitSet GetMatchedBits(
       const page_load_metrics::mojom::PageLoadTiming& timing,
-      const page_load_metrics::mojom::FrameMetadata& metadata,
-      const PageRenderData* render_data);
+      const page_load_metrics::mojom::FrameMetadata& metadata);
 
   // Updates observed page fields when a timing update is received by the
   // MetricsWebContentsObserver. Stops waiting if expectations are satsfied
   // after update.
   void OnTimingUpdated(content::RenderFrameHost* subframe_rfh,
                        const page_load_metrics::mojom::PageLoadTiming& timing);
+
+  void OnSoftNavigationCountUpdated();
+
+  // Updates observed page fields when a input timing update is received by the
+  // MetricsWebContentsObserver. Stops waiting if expectations are satsfied
+  // after update.
+  void OnPageInputTimingUpdated(uint64_t num_interactions,
+                                uint64_t num_input_events);
 
   // Updates observed page fields when a timing update is received by the
   // MetricsWebContentsObserver. Stops waiting if expectations are satsfied
@@ -257,13 +261,20 @@ class PageLoadMetricsTestWaiter
       content::RenderFrameHost* rfh,
       const std::vector<blink::UseCounterFeature>& features);
 
+  // Updates |observed_.layout_shift_| to record any update of new layout
+  // shift. Stops waiting if expectations are satisfied after update.
+  void OnPageRenderDataUpdate(const mojom::FrameRenderDataUpdate& render_data,
+                              bool is_main_frame);
+
   void FrameSizeChanged(content::RenderFrameHost* render_frame_host,
                         const gfx::Size& frame_size);
 
-  void OnFrameIntersectionUpdate(
+  void OnMainFrameIntersectionRectChanged(
       content::RenderFrameHost* rfh,
-      const page_load_metrics::mojom::FrameIntersectionUpdate&
-          frame_intersection_update);
+      const gfx::Rect& main_frame_intersection_rect);
+
+  void OnMainFrameViewportRectChanged(
+      const gfx::Rect& main_frame_viewport_rect);
 
   void OnDidFinishSubFrameNavigation(
       content::NavigationHandle* navigation_handle);
@@ -286,7 +297,11 @@ class PageLoadMetricsTestWaiter
   bool SubframeNavigationExpectationsSatisfied() const;
   bool SubframeDataExpectationsSatisfied() const;
   bool MainFrameIntersectionExpectationsSatisfied() const;
+  bool MainFrameViewportRectExpectationsSatisfied() const;
   bool MemoryUpdateExpectationsSatisfied() const;
+  bool TotalInputDelayExpectationsSatisfied() const;
+  bool LayoutShiftExpectationsSatisfied() const;
+  bool NumInteractionsExpectationsSatisfied() const;
 
   void AddObserver(page_load_metrics::PageLoadTracker* tracker);
 
@@ -307,14 +322,14 @@ class PageLoadMetricsTestWaiter
     std::set<gfx::Size, FrameSizeComparator> frame_sizes_;
     bool did_set_main_frame_intersection_ = false;
     std::vector<gfx::Rect> main_frame_intersections_;
+    absl::optional<gfx::Rect> main_frame_viewport_rect_;
     std::unordered_set<content::GlobalRenderFrameHostId,
                        content::GlobalRenderFrameHostIdHasher>
         memory_update_frame_ids_;
+    bool layout_shift_ = false;
   };
   State expected_;
   State observed_;
-
-  TimingFieldBitSet observed_page_fields_;
 
   int current_complete_resources_ = 0;
   int64_t current_network_bytes_ = 0;
@@ -330,10 +345,22 @@ class PageLoadMetricsTestWaiter
 
   bool attach_on_tracker_creation_ = false;
   bool did_add_observer_ = false;
+  bool soft_navigation_count_updated_ = false;
 
   double last_main_frame_layout_shift_score_ = 0;
+  double last_sub_frame_layout_shift_score_ = 0;
+
+  uint64_t current_num_input_events_ = 0;
+  uint64_t expected_num_input_events_ = 0;
+
+  uint64_t current_num_interactions_ = 0;
+  uint64_t expected_num_interactions_ = 0;
+
+  ShiftFrame shift_frame_ = ShiftFrame::NoLayoutShift;
 
   base::WeakPtrFactory<PageLoadMetricsTestWaiter> weak_factory_{this};
+
+  friend class WaiterMetricsObserver;
 };
 
 }  // namespace page_load_metrics

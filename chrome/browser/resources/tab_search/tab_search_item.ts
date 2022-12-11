@@ -1,22 +1,23 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import 'chrome://resources/cr_elements/cr_icons_css.m.js';
-import 'chrome://resources/cr_elements/mwb_shared_icons.js';
-import 'chrome://resources/cr_elements/mwb_shared_vars.js';
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/cr_icons.css.js';
+import 'chrome://resources/cr_elements/mwb_shared_icons.html.js';
+import 'chrome://resources/cr_elements/mwb_shared_vars.css.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 import './strings.m.js';
 
 import {MouseHoverableMixin} from 'chrome://resources/cr_elements/mouse_hoverable_mixin.js';
 import {getFaviconForPageURL} from 'chrome://resources/js/icon.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {get as deepGet, html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {get as deepGet, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {ariaLabel, TabData, TabItemType} from './tab_data.js';
 import {colorName} from './tab_group_color_helper.js';
 import {Tab} from './tab_search.mojom-webui.js';
+import {getTemplate} from './tab_search_item.html.js';
 import {highlightText, tabHasMediaAlerts} from './tab_search_utils.js';
 import {TabAlertState} from './tabs.mojom-webui.js';
 
@@ -37,7 +38,7 @@ export class TabSearchItem extends TabSearchItemBase {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -99,7 +100,7 @@ export class TabSearchItem extends TabSearchItemBase {
   }
 
   private isOpenTabAndHasMediaAlert_(tabData: TabData): boolean {
-    return tabData.type == TabItemType.OPEN_TAB &&
+    return tabData.type === TabItemType.OPEN_TAB &&
         tabHasMediaAlerts(tabData.tab as Tab);
   }
 
@@ -117,18 +118,21 @@ export class TabSearchItem extends TabSearchItemBase {
     if (!this.isOpenTabAndHasMediaAlert_(tabData)) {
       return '';
     }
-    for (const alert of (tabData.tab as Tab).alertStates) {
-      // Ordered in the same priority as GetTabAlertStatesForContents.
-      if (alert == TabAlertState.kMediaRecording) {
+    // GetTabAlertStatesForContents adds alert indicators in the order of their
+    // priority. Only relevant media alerts are sent over mojo so the first
+    // element in alertStates will be the highest priority media alert to
+    // display.
+    const alert = (tabData.tab as Tab).alertStates[0];
+    switch (alert) {
+      case TabAlertState.kMediaRecording:
         return 'media-recording';
-      } else if (alert == TabAlertState.kAudioPlaying) {
+      case TabAlertState.kAudioPlaying:
         return 'audio-playing';
-      } else if (alert == TabAlertState.kAudioMuting) {
+      case TabAlertState.kAudioMuting:
         return 'audio-muting';
-      }
+      default:
+        return '';
     }
-
-    return '';
   }
 
   private hasTabGroupWithTitle_(tabData: TabData): boolean {
@@ -150,11 +154,9 @@ export class TabSearchItem extends TabSearchItemBase {
         });
 
     // Show chrome:// if it's a chrome internal url
-    let secondaryLabel = data.hostname;
     const protocol = new URL(data.tab.url.url).protocol;
     if (protocol === 'chrome:') {
       this.$.secondaryText.prepend(document.createTextNode('chrome://'));
-      secondaryLabel = `chrome://${secondaryLabel}`;
     }
 
     if (data.tabGroup) {
@@ -164,7 +166,7 @@ export class TabSearchItem extends TabSearchItemBase {
     }
   }
 
-  ariaLabelForText_(tabData: TabData): string {
+  private ariaLabelForText_(tabData: TabData): string {
     return ariaLabel(tabData);
   }
 

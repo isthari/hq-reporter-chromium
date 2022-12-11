@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -93,19 +93,23 @@ void ExposeChromeGpuInterfacesToBrowser(
     const gpu::GpuDriverBugWorkarounds& gpu_workarounds,
     mojo::BinderMap* binders) {
 #if BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
-  binders->Add(base::BindRepeating(&CreateArcVideoDecodeAccelerator, client,
-                                   gpu_preferences, gpu_workarounds),
-               base::ThreadTaskRunnerHandle::Get());
-  binders->Add(base::BindRepeating(&CreateArcVideoDecoder, client),
-               base::ThreadTaskRunnerHandle::Get());
-  binders->Add(base::BindRepeating(&CreateArcVideoEncodeAccelerator,
-                                   gpu_preferences, gpu_workarounds),
-               base::ThreadTaskRunnerHandle::Get());
-  binders->Add(
+  binders->Add<::arc::mojom::VideoDecodeAccelerator>(
+      base::BindRepeating(&CreateArcVideoDecodeAccelerator, client,
+                          gpu_preferences, gpu_workarounds),
+      base::SingleThreadTaskRunner::GetCurrentDefault());
+  binders->Add<::arc::mojom::VideoDecoder>(
+      base::BindRepeating(&CreateArcVideoDecoder, client),
+      base::SingleThreadTaskRunner::GetCurrentDefault());
+  binders->Add<::arc::mojom::VideoEncodeAccelerator>(
+      base::BindRepeating(&CreateArcVideoEncodeAccelerator, gpu_preferences,
+                          gpu_workarounds),
+      base::SingleThreadTaskRunner::GetCurrentDefault());
+  binders->Add<::arc::mojom::VideoProtectedBufferAllocator>(
       base::BindRepeating(&CreateArcVideoProtectedBufferAllocator, client),
-      base::ThreadTaskRunnerHandle::Get());
-  binders->Add(base::BindRepeating(&CreateProtectedBufferManager, client),
-               base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
+  binders->Add<::arc::mojom::ProtectedBufferManager>(
+      base::BindRepeating(&CreateProtectedBufferManager, client),
+      base::SingleThreadTaskRunner::GetCurrentDefault());
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH) &&
         // BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
 }

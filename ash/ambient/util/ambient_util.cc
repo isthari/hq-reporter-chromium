@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,11 @@
 #include "ash/public/cpp/ambient/ambient_backend_controller.h"
 #include "ash/public/cpp/ambient/ambient_client.h"
 #include "ash/public/cpp/ambient/proto/photo_cache_entry.pb.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/dark_light_mode_controller_impl.h"
+#include "ash/utility/lottie_util.h"
 #include "base/no_destructor.h"
-#include "base/strings/string_util.h"
+#include "base/strings/strcat.h"
+#include "third_party/re2/src/re2/re2.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
@@ -22,15 +24,20 @@ namespace ash {
 namespace ambient {
 namespace util {
 
-// Appearance of the text shadow.
-constexpr int kTextShadowElevation = 2;
-
 bool IsShowing(LockScreen::ScreenType type) {
   return LockScreen::HasInstance() && LockScreen::Get()->screen_type() == type;
 }
 
 SkColor GetContentLayerColor(
     AshColorProvider::ContentLayerType content_layer_type) {
+  return GetContentLayerColor(
+      content_layer_type,
+      DarkLightModeControllerImpl::Get()->IsDarkModeEnabled());
+}
+
+SkColor GetContentLayerColor(
+    AshColorProvider::ContentLayerType content_layer_type,
+    bool dark_mode_enable) {
   auto* ash_color_provider = AshColorProvider::Get();
 
   switch (content_layer_type) {
@@ -38,7 +45,7 @@ SkColor GetContentLayerColor(
     case AshColorProvider::ContentLayerType::kTextColorSecondary:
     case AshColorProvider::ContentLayerType::kIconColorPrimary:
     case AshColorProvider::ContentLayerType::kIconColorSecondary:
-      return ash_color_provider->IsDarkModeEnabled()
+      return dark_mode_enable
                  ? ash_color_provider->GetContentLayerColor(content_layer_type)
                  : SK_ColorWHITE;
     default:
@@ -53,7 +60,8 @@ const gfx::FontList& GetDefaultFontlist() {
   return *font_list;
 }
 
-gfx::ShadowValues GetTextShadowValues(const ui::ColorProvider* color_provider) {
+gfx::ShadowValues GetTextShadowValues(const ui::ColorProvider* color_provider,
+                                      int elevation) {
   // If `color_provider` does not exist the shadow values are being created in
   // order to calculate margins. In that case the color plays no role so set it
   // to gfx::kPlaceholderColor.
@@ -65,34 +73,44 @@ gfx::ShadowValues GetTextShadowValues(const ui::ColorProvider* color_provider) {
   SkColor shadow_base_color =
       color_provider ? color_provider->GetColor(ui::kColorShadowBase)
                      : gfx::kPlaceholderColor;
-  return gfx::ShadowValue::MakeShadowValues(
-      kTextShadowElevation, shadow_base_color, shadow_base_color);
+  return gfx::ShadowValue::MakeShadowValues(elevation, shadow_base_color,
+                                            shadow_base_color);
 }
 
 bool IsAmbientModeTopicTypeAllowed(::ambient::TopicType topic_type) {
   switch (topic_type) {
     case ::ambient::TopicType::kCurated:
-      return chromeos::features::kAmbientModeDefaultFeedEnabled.Get();
+      return features::kAmbientModeDefaultFeedEnabled.Get();
     case ::ambient::TopicType::kCapturedOnPixel:
-      return chromeos::features::kAmbientModeCapturedOnPixelPhotosEnabled.Get();
+      return features::kAmbientModeCapturedOnPixelPhotosEnabled.Get();
     case ::ambient::TopicType::kCulturalInstitute:
-      return chromeos::features::kAmbientModeCulturalInstitutePhotosEnabled
-          .Get();
+      return features::kAmbientModeCulturalInstitutePhotosEnabled.Get();
     case ::ambient::TopicType::kFeatured:
-      return chromeos::features::kAmbientModeFeaturedPhotosEnabled.Get();
+      return features::kAmbientModeFeaturedPhotosEnabled.Get();
     case ::ambient::TopicType::kGeo:
-      return chromeos::features::kAmbientModeGeoPhotosEnabled.Get();
+      return features::kAmbientModeGeoPhotosEnabled.Get();
     case ::ambient::TopicType::kPersonal:
-      return chromeos::features::kAmbientModePersonalPhotosEnabled.Get();
+      return features::kAmbientModePersonalPhotosEnabled.Get();
     case ::ambient::TopicType::kRss:
-      return chromeos::features::kAmbientModeRssPhotosEnabled.Get();
+      return features::kAmbientModeRssPhotosEnabled.Get();
     case ::ambient::TopicType::kOther:
       return false;
   }
 }
 
-bool IsDynamicLottieAsset(base::StringPiece asset_id) {
-  return base::StartsWith(asset_id, kLottieDynamicAssetIdPrefix);
+bool ParsedDynamicAssetId::operator<(const ParsedDynamicAssetId& other) const {
+  return idx == other.idx ? position_id < other.position_id : idx < other.idx;
+}
+
+bool ParseDynamicLottieAssetId(base::StringPiece asset_id,
+                               ParsedDynamicAssetId& parsed_output) {
+  static const base::NoDestructor<std::string> kAssetIdPatternStr(
+      base::StrCat({kLottieCustomizableIdPrefix,
+                    R"(_Photo_Position([[:alnum:]]+)_([[:digit:]]+).*)"}));
+  static const base::NoDestructor<RE2> kAssetIdPattern(
+      kAssetIdPatternStr->data());
+  return RE2::FullMatch(asset_id.data(), *kAssetIdPattern,
+                        &parsed_output.position_id, &parsed_output.idx);
 }
 
 }  // namespace util

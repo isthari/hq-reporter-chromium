@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <tuple>
 
+#include "base/callback.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "ui/events/event_utils.h"
@@ -207,7 +208,7 @@ bool UIControlsOzone::SendMouseClick(ui_controls::MouseButton type) {
                          ui_controls::kNoAccelerator);
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 bool UIControlsOzone::SendTouchEvents(int action, int id, int x, int y) {
   return SendTouchEventsNotifyWhenDone(action, id, x, y, base::OnceClosure());
 }
@@ -248,10 +249,10 @@ void UIControlsOzone::SendEventToSink(ui::Event* event,
   // Post the task before processing the event. This is necessary in case
   // processing the event results in a nested message loop.
   if (closure) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  std::move(closure));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(closure));
   }
-  WindowTreeHost* host = optional_host ? optional_host : host_;
+  WindowTreeHost* host = optional_host ? optional_host : host_.get();
   ui::EventSourceTestApi event_source_test(host->GetEventSource());
   std::ignore = event_source_test.SendEventToSink(event);
 }
@@ -262,7 +263,7 @@ void UIControlsOzone::PostKeyEvent(ui::EventType type,
                                    int64_t display_id,
                                    base::OnceClosure closure,
                                    WindowTreeHost* optional_host) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&UIControlsOzone::PostKeyEventTask,
                                 base::Unretained(this), type, key_code, flags,
                                 display_id, std::move(closure), optional_host));
@@ -296,7 +297,7 @@ void UIControlsOzone::PostMouseEvent(ui::EventType type,
                                      int changed_button_flags,
                                      int64_t display_id,
                                      base::OnceClosure closure) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&UIControlsOzone::PostMouseEventTask,
                      base::Unretained(this), type, host_location, flags,
@@ -324,7 +325,7 @@ void UIControlsOzone::PostTouchEvent(ui::EventType type,
                                      int id,
                                      int64_t display_id,
                                      base::OnceClosure closure) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&UIControlsOzone::PostTouchEventTask,
                                 base::Unretained(this), type, host_location, id,
                                 display_id, std::move(closure)));

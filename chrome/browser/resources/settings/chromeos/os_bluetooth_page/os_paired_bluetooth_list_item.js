@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,23 +8,23 @@
  * Bluetooth device.
  */
 
-import '../../settings_shared_css.js';
-import '//resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import '//resources/cr_elements/icons.m.js';
-import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
-import 'chrome://resources/cr_components/chromeos/bluetooth/bluetooth_icon.js';
-import 'chrome://resources/cr_components/chromeos/bluetooth/bluetooth_device_battery_info.js';
+import '../../settings_shared.css.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/icons.html.js';
+import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
+import 'chrome://resources/ash/common/bluetooth/bluetooth_icon.js';
+import 'chrome://resources/ash/common/bluetooth/bluetooth_device_battery_info.js';
 
-import {I18nBehavior, I18nBehaviorInterface} from '//resources/js/i18n_behavior.m.js';
-import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {BatteryType} from 'chrome://resources/cr_components/chromeos/bluetooth/bluetooth_types.js';
-import {getBatteryPercentage, getDeviceName, hasAnyDetailedBatteryInfo} from 'chrome://resources/cr_components/chromeos/bluetooth/bluetooth_utils.js';
-import {assertNotReached} from 'chrome://resources/js/assert.m.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {FocusRowBehavior, FocusRowBehaviorInterface} from 'chrome://resources/js/cr/ui/focus_row_behavior.m.js';
+import {BatteryType} from 'chrome://resources/ash/common/bluetooth/bluetooth_types.js';
+import {getBatteryPercentage, getDeviceName, hasAnyDetailedBatteryInfo} from 'chrome://resources/ash/common/bluetooth/bluetooth_utils.js';
+import {FocusRowBehavior, FocusRowBehaviorInterface} from 'chrome://resources/ash/common/focus_row_behavior.js';
+import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/ash/common/i18n_behavior.js';
+import {assert, assertNotReached} from 'chrome://resources/js/assert.js';
+import {DeviceConnectionState, DeviceType, PairedBluetoothDeviceProperties} from 'chrome://resources/mojo/chromeos/ash/services/bluetooth_config/public/mojom/cros_bluetooth_config.mojom-webui.js';
+import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {Router} from '../../router.js';
-import {routes} from '../os_route.m.js';
+import {Router} from '../router.js';
+import {routes} from '../os_route.js';
 
 /**
  * @constructor
@@ -49,7 +49,7 @@ class SettingsPairedBluetoothListItemElement extends
   static get properties() {
     return {
       /**
-       * @private {!chromeos.bluetoothConfig.mojom.PairedBluetoothDeviceProperties}
+       * @private {!PairedBluetoothDeviceProperties}
        */
       device: {
         type: Object,
@@ -118,7 +118,7 @@ class SettingsPairedBluetoothListItemElement extends
   }
 
   /**
-   * @param {!chromeos.bluetoothConfig.mojom.PairedBluetoothDeviceProperties}
+   * @param {!PairedBluetoothDeviceProperties}
    *     device
    * @return {string}
    * @private
@@ -128,7 +128,7 @@ class SettingsPairedBluetoothListItemElement extends
   }
 
   /**
-   * @param {!chromeos.bluetoothConfig.mojom.PairedBluetoothDeviceProperties}
+   * @param {!PairedBluetoothDeviceProperties}
    *     device
    * @return {boolean}
    * @private
@@ -140,7 +140,7 @@ class SettingsPairedBluetoothListItemElement extends
   }
 
   /**
-   * @param {!chromeos.bluetoothConfig.mojom.PairedBluetoothDeviceProperties}
+   * @param {!PairedBluetoothDeviceProperties}
    *     device
    * @return {string}
    * @private
@@ -177,7 +177,18 @@ class SettingsPairedBluetoothListItemElement extends
   }
 
   /**
-   * @param {!chromeos.bluetoothConfig.mojom.PairedBluetoothDeviceProperties}
+   * @param {!PairedBluetoothDeviceProperties}
+   *     device
+   * @return {boolean}
+   * @private
+   */
+  isDeviceConnecting_(device) {
+    return device.deviceProperties.connectionState ===
+        DeviceConnectionState.kConnecting;
+  }
+
+  /**
+   * @param {!PairedBluetoothDeviceProperties}
    *     device
    * @return {string}
    * @private
@@ -188,6 +199,10 @@ class SettingsPairedBluetoothListItemElement extends
     let a11yLabel = this.i18n(
         'bluetoothA11yDeviceName', this.itemIndex + 1, this.listSize,
         this.getDeviceName_(device));
+
+    // Include the connection status.
+    a11yLabel +=
+        ' ' + this.i18n(this.getA11yDeviceConnectionStatusTextName_(device));
 
     // Include the device type.
     a11yLabel += ' ' + this.i18n(this.getA11yDeviceTypeTextName_(device));
@@ -206,31 +221,52 @@ class SettingsPairedBluetoothListItemElement extends
   }
 
   /**
-   * @param {!chromeos.bluetoothConfig.mojom.PairedBluetoothDeviceProperties}
+   * @param {!PairedBluetoothDeviceProperties}
+   *     device
+   * @return {string}
+   * @private
+   */
+  getA11yDeviceConnectionStatusTextName_(device) {
+    const connectionState = DeviceConnectionState;
+    switch (device.deviceProperties.connectionState) {
+      case connectionState.kConnected:
+        return 'bluetoothA11yDeviceConnectionStateConnected';
+      case connectionState.kConnecting:
+        return 'bluetoothA11yDeviceConnectionStateConnecting';
+      case connectionState.kNotConnected:
+        return 'bluetoothA11yDeviceConnectionStateNotConnected';
+      default:
+        assertNotReached();
+    }
+  }
+
+  /**
+   * @param {!PairedBluetoothDeviceProperties}
    *     device
    * @return {string}
    * @private
    */
   getA11yDeviceTypeTextName_(device) {
-    const deviceType = chromeos.bluetoothConfig.mojom.DeviceType;
     switch (device.deviceProperties.deviceType) {
-      case deviceType.kUnknown:
+      case DeviceType.kUnknown:
         return 'bluetoothA11yDeviceTypeUnknown';
-      case deviceType.kComputer:
+      case DeviceType.kComputer:
         return 'bluetoothA11yDeviceTypeComputer';
-      case deviceType.kPhone:
+      case DeviceType.kPhone:
         return 'bluetoothA11yDeviceTypePhone';
-      case deviceType.kHeadset:
+      case DeviceType.kHeadset:
         return 'bluetoothA11yDeviceTypeHeadset';
-      case deviceType.kVideoCamera:
+      case DeviceType.kVideoCamera:
         return 'bluetoothA11yDeviceTypeVideoCamera';
-      case deviceType.kGameController:
+      case DeviceType.kGameController:
         return 'bluetoothA11yDeviceTypeGameController';
-      case deviceType.kKeyboard:
+      case DeviceType.kKeyboard:
         return 'bluetoothA11yDeviceTypeKeyboard';
-      case deviceType.kMouse:
+      case DeviceType.kKeyboardMouseCombo:
+        return 'bluetoothA11yDeviceTypeKeyboardMouseCombo';
+      case DeviceType.kMouse:
         return 'bluetoothA11yDeviceTypeMouse';
-      case deviceType.kTablet:
+      case DeviceType.kTablet:
         return 'bluetoothA11yDeviceTypeTablet';
       default:
         assertNotReached();
@@ -254,7 +290,7 @@ class SettingsPairedBluetoothListItemElement extends
         show: showTooltip,
         element: showTooltip ? this.shadowRoot.getElementById('managedIcon') :
                                undefined,
-      }
+      },
     }));
   }
 }

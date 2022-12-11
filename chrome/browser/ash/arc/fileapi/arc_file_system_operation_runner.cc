@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/fileapi/arc_file_system_bridge.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
@@ -129,7 +129,7 @@ void ArcFileSystemOperationRunner::GetFileSize(const GURL& url,
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), GetFileSize);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), -1));
     return;
   }
@@ -148,31 +148,11 @@ void ArcFileSystemOperationRunner::GetMimeType(const GURL& url,
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), GetMimeType);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), absl::nullopt));
     return;
   }
   file_system_instance->GetMimeType(url.spec(), std::move(callback));
-}
-
-void ArcFileSystemOperationRunner::OpenFileToRead(
-    const GURL& url,
-    OpenFileToReadCallback callback) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  if (should_defer_) {
-    deferred_operations_.emplace_back(base::BindOnce(
-        &ArcFileSystemOperationRunner::OpenFileToRead,
-        weak_ptr_factory_.GetWeakPtr(), url, std::move(callback)));
-    return;
-  }
-  auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
-      arc_bridge_service_->file_system(), OpenFileToRead);
-  if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(std::move(callback), mojo::ScopedHandle()));
-    return;
-  }
-  file_system_instance->OpenFileToRead(url.spec(), std::move(callback));
 }
 
 void ArcFileSystemOperationRunner::OpenThumbnail(
@@ -189,31 +169,72 @@ void ArcFileSystemOperationRunner::OpenThumbnail(
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), OpenThumbnail);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), mojo::ScopedHandle()));
     return;
   }
   file_system_instance->OpenThumbnail(url.spec(), size, std::move(callback));
 }
 
-void ArcFileSystemOperationRunner::OpenFileToWrite(
+void ArcFileSystemOperationRunner::CloseFileSession(
+    const std::string& url_id,
+    const std::string& error_message) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (should_defer_) {
+    deferred_operations_.emplace_back(
+        base::BindOnce(&ArcFileSystemOperationRunner::CloseFileSession,
+                       weak_ptr_factory_.GetWeakPtr(), url_id, error_message));
+    return;
+  }
+  auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_bridge_service_->file_system(), CloseFileSession);
+  if (!file_system_instance) {
+    LOG(WARNING) << "Failed to call CloseFileSession.";
+    return;
+  }
+  file_system_instance->CloseFileSession(url_id, error_message);
+}
+
+void ArcFileSystemOperationRunner::OpenFileSessionToWrite(
     const GURL& url,
-    OpenFileToWriteCallback callback) {
+    OpenFileSessionToWriteCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (should_defer_) {
     deferred_operations_.emplace_back(base::BindOnce(
-        &ArcFileSystemOperationRunner::OpenFileToWrite,
+        &ArcFileSystemOperationRunner::OpenFileSessionToWrite,
         weak_ptr_factory_.GetWeakPtr(), url, std::move(callback)));
     return;
   }
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
-      arc_bridge_service_->file_system(), OpenFileToWrite);
+      arc_bridge_service_->file_system(), OpenFileSessionToWrite);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(std::move(callback), mojo::ScopedHandle()));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE,
+        base::BindOnce(std::move(callback), mojom::FileSessionPtr()));
     return;
   }
-  file_system_instance->OpenFileToWrite(url.spec(), std::move(callback));
+  file_system_instance->OpenFileSessionToWrite(url, std::move(callback));
+}
+
+void ArcFileSystemOperationRunner::OpenFileSessionToRead(
+    const GURL& url,
+    OpenFileSessionToReadCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (should_defer_) {
+    deferred_operations_.emplace_back(base::BindOnce(
+        &ArcFileSystemOperationRunner::OpenFileSessionToRead,
+        weak_ptr_factory_.GetWeakPtr(), url, std::move(callback)));
+    return;
+  }
+  auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_bridge_service_->file_system(), OpenFileSessionToRead);
+  if (!file_system_instance) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE,
+        base::BindOnce(std::move(callback), mojom::FileSessionPtr()));
+    return;
+  }
+  file_system_instance->OpenFileSessionToRead(url, std::move(callback));
 }
 
 void ArcFileSystemOperationRunner::GetDocument(const std::string& authority,
@@ -230,7 +251,7 @@ void ArcFileSystemOperationRunner::GetDocument(const std::string& authority,
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), GetDocument);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), mojom::DocumentPtr()));
     return;
   }
@@ -253,7 +274,7 @@ void ArcFileSystemOperationRunner::GetChildDocuments(
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), GetChildDocuments);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), absl::nullopt));
     return;
   }
@@ -276,7 +297,7 @@ void ArcFileSystemOperationRunner::GetRecentDocuments(
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), GetRecentDocuments);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), absl::nullopt));
     return;
   }
@@ -295,7 +316,7 @@ void ArcFileSystemOperationRunner::GetRoots(GetRootsCallback callback) {
   auto* file_system_instance =
       ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service_->file_system(), GetRoots);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), absl::nullopt));
     return;
   }
@@ -316,7 +337,7 @@ void ArcFileSystemOperationRunner::GetRootSize(const std::string& authority,
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), GetRootSize);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), mojom::RootSizePtr()));
     return;
   }
@@ -337,7 +358,7 @@ void ArcFileSystemOperationRunner::DeleteDocument(
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), DeleteDocument);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), false));
     return;
   }
@@ -360,7 +381,7 @@ void ArcFileSystemOperationRunner::RenameDocument(
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), RenameDocument);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), mojom::DocumentPtr()));
     return;
   }
@@ -384,7 +405,7 @@ void ArcFileSystemOperationRunner::CreateDocument(
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), CreateDocument);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), mojom::DocumentPtr()));
     return;
   }
@@ -407,7 +428,7 @@ void ArcFileSystemOperationRunner::CopyDocument(
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), CopyDocument);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), mojom::DocumentPtr()));
     return;
   }
@@ -433,7 +454,7 @@ void ArcFileSystemOperationRunner::MoveDocument(
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), MoveDocument);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), mojom::DocumentPtr()));
     return;
   }
@@ -458,7 +479,7 @@ void ArcFileSystemOperationRunner::AddWatcher(
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), AddWatcher);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), -1));
     return;
   }
@@ -476,7 +497,7 @@ void ArcFileSystemOperationRunner::RemoveWatcher(
   // RemoveWatcher() is never deferred since watchers do not persist across
   // container reboots.
   if (should_defer_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), false));
     return;
   }
@@ -486,7 +507,7 @@ void ArcFileSystemOperationRunner::RemoveWatcher(
   // users must not assume registered callbacks are immediately invalidated.
   auto iter = watcher_callbacks_.find(watcher_id);
   if (iter == watcher_callbacks_.end()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), false));
     return;
   }
@@ -495,7 +516,7 @@ void ArcFileSystemOperationRunner::RemoveWatcher(
   auto* file_system_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->file_system(), RemoveWatcher);
   if (!file_system_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), false));
     return;
   }

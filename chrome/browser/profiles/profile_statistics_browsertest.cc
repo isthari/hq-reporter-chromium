@@ -1,17 +1,17 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include <algorithm>
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/ranges/algorithm.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
@@ -73,11 +73,8 @@ std::string ProfileCategoryStatToString(
     const char* expected_expression,
     const profiles::ProfileCategoryStats& actual_value,
     const profiles::ProfileCategoryStats& expected_value) {
-  if (actual_value.size() == expected_value.size() &&
-      std::is_permutation(actual_value.cbegin(),
-                          actual_value.cend(),
-                          expected_value.cbegin(),
-                          IsProfileCategoryStatEqual)) {
+  if (base::ranges::is_permutation(actual_value, expected_value,
+                                   IsProfileCategoryStatEqual)) {
     return ::testing::AssertionSuccess();
   } else {
     ::testing::AssertionResult result = testing::AssertionFailure();
@@ -186,7 +183,7 @@ class ProfileStatisticsBrowserTest : public InProcessBrowserTest {
 using ProfileStatisticsBrowserDeathTest = ProfileStatisticsBrowserTest;
 
 IN_PROC_BROWSER_TEST_F(ProfileStatisticsBrowserTest, GatherStatistics) {
-  Profile* profile = ProfileManager::GetActiveUserProfile();
+  Profile* profile = browser()->profile();
   ASSERT_TRUE(profile);
   ProfileStatistics* profile_stat =
       ProfileStatisticsFactory::GetForProfile(profile);
@@ -205,7 +202,7 @@ IN_PROC_BROWSER_TEST_F(ProfileStatisticsBrowserTest, GatherStatistics) {
 
 IN_PROC_BROWSER_TEST_F(ProfileStatisticsBrowserTest,
                        GatherStatisticsTwoCallbacks) {
-  Profile* profile = ProfileManager::GetActiveUserProfile();
+  Profile* profile = browser()->profile();
   ASSERT_TRUE(profile);
   ProfileStatistics* profile_stat =
       ProfileStatisticsFactory::GetForProfile(profile);

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/guid.h"
 #include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "media/mojo/mojom/renderer_extensions.mojom.h"
 #include "media/mojo/services/mojo_decryptor_service.h"
@@ -64,7 +63,7 @@ void InterfaceFactoryImpl::CreateAudioDecoder(
   DVLOG(2) << __func__;
 #if BUILDFLAG(ENABLE_MOJO_AUDIO_DECODER)
   scoped_refptr<base::SingleThreadTaskRunner> task_runner(
-      base::ThreadTaskRunnerHandle::Get());
+      base::SingleThreadTaskRunner::GetCurrentDefault());
 
   std::unique_ptr<AudioDecoder> audio_decoder =
       mojo_media_client_->CreateAudioDecoder(task_runner);
@@ -81,11 +80,14 @@ void InterfaceFactoryImpl::CreateAudioDecoder(
 }
 
 void InterfaceFactoryImpl::CreateVideoDecoder(
-    mojo::PendingReceiver<mojom::VideoDecoder> receiver) {
+    mojo::PendingReceiver<mojom::VideoDecoder> receiver,
+    mojo::PendingRemote<media::stable::mojom::StableVideoDecoder>
+        dst_video_decoder) {
   DVLOG(2) << __func__;
 #if BUILDFLAG(ENABLE_MOJO_VIDEO_DECODER)
   video_decoder_receivers_.Add(std::make_unique<MojoVideoDecoderService>(
-                                   mojo_media_client_, &cdm_service_context_),
+                                   mojo_media_client_, &cdm_service_context_,
+                                   std::move(dst_video_decoder)),
                                std::move(receiver));
 #endif  // BUILDFLAG(ENABLE_MOJO_VIDEO_DECODER)
 }
@@ -93,7 +95,7 @@ void InterfaceFactoryImpl::CreateVideoDecoder(
 void InterfaceFactoryImpl::CreateAudioEncoder(
     mojo::PendingReceiver<mojom::AudioEncoder> receiver) {
 #if BUILDFLAG(ENABLE_MOJO_AUDIO_ENCODER)
-  auto runner = base::ThreadTaskRunnerHandle::Get();
+  auto runner = base::SingleThreadTaskRunner::GetCurrentDefault();
 
   auto underlying_encoder = mojo_media_client_->CreateAudioEncoder(runner);
   if (!underlying_encoder) {
@@ -113,7 +115,8 @@ void InterfaceFactoryImpl::CreateDefaultRenderer(
   DVLOG(2) << __func__;
 #if BUILDFLAG(ENABLE_MOJO_RENDERER)
   auto renderer = mojo_media_client_->CreateRenderer(
-      frame_interfaces_.get(), base::ThreadTaskRunnerHandle::Get(), &media_log_,
+      frame_interfaces_.get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault(), &media_log_,
       audio_device_id);
   if (!renderer) {
     DLOG(ERROR) << "Renderer creation failed.";
@@ -130,7 +133,8 @@ void InterfaceFactoryImpl::CreateCastRenderer(
     mojo::PendingReceiver<media::mojom::Renderer> receiver) {
   DVLOG(2) << __func__;
   auto renderer = mojo_media_client_->CreateCastRenderer(
-      frame_interfaces_.get(), base::ThreadTaskRunnerHandle::Get(), &media_log_,
+      frame_interfaces_.get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault(), &media_log_,
       overlay_plane_id);
   if (!renderer) {
     DLOG(ERROR) << "Renderer creation failed.";
@@ -165,11 +169,15 @@ void InterfaceFactoryImpl::CreateMediaFoundationRenderer(
     mojo::PendingRemote<mojom::MediaLog> media_log_remote,
     mojo::PendingReceiver<media::mojom::Renderer> receiver,
     mojo::PendingReceiver<media::mojom::MediaFoundationRendererExtension>
-        renderer_extension_receiver) {
+        renderer_extension_receiver,
+    mojo::PendingRemote<media::mojom::MediaFoundationRendererClientExtension>
+        client_extension_remote) {
   DVLOG(2) << __func__;
   auto renderer = mojo_media_client_->CreateMediaFoundationRenderer(
-      base::ThreadTaskRunnerHandle::Get(), frame_interfaces_.get(),
-      std::move(media_log_remote), std::move(renderer_extension_receiver));
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
+      frame_interfaces_.get(), std::move(media_log_remote),
+      std::move(renderer_extension_receiver),
+      std::move(client_extension_remote));
   if (!renderer) {
     DLOG(ERROR) << "MediaFoundationRenderer creation failed.";
     return;
@@ -231,10 +239,11 @@ bool InterfaceFactoryImpl::IsEmpty() {
     return false;
 #endif  // BUILDFLAG(ENABLE_MOJO_AUDIO_ENCODER)
 
-#if BUILDFLAG(ENABLE_MOJO_RENDERER)
+#if BUILDFLAG(ENABLE_MOJO_RENDERER) || BUILDFLAG(ENABLE_CAST_RENDERER) || \
+    BUILDFLAG(IS_WIN)
   if (!renderer_receivers_.empty())
     return false;
-#endif  // BUILDFLAG(ENABLE_MOJO_RENDERER)
+#endif
 
 #if BUILDFLAG(ENABLE_MOJO_CDM)
   if (!cdm_receivers_.empty())
@@ -266,9 +275,10 @@ void InterfaceFactoryImpl::SetReceiverDisconnectHandler() {
   audio_encoder_receivers_.set_disconnect_handler(disconnect_cb);
 #endif  // BUILDFLAG(ENABLE_MOJO_AUDIO_ENCODER)
 
-#if BUILDFLAG(ENABLE_MOJO_RENDERER)
+#if BUILDFLAG(ENABLE_MOJO_RENDERER) || BUILDFLAG(ENABLE_CAST_RENDERER) || \
+    BUILDFLAG(IS_WIN)
   renderer_receivers_.set_disconnect_handler(disconnect_cb);
-#endif  // BUILDFLAG(ENABLE_MOJO_RENDERER)
+#endif
 
 #if BUILDFLAG(ENABLE_MOJO_CDM)
   cdm_receivers_.set_disconnect_handler(disconnect_cb);

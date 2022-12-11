@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,22 @@ GEN_INCLUDE(['../testing/chromevox_next_e2e_test_base.js']);
  */
 ChromeVoxAutoScrollHandlerTest = class extends ChromeVoxNextE2ETest {
   /** @override */
-  setUp() {
-    super.setUp();
-    window.EventType = chrome.automation.EventType;
+  async setUpDeferred() {
+    await super.setUpDeferred();
 
+    // Alphabetical based on file path.
+    await importModule(
+        'AutoScrollHandler', '/chromevox/background/auto_scroll_handler.js');
+    await importModule(
+        'ChromeVoxState', '/chromevox/background/chromevox_state.js');
+    await importModule('CursorRange', '/common/cursors/range.js');
+
+    window.EventType = chrome.automation.EventType;
     this.forceContextualLastOutput();
   }
 
-  runWithFakeArcSimpleScrollable(callback) {
+  /** @return {chrome.automation.AutomationNode} */
+  async runWithFakeArcSimpleScrollable() {
     // This simulates a scrolling behavior of Android scrollable, where when a
     // scroll action is performed, a new item is added to the list.
     const site = `
@@ -38,19 +46,18 @@ ChromeVoxAutoScrollHandlerTest = class extends ChromeVoxNextE2ETest {
         });
       </script>
       `;
-    this.runWithFakeScrollable(
-        site, {
-          numChildrenBeforeScroll_: -1,
-          beforeScroll: (list) => {
-            this.numChildrenBeforeScroll_ = list.children.length;
-          },
-          scrollFinished: (list) =>
-              list.children.length !== this.numChildrenBeforeScroll_
-        },
-        callback);
+    return await this.runWithFakeScrollable(site, {
+      numChildrenBeforeScroll_: -1,
+      beforeScroll: list => {
+        this.numChildrenBeforeScroll_ = list.children.length;
+      },
+      scrollFinished: list =>
+          list.children.length !== this.numChildrenBeforeScroll_,
+    });
   }
 
-  runWithFakeArcRecyclerView(callback) {
+  /** @return {chrome.automation.AutomationNode} */
+  async runWithFakeArcRecyclerView() {
     // This simulates a scrolling behavior in Android RecyclerView, where when a
     // scroll action is performed, the previously visible items disappear and
     // the new items are added to the list.
@@ -79,17 +86,15 @@ ChromeVoxAutoScrollHandlerTest = class extends ChromeVoxNextE2ETest {
         });
       </script>
       `;
-    this.runWithFakeScrollable(
-        site, {
-          childrenBeforeScroll_: [],
-          beforeScroll: (list) => {
-            this.childrenBeforeScroll_ = list.children;
-          },
-          scrollFinished: (list) => list.children.length === 2 &&
-              list.children[0] !== this.childrenBeforeScroll_[0] &&
-              list.children[1] !== this.childrenBeforeScroll_[1]
-        },
-        callback);
+    return await this.runWithFakeScrollable(site, {
+      childrenBeforeScroll_: [],
+      beforeScroll: list => {
+        this.childrenBeforeScroll_ = list.children;
+      },
+      scrollFinished: list => list.children.length === 2 &&
+          list.children[0] !== this.childrenBeforeScroll_[0] &&
+          list.children[1] !== this.childrenBeforeScroll_[1],
+    });
   }
 
   /**
@@ -108,213 +113,213 @@ ChromeVoxAutoScrollHandlerTest = class extends ChromeVoxNextE2ETest {
    *   beforeScroll: called before performing a fake scrolling (click action).
    *   scrollFinished: return if the scrolling has finished and the event
    *     listener can be invoked.
-   * @param {Function} callback
+   * @return {chrome.automation.AutomationNode}
    */
-  runWithFakeScrollable(site, scrolledPredicate, callback) {
-    this.runWithLoadedTree(site, function(root) {
-      const list = root.find({role: RoleType.LIST});
-      Object.defineProperty(list, 'focusable', {get: () => false});
-      Object.defineProperty(list, 'scrollable', {get: () => true});
-      Object.defineProperty(list, 'standardActions', {
-        get: () =>
-            [chrome.automation.ActionType.SCROLL_FORWARD,
-             chrome.automation.ActionType.SCROLL_BACKWARD]
-      });
+  async runWithFakeScrollable(site, scrolledPredicate) {
+    const root = await this.runWithLoadedTree(site);
+    const list = root.find({role: RoleType.LIST});
+    Object.defineProperty(list, 'focusable', {get: () => false});
+    Object.defineProperty(list, 'scrollable', {get: () => true});
+    Object.defineProperty(list, 'standardActions', {
+      get: () =>
+          [chrome.automation.ActionType.SCROLL_FORWARD,
+           chrome.automation.ActionType.SCROLL_BACKWARD],
+    });
 
-      // Create a fake addEventListener to dispatch an event listener of
-      // SCROLL_POSITION_CHANGED.
-      let eventListener;
-      const originalAddEventListenerFunc = list.addEventListener.bind(list);
-      list.addEventListener = (eventType, callback, capture) => {
-        if (eventType === EventType.SCROLL_POSITION_CHANGED) {
-          eventListener = callback;
-          return;
-        } else if (
-            eventType === EventType.SCROLL_HORIZONTAL_POSITION_CHANGED ||
-            eventType === EventType.SCROLL_VERTICAL_POSITION_CHANGED) {
-          // Do nothing to prevent catching scroll events dispatched from web.
+    // Create a fake addEventListener to dispatch an event listener of
+    // SCROLL_POSITION_CHANGED.
+    let eventListener;
+    const originalAddEventListenerFunc = list.addEventListener.bind(list);
+    list.addEventListener = (eventType, callback, capture) => {
+      if (eventType === EventType.SCROLL_POSITION_CHANGED) {
+        eventListener = callback;
+        return;
+      } else if (
+          eventType === EventType.SCROLL_HORIZONTAL_POSITION_CHANGED ||
+          eventType === EventType.SCROLL_VERTICAL_POSITION_CHANGED) {
+        // Do nothing to prevent catching scroll events dispatched from web.
+        return;
+      }
+      originalAddEventListenerFunc(eventType, callback, capture);
+    };
+
+    // Create a fake scrollForward and scrollBackward actions.
+    const fakeScrollFunc = cb => {
+      scrolledPredicate.beforeScroll(list);
+      const listener = ev => {
+        if (!scrolledPredicate.scrollFinished(list)) {
           return;
         }
-        originalAddEventListenerFunc(eventType, callback, capture);
+        list.removeEventListener(EventType.CHILDREN_CHANGED, listener, true);
+        eventListener();
       };
+      list.addEventListener(EventType.CHILDREN_CHANGED, listener, true);
 
-      // Create a fake scrollForward and scrollBackward actions.
-      const fakeScrollFunc = (cb) => {
-        scrolledPredicate.beforeScroll(list);
-        const listener = (ev) => {
-          if (!scrolledPredicate.scrollFinished(list)) {
-            return;
-          }
-          list.removeEventListener(EventType.CHILDREN_CHANGED, listener, true);
-          eventListener();
-        };
-        list.addEventListener(EventType.CHILDREN_CHANGED, listener, true);
+      // Invoke 'click' event on the list, which updates the list items.
+      list.doDefault();
+      cb(true);
+    };
+    list.scrollForward = fakeScrollFunc;
+    list.scrollBackward = fakeScrollFunc;
 
-        // Invoke 'click' event on the list, which updates the list items.
-        list.doDefault();
-        cb(true);
-      };
-      list.scrollForward = fakeScrollFunc;
-      list.scrollBackward = fakeScrollFunc;
-
-      callback(root);
-    });
+    return root;
   }
 };
 
-TEST_F(
-    'ChromeVoxAutoScrollHandlerTest', 'DontScrollInSameScrollable', function() {
-      this.runWithFakeArcSimpleScrollable(function(root) {
-        const handler = new AutoScrollHandler();
+AX_TEST_F(
+    'ChromeVoxAutoScrollHandlerTest', 'DontScrollInSameScrollable',
+    async function() {
+      const root = await this.runWithFakeArcSimpleScrollable();
+      const handler = new AutoScrollHandler();
 
-        const list = root.find({role: RoleType.LIST});
-        const firstItemCursor = cursors.Range.fromNode(list.firstChild);
-        const lastItemCursor = cursors.Range.fromNode(list.lastChild);
+      const list = root.find({role: RoleType.LIST});
+      const firstItemCursor = CursorRange.fromNode(list.firstChild);
+      const lastItemCursor = CursorRange.fromNode(list.lastChild);
 
-        ChromeVoxState.instance.navigateToRange(firstItemCursor);
+      ChromeVoxState.instance.navigateToRange(firstItemCursor);
 
-        assertTrue(handler.onCommandNavigation(
-            lastItemCursor, constants.Dir.FORWARD, /*pred=*/ null,
-            /*speechProps=*/ null));
-      });
+      assertTrue(handler.onCommandNavigation(
+          lastItemCursor, constants.Dir.FORWARD, /*pred=*/ null,
+          /*speechProps=*/ null));
     });
 
-TEST_F(
-    'ChromeVoxAutoScrollHandlerTest', 'PreventMultipleScrolling', function() {
-      this.runWithFakeArcSimpleScrollable(function(root) {
-        const handler = new AutoScrollHandler();
+AX_TEST_F(
+    'ChromeVoxAutoScrollHandlerTest', 'PreventMultipleScrolling',
+    async function() {
+      const root = await this.runWithFakeArcSimpleScrollable();
+      const handler = new AutoScrollHandler();
 
-        const list = root.find({role: RoleType.LIST});
-        const rootCursor = cursors.Range.fromNode(root);
-        const firstItemCursor = cursors.Range.fromNode(list.firstChild);
-        const lastItemCursor = cursors.Range.fromNode(list.lastChild);
+      const list = root.find({role: RoleType.LIST});
+      const rootCursor = CursorRange.fromNode(root);
+      const firstItemCursor = CursorRange.fromNode(list.firstChild);
+      const lastItemCursor = CursorRange.fromNode(list.lastChild);
 
-        ChromeVoxState.instance.navigateToRange(lastItemCursor);
+      ChromeVoxState.instance.navigateToRange(lastItemCursor);
 
-        // Make scrolling action void, so that the second invocation should be
-        // ignored.
-        list.scrollForward = () => {};
+      // Make scrolling action void, so that the second invocation should be
+      // ignored.
+      list.scrollForward = () => {};
 
-        assertFalse(handler.onCommandNavigation(
-            rootCursor, constants.Dir.FORWARD, /*pred=*/ null,
-            /*speechProps=*/ null));
+      assertFalse(handler.onCommandNavigation(
+          rootCursor, constants.Dir.FORWARD, /*pred=*/ null,
+          /*speechProps=*/ null));
 
-        assertFalse(handler.onCommandNavigation(
-            firstItemCursor, constants.Dir.FORWARD, /*pred=*/ null,
-            /*speechProps=*/ null));
-      });
+      assertFalse(handler.onCommandNavigation(
+          firstItemCursor, constants.Dir.FORWARD, /*pred=*/ null,
+          /*speechProps=*/ null));
     });
 
-TEST_F('ChromeVoxAutoScrollHandlerTest', 'ScrollForward', function() {
+AX_TEST_F('ChromeVoxAutoScrollHandlerTest', 'ScrollForward', async function() {
   const mockFeedback = this.createMockFeedback();
-  this.runWithFakeArcSimpleScrollable(function(root) {
-    mockFeedback.expectSpeech('1st item')
-        .call(doCmd('nextObject'))
-        .expectSpeech('2nd item')
-        .call(doCmd('nextObject'))
-        .expectSpeech('3rd item')
-        .call(doCmd('nextObject'))
-        .expectSpeech('4th item')
-        .call(doCmd('nextObject'))
-        .expectSpeech('5th item')
-        .replay();
-  });
+  const root = await this.runWithFakeArcSimpleScrollable();
+  mockFeedback.expectSpeech('1st item')
+      .call(doCmd('nextObject'))
+      .expectSpeech('2nd item')
+      .call(doCmd('nextObject'))
+      .expectSpeech('3rd item')
+      .call(doCmd('nextObject'))
+      .expectSpeech('4th item')
+      .call(doCmd('nextObject'))
+      .expectSpeech('5th item');
+  await mockFeedback.replay();
 });
 
-TEST_F(
-    'ChromeVoxAutoScrollHandlerTest', 'ScrollForwardReturnsFalse', function() {
+AX_TEST_F(
+    'ChromeVoxAutoScrollHandlerTest', 'ScrollForwardReturnsFalse',
+    async function() {
       const mockFeedback = this.createMockFeedback();
-      this.runWithFakeArcSimpleScrollable(function(root) {
-        const list = root.find({role: RoleType.LIST});
-        list.scrollForward = (callback) => callback(false);
+      const root = await this.runWithFakeArcSimpleScrollable();
+      const list = root.find({role: RoleType.LIST});
+      list.scrollForward = callback => callback(false);
 
-        mockFeedback.expectSpeech('1st item')
-            .call(doCmd('nextObject'))
-            .expectSpeech('2nd item')
-            .call(doCmd('nextObject'))
-            .expectSpeech('3rd item')
-            .call(doCmd('nextObject'))
-            .expectSpeech('hello')
-            .call(doCmd('nextObject'))
-            .expectSpeech('world')
-            .replay();
-      });
+      mockFeedback.expectSpeech('1st item')
+          .call(doCmd('nextObject'))
+          .expectSpeech('2nd item')
+          .call(doCmd('nextObject'))
+          .expectSpeech('3rd item')
+          .call(doCmd('nextObject'))
+          .expectSpeech('hello')
+          .call(doCmd('nextObject'))
+          .expectSpeech('world');
+      await mockFeedback.replay();
     });
 
-TEST_F('ChromeVoxAutoScrollHandlerTest', 'RecyclerViewByObject', function() {
-  const mockFeedback = this.createMockFeedback();
-  this.runWithFakeArcRecyclerView(function(root) {
-    mockFeedback.expectSpeech('1st item')
-        .call(doCmd('nextObject'))
-        .expectSpeech('2nd item')
-        .call(doCmd('nextObject'))  // scroll forward
-        .expectSpeech('3rd item')
-        .call(doCmd('previousObject'))  // scroll backward
-        .expectSpeech('2nd item')
-        .replay();
-  });
-});
+AX_TEST_F(
+    'ChromeVoxAutoScrollHandlerTest', 'RecyclerViewByObject', async function() {
+      const mockFeedback = this.createMockFeedback();
+      const root = await this.runWithFakeArcRecyclerView();
+      mockFeedback.expectSpeech('1st item')
+          .call(doCmd('nextObject'))
+          .expectSpeech('2nd item')
+          .call(doCmd('nextObject'))  // scroll forward
+          .expectSpeech('3rd item')
+          .call(doCmd('previousObject'))  // scroll backward
+          .expectSpeech('2nd item');
+      await mockFeedback.replay();
+    });
 
-TEST_F('ChromeVoxAutoScrollHandlerTest', 'RecyclerViewByWord', function() {
-  const mockFeedback = this.createMockFeedback();
-  this.runWithFakeArcRecyclerView(function(root) {
-    mockFeedback.expectSpeech('1st item')
-        .call(doCmd('nextObject'))
-        .expectSpeech('2nd item')
-        .call(doCmd('nextWord'))
-        .expectSpeech('item')
-        .call(doCmd('nextWord'))  // scroll forward
-        .expectSpeech('3rd')
-        .call(doCmd('previousWord'))  // scroll backward
-        .expectSpeech('item')
-        .call(doCmd('previousWord'))
-        .expectSpeech('2nd')
-        .replay();
-  });
-});
+AX_TEST_F(
+    'ChromeVoxAutoScrollHandlerTest', 'RecyclerViewByWord', async function() {
+      const mockFeedback = this.createMockFeedback();
+      const root = await this.runWithFakeArcRecyclerView();
+      mockFeedback.expectSpeech('1st item')
+          .call(doCmd('nextObject'))
+          .expectSpeech('2nd item')
+          .call(doCmd('nextWord'))
+          .expectSpeech('item')
+          .call(doCmd('nextWord'))  // scroll forward
+          .expectSpeech('3rd')
+          .call(doCmd('previousWord'))  // scroll backward
+          .expectSpeech('item')
+          .call(doCmd('previousWord'))
+          .expectSpeech('2nd');
+      await mockFeedback.replay();
+    });
 
-TEST_F('ChromeVoxAutoScrollHandlerTest', 'RecyclerViewByCharacter', function() {
-  const mockFeedback = this.createMockFeedback();
-  this.runWithFakeArcRecyclerView(function(root) {
-    mockFeedback.expectSpeech('1st item')
-        .call(doCmd('nextObject'))
-        .expectSpeech('2nd item')
-        .call(doCmd('nextWord'))
-        .expectSpeech('item')
-        .call(doCmd('nextCharacter'))
-        .expectSpeech('t')
-        .call(doCmd('nextCharacter'))
-        .expectSpeech('e')
-        .call(doCmd('nextCharacter'))
-        .expectSpeech('m')
-        .call(doCmd('nextCharacter'))  // scroll forward
-        .expectSpeech('3')
-        .call(doCmd('nextCharacter'))
-        .expectSpeech('r')
-        .call(doCmd('previousCharacter'))
-        .expectSpeech('3')
-        .call(doCmd('previousCharacter'))  // scroll backward
-        .expectSpeech('m')
-        .call(doCmd('previousCharacter'))
-        .expectSpeech('e')
-        .replay();
-  });
-});
+AX_TEST_F(
+    'ChromeVoxAutoScrollHandlerTest', 'RecyclerViewByCharacter',
+    async function() {
+      const mockFeedback = this.createMockFeedback();
+      const root = await this.runWithFakeArcRecyclerView();
+      mockFeedback.expectSpeech('1st item')
+          .call(doCmd('nextObject'))
+          .expectSpeech('2nd item')
+          .call(doCmd('nextWord'))
+          .expectSpeech('item')
+          .call(doCmd('nextCharacter'))
+          .expectSpeech('t')
+          .call(doCmd('nextCharacter'))
+          .expectSpeech('e')
+          .call(doCmd('nextCharacter'))
+          .expectSpeech('m')
+          .call(doCmd('nextCharacter'))  // scroll forward
+          .expectSpeech('3')
+          .call(doCmd('nextCharacter'))
+          .expectSpeech('r')
+          .call(doCmd('previousCharacter'))
+          .expectSpeech('3')
+          .call(doCmd('previousCharacter'))  // scroll backward
+          .expectSpeech('m')
+          .call(doCmd('previousCharacter'))
+          .expectSpeech('e');
+      await mockFeedback.replay();
+    });
 
-TEST_F('ChromeVoxAutoScrollHandlerTest', 'RecyclerViewByPredicate', function() {
-  // TODO(hirokisato): This test fails without '<p>unrelated content</p>' in the
-  // tree, because the next item of '2nd item' without scrolling is '1st item',
-  // and the scrollable is LCA, so auto scrolling is not invoked. We should fix
-  // this corner case.
-  const mockFeedback = this.createMockFeedback();
-  this.runWithFakeArcRecyclerView(function(root) {
-    mockFeedback.expectSpeech('1st item')
-        .call(doCmd('nextSimilarItem'))
-        .expectSpeech('2nd item')
-        .call(doCmd('nextSimilarItem'))  // scroll forward
-        .expectSpeech('3rd item')
-        .call(doCmd('previousSimilarItem'))  // scroll backward
-        .expectSpeech('2nd item')
-        .replay();
-  });
-});
+AX_TEST_F(
+    'ChromeVoxAutoScrollHandlerTest', 'RecyclerViewByPredicate',
+    async function() {
+      // TODO(hirokisato): This test fails without '<p>unrelated content</p>' in
+      // the tree, because the next item of '2nd item' without scrolling is '1st
+      // item', and the scrollable is LCA, so auto scrolling is not invoked. We
+      // should fix this corner case.
+      const mockFeedback = this.createMockFeedback();
+      await this.runWithFakeArcRecyclerView();
+      mockFeedback.expectSpeech('1st item')
+          .call(doCmd('nextSimilarItem'))
+          .expectSpeech('2nd item')
+          .call(doCmd('nextSimilarItem'))  // scroll forward
+          .expectSpeech('3rd item')
+          .call(doCmd('previousSimilarItem'))  // scroll backward
+          .expectSpeech('2nd item');
+      await mockFeedback.replay();
+    });

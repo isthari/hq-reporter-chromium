@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,7 @@
 #include "net/cert/x509_certificate.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-namespace chromeos {
-namespace platform_keys {
+namespace chromeos::platform_keys {
 
 // Supported key types.
 enum class KeyType { kRsassaPkcs1V15, kEcdsa };
@@ -87,6 +86,8 @@ std::string KeystoreErrorToString(crosapi::mojom::KeystoreError error);
 // key in |certificate|.
 std::string GetSubjectPublicKeyInfo(
     const scoped_refptr<net::X509Certificate>& certificate);
+std::vector<uint8_t> GetSubjectPublicKeyInfoBlob(
+    const scoped_refptr<net::X509Certificate>& certificate);
 
 // Intersects the two certificate lists |certs1| and |certs2| and passes the
 // intersection to |callback|. The intersction preserves the order of |certs1|.
@@ -103,7 +104,7 @@ struct GetPublicKeyAndAlgorithmOutput {
 
   Status status = Status::kSuccess;
   std::vector<uint8_t> public_key;  // Only set if status == kSuccess
-  base::DictionaryValue algorithm;  // Only set if status == kSuccess
+  base::Value::Dict algorithm;      // Only set if status == kSuccess
 };
 
 // This is a convenient wrapper around GetPublicKey which also builds a
@@ -145,7 +146,7 @@ net::X509Certificate::PublicKeyType GetKeyTypeForAlgorithm(
 // |key_info|. This supports both RSA and EC keys.
 // Returns absl::nullopt if the key is of an unsupported type (so not RSA or
 // EC).
-absl::optional<base::DictionaryValue> BuildWebCrypAlgorithmDictionary(
+absl::optional<base::Value::Dict> BuildWebCrypAlgorithmDictionary(
     const PublicKeyInfo& key_info);
 
 // Builds a partial WebCrypto Algorithm object from the parameters available in
@@ -153,14 +154,14 @@ absl::optional<base::DictionaryValue> BuildWebCrypAlgorithmDictionary(
 // sign/hash parameters and thus isn't complete. platform_keys::GetPublicKey()
 // enforced the public exponent 65537.
 void BuildWebCryptoRSAAlgorithmDictionary(const PublicKeyInfo& key_info,
-                                          base::DictionaryValue* algorithm);
+                                          base::Value::Dict* algorithm);
 
 // Builds a partial WebCrypto Algorithm object from the parameters available in
 // |key_info|, which must be the info of an EC key. For more information about
 // EcKeyAlgorithm dictionary, please refer to:
 // https://www.w3.org/TR/WebCryptoAPI/#EcKeyAlgorithm-dictionary
 void BuildWebCryptoEcdsaAlgorithmDictionary(const PublicKeyInfo& key_info,
-                                            base::DictionaryValue* algorithm);
+                                            base::Value::Dict* algorithm);
 
 // Obtains information about the public key in |certificate|.
 // If |certificate| contains an RSA key, sets |key_size_bits| to the modulus
@@ -197,7 +198,6 @@ struct ClientCertificateRequest {
   std::vector<std::vector<uint8_t>> certificate_authorities;
 };
 
-}  // namespace platform_keys
-}  // namespace chromeos
+}  // namespace chromeos::platform_keys
 
 #endif  // CHROME_BROWSER_PLATFORM_KEYS_PLATFORM_KEYS_H_

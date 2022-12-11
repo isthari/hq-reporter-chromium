@@ -31,6 +31,8 @@ import logging
 
 from blinkpy.common.memoized import memoized
 from blinkpy.web_tests.models.testharness_results import is_all_pass_testharness_result
+from blinkpy.web_tests.models.test_expectations import TestExpectations
+from blinkpy.web_tests.models.typ_types import ResultType
 
 _log = logging.getLogger(__name__)
 
@@ -39,9 +41,13 @@ class BaselineOptimizer(object):
     def __init__(self, host, default_port, port_names):
         self._filesystem = host.filesystem
         self._default_port = default_port
+        self._host = host
+        self._flag_specific_configs = set()
         self._ports = {}
         for port_name in port_names:
             self._ports[port_name] = host.port_factory.get(port_name)
+            self._flag_specific_configs.update(
+                host.builders.flag_specific_options_for_port_name(port_name))
 
         self._web_tests_dir = default_port.web_tests_dir()
         self._parent_of_tests = self._filesystem.dirname(self._web_tests_dir)
@@ -50,6 +56,15 @@ class BaselineOptimizer(object):
 
         # Only used by unit tests.
         self.new_results_by_directory = []
+
+    def _make_flag_spec_port(self, host, flag_specific_config):
+        if not flag_specific_config:
+            return None
+        port_name = host.builders.port_name_for_flag_specific_option(
+            flag_specific_config)
+        port = host.port_factory.get(port_name)
+        port.set_option_default('flag_specific', flag_specific_config)
+        return port
 
     def optimize(self, test_name, suffix):
         # A visualization of baseline fallback:
@@ -66,31 +81,120 @@ class BaselineOptimizer(object):
         # For CLI compatibility, "suffix" is an extension without the leading
         # dot. Yet we use dotted extension everywhere else in the codebase.
         # TODO(robertma): Investigate changing the CLI.
+        _log.debug('Optimizing %s(%s).' % (test_name, suffix))
         assert not suffix.startswith('.')
         extension = '.' + suffix
-
-        baseline_name = self._default_port.output_filename(
-            test_name, self._default_port.BASELINE_SUFFIX, extension)
-        non_virtual_baseline_name = self._virtual_base(baseline_name)
         succeeded = True
-        if non_virtual_baseline_name:
-            # The baseline belongs to a virtual suite.
-            _log.debug('Optimizing virtual fallback path.')
-            self._patch_virtual_subtree(test_name, extension, baseline_name)
-            succeeded &= self._optimize_subtree(test_name, baseline_name)
-            self._optimize_virtual_root(test_name, extension, baseline_name)
-        else:
-            # The given baseline is already non-virtual.
-            non_virtual_baseline_name = baseline_name
 
-        _log.debug('Optimizing non-virtual fallback path.')
-        succeeded &= self._optimize_subtree(test_name,
-                                            non_virtual_baseline_name)
-        self._remove_extra_result_at_root(test_name, non_virtual_baseline_name)
+        non_virtual_test_name = self._virtual_test_base(test_name)
+        if non_virtual_test_name:
+            # Optimize a virtual test and its flag specific versions
+            non_virtual_baseline_name = self._default_port.output_filename(
+                non_virtual_test_name, self._default_port.BASELINE_SUFFIX,
+                extension)
+            succeeded = self._optimize_virtual_baseline(
+                test_name, extension, non_virtual_baseline_name)
+        else:
+            # Optimize a real test and all derived virtual/flag specific versions.
+            baseline_name = self._default_port.output_filename(
+                test_name, self._default_port.BASELINE_SUFFIX, extension)
+
+            _log.debug('Optimizing virtual fallback paths.')
+            for vts in self._default_port.virtual_test_suites():
+                virtual_test_name = vts.full_prefix + test_name
+                if self._default_port.lookup_virtual_test_base(
+                        virtual_test_name) is None:
+                    # Not a valid virtual test
+                    continue
+                succeeded &= self._optimize_virtual_baseline(
+                    virtual_test_name, extension, baseline_name)
+
+            _log.debug('Optimizing non-virtual fallback path.')
+            succeeded &= self._optimize_subtree(test_name, baseline_name)
+            self._optimize_flag_specific_baselines(test_name, extension)
+            self._remove_extra_result_at_root(test_name, baseline_name)
 
         if not succeeded:
             _log.error('Heuristics failed to optimize %s', baseline_name)
         return succeeded
+
+    def _optimize_virtual_baseline(self, test_name, extension,
+                                   non_virtual_baseline_name):
+        baseline_name = self._default_port.output_filename(
+            test_name, self._default_port.BASELINE_SUFFIX, extension)
+
+        self._patch_virtual_subtree(test_name, extension, baseline_name)
+        succeeded = self._optimize_subtree(test_name, baseline_name)
+
+        self._optimize_virtual_root(test_name, extension, baseline_name,
+                                    non_virtual_baseline_name)
+
+        self._optimize_flag_specific_baselines(test_name, extension)
+        return succeeded
+
+    def _optimize_flag_specific_baselines(self, test_name, extension):
+        """Optimize flag-specific baselines."""
+        for flag_specific in self._flag_specific_configs:
+            # To ensure the flag-specific baselines join the fallback graph in the
+            # same location each time the optimizer runs, we create a separate port.
+            flag_spec_port = self._make_flag_spec_port(self._host,
+                                                       flag_specific)
+            if not flag_spec_port:
+                continue
+            self._optimize_single_baseline_flag_specific(
+                test_name, extension, flag_spec_port)
+
+    def _get_baseline_paths(self, test_name, extension, port):
+        """Get paths to baselines that the provided port would search.
+
+        Returns:
+            list[str]: A list of absolute paths (symbolically generated, may
+                not actually exist on disk).
+        """
+        baselines = port.expected_baselines(test_name,
+                                            extension,
+                                            all_baselines=True)
+        non_virtual_test_name = self._virtual_test_base(test_name)
+        if non_virtual_test_name:
+            baselines.extend(
+                port.expected_baselines(non_virtual_test_name,
+                                        extension,
+                                        all_baselines=True))
+        # `baseline_dir` is `None` when the search path is empty and the generic
+        # baseline is also missing.
+        baseline_paths = [
+            self._filesystem.join(baseline_dir, baseline_filename)
+            for baseline_dir, baseline_filename in baselines if baseline_dir
+        ]
+        return baseline_paths
+
+    def _optimize_single_baseline_flag_specific(self, test_name, extension,
+                                                port):
+        """Optimize a baseline directly by simulating the fallback algorithm."""
+        baseline_paths = self._get_baseline_paths(test_name, extension, port)
+        if not baseline_paths:
+            # The baseline for this test does not exist.
+            return
+        baseline_to_optimize = baseline_paths[0]
+        if (("flag-specific" not in baseline_to_optimize)
+                or (not self._filesystem.exists(baseline_to_optimize))):
+            return
+        basename = self._filesystem.basename(baseline_to_optimize)
+        if len(baseline_paths) < 2:
+            _log.debug('  %s: (no baselines found)', basename)
+            return
+        fallback_baseline = baseline_paths[1]
+        is_reftest = self._is_reftest(test_name)
+        target_digest = ResultDigest(self._filesystem, baseline_to_optimize,
+                                     is_reftest)
+        fallback_digest = ResultDigest(self._filesystem, fallback_baseline,
+                                       is_reftest)
+        if target_digest == fallback_digest:
+            _log.debug('  %s:', basename)
+            _log.debug('    Deleting (file system): %s', baseline_to_optimize)
+            self._filesystem.remove(baseline_to_optimize)
+        else:
+            _log.debug('  %s: (already optimal)', basename)
 
     def write_by_directory(self, results_by_directory, writer, indent):
         """Logs results_by_directory in a pretty format."""
@@ -237,7 +341,7 @@ class BaselineOptimizer(object):
         where the two arguments are the absolute paths to the virtual platform
         baseline and the non-virtual fallback respectively.
         """
-        actual_test_name = self._virtual_base(test_name)
+        actual_test_name = self._virtual_test_base(test_name)
         assert actual_test_name, '%s is not a virtual test.' % test_name
 
         for directory in self._directories_immediately_preceding_root():
@@ -277,13 +381,15 @@ class BaselineOptimizer(object):
         self._walk_immediate_predecessors_of_virtual_root(
             test_name, extension, baseline_name, patcher)
 
-    def _optimize_virtual_root(self, test_name, extension, baseline_name):
+    def _optimize_virtual_root(self, test_name, extension, baseline_name,
+                               non_virtual_baseline_name):
         virtual_root_baseline_path = self._filesystem.join(
             self._web_tests_dir, baseline_name)
         if self._filesystem.exists(virtual_root_baseline_path):
             _log.debug(
                 'Virtual root baseline found. Checking if we can remove it.')
-            self._try_to_remove_virtual_root(test_name, baseline_name,
+            self._try_to_remove_virtual_root(test_name,
+                                             non_virtual_baseline_name,
                                              virtual_root_baseline_path)
         else:
             _log.debug(
@@ -291,7 +397,7 @@ class BaselineOptimizer(object):
             )
             self._unpatch_virtual_subtree(test_name, extension, baseline_name)
 
-    def _try_to_remove_virtual_root(self, test_name, baseline_name,
+    def _try_to_remove_virtual_root(self, test_name, non_virtual_baseline_name,
                                     virtual_root_baseline_path):
         # See if all the successors of the virtual root (i.e. all non-virtual
         # platforms) have the same baseline as the virtual root. If so, the
@@ -302,11 +408,19 @@ class BaselineOptimizer(object):
 
         # Read the base (non-virtual) results.
         results_by_directory = self.read_results_by_directory(
-            test_name, self._virtual_base(baseline_name))
+            test_name, non_virtual_baseline_name)
         results_by_port_name = self._results_by_port_name(results_by_directory)
 
-        for port_name in self._ports.keys():
+        for port_name, port in self._ports.items():
             assert port_name in results_by_port_name
+            # When the virtual test is skipped on a port, the baseline for the
+            # non virtual test on the same port won't matter
+            full_expectations = TestExpectations(port)
+            if ResultType.Skip in full_expectations.get_expectations(
+                    test_name).results:
+                continue
+            if port.skips_test(test_name):
+                continue
             if results_by_port_name[port_name] != virtual_root_digest:
                 return
 
@@ -356,12 +470,13 @@ class BaselineOptimizer(object):
         relative_baseline_root = self._baseline_root()
         return relative_paths + [relative_baseline_root]
 
-    def _virtual_base(self, baseline_name):
-        """Returns the base (non-virtual) version of baseline_name, or None if
-        baseline_name is not virtual."""
-        # Note: port.lookup_virtual_test_base in fact expects a test_name,
-        # but baseline_name also works here.
-        return self._default_port.lookup_virtual_test_base(baseline_name)
+    def _virtual_test_base(self, test_name):
+        """Returns the base (non-virtual) version of test_name, or None if
+        test_name is not virtual."""
+        # This function should only accept a test name. Use baseline won't work
+        # because some bases in VirtualTestSuites are full test name which has
+        # .html as extension.
+        return self._default_port.lookup_virtual_test_base(test_name)
 
     def _join_directory(self, directory, baseline_name):
         """Returns the absolute path to the baseline in the given directory."""
@@ -514,11 +629,11 @@ class BaselineOptimizer(object):
         # Implicit extra result at the root.
         return len(search_path) - 1, search_path[-1]
 
-    def _remove_extra_result_at_root(self, test_name, baseline_name):
+    def _remove_extra_result_at_root(self, test_name,
+                                     non_virtual_baseline_name):
         """Removes extra result at the non-virtual root."""
-        assert not self._virtual_base(baseline_name), \
-            'A virtual baseline is passed in.'
-        path = self._join_directory(self._baseline_root(), baseline_name)
+        path = self._join_directory(self._baseline_root(),
+                                    non_virtual_baseline_name)
         if (self._filesystem.exists(path)
                 and ResultDigest(self._filesystem, path,
                                  self._is_reftest(test_name)).is_extra_result):
@@ -565,11 +680,14 @@ class ResultDigest(object):
             self.is_extra_result = True
             return
 
-        assert fs.exists(path)
+        assert fs.exists(path), path + " does not exist"
         if path.endswith('.txt'):
-            content = fs.read_text_file(path)
-            self.is_extra_result = not content or is_all_pass_testharness_result(
-                content)
+            try:
+                content = fs.read_text_file(path)
+                self.is_extra_result = not content or is_all_pass_testharness_result(
+                    content)
+            except UnicodeDecodeError as e:
+                self.is_extra_result = False
             # Unfortunately, we may read the file twice, once in text mode
             # and once in binary mode.
             self.sha = fs.sha1(path)

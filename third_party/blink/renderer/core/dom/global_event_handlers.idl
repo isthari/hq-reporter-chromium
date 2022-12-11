@@ -33,6 +33,9 @@
     LegacyTreatAsPartialInterface
 ] interface mixin GlobalEventHandlers {
     attribute EventHandler onabort;
+    attribute EventHandler onbeforeinput;
+    [RuntimeEnabled=BeforeMatchEvent] attribute EventHandler onbeforematch;
+    [RuntimeEnabled=HTMLPopoverAttribute] attribute EventHandler onbeforetoggle;
     attribute EventHandler onblur;
     attribute EventHandler oncancel;
     attribute EventHandler oncanplay;
@@ -40,9 +43,10 @@
     attribute EventHandler onchange;
     attribute EventHandler onclick;
     attribute EventHandler onclose;
-    [RuntimeEnabled=NewCanvas2DAPI] attribute EventHandler oncontextlost;
+    [RuntimeEnabled=ContentVisibilityAutoStateChangeEvent] attribute EventHandler oncontentvisibilityautostatechange;
+    attribute EventHandler oncontextlost;
     attribute EventHandler oncontextmenu;
-    [RuntimeEnabled=NewCanvas2DAPI] attribute EventHandler oncontextrestored;
+    attribute EventHandler oncontextrestored;
     attribute EventHandler oncuechange;
     attribute EventHandler ondblclick;
     attribute EventHandler ondrag;
@@ -80,12 +84,14 @@
     attribute EventHandler onpause;
     attribute EventHandler onplay;
     attribute EventHandler onplaying;
+    [RuntimeEnabled=HTMLPopoverAttribute] attribute EventHandler onpopoverhide;
+    [RuntimeEnabled=HTMLPopoverAttribute] attribute EventHandler onpopovershow;
     attribute EventHandler onprogress;
     attribute EventHandler onratechange;
     attribute EventHandler onreset;
     attribute EventHandler onresize;
     attribute EventHandler onscroll;
-    [RuntimeEnabled=OverscrollCustomization] attribute EventHandler onscrollend;
+    [RuntimeEnabled=ScrollEndEvents] attribute EventHandler onscrollend;
     attribute EventHandler onsecuritypolicyviolation;
     attribute EventHandler onseeked;
     attribute EventHandler onseeking;
@@ -115,7 +121,7 @@
     attribute EventHandler onlostpointercapture;
     attribute EventHandler onpointerdown;
     attribute EventHandler onpointermove;
-    [RuntimeEnabled=PointerRawUpdate] attribute EventHandler onpointerrawupdate;
+    attribute EventHandler onpointerrawupdate;
     attribute EventHandler onpointerup;
     attribute EventHandler onpointercancel;
     attribute EventHandler onpointerover;

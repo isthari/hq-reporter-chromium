@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,13 @@
 #include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/payments/card_unmask_delegate.h"
 #include "components/autofill/core/browser/payments/full_card_request.h"
+#include "components/autofill/core/browser/ui/payments/card_unmask_prompt_options.h"
 
 namespace autofill {
+
+namespace metrics {
+class AutofillMetricsBaseTest;
+}
 
 // Authenticates credit card unmasking through CVC verification.
 class CreditCardCVCAuthenticator
@@ -39,11 +44,6 @@ class CreditCardCVCAuthenticator
       cvc = std::u16string(s);
       return *this;
     }
-    CVCAuthenticationResponse& with_creation_options(
-        absl::optional<base::Value> v) {
-      creation_options = std::move(v);
-      return *this;
-    }
     CVCAuthenticationResponse& with_request_options(
         absl::optional<base::Value> v) {
       request_options = std::move(v);
@@ -56,7 +56,6 @@ class CreditCardCVCAuthenticator
     bool did_succeed = false;
     raw_ptr<const CreditCard> card = nullptr;
     std::u16string cvc = std::u16string();
-    absl::optional<base::Value> creation_options;
     absl::optional<base::Value> request_options;
     std::string card_authorization_token = std::string();
   };
@@ -91,9 +90,13 @@ class CreditCardCVCAuthenticator
   ~CreditCardCVCAuthenticator() override;
 
   // Authentication
-  void Authenticate(const CreditCard* card,
-                    base::WeakPtr<Requester> requester,
-                    PersonalDataManager* personal_data_manager);
+  void Authenticate(
+      const CreditCard* card,
+      base::WeakPtr<Requester> requester,
+      PersonalDataManager* personal_data_manager,
+      absl::optional<std::string> vcn_context_token = absl::nullopt,
+      absl::optional<CardUnmaskChallengeOption> selected_challenge_option =
+          absl::nullopt);
 
   // payments::FullCardRequest::ResultDelegate
   void OnFullCardRequestSucceeded(
@@ -101,12 +104,14 @@ class CreditCardCVCAuthenticator
       const CreditCard& card,
       const std::u16string& cvc) override;
   void OnFullCardRequestFailed(
+      CreditCard::RecordType card_type,
       payments::FullCardRequest::FailureType failure_type) override;
 
   // payments::FullCardRequest::UIDelegate
-  void ShowUnmaskPrompt(const CreditCard& card,
-                        AutofillClient::UnmaskCardReason reason,
-                        base::WeakPtr<CardUnmaskDelegate> delegate) override;
+  void ShowUnmaskPrompt(
+      const CreditCard& card,
+      const CardUnmaskPromptOptions& card_unmask_prompt_options,
+      base::WeakPtr<CardUnmaskDelegate> delegate) override;
   void OnUnmaskVerificationResult(
       AutofillClient::PaymentsRpcResult result) override;
 #if BUILDFLAG(IS_ANDROID)
@@ -120,9 +125,9 @@ class CreditCardCVCAuthenticator
   GetAsFullCardRequestUIDelegate();
 
  private:
-  friend class AutofillAssistantTest;
   friend class BrowserAutofillManagerTest;
   friend class AutofillMetricsTest;
+  friend class metrics::AutofillMetricsBaseTest;
   friend class CreditCardAccessManagerTest;
   friend class CreditCardCVCAuthenticatorTest;
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2017 The Chromium Authors. All rights reserved.
+/* Copyright 2017 The Chromium Authors
    Use of this source code is governed by a BSD-style license that can be
    found in the LICENSE file.*/
 
@@ -1035,6 +1035,19 @@ video::-internal-media-controls-overflow-menu-list-item:focus {
   outline: none;
 }
 
+audio::-internal-media-controls-text-track-list-header:focus-visible,
+video::-internal-media-controls-text-track-list-header:focus-visible,
+audio::-internal-media-controls-playback-speed-list-header:focus-visible,
+video::-internal-media-controls-playback-speed-list-header:focus-visible,
+audio::-internal-media-controls-text-track-list-item:focus-visible,
+video::-internal-media-controls-text-track-list-item:focus-visible,
+audio::-internal-media-controls-playback-speed-list-item:focus-visible,
+video::-internal-media-controls-playback-speed-list-item:focus-visible,
+audio::-internal-media-controls-overflow-menu-list-item:focus-visible,
+video::-internal-media-controls-overflow-menu-list-item:focus-visible {
+  border: 1px solid currentColor;
+}
+
 audio::-internal-media-controls-overflow-menu-list-item:active,
 video::-internal-media-controls-overflow-menu-list-item:active {
   background-color: -internal-light-dark(#e0e0e0, #454545);
@@ -1279,6 +1292,24 @@ video::cue(u) {
 
 video::cue(i) {
     font-style: italic;
+}
+
+video::cue(rt) {
+    display: block;
+    font-size: 50%;
+    line-height: normal;
+    text-align: start;
+    text-emphasis: none;
+    text-indent: 0;
+}
+
+/*
+ * ::-webkit-media-text-track-container needs to create new formatting context
+ * because LayoutMedia is a legacy object, and
+ * ::-webkit-media-text-track-container can be a LayoutNG object.
+ */
+audio::-webkit-media-text-track-container {
+    overflow: hidden;
 }
 
 /**
@@ -1619,10 +1650,6 @@ video::-webkit-media-controls.test-mode input[pseudo="-webkit-media-controls-ove
   video::-internal-media-controls-overflow-menu-list-item {
     border: 1px solid Window;
     margin: 2px;
-  }
-  audio::-internal-media-controls-overflow-menu-list-item:focus,
-  video::-internal-media-controls-overflow-menu-list-item:focus {
-    border: 1px solid Highlight;
   }
   label[pseudo="-internal-media-controls-overflow-menu-list-item"] div span.subtitle {
     color: WindowText;

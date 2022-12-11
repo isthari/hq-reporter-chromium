@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -21,6 +21,7 @@ mojom("mojom") {
     "gpu_fence_handle.mojom",
     "hdr_metadata.mojom",
     "hdr_static_metadata.mojom",
+    "linear_gradient.mojom",
     "mask_filter_info.mojom",
     "overlay_priority_hint.mojom",
     "overlay_transform.mojom",
@@ -322,7 +323,18 @@ mojom("mojom") {
       ]
       traits_sources = [ "mask_filter_info_mojom_traits.cc" ]
       traits_headers = [ "mask_filter_info_mojom_traits.h" ]
-      traits_public_deps = [ "//ui/gfx" ]
+      traits_public_deps = [ "//ui/gfx/geometry:geometry_skia" ]
+    },
+    {
+      types = [
+        {
+          mojom = "gfx.mojom.LinearGradient"
+          cpp = "::gfx::LinearGradient"
+        },
+      ]
+      traits_sources = [ "linear_gradient_mojom_traits.cc" ]
+      traits_headers = [ "linear_gradient_mojom_traits.h" ]
+      traits_public_deps = [ "//ui/gfx/geometry:geometry_skia" ]
     },
   ]
 
@@ -348,6 +360,9 @@ mojom("native_handle_types") {
   sources = [ "native_handle_types.mojom" ]
   if (is_linux || is_chromeos || use_ozone) {
     enabled_features = [ "supports_native_pixmap" ]
+  }
+  if (is_linux || is_chromeos) {
+    enabled_features += [ "is_linux_or_chromeos_ash" ]
   }
   public_deps = [ "//mojo/public/mojom/base" ]
   generate_java = true
@@ -375,6 +390,16 @@ mojom("native_handle_types") {
   }
   cpp_typemaps = [ shared_cpp_typemap ]
   blink_cpp_typemaps = [ shared_cpp_typemap ]
+}
+
+if (is_win) {
+  mojom("dxgi_info") {
+    sources = [ "dxgi_info.mojom" ]
+    public_deps = [
+      "//mojo/public/mojom/base",
+      "//skia/public/mojom",
+    ]
+  }
 }
 
 mojom("test_interfaces") {
@@ -421,6 +446,7 @@ component("shared_mojom_traits") {
     ":native_handle_types",
     "//ui/gfx",
   ]
+  deps = [ "//skia/public/mojom" ]
   if (use_ozone) {
     public_deps += [ "//ui/ozone:buildflags" ]
   }

@@ -1,10 +1,9 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/common/constants.h"
 
-#include "base/cxx17_backports.h"
 #include "base/strings/string_piece.h"
 #include "build/build_config.h"
 #include "build/chromecast_buildflags.h"
@@ -43,6 +42,8 @@ const char kDecodedMessageCatalogsFilename[] = "DECODED_MESSAGE_CATALOGS";
 
 const char kGeneratedBackgroundPageFilename[] =
     "_generated_background_page.html";
+
+const char kFaviconSourcePath[] = "_favicon";
 
 const char kModulesDir[] = "_modules";
 
@@ -105,7 +106,7 @@ const uint8_t kWebstoreSignaturesPublicKey[] = {
     0xcd, 0x02, 0x03, 0x01, 0x00, 0x01};
 
 const size_t kWebstoreSignaturesPublicKeySize =
-    base::size(kWebstoreSignaturesPublicKey);
+    std::size(kWebstoreSignaturesPublicKey);
 
 const char kUpdateURLData[] = "update_url_data";
 
@@ -122,14 +123,15 @@ const int kUnknownTabId = -1;
 const int kUnknownWindowId = -1;
 const int kCurrentWindowId = -2;
 
-#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_CHROMECAST)
+#if BUILDFLAG(IS_CHROMEOS)
 // The extension id for the built-in component extension.
 const char kChromeVoxExtensionId[] = "mndnfokpggljbaajbnioimlmbfngpief";
+
 #else
 // The extension id for the web store extension.
 const char kChromeVoxExtensionId[] = "kgejglhpjiefppelpmljglcjbhoiplfn";
 #endif
-const char kFeedbackExtensionId[] = "gfdkimpbcpahaombhbimeihdjnejgicl";
+
 const char kPdfExtensionId[] = "mhjfbmdgcfjbbpaeojofohoefgiehjai";
 const char kQuickOfficeComponentExtensionId[] =
     "bpmcpldpdmajfigpchkicefoigmkfalc";
@@ -150,6 +152,7 @@ const char kGoogleSheetsDemoAppId[] = "nifkmgcdokhkjghdlgflonppnefddien";
 const char kGoogleSheetsPwaAppId[] = "hcgjdbbnhkmopplfiibmdgghhdhbiidh";
 const char kGoogleSlidesDemoAppId[] = "hdmobeajeoanbanmdlabnbnlopepchip";
 const char kGoogleKeepAppId[] = "hmjkmjkepdijhoojdojkdfohbdgmmhki";
+const char kOfficePwaAppId[] = "ocdlmjhbenodhlknglojajgokahchlkk";
 const char kYoutubeAppId[] = "blpcfgokakmgnkcojhhkbfbldkacnbeo";
 const char kYoutubePwaAppId[] = "agimnkijcaahngcdmfeangaknmldooml";
 const char kSpotifyAppId[] = "pjibgclleladliembfgfagdaldikeohf";
@@ -157,17 +160,49 @@ const char kBeFunkyAppId[] = "fjoomcalbeohjbnlcneddljemclcekeg";
 const char kClipchampAppId[] = "pfepfhbcedkbjdkanpimmmdjfgoddhkg";
 const char kGeForceNowAppId[] = "egmafekfmcnknbdlbfbhafbllplmjlhn";
 const char kZoomAppId[] = "jldpdkiafafcejhceeincjmlkmibemgj";
+const char kSumoAppId[] = "mfknjekfflbfdchhohffdpkokgfbfmdc";
+const char kAdobeSparkAppId[] = "magefboookdoiehjohjmbjmkepngibhm";
 const char kGoogleDocsAppId[] = "aohghmighlieiainnegkcijnfilokake";
 const char kGoogleSheetsAppId[] = "felcaaldnbdncclmgdcncolpebgiejap";
 const char kGoogleSlidesAppId[] = "aapocclcgogkmnckokdopfmhonfmgoek";
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 // TODO(michaelpg): Deprecate old app IDs before adding new ones to avoid bloat.
 const char kHighlightsAppId[] = "lpmakjfjcconjeehbidjclhdlpjmfjjj";
-const char kHighlightsAtlasAppId[] = "gjeelkjnolfmhphfhhjokaijbicopfln";
 const char kScreensaverAppId[] = "mnoijifedipmbjaoekhadjcijipaijjc";
-const char kScreensaverAtlasAppId[] = "bnabjkecnachpogjlfilfcnlpcmacglh";
-const char kScreensaverKraneZdksAppId[] = "fafhbhdboeiciklpkminlncemohljlkj";
+
+const char kStagingAttractLoopAppId[] = "aefaeciooibphdopnjjmgjdlckdcfbae";
+const char kStagingHighlightsAppId[] = "glochkamldfopmdlegmcnjmgkopfiplb";
+// 2022 Attract Loop App ID
+const char kNewAttractLoopAppId[] = "igilkdghcdehjdcpndaodgnjgdggiemm";
+// 2022 Highlights App ID
+const char kNewHighlightsAppId[] = "enchmnkoajljphdmahljlebfmpkkbnkj";
+// Specialized demo apps for blazey devices
+const char kBlazeyAttractLoopAppId[] = "lceekekmpiieklnpocjfahfakahjkhha";
+const char kBlazeyHighlightsAppId[] = "jbpnmbcpgemgfblnjfhnmlffhkofekmf";
+
+bool IsDemoModeChromeApp(base::StringPiece extension_id) {
+  static const char* const kDemoModeApps[] = {
+      // clang-format off
+      kHighlightsAppId,
+      kScreensaverAppId,
+      kStagingAttractLoopAppId,
+      kStagingHighlightsAppId,
+      kNewAttractLoopAppId,
+      kNewHighlightsAppId,
+      kBlazeyAttractLoopAppId,
+      kBlazeyHighlightsAppId
+      // clang-format on
+  };
+  for (const char* id : kDemoModeApps) {
+    if (extension_id == id)
+      return true;
+  }
+  return false;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS)
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 const char kSigninProfileTestExtensionId[] = "mecfefiddjlmabpeilblgegnbioikfmp";
 const char kGuestModeTestExtensionId[] = "behllobkkfkfnphdnhnkndlbkcpglgmj";
 
@@ -175,11 +210,8 @@ bool IsSystemUIApp(base::StringPiece extension_id) {
   static const char* const kApps[] = {
       // clang-format off
       kChromeVoxExtensionId,
-      kFeedbackExtensionId,
       kFilesManagerAppId,
-      kHighlightsAtlasAppId,
       kHighlightsAppId,
-      kScreensaverAtlasAppId,
       kScreensaverAppId,
       // clang-format on
   };
@@ -189,7 +221,13 @@ bool IsSystemUIApp(base::StringPiece extension_id) {
   }
   return false;
 }
+
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+bool IsQuickOfficeExtension(const std::string& id) {
+  return id == kQuickOfficeComponentExtensionId ||
+         id == kQuickOfficeInternalExtensionId || id == kQuickOfficeExtensionId;
+}
 
 // TODO(https://crbug.com/1257275): remove after default app migration is done.
 bool IsPreinstalledAppId(const std::string& app_id) {
@@ -213,16 +251,16 @@ const char* const kHangoutsExtensionIds[6] = {
 const char kPolicyBlockedScripting[] =
     "This page cannot be scripted due to an ExtensionsSettings policy.";
 
+const char kIncognitoErrorMessage[] =
+    "You do not have permission to access incognito preferences.";
+
+const char kIncognitoSessionOnlyErrorMessage[] =
+    "You cannot set a preference with scope 'incognito_session_only' when no "
+    "incognito window is open.";
+
+const char kInvalidColorError[] =
+    "The color specification could not be parsed.";
+
 const int kContentVerificationDefaultBlockSize = 4096;
-
-const char kCryptotokenExtensionId[] = "kmendfapggjehodndflmmgagdbamhnfd";
-
-const char kCryptotokenDeprecationTrialName[] = "U2FSecurityKeyAPI";
-
-// The following two IDs are duplicated in
-// //components/app_constants/constants.h. Don't change these without changing
-// the others.
-const char kChromeAppId[] = "mgndgikekgjfcpckkfioiadnlibdjbkf";
-const char kLacrosAppId[] = "jaimifaeiicidiikhmjedcgdimealfbh";
 
 }  // namespace extension_misc

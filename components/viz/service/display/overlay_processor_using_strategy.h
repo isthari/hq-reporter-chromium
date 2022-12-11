@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,14 +12,18 @@
 
 #include "base/hash/hash.h"
 #include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
-#include "components/viz/common/display/overlay_strategy.h"
+#include "build/chromeos_buildflags.h"
 #include "components/viz/common/quads/aggregated_render_pass.h"
 #include "components/viz/service/display/display_resource_provider.h"
 #include "components/viz/service/display/output_surface.h"
 #include "components/viz/service/display/overlay_candidate.h"
 #include "components/viz/service/display/overlay_candidate_temporal_tracker.h"
+#include "components/viz/service/display/overlay_combination_cache.h"
 #include "components/viz/service/display/overlay_processor_interface.h"
+#include "components/viz/service/display/overlay_processor_strategy.h"
+#include "components/viz/service/display/overlay_proposed_candidate.h"
 #include "components/viz/service/viz_service_export.h"
 #include "gpu/ipc/common/surface_handle.h"
 
@@ -28,109 +32,13 @@ class DisplayResourceProvider;
 }
 
 namespace viz {
+
 // OverlayProcessor subclass that goes through a list of strategies to determine
 // overlay candidates. THis is used by Android and Ozone platforms.
 class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
     : public OverlayProcessorInterface {
  public:
   using CandidateList = OverlayCandidateList;
-  // TODO(weiliangc): Move it to an external class.
-  class VIZ_SERVICE_EXPORT Strategy {
-   public:
-    class VIZ_SERVICE_EXPORT OverlayProposedCandidate {
-     public:
-      OverlayProposedCandidate(QuadList::Iterator it,
-                               OverlayCandidate overlay_candidate,
-                               Strategy* overlay_strategy)
-          : quad_iter(it),
-            candidate(overlay_candidate),
-            strategy(overlay_strategy) {}
-
-      // A iterator in the vector of quads.
-      QuadList::Iterator quad_iter;
-      // This is needed to sort candidates based on DrawQuad order.
-      size_t quad_index;
-      OverlayCandidate candidate;
-      raw_ptr<Strategy> strategy = nullptr;
-
-      // heuristic sort element
-      int relative_power_gain = 0;
-    };
-
-    using OverlayProposedCandidateList = std::vector<OverlayProposedCandidate>;
-
-    virtual ~Strategy() = default;
-    using PrimaryPlane = OverlayProcessorInterface::OutputSurfaceOverlayPlane;
-
-    // Returns false if the strategy cannot be made to work with the
-    // current set of render passes. Returns true if the strategy was successful
-    // and adds any additional passes necessary to represent overlays to
-    // |render_pass_list|. Most strategies should look at the primary
-    // RenderPass, the last element.
-    virtual bool Attempt(
-        const skia::Matrix44& output_color_matrix,
-        const FilterOperationsMap& render_pass_backdrop_filters,
-        DisplayResourceProvider* resource_provider,
-        AggregatedRenderPassList* render_pass_list,
-        SurfaceDamageRectList* surface_damage_rect_list,
-        const PrimaryPlane* primary_plane,
-        OverlayCandidateList* candidates,
-        std::vector<gfx::Rect>* content_bounds) = 0;
-
-    // Appends all legitimate overlay candidates to the list |candidates|
-    // for this strategy.  It is very important to note that this function
-    // should not attempt a specific candidate it should merely identify them
-    // and save the necessary data required to for a later attempt.
-    virtual void ProposePrioritized(
-        const skia::Matrix44& output_color_matrix,
-        const FilterOperationsMap& render_pass_backdrop_filters,
-        DisplayResourceProvider* resource_provider,
-        AggregatedRenderPassList* render_pass_list,
-        SurfaceDamageRectList* surface_damage_rect_list,
-        const PrimaryPlane* primary_plane,
-        OverlayProposedCandidateList* candidates,
-        std::vector<gfx::Rect>* content_bounds) = 0;
-
-    // Returns false if the specific |proposed_candidate| cannot be made to work
-    // for this strategy with the current set of render passes. Returns true if
-    // the strategy was successful and adds any additional passes necessary to
-    // represent overlays to |render_pass_list|. Most strategies should look at
-    // the primary RenderPass, the last element.
-    virtual bool AttemptPrioritized(
-        const skia::Matrix44& output_color_matrix,
-        const FilterOperationsMap& render_pass_backdrop_filters,
-        DisplayResourceProvider* resource_provider,
-        AggregatedRenderPassList* render_pass_list,
-        SurfaceDamageRectList* surface_damage_rect_list,
-        const PrimaryPlane* primary_plane,
-        OverlayCandidateList* candidates,
-        std::vector<gfx::Rect>* content_bounds,
-        const OverlayProposedCandidate& proposed_candidate) = 0;
-
-    // Commits to using the proposed candidate by updating |render_pass| as
-    // appropriate when this candidate is presented in an overlay plane.
-    virtual void CommitCandidate(
-        const OverlayProposedCandidate& proposed_candidate,
-        AggregatedRenderPass* render_pass) = 0;
-
-    // Currently this is only overridden by the Underlay strategy: the underlay
-    // strategy needs to enable blending for the primary plane in order to show
-    // content underneath.
-    virtual void AdjustOutputSurfaceOverlay(
-        OutputSurfaceOverlayPlane* output_surface_plane) {}
-
-    // Currently this is only overridden by the Fullscreen strategy: the
-    // fullscreen strategy covers the entire screen and there is no need to use
-    // the primary plane.
-    virtual bool RemoveOutputSurfaceAsOverlay();
-
-    virtual OverlayStrategy GetUMAEnum() const;
-
-    // Does a null-check on |primary_plane| and returns it's |display_rect|
-    // member if non-null and an empty gfx::RectF otherwise.
-    gfx::RectF GetPrimaryPlaneDisplayRect(const PrimaryPlane* primary_plane);
-  };
-  using StrategyList = std::vector<std::unique_ptr<Strategy>>;
 
   OverlayProcessorUsingStrategy(const OverlayProcessorUsingStrategy&) = delete;
   OverlayProcessorUsingStrategy& operator=(
@@ -150,7 +58,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
   void ProcessForOverlays(
       DisplayResourceProvider* resource_provider,
       AggregatedRenderPassList* render_passes,
-      const skia::Matrix44& output_color_matrix,
+      const SkM44& output_color_matrix,
       const FilterOperationsMap& render_pass_filters,
       const FilterOperationsMap& render_pass_backdrop_filters,
       SurfaceDamageRectList surface_damage_rect_list,
@@ -184,6 +92,9 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
       const OverlayProcessorInterface::OutputSurfaceOverlayPlane* primary_plane,
       OverlayCandidateList* candidate_list);
 
+  // Clears the cache of attempted overlay combinations and their results.
+  void ClearOverlayCombinationCache();
+
   // This should be called during overlay processing to register whether or not
   // there is a candidate that requires an overlay so that the manager can allow
   // the overlay on the display with the requirement only.
@@ -193,8 +104,8 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
   virtual gfx::Rect GetOverlayDamageRectForOutputSurface(
       const OverlayCandidate& overlay) const;
 
-  StrategyList strategies_;
-  raw_ptr<Strategy> last_successful_strategy_ = nullptr;
+  std::vector<std::unique_ptr<OverlayProcessorStrategy>> strategies_;
+  raw_ptr<OverlayProcessorStrategy> last_successful_strategy_ = nullptr;
 
   gfx::Rect overlay_damage_rect_;
   gfx::Rect previous_frame_overlay_rect_;
@@ -213,6 +124,19 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
   OverlayPrioritizationConfig prioritization_config_;
   OverlayCandidateTemporalTracker::Config tracker_config_;
 
+  // This is controlled by the "UseMultipleOverlays" feature's "max_overlays"
+  // param.
+  const int max_overlays_config_;
+  // This will remain 1 until hardware support for more than one overlay is
+  // confirmed in `OverlayProcessorOzone::ReceiveHardwareCapabilities`.
+  int max_overlays_considered_ = 1;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+ protected:
+  // TODO(b/181974042):  Remove when color space is plumbed.
+  gfx::ColorSpace primary_plane_color_space_;
+#endif
+
  private:
   // Keeps track of overlay information needed to update damage correctly.
   struct OverlayStatus;
@@ -230,12 +154,13 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
     gfx::Rect overlay_rect;
     gfx::RectF damage_rect;
     uint32_t damage_index;
-    int damage_area_estimate;
+    float damage_area_estimate;
     bool has_mask_filter;
     int plane_z_order;
     bool is_underlay;
     bool is_opaque;
     bool is_new;
+    bool prev_was_opaque;
     bool prev_was_underlay;
     bool prev_has_mask_filter;
   };
@@ -261,7 +186,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
   // through as a const member because the underlay strategy changes the
   // |primary_plane|'s blending setting.
   bool AttemptWithStrategies(
-      const skia::Matrix44& output_color_matrix,
+      const SkM44& output_color_matrix,
       const OverlayProcessorInterface::FilterOperationsMap&
           render_pass_backdrop_filters,
       DisplayResourceProvider* resource_provider,
@@ -279,7 +204,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
   // through as a const member because the underlay strategy changes the
   // |primary_plane|'s blending setting.
   bool AttemptWithStrategiesPrioritized(
-      const skia::Matrix44& output_color_matrix,
+      const SkM44& output_color_matrix,
       const OverlayProcessorInterface::FilterOperationsMap&
           render_pass_backdrop_filters,
       DisplayResourceProvider* resource_provider,
@@ -294,7 +219,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
   // `max_overlays_considered_`, the strategies proposed, and if any of the
   // candidates require an overlay.
   bool ShouldAttemptMultipleOverlays(
-      const Strategy::OverlayProposedCandidateList& sorted_candidates);
+      const std::vector<OverlayProposedCandidate>& sorted_candidates);
 
   // Attempts to promote multiple candidates to overlays. Returns a boolean
   // indicating if any of the attempted candidates were successfully promoted to
@@ -303,7 +228,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
   // TODO(khaslett): Write unit tests for this function before launching
   // UseMultipleOverlays feature.
   bool AttemptMultipleOverlays(
-      const Strategy::OverlayProposedCandidateList& sorted_candidates,
+      const std::vector<OverlayProposedCandidate>& sorted_candidates,
       OverlayProcessorInterface::OutputSurfaceOverlayPlane* primary_plane,
       AggregatedRenderPass* render_pass,
       OverlayCandidateList& candidates);
@@ -314,7 +239,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
   // TODO(khaslett): Write unit tests for this function before launching
   // UseMultipleOverlays feature.
   void AssignUnderlayZOrders(
-      std::vector<Strategy::OverlayProposedCandidateList::iterator>&
+      std::vector<std::vector<OverlayProposedCandidate>::iterator>&
           underlay_iters);
 
   // This function reorders and removes |proposed_candidates| based on a
@@ -322,7 +247,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
   // of Hardware overlays. Effectiveness here is primarily about power and
   // secondarily about of performance.
   virtual void SortProposedOverlayCandidatesPrioritized(
-      Strategy::OverlayProposedCandidateList* proposed_candidates);
+      std::vector<OverlayProposedCandidate>* proposed_candidates);
 
   // Used by Android pre-SurfaceControl to notify promotion hints.
   virtual void NotifyOverlayPromotion(
@@ -342,28 +267,6 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
   // Moves `curr_overlays` into `prev_overlays`, and updates `curr_overlays` to
   // reflect the overlays that will be promoted this frame in `candidates`.
   void UpdateOverlayStatusMap(const OverlayCandidateList& candidates);
-
-  struct ProposedCandidateKey {
-    OverlayCandidate::TrackingId tracking_id =
-        OverlayCandidate::kDefaultTrackingId;
-    OverlayStrategy strategy_id = OverlayStrategy::kUnknown;
-
-    bool operator==(const ProposedCandidateKey& other) const {
-      return (tracking_id == other.tracking_id &&
-              strategy_id == other.strategy_id);
-    }
-  };
-
-  struct ProposedCandidateKeyHasher {
-    std::size_t operator()(const ProposedCandidateKey& k) const {
-      return base::Hash(&k, sizeof(k));
-    }
-  };
-
-  static ProposedCandidateKey ToProposeKey(
-      const Strategy::OverlayProposedCandidate& proposed);
-
-  const int max_overlays_considered_;
 
   std::unordered_map<ProposedCandidateKey,
                      OverlayCandidateTemporalTracker,
@@ -388,6 +291,8 @@ class VIZ_SERVICE_EXPORT OverlayProcessorUsingStrategy
   // used by UpdateDamageRect() to update damage properly.
   OverlayStatusMap prev_overlays_;
   OverlayStatusMap curr_overlays_;
+
+  OverlayCombinationCache overlay_combination_cache_;
 };
 
 }  // namespace viz

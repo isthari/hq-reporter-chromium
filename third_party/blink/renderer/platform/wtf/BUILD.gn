@@ -1,4 +1,4 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -42,7 +42,6 @@ component("wtf") {
     "allocator/partition_allocator.h",
     "allocator/partitions.cc",
     "allocator/partitions.h",
-    "assertions.cc",
     "assertions.h",
     "atomic_operations.cc",
     "atomic_operations.h",
@@ -53,6 +52,14 @@ component("wtf") {
     "container_annotations.h",
     "cross_thread_copier.cc",
     "cross_thread_copier.h",
+    "cross_thread_copier_base.h",
+    "cross_thread_copier_gfx.h",
+    "cross_thread_copier_gpu.h",
+    "cross_thread_copier_media.h",
+    "cross_thread_copier_mojo.h",
+    "cross_thread_copier_public.h",
+    "cross_thread_copier_skia.h",
+    "cross_thread_copier_std.h",
     "cross_thread_functional.h",
     "date_math.cc",
     "date_math.h",
@@ -79,7 +86,6 @@ component("wtf") {
     "hash_traits.h",
     "leak_annotations.h",
     "linked_hash_set.h",
-    "lru_cache.h",
     "math_extras.h",
     "pod_arena.h",
     "pod_free_list_arena.h",
@@ -88,8 +94,6 @@ component("wtf") {
     "pod_red_black_tree.h",
     "ref_counted.h",
     "sanitizers.h",
-    "scoped_logger.cc",
-    "scoped_logger.h",
     "sequence_bound.h",
     "shared_buffer.cc",
     "shared_buffer.h",
@@ -105,6 +109,7 @@ component("wtf") {
     "text/atomic_string.cc",
     "text/atomic_string.h",
     "text/atomic_string_cf.cc",
+    "text/atomic_string_encoding.h",
     "text/atomic_string_hash.h",
     "text/atomic_string_table.cc",
     "text/atomic_string_table.h",
@@ -115,6 +120,10 @@ component("wtf") {
     "text/case_map.h",
     "text/character_names.h",
     "text/character_visitor.h",
+    "text/code_point_iterator.h",
+    "text/copy_lchars_from_uchar_source.h",
+    "text/encoding_tables.cc",
+    "text/encoding_tables.h",
     "text/integer_to_string_conversion.h",
     "text/line_ending.cc",
     "text/line_ending.h",
@@ -143,6 +152,8 @@ component("wtf") {
     "text/text_codec.cc",
     "text/text_codec.h",
     "text/text_codec_ascii_fast_path.h",
+    "text/text_codec_cjk.cc",
+    "text/text_codec_cjk.h",
     "text/text_codec_icu.cc",
     "text/text_codec_icu.h",
     "text/text_codec_latin1.cc",
@@ -172,11 +183,11 @@ component("wtf") {
     "text/wtf_string.cc",
     "text/wtf_string.h",
     "text/wtf_uchar.h",
-    "thread_restriction_verifier.h",
     "thread_safe_ref_counted.h",
     "thread_specific.h",
     "threading.cc",
     "threading.h",
+    "threading_primitives.cc",
     "threading_primitives.h",
     "type_traits.h",
     "uuid.cc",
@@ -206,6 +217,8 @@ component("wtf") {
   deps = [
     "//base/allocator:buildflags",
     "//build:chromeos_buildflags",
+    "//third_party/blink/public/common:common",
+    "//third_party/modp_b64",
 
     # TODO(tkent): WTF should not depend on it.
     "//third_party/blink/public/common:headers",
@@ -230,9 +243,11 @@ component("wtf") {
     ]
   }
 
-  if (is_win) {
-    sources += [ "threading_win.cc" ]
+  if (!is_mac && (current_cpu == "x86" || current_cpu == "x64")) {
+    sources += [ "text/copy_lchars_from_uchar_source.cc" ]
+  }
 
+  if (is_win) {
     cflags = [ "/wd4068" ]  # Unknown pragma.
 
     # Inject Visual Studio debug visualizers for our types into all targets
@@ -244,8 +259,6 @@ component("wtf") {
       # in generated build files.
       "//tools/win/DebugVisualizers/blink.natvis",
     ]
-  } else {
-    sources += [ "threading_pthreads.cc" ]
   }
 
   if (is_android) {
@@ -285,6 +298,7 @@ source_set("wtf_unittests_sources") {
     "assertions_test.cc",
     "atomic_operations_test.cc",
     "bit_field_test.cc",
+    "bloom_filter_test.cc",
     "cross_thread_functional_test.cc",
     "decimal_test.cc",
     "deque_test.cc",
@@ -294,7 +308,6 @@ source_set("wtf_unittests_sources") {
     "hash_map_test.cc",
     "hash_set_test.cc",
     "linked_hash_set_test.cc",
-    "lru_cache_test.cc",
     "math_extras_test.cc",
     "pod_arena_test.cc",
     "pod_arena_test_helpers.h",
@@ -303,13 +316,15 @@ source_set("wtf_unittests_sources") {
     "pod_red_black_tree_test.cc",
     "pod_tree_test_helpers.cc",
     "pod_tree_test_helpers.h",
-    "scoped_logger_test.cc",
     "sequence_bound_test.cc",
     "shared_buffer_test.cc",
     "testing/run_all_tests.cc",
     "text/atomic_string_table_test.cc",
     "text/atomic_string_test.cc",
+    "text/base64_test.cc",
     "text/case_map_test.cc",
+    "text/code_point_iterator_test.cc",
+    "text/encoding_tables_test.cc",
     "text/integer_to_string_conversion_test.cc",
     "text/line_ending_test.cc",
     "text/math_transform_test.cc",
@@ -319,6 +334,7 @@ source_set("wtf_unittests_sources") {
     "text/string_impl_test.cc",
     "text/string_to_number_test.cc",
     "text/string_view_test.cc",
+    "text/text_codec_cjk_test.cc",
     "text/text_codec_icu_test.cc",
     "text/text_codec_replacement_test.cc",
     "text/text_codec_test.cc",

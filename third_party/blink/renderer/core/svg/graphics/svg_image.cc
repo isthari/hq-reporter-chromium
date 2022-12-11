@@ -29,6 +29,8 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "services/network/public/cpp/resource_request.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/platform/resource_load_info_notifier_wrapper.h"
 #include "third_party/blink/public/platform/web_back_forward_cache_loader_helper.h"
@@ -53,12 +55,14 @@
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_root.h"
 #include "third_party/blink/renderer/core/loader/frame_load_request.h"
+#include "third_party/blink/renderer/core/page/page_animator.h"
 #include "third_party/blink/renderer/core/paint/paint_auto_dark_mode.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/svg/animation/smil_time_container.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_chrome_client.h"
 #include "third_party/blink/renderer/core/svg/svg_animated_preserve_aspect_ratio.h"
+#include "third_party/blink/renderer/core/svg/svg_document_extensions.h"
 #include "third_party/blink/renderer/core/svg/svg_fe_image_element.h"
 #include "third_party/blink/renderer/core/svg/svg_image_element.h"
 #include "third_party/blink/renderer/core/svg/svg_svg_element.h"
@@ -73,9 +77,12 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record_builder.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
-#include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
+#include "third_party/blink/renderer/platform/scheduler/public/main_thread.h"
+#include "third_party/blink/renderer/platform/scheduler/public/main_thread_scheduler.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/geometry/skia_conversions.h"
 
@@ -88,11 +95,9 @@ using TaskRunnerHandle = scheduler::WebResourceLoadingTaskRunnerHandle;
 class FailingLoader final : public WebURLLoader {
  public:
   explicit FailingLoader(
-      std::unique_ptr<TaskRunnerHandle> freezable_task_runner_handle,
-      std::unique_ptr<TaskRunnerHandle> unfreezable_task_runner_handle)
-      : freezable_task_runner_handle_(std::move(freezable_task_runner_handle)),
-        unfreezable_task_runner_handle_(
-            std::move(unfreezable_task_runner_handle)) {}
+      std::unique_ptr<TaskRunnerHandle> freezable_task_runner_handle)
+      : freezable_task_runner_handle_(std::move(freezable_task_runner_handle)) {
+  }
   ~FailingLoader() override = default;
 
   // WebURLLoader implementation:
@@ -131,7 +136,6 @@ class FailingLoader final : public WebURLLoader {
 
  private:
   const std::unique_ptr<TaskRunnerHandle> freezable_task_runner_handle_;
-  const std::unique_ptr<TaskRunnerHandle> unfreezable_task_runner_handle_;
 };
 
 class FailingLoaderFactory final : public WebURLLoaderFactory {
@@ -146,10 +150,14 @@ class FailingLoaderFactory final : public WebURLLoaderFactory {
       WebBackForwardCacheLoaderHelper back_forward_cache_loader_helper)
       override {
     return std::make_unique<FailingLoader>(
-        std::move(freezable_task_runner_handle),
-        std::move(unfreezable_task_runner_handle));
+        std::move(freezable_task_runner_handle));
   }
 };
+
+bool HasSmilAnimations(const Document& document) {
+  const SVGDocumentExtensions* extensions = document.SvgExtensions();
+  return extensions && extensions->HasSmilAnimations();
+}
 
 }  // namespace
 
@@ -196,8 +204,10 @@ SVGImage::SVGImage(ImageObserver* observer, bool is_multipart)
       // smaller granularity. There is an active effort to mitigate
       // this which is called "Memory Cache Per Context"
       // (https://crbug.com/1127971).
-      agent_group_scheduler_(
-          Thread::MainThread()->Scheduler()->CreateAgentGroupScheduler()),
+      agent_group_scheduler_(Thread::MainThread()
+                                 ->Scheduler()
+                                 ->ToMainThreadScheduler()
+                                 ->CreateAgentGroupScheduler()),
       has_pending_timeline_rewind_(false) {}
 
 SVGImage::~SVGImage() {
@@ -311,6 +321,21 @@ bool SVGImage::GetIntrinsicSizingInfo(
   if (!layout_root)
     return false;
   layout_root->UnscaledIntrinsicSizingInfo(intrinsic_sizing_info);
+
+  if (!intrinsic_sizing_info.has_width || !intrinsic_sizing_info.has_height) {
+    // We're not using an intrinsic aspect ratio to resolve a missing
+    // intrinsic width or height when preserveAspectRatio is none.
+    // (Ref: crbug.com/584172)
+    SVGSVGElement* svg = RootElement();
+    if (svg->preserveAspectRatio()->CurrentValue()->Align() ==
+        SVGPreserveAspectRatio::kSvgPreserveaspectratioNone) {
+      // Clear all the fields so that the concrete object size will equal the
+      // default object size.
+      intrinsic_sizing_info = IntrinsicSizingInfo();
+      intrinsic_sizing_info.has_width = false;
+      intrinsic_sizing_info.has_height = false;
+    }
+  }
   return true;
 }
 
@@ -323,14 +348,6 @@ gfx::SizeF SVGImage::ConcreteObjectSize(
   // https://www.w3.org/TR/css3-images/#default-sizing
   if (intrinsic_sizing_info.has_width && intrinsic_sizing_info.has_height)
     return intrinsic_sizing_info.size;
-
-  // We're not using an intrinsic aspect ratio to resolve a missing
-  // intrinsic width or height when preserveAspectRatio is none.
-  // (Ref: crbug.com/584172)
-  SVGSVGElement* svg = RootElement();
-  if (svg->preserveAspectRatio()->CurrentValue()->Align() ==
-      SVGPreserveAspectRatio::kSvgPreserveaspectratioNone)
-    return default_object_size;
 
   if (intrinsic_sizing_info.has_width) {
     if (intrinsic_sizing_info.aspect_ratio.IsEmpty()) {
@@ -410,6 +427,13 @@ PaintImage SVGImage::PaintImageForCurrentFrame() {
   return builder.TakePaintImage();
 }
 
+void SVGImage::SetPreferredColorScheme(
+    mojom::blink::PreferredColorScheme preferred_color_scheme) {
+  if (page_) {
+    page_->GetSettings().SetPreferredColorScheme(preferred_color_scheme);
+  }
+}
+
 void SVGImage::DrawPatternForContainer(const DrawInfo& draw_info,
                                        GraphicsContext& context,
                                        const cc::PaintFlags& base_flags,
@@ -465,8 +489,7 @@ void SVGImage::PopulatePaintRecordForCurrentFrameForContainer(
   const gfx::SizeF size =
       gfx::ScaleSize(draw_info.ContainerSize(), draw_info.Zoom());
   const gfx::Rect dest_rect(gfx::ToRoundedSize(size));
-  cc::PaintCanvas* canvas =
-      recorder.beginRecording(gfx::RectToSkRect(dest_rect));
+  cc::PaintCanvas* canvas = recorder.beginRecording();
   DrawForContainer(draw_info, canvas, cc::PaintFlags(), gfx::RectF(dest_rect),
                    gfx::RectF(size));
   builder.set_paint_record(recorder.finishRecordingAsPicture(), dest_rect,
@@ -501,7 +524,6 @@ bool SVGImage::ApplyShaderInternal(const DrawInfo& draw_info,
 
 bool SVGImage::ApplyShader(cc::PaintFlags& flags,
                            const SkMatrix& local_matrix,
-                           const gfx::RectF& dst_rect,
                            const gfx::RectF& src_rect,
                            const ImageDrawOptions& draw_options) {
   const DrawInfo draw_info(gfx::SizeF(intrinsic_size_), 1, NullURL(),
@@ -660,8 +682,8 @@ bool SVGImage::MaybeAnimated() {
   SVGSVGElement* root_element = RootElement();
   if (!root_element)
     return false;
-  return root_element->TimeContainer()->HasAnimations() ||
-         root_element->GetDocument().Timeline().HasPendingUpdates();
+  const Document& document = root_element->GetDocument();
+  return HasSmilAnimations(document) || document.Timeline().HasPendingUpdates();
 }
 
 void SVGImage::ServiceAnimations(
@@ -734,7 +756,7 @@ SVGImageChromeClient& SVGImage::ChromeClientForTesting() {
 
 void SVGImage::UpdateUseCounters(const Document& document) const {
   if (SVGSVGElement* root_element = RootElement()) {
-    if (root_element->TimeContainer()->HasAnimations()) {
+    if (HasSmilAnimations(root_element->GetDocument())) {
       document.CountUse(WebFeature::kSVGSMILAnimationInImageRegardlessOfCache);
     }
   }
@@ -755,8 +777,9 @@ void SVGImage::LoadCompleted() {
       // to make LoadEventFinished() true when AsyncLoadCompleted() is called.
       GetFrame()
           ->GetTaskRunner(TaskType::kInternalLoading)
-          ->PostTask(FROM_HERE, WTF::Bind(&SVGImage::NotifyAsyncLoadCompleted,
-                                          scoped_refptr<SVGImage>(this)));
+          ->PostTask(FROM_HERE,
+                     WTF::BindOnce(&SVGImage::NotifyAsyncLoadCompleted,
+                                   scoped_refptr<SVGImage>(this)));
       break;
 
     case kDataChangedNotStarted:
@@ -780,6 +803,8 @@ Image::SizeAvailability SVGImage::DataChanged(bool all_data_received) {
 
   if (!all_data_received)
     return page_ ? kSizeAvailable : kSizeUnavailable;
+
+  SCOPED_BLINK_UMA_HISTOGRAM_TIMER_HIGHRES("Blink.SVGImage.DataChanged");
 
   CHECK(!page_);
 
@@ -810,7 +835,7 @@ Image::SizeAvailability SVGImage::DataChanged(bool all_data_received) {
     // Because this page is detached, it can't get default font settings
     // from the embedder. Copy over font settings so we have sensible
     // defaults. These settings are fixed and will not update if changed.
-    if (!Page::OrdinaryPages().IsEmpty()) {
+    if (!Page::OrdinaryPages().empty()) {
       Settings& default_settings =
           (*Page::OrdinaryPages().begin())->GetSettings();
       page->GetSettings().GetGenericFontFamilySettings() =
@@ -826,6 +851,8 @@ Image::SizeAvailability SVGImage::DataChanged(bool all_data_received) {
 
       page->GetSettings().SetImageAnimationPolicy(
           default_settings.GetImageAnimationPolicy());
+      page->GetSettings().SetPrefersReducedMotion(
+          default_settings.GetPrefersReducedMotion());
 
       // Also copy the preferred-color-scheme to ensure a responsiveness to
       // dark/light color schemes.
@@ -847,7 +874,9 @@ Image::SizeAvailability SVGImage::DataChanged(bool all_data_received) {
         FrameInsertType::kInsertInConstructor, LocalFrameToken(), nullptr,
         nullptr);
     frame->SetView(MakeGarbageCollected<LocalFrameView>(*frame));
-    frame->Init(/*opener=*/nullptr, /*policy_container=*/nullptr);
+    frame->Init(/*opener=*/nullptr, DocumentToken(),
+                /*policy_container=*/nullptr, StorageKey(),
+                /*document_ukm_source_id=*/ukm::kInvalidSourceId);
   }
 
   // SVG Images will always synthesize a viewBox, if it's not available, and
@@ -901,6 +930,11 @@ bool SVGImage::IsSizeAvailable() {
 
 String SVGImage::FilenameExtension() const {
   return "svg";
+}
+
+const AtomicString& SVGImage::MimeType() const {
+  DEFINE_STATIC_LOCAL(const AtomicString, svg_mime_type, ("image/svg+xml"));
+  return svg_mime_type;
 }
 
 }  // namespace blink

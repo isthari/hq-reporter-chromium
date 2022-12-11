@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/location.h"
 #include "base/time/time.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -180,12 +180,13 @@ void ActiveDirectoryMigrationManager::RetryToStartMigration() {
 }
 
 void ActiveDirectoryMigrationManager::StartPowerwash() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   local_state_->SetTime(prefs::kLastChromadMigrationAttemptTime,
                         base::Time::Now());
 
   // Unsigned remote powerwash requests are allowed in AD mode.
-  chromeos::SessionManagerClient::Get()->StartRemoteDeviceWipe(
-      em::SignedData());
+  ash::SessionManagerClient::Get()->StartRemoteDeviceWipe(em::SignedData());
 }
 
 void ActiveDirectoryMigrationManager::MaybeRunStatusCallback(bool started,

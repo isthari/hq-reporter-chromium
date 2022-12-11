@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/test/mock_callback.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "media/base/video_frame.h"
 #include "media/cast/cast_config.h"
 #include "media/cast/cast_environment.h"
@@ -32,7 +33,7 @@ namespace {
 
 class StreamClient final : public RtpStreamClient {
  public:
-  StreamClient(base::SimpleTestTickClock* clock) : clock_(clock) {}
+  explicit StreamClient(base::SimpleTestTickClock* clock) : clock_(clock) {}
 
   StreamClient(const StreamClient&) = delete;
   StreamClient& operator=(const StreamClient&) = delete;
@@ -76,9 +77,9 @@ class StreamClient final : public RtpStreamClient {
   }
 
  private:
-  raw_ptr<VideoRtpStream> video_stream_ = nullptr;
+  raw_ptr<VideoRtpStream> video_stream_;
   base::TimeTicks first_frame_time_;
-  raw_ptr<base::SimpleTestTickClock> clock_;
+  const raw_ptr<base::SimpleTestTickClock> clock_;
   base::WeakPtrFactory<StreamClient> weak_factory_{this};
 };
 
@@ -102,13 +103,39 @@ class RtpStreamTest : public ::testing::Test {
   ~RtpStreamTest() override { task_environment_.RunUntilIdle(); }
 
  protected:
+  void ExpectVideoFrames(VideoRtpStream& video_stream, int num_frames) {
+    base::RunLoop run_loop;
+    int loop_count = 0;
+    // Expect the video frame is sent to video sender for encoding, and the
+    // encoded frame is sent to the transport.
+    EXPECT_CALL(transport_, InsertFrame(_, _))
+        .WillRepeatedly(
+            InvokeWithoutArgs([&run_loop, &loop_count, &num_frames] {
+              if (++loop_count == num_frames) {
+                run_loop.Quit();
+              }
+            }));
+
+    // We insert the first frame; the remaining frames (if any) will be update
+    // requests.
+    video_stream.InsertVideoFrame(client_.CreateVideoFrame());
+    run_loop.Run();
+  }
+
+  void ExpectTimerRunning(const VideoRtpStream& video_stream) {
+    EXPECT_TRUE(video_stream.refresh_timer_.IsRunning());
+  }
+
+  void ExpectTimerNotRunning(const VideoRtpStream& video_stream) {
+    EXPECT_FALSE(video_stream.refresh_timer_.IsRunning());
+  }
+
   base::test::TaskEnvironment task_environment_;
   base::SimpleTestTickClock testing_clock_;
   const scoped_refptr<media::cast::CastEnvironment> cast_environment_;
   StreamClient client_;
 
-  // We currently don't care about sender reports, so we have a nick
-  // mock for the transport.
+  // We currently don't care about sender reports, so we use a nice mock here.
   testing::NiceMock<media::cast::MockCastTransport> transport_;
 };
 
@@ -118,18 +145,11 @@ TEST_F(RtpStreamTest, VideoStreaming) {
       cast_environment_, media::cast::GetDefaultVideoSenderConfig(),
       base::DoNothing(), base::DoNothing(), &transport_, base::DoNothing(),
       base::DoNothing());
-  VideoRtpStream video_stream(std::move(video_sender), client_.GetWeakPtr());
-  {
-    base::RunLoop run_loop;
-    // Expect the video frame is sent to video sender for encoding, and the
-    // encoded frame is sent to the transport.
-    EXPECT_CALL(transport_, InsertFrame(_, _))
-        .WillOnce(InvokeWithoutArgs(&run_loop, &base::RunLoop::Quit));
-    video_stream.InsertVideoFrame(client_.CreateVideoFrame());
-    run_loop.Run();
-  }
-
-  task_environment_.RunUntilIdle();
+  VideoRtpStream video_stream(std::move(video_sender), client_.GetWeakPtr(),
+                              base::Milliseconds(1));
+  client_.SetVideoRtpStream(&video_stream);
+  ExpectVideoFrames(video_stream, 1);
+  ExpectTimerRunning(video_stream);
 }
 
 TEST_F(RtpStreamTest, VideoStreamEmitsFramesWhenNoUpdates) {
@@ -137,26 +157,23 @@ TEST_F(RtpStreamTest, VideoStreamEmitsFramesWhenNoUpdates) {
       cast_environment_, media::cast::GetDefaultVideoSenderConfig(),
       base::DoNothing(), base::DoNothing(), &transport_, base::DoNothing(),
       base::DoNothing());
-  VideoRtpStream video_stream(std::move(video_sender), client_.GetWeakPtr());
+  VideoRtpStream video_stream(std::move(video_sender), client_.GetWeakPtr(),
+                              base::Milliseconds(1));
   client_.SetVideoRtpStream(&video_stream);
-  {
-    base::RunLoop run_loop;
-    int loop_count = 0;
-    // Expect the video frame is sent to video sender for encoding, and the
-    // encoded frame is sent to the transport.
-    EXPECT_CALL(transport_, InsertFrame(_, _))
-        .WillRepeatedly(InvokeWithoutArgs([&run_loop, &loop_count] {
-          if (loop_count++ == 5) {
-            run_loop.Quit();
-          }
-        }));
+  ExpectVideoFrames(video_stream, 5);
+  ExpectTimerRunning(video_stream);
+}
 
-    // We start with one valid frame, then the rest should be update requests.
-    video_stream.InsertVideoFrame(client_.CreateVideoFrame());
-    run_loop.Run();
-  }
-
-  task_environment_.RunUntilIdle();
+TEST_F(RtpStreamTest, VideoStreamDoesNotRefreshWithZeroInterval) {
+  auto video_sender = std::make_unique<media::cast::VideoSender>(
+      cast_environment_, media::cast::GetDefaultVideoSenderConfig(),
+      base::DoNothing(), base::DoNothing(), &transport_, base::DoNothing(),
+      base::DoNothing());
+  VideoRtpStream video_stream(std::move(video_sender), client_.GetWeakPtr(),
+                              base::TimeDelta());
+  client_.SetVideoRtpStream(&video_stream);
+  ExpectVideoFrames(video_stream, 1);
+  ExpectTimerNotRunning(video_stream);
 }
 
 // Test the audio streaming pipeline.

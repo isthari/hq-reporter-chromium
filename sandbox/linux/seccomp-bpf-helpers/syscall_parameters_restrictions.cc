@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -205,7 +205,8 @@ ResultExpr RestrictPrctl() {
 #endif  // BUILDFLAG(IS_ANDROID)
               ),
              Allow())
-      .Default(CrashSIGSYSPrctl());
+      .Default(
+          If(option == PR_SET_PTRACER, Error(EPERM)).Else(CrashSIGSYSPrctl()));
 }
 
 ResultExpr RestrictIoctl() {
@@ -260,7 +261,13 @@ ResultExpr RestrictFcntlCommands() {
 
   const uint64_t kAllowedMask = O_ACCMODE | O_APPEND | O_NONBLOCK | O_SYNC |
                                 kOLargeFileFlag | O_CLOEXEC | O_NOATIME;
-  const uint64_t kAllowedSeals = F_SEAL_SEAL | F_SEAL_GROW | F_SEAL_SHRINK;
+#if BUILDFLAG(IS_ANDROID)
+  const uint64_t kOsSpecificSeals = F_SEAL_FUTURE_WRITE;
+#else
+  const uint64_t kOsSpecificSeals = 0;
+#endif
+  const uint64_t kAllowedSeals = F_SEAL_SEAL | F_SEAL_GROW | F_SEAL_SHRINK |
+                                 kOsSpecificSeals;
   // clang-format off
   return Switch(cmd)
       .CASES((F_GETFL,
@@ -457,6 +464,13 @@ ResultExpr RestrictPtrace() {
 ResultExpr RestrictPkeyAllocFlags() {
   const Arg<int> flags(0);
   return If(flags == 0, Allow()).Else(CrashSIGSYS());
+}
+
+ResultExpr RestrictGoogle3Threading(int sysno) {
+  DCHECK(sysno == __NR_getitimer || sysno == __NR_setitimer);
+
+  const Arg<int> which(0);
+  return If(which == ITIMER_PROF, Allow()).Else(Error(EPERM));
 }
 
 }  // namespace sandbox.

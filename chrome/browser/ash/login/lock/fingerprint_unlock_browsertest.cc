@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,8 +20,8 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/dbus/biod/fake_biod_client.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/ash/components/dbus/biod/fake_biod_client.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/user_manager/user_names.h"
@@ -68,14 +68,13 @@ class FingerprintUnlockTest : public InProcessBrowserTest {
   ~FingerprintUnlockTest() override = default;
 
   void SetUp() override {
-    quick_unlock::EnabledForTesting(true);
+    test_api_ = std::make_unique<quick_unlock::TestApi>(
+        /*override_quick_unlock=*/true);
+    test_api_->EnableFingerprintByPolicy(quick_unlock::Purpose::kUnlock);
     InProcessBrowserTest::SetUp();
   }
 
-  void TearDown() override {
-    quick_unlock::EnabledForTesting(false);
-    InProcessBrowserTest::TearDown();
-  }
+  void TearDown() override { InProcessBrowserTest::TearDown(); }
 
   void SetUpInProcessBrowserTestFixture() override {
     zero_duration_mode_ =
@@ -235,6 +234,7 @@ class FingerprintUnlockTest : public InProcessBrowserTest {
   QuickUnlockStorage* quick_unlock_storage_;
 
   std::unique_ptr<ui::ScopedAnimationDurationScaleMode> zero_duration_mode_;
+  std::unique_ptr<quick_unlock::TestApi> test_api_;
 };
 
 // Provides test clocks, quick unlock and an enrolled fingerprint to the tests.
@@ -429,6 +429,8 @@ constexpr char kFingerprintSuccessHistogramName[] =
     "Fingerprint.Unlock.AuthSuccessful";
 constexpr char kFingerprintAttemptsCountBeforeSuccessHistogramName[] =
     "Fingerprint.Unlock.AttemptsCountBeforeSuccess";
+constexpr char kFingerprintRecentAttemptsCountBeforeSuccessHistogramName[] =
+    "Fingerprint.Unlock.RecentAttemptsCountBeforeSuccess";
 constexpr char kFeatureUsageMetric[] = "ChromeOS.FeatureUsage.Fingerprint";
 
 // Verifies that fingerprint auth success is recorded correctly.
@@ -455,6 +457,8 @@ IN_PROC_BROWSER_TEST_F(FingerprintUnlockEnrollTest, FeatureUsageMetrics) {
       static_cast<int>(quick_unlock::FingerprintUnlockResult::kSuccess), 1);
   histogram_tester.ExpectTotalCount(
       kFingerprintAttemptsCountBeforeSuccessHistogramName, 1);
+  histogram_tester.ExpectTotalCount(
+      kFingerprintRecentAttemptsCountBeforeSuccessHistogramName, 1);
   histogram_tester.ExpectBucketCount(
       kFeatureUsageMetric,
       static_cast<int>(

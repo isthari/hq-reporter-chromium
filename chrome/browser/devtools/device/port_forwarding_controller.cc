@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,6 @@
 #include "base/strings/string_util.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -32,6 +31,7 @@
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/base/network_isolation_key.h"
+#include "net/dns/public/host_resolver_results.h"
 #include "net/dns/public/resolve_error_info.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
@@ -159,15 +159,19 @@ class PortForwardingHostResolver : public network::ResolveHostClientBase {
     DCHECK(!receiver_.is_bound());
 
     net::HostPortPair host_port_pair(host, port);
-    // Use a transient NetworkIsolationKey, as there's no need to share cached
-    // DNS results from this request with anything else.
+    // Intentionally using a HostPortPair because scheme isn't specified.
+    // Use a transient NetworkAnonymizationKey, as there's no need to share
+    // cached DNS results from this request with anything else.
     profile->GetDefaultStoragePartition()->GetNetworkContext()->ResolveHost(
-        host_port_pair, net::NetworkIsolationKey::CreateTransient(), nullptr,
+        network::mojom::HostResolverHost::NewHostPortPair(
+            std::move(host_port_pair)),
+        net::NetworkAnonymizationKey::CreateTransient(), nullptr,
         receiver_.BindNewPipeAndPassRemote());
-    receiver_.set_disconnect_handler(
-        base::BindOnce(&PortForwardingHostResolver::OnComplete,
-                       base::Unretained(this), net::ERR_NAME_NOT_RESOLVED,
-                       net::ResolveErrorInfo(net::ERR_FAILED), absl::nullopt));
+    receiver_.set_disconnect_handler(base::BindOnce(
+        &PortForwardingHostResolver::OnComplete, base::Unretained(this),
+        net::ERR_NAME_NOT_RESOLVED, net::ResolveErrorInfo(net::ERR_FAILED),
+        /*resolved_addresses=*/absl::nullopt,
+        /*endpoint_results_with_metadata=*/absl::nullopt));
   }
 
   PortForwardingHostResolver(const PortForwardingHostResolver&) = delete;
@@ -180,10 +184,11 @@ class PortForwardingHostResolver : public network::ResolveHostClientBase {
   }
 
   // network::mojom::ResolveHostClient:
-  void OnComplete(
-      int result,
-      const net::ResolveErrorInfo& resolve_error_info,
-      const absl::optional<net::AddressList>& resolved_addresses) override {
+  void OnComplete(int result,
+                  const net::ResolveErrorInfo& resolve_error_info,
+                  const absl::optional<net::AddressList>& resolved_addresses,
+                  const absl::optional<net::HostResolverEndpointResults>&
+                      endpoint_results_with_metadata) override {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
     if (result < 0) {
@@ -235,7 +240,7 @@ class SocketTunnel {
       : remote_socket_(std::move(socket)),
         pending_writes_(0),
         pending_destruction_(false),
-        adb_thread_runner_(base::ThreadTaskRunnerHandle::Get()) {
+        adb_thread_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()) {
     ResolveHostCallback resolve_host_callback = base::BindOnce(
         &SocketTunnel::OnResolveHostComplete, base::Unretained(this));
     content::GetUIThreadTaskRunner({})->PostTask(
@@ -646,9 +651,9 @@ void PortForwardingController::OnPrefsChange() {
   forwarding_map_.clear();
 
   if (pref_service_->GetBoolean(prefs::kDevToolsPortForwardingEnabled)) {
-    const base::Value* value =
-        pref_service_->GetDictionary(prefs::kDevToolsPortForwardingConfig);
-    for (auto dict_element : value->DictItems()) {
+    const base::Value::Dict& value =
+        pref_service_->GetDict(prefs::kDevToolsPortForwardingConfig);
+    for (auto dict_element : value) {
       int port_num;
       if (base::StringToInt(dict_element.first, &port_num) &&
           dict_element.second.is_string()) {

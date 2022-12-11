@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <memory>
 
 #include "base/memory/raw_ptr.h"
-#include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_forward.h"
@@ -43,9 +42,9 @@ class PublisherHost {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   void SetArcIsRegistered();
 
-  void FlushMojoCallsForTesting();
-
   void ReInitializeCrostiniForTesting(AppServiceProxy* proxy);
+
+  void RegisterPublishersForTesting();
 
   void Shutdown();
 #endif
@@ -72,6 +71,19 @@ class PublisherHost {
 };
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+class ScopedOmitBorealisAppsForTesting {
+ public:
+  ScopedOmitBorealisAppsForTesting();
+  ScopedOmitBorealisAppsForTesting(const ScopedOmitBorealisAppsForTesting&) =
+      delete;
+  ScopedOmitBorealisAppsForTesting& operator=(
+      const ScopedOmitBorealisAppsForTesting&) = delete;
+  ~ScopedOmitBorealisAppsForTesting();
+
+ private:
+  const bool previous_omit_borealis_apps_for_testing_;
+};
+
 class ScopedOmitBuiltInAppsForTesting {
  public:
   ScopedOmitBuiltInAppsForTesting();

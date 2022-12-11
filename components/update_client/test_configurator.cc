@@ -1,20 +1,25 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/update_client/test_configurator.h"
 
 #include <string>
+#include <tuple>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/containers/flat_map.h"
+#include "base/files/file_util.h"
+#include "base/files/scoped_temp_dir.h"
+#include "base/path_service.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/version.h"
 #include "components/prefs/pref_service.h"
 #include "components/services/patch/in_process_file_patcher.h"
 #include "components/services/unzip/in_process_unzipper.h"
 #include "components/update_client/activity_data_service.h"
+#include "components/update_client/buildflags.h"
 #include "components/update_client/crx_downloader_factory.h"
 #include "components/update_client/net/network_chromium.h"
 #include "components/update_client/patch/patch_impl.h"
@@ -52,7 +57,11 @@ TestConfigurator::TestConfigurator(PrefService* pref_service)
       network_fetcher_factory_(
           base::MakeRefCounted<NetworkFetcherChromiumFactory>(
               test_shared_loader_factory_,
-              base::BindRepeating([](const GURL& url) { return false; }))) {}
+              base::BindRepeating([](const GURL& url) { return false; }))),
+      updater_state_provider_(base::BindRepeating(
+          [](bool /*is_machine*/) { return UpdaterStateAttributes(); })) {
+  std::ignore = crx_cache_root_temp_dir_.CreateUniqueTempDir();
+}
 
 TestConfigurator::~TestConfigurator() = default;
 
@@ -73,8 +82,8 @@ int TestConfigurator::UpdateDelay() const {
 }
 
 std::vector<GURL> TestConfigurator::UpdateUrl() const {
-  if (!update_check_url_.is_empty())
-    return std::vector<GURL>(1, update_check_url_);
+  if (!update_check_urls_.empty())
+    return update_check_urls_;
 
   return MakeDefaultUrls();
 }
@@ -168,10 +177,18 @@ absl::optional<bool> TestConfigurator::IsMachineExternallyManaged() const {
 }
 
 UpdaterStateProvider TestConfigurator::GetUpdaterStateProvider() const {
-  return base::BindRepeating([](bool /*is_machine*/) {
-    return base::flat_map<std::string, std::string>();
-  });
+  return updater_state_provider_;
 }
+
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+absl::optional<base::FilePath> TestConfigurator::GetCrxCachePath() const {
+  if (!crx_cache_root_temp_dir_.IsValid()) {
+    return absl::nullopt;
+  }
+  return absl::optional<base::FilePath>(
+      crx_cache_root_temp_dir_.GetPath().AppendASCII("crx_cache"));
+}
+#endif
 
 void TestConfigurator::SetOnDemandTime(int seconds) {
   ondemand_time_ = seconds;
@@ -191,7 +208,11 @@ void TestConfigurator::SetDownloadPreference(
 }
 
 void TestConfigurator::SetUpdateCheckUrl(const GURL& url) {
-  update_check_url_ = url;
+  update_check_urls_ = {url};
+}
+
+void TestConfigurator::SetUpdateCheckUrls(const std::vector<GURL>& urls) {
+  update_check_urls_ = urls;
 }
 
 void TestConfigurator::SetPingUrl(const GURL& url) {
@@ -206,6 +227,11 @@ void TestConfigurator::SetCrxDownloaderFactory(
 void TestConfigurator::SetIsMachineExternallyManaged(
     absl::optional<bool> is_machine_externally_managed) {
   is_machine_externally_managed_ = is_machine_externally_managed;
+}
+
+void TestConfigurator::SetUpdaterStateProvider(
+    UpdaterStateProvider update_state_provider) {
+  updater_state_provider_ = update_state_provider;
 }
 
 }  // namespace update_client

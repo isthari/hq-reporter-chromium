@@ -1,13 +1,18 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/global_media_controls/public/media_session_notification_item.h"
 
 #include "base/bind.h"
+#include "base/i18n/rtl.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
+#include "components/global_media_controls/public/constants.h"
 #include "components/media_message_center/media_notification_view.h"
+#include "components/url_formatter/elide_url.h"
+#include "components/url_formatter/url_formatter.h"
+#include "components/vector_icons/vector_icons.h"
 #include "services/media_session/public/cpp/util.h"
 #include "services/media_session/public/mojom/media_controller.mojom.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
@@ -33,17 +38,14 @@ MediaSessionNotificationItem::Source GetSource(const std::string& name) {
   return MediaSessionNotificationItem::Source::kUnknown;
 }
 
+bool GetRemotePlaybackStarted(
+    const media_session::mojom::MediaSessionInfoPtr& session_info) {
+  return session_info && session_info->remote_playback_metadata &&
+         session_info->remote_playback_metadata->remote_playback_started;
+}
+
 // How long to wait (in milliseconds) for a new media session to begin.
 constexpr base::TimeDelta kFreezeTimerDelay = base::Milliseconds(2500);
-
-// The minimum size in px that the media session artwork can be to be displayed
-// in the notification.
-constexpr int kMediaSessionNotificationArtworkMinSize = 114;
-
-// The desired size in px for the media session artwork to be displayed in the
-// notification. The media session service will try and select artwork closest
-// to this size.
-constexpr int kMediaSessionNotificationArtworkDesiredSize = 512;
 
 }  // namespace
 
@@ -73,8 +75,7 @@ void MediaSessionNotificationItem::MediaSessionInfoChanged(
   MaybeHideOrShowNotification();
 
   if (view_ && !frozen_) {
-    view_->UpdateWithMediaSessionInfo(session_info_);
-    view_->UpdateWithMuteStatus(session_info_->muted);
+    UpdateViewCommon();
   }
 }
 
@@ -95,19 +96,19 @@ void MediaSessionNotificationItem::MediaSessionMetadataChanged(
   // want to avoid sending the metadata twice is that metrics are recorded when
   // metadata is set and we don't want to double-count metrics.
   if (view_ && view_needs_metadata_update_ && !frozen_)
-    view_->UpdateWithMediaMetadata(session_metadata_);
+    view_->UpdateWithMediaMetadata(GetSessionMetadata());
 
   view_needs_metadata_update_ = false;
 }
 
 void MediaSessionNotificationItem::MediaSessionActionsChanged(
-    const std::vector<media_session::mojom::MediaSessionAction>& actions) {
-  session_actions_ = base::flat_set<media_session::mojom::MediaSessionAction>(
-      actions.begin(), actions.end());
+    const std::vector<MediaSessionAction>& actions) {
+  session_actions_ =
+      base::flat_set<MediaSessionAction>(actions.begin(), actions.end());
 
   if (view_ && !frozen_) {
     DCHECK(view_);
-    view_->UpdateWithMediaActions(session_actions_);
+    view_->UpdateWithMediaActions(GetMediaSessionActions());
   } else if (waiting_for_actions_) {
     MaybeUnfreeze();
   }
@@ -122,6 +123,13 @@ void MediaSessionNotificationItem::MediaSessionPositionChanged(
   if (view_ && !frozen_) {
     view_->UpdateWithMediaPosition(*position);
   }
+}
+
+void MediaSessionNotificationItem::UpdatePresentationRequestOrigin(
+    const url::Origin& origin) {
+  optional_presentation_request_origin_ = origin;
+  if (view_ && !frozen_)
+    view_->UpdateWithMediaMetadata(GetSessionMetadata());
 }
 
 void MediaSessionNotificationItem::MediaControllerImageChanged(
@@ -141,7 +149,7 @@ void MediaSessionNotificationItem::MediaControllerImageChanged(
 
   if (view_ && !frozen_)
     view_->UpdateWithMediaArtwork(*session_artwork_);
-  else if (waiting_for_artwork_)
+  else if (frozen_with_artwork_)
     MaybeUnfreeze();
 }
 
@@ -152,11 +160,7 @@ void MediaSessionNotificationItem::SetView(
   view_ = view;
 
   if (view_) {
-    view_needs_metadata_update_ = false;
-    view_->UpdateWithMediaSessionInfo(session_info_);
-    view_->UpdateWithMediaMetadata(session_metadata_);
-    view_->UpdateWithMediaActions(session_actions_);
-    view_->UpdateWithMuteStatus(session_info_->muted);
+    UpdateViewCommon();
 
     if (session_position_.has_value())
       view_->UpdateWithMediaPosition(*session_position_);
@@ -164,6 +168,8 @@ void MediaSessionNotificationItem::SetView(
       view_->UpdateWithMediaArtwork(*session_artwork_);
     if (session_favicon_.has_value())
       view_->UpdateWithFavicon(*session_favicon_);
+  } else {
+    optional_presentation_request_origin_.reset();
   }
 }
 
@@ -184,13 +190,16 @@ void MediaSessionNotificationItem::SeekTo(base::TimeDelta time) {
 }
 
 void MediaSessionNotificationItem::Dismiss() {
-  if (media_controller_remote_.is_bound())
-    media_controller_remote_->Stop();
   delegate_->RemoveItem(request_id_);
 }
 
 media_message_center::SourceType MediaSessionNotificationItem::SourceType() {
   return media_message_center::SourceType::kLocalMediaSession;
+}
+
+void MediaSessionNotificationItem::Stop() {
+  if (media_controller_remote_.is_bound())
+    media_controller_remote_->Stop();
 }
 
 void MediaSessionNotificationItem::Raise() {
@@ -203,6 +212,13 @@ void MediaSessionNotificationItem::Raise() {
 void MediaSessionNotificationItem::SetMute(bool mute) {
   if (!frozen_)
     media_controller_remote_->SetMute(mute);
+}
+
+bool MediaSessionNotificationItem::RequestMediaRemoting() {
+  if (!media_controller_remote_.is_bound())
+    return false;
+  media_controller_remote_->RequestMediaRemoting();
+  return true;
 }
 
 void MediaSessionNotificationItem::SetController(
@@ -225,13 +241,12 @@ void MediaSessionNotificationItem::SetController(
     // Bind an observer to be notified when the artwork changes.
     media_controller_remote_->ObserveImages(
         media_session::mojom::MediaSessionImageType::kArtwork,
-        kMediaSessionNotificationArtworkMinSize,
-        kMediaSessionNotificationArtworkDesiredSize,
+        kMediaItemArtworkMinSize, kMediaItemArtworkDesiredSize,
         artwork_observer_receiver_.BindNewPipeAndPassRemote());
 
     media_controller_remote_->ObserveImages(
         media_session::mojom::MediaSessionImageType::kSourceIcon,
-        gfx::kFaviconSize, kMediaSessionNotificationArtworkDesiredSize,
+        gfx::kFaviconSize, kMediaItemArtworkDesiredSize,
         favicon_observer_receiver_.BindNewPipeAndPassRemote());
   }
 
@@ -255,8 +270,55 @@ void MediaSessionNotificationItem::Freeze(base::OnceClosure unfrozen_callback) {
                      base::Unretained(this)));
 }
 
+media_session::mojom::RemotePlaybackMetadataPtr
+MediaSessionNotificationItem::GetRemotePlaybackMetadata() {
+  if (!session_info_ || !session_info_->remote_playback_metadata ||
+      session_info_->remote_playback_metadata->remote_playback_disabled) {
+    return nullptr;
+  }
+  return session_info_->remote_playback_metadata.Clone();
+}
+
 void MediaSessionNotificationItem::FlushForTesting() {
   media_controller_remote_.FlushForTesting();  // IN-TEST
+}
+
+media_session::MediaMetadata MediaSessionNotificationItem::GetSessionMetadata()
+    const {
+  media_session::MediaMetadata data = session_metadata_;
+  if (optional_presentation_request_origin_.has_value()) {
+    data.source_title = url_formatter::FormatOriginForSecurityDisplay(
+        optional_presentation_request_origin_.value(),
+        url_formatter::SchemeDisplay::OMIT_HTTP_AND_HTTPS);
+  }
+
+  if (GetRemotePlaybackStarted(session_info_)) {
+    absl::optional<std::string> receiver_name =
+        session_info_->remote_playback_metadata->remoting_device_friendly_name;
+    std::string source_title = base::UTF16ToUTF8(data.source_title);
+    const char kSeparator[] = " \xC2\xB7 ";  // "Middle dot" character.
+    if (!receiver_name) {
+      data.source_title = base::UTF8ToUTF16(source_title);
+    } else if (base::i18n::IsRTL()) {
+      data.source_title =
+          base::UTF8ToUTF16(receiver_name.value() + kSeparator + source_title);
+    } else {
+      data.source_title =
+          base::UTF8ToUTF16(source_title + kSeparator + receiver_name.value());
+    }
+  }
+  return data;
+}
+
+base::flat_set<MediaSessionAction>
+MediaSessionNotificationItem::GetMediaSessionActions() const {
+  if (!GetRemotePlaybackStarted(session_info_))
+    return session_actions_;
+
+  base::flat_set<MediaSessionAction> actions_without_pip(session_actions_);
+  actions_without_pip.erase(MediaSessionAction::kEnterPictureInPicture);
+  actions_without_pip.erase(MediaSessionAction::kExitPictureInPicture);
+  return actions_without_pip;
 }
 
 bool MediaSessionNotificationItem::ShouldShowNotification() const {
@@ -273,13 +335,10 @@ bool MediaSessionNotificationItem::ShouldShowNotification() const {
 }
 
 void MediaSessionNotificationItem::MaybeUnfreeze() {
-  if (!frozen_)
+  if (!frozen_ && !frozen_with_artwork_)
     return;
 
   if (waiting_for_actions_ && !HasActions())
-    return;
-
-  if (waiting_for_artwork_ && !HasArtwork())
     return;
 
   if (!ShouldShowNotification() || !is_bound_)
@@ -293,43 +352,51 @@ void MediaSessionNotificationItem::MaybeUnfreeze() {
     return;
   }
 
+  if (frozen_)
+    UnfreezeNonArtwork();
+
   // If the currently frozen view has artwork and the new session currently has
   // no artwork, then wait until either the freeze timer ends or the new artwork
   // is downloaded.
   if (frozen_with_artwork_ && !HasArtwork()) {
-    waiting_for_artwork_ = true;
     return;
   }
 
-  Unfreeze();
+  UnfreezeArtwork();
 }
 
-void MediaSessionNotificationItem::Unfreeze() {
+void MediaSessionNotificationItem::UnfreezeNonArtwork() {
   frozen_ = false;
   waiting_for_actions_ = false;
   frozen_with_actions_ = false;
-  waiting_for_artwork_ = false;
-  frozen_with_artwork_ = false;
-  freeze_timer_.Stop();
+  if (!frozen_with_artwork_)
+    freeze_timer_.Stop();
 
   // When we unfreeze, we want to fully update |view_| with any changes that
   // we've avoided sending during the freeze.
   if (view_) {
-    view_needs_metadata_update_ = false;
-    view_->UpdateWithMediaSessionInfo(session_info_);
-    view_->UpdateWithMediaMetadata(session_metadata_);
-    view_->UpdateWithMediaActions(session_actions_);
-    view_->UpdateWithMuteStatus(session_info_->muted);
-
+    UpdateViewCommon();
     if (session_position_.has_value())
       view_->UpdateWithMediaPosition(*session_position_);
+  }
+
+  std::move(unfrozen_callback_).Run();
+}
+
+// The artwork is frozen separately so that the rest of the UI can unfreeze
+// while we await new artwork. If we didn't separate them and just didn't wait
+// for the new artwork, the UI would flash between having and not having
+// artwork. If we didn't separate them and did wait for new artwork, the UI
+// would be slow and unresponsive when trying to skip ahead multiple tracks.
+void MediaSessionNotificationItem::UnfreezeArtwork() {
+  frozen_with_artwork_ = false;
+  freeze_timer_.Stop();
+  if (view_) {
     if (session_artwork_.has_value())
       view_->UpdateWithMediaArtwork(*session_artwork_);
     if (session_favicon_.has_value())
       view_->UpdateWithFavicon(*session_favicon_);
   }
-
-  std::move(unfrozen_callback_).Run();
 }
 
 bool MediaSessionNotificationItem::HasActions() const {
@@ -341,13 +408,17 @@ bool MediaSessionNotificationItem::HasArtwork() const {
 }
 
 void MediaSessionNotificationItem::OnFreezeTimerFired() {
-  DCHECK(frozen_);
+  DCHECK(frozen_ || frozen_with_artwork_);
 
   // If we've just been waiting for actions or artwork, stop waiting and just
   // show what we have.
-  if ((waiting_for_actions_ || waiting_for_artwork_) &&
-      ShouldShowNotification() && is_bound_) {
-    Unfreeze();
+  if (ShouldShowNotification() && is_bound_) {
+    if (frozen_)
+      UnfreezeNonArtwork();
+
+    if (frozen_with_artwork_)
+      UnfreezeArtwork();
+
     return;
   }
 
@@ -374,6 +445,17 @@ void MediaSessionNotificationItem::MaybeHideOrShowNotification() {
   delegate_->ActivateItem(request_id_);
 
   UMA_HISTOGRAM_ENUMERATION(kSourceHistogramName, source_);
+}
+
+void MediaSessionNotificationItem::UpdateViewCommon() {
+  view_needs_metadata_update_ = false;
+  view_->UpdateWithMediaSessionInfo(session_info_);
+  view_->UpdateWithMediaMetadata(GetSessionMetadata());
+  view_->UpdateWithMediaActions(GetMediaSessionActions());
+  view_->UpdateWithMuteStatus(session_info_->muted);
+  view_->UpdateWithVectorIcon(GetRemotePlaybackStarted(session_info_)
+                                  ? &vector_icons::kMediaRouterIdleIcon
+                                  : nullptr);
 }
 
 }  // namespace global_media_controls

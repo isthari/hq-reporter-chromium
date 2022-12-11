@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,6 @@
 
 namespace supervised_user_error_page {
 
-// A Java counterpart will be generated for this enum.
-// GENERATED_JAVA_ENUM_PACKAGE: (
-// org.chromium.chrome.browser.superviseduser.supervisedusererrorpage)
 enum FilteringBehaviorReason {
   DEFAULT = 0,
   ASYNC_CHECKER = 1,

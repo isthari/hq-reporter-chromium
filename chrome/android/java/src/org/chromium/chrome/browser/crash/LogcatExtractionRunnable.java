@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,10 @@ package org.chromium.chrome.browser.crash;
 
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.components.crash.LogcatCrashExtractor;
+import org.chromium.components.minidump_uploader.CrashFileManager;
 
 import java.io.File;
 
@@ -41,7 +43,8 @@ public class LogcatExtractionRunnable implements Runnable {
 
     @Override
     public void run() {
-        File fileToUpload = mLogcatExtractor.attachLogcatToMinidump(mMinidumpFile);
+        File fileToUpload = mLogcatExtractor.attachLogcatToMinidump(mMinidumpFile,
+                new CrashFileManager(ContextUtils.getApplicationContext().getCacheDir()));
         uploadMinidump(fileToUpload, false);
     }
 
@@ -56,10 +59,8 @@ public class LogcatExtractionRunnable implements Runnable {
         try {
             if (uploadNow) {
                 MinidumpUploadServiceImpl.tryUploadCrashDumpNow(minidump);
-            } else if (MinidumpUploadServiceImpl.shouldUseJobSchedulerForUploads()) {
-                MinidumpUploadServiceImpl.scheduleUploadJob();
             } else {
-                MinidumpUploadServiceImpl.tryUploadCrashDump(minidump);
+                MinidumpUploadServiceImpl.scheduleUploadJob();
             }
         } catch (SecurityException e) {
             Log.w(TAG, e.toString());

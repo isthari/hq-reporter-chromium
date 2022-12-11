@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/browsing_data/counters/browsing_data_counter_utils.h"
 #include "chrome/browser/browsing_data/counters/cache_counter.h"
 #include "chrome/browser/browsing_data/counters/downloads_counter.h"
@@ -43,6 +44,10 @@
 
 #if BUILDFLAG(IS_MAC)
 #include "device/fido/mac/credential_store.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "device/fido/cros/credential_store.h"
 #endif
 
 namespace {
@@ -89,6 +94,9 @@ BrowsingDataCounterFactory::GetForProfileAndPref(Profile* profile,
         std::make_unique<::device::fido::mac::TouchIdCredentialStore>(
             ChromeWebAuthenticationDelegate::
                 TouchIdAuthenticatorConfigForProfile(profile));
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
+        std::make_unique<
+            ::device::fido::cros::PlatformAuthenticatorCredentialStore>();
 #else
         nullptr;
 #endif

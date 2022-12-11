@@ -1,19 +1,57 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Basic browser tests for the wmDesksPrivate API.
+// Basic API tests for the wmDesksPrivate API.
 chrome.test.runTests([
-  // Tests the entire work flow for template: capturing the active desk, saving
-  // it as the desk template, listing it and deleting the template.
-  // For now it only contains the part of capturing active desk. The others will
-  // be added in following CLs.
-  function testTemplateFlow() {
-    chrome.wmDesksPrivate.captureActiveDeskAndSaveTemplate(
-        chrome.test.callbackPass(function(deskTemplate) {
-          chrome.test.assertEq(typeof deskTemplate, 'object');
-          chrome.test.assertTrue(deskTemplate.hasOwnProperty('templateUuid'));
-          chrome.test.assertTrue(deskTemplate.hasOwnProperty('templateName'));
-        }));
+  async function testGetDeskTemplateJson() {
+    await chrome.test.assertPromiseRejects(
+      chrome.wmDesksPrivate.getDeskTemplateJson(
+      // Get desk template JSON with an invalid UUID.
+        'invalid-uuid'), 'Error: InvalidIdError');
+    chrome.test.succeed();
+  },
+
+  // Tests setting window to show up on all desks.
+  async function testSetToAllDeskWindowWithValidID() {
+    // Create a new window.
+    // Note: create a dummy window first to avoid test flakiness. In
+    // test_ash_chrome binary, creating new window sometimes fail to be
+    // populated into root window list. The issue doesn't exist in actual
+    // ash-chrome binary,
+    await chrome.windows.create();
+    const window = await chrome.windows.create();
+    await chrome.wmDesksPrivate.setWindowProperties(window.tabs[0].windowId,
+      { allDesks: true });
+
+    chrome.test.succeed();
+  },
+
+  // Tests reverting setting window to show up on all desks.
+  async function testUnsetToAllDeskWindowWithValidID() {
+    // Create a new window.
+    const window = await chrome.windows.create();
+    await chrome.wmDesksPrivate.setWindowProperties(window.tabs[0].windowId,
+      { allDesks: false });
+    chrome.test.succeed();
+  },
+
+  // Tests SetToAllDeskWindow with invalid `window_id`.
+  async function testSetToAllDeskWindowWithInvalidID() {
+    // Launch invalid template Uuid.
+    await chrome.test.assertPromiseRejects(
+      chrome.wmDesksPrivate.setWindowProperties(1234, { allDesks: true }),
+      "Error: ResourceNotFoundError");
+    chrome.test.succeed();
+
+  },
+
+  // Tests UnsetAllDeskWindow with invalid `window_id`.
+  async function testUnsetAllDeskWindowWithInvalidID() {
+    // Launch invalid template Uuid.
+    await chrome.test.assertPromiseRejects(
+      chrome.wmDesksPrivate.setWindowProperties(1234, { allDesks: false }),
+      "Error: ResourceNotFoundError");
+    chrome.test.succeed();
   },
 ]);

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/rand_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/buildflags.h"
@@ -19,7 +18,6 @@
 #include "components/safe_browsing/core/browser/realtime/policy_engine.h"
 #include "components/safe_browsing/core/browser/referrer_chain_provider.h"
 #include "components/safe_browsing/core/browser/safe_browsing_token_fetcher.h"
-#include "components/safe_browsing/core/common/features.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/unified_consent/pref_names.h"
 #include "net/base/ip_address.h"
@@ -136,7 +134,7 @@ int RealTimeUrlLookupService::GetReferrerUserGestureLimit() const {
 }
 
 bool RealTimeUrlLookupService::CanSendPageLoadToken() const {
-  return base::FeatureList::IsEnabled(kSafeBrowsingPageLoadToken);
+  return true;
 }
 
 bool RealTimeUrlLookupService::CanCheckSubresourceURL() const {
@@ -149,10 +147,15 @@ bool RealTimeUrlLookupService::CanCheckSafeBrowsingDb() const {
   return true;
 }
 
+bool RealTimeUrlLookupService::CanCheckSafeBrowsingHighConfidenceAllowlist()
+    const {
+  // Always return true, because consumer real time URL check always checks
+  // high confidence allowlist.
+  return true;
+}
+
 bool RealTimeUrlLookupService::CanSendRTSampleRequest() const {
   return IsExtendedReportingEnabled(*pref_service_) &&
-         base::FeatureList::IsEnabled(
-             safe_browsing::kSendSampledPingsForProtegoAllowlistDomains) &&
          (bypass_protego_probability_for_tests_ ||
           base::RandDouble() <= kProbabilityForSendingSampledRequests);
 }

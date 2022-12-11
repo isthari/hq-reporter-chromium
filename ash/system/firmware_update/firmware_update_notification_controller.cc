@@ -1,17 +1,20 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/firmware_update/firmware_update_notification_controller.h"
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/new_window_delegate.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "ash/public/cpp/system_tray_client.h"
 #include "ash/resources/vector_icons/vector_icons.h"
+#include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/model/system_tray_model.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/user_manager/user_type.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/message_center/message_center.h"
@@ -56,24 +59,42 @@ void OnFirmwareUpdateAvailableNotificationClicked(
   RemoveNotification(kFirmwareUpdateNotificationId);
 }
 
+bool ShouldShowNotification() {
+  const absl::optional<user_manager::UserType> user_type =
+      Shell::Get()->session_controller()->GetUserType();
+  if (!user_type) {
+    return false;
+  }
+
+  switch (*user_type) {
+    case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
+    case user_manager::USER_TYPE_GUEST:
+    case user_manager::USER_TYPE_ACTIVE_DIRECTORY:
+    case user_manager::USER_TYPE_KIOSK_APP:
+    case user_manager::USER_TYPE_ARC_KIOSK_APP:
+    case user_manager::USER_TYPE_WEB_KIOSK_APP:
+    case user_manager::NUM_USER_TYPES:
+      return false;
+    case user_manager::USER_TYPE_REGULAR:
+    case user_manager::USER_TYPE_CHILD:
+      return true;
+  }
+}
+
 }  // namespace
 
 FirmwareUpdateNotificationController::FirmwareUpdateNotificationController(
     message_center::MessageCenter* message_center)
     : message_center_(message_center) {
   DCHECK(message_center_);
-}
-
-FirmwareUpdateNotificationController::~FirmwareUpdateNotificationController() {
-  if (ash::FirmwareUpdateManager::IsInitialized())
-    ash::FirmwareUpdateManager::Get()->RemoveObserver(this);
-}
-
-void FirmwareUpdateNotificationController::
-    OnFirmwareUpdateManagerInitialized() {
   DCHECK(ash::FirmwareUpdateManager::IsInitialized());
 
   ash::FirmwareUpdateManager::Get()->AddObserver(this);
+}
+
+FirmwareUpdateNotificationController::~FirmwareUpdateNotificationController() {
+  DCHECK(ash::FirmwareUpdateManager::IsInitialized());
+  ash::FirmwareUpdateManager::Get()->RemoveObserver(this);
 }
 
 void FirmwareUpdateNotificationController::NotifyFirmwareUpdateAvailable() {
@@ -82,7 +103,7 @@ void FirmwareUpdateNotificationController::NotifyFirmwareUpdateAvailable() {
       message_center::ButtonInfo(l10n_util::GetStringUTF16(
           IDS_ASH_FIRMWARE_UPDATE_NOTIFICATION_UPDATE_BUTTON_TEXT)));
   std::unique_ptr<message_center::Notification> notification =
-      CreateSystemNotification(
+      CreateSystemNotificationPtr(
           message_center::NOTIFICATION_TYPE_SIMPLE,
           kFirmwareUpdateNotificationId,
           l10n_util::GetStringUTF16(
@@ -92,7 +113,8 @@ void FirmwareUpdateNotificationController::NotifyFirmwareUpdateAvailable() {
           /*display_source=*/std::u16string(), GURL(),
           message_center::NotifierId(
               message_center::NotifierType::SYSTEM_COMPONENT,
-              kNotifierFirmwareUpdate),
+              kNotifierFirmwareUpdate,
+              NotificationCatalogName::kFirmwareUpdate),
           optional,
           base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
               base::BindRepeating(
@@ -104,7 +126,9 @@ void FirmwareUpdateNotificationController::NotifyFirmwareUpdateAvailable() {
 }
 
 void FirmwareUpdateNotificationController::OnFirmwareUpdateReceived() {
-  NotifyFirmwareUpdateAvailable();
+  if (should_show_notification_for_test_ || ShouldShowNotification()) {
+    NotifyFirmwareUpdateAvailable();
+  }
 }
 
 }  // namespace ash

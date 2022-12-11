@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,8 +23,7 @@
 #include "remoting/protocol/webrtc_transport.h"
 #include "remoting/protocol/webrtc_video_renderer_adapter.h"
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 WebrtcConnectionToHost::WebrtcConnectionToHost() = default;
 WebrtcConnectionToHost::~WebrtcConnectionToHost() = default;
@@ -157,7 +156,7 @@ void WebrtcConnectionToHost::OnWebrtcTransportIncomingDataChannel(
 }
 
 void WebrtcConnectionToHost::OnWebrtcTransportMediaStreamAdded(
-    scoped_refptr<webrtc::MediaStreamInterface> stream) {
+    rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
   if (stream->GetVideoTracks().size() > 0) {
     GetOrCreateVideoAdapter(stream->id())->SetMediaStream(stream);
   } else if (stream->GetAudioTracks().size() > 0) {
@@ -169,7 +168,7 @@ void WebrtcConnectionToHost::OnWebrtcTransportMediaStreamAdded(
 }
 
 void WebrtcConnectionToHost::OnWebrtcTransportMediaStreamRemoved(
-    scoped_refptr<webrtc::MediaStreamInterface> stream) {
+    rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
   if (video_adapter_ && video_adapter_->label() == stream->id())
     video_adapter_.reset();
 }
@@ -236,5 +235,4 @@ void WebrtcConnectionToHost::SetState(State state, ErrorCode error) {
   }
 }
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

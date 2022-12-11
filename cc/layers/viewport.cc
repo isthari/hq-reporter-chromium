@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,7 +32,7 @@ void Viewport::Pan(const gfx::Vector2dF& delta) {
   DCHECK(InnerScrollNode());
   gfx::Vector2dF pending_delta = delta;
   float page_scale = host_impl_->active_tree()->current_page_scale_factor();
-  pending_delta.Scale(1 / page_scale);
+  pending_delta.InvScale(page_scale);
   scroll_tree().ScrollBy(*InnerScrollNode(), pending_delta,
                          host_impl_->active_tree());
 }
@@ -102,7 +102,7 @@ gfx::Vector2dF Viewport::ComputeClampedDelta(
 
   float page_scale = host_impl_->active_tree()->page_scale_factor_for_scroll();
   gfx::Vector2dF unscaled_delta = scroll_delta;
-  unscaled_delta.Scale(1.f / page_scale);
+  unscaled_delta.InvScale(page_scale);
 
   gfx::Vector2dF remaining_delta = unscaled_delta - inner_delta;
   remaining_delta.Scale(page_scale);
@@ -166,7 +166,7 @@ gfx::Vector2dF Viewport::ScrollAnimated(const gfx::Vector2dF& delta,
 
   float scale_factor = host_impl_->active_tree()->current_page_scale_factor();
   gfx::Vector2dF scaled_delta = delta;
-  scaled_delta.Scale(1.f / scale_factor);
+  scaled_delta.InvScale(scale_factor);
 
   ScrollNode* inner_node = InnerScrollNode();
   gfx::Vector2dF inner_delta =
@@ -305,7 +305,8 @@ bool Viewport::ShouldBrowserControlsConsumeScroll(
   if (scroll_delta.y() < 0)
     return true;
 
-  if (TotalScrollOffset().y() < MaxTotalScrollOffset().y())
+  const float kEpsilon = 0.1f;
+  if (TotalScrollOffset().y() + kEpsilon < MaxUserReachableTotalScrollOffsetY())
     return true;
 
   return false;
@@ -325,14 +326,17 @@ gfx::Vector2dF Viewport::AdjustOverscroll(const gfx::Vector2dF& delta) const {
   return adjusted;
 }
 
-gfx::PointF Viewport::MaxTotalScrollOffset() const {
-  gfx::Vector2dF offset =
-      scroll_tree().MaxScrollOffset(InnerScrollNode()->id).OffsetFromOrigin();
+float Viewport::MaxUserReachableTotalScrollOffsetY() const {
+  auto& tree = scroll_tree();
+  float y_offset = tree.MaxScrollOffset(InnerScrollNode()->id).y();
 
-  if (auto* outer_node = OuterScrollNode())
-    offset += scroll_tree().MaxScrollOffset(outer_node->id).OffsetFromOrigin();
-
-  return gfx::PointAtOffsetFromOrigin(offset);
+  if (auto* outer_node = OuterScrollNode()) {
+    if (outer_node->user_scrollable_vertical)
+      y_offset += tree.MaxScrollOffset(outer_node->id).y();
+    else
+      y_offset += tree.current_scroll_offset(outer_node->element_id).y();
+  }
+  return y_offset;
 }
 
 gfx::PointF Viewport::TotalScrollOffset() const {

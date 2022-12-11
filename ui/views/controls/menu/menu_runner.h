@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,9 @@
 
 #include "base/callback.h"
 #include "base/memory/raw_ptr.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/ui_base_types.h"
+#include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/controls/menu/menu_types.h"
 #include "ui/views/views_export.h"
@@ -22,7 +24,7 @@ class TimeTicks;
 
 namespace gfx {
 class Rect;
-}
+}  // namespace gfx
 
 namespace ui {
 class MenuModel;
@@ -97,15 +99,13 @@ class VIEWS_EXPORT MenuRunner {
     // finger after the context menu of the item is opened.
     SEND_GESTURE_EVENTS_TO_OWNER = 1 << 7,
 
-    // Whether to use the touchable layout for this context menu. This will be
-    // set by context menu inside system UI only (e.g, the context menu while
-    // right clicking the wallpaper of a ChromeBook). Thus, this can be used to
-    // differentiate the context menu inside system UI from others. It is useful
-    // if we want to customize some attributes of the context menu inside system
-    // UI, e.g, colors.
-    // TODO(minch): Rename this to USE_ASH_SYS_UI_LAYOUT. Rename related
-    // functions/variables as well.
-    USE_TOUCHABLE_LAYOUT = 1 << 8,
+    // Applying the system UI specific layout to the context menu. This should
+    // be set for the context menu inside system UI only (e.g, the context menu
+    // while right clicking the wallpaper of a ChromeBook). Thus, this can be
+    // used to differentiate the context menu inside system UI from others. It
+    // is useful if we want to customize some attributes of the context menu
+    // inside system UI, e.g, colors.
+    USE_ASH_SYS_UI_LAYOUT = 1 << 8,
 
     // Similar to COMBOBOX, but does not capture the mouse and lets some keys
     // propagate back to the parent so the combobox content can be edited even
@@ -134,21 +134,25 @@ class VIEWS_EXPORT MenuRunner {
   ~MenuRunner();
 
   // Runs the menu. MenuDelegate::OnMenuClosed will be notified of the results.
-  // If |anchor| uses a |BUBBLE_..| type, the bounds will get determined by
-  // using |bounds| as the thing to point at in screen coordinates.
+  // If `anchor` uses a `BUBBLE_..` type, the bounds will get determined by
+  // using `bounds` as the thing to point at in screen coordinates.
   // `native_view_for_gestures` is a NativeView that is used for cases where the
   // surface hosting the menu has a different gfx::NativeView than the `parent`.
   // This is required to correctly route gesture events to the correct
   // NativeView in the cases where the surface hosting the menu is a
   // WebContents.
-  // Note that this is a blocking call for a native menu on Mac.
-  // See http://crbug.com/682544.
+  // `corners` assigns the customized `RoundedCornersF` to the context menu. If
+  // it's set, the passed in corner will be used to render each corner radius of
+  // the context menu. This only works when using `USE_ASH_SYS_UI_LAYOUT`.
+  // Note that this is a blocking call for a native menu on Mac. See
+  // http://crbug.com/682544.
   void RunMenuAt(Widget* parent,
                  MenuButtonController* button_controller,
                  const gfx::Rect& bounds,
                  MenuAnchorPosition anchor,
                  ui::MenuSourceType source_type,
-                 gfx::NativeView native_view_for_gestures = nullptr);
+                 gfx::NativeView native_view_for_gestures = nullptr,
+                 absl::optional<gfx::RoundedCornersF> corners = absl::nullopt);
 
   // Returns true if we're in a nested run loop running the menu.
   bool IsRunning() const;
@@ -168,7 +172,7 @@ class VIEWS_EXPORT MenuRunner {
   const int32_t run_types_;
 
   // We own this. No scoped_ptr because it is destroyed by calling Release().
-  raw_ptr<internal::MenuRunnerImplInterface> impl_;
+  raw_ptr<internal::MenuRunnerImplInterface, DanglingUntriaged> impl_;
 
   // An implementation of RunMenuAt. This is usually NULL and ignored. If this
   // is not NULL, this implementation will be used.

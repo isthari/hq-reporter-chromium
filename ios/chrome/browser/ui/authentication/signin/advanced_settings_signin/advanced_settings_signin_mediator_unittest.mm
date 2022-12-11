@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,14 +12,16 @@
 #import "components/prefs/testing_pref_service.h"
 #import "components/signin/public/base/signin_pref_names.h"
 #import "components/signin/public/identity_manager/identity_manager.h"
-#import "components/sync/driver/mock_sync_service.h"
+#import "components/sync/test/mock_sync_service.h"
 #import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/chrome/browser/signin/authentication_service_fake.h"
+#import "ios/chrome/browser/signin/fake_authentication_service_delegate.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
 #import "ios/chrome/browser/signin/identity_manager_factory.h"
+#import "ios/chrome/browser/sync/mock_sync_service_utils.h"
 #import "ios/chrome/browser/sync/sync_service_factory.h"
 #import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
 #import "testing/platform_test.h"
 
@@ -32,14 +34,10 @@ using syncer::SyncService;
 using testing::Return;
 
 namespace {
-// Constants for configuring a FakeChromeIdentity.
+// Constants for configuring a FakeSystemIdentity.
 const char kTestGaiaID[] = "fooID";
 const char kTestEmail[] = "foo@gmail.com";
 
-std::unique_ptr<KeyedService> CreateMockSyncService(
-    web::BrowserState* context) {
-  return std::make_unique<MockSyncService>();
-}
 }  // namespace
 
 class AdvancedSettingsSigninMediatorTest : public PlatformTest {
@@ -50,28 +48,27 @@ class AdvancedSettingsSigninMediatorTest : public PlatformTest {
   void SetUp() override {
     PlatformTest::SetUp();
 
-    identity_ = [FakeChromeIdentity identityWithEmail:@"foo1@gmail.com"
-                                               gaiaID:@"foo1ID"
-                                                 name:@"Fake Foo 1"];
+    identity_ = [FakeSystemIdentity fakeIdentity1];
     identity_service()->AddIdentity(identity_);
 
     TestChromeBrowserState::Builder builder;
     builder.AddTestingFactory(
         AuthenticationServiceFactory::GetInstance(),
-        base::BindRepeating(
-            &AuthenticationServiceFake::CreateAuthenticationService));
+        AuthenticationServiceFactory::GetDefaultFactory());
     builder.AddTestingFactory(SyncServiceFactory::GetInstance(),
                               base::BindRepeating(&CreateMockSyncService));
     browser_state_ = builder.Build();
-
+    AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
+        browser_state_.get(),
+        std::make_unique<FakeAuthenticationServiceDelegate>());
     mediator_ = [[AdvancedSettingsSigninMediator alloc]
         initWithAuthenticationService:authentication_service()
                           syncService:sync_service()
                           prefService:GetPrefService()
                       identityManager:identity_manager()];
 
-    authentication_service_fake_ =
-        static_cast<AuthenticationServiceFake*>(authentication_service());
+    authentication_service_ =
+        static_cast<AuthenticationService*>(authentication_service());
   }
 
   // Registers account preferences that will be used in reauthentication.
@@ -80,8 +77,7 @@ class AdvancedSettingsSigninMediatorTest : public PlatformTest {
     PrefRegistrySimple* registry = prefs->registry();
     registry->RegisterStringPref(prefs::kGoogleServicesLastUsername,
                                  kTestEmail);
-    registry->RegisterStringPref(prefs::kGoogleServicesLastAccountId,
-                                 kTestGaiaID);
+    registry->RegisterStringPref(prefs::kGoogleServicesLastGaiaId, kTestGaiaID);
     registry->RegisterBooleanPref(autofill::prefs::kAutofillWalletImportEnabled,
                                   false);
     return prefs;
@@ -110,24 +106,24 @@ class AdvancedSettingsSigninMediatorTest : public PlatformTest {
   base::test::TaskEnvironment environment_;
   IOSChromeScopedTestingLocalState scoped_testing_local_state_;
   std::unique_ptr<TestChromeBrowserState> browser_state_;
-  FakeChromeIdentity* identity_ = nullptr;
+  id<SystemIdentity> identity_ = nil;
 
   AdvancedSettingsSigninMediator* mediator_ = nil;
 
-  AuthenticationServiceFake* authentication_service_fake_ = nullptr;
+  AuthenticationService* authentication_service_ = nullptr;
 };
 
 // Tests that a user's authentication does not change when sign-in is
 // interrupted.
 TEST_F(AdvancedSettingsSigninMediatorTest,
        saveUserPreferenceSigninInterruptedWithSyncDisabled) {
-  authentication_service_fake_->SignIn(identity_);
+  authentication_service_->SignIn(identity_);
   [mediator_
       saveUserPreferenceForSigninResult:SigninCoordinatorResultInterrupted
                     originalSigninState:
                         IdentitySigninStateSignedInWithSyncDisabled];
 
-  ASSERT_TRUE(authentication_service_fake_->HasPrimaryIdentity(
+  ASSERT_TRUE(authentication_service_->HasPrimaryIdentity(
       signin::ConsentLevel::kSignin));
 }
 
@@ -135,11 +131,11 @@ TEST_F(AdvancedSettingsSigninMediatorTest,
 // interrupted with IdentitySigninStateSignedOut.
 TEST_F(AdvancedSettingsSigninMediatorTest,
        saveUserPreferenceSigninInterruptedWithSignout) {
-  authentication_service_fake_->SignIn(identity_);
+  authentication_service_->SignIn(identity_);
   [mediator_
       saveUserPreferenceForSigninResult:SigninCoordinatorResultInterrupted
                     originalSigninState:IdentitySigninStateSignedOut];
 
-  ASSERT_FALSE(authentication_service_fake_->HasPrimaryIdentity(
+  ASSERT_FALSE(authentication_service_->HasPrimaryIdentity(
       signin::ConsentLevel::kSignin));
 }

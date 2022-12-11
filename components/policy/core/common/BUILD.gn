@@ -1,10 +1,14 @@
-# Copyright 2014 The Chromium Authors. All rights reserved.
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
+
+group("policy_namespace") {
+  public_deps = [ ":policy_namespace_internal" ]
+}
 
 group("common") {
   if (is_component_build) {
@@ -14,13 +18,54 @@ group("common") {
   }
 }
 
-source_set("internal") {
+source_set("policy_namespace_internal") {
   visibility = [ "//components/policy/*" ]
 
   configs += [ "//components/policy:component_implementation" ]
 
   sources = [
     "../../policy_export.h",
+    "policy_namespace.cc",
+    "policy_namespace.h",
+  ]
+}
+
+source_set("util") {
+  sources = [
+    "cloud/cloud_policy_util.cc",
+    "cloud/cloud_policy_util.h",
+  ]
+
+  configs += [ "//components/policy:component_implementation" ]
+
+  public_deps = [
+    ":common_constants",
+    "//components/policy/proto",
+    "//components/version_info",
+  ]
+
+  deps = [
+    "//base",
+    "//build:chromeos_buildflags",
+  ]
+
+  if (is_chromeos) {
+    deps += [ "//components/user_manager" ]
+  }
+  if (is_chromeos_lacros) {
+    deps += [ "//chromeos/startup:startup" ]
+  }
+  if (is_chromeos_ash) {
+    deps += [ "//chromeos/system" ]
+  }
+}
+
+source_set("internal") {
+  visibility = [ "//components/policy/*" ]
+
+  configs += [ "//components/policy:component_implementation" ]
+
+  sources = [
     "async_policy_loader.cc",
     "async_policy_loader.h",
     "async_policy_provider.cc",
@@ -45,16 +90,16 @@ source_set("internal") {
     "cloud/cloud_policy_manager.h",
     "cloud/cloud_policy_refresh_scheduler.cc",
     "cloud/cloud_policy_refresh_scheduler.h",
+    "cloud/cloud_policy_refresh_scheduler_observer.h",
     "cloud/cloud_policy_service.cc",
     "cloud/cloud_policy_service.h",
     "cloud/cloud_policy_store.cc",
     "cloud/cloud_policy_store.h",
-    "cloud/cloud_policy_util.cc",
-    "cloud/cloud_policy_util.h",
     "cloud/cloud_policy_validator.cc",
     "cloud/cloud_policy_validator.h",
     "cloud/component_cloud_policy_service.cc",
     "cloud/component_cloud_policy_service.h",
+    "cloud/component_cloud_policy_service_observer.h",
     "cloud/component_cloud_policy_store.cc",
     "cloud/component_cloud_policy_store.h",
     "cloud/component_cloud_policy_updater.cc",
@@ -109,8 +154,6 @@ source_set("internal") {
     "features.h",
     "json_schema_constants.cc",
     "json_schema_constants.h",
-    "legacy_chrome_policy_migrator.cc",
-    "legacy_chrome_policy_migrator.h",
     "management/management_service.cc",
     "management/management_service.h",
     "management/platform_management_service.cc",
@@ -128,8 +171,6 @@ source_set("internal") {
     "policy_merger.h",
     "policy_migrator.cc",
     "policy_migrator.h",
-    "policy_namespace.cc",
-    "policy_namespace.h",
     "policy_proto_decoders.cc",
     "policy_proto_decoders.h",
     "policy_service.cc",
@@ -165,6 +206,8 @@ source_set("internal") {
 
   public_deps = [
     ":common_constants",
+    ":policy_namespace",
+    ":util",
     "//components/policy:generated",
     "//components/policy/proto",
     "//components/reporting/proto:record_constants",
@@ -209,6 +252,13 @@ source_set("internal") {
     # TODO(https://crbug.com/945868) - refactor so we don't have dep cycles.
     "//components/policy:generated",
   ]
+
+  if (is_mac) {
+    sources += [
+      "management/platform_management_status_provider_mac.cc",
+      "management/platform_management_status_provider_mac.h",
+    ]
+  }
 
   if (is_win) {
     sources += [
@@ -310,8 +360,8 @@ source_set("internal") {
       sources += [
         "policy_loader_mac.h",
         "policy_loader_mac.mm",
-        "preferences_mac.cc",
         "preferences_mac.h",
+        "preferences_mac.mm",
       ]
       frameworks += [ "SystemConfiguration.framework" ]
     }
@@ -443,7 +493,6 @@ source_set("unit_tests") {
     "cloud/user_info_fetcher_unittest.cc",
     "command_line_policy_provider_unittest.cc",
     "generate_policy_source_unittest.cc",
-    "legacy_chrome_policy_migrator_unittest.cc",
     "management/management_service_unittest.cc",
     "policy_bundle_unittest.cc",
     "policy_loader_command_line_unittest.cc",

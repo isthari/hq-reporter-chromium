@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 #include "media/media_buildflags.h"
 #include "ui/gfx/buffer_types.h"
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "base/message_loop/message_pump_type.h"
 #endif
 
@@ -29,12 +29,20 @@ const size_t kDefaultMaxProgramCacheMemoryBytes = 2 * 1024 * 1024;
 const size_t kLowEndMaxProgramCacheMemoryBytes = 128 * 1024;
 #endif
 
+GPU_EXPORT size_t GetDefaultGpuDiskCacheSize();
+
 enum class VulkanImplementationName : uint32_t {
   kNone = 0,
   kNative = 1,
   kForcedNative = 2,  // Cannot be overridden by GPU blocklist.
   kSwiftshader = 3,
   kLast = kSwiftshader,
+};
+
+enum class WebGPUAdapterName : uint32_t {
+  kDefault = 0,
+  kCompat = 1,
+  kSwiftShader = 2,
 };
 
 enum class GrContextType : uint32_t {
@@ -197,8 +205,6 @@ struct GPU_EXPORT GpuPreferences {
   // Ignores GPU blocklist.
   bool ignore_gpu_blocklist = false;
 
-  bool enable_oop_rasterization_ddl = false;
-
   // Start the watchdog suspended, as the app is already backgrounded and won't
   // send a background/suspend signal.
   bool watchdog_starts_backgrounded = false;
@@ -249,8 +255,8 @@ struct GPU_EXPORT GpuPreferences {
   DawnBackendValidationLevel enable_dawn_backend_validation =
       DawnBackendValidationLevel::kDisabled;
 
-  // Force the use of the WebGPU/Compat (GLES) backend for all WebGPU content.
-  bool force_webgpu_compat = false;
+  // The adapter to use for WebGPU content.
+  WebGPUAdapterName use_webgpu_adapter = WebGPUAdapterName::kDefault;
 
   // The Dawn features(toggles) enabled on the creation of Dawn devices.
   std::vector<std::string> enabled_dawn_features_list;
@@ -265,7 +271,7 @@ struct GPU_EXPORT GpuPreferences {
   // only enabled on Windows platform for the info collection GPU process.
   bool enable_perf_data_collection = false;
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   // Determines message pump type for the GPU thread.
   base::MessagePumpType message_pump_type = base::MessagePumpType::DEFAULT;
 #endif

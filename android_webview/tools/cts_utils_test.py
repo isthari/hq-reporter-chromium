@@ -1,5 +1,5 @@
 #!/usr/bin/env vpython3
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -49,14 +49,19 @@ CIPD_DATA['yaml'] = CIPD_DATA['template'] % (
 CONFIG_DATA = {}
 CONFIG_DATA['json'] = """{
   "platform1": {
+    "git": {
+      "tag_prefix": "platform-1.0"
+    },
     "arch": {
       "arch1": {
         "filename": "arch1/platform1/file1.zip",
-        "_origin": "https://a1.p1/f1.zip"
+        "_origin": "https://a1.p1/f1.zip",
+        "unzip_dir": "arch1/path/platform1_r1"
       },
       "arch2": {
         "filename": "arch2/platform1/file3.zip",
-        "_origin": "https://a2.p1/f3.zip"
+        "_origin": "https://a2.p1/f3.zip",
+        "unzip_dir": "arch1/path/platform1_r1"
       }
     },
     "test_runs": [
@@ -66,22 +71,41 @@ CONFIG_DATA['json'] = """{
     ]
   },
   "platform2": {
+    "git": {
+      "tag_prefix": "platform-2.0"
+    },
     "arch": {
       "arch1": {
         "filename": "arch1/platform2/file2.zip",
-        "_origin": "https://a1.p2/f2.zip"
+        "_origin": "https://a1.p2/f2.zip",
+        "unzip_dir": "arch1/path/platform2_r1"
       },
       "arch2": {
         "filename": "arch2/platform2/file4.zip",
-        "_origin": "https://a2.p2/f4.zip"
+        "_origin": "https://a2.p2/f4.zip",
+        "unzip_dir": "arch1/path/platform2_r1"
       }
     },
     "test_runs": [
       {
-        "apk": "p2/test1.apk"
+        "apk": "p2/test1.apk",
+        "additional_apks": [
+          {
+            "apk": "p2/additional_apk_a_1.apk"
+          }
+        ]
       },
       {
-        "apk": "p2/test2.apk"
+        "apk": "p2/test2.apk",
+        "additional_apks": [
+          {
+            "apk": "p2/additional_apk_b_1.apk",
+            "forced_queryable": true
+          },
+          {
+            "apk": "p2/additional_apk_b_2.apk"
+          }
+        ]
       }
     ]
   }
@@ -102,6 +126,7 @@ CONFIG_DATA['base22'] = 'f4.zip'
 CONFIG_DATA['file22'] = 'arch2/platform2/file4.zip'
 CONFIG_DATA['apk2a'] = 'p2/test1.apk'
 CONFIG_DATA['apk2b'] = 'p2/test2.apk'
+
 
 DEPS_DATA = {}
 DEPS_DATA['template'] = """deps = {
@@ -312,6 +337,8 @@ class FakeRunCmd:
 class CTSUtilsTest(unittest.TestCase):
   """Unittests for the cts_utils.py."""
 
+  @unittest.skipIf(os.name == "nt", "Opening NamedTemporaryFile by name "
+                   "doesn't work in Windows.")
   def testCTSCIPDYamlSanity(self):
     yaml_data = cts_utils.CTSCIPDYaml(cts_utils.CIPD_PATH)
     self.assertTrue(yaml_data.get_package())
@@ -321,6 +348,8 @@ class CTSUtilsTest(unittest.TestCase):
       with open(cts_utils.CIPD_PATH) as cipdFile:
         self.assertEqual(cipdFile.readlines(), outputFile.readlines())
 
+  @unittest.skipIf(os.name == "nt", "Opening NamedTemporaryFile by name "
+                   "doesn't work in Windows.")
   def testCTSCIPDYamlOperations(self):
     with tempfile.NamedTemporaryFile('w+t') as yamlFile:
       yamlFile.writelines(CIPD_DATA['yaml'])
@@ -350,6 +379,8 @@ class CTSUtilsTest(unittest.TestCase):
            CIPD_DATA['file4'], 'arch2/platform3/file5.zip'), new_yaml_contents)
 
   @patch('devil.utils.cmd_helper.RunCmd')
+  @unittest.skipIf(os.name == "nt", "Opening NamedTemporaryFile by name "
+                   "doesn't work in Windows.")
   def testCTSCIPDDownload(self, run_mock):
     fake_cipd = FakeCIPD()
     fake_run_cmd = FakeRunCmd(cipd=fake_cipd)
@@ -377,6 +408,8 @@ class CTSUtilsTest(unittest.TestCase):
     self.assertTrue(cts_config.get_origin(platform, archs[0]))
     self.assertTrue(cts_config.get_apks(platform))
 
+  @unittest.skipIf(os.name == "nt", "Opening NamedTemporaryFile by name "
+                   "doesn't work in Windows.")
   def testCTSConfig(self):
     with tempfile.NamedTemporaryFile('w+t') as configFile:
       configFile.writelines(CONFIG_DATA['json'])
@@ -404,7 +437,13 @@ class CTSUtilsTest(unittest.TestCase):
     self.assertTrue(['p1/test.apk'], cts_config.get_apks('platform1'))
     self.assertTrue(['p2/test1.apk', 'p2/test2.apk'],
                     cts_config.get_apks('platform2'))
+    self.assertTrue([
+        'p2/additional_apk_a_1.apk', 'p2/additional_apk_b_1.apk',
+        'p2/additional_apk_b_2.apk'
+    ], cts_config.get_additional_apks('platform2'))
 
+  @unittest.skipIf(os.name == "nt", "This fails on Windows, probably because "
+                   "the temporary directory is not empty when it gets deleted.")
   def testFilterZip(self):
     with tempfile_ext.NamedTemporaryDirectory() as workDir,\
          cts_utils.chdir(workDir):
@@ -421,7 +460,10 @@ class CTSUtilsTest(unittest.TestCase):
       self.assertEqual(b'def', zf.read('a/b/two.apk'))
 
   @patch('cts_utils.filterzip')
-  def testFilterCTS(self, filterzip_mock):  # pylint: disable=no-self-use
+  @unittest.skipIf(os.name == "nt", "Opening NamedTemporaryFile by name "
+                   "doesn't work in Windows.")
+  # pylint: disable=no-self-use
+  def testFilterCTS(self, filterzip_mock):
     with tempfile.NamedTemporaryFile('w+t') as configFile:
       configFile.writelines(CONFIG_DATA['json'])
       configFile.flush()
@@ -432,6 +474,8 @@ class CTSUtilsTest(unittest.TestCase):
         os.path.join('/filtered', CONFIG_DATA['base11']))
 
   @patch('devil.utils.cmd_helper.RunCmd')
+  @unittest.skipIf(os.name == "nt", "Opening NamedTemporaryFile by name "
+                   "doesn't work in Windows.")
   def testUpdateCIPDPackage(self, run_mock):
     fake_cipd = FakeCIPD()
     fake_run_cmd = FakeRunCmd(cipd=fake_cipd)

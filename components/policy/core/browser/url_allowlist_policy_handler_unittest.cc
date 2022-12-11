@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,9 +48,9 @@ class URLAllowlistPolicyHandlerTest : public testing::Test {
     return handler_->ValidatePolicy(policy);
   }
   base::Value GetURLAllowlistPolicyValueWithEntries(size_t len) {
-    std::vector<base::Value> allowlist(len);
-    for (auto& entry : allowlist)
-      entry = base::Value(kTestAllowlistValue);
+    base::Value::List allowlist;
+    for (size_t i = 0; i < len; ++i)
+      allowlist.Append(kTestAllowlistValue);
     return base::Value(std::move(allowlist));
   }
 
@@ -151,7 +151,7 @@ TEST_F(URLAllowlistPolicyHandlerTest,
 
   ApplyPolicies();
 
-  auto error_str = errors_.GetErrors(key::kURLAllowlist);
+  auto error_str = errors_.GetErrorMessages(key::kURLAllowlist);
   auto expected_str = l10n_util::GetStringFUTF16(
       IDS_POLICY_URL_ALLOW_BLOCK_LIST_MAX_FILTERS_LIMIT_WARNING,
       base::NumberToString16(max_filters_per_policy));

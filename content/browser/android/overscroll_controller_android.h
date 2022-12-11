@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -95,7 +95,7 @@ class CONTENT_EXPORT OverscrollControllerAndroid
 
   void SetNeedsAnimate();
 
-  const raw_ptr<ui::WindowAndroidCompositor> compositor_;
+  const raw_ptr<ui::WindowAndroidCompositor, DanglingUntriaged> compositor_;
   const float dpi_scale_;
 
   bool enabled_;

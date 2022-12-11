@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@ namespace blink {
 
 class Color;
 
-enum class ColorFormat { kRgb, kHex, kHsl };
+enum class ColorFormat { kRgb, kHex, kHsl, kHwb };
 enum class ContrastAlgorithm { kAa, kAaa, kApca };
 
 struct CORE_EXPORT LineStyle {
@@ -145,6 +145,7 @@ struct CORE_EXPORT InspectorIsolationModeHighlightConfig {
   Color resizer_color;
   Color resizer_handle_color;
   Color mask_color;
+  int highlight_index = 0;
 };
 
 struct CORE_EXPORT InspectorHighlightConfig {
@@ -300,8 +301,7 @@ std::unique_ptr<protocol::DictionaryValue> InspectorContainerQueryHighlight(
 
 std::unique_ptr<protocol::DictionaryValue> InspectorIsolatedElementHighlight(
     Element* element,
-    const InspectorIsolationModeHighlightConfig& config,
-    int highlight_index);
+    const InspectorIsolationModeHighlightConfig& config);
 
 // CORE_EXPORT is required to make these functions available for unit tests.
 std::unique_ptr<protocol::DictionaryValue> CORE_EXPORT
@@ -319,6 +319,14 @@ BuildIsolatedElementInfo(Element& element,
                          const InspectorIsolationModeHighlightConfig& config,
                          float scale);
 
+void CORE_EXPORT
+AppendStyleInfo(Node* node,
+                protocol::DictionaryValue* element_info,
+                const InspectorHighlightContrastInfo& node_contrast,
+                const ContrastAlgorithm& contrast_algorithm);
+
+std::unique_ptr<protocol::DictionaryValue> CORE_EXPORT
+BuildElementInfo(Element* element);
 }  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_INSPECTOR_INSPECTOR_HIGHLIGHT_H_

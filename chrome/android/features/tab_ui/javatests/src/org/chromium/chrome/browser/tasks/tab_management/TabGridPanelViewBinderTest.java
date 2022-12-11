@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,6 +33,7 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.chrome.browser.tasks.tab_management.TabGridDialogView.VisibilityListener;
 import org.chromium.chrome.browser.theme.ThemeUtils;
 import org.chromium.chrome.tab_ui.R;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -40,7 +41,7 @@ import org.chromium.components.browser_ui.widget.scrim.ScrimCoordinator;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
-import org.chromium.ui.test.util.DummyUiActivityTestCase;
+import org.chromium.ui.test.util.BlankUiTestActivityTestCase;
 import org.chromium.ui.widget.ChromeImageView;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -49,7 +50,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Tests for {@link TabGridPanelViewBinder}.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
-public class TabGridPanelViewBinderTest extends DummyUiActivityTestCase {
+public class TabGridPanelViewBinderTest extends BlankUiTestActivityTestCase {
     private static final String TAG = "TGPVBT";
     private static final int CONTENT_TOP_MARGIN = 56;
 
@@ -67,7 +68,6 @@ public class TabGridPanelViewBinderTest extends DummyUiActivityTestCase {
     @Override
     public void setUpTest() throws Exception {
         super.setUpTest();
-        TabUiTestHelper.applyThemeOverlays(getActivity());
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             FrameLayout parentView = new FrameLayout(getActivity());
             getActivity().setContentView(parentView);
@@ -454,6 +454,18 @@ public class TabGridPanelViewBinderTest extends DummyUiActivityTestCase {
         mModel.set(TabGridPanelProperties.IS_TITLE_TEXT_FOCUSED, false);
 
         Assert.assertFalse(mTitleTextView.isFocused());
+    }
+
+    @Test
+    @SmallTest
+    @UiThreadTest
+    public void testSetVisibilityListener() {
+        mModel.set(TabGridPanelProperties.VISIBILITY_LISTENER, new VisibilityListener() {
+            @Override
+            public void finishedHidingDialogView() {}
+        });
+
+        Assert.assertNotNull(mTabGridDialogView.getVisibilityListenerForTesting());
     }
 
     @Override

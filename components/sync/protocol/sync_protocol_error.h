@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #ifndef COMPONENTS_SYNC_PROTOCOL_SYNC_PROTOCOL_ERROR_H_
@@ -7,7 +7,6 @@
 #include <memory>
 #include <string>
 
-#include "base/values.h"
 #include "components/sync/base/model_type.h"
 
 namespace syncer {
@@ -78,7 +77,6 @@ struct SyncProtocolError {
   SyncProtocolError();
   SyncProtocolError(const SyncProtocolError& other);
   ~SyncProtocolError();
-  std::unique_ptr<base::DictionaryValue> ToValue() const;
 };
 
 const char* GetSyncErrorTypeString(SyncProtocolErrorType type);

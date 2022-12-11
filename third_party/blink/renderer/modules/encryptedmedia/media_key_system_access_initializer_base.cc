@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "media/base/eme_constants.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_media_key_system_media_capability.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
@@ -219,9 +220,10 @@ void MediaKeySystemAccessInitializerBase::GenerateWarningAndReportMetrics()
   ukm::builders::Media_EME_RequestMediaKeySystemAccess builder(
       DomWindow()->UkmSourceID());
   builder.SetKeySystem(KeySystemForUkmLegacy::kWidevine);
-  builder.SetIsAdFrame(static_cast<int>(frame->IsAdSubframe()));
-  builder.SetIsCrossOrigin(static_cast<int>(frame->IsCrossOriginToMainFrame()));
-  builder.SetIsTopFrame(static_cast<int>(frame->IsMainFrame()));
+  builder.SetIsAdFrame(static_cast<int>(frame->IsAdFrame()));
+  builder.SetIsCrossOrigin(
+      static_cast<int>(frame->IsCrossOriginToOutermostMainFrame()));
+  builder.SetIsTopFrame(static_cast<int>(frame->IsOutermostMainFrame()));
   builder.SetVideoCapabilities(static_cast<int>(has_video_capabilities));
   builder.SetVideoCapabilities_HasEmptyRobustness(
       static_cast<int>(has_empty_robustness));

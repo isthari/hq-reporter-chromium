@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -115,6 +114,11 @@ class DomDistillerJsTest : public content::ContentBrowserTest {
 // Disabled on MSan as well as Android and Linux CFI bots.
 // https://crbug.com/845180
 // Then disabled more generally on Android: https://crbug.com/979685
+// TODO(jaebaek):  HTMLImageElement::LayoutBoxWidth() returns a value that has
+// a small error from the real one (i.e., the real is 38, but it returns 37)
+// and it results in the failure of
+// EmbedExtractorTest.testImageExtractorWithAttributesCSSHeightCM (See
+// crrev.com/c/916021). We must solve this precision issue.
 #if defined(MEMORY_SANITIZER) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID) || \
     ((BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) &&                        \
      (BUILDFLAG(CFI_CAST_CHECK) || BUILDFLAG(CFI_ICALL_CHECK) ||               \
@@ -125,16 +129,6 @@ class DomDistillerJsTest : public content::ContentBrowserTest {
 #define MAYBE_RunJsTests RunJsTests
 #endif
 IN_PROC_BROWSER_TEST_F(DomDistillerJsTest, MAYBE_RunJsTests) {
-  // TODO(jaebaek): Revisit this code when the --use-zoom-for-dsf feature on
-  // Android is done. If we remove this code (i.e., enable --use-zoom-for-dsf),
-  // HTMLImageElement::LayoutBoxWidth() returns a value that has a small error
-  // from the real one (i.e., the real is 38, but it returns 37) and it results
-  // in the failure of
-  // EmbedExtractorTest.testImageExtractorWithAttributesCSSHeightCM (See
-  // crrev.com/c/916021). We must solve this precision issue.
-  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kEnableUseZoomForDSF, "false");
-
   // Load the test file in content shell and wait until it has fully loaded.
   content::WebContents* web_contents = shell()->web_contents();
   base::RunLoop url_loaded_runner;
@@ -152,9 +146,9 @@ IN_PROC_BROWSER_TEST_F(DomDistillerJsTest, MAYBE_RunJsTests) {
   js_test_execution_done_callback_ = run_loop.QuitClosure();
   // Add timeout in case JS Test execution fails. It is safe to call the
   // QuitClosure multiple times.
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), TestTimeouts::action_max_timeout());
-  web_contents->GetMainFrame()->ExecuteJavaScriptForTests(
+  web_contents->GetPrimaryMainFrame()->ExecuteJavaScriptForTests(
       base::UTF8ToUTF16(kRunJsTestsJs),
       base::BindOnce(&DomDistillerJsTest::OnJsTestExecutionDone,
                      base::Unretained(this)));

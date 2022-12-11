@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,11 @@
 
 #include "chrome/browser/ash/child_accounts/family_features.h"
 #include "chrome/browser/ash/login/oobe_screen.h"
+#include "chrome/browser/ash/login/wizard_context.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/supervised_user/supervised_user_features/supervised_user_features.h"
-#include "chrome/browser/ui/webui/chromeos/login/parental_handoff_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/parental_handoff_screen_handler.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/user_manager/user.h"
@@ -19,6 +20,7 @@
 #include "ui/base/l10n/l10n_util.h"
 
 namespace ash {
+
 namespace {
 
 constexpr char kUserActionNext[] = "next";
@@ -45,28 +47,18 @@ std::string ParentalHandoffScreen::GetResultString(
 }
 
 ParentalHandoffScreen::ParentalHandoffScreen(
-    ParentalHandoffScreenView* view,
+    base::WeakPtr<ParentalHandoffScreenView> view,
     const ScreenExitCallback& exit_callback)
     : BaseScreen(ParentalHandoffScreenView::kScreenId,
                  OobeScreenPriority::DEFAULT),
-      view_(view),
-      exit_callback_(exit_callback) {
-  if (view_)
-    view_->Bind(this);
-}
+      view_(std::move(view)),
+      exit_callback_(exit_callback) {}
 
-ParentalHandoffScreen::~ParentalHandoffScreen() {
-  if (view_)
-    view_->Unbind();
-}
+ParentalHandoffScreen::~ParentalHandoffScreen() = default;
 
-void ParentalHandoffScreen::OnViewDestroyed(ParentalHandoffScreenView* view) {
-  if (view_ == view)
-    view_ = nullptr;
-}
-
-bool ParentalHandoffScreen::MaybeSkip(WizardContext* context) {
-  if (!IsFamilyLinkOobeHandoffEnabled()) {
+bool ParentalHandoffScreen::MaybeSkip(WizardContext& context) {
+  if (context.skip_post_login_screens_for_tests ||
+      !IsFamilyLinkOobeHandoffEnabled()) {
     exit_callback_.Run(Result::SKIPPED);
     return true;
   }
@@ -86,13 +78,15 @@ void ParentalHandoffScreen::ShowImpl() {
 
   view_->Show(GetActiveUserName());
 }
+
 void ParentalHandoffScreen::HideImpl() {}
 
-void ParentalHandoffScreen::OnUserAction(const std::string& action_id) {
+void ParentalHandoffScreen::OnUserAction(const base::Value::List& args) {
+  const std::string& action_id = args[0].GetString();
   if (action_id == kUserActionNext) {
     exit_callback_.Run(Result::DONE);
   } else {
-    BaseScreen::OnUserAction(action_id);
+    BaseScreen::OnUserAction(args);
   }
 }
 

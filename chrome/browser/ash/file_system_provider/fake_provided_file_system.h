@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,10 +34,9 @@ namespace net {
 class IOBuffer;
 }  // namespace net
 
-namespace ash {
-namespace file_system_provider {
+namespace ash::file_system_provider {
 
-class RequestManager;
+class OperationRequestManager;
 
 // Path of a sample fake file, which is added to the fake file system by
 // default.
@@ -82,7 +81,12 @@ class FakeProvidedFileSystem : public ProvidedFileSystemInterface {
   // Fetches a pointer to a fake entry registered in the fake file system. If
   // not found, then returns NULL. The returned pointes is owned by
   // FakeProvidedFileSystem.
-  const FakeEntry* GetEntry(const base::FilePath& entry_path) const;
+  FakeEntry* GetEntry(const base::FilePath& entry_path) const;
+
+  // Copies or moves an entry from `source_path` to `target_path`.
+  base::File::Error CopyOrMoveEntry(const base::FilePath& source_path,
+                                    const base::FilePath& target_path,
+                                    bool is_move);
 
   // ProvidedFileSystemInterface overrides.
   AbortCallback RequestUnmount(
@@ -152,7 +156,7 @@ class FakeProvidedFileSystem : public ProvidedFileSystemInterface {
                      bool recursive,
                      storage::AsyncFileUtil::StatusCallback callback) override;
   const ProvidedFileSystemInfo& GetFileSystemInfo() const override;
-  RequestManager* GetRequestManager() override;
+  OperationRequestManager* GetRequestManager() override;
   Watchers* GetWatchers() override;
   const OpenedFiles& GetOpenedFiles() const override;
   void AddObserver(ProvidedFileSystemObserver* observer) override;
@@ -193,7 +197,6 @@ class FakeProvidedFileSystem : public ProvidedFileSystemInterface {
   base::WeakPtrFactory<FakeProvidedFileSystem> weak_ptr_factory_{this};
 };
 
-}  // namespace file_system_provider
-}  // namespace ash
+}  // namespace ash::file_system_provider
 
 #endif  // CHROME_BROWSER_ASH_FILE_SYSTEM_PROVIDER_FAKE_PROVIDED_FILE_SYSTEM_H_

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
@@ -73,6 +74,10 @@ const char* FrameSequenceTracker::GetFrameSequenceTrackerTypeName(
       return "CanvasAnimation";
     case FrameSequenceTrackerType::kJSAnimation:
       return "JSAnimation";
+    case FrameSequenceTrackerType::kSETMainThreadAnimation:
+      return "SETMainThreadAnimation";
+    case FrameSequenceTrackerType::kSETCompositorAnimation:
+      return "SETCompositorAnimation";
     case FrameSequenceTrackerType::kMaxType:
       return "";
   }

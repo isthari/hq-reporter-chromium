@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,12 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/observer_list.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/values.h"
 #include "chrome/browser/extensions/extension_install_prompt_show_params.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
@@ -40,6 +41,7 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/image/image_skia_rep.h"
 
 using extensions::Extension;
 using extensions::Manifest;
@@ -441,7 +443,8 @@ bool ExtensionInstallPrompt::Prompt::ShouldDisplayRevokeButton() const {
   return !retained_files_.empty() || !retained_device_messages_.empty();
 }
 
-bool ExtensionInstallPrompt::Prompt::ShouldDisplayWithholdingUI() const {
+bool ExtensionInstallPrompt::Prompt::ShouldWithheldPermissionsOnDialogAccept()
+    const {
   return base::FeatureList::IsEnabled(
              extensions_features::
                  kAllowWithholdingExtensionPermissionsOnInstall) &&
@@ -472,8 +475,8 @@ ExtensionInstallPrompt::GetReEnablePromptTypeForExtension(
 
 // static
 scoped_refptr<Extension>
-    ExtensionInstallPrompt::GetLocalizedExtensionForDisplay(
-    const base::DictionaryValue* manifest,
+ExtensionInstallPrompt::GetLocalizedExtensionForDisplay(
+    const base::DictAdapterForMigration manifest,
     int flags,
     const std::string& id,
     const std::string& localized_name,
@@ -481,20 +484,21 @@ scoped_refptr<Extension>
     std::string* error) {
   std::unique_ptr<base::DictionaryValue> localized_manifest;
   if (!localized_name.empty() || !localized_description.empty()) {
-    localized_manifest.reset(manifest->DeepCopy());
+    localized_manifest = base::DictionaryValue::From(
+        base::Value::ToUniquePtrValue(base::Value(manifest.Clone())));
     if (!localized_name.empty()) {
-      localized_manifest->SetString(extensions::manifest_keys::kName,
-                                    localized_name);
+      localized_manifest->SetStringKey(extensions::manifest_keys::kName,
+                                       localized_name);
     }
     if (!localized_description.empty()) {
-      localized_manifest->SetString(extensions::manifest_keys::kDescription,
-                                    localized_description);
+      localized_manifest->SetStringKey(extensions::manifest_keys::kDescription,
+                                       localized_description);
     }
   }
 
   return Extension::Create(
       base::FilePath(), extensions::mojom::ManifestLocation::kInternal,
-      localized_manifest.get() ? *localized_manifest : *manifest, flags, id,
+      localized_manifest.get() ? *localized_manifest : manifest, flags, id,
       error);
 }
 
@@ -677,39 +681,41 @@ void ExtensionInstallPrompt::ShowConfirmation() {
 }
 
 bool ExtensionInstallPrompt::AutoConfirmPromptIfEnabled() {
-  switch (extensions::ScopedTestDialogAutoConfirm::GetAutoConfirmValue()) {
+  auto confirm_value =
+      extensions::ScopedTestDialogAutoConfirm::GetAutoConfirmValue();
+  switch (confirm_value) {
     case extensions::ScopedTestDialogAutoConfirm::NONE:
       return false;
     // We use PostTask instead of calling the callback directly here, because in
     // the real implementations it's highly likely the message loop will be
     // pumping a few times before the user clicks accept or cancel.
     case extensions::ScopedTestDialogAutoConfirm::ACCEPT:
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE,
-          base::BindOnce(
-              std::move(done_callback_),
-              DoneCallbackPayload(ExtensionInstallPrompt::Result::ACCEPTED,
-                                  extensions::ScopedTestDialogAutoConfirm::
-                                      GetJustification())));
-      return true;
     case extensions::ScopedTestDialogAutoConfirm::ACCEPT_AND_OPTION:
-    case extensions::ScopedTestDialogAutoConfirm::ACCEPT_AND_REMEMBER_OPTION:
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+    case extensions::ScopedTestDialogAutoConfirm::ACCEPT_AND_REMEMBER_OPTION: {
+      // Permissions are withheld at installation when the prompt specifies it
+      // and option wasn't selected (which grants permissions when selected).
+      auto result =
+          confirm_value == extensions::ScopedTestDialogAutoConfirm::ACCEPT &&
+                  prompt_->ShouldWithheldPermissionsOnDialogAccept()
+              ? ExtensionInstallPrompt::Result::
+                    ACCEPTED_WITH_WITHHELD_PERMISSIONS
+              : ExtensionInstallPrompt::Result::ACCEPTED;
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
-          base::BindOnce(
-              std::move(done_callback_),
-              DoneCallbackPayload(
-                  ExtensionInstallPrompt::Result::ACCEPTED_AND_OPTION_CHECKED,
-                  extensions::ScopedTestDialogAutoConfirm::
-                      GetJustification())));
+          base::BindOnce(std::move(done_callback_),
+                         DoneCallbackPayload(
+                             result, extensions::ScopedTestDialogAutoConfirm::
+                                         GetJustification())));
       return true;
-    case extensions::ScopedTestDialogAutoConfirm::CANCEL:
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+    }
+    case extensions::ScopedTestDialogAutoConfirm::CANCEL: {
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(std::move(done_callback_),
                          DoneCallbackPayload(
                              ExtensionInstallPrompt::Result::USER_CANCELED)));
       return true;
+    }
   }
 
   NOTREACHED();

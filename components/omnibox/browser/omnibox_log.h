@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include <string>
 
+#include "base/memory/raw_ref.h"
 #include "base/time/time.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/omnibox_triggered_feature_service.h"
@@ -16,6 +17,7 @@
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "third_party/metrics_proto/omnibox_input_type.pb.h"
 #include "ui/base/window_open_disposition.h"
+#include "url/gurl.h"
 
 class AutocompleteResult;
 
@@ -37,7 +39,8 @@ struct OmniboxLog {
              base::TimeDelta elapsed_time_since_user_first_modified_omnibox,
              size_t completed_length,
              base::TimeDelta elapsed_time_since_last_change_to_default_match,
-             const AutocompleteResult& result);
+             const AutocompleteResult& result,
+             const GURL& destination_url);
   ~OmniboxLog();
 
   // The user's input text in the omnibox.
@@ -106,7 +109,7 @@ struct OmniboxLog {
   base::TimeDelta elapsed_time_since_last_change_to_default_match;
 
   // Result set.
-  const AutocompleteResult& result;
+  const raw_ref<const AutocompleteResult> result;
 
   // Diagnostic information from providers.  See
   // AutocompleteController::AddProviderAndTriggeringLogs() and
@@ -120,6 +123,11 @@ struct OmniboxLog {
   // Whether the omnibox input is a search query that is started
   // by clicking on a image tile. Currently only used on Android.
   bool is_query_started_from_tile = false;
+
+  // The final computed URL for the navigation. This does not always match the
+  // destination URL within |result| as the match URLs are computed to add
+  // additional data from the client.
+  GURL final_destination_url;
 };
 
 #endif  // COMPONENTS_OMNIBOX_BROWSER_OMNIBOX_LOG_H_

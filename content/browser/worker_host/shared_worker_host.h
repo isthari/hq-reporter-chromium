@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,13 @@
 #include "base/scoped_observation.h"
 #include "base/unguessable_token.h"
 #include "content/browser/browser_interface_broker_impl.h"
+#include "content/browser/buckets/bucket_context.h"
 #include "content/browser/renderer_host/code_cache_host_impl.h"
-#include "content/browser/site_instance_impl.h"
+#include "content/browser/renderer_host/policy_container_host.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/render_process_host_observer.h"
 #include "content/public/browser/shared_worker_instance.h"
 #include "media/mojo/mojom/video_decode_perf_history.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -33,7 +35,9 @@
 #include "services/network/public/cpp/cross_origin_embedder_policy.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-forward.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
+#include "third_party/blink/public/mojom/blob/blob_url_store.mojom-forward.h"
 #include "third_party/blink/public/mojom/broadcastchannel/broadcast_channel.mojom.h"
+#include "third_party/blink/public/mojom/buckets/bucket_manager_host.mojom.h"
 #include "third_party/blink/public/mojom/devtools/devtools_agent.mojom.h"
 #include "third_party/blink/public/mojom/loader/code_cache.mojom.h"
 #include "third_party/blink/public/mojom/loader/fetch_client_settings_object.mojom-forward.h"
@@ -56,18 +60,20 @@ class StorageKey;
 
 namespace content {
 
+class ContentBrowserClient;
 class CrossOriginEmbedderPolicyReporter;
 class ServiceWorkerMainResourceHandle;
 class ServiceWorkerObjectHost;
 class SharedWorkerContentSettingsProxyImpl;
 class SharedWorkerServiceImpl;
-class ContentBrowserClient;
+class SiteInstanceImpl;
 
 // SharedWorkerHost is the browser-side host of a single shared worker running
 // in the renderer. This class is owned by the SharedWorkerServiceImpl of the
 // current BrowserContext.
 class CONTENT_EXPORT SharedWorkerHost : public blink::mojom::SharedWorkerHost,
-                                        public SiteInstanceImpl::Observer {
+                                        public RenderProcessHostObserver,
+                                        public BucketContext {
  public:
   SharedWorkerHost(
       SharedWorkerServiceImpl* service,
@@ -75,6 +81,7 @@ class CONTENT_EXPORT SharedWorkerHost : public blink::mojom::SharedWorkerHost,
       scoped_refptr<SiteInstanceImpl> site_instance,
       std::vector<network::mojom::ContentSecurityPolicyPtr>
           content_security_policies,
+      scoped_refptr<PolicyContainerHost> creator_policy_container_host,
       network::mojom::ClientSecurityStatePtr creator_client_security_state);
 
   SharedWorkerHost(const SharedWorkerHost&) = delete;
@@ -133,6 +140,10 @@ class CONTENT_EXPORT SharedWorkerHost : public blink::mojom::SharedWorkerHost,
       mojo::PendingReceiver<blink::mojom::CacheStorage> receiver);
   void CreateBroadcastChannelProvider(
       mojo::PendingReceiver<blink::mojom::BroadcastChannelProvider> receiver);
+  void CreateBlobUrlStoreProvider(
+      mojo::PendingReceiver<blink::mojom::BlobURLStore> receiver);
+  void CreateBucketManagerHost(
+      mojo::PendingReceiver<blink::mojom::BucketManagerHost> receiver);
 
   // Causes this instance to be deleted, which will terminate the worker. May
   // be done based on a UI action.
@@ -190,6 +201,8 @@ class CONTENT_EXPORT SharedWorkerHost : public blink::mojom::SharedWorkerHost,
 
   net::NetworkIsolationKey GetNetworkIsolationKey() const;
 
+  net::NetworkAnonymizationKey GetNetworkAnonymizationKey() const;
+
   const blink::StorageKey& GetStorageKey() const;
 
   const base::UnguessableToken& GetReportingSource() const {
@@ -204,6 +217,17 @@ class CONTENT_EXPORT SharedWorkerHost : public blink::mojom::SharedWorkerHost,
   // Creates a network factory params for subresource requests from this worker.
   network::mojom::URLLoaderFactoryParamsPtr
   CreateNetworkFactoryParamsForSubresources();
+
+  // BucketContext:
+  blink::StorageKey GetBucketStorageKey() override;
+  blink::mojom::PermissionStatus GetPermissionStatus(
+      blink::PermissionType permission_type) override;
+  void BindCacheStorageForBucket(
+      const storage::BucketInfo& bucket,
+      mojo::PendingReceiver<blink::mojom::CacheStorage> receiver) override;
+  void GetSandboxedFileSystemForBucket(
+      const storage::BucketInfo& bucket,
+      blink::mojom::BucketHost::GetDirectoryCallback callback) override;
 
  private:
   friend class SharedWorkerHostTest;
@@ -239,8 +263,8 @@ class CONTENT_EXPORT SharedWorkerHost : public blink::mojom::SharedWorkerHost,
   void OnScriptLoadFailed(const std::string& error_message) override;
   void OnFeatureUsed(blink::mojom::WebFeature feature) override;
 
-  // Implements SiteInstanceImpl::Observer:
-  void RenderProcessHostDestroyed() override;
+  // RenderProcessHostObserver methods:
+  void RenderProcessHostDestroyed(RenderProcessHost* host) override;
 
   // Returns the frame ids of this worker's clients.
   std::vector<GlobalRenderFrameHostId> GetRenderFrameIDsForWorker();
@@ -249,6 +273,10 @@ class CONTENT_EXPORT SharedWorkerHost : public blink::mojom::SharedWorkerHost,
                                bool allowed);
   void OnClientConnectionLost();
   void OnWorkerConnectionLost();
+
+  void BindCacheStorageInternal(
+      mojo::PendingReceiver<blink::mojom::CacheStorage> receiver,
+      const storage::BucketLocator& bucket_locator);
 
   // Creates a network factory for subresource requests from this worker. The
   // network factory is meant to be passed to the renderer.
@@ -315,6 +343,8 @@ class CONTENT_EXPORT SharedWorkerHost : public blink::mojom::SharedWorkerHost,
   const ukm::SourceId ukm_source_id_;
 
   const base::UnguessableToken reporting_source_;
+
+  scoped_refptr<PolicyContainerHost> creator_policy_container_host_;
 
   // The client security state of the creator execution context.
   // Never nullptr. Copied at construction time.

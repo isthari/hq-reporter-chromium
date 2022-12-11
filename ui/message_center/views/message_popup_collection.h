@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,6 +64,7 @@ class MESSAGE_CENTER_EXPORT MessagePopupCollection
   virtual void NotifyPopupClosed(MessagePopupView* popup);
 
   // NotificationViewController:
+  void AnimateResize() override;
   MessageView* GetMessageViewForNotificationId(
       const std::string& notification_id) override;
   void ConvertNotificationViewToGroupedNotificationView(
@@ -205,7 +206,7 @@ class MESSAGE_CENTER_EXPORT MessagePopupCollection
     bool is_animating = false;
 
     // Unowned.
-    raw_ptr<MessagePopupView> popup = nullptr;
+    raw_ptr<MessagePopupView, DanglingUntriaged> popup = nullptr;
   };
 
   // Transition from animation state (FADE_IN, FADE_OUT, and MOVE_DOWN) to

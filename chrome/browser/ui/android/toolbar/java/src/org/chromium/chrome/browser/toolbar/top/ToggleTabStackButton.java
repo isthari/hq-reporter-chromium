@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -89,9 +89,6 @@ public class ToggleTabStackButton
     @Override
     public void onTabCountChanged(int numberOfTabs, boolean isIncognito) {
         setEnabled(numberOfTabs >= 1);
-        setContentDescription(getResources().getQuantityString(
-                R.plurals.accessibility_toolbar_btn_tabswitcher_toggle, numberOfTabs,
-                numberOfTabs));
         mTabSwitcherButtonDrawable.updateForTabCount(numberOfTabs, isIncognito);
     }
 

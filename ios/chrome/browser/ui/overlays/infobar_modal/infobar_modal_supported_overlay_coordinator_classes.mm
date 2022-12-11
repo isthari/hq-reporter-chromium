@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,14 +18,19 @@
 namespace infobar_modal {
 
 NSArray<Class>* GetSupportedOverlayCoordinatorClasses() {
-  return @[
-    [PasswordInfobarModalOverlayCoordinator class],
-    [ReadingListInfobarModalOverlayCoordinator class],
-    [SaveAddressProfileInfobarModalOverlayCoordinator class],
-    [SaveCardInfobarModalOverlayCoordinator class],
-    [TranslateInfobarModalOverlayCoordinator class],
-    [PermissionsInfobarModalOverlayCoordinator class],
-  ];
+  NSMutableArray<Class>* coordinatorClasses =
+      [[NSMutableArray alloc] initWithArray:@[
+        [PasswordInfobarModalOverlayCoordinator class],
+        [ReadingListInfobarModalOverlayCoordinator class],
+        [SaveAddressProfileInfobarModalOverlayCoordinator class],
+        [SaveCardInfobarModalOverlayCoordinator class],
+        [TranslateInfobarModalOverlayCoordinator class],
+      ]];
+  if (@available(iOS 15.0, *)) {
+    [coordinatorClasses
+        addObject:[PermissionsInfobarModalOverlayCoordinator class]];
+  }
+  return [coordinatorClasses copy];
 }
 
 }  // infobar_modal

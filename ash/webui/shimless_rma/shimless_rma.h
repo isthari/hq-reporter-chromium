@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,12 @@ namespace ash {
 
 namespace shimless_rma {
 class ShimlessRmaDelegate;
+
+// Returns true if RMA is allowed on the device.
+bool IsShimlessRmaAllowed();
+
+// Returns true if the kLaunchRma switch is detected and RMA is allowed.
+bool HasLaunchRmaSwitchAndIsAllowed();
 }  // namespace shimless_rma
 
 // The WebUI for ShimlessRMA or chrome://shimless-rma.

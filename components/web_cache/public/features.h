@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,10 @@
 
 namespace web_cache {
 
-extern const base::Feature kDisableWebCache;
+// Disable the logic that try to coordinate the in-memory cache resource usage
+// of all renderers and simply trim the caches on memory pressure. Renderers
+// get a memory pressure signal a few minutes after they've been backgrounded.
+BASE_DECLARE_FEATURE(kTrimWebCacheOnMemoryPressureOnly);
 
 }  // namespace web_cache
 

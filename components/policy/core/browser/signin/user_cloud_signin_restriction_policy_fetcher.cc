@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,15 @@
 #include <set>
 
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/json/json_reader.h"
+#include "base/location.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/cloud/cloud_policy_client_registration_helper.h"
+#include "components/policy/core/common/features.h"
 #include "components/policy/core/common/policy_switches.h"
 #include "components/policy/proto/secure_connect.pb.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
@@ -70,6 +74,14 @@ void UserCloudSigninRestrictionPolicyFetcher::
         signin::IdentityManager* identity_manager,
         const CoreAccountId& account_id,
         base::OnceCallback<void(const std::string&)> callback) {
+  if (!base::FeatureList::IsEnabled(
+          features::kEnableUserCloudSigninRestrictionPolicyFetcher)) {
+    cancelable_callback_.Reset(std::move(callback));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE,
+        base::BindOnce(cancelable_callback_.callback(), std::string()));
+    return;
+  }
   // base::Unretained is safe here because the callback is called in the
   // lifecycle of `this`.
   FetchAccessToken(
@@ -92,7 +104,7 @@ void UserCloudSigninRestrictionPolicyFetcher::FetchAccessToken(
   // `this`.
   access_token_fetcher_ = identity_manager->CreateAccessTokenFetcherForAccount(
       account_id, /*oauth_consumer_name=*/"cloud_policy", /*scopes=*/
-      {GaiaConstants::kGoogleUserInfoProfile},
+      {GaiaConstants::kSecureConnectOAuth2Scope},
       base::BindOnce(
           &UserCloudSigninRestrictionPolicyFetcher::OnFetchAccessTokenResult,
           base::Unretained(this), std::move(callback)),

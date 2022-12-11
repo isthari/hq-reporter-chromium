@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "base/check_op.h"
-#include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/user_metrics.h"
@@ -18,12 +17,10 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
-#include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/signin/chrome_signin_helper.h"
-#include "chrome/browser/ui/signin/profile_colors_util.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/installer/util/google_update_settings.h"
+#include "components/keyed_service/core/keyed_service_factory.h"
+#include "components/keyed_service/core/refcounted_keyed_service_factory.h"
 #include "components/profile_metrics/counts.h"
 #include "components/signin/core/browser/signin_header_helper.h"
 #include "content/public/browser/browser_thread.h"
@@ -67,35 +64,9 @@ ProfileType GetProfileType(const base::FilePath& profile_path) {
   return metric;
 }
 
-profile_metrics::ProfileColorsUniqueness GetProfileColorsUniqueness(
-    ProfileAttributesStorage* storage) {
-#if BUILDFLAG(IS_ANDROID)
-  return profile_metrics::ProfileColorsUniqueness::kSingleProfile;
-#else
-  std::vector<ProfileAttributesEntry*> entries =
-      storage->GetAllProfilesAttributes();
-  DCHECK(!entries.empty());
-  if (entries.size() == 1u)
-    return profile_metrics::ProfileColorsUniqueness::kSingleProfile;
-
-  size_t default_colors_count = 0;
-  std::set<ProfileThemeColors> used_colors;
-  for (ProfileAttributesEntry* entry : entries) {
-    absl::optional<ProfileThemeColors> profile_colors =
-        entry->GetProfileThemeColorsIfSet();
-    if (!profile_colors) {
-      default_colors_count++;
-    } else if (!base::Contains(used_colors, *profile_colors)) {
-      used_colors.insert(*profile_colors);
-    } else {
-      return profile_metrics::ProfileColorsUniqueness::kRepeated;
-    }
-  }
-  return default_colors_count > 1u
-             ? profile_metrics::ProfileColorsUniqueness::
-                   kUniqueExceptForRepeatedDefault
-             : profile_metrics::ProfileColorsUniqueness::kUnique;
-#endif
+int GetTotalKeyedServiceCount(Profile* profile) {
+  return KeyedServiceFactory::GetServicesCount(profile) +
+         RefcountedKeyedServiceFactory::GetServicesCount(profile);
 }
 
 }  // namespace
@@ -199,7 +170,6 @@ void ProfileMetrics::CountProfileInformation(ProfileAttributesStorage* storage,
         counts->signedin++;
     }
   }
-  counts->colors_uniqueness = GetProfileColorsUniqueness(storage);
 }
 
 void ProfileMetrics::LogNumberOfProfiles(ProfileAttributesStorage* storage) {
@@ -216,8 +186,15 @@ void ProfileMetrics::LogProfileAddNewUser(ProfileAdd metric) {
 
 // static
 void ProfileMetrics::LogProfileAddSignInFlowOutcome(
-    ProfileAddSignInFlowOutcome outcome) {
+    ProfileSignedInFlowOutcome outcome) {
   base::UmaHistogramEnumeration("Profile.AddSignInFlowOutcome", outcome);
+}
+
+// static
+void ProfileMetrics::LogLacrosPrimaryProfileFirstRunOutcome(
+    ProfileSignedInFlowOutcome outcome) {
+  base::UmaHistogramEnumeration("Profile.LacrosPrimaryProfileFirstRunOutcome",
+                                outcome);
 }
 
 void ProfileMetrics::LogProfileAvatarSelection(size_t icon_index) {
@@ -479,4 +456,13 @@ void ProfileMetrics::LogProfileLaunch(Profile* profile) {
 
 void ProfileMetrics::LogProfileUpdate(const base::FilePath& profile_path) {
   base::UmaHistogramEnumeration("Profile.Update", GetProfileType(profile_path));
+}
+
+void ProfileMetrics::LogSystemProfileKeyedServicesCount(Profile* profile) {
+  DCHECK(profile->IsSystemProfile());
+
+  std::string histogram_name = "Profile.KeyedService.Count.SystemProfile";
+  histogram_name += profile->IsOffTheRecord() ? "OTR-M-107" : "Original-M-107";
+  base::UmaHistogramCounts1000(histogram_name,
+                               GetTotalKeyedServiceCount(profile));
 }

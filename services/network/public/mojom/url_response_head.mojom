@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,25 @@ module network.mojom;
 
 import "mojo/public/mojom/base/time.mojom";
 import "mojo/public/mojom/base/unguessable_token.mojom";
+import "services/network/public/mojom/alternate_protocol_usage.mojom";
 import "services/network/public/mojom/fetch_api.mojom";
+import "services/network/public/mojom/ip_address_space.mojom";
 import "services/network/public/mojom/ip_endpoint.mojom";
 import "services/network/public/mojom/load_timing_info.mojom";
 import "services/network/public/mojom/network_param.mojom";
 import "services/network/public/mojom/network_types.mojom";
-import "services/network/public/mojom/origin_policy_manager.mojom";
 import "services/network/public/mojom/parsed_headers.mojom";
 import "services/proxy_resolver/public/mojom/proxy_resolver.mojom";
 import "url/mojom/url.mojom";
+
+// Describes the navigational delivery type of the response.
+// `kNavigationalPrefetch` if the response is served by Prefetch; `kDefault`
+// if the response if served from a normal network request, even if the response
+// of the request is resurrected from the HTTP cache.
+enum NavigationDeliveryType {
+  kDefault,
+  kNavigationalPrefetch,
+};
 
 struct URLResponseHead {
   // The time at which the request was made that resulted in this response.
@@ -78,8 +88,20 @@ struct URLResponseHead {
   // ALPN protocol negotiated with the server.
   string alpn_negotiated_protocol;
 
+  // The reason why Chrome uses a specific transport protocol
+  // for HTTP semantics.
+  AlternateProtocolUsage alternate_protocol_usage;
+
   // Remote address of the socket which fetched this resource.
   IPEndPoint remote_endpoint;
+
+  // The IP address space of the request client/the request's policy container.
+  // https://wicg.github.io/private-network-access/#policy-container-ip-address-space
+  IPAddressSpace client_address_space = IPAddressSpace.kUnknown;
+
+  // The IP address space of the response, derived from the remote IP endpoint.
+  // https://wicg.github.io/private-network-access/#response-ip-address-space
+  IPAddressSpace response_address_space = IPAddressSpace.kUnknown;
 
   // True if the response was fetched from the cache and validated over the
   // network.
@@ -87,6 +109,13 @@ struct URLResponseHead {
 
   // True if the response came from cache.
   bool was_fetched_via_cache = false;
+
+  // This field, along with `is_validated` and `was_fetched_via_cache`, are used
+  // to determine the value of `PerformanceResourceTiming::deliveryType` Web
+  // API. `kDefault` indicates the response is served from normal network
+  // request; `kNavigationalPrefetch` indicates the response is served from a
+  // prefetched URL.
+  NavigationDeliveryType navigation_delivery_type = kDefault;
 
   // The proxy server used for this request, if any.
   proxy_resolver.mojom.ProxyServer proxy_server;
@@ -201,10 +230,6 @@ struct URLResponseHead {
   // This can be null. It means the URLLoader didn't parsed the headers. Either
   // it wasn't implemented or not allowed from its process.
   ParsedHeaders? parsed_headers;
-
-  // Origin Policy associated with this response or nullptr if not applicable.
-  // Spec: https://wicg.github.io/origin-policy/
-  OriginPolicy? origin_policy;
 
   // Set by the browser process on cross-origin prefetch responses. This token
   // is propagated to the renderer and set on recursive prefetch requests

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,33 +9,44 @@
 
 namespace ui {
 
-FakeFlatland::FakeFlatland() : binding_(this) {}
+FakeFlatland::FakeFlatland()
+    : allocator_binding_(this), flatland_binding_(this) {}
 
 FakeFlatland::~FakeFlatland() = default;
 
-fidl::InterfaceHandle<fuchsia::ui::composition::Flatland> FakeFlatland::Connect(
+fuchsia::ui::composition::FlatlandHandle FakeFlatland::ConnectFlatland(
     async_dispatcher_t* dispatcher) {
-  CHECK(!binding_.is_bound());
+  CHECK(!flatland_binding_.is_bound());
 
-  fidl::InterfaceHandle<fuchsia::ui::composition::Flatland> flatland;
-  binding_.Bind(flatland.NewRequest(), dispatcher);
+  fuchsia::ui::composition::FlatlandHandle flatland;
+  flatland_binding_.Bind(flatland.NewRequest(), dispatcher);
 
   return flatland;
 }
 
 fidl::InterfaceRequestHandler<fuchsia::ui::composition::Flatland>
-FakeFlatland::GetRequestHandler(async_dispatcher_t* dispatcher) {
+FakeFlatland::GetFlatlandRequestHandler(async_dispatcher_t* dispatcher) {
   return
       [this, dispatcher](
           fidl::InterfaceRequest<fuchsia::ui::composition::Flatland> request) {
-        CHECK(!binding_.is_bound());
-        binding_.Bind(std::move(request), dispatcher);
+        CHECK(!flatland_binding_.is_bound());
+        flatland_binding_.Bind(std::move(request), dispatcher);
+      };
+}
+
+fidl::InterfaceRequestHandler<fuchsia::ui::composition::Allocator>
+FakeFlatland::GetAllocatorRequestHandler(async_dispatcher_t* dispatcher) {
+  return
+      [this, dispatcher](
+          fidl::InterfaceRequest<fuchsia::ui::composition::Allocator> request) {
+        CHECK(!allocator_binding_.is_bound());
+        allocator_binding_.Bind(std::move(request), dispatcher);
       };
 }
 
 void FakeFlatland::Disconnect(fuchsia::ui::composition::FlatlandError error) {
-  binding_.events().OnError(std::move(error));
-  binding_.Unbind();
+  flatland_binding_.events().OnError(std::move(error));
+  flatland_binding_.Unbind();
 }
 
 void FakeFlatland::SetPresentHandler(PresentHandler present_handler) {
@@ -45,12 +56,13 @@ void FakeFlatland::SetPresentHandler(PresentHandler present_handler) {
 void FakeFlatland::FireOnNextFrameBeginEvent(
     fuchsia::ui::composition::OnNextFrameBeginValues
         on_next_frame_begin_values) {
-  binding_.events().OnNextFrameBegin(std::move(on_next_frame_begin_values));
+  flatland_binding_.events().OnNextFrameBegin(
+      std::move(on_next_frame_begin_values));
 }
 
 void FakeFlatland::FireOnFramePresentedEvent(
     fuchsia::scenic::scheduling::FramePresentedInfo frame_presented_info) {
-  binding_.events().OnFramePresented(std::move(frame_presented_info));
+  flatland_binding_.events().OnFramePresented(std::move(frame_presented_info));
 }
 
 void FakeFlatland::SetViewRefFocusedRequestHandler(
@@ -68,7 +80,7 @@ void FakeFlatland::NotImplemented_(const std::string& name) {
 }
 
 void FakeFlatland::Present(fuchsia::ui::composition::PresentArgs args) {
-  // TODO(fxb/85619): ApplyCommands()
+  DCHECK(present_handler_);
   present_handler_.Run(std::move(args));
 }
 
@@ -86,10 +98,22 @@ void FakeFlatland::CreateView2(
     touch_source_request_handler_(
         std::move(*view_protocols.mutable_touch_source()));
   }
+  parent_viewport_watcher_.emplace(std::move(parent_viewport_watcher));
 }
 
 void FakeFlatland::SetDebugName(std::string debug_name) {
   debug_name_ = std::move(debug_name);
+}
+
+FakeParentViewportWatcher::FakeParentViewportWatcher(
+    fidl::InterfaceRequest<fuchsia::ui::composition::ParentViewportWatcher>
+        request)
+    : binding_(this, std::move(request)) {}
+
+FakeParentViewportWatcher::~FakeParentViewportWatcher() = default;
+
+void FakeParentViewportWatcher::NotImplemented_(const std::string& name) {
+  LOG(ERROR) << "FakeParentViewportWatcher does not implement " << name;
 }
 
 }  // namespace ui

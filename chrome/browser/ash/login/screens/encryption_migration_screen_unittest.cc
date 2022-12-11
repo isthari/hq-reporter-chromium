@@ -1,25 +1,28 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
+#include <tuple>
 #include <utility>
 
-#include "ash/components/login/auth/key.h"
-#include "ash/components/login/auth/user_context.h"
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/task_environment.h"
+#include "base/test/test_future.h"
 #include "chrome/browser/ash/arc/arc_migration_constants.h"
 #include "chrome/browser/ash/login/screens/encryption_migration_mode.h"
 #include "chrome/browser/ash/login/screens/encryption_migration_screen.h"
 #include "chrome/browser/ash/login/users/mock_user_manager.h"
-#include "chrome/browser/ui/webui/chromeos/login/base_webui_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/encryption_migration_screen_handler.h"
-#include "chromeos/dbus/cryptohome/account_identifier_operators.h"
+#include "chrome/browser/ui/webui/ash/login/base_webui_handler.h"
+#include "chrome/browser/ui/webui/ash/login/encryption_migration_screen_handler.h"
+#include "chromeos/ash/components/dbus/cryptohome/account_identifier_operators.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_userdataauth_client.h"
+#include "chromeos/ash/components/login/auth/auth_performer.h"
+#include "chromeos/ash/components/login/auth/public/key.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
 #include "chromeos/dbus/power/power_policy_controller.h"
-#include "chromeos/dbus/userdataauth/fake_userdataauth_client.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user_names.h"
@@ -27,6 +30,7 @@
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ash {
 namespace {
@@ -62,12 +66,30 @@ class FakeWakeLock : public device::mojom::WakeLock {
   bool has_wakelock_ = false;
 };
 
+class MockEncryptionMigrationScreenView : public EncryptionMigrationScreenView {
+ public:
+  MockEncryptionMigrationScreenView() = default;
+  ~MockEncryptionMigrationScreenView() override = default;
+
+  MOCK_METHOD(void, Show, ());
+  MOCK_METHOD(void,
+              SetBatteryState,
+              (double batteryPercent, bool isEnoughBattery, bool isCharging));
+  MOCK_METHOD(void, SetIsResuming, (bool isResuming));
+  MOCK_METHOD(void, SetUIState, (UIState state));
+  MOCK_METHOD(void,
+              SetSpaceInfoInString,
+              (int64_t availableSpaceSize, int64_t necessarySpaceSize));
+  MOCK_METHOD(void, SetNecessaryBatteryPercent, (double batteryPercent));
+  MOCK_METHOD(void, SetMigrationProgress, (double progress));
+};
+
 // Allows access to testing-only methods of EncryptionMigrationScreen.
 class TestEncryptionMigrationScreen : public EncryptionMigrationScreen {
  public:
-  explicit TestEncryptionMigrationScreen(EncryptionMigrationScreenView* view)
-      : EncryptionMigrationScreen(view) {
-  }
+  explicit TestEncryptionMigrationScreen(
+      base::WeakPtr<MockEncryptionMigrationScreenView> view)
+      : EncryptionMigrationScreen(std::move(view)) {}
 
   // Sets the free disk space seen by EncryptionMigrationScreen.
   void set_free_disk_space(int64_t free_disk_space) {
@@ -89,26 +111,6 @@ class TestEncryptionMigrationScreen : public EncryptionMigrationScreen {
   int64_t free_disk_space_;
 };
 
-class MockEncryptionMigrationScreenView : public EncryptionMigrationScreenView {
- public:
-  MockEncryptionMigrationScreenView() = default;
-  ~MockEncryptionMigrationScreenView() override = default;
-
-  MOCK_METHOD(void, Show, ());
-  MOCK_METHOD(void, Hide, ());
-  MOCK_METHOD(void, SetDelegate, (EncryptionMigrationScreen * delegate));
-  MOCK_METHOD(void,
-              SetBatteryState,
-              (double batteryPercent, bool isEnoughBattery, bool isCharging));
-  MOCK_METHOD(void, SetIsResuming, (bool isResuming));
-  MOCK_METHOD(void, SetUIState, (UIState state));
-  MOCK_METHOD(void,
-              SetSpaceInfoInString,
-              (int64_t availableSpaceSize, int64_t necessarySpaceSize));
-  MOCK_METHOD(void, SetNecessaryBatteryPercent, (double batteryPercent));
-  MOCK_METHOD(void, SetMigrationProgress, (double progress));
-};
-
 class EncryptionMigrationScreenTest : public testing::Test {
  public:
   EncryptionMigrationScreenTest() = default;
@@ -124,30 +126,45 @@ class EncryptionMigrationScreenTest : public testing::Test {
     // Set up fake dbus clients.
     UserDataAuthClient::InitializeFake();
     fake_userdataauth_client_ = FakeUserDataAuthClient::Get();
-    PowerManagerClient::InitializeFake();
+    auto cryptohome_account_id =
+        cryptohome::CreateAccountIdentifierFromAccountId(account_id_);
+    FakeUserDataAuthClient::TestApi::Get()->AddExistingUser(
+        std::move(cryptohome_account_id));
+    chromeos::PowerManagerClient::InitializeFake();
 
-    PowerPolicyController::Initialize(PowerManagerClient::Get());
+    chromeos::PowerPolicyController::Initialize(
+        chromeos::PowerManagerClient::Get());
 
     // Build dummy user context.
-    user_context_.SetAccountId(account_id_);
-    user_context_.SetKey(
+    auto user_context = std::make_unique<UserContext>();
+    user_context->SetAccountId(account_id_);
+    user_context->SetKey(
         Key(Key::KeyType::KEY_TYPE_SALTED_SHA256, "salt", "secret"));
 
+    base::test::TestFuture<bool, std::unique_ptr<UserContext>,
+                           absl::optional<AuthenticationError>>
+        future;
+    AuthPerformer auth_performer(fake_userdataauth_client_);
+    auth_performer.StartAuthSession(
+        std::move(user_context), /*ephemeral=*/false,
+        AuthSessionIntent::kDecrypt, future.GetCallback());
+    user_context = std::get<1>(future.Take());
+
     encryption_migration_screen_ =
-        std::make_unique<TestEncryptionMigrationScreen>(&mock_view_);
+        std::make_unique<TestEncryptionMigrationScreen>(std::move(mock_view_));
     encryption_migration_screen_->SetSkipMigrationCallback(
         base::BindOnce(&EncryptionMigrationScreenTest::OnContinueLogin,
                        base::Unretained(this)));
     encryption_migration_screen_->set_free_disk_space(
         arc::kMigrationMinimumAvailableStorage);
-    encryption_migration_screen_->SetUserContext(user_context_);
+    encryption_migration_screen_->SetUserContext(std::move(user_context));
   }
 
   void TearDown() override {
     encryption_migration_screen_.reset();
 
-    PowerPolicyController::Shutdown();
-    PowerManagerClient::Shutdown();
+    chromeos::PowerPolicyController::Shutdown();
+    chromeos::PowerManagerClient::Shutdown();
     UserDataAuthClient::Shutdown();
   }
 
@@ -156,7 +173,7 @@ class EncryptionMigrationScreenTest : public testing::Test {
   std::unique_ptr<TestEncryptionMigrationScreen> encryption_migration_screen_;
 
   // Accessory objects needed by EncryptionMigrationScreen.
-  MockEncryptionMigrationScreenView mock_view_;
+  base::WeakPtr<MockEncryptionMigrationScreenView> mock_view_;
 
   // Must be the first member.
   base::test::TaskEnvironment task_environment_;
@@ -169,12 +186,11 @@ class EncryptionMigrationScreenTest : public testing::Test {
 
   const AccountId account_id_ =
       AccountId::FromUserEmail(user_manager::kStubUserEmail);
-  UserContext user_context_;
 
  private:
   // This will be called by EncryptionMigrationScreen upon finished
   // minimal migration when sign-in should continue.
-  void OnContinueLogin(const UserContext& user_context) {
+  void OnContinueLogin(std::unique_ptr<UserContext> user_context) {
     EXPECT_FALSE(skip_migration_callback_called_)
         << "ContinueLogin/RestartLogin may only be called once.";
 
@@ -183,5 +199,4 @@ class EncryptionMigrationScreenTest : public testing::Test {
 };
 
 }  // namespace
-
 }  // namespace ash

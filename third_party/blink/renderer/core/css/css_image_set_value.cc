@@ -109,7 +109,7 @@ StyleImage* CSSImageSetValue::CacheImage(
     // TODO(fs): Forward the image request behavior when other code is prepared
     // to handle it.
     FetchParameters params = image_value.PrepareFetch(
-        document, FetchParameters::kNone, cross_origin);
+        document, FetchParameters::ImageRequestBehavior::kNone, cross_origin);
     cached_image_ = MakeGarbageCollected<StyleFetchedImageSet>(
         ImageResourceContent::Fetch(params, document.Fetcher()),
         image.scale_factor, this, params.Url());
@@ -120,7 +120,11 @@ StyleImage* CSSImageSetValue::CacheImage(
 
 String CSSImageSetValue::CustomCSSText() const {
   StringBuilder result;
-  result.Append("-webkit-image-set(");
+
+  if (is_webkit_prefixed_)
+    result.Append("-webkit-");
+
+  result.Append("image-set(");
 
   wtf_size_t length = this->length();
   wtf_size_t i = 0;
@@ -168,6 +172,10 @@ CSSImageSetValue* CSSImageSetValue::ValueWithURLsMadeAbsolute() {
     image_value ? value->Append(*image_value->ValueWithURLMadeAbsolute())
                 : value->Append(*item);
   }
+
+  if (is_webkit_prefixed_)
+    value->MarkWebkitPrefixed();
+
   return value;
 }
 

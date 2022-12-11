@@ -1,10 +1,9 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/hyphenation/hyphenation_impl.h"
 
-#include <algorithm>
 #include <map>
 #include <utility>
 
@@ -13,9 +12,9 @@
 #include "base/files/file_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/timer/elapsed_timer.h"
 #include "build/build_config.h"
@@ -52,7 +51,7 @@ struct Dictionaries {
 };
 
 bool IsValidLocale(const std::string& locale) {
-  return std::all_of(locale.cbegin(), locale.cend(), [](const char ch) {
+  return base::ranges::all_of(locale, [](const char ch) {
     return base::IsAsciiAlpha(ch) || base::IsAsciiDigit(ch) || ch == '-';
   });
 }

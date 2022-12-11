@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@
  * by the files app frontend.
  */
 
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/js/assert.js';
 
 import {getEntry, getParentEntry, moveEntryTo, validatePathNameLength} from '../../common/js/api.js';
+import {createDOMError} from '../../common/js/dom_utils.js';
 import {str, strf, util} from '../../common/js/util.js';
 import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
 import {VolumeInfo} from '../../externs/volume_info.js';
@@ -162,7 +163,7 @@ export async function renameFile(entry, newName) {
     }
 
     // The entry with the name already exists.
-    throw util.createDOMError(util.FileError.PATH_EXISTS_ERR);
+    throw createDOMError(util.FileError.PATH_EXISTS_ERR);
   } catch (error) {
     throw getRenameErrorMessage(error, entry, newName);
   }

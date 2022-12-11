@@ -1,9 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "remoting/host/basic_desktop_environment.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -14,13 +15,16 @@
 #include "remoting/host/audio_capturer.h"
 #include "remoting/host/base/screen_controls.h"
 #include "remoting/host/client_session_control.h"
+#include "remoting/host/desktop_and_cursor_conditional_composer.h"
 #include "remoting/host/desktop_capturer_proxy.h"
+#include "remoting/host/desktop_capturer_wrapper.h"
 #include "remoting/host/desktop_display_info_monitor.h"
 #include "remoting/host/file_transfer/local_file_operations.h"
 #include "remoting/host/input_injector.h"
 #include "remoting/host/keyboard_layout_monitor.h"
 #include "remoting/host/mouse_cursor_monitor_proxy.h"
 #include "remoting/host/remote_open_url/url_forwarder_configurator.h"
+#include "remoting/host/webauthn/remote_webauthn_extension_notifier.h"
 #include "remoting/protocol/capability_names.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_capture_options.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_capturer.h"
@@ -34,6 +38,9 @@
 #include "base/threading/watchdog.h"
 #include "remoting/host/linux/x11_util.h"
 #endif
+
+#include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 
 namespace remoting {
 
@@ -101,6 +108,32 @@ BasicDesktopEnvironment::CreateScreenControls() {
   return nullptr;
 }
 
+DesktopDisplayInfoMonitor* BasicDesktopEnvironment::GetDisplayInfoMonitor() {
+  if (!display_info_monitor_) {
+    using VideoLayoutCallback =
+        base::RepeatingCallback<void(std::unique_ptr<protocol::VideoLayout>)>;
+
+    VideoLayoutCallback video_layout_callback =
+        base::BindRepeating(&ClientSessionControl::OnDesktopDisplayChanged,
+                            client_session_control_);
+
+    // |video_layout_callback| is bound to |client_session_control_| which is a
+    // WeakPtr, but it accepts a VideoLayout proto as the parameter. DDIM needs
+    // a callback that accepts a DesktopDisplayInfo& instead.
+    auto converting_callback =
+        base::BindRepeating([](const DesktopDisplayInfo& info) {
+          return info.GetVideoLayoutProto();
+        });
+    DesktopDisplayInfoMonitor::Callback callback =
+        std::move(converting_callback).Then(std::move(video_layout_callback));
+
+    display_info_monitor_ =
+        std::make_unique<DesktopDisplayInfoMonitor>(ui_task_runner_);
+    display_info_monitor_->AddCallback(std::move(callback));
+  }
+  return display_info_monitor_.get();
+}
+
 std::unique_ptr<webrtc::MouseCursorMonitor>
 BasicDesktopEnvironment::CreateMouseCursorMonitor() {
   return std::make_unique<MouseCursorMonitorProxy>(video_capture_task_runner_,
@@ -134,28 +167,52 @@ uint32_t BasicDesktopEnvironment::GetDesktopSessionId() const {
   return UINT32_MAX;
 }
 
-std::unique_ptr<DesktopAndCursorConditionalComposer>
-BasicDesktopEnvironment::CreateComposingVideoCapturer() {
-#if BUILDFLAG(IS_APPLE)
-  // Mac includes the mouse cursor in the captured image in curtain mode.
-  if (options_.enable_curtaining())
-    return nullptr;
-#endif
-  return std::make_unique<DesktopAndCursorConditionalComposer>(
-      CreateVideoCapturer());
+std::unique_ptr<RemoteWebAuthnStateChangeNotifier>
+BasicDesktopEnvironment::CreateRemoteWebAuthnStateChangeNotifier() {
+  return std::make_unique<RemoteWebAuthnExtensionNotifier>();
 }
 
-std::unique_ptr<webrtc::DesktopCapturer>
+std::unique_ptr<DesktopCapturer>
 BasicDesktopEnvironment::CreateVideoCapturer() {
   DCHECK(caller_task_runner_->BelongsToCurrentThread());
 
-  auto result = std::make_unique<DesktopCapturerProxy>(
-      video_capture_task_runner_, ui_task_runner_);
-  result->set_desktop_display_info_monitor(
-      std::make_unique<DesktopDisplayInfoMonitor>(ui_task_runner_,
-                                                  client_session_control_));
-  result->CreateCapturer(desktop_capture_options());
-  return std::move(result);
+  scoped_refptr<base::SingleThreadTaskRunner> capture_task_runner;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  capture_task_runner = ui_task_runner_;
+#elif BUILDFLAG(IS_LINUX) && defined(REMOTING_USE_WAYLAND)
+  // Each capturer instance should get its own thread so the capturers don't
+  // compete with each other in multistream mode.
+  capture_task_runner = base::ThreadPool::CreateSingleThreadTaskRunner(
+      {base::TaskPriority::HIGHEST},
+      base::SingleThreadTaskRunnerThreadMode::DEDICATED);
+#else
+  // The mouse cursor monitor runs on the |video_capture_task_runner_| so the
+  // desktop capturer also needs to run on that task_runner for certain
+  // platforms. For example, if we run the desktop capturer on a different
+  // thread on Windows, the cursor shape won't be captured when in GDI mode.
+  capture_task_runner = video_capture_task_runner_;
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_LINUX)
+  auto desktop_capturer =
+      std::make_unique<DesktopCapturerProxy>(std::move(capture_task_runner));
+
+#if defined(REMOTING_USE_X11)
+  // Workaround for http://crbug.com/1361502: Run each capturer (and
+  // mouse-cursor-monitor) on a separate X11 Display.
+  auto new_options = webrtc::DesktopCaptureOptions::CreateDefault();
+  mutable_desktop_capture_options()->set_x_display(
+      std::move(new_options.x_display()));
+  desktop_capture_options().x_display()->IgnoreXServerGrabs();
+#endif  // REMOTING_USE_X11
+
+  desktop_capturer->CreateCapturer(desktop_capture_options());
+
+#if BUILDFLAG(IS_APPLE)
+  // Mac includes the mouse cursor in the captured image in curtain mode.
+  if (options_.enable_curtaining())
+    return std::move(desktop_capturer);
+#endif
+  return std::make_unique<DesktopAndCursorConditionalComposer>(
+      std::move(desktop_capturer));
 }
 
 BasicDesktopEnvironment::BasicDesktopEnvironment(

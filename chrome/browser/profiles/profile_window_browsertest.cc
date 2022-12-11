@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -146,7 +146,7 @@ class ProfileWindowCountBrowserTest : public ProfileWindowBrowserTest,
   }
 
  private:
-  raw_ptr<Profile> profile_ = nullptr;
+  raw_ptr<Profile, DanglingUntriaged> profile_ = nullptr;
 };
 
 IN_PROC_BROWSER_TEST_P(ProfileWindowCountBrowserTest, CountProfileWindows) {
@@ -296,12 +296,14 @@ IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, GuestAppMenuLacksBookmarks) {
   // Verify the normal browser has a bookmark menu.
   AppMenuModel model_normal_profile(&accelerator_handler, browser());
   model_normal_profile.Init();
-  EXPECT_NE(-1, model_normal_profile.GetIndexOfCommandId(IDC_BOOKMARKS_MENU));
+  EXPECT_TRUE(
+      model_normal_profile.GetIndexOfCommandId(IDC_BOOKMARKS_MENU).has_value());
 
   // Guest browser has no bookmark menu.
   Browser* guest_browser = CreateGuestBrowser();
   AppMenuModel model_guest_profile(&accelerator_handler, guest_browser);
-  EXPECT_EQ(-1, model_guest_profile.GetIndexOfCommandId(IDC_BOOKMARKS_MENU));
+  EXPECT_FALSE(
+      model_guest_profile.GetIndexOfCommandId(IDC_BOOKMARKS_MENU).has_value());
 }
 
 IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, OpenBrowserWindowForProfile) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/ash/login/users/chrome_user_manager.h"
 #include "components/account_id/account_id.h"
 
@@ -31,7 +30,7 @@ ExtendedUserFlow::ExtendedUserFlow(const AccountId& account_id)
 ExtendedUserFlow::~ExtendedUserFlow() {}
 
 void ExtendedUserFlow::UnregisterFlowSoon() {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&ChromeUserManager::ResetUserFlow,
                      base::Unretained(ChromeUserManager::Get()), account_id()));

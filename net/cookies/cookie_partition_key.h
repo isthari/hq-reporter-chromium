@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,14 +58,10 @@ class NET_EXPORT CookiePartitionKey {
                  : CookiePartitionKey(url);
   }
 
-  // Create a cookie partition key from a request's NetworkIsolationKey.
-  //
-  // `first_party_set_owner_site` should be nullptr if the NetworkIsolationKey's
-  // top-frame site is not in  First-Party Set. Otherwise it should be the owner
-  // site of the top-frame site's set.
+  // Create a partition key from a network isolation key. Partition key is
+  // derived from the key's top-frame site.
   static absl::optional<CookiePartitionKey> FromNetworkIsolationKey(
-      const NetworkIsolationKey& network_isolation_key,
-      const SchemefulSite* first_party_set_owner_site = nullptr);
+      const NetworkIsolationKey& network_isolation_key);
 
   // Create a new CookiePartitionKey from the site of an existing
   // CookiePartitionKey. This should only be used for sites of partition keys
@@ -92,9 +88,13 @@ class NET_EXPORT CookiePartitionKey {
     return absl::make_optional(CookiePartitionKey(true));
   }
 
-  // Temporary method, used to mark the places where we need to supply the
-  // cookie partition key to CanonicalCookie::Create.
-  static absl::optional<CookiePartitionKey> Todo() { return absl::nullopt; }
+  // Create a new CookiePartitionKey from the components of a StorageKey.
+  // Forwards to FromWire, but unlike that method in this one the optional nonce
+  // argument has no default. It also checks that cookie partitioning is enabled
+  // before returning a valid key, which FromWire does not check.
+  static absl::optional<CookiePartitionKey> FromStorageKeyComponents(
+      const SchemefulSite& top_level_site,
+      const absl::optional<base::UnguessableToken>& nonce);
 
   const SchemefulSite& site() const { return site_; }
 

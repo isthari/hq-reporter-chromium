@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "components/blocked_content/popup_blocker.h"
@@ -21,6 +20,7 @@
 #include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/content_settings/browser/test_page_specific_content_settings_delegate.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/subresource_filter/content/browser/content_subresource_filter_web_contents_helper.h"
 #include "components/subresource_filter/content/browser/fake_safe_browsing_database_manager.h"
 #include "components/subresource_filter/content/browser/subresource_filter_observer_manager.h"
 #include "components/subresource_filter/content/browser/subresource_filter_safe_browsing_activation_throttle.h"
@@ -33,11 +33,13 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/navigation_throttle.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/test/mock_navigation_handle.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_navigation_throttle_inserter.h"
 #include "content/public/test/test_renderer_host.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/frame/frame.mojom.h"
 #include "third_party/blink/public/mojom/window_features/window_features.mojom.h"
 #include "ui/base/page_transition_types.h"
@@ -75,7 +77,8 @@ class SafeBrowsingTriggeredPopupBlockerTestBase
     HostContentSettingsMap::RegisterProfilePrefs(pref_service_.registry());
     settings_map_ = base::MakeRefCounted<HostContentSettingsMap>(
         &pref_service_, false /* is_off_the_record */,
-        false /* store_last_modified */, false /* restore_session*/);
+        false /* store_last_modified */, false /* restore_session*/,
+        false /* should_record_metrics */);
 
     subresource_filter::SubresourceFilterObserverManager::CreateForWebContents(
         web_contents());
@@ -136,10 +139,17 @@ class SafeBrowsingTriggeredPopupBlockerTestBase
  protected:
   std::unique_ptr<content::NavigationThrottle> CreateThrottle(
       content::NavigationHandle* handle) {
-    return std::make_unique<
-        subresource_filter::SubresourceFilterSafeBrowsingActivationThrottle>(
-        handle, /*delegate=*/nullptr, content::GetIOThreadTaskRunner({}),
-        fake_safe_browsing_database_);
+    // Activation is only computed when navigating a subresource filter root
+    // (see content_subresource_filter_throttle_manager.h for the definition of
+    // a root).
+    if (subresource_filter::IsInSubresourceFilterRoot(handle)) {
+      return std::make_unique<
+          subresource_filter::SubresourceFilterSafeBrowsingActivationThrottle>(
+          handle, /*delegate=*/nullptr, content::GetIOThreadTaskRunner({}),
+          fake_safe_browsing_database_);
+    }
+
+    return nullptr;
   }
 
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -184,7 +194,7 @@ TEST_F(SafeBrowsingTriggeredPopupBlockerTest,
   for (const auto& test_case : kTestCases) {
     std::unique_ptr<content::NavigationSimulator> simulator =
         content::NavigationSimulator::CreateRendererInitiated(
-            test_case.initial_url, web_contents()->GetMainFrame());
+            test_case.initial_url, web_contents()->GetPrimaryMainFrame());
     simulator->Start();
     simulator->Redirect(test_case.redirect_url);
     simulator->Commit();
@@ -546,6 +556,47 @@ TEST_F(SafeBrowsingTriggeredPopupBlockerTest, NonPrimaryFrameTree) {
     EXPECT_TRUE(
         popup_blocker()->ShouldApplyAbusivePopupBlocker(main_rfh()->GetPage()));
   }
+}
+
+class SafeBrowsingTriggeredPopupBlockerFencedFrameTest
+    : public SafeBrowsingTriggeredPopupBlockerTest {
+ public:
+  SafeBrowsingTriggeredPopupBlockerFencedFrameTest() {
+    scoped_feature_list_.InitAndEnableFeatureWithParameters(
+        blink::features::kFencedFrames, {{"implementation_type", "mparch"}});
+  }
+  ~SafeBrowsingTriggeredPopupBlockerFencedFrameTest() override = default;
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// Ensures that the popup blocker is not triggered by a fenced frame.
+TEST_F(SafeBrowsingTriggeredPopupBlockerFencedFrameTest,
+       ShouldNotTriggerPopupBlocker) {
+  const GURL url("https://example.test/");
+  MarkUrlAsAbusiveEnforce(url);
+  NavigateAndCommit(url);
+
+  // The popup blocker is triggered for a primary page.
+  EXPECT_TRUE(
+      popup_blocker()->ShouldApplyAbusivePopupBlocker(main_rfh()->GetPage()));
+
+  content::RenderFrameHost* fenced_frame_root =
+      content::RenderFrameHostTester::For(main_rfh())->AppendFencedFrame();
+
+  // Navigate a fenced frame.
+  const GURL fenced_frame_url("https://fencedframe.test");
+  MarkUrlAsAbusiveEnforce(fenced_frame_url);
+  std::unique_ptr<content::NavigationSimulator> navigation_simulator =
+      content::NavigationSimulator::CreateRendererInitiated(fenced_frame_url,
+                                                            fenced_frame_root);
+  navigation_simulator->Commit();
+  fenced_frame_root = navigation_simulator->GetFinalRenderFrameHost();
+
+  // The popup blocker is not triggered for a fenced frame.
+  EXPECT_FALSE(popup_blocker()->ShouldApplyAbusivePopupBlocker(
+      fenced_frame_root->GetPage()));
 }
 
 }  // namespace blocked_content

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/common/password_manager_features.h"
-#include "components/sync/driver/test_sync_service.h"
+#include "components/sync/test/test_sync_service.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 
@@ -95,6 +95,11 @@ class CapturedSitesPasswordManagerBrowserTest
     signin_form.username_value = base::ASCIIToUTF16(username);
     password_store->AddLogin(signin_form);
     return true;
+  }
+
+  bool AddAutofillProfileInfo(const std::string& field_type,
+                              const std::string& field_value) override {
+    return profile_controller_->AddAutofillProfileInfo(field_type, field_value);
   }
 
   bool SavePassword() override {
@@ -194,6 +199,9 @@ class CapturedSitesPasswordManagerBrowserTest
                           &password_manager::BuildPasswordStoreWithFakeBackend<
                               content::BrowserContext>));
                 }));
+
+    profile_controller_ =
+        std::make_unique<captured_sites_test_utils::ProfileDataController>();
   }
 
   void SetUpOnMainThread() override {
@@ -214,12 +222,9 @@ class CapturedSitesPasswordManagerBrowserTest
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    feature_list_.InitWithFeatures(
-        /*enabled_features=*/{autofill::features::kAutofillDisplaceRemovedForms,
-                              autofill::features::kAutofillShowTypePredictions,
-                              features::kUsernameFirstFlow,
-                              autofill::features::
-                                  kAutofillUseUnassociatedListedElements},
+    feature_list_.InitWithFeaturesAndParameters(
+        /*enabled_features=*/{{autofill::features::kAutofillShowTypePredictions,
+                               {}}},
         {});
     command_line->AppendSwitch(autofill::switches::kShowAutofillSignatures);
     captured_sites_test_utils::TestRecipeReplayer::SetUpHostResolverRules(
@@ -255,6 +260,8 @@ class CapturedSitesPasswordManagerBrowserTest
   TestGenerationPopupObserver observer_;
   std::unique_ptr<captured_sites_test_utils::TestRecipeReplayer>
       recipe_replayer_;
+  std::unique_ptr<captured_sites_test_utils::ProfileDataController>
+      profile_controller_;
   base::test::ScopedFeatureList feature_list_;
   content::WebContents* web_contents_ = nullptr;
   std::unique_ptr<ServerUrlLoader> server_url_loader_;

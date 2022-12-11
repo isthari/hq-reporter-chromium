@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/common/chrome_content_client.h"
+#include "components/gcm_driver/gcm_driver.h"
 #include "components/gcm_driver/gcm_profile_service.h"
+#include "components/gcm_driver/instance_id/instance_id_driver.h"
 #include "components/gcm_driver/instance_id/instance_id_profile_service.h"
 #include "components/invalidation/impl/fcm_invalidation_service.h"
 #include "components/invalidation/impl/fcm_network_handler.h"
@@ -26,7 +28,6 @@
 #include "components/invalidation/impl/profile_identity_provider.h"
 #include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/invalidation/public/invalidation_service.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_registry.h"
 #include "content/public/browser/storage_partition.h"
@@ -82,7 +83,7 @@ ProfileInvalidationProvider* ProfileInvalidationProviderFactory::GetForProfile(
        user_manager::UserManager::Get()->IsLoggedInAsGuest())) {
     // The Chrome OS login and Chrome OS guest profiles do not have GAIA
     // credentials and do not support invalidation.
-    return NULL;
+    return nullptr;
   }
 #endif
   return static_cast<ProfileInvalidationProvider*>(
@@ -96,11 +97,10 @@ ProfileInvalidationProviderFactory::GetInstance() {
 }
 
 ProfileInvalidationProviderFactory::ProfileInvalidationProviderFactory()
-    : BrowserContextKeyedServiceFactory(
-          "InvalidationService",
-          BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory("InvalidationService") {
   DependsOn(IdentityManagerFactory::GetInstance());
   DependsOn(gcm::GCMProfileServiceFactory::GetInstance());
+  DependsOn(instance_id::InstanceIDProfileServiceFactory::GetInstance());
 }
 
 ProfileInvalidationProviderFactory::~ProfileInvalidationProviderFactory() =

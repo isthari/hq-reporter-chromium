@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/one_shot_event.h"
+#include "base/time/time.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -233,7 +234,7 @@ class RulesRegistry : public base::RefCountedThreadSafe<RulesRegistry> {
   // Deserialize the rules from the given Value object and add them to the
   // RulesRegistry.
   void DeserializeAndAddRules(const std::string& extension_id,
-                              std::unique_ptr<base::Value> rules);
+                              absl::optional<base::Value> rules);
 
   // Reports an internal error with the specified params to the extensions
   // client.

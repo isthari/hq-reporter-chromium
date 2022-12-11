@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 
 #import <WebKit/WebKit.h>
 
-#include "base/mac/bundle_locations.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/mac/bundle_locations.h"
+#import "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
 #import "ios/web/js_messaging/page_script_util.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest/include/gtest/gtest.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -76,9 +76,9 @@ NSString* GetPageScript(NSString* script_file_name) {
 NSString* GetSharedScripts() {
   // Scripts must be all injected at once because as soon as __gCrWeb exists,
   // injection is assumed to be done and __gCrWeb.message is used.
-  return [NSString stringWithFormat:@"%@; %@; %@", GetPageScript(@"base_js"),
-                                    GetPageScript(@"common_js"),
-                                    GetPageScript(@"message_js")];
+  return [NSString stringWithFormat:@"%@; %@; %@", GetPageScript(@"gcrweb"),
+                                    GetPageScript(@"common"),
+                                    GetPageScript(@"message")];
 }
 
 }  // namespace test

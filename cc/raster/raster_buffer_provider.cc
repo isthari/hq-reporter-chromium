@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,14 @@
 
 #include <stddef.h>
 
+#include "base/notreached.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/raster/raster_source.h"
 #include "components/viz/common/resources/platform_color.h"
 #include "components/viz/common/resources/resource_format_utils.h"
 #include "skia/ext/legacy_display_globals.h"
 #include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/core/SkMath.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "ui/gfx/geometry/axis_transform2d.h"
@@ -47,6 +49,7 @@ bool IsSupportedPlaybackToMemoryFormat(viz::ResourceFormat format) {
     case viz::BGRA_1010102:
     case viz::YVU_420:
     case viz::YUV_420_BIPLANAR:
+    case viz::YUVA_420_TRIPLANAR:
     case viz::P010:
       return false;
   }
@@ -147,6 +150,7 @@ void RasterBufferProvider::PlaybackToMemory(
     case viz::BGRA_1010102:
     case viz::YVU_420:
     case viz::YUV_420_BIPLANAR:
+    case viz::YUVA_420_TRIPLANAR:
     case viz::P010:
       NOTREACHED();
       return;

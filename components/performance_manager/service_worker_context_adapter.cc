@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/check_op.h"
 #include "base/memory/raw_ptr.h"
 #include "base/notreached.h"
+#include "base/observer_list.h"
 #include "base/scoped_observation.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_process_host_observer.h"
@@ -121,6 +122,7 @@ void ServiceWorkerContextAdapter::UnregisterServiceWorker(
 content::ServiceWorkerExternalRequestResult
 ServiceWorkerContextAdapter::StartingExternalRequest(
     int64_t service_worker_version_id,
+    content::ServiceWorkerExternalRequestTimeoutType timeout_type,
     const std::string& request_uuid) {
   NOTIMPLEMENTED();
   return content::ServiceWorkerExternalRequestResult::kOk;
@@ -190,6 +192,21 @@ void ServiceWorkerContextAdapter::StartWorkerForScope(
     StartWorkerCallback info_callback,
     StatusCodeCallback status_callback) {
   NOTIMPLEMENTED();
+}
+
+bool ServiceWorkerContextAdapter::IsLiveRunningServiceWorker(
+    int64_t service_worker_version_id) {
+  NOTIMPLEMENTED();
+  return false;
+}
+
+service_manager::InterfaceProvider&
+ServiceWorkerContextAdapter::GetRemoteInterfaces(
+    int64_t service_worker_version_id) {
+  NOTIMPLEMENTED();
+  static service_manager::InterfaceProvider interface_provider(
+      base::SingleThreadTaskRunner::GetCurrentDefault());
+  return interface_provider;
 }
 
 void ServiceWorkerContextAdapter::StartServiceWorkerAndDispatchMessage(

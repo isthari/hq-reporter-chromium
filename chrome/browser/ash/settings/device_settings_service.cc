@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/policy/off_hours/device_off_hours_controller.h"
 #include "chrome/browser/ash/policy/off_hours/off_hours_policy_applier.h"
@@ -39,7 +38,7 @@ void DeviceSettingsService::Observer::DeviceSettingsUpdated() {}
 
 void DeviceSettingsService::Observer::OnDeviceSettingsServiceShutdown() {}
 
-static DeviceSettingsService* g_device_settings_service = NULL;
+static DeviceSettingsService* g_device_settings_service = nullptr;
 
 // static
 void DeviceSettingsService::Initialize() {
@@ -56,7 +55,7 @@ bool DeviceSettingsService::IsInitialized() {
 void DeviceSettingsService::Shutdown() {
   DCHECK(g_device_settings_service);
   delete g_device_settings_service;
-  g_device_settings_service = NULL;
+  g_device_settings_service = nullptr;
 }
 
 // static
@@ -96,7 +95,7 @@ DeviceSettingsService::~DeviceSettingsService() {
 }
 
 void DeviceSettingsService::SetSessionManager(
-    chromeos::SessionManagerClient* session_manager_client,
+    SessionManagerClient* session_manager_client,
     scoped_refptr<OwnerKeyUtil> owner_key_util) {
   DCHECK(session_manager_client);
   DCHECK(owner_key_util.get());
@@ -116,7 +115,7 @@ void DeviceSettingsService::UnsetSessionManager() {
 
   if (session_manager_client_)
     session_manager_client_->RemoveObserver(this);
-  session_manager_client_ = NULL;
+  session_manager_client_ = nullptr;
   owner_key_util_.reset();
 }
 
@@ -146,6 +145,19 @@ void DeviceSettingsService::Load() {
   EnqueueLoad(false);
 }
 
+void DeviceSettingsService::LoadIfNotPresent() {
+  // Return if there is already some policy loaded (policy_fetch_response_), or
+  // if there are any pending operations (|pending_operations_| not empty). The
+  // pending operations can be of two types only, load or store. If a loading
+  // operation is in the queue, then a request to load will be issued soon. If a
+  // store operation is pending, then the policy data is already available and
+  // will be stored soon. In either case, it's not needed to load again.
+  if (policy_fetch_response_ || !pending_operations_.empty())
+    return;
+
+  EnqueueLoad(false);
+}
+
 void DeviceSettingsService::LoadImmediately() {
   bool request_key_load = true;
   bool cloud_validations = true;
@@ -172,9 +184,9 @@ void DeviceSettingsService::Store(
 }
 
 DeviceSettingsService::OwnershipStatus
-    DeviceSettingsService::GetOwnershipStatus() {
+DeviceSettingsService::GetOwnershipStatus() {
   if (public_key_.get())
-    return public_key_->is_loaded() ? OWNERSHIP_TAKEN : OWNERSHIP_NONE;
+    return public_key_->is_empty() ? OWNERSHIP_NONE : OWNERSHIP_TAKEN;
   if (device_mode_ == policy::DEVICE_MODE_ENTERPRISE_AD)
     return OWNERSHIP_TAKEN;
   return OWNERSHIP_UNKNOWN;
@@ -184,8 +196,10 @@ void DeviceSettingsService::GetOwnershipStatusAsync(
     OwnershipStatusCallback callback) {
   if (GetOwnershipStatus() != OWNERSHIP_UNKNOWN) {
     // Report status immediately.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(std::move(callback), GetOwnershipStatus()));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&DeviceSettingsService::ValidateOwnershipStatusAndNotify,
+                       weak_factory_.GetWeakPtr(), std::move(callback)));
   } else {
     // If the key hasn't been loaded yet, enqueue the callback to be fired when
     // the next SessionManagerOperation completes. If no operation is pending,
@@ -194,6 +208,18 @@ void DeviceSettingsService::GetOwnershipStatusAsync(
     if (pending_operations_.empty())
       EnqueueLoad(false);
   }
+}
+
+void DeviceSettingsService::ValidateOwnershipStatusAndNotify(
+    OwnershipStatusCallback callback) {
+  if (GetOwnershipStatus() == OWNERSHIP_UNKNOWN) {
+    // OwnerKeySet() could be called upon user sign-in while event was in queue,
+    // which resets status to OWNERSHIP_UNKNOWN.
+    // We need to retry the logic in this case.
+    GetOwnershipStatusAsync(std::move(callback));
+    return;
+  }
+  std::move(callback).Run(GetOwnershipStatus());
 }
 
 bool DeviceSettingsService::HasPrivateOwnerKey() {
@@ -294,8 +320,8 @@ void DeviceSettingsService::EnsureReload(bool request_key_load) {
 void DeviceSettingsService::StartNextOperation() {
   if (!pending_operations_.empty() && session_manager_client_ &&
       owner_key_util_.get()) {
-    pending_operations_.front()->Start(
-        session_manager_client_, owner_key_util_, public_key_);
+    pending_operations_.front()->Start(session_manager_client_, owner_key_util_,
+                                       public_key_);
   }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/aura/window.h"
@@ -82,7 +83,7 @@ void TakeScreenshot(
       std::move(on_screenshot_taken));
   screenshot_request->set_area(request_bounds);
   screenshot_request->set_result_task_runner(
-      base::SequencedTaskRunnerHandle::Get());
+      base::SequencedTaskRunner::GetCurrentDefault());
   screenshot_layer->RequestCopyOfOutput(std::move(screenshot_request));
 }
 
@@ -120,7 +121,7 @@ RootWindowDeskSwitchAnimator::RootWindowDeskSwitchAnimator(
   DCHECK_NE(starting_desk_index_, ending_desk_index_);
   DCHECK(delegate_);
 
-  screenshot_layers_.resize(desks_util::kMaxNumberOfDesks);
+  screenshot_layers_.resize(desks_util::GetMaxNumberOfDesks());
 }
 
 RootWindowDeskSwitchAnimator::~RootWindowDeskSwitchAnimator() {
@@ -178,12 +179,13 @@ void RootWindowDeskSwitchAnimator::StartAnimation() {
 
   // Animate the parent "animation layer" towards the ending transform.
   ui::Layer* animation_layer = animation_layer_owner_->root();
-  ui::ScopedLayerAnimationSettings settings(animation_layer->GetAnimator());
-  settings.SetPreemptionStrategy(
+  ui::ScopedLayerAnimationSettings scoped_settings(
+      animation_layer->GetAnimator());
+  scoped_settings.SetPreemptionStrategy(
       ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET);
-  settings.AddObserver(this);
-  settings.SetTransitionDuration(kAnimationDuration);
-  settings.SetTweenType(gfx::Tween::FAST_OUT_SLOW_IN);
+  scoped_settings.AddObserver(this);
+  scoped_settings.SetTransitionDuration(kAnimationDuration);
+  scoped_settings.SetTweenType(gfx::Tween::FAST_OUT_SLOW_IN);
   animation_layer->SetTransform(animation_layer_ending_transform);
 
   if (for_remove_) {
@@ -194,10 +196,13 @@ void RootWindowDeskSwitchAnimator::StartAnimation() {
     // Translate the old layers of removed desk's windows back down by
     // `kRemovedDeskWindowYTranslation`.
     gfx::Transform transform = old_windows_layer->GetTargetTransform();
-    ui::ScopedLayerAnimationSettings settings(old_windows_layer->GetAnimator());
-    settings.SetPreemptionStrategy(ui::LayerAnimator::ENQUEUE_NEW_ANIMATION);
-    settings.SetTransitionDuration(kRemovedDeskWindowTranslationDuration);
-    settings.SetTweenType(gfx::Tween::EASE_IN);
+    ui::ScopedLayerAnimationSettings scoped_settings_2(
+        old_windows_layer->GetAnimator());
+    scoped_settings_2.SetPreemptionStrategy(
+        ui::LayerAnimator::ENQUEUE_NEW_ANIMATION);
+    scoped_settings_2.SetTransitionDuration(
+        kRemovedDeskWindowTranslationDuration);
+    scoped_settings_2.SetTweenType(gfx::Tween::EASE_IN);
     transform.Translate(0, kRemovedDeskWindowYTranslation);
     old_windows_layer->SetTransform(transform);
   }
@@ -269,8 +274,8 @@ absl::optional<int> RootWindowDeskSwitchAnimator::UpdateSwipeAnimation(
   //  We will notify the delegate to request a new screenshot once the x of b is
   //  within |kMinDistanceBeforeScreenshotDp| of the x of a, not including the
   //  edge padding (i.e. translation of (-190, 0)).
-  gfx::RectF transformed_animation_layer_bounds(animation_layer->bounds());
-  transform.TransformRect(&transformed_animation_layer_bounds);
+  gfx::RectF transformed_animation_layer_bounds =
+      transform.MapRect(gfx::RectF(animation_layer->bounds()));
 
   // `reached_edge_` becomes true if the user has scrolled `animation_layer` to
   // its limits.
@@ -278,7 +283,8 @@ absl::optional<int> RootWindowDeskSwitchAnimator::UpdateSwipeAnimation(
       transformed_animation_layer_bounds.x() == 0 ||
       transformed_animation_layer_bounds.right() == root_window_size_.width();
 
-  transformed_animation_layer_bounds.Inset(edge_padding_width_dp_, 0);
+  transformed_animation_layer_bounds.Inset(
+      gfx::InsetsF::VH(0, edge_padding_width_dp_));
 
   const bool moving_left = scroll_delta_x < 0.f;
   const bool going_out_of_bounds =
@@ -330,9 +336,9 @@ int RootWindowDeskSwitchAnimator::EndSwipeAnimation(bool is_fast_swipe) {
   // local so we do not try to access a member of a deleted object.
   int local_ending_desk_index = -1;
 
-  // For the improvements trial, try animating to `ending_desk_index_`
-  // regardless of how much of it is visible.
-  if (is_fast_swipe && features::AreDesksTrackpadSwipeImprovementsEnabled()) {
+  // Try animating to `ending_desk_index_` regardless of how much of it is
+  // visible.
+  if (is_fast_swipe) {
     local_ending_desk_index = ending_desk_index_;
     // If the ending desk screenshot is underway, it will call
     // `StartAnimation()` when finished.
@@ -356,8 +362,8 @@ int RootWindowDeskSwitchAnimator::EndSwipeAnimation(bool is_fast_swipe) {
     if (layer) {
       const gfx::Transform transform =
           animation_layer_owner_->root()->transform();
-      gfx::RectF screenshot_bounds(layer->bounds());
-      transform.TransformRect(&screenshot_bounds);
+      gfx::RectF screenshot_bounds =
+          transform.MapRect(gfx::RectF(layer->bounds()));
 
       const gfx::RectF root_window_bounds(root_window_->bounds());
       const gfx::RectF intersection_rect =
@@ -390,8 +396,7 @@ int RootWindowDeskSwitchAnimator::GetIndexOfMostVisibleDeskScreenshot() const {
     if (!layer)
       continue;
 
-    gfx::RectF bounds(layer->bounds());
-    transform.TransformRect(&bounds);
+    gfx::Rect bounds = transform.MapRect(layer->bounds());
     const int distance = std::abs(bounds.x());
     if (distance < min_distance) {
       min_distance = distance;

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -117,16 +117,16 @@ public class EntryManagerTest {
     }
 
     /**
-     * Tests capture through to generation of the initial entry.
+     * Tests capture through to generation of the fullpage entry.
      */
     @Test
-    public void testGenerateInitialEntry() {
+    public void testGenerateFullpageEntry() {
         mProcessor.processCapturedTab(FAKE_CAPTURE_ADDR, Status.OK);
         mOnCompositorResultCallback.onResult(CompositorStatus.OK);
         mInOrder.verify(mObserverMock).onStatusChange(eq(EntryStatus.CAPTURE_COMPLETE));
         mInOrder.verify(mObserverMock).onCompositorReady(any(), any());
 
-        LongScreenshotsEntry entry = mEntryManager.generateInitialEntry();
+        LongScreenshotsEntry entry = mEntryManager.generateFullpageEntry();
         assertEquals(EntryStatus.BITMAP_GENERATION_IN_PROGRESS, entry.getStatus());
         mCompleteCaptor.getValue().onResult(mBitmapMock);
         assertEquals(EntryStatus.BITMAP_GENERATED, entry.getStatus());

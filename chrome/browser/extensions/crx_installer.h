@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,6 +44,7 @@ class CrxInstallError;
 class ExtensionService;
 class ExtensionUpdaterTest;
 enum class InstallationStage;
+class MockCrxInstaller;
 class PreloadCheckGroup;
 
 // This class installs a crx file into a profile.
@@ -119,7 +120,7 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
   void InstallCrx(const base::FilePath& source_file);
 
   // Install the crx in |source_file|.
-  void InstallCrxFile(const CRXFileInfo& source_file);
+  virtual void InstallCrxFile(const CRXFileInfo& source_file);
 
   // Install the unpacked crx in |unpacked_dir|.
   // If |delete_source_| is true, |unpacked_dir| will be removed at the end of
@@ -145,6 +146,13 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
   void InitializeCreationFlagsForUpdate(const Extension* extension,
                                         const int initial_flags);
 
+  // Adds a callback that will be run once the installation finishes
+  // (successfully or not).
+  // The added callbacks will be run in the order in which they were added
+  // (FIFO).
+  // Virtual for testing.
+  virtual void AddInstallerCallback(InstallerResultCallback callback);
+
   int creation_flags() const { return creation_flags_; }
   void set_creation_flags(int val) { creation_flags_ = val; }
 
@@ -161,11 +169,6 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
   // Expected SHA256 hash sum for the package.
   const std::string& expected_hash() const { return expected_hash_; }
   void set_expected_hash(const std::string& val) { expected_hash_ = val; }
-
-  bool verification_check_failed() const { return verification_check_failed_; }
-  void set_verification_check_failed(bool val) {
-    verification_check_failed_ = val;
-  }
 
   // Set the exact version the installed extension should have. If
   // |fail_install_if_unexpected| is true, installation will fail if the actual
@@ -195,6 +198,7 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
     else
       creation_flags_ &= ~Extension::FROM_WEBSTORE;
   }
+  void set_withhold_permissions();
 
   // If |apps_require_extension_mime_type_| is set to true, be sure to set
   // |original_mime_type_| as well.
@@ -239,9 +243,6 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
     set_install_flag(kInstallFlagBypassedSafeBrowsingFriction, val);
   }
 
-  // Virtual for testing.
-  virtual void set_installer_callback(InstallerResultCallback callback);
-
   // Callback to be invoked when the crx file has passed the expectations check
   // after unpack success and the ownership of the crx file lies with the
   // installer. The callback is passed the ownership of the crx file.
@@ -258,10 +259,17 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
   // invalid if this isn't an update.
   const base::Version& current_version() const { return current_version_; }
 
+ protected:
+  // Run all callbacks received in AddInstallerCallback with the given error.
+  // Protected so that FakeCrxInstaller can expose it.
+  void RunInstallerCallbacks(const absl::optional<CrxInstallError>& error);
+
  private:
   friend class ::ExtensionServiceTest;
   friend class BookmarkAppInstallFinalizerTest;
   friend class ExtensionUpdaterTest;
+  friend class FakeCrxInstaller;
+  friend class MockCrxInstaller;
 
   CrxInstaller(base::WeakPtr<ExtensionService> service_weak,
                std::unique_ptr<ExtensionInstallPrompt> client,
@@ -372,7 +380,7 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
   base::SequencedTaskRunner* GetUnpackerTaskRunner();
 
   // The Profile the extension is being installed in.
-  raw_ptr<Profile> profile_;
+  raw_ptr<Profile, DanglingUntriaged> profile_;
 
   // Prevent Profile destruction until the CrxInstaller is done.
   std::unique_ptr<ScopedProfileKeepAlive> profile_keep_alive_;
@@ -408,10 +416,6 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
 
   // An expected hash sum for the .crx file.
   std::string expected_hash_;
-
-  // True if installation failed due to a hash sum mismatch or expectations
-  // mismatch.
-  bool verification_check_failed_;
 
   // A copy of the expected manifest, before any transformations like
   // localization have taken place. If |approved_| is true, then the extension's
@@ -547,7 +551,7 @@ class CrxInstaller : public SandboxedUnpackerClient, public ProfileObserver {
   std::unique_ptr<PreloadCheckGroup> check_group_;
 
   // Invoked when the install is completed.
-  InstallerResultCallback installer_callback_;
+  std::vector<InstallerResultCallback> installer_callbacks_;
 
   // Invoked when the expectations from CRXFileInfo match with the crx file
   // after unpack success.

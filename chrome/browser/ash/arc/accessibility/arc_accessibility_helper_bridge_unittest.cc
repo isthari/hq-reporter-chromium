@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,7 +45,6 @@
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/public/activation_change_observer.h"
-#include "ui/wm/public/wm_public_export.h"
 
 using ash::ArcNotificationItem;
 using ash::ArcNotificationSurface;
@@ -191,7 +190,7 @@ class ArcAccessibilityHelperBridgeTest : public ChromeViewsTestBase {
   std::unique_ptr<message_center::Notification> CreateNotification() {
     auto notification = std::make_unique<message_center::Notification>(
         message_center::NOTIFICATION_TYPE_CUSTOM, kNotificationKey, u"title",
-        u"message", gfx::Image(), u"display_source", GURL(),
+        u"message", ui::ImageModel(), u"display_source", GURL(),
         message_center::NotifierId(
             message_center::NotifierType::ARC_APPLICATION, "test_app_id"),
         message_center::RichNotificationData(), nullptr);
@@ -202,7 +201,8 @@ class ArcAccessibilityHelperBridgeTest : public ChromeViewsTestBase {
   std::unique_ptr<ArcNotificationView> CreateArcNotificationView(
       ArcNotificationItem* item,
       const message_center::Notification& notification) {
-    return std::make_unique<ArcNotificationView>(item, notification);
+    return std::make_unique<ArcNotificationView>(item, notification,
+                                                 /*shown_in_popup=*/false);
   }
 
  protected:
@@ -233,8 +233,8 @@ TEST_F(ArcAccessibilityHelperBridgeTest, AnnouncementEvent) {
 
   ASSERT_EQ(1, helper_bridge->GetEventCount(event_name));
   ASSERT_EQ(event_name, helper_bridge->last_event->event_name);
-  base::Value::ConstListView arg =
-      helper_bridge->last_event->event_args->GetList()[0].GetList();
+  const base::Value::List& arg =
+      helper_bridge->last_event->event_args[0].GetList();
   ASSERT_EQ(1U, arg.size());
   ASSERT_EQ(announce_text, arg[0].GetString());
 }
@@ -263,8 +263,8 @@ TEST_F(ArcAccessibilityHelperBridgeTest, NotificationStateChangedEvent) {
 
   ASSERT_EQ(1, helper_bridge->GetEventCount(event_name));
   ASSERT_EQ(event_name, helper_bridge->last_event->event_name);
-  base::Value::ConstListView arg =
-      helper_bridge->last_event->event_args->GetList()[0].GetList();
+  const base::Value::List& arg =
+      helper_bridge->last_event->event_args[0].GetList();
   ASSERT_EQ(1U, arg.size());
   ASSERT_EQ(toast_text, arg[0].GetString());
 

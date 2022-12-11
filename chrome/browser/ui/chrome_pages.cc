@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/metrics/user_metrics.h"
+#include "base/strings/escape.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -24,6 +25,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
+#include "chrome/browser/ui/ash/system_web_apps/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
@@ -32,12 +34,10 @@
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/webui/bookmarks/bookmarks_ui.h"
 #include "chrome/browser/ui/webui/settings/site_settings_helper.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/url_constants.h"
-#include "chromeos/login/login_state/login_state.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/signin/public/base/consent_level.h"
@@ -45,7 +45,6 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_urls.h"
-#include "net/base/escape.h"
 #include "net/base/url_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/window_open_disposition.h"
@@ -54,7 +53,6 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/constants/ash_features.h"
 #include "ash/webui/connectivity_diagnostics/url_constants.h"
-#include "base/metrics/histogram_functions.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes_util.h"
@@ -63,9 +61,15 @@
 #endif
 
 #if !BUILDFLAG(IS_ANDROID)
+#include "base/metrics/histogram_functions.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
+#endif
+
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_FUCHSIA)
+#include "chrome/browser/web_applications/web_app_utils.h"
 #endif
 
 using base::UserMetricsAction;
@@ -98,13 +102,12 @@ void OpenBookmarkManagerForNode(Browser* browser, int64_t node_id) {
 }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
-void LaunchReleaseNotesImpl(Profile* profile,
-                            apps::mojom::LaunchSource source) {
+void LaunchReleaseNotesImpl(Profile* profile, apps::LaunchSource source) {
   base::RecordAction(UserMetricsAction("ReleaseNotes.ShowReleaseNotes"));
-  web_app::SystemAppLaunchParams params;
+  ash::SystemAppLaunchParams params;
   params.url = GURL("chrome://help-app/updates");
   params.launch_source = source;
-  LaunchSystemWebAppAsync(profile, web_app::SystemAppType::HELP, params);
+  LaunchSystemWebAppAsync(profile, ash::SystemWebAppType::HELP, params);
 }
 #endif
 
@@ -115,27 +118,31 @@ void LaunchReleaseNotesImpl(Profile* profile,
 void ShowHelpImpl(Browser* browser, Profile* profile, HelpSource source) {
   base::RecordAction(UserMetricsAction("ShowHelpTab"));
 #if BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  auto app_launch_source = apps::mojom::LaunchSource::kUnknown;
+  auto app_launch_source = apps::LaunchSource::kUnknown;
   switch (source) {
     case HELP_SOURCE_KEYBOARD:
-      app_launch_source = apps::mojom::LaunchSource::kFromKeyboard;
+      app_launch_source = apps::LaunchSource::kFromKeyboard;
       break;
     case HELP_SOURCE_MENU:
-      app_launch_source = apps::mojom::LaunchSource::kFromMenu;
+      app_launch_source = apps::LaunchSource::kFromMenu;
       break;
     case HELP_SOURCE_WEBUI:
     case HELP_SOURCE_WEBUI_CHROME_OS:
-      app_launch_source = apps::mojom::LaunchSource::kFromOtherApp;
+      app_launch_source = apps::LaunchSource::kFromOtherApp;
       break;
     default:
       NOTREACHED() << "Unhandled help source" << source;
   }
 
-  web_app::SystemAppLaunchParams params;
+  ash::SystemAppLaunchParams params;
   params.launch_source = app_launch_source;
-  LaunchSystemWebAppAsync(profile, web_app::SystemAppType::HELP, params);
+  LaunchSystemWebAppAsync(profile, ash::SystemWebAppType::HELP, params);
 #else
   GURL url;
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // If this is Lacros, forward the request to Ash.
+  url = GURL(kOsUIHelpAppURL);
+#else
   switch (source) {
     case HELP_SOURCE_KEYBOARD:
       url = GURL(kChromeHelpViaKeyboardURL);
@@ -154,17 +161,18 @@ void ShowHelpImpl(Browser* browser, Profile* profile, HelpSource source) {
     case HELP_SOURCE_WEBUI:
       url = GURL(kChromeHelpViaWebUIURL);
       break;
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
     default:
       NOTREACHED() << "Unhandled help source " << source;
   }
+#endif  // BUILDFLAG_IS_CHROMEOS_LACROS)
   std::unique_ptr<ScopedTabbedBrowserDisplayer> displayer;
   if (!browser) {
     displayer = std::make_unique<ScopedTabbedBrowserDisplayer>(profile);
     browser = displayer->browser();
   }
   ShowSingletonTab(browser, url);
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
 }
 
 std::string GenerateContentSettingsExceptionsSubPage(ContentSettingsType type) {
@@ -184,8 +192,7 @@ std::string GenerateContentSettingsExceptionsSubPage(ContentSettingsType type) {
            {ContentSettingsType::MEDIASTREAM_MIC, "microphone"},
            {ContentSettingsType::MEDIASTREAM_CAMERA, "camera"},
            {ContentSettingsType::MIDI_SYSEX, "midiDevices"},
-           {ContentSettingsType::ADS, "ads"},
-           {ContentSettingsType::PPAPI_BROKER, "unsandboxedPlugins"}});
+           {ContentSettingsType::ADS, "ads"}});
   const auto* it = kSettingsPathOverrides.find(type);
 
   return base::StrCat({kContentSettingsSubPage, "/",
@@ -218,6 +225,20 @@ void ShowSiteSettingsImpl(Browser* browser, Profile* profile, const GURL& url) {
   Navigate(&params);
 }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+void ShowSystemAppInternal(Profile* profile, const ash::SystemWebAppType type) {
+  ash::SystemAppLaunchParams params;
+  params.launch_source = apps::LaunchSource::kUnknown;
+  ash::LaunchSystemWebAppAsync(profile, type, params);
+}
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+void ShowSystemAppInternal(Profile* profile, const GURL& url) {
+  std::unique_ptr<ScopedTabbedBrowserDisplayer> displayer =
+      std::make_unique<ScopedTabbedBrowserDisplayer>(profile);
+  ShowSingletonTab(displayer->browser(), url);
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
 }  // namespace
 
 void ShowBookmarkManager(Browser* browser) {
@@ -244,9 +265,12 @@ void ShowHistory(Browser* browser, const std::string& host_name) {
   base::RecordAction(UserMetricsAction("ShowHistory"));
   GURL url = GURL(kChromeUIHistoryURL);
   if (!host_name.empty()) {
-    url = url.Resolve(base::StringPrintf(
-        "/?q=%s",
-        net::EscapeQueryParamValue(host_name, /*use_plus=*/false).c_str()));
+    GURL::Replacements replacements;
+    std::string query("q=");
+    query += base::EscapeQueryParamValue(base::StrCat({"host:", host_name}),
+                                         /*use_plus=*/false);
+    replacements.SetQueryStr(query);
+    url = url.ReplaceComponents(replacements);
   }
   ShowSingletonTabIgnorePathOverwriteNTP(browser, url);
 }
@@ -284,7 +308,7 @@ void ShowHelp(Browser* browser, HelpSource source) {
 }
 
 void ShowHelpForProfile(Profile* profile, HelpSource source) {
-  ShowHelpImpl(NULL, profile, source);
+  ShowHelpImpl(nullptr, profile, source);
 }
 
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
@@ -298,7 +322,7 @@ void ShowChromeWhatsNew(Browser* browser) {
 }
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 
-void LaunchReleaseNotes(Profile* profile, apps::mojom::LaunchSource source) {
+void LaunchReleaseNotes(Profile* profile, apps::LaunchSource source) {
 #if BUILDFLAG(IS_CHROMEOS_ASH) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
   LaunchReleaseNotesImpl(profile, source);
 #endif
@@ -448,6 +472,43 @@ void ShowPrivacySandboxSettings(Browser* browser) {
   ShowSettingsSubPage(browser, kPrivacySandboxSubPage);
 }
 
+void ShowPrivacySandboxAdPersonalization(Browser* browser) {
+  base::RecordAction(UserMetricsAction("Options_ShowPrivacySandbox"));
+  ShowSettingsSubPage(browser, kPrivacySandboxAdPersonalizationSubPage);
+}
+
+void ShowPrivacySandboxLearnMore(Browser* browser) {
+  base::RecordAction(UserMetricsAction("Options_ShowPrivacySandbox"));
+  ShowSettingsSubPage(browser, kPrivacySandboxLearnMoreSubPage);
+}
+
+void ShowAddresses(Browser* browser) {
+  base::RecordAction(UserMetricsAction("Options_ShowAddresses"));
+  ShowSettingsSubPage(browser, kAddressesSubPage);
+}
+
+void ShowPaymentMethods(Browser* browser) {
+  base::RecordAction(UserMetricsAction("Options_ShowPaymentMethods"));
+  ShowSettingsSubPage(browser, kPaymentsSubPage);
+}
+
+void ShowAllSitesSettingsFilteredByFpsOwner(
+    Browser* browser,
+    const std::string& fps_owner_host_name) {
+  GURL url = GetSettingsUrl(kAllSitesSettingsSubpage);
+  if (!fps_owner_host_name.empty()) {
+    GURL::Replacements replacements;
+    std::string query("searchSubpage=");
+    query += base::EscapeQueryParamValue(
+        base::StrCat({"related:", fps_owner_host_name}),
+        /*use_plus=*/false);
+    replacements.SetQueryStr(query);
+    url = url.ReplaceComponents(replacements);
+  }
+
+  ShowSingletonTabIgnorePathOverwriteNTP(browser, url);
+}
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 void ShowEnterpriseManagementPageInTabbedBrowser(Browser* browser) {
   // Management shows in a tab because it has a "back" arrow that takes the
@@ -471,31 +532,6 @@ void ShowAppManagementPage(Profile* profile,
                                                                sub_page);
 }
 
-void ShowPrintManagementApp(Profile* profile) {
-  LaunchSystemWebAppAsync(profile, web_app::SystemAppType::PRINT_MANAGEMENT);
-}
-
-void ShowConnectivityDiagnosticsApp(Profile* profile) {
-  LaunchSystemWebAppAsync(profile,
-                          web_app::SystemAppType::CONNECTIVITY_DIAGNOSTICS);
-}
-
-void ShowScanningApp(Profile* profile) {
-  LaunchSystemWebAppAsync(profile, web_app::SystemAppType::SCANNING);
-}
-
-void ShowDiagnosticsApp(Profile* profile) {
-  DCHECK(base::FeatureList::IsEnabled(chromeos::features::kDiagnosticsApp));
-
-  LaunchSystemWebAppAsync(profile, web_app::SystemAppType::DIAGNOSTICS);
-}
-
-void ShowFirmwareUpdatesApp(Profile* profile) {
-  DCHECK(base::FeatureList::IsEnabled(chromeos::features::kFirmwareUpdaterApp));
-
-  LaunchSystemWebAppAsync(profile, web_app::SystemAppType::FIRMWARE_UPDATE);
-}
-
 GURL GetOSSettingsUrl(const std::string& sub_page) {
   DCHECK(sub_page.empty() || chromeos::settings::IsOSSettingsSubPage(sub_page))
       << sub_page;
@@ -503,6 +539,48 @@ GURL GetOSSettingsUrl(const std::string& sub_page) {
   return GURL(url + sub_page);
 }
 #endif
+
+void ShowPrintManagementApp(Profile* profile) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ShowSystemAppInternal(profile, ash::SystemWebAppType::PRINT_MANAGEMENT);
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  ShowSystemAppInternal(profile, GURL(kOsUIPrintManagementAppURL));
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+}
+
+void ShowConnectivityDiagnosticsApp(Profile* profile) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ShowSystemAppInternal(profile,
+                        ash::SystemWebAppType::CONNECTIVITY_DIAGNOSTICS);
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  ShowSystemAppInternal(profile, GURL(kOsUIConnectivityDiagnosticsAppURL));
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+}
+
+void ShowScanningApp(Profile* profile) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ShowSystemAppInternal(profile, ash::SystemWebAppType::SCANNING);
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  ShowSystemAppInternal(profile, GURL(kOsUIScanningAppURL));
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+}
+
+void ShowDiagnosticsApp(Profile* profile) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ShowSystemAppInternal(profile, ash::SystemWebAppType::DIAGNOSTICS);
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  ShowSystemAppInternal(profile, GURL(kOsUIDiagnosticsAppURL));
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+}
+
+void ShowFirmwareUpdatesApp(Profile* profile) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  DCHECK(base::FeatureList::IsEnabled(ash::features::kFirmwareUpdaterApp));
+  ShowSystemAppInternal(profile, ash::SystemWebAppType::FIRMWARE_UPDATE);
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  ShowSystemAppInternal(profile, GURL(kOsUIFirmwareUpdaterAppURL));
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+}
 
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
 // SigninViewController::ShowSignin is only available with DICE
@@ -549,8 +627,14 @@ void ShowBrowserSigninOrSettings(Browser* browser,
 }
 #endif
 
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
-void ShowWebAppSettings(Browser* browser, const std::string& app_id) {
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_FUCHSIA)
+void ShowWebAppSettings(Browser* browser,
+                        const std::string& app_id,
+                        web_app::AppSettingsPageEntryPoint entry_point) {
+  base::UmaHistogramEnumeration(
+      web_app::kAppSettingsPageEntryPointsHistogramName, entry_point);
+
   const GURL link_destination(chrome::kChromeUIWebAppSettingsURL + app_id);
   NavigateParams params(browser->profile(), link_destination,
                         ui::PAGE_TRANSITION_TYPED);

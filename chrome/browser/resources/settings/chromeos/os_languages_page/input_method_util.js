@@ -1,13 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
+import {assert, assertNotReached} from 'chrome://resources/js/assert.js';
 
-import {Route} from '../../router.js';
-import {routes} from '../os_route.m.js';
+import {loadTimeData} from '../../i18n_setup.js';
+import {Route} from '../router.js';
+import {routes} from '../os_route.js';
 
 import {getInputMethodSettings, SettingsType} from './input_method_settings.js';
+import {JAPANESE_INPUT_MODE, JAPANESE_KEYMAP_STYLE, JAPANESE_PUNCTUATION_STYLE, JAPANESE_SECTION_SHORTCUT, JAPANESE_SHIFT_KEY_MODE_STYLE, JAPANESE_SPACE_INPUT_STYLE, JAPANESE_SYMBOL_STYLE} from './input_method_types.js';
+
 
 /**
  * @fileoverview constants related to input method options.
@@ -18,6 +21,14 @@ import {getInputMethodSettings, SettingsType} from './input_method_settings.js';
  */
 export const FIRST_PARTY_INPUT_METHOD_ID_PREFIX =
     '_comp_ime_jkghodnilhceideoidjikpgommlajknk';
+
+/**
+ * The preference string used to indicate a user has autocorrect enabled by
+ * default for a particular engine. See the following for more details
+ * https://crsrc.org/chrome/browser/ash/input_method/autocorrect_prefs.cc
+ */
+export const PHYSICAL_KEYBOARD_AUTOCORRECT_ENABLED_BY_DEFAULT =
+    'physicalKeyboardAutoCorrectionEnabledByDefault';
 
 /**
  * All possible keyboard layouts. Should match Google3.
@@ -39,7 +50,7 @@ const KeyboardLayout = {
   SET3_YET: '3 Set (Old Hangul) / 세벌식 (옛글)',
   XKB_US: 'US',
   XKB_DVORAK: 'Dvorak',
-  XKB_COLEMAK: 'Colemak'
+  XKB_COLEMAK: 'Colemak',
 };
 
 /**
@@ -60,9 +71,28 @@ export const OptionType = {
       'physicalKeyboardEnableCapitalization',
   PHYSICAL_KEYBOARD_ENABLE_PREDICTIVE_WRITING:
       'physicalKeyboardEnablePredictiveWriting',
+  PHYSICAL_KEYBOARD_ENABLE_DIACRITICS_ON_LONGPRESS:
+      'physicalKeyboardEnableDiacriticsOnLongpress',
   VIRTUAL_KEYBOARD_AUTO_CORRECTION_LEVEL: 'virtualKeyboardAutoCorrectionLevel',
   VIRTUAL_KEYBOARD_ENABLE_CAPITALIZATION: 'virtualKeyboardEnableCapitalization',
   XKB_LAYOUT: 'xkbLayout',
+  // Options for Japanese input method.
+  JAPANESE_AUTOMATICALLY_SWITCH_TO_HALFWIDTH: 'AutomaticallySwitchToHalfwidth',
+  JAPANESE_SHIFT_KEY_MODE_STYLE: 'ShiftKeyModeStyle',
+  JAPANESE_USE_INPUT_HISTORY: 'UseInputHistory',
+  JAPANESE_USE_SYSTEM_DICTIONARY: 'UseSystemDictionary',
+  JAPANESE_NUMBER_OF_SUGGESTIONS: 'numberOfSuggestions',
+  JAPANESE_INPUT_MODE: 'JapaneseInputMode',
+  JAPANESE_PUNCTUATION_STYLE: 'JapanesePunctuationStyle',
+  JAPANESE_SYMBOL_STYLE: 'JapaneseSymbolStyle',
+  JAPANESE_SPACE_INPUT_STYLE: 'JapaneseSpaceInputStyle',
+  JAPANESE_SECTION_SHORTCUT: 'JapaneseSectionShortcut',
+  JAPANESE_KEYMAP_STYLE: 'JapaneseKeymapStyle',
+  JAPANESE_MANAGE_USER_DICTIONARY: 'JapaneseManageUserDictionary',
+  JAPANESE_CLEAR_PERSONALIZATION_DATA: 'JapaneseClearPersonalizationData',
+  JAPANESE_DISABLE_PERSONALIZED_SUGGESTIONS: 'JapaneseDisableSuggestions',
+  JAPANESE_AUTOMATICALLY_SEND_STATISTICS_TO_GOOGLE:
+      'AutomaticallySendStatisticsToGoogle',
   // Options for Korean input method.
   KOREAN_ENABLE_SYLLABLE_INPUT: 'koreanEnableSyllableInput',
   KOREAN_KEYBOARD_LAYOUT: 'koreanKeyboardLayout',
@@ -106,12 +136,33 @@ export const OPTION_DEFAULT = {
   [OptionType.ENABLE_GESTURE_TYPING]: true,
   [OptionType.ENABLE_PREDICTION]: false,
   [OptionType.ENABLE_SOUND_ON_KEYPRESS]: false,
+  [OptionType.JAPANESE_AUTOMATICALLY_SWITCH_TO_HALFWIDTH]: true,
+  [OptionType.JAPANESE_SHIFT_KEY_MODE_STYLE]:
+      JAPANESE_SHIFT_KEY_MODE_STYLE.ALPHANUMERIC,
+  [OptionType.JAPANESE_USE_INPUT_HISTORY]: true,
+  [OptionType.JAPANESE_USE_SYSTEM_DICTIONARY]: true,
+  [OptionType.JAPANESE_NUMBER_OF_SUGGESTIONS]: 3,
   [OptionType.PHYSICAL_KEYBOARD_AUTO_CORRECTION_LEVEL]: 0,
   [OptionType.PHYSICAL_KEYBOARD_ENABLE_CAPITALIZATION]: true,
   [OptionType.PHYSICAL_KEYBOARD_ENABLE_PREDICTIVE_WRITING]: true,
+  [OptionType.PHYSICAL_KEYBOARD_ENABLE_DIACRITICS_ON_LONGPRESS]: true,
   [OptionType.VIRTUAL_KEYBOARD_AUTO_CORRECTION_LEVEL]: 1,
   [OptionType.VIRTUAL_KEYBOARD_ENABLE_CAPITALIZATION]: true,
   [OptionType.XKB_LAYOUT]: 'US',
+  // Options for Japanese input methods.
+  [OptionType.JAPANESE_INPUT_MODE]: JAPANESE_INPUT_MODE.ROMAJI,
+  [OptionType.JAPANESE_PUNCTUATION_STYLE]:
+      JAPANESE_PUNCTUATION_STYLE.KUTEN_TOUTEN,
+  [OptionType.JAPANESE_SYMBOL_STYLE]:
+      JAPANESE_SYMBOL_STYLE.CORNER_BRACKET_MIDDLE_DOT,
+  [OptionType.JAPANESE_SPACE_INPUT_STYLE]:
+      JAPANESE_SPACE_INPUT_STYLE.INPUT_MODE,
+  [OptionType.JAPANESE_SECTION_SHORTCUT]:
+      JAPANESE_SECTION_SHORTCUT.DIGITS_123456789,
+  [OptionType.JAPANESE_KEYMAP_STYLE]: JAPANESE_KEYMAP_STYLE.CUSTOM,
+  [OptionType.JAPANESE_DISABLE_PERSONALIZED_SUGGESTIONS]: true,
+  [OptionType.JAPANESE_AUTOMATICALLY_SEND_STATISTICS_TO_GOOGLE]: true,
+
   // Options for Korean input method.
   [OptionType.KOREAN_ENABLE_SYLLABLE_INPUT]: true,
   [OptionType.KOREAN_KEYBOARD_LAYOUT]: KeyboardLayout.SET2,
@@ -134,12 +185,46 @@ export const OPTION_DEFAULT = {
     r_l: undefined,
     s_sh: undefined,
     uan_uang: undefined,
-    z_zh: undefined
+    z_zh: undefined,
   },
   // Options for zhuyin input method.
   [OptionType.ZHUYIN_KEYBOARD_LAYOUT]: KeyboardLayout.STANDARD,
-  [OptionType.ZHUYIN_PAGE_SIZE]: 10,
+  [OptionType.ZHUYIN_PAGE_SIZE]: '10',
   [OptionType.ZHUYIN_SELECT_KEYS]: '1234567890',
+};
+
+/**
+ * @param {OptionType} optionName The option we want the default value for.
+ * @param {Object<OptionType, *>} overrides List of values to use instead of
+ *    the default values.
+ * @return {*} The default, or overriden value.
+ */
+export function getDefaultValue(optionName, overrides) {
+  // Overrides are only coming from the following flag, let's be safe here and
+  // only enable this branch if the flag is also enabled.
+  if (!loadTimeData.getBoolean('autocorrectEnableByDefault')) {
+    return OPTION_DEFAULT[optionName];
+  }
+  return optionName in overrides ? overrides[optionName] :
+                                   OPTION_DEFAULT[optionName];
+}
+
+/**
+ * Type conversions functions for reading and writing options.
+ *
+ * WARNING: Keep this in sync with shouldStoreAsNumber
+ *
+ * @const
+ */
+export const OPTION_MAP = {
+  [OptionType.PHYSICAL_KEYBOARD_AUTO_CORRECTION_LEVEL]: {
+    mapValueForDisplay: (value) => value > 0 ? true : false,
+    mapValueForWrite: (value) => value ? 1 : 0,
+  },
+  [OptionType.VIRTUAL_KEYBOARD_AUTO_CORRECTION_LEVEL]: {
+    mapValueForDisplay: (value) => value > 0 ? true : false,
+    mapValueForWrite: (value) => value ? 1 : 0,
+  },
 };
 
 /**
@@ -148,54 +233,129 @@ export const OPTION_DEFAULT = {
  * @enum {string}
  */
 export const UiType = {
-  TOGGLE_BUTTON: 'toggleButton',
   DROPDOWN: 'dropdown',
   LINK: 'link',
+  SUBMENU_BUTTON: 'submenuButton',
+  TOGGLE_BUTTON: 'toggleButton',
 };
 
+/**
+ * All possible submenu button types.
+ *
+ * @enum {string}
+ */
+export const SubmenuButton = {
+  JAPANESE_CLEAR_PERSONALIZATION_DATA: 'SubmenuButtonClearPersonalizedData',
+};
+
+/**
+ * All possible Settings headers
+ *
+ * @enum {string}
+ */
+const SettingsHeaders = {
+  ADVANCED: 'advanced',
+  BASIC: 'basic',
+  INPUT_ASSISTANCE: 'inputAssistance',
+  PHYSICAL_KEYBOARD: 'physicalKeyboard',
+  PRIVACY: 'privacy',
+  SUGGESTIONS: 'suggestions',
+  USER_DICTIONARIES: 'userDictionaries',
+  VIRTUAL_KEYBOARD: 'virtualKeyboard',
+};
+
+/**
+ * Contents of the settings page for different settings types.
+ * These should be in the order they are expected to appear in
+ * the actual settings pages.
+ *
+ * @type {Object<SettingsType, !Array<{title: SettingsHeaders, optionNames:
+ * !Array<OptionType>}>>}
+ */
 const Settings = {
-  [SettingsType.LATIN_SETTINGS]: {
-    physicalKeyboard: [{
-      name: OptionType.PHYSICAL_KEYBOARD_AUTO_CORRECTION_LEVEL,
-    }],
-    virtualKeyboard: [
-      {name: OptionType.ENABLE_SOUND_ON_KEYPRESS}, {
-        name: OptionType.VIRTUAL_KEYBOARD_AUTO_CORRECTION_LEVEL,
-        dependentOptions: [
-          OptionType.VIRTUAL_KEYBOARD_ENABLE_CAPITALIZATION,
-        ]
-      },
-      {name: OptionType.ENABLE_GESTURE_TYPING},
-      {name: OptionType.ENABLE_DOUBLE_SPACE_PERIOD},
-      {name: OptionType.EDIT_USER_DICT}
-    ],
-    basic: [],
-    advanced: [],
-    suggestions: [],
-  },
-  [SettingsType.ZHUYIN_SETTINGS]: {
-    physicalKeyboard: [
+  [SettingsType.LATIN_SETTINGS]: [
+    {
+      title: SettingsHeaders.PHYSICAL_KEYBOARD,
+      optionNames: [{
+        name: OptionType.PHYSICAL_KEYBOARD_AUTO_CORRECTION_LEVEL,
+      }],
+    },
+    {
+      title: SettingsHeaders.VIRTUAL_KEYBOARD,
+      optionNames: [
+        {name: OptionType.ENABLE_SOUND_ON_KEYPRESS},
+        {
+          name: OptionType.VIRTUAL_KEYBOARD_AUTO_CORRECTION_LEVEL,
+          dependentOptions: [
+            OptionType.VIRTUAL_KEYBOARD_ENABLE_CAPITALIZATION,
+          ],
+        },
+        {name: OptionType.ENABLE_GESTURE_TYPING},
+        {name: OptionType.ENABLE_DOUBLE_SPACE_PERIOD},
+        {name: OptionType.EDIT_USER_DICT},
+      ],
+    },
+  ],
+  [SettingsType.JAPANESE_SETTINGS]: [
+    {
+      title: SettingsHeaders.BASIC,
+      optionNames: [
+        {name: OptionType.JAPANESE_INPUT_MODE},
+        {name: OptionType.JAPANESE_PUNCTUATION_STYLE},
+        {name: OptionType.JAPANESE_SYMBOL_STYLE},
+        {name: OptionType.JAPANESE_SPACE_INPUT_STYLE},
+        {name: OptionType.JAPANESE_SECTION_SHORTCUT},
+        {name: OptionType.JAPANESE_KEYMAP_STYLE},
+      ],
+    },
+    {
+      title: SettingsHeaders.INPUT_ASSISTANCE,
+      optionNames: [
+        {name: OptionType.JAPANESE_AUTOMATICALLY_SWITCH_TO_HALFWIDTH},
+        {name: OptionType.JAPANESE_SHIFT_KEY_MODE_STYLE},
+      ],
+    },
+    {
+      title: SettingsHeaders.SUGGESTIONS,
+      optionNames: [
+        {name: OptionType.JAPANESE_USE_INPUT_HISTORY},
+        {name: OptionType.JAPANESE_USE_SYSTEM_DICTIONARY},
+        {name: OptionType.JAPANESE_NUMBER_OF_SUGGESTIONS},
+      ],
+    },
+    {
+      title: SettingsHeaders.USER_DICTIONARIES,
+      optionNames: [{
+        name: OptionType.JAPANESE_MANAGE_USER_DICTIONARY,
+      }],
+    },
+    {
+      title: SettingsHeaders.PRIVACY,
+      optionNames: [
+        {name: OptionType.JAPANESE_CLEAR_PERSONALIZATION_DATA},
+        {name: OptionType.JAPANESE_DISABLE_PERSONALIZED_SUGGESTIONS},
+        {name: OptionType.JAPANESE_AUTOMATICALLY_SEND_STATISTICS_TO_GOOGLE},
+      ],
+    },
+  ],
+  [SettingsType.ZHUYIN_SETTINGS]: [{
+    title: SettingsHeaders.PHYSICAL_KEYBOARD,
+    optionNames: [
       {name: OptionType.ZHUYIN_KEYBOARD_LAYOUT},
       {name: OptionType.ZHUYIN_SELECT_KEYS},
       {name: OptionType.ZHUYIN_PAGE_SIZE},
     ],
-    virtualKeyboard: [],
-    basic: [],
-    advanced: [],
-    suggestions: [],
-  },
-  [SettingsType.KOREAN_SETTINGS]: {
-    basic: [
+  }],
+  [SettingsType.KOREAN_SETTINGS]: [{
+    title: SettingsHeaders.BASIC,
+    optionNames: [
       {name: OptionType.KOREAN_KEYBOARD_LAYOUT},
       {name: OptionType.KOREAN_ENABLE_SYLLABLE_INPUT},
     ],
-    virtualKeyboard: [],
-    advanced: [],
-    physicalKeyboard: [],
-    suggestions: [],
-  },
-  [SettingsType.PINYIN_FUZZY_SETTINGS]: {
-    advanced: [{
+  }],
+  [SettingsType.PINYIN_FUZZY_SETTINGS]: [{
+    title: SettingsHeaders.ADVANCED,
+    optionNames: [{
       name: OptionType.PINYIN_ENABLE_FUZZY,
       dependentOptions: [
         OptionType.PINYIN_AN_ANG,
@@ -210,55 +370,51 @@ const Settings = {
         OptionType.PINYIN_L_N,
         OptionType.PINYIN_S_SH,
         OptionType.PINYIN_Z_ZH,
-      ]
+      ],
     }],
-    virtualKeyboard: [],
-    basic: [],
-    physicalKeyboard: [],
-    suggestions: [],
-  },
-  [SettingsType.PINYIN_SETTINGS]: {
-    physicalKeyboard: [
-      {name: OptionType.XKB_LAYOUT},
-      {name: OptionType.PINYIN_ENABLE_UPPER_PAGING},
-      {name: OptionType.PINYIN_ENABLE_LOWER_PAGING},
-      {name: OptionType.PINYIN_DEFAULT_CHINESE},
-      {name: OptionType.PINYIN_FULL_WIDTH_CHARACTER},
-      {name: OptionType.PINYIN_CHINESE_PUNCTUATION},
-    ],
-    advanced: [{name: OptionType.EDIT_USER_DICT}],
-    basic: [],
-    virtualKeyboard: [],
-    suggestions: [],
-  },
-  [SettingsType.BASIC_SETTINGS]: {
-    physicalKeyboard: [],
-    virtualKeyboard: [
+  }],
+  [SettingsType.PINYIN_SETTINGS]: [
+    {
+      title: SettingsHeaders.ADVANCED,
+      optionNames: [{name: OptionType.EDIT_USER_DICT}],
+    },
+    {
+      title: SettingsHeaders.PHYSICAL_KEYBOARD,
+      optionNames: [
+        {name: OptionType.XKB_LAYOUT},
+        {name: OptionType.PINYIN_ENABLE_UPPER_PAGING},
+        {name: OptionType.PINYIN_ENABLE_LOWER_PAGING},
+        {name: OptionType.PINYIN_DEFAULT_CHINESE},
+        {name: OptionType.PINYIN_FULL_WIDTH_CHARACTER},
+        {name: OptionType.PINYIN_CHINESE_PUNCTUATION},
+      ],
+    },
+  ],
+  [SettingsType.BASIC_SETTINGS]: [{
+    title: SettingsHeaders.VIRTUAL_KEYBOARD,
+    optionNames: [
       {name: OptionType.ENABLE_SOUND_ON_KEYPRESS},
     ],
-    basic: [],
-    advanced: [],
-    suggestions: [],
-  },
-  [SettingsType.ENGLISH_SOUTH_AFRICA_SETTINGS]: {
-    physicalKeyboard: [],
-    virtualKeyboard: [
+  }],
+  [SettingsType.ENGLISH_BASIC_WITH_AUTOSHIFT_SETTINGS]: [{
+    title: SettingsHeaders.VIRTUAL_KEYBOARD,
+    optionNames: [
       {name: OptionType.ENABLE_SOUND_ON_KEYPRESS},
       {name: OptionType.VIRTUAL_KEYBOARD_ENABLE_CAPITALIZATION},
     ],
-    basic: [],
-    advanced: [],
-    suggestions: [],
-  },
-  [SettingsType.SUGGESTION_SETTINGS]: {
-    physicalKeyboard: [],
-    virtualKeyboard: [],
-    basic: [],
-    advanced: [],
-    suggestions:
+  }],
+  [SettingsType.SUGGESTION_SETTINGS]: [{
+    title: SettingsHeaders.SUGGESTIONS,
+    optionNames:
         [{name: OptionType.PHYSICAL_KEYBOARD_ENABLE_PREDICTIVE_WRITING}],
-  },
+  }],
+  [SettingsType.PK_DIACRITICS_SETTINGS]: [{
+    title: SettingsHeaders.PHYSICAL_KEYBOARD,
+    optionNames:
+        [{name: OptionType.PHYSICAL_KEYBOARD_ENABLE_DIACRITICS_ON_LONGPRESS}],
+  }],
 };
+
 /**
  * @param {string} id Input method ID.
  * @return {string} The corresponding engind ID of the input method.
@@ -271,15 +427,20 @@ export function getFirstPartyInputMethodEngineId(id) {
 /**
  * @param {string} id Input method ID.
  * @param {boolean} predictiveWritingEnabled .
+ * @param {boolean} physicalKeyboardDiacriticsEnabled .
  * @return {boolean} true if the input method's options page is implemented.
  */
-export function hasOptionsPageInSettings(id, predictiveWritingEnabled) {
+export function hasOptionsPageInSettings(
+    id, predictiveWritingEnabled, physicalKeyboardDiacriticsEnabled,
+    isJapaneseSettingsEnabled) {
   if (!isFirstPartyInputMethodId_(id)) {
     return false;
   }
   const engineId = getFirstPartyInputMethodEngineId(id);
 
-  const inputMethodSettings = getInputMethodSettings(predictiveWritingEnabled);
+  const inputMethodSettings = getInputMethodSettings(
+      predictiveWritingEnabled, physicalKeyboardDiacriticsEnabled,
+      isJapaneseSettingsEnabled);
   return !!inputMethodSettings[engineId];
 }
 
@@ -287,53 +448,41 @@ export function hasOptionsPageInSettings(id, predictiveWritingEnabled) {
  * Generates options to be displayed in the options page, grouped by sections.
  * @param {string} engineId Input method engine ID.
  * @param {boolean} predictiveWritingEnabled .
- * @return {!Array<!{title: string, optionNames:
+ * @param {boolean} physicalKeyboardDiacriticsEnabled .
+ * @return {!Array<{title: string, optionNames:
  *     !Array<OptionType>}>} the options to be
  *     displayed.
  */
-export function generateOptions(engineId, predictiveWritingEnabled) {
-  const options = {
-    basic: [],
-    advanced: [],
-    physicalKeyboard: [],
-    virtualKeyboard: [],
-    suggestions: []
-  };
-  const inputMethodSettings = getInputMethodSettings(predictiveWritingEnabled);
+export function generateOptions(
+    engineId, predictiveWritingEnabled, physicalKeyboardDiacriticsEnabled,
+    isJapaneseSettingsEnabled) {
+  const options = [];
+  const inputMethodSettings = getInputMethodSettings(
+      predictiveWritingEnabled, physicalKeyboardDiacriticsEnabled,
+      isJapaneseSettingsEnabled);
   const engineSettings = inputMethodSettings[engineId];
   if (engineSettings) {
+    const pushedOptions = {};
+
     engineSettings.forEach((settingType) => {
       const settings = Settings[settingType];
-      options.basic.push(...settings.basic);
-      options.advanced.push(...settings.advanced);
-      options.physicalKeyboard.push(...settings.physicalKeyboard);
-      options.virtualKeyboard.push(...settings.virtualKeyboard);
-      options.suggestions.push(...settings.suggestions);
+      for (const {title, optionNames} of settings) {
+        if (optionNames) {
+          if (pushedOptions[title] === undefined) {
+            pushedOptions[title] = options.length;
+            options.push({
+              title,
+              optionNames: [...optionNames],
+            });
+          } else {
+            options[pushedOptions[title]].optionNames.push(...optionNames);
+          }
+        }
+      }
     });
   }
 
-  return [
-    {
-      title: 'basic',
-      optionNames: options.basic,
-    },
-    {
-      title: 'advanced',
-      optionNames: options.advanced,
-    },
-    {
-      title: 'physicalKeyboard',
-      optionNames: options.physicalKeyboard,
-    },
-    {
-      title: 'virtualKeyboard',
-      optionNames: options.virtualKeyboard,
-    },
-    {
-      title: 'suggestions',
-      optionNames: options.suggestions,
-    },
-  ];
+  return options;
 }
 
 /**
@@ -348,8 +497,14 @@ export function getOptionUiType(option) {
     case OptionType.ENABLE_GESTURE_TYPING:
     case OptionType.ENABLE_PREDICTION:
     case OptionType.ENABLE_SOUND_ON_KEYPRESS:
+    case OptionType.JAPANESE_AUTOMATICALLY_SWITCH_TO_HALFWIDTH:
+    case OptionType.JAPANESE_USE_SYSTEM_DICTIONARY:
+    case OptionType.JAPANESE_USE_INPUT_HISTORY:
+    case OptionType.JAPANESE_DISABLE_PERSONALIZED_SUGGESTIONS:
+    case OptionType.JAPANESE_AUTOMATICALLY_SEND_STATISTICS_TO_GOOGLE:
     case OptionType.PHYSICAL_KEYBOARD_ENABLE_CAPITALIZATION:
     case OptionType.PHYSICAL_KEYBOARD_ENABLE_PREDICTIVE_WRITING:
+    case OptionType.PHYSICAL_KEYBOARD_ENABLE_DIACRITICS_ON_LONGPRESS:
     case OptionType.VIRTUAL_KEYBOARD_ENABLE_CAPITALIZATION:
     case OptionType.KOREAN_ENABLE_SYLLABLE_INPUT:
     case OptionType.PINYIN_CHINESE_PUNCTUATION:
@@ -373,18 +528,33 @@ export function getOptionUiType(option) {
       return UiType.TOGGLE_BUTTON;
     case OptionType.PHYSICAL_KEYBOARD_AUTO_CORRECTION_LEVEL:
     case OptionType.VIRTUAL_KEYBOARD_AUTO_CORRECTION_LEVEL:
+      return loadTimeData.getBoolean('allowAutocorrectToggle') ?
+          UiType.TOGGLE_BUTTON :
+          UiType.DROPDOWN;
     case OptionType.XKB_LAYOUT:
+    case OptionType.JAPANESE_INPUT_MODE:
+    case OptionType.JAPANESE_PUNCTUATION_STYLE:
+    case OptionType.JAPANESE_SYMBOL_STYLE:
+    case OptionType.JAPANESE_SPACE_INPUT_STYLE:
+    case OptionType.JAPANESE_SECTION_SHORTCUT:
+    case OptionType.JAPANESE_KEYMAP_STYLE:
+    case OptionType.JAPANESE_SHIFT_KEY_MODE_STYLE:
+    case OptionType.JAPANESE_NUMBER_OF_SUGGESTIONS:
     case OptionType.KOREAN_KEYBOARD_LAYOUT:
     case OptionType.ZHUYIN_KEYBOARD_LAYOUT:
     case OptionType.ZHUYIN_SELECT_KEYS:
     case OptionType.ZHUYIN_PAGE_SIZE:
       return UiType.DROPDOWN;
     case OptionType.EDIT_USER_DICT:
+    case OptionType.JAPANESE_MANAGE_USER_DICTIONARY:
       return UiType.LINK;
+    case OptionType.JAPANESE_CLEAR_PERSONALIZATION_DATA:
+      return UiType.SUBMENU_BUTTON;
     default:
       assertNotReached();
   }
 }
+
 export function isOptionLabelTranslated(option) {
   switch (option) {
     // TODO(b/191608723): Clean up switch statements.
@@ -425,6 +595,8 @@ export function getOptionLabelName(option) {
       return 'inputMethodOptionsEnableCapitalization';
     case OptionType.PHYSICAL_KEYBOARD_ENABLE_PREDICTIVE_WRITING:
       return 'inputMethodOptionsPredictiveWriting';
+    case OptionType.PHYSICAL_KEYBOARD_ENABLE_DIACRITICS_ON_LONGPRESS:
+      return 'inputMethodOptionsDiacriticsOnPhysicalKeyboardLongpress';
     case OptionType.PINYIN_CHINESE_PUNCTUATION:
       return 'inputMethodOptionsPinyinChinesePunctuation';
     case OptionType.PINYIN_DEFAULT_CHINESE:
@@ -440,6 +612,36 @@ export function getOptionLabelName(option) {
     case OptionType.PHYSICAL_KEYBOARD_AUTO_CORRECTION_LEVEL:
     case OptionType.VIRTUAL_KEYBOARD_AUTO_CORRECTION_LEVEL:
       return 'inputMethodOptionsAutoCorrection';
+    case OptionType.JAPANESE_INPUT_MODE:
+      return 'inputMethodOptionsJapaneseInputMode';
+    case OptionType.JAPANESE_PUNCTUATION_STYLE:
+      return 'inputMethodOptionsJapanesePunctuationStyle';
+    case OptionType.JAPANESE_SYMBOL_STYLE:
+      return 'inputMethodOptionsJapaneseSymbolStyle';
+    case OptionType.JAPANESE_SPACE_INPUT_STYLE:
+      return 'inputMethodOptionsJapaneseSpaceInputStyle';
+    case OptionType.JAPANESE_SECTION_SHORTCUT:
+      return 'inputMethodOptionsJapaneseSectionShortcut';
+    case OptionType.JAPANESE_KEYMAP_STYLE:
+      return 'inputMethodOptionsJapaneseKeymapStyle';
+    case OptionType.JAPANESE_AUTOMATICALLY_SWITCH_TO_HALFWIDTH:
+      return 'inputMethodOptionsJapaneseAutomaticallySwitchToHalfwidth';
+    case OptionType.JAPANESE_SHIFT_KEY_MODE_STYLE:
+      return 'inputMethodOptionsJapaneseShiftKeyModeStyle';
+    case OptionType.JAPANESE_USE_INPUT_HISTORY:
+      return 'inputMethodOptionsJapaneseUseInputHistory';
+    case OptionType.JAPANESE_USE_SYSTEM_DICTIONARY:
+      return 'inputMethodOptionsJapaneseUseSystemDictionary';
+    case OptionType.JAPANESE_NUMBER_OF_SUGGESTIONS:
+      return 'inputMethodOptionsJapaneseNumberOfSuggestions';
+    case OptionType.JAPANESE_MANAGE_USER_DICTIONARY:
+      return 'inputMethodOptionsJapaneseManageUserDictionary';
+    case OptionType.JAPANESE_CLEAR_PERSONALIZATION_DATA:
+      return 'inputMethodOptionsJapaneseClearPersonalizationData';
+    case OptionType.JAPANESE_DISABLE_PERSONALIZED_SUGGESTIONS:
+      return 'inputMethodOptionsJapaneseDisablePersonalizedSuggestions';
+    case OptionType.JAPANESE_AUTOMATICALLY_SEND_STATISTICS_TO_GOOGLE:
+      return 'inputMethodOptionsJapaneseAutomaticallySendStatisticsToGoogle';
     case OptionType.XKB_LAYOUT:
       return 'inputMethodOptionsXkbLayout';
     case OptionType.EDIT_USER_DICT:
@@ -458,6 +660,29 @@ export function getOptionLabelName(option) {
       assertNotReached();
   }
 }
+
+/**
+ * @param {!OptionType} option The option type.
+ * @return {string} The name of the string for the subtitle of |option|. Returns
+ * empty string if no subtitle.
+ */
+export function getOptionSubtitleName(option) {
+  switch (option) {
+    case OptionType.PHYSICAL_KEYBOARD_ENABLE_DIACRITICS_ON_LONGPRESS:
+      return 'inputMethodOptionsDiacriticsOnPhysicalKeyboardLongpressSubtitle';
+    // TODO(b/234790486): The subtitle is not forced to the next line if it is
+    // too short. You end up with something like :
+    // https://screenshot.googleplex.com/8xk2BfbBXcGqhvs This likely also
+    // affects the diacritics label. This is not currently an issue since both
+    // string are long enough and force themself to the next line, but it may be
+    // an issue in other languages or with future strings which may be shorter.
+    case OptionType.JAPANESE_MANAGE_USER_DICTIONARY:
+      return 'inputMethodOptionsJapaneseManageUserDictionarySubtitle';
+    default:
+      return '';
+  }
+}
+
 export function getUntranslatedOptionLabelName(option) {
   switch (option) {
     case OptionType.PINYIN_AN_ANG:
@@ -491,7 +716,7 @@ export function getUntranslatedOptionLabelName(option) {
 
 /**
  * @param {!OptionType} option The option type.
- * @return {!Array<!{value: *, name: string}>} The list of items to be
+ * @return {!Array<{value: *, name: string}>} The list of items to be
  *     displayed in the dropdown for |option|.
  */
 export function getOptionMenuItems(option) {
@@ -501,13 +726,13 @@ export function getOptionMenuItems(option) {
       return [
         {value: 0, name: 'inputMethodOptionsAutoCorrectionOff'},
         {value: 1, name: 'inputMethodOptionsAutoCorrectionModest'},
-        {value: 2, name: 'inputMethodOptionsAutoCorrectionAggressive'}
+        {value: 2, name: 'inputMethodOptionsAutoCorrectionAggressive'},
       ];
     case OptionType.XKB_LAYOUT:
       return [
         {value: 'US', name: 'inputMethodOptionsUsKeyboard'},
         {value: 'Dvorak', name: 'inputMethodOptionsDvorakKeyboard'},
-        {value: 'Colemak', name: 'inputMethodOptionsColemakKeyboard'}
+        {value: 'Colemak', name: 'inputMethodOptionsColemakKeyboard'},
       ];
     case OptionType.ZHUYIN_KEYBOARD_LAYOUT:
       return [
@@ -532,6 +757,157 @@ export function getOptionMenuItems(option) {
         {value: '9'},
         {value: '8'},
       ];
+    case OptionType.JAPANESE_INPUT_MODE:
+      return [
+        {
+          value: JAPANESE_INPUT_MODE.KANA,
+          name: 'inputMethodOptionsJapaneseInputModeKana',
+        },
+        {
+          value: JAPANESE_INPUT_MODE.ROMAJI,
+          name: 'inputMethodOptionsJapaneseInputModeRomaji',
+        },
+      ];
+    case OptionType.JAPANESE_PUNCTUATION_STYLE:
+      return [
+        {
+          value: JAPANESE_PUNCTUATION_STYLE.KUTEN_TOUTEN,
+          name: 'inputMethodOptionsJapanesePunctuationStyleKutenTouten',
+        },
+        {
+          value: JAPANESE_PUNCTUATION_STYLE.COMMA_PERIOD,
+          name: 'inputMethodOptionsJapanesePunctuationStyleCommaPeriod',
+        },
+        {
+          value: JAPANESE_PUNCTUATION_STYLE.KUTEN_PERIOD,
+          name: 'inputMethodOptionsJapanesePunctuationStyleKutenPeriod',
+        },
+        {
+          value: JAPANESE_PUNCTUATION_STYLE.COMMA_TOUTEN,
+          name: 'inputMethodOptionsJapanesePunctuationStyleCommaTouten',
+        },
+      ];
+    case OptionType.JAPANESE_SYMBOL_STYLE:
+      return [
+        {
+          value: JAPANESE_SYMBOL_STYLE.CORNER_BRACKET_MIDDLE_DOT,
+          name: 'inputMethodOptionsJapaneseSymbolStyleCornerBracketMiddleDot',
+        },
+        {
+          value: JAPANESE_SYMBOL_STYLE.SQUARE_BRACKET_SLASH,
+          name: 'inputMethodOptionsJapaneseSymbolStyleSquareBracketSlash',
+        },
+        {
+          value: JAPANESE_SYMBOL_STYLE.CORNER_BRACKET_SLASH,
+          name: 'inputMethodOptionsJapaneseSymbolStyleCornerBracketSlash',
+        },
+        {
+          value: JAPANESE_SYMBOL_STYLE.SQUARE_BRACKET_MIDDLE_DOT,
+          name: 'inputMethodOptionsJapaneseSymbolStyleSquareBracketMiddleDot',
+        },
+      ];
+    case OptionType.JAPANESE_SPACE_INPUT_STYLE:
+      return [
+        {
+          value: JAPANESE_SPACE_INPUT_STYLE.INPUT_MODE,
+          name: 'inputMethodOptionsJapaneseSpaceInputStyleInputMode',
+        },
+        {
+          value: JAPANESE_SPACE_INPUT_STYLE.FULLWIDTH,
+          name: 'inputMethodOptionsJapaneseSpaceInputStyleFullwidth',
+        },
+        {
+          value: JAPANESE_SPACE_INPUT_STYLE.HALFWIDTH,
+          name: 'inputMethodOptionsJapaneseSpaceInputStyleHalfwidth',
+        },
+      ];
+    case OptionType.JAPANESE_SECTION_SHORTCUT:
+      return [
+        {
+          value: JAPANESE_SECTION_SHORTCUT.NO_SHORTCUT,
+          name: 'inputMethodOptionsJapaneseSectionShortcutNoShortcut',
+        },
+        {
+          value: JAPANESE_SECTION_SHORTCUT.DIGITS_123456789,
+          name: 'inputMethodOptionsJapaneseSectionShortcut123456789',
+        },
+        {
+          value: JAPANESE_SECTION_SHORTCUT.ASDFGHJKL,
+          name: 'inputMethodOptionsJapaneseSectionShortcutAsdfghjkl',
+        },
+      ];
+    case OptionType.JAPANESE_KEYMAP_STYLE:
+      return [
+        {
+          value: JAPANESE_KEYMAP_STYLE.CUSTOM,
+          name: 'inputMethodOptionsJapaneseKeymapStyleCustom',
+        },
+        {
+          value: JAPANESE_KEYMAP_STYLE.ATOK,
+          name: 'inputMethodOptionsJapaneseKeymapStyleAtok',
+        },
+        {
+          value: JAPANESE_KEYMAP_STYLE.MS_IME,
+          name: 'inputMethodOptionsJapaneseKeymapStyleMsIme',
+        },
+        {
+          value: JAPANESE_KEYMAP_STYLE.KOTOERI,
+          name: 'inputMethodOptionsJapaneseKeymapStyleKotoeri',
+        },
+        {
+          value: JAPANESE_KEYMAP_STYLE.MOBILE,
+          name: 'inputMethodOptionsJapaneseKeymapStyleMobile',
+        },
+        {
+          value: JAPANESE_KEYMAP_STYLE.CHROME_OS,
+          name: 'inputMethodOptionsJapaneseKeymapStyleChromeOs',
+        },
+      ];
+    case OptionType.JAPANESE_SHIFT_KEY_MODE_STYLE:
+      return [
+        {
+          value: JAPANESE_SHIFT_KEY_MODE_STYLE.OFF,
+          name: 'inputMethodOptionsJapaneseShiftKeyModeStyleOff',
+        },
+        {
+          value: JAPANESE_SHIFT_KEY_MODE_STYLE.ALPHANUMERIC,
+          name: 'inputMethodOptionsJapaneseShiftKeyModeStyleAlphanumeric',
+        },
+        {
+          value: JAPANESE_SHIFT_KEY_MODE_STYLE.KATAKANA,
+          name: 'inputMethodOptionsJapaneseShiftKeyModeStyleKatakana',
+        },
+      ];
+    case OptionType.JAPANESE_NUMBER_OF_SUGGESTIONS:
+      return [
+        {
+          value: 1,
+        },
+        {
+          value: 2,
+        },
+        {
+          value: 3,
+        },
+        {
+          value: 4,
+        },
+        {
+          value: 5,
+        },
+        {
+          value: 6,
+        },
+        {
+          value: 7,
+        },
+        {
+          value: 8,
+        },
+        {
+          value: 9,
+        },
+      ];
     case OptionType.KOREAN_KEYBOARD_LAYOUT:
       // Korean layout strings are already Korean / English, so not
       // translated. The literal values of these strings are critical.
@@ -548,15 +924,17 @@ export function getOptionMenuItems(option) {
   }
 }
 
+
 /**
+ * WARNING: Keep this in sync with OPTION_MAP
+ *
  * @param {!OptionType} option The option type.
  * @return {boolean} true if the value for |option| is a number.
  */
-export function isNumberValue(option) {
+export function shouldStoreAsNumber(option) {
   return option === OptionType.PHYSICAL_KEYBOARD_AUTO_CORRECTION_LEVEL ||
       option === OptionType.VIRTUAL_KEYBOARD_AUTO_CORRECTION_LEVEL;
 }
-
 /**
  * @param {!OptionType} option The option type.
  * @return {Route|undefined} The url to open for |option|, returns
@@ -566,14 +944,29 @@ export function getOptionUrl(option) {
   if (option === OptionType.EDIT_USER_DICT) {
     return routes.OS_LANGUAGES_EDIT_DICTIONARY;
   }
+  if (option === OptionType.JAPANESE_MANAGE_USER_DICTIONARY) {
+    return routes.OS_LANGUAGES_JAPANESE_MANAGE_USER_DICTIONARY;
+  }
   return undefined;
 }
 
-  /**
-   * @param {string} id Input method ID.
-   * @return {boolean} true if |id| is a first party input method ID.
-   * @private
-   */
-  function isFirstPartyInputMethodId_(id) {
-    return id.startsWith(FIRST_PARTY_INPUT_METHOD_ID_PREFIX);
+/**
+ * @param {!OptionType} option The option type.
+ * @return {SubmenuButton|undefined} The submenu button type for
+ * |option|, returns undefined if |option| does not have a submenu button type.
+ */
+export function getSubmenuButtonType(option) {
+  if (option === OptionType.JAPANESE_CLEAR_PERSONALIZATION_DATA) {
+    return SubmenuButton.JAPANESE_CLEAR_PERSONALIZATION_DATA;
   }
+  return undefined;
+}
+
+/**
+ * @param {string} id Input method ID.
+ * @return {boolean} true if |id| is a first party input method ID.
+ * @private
+ */
+function isFirstPartyInputMethodId_(id) {
+  return id.startsWith(FIRST_PARTY_INPUT_METHOD_ID_PREFIX);
+}

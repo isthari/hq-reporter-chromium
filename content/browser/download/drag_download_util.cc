@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -72,7 +72,7 @@ base::File CreateFileForDrop(base::FilePath* file_path) {
     }
 
     // http://crbug.com/110709
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    base::ScopedAllowBlocking allow_blocking;
 
     base::File file(
         new_file_path, base::File::FLAG_CREATE | base::File::FLAG_WRITE);

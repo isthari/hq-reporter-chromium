@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -93,10 +93,5 @@ class ChildPolicyObserver : public policy::CloudPolicyService::Observer {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when ChromOS code migration is done.
-namespace chromeos {
-using ::ash::ChildPolicyObserver;
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_CHILD_ACCOUNTS_CHILD_POLICY_OBSERVER_H_

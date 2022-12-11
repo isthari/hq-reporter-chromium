@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,8 +18,8 @@
 #include "base/test/simple_test_tick_clock.h"
 #include "base/test/task_environment.h"
 #include "base/threading/simple_thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/clock.h"
+#include "base/time/time.h"
 #include "media/base/fake_text_track_stream.h"
 #include "media/base/media_util.h"
 #include "media/base/mock_filters.h"
@@ -58,7 +58,7 @@ ACTION_P(Stop, pipeline) {
 }
 
 ACTION_P(PostStop, pipeline) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&Pipeline::Stop, base::Unretained(pipeline)));
 }
 
@@ -73,7 +73,7 @@ ACTION_P3(SetBufferingState, renderer_client, buffering_state, reason) {
 ACTION_TEMPLATE(PostCallback,
                 HAS_1_TEMPLATE_PARAMS(int, k),
                 AND_1_VALUE_PARAMS(p0)) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(std::get<k>(args)), p0));
 }
 

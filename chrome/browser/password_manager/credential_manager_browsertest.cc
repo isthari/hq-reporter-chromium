@@ -1,8 +1,9 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "base/command_line.h"
 #include "base/containers/contains.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/strcat.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -28,6 +29,7 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/prerender_test_util.h"
 #include "net/dns/mock_host_resolver.h"
 
 namespace {
@@ -63,7 +65,7 @@ class CredentialManagerBrowserTest : public PasswordManagerBrowserTestBase {
     PasswordsNavigationObserver observer(WebContents());
     GURL url = test_server.GetURL(hostname, relative_url);
     ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
-    observer.Wait();
+    ASSERT_TRUE(observer.Wait());
   }
 
   // Triggers a call to `navigator.credentials.get` to retrieve passwords, waits
@@ -244,7 +246,7 @@ class CredentialManagerBrowserTest : public PasswordManagerBrowserTestBase {
     // Trigger a cross-site navigation that is carried out in a new renderer,
     // and which will swap out the old RenderFrameHost.
     content::RenderFrameDeletedObserver rfh_destruction_observer(
-        WebContents()->GetMainFrame());
+        WebContents()->GetPrimaryMainFrame());
     ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), b_url));
 
     // Ensure that the navigator.credentials.store() call is never serviced.
@@ -301,7 +303,7 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest,
 
   PasswordsNavigationObserver observer(WebContents());
   observer.SetPathToWaitFor("/password/done.html");
-  observer.Wait();
+  ASSERT_TRUE(observer.Wait());
 
   // Verify that the form's 'skip_zero_click' is updated and not overwritten
   // by the autofill password manager on successful login.
@@ -370,7 +372,7 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest,
 
     PasswordsNavigationObserver observer(WebContents());
     observer.SetPathToWaitFor("/password/done.html");
-    observer.Wait();
+    ASSERT_TRUE(observer.Wait());
   }
 
   {
@@ -385,7 +387,7 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest,
 
     PasswordsNavigationObserver observer(WebContents());
     observer.SetPathToWaitFor("/password/done.html");
-    observer.Wait();
+    ASSERT_TRUE(observer.Wait());
   }
   // Wait for the password store to process the store request.
   WaitForPasswordStore();
@@ -457,7 +459,7 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest,
 
     PasswordsNavigationObserver observer(WebContents());
     observer.SetPathToWaitFor("/password/done.html");
-    observer.Wait();
+    ASSERT_TRUE(observer.Wait());
   }
 
   {
@@ -472,7 +474,7 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest,
 
     PasswordsNavigationObserver observer(WebContents());
     observer.SetPathToWaitFor("/password/done.html");
-    observer.Wait();
+    ASSERT_TRUE(observer.Wait());
   }
 
   // Wait for the password store to process the store request.
@@ -555,7 +557,7 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest,
 
     PasswordsNavigationObserver observer(WebContents());
     observer.SetPathToWaitFor("/password/done.html");
-    observer.Wait();
+    ASSERT_TRUE(observer.Wait());
   }
 
   {
@@ -570,7 +572,7 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest,
 
     PasswordsNavigationObserver observer(WebContents());
     observer.SetPathToWaitFor("/password/done.html");
-    observer.Wait();
+    ASSERT_TRUE(observer.Wait());
   }
 
   // Wait for the password store to process the store request.
@@ -632,7 +634,7 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest,
 
   PasswordsNavigationObserver observer(WebContents());
   observer.SetPathToWaitFor("/password/done.html");
-  observer.Wait();
+  ASSERT_TRUE(observer.Wait());
 
   // Wait for the password store before checking the prompt because it pops up
   // after the store replies.
@@ -680,7 +682,7 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest,
 
   PasswordsNavigationObserver observer(WebContents());
   observer.SetPathToWaitFor("/password/done.html");
-  observer.Wait();
+  ASSERT_TRUE(observer.Wait());
 
   BubbleObserver prompt_observer(WebContents());
   prompt_observer.WaitForAutomaticSavePrompt();
@@ -777,7 +779,7 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest,
 
   PasswordsNavigationObserver observer(WebContents());
   observer.SetPathToWaitFor("/password/done.html");
-  observer.Wait();
+  ASSERT_TRUE(observer.Wait());
 
   BubbleObserver prompt_observer(WebContents());
   // The autofill password manager shouldn't react to the successful login
@@ -956,7 +958,7 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest, UpdateViaAPIAndAutofill) {
       "document.getElementById('username_field').value = 'user';"
       "document.getElementById('password_field').value = 'autofill';"
       "document.getElementById('input_submit_button').click();"));
-  form_submit_observer.Wait();
+  ASSERT_TRUE(form_submit_observer.Wait());
 
   // Wait for the password store before checking the prompt because it pops up
   // after the store replies.
@@ -1004,6 +1006,71 @@ IN_PROC_BROWSER_TEST_F(CredentialManagerBrowserTest, CredentialsAutofilled) {
   WaitForElementValue("password_field", "12345");
 }
 
+class CredentialManagerPrerenderBrowserTest
+    : public CredentialManagerBrowserTest {
+ public:
+  CredentialManagerPrerenderBrowserTest()
+      : prerender_helper_(base::BindRepeating(
+            &CredentialManagerPrerenderBrowserTest::WebContents,
+            base::Unretained(this))) {}
+  ~CredentialManagerPrerenderBrowserTest() override = default;
+
+  void SetUp() override {
+    prerender_helper_.SetUp(embedded_test_server());
+    CredentialManagerBrowserTest::SetUp();
+  }
+
+  content::test::PrerenderTestHelper* prerender_helper() {
+    return &prerender_helper_;
+  }
+
+ private:
+  content::test::PrerenderTestHelper prerender_helper_;
+};
+
+// Tests that binding mojom::CredentialManager doesn't work in the prerendering.
+IN_PROC_BROWSER_TEST_F(CredentialManagerPrerenderBrowserTest,
+                       BindCredentialManagerInPrerender) {
+  // Save credentials with 'skip_zero_click' false.
+  scoped_refptr<password_manager::TestPasswordStore> password_store =
+      static_cast<password_manager::TestPasswordStore*>(
+          PasswordStoreFactory::GetForProfile(
+              browser()->profile(), ServiceAccessType::IMPLICIT_ACCESS)
+              .get());
+  password_manager::PasswordForm signin_form;
+  signin_form.signon_realm = embedded_test_server()->base_url().spec();
+  signin_form.password_value = u"password123";
+  signin_form.username_value = u"user";
+  signin_form.url = embedded_test_server()->base_url();
+  signin_form.skip_zero_click = true;
+  password_store->AddLogin(signin_form);
+
+  GURL url = embedded_test_server()->GetURL("/empty.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+
+  auto prerender_url =
+      embedded_test_server()->GetURL("/password/credentials.html");
+  // Loads a page in the prerender.
+  int host_id = prerender_helper()->AddPrerender(prerender_url);
+  content::test::PrerenderHostObserver host_observer(*WebContents(), host_id);
+
+  // It should not have binding mojom::CredentialManager.
+  EXPECT_FALSE(ChromePasswordManagerClient::FromWebContents(WebContents())
+                   ->has_binding_for_credential_manager());
+
+  // Navigates the primary page to the URL.
+  prerender_helper()->NavigatePrimaryPage(prerender_url);
+
+  // The API should work.
+  BubbleObserver(WebContents()).WaitForAccountChooser();
+
+  // Make sure that the prerender was activated.
+  EXPECT_TRUE(host_observer.was_activated());
+  // After the page is activated, it gets binding mojom::CredentialManager.
+  EXPECT_TRUE(ChromePasswordManagerClient::FromWebContents(WebContents())
+                  ->has_binding_for_credential_manager());
+}
+
 class CredentialManagerAvatarTest : public PasswordManagerBrowserTestBase {
  public:
   static const char kAvatarOrigin[];
@@ -1032,7 +1099,7 @@ class CredentialManagerAvatarTest : public PasswordManagerBrowserTestBase {
   size_t avatar_request_counter_ = 0;
 
   // A pointer to the run loop used to wait for the avatar.
-  base::RunLoop* run_loop_ = nullptr;
+  raw_ptr<base::RunLoop> run_loop_ = nullptr;
 };
 
 const char CredentialManagerAvatarTest::kAvatarOrigin[] = "avatarserver.com";

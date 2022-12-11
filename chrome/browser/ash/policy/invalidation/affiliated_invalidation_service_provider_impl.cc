@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -172,7 +172,7 @@ void AffiliatedInvalidationServiceProviderImpl::OnUserProfileLoaded(
   invalidation::InvalidationService* invalidation_service;
   invalidation_service =
       invalidation_provider->GetInvalidationServiceForCustomSender(
-          policy::kPolicyFCMInvalidationSenderID);
+          kPolicyFCMInvalidationSenderID);
   profile_invalidation_service_observers_.push_back(
       std::make_unique<InvalidationServiceObserver>(this,
                                                     invalidation_service));
@@ -367,7 +367,7 @@ AffiliatedInvalidationServiceProviderImpl::
               device_identity_provider_.get(), g_browser_process->local_state(),
               base::RetainedRef(url_loader_factory)),
           device_instance_id_driver_.get(), g_browser_process->local_state(),
-          policy::kPolicyFCMInvalidationSenderID);
+          kPolicyFCMInvalidationSenderID);
   device_invalidation_service->Init();
   return device_invalidation_service;
 }

@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,14 +24,13 @@
 #include "net/cookies/cookie_change_dispatcher.h"
 #include "net/cookies/cookie_monster.h"
 #include "net/cookies/cookie_store.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 @class NSHTTPCookie;
 @class NSArray;
 
 namespace net {
-
-extern bool const kFirstPartySetsEnabled;
 
 class NetLog;
 
@@ -86,10 +85,13 @@ class CookieStoreIOS : public net::CookieStore,
   void SetMetricsEnabled();
 
   // Implementation of the net::CookieStore interface.
-  void SetCanonicalCookieAsync(std::unique_ptr<CanonicalCookie> cookie,
-                               const GURL& source_url,
-                               const net::CookieOptions& options,
-                               SetCookiesCallback callback) override;
+  void SetCanonicalCookieAsync(
+      std::unique_ptr<CanonicalCookie> cookie,
+      const GURL& source_url,
+      const net::CookieOptions& options,
+      SetCookiesCallback callback,
+      absl::optional<net::CookieAccessResult> cookie_access_result =
+          absl::nullopt) override;
   void GetCookieListWithOptionsAsync(
       const GURL& url,
       const net::CookieOptions& options,

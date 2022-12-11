@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/media/router/discovery/dial/dial_media_sink_service_impl.h"
 #include "chrome/browser/media/router/test/mock_mojo_media_router.h"
 #include "chrome/browser/media/router/test/provider_test_helpers.h"
@@ -35,6 +35,10 @@ using ::testing::NiceMock;
 using ::testing::SaveArg;
 
 namespace media_router {
+
+namespace {
+static constexpr int kFrameTreeNodeId = 1;
+}
 
 class TestDialMediaSinkServiceImpl : public DialMediaSinkServiceImpl {
  public:
@@ -101,7 +105,7 @@ class DialMediaRouteProviderTest : public ::testing::Test {
     provider_ = std::make_unique<DialMediaRouteProvider>(
         provider_remote_.BindNewPipeAndPassReceiver(), std::move(router_remote),
         &mock_sink_service_, "hash-token",
-        base::SequencedTaskRunnerHandle::Get());
+        base::SequencedTaskRunner::GetCurrentDefault());
 
     auto activity_manager = std::make_unique<TestDialActivityManager>(
         mock_sink_service_.app_discovery_service(), &loader_factory_);
@@ -117,13 +121,13 @@ class DialMediaRouteProviderTest : public ::testing::Test {
 
   void TearDown() override { provider_.reset(); }
 
-  void ExpectRouteResult(RouteRequestResult::ResultCode expected_result_code,
+  void ExpectRouteResult(mojom::RouteRequestResultCode expected_result_code,
                          const absl::optional<MediaRoute>& media_route,
                          mojom::RoutePresentationConnectionPtr,
                          const absl::optional<std::string>& error_text,
-                         RouteRequestResult::ResultCode result_code) {
+                         mojom::RouteRequestResultCode result_code) {
     EXPECT_EQ(expected_result_code, result_code);
-    if (result_code == RouteRequestResult::OK) {
+    if (result_code == mojom::RouteRequestResultCode::OK) {
       ASSERT_TRUE(media_route);
       route_ = std::make_unique<MediaRoute>(*media_route);
     } else {
@@ -150,10 +154,12 @@ class DialMediaRouteProviderTest : public ::testing::Test {
     // CreateRoute, but MR will add the route returned in the response.
     EXPECT_CALL(mock_router_, OnRoutesUpdated(_, _)).Times(0);
     provider_->CreateRoute(
-        source_id, sink_id, presentation_id, origin_, 1, base::TimeDelta(),
+        source_id, sink_id, presentation_id, origin_, kFrameTreeNodeId,
+        base::TimeDelta(),
         /* off_the_record */ false,
         base::BindOnce(&DialMediaRouteProviderTest::ExpectRouteResult,
-                       base::Unretained(this), RouteRequestResult::OK));
+                       base::Unretained(this),
+                       mojom::RouteRequestResultCode::OK));
     base::RunLoop().RunUntilIdle();
   }
 
@@ -184,7 +190,7 @@ class DialMediaRouteProviderTest : public ::testing::Test {
   }
 
   void TestJoinRoute(
-      RouteRequestResult::ResultCode expected_result,
+      mojom::RouteRequestResultCode expected_result,
       absl::optional<std::string> source_to_join = absl::nullopt,
       absl::optional<std::string> presentation_to_join = absl::nullopt,
       absl::optional<url::Origin> client_origin = absl::nullopt,
@@ -202,7 +208,7 @@ class DialMediaRouteProviderTest : public ::testing::Test {
         client_incognito ? *client_incognito : route_->is_off_the_record();
 
     provider_->JoinRoute(
-        source, presentation, origin, /*tab_id*/ 5, base::TimeDelta(),
+        source, presentation, origin, kFrameTreeNodeId, base::TimeDelta(),
         incognito,
         base::BindOnce(&DialMediaRouteProviderTest::ExpectRouteResult,
                        base::Unretained(this), expected_result));
@@ -304,7 +310,7 @@ class DialMediaRouteProviderTest : public ::testing::Test {
     loader_factory_.AddResponse(app_instance_url_,
                                 network::mojom::URLResponseHead::New(), "",
                                 network::URLLoaderCompletionStatus());
-    EXPECT_CALL(*this, OnTerminateRoute(_, RouteRequestResult::OK));
+    EXPECT_CALL(*this, OnTerminateRoute(_, mojom::RouteRequestResultCode::OK));
     provider_->TerminateRoute(
         route_id, base::BindOnce(&DialMediaRouteProviderTest::OnTerminateRoute,
                                  base::Unretained(this)));
@@ -316,7 +322,7 @@ class DialMediaRouteProviderTest : public ::testing::Test {
   void TestTerminateRouteNoStopApp() {
     const MediaRoute::Id& route_id = route_->media_route_id();
     EXPECT_CALL(*activity_manager_, OnFetcherCreated()).Times(0);
-    EXPECT_CALL(*this, OnTerminateRoute(_, RouteRequestResult::OK));
+    EXPECT_CALL(*this, OnTerminateRoute(_, mojom::RouteRequestResultCode::OK));
     provider_->TerminateRoute(
         route_id, base::BindOnce(&DialMediaRouteProviderTest::OnTerminateRoute,
                                  base::Unretained(this)));
@@ -383,8 +389,8 @@ class DialMediaRouteProviderTest : public ::testing::Test {
     loader_factory_.AddResponse(
         app_launch_url_, network::mojom::URLResponseHead::New(), "",
         network::URLLoaderCompletionStatus(net::HTTP_SERVICE_UNAVAILABLE));
-    EXPECT_CALL(*this,
-                OnTerminateRoute(_, testing::Ne(RouteRequestResult::OK)));
+    EXPECT_CALL(*this, OnTerminateRoute(
+                           _, testing::Ne(mojom::RouteRequestResultCode::OK)));
     EXPECT_CALL(mock_router_, OnRouteMessagesReceived(_, _));
     EXPECT_CALL(mock_router_, OnRoutesUpdated(_, _)).Times(1);
     EXPECT_CALL(*mock_sink_service_.app_discovery_service(),
@@ -406,7 +412,7 @@ class DialMediaRouteProviderTest : public ::testing::Test {
 
   MOCK_METHOD2(OnTerminateRoute,
                void(const absl::optional<std::string>&,
-                    RouteRequestResult::ResultCode));
+                    mojom::RouteRequestResultCode));
 
  protected:
   content::BrowserTaskEnvironment task_environment_;
@@ -621,26 +627,27 @@ TEST_F(DialMediaRouteProviderTest, CreateRoute) {
 }
 
 TEST_F(DialMediaRouteProviderTest, JoinRoute) {
-  TestJoinRoute(RouteRequestResult::OK);
+  TestJoinRoute(mojom::RouteRequestResultCode::OK);
 }
 
 TEST_F(DialMediaRouteProviderTest, JoinRouteFailsForWrongMediaSource) {
-  TestJoinRoute(RouteRequestResult::ROUTE_NOT_FOUND, "wrong-media-source");
+  TestJoinRoute(mojom::RouteRequestResultCode::ROUTE_NOT_FOUND,
+                "wrong-media-source");
 }
 
 TEST_F(DialMediaRouteProviderTest, JoinRouteFailsForWrongPresentationId) {
-  TestJoinRoute(RouteRequestResult::ROUTE_NOT_FOUND, absl::nullopt,
+  TestJoinRoute(mojom::RouteRequestResultCode::ROUTE_NOT_FOUND, absl::nullopt,
                 "wrong-presentation-id");
 }
 
 TEST_F(DialMediaRouteProviderTest, JoinRouteFailsForWrongOrigin) {
-  TestJoinRoute(RouteRequestResult::ROUTE_NOT_FOUND, absl::nullopt,
+  TestJoinRoute(mojom::RouteRequestResultCode::ROUTE_NOT_FOUND, absl::nullopt,
                 absl::nullopt,
                 url::Origin::Create(GURL("https://wrong-origin.com")));
 }
 
 TEST_F(DialMediaRouteProviderTest, JoinRouteFailsForIncognitoMismatch) {
-  TestJoinRoute(RouteRequestResult::ROUTE_NOT_FOUND, absl::nullopt,
+  TestJoinRoute(mojom::RouteRequestResultCode::ROUTE_NOT_FOUND, absl::nullopt,
                 absl::nullopt, absl::nullopt, true);
 }
 
@@ -710,19 +717,23 @@ TEST_F(DialMediaRouteProviderTest, GetDialAppinfoExtraData) {
   EXPECT_CALL(mock_router_, OnRouteMessagesReceived(route_id, _))
       .WillOnce([&](const auto& route_id, auto messages) {
         EXPECT_EQ(1UL, messages.size());
-        auto message = base::test::ParseJson(*messages[0]->message);
+        auto message = base::test::ParseJsonDict(*messages[0]->message);
 
-        EXPECT_TRUE(message.FindStringKey("type"));
-        EXPECT_TRUE(message.FindIntKey("sequenceNumber"));
-        EXPECT_TRUE(message.FindStringPath("message.extraData.additionalKey1"));
-        EXPECT_TRUE(message.FindStringPath("message.extraData.additionalKey2"));
+        EXPECT_TRUE(message.FindString("type"));
+        EXPECT_TRUE(message.FindInt("sequenceNumber"));
+        EXPECT_TRUE(
+            message.FindStringByDottedPath("message.extraData.additionalKey1"));
+        EXPECT_TRUE(
+            message.FindStringByDottedPath("message.extraData.additionalKey2"));
 
-        EXPECT_EQ("dial_app_info", *message.FindStringKey("type"));
-        EXPECT_EQ(seq_number, *message.FindIntKey("sequenceNumber"));
+        EXPECT_EQ("dial_app_info", *message.FindString("type"));
+        EXPECT_EQ(seq_number, *message.FindInt("sequenceNumber"));
         EXPECT_EQ("additional value 1",
-                  *message.FindStringPath("message.extraData.additionalKey1"));
+                  *message.FindStringByDottedPath(
+                      "message.extraData.additionalKey1"));
         EXPECT_EQ("additional value 2",
-                  *message.FindStringPath("message.extraData.additionalKey2"));
+                  *message.FindStringByDottedPath(
+                      "message.extraData.additionalKey2"));
       });
   base::RunLoop().RunUntilIdle();
 }

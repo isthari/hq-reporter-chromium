@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 #include "chrome/browser/ui/webui/signin/login_ui_service.h"
 #include "chrome/browser/ui/webui/signin/login_ui_service_factory.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
-#include "components/sync/driver/test_sync_service.h"
+#include "components/sync/test/test_sync_service.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/message_center/public/cpp/notification.h"
@@ -25,7 +25,8 @@ namespace {
 
 // Notification ID corresponding to kProfileSyncNotificationId + the test
 // profile's name.
-const char kNotificationId[] = "chrome://settings/sync/testing_profile";
+constexpr char kNotificationId[] =
+    "chrome://settings/sync/testing_profile@test";
 
 class FakeLoginUIService : public LoginUIService {
  public:

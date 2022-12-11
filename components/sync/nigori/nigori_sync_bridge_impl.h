@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "components/sync/engine/nigori/key_derivation_params.h"
@@ -62,7 +61,9 @@ class NigoriSyncBridgeImpl : public KeystoreKeysHandler,
   ModelTypeSet GetEncryptedTypes() override;
   Cryptographer* GetCryptographer() override;
   PassphraseType GetPassphraseType() override;
-  void SetEncryptionPassphrase(const std::string& passphrase) override;
+  void SetEncryptionPassphrase(
+      const std::string& passphrase,
+      const KeyDerivationParams& key_derivation_params) override;
   void SetExplicitPassphraseDecryptionKey(std::unique_ptr<Nigori> key) override;
   void AddTrustedVaultDecryptionKeys(
       const std::vector<std::vector<uint8_t>>& keys) override;

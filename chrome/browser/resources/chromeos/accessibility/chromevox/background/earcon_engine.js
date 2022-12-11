@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,90 +8,89 @@
  * rest of the code.
  */
 
-/**
- * EarconEngine generates ChromeVox's earcons using the web audio API.
- */
+import {Earcon} from '../common/abstract_earcons.js';
+
+/** EarconEngine generates ChromeVox's earcons using the web audio API. */
 export class EarconEngine {
   constructor() {
     // Public control parameters. All of these are meant to be adjustable.
 
-    /** @type {number} The output volume, as an amplification factor. */
+    /** @public {number} The output volume, as an amplification factor. */
     this.outputVolume = 1.0;
 
-    /** @type {number} The base relative pitch adjustment, in half-steps. */
+    /** @public {number} The base relative pitch adjustment, in half-steps. */
     this.basePitch = -4;
 
-    /** @type {number} The click volume, as an amplification factor. */
+    /** @public {number} The click volume, as an amplification factor. */
     this.clickVolume = 0.4;
 
     /**
-     * @type {number} The volume of the static sound, as an
+     * @public {number} The volume of the static sound, as an
      * amplification factor.
      */
     this.staticVolume = 0.2;
 
-    /** @type {number} The base delay for repeated sounds, in seconds. */
+    /** @public {number} The base delay for repeated sounds, in seconds. */
     this.baseDelay = 0.045;
 
-    /** @type {number} The base stereo panning, from -1 to 1. */
+    /** @public {number} The base stereo panning, from -1 to 1. */
     this.basePan = EarconEngine.CENTER_PAN_;
 
-    /** @type {number} The base reverb level as an amplification factor. */
+    /** @public {number} The base reverb level as an amplification factor. */
     this.baseReverb = 0.4;
 
     /**
-     * @type {string} The choice of the reverb impulse response to use.
+     * @public {string} The choice of the reverb impulse response to use.
      * Must be one of the strings from EarconEngine.REVERBS.
      */
     this.reverbSound = 'small_room_2';
 
-    /** @type {number} The base pitch for the 'wrap' sound in half-steps. */
+    /** @public {number} The base pitch for the 'wrap' sound in half-steps. */
     this.wrapPitch = 0;
 
-    /** @type {number} The base pitch for the 'alert' sound in half-steps. */
+    /** @public {number} The base pitch for the 'alert' sound in half-steps. */
     this.alertPitch = 0;
 
-    /** @type {string} The choice of base sound for most controls. */
+    /** @public {string} The choice of base sound for most controls. */
     this.controlSound = 'control';
 
     /**
-     * @type {number} The delay between sounds in the on/off sweep effect,
+     * @public {number} The delay between sounds in the on/off sweep effect,
      * in seconds.
      */
     this.sweepDelay = 0.045;
 
     /**
-     * @type {number} The delay between echos in the on/off sweep, in seconds.
+     * @public {number} The delay between echos in the on/off sweep, in seconds.
      */
     this.sweepEchoDelay = 0.15;
 
-    /** @type {number} The number of echos in the on/off sweep. */
+    /** @public {number} The number of echos in the on/off sweep. */
     this.sweepEchoCount = 3;
 
-    /** @type {number} The pitch offset of the on/off sweep, in half-steps. */
+    /** @public {number} The pitch offset of the on/off sweep, in half-steps. */
     this.sweepPitch = -7;
 
     /**
-     * @type {number} The final gain of the progress sound, as an
+     * @public {number} The final gain of the progress sound, as an
      * amplification factor.
      */
     this.progressFinalGain = 0.05;
 
-    /** @type {number} The multiplicative decay rate of the progress ticks. */
+    /** @public {number} The multiplicative decay rate of the progress ticks. */
     this.progressGain_Decay = 0.7;
 
     // Private variables.
 
-    /** @type {AudioContext} @private The audio context. */
+    /** @private {AudioContext} The audio context. */
     this.context_ = new AudioContext();
 
-    /** @type {?ConvolverNode} @private The reverb node, lazily initialized. */
+    /** @private {?ConvolverNode} The reverb node, lazily initialized. */
     this.reverbConvolver_ = null;
 
     /**
-     * @type {Object<string, AudioBuffer>} A map between the name of an
+     * @private {Object<string, AudioBuffer>} A map between the name of an
      *     audio data file and its loaded AudioBuffer.
-     * @private
      */
     this.buffers_ = {};
 
@@ -99,21 +98,17 @@ export class EarconEngine {
      * The source audio nodes for queued tick / tocks for progress.
      * Kept around so they can be canceled.
      *
-     * @type {Array<Array<AudioNode>>}
-     * @private
+     * @private {Array<Array<AudioNode>>}
      */
     this.progressSources_ = [];
 
-    /** @type {number} The current gain for progress sounds. @private */
+    /** @private {number} The current gain for progress sounds. */
     this.progressGain_ = 1.0;
 
-    /** @type {?number} The current time for progress sounds. @private */
+    /** @private {?number} The current time for progress sounds. */
     this.progressTime_ = this.context_.currentTime;
 
-    /**
-     * @type {?number} The window.setInterval ID for progress sounds.
-     * @private
-     */
+    /** @private {?number} The setInterval ID for progress sounds. */
     this.progressIntervalID_ = null;
 
     /** @private {boolean} */
@@ -132,11 +127,10 @@ export class EarconEngine {
     // Initialization: load the base sound data files asynchronously.
     const allSoundFilesToLoad =
         EarconEngine.SOUNDS.concat(EarconEngine.REVERBS);
-    allSoundFilesToLoad.forEach((function(sound) {
-                                  const url =
-                                      EarconEngine.BASE_URL + sound + '.wav';
-                                  this.loadSound(sound, url);
-                                }).bind(this));
+    allSoundFilesToLoad.forEach(sound => {
+      const url = `${EarconEngine.BASE_URL}${sound}.wav`;
+      this.loadSound(sound, url);
+    });
   }
 
   /**
@@ -386,32 +380,24 @@ export class EarconEngine {
     return source;
   }
 
-  /**
-   * Play the static sound.
-   */
+  /** Play the static sound. */
   onStatic() {
     this.play('static', {gain: this.staticVolume});
   }
 
-  /**
-   * Play the link sound.
-   */
+  /** Play the link sound. */
   onLink() {
     this.play('static', {gain: this.clickVolume});
     this.play(this.controlSound, {pitch: 12});
   }
 
-  /**
-   * Play the button sound.
-   */
+  /** Play the button sound. */
   onButton() {
     this.play('static', {gain: this.clickVolume});
     this.play(this.controlSound);
   }
 
-  /**
-   * Play the text field sound.
-   */
+  /** Play the text field sound. */
   onTextField() {
     this.play('static', {gain: this.clickVolume});
     this.play(
@@ -421,9 +407,7 @@ export class EarconEngine {
         this.controlSound, {pitch: 4, time: this.baseDelay * 1.5, gain: 0.5});
   }
 
-  /**
-   * Play the pop up button sound.
-   */
+  /** Play the pop up button sound. */
   onPopUpButton() {
     this.play('static', {gain: this.clickVolume});
 
@@ -434,43 +418,33 @@ export class EarconEngine {
         this.controlSound, {time: this.baseDelay * 4.5, gain: 0.2, pitch: 12});
   }
 
-  /**
-   * Play the check on sound.
-   */
+  /** Play the check on sound. */
   onCheckOn() {
     this.play('static', {gain: this.clickVolume});
     this.play(this.controlSound, {pitch: -5});
     this.play(this.controlSound, {pitch: 7, time: this.baseDelay * 2});
   }
 
-  /**
-   * Play the check off sound.
-   */
+  /** Play the check off sound. */
   onCheckOff() {
     this.play('static', {gain: this.clickVolume});
     this.play(this.controlSound, {pitch: 7});
     this.play(this.controlSound, {pitch: -5, time: this.baseDelay * 2});
   }
 
-  /**
-   * Play the smart sticky mode on sound.
-   */
+  /** Play the smart sticky mode on sound. */
   onSmartStickyModeOn() {
     this.play('static', {gain: this.clickVolume * 0.5});
     this.play(this.controlSound, {pitch: 7});
   }
 
-  /**
-   * Play the smart sticky mode off sound.
-   */
+  /** Play the smart sticky mode off sound. */
   onSmartStickyModeOff() {
     this.play('static', {gain: this.clickVolume * 0.5});
     this.play(this.controlSound, {pitch: -5});
   }
 
-  /**
-   * Play the select control sound.
-   */
+  /** Play the select control sound. */
   onSelect() {
     this.play('static', {gain: this.clickVolume});
     this.play(this.controlSound);
@@ -478,9 +452,7 @@ export class EarconEngine {
     this.play(this.controlSound, {time: this.baseDelay * 2});
   }
 
-  /**
-   * Play the slider sound.
-   */
+  /** Play the slider sound. */
   onSlider() {
     this.play('static', {gain: this.clickVolume});
     this.play(this.controlSound);
@@ -493,23 +465,17 @@ export class EarconEngine {
         this.controlSound, {time: this.baseDelay * 4, gain: 0.0625, pitch: 8});
   }
 
-  /**
-   * Play the skim sound.
-   */
+  /** Play the skim sound. */
   onSkim() {
     this.play('skim');
   }
 
-  /**
-   * Play the selection sound.
-   */
+  /** Play the selection sound. */
   onSelection() {
     this.play('selection');
   }
 
-  /**
-   * Play the selection reverse sound.
-   */
+  /** Play the selection reverse sound. */
   onSelectionReverse() {
     this.play('selection_reverse');
   }
@@ -524,7 +490,7 @@ export class EarconEngine {
       gain: 0.008,
       freq: freq1,
       overtones: 1,
-      overtoneFactor: 0.1
+      overtoneFactor: 0.1,
     });
   }
 
@@ -684,23 +650,17 @@ export class EarconEngine {
     }
   }
 
-  /**
-   * Play the "ChromeVox On" sound.
-   */
+  /** Play the "ChromeVox On" sound. */
   onChromeVoxOn() {
     this.onChromeVoxSweep(false);
   }
 
-  /**
-   * Play the "ChromeVox Off" sound.
-   */
+  /** Play the "ChromeVox Off" sound. */
   onChromeVoxOff() {
     this.onChromeVoxSweep(true);
   }
 
-  /**
-   * Play an alert sound.
-   */
+  /** Play an alert sound. */
   onAlert() {
     const freq1 = 220 * Math.pow(EarconEngine.HALF_STEP, this.alertPitch - 2);
     const freq2 = 220 * Math.pow(EarconEngine.HALF_STEP, this.alertPitch - 3);
@@ -711,7 +671,7 @@ export class EarconEngine {
       gain: 0.3,
       freq: freq1,
       overtones: 3,
-      overtoneFactor: 0.1
+      overtoneFactor: 0.1,
     });
     this.generateSinusoidal({
       attack: 0.02,
@@ -720,15 +680,13 @@ export class EarconEngine {
       gain: 0.3,
       freq: freq2,
       overtones: 3,
-      overtoneFactor: 0.1
+      overtoneFactor: 0.1,
     });
 
     this.currentTrackedEarcon_ = undefined;
   }
 
-  /**
-   * Play a wrap sound.
-   */
+  /** Play a wrap sound. */
   onWrap() {
     this.play('static', {gain: this.clickVolume * 0.3});
     const freq1 = 220 * Math.pow(EarconEngine.HALF_STEP, this.wrapPitch - 8);
@@ -741,7 +699,7 @@ export class EarconEngine {
       freq: freq1,
       endFreq: freq2,
       overtones: 1,
-      overtoneFactor: 0.1
+      overtoneFactor: 0.1,
     });
   }
 
@@ -755,12 +713,12 @@ export class EarconEngine {
       let t = this.progressTime_ - this.context_.currentTime;
       this.progressSources_.push([
         this.progressTime_,
-        this.play('static', {gain: 0.5 * this.progressGain_, time: t})
+        this.play('static', {gain: 0.5 * this.progressGain_, time: t}),
       ]);
       this.progressSources_.push([
         this.progressTime_,
         this.play(
-            this.controlSound, {pitch: 20, time: t, gain: this.progressGain_})
+            this.controlSound, {pitch: 20, time: t, gain: this.progressGain_}),
       ]);
 
       if (this.progressGain_ > this.progressFinalGain) {
@@ -770,12 +728,12 @@ export class EarconEngine {
 
       this.progressSources_.push([
         this.progressTime_,
-        this.play('static', {gain: 0.5 * this.progressGain_, time: t})
+        this.play('static', {gain: 0.5 * this.progressGain_, time: t}),
       ]);
       this.progressSources_.push([
         this.progressTime_,
         this.play(
-            this.controlSound, {pitch: 8, time: t, gain: this.progressGain_})
+            this.controlSound, {pitch: 8, time: t, gain: this.progressGain_}),
       ]);
 
       if (this.progressGain_ > this.progressFinalGain) {
@@ -812,12 +770,10 @@ export class EarconEngine {
     this.progressTime_ = this.context_.currentTime;
     this.generateProgressTickTocks_();
     this.progressIntervalID_ =
-        window.setInterval(this.generateProgressTickTocks_.bind(this), 1000);
+        setInterval(this.generateProgressTickTocks_.bind(this), 1000);
   }
 
-  /**
-   * Stop playing any tick / tock progress sounds.
-   */
+  /** Stop playing any tick / tock progress sounds. */
   cancelProgress() {
     if (this.persistProgressTicks_) {
       return;
@@ -831,7 +787,7 @@ export class EarconEngine {
     }
     this.progressSources_ = [];
 
-    window.clearInterval(this.progressIntervalID_);
+    clearInterval(this.progressIntervalID_);
     this.progressIntervalID_ = null;
   }
 
@@ -878,47 +834,27 @@ export class EarconEngine {
     this.basePan = x;
   }
 
-  /**
-   * Resets panning to default (centered).
-   */
+  /** Resets panning to default (centered). */
   resetPan() {
     this.basePan = EarconEngine.CENTER_PAN_;
   }
 }
 
-/**
- * @type {Array<string>} The list of sound data files to load.
- * @const
- */
+/* @const {Array<string>} The list of sound data files to load. */
 EarconEngine.SOUNDS =
     ['control', 'selection', 'selection_reverse', 'skim', 'static'];
 
-/**
- * @type {Array<string>} The list of reverb data files to load.
- * @const
- */
+/** @const {Array<string>} The list of reverb data files to load. */
 EarconEngine.REVERBS = ['small_room_2'];
 
-/**
- * @type {number} The scale factor for one half-step.
- * @const
- */
+/** @const {number} The scale factor for one half-step. */
 EarconEngine.HALF_STEP = Math.pow(2.0, 1.0 / 12.0);
 
-/**
- * @type {string} The base url for earcon sound resources.
- * @const
- */
-EarconEngine.BASE_URL =
-    chrome.extension.getURL('chromevox/background/earcons/');
+/** @const {string} The base url for earcon sound resources. */
+EarconEngine.BASE_URL = chrome.extension.getURL('chromevox/earcons/');
 
-/**
- * The maximum value to pass to PannerNode.setPosition.
- */
+/** The maximum value to pass to PannerNode.setPosition. */
 EarconEngine.MAX_PAN_ABS_X_POSITION = 4;
 
-/**
- * Default (centered) pan position.
- * @const {number}
- */
+/** @const {number} Default (centered) pan position. */
 EarconEngine.CENTER_PAN_ = 0;

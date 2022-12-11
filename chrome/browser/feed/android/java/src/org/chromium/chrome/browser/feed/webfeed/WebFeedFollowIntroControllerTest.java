@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@ import android.app.Activity;
 import android.util.Base64;
 import android.view.View;
 
+import androidx.test.ext.junit.rules.ActivityScenarioRule;
 import androidx.test.filters.SmallTest;
 
 import org.junit.After;
@@ -34,12 +35,12 @@ import org.robolectric.shadows.ShadowLog;
 
 import org.chromium.base.Callback;
 import org.chromium.base.FeatureList;
+import org.chromium.base.UserDataHost;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.task.test.ShadowPostTask;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
-import org.chromium.chrome.browser.feed.R;
 import org.chromium.chrome.browser.feed.webfeed.WebFeedSnackbarController.FeedLauncher;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
@@ -55,6 +56,10 @@ import org.chromium.components.feature_engagement.TriggerDetails;
 import org.chromium.components.prefs.PrefService;
 import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.components.user_prefs.UserPrefsJni;
+import org.chromium.content_public.browser.NavigationController;
+import org.chromium.content_public.browser.NavigationHandle;
+import org.chromium.content_public.browser.WebContents;
+import org.chromium.ui.base.TestActivity;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.url.GURL;
 import org.chromium.url.JUnitTestGURLs;
@@ -77,6 +82,9 @@ public final class WebFeedFollowIntroControllerTest {
 
     @Rule
     public JniMocker mJniMocker = new JniMocker();
+    @Rule
+    public ActivityScenarioRule<TestActivity> mActivityScenarioRule =
+            new ActivityScenarioRule<>(TestActivity.class);
 
     @Mock
     FeedLauncher mFeedLauncher;
@@ -100,12 +108,19 @@ public final class WebFeedFollowIntroControllerTest {
     private PrefService mPrefService;
     @Mock
     private UserPrefs.Natives mUserPrefsJniMock;
+    @Mock
+    private WebContents mWebContents;
+    @Mock
+    private NavigationController mNavigationController;
+    @Mock
+    private NavigationHandle mNavigationHandle;
 
     private Activity mActivity;
     private EmptyTabObserver mEmptyTabObserver;
     private FakeClock mClock;
     private WebFeedFollowIntroController mWebFeedFollowIntroController;
     private FeatureList.TestValues mBaseTestValues;
+    private UserDataHost mTestUserDataHost;
 
     @Before
     public void setUp() {
@@ -119,9 +134,8 @@ public final class WebFeedFollowIntroControllerTest {
         Profile.setLastUsedProfileForTesting(mProfile);
         Mockito.when(mUserPrefsJniMock.get(mProfile)).thenReturn(mPrefService);
 
-        mActivity = Robolectric.setupActivity(Activity.class);
         // Required for resolving an attribute used in AppMenuItemText.
-        mActivity.setTheme(R.style.Theme_BrowserUI_DayNight);
+        mActivityScenarioRule.getScenario().onActivity(activity -> mActivity = activity);
         mClock = new FakeClock();
         when(mTracker.shouldTriggerHelpUI(FeatureConstants.IPH_WEB_FEED_FOLLOW_FEATURE))
                 .thenReturn(true);
@@ -137,7 +151,14 @@ public final class WebFeedFollowIntroControllerTest {
 
         when(mTab.getUrl()).thenReturn(sTestUrl);
         when(mTab.isIncognito()).thenReturn(false);
+        when(mTab.getWebContents()).thenReturn(mWebContents);
         when(mTabSupplier.get()).thenReturn(mTab);
+        when(mWebContents.getNavigationController()).thenReturn(mNavigationController);
+
+        mTestUserDataHost = new UserDataHost();
+        WebFeedRecommendationFollowAcceleratorController.associateWebFeedWithUserData(
+                mTestUserDataHost, new byte[] {1, 2, 3});
+
         TrackerFactory.setTrackerForTests(mTracker);
 
         // Calling setTestFeatures is needed (even if empty) to enable field trial param calls.
@@ -184,11 +205,33 @@ public final class WebFeedFollowIntroControllerTest {
 
     @Test
     @SmallTest
+    public void
+    meetsShowingRequirements_butPageNavigationIsFromRecommendation_acceleratorShownOnlyOnce() {
+        // Mock the navigation entry to indicate the current entry contains a recommended web feed.
+        when(mTab.getUserDataHost()).thenReturn(new UserDataHost());
+        when(mNavigationHandle.getUserDataHost()).thenReturn(mTestUserDataHost);
+        setWebFeedIntroLastShownTimeMsPref(0);
+        setWebFeedIntroWebFeedIdShownTimeMsPref(0);
+        setVisitCounts(3, 3);
+        invokePageLoad(WebFeedSubscriptionStatus.NOT_SUBSCRIBED, /*isRecommended=*/true);
+        advanceClockByMs(SAFE_INTRO_WAIT_TIME_MILLIS);
+
+        assertFalse(mWebFeedFollowIntroController.getIntroShownForTesting());
+        assertTrue(mWebFeedFollowIntroController.getRecommendationFollowAcceleratorController()
+                           .getIntroViewForTesting()
+                           .wasFollowBubbleShownForTesting());
+    }
+
+    @Test
+    @SmallTest
     public void meetsShowingRequirements_showsIntro_IPH() {
         mBaseTestValues.addFieldTrialParamOverride(
                 ChromeFeatureList.WEB_FEED, "intro_style", "IPH");
         mBaseTestValues.addFeatureFlagOverride(ChromeFeatureList.SNOOZABLE_IPH, false);
         mBaseTestValues.addFeatureFlagOverride(ChromeFeatureList.ENABLE_AUTOMATIC_SNOOZE, false);
+        mBaseTestValues.addFeatureFlagOverride(ChromeFeatureList.ENABLE_IPH, true);
+        mBaseTestValues.addFeatureFlagOverride(
+                ChromeFeatureList.ANDROID_SCROLL_OPTIMIZATIONS, false);
         FeatureList.setTestValues(mBaseTestValues);
         resetWebFeedFollowIntroController();
 
@@ -209,6 +252,56 @@ public final class WebFeedFollowIntroControllerTest {
                 sSharedPreferencesManager.readLong(
                         ChromePreferenceKeys.WEB_FEED_INTRO_WEB_FEED_ID_SHOWN_TIME_MS_PREFIX
                                 .createKey(Base64.encodeToString(sWebFeedId, Base64.DEFAULT))));
+    }
+
+    @Test
+    @SmallTest
+    public void sameWebFeedIsNotShownMoreThan3Times() {
+        mBaseTestValues.addFieldTrialParamOverride(
+                ChromeFeatureList.WEB_FEED, "intro_style", "IPH");
+        mBaseTestValues.addFeatureFlagOverride(ChromeFeatureList.SNOOZABLE_IPH, false);
+        mBaseTestValues.addFeatureFlagOverride(ChromeFeatureList.ENABLE_AUTOMATIC_SNOOZE, false);
+        mBaseTestValues.addFeatureFlagOverride(ChromeFeatureList.ENABLE_IPH, true);
+        mBaseTestValues.addFeatureFlagOverride(
+                ChromeFeatureList.ANDROID_SCROLL_OPTIMIZATIONS, false);
+        FeatureList.setTestValues(mBaseTestValues);
+        resetWebFeedFollowIntroController();
+
+        mWebFeedFollowIntroController.clearIntroShownForTesting();
+        setWebFeedIntroLastShownTimeMsPref(0);
+        setWebFeedIntroWebFeedIdShownTimeMsPref(0);
+        setVisitCounts(3, 3);
+        invokePageLoad(WebFeedSubscriptionStatus.NOT_SUBSCRIBED, /*isRecommended=*/true);
+        advanceClockByMs(SAFE_INTRO_WAIT_TIME_MILLIS);
+        assertTrue("Intro should be shown first time",
+                mWebFeedFollowIntroController.getIntroShownForTesting());
+
+        mWebFeedFollowIntroController.clearIntroShownForTesting();
+        setWebFeedIntroLastShownTimeMsPref(0);
+        setWebFeedIntroWebFeedIdShownTimeMsPref(0);
+        setVisitCounts(3, 3);
+        invokePageLoad(WebFeedSubscriptionStatus.NOT_SUBSCRIBED, /*isRecommended=*/true);
+        advanceClockByMs(SAFE_INTRO_WAIT_TIME_MILLIS);
+        assertTrue("Intro should be shown second time",
+                mWebFeedFollowIntroController.getIntroShownForTesting());
+
+        mWebFeedFollowIntroController.clearIntroShownForTesting();
+        setWebFeedIntroLastShownTimeMsPref(0);
+        setWebFeedIntroWebFeedIdShownTimeMsPref(0);
+        setVisitCounts(3, 3);
+        invokePageLoad(WebFeedSubscriptionStatus.NOT_SUBSCRIBED, /*isRecommended=*/true);
+        advanceClockByMs(SAFE_INTRO_WAIT_TIME_MILLIS);
+        assertTrue("Intro should be shown third time",
+                mWebFeedFollowIntroController.getIntroShownForTesting());
+
+        mWebFeedFollowIntroController.clearIntroShownForTesting();
+        setWebFeedIntroLastShownTimeMsPref(0);
+        setWebFeedIntroWebFeedIdShownTimeMsPref(0);
+        setVisitCounts(3, 3);
+        invokePageLoad(WebFeedSubscriptionStatus.NOT_SUBSCRIBED, /*isRecommended=*/true);
+        advanceClockByMs(SAFE_INTRO_WAIT_TIME_MILLIS);
+        assertFalse("Intro should NOT be shown fourth time",
+                mWebFeedFollowIntroController.getIntroShownForTesting());
     }
 
     @Test
@@ -455,10 +548,16 @@ public final class WebFeedFollowIntroControllerTest {
 
     private void invokePageLoad(
             @WebFeedSubscriptionStatus int subscriptionStatus, boolean isRecommended) {
+        // We don't check for web feed name unless the navigation is on the main frame.
+        when(mNavigationHandle.isInPrimaryMainFrame()).thenReturn(true);
+        // Set the navigation handle so we can get (mocked) user data out of it.
+        mEmptyTabObserver.onDidFinishNavigationInPrimaryMainFrame(mTab, mNavigationHandle);
+
         WebFeedBridge.WebFeedMetadata webFeedMetadata =
                 new WebFeedBridge.WebFeedMetadata(sWebFeedId, "title", sTestUrl, subscriptionStatus,
                         WebFeedAvailabilityStatus.ACTIVE, isRecommended, sFaviconUrl);
 
+        // Respond to the findWebFeedInfoForPage JNI api by calling the callback.
         doAnswer(invocation -> {
             assertEquals("Incorrect WebFeedPageInformationRequestReason was used.",
                     WebFeedPageInformationRequestReason.FOLLOW_RECOMMENDATION,
@@ -470,6 +569,15 @@ public final class WebFeedFollowIntroControllerTest {
                 .when(mWebFeedBridgeJniMock)
                 .findWebFeedInfoForPage(any(WebFeedBridge.WebFeedPageInformation.class), anyInt(),
                         any(Callback.class));
+
+        // Respond to the findWebFeedInfoForWebFeedId JNI api by calling the callback.
+        doAnswer(invocation -> {
+            invocation.<Callback<WebFeedBridge.WebFeedMetadata>>getArgument(1).onResult(
+                    webFeedMetadata);
+            return null;
+        })
+                .when(mWebFeedBridgeJniMock)
+                .findWebFeedInfoForWebFeedId(any(), any(Callback.class));
 
         mEmptyTabObserver.onPageLoadStarted(mTab, sTestUrl);
         mEmptyTabObserver.didFirstVisuallyNonEmptyPaint(mTab);

@@ -1,4 +1,4 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@ namespace apps_util {
 
 int ConvertDipToPx(int dip, bool quantize_to_supported_scale_factor);
 int ConvertPxToDip(int px, bool quantize_to_supported_scale_factor);
+int ConvertDipToPxForScale(int dip, float scale);
 ui::ResourceScaleFactor GetPrimaryDisplayUIScaleFactor();
 
 }  // namespace apps_util

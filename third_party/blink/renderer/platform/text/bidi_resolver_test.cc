@@ -32,8 +32,8 @@
 
 #include <fstream>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
+#include "base/ranges/algorithm.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/platform/text/bidi_test_harness.h"
 #include "third_party/blink/renderer/platform/text/text_run_iterator.h"
@@ -111,7 +111,7 @@ TEST(BidiResolver, ParagraphDirectionSurrogates) {
       // Test broken surrogate: trail appearing before
       // lead. (U+10858 units reversed)
       {{0xDC58, 0xD802}, 2, TextDirection::kLtr, false}};
-  for (size_t i = 0; i < base::size(kTestData); ++i)
+  for (size_t i = 0; i < std::size(kTestData); ++i)
     TestDirectionality(kTestData[i]);
 }
 
@@ -162,11 +162,9 @@ std::string DiffString(const Vector<int>& actual, const Vector<int>& expected) {
   std::ostringstream diff;
   diff << "actual: ";
   // This is the magical way to print a vector to a stream, clear, right?
-  std::copy(actual.begin(), actual.end(),
-            std::ostream_iterator<int>(diff, " "));
+  base::ranges::copy(actual, std::ostream_iterator<int>(diff, " "));
   diff << " expected: ";
-  std::copy(expected.begin(), expected.end(),
-            std::ostream_iterator<int>(diff, " "));
+  base::ranges::copy(expected, std::ostream_iterator<int>(diff, " "));
   return diff.str();
 }
 
@@ -176,7 +174,7 @@ void BidiTestRunner::RunTest(const std::basic_string<UChar>& input,
                              bidi_test::ParagraphDirection paragraph_direction,
                              const std::string& line,
                              size_t line_number) {
-  if (!skipped_code_points_.IsEmpty()) {
+  if (!skipped_code_points_.empty()) {
     for (size_t i = 0; i < input.size(); i++) {
       if (skipped_code_points_.Contains(input[i])) {
         tests_skipped_++;

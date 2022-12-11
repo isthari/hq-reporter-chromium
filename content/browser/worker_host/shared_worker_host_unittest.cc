@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/service_worker_main_resource_handle.h"
+#include "content/browser/site_instance_impl.h"
 #include "content/browser/worker_host/mock_shared_worker.h"
 #include "content/browser/worker_host/shared_worker_connector_impl.h"
 #include "content/browser/worker_host/shared_worker_service_impl.h"
@@ -36,6 +37,7 @@
 #include "services/network/public/cpp/cross_origin_embedder_policy.h"
 #include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/not_implemented_url_loader_factory.h"
+#include "services/network/public/mojom/parsed_headers.mojom.h"
 #include "services/network/test/client_security_state_builder.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -85,11 +87,11 @@ class SharedWorkerHostTest : public testing::Test {
         kWorkerUrl, blink::mojom::ScriptType::kClassic,
         network::mojom::CredentialsMode::kSameOrigin, "name",
         blink::StorageKey(url::Origin::Create(kWorkerUrl)),
-        network::mojom::IPAddressSpace::kPublic,
         blink::mojom::SharedWorkerCreationContextType::kSecure);
     auto host = std::make_unique<SharedWorkerHost>(
         &service_, instance, site_instance_,
         std::vector<network::mojom::ContentSecurityPolicyPtr>(),
+        base::MakeRefCounted<PolicyContainerHost>(),
         network::mojom::ClientSecurityState::New());
     auto weak_host = host->AsWeakPtr();
     service_.worker_hosts_.insert(std::move(host));
@@ -104,6 +106,9 @@ class SharedWorkerHostTest : public testing::Test {
           network::mojom::URLResponseHead::New()) {
     auto main_script_load_params =
         blink::mojom::WorkerMainScriptLoadParams::New();
+    if (!response_head->parsed_headers) {
+      response_head->parsed_headers = network::mojom::ParsedHeaders::New();
+    }
     main_script_load_params->response_head = std::move(response_head);
     mojo::ScopedDataPipeProducerHandle producer_handle;
     mojo::ScopedDataPipeConsumerHandle consumer_handle;
@@ -380,11 +385,11 @@ TEST_F(SharedWorkerHostTest,
       network::mojom::CredentialsMode::kSameOrigin, "name",
       blink::StorageKey::CreateWithNonce(url::Origin::Create(kWorkerUrl),
                                          nonce),
-      network::mojom::IPAddressSpace::kPublic,
       blink::mojom::SharedWorkerCreationContextType::kSecure);
   auto host = std::make_unique<SharedWorkerHost>(
       &service_, instance, site_instance_,
       std::vector<network::mojom::ContentSecurityPolicyPtr>(),
+      base::MakeRefCounted<PolicyContainerHost>(),
       network::mojom::ClientSecurityState::New());
 
   // Start the worker.
@@ -403,12 +408,19 @@ TEST_F(SharedWorkerHostTest,
 // Enable PrivateNetworkAccessForWorkers.
 class SharedWorkerHostTestWithPNAEnabled : public SharedWorkerHostTest {
  public:
-  SharedWorkerHostTestWithPNAEnabled() = default;
+  SharedWorkerHostTestWithPNAEnabled() {
+    feature_list_.InitWithFeatures(
+        {
+            features::kPrivateNetworkAccessSendPreflights,
+            features::kPrivateNetworkAccessForWorkers,
+        },
+        {});
+  }
+
   ~SharedWorkerHostTestWithPNAEnabled() override = default;
 
  private:
-  base::test::ScopedFeatureList feature_list{
-      /*enable_feature=*/features::kPrivateNetworkAccessForWorkers};
+  base::test::ScopedFeatureList feature_list_;
 };
 
 TEST_F(SharedWorkerHostTestWithPNAEnabled,
@@ -417,7 +429,6 @@ TEST_F(SharedWorkerHostTestWithPNAEnabled,
       kWorkerUrl, blink::mojom::ScriptType::kClassic,
       network::mojom::CredentialsMode::kSameOrigin, "name",
       blink::StorageKey(url::Origin::Create(kWorkerUrl)),
-      network::mojom::IPAddressSpace::kPublic,
       blink::mojom::SharedWorkerCreationContextType::kSecure);
   network::CrossOriginEmbedderPolicy creator_cross_origin_embedder_policy;
   creator_cross_origin_embedder_policy.value =
@@ -441,6 +452,7 @@ TEST_F(SharedWorkerHostTestWithPNAEnabled,
   auto host = std::make_unique<SharedWorkerHost>(
       &service_, instance, site_instance_,
       std::vector<network::mojom::ContentSecurityPolicyPtr>(),
+      base::MakeRefCounted<PolicyContainerHost>(),
       std::move(client_security_state));
 
   // Start the worker.

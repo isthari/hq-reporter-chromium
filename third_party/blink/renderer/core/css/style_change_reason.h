@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@ extern const char kDeclarativeContent[];
 extern const char kDesignMode[];
 extern const char kDialog[];
 extern const char kDisplayLock[];
-extern const char kDocumentTransition[];
+extern const char kViewTransition[];
 extern const char kFrame[];
 extern const char kFlatTreeChange[];
 extern const char kFonts[];
@@ -36,7 +36,7 @@ extern const char kLinkColorChange[];
 extern const char kPictureSourceChanged[];
 extern const char kPlatformColorChange[];
 extern const char kPluginChanged[];
-extern const char kPopupVisibilityChange[];
+extern const char kPopoverVisibilityChange[];
 extern const char kPropertyRegistration[];
 extern const char kPseudoClass[];
 extern const char kScrollTimeline[];
@@ -46,6 +46,7 @@ extern const char kShadow[];
 extern const char kStyleInvalidator[];
 extern const char kStyleSheetChange[];
 extern const char kUseFallback[];
+extern const char kViewportDefiningElement[];
 extern const char kViewportUnits[];
 extern const char kVisuallyOrdered[];
 extern const char kWritingModeChange[];
@@ -62,6 +63,7 @@ extern const AtomicString& g_focus_visible;
 extern const AtomicString& g_focus_within;
 extern const AtomicString& g_hover;
 extern const AtomicString& g_past;
+extern const AtomicString& g_toggle;
 extern const AtomicString& g_unresolved;
 
 void Init();

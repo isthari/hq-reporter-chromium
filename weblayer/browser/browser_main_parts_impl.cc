@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/json/json_reader.h"
+#include "base/run_loop.h"
 #include "base/task/current_thread.h"
 #include "base/task/task_traits.h"
 #include "base/threading/thread.h"
@@ -31,6 +32,7 @@
 #include "content/public/common/result_codes.h"
 #include "content/public/common/url_constants.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "weblayer/browser/accept_languages_service_factory.h"
 #include "weblayer/browser/browser_process.h"
 #include "weblayer/browser/cookie_settings_factory.h"
 #include "weblayer/browser/feature_list_creator.h"
@@ -39,10 +41,10 @@
 #include "weblayer/browser/i18n_util.h"
 #include "weblayer/browser/no_state_prefetch/no_state_prefetch_link_manager_factory.h"
 #include "weblayer/browser/no_state_prefetch/no_state_prefetch_manager_factory.h"
+#include "weblayer/browser/origin_trials_factory.h"
 #include "weblayer/browser/permissions/weblayer_permissions_client.h"
 #include "weblayer/browser/stateful_ssl_host_state_delegate_factory.h"
 #include "weblayer/browser/subresource_filter_profile_context_factory.h"
-#include "weblayer/browser/translate_accept_languages_factory.h"
 #include "weblayer/browser/translate_ranker_factory.h"
 #include "weblayer/browser/web_data_service_factory.h"
 #include "weblayer/browser/webui/web_ui_controller_factory.h"
@@ -70,6 +72,7 @@
 #include "weblayer/browser/media/media_router_factory.h"
 #include "weblayer/browser/safe_browsing/safe_browsing_metrics_collector_factory.h"
 #include "weblayer/browser/safe_browsing/safe_browsing_navigation_observer_manager_factory.h"
+#include "weblayer/browser/site_engagement/site_engagement_service_factory.h"
 #include "weblayer/browser/webapps/weblayer_webapps_client.h"
 #include "weblayer/browser/weblayer_factory_impl_android.h"
 #include "weblayer/common/features.h"
@@ -121,12 +124,14 @@ void EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   HostContentSettingsMapFactory::GetInstance();
   StatefulSSLHostStateDelegateFactory::GetInstance();
   CookieSettingsFactory::GetInstance();
-  TranslateAcceptLanguagesFactory::GetInstance();
+  AcceptLanguagesServiceFactory::GetInstance();
   TranslateRankerFactory::GetInstance();
   NoStatePrefetchLinkManagerFactory::GetInstance();
   NoStatePrefetchManagerFactory::GetInstance();
   SubresourceFilterProfileContextFactory::GetInstance();
+  OriginTrialsFactory::GetInstance();
 #if BUILDFLAG(IS_ANDROID)
+  SiteEngagementServiceFactory::GetInstance();
   SafeBrowsingMetricsCollectorFactory::GetInstance();
   SafeBrowsingNavigationObserverManagerFactory::GetInstance();
   if (MediaRouterFactory::IsFeatureEnabled()) {
@@ -150,11 +155,8 @@ void StopMessageLoop(base::OnceClosure quit_closure) {
 
 BrowserMainPartsImpl::BrowserMainPartsImpl(
     MainParams* params,
-    content::MainFunctionParams main_function_params,
     std::unique_ptr<PrefService> local_state)
-    : params_(params),
-      main_function_params_(std::move(main_function_params)),
-      local_state_(std::move(local_state)) {}
+    : params_(params), local_state_(std::move(local_state)) {}
 
 BrowserMainPartsImpl::~BrowserMainPartsImpl() = default;
 
@@ -164,8 +166,8 @@ int BrowserMainPartsImpl::PreCreateThreads() {
 #if BUILDFLAG(IS_ANDROID)
   // The ChildExitObserver needs to be created before any child process is
   // created because it needs to be notified during process creation.
-  crash_reporter::ChildExitObserver::Create();
-  crash_reporter::ChildExitObserver::GetInstance()->RegisterClient(
+  child_exit_observer_ = std::make_unique<crash_reporter::ChildExitObserver>();
+  child_exit_observer_->RegisterClient(
       std::make_unique<crash_reporter::ChildProcessCrashObserver>());
 
   crash_reporter::InitializeCrashKeys();
@@ -180,7 +182,7 @@ int BrowserMainPartsImpl::PreCreateThreads() {
   // Chrome registers these providers from PreCreateThreads() as well.
   auto* synthetic_trial_registry = WebLayerMetricsServiceClient::GetInstance()
                                        ->GetMetricsService()
-                                       ->synthetic_trial_registry();
+                                       ->GetSyntheticTrialRegistry();
   synthetic_trial_registry->AddSyntheticTrialObserver(
       variations::VariationsIdsProvider::GetInstance());
   synthetic_trial_registry->AddSyntheticTrialObserver(

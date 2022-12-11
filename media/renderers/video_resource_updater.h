@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "base/unguessable_token.h"
@@ -22,6 +22,7 @@
 #include "components/viz/common/resources/transferable_resource.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "media/base/media_export.h"
+#include "media/base/video_frame.h"
 #include "ui/gfx/buffer_types.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -29,10 +30,6 @@ namespace gfx {
 class Rect;
 class Transform;
 }  // namespace gfx
-
-namespace gpu {
-class SharedImageInterface;
-}  // namespace gpu
 
 namespace viz {
 class ClientResourceProvider;
@@ -48,13 +45,13 @@ class MaskFilterInfo;
 
 namespace media {
 class PaintCanvasVideoRenderer;
-class VideoFrame;
 
 // Specifies what type of data is contained in the mailboxes, as well as how
 // many mailboxes will be present.
 enum class VideoFrameResourceType {
   NONE,
   YUV,
+  YUVA,
   RGB,
   RGBA_PREMULTIPLIED,
   RGBA,
@@ -166,7 +163,7 @@ class MEDIA_EXPORT VideoResourceUpdater
   PlaneResource* RecycleOrAllocateResource(const gfx::Size& resource_size,
                                            viz::ResourceFormat resource_format,
                                            const gfx::ColorSpace& color_space,
-                                           int unique_id,
+                                           VideoFrame::ID unique_id,
                                            int plane_index);
   PlaneResource* AllocateResource(const gfx::Size& plane_size,
                                   viz::ResourceFormat format,
@@ -201,15 +198,11 @@ class MEDIA_EXPORT VideoResourceUpdater
   void ReturnTexture(scoped_refptr<VideoFrame> video_frame,
                      const gpu::SyncToken& sync_token,
                      bool lost_resource);
-  void DestroyMailbox(gpu::Mailbox mailbox,
-                      scoped_refptr<VideoFrame> video_frame,
-                      const gpu::SyncToken& sync_token,
-                      bool lost_resource);
 
   // base::trace_event::MemoryDumpProvider implementation.
   bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
                     base::trace_event::ProcessMemoryDump* pmd) override;
-  gpu::SharedImageInterface* SharedImageInterface() const;
+
   const raw_ptr<viz::ContextProvider> context_provider_;
   const raw_ptr<viz::RasterContextProvider> raster_context_provider_;
   const raw_ptr<viz::SharedBitmapReporter> shared_bitmap_reporter_;

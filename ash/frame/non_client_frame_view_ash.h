@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,12 @@
 
 #include "ash/ash_export.h"
 #include "ash/frame/frame_context_menu_controller.h"
-#include "ash/frame/header_view.h"
 #include "ash/wm/overview/overview_observer.h"
 #include "base/bind.h"
 #include "base/memory/weak_ptr.h"
+#include "chromeos/ui/frame/header_view.h"
+#include "chromeos/ui/frame/highlight_border_overlay.h"
+#include "chromeos/ui/frame/non_client_frame_view_base.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/widget/widget.h"
@@ -21,11 +23,11 @@
 namespace chromeos {
 class FrameCaptionButtonContainerView;
 class ImmersiveFullscreenController;
-}
+}  // namespace chromeos
 
 namespace views {
 class Widget;
-}
+}  // namespace views
 
 namespace ash {
 
@@ -38,7 +40,7 @@ class NonClientFrameViewAshImmersiveHelper;
 // the top of the screen. See also views::CustomFrameView and
 // BrowserNonClientFrameViewAsh.
 class ASH_EXPORT NonClientFrameViewAsh
-    : public views::NonClientFrameView,
+    : public chromeos::NonClientFrameViewBase,
       public FrameContextMenuController::Delegate {
  public:
   METADATA_HEADER(NonClientFrameViewAsh);
@@ -70,29 +72,11 @@ class ASH_EXPORT NonClientFrameViewAsh
   void SetFrameColors(SkColor active_frame_color, SkColor inactive_frame_color);
 
   // Get the view of the header.
-  HeaderView* GetHeaderView();
+  chromeos::HeaderView* GetHeaderView();
 
   // Calculate the client bounds for given window bounds.
   gfx::Rect GetClientBoundsForWindowBounds(
       const gfx::Rect& window_bounds) const;
-
-  // views::NonClientFrameView:
-  gfx::Rect GetBoundsForClientView() const override;
-  gfx::Rect GetWindowBoundsForClientBounds(
-      const gfx::Rect& client_bounds) const override;
-  int NonClientHitTest(const gfx::Point& point) override;
-  void GetWindowMask(const gfx::Size& size, SkPath* window_mask) override;
-  void ResetWindowControls() override;
-  void UpdateWindowIcon() override;
-  void UpdateWindowTitle() override;
-  void SizeConstraintsChanged() override;
-  views::View::Views GetChildrenInZOrder() override;
-
-  // views::View:
-  gfx::Size CalculatePreferredSize() const override;
-  void Layout() override;
-  gfx::Size GetMinimumSize() const override;
-  gfx::Size GetMaximumSize() const override;
 
   // FrameContextMenuController::Delegate:
   bool ShouldShowContextMenu(views::View* source,
@@ -102,9 +86,6 @@ class ASH_EXPORT NonClientFrameViewAsh
   // with OnOverviewModeStarting() and OnOverviewModeEnded() to hide/show the
   // header of v2 and ARC apps.
   virtual void SetShouldPaintHeader(bool paint);
-
-  // Height from top of window to top of client area.
-  int NonClientTopBorderHeight() const;
 
   // Expected height from top of window to top of client area when non client
   // view is visible.
@@ -130,16 +111,12 @@ class ASH_EXPORT NonClientFrameViewAsh
  protected:
   // views::View:
   void OnDidSchedulePaint(const gfx::Rect& r) override;
+  void AddedToWidget() override;
 
  private:
-  class OverlayView;
   friend class NonClientFrameViewAshTestWidgetDelegate;
   friend class TestWidgetConstraintsDelegate;
   friend class WindowServiceDelegateImplTest;
-
-  // views::NonClientFrameView:
-  bool DoesIntersectRect(const views::View* target,
-                         const gfx::Rect& rect) const override;
 
   // Returns the container for the minimize/maximize/close buttons that is
   // held by the HeaderView. Used in testing.
@@ -149,15 +126,11 @@ class ASH_EXPORT NonClientFrameViewAsh
   // Called when |frame_|'s "paint as active" state has changed.
   void PaintAsActiveChanged();
 
-  // Not owned.
-  views::Widget* const frame_;
+  // Updates the windows default frame colors if necessary.
+  void UpdateDefaultFrameColors() override;
 
-  // View which contains the title and window controls.
-  HeaderView* header_view_ = nullptr;
-
-  OverlayView* overlay_view_ = nullptr;
-
-  bool frame_enabled_ = true;
+  // Generates a nine patch layer painted with a highlight border.
+  std::unique_ptr<HighlightBorderOverlay> highlight_border_overlay_;
 
   std::unique_ptr<NonClientFrameViewAshImmersiveHelper> immersive_helper_;
 

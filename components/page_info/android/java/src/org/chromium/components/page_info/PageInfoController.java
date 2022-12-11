@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.components.page_info;
 
 import android.app.Activity;
 import android.app.Dialog;
-import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
@@ -39,7 +38,6 @@ import org.chromium.components.security_state.ConnectionSecurityLevel;
 import org.chromium.components.security_state.SecurityStateModel;
 import org.chromium.components.url_formatter.UrlFormatter;
 import org.chromium.content_public.browser.BrowserContextHandle;
-import org.chromium.content_public.browser.ContentFeatureList;
 import org.chromium.content_public.browser.LoadCommittedDetails;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
@@ -56,6 +54,8 @@ import org.chromium.url.GURL;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
@@ -71,6 +71,7 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
         int TOOLBAR = 2;
         int VR = 3;
     }
+
     @ContentSettingsType
     public static final int NO_HIGHLIGHTED_PERMISSION = ContentSettingsType.DEFAULT;
 
@@ -116,7 +117,7 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
     private final PermissionParamsListBuilder mPermissionParamsListBuilder;
 
     // The current page info subpage controller, if any.
-    private PageInfoSubpageController mSubpageController;
+    private PageInfoSubpageController mCurrentSubpageController;
 
     // The controller for the connection section of the page info.
     private PageInfoConnectionController mConnectionController;
@@ -127,13 +128,8 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
     // The controller for the cookies section of the page info.
     private PageInfoCookiesController mCookiesController;
 
-    // The controller for the page zoom section of the page info. Instantiated only when
-    // {@link ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM} is enabled.
-    @Nullable
-    private PageInfoPageZoomController mPageZoomController;
-
-    // Additional controllers defined by the delegate.
-    private Collection<PageInfoSubpageController> mAdditionalControllers;
+    // All subpage controllers.
+    private Collection<PageInfoSubpageController> mSubpageControllers;
 
     // Dialog which is opened when clicking on forget site button.
     private Dialog mForgetSiteDialog;
@@ -157,7 +153,7 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
         mDelegate = delegate;
         mWindowAndroid = webContents.getTopLevelNativeWindow();
         mContext = mWindowAndroid.getContext().get();
-
+        mSubpageControllers = new ArrayList<>();
         // Work out the URL and connection message and status visibility.
         // TODO(crbug.com/1033178): dedupe the DomDistillerUrlUtils#getOriginalUrlFromDistillerUrl()
         // calls.
@@ -195,8 +191,8 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
         mContainer = new PageInfoContainer(mContext);
         PageInfoContainer.Params containerParams = new PageInfoContainer.Params();
         boolean useDarkText = !ColorUtils.inNightMode(mContext);
-        OmniboxUrlEmphasizer.emphasizeUrl(displayUrlBuilder, mContext.getResources(),
-                autocompleteSchemeClassifier, mSecurityLevel, mIsInternalPage, useDarkText,
+        OmniboxUrlEmphasizer.emphasizeUrl(displayUrlBuilder, mContext, autocompleteSchemeClassifier,
+                mSecurityLevel, useDarkText,
                 /*emphasizeScheme=*/true);
         containerParams.url = displayUrlBuilder;
         containerParams.urlOriginLength = OmniboxUrlEmphasizer.getOriginEndIndex(
@@ -222,21 +218,6 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
             if (mCookiesController != null) mCookiesController.onUiClosing();
         };
         mDelegate.initOfflinePageUiParams(viewParams, this::runAfterDismiss);
-        if (!mIsInternalPage && !mDelegate.isShowingOfflinePage()
-                && mDelegate.isInstantAppAvailable(mFullUrl.getSpec())) {
-            final Intent instantAppIntent = mDelegate.getInstantAppIntentForUrl(mFullUrl.getSpec());
-            viewParams.instantAppButtonClickCallback = () -> {
-                try {
-                    getActivity().startActivity(instantAppIntent);
-                    RecordUserAction.record("Android.InstantApps.LaunchedFromWebsiteSettingsPopup");
-                } catch (ActivityNotFoundException e) {
-                    mView.disableInstantAppButton();
-                }
-            };
-            RecordUserAction.record("Android.InstantApps.OpenInstantAppButtonShown");
-        } else {
-            viewParams.instantAppButtonShown = false;
-        }
         viewParams.httpsImageCompressionMessageShown = mDelegate.isHttpsImageCompressionApplied();
         mView = new PageInfoView(mContext, viewParams);
         if (isSheet(mContext)) mView.setBackgroundColor(Color.WHITE);
@@ -256,37 +237,27 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
         // Create Subcontrollers.
         mConnectionController = new PageInfoConnectionController(this, mView.getConnectionRowView(),
                 mWebContents, mDelegate, publisher, mIsInternalPage);
+        mSubpageControllers.add(mConnectionController);
         mPermissionsController =
                 new PageInfoPermissionsController(this, mView.getPermissionsRowView(), mDelegate,
                         pageInfoHighlight.getHighlightedPermission());
+        mSubpageControllers.add(mPermissionsController);
         mCookiesController =
                 new PageInfoCookiesController(this, mView.getCookiesRowView(), mDelegate);
-
-        // Only create the controller for Page Zoom if feature flag is enabled.
-        if (ContentFeatureList.isEnabled(ContentFeatureList.ACCESSIBILITY_PAGE_ZOOM)) {
-            mPageZoomController = new PageInfoPageZoomController(this, mView.getPageZoomRowView(),
-                    mWebContents, new PageInfoPageZoomController.PageZoomControllerObserver() {
-                        @Override
-                        public void onSubpageCreated() {
-                            mDialog.reduceWindowDim();
-                        }
-
-                        @Override
-                        public void onSubpageRemoved() {
-                            mDialog.resetWindowDimToDefault();
-                        }
-                    });
-        }
+        mSubpageControllers.add(mCookiesController);
 
         // TODO(crbug.com/1173154): Setup forget this site button after history delete is
         // implemented.
         // setupForgetSiteButton(mView.getForgetSiteButton());
 
+        mSubpageControllers.addAll(mDelegate.createAdditionalRowViews(this, mView.getRowWrapper()));
+
         mPermissionParamsListBuilder = new PermissionParamsListBuilder(mContext, mWindowAndroid);
         mNativePageInfoController = PageInfoControllerJni.get().init(this, mWebContents);
 
-        // Additional controllers should be created after native is initialized.
-        mAdditionalControllers = mDelegate.createAdditionalRowViews(this, mView.getRowWrapper());
+        for (PageInfoSubpageController controller : mSubpageControllers) {
+            controller.onNativeInitialized();
+        }
 
         mWebContentsObserver = new WebContentsObserver(webContents) {
             @Override
@@ -343,7 +314,7 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
         button.setOnClickListener((View v) -> {
             recordAction(PageInfoAction.PAGE_INFO_FORGET_SITE_OPENED);
             mForgetSiteDialog =
-                    new AlertDialog.Builder(mContext, R.style.Theme_Chromium_AlertDialog)
+                    new AlertDialog.Builder(mContext, R.style.ThemeOverlay_BrowserUI_AlertDialog)
                             .setTitle(R.string.page_info_forget_site_title)
                             .setMessage(R.string.page_info_forget_site_message)
                             .setPositiveButton(R.string.page_info_forget_site_confirmation_button,
@@ -357,13 +328,8 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
 
     private void clearData() {
         recordAction(PageInfoAction.PAGE_INFO_FORGET_SITE_CLEARED);
-        if (mCookiesController != null) mCookiesController.clearData();
-        if (mPermissionsController != null) mPermissionsController.clearData();
-
-        if (mAdditionalControllers != null) {
-            for (PageInfoSubpageController controller : mAdditionalControllers) {
-                controller.clearData();
-            }
+        for (PageInfoSubpageController controller : mSubpageControllers) {
+            controller.clearData();
         }
     }
 
@@ -403,6 +369,25 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
         mConnectionController.setSecurityDescription(summary, details);
     }
 
+    /**
+     * Updates the Topic view if present.
+     */
+    @CalledByNative
+    private void setAdPersonalizationInfo(boolean hasJoinedUserToInterestGroup, String[] topics) {
+        // This logic is a little weird. On Android we already have separate controllers for most
+        // PageInfo components and they usually update themselves. On Desktop we still have one big
+        // controller. Here we are reusing Desktop controller to update the Android component.
+        // In the future the Desktop logic will hopefully be split as well and then we can remove
+        // this logic here.
+        for (PageInfoSubpageController controller : mSubpageControllers) {
+            if (controller instanceof PageInfoAdPersonalizationController) {
+                ((PageInfoAdPersonalizationController) controller)
+                        .setAdPersonalizationInfo(
+                                hasJoinedUserToInterestGroup, Arrays.asList(topics));
+            }
+        }
+    }
+
     @Override
     public void onSystemSettingsActivityRequired(Intent intentOverride) {
         runAfterDismiss(() -> {
@@ -434,9 +419,9 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
     @Override
     public void onDismiss(PropertyModel model, @DialogDismissalCause int dismissalCause) {
         assert mNativePageInfoController != 0;
-        if (mSubpageController != null) {
-            mSubpageController.onSubpageRemoved();
-            mSubpageController = null;
+        if (mCurrentSubpageController != null) {
+            mCurrentSubpageController.onSubpageRemoved();
+            mCurrentSubpageController = null;
         }
         mWebContentsObserver.destroy();
         mWebContentsObserver = null;
@@ -561,10 +546,10 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
      */
     @Override
     public void launchSubpage(PageInfoSubpageController controller) {
-        if (mSubpageController != null) return;
-        mSubpageController = controller;
-        CharSequence title = mSubpageController.getSubpageTitle();
-        View subview = mSubpageController.createViewForSubpage(mContainer);
+        if (mCurrentSubpageController != null) return;
+        mCurrentSubpageController = controller;
+        CharSequence title = mCurrentSubpageController.getSubpageTitle();
+        View subview = mCurrentSubpageController.createViewForSubpage(mContainer);
         if (subview != null) {
             mContainer.showPage(subview, title, null);
         }
@@ -575,14 +560,14 @@ public class PageInfoController implements PageInfoMainController, ModalDialogPr
      */
     @Override
     public void exitSubpage() {
-        if (mSubpageController == null) return;
+        if (mCurrentSubpageController == null) return;
         mContainer.showPage(mView, null, () -> {
             // The PageInfo dialog can get dismissed during the page change animation.
             // In that case mSubpageController will already be null.
-            if (mSubpageController == null) return;
-            mSubpageController.onSubpageRemoved();
-            mSubpageController.updateRowIfNeeded();
-            mSubpageController = null;
+            if (mCurrentSubpageController == null) return;
+            mCurrentSubpageController.onSubpageRemoved();
+            mCurrentSubpageController.updateRowIfNeeded();
+            mCurrentSubpageController = null;
         });
     }
 

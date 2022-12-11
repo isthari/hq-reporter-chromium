@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,6 +65,8 @@ RemoteCommandsService::MetricReceivedRemoteCommand RemoteCommandMetricFromType(
       return Metric::kDeviceResetEuicc;
     case em::RemoteCommand_Type_BROWSER_ROTATE_ATTESTATION_CREDENTIAL:
       return Metric::kBrowserRotateAttestationCredential;
+    case em::RemoteCommand_Type_FETCH_CRD_AVAILABILITY_INFO:
+      return Metric::kFetchCrdAvailabilityInfo;
   }
 
   // None of possible types matched. May indicate that there is new unhandled
@@ -107,6 +109,8 @@ const char* RemoteCommandTypeToString(em::RemoteCommand_Type type) {
       return "DeviceResetEuicc";
     case em::RemoteCommand_Type_BROWSER_ROTATE_ATTESTATION_CREDENTIAL:
       return "BrowserRotateAttestationCredential";
+    case em::RemoteCommand_Type_FETCH_CRD_AVAILABILITY_INFO:
+      return "FetchCrdAvailabilityInfo";
   }
 
   NOTREACHED() << "Unknown command type: " << type;
@@ -134,6 +138,22 @@ em::RemoteCommandResult::ResultType CommandStatusToResultType(
   NOTREACHED();
   return em::RemoteCommandResult_ResultType_RESULT_IGNORED;
 }
+
+std::string ToString(
+    enterprise_management::RemoteCommandResult::ResultType type) {
+#define CASE(_name)                                       \
+  case enterprise_management::RemoteCommandResult::_name: \
+    return #_name;
+
+  switch (type) {
+    CASE(RESULT_IGNORED);
+    CASE(RESULT_FAILURE);
+    CASE(RESULT_SUCCESS);
+  }
+  return base::StringPrintf("Unknown type %i", type);
+#undef CASE
+}
+
 }  // namespace
 
 // static
@@ -371,7 +391,8 @@ void RemoteCommandsService::OnJobFinished(RemoteCommandJob* command) {
     result.set_payload(std::move(*result_payload));
 
   SYSLOG(INFO) << "Remote command " << command->unique_id()
-               << " finished with result " << result.result();
+               << " finished with result " << ToString(result.result()) << " ("
+               << result.result() << ")";
 
   unsent_results_.push_back(result);
 

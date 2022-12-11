@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,14 @@
 
 #include "ash/ambient/resources/ambient_animation_static_resources.h"
 #include "ash/ash_export.h"
+#include "ash/constants/ambient_animation_theme.h"
 #include "base/containers/flat_map.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/strings/string_piece.h"
+
+namespace cc {
+class SkottieWrapper;
+}  // namespace cc
 
 namespace gfx {
 class ImageSkia;
@@ -29,22 +35,30 @@ class ASH_EXPORT FakeAmbientAnimationStaticResources
       const FakeAmbientAnimationStaticResources&) = delete;
   ~FakeAmbientAnimationStaticResources() override;
 
-  // Sets the output for all future calls to GetLottieData(). If not set,
-  // GetLottieData() will return an empty string.
-  void SetLottieData(std::string lottie_data);
+  // Sets the output for all future calls to GetSkottieWrapper(). If not set,
+  // GetSkottieWrapper() will crash with a fatal error.
+  void SetSkottieWrapper(scoped_refptr<cc::SkottieWrapper> animation);
 
   // Sets the |image| that will be returned in future calls to
   // GetStaticImageAsset(asset_id). If the image is not set for an asset,
   // GetStaticImageAsset() will return a null image.
   void SetStaticImageAsset(base::StringPiece asset_id, gfx::ImageSkia image);
 
+  void set_ambient_animation_theme(
+      AmbientAnimationTheme ambient_animation_theme) {
+    ambient_animation_theme_ = ambient_animation_theme;
+  }
+
   // AmbientAnimationStaticResources implementation:
-  base::StringPiece GetLottieData() const override;
+  const scoped_refptr<cc::SkottieWrapper>& GetSkottieWrapper() const override;
   gfx::ImageSkia GetStaticImageAsset(base::StringPiece asset_id) const override;
+  AmbientAnimationTheme GetAmbientAnimationTheme() const override;
 
  private:
-  std::string lottie_data_;
+  scoped_refptr<cc::SkottieWrapper> animation_;
   base::flat_map</*asset_id*/ std::string, gfx::ImageSkia> images_;
+  AmbientAnimationTheme ambient_animation_theme_ =
+      AmbientAnimationTheme::kFeelTheBreeze;
 };
 
 }  // namespace ash

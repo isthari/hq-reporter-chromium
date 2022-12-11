@@ -1,23 +1,37 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/hidden_style_css.m.js';
+import 'chrome://resources/cr_elements/cr_hidden_style.css.js';
 import 'chrome://resources/cr_elements/cr_grid/cr_grid.js';
 import './mini_page.js';
 import './iframe.js';
 
-import {DomRepeatEvent, html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {DomRepeat, DomRepeatEvent, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {I18nMixin, loadTimeData} from './i18n_setup.js';
+import {getTemplate} from './customize_backgrounds.html.js';
+import {loadTimeData} from './i18n_setup.js';
 import {BackgroundCollection, CollectionImage, CustomizeDialogAction, PageHandlerRemote, Theme} from './new_tab_page.mojom-webui.js';
 import {NewTabPageProxy} from './new_tab_page_proxy.js';
 
+export interface CustomizeBackgroundsElement {
+  $: {
+    collections: HTMLElement,
+    images: HTMLElement,
+    imagesRepeat: DomRepeat,
+    noBackground: HTMLElement,
+    uploadFromDevice: HTMLElement,
+  };
+}
+
 /** Element that lets the user configure the background. */
-export class CustomizeBackgroundsElement extends I18nMixin
-(PolymerElement) {
+export class CustomizeBackgroundsElement extends PolymerElement {
   static get is() {
     return 'ntp-customize-backgrounds';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -54,7 +68,7 @@ export class CustomizeBackgroundsElement extends I18nMixin
   private collections_: BackgroundCollection[];
   private images_: CollectionImage[];
 
-  private pageHandler_: PageHandlerRemote
+  private pageHandler_: PageHandlerRemote;
 
   constructor() {
     super();
@@ -129,9 +143,15 @@ export class CustomizeBackgroundsElement extends I18nMixin
       this.pageHandler_.onCustomizeDialogAction(
           CustomizeDialogAction.kBackgroundsImageSelected);
     }
-    const {attribution1, attribution2, attributionUrl, imageUrl} = image;
+    const {
+      attribution1,
+      attribution2,
+      attributionUrl,
+      imageUrl,
+      previewImageUrl,
+    } = image;
     this.pageHandler_.setBackgroundImage(
-        attribution1, attribution2, attributionUrl, imageUrl);
+        attribution1, attribution2, attributionUrl, imageUrl, previewImageUrl);
   }
 
   private async onSelectedCollectionChange_() {
@@ -157,9 +177,11 @@ export class CustomizeBackgroundsElement extends I18nMixin
   confirmBackgroundChanges() {
     this.pageHandler_.confirmBackgroundChanges();
   }
+}
 
-  static get template() {
-    return html`{__html_template__}`;
+declare global {
+  interface HTMLElementTagNameMap {
+    'ntp-customize-backgrounds': CustomizeBackgroundsElement;
   }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,6 +60,25 @@ void ExpandField(const std::string& fieldname,
   variable_expander.ExpandString(field_value);
 }
 
+bool CanContainPasswordPlaceholder(const std::string& field_name,
+                                   const OncValueSignature& object_signature) {
+  return (&object_signature == &kEAPSignature &&
+          field_name == ::onc::eap::kPassword) ||
+         (&object_signature == &kL2TPSignature &&
+          field_name == ::onc::l2tp::kPassword);
+}
+
+bool IsUserLoginPasswordPlaceholder(const std::string& field_name,
+                                    const OncValueSignature& object_signature,
+                                    const base::Value& onc_value) {
+  if (!CanContainPasswordPlaceholder(field_name, object_signature)) {
+    return false;
+  }
+  DCHECK(onc_value.is_string());
+  return onc_value.GetString() ==
+         ::onc::substitutes::kPasswordPlaceholderVerbatim;
+}
+
 // A |Mapper| for masking sensitive fields (e.g. credentials such as
 // passphrases) in ONC.
 class OncMaskValues : public Mapper {
@@ -85,10 +104,8 @@ class OncMaskValues : public Mapper {
     if (FieldIsCredential(object_signature, field_name)) {
       // If it's the password field and the substitution string is used, don't
       // mask it.
-      if (&object_signature == &kEAPSignature &&
-          field_name == ::onc::eap::kPassword &&
-          onc_value.GetString() ==
-              ::onc::substitutes::kPasswordPlaceholderVerbatim) {
+      if (IsUserLoginPasswordPlaceholder(field_name, object_signature,
+                                         onc_value)) {
         return Mapper::MapField(field_name, object_signature, onc_value,
                                 found_unknown_field, error);
       }
@@ -99,15 +116,17 @@ class OncMaskValues : public Mapper {
     }
   }
 
+ private:
   // Mask to insert in place of the sensitive values.
   std::string mask_;
 };
 
 // Returns a map GUID->PEM of all server and authority certificates defined in
 // the Certificates section of ONC, which is passed in as |certificates|.
-CertPEMsByGUIDMap GetServerAndCACertsByGUID(const base::Value& certificates) {
+CertPEMsByGUIDMap GetServerAndCACertsByGUID(
+    const base::Value::List& certificates) {
   CertPEMsByGUIDMap certs_by_guid;
-  for (const auto& cert : certificates.GetList()) {
+  for (const auto& cert : certificates) {
     DCHECK(cert.is_dict());
 
     const std::string* guid = cert.FindStringKey(::onc::certificate::kGUID);
@@ -139,15 +158,19 @@ CertPEMsByGUIDMap GetServerAndCACertsByGUID(const base::Value& certificates) {
 }
 
 // Fills HexSSID fields in all entries in the |network_configs| list.
-void FillInHexSSIDFieldsInNetworks(base::Value* network_configs) {
-  for (auto& network : network_configs->GetList())
-    FillInHexSSIDFieldsInOncObject(kNetworkConfigurationSignature, &network);
+void FillInHexSSIDFieldsInNetworks(base::Value::List& network_configs) {
+  for (auto& network : network_configs) {
+    FillInHexSSIDFieldsInOncObject(kNetworkConfigurationSignature,
+                                   network.GetDict());
+  }
 }
 
 // Sets HiddenSSID fields in all entries in the |network_configs| list.
-void SetHiddenSSIDFieldsInNetworks(base::Value* network_configs) {
-  for (auto& network : network_configs->GetList())
-    SetHiddenSSIDFieldInOncObject(kNetworkConfigurationSignature, &network);
+void SetHiddenSSIDFieldsInNetworks(base::Value::List& network_configs) {
+  for (auto& network : network_configs) {
+    SetHiddenSSIDFieldInOncObject(kNetworkConfigurationSignature,
+                                  network.GetDict());
+  }
 }
 
 // Given a GUID->PEM certificate mapping |certs_by_guid|, looks up the PEM
@@ -330,15 +353,18 @@ base::Value ReadDictionaryFromJson(const std::string& json) {
     NET_LOG(DEBUG) << "Empty json string";
     return base::Value();
   }
-  base::JSONReader::ValueWithError parsed_json =
-      base::JSONReader::ReadAndReturnValueWithError(
-          json, base::JSON_PARSE_CHROMIUM_EXTENSIONS |
-                    base::JSON_ALLOW_TRAILING_COMMAS);
-  if (!parsed_json.value || !parsed_json.value->is_dict()) {
-    NET_LOG(ERROR) << "Invalid JSON Dictionary: " << parsed_json.error_message;
+  auto parsed_json = base::JSONReader::ReadAndReturnValueWithError(
+      json,
+      base::JSON_PARSE_CHROMIUM_EXTENSIONS | base::JSON_ALLOW_TRAILING_COMMAS);
+  if (!parsed_json.has_value()) {
+    NET_LOG(ERROR) << "Invalid JSON Dictionary: "
+                   << parsed_json.error().message;
+    return base::Value();
+  } else if (!parsed_json->is_dict()) {
+    NET_LOG(ERROR) << "Invalid JSON Dictionary: Expected a dictionary.";
     return base::Value();
   }
-  return std::move(*parsed_json.value);
+  return std::move(*parsed_json);
 }
 
 base::Value Decrypt(const std::string& passphrase, const base::Value& root) {
@@ -491,13 +517,12 @@ void ExpandStringsInNetworks(const VariableExpander& variable_expander,
 }
 
 void FillInHexSSIDFieldsInOncObject(const OncValueSignature& signature,
-                                    base::Value* onc_object) {
-  DCHECK(onc_object->is_dict());
+                                    base::Value::Dict& onc_object) {
   if (&signature == &kWiFiSignature)
     FillInHexSSIDField(onc_object);
 
   // Recurse into nested objects.
-  for (auto it : onc_object->DictItems()) {
+  for (auto it : onc_object) {
     if (!it.second.is_dict())
       continue;
 
@@ -507,35 +532,31 @@ void FillInHexSSIDFieldsInOncObject(const OncValueSignature& signature,
       continue;
 
     FillInHexSSIDFieldsInOncObject(*field_signature->value_signature,
-                                   &it.second);
+                                   it.second.GetDict());
   }
 }
 
-void FillInHexSSIDField(base::Value* wifi_fields) {
-  if (wifi_fields->FindKey(::onc::wifi::kHexSSID))
+void FillInHexSSIDField(base::Value::Dict& wifi_fields) {
+  if (wifi_fields.Find(::onc::wifi::kHexSSID))
     return;
-  base::Value* ssid =
-      wifi_fields->FindKeyOfType(::onc::wifi::kSSID, base::Value::Type::STRING);
+  std::string* ssid = wifi_fields.FindString(::onc::wifi::kSSID);
   if (!ssid)
     return;
-  std::string ssid_string = ssid->GetString();
-  if (ssid_string.empty()) {
+  if (ssid->empty()) {
     NET_LOG(ERROR) << "Found empty SSID field.";
     return;
   }
-  wifi_fields->SetKey(
-      ::onc::wifi::kHexSSID,
-      base::Value(base::HexEncode(ssid_string.c_str(), ssid_string.size())));
+  wifi_fields.Set(::onc::wifi::kHexSSID,
+                  base::HexEncode(ssid->c_str(), ssid->size()));
 }
 
 void SetHiddenSSIDFieldInOncObject(const OncValueSignature& signature,
-                                   base::Value* onc_object) {
-  DCHECK(onc_object->is_dict());
+                                   base::Value::Dict& onc_object) {
   if (&signature == &kWiFiSignature)
     SetHiddenSSIDField(onc_object);
 
   // Recurse into nested objects.
-  for (auto it : onc_object->DictItems()) {
+  for (auto it : onc_object) {
     if (!it.second.is_dict())
       continue;
 
@@ -545,14 +566,14 @@ void SetHiddenSSIDFieldInOncObject(const OncValueSignature& signature,
       continue;
 
     SetHiddenSSIDFieldInOncObject(*field_signature->value_signature,
-                                  &it.second);
+                                  it.second.GetDict());
   }
 }
 
-void SetHiddenSSIDField(base::Value* wifi_fields) {
-  if (wifi_fields->FindKey(::onc::wifi::kHiddenSSID))
+void SetHiddenSSIDField(base::Value::Dict& wifi_fields) {
+  if (wifi_fields.Find(::onc::wifi::kHiddenSSID))
     return;
-  wifi_fields->SetKey(::onc::wifi::kHiddenSSID, base::Value(false));
+  wifi_fields.Set(::onc::wifi::kHiddenSSID, false);
 }
 
 base::Value MaskCredentialsInOncObject(const OncValueSignature& signature,
@@ -591,15 +612,15 @@ std::string DecodePEM(const std::string& pem_encoded) {
 bool ParseAndValidateOncForImport(const std::string& onc_blob,
                                   ::onc::ONCSource onc_source,
                                   const std::string& passphrase,
-                                  base::Value* network_configs,
-                                  base::Value* global_network_config,
-                                  base::Value* certificates) {
+                                  base::Value::List* network_configs,
+                                  base::Value::Dict* global_network_config,
+                                  base::Value::List* certificates) {
   if (network_configs)
-    network_configs->ClearList();
+    network_configs->clear();
   if (global_network_config)
-    global_network_config->DictClear();
+    global_network_config->clear();
   if (certificates)
-    certificates->ClearList();
+    certificates->clear();
   if (onc_blob.empty())
     return true;
 
@@ -655,8 +676,10 @@ bool ParseAndValidateOncForImport(const std::string& onc_blob,
     return false;
   }
 
+  base::Value::Dict& validated_toplevel_onc_dict =
+      validated_toplevel_onc.GetDict();
   if (certificates) {
-    base::Value* validated_certs = validated_toplevel_onc.FindListKey(
+    base::Value::List* validated_certs = validated_toplevel_onc_dict.FindList(
         ::onc::toplevel_config::kCertificates);
     if (validated_certs)
       *certificates = std::move(*validated_certs);
@@ -666,18 +689,19 @@ bool ParseAndValidateOncForImport(const std::string& onc_blob,
   // nullptr, because ResolveServerCertRefsInNetworks could affect the return
   // value of the function (which is supposed to aggregate validation issues in
   // all segments of the ONC blob).
-  base::Value* validated_networks_list = validated_toplevel_onc.FindListKey(
-      ::onc::toplevel_config::kNetworkConfigurations);
+  base::Value::List* validated_networks_list =
+      validated_toplevel_onc_dict.FindList(
+          ::onc::toplevel_config::kNetworkConfigurations);
   if (validated_networks_list) {
-    FillInHexSSIDFieldsInNetworks(validated_networks_list);
+    FillInHexSSIDFieldsInNetworks(*validated_networks_list);
     // Set HiddenSSID to default value to solve the issue crbug.com/1171837
-    SetHiddenSSIDFieldsInNetworks(validated_networks_list);
+    SetHiddenSSIDFieldsInNetworks(*validated_networks_list);
 
     CertPEMsByGUIDMap server_and_ca_certs =
         GetServerAndCACertsByGUID(*certificates);
 
     if (!ResolveServerCertRefsInNetworks(server_and_ca_certs,
-                                         validated_networks_list)) {
+                                         *validated_networks_list)) {
       NET_LOG(ERROR) << "Some certificate references in the ONC policy could "
                         "not be resolved: "
                      << GetSourceAsString(onc_source);
@@ -689,8 +713,9 @@ bool ParseAndValidateOncForImport(const std::string& onc_blob,
   }
 
   if (global_network_config) {
-    base::Value* validated_global_config = validated_toplevel_onc.FindDictKey(
-        ::onc::toplevel_config::kGlobalNetworkConfiguration);
+    base::Value::Dict* validated_global_config =
+        validated_toplevel_onc_dict.FindDict(
+            ::onc::toplevel_config::kGlobalNetworkConfiguration);
     if (validated_global_config) {
       *global_network_config = std::move(*validated_global_config);
     }
@@ -700,13 +725,14 @@ bool ParseAndValidateOncForImport(const std::string& onc_blob,
 }
 
 bool ResolveServerCertRefsInNetworks(const CertPEMsByGUIDMap& certs_by_guid,
-                                     base::Value* network_configs) {
+                                     base::Value::List& network_configs) {
   bool success = true;
-  base::Value::ListStorage filtered_configs;
-  for (base::Value& network : network_configs->GetList()) {
+  base::Value::List filtered_configs;
+  for (base::Value& network : network_configs) {
     DCHECK(network.is_dict());
     if (!ResolveServerCertRefsInNetwork(certs_by_guid, &network)) {
-      std::string* guid = network.FindStringKey(::onc::network_config::kGUID);
+      std::string* guid =
+          network.GetDict().FindString(::onc::network_config::kGUID);
       // This might happen even with correct validation, if the referenced
       // certificate couldn't be imported.
       LOG(ERROR) << "Couldn't resolve some certificate reference of network "
@@ -715,9 +741,9 @@ bool ResolveServerCertRefsInNetworks(const CertPEMsByGUIDMap& certs_by_guid,
       continue;
     }
 
-    filtered_configs.push_back(std::move(network));
+    filtered_configs.Append(std::move(network));
   }
-  *network_configs = base::Value(std::move(filtered_configs));
+  network_configs = std::move(filtered_configs);
   return success;
 }
 

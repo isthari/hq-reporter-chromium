@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 #include <memory>
 #include <string>
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/notifications/notification_display_service_factory.h"
@@ -21,8 +21,7 @@
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
+#include "chromeos/ash/components/dbus/debug_daemon/debug_daemon_client.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/strings/grit/components_strings.h"
 #include "third_party/cros_system_api/dbus/debugd/dbus-constants.h"
@@ -50,7 +49,7 @@ U2FNotification::U2FNotification() {}
 U2FNotification::~U2FNotification() {}
 
 void U2FNotification::Check() {
-  DBusThreadManager::Get()->GetDebugDaemonClient()->GetU2fFlags(base::BindOnce(
+  DebugDaemonClient::Get()->GetU2fFlags(base::BindOnce(
       &U2FNotification::CheckStatus, weak_factory_.GetWeakPtr()));
 }
 
@@ -103,26 +102,24 @@ void U2FNotification::ShowNotification() {
   data.buttons.emplace_back(l10n_util::GetStringUTF16(IDS_LEARN_MORE));
   data.buttons.emplace_back(
       l10n_util::GetStringUTF16(IDS_U2F_INSECURE_NOTIFICATION_RESET));
-  std::unique_ptr<message_center::Notification> notification =
-      CreateSystemNotification(
-          message_center::NOTIFICATION_TYPE_SIMPLE, kU2FNotificationId,
-          l10n_util::GetStringUTF16(IDS_U2F_INSECURE_NOTIFICATION_TITLE),
-          l10n_util::GetStringUTF16(IDS_U2F_INSECURE_NOTIFICATION_MESSAGE),
-          std::u16string(), GURL(kU2FNotificationId),
-          message_center::NotifierId(
-              message_center::NotifierType::SYSTEM_COMPONENT,
-              kU2FNotificationId),
-          data,
-          base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
-              base::BindRepeating(&U2FNotification::OnNotificationClick,
-                                  weak_factory_.GetWeakPtr())),
-          gfx::kNoneIcon,
-          message_center::SystemNotificationWarningLevel::WARNING);
-  notification->SetSystemPriority();
-  notification->set_pinned(false);
+  message_center::Notification notification = CreateSystemNotification(
+      message_center::NOTIFICATION_TYPE_SIMPLE, kU2FNotificationId,
+      l10n_util::GetStringUTF16(IDS_U2F_INSECURE_NOTIFICATION_TITLE),
+      l10n_util::GetStringUTF16(IDS_U2F_INSECURE_NOTIFICATION_MESSAGE),
+      std::u16string(), GURL(kU2FNotificationId),
+      message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
+                                 kU2FNotificationId,
+                                 NotificationCatalogName::kU2F),
+      data,
+      base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
+          base::BindRepeating(&U2FNotification::OnNotificationClick,
+                              weak_factory_.GetWeakPtr())),
+      gfx::kNoneIcon, message_center::SystemNotificationWarningLevel::WARNING);
+  notification.SetSystemPriority();
+  notification.set_pinned(false);
 
   NotificationDisplayServiceFactory::GetForProfile(profile)->Display(
-      NotificationHandler::Type::TRANSIENT, *notification,
+      NotificationHandler::Type::TRANSIENT, notification,
       nullptr /* metadata */);
 }
 
@@ -145,14 +142,14 @@ void U2FNotification::OnNotificationClick(
     }
     case ButtonIndex::kReset: {
       // Add the user_keys flag.
-      DBusThreadManager::Get()->GetDebugDaemonClient()->GetU2fFlags(
+      DebugDaemonClient::Get()->GetU2fFlags(
           base::BindOnce([](absl::optional<std::set<std::string>> flags) {
             if (!flags) {
               LOG(ERROR) << "Failed to get U2F flags.";
               return;
             }
             flags->insert(debugd::u2f_flags::kUserKeys);
-            DBusThreadManager::Get()->GetDebugDaemonClient()->SetU2fFlags(
+            DebugDaemonClient::Get()->SetU2fFlags(
                 *flags, base::BindOnce([](bool result) {
                   if (!result) {
                     LOG(ERROR) << "Failed to set U2F flags.";

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/syslog_logging.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/ash/policy/core/browser_policy_connector_ash.h"
 #include "chrome/browser/ash/policy/core/device_cloud_policy_manager_ash.h"
 #include "chrome/browser/ash/policy/uploading/status_uploader.h"
@@ -42,11 +42,12 @@ bool ScreenshotDelegate::IsScreenshotAllowed() {
 void ScreenshotDelegate::TakeSnapshot(
     gfx::NativeWindow window,
     const gfx::Rect& source_rect,
-    ui::GrabWindowSnapshotAsyncPNGCallback callback) {
+    OnScreenshotTakenCallback upload_callback) {
   ui::GrabWindowSnapshotAsyncPNG(
       window, source_rect,
-      base::BindOnce(&ScreenshotDelegate::StoreScreenshot,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+      base::BindOnce(&ScreenshotDelegate::OnScreenshotTaken,
+                     weak_ptr_factory_.GetWeakPtr(),
+                     std::move(upload_callback)));
 }
 
 std::unique_ptr<UploadJob> ScreenshotDelegate::CreateUploadJob(
@@ -83,11 +84,11 @@ std::unique_ptr<UploadJob> ScreenshotDelegate::CreateUploadJob(
       device_oauth2_token_service->GetAccessTokenManager(),
       g_browser_process->shared_url_loader_factory(), delegate,
       base::WrapUnique(new UploadJobImpl::RandomMimeBoundaryGenerator),
-      traffic_annotation, base::ThreadTaskRunnerHandle::Get()));
+      traffic_annotation, base::SingleThreadTaskRunner::GetCurrentDefault()));
 }
 
-void ScreenshotDelegate::StoreScreenshot(
-    ui::GrabWindowSnapshotAsyncPNGCallback callback,
+void ScreenshotDelegate::OnScreenshotTaken(
+    OnScreenshotTakenCallback callback,
     scoped_refptr<base::RefCountedMemory> png_data) {
   std::move(callback).Run(png_data);
 }

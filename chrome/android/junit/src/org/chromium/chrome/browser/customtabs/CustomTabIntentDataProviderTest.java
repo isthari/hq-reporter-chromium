@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,11 @@ import static androidx.browser.customtabs.CustomTabsIntent.COLOR_SCHEME_LIGHT;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.when;
 
+import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
@@ -18,6 +22,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.view.ContextThemeWrapper;
 
 import androidx.browser.customtabs.CustomTabColorSchemeParams;
@@ -27,17 +32,22 @@ import androidx.browser.trusted.ScreenOrientation;
 import androidx.browser.trusted.TrustedWebActivityIntentBuilder;
 import androidx.test.core.app.ApplicationProvider;
 
+import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
+import org.mockito.Mockito;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.IntentUtils;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.IntentHandler;
+import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.browserservices.intents.ColorProvider;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -54,8 +64,6 @@ import java.util.Collections;
 public class CustomTabIntentDataProviderTest {
     @Rule
     public TestRule mProcessor = new Features.JUnitProcessor();
-    @Rule
-    public TestRule mCommandLineFlagsRule = CommandLineFlags.getTestRule();
 
     private static final String BUTTON_DESCRIPTION = "buttonDescription";
 
@@ -65,6 +73,11 @@ public class CustomTabIntentDataProviderTest {
     public void setUp() {
         mContext = new ContextThemeWrapper(
                 ApplicationProvider.getApplicationContext(), R.style.ColorOverlay);
+    }
+
+    @After
+    public void tearDown() {
+        CustomTabsConnection.setInstanceForTesting(null);
     }
 
     @Test
@@ -193,7 +206,7 @@ public class CustomTabIntentDataProviderTest {
     }
 
     @Test
-    public void shareStateOn_buttonInToolbarAndCustomMenuItems_hasNoShare() {
+    public void shareStateOn_buttonInToolbarAndCustomMenuItems_hasShareItemInMenu() {
         ArrayList<Bundle> buttons =
                 new ArrayList<>(Collections.singleton(createActionButtonInToolbarBundle()));
         Intent intent =
@@ -209,7 +222,7 @@ public class CustomTabIntentDataProviderTest {
 
         assertEquals(BUTTON_DESCRIPTION,
                 dataProvider.getCustomButtonsOnToolbar().get(0).getDescription());
-        assertFalse(dataProvider.shouldShowShareMenuItem());
+        assertTrue(dataProvider.shouldShowShareMenuItem());
     }
 
     @Test
@@ -228,7 +241,7 @@ public class CustomTabIntentDataProviderTest {
     @EnableFeatures({ChromeFeatureList.CCT_RESIZABLE_FOR_THIRD_PARTIES})
     public void isAllowedThirdParty_noDefaultPolicy() {
         Intent intent = new CustomTabsIntent.Builder().build().intent;
-        intent.putExtra(CustomTabIntentDataProvider.EXTRA_INITIAL_ACTIVITY_HEIGHT_IN_PIXEL, 50);
+        intent.putExtra(CustomTabIntentDataProvider.EXTRA_INITIAL_ACTIVITY_HEIGHT_PX, 50);
         CustomTabIntentDataProvider provider =
                 new CustomTabIntentDataProvider(intent, mContext, COLOR_SCHEME_LIGHT);
         CustomTabIntentDataProvider.DENYLIST_ENTRIES.setForTesting(
@@ -251,7 +264,7 @@ public class CustomTabIntentDataProviderTest {
     public void
     isAllowedThirdParty_denylist() {
         Intent intent = new CustomTabsIntent.Builder().build().intent;
-        intent.putExtra(CustomTabIntentDataProvider.EXTRA_INITIAL_ACTIVITY_HEIGHT_IN_PIXEL, 50);
+        intent.putExtra(CustomTabIntentDataProvider.EXTRA_INITIAL_ACTIVITY_HEIGHT_PX, 50);
         CustomTabIntentDataProvider provider =
                 new CustomTabIntentDataProvider(intent, mContext, COLOR_SCHEME_LIGHT);
         CustomTabIntentDataProvider.THIRD_PARTIES_DEFAULT_POLICY.setForTesting("use-denylist");
@@ -274,7 +287,7 @@ public class CustomTabIntentDataProviderTest {
     public void
     isAllowedThirdParty_allowlist() {
         Intent intent = new CustomTabsIntent.Builder().build().intent;
-        intent.putExtra(CustomTabIntentDataProvider.EXTRA_INITIAL_ACTIVITY_HEIGHT_IN_PIXEL, 50);
+        intent.putExtra(CustomTabIntentDataProvider.EXTRA_INITIAL_ACTIVITY_HEIGHT_PX, 50);
         CustomTabIntentDataProvider provider =
                 new CustomTabIntentDataProvider(intent, mContext, COLOR_SCHEME_LIGHT);
         CustomTabIntentDataProvider.THIRD_PARTIES_DEFAULT_POLICY.setForTesting("use-allowlist");
@@ -286,6 +299,115 @@ public class CustomTabIntentDataProviderTest {
                 provider.isAllowedThirdParty("com.disney.ariel"));
         assertFalse("Entry NOT in allowlist should be rejected",
                 provider.isAllowedThirdParty("com.pixar.syndrome"));
+    }
+
+    @Test
+    public void partialCustomTabHeightResizeBehavior_Default() {
+        Intent intent = new Intent().putExtra(
+                CustomTabIntentDataProvider.EXTRA_ACTIVITY_HEIGHT_RESIZE_BEHAVIOR,
+                BrowserServicesIntentDataProvider.ACTIVITY_HEIGHT_DEFAULT);
+
+        CustomTabIntentDataProvider dataProvider =
+                new CustomTabIntentDataProvider(intent, mContext, COLOR_SCHEME_LIGHT);
+
+        assertFalse("The default height resize behavior should return false",
+                dataProvider.isPartialCustomTabFixedHeight());
+    }
+
+    @Test
+    public void partialCustomTabHeightResizeBehavior_Adjustable() {
+        Intent intent = new Intent().putExtra(
+                CustomTabIntentDataProvider.EXTRA_ACTIVITY_HEIGHT_RESIZE_BEHAVIOR,
+                BrowserServicesIntentDataProvider.ACTIVITY_HEIGHT_ADJUSTABLE);
+
+        CustomTabIntentDataProvider dataProvider =
+                new CustomTabIntentDataProvider(intent, mContext, COLOR_SCHEME_LIGHT);
+
+        assertFalse("The adjustable height resize behavior should return false",
+                dataProvider.isPartialCustomTabFixedHeight());
+    }
+
+    @Test
+    public void partialCustomTabHeightResizeBehavior_Fixed() {
+        Intent intent = new Intent().putExtra(
+                CustomTabIntentDataProvider.EXTRA_ACTIVITY_HEIGHT_RESIZE_BEHAVIOR,
+                BrowserServicesIntentDataProvider.ACTIVITY_HEIGHT_FIXED);
+
+        CustomTabIntentDataProvider dataProvider =
+                new CustomTabIntentDataProvider(intent, mContext, COLOR_SCHEME_LIGHT);
+
+        assertTrue("The fixed height resize behavior should return true",
+                dataProvider.isPartialCustomTabFixedHeight());
+    }
+
+    @Test
+    public void testGetReferrerPackageName() {
+        assertEquals("extra.activity.referrer",
+                CustomTabIntentDataProvider.getReferrerPackageName(
+                        buildMockActivity("android-app://extra.activity.referrer")));
+        assertEquals("co.abc.xyz",
+                CustomTabIntentDataProvider.getReferrerPackageName(
+                        buildMockActivity("android-app://co.abc.xyz")));
+
+        assertReferrerInvalid("");
+        assertReferrerInvalid("invalid");
+        assertReferrerInvalid("android-app://");
+        assertReferrerInvalid(Uri.parse("https://www.one.com").toString());
+    }
+
+    @Test
+    public void testGetClientPackageName_Session() {
+        CustomTabsConnection connection = Mockito.mock(CustomTabsConnection.class);
+        when(connection.getClientPackageNameForSession(any())).thenReturn("com.foo.bar");
+        CustomTabsConnection.setInstanceForTesting(connection);
+
+        Intent intent = new Intent();
+        intent.putExtra(IntentHandler.EXTRA_CALLING_ACTIVITY_PACKAGE, "com.baz.qux");
+        CustomTabIntentDataProvider dataProvider =
+                new CustomTabIntentDataProvider(intent, mContext, COLOR_SCHEME_LIGHT);
+
+        Assert.assertEquals("com.foo.bar", dataProvider.getClientPackageName());
+    }
+
+    @Test
+    public void testGetClientPackageName_Intent() {
+        CustomTabsConnection connection = Mockito.mock(CustomTabsConnection.class);
+        when(connection.getClientPackageNameForSession(any())).thenReturn(null);
+        CustomTabsConnection.setInstanceForTesting(connection);
+
+        Intent intent = new Intent();
+        intent.putExtra(IntentHandler.EXTRA_CALLING_ACTIVITY_PACKAGE, "com.foo.bar");
+        CustomTabIntentDataProvider dataProvider =
+                new CustomTabIntentDataProvider(intent, mContext, COLOR_SCHEME_LIGHT);
+
+        Assert.assertEquals("com.foo.bar", dataProvider.getClientPackageName());
+    }
+
+    @Test
+    public void testGetClientPackageName_None() {
+        CustomTabsConnection connection = Mockito.mock(CustomTabsConnection.class);
+        when(connection.getClientPackageNameForSession(any())).thenReturn(null);
+        CustomTabsConnection.setInstanceForTesting(connection);
+
+        Intent intent = new Intent();
+        CustomTabIntentDataProvider dataProvider =
+                new CustomTabIntentDataProvider(intent, mContext, COLOR_SCHEME_LIGHT);
+
+        Assert.assertNull(dataProvider.getClientPackageName());
+    }
+
+    @Test
+    public void testIsTrustedCustomTab_NoServiceConnection() {
+        CustomTabsConnection connection = Mockito.mock(CustomTabsConnection.class);
+        when(connection.getClientPackageNameForSession(any())).thenReturn(null);
+        when(connection.isFirstParty(eq("com.foo.bar"))).thenReturn(true);
+        CustomTabsConnection.setInstanceForTesting(connection);
+
+        Intent intent = new Intent();
+        Assert.assertFalse(CustomTabIntentDataProvider.isTrustedCustomTab(intent, null));
+
+        intent.putExtra(IntentHandler.EXTRA_CALLING_ACTIVITY_PACKAGE, "com.foo.bar");
+        Assert.assertTrue(CustomTabIntentDataProvider.isTrustedCustomTab(intent, null));
     }
 
     private Bundle createActionButtonInToolbarBundle() {
@@ -313,5 +435,18 @@ public class CustomTabIntentDataProviderTest {
 
     protected Uri getLaunchingUrl() {
         return Uri.parse("https://www.example.com/");
+    }
+
+    private void assertReferrerInvalid(String referrerStr) {
+        assertTrue("Referrer should be invalid for the input: " + referrerStr,
+                TextUtils.isEmpty(CustomTabIntentDataProvider.getReferrerPackageName(
+                        buildMockActivity(referrerStr))));
+    }
+
+    private Activity buildMockActivity(String referrer) {
+        Activity mockActivity = Mockito.mock(Activity.class);
+        Mockito.doReturn(new Intent()).when(mockActivity).getIntent();
+        Mockito.doReturn(Uri.parse(referrer)).when(mockActivity).getReferrer();
+        return mockActivity;
     }
 }

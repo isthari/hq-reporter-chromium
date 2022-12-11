@@ -1,6 +1,8 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include <utility>
 
 #include "base/bind.h"
 #include "base/memory/ref_counted.h"
@@ -48,7 +50,7 @@ class MockAutofillClient : public TestAutofillClient {
   ~MockAutofillClient() override = default;
 
   PrefService* GetPrefs() override {
-    return const_cast<PrefService*>(base::as_const(*this).GetPrefs());
+    return const_cast<PrefService*>(std::as_const(*this).GetPrefs());
   }
   const PrefService* GetPrefs() const override { return &prefs_; }
 
@@ -88,7 +90,7 @@ class ContentAutofillDriverBrowserTest : public InProcessBrowserTest,
         std::make_unique<testing::NiceMock<MockAutofillClient>>();
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
-    ASSERT_TRUE(web_contents != NULL);
+    ASSERT_TRUE(web_contents != nullptr);
     Observe(web_contents);
     prefs::RegisterProfilePrefs(autofill_client().GetPrefRegistry());
 
@@ -96,8 +98,9 @@ class ContentAutofillDriverBrowserTest : public InProcessBrowserTest,
         ContentAutofillDriverFactory::
             kContentAutofillDriverFactoryWebContentsUserDataKey);
     ContentAutofillDriverFactory::CreateForWebContentsAndDelegate(
-        web_contents, &autofill_client(), "en-US",
-        BrowserAutofillManager::DISABLE_AUTOFILL_DOWNLOAD_MANAGER);
+        web_contents, &autofill_client(),
+        base::BindRepeating(&autofill::BrowserDriverInitHook,
+                            &autofill_client(), "en-US"));
 
     // Serve both a.com and b.com (and any other domain).
     host_resolver()->AddRule("*", "127.0.0.1");
@@ -281,8 +284,9 @@ IN_PROC_BROWSER_TEST_F(ContentAutofillDriverPrerenderBrowserTest,
   // Set a dummy form data to simulate to submit a form. And, OnFormSubmitted
   // method will be called upon navigation.
   ContentAutofillDriverFactory::FromWebContents(web_contents())
-      ->DriverForFrame(web_contents()->GetMainFrame())
-      ->SetFormToBeProbablySubmitted(absl::make_optional<FormData>());
+      ->DriverForFrame(web_contents()->GetPrimaryMainFrame())
+      ->renderer_events()
+      .SetFormToBeProbablySubmitted(absl::make_optional<FormData>());
 
   base::HistogramTester histogram_tester;
 

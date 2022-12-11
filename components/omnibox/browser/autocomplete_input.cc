@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <vector>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -82,7 +81,7 @@ void OffsetComponentsExcludingScheme(url::Parsed* parts, int offset) {
       &parts->username, &parts->password, &parts->host, &parts->port,
       &parts->path,     &parts->query,    &parts->ref,
   };
-  for (size_t i = 0; i < base::size(components); ++i) {
+  for (size_t i = 0; i < std::size(components); ++i) {
     url_formatter::OffsetComponent(offset, components[i]);
   }
 }
@@ -107,23 +106,26 @@ AutocompleteInput::AutocompleteInput()
       prefer_keyword_(false),
       allow_exact_keyword_match_(true),
       keyword_mode_entry_method_(metrics::OmniboxEventProto::INVALID),
-      want_asynchronous_matches_(true),
+      omit_asynchronous_matches_(false),
       should_use_https_as_default_scheme_(false),
       added_default_scheme_to_typed_url_(false),
-      https_port_for_testing_(0) {}
+      https_port_for_testing_(0),
+      use_fake_https_for_https_upgrade_testing_(false) {}
 
 AutocompleteInput::AutocompleteInput(
     const std::u16string& text,
     metrics::OmniboxEventProto::PageClassification current_page_classification,
     const AutocompleteSchemeClassifier& scheme_classifier,
     bool should_use_https_as_default_scheme,
-    int https_port_for_testing)
+    int https_port_for_testing,
+    bool use_fake_https_for_https_upgrade_testing)
     : AutocompleteInput(text,
                         std::string::npos,
                         current_page_classification,
                         scheme_classifier,
                         should_use_https_as_default_scheme,
-                        https_port_for_testing) {}
+                        https_port_for_testing,
+                        use_fake_https_for_https_upgrade_testing) {}
 
 AutocompleteInput::AutocompleteInput(
     const std::u16string& text,
@@ -131,14 +133,16 @@ AutocompleteInput::AutocompleteInput(
     metrics::OmniboxEventProto::PageClassification current_page_classification,
     const AutocompleteSchemeClassifier& scheme_classifier,
     bool should_use_https_as_default_scheme,
-    int https_port_for_testing)
+    int https_port_for_testing,
+    bool use_fake_https_for_https_upgrade_testing)
     : AutocompleteInput(text,
                         cursor_position,
                         "",
                         current_page_classification,
                         scheme_classifier,
                         should_use_https_as_default_scheme,
-                        https_port_for_testing) {}
+                        https_port_for_testing,
+                        use_fake_https_for_https_upgrade_testing) {}
 
 AutocompleteInput::AutocompleteInput(
     const std::u16string& text,
@@ -147,13 +151,16 @@ AutocompleteInput::AutocompleteInput(
     metrics::OmniboxEventProto::PageClassification current_page_classification,
     const AutocompleteSchemeClassifier& scheme_classifier,
     bool should_use_https_as_default_scheme,
-    int https_port_for_testing)
+    int https_port_for_testing,
+    bool use_fake_https_for_https_upgrade_testing)
     : AutocompleteInput() {
   cursor_position_ = cursor_position;
   current_page_classification_ = current_page_classification;
   desired_tld_ = desired_tld;
   should_use_https_as_default_scheme_ = should_use_https_as_default_scheme;
   https_port_for_testing_ = https_port_for_testing;
+  use_fake_https_for_https_upgrade_testing_ =
+      use_fake_https_for_https_upgrade_testing;
   Init(text, scheme_classifier);
 }
 
@@ -181,6 +188,7 @@ void AutocompleteInput::Init(
   if (should_use_https_as_default_scheme_ &&
       type_ == metrics::OmniboxInputType::URL &&
       ShouldUpgradeToHttps(text, canonicalized_url, https_port_for_testing_,
+                           use_fake_https_for_https_upgrade_testing_,
                            &upgraded_url)) {
     DCHECK(upgraded_url.is_valid());
     added_default_scheme_to_typed_url_ = true;
@@ -246,6 +254,7 @@ metrics::OmniboxInputType AutocompleteInput::Parse(
   if (scheme)
     *scheme = parsed_scheme;
   const std::string parsed_scheme_utf8(base::UTF16ToUTF8(parsed_scheme));
+  DCHECK(base::IsStringASCII(parsed_scheme_utf8));
 
   // If we can't canonicalize the user's input, the rest of the autocomplete
   // system isn't going to be able to produce a navigable URL match for it.
@@ -279,7 +288,7 @@ metrics::OmniboxInputType AutocompleteInput::Parse(
   }
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
-  if (base::LowerCaseEqualsASCII(parsed_scheme_utf8, url::kFileScheme)) {
+  if (base::EqualsCaseInsensitiveASCII(parsed_scheme_utf8, url::kFileScheme)) {
     // A user might or might not type a scheme when entering a file URL.  In
     // either case, |parsed_scheme_utf8| will tell us that this is a file URL,
     // but |parts->scheme| might be empty, e.g. if the user typed "C:\foo".
@@ -294,7 +303,9 @@ metrics::OmniboxInputType AutocompleteInput::Parse(
 
   // Treat javascript: scheme queries followed by things that are unlikely to
   // be code as UNKNOWN, rather than script to execute (URL).
-  if (RE2::FullMatch(base::UTF16ToUTF8(text), "(?i)javascript:([^;=().\"]*)")) {
+  if (base::EqualsCaseInsensitiveASCII(parsed_scheme_utf8,
+                                       url::kJavaScriptScheme) &&
+      RE2::FullMatch(base::UTF16ToUTF8(text), "(?i)javascript:([^;=().\"]*)")) {
     return metrics::OmniboxInputType::UNKNOWN;
   }
 
@@ -305,8 +316,9 @@ metrics::OmniboxInputType AutocompleteInput::Parse(
   // (e.g. "ftp" or "view-source") but I'll wait to spend the effort on that
   // until I run into some cases that really need it.
   if (parts->scheme.is_nonempty() &&
-      !base::LowerCaseEqualsASCII(parsed_scheme_utf8, url::kHttpScheme) &&
-      !base::LowerCaseEqualsASCII(parsed_scheme_utf8, url::kHttpsScheme)) {
+      !base::EqualsCaseInsensitiveASCII(parsed_scheme_utf8, url::kHttpScheme) &&
+      !base::EqualsCaseInsensitiveASCII(parsed_scheme_utf8,
+                                        url::kHttpsScheme)) {
     metrics::OmniboxInputType type =
         scheme_classifier.GetInputTypeForScheme(parsed_scheme_utf8);
     if (type != metrics::OmniboxInputType::EMPTY)
@@ -520,7 +532,8 @@ metrics::OmniboxInputType AutocompleteInput::Parse(
   // The .example and .test TLDs are special-cased as known TLDs due to
   // https://tools.ietf.org/html/rfc6761. Unlike localhost, these are not valid
   // host names, so they must have at least one subdomain to be a URL.
-  for (const base::StringPiece domain : {"example", "test"}) {
+  // .local is used for Multicast DNS in https://www.rfc-editor.org/rfc/rfc6762.
+  for (const base::StringPiece domain : {"example", "test", "local"}) {
     // The +1 accounts for a possible trailing period.
     if (canonicalized_url->DomainIs(domain) &&
         (canonicalized_url->host().length() > (domain.length() + 1)))
@@ -560,8 +573,8 @@ void AutocompleteInput::ParseForEmphasizeComponents(
   int after_scheme_and_colon = parts.scheme.end() + 1;
   // For the view-source and blob schemes, we should emphasize the host of the
   // URL qualified by the view-source or blob prefix.
-  if ((base::LowerCaseEqualsASCII(scheme_str, kViewSourceScheme) ||
-       base::LowerCaseEqualsASCII(scheme_str, url::kBlobScheme)) &&
+  if ((base::EqualsCaseInsensitiveASCII(scheme_str, kViewSourceScheme) ||
+       base::EqualsCaseInsensitiveASCII(scheme_str, url::kBlobScheme)) &&
       (static_cast<int>(text.length()) > after_scheme_and_colon)) {
     // Obtain the URL prefixed by view-source or blob and parse it.
     std::u16string real_url(text.substr(after_scheme_and_colon));
@@ -583,22 +596,37 @@ void AutocompleteInput::ParseForEmphasizeComponents(
         host->reset();
       }
     }
-  } else if (base::LowerCaseEqualsASCII(scheme_str, url::kFileSystemScheme) &&
+  } else if (base::EqualsCaseInsensitiveASCII(scheme_str,
+                                              url::kFileSystemScheme) &&
              parts.inner_parsed() && parts.inner_parsed()->scheme.is_valid()) {
     *host = parts.inner_parsed()->host;
   }
 }
 
 // static
-bool AutocompleteInput::ShouldUpgradeToHttps(const std::u16string& text,
-                                             const GURL& url,
-                                             int https_port_for_testing,
-                                             GURL* upgraded_url) {
+bool AutocompleteInput::ShouldUpgradeToHttps(
+    const std::u16string& text,
+    const GURL& url,
+    int https_port_for_testing,
+    bool use_fake_https_for_https_upgrade_testing,
+    GURL* upgraded_url) {
+  if (url::HostIsIPAddress(url.host()) ||
+      net::IsHostnameNonUnique(url.host())) {
+#if !BUILDFLAG(IS_IOS)
+    // Never upgrade IP addresses or non-unique hostnames on non-iOS builds.
+    return false;
+#else
+    // On iOS, tests use a loopback IP address instead of hostnames due to
+    // platform limitations. Only allow them when running tests.
+    if (!https_port_for_testing || !url::HostIsIPAddress(url.host())) {
+      return false;
+    }
+#endif
+  }
+
   if (url.scheme() == url::kHttpScheme &&
       !base::StartsWith(text, base::ASCIIToUTF16(url.scheme()),
                         base::CompareCase::INSENSITIVE_ASCII) &&
-      !url::HostIsIPAddress(url.host()) &&
-      !net::IsHostnameNonUnique(url.host()) &&
       (url.port().empty() || https_port_for_testing)) {
     // Use HTTPS as the default scheme for URLs that are typed without a scheme.
     // Inputs of type UNKNOWN can still be valid URLs, but these will be mainly
@@ -614,13 +642,35 @@ bool AutocompleteInput::ShouldUpgradeToHttps(const std::u16string& text,
     //   upgraded (e.g. example.com:80 will load https://example.com).
     DCHECK_EQ(url::kHttpScheme, url.scheme());
     GURL::Replacements replacements;
-    replacements.SetSchemeStr(url::kHttpsScheme);
+#if !BUILDFLAG(IS_IOS)
+    // We sometimes use a fake HTTPS server on iOS as we can't serve good HTTPS
+    // from a test server. On all other platforms, we never use fake HTTPS
+    // server.
+    DCHECK(!use_fake_https_for_https_upgrade_testing);
+#else
+    // On iOS, use_fake_https_for_https_upgrade_testing should only be true if
+    // https_port_for_testing is also true.
+    DCHECK(!use_fake_https_for_https_upgrade_testing || https_port_for_testing);
+#endif
+
+    if (!use_fake_https_for_https_upgrade_testing) {
+      replacements.SetSchemeStr(url::kHttpsScheme);
+    }
     // This needs to be in scope when ReplaceComponents() is called:
     const std::string port_str = base::NumberToString(https_port_for_testing);
     if (https_port_for_testing) {
-      // We'll only get here in tests. Tests should always have a non-default
-      // port on the input text.
+      // We'll only get here in tests.
+#if BUILDFLAG(IS_IOS)
+      if (url.port().empty()) {
+        // On iOS, if the URL doesn't have a port, this is probably an
+        // incomplete URL that's still being typed. Ignore.
+        return false;
+      }
+#else
+      // On other platforms, tests should always have a non-default port on the
+      // input text.
       DCHECK(!url.port().empty());
+#endif
       replacements.SetPortStr(port_str);
     }
     *upgraded_url = url.ReplaceComponents(replacements);
@@ -705,11 +755,12 @@ void AutocompleteInput::Clear() {
   prevent_inline_autocomplete_ = false;
   prefer_keyword_ = false;
   allow_exact_keyword_match_ = false;
-  want_asynchronous_matches_ = true;
-  focus_type_ = OmniboxFocusType::DEFAULT;
+  omit_asynchronous_matches_ = false;
+  focus_type_ = metrics::OmniboxFocusType::INTERACTION_DEFAULT;
   terms_prefixed_by_http_or_https_.clear();
   query_tile_id_.reset();
-  https_port_for_testing_ = false;
+  https_port_for_testing_ = 0;
+  use_fake_https_for_https_upgrade_testing_ = false;
 }
 
 size_t AutocompleteInput::EstimateMemoryUsage() const {
@@ -733,4 +784,8 @@ size_t AutocompleteInput::EstimateMemoryUsage() const {
 void AutocompleteInput::WriteIntoTrace(perfetto::TracedValue context) const {
   auto dict = std::move(context).WriteDictionary();
   dict.Add("text", text_);
+}
+
+bool AutocompleteInput::IsZeroSuggest() const {
+  return focus_type_ != metrics::OmniboxFocusType::INTERACTION_DEFAULT;
 }

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,6 @@ GEN('#include "base/command_line.h"');
 GEN('#include "build/build_config.h"');
 GEN('#include "chrome/test/data/webui/history_ui_browsertest.h"');
 GEN('#include "content/public/test/browser_test.h"');
-
-/* eslint-disable no-var */
 
 const HistoryBrowserTest = class extends PolymerTest {
   /** @override */
@@ -165,8 +163,7 @@ var HistoryMetricsTest = class extends HistoryBrowserTest {
   }
 };
 
-// TODO(https://crbug.com/1000573): Re-enable once flakiness is fixed.
-TEST_F('HistoryMetricsTest', 'DISABLED_All', function() {
+TEST_F('HistoryMetricsTest', 'All', function() {
   mocha.run();
 });
 

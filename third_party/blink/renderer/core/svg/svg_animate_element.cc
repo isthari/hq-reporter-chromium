@@ -27,6 +27,7 @@
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/qualified_name.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/svg/animation/smil_animation_effect_parameters.h"
 #include "third_party/blink/renderer/core/svg/animation/smil_animation_value.h"
 #include "third_party/blink/renderer/core/svg/properties/svg_animated_property.h"
@@ -64,7 +65,7 @@ String ComputeCSSPropertyValue(SVGElement* element, CSSPropertyID id) {
 AnimatedPropertyValueType PropertyValueType(const QualifiedName& attribute_name,
                                             const String& value) {
   DEFINE_STATIC_LOCAL(const AtomicString, inherit, ("inherit"));
-  if (value.IsEmpty() || value != inherit ||
+  if (value.empty() || value != inherit ||
       !SVGElement::IsAnimatableCSSProperty(attribute_name))
     return kRegularPropertyValue;
   return kInheritValue;
@@ -72,7 +73,7 @@ AnimatedPropertyValueType PropertyValueType(const QualifiedName& attribute_name,
 
 QualifiedName ConstructQualifiedName(const SVGElement& svg_element,
                                      const AtomicString& attribute_name) {
-  if (attribute_name.IsEmpty())
+  if (attribute_name.empty())
     return AnyQName();
   if (!attribute_name.Contains(':'))
     return QualifiedName(g_null_atom, attribute_name, g_null_atom);
@@ -84,7 +85,7 @@ QualifiedName ConstructQualifiedName(const SVGElement& svg_element,
     return AnyQName();
 
   const AtomicString& namespace_uri = svg_element.lookupNamespaceURI(prefix);
-  if (namespace_uri.IsEmpty())
+  if (namespace_uri.empty())
     return AnyQName();
 
   QualifiedName resolved_attr_name(g_null_atom, local_name, namespace_uri);
@@ -378,7 +379,7 @@ void SVGAnimateElement::CalculateAnimationValue(
 
 bool SVGAnimateElement::CalculateToAtEndOfDurationValue(
     const String& to_at_end_of_duration_string) {
-  if (to_at_end_of_duration_string.IsEmpty())
+  if (to_at_end_of_duration_string.empty())
     return false;
   to_at_end_of_duration_property_ = ParseValue(to_at_end_of_duration_string);
   return true;
@@ -474,11 +475,11 @@ void SVGAnimateElement::ApplyResultsToTarget(
         target_element->EnsureAnimatedSMILStyleProperties();
     auto animated_value_string = animated_value->ValueAsString();
     auto& document = target_element->GetDocument();
-    auto set_result = properties->SetProperty(
+    auto set_result = properties->ParseAndSetProperty(
         css_property_id_, animated_value_string, false,
         document.GetExecutionContext()->GetSecureContextMode(),
         document.ElementSheet().Contents());
-    if (set_result.did_change) {
+    if (set_result >= MutableCSSPropertyValueSet::kModifiedExisting) {
       target_element->SetNeedsStyleRecalc(
           kLocalStyleChange,
           StyleChangeReasonForTracing::Create(style_change_reason::kAnimation));

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 
 #include "ash/constants/ash_switches.h"
 #include "base/bind.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/base/math_util.h"
 #include "cc/trees/layer_tree_frame_sink.h"
@@ -211,7 +211,8 @@ class FastInkHost::LayerTreeFrameSinkHolder
     if (delete_pending_)
       return;
     delete_pending_ = true;
-    base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+    base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                  this);
   }
 
   FastInkHost* host_;
@@ -362,8 +363,8 @@ void FastInkHost::SubmitCompositorFrame() {
         resource->context_provider->SharedImageInterface();
     if (resource->mailbox.IsZero()) {
       DCHECK(!resource->sync_token.HasData());
-      const uint32_t usage =
-          gpu::SHARED_IMAGE_USAGE_DISPLAY | gpu::SHARED_IMAGE_USAGE_SCANOUT;
+      const uint32_t usage = gpu::SHARED_IMAGE_USAGE_DISPLAY_READ |
+                             gpu::SHARED_IMAGE_USAGE_SCANOUT;
       gpu::GpuMemoryBufferManager* gmb_manager =
           aura::Env::GetInstance()
               ->context_factory()
@@ -379,24 +380,20 @@ void FastInkHost::SubmitCompositorFrame() {
     resource->damaged = false;
   }
 
-  viz::TransferableResource transferable_resource;
-  transferable_resource.id = id_generator_.GenerateNextId();
-  transferable_resource.format =
-      SK_B32_SHIFT ? viz::RGBA_8888 : viz::BGRA_8888;
-  transferable_resource.filter = GL_LINEAR;
-  transferable_resource.size = buffer_size_;
-  transferable_resource.mailbox_holder = gpu::MailboxHolder(
-      resource->mailbox, resource->sync_token, GL_TEXTURE_2D);
   // Use HW overlay if continuous updates are expected.
-  transferable_resource.is_overlay_candidate = auto_refresh_;
+  viz::TransferableResource transferable_resource =
+      viz::TransferableResource::MakeGpu(
+          resource->mailbox, GL_LINEAR, GL_TEXTURE_2D, resource->sync_token,
+          buffer_size_, SK_B32_SHIFT ? viz::RGBA_8888 : viz::BGRA_8888,
+          auto_refresh_);
+  transferable_resource.id = id_generator_.GenerateNextId();
 
   gfx::Transform target_to_buffer_transform(window_to_buffer_transform_);
   target_to_buffer_transform.Scale(1.f / device_scale_factor,
                                    1.f / device_scale_factor);
 
-  gfx::Transform buffer_to_target_transform;
-  bool rv = target_to_buffer_transform.GetInverse(&buffer_to_target_transform);
-  DCHECK(rv);
+  gfx::Transform buffer_to_target_transform =
+      target_to_buffer_transform.GetCheckedInverse();
 
   const viz::CompositorRenderPassId kRenderPassId{1};
   auto render_pass = viz::CompositorRenderPass::Create();
@@ -430,7 +427,7 @@ void FastInkHost::SubmitCompositorFrame() {
       quad_state, quad_rect, quad_rect,
       /*needs_blending=*/true, transferable_resource.id,
       /*premultiplied_alpha=*/true, uv_crop.origin(), uv_crop.bottom_right(),
-      /*background_color=*/SK_ColorTRANSPARENT, vertex_opacity,
+      /*background_color=*/SkColors::kTransparent, vertex_opacity,
       /*y_flipped=*/false,
       /*nearest_neighbor=*/false,
       /*secure_output_only=*/false, gfx::ProtectedVideoType::kClear);
@@ -453,7 +450,7 @@ void FastInkHost::SubmitPendingCompositorFrame() {
 void FastInkHost::DidReceiveCompositorFrameAck() {
   pending_compositor_frame_ack_ = false;
   if (pending_compositor_frame_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&FastInkHost::SubmitPendingCompositorFrame,
                                   weak_ptr_factory_.GetWeakPtr()));
   }

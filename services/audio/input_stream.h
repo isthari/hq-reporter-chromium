@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,16 +22,13 @@
 #include "services/audio/input_controller.h"
 
 namespace media {
-
+class AecdumpRecordingManager;
 class AudioManager;
 class AudioParameters;
-
 }  // namespace media
 
 namespace audio {
-
 class DeviceOutputListener;
-class InputStreamActivityMonitor;
 class InputSyncWriter;
 class UserInputMonitor;
 
@@ -52,9 +49,10 @@ class InputStream final : public media::mojom::AudioInputStream,
       mojo::PendingRemote<media::mojom::AudioInputStreamObserver> observer,
       mojo::PendingRemote<media::mojom::AudioLog> log,
       media::AudioManager* manager,
+      media::AecdumpRecordingManager* aecdump_recording_manager,
       std::unique_ptr<UserInputMonitor> user_input_monitor,
-      InputStreamActivityMonitor* activity_monitor,
       DeviceOutputListener* device_output_listener,
+      media::mojom::AudioProcessingConfigPtr processing_config,
       const std::string& device_id,
       const media::AudioParameters& params,
       uint32_t shared_memory_count,
@@ -86,6 +84,8 @@ class InputStream final : public media::mojom::AudioInputStream,
   void CallDeleter();
   void SendLogMessage(const char* format, ...) PRINTF_FORMAT(2, 3);
 
+  SEQUENCE_CHECKER(owning_sequence_);
+
   const base::UnguessableToken id_;
 
   mojo::Receiver<media::mojom::AudioInputStream> receiver_;
@@ -103,8 +103,6 @@ class InputStream final : public media::mojom::AudioInputStream,
   const std::unique_ptr<InputSyncWriter> writer_;
   std::unique_ptr<InputController> controller_;
   const std::unique_ptr<UserInputMonitor> user_input_monitor_;
-
-  SEQUENCE_CHECKER(owning_sequence_);
 
   base::WeakPtrFactory<InputStream> weak_factory_{this};
 };

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "media/base/overlay_info.h"
@@ -18,6 +18,7 @@
 #include "media/mojo/buildflags.h"
 #include "media/mojo/mojom/frame_interface_factory.mojom.h"
 #include "media/mojo/mojom/renderer_extensions.mojom.h"
+#include "media/mojo/mojom/stable/stable_video_decoder.mojom.h"
 #include "media/mojo/mojom/video_decoder.mojom.h"
 #include "media/mojo/services/media_mojo_export.h"
 
@@ -68,7 +69,8 @@ class MEDIA_MOJO_EXPORT MojoMediaClient {
       MediaLog* media_log,
       mojom::CommandBufferIdPtr command_buffer_id,
       RequestOverlayInfoCB request_overlay_info_cb,
-      const gfx::ColorSpace& target_color_space);
+      const gfx::ColorSpace& target_color_space,
+      mojo::PendingRemote<stable::mojom::StableVideoDecoder> oop_video_decoder);
 
   // Returns the Renderer to be used by MojoRendererService.
   // TODO(hubbe): Find out whether we should pass in |target_color_space| here.
@@ -98,7 +100,9 @@ class MEDIA_MOJO_EXPORT MojoMediaClient {
       mojom::FrameInterfaceFactory* frame_interfaces,
       mojo::PendingRemote<mojom::MediaLog> media_log_remote,
       mojo::PendingReceiver<mojom::MediaFoundationRendererExtension>
-          renderer_extension_receiver);
+          renderer_extension_receiver,
+      mojo::PendingRemote<media::mojom::MediaFoundationRendererClientExtension>
+          client_extension_remote);
 #endif  // BUILDFLAG(IS_WIN)
 
   // Returns the CdmFactory to be used by MojoCdmService. |frame_interfaces|

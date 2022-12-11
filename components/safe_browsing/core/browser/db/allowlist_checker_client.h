@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,6 @@ class AllowlistCheckerClient : public SafeBrowsingDatabaseManager::Client {
 
   // SafeBrowsingDatabaseMananger::Client impl
   void OnCheckAllowlistUrlResult(bool is_allowlisted) override;
-  void OnCheckUrlForHighConfidenceAllowlist(bool did_match_allowlist) override;
 
  private:
   // Helper method to instantiate a AllowlistCheckerClient object.

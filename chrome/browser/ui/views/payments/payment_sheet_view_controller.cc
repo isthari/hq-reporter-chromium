@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "base/bind.h"
-#include "base/cxx17_backports.h"
+#include "base/callback.h"
 #include "base/i18n/message_formatter.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_number_conversions.h"
@@ -164,7 +164,7 @@ std::unique_ptr<PaymentRequestRowView> CreatePaymentSheetRow(
                                  ? kPaymentRequestRowHorizontalInsets +
                                        kPaymentRequestRowExtraRightInset
                                  : kPaymentRequestRowHorizontalInsets;
-  const gfx::Insets row_insets(
+  const auto row_insets = gfx::Insets::TLBR(
       kPaymentRequestRowVerticalInsets, kPaymentRequestRowHorizontalInsets,
       kPaymentRequestRowVerticalInsets, trailing_inset);
 
@@ -631,13 +631,12 @@ PaymentSheetViewController::CreateShippingRow() {
                                   /*button_enabled=*/true);
 }
 
-// Creates the Payment Method row, which contains a "Payment" label, the user's
-// masked Credit Card details, the icon for the selected card, and a chevron.
-// If no option is selected or none is available, the Chevron and icon are
-// replaced with a button
+// Creates the Payment Method row, which contains a "Payment" label, the
+// selected Payment Method's name and details, the Payment Method's icon, and a
+// chevron.
 // +----------------------------------------------+
-// | Payment         Visa ****0000                |
-// |                 John Smith        | VISA | > |
+// | Payment         BobBucks                     |
+// |                 bobbucks.dev      | ICON | > |
 // |                                              |
 // +----------------------------------------------+
 std::unique_ptr<PaymentRequestRowView>
@@ -647,58 +646,40 @@ PaymentSheetViewController::CreatePaymentMethodRow() {
   PaymentSheetRowBuilder builder(
       this, l10n_util::GetStringUTF16(
                 IDS_PAYMENT_REQUEST_PAYMENT_METHOD_SECTION_NAME));
-  builder
-      .Id(selected_app
-              ? DialogViewID::PAYMENT_SHEET_PAYMENT_METHOD_SECTION
-              : DialogViewID::PAYMENT_SHEET_PAYMENT_METHOD_SECTION_BUTTON)
-      .Closure(
-          state()->available_apps().empty()
-              ? base::BindRepeating(
-                    &PaymentSheetViewController::AddPaymentMethodButtonPressed,
-                    base::Unretained(this))
-              : base::BindRepeating(
-                    &PaymentRequestDialogView::ShowPaymentMethodSheet,
-                    dialog()));
+  builder.Id(DialogViewID::PAYMENT_SHEET_PAYMENT_METHOD_SECTION)
+      .Closure(base::BindRepeating(
+          &PaymentRequestDialogView::ShowPaymentMethodSheet, dialog()));
 
-  if (selected_app) {
-    auto content_view =
-        views::Builder<views::BoxLayoutView>()
-            .SetOrientation(views::BoxLayout::Orientation::kVertical)
-            .SetCrossAxisAlignment(views::BoxLayout::CrossAxisAlignment::kStart)
-            .SetMainAxisAlignment(views::BoxLayout::MainAxisAlignment::kCenter)
-            .AddChildren(views::Builder<views::Label>()
-                             .SetText(selected_app->GetLabel())
-                             .SetHorizontalAlignment(gfx::ALIGN_LEFT),
-                         views::Builder<views::Label>()
-                             .SetText(selected_app->GetSublabel())
-                             .SetHorizontalAlignment(gfx::ALIGN_LEFT));
+  // This method may be called with either no app pre-selected (e.g., if no app
+  // has a valid icon), or without any apps available at all (e.g., if we have a
+  // ServiceWorker payment app that has not yet been loaded). In those cases, we
+  // render a 'choose' dialog instead of the app details.
+  if (!selected_app) {
+    const std::u16string label = state()->available_apps().empty()
+                                     ? std::u16string()
+                                     : state()->available_apps()[0]->GetLabel();
+    return builder.CreateWithButton(
+        label, l10n_util::GetStringUTF16(IDS_CHOOSE), true);
+  }
 
-    std::unique_ptr<views::ImageView> icon_view = CreateAppIconView(
-        selected_app->icon_resource_id(), selected_app->icon_bitmap(),
-        selected_app->GetLabel());
+  auto content_view =
+      views::Builder<views::BoxLayoutView>()
+          .SetOrientation(views::BoxLayout::Orientation::kVertical)
+          .SetCrossAxisAlignment(views::BoxLayout::CrossAxisAlignment::kStart)
+          .SetMainAxisAlignment(views::BoxLayout::MainAxisAlignment::kCenter)
+          .AddChildren(views::Builder<views::Label>()
+                           .SetText(selected_app->GetLabel())
+                           .SetHorizontalAlignment(gfx::ALIGN_LEFT),
+                       views::Builder<views::Label>()
+                           .SetText(selected_app->GetSublabel())
+                           .SetHorizontalAlignment(gfx::ALIGN_LEFT));
 
-    return builder.AccessibleContent(selected_app->GetLabel())
-        .CreateWithChevron(std::move(content_view).Build(),
-                           std::move(icon_view));
-  }
-  if (state()->available_apps().empty()) {
-    return builder.CreateWithButton(std::u16string(),
-                                    l10n_util::GetStringUTF16(IDS_ADD),
-                                    /*button_enabled=*/true);
-  }
-  const std::u16string label = state()->available_apps()[0]->GetLabel();
-  if (state()->available_apps().size() == 1) {
-    return builder.CreateWithButton(label,
-                                    l10n_util::GetStringUTF16(IDS_CHOOSE),
-                                    /*button_enabled=*/true);
-  }
-  std::u16string format = l10n_util::GetPluralStringFUTF16(
-      IDS_PAYMENT_REQUEST_PAYMENT_METHODS_PREVIEW,
-      state()->available_apps().size() - 1);
-  return builder.CreateWithButton(label, format,
-                                  state()->available_apps().size() - 1,
-                                  l10n_util::GetStringUTF16(IDS_CHOOSE),
-                                  /*button_enabled=*/true);
+  std::unique_ptr<views::ImageView> icon_view =
+      CreateAppIconView(selected_app->icon_resource_id(),
+                        selected_app->icon_bitmap(), selected_app->GetLabel());
+
+  return builder.AccessibleContent(selected_app->GetLabel())
+      .CreateWithChevron(std::move(content_view).Build(), std::move(icon_view));
 }
 
 std::unique_ptr<views::View>
@@ -756,7 +737,7 @@ PaymentSheetViewController::CreateContactInfoRow() {
       autofill::EMAIL_ADDRESS};
   const std::u16string preview =
       state()->contact_profiles()[0]->ConstructInferredLabel(
-          kLabelFields, base::size(kLabelFields), base::size(kLabelFields),
+          kLabelFields, std::size(kLabelFields), std::size(kLabelFields),
           state()->GetApplicationLocale());
   if (state()->contact_profiles().size() == 1) {
     return builder.CreateWithButton(preview,
@@ -877,18 +858,17 @@ std::unique_ptr<views::View> PaymentSheetViewController::CreateDataSourceRow() {
           },
           dialog()));
 
-  // TODO(pbos): Investigate whether this override is necessary.
-  link_style.override_color = gfx::kGoogleBlue700;
-
   return views::Builder<views::BoxLayoutView>()
       .SetOrientation(views::BoxLayout::Orientation::kVertical)
-      .SetInsideBorderInsets(gfx::Insets(0, kPaymentRequestRowHorizontalInsets))
+      .SetInsideBorderInsets(
+          gfx::Insets::VH(0, kPaymentRequestRowHorizontalInsets))
       .SetMainAxisAlignment(views::BoxLayout::MainAxisAlignment::kStart)
       .SetCrossAxisAlignment(views::BoxLayout::CrossAxisAlignment::kStart)
       .AddChild(
           views::Builder<views::StyledLabel>()
               .SetText(data_source)
-              .SetBorder(views::CreateEmptyBorder(22, 0, 0, 0))
+              .SetBorder(
+                  views::CreateEmptyBorder(gfx::Insets::TLBR(22, 0, 0, 0)))
               .SetID(static_cast<int>(DialogViewID::DATA_SOURCE_LABEL))
               .SetDefaultTextStyle(views::style::STYLE_DISABLED)
               .AddStyleRange(gfx::Range(link_begin, link_begin + link_length),
@@ -902,14 +882,6 @@ void PaymentSheetViewController::AddShippingButtonPressed() {
       BackNavigationType::kPaymentSheet, base::RepeatingClosure(),
       base::BindRepeating(&PaymentRequestState::AddAutofillShippingProfile,
                           state(), true),
-      nullptr);
-}
-
-void PaymentSheetViewController::AddPaymentMethodButtonPressed() {
-  dialog()->ShowCreditCardEditor(
-      BackNavigationType::kPaymentSheet, base::RepeatingClosure(),
-      base::BindRepeating(&PaymentRequestState::AddAutofillPaymentApp, state(),
-                          true),
       nullptr);
 }
 

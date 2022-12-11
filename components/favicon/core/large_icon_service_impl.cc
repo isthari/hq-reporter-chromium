@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,9 @@
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/favicon/core/favicon_service.h"
 #include "components/favicon/core/large_icon_worker.h"
 #include "components/favicon_base/favicon_util.h"
@@ -51,7 +50,7 @@ GURL TrimPageUrlForGoogleServer(const GURL& page_url,
   if (!page_url.SchemeIsHTTPOrHTTPS() || page_url.HostIsIPAddress())
     return GURL();
 
-  url::Replacements<char> replacements;
+  GURL::Replacements replacements;
   replacements.ClearUsername();
   replacements.ClearPassword();
   replacements.ClearQuery();
@@ -95,7 +94,7 @@ GURL GetRequestUrlForGoogleServerV2(
 void FinishServerRequestAsynchronously(
     favicon_base::GoogleFaviconServerCallback callback,
     favicon_base::GoogleFaviconServerRequestStatus status) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), status));
 }
 

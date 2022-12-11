@@ -1,10 +1,12 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/unified/unified_system_tray_bubble.h"
 
+#include "ash/app_list/app_list_controller_impl.h"
 #include "ash/bubble/bubble_constants.h"
+#include "ash/constants/ash_features.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/system/message_center/unified_message_center_bubble.h"
@@ -19,7 +21,6 @@
 #include "ash/system/unified/unified_system_tray_view.h"
 #include "ash/wm/container_finder.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
-#include "ash/wm/work_area_insets.h"
 #include "base/metrics/histogram_macros.h"
 #include "ui/aura/window.h"
 #include "ui/compositor/layer.h"
@@ -38,29 +39,42 @@ UnifiedSystemTrayBubble::UnifiedSystemTrayBubble(UnifiedSystemTray* tray)
 
   TrayBubbleView::InitParams init_params;
   init_params.shelf_alignment = tray_->shelf()->alignment();
-  init_params.preferred_width = kTrayMenuWidth;
-  init_params.delegate = tray;
+  init_params.preferred_width =
+      features::IsQsRevampEnabled() ? kRevampedTrayMenuWidth : kTrayMenuWidth;
+  init_params.delegate = tray->GetWeakPtr();
   init_params.parent_window = tray->GetBubbleWindowContainer();
   init_params.anchor_view = nullptr;
   init_params.anchor_mode = TrayBubbleView::AnchorMode::kRect;
   init_params.anchor_rect = tray->shelf()->GetSystemTrayAnchorRect();
   init_params.insets = GetTrayBubbleInsets();
-  init_params.corner_radius = kBubbleCornerRadius;
-  init_params.has_shadow = false;
   init_params.close_on_deactivate = false;
   init_params.reroute_event_handler = true;
   init_params.translucent = true;
 
   bubble_view_ = new TrayBubbleView(init_params);
 
-  unified_view_ = controller_->CreateView();
-  time_to_click_recorder_ =
-      std::make_unique<TimeToClickRecorder>(this, unified_view_);
-  int max_height = CalculateMaxHeight();
-  unified_view_->SetMaxHeight(max_height);
-  bubble_view_->SetMaxHeight(max_height);
-  controller_->ResetToCollapsedIfRequired();
-  bubble_view_->AddChildView(unified_view_);
+  // Max height calculated from the maximum available height of the screen.
+  int max_height = CalculateMaxTrayBubbleHeight();
+
+  if (features::IsQsRevampEnabled()) {
+    auto quick_settings_view = controller_->CreateQuickSettingsView();
+    quick_settings_view->SetMaxHeight(max_height);
+    bubble_view_->SetMaxHeight(
+        std::min(max_height, kRevampedTrayMenuMaxHeight));
+    quick_settings_view_ =
+        bubble_view_->AddChildView(std::move(quick_settings_view));
+    time_to_click_recorder_ = std::make_unique<TimeToClickRecorder>(
+        /*delegate=*/this, /*target_view=*/quick_settings_view_);
+  } else {
+    DCHECK(!features::IsQsRevampEnabled());
+    auto unified_view = controller_->CreateUnifiedQuickSettingsView();
+    unified_view->SetMaxHeight(max_height);
+    bubble_view_->SetMaxHeight(max_height);
+    controller_->ResetToCollapsedIfRequired();
+    unified_view_ = bubble_view_->AddChildView(std::move(unified_view));
+    time_to_click_recorder_ = std::make_unique<TimeToClickRecorder>(
+        /*delegate=*/this, /*target_view=*/unified_view_);
+  }
 
   bubble_widget_ = views::BubbleDialogDelegateView::CreateBubble(bubble_view_);
   bubble_widget_->AddObserver(this);
@@ -71,13 +85,15 @@ UnifiedSystemTrayBubble::UnifiedSystemTrayBubble(UnifiedSystemTray* tray)
   // Notify accessibility features that the status tray has opened.
   NotifyAccessibilityEvent(ax::mojom::Event::kShow, true);
 
-  tray->tray_event_filter()->AddBubble(this);
-  tray->shelf()->AddObserver(this);
-  Shell::Get()->tablet_mode_controller()->AddObserver(this);
-  Shell::Get()->activation_client()->AddObserver(this);
+  // Explicitly close the app list in clamshell mode.
+  if (!Shell::Get()->tablet_mode_controller()->InTabletMode())
+    Shell::Get()->app_list_controller()->DismissAppList();
 }
 
 UnifiedSystemTrayBubble::~UnifiedSystemTrayBubble() {
+  if (controller_->showing_calendar_view())
+    tray_->NotifyLeavingCalendarView();
+
   Shell::Get()->activation_client()->RemoveObserver(this);
   if (Shell::Get()->tablet_mode_controller())
     Shell::Get()->tablet_mode_controller()->RemoveObserver(this);
@@ -95,7 +111,14 @@ UnifiedSystemTrayBubble::~UnifiedSystemTrayBubble() {
     bubble_widget_->Close();
   }
 
-  CHECK(!IsInObserverList());
+  CHECK(!TrayBubbleBase::IsInObserverList());
+}
+
+void UnifiedSystemTrayBubble::InitializeObservers() {
+  tray_->tray_event_filter()->AddBubble(this);
+  tray_->shelf()->AddObserver(this);
+  Shell::Get()->tablet_mode_controller()->AddObserver(this);
+  Shell::Get()->activation_client()->AddObserver(this);
 }
 
 gfx::Rect UnifiedSystemTrayBubble::GetBoundsInScreen() const {
@@ -108,7 +131,7 @@ bool UnifiedSystemTrayBubble::IsBubbleActive() const {
 }
 
 void UnifiedSystemTrayBubble::EnsureCollapsed() {
-  if (!bubble_widget_)
+  if (!bubble_widget_ || quick_settings_view_)
     return;
 
   DCHECK(unified_view_);
@@ -120,13 +143,13 @@ void UnifiedSystemTrayBubble::EnsureExpanded() {
   if (!bubble_widget_)
     return;
 
-  DCHECK(unified_view_);
+  DCHECK(unified_view_ || quick_settings_view_);
   DCHECK(controller_);
   controller_->EnsureExpanded();
 }
 
 void UnifiedSystemTrayBubble::CollapseWithoutAnimating() {
-  if (!bubble_widget_)
+  if (!bubble_widget_ || quick_settings_view_)
     return;
 
   DCHECK(unified_view_);
@@ -136,10 +159,14 @@ void UnifiedSystemTrayBubble::CollapseWithoutAnimating() {
 }
 
 void UnifiedSystemTrayBubble::CollapseMessageCenter() {
+  if (quick_settings_view_)
+    return;
   tray_->CollapseMessageCenter();
 }
 
 void UnifiedSystemTrayBubble::ExpandMessageCenter() {
+  if (quick_settings_view_)
+    return;
   tray_->ExpandMessageCenter();
 }
 
@@ -147,27 +174,32 @@ void UnifiedSystemTrayBubble::ShowAudioDetailedView() {
   if (!bubble_widget_)
     return;
 
-  DCHECK(unified_view_);
+  DCHECK(unified_view_ || quick_settings_view_);
   DCHECK(controller_);
   controller_->ShowAudioDetailedView();
 }
 
 void UnifiedSystemTrayBubble::ShowCalendarView(
     calendar_metrics::CalendarViewShowSource show_source,
-    const ui::Event& event) {
+    calendar_metrics::CalendarEventSource event_source) {
   if (!bubble_widget_)
     return;
 
-  DCHECK(unified_view_);
+  if (event_source == calendar_metrics::CalendarEventSource::kKeyboard) {
+    bubble_view_->SetCanActivate(true);
+    bubble_widget_->Activate();
+  }
+
+  DCHECK(unified_view_ || quick_settings_view_);
   DCHECK(controller_);
-  controller_->ShowCalendarView(show_source, event);
+  controller_->ShowCalendarView(show_source, event_source);
 }
 
 void UnifiedSystemTrayBubble::ShowNetworkDetailedView(bool force) {
   if (!bubble_widget_)
     return;
 
-  DCHECK(unified_view_);
+  DCHECK(unified_view_ || quick_settings_view_);
   DCHECK(controller_);
   controller_->ShowNetworkDetailedView(force);
 }
@@ -193,32 +225,28 @@ views::Widget* UnifiedSystemTrayBubble::GetBubbleWidget() const {
 }
 
 int UnifiedSystemTrayBubble::GetCurrentTrayHeight() const {
+  if (features::IsQsRevampEnabled())
+    return quick_settings_view_->GetCurrentHeight();
+
   return unified_view_->GetCurrentHeight();
 }
 
-int UnifiedSystemTrayBubble::CalculateMaxHeight() const {
-  // We use the system tray anchor rect's bottom position to calculate the free
-  // space height. Here 'GetSystemTrayAnchorRect' gets the rect that those
-  // bubble views will be anchored. The calculation of this rect has considered
-  // the position of the tray (bottom, left, right), the status of the tray
-  // (tray_->is_active()), etc.
-  int bottom = tray_->shelf()->GetSystemTrayAnchorRect().bottom();
-  WorkAreaInsets* work_area =
-      WorkAreaInsets::ForWindow(tray_->shelf()->GetWindow()->GetRootWindow());
-  int free_space_height_above_anchor =
-      bottom - work_area->user_work_area_bounds().y();
-  return free_space_height_above_anchor - kBubbleMenuPadding * 2;
-}
-
 bool UnifiedSystemTrayBubble::FocusOut(bool reverse) {
+  if (quick_settings_view_)
+    return false;
   return tray_->FocusMessageCenter(reverse);
 }
 
 void UnifiedSystemTrayBubble::FocusEntered(bool reverse) {
+  if (features::IsQsRevampEnabled())
+    return;
+
   unified_view_->FocusEntered(reverse);
 }
 
 void UnifiedSystemTrayBubble::OnMessageCenterActivated() {
+  if (quick_settings_view_)
+    return;
   // When the message center is activated, we no longer need to reroute key
   // events to this bubble. Otherwise, we interfere with notifications that may
   // require key input like inline replies. See crbug.com/1040738.
@@ -292,10 +320,12 @@ void UnifiedSystemTrayBubble::RecordTimeToClick() {
 
 void UnifiedSystemTrayBubble::OnTabletModeStarted() {
   UpdateBubbleBounds();
+  tray_->CloseBubble();
 }
 
 void UnifiedSystemTrayBubble::OnTabletModeEnded() {
   UpdateBubbleBounds();
+  tray_->CloseBubble();
 }
 
 void UnifiedSystemTrayBubble::OnAutoHideStateChanged(
@@ -304,12 +334,16 @@ void UnifiedSystemTrayBubble::OnAutoHideStateChanged(
 }
 
 void UnifiedSystemTrayBubble::UpdateBubbleBounds() {
-  int max_height = CalculateMaxHeight();
-  unified_view_->SetMaxHeight(max_height);
+  int max_height = CalculateMaxTrayBubbleHeight();
+  if (features::IsQsRevampEnabled())
+    quick_settings_view_->SetMaxHeight(max_height);
+  else
+    unified_view_->SetMaxHeight(max_height);
   bubble_view_->SetMaxHeight(max_height);
   bubble_view_->ChangeAnchorAlignment(tray_->shelf()->alignment());
   bubble_view_->ChangeAnchorRect(tray_->shelf()->GetSystemTrayAnchorRect());
-
+  if (quick_settings_view_)
+    return;
   if (tray_->IsMessageCenterBubbleShown())
     tray_->message_center_bubble()->UpdatePosition();
 }
@@ -321,6 +355,10 @@ void UnifiedSystemTrayBubble::NotifyAccessibilityEvent(ax::mojom::Event event,
 
 bool UnifiedSystemTrayBubble::ShowingAudioDetailedView() const {
   return bubble_widget_ && controller_->showing_audio_detailed_view();
+}
+
+bool UnifiedSystemTrayBubble::ShowingCalendarView() const {
+  return bubble_widget_ && controller_->showing_calendar_view();
 }
 
 }  // namespace ash

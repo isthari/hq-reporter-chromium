@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -100,7 +100,8 @@ class BASE_EXPORT TaskTracker {
   // Informs this TaskTracker that |task| that is about to be pushed to a task
   // source with |priority|. Returns true if this operation is allowed (the
   // operation should be performed if-and-only-if it is).
-  [[nodiscard]] bool WillPostTaskNow(const Task& task, TaskPriority priority);
+  [[nodiscard]] bool WillPostTaskNow(const Task& task,
+                                     TaskPriority priority) const;
 
   // Informs this TaskTracker that |task_source| is about to be queued. Returns
   // a RegisteredTaskSource that should be queued if-and-only-if it evaluates to
@@ -117,11 +118,7 @@ class BASE_EXPORT TaskTracker {
   // (which indicates that it should be reenqueued). WillPostTask() must have
   // allowed the task in front of |task_source| to be posted before this is
   // called.
-  // |posted_from| is optionally used to capture base::Location of the task ran
-  // for investigation of memory corruption.
-  // TODO(crbug.com/1218384): Remove |posted_from| once resolved.
-  RegisteredTaskSource RunAndPopNextTask(RegisteredTaskSource task_source,
-                                         base::Location* posted_from = nullptr);
+  RegisteredTaskSource RunAndPopNextTask(RegisteredTaskSource task_source);
 
   // Returns true once shutdown has started (StartShutdown() was called).
   // Note: sequential consistency with the thread calling StartShutdown() isn't
@@ -154,6 +151,10 @@ class BASE_EXPORT TaskTracker {
   // Allow a subclass to wait more interactively for any running shutdown tasks
   // before blocking the thread.
   virtual void BeginCompleteShutdown(base::WaitableEvent& shutdown_event);
+
+  // Asserts that FlushForTesting() is allowed to be called. Overridden in tests
+  // in situations where it is not.
+  virtual void AssertFlushForTestingAllowed() {}
 
  private:
   friend class RegisteredTaskSource;
@@ -215,9 +216,6 @@ class BASE_EXPORT TaskTracker {
                                    const SequenceToken& token);
 
   TaskAnnotator task_annotator_;
-
-  // Suffix for histograms recorded by this TaskTracker.
-  const std::string histogram_label_;
 
   // Indicates whether logging information about TaskPriority::BEST_EFFORT tasks
   // was enabled with a command line switch.

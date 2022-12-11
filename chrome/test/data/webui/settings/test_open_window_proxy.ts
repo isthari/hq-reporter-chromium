@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@ import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 export class TestOpenWindowProxy extends TestBrowserProxy implements
     OpenWindowProxy {
   constructor() {
-    super(['openURL']);
+    super(['openUrl']);
   }
 
-  openURL(url: string) {
-    this.methodCalled('openURL', url);
+  openUrl(url: string) {
+    this.methodCalled('openUrl', url);
   }
 }

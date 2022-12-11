@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,8 @@
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/assistant/assistant_state.h"
 #include "ash/public/cpp/tablet_mode.h"
+#include "ash/rgb_keyboard/rgb_keyboard_manager.h"
+#include "ash/shell.h"
 #include "ash/webui/help_app_ui/help_app_untrusted_ui.h"
 #include "ash/webui/help_app_ui/url_constants.h"
 #include "base/bind.h"
@@ -27,7 +29,8 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/webui_url_constants.h"
-#include "chromeos/services/multidevice_setup/public/cpp/prefs.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/prefs.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/system/statistics_provider.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_manager/user_manager.h"
@@ -57,23 +60,25 @@ void PopulateLoadTimeData(content::WebUI* web_ui,
   source->AddString("chromeOSVersion", base::SysInfo::OperatingSystemVersion());
   source->AddString("chromeVersion", chrome::kChromeVersion);
   source->AddInteger("channel", static_cast<int>(chrome::GetChannel()));
-  std::string customization_id;
-  std::string hwid;
   chromeos::system::StatisticsProvider* provider =
       chromeos::system::StatisticsProvider::GetInstance();
   // MachineStatistics may not exist for browser tests, but it is fine for these
   // to be empty strings.
-  provider->GetMachineStatistic(chromeos::system::kCustomizationIdKey,
-                                &customization_id);
-  provider->GetMachineStatistic(chromeos::system::kHardwareClassKey, &hwid);
-  source->AddString("customizationId", customization_id);
+  const absl::optional<base::StringPiece> customization_id =
+      provider->GetMachineStatistic(chromeos::system::kCustomizationIdKey);
+  const absl::optional<base::StringPiece> hwid =
+      provider->GetMachineStatistic(chromeos::system::kHardwareClassKey);
+  source->AddString("customizationId",
+                    std::string(customization_id.value_or("")));
   source->AddString("deviceName", ui::GetChromeOSDeviceName());
-  source->AddString("hwid", hwid);
+  source->AddString("hwid", std::string(hwid.value_or("")));
   source->AddString("deviceHelpContentId",
                     base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
                         "device-help-content-id"));
 
   // Add any features that have been enabled.
+  source->AddBoolean("colorThemes",
+                     chromeos::features::IsDarkLightModeEnabled());
   source->AddBoolean("HelpAppReleaseNotes", true);
   source->AddBoolean(
       "HelpAppLauncherSearch",
@@ -81,14 +86,12 @@ void PopulateLoadTimeData(content::WebUI* web_ui,
           base::FeatureList::IsEnabled(features::kEnableLocalSearchService));
   source->AddBoolean(
       "HelpAppSearchServiceIntegration",
-      base::FeatureList::IsEnabled(
-          features::kHelpAppSearchServiceIntegration) &&
-          base::FeatureList::IsEnabled(features::kEnableLocalSearchService));
-  source->AddBoolean("HelpAppDiscoverTab", base::FeatureList::IsEnabled(
-                                               features::kHelpAppDiscoverTab));
+      base::FeatureList::IsEnabled(features::kEnableLocalSearchService));
   source->AddBoolean(
       "HelpAppBackgroundPage",
       base::FeatureList::IsEnabled(features::kHelpAppBackgroundPage));
+  source->AddBoolean("isCloudGamingDevice",
+                     chromeos::features::IsCloudGamingDeviceEnabled());
 
   Profile* profile = Profile::FromWebUI(web_ui);
   PrefService* pref_service = profile->GetPrefs();
@@ -107,20 +110,27 @@ void PopulateLoadTimeData(content::WebUI* web_ui,
   // Messages, Smart Lock) is allowed on this device.
   source->AddBoolean(
       "multiDeviceFeaturesAllowed",
-      chromeos::multidevice_setup::AreAnyMultiDeviceFeaturesAllowed(
-          pref_service));
+      multidevice_setup::AreAnyMultiDeviceFeaturesAllowed(pref_service));
   source->AddBoolean("tabletMode", TabletMode::Get()->InTabletMode());
+  // Whether or not RGB Keyboard is supported and configurable from the
+  // Personalization Hub.
+  RgbKeyboardManager* rgb_keyboard_manager =
+      Shell::Get()->rgb_keyboard_manager();
+  source->AddBoolean(
+      "rgbKeyboard",
+      rgb_keyboard_manager && rgb_keyboard_manager->IsRgbKeyboardSupported());
+
   // Checks if there are active touch screens.
   source->AddBoolean(
       "hasTouchScreen",
       !ui::DeviceDataManager::GetInstance()->GetTouchscreenDevices().empty());
   // Checks if the Google Assistant is allowed on this device by going through
   // policies.
-  chromeos::assistant::AssistantAllowedState assistant_allowed_state =
-      assistant::IsAssistantAllowedForProfile(profile);
-  source->AddBoolean("assistantAllowed",
-                     assistant_allowed_state ==
-                         chromeos::assistant::AssistantAllowedState::ALLOWED);
+  assistant::AssistantAllowedState assistant_allowed_state =
+      ::assistant::IsAssistantAllowedForProfile(profile);
+  source->AddBoolean(
+      "assistantAllowed",
+      assistant_allowed_state == assistant::AssistantAllowedState::ALLOWED);
   source->AddBoolean("assistantEnabled",
                      AssistantState::Get()->settings_enabled().value_or(false));
   source->AddBoolean("playStoreEnabled",

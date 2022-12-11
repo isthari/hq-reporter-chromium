@@ -1,13 +1,13 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.m.js';
-import 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.m.js';
+import 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.js';
+import 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.js';
 
-import {CrLazyRenderElement} from 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.m.js';
-
+import {getTrustedHTML} from 'chrome://resources/js/static_types.js';
+import {CrLazyRenderElement} from 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.js';
 import {assertEquals, assertFalse, assertNotEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
 // clang-format on
@@ -15,12 +15,15 @@ import {assertEquals, assertFalse, assertNotEquals, assertTrue} from 'chrome://w
 suite('cr-lazy-render', function() {
   let lazy: CrLazyRenderElement<HTMLElement>;
 
-  type BindData = {name: string, checked: boolean};
+  interface BindData {
+    name: string;
+    checked: boolean;
+  }
 
   let bind: HTMLElement&BindData;
 
   setup(function() {
-    const template = `
+    document.body.innerHTML = getTrustedHTML`
         <dom-bind>
           <template>
             <cr-lazy-render id="lazy">
@@ -33,7 +36,6 @@ suite('cr-lazy-render', function() {
             </cr-lazy-render>
           </template>
         </dom-bind>`;
-    document.body.innerHTML = template;
     lazy = document.body.querySelector('cr-lazy-render')!;
     bind = document.body.querySelector<HTMLElement&BindData>('dom-bind')!;
   });

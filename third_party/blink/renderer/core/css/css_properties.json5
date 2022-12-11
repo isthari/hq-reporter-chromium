@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,29 @@
     // properties they alias. Minor parsing differences are allowed as long as
     // the CSSValues created are of the same format of the aliased property.
     alias_for: {
+    },
+
+    // - alternative_of: "other-property"
+    //
+    // Makes the the property an "alternative" of another property.
+    // An alternative property has a separate CSSProperty class which (based on
+    // runtime flags) is used internally in place of the main CSSProperty class.
+    // This makes it possible to e.g. switch a property definition from a
+    // longhand to a shorthand at runtime.
+    //
+    // When parsing text (e.g. "animation") into a CSSPropertyID, the
+    // alternative will be chosen if it is enabled. Otherwise, the main
+    // property will be chosen.
+    //
+    // A main property may only have a single alternative property. It is
+    // however possible to have an alternative of an alternative, in which case
+    // the chain is followed. In other words, we choose the "innermost"
+    // alternative that's enabled.
+    //
+    // Note that an alternative property ignores any runtime_flag on the main
+    // property.
+    alternative_of: {
+      valid_type: "str",
     },
 
     // - longhands: ["property", "other-property"]
@@ -46,6 +69,16 @@
         "inherit",
         "value",
       ],
+    },
+
+    // Properties which are writable have setters on ComputedStyle.
+    // All other properties must use the ComputedStyleBuilder for setting
+    // the values of properties.
+    //
+    // TODO(crbug.com/1377295): Eventually nothing should be writable.
+    writable: {
+      default: false,
+      valid_type: "bool",
     },
 
     // Affects how the style building functions are generated.
@@ -344,13 +377,39 @@
     type_name: {
     },
 
-    // - custom_function: Any function specified in the list is not
-    // automatically generated in ComputedStyle. Use this when a generated
-    // function is not correct.
+    // - computed_style_protected_functions
+    //
+    // Any function specified in the list will be generated with protected
+    // visibility. This is useful if the default-generated getter function is
+    // typically not what clients want to use.
+    //
+    // For example, the Clear getter is protected to force clients to take
+    // TextDirection into account.
+    computed_style_protected_functions: {
+      default: [],
+      valid_type: "list",
+      valid_values: ["getter", "setter", "resetter"],
+    },
+
+    // - computed_style_custom_functions
+    //
+    // Any function specified in the list will be generated with protected
+    // visibility and an "Internal" suffix. A custom accessor (with the suffix-
+    // less name) must be manually provided on ComputedStyle. This is useful for
+    // e.g. properties that have special behavior that affects the computed
+    // value of the property.
+    //
+    // For example, the computed value of border-left-width magically becomes
+    // zero if border-left-style is none or hidden. The generated code can not
+    // express this, hence a custom one is specified.
+    //
+    // Any custom function automatically gets protected visiblity, and therefore
+    // it is not valid to specify a function as both custom and explicitly
+    // protected (using computed_style_protected_functions).
     computed_style_custom_functions: {
       default: [],
       valid_type: "list",
-      valid_values: ["initial", "getter", "setter", "reset", "mutable"],
+      valid_values: ["initial", "getter", "setter", "resetter"],
     },
 
     // - converter: "ConvertRadius"
@@ -490,6 +549,18 @@
       valid_type: "bool",
     },
 
+    // - valid_for_highlight_legacy: true
+    //
+    // Theoretically matches
+    // https://drafts.csswg.org/css-pseudo-4/#highlight-styling,
+    // but includes additional properties for compatibility reasons.
+    // Applied to highlight pseudos that use originating inheritance
+    // instead of highlight inheritance.
+    valid_for_highlight_legacy: {
+      default: false,
+      valid_type: "bool",
+    },
+
     // - valid_for_highlight: true
     //
     // https://drafts.csswg.org/css-pseudo-4/#highlight-styling
@@ -531,6 +602,12 @@
       default: false,
       valid_type: "bool",
     },
+    // - is_visited_highlight_colors
+    // Like the previous one but for visited internal properties.
+    is_visited_highlight_colors: {
+      default: false,
+      valid_type: "bool",
+    },
 
     // - is_animation_property
     // The property is a longhand of the 'animation' or 'transition' shorthands.
@@ -547,6 +624,100 @@
       valid_type: "bool",
     },
 
+    // Whether changing this property is so independent that we can apply
+    // a change to them incrementally on top of the old style. This happens
+    // only when inline style is changed. Conceptually, this could be a blocklist,
+    // but being conservative, we have chosen to make it an allowlist.
+    // The properties with known issue are explicitly marked as false,
+    // so changing the default from false to true _should_ have no ill effects,
+    // but bugs are of course possible. (There is a DCHECK verifying that we
+    // computed the correct style when this optimization is in effect.)
+    //
+    // Some situations override this flag:
+    //
+    // 1. We haven't considered interactions between independently inherited
+    //    properties and incremental updates yet, so we currently simply mark all
+    //    inherited properties as not eligible for incremental updates, no matter
+    //    the value of this flag.
+    //
+    // 2. Also, animations can affect pretty much anything else, and we don't
+    //    support their interactions anyway (see CanApplyInlineStyleIncrementally()),
+    //    so animation properties are also never marked as supporting incremental style.
+    //
+    // Both of these exceptions are verified in validate_property().
+    supports_incremental_style: {
+      default: false,
+      valid_type: "bool",
+    },
+
+    // If false, this property is known to cause problems if setting
+    // it on an element's inline style will cause problems with computing
+    // that element's style incrementally.
+    //
+    // NOTE: Setting false here is probably indicative of a bug. Long-term,
+    // we should fix all of these and remove the flag.
+    idempotent: {
+      default: true,
+      valid_type: "bool",
+    },
+
+    // If true, then the ComputedStyle field for this property overlaps with
+    // another property.
+    //
+    // Overlapping properties are *partially* overlapping, or do otherwise not
+    // have compatible or interchangeable values with each other.
+    overlapping: {
+      default: false,
+      valid_type: "bool",
+    },
+
+    // Like 'overlapping', but set on -webkit-prefixed properties that should
+    // ultimately be removed.
+    //
+    // Note that properties that are legacy_overlapping are also overlapping
+    // (i.e. legacy_overlapping:true implies overlapping:true).
+    legacy_overlapping: {
+      default: false,
+      valid_type: "bool",
+    },
+
+    // - valid_for_formatted_text: true
+    //
+    // Whether the property can be used to style the top-level container
+    // (similar to display:block, but supporting fewer properties), in the
+    // experimental API to bring multiline text rendering to HTML canvas.
+    // https://github.com/WICG/canvas-formatted-text/
+    valid_for_formatted_text: {
+      default: false,
+      valid_type: "bool",
+    },
+
+    // - valid_for_formatted_text_run: true
+    //
+    // Whether the property can be used to style individual text runs, in the
+    // experimental API to bring multiline text rendering to HTML canvas.
+    valid_for_formatted_text_run: {
+      default: false,
+      valid_type: "bool",
+    },
+
+    // - valid_for_keyframe: true
+    //
+    // Whether the property can be used in @keyframes.
+    // https://www.w3.org/TR/css-animations-1/#typedef-keyframe-block
+    valid_for_keyframe: {
+      default: true,
+      valid_type: "bool",
+    },
+
+    // - valid_for_position_fallback: true
+    //
+    // Whether the property can be used in a @try rule of @position-fallback
+    // https://drafts.csswg.org/css-anchor-1/#fallback-rule
+    valid_for_position_fallback: {
+      default: false,
+      valid_type: "bool",
+    },
   },
 
   // Members in the data objects should appear in the same order as in the
@@ -560,12 +731,51 @@
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
       style_builder_template: "animation",
       style_builder_template_args: {
-        attribute: "Delay",
+        attribute: "DelayStart",
       },
       typedom_types: ["Time"],
       separator: ",",
       valid_for_marker: true,
       is_animation_property: true,
+      valid_for_keyframe: false,
+    },
+    {
+      name: "-alternative-animation-delay",
+      alternative_of: "animation-delay",
+      longhands: [
+        "animation-delay-start", "animation-delay-end"
+      ],
+      property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+      valid_for_keyframe: false,
+      runtime_flag: "CSSScrollTimeline",
+    },
+    {
+      name: "animation-delay-start",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
+      style_builder_template: "animation",
+      style_builder_template_args: {
+        attribute: "DelayStart",
+      },
+      typedom_types: ["Time"],
+      separator: ",",
+      valid_for_marker: true,
+      is_animation_property: true,
+      valid_for_keyframe: false,
+      runtime_flag: "CSSScrollTimeline",
+    },
+    {
+      name: "animation-delay-end",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
+      style_builder_template: "animation",
+      style_builder_template_args: {
+        attribute: "DelayEnd",
+      },
+      typedom_types: ["Time"],
+      separator: ",",
+      valid_for_marker: true,
+      is_animation_property: true,
+      valid_for_keyframe: false,
+      runtime_flag: "CSSScrollTimeline",
     },
     {
       name: "animation-direction",
@@ -580,6 +790,7 @@
       separator: ",",
       valid_for_marker: true,
       is_animation_property: true,
+      valid_for_keyframe: false,
     },
     {
       name: "animation-duration",
@@ -593,6 +804,7 @@
       separator: ",",
       valid_for_marker: true,
       is_animation_property: true,
+      valid_for_keyframe: false,
     },
     {
       name: "animation-fill-mode",
@@ -606,6 +818,7 @@
       separator: ",",
       valid_for_marker: true,
       is_animation_property: true,
+      valid_for_keyframe: false,
     },
     {
       name: "animation-iteration-count",
@@ -621,8 +834,10 @@
       separator: ",",
       valid_for_marker: true,
       is_animation_property: true,
+      valid_for_keyframe: false,
     },
     {
+      // TODO(futhark): Set the TreeScope on CSSAnimationData.
       name: "animation-name",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
       style_builder_template: "animation",
@@ -633,8 +848,8 @@
       typedom_types: ["Keyword"],
       separator: ",",
       valid_for_marker: true,
-      tree_scoped_value: true,
       is_animation_property: true,
+      valid_for_keyframe: false,
     },
     {
       name: "animation-play-state",
@@ -648,6 +863,7 @@
       separator: ",",
       valid_for_marker: true,
       is_animation_property: true,
+      valid_for_keyframe: false,
     },
     {
       name: "animation-timeline",
@@ -658,6 +874,7 @@
       },
       keywords: ["none", "auto"],
       typedom_types: ["Keyword"],
+      tree_scoped_value: true,
       separator: ",",
       valid_for_marker: true,
       runtime_flag: "CSSScrollTimeline",
@@ -693,7 +910,7 @@
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
       style_builder_template: "transition",
       style_builder_template_args: {
-        attribute: "Delay",
+        attribute: "DelayStart",
       },
       typedom_types: ["Time"],
       separator: ",",
@@ -771,7 +988,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor(Color::kBlack)",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       style_builder_custom_functions: ["initial", "inherit", "value"],
       priority: "High",
       keywords: ["currentcolor"],
@@ -780,7 +997,10 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       valid_for_marker: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
       is_highlight_colors: true,
     },
     {
@@ -797,6 +1017,8 @@
       style_builder_custom_functions: ["value"],
       priority: "High",
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-family",
@@ -814,6 +1036,8 @@
       valid_for_cue: true,
       valid_for_marker: true,
       tree_scoped_value: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-kerning",
@@ -828,6 +1052,8 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-optical-sizing",
@@ -848,7 +1074,6 @@
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal" ],
       inherited: true,
       font: true,
-      runtime_flag: "FontPalette",
       converter: "ConvertFontPalette",
       type_name: "FontPalette",
       priority: "High",
@@ -874,6 +1099,8 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-size-adjust",
@@ -910,6 +1137,8 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-style",
@@ -926,6 +1155,8 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-variant-ligatures",
@@ -946,6 +1177,8 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-variant-caps",
@@ -963,6 +1196,8 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-variant-east-asian",
@@ -980,6 +1215,8 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-variant-numeric",
@@ -998,6 +1235,28 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
+    },
+    {
+      name: "font-variant-alternates",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
+      inherited: true,
+      font: true,
+      runtime_flag: "FontVariantAlternates",
+      type_name: "FontVariantAlternates",
+      name_for_methods: "FontVariantAlternates",
+      converter: "ConvertFontVariantAlternates",
+      priority: "High",
+      keywords: [
+        "normal",
+      ],
+      typedom_types: ["Keyword"],
+      valid_for_first_letter: true,
+      valid_for_first_line: true,
+      valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-weight",
@@ -1015,12 +1274,13 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-synthesis-weight",
       property_methods: ["CSSValueFromComputedStyleInternal"],
       inherited: true,
-      runtime_flag: "FontSynthesis",
       font: true,
       name_for_methods: "FontSynthesisWeight",
       type_name: "FontDescription::FontSynthesisWeight",
@@ -1035,7 +1295,6 @@
       name: "font-synthesis-style",
       property_methods: ["CSSValueFromComputedStyleInternal"],
       inherited: true,
-      runtime_flag: "FontSynthesis",
       font: true,
       name_for_methods: "FontSynthesisStyle",
       type_name: "FontDescription::FontSynthesisStyle",
@@ -1050,7 +1309,6 @@
       name: "font-synthesis-small-caps",
       property_methods: ["CSSValueFromComputedStyleInternal"],
       inherited: true,
-      runtime_flag: "FontSynthesis",
       font: true,
       name_for_methods: "FontSynthesisSmallCaps",
       type_name: "FontDescription::FontSynthesisSmallCaps",
@@ -1076,6 +1334,8 @@
       valid_for_first_line: true,
       valid_for_marker: true,
       computable: false,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "font-variation-settings",
@@ -1093,6 +1353,24 @@
       valid_for_cue: true,
       valid_for_marker: true,
       computable: false,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
+    },
+    {
+      name: "font-variant-position",
+      property_methods: ["CSSValueFromComputedStyleInternal"],
+      inherited: true,
+      runtime_flag: "FontVariantPosition",
+      font: true,
+      name_for_methods: "VariantPosition",
+      type_name: "FontDescription::FontVariantPosition",
+      converter: "ConvertFontVariantPosition",
+      priority: "High",
+      keywords: ["normal", "sub", "super"],
+      typedom_types: ["Keyword"],
+      valid_for_first_letter: true,
+      valid_for_first_line: true,
+      valid_for_marker: true,
     },
     {
       name: "-webkit-font-smoothing",
@@ -1115,7 +1393,7 @@
       keywords: ["auto", "none", "preserve-parent-color"],
       typedom_types: ["Keyword"],
       default_value: "auto",
-      valid_for_highlight: true,
+      valid_for_highlight_legacy: true,
       computable: false,
     },
     {
@@ -1151,13 +1429,13 @@
       style_builder_custom_functions: ["initial", "inherit", "value"],
       priority: "High",
       computable: false,
+      valid_for_formatted_text: true,
     },
     {
       name: "-webkit-text-orientation",
       property_methods: ["CSSValueFromComputedStyleInternal"],
       inherited: true,
       type_name: "TextOrientation",
-      style_builder_custom_functions: ["initial", "inherit", "value"],
       priority: "High",
       surrogate_for: "text-orientation",
     },
@@ -1173,13 +1451,13 @@
       type_name: "WritingMode",
       style_builder_custom_functions: ["initial", "inherit", "value"],
       priority: "High",
+      valid_for_formatted_text: true,
     },
     {
       name: "-webkit-writing-mode",
       property_methods: ["CSSValueFromComputedStyleInternal"],
       inherited: true,
       type_name: "WritingMode",
-      style_builder_custom_functions: ["initial", "inherit", "value"],
       priority: "High",
       surrogate_for: "writing-mode",
     },
@@ -1196,13 +1474,15 @@
     {
       name: "zoom",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      is_descriptor: true,
       field_group: "visual",
       field_template: "primitive",
       default_value: "1.0",
       type_name: "float",
       style_builder_custom_functions: ["initial", "inherit", "value"],
       priority: "High",
+      // Setting zoom affects the _EffectiveZoom_, which in turns affects every px value
+      // stored on ComputedStyle; see CSSToLengthConversionData::ZoomedComputedPixels.
+      supports_incremental_style: false,
     },
     {
       name: "accent-color",
@@ -1213,14 +1493,11 @@
       field_template: "external",
       include_paths: ["third_party/blink/renderer/core/css/style_auto_color.h"],
       type_name: "StyleAutoColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["auto", "currentcolor"],
       typedom_types: ["Keyword"],
-      converter: "ConvertStyleColor",
-      style_builder_template: "color",
-      runtime_flag: "CSSAccentColor",
+      converter: "ConvertStyleAutoColor",
       default_value: "StyleAutoColor::AutoColor()",
-      style_builder_custom_functions: ["initial", "inherit", "value"],
       computable: true,
     },
     {
@@ -1232,6 +1509,7 @@
       default_value: "StyleContentAlignmentData(ContentPosition::kNormal, ContentDistributionType::kDefault, OverflowAlignment::kDefault)",
       type_name: "StyleContentAlignmentData",
       converter: "ConvertContentAlignmentData",
+      valid_for_position_fallback: true,
     },
     {
       name: "align-items",
@@ -1242,6 +1520,7 @@
       default_value: "StyleSelfAlignmentData(ItemPosition::kNormal, OverflowAlignment::kDefault)",
       type_name: "StyleSelfAlignmentData",
       converter: "ConvertSelfOrDefaultAlignmentData",
+      valid_for_position_fallback: true,
     },
     {
       name: "alignment-baseline",
@@ -1263,6 +1542,37 @@
       default_value: "StyleSelfAlignmentData(ItemPosition::kAuto, OverflowAlignment::kDefault)",
       type_name: "StyleSelfAlignmentData",
       converter: "ConvertSelfOrDefaultAlignmentData",
+      valid_for_position_fallback: true,
+    },
+    {
+      name: "anchor-name",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal" ],
+      include_paths: ["third_party/blink/renderer/core/style/scoped_css_name.h"],
+      type_name: "ScopedCSSName",
+      wrapper_pointer_name: "Persistent",
+      default_value: "nullptr",
+      field_group: "*",
+      field_template: "external",
+      converter: "ConvertNoneOrCustomIdent",
+      keywords: ["none"],
+      typedom_types: ["Keyword"],
+      runtime_flag: "CSSAnchorPositioning",
+      tree_scoped_value: true,
+    },
+    {
+      name: "anchor-scroll",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal" ],
+      include_paths: ["third_party/blink/renderer/core/style/anchor_scroll_value.h"],
+      type_name: "AnchorScrollValue",
+      wrapper_pointer_name: "Persistent",
+      default_value: "nullptr",
+      field_group: "*",
+      field_template: "external",
+      converter: "ConvertAnchorScroll",
+      keywords: ["none"],
+      typedom_types: ["Keyword"],
+      runtime_flag: "CSSAnchorPositioning",
+      tree_scoped_value: true,
     },
     {
       name: "aspect-ratio",
@@ -1316,6 +1626,7 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       is_background: true,
+      supports_incremental_style: true,
     },
     {
       name: "background-blend-mode",
@@ -1334,7 +1645,7 @@
       },
       valid_for_first_letter: true,
       valid_for_first_line: true,
-      is_background: true,
+      is_background: false,
     },
     {
       name: "background-clip",
@@ -1350,6 +1661,7 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       is_background: true,
+      supports_incremental_style: true,
     },
     {
       name: "background-color",
@@ -1361,7 +1673,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor(Color::kTransparent)",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["currentcolor"],
       typedom_types: ["Keyword"],
       converter: "ConvertStyleColor",
@@ -1372,9 +1684,11 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_cue: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
       is_background: true,
       is_highlight_colors: true,
+      supports_incremental_style: true,
     },
     {
       name: "background-image",
@@ -1392,6 +1706,7 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       is_background: true,
+      supports_incremental_style: true,
     },
     {
       name: "background-origin",
@@ -1407,6 +1722,7 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       is_background: true,
+      supports_incremental_style: true,
     },
     {
       name: "background-position-x",
@@ -1421,6 +1737,7 @@
       valid_for_cue: true,
       is_background: true,
       computable: false,
+      supports_incremental_style: true,
     },
     {
       name: "background-position-y",
@@ -1435,6 +1752,7 @@
       valid_for_cue: true,
       is_background: true,
       computable: false,
+      supports_incremental_style: true,
     },
     {
       name: "background-repeat-x",
@@ -1446,6 +1764,7 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       computable: false,
+      supports_incremental_style: true,
     },
     {
       name: "background-repeat-y",
@@ -1457,6 +1776,7 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       computable: false,
+      supports_incremental_style: true,
     },
     {
       name: "background-size",
@@ -1473,6 +1793,7 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       is_background: true,
+      supports_incremental_style: true,
     },
     {
       name: "baseline-shift",
@@ -1495,7 +1816,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["currentcolor"],
       typedom_types: ["Keyword"],
       converter: "ConvertStyleColor",
@@ -1506,6 +1827,7 @@
         name: "border-color",
         resolver: "bottom",
       },
+      supports_incremental_style: true,
     },
     {
       name: "border-bottom-left-radius",
@@ -1583,6 +1905,8 @@
         name: "border-width",
         resolver: "bottom",
       },
+      // Overlaps with -webkit-border-image.
+      overlapping: true,
     },
     {
       name: "border-collapse",
@@ -1605,6 +1929,8 @@
       },
       valid_for_first_letter: true,
       is_border: true,
+      // Overlaps with -webkit-border-image.
+      overlapping: true,
     },
     {
       name: "border-image-repeat",
@@ -1617,6 +1943,8 @@
       },
       valid_for_first_letter: true,
       is_border: true,
+      // Overlaps with -webkit-border-image.
+      overlapping: true,
     },
     {
       name: "border-image-slice",
@@ -1629,6 +1957,8 @@
       },
       valid_for_first_letter: true,
       is_border: true,
+      // Overlaps with -webkit-border-image.
+      overlapping: true,
     },
     {
       name: "border-image-source",
@@ -1639,6 +1969,8 @@
       style_builder_custom_functions: ["value"],
       valid_for_first_letter: true,
       is_border: true,
+      // Overlaps with -webkit-border-image.
+      overlapping: true,
     },
     {
       name: "border-image-width",
@@ -1652,6 +1984,8 @@
       },
       valid_for_first_letter: true,
       is_border: true,
+      // Overlaps with -webkit-border-image.
+      overlapping: true,
     },
     {
       name: "border-left-color",
@@ -1662,7 +1996,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["currentcolor"],
       typedom_types: ["Keyword"],
       converter: "ConvertStyleColor",
@@ -1673,6 +2007,7 @@
         name: "border-color",
         resolver: "left",
       },
+      supports_incremental_style: true,
     },
     {
       name: "border-left-style",
@@ -1712,6 +2047,8 @@
         name: "border-width",
         resolver: "left",
       },
+      // Overlaps with -webkit-border-image.
+      overlapping: true,
     },
     {
       name: "border-right-color",
@@ -1722,7 +2059,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["currentcolor"],
       typedom_types: ["Keyword"],
       converter: "ConvertStyleColor",
@@ -1733,6 +2070,7 @@
         name: "border-color",
         resolver: "right",
       },
+      supports_incremental_style: true,
     },
     {
       name: "border-right-style",
@@ -1772,6 +2110,8 @@
         name: "border-width",
         resolver: "right",
       },
+      // Overlaps with -webkit-border-image.
+      overlapping: true,
     },
     {
       name: "border-top-color",
@@ -1782,7 +2122,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["currentcolor"],
       typedom_types: ["Keyword"],
       converter: "ConvertStyleColor",
@@ -1793,6 +2133,7 @@
         name: "border-color",
         resolver: "top",
       },
+      supports_incremental_style: true,
     },
     {
       name: "border-top-left-radius",
@@ -1850,6 +2191,7 @@
         name: "border-style",
         resolver: "top",
       },
+      supports_incremental_style: true,
     },
     {
       name: "border-top-width",
@@ -1870,6 +2212,8 @@
         name: "border-width",
         resolver: "top",
       },
+      // Overlaps with -webkit-border-image.
+      overlapping: true,
     },
     {
       name: "bottom",
@@ -1886,6 +2230,9 @@
         name: "inset",
         resolver: "bottom",
       },
+      supports_incremental_style: true,
+      valid_for_position_fallback: true,
+      tree_scoped_value: true,
     },
     {
       name: "box-shadow",
@@ -1978,17 +2325,17 @@
       include_paths: ["third_party/blink/renderer/core/css/style_auto_color.h"],
       default_value: "StyleAutoColor::AutoColor()",
       type_name: "StyleAutoColor",
-      computed_style_custom_functions: ["getter"],
-      style_builder_custom_functions: ["initial", "inherit", "value"],
+      computed_style_protected_functions: ["getter"],
+      converter: "ConvertStyleAutoColor",
       keywords: ["auto", "currentcolor"],
       typedom_types: ["Keyword"],
-      valid_for_highlight: true,
+      valid_for_highlight_legacy: true,
     },
     {
       name: "clear",
       property_methods: ["CSSValueFromComputedStyleInternal"],
       field_template: "keyword",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["none", "left", "right", "both", "inline-start", "inline-end"],
       typedom_types: ["Keyword"],
       default_value: "none",
@@ -2080,7 +2427,7 @@
       type_name: "Vector<AtomicString>",
       default_value: "Vector<AtomicString, 0>()",
       field_template: "external",
-      valid_for_highlight: true,
+      valid_for_highlight_legacy: true,
       computable: false,
     },
     {
@@ -2135,27 +2482,27 @@
     {
       name: "container-name",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      type_name: "AtomicString",
-      default_value: "AtomicString()",
+      type_name: "ScopedCSSNameList",
+      wrapper_pointer_name: "Persistent",
+      tree_scoped_value: true,
+      default_value: "nullptr",
       field_group: "*",
       field_template: "external",
       converter: "ConvertContainerName",
       keywords: ["none"],
       typedom_types: ["Keyword"],
-      runtime_flag: "CSSContainerQueries",
     },
     {
       name: "container-type",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      keywords: ["none", "block-size", "inline-size", "size"],
+      keywords: ["normal", "inline-size", "size"],
       field_group: "*",
       field_size: 2,
       field_template: "primitive",
-      default_value: "kContainerTypeNone",
+      default_value: "kContainerTypeNormal",
       type_name: "unsigned",
-      converter: "ConvertFlags<EContainerType>",
+      converter: "ConvertFlags<EContainerType, CSSValueID::kNormal>",
       typedom_types: ["Keyword"],
-      runtime_flag: "CSSContainerQueries",
     },
     {
       name: "content",
@@ -2167,10 +2514,11 @@
       default_value: "nullptr",
       separator: ",",
       type_name: "ContentData",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_custom_functions: ["getter"],
       style_builder_custom_functions: ["initial", "inherit", "value"],
       valid_for_marker: true,
       tree_scoped_value: true,
+      supports_incremental_style: true,
     },
     {
       name: "counter-increment",
@@ -2222,7 +2570,7 @@
       default_value: "auto",
       style_builder_custom_functions: ["initial", "inherit", "value"],
       typedom_types: ["Keyword"],
-      valid_for_highlight: true,
+      valid_for_highlight_legacy: true,
     },
     {
       name: "cx",
@@ -2233,6 +2581,7 @@
       default_value: "Length::Fixed()",
       typedom_types: ["Length", "Percentage"],
       converter: "ConvertLength",
+      supports_incremental_style: true,
     },
     {
       name: "cy",
@@ -2243,6 +2592,7 @@
       default_value: "Length::Fixed()",
       typedom_types: ["Length", "Percentage"],
       converter: "ConvertLength",
+      supports_incremental_style: true,
     },
     {
       name: "d",
@@ -2257,6 +2607,7 @@
       converter: "ConvertPathOrNone",
       keywords: ["none"],
       typedom_types: ["Keyword"],
+      supports_incremental_style: true,
     },
     {
       name: "display",
@@ -2270,6 +2621,10 @@
       ],
       typedom_types: ["Keyword"],
       style_builder_custom_functions: ["initial", "inherit", "value"],
+      // In general many things are tweaked after-the-fact based on display/float/position
+      // (e.g. OriginalDisplay is based on display, and setting float can cause blockification),
+      // so we turn off incremental style for all them all.
+      supports_incremental_style: false,
     },
     {
       name: "dominant-baseline",
@@ -2308,6 +2663,7 @@
       style_builder_template_args: {
         initial_color: "ComputedStyleInitialValues::InitialFillPaint",
       },
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
@@ -2405,13 +2761,15 @@
       name: "float",
       property_methods: ["CSSValueFromComputedStyleInternal"],
       field_template: "keyword",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["none", "left", "right", "inline-start", "inline-end"],
       typedom_types: ["Keyword"],
       default_value: "none",
       name_for_methods: "Floating",
       type_name: "EFloat",
       valid_for_first_letter: true,
+      // See comment on display.
+      supports_incremental_style: false,
     },
     {
       name: "flood-color",
@@ -2429,6 +2787,7 @@
       converter: "ConvertStyleColor",
       keywords: ["currentcolor"],
       typedom_types: ["Keyword"],
+      supports_incremental_style: true,
     },
     {
       name: "flood-opacity",
@@ -2440,6 +2799,7 @@
       default_value: "1",
       converter: "ConvertAlpha",
       typedom_types: ["Number"],
+      supports_incremental_style: true,
     },
     {
       name: "grid-auto-columns",
@@ -2452,7 +2812,7 @@
       converter: "ConvertGridTrackSizeList",
       keywords: ["auto", "min-content", "max-content"],
       typedom_types: ["Keyword", "Length", "Percentage", "Flex"],
-      separator: " "
+      separator: " ",
     },
     {
       name: "grid-auto-flow",
@@ -2478,7 +2838,7 @@
       converter: "ConvertGridTrackSizeList",
       keywords: ["auto", "min-content", "max-content"],
       typedom_types: ["Keyword", "Length", "Percentage", "Flex"],
-      separator: " "
+      separator: " ",
     },
     {
       name: "grid-column-end",
@@ -2539,11 +2899,12 @@
       name: "grid-template-columns",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
       layout_dependent: true,
-      field_group: "*",
+      field_group: "*->grid",
       field_template: "external",
-      include_paths: ["third_party/blink/renderer/core/style/grid_track_list.h"],
-      default_value: "GridTrackList()",
-      type_name: "GridTrackList",
+      include_paths: ["third_party/blink/renderer/core/style/computed_grid_track_list.h"],
+      interpolable: true,
+      default_value: "ComputedGridTrackList()",
+      type_name: "ComputedGridTrackList",
       style_builder_template: "grid",
       style_builder_template_args: {
         type: "Column",
@@ -2555,11 +2916,12 @@
       name: "grid-template-rows",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
       layout_dependent: true,
-      field_group: "*",
+      field_group: "*->grid",
       field_template: "external",
-      include_paths: ["third_party/blink/renderer/core/style/grid_track_list.h"],
-      default_value: "GridTrackList()",
-      type_name: "GridTrackList",
+      include_paths: ["third_party/blink/renderer/core/style/computed_grid_track_list.h"],
+      interpolable: true,
+      default_value: "ComputedGridTrackList()",
+      type_name: "ComputedGridTrackList",
       style_builder_template: "grid",
       style_builder_template_args: {
         type: "Row",
@@ -2570,7 +2932,6 @@
     {
       name: "height",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      is_descriptor: true,
       interpolable: true,
       layout_dependent: true,
       field_group: "box",
@@ -2583,6 +2944,23 @@
         name: "size",
         resolver: "vertical",
       },
+      supports_incremental_style: true,
+      valid_for_formatted_text: true,
+      valid_for_position_fallback: true,
+      tree_scoped_value: true,
+    },
+    {
+      name: "hyphenate-limit-chars",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
+      inherited: true,
+      field_group: "*",
+      field_template: "external",
+      keywords: ["auto"],
+      type_name: "StyleHyphenateLimitChars",
+      default_value: "StyleHyphenateLimitChars()",
+      include_paths: ["third_party/blink/renderer/core/style/style_hyphenate_limit_chars.h"],
+      converter: "ConvertHyphenateLimitChars",
+      runtime_flag: "CSSHyphenateLimitChars",
     },
     {
       name: "hyphens",
@@ -2621,6 +2999,20 @@
       converter: "ConvertImageOrientation",
     },
     {
+      name: "initial-letter",
+      converter: "ConvertInitialLetter",
+      default_value: "StyleInitialLetter()",
+      field_group: "*",
+      field_template: "external",
+      include_paths: ["third_party/blink/renderer/core/style/style_initial_letter.h"],
+      inherited: false,
+      keywords: ["drop", "normal", "raise"],
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
+      runtime_flag: "CSSInitialLetter",
+      type_name: "StyleInitialLetter",
+      valid_for_first_letter: true,
+    },
+    {
       name: "isolation",
       property_methods: ["CSSValueFromComputedStyleInternal"],
       field_group: "*",
@@ -2638,6 +3030,7 @@
       default_value: "StyleContentAlignmentData(ContentPosition::kNormal, ContentDistributionType::kDefault, OverflowAlignment::kDefault)",
       type_name: "StyleContentAlignmentData",
       converter: "ConvertContentAlignmentData",
+      valid_for_position_fallback: true,
     },
     {
       name: "justify-items",
@@ -2648,6 +3041,7 @@
       default_value: "StyleSelfAlignmentData(ItemPosition::kLegacy, OverflowAlignment::kDefault)",
       type_name: "StyleSelfAlignmentData",
       converter: "ConvertSelfOrDefaultAlignmentData",
+      valid_for_position_fallback: true,
     },
     {
       name: "justify-self",
@@ -2658,6 +3052,7 @@
       default_value: "StyleSelfAlignmentData(ItemPosition::kAuto, OverflowAlignment::kDefault)",
       type_name: "StyleSelfAlignmentData",
       converter: "ConvertSelfOrDefaultAlignmentData",
+      valid_for_position_fallback: true,
     },
     {
       name: "left",
@@ -2674,6 +3069,9 @@
         name: "inset",
         resolver: "left",
       },
+      supports_incremental_style: true,
+      valid_for_position_fallback: true,
+      tree_scoped_value: true,
     },
     {
       name: "letter-spacing",
@@ -2723,18 +3121,6 @@
       valid_for_marker: true,
     },
     {
-      name: "line-height-step",
-      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      inherited: true,
-      runtime_flag: "CSSSnapSize",
-      field_group: "*",
-      field_template: "primitive",
-      default_value: "0",
-      type_name: "uint8_t",
-      converter: "ConvertComputedLength<uint8_t>",
-      typedom_types: ["Length"],
-    },
-    {
       name: "list-style-image",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
       interpolable: true,
@@ -2746,9 +3132,8 @@
       default_value: "nullptr",
       typedom_types: ["Keyword", "Image"],
       type_name: "StyleImage",
-      computed_style_custom_functions: ["getter", "setter"],
       style_builder_custom_functions: ["value"],
-      keywords: ["none"]
+      keywords: ["none"],
     },
     {
       name: "list-style-position",
@@ -2774,7 +3159,7 @@
         "disc", "circle", "square", "disclosure-open", "disclosure-closed",
         "decimal", "none"
       ],
-      style_builder_custom_functions: ["initial", "inherit", "value"],
+      style_builder_custom_functions: ["value"],
       tree_scoped_value: true,
     },
     {
@@ -2794,6 +3179,7 @@
         name: "margin",
         resolver: "bottom",
       },
+      supports_incremental_style: true,
     },
     {
       name: "margin-left",
@@ -2812,6 +3198,7 @@
         name: "margin",
         resolver: "left",
       },
+      supports_incremental_style: true,
     },
     {
       name: "margin-right",
@@ -2830,6 +3217,7 @@
         name: "margin",
         resolver: "right",
       },
+      supports_incremental_style: true,
     },
     {
       name: "margin-top",
@@ -2848,6 +3236,7 @@
         name: "margin",
         resolver: "top",
       },
+      supports_incremental_style: true,
     },
     {
       name: "marker-end",
@@ -2922,7 +3311,7 @@
       keywords: ["normal", "compact"],
       typedom_types: ["Keyword"],
       default_value: "normal",
-      runtime_flag: "CSSMathShift"
+      runtime_flag: "CSSMathShift",
     },
     {
       name: "math-style",
@@ -2933,12 +3322,11 @@
       keywords: ["normal", "compact"],
       typedom_types: ["Keyword"],
       default_value: "normal",
-      runtime_flag: "CSSMathStyle"
+      runtime_flag: "CSSMathStyle",
     },
     {
       name: "max-height",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      is_descriptor: true,
       interpolable: true,
       field_group: "box",
       field_template: "<length>",
@@ -2950,11 +3338,13 @@
         name: "max-size",
         resolver: "vertical",
       },
+      supports_incremental_style: true,
+      valid_for_position_fallback: true,
+      tree_scoped_value: true,
     },
     {
       name: "max-width",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      is_descriptor: true,
       interpolable: true,
       field_group: "box",
       field_template: "<length>",
@@ -2966,11 +3356,13 @@
         name: "max-size",
         resolver: "horizontal",
       },
+      supports_incremental_style: true,
+      valid_for_position_fallback: true,
+      tree_scoped_value: true,
     },
     {
       name: "min-height",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      is_descriptor: true,
       interpolable: true,
       field_group: "box",
       field_template: "<length>",
@@ -2981,11 +3373,13 @@
         name: "min-size",
         resolver: "vertical",
       },
+      supports_incremental_style: true,
+      valid_for_position_fallback: true,
+      tree_scoped_value: true,
     },
     {
       name: "min-width",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      is_descriptor: true,
       interpolable: true,
       field_group: "box",
       field_template: "<length>",
@@ -2996,6 +3390,9 @@
         name: "min-size",
         resolver: "horizontal",
       },
+      supports_incremental_style: true,
+      valid_for_position_fallback: true,
+      tree_scoped_value: true,
     },
     {
       name: "mix-blend-mode",
@@ -3034,6 +3431,21 @@
       type_name: "LengthPoint",
       converter: "ConvertPosition",
       typedom_types: ["Keyword", "Position"],
+    },
+    {
+      name: "object-view-box",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
+      interpolable: true,
+      field_group: "*",
+      field_template: "pointer",
+      include_paths: ["third_party/blink/renderer/core/style/basic_shapes.h"],
+      wrapper_pointer_name: "scoped_refptr",
+      default_value: "nullptr",
+      type_name: "BasicShape",
+      converter: "ConvertObjectViewBox",
+      keywords: ["none"],
+      typedom_types: ["Keyword"],
+      runtime_flag: "CSSObjectViewBox",
     },
     {
       name: "offset-anchor",
@@ -3114,6 +3526,7 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_cue: true,
+      supports_incremental_style: true,
     },
     {
       name: "order",
@@ -3159,7 +3572,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["currentcolor"],
       typedom_types: ["Keyword"],
       converter: "ConvertStyleColor",
@@ -3173,7 +3586,7 @@
       field_group: "*",
       field_template: "external",
       include_paths: ["third_party/blink/renderer/platform/geometry/layout_unit.h"],
-      default_value: "LayoutUnit(0)",
+      default_value: "LayoutUnit()",
       type_name: "LayoutUnit",
       converter: "ConvertLayoutUnit",
       typedom_types: ["Length"],
@@ -3203,7 +3616,7 @@
       include_paths: ["third_party/blink/renderer/platform/geometry/layout_unit.h"],
       default_value: "LayoutUnit(3)",
       type_name: "LayoutUnit",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_custom_functions: ["getter"],
       converter: "ConvertBorderWidth",
       keywords: ["thin", "medium", "thick"],
       typedom_types: ["Keyword", "Length"],
@@ -3250,13 +3663,14 @@
     {
       name: "overflow-clip-margin",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      runtime_flag: "OverflowClip",
       field_template: "external",
       field_group: "*",
-      default_value: "LayoutUnit()",
-      type_name: "LayoutUnit",
-      include_paths: ["third_party/blink/renderer/platform/geometry/layout_unit.h"],
-      converter: "ConvertLayoutUnit",
+      include_paths: ["third_party/blink/renderer/core/style/style_overflow_clip_margin.h"],
+      keywords: ["border-box", "content-box", "padding-box"],
+      separator: " ",
+      default_value: "absl::nullopt",
+      type_name: "absl::optional<StyleOverflowClipMargin>",
+      converter: "ConvertOverflowClipMargin",
     },
     {
       name: "overflow-x",
@@ -3267,11 +3681,20 @@
       ],
       typedom_types: ["Keyword"],
       default_value: "visible",
+      // This is to allow us to gather metrics when overflow is explicitly set.
+      style_builder_custom_functions: ["initial", "inherit", "value"],
       type_name: "EOverflow",
       logical_property_group: {
         name: "overflow",
         resolver: "horizontal",
       },
+      // Overflow has special semantics; overflowY can influence overflowX.
+      // But StyleAdjuster::AdjustOverflow() only does this properly if overflowX
+      // is set to the initial value (it cannot distinguish between an explicitly
+      // set overflowX, and one that was already adjusted in a previous pass).
+      // Modifying overflow frequently should not be common, so we take it out.
+      supports_incremental_style: false,
+      idempotent: false,
     },
     {
       name: "overflow-y",
@@ -3282,11 +3705,16 @@
       ],
       typedom_types: ["Keyword"],
       default_value: "visible",
+      // This is to allow us to gather metrics when overflow is explicitly set.
+      style_builder_custom_functions: ["initial", "inherit", "value"],
       type_name: "EOverflow",
       logical_property_group: {
         name: "overflow",
         resolver: "vertical",
       },
+      // See comment on overflow-x.
+      supports_incremental_style: false,
+      idempotent: false,
     },
     {
       name: "overscroll-behavior-inline",
@@ -3346,6 +3774,7 @@
         name: "padding",
         resolver: "bottom",
       },
+      supports_incremental_style: true,
     },
     {
       name: "padding-left",
@@ -3363,6 +3792,7 @@
         name: "padding",
         resolver: "left",
       },
+      supports_incremental_style: true,
     },
     {
       name: "padding-right",
@@ -3380,6 +3810,7 @@
         name: "padding",
         resolver: "right",
       },
+      supports_incremental_style: true,
     },
     {
       name: "padding-top",
@@ -3397,6 +3828,7 @@
         name: "padding",
         resolver: "top",
       },
+      supports_incremental_style: true,
     },
     {
       name: "page",
@@ -3408,7 +3840,6 @@
       field_template: "external",
       keywords: ["auto"],
       typedom_types: ["Keyword"],
-      runtime_flag: "NamedPages",
       computable: false,
     },
     {
@@ -3420,7 +3851,6 @@
       field_size: 2,
       default_value: "PageOrientation::kUpright",
       include_paths: ["third_party/blink/public/common/css/page_orientation.h"],
-      runtime_flag: "NamedPages",
       computable: false,
     },
     {
@@ -3460,11 +3890,13 @@
       type_name: "LengthPoint",
       converter: "ConvertPosition",
       typedom_types: ["Position"],
+      // Overlaps with -webkit-perspective-origin-[x,y].
+      overlapping: true,
     },
     {
       name: "pointer-events",
       property_methods: ["CSSValueFromComputedStyleInternal"],
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       independent: true,
       inherited: true,
       field_template: "keyword",
@@ -3487,6 +3919,23 @@
       getter: "GetPosition",
       computed_style_custom_functions: ["getter"],
       style_builder_custom_functions: ["inherit"],
+      // See comment on display.
+      supports_incremental_style: false,
+    },
+    {
+      name: "position-fallback",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal" ],
+      include_paths: ["third_party/blink/renderer/core/style/scoped_css_name.h"],
+      type_name: "ScopedCSSName",
+      wrapper_pointer_name: "Persistent",
+      default_value: "nullptr",
+      field_group: "*",
+      field_template: "external",
+      converter: "ConvertNoneOrCustomIdent",
+      keywords: ["none"],
+      typedom_types: ["Keyword"],
+      runtime_flag: "CSSAnchorPositioning",
+      tree_scoped_value: true,
     },
     {
       name: "quotes",
@@ -3494,7 +3943,7 @@
       inherited: true,
       field_group: "*",
       field_template: "pointer",
-      include_paths: ["third_party/blink/renderer/core/style/quotes_data.h"],
+      include_paths: ["third_party/blink/renderer/platform/text/quotes_data.h"],
       wrapper_pointer_name: "scoped_refptr",
       default_value: "nullptr",
       type_name: "QuotesData",
@@ -3507,17 +3956,21 @@
       name: "content-visibility",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
       field_template: "keyword",
-      keywords: ["visible", "auto", "hidden", "hidden-matchable"],
+      keywords: ["visible", "auto", "hidden"],
       default_value: "visible",
       typedom_types: ["Keyword"],
       computable: false,
+      // DisplayLockContext::AdjustElementStyle() can do SetSkipsContents(),
+      // but that value is not unset if the inline style is set incrementally
+      // back to content-visibility: visible.
+      supports_incremental_style: false,
     },
     {
       name: "resize",
       property_methods: ["CSSValueFromComputedStyleInternal"],
       field_group: "*",
       field_template: "keyword",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       style_builder_custom_functions: ["value"],
       keywords: ["none", "both", "horizontal", "vertical", "block", "inline"],
       typedom_types: ["Keyword"],
@@ -3538,6 +3991,9 @@
         name: "inset",
         resolver: "right",
       },
+      supports_incremental_style: true,
+      valid_for_position_fallback: true,
+      tree_scoped_value: true,
     },
     {
       name: "r",
@@ -3548,6 +4004,7 @@
       default_value: "Length::Fixed()",
       typedom_types: ["Length", "Percentage"],
       converter: "ConvertLength",
+      supports_incremental_style: true,
     },
     {
       name: "rx",
@@ -3559,6 +4016,7 @@
       keywords: ["auto"],
       typedom_types: ["Keyword", "Length", "Percentage"],
       converter: "ConvertLengthOrAuto",
+      supports_incremental_style: true,
     },
     {
       name: "ry",
@@ -3570,6 +4028,7 @@
       keywords: ["auto"],
       typedom_types: ["Keyword", "Length", "Percentage"],
       converter: "ConvertLengthOrAuto",
+      supports_incremental_style: true,
     },
     {
       name: "scrollbar-gutter",
@@ -3585,7 +4044,6 @@
         "auto", "stable", "both-edges"
       ],
       typedom_types: ["Keyword"],
-      runtime_flag: "ScrollbarGutter",
     },
     {
       name: "scrollbar-width",
@@ -3604,6 +4062,7 @@
       field_group: "*",
       field_size: 2, // FIXME: Convert this to a keyword field
       field_template: "primitive",
+      include_paths: ["third_party/blink/public/mojom/scroll/scroll_enums.mojom-blink.h"],
       default_value: "mojom::blink::ScrollBehavior::kAuto",
       type_name: "mojom::blink::ScrollBehavior",
       keywords: ["auto", "smooth"],
@@ -3867,6 +4326,30 @@
       computable: false,
     },
     {
+      name: "scroll-timeline-axis",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
+      field_group: "*->timeline",
+      field_template: "primitive",
+      field_size: 2,
+      type_name: "TimelineAxis",
+      default_value: "TimelineAxis::kBlock",
+      keywords: ["block", "inline", "vertical", "horizontal"],
+      typedom_types: ["Keyword"],
+      runtime_flag: "CSSScrollTimeline",
+    },
+    {
+      name: "scroll-timeline-name",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
+      field_group: "*->timeline",
+      field_template: "external",
+      type_name: "ScopedCSSName",
+      wrapper_pointer_name: "Persistent",
+      default_value: "nullptr",
+      tree_scoped_value: true,
+      converter: "ConvertNoneOrCustomIdent",
+      runtime_flag: "CSSScrollTimeline",
+    },
+    {
       name: "shape-image-threshold",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
       interpolable: true,
@@ -3901,7 +4384,7 @@
       type_name: "ShapeValue",
       computed_style_custom_functions: ["getter"],
       converter: "ConvertShapeValue",
-      keywords: ["none"]
+      keywords: ["none"],
     },
     {
       name: "shape-rendering",
@@ -3940,7 +4423,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor(Color::kBlack)",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       style_builder_template: "color",
       style_builder_template_args: {
         initial_color: "ComputedStyleInitialValues::InitialStopColor",
@@ -3976,6 +4459,7 @@
       style_builder_template_args: {
         initial_color: "ComputedStyleInitialValues::InitialStrokePaint",
       },
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
@@ -4069,6 +4553,7 @@
       default_value: "UnzoomedLength(Length::Fixed(1))",
       converter: "ConvertUnzoomedLength",
       typedom_types: ["Length", "Percentage"],
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
@@ -4111,6 +4596,7 @@
       default_value: "start",
       getter: "GetTextAlign",
       style_builder_custom_functions: ["value"],
+      valid_for_formatted_text: true,
     },
     {
       name: "text-align-last",
@@ -4144,6 +4630,7 @@
       name_for_methods: "TextCombine",
       valid_for_marker: true,
       computable: false,
+      valid_for_formatted_text: true,
     },
     {
       name: "text-decoration-color",
@@ -4154,7 +4641,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["currentcolor"],
       typedom_types: ["Keyword"],
       converter: "ConvertStyleColor",
@@ -4162,7 +4649,11 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_cue: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
+      supports_incremental_style: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "text-decoration-line",
@@ -4177,7 +4668,10 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_cue: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "text-decoration-skip-ink",
@@ -4192,7 +4686,10 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       valid_for_marker: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "text-decoration-style",
@@ -4205,11 +4702,13 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_cue: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "text-decoration-thickness",
-      runtime_flag: "UnderlineOffsetThickness",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
       include_paths: ["third_party/blink/renderer/core/style/text_decoration_thickness.h"],
       inherited: true,
@@ -4222,8 +4721,11 @@
       typedom_types: ["Keyword", "Length", "Percentage"],
       valid_for_first_letter: true,
       valid_for_first_line: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
       computable: false,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "text-indent",
@@ -4233,24 +4735,8 @@
       field_group: "*",
       field_template: "<length>",
       default_value: "Length::Fixed()",
-      style_builder_custom_functions: ["initial", "inherit", "value"],
+      style_builder_custom_functions: ["value"],
       typedom_types: ["Length", "Percentage"],
-    },
-    {
-      name: "text-justify",
-      property_methods: ["CSSValueFromComputedStyleInternal"],
-      inherited: true,
-      runtime_flag: "CSS3Text",
-      field_group: "*",
-      field_template: "keyword",
-      include_paths: ["third_party/blink/renderer/platform/text/text_justify.h"],
-      keywords: ["auto", "none", "inter-word", "distribute"],
-      default_value: "auto",
-      getter: "GetTextJustify",
-      type_name: "TextJustify",
-      typedom_types: ["Keyword"],
-      valid_for_first_letter: true,
-      valid_for_first_line: true,
     },
     {
       name: "text-overflow",
@@ -4260,6 +4746,7 @@
       keywords: ["clip", "ellipsis"],
       typedom_types: ["Keyword"],
       default_value: "clip",
+      valid_for_formatted_text: true,
     },
     {
       name: "text-shadow",
@@ -4279,7 +4766,10 @@
       valid_for_first_line: true,
       valid_for_cue: true,
       valid_for_marker: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "text-size-adjust",
@@ -4308,22 +4798,26 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "text-underline-offset",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
+      interpolable: true,
       inherited: true,
       field_group: "*",
       field_template: "<length>",
       default_value: "Length()",
       name_for_methods: "TextUnderlineOffset",
-      runtime_flag: "UnderlineOffsetThickness",
       converter: "ConvertTextUnderlineOffset",
       keywords: ["auto"],
       typedom_types: ["Keyword", "Length", "Percentage"],
       valid_for_first_letter: true,
       valid_for_first_line: true,
       computable: false,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
     },
     {
       name: "text-underline-position",
@@ -4340,6 +4834,69 @@
       typedom_types: ["Keyword"],
       valid_for_first_letter: true,
       valid_for_first_line: true,
+      valid_for_formatted_text: true,
+      valid_for_formatted_text_run: true,
+    },
+    {
+      name: "toggle-group",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
+      runtime_flag: "CSSToggles",
+      field_group: "*",
+      field_template: "pointer",
+      include_paths: ["third_party/blink/renderer/core/style/toggle_group_list.h"],
+      type_name: "ToggleGroupList",
+      converter: "ConvertToggleGroup",
+      wrapper_pointer_name: "scoped_refptr",
+      default_value: "nullptr",
+      separator: ",",
+      supports_incremental_style: true,
+      keywords: ["none"],
+      typedom_types: ["Keyword"],
+    },
+    {
+      name: "toggle-root",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
+      runtime_flag: "CSSToggles",
+      field_group: "*",
+      field_template: "pointer",
+      include_paths: ["third_party/blink/renderer/core/style/toggle_root_list.h"],
+      type_name: "ToggleRootList",
+      converter: "ConvertToggleRoot",
+      wrapper_pointer_name: "scoped_refptr",
+      default_value: "nullptr",
+      separator: ",",
+      supports_incremental_style: true,
+      keywords: ["none"],
+      typedom_types: ["Keyword"],
+    },
+    {
+      name: "toggle-trigger",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
+      runtime_flag: "CSSToggles",
+      field_group: "*",
+      field_template: "pointer",
+      include_paths: ["third_party/blink/renderer/core/style/toggle_trigger_list.h"],
+      type_name: "ToggleTriggerList",
+      converter: "ConvertToggleTrigger",
+      wrapper_pointer_name: "scoped_refptr",
+      default_value: "nullptr",
+      separator: ",",
+      supports_incremental_style: true,
+      keywords: ["none"],
+      typedom_types: ["Keyword"],
+    },
+    {
+      name: "toggle-visibility",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
+      runtime_flag: "CSSToggles",
+      field_group: "*",
+      field_template: "external",
+      type_name: "AtomicString",
+      converter: "ConvertToggleVisibility",
+      default_value: "g_null_atom",
+      supports_incremental_style: true,
+      keywords: ["normal"],
+      typedom_types: ["Keyword"],
     },
     {
       name: "top",
@@ -4356,12 +4913,15 @@
         name: "inset",
         resolver: "top",
       },
+      supports_incremental_style: true,
+      valid_for_position_fallback: true,
+      tree_scoped_value: true,
     },
     {
       name: "touch-action",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
       field_group: "*",
-      field_size: 7, // FIXME: Make this use "kTouchActionBits".
+      field_size: 8, // FIXME: Make this use "kTouchActionBits".
       field_template: "primitive",
       include_paths: ["third_party/blink/renderer/platform/graphics/touch_action.h"],
       default_value: "TouchAction::kAuto",
@@ -4384,6 +4944,7 @@
       typedom_types: ["Keyword", "Transform"],
       type_name: "TransformOperations",
       converter: "ConvertTransformOperations",
+      supports_incremental_style: true,
     },
     {
       name: "transform-box",
@@ -4393,6 +4954,7 @@
       default_value: "view-box",
       typedom_types: ["Keyword"],
       computable: false,
+      supports_incremental_style: true,
     },
     {
       name: "transform-origin",
@@ -4406,6 +4968,9 @@
       getter: "GetTransformOrigin",
       type_name: "TransformOrigin",
       converter: "ConvertTransformOrigin",
+      supports_incremental_style: true,
+      // Overlaps with -webkit-transform-origin-[x,y,z].
+      overlapping: true,
     },
     {
       name: "transform-style",
@@ -4416,6 +4981,7 @@
       default_value: "flat",
       typedom_types: ["Keyword"],
       name_for_methods: "TransformStyle3D",
+      supports_incremental_style: true,
     },
     {
       name: "translate",
@@ -4431,6 +4997,7 @@
       default_value: "nullptr",
       type_name: "TranslateTransformOperation",
       converter: "ConvertTranslate",
+      supports_incremental_style: true,
     },
     {
       name: "rotate",
@@ -4445,6 +5012,7 @@
       default_value: "nullptr",
       type_name: "RotateTransformOperation",
       converter: "ConvertRotate",
+      supports_incremental_style: true,
     },
     {
       name: "scale",
@@ -4459,6 +5027,7 @@
       default_value: "nullptr",
       type_name: "ScaleTransformOperation",
       converter: "ConvertScale",
+      supports_incremental_style: true,
     },
     {
       name: "unicode-bidi",
@@ -4495,6 +5064,54 @@
       valid_for_first_line: true,
     },
     {
+      name: "view-timeline-axis",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
+      field_group: "*->timeline",
+      field_template: "external",
+      default_value: "Vector<TimelineAxis>()",
+      type_name: "Vector<TimelineAxis>",
+      converter: "ConvertViewTimelineAxis",
+      separator: ",",
+      runtime_flag: "CSSViewTimeline",
+    },
+    {
+      name: "view-timeline-inset",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
+      field_group: "*->timeline",
+      field_template: "external",
+      include_paths: ["third_party/blink/renderer/core/style/timeline_inset.h"],
+      default_value: "Vector<TimelineInset>()",
+      type_name: "Vector<TimelineInset>",
+      converter: "ConvertViewTimelineInset",
+      separator: ",",
+      runtime_flag: "CSSViewTimeline",
+    },
+    {
+      name: "view-timeline-name",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal", "InitialValue"],
+      field_group: "*->timeline",
+      field_template: "external",
+      default_value: "nullptr",
+      type_name: "ScopedCSSNameList",
+      wrapper_pointer_name: "Persistent",
+      tree_scoped_value: true,
+      converter: "ConvertViewTimelineName",
+      separator: ",",
+      runtime_flag: "CSSViewTimeline",
+    },
+    {
+      name: "view-transition-name",
+      field_group: "*",
+      property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
+      converter: "ConvertViewTransitionName",
+      type_name: "AtomicString",
+      default_value: "AtomicString()",
+      field_template: "external",
+      keywords: ["none"],
+      typedom_types: ["Keyword"],
+      runtime_flag: "ViewTransition",
+    },
+    {
       name: "visibility",
       property_methods: ["CSSValueFromComputedStyleInternal"],
       independent: true,
@@ -4517,6 +5134,7 @@
       default_value: "Length::Fixed()",
       typedom_types: ["Length", "Percentage"],
       converter: "ConvertLength",
+      supports_incremental_style: true,
     },
     {
       name: "y",
@@ -4527,6 +5145,7 @@
       default_value: "Length::Fixed()",
       typedom_types: ["Length", "Percentage"],
       converter: "ConvertLength",
+      supports_incremental_style: true,
     },
     {
       name: "appearance",
@@ -4535,7 +5154,7 @@
       field_size: 5,
       field_template: "primitive",
       include_paths: ["third_party/blink/renderer/platform/theme_types.h"],
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       default_value: "kNoControlPart",
       type_name: "ControlPart",
     },
@@ -4575,6 +5194,9 @@
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
       style_builder_custom_functions: ["value"],
       valid_for_first_letter: true,
+      affected_by_all: false,
+      // Overlaps with border-image.
+      legacy_overlapping: true,
     },
     {
       name: "-webkit-border-vertical-spacing",
@@ -4709,7 +5331,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["currentcolor"],
       typedom_types: ["Keyword"],
       converter: "ConvertStyleColor",
@@ -4738,7 +5360,7 @@
       default_value: "LayoutUnit(3)",
       type_name: "LayoutUnit",
       computed_style_custom_functions: ["initial", "getter", "setter"],
-      converter: "ConvertLineWidth<unsigned short>",
+      converter: "ConvertColumnRuleWidth",
       keywords: ["thin", "medium", "thick"],
       typedom_types: ["Keyword", "Length"],
     },
@@ -4778,7 +5400,7 @@
       converter: "ConvertString<CSSValueID::kNone>",
     },
     {
-      name: "-webkit-hyphenate-character",
+      name: "hyphenate-character",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
       inherited: true,
       field_group: "*",
@@ -4798,6 +5420,7 @@
       keywords: ["auto", "loose", "normal", "strict", "after-white-space", "anywhere"],
       default_value: "auto",
       type_name: "LineBreak",
+      valid_for_formatted_text: true,
     },
     {
       name: "line-break",
@@ -4807,6 +5430,8 @@
       keywords: ["auto", "loose", "normal", "strict", "anywhere"],
       typedom_types: ["Keyword"],
       valid_for_marker: true,
+      valid_for_formatted_text: true,
+      surrogate_for: "-webkit-line-break",
     },
     // An Apple extension.
     {
@@ -4940,16 +5565,24 @@
     {
       name: "-webkit-perspective-origin-x",
       property_methods: ["ParseSingleValue"],
+      style_builder_custom_functions: ["inherit"],
       interpolable: true,
       converter: "ConvertLength",
       computable: false,
+      affected_by_all: false,
+      // Overlaps with perspective-origin.
+      legacy_overlapping: true,
     },
     {
       name: "-webkit-perspective-origin-y",
       property_methods: ["ParseSingleValue"],
+      style_builder_custom_functions: ["inherit"],
       interpolable: true,
       converter: "ConvertLength",
       computable: false,
+      affected_by_all: false,
+      // Overlaps with perspective-origin.
+      legacy_overlapping: true,
     },
     {
       name: "-webkit-print-color-adjust",
@@ -5008,7 +5641,7 @@
       name: "-webkit-text-combine",
       property_methods: ["CSSValueFromComputedStyleInternal"],
       inherited: true,
-      name_for_methods: "TextCombine",
+      surrogate_for: "text-combine-upright",
     },
     {
       name: "text-emphasis-color",
@@ -5020,12 +5653,13 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       keywords: ["currentcolor"],
       typedom_types: ["Keyword"],
       converter: "ConvertStyleColor",
       style_builder_template: "color",
       valid_for_marker: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
@@ -5056,9 +5690,10 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "color",
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
@@ -5080,9 +5715,10 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "color",
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
@@ -5094,28 +5730,41 @@
       default_value: "0",
       type_name: "float",
       converter: "ConvertTextStrokeWidth",
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
       name: "-webkit-transform-origin-x",
       property_methods: ["ParseSingleValue"],
+      style_builder_custom_functions: ["inherit"],
       interpolable: true,
       converter: "ConvertLength",
       computable: false,
+      affected_by_all: false,
+      // Overlaps with transform-origin.
+      legacy_overlapping: true,
     },
     {
       name: "-webkit-transform-origin-y",
       property_methods: ["ParseSingleValue"],
+      style_builder_custom_functions: ["inherit"],
       interpolable: true,
       converter: "ConvertLength",
       computable: false,
+      affected_by_all: false,
+      // Overlaps with transform-origin.
+      legacy_overlapping: true,
     },
     {
       name: "-webkit-transform-origin-z",
       property_methods: ["ParseSingleValue"],
+      style_builder_custom_functions: ["inherit"],
       interpolable: true,
       converter: "ConvertComputedLength<float>",
       computable: false,
+      affected_by_all: false,
+      // Overlaps with transform-origin.
+      legacy_overlapping: true,
     },
     {
       name: "-webkit-user-drag",
@@ -5128,6 +5777,7 @@
     {
       name: "-webkit-user-modify",
       property_methods: ["CSSValueFromComputedStyleInternal"],
+      computed_style_protected_functions: ["getter"],
       inherited: true,
       field_group: "*",
       field_template: "keyword",
@@ -5137,6 +5787,7 @@
     {
       name: "user-select",
       property_methods: ["CSSValueFromComputedStyleInternal"],
+      computed_style_protected_functions: ["getter"],
       inherited: true,
       field_group: "*",
       field_template: "keyword",
@@ -5147,7 +5798,7 @@
     {
       name: "white-space",
       property_methods: ["CSSValueFromComputedStyleInternal"],
-      independent: true,
+      independent: false,  // Actually true, but setting it to false saves a precious bit in ComputedStyleBase.
       inherited: true,
       field_template: "bitset_keyword",
       keywords: [
@@ -5173,7 +5824,6 @@
     {
       name: "width",
       property_methods: ["ParseSingleValue", "CSSValueFromComputedStyleInternal"],
-      is_descriptor: true,
       interpolable: true,
       layout_dependent: true,
       field_group: "box",
@@ -5186,6 +5836,10 @@
         name: "size",
         resolver: "horizontal",
       },
+      supports_incremental_style: true,
+      valid_for_formatted_text: true,
+      valid_for_position_fallback: true,
+      tree_scoped_value: true,
     },
     {
       name: "will-change",
@@ -5244,6 +5898,7 @@
       },
       keywords: ["auto"],
       typedom_types: ["Keyword", "Length", "Percentage"],
+      valid_for_position_fallback: true,
     },
     {
       name: "block-size",
@@ -5255,6 +5910,7 @@
       },
       keywords: ["auto"],
       typedom_types: ["Keyword", "Length", "Percentage"],
+      valid_for_position_fallback: true,
     },
     {
       name: "min-inline-size",
@@ -5264,6 +5920,7 @@
         resolver: "inline",
       },
       typedom_types: ["Length", "Percentage"],
+      valid_for_position_fallback: true,
     },
     {
       name: "min-block-size",
@@ -5273,6 +5930,7 @@
         resolver: "block",
       },
       typedom_types: ["Length", "Percentage"],
+      valid_for_position_fallback: true,
     },
     {
       name: "max-inline-size",
@@ -5283,6 +5941,7 @@
       },
       keywords: ["none"],
       typedom_types: ["Keyword", "Length", "Percentage"],
+      valid_for_position_fallback: true,
     },
     {
       name: "max-block-size",
@@ -5293,6 +5952,7 @@
       },
       keywords: ["none"],
       typedom_types: ["Keyword", "Length", "Percentage"],
+      valid_for_position_fallback: true,
     },
     {
       name: "margin-inline-start",
@@ -5494,6 +6154,7 @@
         resolver: "inline-start",
       },
       typedom_types: ["Length", "Percentage"],
+      valid_for_position_fallback: true,
     },
     {
       name: "inset-inline-end",
@@ -5503,6 +6164,7 @@
         resolver: "inline-end",
       },
       typedom_types: ["Length", "Percentage"],
+      valid_for_position_fallback: true,
     },
     {
       name: "inset-block-start",
@@ -5512,6 +6174,7 @@
         resolver: "block-start",
       },
       typedom_types: ["Length", "Percentage"],
+      valid_for_position_fallback: true,
     },
     {
       name: "inset-block-end",
@@ -5521,6 +6184,7 @@
         resolver: "block-end",
       },
       typedom_types: ["Length", "Percentage"],
+      valid_for_position_fallback: true,
     },
     {
       name: "border-start-start-radius",
@@ -5700,21 +6364,6 @@
       is_property: false,
     },
     {
-      name: "max-zoom",
-      is_descriptor: true,
-      is_property: false,
-    },
-    {
-      name: "min-zoom",
-      is_descriptor: true,
-      is_property: false,
-    },
-    {
-      name: "orientation",
-      is_descriptor: true,
-      is_property: false,
-    },
-    {
       name: "src",
       is_descriptor: true,
       is_property: false,
@@ -5723,17 +6372,6 @@
       name: "unicode-range",
       is_descriptor: true,
       is_property: false,
-    },
-    {
-      name: "user-zoom",
-      is_descriptor: true,
-      is_property: false,
-    },
-    {
-      name: "viewport-fit",
-      is_descriptor: true,
-      is_property: false,
-      runtime_flag: "DisplayCutoutAPI",
     },
     {
       name: "syntax",
@@ -5837,7 +6475,16 @@
       name: "size-adjust",
       is_descriptor: true,
       is_property: false,
-      runtime_flag: "CSSFontFaceSizeAdjust",
+    },
+    {
+      name: "base-palette",
+      is_descriptor: true,
+      is_property: false,
+    },
+    {
+      name: "override-colors",
+      is_descriptor: true,
+      is_property: false,
     },
 
     // Shorthands
@@ -5846,10 +6493,27 @@
       longhands: [
         "animation-duration", "animation-timing-function", "animation-delay",
         "animation-iteration-count", "animation-direction",
+        "animation-fill-mode", "animation-play-state", "animation-name"
+      ],
+      property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+      valid_for_keyframe: false,
+    },
+    {
+      // Variant of the "animation" shorthand which includes new longhands from
+      // Scroll-Linked Animations.
+      // https://drafts.csswg.org/scroll-animations-1/
+      name: "-alternative-animation",
+      alternative_of: "animation",
+      longhands: [
+        "animation-duration", "animation-timing-function",
+        "animation-delay-start", "animation-delay-end",
+        "animation-iteration-count", "animation-direction",
         "animation-fill-mode", "animation-play-state", "animation-name",
         "animation-timeline"
       ],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+      valid_for_keyframe: false,
+      runtime_flag: 'CSSScrollTimeline',
     },
     {
       name: "background",
@@ -5860,12 +6524,14 @@
         "background-color"
       ],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+      supports_incremental_style: true,
     },
     {
       name: "background-position",
       longhands: ["background-position-x", "background-position-y"],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
       computable: true,
+      supports_incremental_style: true,
     },
     {
       name: "background-repeat",
@@ -5950,6 +6616,7 @@
         "border-left-color"
       ],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+      supports_incremental_style: true,
     },
     {
       name: "border-image",
@@ -6098,10 +6765,9 @@
     {
       name: "container",
       longhands: [
-        "container-type", "container-name"
+        "container-name", "container-type"
       ],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
-      runtime_flag: "CSSContainerQueries",
     },
     {
       name: "flex",
@@ -6117,8 +6783,9 @@
       name: "font",
       longhands: [
         "font-style", "font-variant-ligatures", "font-variant-caps",
-        "font-variant-numeric", "font-variant-east-asian", "font-weight",
-        "font-stretch", "font-size", "line-height", "font-family"
+        "font-variant-numeric", "font-variant-east-asian", "font-variant-alternates",
+        "font-variant-position", "font-weight", "font-stretch", "font-size",
+        "line-height", "font-family"
       ],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
     },
@@ -6126,7 +6793,8 @@
       name: "font-variant",
       longhands: [
         "font-variant-ligatures", "font-variant-caps",
-        "font-variant-numeric", "font-variant-east-asian"
+        "font-variant-alternates", "font-variant-numeric",
+        "font-variant-east-asian", "font-variant-position"
       ],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
       is_descriptor: true,
@@ -6136,7 +6804,6 @@
       name: "font-synthesis",
       longhands: ["font-synthesis-weight", "font-synthesis-style", "font-synthesis-small-caps"],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
-      runtime_flag: "FontSynthesis"
     },
     {
       name: "grid",
@@ -6212,16 +6879,19 @@
       name: "inset",
       longhands: ["top", "right", "bottom", "left"],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+      valid_for_position_fallback: true,
     },
     {
       name: "inset-block",
       longhands: ["inset-block-start", "inset-block-end"],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+      valid_for_position_fallback: true,
     },
     {
       name: "inset-inline",
       longhands: ["inset-inline-start", "inset-inline-end"],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+      valid_for_position_fallback: true,
     },
     {
       name: "list-style",
@@ -6279,6 +6949,7 @@
       ],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
       layout_dependent: true,
+      supports_incremental_style: true,
     },
     {
       name: "padding-block",
@@ -6339,10 +7010,22 @@
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
     },
     {
+      name: "scroll-timeline",
+      longhands: ["scroll-timeline-axis", "scroll-timeline-name"],
+      property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+      runtime_flag: "CSSScrollTimeline",
+    },
+    {
       name: "text-decoration",
       longhands: ["text-decoration-line", "text-decoration-thickness", "text-decoration-style", "text-decoration-color"],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
       computable: true,
+    },
+    {
+      name: "toggle",
+      longhands: ["toggle-root", "toggle-trigger"],
+      property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+      runtime_flag: "CSSToggles",
     },
     {
       name: "transition",
@@ -6351,6 +7034,12 @@
         "transition-timing-function", "transition-delay"
       ],
       property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+    },
+    {
+      name: "view-timeline",
+      longhands: ["view-timeline-name", "view-timeline-axis"],
+      property_methods: ["ParseShorthand", "CSSValueFromComputedStyleInternal"],
+      runtime_flag: "CSSViewTimeline",
     },
     {
       name: "-webkit-border-after",
@@ -6448,14 +7137,16 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor(Color::kBlack)",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       style_builder_custom_functions: ["initial", "inherit", "value"],
       priority: "High",
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_cue: true,
       valid_for_marker: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
+      is_visited_highlight_colors: true,
     },
     {
       name: "-internal-visited-caret-color",
@@ -6468,12 +7159,12 @@
       default_value: "StyleAutoColor::AutoColor()",
       type_name: "StyleAutoColor",
       converter: "ConvertStyleAutoColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       style_builder_template: "visited_color",
       style_builder_template_args: {
         initial_color: "StyleAutoColor::AutoColor",
       },
-      valid_for_highlight: true,
+      valid_for_highlight_legacy: true,
     },
     {
       name: "-internal-visited-column-rule-color",
@@ -6484,7 +7175,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter","setter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "visited_color",
     },
@@ -6497,7 +7188,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor(Color::kTransparent)",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "visited_color",
       style_builder_template_args: {
@@ -6506,7 +7197,9 @@
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_cue: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
+      is_visited_highlight_colors: true,
     },
     {
       name: "-internal-visited-border-left-color",
@@ -6517,7 +7210,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "visited_color",
       valid_for_first_letter: true,
@@ -6535,7 +7228,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "visited_color",
       valid_for_first_letter: true,
@@ -6553,7 +7246,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "visited_color",
       valid_for_first_letter: true,
@@ -6571,7 +7264,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "visited_color",
       valid_for_first_letter: true,
@@ -6636,6 +7329,7 @@
       style_builder_template_args: {
         initial_color: "ComputedStyleInitialValues::InitialFillPaint",
       },
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
@@ -6647,7 +7341,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "visited_color",
       valid_for_cue: true,
@@ -6668,6 +7362,7 @@
       style_builder_template_args: {
         initial_color: "ComputedStyleInitialValues::InitialStrokePaint",
       },
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
@@ -6679,12 +7374,13 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "visited_color",
       valid_for_first_letter: true,
       valid_for_first_line: true,
       valid_for_cue: true,
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
@@ -6697,9 +7393,10 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "visited_color",
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
@@ -6712,9 +7409,10 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "visited_color",
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
     {
@@ -6727,9 +7425,10 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "visited_color",
+      valid_for_highlight_legacy: true,
       valid_for_highlight: true,
     },
 
@@ -6743,7 +7442,7 @@
                       "third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor(CSSValueID::kCanvas)",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "color",
       style_builder_template_args: {
@@ -6761,7 +7460,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "color",
       valid_for_first_letter: true,
@@ -6776,7 +7475,7 @@
                       "third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor(CSSValueID::kCanvastext)",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       style_builder_custom_functions: ["initial", "inherit", "value"],
       valid_for_first_letter: true,
       valid_for_first_line: true,
@@ -6791,7 +7490,7 @@
       include_paths: ["third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor::CurrentColor()",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter"],
+      computed_style_protected_functions: ["getter"],
       converter: "ConvertStyleColor",
       style_builder_template: "color",
       valid_for_cue: true,
@@ -6807,7 +7506,7 @@
                       "third_party/blink/renderer/core/css/style_color.h"],
       default_value: "StyleColor(CSSValueID::kCanvastext)",
       type_name: "StyleColor",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_protected_functions: ["getter"],
       style_builder_custom_functions: ["initial", "inherit", "value"],
       valid_for_first_letter: true,
       valid_for_first_line: true,
@@ -6843,10 +7542,6 @@
     //    If 'center' is specified and the container's block size is not auto,
     //    it works like "align-self: center" for grid/flex items.
     //    The block child should create new block formatting context.
-    // Note:
-    //    The container of a child with -internal-align-self:block:center needs
-    //    to opt out from simplified layout.  See
-    //    CalculateSizeBasedLayoutCacheStatusWithGeometry().
     {
       name: "-internal-align-self-block",
       property_methods: ["ParseSingleValue"],
@@ -6913,8 +7608,26 @@
       alias_for: "animation",
     },
     {
+      // Since "animation" has an alternative property, "-webkit-animation"
+      // also needs to have an alternative property that is an alias of
+      // animation's alternative property. Unfortunately we can't just resolve
+      // -webkit-animation directly to animation's alternative, because we have
+      // to remember the -webkit-ness of the property to enable legacy parsing
+      // behavior. (See CSSParserLocalContext::UseAliasParsing).
+      name: "-webkit-alternative-animation",
+      alias_for: "-alternative-animation",
+      alternative_of: "-webkit-animation",
+      runtime_flag: "CSSScrollTimeline",
+    },
+    {
       name: "-webkit-animation-delay",
       alias_for: "animation-delay",
+    },
+    {
+      name: "-webkit-alternative-animation-delay",
+      alias_for: "-alternative-animation-delay",
+      alternative_of: "-webkit-animation-delay",
+      runtime_flag: "CSSScrollTimeline",
     },
     {
       name: "-webkit-animation-direction",
@@ -7069,6 +7782,10 @@
     {
       name: "-webkit-font-feature-settings",
       alias_for: "font-feature-settings",
+    },
+    {
+      name: "-webkit-hyphenate-character",
+      alias_for: "hyphenate-character",
     },
     {
       name: "-webkit-justify-content",

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,11 @@ export interface OpenWindowProxy {
   /**
    * Opens the specified URL in a new tab.
    */
-  openURL(url: string): void;
+  openUrl(url: string): void;
 }
 
 export class OpenWindowProxyImpl implements OpenWindowProxy {
-  openURL(url: string) {
+  openUrl(url: string) {
     window.open(url);
   }
 

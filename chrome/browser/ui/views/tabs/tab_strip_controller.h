@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/range/range.h"
 
+class Browser;
 class Tab;
 class TabStrip;
 
@@ -53,8 +54,8 @@ class TabStripController {
   // one whose content is shown.
   virtual bool IsActiveTab(int index) const = 0;
 
-  // Returns the index of the active tab.
-  virtual int GetActiveIndex() const = 0;
+  // Returns the index of the active tab, or nullopt if no tab is active.
+  virtual absl::optional<int> GetActiveIndex() const = 0;
 
   // Returns true if the selected index is selected.
   virtual bool IsTabSelected(int index) const = 0;
@@ -105,7 +106,7 @@ class TabStripController {
 
   // Switches the collapsed state of a tab group. Returns false if the state was
   // not successfully switched.
-  virtual bool ToggleTabGroupCollapsedState(
+  virtual void ToggleTabGroupCollapsedState(
       const tab_groups::TabGroupId group,
       ToggleTabGroupCollapsedStateOrigin origin =
           ToggleTabGroupCollapsedStateOrigin::kImplicitAction) = 0;
@@ -173,12 +174,6 @@ class TabStripController {
   virtual absl::optional<int> GetFirstTabInGroup(
       const tab_groups::TabGroupId& group) const = 0;
 
-  // Gets the last tab index in |group|, or nullopt if the group is
-  // currently empty. This is always safe to call unlike
-  // ListTabsInGroup().
-  virtual absl::optional<int> GetLastTabInGroup(
-      const tab_groups::TabGroupId& group) const = 0;
-
   // Returns the range of tabs in the given |group|. This must not be
   // called during intermediate states where the group is not
   // contiguous. For example, if tabs elsewhere in the tab strip are
@@ -211,10 +206,6 @@ class TabStripController {
   // Returns the color of the browser frame for the given window activation
   // state.
   virtual SkColor GetFrameColor(BrowserFrameActiveState active_state) const = 0;
-
-  // Returns COLOR_TOOLBAR_TOP_SEPARATOR[,_INACTIVE] depending on the activation
-  // state of the window.
-  virtual SkColor GetToolbarTopSeparatorColor() const = 0;
 
   // For non-transparent windows, returns the background tab image resource ID
   // if the image has been customized, directly or indirectly, by the theme.

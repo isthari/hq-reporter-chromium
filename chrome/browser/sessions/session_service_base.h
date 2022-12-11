@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -142,6 +142,11 @@ class SessionServiceBase : public sessions::CommandStorageManagerDelegate,
   // Sets the application name of the specified window.
   void SetWindowAppName(const SessionID& window_id,
                         const std::string& app_name);
+
+  // Sets the pinned state of the tab.
+  void SetPinnedState(const SessionID& window_id,
+                      const SessionID& tab_id,
+                      bool is_pinned);
 
   // CommandStorageManagerDelegate:
   bool ShouldUseDelayedSave() override;

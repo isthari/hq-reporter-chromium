@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,8 +19,6 @@ EditAddressProfileView::EditAddressProfileView(
     EditAddressProfileDialogController* controller)
     : controller_(controller) {
   DCHECK(controller);
-  DCHECK(base::FeatureList::IsEnabled(
-      features::kAutofillAddressProfileSavePrompt));
 
   SetButtons(ui::DIALOG_BUTTON_OK | ui::DIALOG_BUTTON_CANCEL);
   SetModalType(ui::MODAL_TYPE_CHILD);

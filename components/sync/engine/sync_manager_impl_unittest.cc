@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,6 @@
 #include "components/sync/base/client_tag_hash.h"
 #include "components/sync/base/extensions_activity.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/base/model_type_test_util.h"
 #include "components/sync/engine/cancelation_signal.h"
 #include "components/sync/engine/cycle/sync_cycle.h"
 #include "components/sync/engine/events/protocol_event.h"
@@ -37,9 +36,10 @@
 #include "components/sync/protocol/encryption.pb.h"
 #include "components/sync/protocol/proto_value_conversions.h"
 #include "components/sync/protocol/sync_enums.pb.h"
-#include "components/sync/test/engine/fake_sync_scheduler.h"
-#include "components/sync/test/engine/test_engine_components_factory.h"
 #include "components/sync/test/fake_sync_encryption_handler.h"
+#include "components/sync/test/fake_sync_scheduler.h"
+#include "components/sync/test/model_type_test_util.h"
+#include "components/sync/test/test_engine_components_factory.h"
 #include "services/network/test/test_network_connection_tracker.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -61,6 +61,7 @@ class TestHttpPostProvider : public HttpPostProvider {
   void SetPostPayload(const char* content_type,
                       int content_length,
                       const char* content) override {}
+  void SetAllowBatching(bool allow_batching) override {}
   bool MakeSynchronousPost(int* net_error_code,
                            int* http_status_code) override {
     return false;

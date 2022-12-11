@@ -1,17 +1,17 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/ozone/demo/skia/skia_surfaceless_gl_renderer.h"
 
 #include <stddef.h>
+
 #include <memory>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/trace_event/trace_event.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkDeferredDisplayListRecorder.h"
@@ -24,6 +24,7 @@
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rrect_f.h"
 #include "ui/gfx/gpu_fence.h"
+#include "ui/gfx/native_pixmap.h"
 #include "ui/gfx/overlay_plane_data.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
@@ -79,7 +80,9 @@ class SurfacelessSkiaGlRenderer::BufferWrapper {
   BufferWrapper();
   ~BufferWrapper();
 
-  gl::GLImage* image() const { return image_.get(); }
+  scoped_refptr<gfx::NativePixmap> image() const {
+    return image_->GetNativePixmap();
+  }
   SkSurface* sk_surface() const { return sk_surface_.get(); }
 
   bool Initialize(GrDirectContext* gr_context,
@@ -178,7 +181,7 @@ bool SurfacelessSkiaGlRenderer::Initialize() {
   else
     primary_plane_rect_ = gfx::Rect(size_);
 
-  for (size_t i = 0; i < base::size(buffers_); ++i) {
+  for (size_t i = 0; i < std::size(buffers_); ++i) {
     buffers_[i] = std::make_unique<BufferWrapper>();
     if (!buffers_[i]->Initialize(gr_context_.get(), widget_,
                                  primary_plane_rect_.size()))
@@ -187,7 +190,7 @@ bool SurfacelessSkiaGlRenderer::Initialize() {
 
   if (command_line->HasSwitch(kEnableOverlay)) {
     gfx::Size overlay_size = gfx::Size(size_.width() / 8, size_.height() / 8);
-    for (size_t i = 0; i < base::size(overlay_buffer_); ++i) {
+    for (size_t i = 0; i < std::size(overlay_buffer_); ++i) {
       overlay_buffer_[i] = std::make_unique<BufferWrapper>();
       overlay_buffer_[i]->Initialize(gr_context_.get(),
                                      gfx::kNullAcceleratedWidget, overlay_size);
@@ -277,14 +280,14 @@ void SurfacelessSkiaGlRenderer::RenderFrame() {
   gl_surface_->SwapBuffersAsync(
       base::BindOnce(&SurfacelessSkiaGlRenderer::PostRenderFrameTask,
                      weak_ptr_factory_.GetWeakPtr()),
-      base::DoNothing());
+      base::DoNothing(), gl::FrameData());
 }
 
 void SurfacelessSkiaGlRenderer::PostRenderFrameTask(
     gfx::SwapCompletionResult result) {
   switch (result.swap_result) {
     case gfx::SwapResult::SWAP_NAK_RECREATE_BUFFERS:
-      for (size_t i = 0; i < base::size(buffers_); ++i) {
+      for (size_t i = 0; i < std::size(buffers_); ++i) {
         buffers_[i] = std::make_unique<BufferWrapper>();
         if (!buffers_[i]->Initialize(gr_context_.get(), widget_,
                                      primary_plane_rect_.size()))

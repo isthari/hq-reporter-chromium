@@ -1,20 +1,19 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/views/corewm/tooltip_controller_test_helper.h"
 
+#include "base/time/time.h"
 #include "ui/aura/window.h"
 #include "ui/wm/public/activation_change_observer.h"
 
-namespace views {
-namespace corewm {
-namespace test {
+namespace views::corewm::test {
 
 TooltipControllerTestHelper::TooltipControllerTestHelper(
     TooltipController* controller)
     : controller_(controller) {
-  controller_->state_manager_->SetTooltipShowDelayedForTesting(false);
+  SkipTooltipShowDelay(true);
 }
 
 TooltipControllerTestHelper::~TooltipControllerTestHelper() = default;
@@ -35,6 +34,10 @@ const gfx::Point& TooltipControllerTestHelper::GetTooltipPosition() {
   return controller_->state_manager_->position_;
 }
 
+base::TimeDelta TooltipControllerTestHelper::GetShowTooltipDelay() {
+  return controller_->GetShowTooltipDelay();
+}
+
 void TooltipControllerTestHelper::HideAndReset() {
   controller_->HideAndReset();
 }
@@ -44,7 +47,6 @@ void TooltipControllerTestHelper::UpdateIfRequired(TooltipTrigger trigger) {
 }
 
 void TooltipControllerTestHelper::FireHideTooltipTimer() {
-  controller_->state_manager_->StopWillHideTooltipTimer();
   controller_->state_manager_->HideAndReset();
 }
 
@@ -56,10 +58,8 @@ bool TooltipControllerTestHelper::IsTooltipVisible() {
   return controller_->state_manager_->IsVisible();
 }
 
-void TooltipControllerTestHelper::SetTooltipShowDelayEnable(
-    bool tooltip_show_delay) {
-  controller_->state_manager_->SetTooltipShowDelayedForTesting(
-      tooltip_show_delay);
+void TooltipControllerTestHelper::SkipTooltipShowDelay(bool enable) {
+  controller_->skip_show_delay_for_testing_ = enable;
 }
 
 void TooltipControllerTestHelper::MockWindowActivated(aura::Window* window,
@@ -79,6 +79,4 @@ std::u16string TooltipTestView::GetTooltipText(const gfx::Point& p) const {
   return tooltip_text_;
 }
 
-}  // namespace test
-}  // namespace corewm
-}  // namespace views
+}  // namespace views::corewm::test

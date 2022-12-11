@@ -201,11 +201,12 @@ void LayoutFlowThread::AbsoluteQuadsForDescendant(const LayoutBox& descendant,
 
 void LayoutFlowThread::AddOutlineRects(
     Vector<PhysicalRect>& rects,
+    OutlineInfo* info,
     const PhysicalOffset& additional_offset,
     NGOutlineType include_block_overflows) const {
   NOT_DESTROYED();
   Vector<PhysicalRect> rects_in_flowthread;
-  LayoutBlockFlow::AddOutlineRects(rects_in_flowthread, additional_offset,
+  LayoutBlockFlow::AddOutlineRects(rects_in_flowthread, info, additional_offset,
                                    include_block_overflows);
   // Convert the rectangles from the flow thread coordinate space to the visual
   // space. The approach here is very simplistic; just calculate a bounding box
@@ -223,12 +224,12 @@ void LayoutFlowThread::AddOutlineRects(
 bool LayoutFlowThread::NodeAtPoint(HitTestResult& result,
                                    const HitTestLocation& hit_test_location,
                                    const PhysicalOffset& accumulated_offset,
-                                   HitTestAction hit_test_action) {
+                                   HitTestPhase phase) {
   NOT_DESTROYED();
-  if (hit_test_action == kHitTestBlockBackground)
+  if (phase == HitTestPhase::kSelfBlockBackground)
     return false;
   return LayoutBlockFlow::NodeAtPoint(result, hit_test_location,
-                                      accumulated_offset, hit_test_action);
+                                      accumulated_offset, phase);
 }
 
 LayoutUnit LayoutFlowThread::PageLogicalHeightForOffset(

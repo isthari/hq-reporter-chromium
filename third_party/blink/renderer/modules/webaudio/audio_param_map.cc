@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@ class AudioParamMapIterationSource final
     : public PairIterable<String, IDLString, AudioParam*, AudioParam>::
           IterationSource {
  public:
-  AudioParamMapIterationSource(
+  explicit AudioParamMapIterationSource(
       const HeapHashMap<String, Member<AudioParam>>& map) {
     for (const auto& name : map.Keys()) {
       parameter_names_.push_back(name);

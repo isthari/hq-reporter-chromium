@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,11 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "components/policy/core/common/remote_commands/remote_command_job.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-
-class DeviceOAuth2TokenService;
 
 namespace policy {
 
@@ -23,12 +21,15 @@ namespace policy {
 // Affiliated Users and for Managed Guest Sessions.
 class DeviceCommandStartCrdSessionJob : public RemoteCommandJob {
  public:
-  enum ResultCode {
+  // This enum can't be renumbered because it's logged to UMA and because its
+  // values must match the values in the server side
+  // `DeviceCommandUtil::ClientResultCode` enum.
+  enum class ResultCode {
     // Successfully obtained access code.
     SUCCESS = 0,
 
     // Failed as required services are not launched on the device.
-    FAILURE_SERVICES_NOT_READY = 1,
+    // deprecated FAILURE_SERVICES_NOT_READY = 1,
 
     // Failure as the current user type does not support remotely starting CRD.
     FAILURE_UNSUPPORTED_USER_TYPE = 2,
@@ -44,6 +45,12 @@ class DeviceCommandStartCrdSessionJob : public RemoteCommandJob {
 
     // Failure during attempt to start CRD host and obtain CRD token.
     FAILURE_CRD_HOST_ERROR = 6,
+
+    // Failure to start a curtained session as we're not in a managed
+    // environment.
+    FAILURE_UNMANAGED_ENVIRONMENT = 7,
+
+    kMaxValue = FAILURE_UNMANAGED_ENVIRONMENT
   };
 
   using OAuthTokenCallback = base::OnceCallback<void(const std::string&)>;
@@ -60,6 +67,7 @@ class DeviceCommandStartCrdSessionJob : public RemoteCommandJob {
       std::string user_name = "";
       bool terminate_upon_input = false;
       bool show_confirmation_dialog = false;
+      bool curtain_local_user_session = false;
     };
 
     virtual ~Delegate() = default;
@@ -91,6 +99,15 @@ class DeviceCommandStartCrdSessionJob : public RemoteCommandJob {
   // fetch an oauth token.
   void SetOAuthTokenForTest(const std::string& token);
 
+  // This enum can't be renumbered because it is logged to UMA.
+  enum class UmaSessionType {
+    kAutoLaunchedKiosk = 0,
+    kAffiliatedUser = 1,
+    kManagedGuestSession = 2,
+    kManuallyLaunchedKiosk = 3,
+    kMaxValue = kManuallyLaunchedKiosk
+  };
+
  protected:
   // RemoteCommandJob:
   bool ParseCommandPayload(const std::string& command_payload) override;
@@ -100,43 +117,24 @@ class DeviceCommandStartCrdSessionJob : public RemoteCommandJob {
 
  private:
   class OAuthTokenFetcher;
-  class ResultPayload;
 
-  enum class UserType {
-    kAutoLaunchedKiosk,
-    kNonAutoLaunchedKiosk,
-    kNoUser,
-    kAffiliatedUser,
-    kManagedGuestSession,
-    kOther,
-  };
-  const char* UserTypeToString(UserType value) const;
-
-  // Check if all required system services (singletons) are ready.
-  bool AreServicesReady() const;
-  bool UserTypeSupportsCrd() const;
-  UserType GetUserType() const;
-  bool IsRunningAutoLaunchedKiosk() const;
-  bool IsDeviceIdle() const;
-  base::TimeDelta GetDeviceIdlenessPeriod() const;
-
-  void FetchOAuthTokenASync(OAuthTokenCallback on_success,
-                            ErrorCallback on_error);
-
+  void CheckManagedNetworkASync(base::OnceClosure on_success);
+  void FetchOAuthTokenASync(OAuthTokenCallback on_success);
+  void StartCrdHostAndGetCode(const std::string& token);
+  void FinishWithSuccess(const std::string& access_code);
   // Finishes command with error code and optional message.
   void FinishWithError(ResultCode result_code, const std::string& message);
   void FinishWithNotIdleError();
 
-  void OnOAuthTokenReceived(const std::string& token);
-  void OnAccessCodeReceived(const std::string& access_code);
+  bool UserTypeSupportsCrd() const;
+  UmaSessionType GetUmaSessionType() const;
+  bool IsDeviceIdle() const;
 
   std::string GetRobotAccountUserName() const;
-
   bool ShouldShowConfirmationDialog() const;
   bool ShouldTerminateUponInput() const;
-  bool ShouldUseEnterpriseUserDialog() const;
 
-  DeviceOAuth2TokenService* oauth_service() const;
+  ErrorCallback GetErrorCallback();
 
   std::unique_ptr<OAuthTokenFetcher> oauth_token_fetcher_;
 
@@ -155,6 +153,11 @@ class DeviceCommandStartCrdSessionJob : public RemoteCommandJob {
   // True if the admin has confirmed that they want to start the CRD session,
   // while a user is currently using the device.
   bool acked_user_presence_ = false;
+
+  // True if the admin requested a curtained remote access session.
+  bool curtain_local_user_session_ = false;
+
+  // -- End of command parameters --
 
   // Fake OAuth token that will be used once the next time we need to fetch an
   // oauth token.

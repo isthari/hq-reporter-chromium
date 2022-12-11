@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include "base/memory/singleton.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_number_conversions.h"
-#include "chromeos/dbus/arc/arc_camera_client.h"
+#include "chromeos/ash/components/dbus/arc/arc_camera_client.h"
 #include "crypto/random.h"
 #include "media/capture/video/chromeos/camera_hal_dispatcher_impl.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -141,7 +141,7 @@ void ArcCameraBridge::StartCameraService(StartCameraServiceCallback callback) {
   base::ScopedFD fd =
       channel.TakeRemoteEndpoint().TakePlatformHandle().TakeFD();
 
-  chromeos::ArcCameraClient::Get()->StartService(
+  ash::ArcCameraClient::Get()->StartService(
       fd.get(), token, base::BindOnce([](bool success) {}));
 }
 

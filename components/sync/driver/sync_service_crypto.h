@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
+#include "base/time/time.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/driver/data_type_encryption_handler.h"
@@ -173,7 +174,7 @@ class SyncServiceCrypto : public SyncEncryptionHandler::Observer,
     State& operator=(State&& other) = default;
 
     // Not-null when the engine is initialized.
-    raw_ptr<SyncEngine> engine = nullptr;
+    raw_ptr<SyncEngine, DanglingUntriaged> engine = nullptr;
 
     // Populated when the engine is initialized.
     CoreAccountInfo account_info;

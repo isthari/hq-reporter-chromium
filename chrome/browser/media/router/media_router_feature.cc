@@ -1,18 +1,24 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/media/router/media_router_feature.h"
 
+#include <stdint.h>
+#include <string>
 #include <utility>
 
 #include "base/base64.h"
+#include "base/command_line.h"
 #include "base/containers/flat_map.h"
 #include "base/feature_list.h"
 #include "base/no_destructor.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
+#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/common/pref_names.h"
+#include "components/media_router/common/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/browser_context.h"
@@ -27,20 +33,36 @@
 
 namespace media_router {
 
-#if !BUILDFLAG(IS_ANDROID)
-const base::Feature kMediaRouter{"MediaRouter",
-                                 base::FEATURE_ENABLED_BY_DEFAULT};
-const base::Feature kCastAllowAllIPsFeature{"CastAllowAllIPs",
-                                            base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kGlobalMediaControlsCastStartStop{
-    "GlobalMediaControlsCastStartStop", base::FEATURE_ENABLED_BY_DEFAULT};
-const base::Feature kAllowAllSitesToInitiateMirroring{
-    "AllowAllSitesToInitiateMirroring", base::FEATURE_DISABLED_BY_DEFAULT};
-const base::Feature kDialMediaRouteProvider{"DialMediaRouteProvider",
-                                            base::FEATURE_ENABLED_BY_DEFAULT};
-const base::Feature kDialEnforceUrlIPAddress{"DialEnforceUrlIPAddress",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
-#endif  // !BUILDFLAG(IS_ANDROID)
+#if BUILDFLAG(IS_ANDROID)
+BASE_FEATURE(kCafMRPDeferredDiscovery,
+             "CafMRPDeferredDiscovery",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+#else
+BASE_FEATURE(kMediaRouter, "MediaRouter", base::FEATURE_ENABLED_BY_DEFAULT);
+BASE_FEATURE(kCastAllowAllIPsFeature,
+             "CastAllowAllIPs",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+BASE_FEATURE(kAllowAllSitesToInitiateMirroring,
+             "AllowAllSitesToInitiateMirroring",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+BASE_FEATURE(kDialMediaRouteProvider,
+             "DialMediaRouteProvider",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+BASE_FEATURE(kMediaRemotingWithoutFullscreen,
+             "MediaRemotingWithoutFullscreen",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+#if BUILDFLAG(IS_CHROMEOS)
+BASE_FEATURE(kGlobalMediaControlsCastStartStop,
+             "GlobalMediaControlsCastStartStop",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+#else
+BASE_FEATURE(kGlobalMediaControlsCastStartStop,
+             "GlobalMediaControlsCastStartStop",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+#endif  // BUILDFLAG(IS_CHROMEOS)
+
+#endif  // BUILDFLAG(IS_ANDROID)
 
 namespace {
 const PrefService::Preference* GetMediaRouterPref(
@@ -66,6 +88,10 @@ bool MediaRouterEnabled(content::BrowserContext* context) {
   if (!base::FeatureList::IsEnabled(kMediaRouter))
     return false;
 #endif  // !BUILDFLAG(IS_ANDROID)
+
+  // The MediaRouter service is shared across the original and the incognito
+  // profiles, so we must use the original context for consistency between them.
+  context = chrome::GetBrowserContextRedirectedInIncognito(context);
 
   // If the Media Router was already enabled or disabled for |context|, then it
   // must remain so.  The Media Router does not support dynamic
@@ -94,9 +120,15 @@ void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
 }
 
 void RegisterProfilePrefs(PrefRegistrySimple* registry) {
-  // TODO(imcheng): Migrate existing Media Router prefs to here.
   registry->RegisterStringPref(prefs::kMediaRouterReceiverIdHashToken, "",
                                PrefRegistry::PUBLIC);
+  registry->RegisterBooleanPref(
+      media_router::prefs::kMediaRouterMediaRemotingEnabled, true);
+  registry->RegisterListPref(
+      media_router::prefs::kMediaRouterTabMirroringSources);
+  registry->RegisterBooleanPref(
+      media_router::prefs::kMediaRouterShowCastSessionsStartedByOtherDevices,
+      true);
 }
 
 bool GetCastAllowAllIPsPref(PrefService* pref_service) {
@@ -134,6 +166,20 @@ bool DialMediaRouteProviderEnabled() {
 bool GlobalMediaControlsCastStartStopEnabled(content::BrowserContext* context) {
   return base::FeatureList::IsEnabled(kGlobalMediaControlsCastStartStop) &&
          MediaRouterEnabled(context);
+}
+
+absl::optional<base::TimeDelta> GetMirroringRefreshInterval() {
+  const std::string refresh_interval_str =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          "mirroring-refresh-interval-ms");
+  if (!refresh_interval_str.empty()) {
+    int64_t refresh_interval;
+    if (base::StringToInt64(refresh_interval_str, &refresh_interval) &&
+        refresh_interval > 0) {
+      return base::Milliseconds(refresh_interval);
+    }
+  }
+  return absl::nullopt;
 }
 
 #endif  // !BUILDFLAG(IS_ANDROID)

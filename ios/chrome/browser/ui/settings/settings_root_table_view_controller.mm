@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/settings_root_table_view_controller.h"
 
 #import "base/mac/foundation_util.h"
-#include "base/notreached.h"
+#import "base/notreached.h"
 #import "ios/chrome/browser/net/crurl.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
@@ -17,9 +17,9 @@
 #import "ios/chrome/browser/ui/table_view/table_view_utils.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/device_form_factor.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/device_form_factor.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -27,7 +27,7 @@
 
 namespace {
 // Height of the space used by header/footer when none is set. Default is
-// |estimatedSection{Header|Footer}Height|.
+// `estimatedSection{Header|Footer}Height`.
 const CGFloat kDefaultHeaderFooterHeight = 10;
 // Estimated height of the header/footer, used to speed the constraints.
 const CGFloat kEstimatedHeaderFooterHeight = 50;
@@ -47,9 +47,6 @@ const CGFloat kActivityIndicatorDimensionIPhone = 56;
 
 // Delete button for the toolbar.
 @property(nonatomic, strong) UIBarButtonItem* deleteButton;
-
-// Add button for the toolbar.
-@property(nonatomic, strong) UIBarButtonItem* addButtonInToolbar;
 
 // Item displayed before the user interactions are prevented. This is used to
 // store the item while the interaction is prevented.
@@ -102,24 +99,31 @@ const CGFloat kActivityIndicatorDimensionIPhone = 56;
   if (self.shouldHideToolbar) {
     return;
   }
+
   UIBarButtonItem* flexibleSpace = [[UIBarButtonItem alloc]
       initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace
                            target:nil
                            action:nil];
 
   UIBarButtonItem* toolbarLeftButton = flexibleSpace;
-  if (self.tableView.editing && self.shouldShowDeleteButtonInToolbar) {
+  if (self.customLeftToolbarButton) {
+    toolbarLeftButton = self.customLeftToolbarButton;
+  } else if (self.tableView.editing && self.shouldShowDeleteButtonInToolbar) {
     toolbarLeftButton = self.deleteButton;
-  } else if (self.shouldShowAddButtonInToolbar) {
-    toolbarLeftButton = self.addButtonInToolbar;
   }
 
-  UIBarButtonItem* editOrDoneButton =
-      self.tableView.editing ? [self createEditModeDoneButtonForToolbar:YES]
-                             : [self createEditButtonForToolbar:YES];
+  UIBarButtonItem* toolbarRightButton = flexibleSpace;
+  if (self.customRightToolbarButton) {
+    toolbarRightButton = self.customRightToolbarButton;
+  } else if (self.tableView.editing) {
+    toolbarRightButton = [self createEditModeDoneButtonForToolbar:YES];
+  } else {
+    toolbarRightButton = [self createEditButtonForToolbar:YES];
+  }
 
-  [self setToolbarItems:@[ toolbarLeftButton, flexibleSpace, editOrDoneButton ]
-               animated:YES];
+  [self
+      setToolbarItems:@[ toolbarLeftButton, flexibleSpace, toolbarRightButton ]
+             animated:YES];
 
   if (self.tableView.editing) {
     self.deleteButton.enabled = NO;
@@ -144,18 +148,6 @@ const CGFloat kActivityIndicatorDimensionIPhone = 56;
     _deleteButton.tintColor = [UIColor colorNamed:kRedColor];
   }
   return _deleteButton;
-}
-
-- (UIBarButtonItem*)addButtonInToolbar {
-  if (!_addButtonInToolbar) {
-    _addButtonInToolbar = [[UIBarButtonItem alloc]
-        initWithTitle:l10n_util::GetNSString(IDS_IOS_SETTINGS_TOOLBAR_ADD)
-                style:UIBarButtonItemStylePlain
-               target:self
-               action:@selector(addButtonCallback)];
-    _addButtonInToolbar.accessibilityIdentifier = kSettingsToolbarAddButtonId;
-  }
-  return _addButtonInToolbar;
 }
 
 #pragma mark - UIViewController
@@ -233,14 +225,14 @@ const CGFloat kActivityIndicatorDimensionIPhone = 56;
 
 - (CGFloat)tableView:(UITableView*)tableView
     heightForHeaderInSection:(NSInteger)section {
-  if ([self.tableViewModel headerForSection:section])
+  if ([self.tableViewModel headerForSectionIndex:section])
     return UITableViewAutomaticDimension;
   return ChromeTableViewHeightForHeaderInSection(section);
 }
 
 - (CGFloat)tableView:(UITableView*)tableView
     heightForFooterInSection:(NSInteger)section {
-  if ([self.tableViewModel footerForSection:section])
+  if ([self.tableViewModel footerForSectionIndex:section])
     return UITableViewAutomaticDimension;
   return kDefaultHeaderFooterHeight;
 }
@@ -357,7 +349,7 @@ const CGFloat kActivityIndicatorDimensionIPhone = 56;
   DCHECK(!self.savedBarButtonItem);
   DCHECK_EQ(kUndefinedBarButtonItemPosition, self.savedBarButtonItemPosition);
 
-  // Create |waitButton|.
+  // Create `waitButton`.
   BOOL displayActivityIndicatorOnTheRight =
       self.navigationItem.rightBarButtonItem != nil;
   CGFloat activityIndicatorDimension =
@@ -399,7 +391,7 @@ const CGFloat kActivityIndicatorDimensionIPhone = 56;
 
 - (void)allowUserInteraction {
   DCHECK(self.navigationController)
-      << "|allowUserInteraction| should always be called before this settings"
+      << "`allowUserInteraction` should always be called before this settings"
          " controller is popped or dismissed.";
   [self.navigationController.view setUserInteractionEnabled:YES];
 
@@ -428,11 +420,6 @@ const CGFloat kActivityIndicatorDimensionIPhone = 56;
   }
   self.savedBarButtonItem = nil;
   self.savedBarButtonItemPosition = kUndefinedBarButtonItemPosition;
-}
-
-- (void)addButtonCallback {
-  // Subclasses should implement.
-  NOTREACHED();
 }
 
 #pragma mark - UIAdaptivePresentationControllerDelegate

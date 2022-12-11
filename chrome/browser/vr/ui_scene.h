@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "chrome/browser/vr/elements/ui_element.h"
 #include "chrome/browser/vr/elements/ui_element_name.h"
 #include "chrome/browser/vr/keyboard_delegate.h"
@@ -113,7 +112,7 @@ class VR_UI_EXPORT UiScene {
   std::vector<PerFrameCallback> per_frame_callback_;
 
   std::vector<std::unique_ptr<Sequence>> scheduled_tasks_;
-  raw_ptr<SkiaSurfaceProvider> provider_ = nullptr;
+  raw_ptr<SkiaSurfaceProvider, DanglingUntriaged> provider_ = nullptr;
 };
 
 }  // namespace vr

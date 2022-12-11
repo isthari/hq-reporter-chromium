@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -92,8 +92,7 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
     void OnWindowDestroying(Window* window) override;
 
     void Shutdown();
-
-    raw_ptr<Window> window_;
+    raw_ptr<Window, DanglingUntriaged> window_;
   };
 
   // Forces the occlusion state of a window to VISIBLE regardless of the drawn
@@ -120,7 +119,7 @@ class AURA_EXPORT WindowOcclusionTracker : public ui::LayerAnimationObserver,
 
     void Shutdown();
 
-    raw_ptr<Window> window_;
+    raw_ptr<Window, DanglingUntriaged> window_;
   };
 
   // Holds occlusion related information for tracked windows.

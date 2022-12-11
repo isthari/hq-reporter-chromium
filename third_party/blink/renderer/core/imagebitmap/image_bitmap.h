@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 #include "base/memory/scoped_refptr.h"
 #include "base/task/sequenced_task_runner.h"
+#include "third_party/blink/public/mojom/css/preferred_color_scheme.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_image_bitmap_options.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_image_source.h"
@@ -28,6 +29,7 @@ class ImageData;
 class ImageElementBase;
 class ImageDecoder;
 class OffscreenCanvas;
+class ScriptPromiseResolver;
 
 class CORE_EXPORT ImageBitmap final : public ScriptWrappable,
                                       public CanvasImageSource,
@@ -40,6 +42,9 @@ class CORE_EXPORT ImageBitmap final : public ScriptWrappable,
       ImageElementBase*,
       absl::optional<gfx::Rect>,
       ScriptState*,
+      scoped_refptr<base::SequencedTaskRunner> task_runner,
+      mojom::blink::PreferredColorScheme,
+      ExceptionState&,
       const ImageBitmapOptions* = ImageBitmapOptions::Create());
   static sk_sp<SkImage> GetSkImageFromDecoder(std::unique_ptr<ImageDecoder>);
 
@@ -68,7 +73,9 @@ class CORE_EXPORT ImageBitmap final : public ScriptWrappable,
   // This constructor may called by structured-cloning an ImageBitmap.
   // isImageBitmapOriginClean indicates whether the original ImageBitmap is
   // origin clean or not.
-  ImageBitmap(const SkPixmap& pixmap, bool is_image_bitmap_origin_clean);
+  ImageBitmap(const SkPixmap& pixmap,
+              bool is_image_bitmap_origin_clean,
+              ImageOrientationEnum);
 
   // Type and helper function required by CallbackPromiseAdapter:
   using WebType = sk_sp<SkImage>;
@@ -90,6 +97,9 @@ class CORE_EXPORT ImageBitmap final : public ScriptWrappable,
   bool IsNeutered() const override { return is_neutered_; }
   bool OriginClean() const { return image_->OriginClean(); }
   bool IsPremultiplied() const { return image_->IsPremultiplied(); }
+  ImageOrientationEnum ImageOrientation() const {
+    return image_->CurrentFrameOrientation().Orientation();
+  }
   scoped_refptr<StaticBitmapImage> Transfer();
   void close();
 

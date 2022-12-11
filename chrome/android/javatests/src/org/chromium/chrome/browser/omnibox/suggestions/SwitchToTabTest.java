@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,7 +37,7 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.CriteriaNotSatisfiedException;
-import org.chromium.base.test.util.FlakyTest;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
@@ -58,7 +58,6 @@ import org.chromium.chrome.test.util.ChromeApplicationTestUtils;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.MenuUtils;
 import org.chromium.chrome.test.util.OmniboxTestUtils;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.omnibox.AutocompleteMatch;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.browser.test.util.TestTouchUtils;
@@ -149,7 +148,7 @@ public class SwitchToTabTest {
      *
      * @param locationBarLayout The layout which omnibox suggestions will show in.
      * @param tab The tab which the AutocompleteMatch should suggest.
-     * @return The suggesstion which suggests the |tab|.
+     * @return The suggestion which suggests the |tab|.
      */
     private AutocompleteMatch findTabMatchOmniboxSuggestion(
             LocationBarLayout locationBarLayout, Tab tab) {
@@ -238,7 +237,7 @@ public class SwitchToTabTest {
     }
 
     /**
-     * Launch the SearchActiviy.
+     * Launch the SearchActivity.
      */
     private SearchActivity startSearchActivity() {
         final Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
@@ -266,7 +265,7 @@ public class SwitchToTabTest {
 
     @Test
     @MediumTest
-    @EnableFeatures("OmniboxTabSwitchSuggestions")
+    @CommandLineFlags.Add({"disable-features=OmniboxUpdateResultDebounce"})
     public void testSwitchToTabSuggestion() throws InterruptedException {
         mTestServer = EmbeddedTestServer.createAndStartHTTPSServer(
                 InstrumentationRegistry.getInstrumentation().getContext(),
@@ -294,9 +293,8 @@ public class SwitchToTabTest {
     @Test
     @MediumTest
     @MinAndroidSdkLevel(Build.VERSION_CODES.N)
-    @EnableFeatures("OmniboxTabSwitchSuggestions")
     @CommandLineFlags.Add(ChromeSwitches.DISABLE_TAB_MERGING_FOR_TESTING)
-    @FlakyTest(message = "https://crbug.com/1291136")
+    @DisabledTest(message = "https://crbug.com/1291136")
     public void testSwitchToTabSuggestionWhenIncognitoTabOnTop() throws InterruptedException {
         mTestServer = EmbeddedTestServer.createAndStartHTTPSServer(
                 InstrumentationRegistry.getInstrumentation().getContext(),
@@ -334,7 +332,6 @@ public class SwitchToTabTest {
 
     @Test
     @MediumTest
-    @EnableFeatures("OmniboxTabSwitchSuggestions")
     public void testNoSwitchToIncognitoTabFromNormalModel() throws InterruptedException {
         mTestServer = EmbeddedTestServer.createAndStartHTTPSServer(
                 InstrumentationRegistry.getInstrumentation().getContext(),
@@ -362,7 +359,7 @@ public class SwitchToTabTest {
 
     @Test
     @MediumTest
-    @EnableFeatures("OmniboxTabSwitchSuggestions")
+    @CommandLineFlags.Add({"disable-features=OmniboxUpdateResultDebounce"})
     public void testSwitchToTabInSearchActivity() throws InterruptedException {
         mTestServer = EmbeddedTestServer.createAndStartHTTPSServer(
                 InstrumentationRegistry.getInstrumentation().getContext(),

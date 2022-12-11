@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,12 +22,28 @@
 #include "net/url_request/redirect_util.h"
 #include "services/network/public/cpp/cors/cors.h"
 #include "services/network/public/cpp/features.h"
+#include "services/network/public/cpp/record_ontransfersizeupdate_utils.h"
 #include "services/network/public/mojom/early_hints.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 
 namespace blink {
 
 namespace {
+
+// Removing headers won't work if we intend to remove the headers for the new
+// requests because all previous headers will be merge into the new header if
+// there is no overrides in the new header.
+// Remove Accept-Language header from `modified_headers` before we merge
+// incoming new headers. This helps us avoid inheriting headers which need to be
+// removed in the new requests.
+void RemoveModifiedHeadersBeforeMerge(
+    net::HttpRequestHeaders* modified_headers) {
+  if (base::FeatureList::IsEnabled(
+          network::features::kReduceAcceptLanguageOriginTrial)) {
+    DCHECK(modified_headers);
+    modified_headers->RemoveHeader(net::HttpRequestHeaders::kAcceptLanguage);
+  }
+}
 
 // Merges |removed_headers_B| into |removed_headers_A|.
 void MergeRemovedHeaders(std::vector<std::string>* removed_headers_A,
@@ -45,6 +61,16 @@ void CheckThrottleWillNotCauseCorsPreflight(
     const net::HttpRequestHeaders& headers,
     const net::HttpRequestHeaders& cors_exempt_headers,
     const std::vector<std::string> cors_exempt_header_list) {
+  // There are many ways for the renderer to cache the list, e.g. for workers,
+  // and it might have been cached before the renderer receives a message with
+  // the list. This isn't guaranteed because the caching paths aren't triggered
+  // by mojo calls that are associated with the method that receives the list.
+  // Since the renderer just checks to help catch develper bugs, if the list
+  // isn't received don't DCHECK. Most of the time it will which is all we need
+  // on bots.
+  if (cors_exempt_header_list.empty())
+    return;
+
   base::flat_set<std::string> cors_exempt_header_flat_set(
       cors_exempt_header_list);
   for (auto& header : headers.GetHeaderVector()) {
@@ -152,11 +178,13 @@ class ThrottlingURLLoader::ForwardingThrottleDelegate
   }
 
   void UpdateDeferredResponseHead(
-      network::mojom::URLResponseHeadPtr new_response_head) override {
+      network::mojom::URLResponseHeadPtr new_response_head,
+      mojo::ScopedDataPipeConsumerHandle body) override {
     if (!loader_)
       return;
     ScopedDelegateCall scoped_delegate_call(this);
-    loader_->UpdateDeferredResponseHead(std::move(new_response_head));
+    loader_->UpdateDeferredResponseHead(std::move(new_response_head),
+                                        std::move(body));
   }
 
   void PauseReadingBodyFromNet() override {
@@ -208,14 +236,6 @@ class ThrottlingURLLoader::ForwardingThrottleDelegate
     loader_->RestartWithURLResetAndFlags(additional_load_flags);
   }
 
-  void RestartWithURLResetAndFlagsNow(int additional_load_flags) override {
-    if (!loader_)
-      return;
-
-    ScopedDelegateCall scoped_delegate_call(this);
-    loader_->RestartWithURLResetAndFlagsNow(additional_load_flags);
-  }
-
   void Detach() { loader_ = nullptr; }
 
  private:
@@ -246,7 +266,7 @@ class ThrottlingURLLoader::ForwardingThrottleDelegate
     const raw_ptr<ForwardingThrottleDelegate> owner_;
   };
 
-  raw_ptr<ThrottlingURLLoader> loader_;
+  raw_ptr<ThrottlingURLLoader, DanglingUntriaged> loader_;
   const raw_ptr<URLLoaderThrottle> throttle_;
 };
 
@@ -342,6 +362,7 @@ void ThrottlingURLLoader::ResetForFollowRedirect(
     const net::HttpRequestHeaders& modified_headers,
     const net::HttpRequestHeaders& modified_cors_exempt_headers) {
   MergeRemovedHeaders(&removed_headers_, removed_headers);
+  RemoveModifiedHeadersBeforeMerge(&modified_headers_);
   modified_headers_.MergeFrom(modified_headers);
   modified_cors_exempt_headers_.MergeFrom(modified_cors_exempt_headers);
   // Call UpdateRequestHeaders() after headers are merged.
@@ -362,6 +383,7 @@ void ThrottlingURLLoader::RestartWithFactory(
   start_info_->url_loader_factory = std::move(factory);
   start_info_->options = url_loader_options;
   body_.reset();
+  cached_metadata_.reset();
   StartNow();
 }
 
@@ -370,6 +392,7 @@ void ThrottlingURLLoader::FollowRedirect(
     const net::HttpRequestHeaders& modified_headers,
     const net::HttpRequestHeaders& modified_cors_exempt_headers) {
   MergeRemovedHeaders(&removed_headers_, removed_headers);
+  RemoveModifiedHeadersBeforeMerge(&modified_headers_);
   modified_headers_.MergeFrom(modified_headers);
   modified_cors_exempt_headers_.MergeFrom(modified_cors_exempt_headers);
 
@@ -644,13 +667,6 @@ void ThrottlingURLLoader::RestartWithURLResetAndFlags(
   has_pending_restart_ = true;
 }
 
-void ThrottlingURLLoader::RestartWithURLResetAndFlagsNow(
-    int additional_load_flags) {
-  RestartWithURLResetAndFlags(additional_load_flags);
-  if (!did_receive_response_)
-    RestartWithFlagsNow();
-}
-
 void ThrottlingURLLoader::OnReceiveEarlyHints(
     network::mojom::EarlyHintsPtr early_hints) {
   DCHECK_EQ(DEFERRED_NONE, deferred_stage_);
@@ -661,7 +677,8 @@ void ThrottlingURLLoader::OnReceiveEarlyHints(
 
 void ThrottlingURLLoader::OnReceiveResponse(
     network::mojom::URLResponseHeadPtr response_head,
-    mojo::ScopedDataPipeConsumerHandle body) {
+    mojo::ScopedDataPipeConsumerHandle body,
+    absl::optional<mojo_base::BigBuffer> cached_metadata) {
   DCHECK_EQ(DEFERRED_NONE, deferred_stage_);
   DCHECK(!loader_completed_);
   DCHECK(deferring_throttles_.empty());
@@ -669,6 +686,7 @@ void ThrottlingURLLoader::OnReceiveResponse(
                response_url_.possibly_invalid_spec());
   did_receive_response_ = true;
   body_ = std::move(body);
+  cached_metadata_ = std::move(cached_metadata);
 
   // Dispatch BeforeWillProcessResponse().
   if (!throttles_.empty()) {
@@ -722,8 +740,8 @@ void ThrottlingURLLoader::OnReceiveResponse(
     }
   }
 
-  forwarding_client_->OnReceiveResponse(std::move(response_head),
-                                        std::move(body_));
+  forwarding_client_->OnReceiveResponse(
+      std::move(response_head), std::move(body_), std::move(cached_metadata_));
 }
 
 void ThrottlingURLLoader::OnReceiveRedirect(
@@ -735,6 +753,28 @@ void ThrottlingURLLoader::OnReceiveRedirect(
 
   if (!throttles_.empty()) {
     bool deferred = false;
+    has_pending_restart_ = false;
+    for (auto& entry : throttles_) {
+      auto* throttle = entry.throttle.get();
+      bool throttle_deferred = false;
+      auto weak_ptr = weak_factory_.GetWeakPtr();
+      std::vector<std::string> removed_headers;
+      net::HttpRequestHeaders modified_headers;
+      net::HttpRequestHeaders modified_cors_exempt_headers;
+      net::RedirectInfo redirect_info_copy = redirect_info;
+      throttle->BeforeWillRedirectRequest(
+          &redirect_info_copy, *response_head, &throttle_deferred,
+          &removed_headers, &modified_headers, &modified_cors_exempt_headers);
+
+      if (!weak_ptr)
+        return;
+    }
+
+    if (has_pending_restart_) {
+      RestartWithFlagsNow();
+      return;
+    }
+
     for (auto& entry : throttles_) {
       auto* throttle = entry.throttle.get();
       bool throttle_deferred = false;
@@ -773,6 +813,7 @@ void ThrottlingURLLoader::OnReceiveRedirect(
         return;
 
       MergeRemovedHeaders(&removed_headers_, removed_headers);
+      RemoveModifiedHeadersBeforeMerge(&modified_headers_);
       modified_headers_.MergeFrom(modified_headers);
       modified_cors_exempt_headers_.MergeFrom(modified_cors_exempt_headers);
     }
@@ -797,6 +838,11 @@ void ThrottlingURLLoader::OnReceiveRedirect(
   request.site_for_cookies = redirect_info.new_site_for_cookies;
   request.referrer = GURL(redirect_info.new_referrer);
   request.referrer_policy = redirect_info.new_referrer_policy;
+  if (request.trusted_params) {
+    request.trusted_params->isolation_info =
+        request.trusted_params->isolation_info.CreateForRedirect(
+            url::Origin::Create(request.url));
+  }
 
   // TODO(dhausknecht) at this point we do not actually know if we commit to the
   // redirect or if it will be cancelled. FollowRedirect would be a more
@@ -817,28 +863,13 @@ void ThrottlingURLLoader::OnUploadProgress(
                                        std::move(ack_callback));
 }
 
-void ThrottlingURLLoader::OnReceiveCachedMetadata(mojo_base::BigBuffer data) {
-  DCHECK_EQ(DEFERRED_NONE, deferred_stage_);
-  DCHECK(!loader_completed_);
-
-  forwarding_client_->OnReceiveCachedMetadata(std::move(data));
-}
-
 void ThrottlingURLLoader::OnTransferSizeUpdated(int32_t transfer_size_diff) {
   DCHECK_EQ(DEFERRED_NONE, deferred_stage_);
   DCHECK(!loader_completed_);
+  network::RecordOnTransferSizeUpdatedUMA(
+      network::OnTransferSizeUpdatedFrom::kThrottlingURLLoader);
 
   forwarding_client_->OnTransferSizeUpdated(transfer_size_diff);
-}
-
-void ThrottlingURLLoader::OnStartLoadingResponseBody(
-    mojo::ScopedDataPipeConsumerHandle body) {
-  DCHECK_EQ(DEFERRED_NONE, deferred_stage_);
-  DCHECK(!loader_completed_);
-  TRACE_EVENT1("loading", "ThrottlingURLLoader::OnStartLoadingResponseBody",
-               "url", response_url_.possibly_invalid_spec());
-
-  forwarding_client_->OnStartLoadingResponseBody(std::move(body));
 }
 
 void ThrottlingURLLoader::OnComplete(
@@ -941,7 +972,8 @@ void ThrottlingURLLoader::Resume() {
     case DEFERRED_RESPONSE: {
       client_receiver_.Resume();
       forwarding_client_->OnReceiveResponse(
-          std::move(response_info_->response_head), std::move(body_));
+          std::move(response_info_->response_head), std::move(body_),
+          std::move(cached_metadata_));
       // Note: |this| may be deleted here.
       break;
     }
@@ -995,10 +1027,13 @@ void ThrottlingURLLoader::UpdateRequestHeaders(
 }
 
 void ThrottlingURLLoader::UpdateDeferredResponseHead(
-    network::mojom::URLResponseHeadPtr new_response_head) {
+    network::mojom::URLResponseHeadPtr new_response_head,
+    mojo::ScopedDataPipeConsumerHandle body) {
   DCHECK(response_info_);
+  DCHECK(!body_);
   DCHECK_EQ(DEFERRED_RESPONSE, deferred_stage_);
   response_info_->response_head = std::move(new_response_head);
+  body_ = std::move(body);
 }
 
 void ThrottlingURLLoader::PauseReadingBodyFromNet(URLLoaderThrottle* throttle) {
@@ -1028,7 +1063,7 @@ void ThrottlingURLLoader::InterceptResponse(
     mojo::ScopedDataPipeConsumerHandle* body) {
   response_intercepted_ = true;
 
-  *body = std::move(body_);
+  body->swap(body_);
   if (original_loader) {
     url_loader_->ResumeReadingBodyFromNet();
     *original_loader = url_loader_.Unbind();
@@ -1078,17 +1113,20 @@ const char* ThrottlingURLLoader::GetStageNameForHistogram(DeferredStage stage) {
 ThrottlingURLLoader::ThrottleEntry::ThrottleEntry(
     ThrottlingURLLoader* loader,
     std::unique_ptr<URLLoaderThrottle> the_throttle)
-    : delegate(
-          std::make_unique<ForwardingThrottleDelegate>(loader,
-                                                       the_throttle.get())),
-      throttle(std::move(the_throttle)) {
+    : throttle(std::move(the_throttle)),
+      delegate(std::make_unique<ForwardingThrottleDelegate>(loader,
+                                                            throttle.get())) {
   throttle->set_delegate(delegate.get());
 }
 
 ThrottlingURLLoader::ThrottleEntry::ThrottleEntry(ThrottleEntry&& other) =
     default;
 
-ThrottlingURLLoader::ThrottleEntry::~ThrottleEntry() = default;
+ThrottlingURLLoader::ThrottleEntry::~ThrottleEntry() {
+  // `delegate` is destroyed before `throttle`; clear the pointer so the
+  // throttle cannot inadvertently use-after-free the delegate.
+  throttle->set_delegate(nullptr);
+}
 
 ThrottlingURLLoader::ThrottleEntry& ThrottlingURLLoader::ThrottleEntry::
 operator=(ThrottleEntry&& other) = default;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -84,15 +84,6 @@ LinkToTextTabHelper::LinkToTextTabHelper(web::WebState* web_state)
 
 LinkToTextTabHelper::~LinkToTextTabHelper() {}
 
-// static
-void LinkToTextTabHelper::CreateForWebState(web::WebState* web_state) {
-  DCHECK(web_state);
-  if (!FromWebState(web_state)) {
-    web_state->SetUserData(
-        UserDataKey(), base::WrapUnique(new LinkToTextTabHelper(web_state)));
-  }
-}
-
 bool LinkToTextTabHelper::ShouldOffer() {
   if (!shared_highlighting::ShouldOfferLinkToText(
           web_state_->GetLastCommittedURL())) {
@@ -142,9 +133,7 @@ bool LinkToTextTabHelper::ShouldOffer() {
 
 void LinkToTextTabHelper::GetLinkToText(
     base::OnceCallback<void(LinkToTextResponse*)> callback) {
-  GetJSFeature()->GetLinkToText(
-      web_state_, web_state_->GetWebFramesManager()->GetMainWebFrame(),
-      std::move(callback));
+  GetJSFeature()->GetLinkToText(web_state_, std::move(callback));
 }
 
 void LinkToTextTabHelper::SetJSFeatureForTesting(
@@ -167,7 +156,7 @@ bool LinkToTextTabHelper::IsOnlyBoundaryChars(NSString* str) {
     }
   }
   int max_len = MIN(kBoundaryCharSearchLimit, [str length]);
-  auto range = [not_boundary_char_regex_
+  NSRange range = [not_boundary_char_regex_
       rangeOfFirstMatchInString:str
                         options:0
                           range:NSMakeRange(0, max_len)];

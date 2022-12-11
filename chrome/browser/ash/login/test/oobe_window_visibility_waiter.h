@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,11 +42,5 @@ class OobeWindowVisibilityWaiter : public aura::WindowObserver {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source code migration is finished.
-namespace chromeos {
-using ::ash::OobeWindowVisibilityWaiter;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_TEST_OOBE_WINDOW_VISIBILITY_WAITER_H_

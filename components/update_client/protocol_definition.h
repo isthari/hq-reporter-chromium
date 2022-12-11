@@ -1,4 +1,4 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/containers/flat_map.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "components/update_client/activity_data_service.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace update_client {
@@ -77,6 +78,23 @@ struct UpdateCheck {
   bool same_version_update_allowed = false;
 };
 
+// `data` element.
+struct Data {
+  Data();
+  Data(const Data& other);
+  Data& operator=(const Data& other);
+  Data(const std::string& name,
+       const std::string& install_data_index,
+       const std::string& untrusted_data);
+  ~Data();
+
+  // `name` can be either "install" or "untrusted", corresponding to
+  // `install_data_index` and `untrusted_data`.
+  std::string name;
+  std::string install_data_index;
+  std::string untrusted_data;
+};
+
 // didrun element. The element is named "ping" for legacy reasons.
 struct Ping {
   Ping();
@@ -108,6 +126,7 @@ struct App {
   base::flat_map<std::string, std::string> installer_attributes;
   std::string lang;
   std::string brand_code;
+  int install_date = kDateUnknown;
   std::string install_source;
   std::string install_location;
   std::string fingerprint;
@@ -123,6 +142,9 @@ struct App {
 
   // Optional update check.
   absl::optional<UpdateCheck> update_check;
+
+  // Optional `data` elements.
+  std::vector<Data> data;
 
   // Optional 'did run' ping.
   absl::optional<Ping> ping;
@@ -154,7 +176,6 @@ struct Request {
   std::string updatername;
   std::string updaterversion;
   std::string prodversion;
-  std::string lang;
   std::string updaterchannel;
   std::string prodchannel;
   std::string operating_system;

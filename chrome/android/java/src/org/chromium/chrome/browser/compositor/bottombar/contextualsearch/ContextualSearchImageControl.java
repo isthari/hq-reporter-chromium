@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.chrome.browser.compositor.bottombar.contextualsearch;
@@ -23,7 +23,7 @@ public class ContextualSearchImageControl {
     /** The {@link ContextualSearchPanel} that this class belongs to. */
     private final ContextualSearchPanel mPanel;
 
-    /** The percentage tha the image is visible that is based upon the panel position. */
+    /** The percentage that the image is visible that is based upon the panel position. */
     private float mVisibilityPercentageBasedOnPanelPosition;
 
     public ContextualSearchImageControl(ContextualSearchPanel panel) {
@@ -78,7 +78,7 @@ public class ContextualSearchImageControl {
     /**
      * @param resId The resource id of the card icon to display.
      */
-    public void setCardIconResourceId(int resId) {
+    void setCardIconResourceId(int resId) {
         mCardIconResourceId = resId;
         mCardIconVisible = true;
         animateCustomImageVisibility(true);

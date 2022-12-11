@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,6 +27,7 @@ import org.chromium.components.thinwebview.ThinWebView;
 import org.chromium.components.thinwebview.ThinWebViewConstraints;
 import org.chromium.components.thinwebview.ThinWebViewFactory;
 import org.chromium.ui.base.IntentRequestTracker;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
@@ -93,11 +94,9 @@ public class MerchantTrustBottomSheetCoordinator implements View.OnLayoutChangeL
         createToolbarView();
         createThinWebView();
         mMediator.setupSheetWebContents(mThinWebView, mToolbarModel);
-        mSheetContent = new MerchantTrustBottomSheetContent(mToolbarView.getView(),
-                mThinWebView.getView(), () -> mMediator.getVerticalScrollOffset(), () -> {
-                    closeSheet();
-                    return true;
-                });
+        mSheetContent =
+                new MerchantTrustBottomSheetContent(mToolbarView.getView(), mThinWebView.getView(),
+                        () -> mMediator.getVerticalScrollOffset(), this::closeSheet);
 
         mBottomSheetObserver = new EmptyBottomSheetObserver() {
             private int mCloseReason;
@@ -216,7 +215,8 @@ public class MerchantTrustBottomSheetCoordinator implements View.OnLayoutChangeL
         layoutParams.height =
                 (int) (maxViewHeight * MerchantTrustBottomSheetContent.FULL_HEIGHT_RATIO)
                 - mToolbarView.getToolbarHeightPx();
-        mThinWebView.getView().requestLayout();
+        ViewUtils.requestLayout(
+                mThinWebView.getView(), "MerchantTrustBottomSheetCoordinator.onLayoutChange");
         mCurrentMaxViewHeight = maxViewHeight;
     }
 

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,17 +9,20 @@
 #include "base/callback_forward.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/logging.h"
-#include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/sequence_checker.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
+#include "base/timer/elapsed_timer.h"
 #include "base/trace_event/trace_event.h"
 #include "components/optimization_guide/core/execution_status.h"
 #include "components/optimization_guide/core/model_enums.h"
+#include "components/optimization_guide/core/model_execution_timeout_watchdog.h"
 #include "components/optimization_guide/core/model_executor.h"
 #include "components/optimization_guide/core/model_util.h"
+#include "components/optimization_guide/core/optimization_guide_features.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/tflite/src/tensorflow/lite/c/common.h"
 #include "third_party/tflite_support/src/tensorflow_lite_support/cc/task/core/base_task_api.h"
@@ -72,7 +75,8 @@ class ScopedExecutionStatusResultRecorder {
 template <class OutputType, class... InputTypes>
 class TFLiteModelExecutor : public ModelExecutor<OutputType, InputTypes...> {
  public:
-  TFLiteModelExecutor() = default;
+  TFLiteModelExecutor()
+      : watchdog_(nullptr, base::OnTaskRunnerDeleter(nullptr)) {}
   ~TFLiteModelExecutor() override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   }
@@ -80,6 +84,7 @@ class TFLiteModelExecutor : public ModelExecutor<OutputType, InputTypes...> {
   // Should be called on the same sequence as the ctor, but once called |this|
   // must only be used from the |execution_task_runner| thread/sequence.
   void InitializeAndMoveToExecutionThread(
+      absl::optional<base::TimeDelta> model_inference_timeout,
       proto::OptimizationTarget optimization_target,
       scoped_refptr<base::SequencedTaskRunner> execution_task_runner,
       scoped_refptr<base::SequencedTaskRunner> reply_task_runner) override {
@@ -92,12 +97,28 @@ class TFLiteModelExecutor : public ModelExecutor<OutputType, InputTypes...> {
     optimization_target_ = optimization_target;
     execution_task_runner_ = execution_task_runner;
     reply_task_runner_ = reply_task_runner;
+    if (features::IsModelExecutionWatchdogEnabled()) {
+      // The sequence |watchdog_sequence| is used to run watchdog's task. The
+      // watchdog must be deleted on that sequence to guarantee that pending
+      // tasks can safely be executed.
+      scoped_refptr<base::SequencedTaskRunner> watchdog_sequence =
+          base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()});
+      using WatchdogType =
+          ModelExecutionTimeoutWatchdog<OutputType, InputTypes...>;
+      watchdog_ = std::unique_ptr<WatchdogType, base::OnTaskRunnerDeleter>(
+          new WatchdogType(
+              watchdog_sequence, optimization_target_,
+              model_inference_timeout.value_or(
+                  features::ModelExecutionWatchdogDefaultTimeout())),
+          base::OnTaskRunnerDeleter(watchdog_sequence));
+    }
   }
 
   // Called when a model file is available to load. Depending on feature flags,
   // the model may or may not be immediately loaded.
   void UpdateModelFile(const base::FilePath& file_path) override {
-    DCHECK(execution_task_runner_->RunsTasksInCurrentSequence());
+    DCHECK(execution_task_runner_ &&
+           execution_task_runner_->RunsTasksInCurrentSequence());
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
     UnloadModel();
@@ -185,11 +206,18 @@ class TFLiteModelExecutor : public ModelExecutor<OutputType, InputTypes...> {
 
     DCHECK(loaded_model_);
     absl::optional<OutputType> output;
+
+    // IMPORTANT: Once the arm method is called, disarm must be called when the
+    // model execution finishes. Do NOT early-return in this next block.
+    if (watchdog_) {
+      watchdog_->ArmWithTask(loaded_model_.get());
+    }
     {
       TRACE_EVENT1("browser", "OptGuideModelExecutor::Execute",
                    "OptimizationTarget",
                    optimization_guide::GetStringNameForOptimizationTarget(
                        optimization_target_));
+      base::ElapsedThreadTimer execution_timer;
       base::TimeTicks execute_start_time = base::TimeTicks::Now();
       output = Execute(loaded_model_.get(), status_recorder.mutable_status(),
                        args...);
@@ -201,6 +229,13 @@ class TFLiteModelExecutor : public ModelExecutor<OutputType, InputTypes...> {
           "OptimizationGuide.ModelExecutor.ExecutionLatency." +
               GetStringNameForOptimizationTarget(optimization_target_),
           base::TimeTicks::Now() - execute_start_time);
+      base::UmaHistogramLongTimes(
+          "OptimizationGuide.ModelExecutor.ExecutionThreadTime." +
+              GetStringNameForOptimizationTarget(optimization_target_),
+          execution_timer.Elapsed());
+    }
+    if (watchdog_) {
+      watchdog_->DisarmOnExecutionComplete();
     }
 
     DCHECK(callback_on_complete);
@@ -295,6 +330,10 @@ class TFLiteModelExecutor : public ModelExecutor<OutputType, InputTypes...> {
       proto::OptimizationTarget::OPTIMIZATION_TARGET_UNKNOWN;
 
   bool should_unload_model_on_complete_ = true;
+
+  std::unique_ptr<ModelExecutionTimeoutWatchdog<OutputType, InputTypes...>,
+                  base::OnTaskRunnerDeleter>
+      watchdog_;
 
   scoped_refptr<base::SequencedTaskRunner> execution_task_runner_;
 

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
@@ -31,10 +30,10 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/current_thread.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -46,8 +45,6 @@
 #endif  // ! BUILDFLAG(IS_ANDROID)
 
 #if BUILDFLAG(IS_ANDROID) && !defined(__LP64__)
-#include <sys/syscall.h>
-
 #define SYS_read __NR_read
 #endif
 
@@ -262,9 +259,9 @@ void CrashHandlerHostLinux::OnFileCanReadWithoutBlocking(int fd) {
           return;
         }
         DCHECK(!signal_fd.is_valid());
-        int fd = reinterpret_cast<int*>(CMSG_DATA(hdr))[0];
-        DCHECK_GE(fd, 0);  // The kernel should never send a negative fd.
-        signal_fd.reset(fd);
+        int kernel_fd = reinterpret_cast<int*>(CMSG_DATA(hdr))[0];
+        DCHECK_GE(kernel_fd, 0);  // The kernel should never send a negative fd.
+        signal_fd.reset(kernel_fd);
       } else if (hdr->cmsg_type == SCM_CREDENTIALS) {
         DCHECK_EQ(-1, crashing_pid);
         const struct ucred *cred =
@@ -340,7 +337,7 @@ void CrashHandlerHostLinux::FindCrashingThreadAndDump(
       attempt <= kNumAttemptsTranslatingTid) {
     LOG(WARNING) << "Could not translate tid, attempt = " << attempt
                  << " retry ...";
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&CrashHandlerHostLinux::FindCrashingThreadAndDump,
                        base::Unretained(this), crashing_pid,
@@ -580,7 +577,7 @@ bool CrashHandlerHost::ReceiveClientMessage(int client_fd,
   msg.msg_name = nullptr;
   msg.msg_namelen = 0;
   msg.msg_iov = iov;
-  msg.msg_iovlen = base::size(iov);
+  msg.msg_iovlen = std::size(iov);
 
   char cmsg_buf[CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(ucred))];
   msg.msg_control = cmsg_buf;

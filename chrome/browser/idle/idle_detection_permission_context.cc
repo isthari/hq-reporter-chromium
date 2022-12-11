@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,10 +16,10 @@
 
 IdleDetectionPermissionContext::IdleDetectionPermissionContext(
     content::BrowserContext* browser_context)
-    : PermissionContextBase(browser_context,
-                            ContentSettingsType::IDLE_DETECTION,
-                            blink::mojom::PermissionsPolicyFeature::kNotFound) {
-}
+    : PermissionContextBase(
+          browser_context,
+          ContentSettingsType::IDLE_DETECTION,
+          blink::mojom::PermissionsPolicyFeature::kIdleDetection) {}
 
 IdleDetectionPermissionContext::~IdleDetectionPermissionContext() = default;
 
@@ -29,7 +29,7 @@ void IdleDetectionPermissionContext::UpdateTabContext(
     bool allowed) {
   content_settings::PageSpecificContentSettings* content_settings =
       content_settings::PageSpecificContentSettings::GetForFrame(
-          id.render_process_id(), id.render_frame_id());
+          id.global_render_frame_host_id());
   if (!content_settings)
     return;
 
@@ -39,12 +39,7 @@ void IdleDetectionPermissionContext::UpdateTabContext(
     content_settings->OnContentBlocked(ContentSettingsType::IDLE_DETECTION);
 }
 
-bool IdleDetectionPermissionContext::IsRestrictedToSecureOrigins() const {
-  return true;
-}
-
 void IdleDetectionPermissionContext::DecidePermission(
-    content::WebContents* web_contents,
     const permissions::PermissionRequestID& id,
     const GURL& requesting_origin,
     const GURL& embedding_origin,
@@ -58,6 +53,12 @@ void IdleDetectionPermissionContext::DecidePermission(
   // PermissionMenuModel::PermissionMenuModel which prevents users from manually
   // allowing the permission.
   if (browser_context()->IsOffTheRecord()) {
+    content::RenderFrameHost* rfh =
+        content::RenderFrameHost::FromID(id.global_render_frame_host_id());
+
+    content::WebContents* web_contents =
+        content::WebContents::FromRenderFrameHost(rfh);
+
     // Random number of seconds in the range [1.0, 2.0).
     double delay_seconds = 1.0 + 1.0 * base::RandDouble();
     VisibilityTimerTabHelper::CreateForWebContents(web_contents);
@@ -68,12 +69,12 @@ void IdleDetectionPermissionContext::DecidePermission(
                            weak_factory_.GetWeakPtr(), id, requesting_origin,
                            embedding_origin, std::move(callback),
                            /*persist=*/true, CONTENT_SETTING_BLOCK,
-                           /*is_one_time=*/false),
+                           /*is_one_time=*/false, /*is_final_decision=*/true),
             base::Seconds(delay_seconds));
     return;
   }
 
-  PermissionContextBase::DecidePermission(web_contents, id, requesting_origin,
+  PermissionContextBase::DecidePermission(id, requesting_origin,
                                           embedding_origin, user_gesture,
                                           std::move(callback));
 }

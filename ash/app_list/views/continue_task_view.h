@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,6 +28,8 @@ enum ContinueTaskCommandId {
   kOpenResult = 0,
   // Context Menu option to prevent the suggestion from showing.
   kRemoveResult = 1,
+  // Context Menu option to hide the continue section.
+  kHideContinueSection = 2,
 };
 
 // A view with a suggested task for the "Continue" section.
@@ -36,6 +38,15 @@ class ASH_EXPORT ContinueTaskView : public views::Button,
                                     public ui::SimpleMenuModel::Delegate,
                                     public SearchResultObserver {
  public:
+  // The type of result for the task.
+  // These values are used for metrics and should not be changed.
+  enum class TaskResultType {
+    kLocalFile = 0,
+    kDriveFile = 1,
+    kUnknown = 2,
+    kMaxValue = kUnknown,
+  };
+
   METADATA_HEADER(ContinueTaskView);
 
   ContinueTaskView(AppListViewDelegate* view_delegate, bool tablet_mode);
@@ -66,8 +77,11 @@ class ASH_EXPORT ContinueTaskView : public views::Button,
   void ExecuteCommand(int command_id, int event_flags) override;
   void MenuClosed(ui::SimpleMenuModel* source) override;
 
+  // Returns the type of result for the task. Used for metrics.
+  TaskResultType GetTaskResultType();
+
  private:
-  void SetIcon(const gfx::ImageSkia& icon);
+  void UpdateIcon();
   gfx::Size GetIconSize() const;
   void UpdateResult();
 
@@ -93,6 +107,9 @@ class ASH_EXPORT ContinueTaskView : public views::Button,
   // Updates the background and the border if the ContinueTaskView is in tablet
   // mode.
   void UpdateStyleForTabletMode();
+
+  // Record metrics at the moment when the ContinueTaskView result is removed.
+  void LogMetricsOnResultRemoved();
 
   // The index of this view within a |SearchResultContainerView| that holds it.
   absl::optional<int> index_in_container_;

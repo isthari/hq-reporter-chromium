@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,6 +53,7 @@ GLint DataRowLength(size_t stride, gfx::BufferFormat format) {
       return base::checked_cast<GLint>(stride);
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
+    case gfx::BufferFormat::YUVA_420_TRIPLANAR:
     case gfx::BufferFormat::P010:
       NOTREACHED() << gfx::BufferFormatToString(format);
       return 0;
@@ -180,6 +181,7 @@ absl::optional<std::vector<uint8_t>> GLES2Data(const gfx::Size& size,
     }
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
+    case gfx::BufferFormat::YUVA_420_TRIPLANAR:
     case gfx::BufferFormat::P010:
       NOTREACHED() << gfx::BufferFormatToString(format);
       return absl::nullopt;
@@ -239,16 +241,10 @@ GLImageMemory::~GLImageMemory() {
   }
 }
 
-// static
-GLImageMemory* GLImageMemory::FromGLImage(GLImage* image) {
-  if (!image || image->GetType() != Type::MEMORY)
-    return nullptr;
-  return static_cast<GLImageMemory*>(image);
-}
-
 bool GLImageMemory::Initialize(const unsigned char* memory,
                                gfx::BufferFormat format,
-                               size_t stride) {
+                               size_t stride,
+                               bool disable_pbo_upload) {
   if (!ValidFormat(format)) {
     LOG(ERROR) << "Invalid format: " << gfx::BufferFormatToString(format);
     return false;
@@ -265,13 +261,17 @@ bool GLImageMemory::Initialize(const unsigned char* memory,
   format_ = format;
   stride_ = stride;
 
-  bool tex_image_from_pbo_is_slow = false;
 #if BUILDFLAG(IS_WIN)
-  tex_image_from_pbo_is_slow = true;
+  // CopyTexImage from PBO is slow on Windows.
+  disable_pbo_upload = true;
 #endif  // BUILDFLAG(IS_WIN)
+
+  if (disable_pbo_upload)
+    return true;
+
   GLContext* context = GLContext::GetCurrent();
   DCHECK(context);
-  if (!tex_image_from_pbo_is_slow && SupportsPBO(context) &&
+  if (SupportsPBO(context) &&
       (SupportsMapBuffer(context) || SupportsMapBufferRange(context))) {
     constexpr size_t kTaskBytes = 1024 * 1024;
     buffer_bytes_ = stride * size_.height();
@@ -478,6 +478,7 @@ bool GLImageMemory::ValidFormat(gfx::BufferFormat format) {
       return true;
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
+    case gfx::BufferFormat::YUVA_420_TRIPLANAR:
     case gfx::BufferFormat::P010:
       return false;
   }
@@ -485,5 +486,10 @@ bool GLImageMemory::ValidFormat(gfx::BufferFormat format) {
   NOTREACHED();
   return false;
 }
+
+GLImageMemoryForTesting::GLImageMemoryForTesting(const gfx::Size& size)
+    : GLImageMemory(size) {}
+
+GLImageMemoryForTesting::~GLImageMemoryForTesting() = default;
 
 }  // namespace gl

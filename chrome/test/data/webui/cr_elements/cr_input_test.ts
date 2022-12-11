@@ -1,15 +1,15 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
+import 'chrome://resources/cr_elements/cr_input/cr_input.js';
 
-import {CrInputElement} from 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
+import {CrInputElement} from 'chrome://resources/cr_elements/cr_input/cr_input.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-
 import {assertEquals, assertFalse, assertNotEquals, assertThrows, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {eventToPromise, isChildVisible, whenAttributeIs} from 'chrome://webui-test/test_util.js';
+import {eventToPromise, isChildVisible} from 'chrome://webui-test/test_util.js';
+import {getTrustedHTML} from 'chrome://resources/js/static_types.js';
 // clang-format on
 
 suite('cr-input', function() {
@@ -21,7 +21,7 @@ suite('cr-input', function() {
   });
 
   function regenerateNewInput() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     crInput = document.createElement('cr-input');
     document.body.appendChild(crInput);
     input = crInput.inputElement;
@@ -44,7 +44,6 @@ suite('cr-input', function() {
       ['pattern', 'pattern', '', '[a-z]+'],
       ['readonly', 'readOnly', false, true],
       ['required', 'required', false, true],
-      ['tabindex', 'tabIndex', 0, -1],
       ['type', 'type', 'text', 'password'],
       ['inputmode', 'inputMode', '', 'none'],
     ];
@@ -59,94 +58,22 @@ suite('cr-input', function() {
         });
   });
 
+  test('UnsupportedInputTabindex', () => {
+    assertThrows(() => {
+      crInput.inputTabindex = 2;
+    });
+  });
+
   test('UnsupportedTypeThrows', function() {
     assertThrows(function() {
       crInput.type = 'checkbox';
     });
   });
 
-  test('togglingDisableModifiesTabIndexCorrectly', function() {
-    // Do innerHTML instead of createElement to make sure it's correct right
-    // after being attached, and not messed up by disabledChanged_.
-    document.body.innerHTML = `
-      <cr-input tabindex="14"></cr-input>
-    `;
-    crInput = document.querySelector('cr-input')!;
-    input = crInput.$.input;
-    flush();
-
-    assertEquals('14', crInput.getAttribute('tabindex'));
-    assertEquals(14, input.tabIndex);
-    crInput.disabled = true;
-    assertEquals(null, crInput.getAttribute('tabindex'));
-    assertEquals(true, input.disabled);
-    crInput.disabled = false;
-    assertEquals('14', crInput.getAttribute('tabindex'));
-    assertEquals(14, input.tabIndex);
-  });
-
-  test('startingWithDisableSetsTabIndexCorrectly', function() {
-    // Makes sure tabindex is recorded even if cr-input starts as disabled
-    document.body.innerHTML = `
-      <cr-input tabindex="14" disabled></cr-input>
-    `;
-    crInput = document.querySelector('cr-input')!;
-    input = crInput.$.input;
-    flush();
-
-    return whenAttributeIs(input, 'tabindex', null).then(() => {
-      assertEquals(null, crInput.getAttribute('tabindex'));
-      assertEquals(true, input.disabled);
-      crInput.disabled = false;
-      assertEquals('14', crInput.getAttribute('tabindex'));
-      assertEquals(14, input.tabIndex);
-    });
-  });
-
-  test('pointerDownAndTabIndex', function() {
-    crInput.fire('pointerdown');
-    assertEquals(null, crInput.getAttribute('tabindex'));
-    return whenAttributeIs(crInput, 'tabindex', '0').then(() => {
-      assertEquals(0, input.tabIndex);
-    });
-  });
-
-  test('pointerdownWhileDisabled', function(done) {
-    // pointerdown while disabled doesn't mess with tabindex.
-    crInput.tabindex = 14;
-    crInput.disabled = true;
-    assertEquals(null, crInput.getAttribute('tabindex'));
-    assertEquals(true, input.disabled);
-    crInput.fire('pointerdown');
-    assertEquals(null, crInput.getAttribute('tabindex'));
-
-    // Wait one cycle to make sure tabindex is still unchanged afterwards.
-    setTimeout(() => {
-      assertEquals(null, crInput.getAttribute('tabindex'));
-      // Makes sure tabindex is correctly restored after reverting disabled.
-      crInput.disabled = false;
-      assertEquals('14', crInput.getAttribute('tabindex'));
-      assertEquals(14, input.tabIndex);
-      done();
-    });
-  });
-
-  test('pointerdownThenDisabledInSameCycle', function(done) {
-    crInput.tabindex = 14;
-    // Edge case: pointerdown and disabled are changed in the same cycle.
-    crInput.fire('pointerdown');
-    crInput.disabled = true;
-    assertEquals(null, crInput.getAttribute('tabindex'));
-
-    // Wait one cycle to make sure tabindex is still unchanged afterwards.
-    setTimeout(() => {
-      assertEquals(null, crInput.getAttribute('tabindex'));
-      // Makes sure tabindex is correctly restored after reverting disabled.
-      crInput.disabled = false;
-      assertEquals('14', crInput.getAttribute('tabindex'));
-      assertEquals(14, input.tabIndex);
-      done();
-    });
+  test('inputTabindexCorrectlyBound', () => {
+    assertEquals(0, input['tabIndex']);
+    crInput.setAttribute('input-tabindex', '-1');
+    assertEquals(-1, input.tabIndex);
   });
 
   test('placeholderCorrectlyBound', function() {
@@ -352,7 +279,7 @@ suite('cr-input', function() {
      * This function assumes attributes are passed in priority order.
      */
     function testAriaLabel(attributes: string[]) {
-      document.body.innerHTML = '';
+      document.body.innerHTML = window.trustedTypes!.emptyHTML;
       crInput = document.createElement('cr-input');
       attributes.forEach(attribute => {
         // Using their name as the value out of convenience.
@@ -393,7 +320,7 @@ suite('cr-input', function() {
   });
 
   test('slots', function() {
-    document.body.innerHTML = `
+    document.body.innerHTML = getTrustedHTML`
       <cr-input>
         <div slot="inline-prefix" id="inline-prefix">One</div>
         <div slot="suffix" id="suffix">Two</div>

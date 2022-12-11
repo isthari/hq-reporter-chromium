@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -120,9 +120,15 @@ function captureEvent(name, details) {
   if ('timeStamp' in details) {
     details.timeStamp = 0;
   }
-  // Since the documentId is a unique random identifier it is
-  // not useful to tests. Normalize it so that test cases can assert
+  // Since the parentDocumentId & documentId is a unique random identifier it
+  // is not useful to tests. Normalize it so that test cases can assert
   // against a fixed number.
+  if ('parentDocumentId' in details) {
+    if (documentIds[details.parentDocumentId] === undefined) {
+      documentIds[details.parentDocumentId] = nextDocumentId++;
+    }
+    details.parentDocumentId = documentIds[details.parentDocumentId];
+  }
   if ('documentId' in details) {
     if (documentIds[details.documentId] === undefined) {
       documentIds[details.documentId] = nextDocumentId++;

@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,6 +39,10 @@ class TableManager : public base::RefCountedThreadSafe<TableManager> {
 
   virtual void ScheduleDBTask(const base::Location& from_here,
                               base::OnceCallback<void(sql::Database*)> task);
+  virtual void ScheduleDBTaskWithReply(
+      const base::Location& from_here,
+      base::OnceCallback<void(sql::Database*)> task,
+      base::OnceClosure reply);
 
   virtual void ExecuteDBTaskOnDBSequence(
       base::OnceCallback<void(sql::Database*)> task);
@@ -69,7 +73,7 @@ class TableManager : public base::RefCountedThreadSafe<TableManager> {
   friend class base::RefCountedThreadSafe<TableManager>;
 
   scoped_refptr<base::SequencedTaskRunner> db_task_runner_;
-  raw_ptr<sql::Database> db_;
+  raw_ptr<sql::Database, DanglingUntriaged> db_;
 };
 
 }  // namespace sqlite_proto

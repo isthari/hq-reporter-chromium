@@ -1,28 +1,31 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/policy/policy_watcher_browser_agent.h"
+#import "ios/chrome/browser/policy/policy_watcher_browser_agent.h"
 
 #import <Foundation/Foundation.h>
 
-#include "base/metrics/histogram_functions.h"
-#include "base/run_loop.h"
-#include "base/task/post_task.h"
-#include "components/prefs/pref_change_registrar.h"
-#include "components/prefs/pref_service.h"
-#include "components/sync/base/pref_names.h"
+#import "base/mac/backup_util.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/path_service.h"
+#import "base/run_loop.h"
+#import "base/task/thread_pool.h"
+#import "components/prefs/pref_change_registrar.h"
+#import "components/prefs/pref_service.h"
+#import "components/sync/base/pref_names.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
-#include "ios/chrome/browser/application_context.h"
+#import "ios/chrome/browser/application_context/application_context.h"
 #import "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/policy/policy_watcher_browser_agent_observer.h"
-#include "ios/chrome/browser/pref_names.h"
+#import "ios/chrome/browser/policy/policy_watcher_browser_agent_observer.h"
+#import "ios/chrome/browser/prefs/pref_names.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_utils.h"
 #import "ios/chrome/browser/ui/commands/policy_change_commands.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
 #import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
-#include "ios/web/public/thread/web_task_traits.h"
+#import "ios/web/public/thread/web_task_traits.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -83,12 +86,25 @@ void PolicyWatcherBrowserAgent::Initialize(id<PolicyChangeCommands> handler) {
       FROM_HERE,
       base::BindOnce(&PolicyWatcherBrowserAgent::ShowSyncDisabledPromptIfNeeded,
                      weak_factory_.GetWeakPtr()));
+
+  browser_prefs_change_observer_.Add(
+      prefs::kAllowChromeDataInBackups,
+      base::BindRepeating(
+          &PolicyWatcherBrowserAgent::UpdateAppContainerBackupExclusion,
+          base::Unretained(this)));
+
+  base::SequencedTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &PolicyWatcherBrowserAgent::UpdateAppContainerBackupExclusion,
+          weak_factory_.GetWeakPtr()));
 }
 
 void PolicyWatcherBrowserAgent::ForceSignOutIfSigninDisabled() {
   DCHECK(handler_);
   DCHECK(auth_service_);
-  if (!signin::IsSigninAllowedByPolicy()) {
+  if ((auth_service_->GetServiceStatus() ==
+       AuthenticationService::ServiceStatus::SigninDisabledByPolicy)) {
     if (auth_service_->HasPrimaryIdentity(signin::ConsentLevel::kSignin)) {
       sign_out_in_progress_ = true;
       base::UmaHistogramBoolean("Enterprise.BrowserSigninIOS.SignedOutByPolicy",
@@ -101,7 +117,9 @@ void PolicyWatcherBrowserAgent::ForceSignOutIfSigninDisabled() {
       auth_service_->SignOut(
           signin_metrics::ProfileSignout::SIGNOUT_PREF_CHANGED,
           /*force_clear_browsing_data=*/false, ^{
-            weak_ptr->OnSignOutComplete();
+            if (weak_ptr) {
+              weak_ptr->OnSignOutComplete();
+            }
           });
     }
 
@@ -132,6 +150,26 @@ void PolicyWatcherBrowserAgent::ShowSyncDisabledPromptIfNeeded() {
   } else if (syncDisabledAlertShown && !isSyncDisabledByAdministrator) {
     // Will trigger again, if policy is turned back on.
     [standard_defaults setBool:NO forKey:kSyncDisabledAlertShownKey];
+  }
+}
+
+void PolicyWatcherBrowserAgent::UpdateAppContainerBackupExclusion() {
+  bool backup_allowed = browser_->GetBrowserState()->GetPrefs()->GetBoolean(
+      prefs::kAllowChromeDataInBackups);
+  // TODO(crbug.com/1303652): If multiple profiles are supported on iOS, update
+  // this logic to work with multiple profiles having possibly-possibly
+  // conflicting preference values.
+  base::FilePath storage_dir = base::mac::GetUserLibraryPath();
+  if (backup_allowed) {
+    base::ThreadPool::PostTask(
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+        base::BindOnce(base::IgnoreResult(&base::mac::ClearBackupExclusion),
+                       std::move(storage_dir)));
+  } else {
+    base::ThreadPool::PostTask(
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+        base::BindOnce(base::IgnoreResult(&base::mac::SetBackupExclusion),
+                       std::move(storage_dir)));
   }
 }
 

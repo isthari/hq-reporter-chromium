@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
 #include "components/ownership/owner_key_util.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
@@ -47,6 +47,7 @@
 #include "crypto/sha2.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/browser/updater/extension_downloader_test_helper.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/switches.h"
@@ -139,7 +140,7 @@ class KeyRotationDeviceCloudPolicyTest : public DevicePolicyCrosBrowserTest {
         policy_service
             ->GetPolicies(PolicyNamespace(POLICY_DOMAIN_CHROME,
                                           std::string() /* component_id */))
-            .GetValue(kPolicyKey);
+            .GetValue(kPolicyKey, base::Value::Type::INTEGER);
     EXPECT_TRUE(policy_value);
     EXPECT_EQ(policy_value->type(), base::Value::Type::INTEGER);
     return policy_value->GetIfInt().value_or(-1);
@@ -244,12 +245,6 @@ class SigninExtensionsDeviceCloudPolicyBrowserTest
       "extensions/signin_screen_managed_storage/extension.crx";
   static constexpr const char* kTestExtensionUpdateManifestPath =
       "/extensions/signin_screen_managed_storage/update_manifest.xml";
-  static constexpr const char* kTestExtensionUpdateManifest =
-      R"(<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>
-           <app appid='$1'>
-             <updatecheck codebase='http://$2/$3' version='1.0' />
-           </app>
-         </gupdate>)";
   static constexpr const char* kFakePolicyPath = "/test-policy.json";
   static constexpr const char* kFakePolicy =
       "{\"string-policy\": {\"Value\": \"value\"}}";
@@ -322,11 +317,14 @@ class SigninExtensionsDeviceCloudPolicyBrowserTest
     // Create update manifest for the test extension, setting the extension URL
     // with a test server URL pointing to the extension under the test data
     // path.
-    std::string manifest_response = base::ReplaceStringPlaceholders(
-        kTestExtensionUpdateManifest,
-        {kTestExtensionId, embedded_test_server()->host_port_pair().ToString(),
-         kTestExtensionPath},
-        nullptr);
+    std::string manifest_response = extensions::CreateUpdateManifest(
+        {extensions::UpdateManifestItem(kTestExtensionId)
+             .version("1.0")
+             .codebase(base::ReplaceStringPlaceholders(
+                 "http://$1/$2",
+                 {embedded_test_server()->host_port_pair().ToString(),
+                  kTestExtensionPath},
+                 nullptr))});
 
     auto response = std::make_unique<net::test_server::BasicHttpResponse>();
     response->set_content_type("text/xml");

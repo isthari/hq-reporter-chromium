@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -123,6 +123,7 @@ public class ChromeSurveyControllerIntegrationTest {
         SurveyController.setInstanceForTesting(null);
         mSharedPreferenceManager.removeKey(mPrefKey);
         ChromeSurveyController.forceIsUMAEnabledForTesting(false);
+        ChromeSurveyController.resetMessageShownForTesting();
     }
 
     @Test
@@ -150,8 +151,8 @@ public class ChromeSurveyControllerIntegrationTest {
         Assert.assertNotNull("Message should not be null.", message);
 
         // Simulate the message primary button click.
-        Runnable primaryActionCallback = message.get(MessageBannerProperties.ON_PRIMARY_ACTION);
-        TestThreadUtils.runOnUiThreadBlocking(primaryActionCallback);
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { message.get(MessageBannerProperties.ON_PRIMARY_ACTION).get(); });
         // Simulate message dismissal on primary button click.
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> mMessageDispatcher.dismissMessage(message, DismissReason.PRIMARY_ACTION));

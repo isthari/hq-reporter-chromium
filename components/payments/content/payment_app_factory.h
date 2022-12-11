@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,6 @@
 #include "third_party/blink/public/mojom/payments/payment_request.mojom.h"
 
 class GURL;
-
-namespace autofill {
-class AutofillProfile;
-}  // namespace autofill
 
 namespace content {
 class RenderFrameHost;
@@ -45,6 +41,7 @@ enum class AppCreationFailureReason {
 };
 
 class ContentPaymentRequestDelegate;
+class CSPChecker;
 class PaymentManifestWebDataService;
 class PaymentRequestSpec;
 
@@ -78,7 +75,6 @@ class PaymentAppFactory {
     CreateInternalAuthenticator() const = 0;
     virtual scoped_refptr<PaymentManifestWebDataService>
     GetPaymentManifestWebDataService() const = 0;
-    virtual bool MayCrawlForInstallablePaymentApps() = 0;
     virtual bool IsOffTheRecord() const = 0;
 
     // Returns the merchant provided information, or null if the payment is
@@ -93,10 +89,6 @@ class PaymentAppFactory {
     // notification.
     virtual void ShowProcessingSpinner() = 0;
 
-    // These parameters are only used to create the autofill payment app.
-    virtual const std::vector<autofill::AutofillProfile*>&
-    GetBillingProfiles() = 0;
-    virtual bool IsRequestedAutofillDataAvailable() = 0;
     virtual base::WeakPtr<ContentPaymentRequestDelegate>
     GetPaymentRequestDelegate() const = 0;
 
@@ -110,12 +102,6 @@ class PaymentAppFactory {
         AppCreationFailureReason failure_reason =
             AppCreationFailureReason::UNKNOWN) = 0;
 
-    // Whether the factory should early exit before creating platform-specific
-    // PaymentApp objects. This is used by PaymentAppServiceBridge to skip
-    // creating native AutofillPaymentApp, which currently cannot be used over
-    // JNI.
-    virtual bool SkipCreatingNativePaymentApps() const = 0;
-
     // Called when all apps of this factory have been created.
     virtual void OnDoneCreatingPaymentApps() = 0;
 
@@ -126,6 +112,14 @@ class PaymentAppFactory {
     // profile or the authenticator device, as long as a user-verifying platform
     // authenticator device is available.
     virtual void SetCanMakePaymentEvenWithoutApps() = 0;
+
+    // Return a Content Security Policy checker that should be used before
+    // downloading payment manifests and following their redirects.
+    virtual base::WeakPtr<CSPChecker> GetCSPChecker() = 0;
+
+    // Records that an Opt Out experience will be offered to the user in the
+    // current UI flow.
+    virtual void SetOptOutOffered() = 0;
   };
 
   explicit PaymentAppFactory(PaymentApp::Type type);

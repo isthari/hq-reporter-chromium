@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -181,10 +181,9 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTriggeredResetFirstRunTest,
   // the case.
   ASSERT_TRUE(embedded_test_server()->Start());
   StartupBrowserCreator browser_creator;
-  browser_creator.AddFirstRunTab(
-      embedded_test_server()->GetURL("/title1.html"));
-  browser_creator.AddFirstRunTab(
-      embedded_test_server()->GetURL("/title2.html"));
+  browser_creator.AddFirstRunTabs(
+      {embedded_test_server()->GetURL("/title1.html"),
+       embedded_test_server()->GetURL("/title2.html")});
 
   // Prep the next launch to be offered a reset prompt.
   MockTriggeredProfileResetter::SetHasResetTrigger(true);

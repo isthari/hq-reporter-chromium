@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,45 @@ GEN_INCLUDE(['../../common/testing/mock_language_settings_private.js']);
 GEN_INCLUDE(['../../common/testing/mock_speech_recognition_private.js']);
 
 /**
+ * @typedef {{
+ *   name: (string|undefined),
+ *   repeat: (number|undefined),
+ *   smart: (boolean|undefined),
+ * }}
+ */
+let ParseTestExpectations;
+
+/** A class that represents a test case for parsing text. */
+class ParseTestCase {
+  /**
+   * @param {string} text The text to be parsed
+   * @param {!ParseTestExpectations} expectations
+   * @constructor
+   */
+  constructor(text, expectations) {
+    /** @type {string} */
+    this.text = text;
+    /** @type {string|undefined} */
+    this.expectedName = expectations.name;
+    /** @type {number|undefined} */
+    this.expectedRepeat = expectations.repeat;
+    /** @type {boolean|undefined} */
+    this.expectedSmart = expectations.smart;
+  }
+}
+
+/**
  * Base class for tests for Dictation feature using accessibility common
  * extension browser tests.
  */
 DictationE2ETestBase = class extends E2ETestBase {
   constructor() {
     super();
-    this.mockAccessibilityPrivate = MockAccessibilityPrivate;
+    this.navigateLacrosWithAutoComplete = true;
+
+    this.mockAccessibilityPrivate = new MockAccessibilityPrivate();
+    this.iconType = this.mockAccessibilityPrivate.DictationBubbleIconType;
+    this.hintType = this.mockAccessibilityPrivate.DictationBubbleHintType;
     chrome.accessibilityPrivate = this.mockAccessibilityPrivate;
 
     this.mockInputIme = MockInputIme;
@@ -34,8 +66,11 @@ DictationE2ETestBase = class extends E2ETestBase {
     this.dictationEngineId =
         '_ext_ime_egfdjlfmgnehecnclamagfafdccgfndpdictation';
 
-    this.lastSetTimeoutCallback = null;
-    this.lastSetDelay = -1;
+    /** @private {!Array<Object{delay: number, callback: Function}} */
+    this.setTimeoutData_ = [];
+
+    /** @private {number} */
+    this.imeContextId_ = 1;
 
     this.commandStrings = {
       DELETE_PREV_CHAR: 'delete',
@@ -58,7 +93,26 @@ DictationE2ETestBase = class extends E2ETestBase {
     const reinit = module => {
       accessibilityCommon = new module.AccessibilityCommon();
     };
-import('/accessibility_common/accessibility_common_loader.js').then(reinit);
+    import('/accessibility_common/accessibility_common_loader.js').then(reinit);
+  }
+
+  /** @override */
+  async setUpDeferred() {
+    await super.setUpDeferred();
+
+    // Wait for the Dictation module to load and set the Dictation locale.
+    await importModule(
+        'Dictation', '/accessibility_common/dictation/dictation.js');
+    assertNotNullNorUndefined(Dictation);
+    await importModule(
+        'LocaleInfo', '/accessibility_common/dictation/locale_info.js');
+    await new Promise(resolve => {
+      chrome.accessibilityFeatures.dictation.set({value: true}, resolve);
+    });
+    await this.setPref(Dictation.DICTATION_LOCALE_PREF, 'en-US');
+
+    // By default, Dictation JS tests should use regex parsing.
+    accessibilityCommon.dictation_.disablePumpkinForTesting_();
   }
 
   /** @override */
@@ -72,6 +126,8 @@ import('/accessibility_common/accessibility_common_loader.js').then(reinit);
 #include "base/command_line.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "ui/accessibility/accessibility_features.h"
+#include "components/prefs/pref_service.h"
+#include "ash/constants/ash_pref_names.h"
     `);
   }
 
@@ -79,62 +135,38 @@ import('/accessibility_common/accessibility_common_loader.js').then(reinit);
   testGenPreamble() {
     super.testGenPreamble();
     GEN(`
+  browser()->profile()->GetPrefs()->SetBoolean(
+        ash::prefs::kDictationAcceleratorDialogHasBeenAccepted, true);
+
   base::OnceClosure load_cb =
     base::BindOnce(&ash::AccessibilityManager::SetDictationEnabled,
         base::Unretained(ash::AccessibilityManager::Get()),
         true);
     `);
-    super.testGenPreambleCommon('kAccessibilityCommonExtensionId');
   }
 
-  /** @override */
-  get featureList() {
-    return {
-      enabled: [
-        'features::kExperimentalAccessibilityDictationCommands',
-        'features::kExperimentalAccessibilityDictationExtension'
-      ]
-    };
-  }
-
-  /**
-   * Waits for Dictation module to be loaded.
-   */
-  async waitForDictationModule() {
-    await importModule(
-        'Dictation', '/accessibility_common/dictation/dictation.js');
-    assertNotNullNorUndefined(Dictation);
-    // Enable Dictation.
-    await new Promise(resolve => {
-      chrome.accessibilityFeatures.dictation.set({value: true}, resolve);
-    });
-    return new Promise(resolve => {
-      resolve();
-    });
+  /** Turns on Dictation and checks IME and Speech Recognition state. */
+  toggleDictationOn() {
+    this.mockAccessibilityPrivate.callOnToggleDictation(true);
+    assertTrue(this.getDictationActive());
+    this.checkDictationImeActive();
+    this.focusInputContext();
+    assertTrue(this.getSpeechRecognitionActive());
   }
 
   /**
-   * Async function to get a preference value from Settings.
-   * @param {string} name
+   * Turns Dictation off and checks IME and Speech Recognition state. Note that
+   * Dictation can also be toggled off by blurring the current input context,
+   * Speech recognition errors, or timeouts.
    */
-  async getPref(name) {
-    return new Promise(resolve => {
-      chrome.settingsPrivate.getPref(name, (ret) => {
-        resolve(ret);
-      });
-    });
-  }
-
-  /**
-   * Async function to set a preference value in Settings.
-   * @param {string} name
-   */
-  async setPref(name, value) {
-    return new Promise(resolve => {
-      chrome.settingsPrivate.setPref(name, value, undefined, () => {
-        resolve();
-      });
-    });
+  toggleDictationOff() {
+    this.mockAccessibilityPrivate.callOnToggleDictation(false);
+    assertFalse(
+        this.getDictationActive(),
+        'Dictation should be inactive after toggling Dictation');
+    this.checkDictationImeInactive();
+    assertFalse(
+        this.getSpeechRecognitionActive(), 'Speech recognition should be off');
   }
 
   /** Checks that Dictation is the active IME. */
@@ -164,122 +196,87 @@ import('/accessibility_common/accessibility_common_loader.js').then(reinit);
     }
   }
 
-  /** Turns on Dictation and checks IME and Speech Recognition state. */
-  toggleDictationOn(contextId) {
-    this.mockAccessibilityPrivate.callOnToggleDictation(true);
-    assertTrue(this.mockAccessibilityPrivate.getDictationActive());
-    this.checkDictationImeActive();
-    this.mockInputIme.callOnFocus(contextId);
-    assertTrue(this.mockSpeechRecognitionPrivate.isStarted());
-  }
-
-  /**
-   * Turns Dictation off from AccessibilityPrivate and checks IME and Speech
-   * Recognition state. Note that Dictation can also be toggled off by blurring
-   * the current input context, SR errors, or timeouts.
-   */
-  toggleDictationOffFromA11yPrivate() {
-    this.mockAccessibilityPrivate.callOnToggleDictation(false);
-    assertFalse(
-        this.mockAccessibilityPrivate.getDictationActive(),
-        'Dictation should be inactive after toggling Dictation');
-    this.checkDictationImeInactive();
-    assertFalse(
-        this.mockSpeechRecognitionPrivate.isStarted(),
-        'Speech recognition should be off');
-  }
-
-  /**
-   * Waits for the Dictation module, starts Dictation from AccessibilityPrivate,
-   * focuses the given |contextID|, then starts Speech Recognition.
-   * @param {number} contextID
-   */
-  async toggleDictationAndStartListening(contextID) {
-    await this.waitForDictationModule();
-    this.mockAccessibilityPrivate.callOnToggleDictation(true);
-    this.mockInputIme.callOnFocus(contextID);
-  }
+  // Timeout methods.
 
   mockSetTimeoutMethod() {
     setTimeout = (callback, delay) => {
-      this.lastSetTimeoutCallback = callback;
-      this.lastSetDelay = delay;
+      // setTimeout can be called from several different sources, so track
+      // them using an Array.
+      this.setTimeoutData_.push({delay, callback});
     };
   }
 
-  /**
-   * Enables commands feature for testing.
-   */
-  setCommandsEnabledForTest(enabled) {
-    this.mockAccessibilityPrivate.enableFeatureForTest(
-        this.mockAccessibilityPrivate.AccessibilityFeature.DICTATION_COMMANDS,
-        enabled);
+  /** @return {?Function} */
+  getCallbackWithDelay(delay) {
+    for (const data of this.setTimeoutData_) {
+      if (data.delay === delay) {
+        return data.callback;
+      }
+    }
+
+    return null;
   }
 
-  /** Enables hints feature for testing. */
-  setHintsEnabledForTest(enabled) {
-    this.mockAccessibilityPrivate.enableFeatureForTest(
-        this.mockAccessibilityPrivate.AccessibilityFeature.DICTATION_HINTS,
-        enabled);
+  clearSetTimeoutData() {
+    this.setTimeoutData_ = [];
   }
 
-  /**
-   * Checks that the latest IME composition parameters match the expected
-   * values.
-   * @param {string} text
-   * @param {number} contextID
-   */
-  assertImeCompositionParameters(text, contextID) {
-    assertEquals(text, this.mockInputIme.getLastCompositionParameters().text);
-    assertEquals(
-        contextID, this.mockInputIme.getLastCompositionParameters().contextID);
+  // Ime methods.
+
+  focusInputContext() {
+    this.mockInputIme.callOnFocus(this.imeContextId_);
+  }
+
+  blurInputContext() {
+    this.mockInputIme.callOnBlur(this.imeContextId_);
   }
 
   /**
-   * Checks that the latest IME commit parameters match the expected
-   * values.
-   * @param {string} text
-   * @param {number} contextID
+   * Checks that the latest IME commit text matches the expected value.
+   * @param {string} expected
+   * @return {!Promise}
    */
-  async assertImeCommitParameters(text, contextID) {
+  async assertCommittedText(expected) {
     if (!this.mockInputIme.getLastCommittedParameters()) {
       await this.mockInputIme.waitForCommit();
     }
-    assertEquals(text, this.mockInputIme.getLastCommittedParameters().text);
+    assertEquals(expected, this.mockInputIme.getLastCommittedParameters().text);
     assertEquals(
-        contextID, this.mockInputIme.getLastCommittedParameters().contextID);
+        this.imeContextId_,
+        this.mockInputIme.getLastCommittedParameters().contextID);
   }
 
-  /** Sets up Dictation with commands enabled. */
-  async waitForDictationWithCommands() {
-    await this.waitForDictationModule();
-    await this.setPref(Dictation.DICTATION_LOCALE_PREF, 'en-US');
-    this.setCommandsEnabledForTest(true);
-    this.mockAccessibilityPrivate.isFeatureEnabled(
-        this.mockAccessibilityPrivate.AccessibilityFeature.DICTATION_COMMANDS,
-        (enabled) => {
-          assertTrue(enabled);
-        });
-    accessibilityCommon.dictation_.initialize_();
+  // Getters and setters.
+
+  /** @return {boolean} */
+  getDictationActive() {
+    return this.mockAccessibilityPrivate.getDictationActive();
   }
 
-  /** Sets up Dictation with commands and hints enabled. */
-  async waitForDictationWithCommandsAndHints() {
-    await this.waitForDictationModule();
-    await this.setPref(Dictation.DICTATION_LOCALE_PREF, 'en-US');
-    this.setCommandsEnabledForTest(true);
-    this.setHintsEnabledForTest(true);
-    this.mockAccessibilityPrivate.isFeatureEnabled(
-        this.mockAccessibilityPrivate.AccessibilityFeature.DICTATION_COMMANDS,
-        (enabled) => {
-          assertTrue(enabled);
-        });
-    this.mockAccessibilityPrivate.isFeatureEnabled(
-        this.mockAccessibilityPrivate.AccessibilityFeature.DICTATION_HINTS,
-        (enabled) => {
-          assertTrue(enabled);
-        });
-    accessibilityCommon.dictation_.initialize_();
+  /**
+   * Async function to get a preference value from Settings.
+   * @param {string} name
+   * @return {!Promise<*>}
+   */
+  async getPref(name) {
+    return new Promise(resolve => {
+      chrome.settingsPrivate.getPref(name, ret => {
+        resolve(ret);
+      });
+    });
+  }
+
+  /**
+   * Async function to set a preference value in Settings.
+   * @param {string} name
+   * @return {!Promise}
+   */
+  async setPref(name, value) {
+    return new Promise(resolve => {
+      chrome.settingsPrivate.setPref(name, value, undefined, () => {
+        resolve();
+      });
+    });
   }
 
   /** @return {InputTextStrategy} */
@@ -295,5 +292,214 @@ import('/accessibility_common/accessibility_common_loader.js').then(reinit);
   /** @return {PumpkinParseStrategy} */
   getPumpkinParseStrategy() {
     return accessibilityCommon.dictation_.speechParser_.pumpkinParseStrategy_;
+  }
+
+  /** @return {InputController} */
+  getInputController() {
+    return accessibilityCommon.dictation_.inputController_;
+  }
+
+  // Speech recognition methods.
+
+  /** @param {string} transcript */
+  sendInterimSpeechResult(transcript) {
+    this.mockSpeechRecognitionPrivate.fireMockOnResultEvent(
+        transcript, /*is_final=*/ false);
+  }
+
+  /** @param {string} transcript */
+  sendFinalSpeechResult(transcript) {
+    this.mockSpeechRecognitionPrivate.fireMockOnResultEvent(
+        transcript, /*is_final=*/ true);
+  }
+
+  sendSpeechRecognitionErrorEvent() {
+    this.mockSpeechRecognitionPrivate.fireMockOnErrorEvent();
+  }
+
+  sendSpeechRecognitionStopEvent() {
+    this.mockSpeechRecognitionPrivate.fireMockStopEvent();
+  }
+
+  /** @return {boolean} */
+  getSpeechRecognitionActive() {
+    return this.mockSpeechRecognitionPrivate.isStarted();
+  }
+
+  /** @return {string|undefined} */
+  getSpeechRecognitionLocale() {
+    return this.mockSpeechRecognitionPrivate.locale();
+  }
+
+  /** @return {boolean|undefined} */
+  getSpeechRecognitionInterimResults() {
+    return this.mockSpeechRecognitionPrivate.interimResults();
+  }
+
+  /**
+   * @param {{
+   *   clientId: (number|undefined),
+   *   locale: (string|undefined),
+   *   interimResults: (boolean|undefined)
+   * }} properties
+   */
+  updateSpeechRecognitionProperties(properties) {
+    this.mockSpeechRecognitionPrivate.updateProperties(properties);
+  }
+
+  // UI-related methods.
+
+  /**
+   * Waits for the updateDictationBubble() API to be called with the given
+   * properties.
+   * @param {DictationBubbleProperties} targetProps
+   * @return {!Promise}
+   */
+  async waitForUIProperties(targetProps) {
+    // Poll until the updateDictationBubble() API gets called with
+    // `targetProps`.
+    return new Promise(resolve => {
+      const printErrorMessageTimeoutId = setTimeout(() => {
+        this.printErrorMessage_(targetProps);
+      }, 3.5 * 1000);
+      const intervalId = setInterval(() => {
+        if (this.uiPropertiesMatch_(targetProps)) {
+          clearTimeout(printErrorMessageTimeoutId);
+          clearInterval(intervalId);
+          resolve();
+        }
+      }, 100);
+    });
+  }
+
+  /**
+   * Returns true if `targetProps` matches the most recent UI properties. Must
+   * match exactly.
+   * @param {DictationBubbleProperties} targetProps
+   * @return {boolean}
+   * @private
+   */
+  uiPropertiesMatch_(targetProps) {
+    /** @type {function(!Array<string>,!Array<string>) : boolean} */
+    const areEqual = (arr1, arr2) => {
+      return arr1.every((val, index) => val === arr2[index]);
+    };
+
+    const actualProps = this.mockAccessibilityPrivate.getDictationBubbleProps();
+    if (!actualProps) {
+      return false;
+    }
+
+    if (Object.keys(actualProps).length !== Object.keys(targetProps).length) {
+      return false;
+    }
+
+    for (const key of Object.keys(targetProps)) {
+      if (Array.isArray(targetProps[key]) && Array.isArray(actualProps[key])) {
+        // For arrays, ensure that we compare the contents of the arrays.
+        if (!areEqual(targetProps[key], actualProps[key])) {
+          return false;
+        }
+      } else if (targetProps[key] !== actualProps[key]) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * @param {DictationBubbleProperties} props
+   * @private
+   */
+  printErrorMessage_(props) {
+    console.error(`Still waiting for UI properties
+      visible: ${props.visible}
+      icon: ${props.icon}
+      text: ${props.text}
+      hints: ${props.hints}`);
+  }
+
+  /**
+   * Always allows Dictation commands, even if the Dictation locale and browser
+   * locale differ. Only used for testing.
+   */
+  alwaysEnableCommands() {
+    LocaleInfo.alwaysEnableCommandsForTesting = true;
+  }
+
+  /**
+   * @param {!ParseTestCase} testCase
+   * @return {!Promise}
+   */
+  async runInputTextParseTestCase(testCase) {
+    const macro = await this.getInputTextStrategy().parse(testCase.text);
+    this.runParseTestCaseAssertions(testCase, macro);
+  }
+
+  /**
+   * @param {!ParseTestCase} testCase
+   * @return {!Promise}
+   */
+  async runSimpleParseTestCase(testCase) {
+    const macro = await this.getSimpleParseStrategy().parse(testCase.text);
+    this.runParseTestCaseAssertions(testCase, macro);
+  }
+
+  /**
+   * @param {!ParseTestCase} testCase
+   * @return {!Promise}
+   */
+  async runPumpkinParseTestCase(testCase) {
+    const macro = await this.getPumpkinParseStrategy().parse(testCase.text);
+    this.runParseTestCaseAssertions(testCase, macro);
+  }
+
+  /**
+   * @param {!ParseTestCase} testCase
+   * @param {?Macro} macro
+   */
+  runParseTestCaseAssertions(testCase, macro) {
+    const expectedName = testCase.expectedName;
+    const expectedRepeat = testCase.expectedRepeat;
+    const expectedSmart = testCase.expectedSmart;
+    if (!macro) {
+      assertEquals(undefined, expectedName);
+      assertEquals(undefined, expectedRepeat);
+      assertEquals(undefined, expectedSmart);
+      return;
+    }
+
+    if (expectedName) {
+      assertEquals(expectedName, macro.getMacroNameString());
+    }
+    if (expectedRepeat) {
+      assertEquals(expectedRepeat, macro.repeat_);
+    }
+    if (expectedSmart) {
+      assertEquals(expectedSmart, macro.isSmart());
+    }
+  }
+};
+
+/** A Dictation test class that fails on console warnings and errors. */
+DictationE2ETestDisallowConsole = class extends DictationE2ETestBase {
+  /** @override */
+  testGenPreamble() {
+    super.testGenPreamble();
+    super.testGenPreambleCommon(
+        /*extensionIdName=*/ 'kAccessibilityCommonExtensionId',
+        /*failOnConsoleError=*/ true);
+  }
+};
+
+/** A Dictation test class that ignores console warnings and errors. */
+DictationE2ETestAllowConsole = class extends DictationE2ETestBase {
+  /** @override */
+  testGenPreamble() {
+    super.testGenPreamble();
+    super.testGenPreambleCommon(
+        /*extensionIdName=*/ 'kAccessibilityCommonExtensionId',
+        /*failOnConsoleError=*/ false);
   }
 };

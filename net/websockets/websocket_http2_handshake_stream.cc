@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,17 +46,11 @@ WebSocketHttp2HandshakeStream::WebSocketHttp2HandshakeStream(
     std::vector<std::string> requested_extensions,
     WebSocketStreamRequestAPI* request,
     std::set<std::string> dns_aliases)
-    : result_(HandshakeResult::HTTP2_INCOMPLETE),
-      session_(session),
+    : session_(session),
       connect_delegate_(connect_delegate),
-      http_response_info_(nullptr),
       requested_sub_protocols_(requested_sub_protocols),
       requested_extensions_(requested_extensions),
       stream_request_(request),
-      request_info_(nullptr),
-      stream_closed_(false),
-      stream_error_(OK),
-      response_headers_complete_(false),
       dns_aliases_(std::move(dns_aliases)) {
   DCHECK(connect_delegate);
   DCHECK(request);
@@ -67,14 +61,18 @@ WebSocketHttp2HandshakeStream::~WebSocketHttp2HandshakeStream() {
   RecordHandshakeResult(result_);
 }
 
+void WebSocketHttp2HandshakeStream::RegisterRequest(
+    const HttpRequestInfo* request_info) {
+  DCHECK(request_info);
+  DCHECK(request_info->traffic_annotation.is_valid());
+  request_info_ = request_info;
+}
+
 int WebSocketHttp2HandshakeStream::InitializeStream(
-    const HttpRequestInfo* request_info,
     bool can_send_early,
     RequestPriority priority,
     const NetLogWithSource& net_log,
     CompletionOnceCallback callback) {
-  DCHECK(request_info->traffic_annotation.is_valid());
-  request_info_ = request_info;
   priority_ = priority;
   net_log_ = net_log;
   return OK;
@@ -215,8 +213,11 @@ void WebSocketHttp2HandshakeStream::GetSSLCertRequestInfo(
   NOTREACHED();
 }
 
-bool WebSocketHttp2HandshakeStream::GetRemoteEndpoint(IPEndPoint* endpoint) {
-  return session_ && session_->GetRemoteEndpoint(endpoint);
+int WebSocketHttp2HandshakeStream::GetRemoteEndpoint(IPEndPoint* endpoint) {
+  if (!session_)
+    return ERR_SOCKET_NOT_CONNECTED;
+
+  return session_->GetRemoteEndpoint(endpoint);
 }
 
 void WebSocketHttp2HandshakeStream::PopulateNetErrorDetails(
@@ -234,7 +235,8 @@ void WebSocketHttp2HandshakeStream::SetPriority(RequestPriority priority) {
     stream_->SetPriority(priority_);
 }
 
-HttpStream* WebSocketHttp2HandshakeStream::RenewStreamForAuth() {
+std::unique_ptr<HttpStream>
+WebSocketHttp2HandshakeStream::RenewStreamForAuth() {
   // Renewing the stream is not supported.
   return nullptr;
 }
@@ -281,9 +283,9 @@ void WebSocketHttp2HandshakeStream::OnHeadersReceived(
 
   response_headers_complete_ = true;
 
-  const bool headers_valid =
+  const int rv =
       SpdyHeadersToHttpResponse(response_headers, http_response_info_);
-  DCHECK(headers_valid);
+  DCHECK_NE(rv, ERR_INCOMPLETE_HTTP2_HEADERS);
 
   http_response_info_->response_time = stream_->response_time();
   // Do not store SSLInfo in the response here, HttpNetworkTransaction will take
@@ -295,8 +297,6 @@ void WebSocketHttp2HandshakeStream::OnHeadersReceived(
   http_response_info_->alpn_negotiated_protocol =
       HttpResponseInfo::ConnectionInfoToString(
           http_response_info_->connection_info);
-  http_response_info_->vary_data.Init(*request_info_,
-                                      *http_response_info_->headers.get());
 
   if (callback_)
     std::move(callback_).Run(ValidateResponse());

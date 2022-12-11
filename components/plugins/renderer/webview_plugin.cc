@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "gin/converter.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "skia/ext/platform_canvas.h"
@@ -26,6 +25,7 @@
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
+#include "third_party/blink/public/platform/web_policy_container.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/platform/web_url_response.h"
 #include "third_party/blink/public/web/web_document.h"
@@ -119,9 +119,6 @@ bool WebViewPlugin::Initialize(WebPluginContainer* container) {
 
   old_title_ = container_->GetElement().GetAttribute("title");
 
-  // Propagate device scale and zoom level to inner webview to load the correct
-  // resources when images have a "srcset" attribute.
-  web_view()->SetDeviceScaleFactor(container_->DeviceScaleFactor());
   web_view()->SetZoomLevel(
       blink::PageZoomFactorToZoomLevel(container_->PageZoomFactor()));
 
@@ -137,7 +134,8 @@ void WebViewPlugin::Destroy() {
   }
   container_ = nullptr;
   blink::WebViewObserver::Observe(nullptr);
-  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+  base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                this);
 }
 
 v8::Local<v8::Object> WebViewPlugin::V8ScriptableObject(v8::Isolate* isolate) {
@@ -266,19 +264,19 @@ WebViewPlugin::WebViewHelper::WebViewHelper(
     : plugin_(plugin),
       agent_group_scheduler_(
           blink::scheduler::WebThreadScheduler::MainThreadScheduler()
-              ->CreateAgentGroupScheduler()) {
-  web_view_ =
-      WebView::Create(/*client=*/this,
-                      /*is_hidden=*/false,
-                      /*is_prerendering=*/false,
-                      /*is_inside_portal=*/false,
-                      /*is_fenced_frame=*/false,
-                      /*compositing_enabled=*/false,
-                      /*widgets_never_composited=*/false,
-                      /*opener=*/nullptr, mojo::NullAssociatedReceiver(),
-                      *agent_group_scheduler_,
-                      /*session_storage_namespace_id=*/base::EmptyString(),
-                      /*page_base_background_color=*/absl::nullopt);
+              ->CreateWebAgentGroupScheduler()) {
+  web_view_ = WebView::Create(
+      /*client=*/this,
+      /*is_hidden=*/false,
+      /*is_prerendering=*/false,
+      /*is_inside_portal=*/false,
+      /*fenced_frame_mode=*/absl::nullopt,
+      /*compositing_enabled=*/false,
+      /*widgets_never_composited=*/false,
+      /*opener=*/nullptr, mojo::NullAssociatedReceiver(),
+      *agent_group_scheduler_,
+      /*session_storage_namespace_id=*/base::EmptyString(),
+      /*page_base_background_color=*/absl::nullopt);
   // ApplyWebPreferences before making a WebLocalFrame so that the frame sees a
   // consistent view of our preferences.
   blink::WebView::ApplyWebPreferences(parent_web_preferences, web_view_);
@@ -289,7 +287,8 @@ WebViewPlugin::WebViewHelper::WebViewHelper(
   web_view_->SetRendererPreferences(renderer_preferences);
 
   WebLocalFrame* web_frame = WebLocalFrame::CreateMainFrame(
-      web_view_, this, nullptr, blink::LocalFrameToken(), nullptr);
+      web_view_, this, nullptr, blink::LocalFrameToken(),
+      blink::DocumentToken(), nullptr);
   blink::WebFrameWidget* frame_widget = web_frame->InitializeFrameWidget(
       blink::CrossVariantMojoAssociatedRemote<
           blink::mojom::FrameWidgetHostInterfaceBase>(),
@@ -385,10 +384,11 @@ void WebViewPlugin::WebViewHelper::DidClearWindowObject() {
 
   v8::Isolate* isolate = blink::MainThreadIsolate();
   v8::HandleScope handle_scope(isolate);
-  v8::MicrotasksScope microtasks_scope(
-      isolate, v8::MicrotasksScope::kDoNotRunMicrotasks);
   v8::Local<v8::Context> context = frame_->MainWorldScriptContext();
   DCHECK(!context.IsEmpty());
+  v8::MicrotasksScope microtasks_scope(
+      isolate, context->GetMicrotaskQueue(),
+      v8::MicrotasksScope::kDoNotRunMicrotasks);
 
   v8::Context::Scope context_scope(context);
   v8::Local<v8::Object> global = context->Global();
@@ -414,14 +414,17 @@ void WebViewPlugin::OnZoomLevelChanged() {
 void WebViewPlugin::LoadHTML(const std::string& html_data, const GURL& url) {
   auto params = std::make_unique<blink::WebNavigationParams>();
   params->url = url;
+  params->policy_container = std::make_unique<blink::WebPolicyContainer>();
+
   // The |html_data| comes from files in: chrome/renderer/resources/plugins/
   // Executing scripts is the only capability required.
   //
   // WebSandboxFlags is a bit field. This removes all the capabilities, except
   // script execution.
   using network::mojom::WebSandboxFlags;
-  params->sandbox_flags = static_cast<WebSandboxFlags>(
-      ~static_cast<int>(WebSandboxFlags::kScripts));
+  params->policy_container->policies.sandbox_flags =
+      static_cast<WebSandboxFlags>(
+          ~static_cast<int>(WebSandboxFlags::kScripts));
   blink::WebNavigationParams::FillStaticResponse(params.get(), "text/html",
                                                  "UTF-8", html_data);
   web_view_helper_.main_frame()->CommitNavigation(std::move(params),

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,8 +29,6 @@ class CONTENT_EXPORT BackForwardCache {
  public:
   // Returns true if BackForwardCache is enabled.
   static bool IsBackForwardCacheFeatureEnabled();
-  // Returns true if BackForwardCache is enabled for same-site navigations.
-  static bool IsSameSiteBackForwardCacheFeatureEnabled();
 
   // Back/forward cache can be disabled from within content and also from
   // embedders. This means we cannot have a unified enum that covers reasons
@@ -51,13 +49,26 @@ class CONTENT_EXPORT BackForwardCache {
   typedef uint16_t DisabledReasonType;
   static const uint16_t kDisabledReasonTypeBits = 16;
 
-  // Represents a reason to disable back-forward cache, given by a source. It
-  // preserves the string that accompanied it, however the string is ignored for
-  // <, == and !=.
+  // Represents a reason to disable back-forward cache, given by a |source|.
+  // |context| is arbitrary context that will be preserved and passed through,
+  // e.g. an extension ID responsible for disabling BFCache that can be shown in
+  // passed devtools. It preserves the |description| and |context| that
+  // accompany it, however they are ignored for <, == and !=.
   struct CONTENT_EXPORT DisabledReason {
+    DisabledReason(BackForwardCache::DisabledSource source,
+                   BackForwardCache::DisabledReasonType id,
+                   std::string description,
+                   std::string context,
+                   std::string report_string);
+    DisabledReason(const DisabledReason&);
+
     const BackForwardCache::DisabledSource source;
     const BackForwardCache::DisabledReasonType id;
     const std::string description;
+    const std::string context;
+    // Report string used for NotRestoredReasons API. This will be brief and
+    // will mask extension related reasons as "Extensions".
+    const std::string report_string;
 
     bool operator<(const DisabledReason&) const;
     bool operator==(const DisabledReason&) const;
@@ -86,9 +97,6 @@ class CONTENT_EXPORT BackForwardCache {
   // its |id| can be used.
   static void DisableForRenderFrameHost(GlobalRenderFrameHostId id,
                                         DisabledReason reason);
-  // Clear a previously set `reason` for a `render_frame_host`.
-  static void ClearDisableReasonForRenderFrameHost(GlobalRenderFrameHostId id,
-                                                   DisabledReason reason);
 
   // List of reasons the BackForwardCache was disabled for a specific test. If a
   // test needs to be disabled for a reason not covered below, please add to
@@ -132,7 +140,7 @@ class CONTENT_EXPORT BackForwardCache {
     TEST_USES_UNLOAD_EVENT,
 
     // This test expects that same-site navigations won't result in a
-    // RenderFrameHost / RenderFrame / RenderView / RenderWidget change.
+    // RenderFrameHost / RenderFrame / `blink::WebView` / RenderWidget change.
     // But when same-site BackForwardCache is enabled, the change usually does
     // happen. Even so, there will still be valid navigations that don't result
     // in those objects changing, so we should keep the test as is, just with
@@ -142,6 +150,10 @@ class CONTENT_EXPORT BackForwardCache {
 
   // Evict all entries from the BackForwardCache.
   virtual void Flush() = 0;
+
+  // Evict back/forward cache entries from the least recently used ones until
+  // the cache is within the given size limit.
+  virtual void Prune(size_t limit) = 0;
 
   // Disables the BackForwardCache so that no documents will be stored/served.
   // This allows tests to "force" not using the BackForwardCache, this can be

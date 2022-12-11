@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "ash/constants/ash_constants.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
+#include "ash/display/cursor_window_controller.h"
 #include "ash/keyboard/ui/keyboard_util.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/session/test_pref_service_provider.h"
@@ -27,6 +28,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/prefs/testing_pref_service.h"
 #include "media/base/media_switches.h"
+#include "ui/accessibility/accessibility_features.h"
 #include "ui/accessibility/aura/aura_window_properties.h"
 #include "ui/message_center/message_center.h"
 
@@ -68,6 +70,24 @@ class AccessibilityControllerTest : public AshTestBase {
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
+TEST_F(AccessibilityControllerTest, ChangingCursorSizePrefChangesCursorSize) {
+  PrefService* prefs =
+      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
+
+  prefs->SetBoolean(prefs::kAccessibilityLargeCursorEnabled, true);
+
+  CursorWindowController* cursor_window_controller =
+      Shell::Get()->window_tree_host_manager()->cursor_window_controller();
+
+  // Test all possible sizes
+  for (int size = 25; size <= 64; ++size) {
+    prefs->SetInteger(prefs::kAccessibilityLargeCursorDipSize, size);
+    auto bounds = cursor_window_controller->GetBoundsForTest();
+    EXPECT_EQ(bounds.height(), size);
+    EXPECT_EQ(bounds.width(), size);
+  }
+}
+
 TEST_F(AccessibilityControllerTest, PrefsAreRegistered) {
   PrefService* prefs =
       Shell::Get()->session_controller()->GetLastActiveUserPrefService();
@@ -99,6 +119,12 @@ TEST_F(AccessibilityControllerTest, PrefsAreRegistered) {
       prefs->FindPreference(prefs::kAccessibilityVirtualKeyboardEnabled));
   EXPECT_TRUE(prefs->FindPreference(
       prefs::kAccessibilityEnhancedNetworkVoicesInSelectToSpeakAllowed));
+  if (::features::
+          AreExperimentalAccessibilityColorEnhancementSettingsEnabled()) {
+    EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilitySepiaAmount));
+    EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityHueRotationAmount));
+    EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityGreyscaleAmount));
+  }
 }
 
 TEST_F(AccessibilityControllerTest, SetAutoclickEnabled) {
@@ -872,6 +898,35 @@ TEST_F(AccessibilityControllerTest, DisableLargeCursorResetsSize) {
   prefs->SetBoolean(prefs::kAccessibilityLargeCursorEnabled, false);
   EXPECT_EQ(kDefaultLargeCursorSize,
             prefs->GetInteger(prefs::kAccessibilityLargeCursorDipSize));
+}
+
+TEST_F(AccessibilityControllerTest, ChangingCursorColorPrefChangesCursorColor) {
+  PrefService* prefs =
+      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
+
+  // Simulate using chrome settings webui to set cursor color, which also turns
+  // on the cursor color enabled pref.
+  prefs->SetInteger(prefs::kAccessibilityCursorColor, SK_ColorBLUE);
+  prefs->SetBoolean(prefs::kAccessibilityCursorColorEnabled, true);
+
+  CursorWindowController* cursor_window_controller =
+      Shell::Get()->window_tree_host_manager()->cursor_window_controller();
+
+  // Expect cursor color in cursor_window_controller to be blue.
+  EXPECT_EQ(SK_ColorBLUE, cursor_window_controller->GetCursorColorForTest());
+
+  // Set cursor color pref to green.
+  prefs->SetInteger(prefs::kAccessibilityCursorColor, SK_ColorGREEN);
+
+  // Expect cursor color in cursor_window_controller to be green.
+  EXPECT_EQ(SK_ColorGREEN, cursor_window_controller->GetCursorColorForTest());
+
+  // Simulate using chrome settings webui to set cursor color to black, which
+  // which also turns off the cursor color enabled pref.
+  prefs->SetInteger(prefs::kAccessibilityCursorColor, 0);
+  prefs->SetBoolean(prefs::kAccessibilityCursorColorEnabled, false);
+  EXPECT_EQ(kDefaultCursorColor,
+            cursor_window_controller->GetCursorColorForTest());
 }
 
 TEST_F(AccessibilityControllerTest, SetMonoAudioEnabled) {

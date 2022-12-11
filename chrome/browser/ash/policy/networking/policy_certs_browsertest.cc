@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/task/current_thread.h"
+#include "base/test/test_future.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -43,15 +44,15 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/signin_screen_handler.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chromeos/ash/components/network/network_cert_loader.h"
+#include "chromeos/ash/components/network/onc/onc_certificate_importer.h"
+#include "chromeos/ash/components/network/onc/onc_certificate_importer_impl.h"
+#include "chromeos/ash/components/network/policy_certificate_provider.h"
 #include "chromeos/components/onc/onc_test_utils.h"
-#include "chromeos/network/network_cert_loader.h"
-#include "chromeos/network/onc/onc_certificate_importer.h"
-#include "chromeos/network/onc/onc_certificate_importer_impl.h"
-#include "chromeos/network/policy_certificate_provider.h"
 #include "chromeos/test/chromeos_test_utils.h"
 #include "components/onc/onc_constants.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
@@ -75,7 +76,6 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/test_extension_registry_observer.h"
-#include "mojo/public/cpp/bindings/sync_call_restrictions.h"
 #include "net/cert/cert_database.h"
 #include "net/cert/nss_cert_database.h"
 #include "net/cert/test_root_certs.h"
@@ -86,11 +86,11 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
-namespace em = enterprise_management;
-
 namespace policy {
 
 namespace {
+
+namespace em = ::enterprise_management;
 
 // Test data file storing an ONC blob with an Authority certificate.
 constexpr char kRootCaCertOnc[] = "root-ca-cert.onc";
@@ -119,7 +119,7 @@ const char kSigninScreenExtension2UpdateManifestPath[] =
 // Allows waiting until the list of policy-pushed web-trusted certificates
 // changes.
 class WebTrustedCertsChangedObserver
-    : public chromeos::PolicyCertificateProvider::Observer {
+    : public ash::PolicyCertificateProvider::Observer {
  public:
   WebTrustedCertsChangedObserver() = default;
 
@@ -128,40 +128,12 @@ class WebTrustedCertsChangedObserver
   WebTrustedCertsChangedObserver& operator=(
       const WebTrustedCertsChangedObserver&) = delete;
 
-  // chromeos::PolicyCertificateProvider::Observer
+  // ash::PolicyCertificateProvider::Observer
   void OnPolicyProvidedCertsChanged() override { run_loop_.Quit(); }
 
   void Wait() { run_loop_.Run(); }
 
  private:
-  base::RunLoop run_loop_;
-};
-
-// Allows waiting until |NetworkCertLoader| updates its list of certificates.
-class NetworkCertLoaderTestObserver
-    : public chromeos::NetworkCertLoader::Observer {
- public:
-  explicit NetworkCertLoaderTestObserver(
-      chromeos::NetworkCertLoader* network_cert_loader)
-      : network_cert_loader_(network_cert_loader) {
-    network_cert_loader_->AddObserver(this);
-  }
-
-  NetworkCertLoaderTestObserver(const NetworkCertLoaderTestObserver&) = delete;
-  NetworkCertLoaderTestObserver& operator=(
-      const NetworkCertLoaderTestObserver&) = delete;
-
-  ~NetworkCertLoaderTestObserver() override {
-    network_cert_loader_->RemoveObserver(this);
-  }
-
-  // chromeos::NetworkCertLoader::Observer
-  void OnCertificatesLoaded() override { run_loop_.Quit(); }
-
-  void Wait() { run_loop_.Run(); }
-
- private:
-  chromeos::NetworkCertLoader* network_cert_loader_;
   base::RunLoop run_loop_;
 };
 
@@ -284,9 +256,9 @@ class UserPolicyCertsHelper {
     user_network_configuration_updater->AddPolicyProvidedCertsObserver(
         &trust_roots_changed_observer);
 
-    policy::PolicyMap policy;
-    policy.Set(key::kOpenNetworkConfiguration, policy::POLICY_LEVEL_MANDATORY,
-               policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+    PolicyMap policy;
+    policy.Set(key::kOpenNetworkConfiguration, POLICY_LEVEL_MANDATORY,
+               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
                base::Value(onc_policy_data), nullptr);
     mock_policy_provider->UpdateChromePolicy(policy);
     // Note that this relies on the implementation detail that the notification
@@ -309,121 +281,16 @@ class UserPolicyCertsHelper {
   scoped_refptr<net::X509Certificate> server_cert_by_intermediate_;
 };
 
-// A class that allows testing multiple profiles in a browsertest, each having
-// its own MockConfigurationPolicyProvider.
-// TODO(https://crbug.com/1127263): Transform this into a general-purpose mixin.
-class MultiProfilePolicyProviderHelper {
- public:
-  MultiProfilePolicyProviderHelper() = default;
-  ~MultiProfilePolicyProviderHelper() = default;
-
-  MultiProfilePolicyProviderHelper(
-      const MultiProfilePolicyProviderHelper& other) = delete;
-  MultiProfilePolicyProviderHelper& operator=(
-      const MultiProfilePolicyProviderHelper& other) = delete;
-
-  void SetUpCommandLine(base::CommandLine* command_line) {
-    command_line->AppendSwitch(
-        ash::switches::kIgnoreUserProfileMappingForTests);
-  }
-
-  // The test should call this before the initial profile is created by chrome.
-  void BeforeInitialProfileCreated() {
-    // Set the overridden policy provider for the first Profile (|profile_1_|).
-    // Note that the first ptofile will be created automatically by the
-    // browser initialization.
-    policy_for_profile_1_.SetDefaultReturns(
-        /*is_initialization_complete_return=*/true,
-        /*is_first_policy_load_complete_return=*/true);
-    policy::PushProfilePolicyConnectorProviderForTesting(
-        &policy_for_profile_1_);
-  }
-
-  // The test should call this after the initial profile is created by chrome.
-  void AfterInitialProfileCreated() {
-    // Mimics what InProcessBrowserTest does to get the first created Profile.
-    const BrowserList* browser_list = BrowserList::GetInstance();
-    ASSERT_FALSE(browser_list->empty());
-    Browser* first_browser = browser_list->get(0);
-    profile_1_ = first_browser->profile();
-    ASSERT_TRUE(profile_1_);
-  }
-
-  // Creates a additional profile. The Profile can then be accessed by
-  // profile_2() and its policy by policy_for_profile_2(). Should be wrapped in
-  // ASSERT_NO_FATAL_FAILURE.
-  void CreateSecondProfile() {
-    ASSERT_FALSE(profile_2_);
-
-    // Prepare policy provider for second profile.
-    policy_for_profile_2_.SetDefaultReturns(
-        /*is_initialization_complete_return=*/true,
-        /*is_first_policy_load_complete_return=*/true);
-    policy::PushProfilePolicyConnectorProviderForTesting(
-        &policy_for_profile_2_);
-
-    ProfileManager* profile_manager = g_browser_process->profile_manager();
-
-    // Create an additional profile.
-    base::FilePath path_profile =
-        profile_manager->GenerateNextProfileDirectoryPath();
-    base::RunLoop run_loop;
-    profile_manager->CreateProfileAsync(
-        path_profile, base::BindRepeating(&OnProfileInitialized, &profile_2_,
-                                          run_loop.QuitClosure()));
-
-    // Run the message loop to allow profile creation to take place; the loop is
-    // terminated by OnProfileInitialized calling the loop's QuitClosure when
-    // the profile is created.
-    run_loop.Run();
-
-    // Make sure second profile creation does what we think it does.
-    ASSERT_TRUE(profile_1() != profile_2());
-  }
-
-  Profile* profile_1() { return profile_1_; }
-  Profile* profile_2() { return profile_2_; }
-
-  // Returns the MockConfigurationPolicyProvider for profile_1.
-  MockConfigurationPolicyProvider* policy_for_profile_1() {
-    return &policy_for_profile_1_;
-  }
-
-  // Returns the MockConfigurationPolicyProvider for profile_2.
-  MockConfigurationPolicyProvider* policy_for_profile_2() {
-    return &policy_for_profile_2_;
-  }
-
- private:
-  // Called when an additional profile has been created.
-  // The created profile is stored in *|out_created_profile|.
-  static void OnProfileInitialized(Profile** out_created_profile,
-                                   base::OnceClosure closure,
-                                   Profile* profile,
-                                   Profile::CreateStatus status) {
-    if (status == Profile::CREATE_STATUS_INITIALIZED) {
-      *out_created_profile = profile;
-      std::move(closure).Run();
-    }
-  }
-  Profile* profile_1_ = nullptr;
-  Profile* profile_2_ = nullptr;
-
-  testing::NiceMock<MockConfigurationPolicyProvider> policy_for_profile_1_;
-  testing::NiceMock<MockConfigurationPolicyProvider> policy_for_profile_2_;
-};
-
 // Verifies |certificate| with |storage_partition|'s CertVerifier and returns
 // the result.
 int VerifyTestServerCertInStoragePartition(
     content::StoragePartition* storage_partition,
     const scoped_refptr<net::X509Certificate>& certificate) {
-  mojo::ScopedAllowSyncCallForTesting allow_sync_call;
-  int result = net::OK;
+  base::test::TestFuture<int> future;
   storage_partition->GetNetworkContext()->VerifyCertificateForTesting(
       certificate, "127.0.0.1", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), &result);
-  return result;
+      /*sct_list=*/std::string(), future.GetCallback());
+  return future.Get();
 }
 
 // Verifies |certificate| with the CertVerifier for |profile|'s default
@@ -508,158 +375,7 @@ bool IsCertInNSSDatabase(Profile* profile,
   return cert_found;
 }
 
-bool IsCertInCertificateList(
-    const net::X509Certificate* cert,
-    const chromeos::NetworkCertLoader::NetworkCertList& network_cert_list) {
-  for (const auto& network_cert : network_cert_list) {
-    if (net::x509_util::IsSameCertificate(network_cert.cert(), cert))
-      return true;
-  }
-  return false;
-}
-
 }  // namespace
-
-// Allows testing if user policy provided trust roots take effect, without
-// having device policy.
-// The parameter specifies whether the CertVerifierService is enabled.
-class PolicyProvidedCertsRegularUserTest : public InProcessBrowserTest {
- protected:
-  PolicyProvidedCertsRegularUserTest() = default;
-  ~PolicyProvidedCertsRegularUserTest() override = default;
-
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    multi_profile_policy_helper_.SetUpCommandLine(command_line);
-  }
-
-  void SetUpInProcessBrowserTestFixture() override {
-    InProcessBrowserTest::SetUpInProcessBrowserTestFixture();
-
-    ASSERT_NO_FATAL_FAILURE(
-        multi_profile_policy_helper_.BeforeInitialProfileCreated());
-  }
-
-  void SetUpOnMainThread() override {
-    InProcessBrowserTest::SetUpOnMainThread();
-
-    ASSERT_NO_FATAL_FAILURE(
-        multi_profile_policy_helper_.AfterInitialProfileCreated());
-
-    ASSERT_NO_FATAL_FAILURE(user_policy_certs_helper_.Initialize());
-
-    // Use the same testing slot as private and public slot for testing.
-    test_nss_cert_db_ = std::make_unique<net::NSSCertDatabase>(
-        crypto::ScopedPK11Slot(
-            PK11_ReferenceSlot(test_nssdb_.slot())) /* public slot */,
-        crypto::ScopedPK11Slot(
-            PK11_ReferenceSlot(test_nssdb_.slot())) /* private slot */);
-  }
-
-  MultiProfilePolicyProviderHelper multi_profile_policy_helper_;
-
-  UserPolicyCertsHelper user_policy_certs_helper_;
-
-  // A NSSCertDatabase is needed for the tests that do something with
-  // NetworkCertLoader.
-  crypto::ScopedTestNSSDB test_nssdb_;
-  std::unique_ptr<net::NSSCertDatabase> test_nss_cert_db_;
-};
-
-IN_PROC_BROWSER_TEST_F(PolicyProvidedCertsRegularUserTest, TrustAnchorApplied) {
-  user_policy_certs_helper_.SetRootCertONCUserPolicy(
-      multi_profile_policy_helper_.profile_1(),
-      multi_profile_policy_helper_.policy_for_profile_1());
-  EXPECT_EQ(net::OK,
-            VerifyTestServerCert(multi_profile_policy_helper_.profile_1(),
-                                 user_policy_certs_helper_.server_cert()));
-}
-
-IN_PROC_BROWSER_TEST_F(PolicyProvidedCertsRegularUserTest,
-                       PrimaryProfileTrustAnchorDoesNotLeak) {
-  ASSERT_NO_FATAL_FAILURE(multi_profile_policy_helper_.CreateSecondProfile());
-
-  user_policy_certs_helper_.SetRootCertONCUserPolicy(
-      multi_profile_policy_helper_.profile_1(),
-      multi_profile_policy_helper_.policy_for_profile_1());
-  EXPECT_EQ(net::OK,
-            VerifyTestServerCert(multi_profile_policy_helper_.profile_1(),
-                                 user_policy_certs_helper_.server_cert()));
-  EXPECT_EQ(net::ERR_CERT_AUTHORITY_INVALID,
-            VerifyTestServerCert(multi_profile_policy_helper_.profile_2(),
-                                 user_policy_certs_helper_.server_cert()));
-}
-
-IN_PROC_BROWSER_TEST_F(PolicyProvidedCertsRegularUserTest,
-                       SecondaryProfileTrustAnchorDoesNotLeak) {
-  ASSERT_NO_FATAL_FAILURE(multi_profile_policy_helper_.CreateSecondProfile());
-
-  user_policy_certs_helper_.SetRootCertONCUserPolicy(
-      multi_profile_policy_helper_.profile_2(),
-      multi_profile_policy_helper_.policy_for_profile_2());
-  EXPECT_EQ(net::ERR_CERT_AUTHORITY_INVALID,
-            VerifyTestServerCert(multi_profile_policy_helper_.profile_1(),
-                                 user_policy_certs_helper_.server_cert()));
-  // TODO(https://crbug.com/1127263): That the cert from a secondary user's
-  // policy is used at all is currently an artifact of the test, which reuses
-  // the primary user_manager::User for the secondary Profile.
-  // Fix that and then expect ERR_CERT_AUTHORITY_INVALID here too, and rename
-  // the test to SecondaryProfileTrustAnchorIgnored.
-  // Or, allow secondary Profile ONC policy to set trust anchors for the
-  // secondary Profile.
-  EXPECT_EQ(net::OK,
-            VerifyTestServerCert(multi_profile_policy_helper_.profile_2(),
-                                 user_policy_certs_helper_.server_cert()));
-}
-
-IN_PROC_BROWSER_TEST_F(PolicyProvidedCertsRegularUserTest,
-                       UntrustedIntermediateAuthorityApplied) {
-  // Sanity check: Apply ONC policy which does not mention the intermediate
-  // authority.
-  user_policy_certs_helper_.SetRootCertONCUserPolicy(
-      multi_profile_policy_helper_.profile_1(),
-      multi_profile_policy_helper_.policy_for_profile_1());
-  EXPECT_EQ(net::ERR_CERT_AUTHORITY_INVALID,
-            VerifyTestServerCert(
-                multi_profile_policy_helper_.profile_1(),
-                user_policy_certs_helper_.server_cert_by_intermediate()));
-
-  // Now apply ONC policy which mentions the intermediate authority (but does
-  // not assign trust to it).
-  user_policy_certs_helper_.SetRootAndIntermediateCertsONCUserPolicy(
-      multi_profile_policy_helper_.profile_1(),
-      multi_profile_policy_helper_.policy_for_profile_1());
-  EXPECT_EQ(net::OK,
-            VerifyTestServerCert(
-                multi_profile_policy_helper_.profile_1(),
-                user_policy_certs_helper_.server_cert_by_intermediate()));
-}
-
-IN_PROC_BROWSER_TEST_F(PolicyProvidedCertsRegularUserTest,
-                       AuthorityAvailableThroughNetworkCertLoader) {
-  // Set |NetworkCertLoader| to use a test NSS database - otherwise, it is not
-  // properly initialized because |UserSessionManager| only sets the primary
-  // user's NSS Database in |NetworkCertLoader| if running on ChromeOS according
-  // to |base::SysInfo|.
-  ASSERT_TRUE(chromeos::NetworkCertLoader::IsInitialized());
-  chromeos::NetworkCertLoader::Get()->SetUserNSSDB(test_nss_cert_db_.get());
-
-  EXPECT_FALSE(IsCertInCertificateList(
-      user_policy_certs_helper_.root_cert().get(),
-      chromeos::NetworkCertLoader::Get()->authority_certs()));
-  NetworkCertLoaderTestObserver network_cert_loader_observer(
-      chromeos::NetworkCertLoader::Get());
-  user_policy_certs_helper_.SetRootCertONCUserPolicy(
-      multi_profile_policy_helper_.profile_1(),
-      multi_profile_policy_helper_.policy_for_profile_1());
-  network_cert_loader_observer.Wait();
-
-  // Check that |NetworkCertLoader| is aware of the authority certificate.
-  // (Web Trust does not matter for the NetworkCertLoader, but we currently only
-  // set a policy with a certificate requesting Web Trust here).
-  EXPECT_TRUE(IsCertInCertificateList(
-      user_policy_certs_helper_.root_cert().get(),
-      chromeos::NetworkCertLoader::Get()->authority_certs()));
-}
 
 // Base class for testing policy-provided trust roots with device-local
 // accounts. Needs device policy.
@@ -739,7 +455,6 @@ class PolicyProvidedCertsPublicSessionTest
   // TODO(crbug/874831): Consider migrating to LoggedInMixin and deprecating
   // this function.
   void StartLogin() {
-    ash::WizardController::SkipPostLoginScreensForTesting();
     auto* const wizard_controller = ash::WizardController::default_controller();
     ASSERT_TRUE(wizard_controller);
     wizard_controller->SkipToLoginForTesting();
@@ -784,8 +499,7 @@ class PolicyProvidedCertsOnUserSessionInitTest : public LoginPolicyTestBase {
  protected:
   PolicyProvidedCertsOnUserSessionInitTest() {}
 
-  void GetPolicySettings(
-      enterprise_management::CloudPolicySettings* policy) const override {
+  void GetPolicySettings(em::CloudPolicySettings* policy) const override {
     std::string user_policy_blob = GetTestCertsFileContents(kRootCaCertOnc);
     policy->mutable_opennetworkconfiguration()->set_value(user_policy_blob);
   }
@@ -843,9 +557,9 @@ class PolicyProvidedClientCertsTest : public DevicePolicyCrosBrowserTest {
 
     const std::string& user_policy_blob =
         chromeos::onc::test_utils::ReadTestData(kClientCertOnc);
-    policy::PolicyMap policy;
-    policy.Set(key::kOpenNetworkConfiguration, policy::POLICY_LEVEL_MANDATORY,
-               policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+    PolicyMap policy;
+    policy.Set(key::kOpenNetworkConfiguration, POLICY_LEVEL_MANDATORY,
+               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
                base::Value(user_policy_blob), nullptr);
     provider_.UpdateChromePolicy(policy);
 

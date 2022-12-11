@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -74,6 +74,25 @@ class TestCompatModeButtonController : public CompatModeButtonController {
   base::flat_set<const aura::Window*> update_compat_mode_button_called;
 };
 
+class TestArcResizeLockManager : public ArcResizeLockManager {
+ public:
+  TestArcResizeLockManager() : ArcResizeLockManager(nullptr, nullptr) {}
+  ~TestArcResizeLockManager() override = default;
+
+  // ArcResizeLockManager:
+  void ShowSplashScreenDialog(aura::Window* window, bool) override {
+    show_splash_callback_.Run(window);
+  }
+
+  void set_show_splash_callback(
+      base::RepeatingCallback<void(aura::Window*)> callback) {
+    show_splash_callback_ = std::move(callback);
+  }
+
+ private:
+  base::RepeatingCallback<void(aura::Window*)> show_splash_callback_;
+};
+
 DEFINE_UI_CLASS_PROPERTY_KEY(bool, kNonInterestedPropKey, false)
 
 constexpr std::array<ash::ArcResizeLockType, 4> kArcResizeLockTypes{
@@ -122,8 +141,13 @@ class ArcResizeLockManagerTest : public CompatModeTestBase {
     test_compat_mode_button_controller_->ResetUpdateCompatModeButtonCalled();
   }
 
+  void SetShowSplashCallback(
+      base::RepeatingCallback<void(aura::Window*)> callback) {
+    arc_resize_lock_manager_.set_show_splash_callback(std::move(callback));
+  }
+
  private:
-  ArcResizeLockManager arc_resize_lock_manager_{nullptr, nullptr};
+  TestArcResizeLockManager arc_resize_lock_manager_;
 
   // Owned by |arc_resize_lock_manager_|.
   TestCompatModeButtonController* test_compat_mode_button_controller_;
@@ -428,8 +452,6 @@ TEST_F(ArcResizeLockManagerTest, UpdateCompatModeButton) {
 // Tests that compatible window snapping is properly enabled for resize-locked
 // windows.
 TEST_F(ArcResizeLockManagerTest, TestCompatWindowSnap) {
-  base::test::ScopedFeatureList feature_list{arc::kCompatSnapFeature};
-
   auto arc_window = CreateFakeWindow(true);
   arc_window->SetProperty(ash::kAppIDKey, std::string("app-id"));
 
@@ -451,26 +473,28 @@ TEST_F(ArcResizeLockManagerTest, TestCompatWindowSnap) {
   EXPECT_EQ(arc_window->GetProperty(ash::kUnresizableSnappedSizeKey), nullptr);
 }
 
-// TODO(b/215063759): Remove this test after the launch.
-// Tests that compatible window snapping is properly disabled if the flag is
-// disabled.
-TEST_F(ArcResizeLockManagerTest, TestCompatWindowSnapWithFlagDisabled) {
+// Test that the splash screen dialog is shown properly.
+TEST_F(ArcResizeLockManagerTest, ShowSplashScreen) {
   auto arc_window = CreateFakeWindow(true);
-  arc_window->SetProperty(ash::kAppIDKey, std::string("app-id"));
-  arc_window->SetProperty(aura::client::kResizeBehaviorKey,
-                          aura::client::kResizeBehaviorNone);
+  std::string app_id = "app-id";
+  arc_window->SetProperty(ash::kAppIDKey, app_id);
+  pref_delegate()->SetResizeLockState(app_id, mojom::ArcResizeLockState::READY);
+  pref_delegate()->SetShowSplashScreenDialogCount(1);
 
+  EXPECT_FALSE(IsResizeLockEnabled(arc_window.get()));
+
+  bool show_splash_called = false;
+  SetShowSplashCallback(base::BindLambdaForTesting([&](aura::Window* window) {
+    show_splash_called = true;
+    // The compat-mode button must exist at the time of showing the splash.
+    EXPECT_TRUE(IsUpdateCompatModeButtonCalled(window));
+  }));
+
+  // Enable resize-lock.
   arc_window->SetProperty(ash::kArcResizeLockTypeKey,
                           ash::ArcResizeLockType::RESIZE_DISABLED_TOGGLABLE);
-  EXPECT_EQ(arc_window->GetProperty(ash::kUnresizableSnappedSizeKey), nullptr);
 
-  arc_window->SetProperty(ash::kArcResizeLockTypeKey,
-                          ash::ArcResizeLockType::NONE);
-  EXPECT_EQ(arc_window->GetProperty(ash::kUnresizableSnappedSizeKey), nullptr);
-
-  arc_window->SetProperty(ash::kArcResizeLockTypeKey,
-                          ash::ArcResizeLockType::RESIZE_DISABLED_NONTOGGLABLE);
-  EXPECT_EQ(arc_window->GetProperty(ash::kUnresizableSnappedSizeKey), nullptr);
+  EXPECT_TRUE(show_splash_called);
 }
 
 }  // namespace arc

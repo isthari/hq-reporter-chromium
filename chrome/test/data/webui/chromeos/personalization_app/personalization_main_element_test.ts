@@ -1,53 +1,30 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+import 'chrome://personalization/strings.m.js';
+import 'chrome://webui-test/mojo_webui_test_support.js';
 
-import {PersonalizationMain} from 'chrome://personalization/trusted/personalization_main_element.js';
-import {Paths, PersonalizationRouter} from 'chrome://personalization/trusted/personalization_router_element.js';
-import {assertDeepEquals, assertEquals} from 'chrome://webui-test/chai_assert.js';
+import {Paths, PersonalizationMain, PersonalizationRouter} from 'chrome://personalization/js/personalization_app.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
-import {initElement, teardownElement} from './personalization_app_test_utils.js';
+import {baseSetup, initElement, teardownElement} from './personalization_app_test_utils.js';
 
-export function PersonalizationMainTest() {
+suite('PersonalizationMainTest', function() {
   let personalizationMainElement: PersonalizationMain|null;
 
-  setup(function() {});
+  setup(() => {
+    baseSetup();
+  });
 
   teardown(async () => {
     await teardownElement(personalizationMainElement);
     personalizationMainElement = null;
   });
 
-  test('displays content', async () => {
-    personalizationMainElement = initElement(PersonalizationMain);
-    assertEquals(
-        'Personalization',
-        personalizationMainElement.shadowRoot!.querySelector('h1')!.innerText);
-  });
-
-  test('links to user subpage', async () => {
-    personalizationMainElement = initElement(PersonalizationMain);
-    const original = PersonalizationRouter.instance;
-    const goToRoutePromise = new Promise<[Paths, Object]>(resolve => {
-      PersonalizationRouter.instance = () => {
-        return {
-          goToRoute(path: Paths, queryParams: Object = {}) {
-            resolve([path, queryParams]);
-            PersonalizationRouter.instance = original;
-          }
-        } as PersonalizationRouter;
-      };
-    });
-    const userSubpageLink =
-        personalizationMainElement!.shadowRoot!.getElementById(
-            'userSubpageLink')!;
-    userSubpageLink.click();
-    const [path, queryParams] = await goToRoutePromise;
-    assertEquals(Paths.User, path);
-    assertDeepEquals({}, queryParams);
-  });
-
   test('links to ambient subpage', async () => {
+    loadTimeData.overrideValues({'isAmbientModeAllowed': true});
     personalizationMainElement = initElement(PersonalizationMain);
     const original = PersonalizationRouter.instance;
     const goToRoutePromise = new Promise<[Paths, Object]>(resolve => {
@@ -56,7 +33,7 @@ export function PersonalizationMainTest() {
           goToRoute(path: Paths, queryParams: Object = {}) {
             resolve([path, queryParams]);
             PersonalizationRouter.instance = original;
-          }
+          },
         } as PersonalizationRouter;
       };
     });
@@ -65,7 +42,38 @@ export function PersonalizationMainTest() {
             'ambientSubpageLink')!;
     ambientSubpageLink.click();
     const [path, queryParams] = await goToRoutePromise;
-    assertEquals(Paths.Ambient, path);
+    assertEquals(Paths.AMBIENT, path);
     assertDeepEquals({}, queryParams);
   });
-}
+
+  test('no links to ambient subpage', async () => {
+    loadTimeData.overrideValues({'isAmbientModeAllowed': false});
+    personalizationMainElement = initElement(PersonalizationMain);
+
+    const ambientSubpageLink =
+        personalizationMainElement!.shadowRoot!.getElementById(
+            'ambientSubpageLink')!;
+    assertFalse(!!ambientSubpageLink);
+  });
+
+  test('has ambient preview', async () => {
+    loadTimeData.overrideValues({'isAmbientModeAllowed': true});
+    personalizationMainElement = initElement(PersonalizationMain);
+    await waitAfterNextRender(personalizationMainElement);
+
+    const preview = personalizationMainElement!.shadowRoot!.querySelector(
+        'ambient-preview')!;
+    assertTrue(!!preview);
+  });
+
+  test('has no ambient preview', async () => {
+    loadTimeData.overrideValues({'isAmbientModeAllowed': false});
+    personalizationMainElement = initElement(PersonalizationMain);
+    await waitAfterNextRender(personalizationMainElement);
+
+
+    const preview = personalizationMainElement!.shadowRoot!.querySelector(
+        'ambient-preview')!;
+    assertFalse(!!preview);
+  });
+});

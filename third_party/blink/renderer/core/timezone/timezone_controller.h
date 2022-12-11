@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,8 +57,6 @@ class CORE_EXPORT TimeZoneController final
 
   // device::mojom::blink::TimeZoneMonitorClient:
   void OnTimeZoneChange(const String& timezone_id) override;
-
-  String GetHostTimezoneId();
 
   // receiver_ must not use HeapMojoReceiver. TimeZoneController is not managed
   // by Oilpan.

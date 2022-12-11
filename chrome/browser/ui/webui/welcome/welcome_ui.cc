@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/values.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "chrome/browser/signin/account_consistency_mode_manager.h"
@@ -107,6 +108,8 @@ void AddStrings(content::WebUIDataSource* html_source) {
       {"landingDescription", IDS_WELCOME_LANDING_DESCRIPTION},
       {"landingNewUser", IDS_WELCOME_LANDING_NEW_USER},
       {"landingExistingUser", IDS_WELCOME_LANDING_EXISTING_USER},
+      {"landingPauseAnimations", IDS_WELCOME_LANDING_PAUSE_ANIMATIONS},
+      {"landingPlayAnimations", IDS_WELCOME_LANDING_PLAY_ANIMATIONS},
   };
   html_source->AddLocalizedStrings(kLocalizedStrings);
 }
@@ -138,7 +141,7 @@ WelcomeUI::WelcomeUI(content::WebUI* web_ui, const GURL& url)
 
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   html_source->AddResourcePath("images/background_svgs/logo.svg",
-                               IDR_PRODUCT_LOGO_24PX_1X);
+                               IDR_PRODUCT_LOGO_128PX_SVG);
 #endif
 
 #if BUILDFLAG(IS_WIN)
@@ -161,10 +164,10 @@ WelcomeUI::WelcomeUI(content::WebUI* web_ui, const GURL& url)
 
   html_source->AddString(
       "newUserModules",
-      welcome::GetModules(profile).FindKey("new-user")->GetString());
+      welcome::GetModules(profile).Find("new-user")->GetString());
   html_source->AddString(
       "returningUserModules",
-      welcome::GetModules(profile).FindKey("returning-user")->GetString());
+      welcome::GetModules(profile).Find("returning-user")->GetString());
   html_source->AddBoolean(
       "signinAllowed", profile->GetPrefs()->GetBoolean(prefs::kSigninAllowed));
   html_source->SetRequestFilter(

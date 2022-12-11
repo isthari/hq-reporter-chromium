@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,7 +57,7 @@ class ChromeContentBrowserClientExtensionsPart
   static bool ShouldCompareEffectiveURLsForSiteInstanceSelection(
       content::BrowserContext* browser_context,
       content::SiteInstance* candidate_site_instance,
-      bool is_main_frame,
+      bool is_outermost_main_frame,
       const GURL& candidate_url,
       const GURL& destination_url);
   static bool ShouldUseProcessPerSite(Profile* profile, const GURL& site_url);
@@ -72,8 +72,8 @@ class ChromeContentBrowserClientExtensionsPart
                              content::RenderProcessHost* process_host,
                              const GURL& site_url);
   static size_t GetProcessCountToIgnoreForLimit();
-  static bool ShouldSubframesTryToReuseExistingProcess(
-      content::RenderFrameHost* main_frame);
+  static bool ShouldEmbeddedFramesTryToReuseExistingProcess(
+      content::RenderFrameHost* outermost_main_frame);
   static bool ShouldSwapBrowsingInstancesForNavigation(
       content::SiteInstance* site_instance,
       const GURL& current_effective_url,
@@ -100,6 +100,10 @@ class ChromeContentBrowserClientExtensionsPart
 
   static bool IsBuiltinComponent(content::BrowserContext* browser_context,
                                  const url::Origin& origin);
+
+  // Checks if the given context support extensions, based on the profile type.
+  static bool AreExtensionsDisabledForProfile(
+      content::BrowserContext* browser_context);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ChromeContentBrowserClientExtensionsPartTest,

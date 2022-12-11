@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
 #include "ui/gfx/canvas.h"
@@ -49,7 +50,10 @@ MdTextButton::MdTextButton(PressedCallback callback,
       },
       this));
 
-  SetCornerRadius(LayoutProvider::Get()->GetCornerRadiusMetric(Emphasis::kLow));
+  if (!features::IsChromeRefresh2023())
+    SetCornerRadius(
+        LayoutProvider::Get()->GetCornerRadiusMetric(Emphasis::kLow));
+
   SetHorizontalAlignment(gfx::ALIGN_CENTER);
 
   const int minimum_width = LayoutProvider::Get()->GetDistanceMetric(
@@ -106,6 +110,8 @@ void MdTextButton::SetCornerRadius(float radius) {
   InkDrop::Get(this)->SetLargeCornerRadius(corner_radius_);
   views::InstallRoundRectHighlightPathGenerator(this, gfx::Insets(),
                                                 corner_radius_);
+  // UpdateColors also updates the background border radius.
+  UpdateColors();
   OnPropertyChanged(&corner_radius_, kPropertyEffectsPaint);
 }
 
@@ -131,6 +137,15 @@ void MdTextButton::OnFocus() {
 void MdTextButton::OnBlur() {
   LabelButton::OnBlur();
   UpdateColors();
+}
+
+void MdTextButton::OnBoundsChanged(const gfx::Rect& previous_bounds) {
+  LabelButton::OnBoundsChanged(previous_bounds);
+
+  if (features::IsChromeRefresh2023()) {
+    SetCornerRadius(LayoutProvider::Get()->GetCornerRadiusMetric(
+        Emphasis::kMaximum, size()));
+  }
 }
 
 void MdTextButton::SetEnabledTextColors(absl::optional<SkColor> color) {
@@ -184,8 +199,8 @@ gfx::Insets MdTextButton::CalculateDefaultPadding() const {
   // we apply the MD treatment to all buttons, even GTK buttons?
   const int horizontal_padding = LayoutProvider::Get()->GetDistanceMetric(
       DISTANCE_BUTTON_HORIZONTAL_PADDING);
-  return gfx::Insets(top_padding, horizontal_padding, bottom_padding,
-                     horizontal_padding);
+  return gfx::Insets::TLBR(top_padding, horizontal_padding, bottom_padding,
+                           horizontal_padding);
 }
 
 void MdTextButton::UpdateTextColor() {

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -116,10 +116,7 @@ WebAudioSourceProviderImpl::WebAudioSourceProviderImpl(
     scoped_refptr<media::SwitchableAudioRendererSink> sink,
     media::MediaLog* media_log,
     base::OnceClosure on_set_client_callback /* = base::OnceClosure()*/)
-    : volume_(1.0),
-      state_(kStopped),
-      client_(nullptr),
-      sink_(std::move(sink)),
+    : sink_(std::move(sink)),
       tee_filter_(new TeeFilter()),
       media_log_(media_log),
       on_set_client_callback_(std::move(on_set_client_callback)) {}
@@ -298,8 +295,8 @@ void WebAudioSourceProviderImpl::GetOutputDeviceInfoAsync(
   // underlying audio renderer will prefer the media parameters. See
   // IsOptimizedForHardwareParameters() for more details.
   media::BindToCurrentLoop(
-      WTF::Bind(std::move(info_cb),
-                media::OutputDeviceInfo(media::OUTPUT_DEVICE_STATUS_OK)))
+      WTF::BindOnce(std::move(info_cb),
+                    media::OutputDeviceInfo(media::OUTPUT_DEVICE_STATUS_OK)))
       .Run();
 }
 
@@ -330,15 +327,21 @@ void WebAudioSourceProviderImpl::TaintOrigin() {
 void WebAudioSourceProviderImpl::SetCopyAudioCallback(CopyAudioCB callback) {
   DCHECK(!callback.is_null());
   tee_filter_->SetCopyAudioCallback(std::move(callback));
+  has_copy_audio_callback_ = true;
 }
 
 void WebAudioSourceProviderImpl::ClearCopyAudioCallback() {
   tee_filter_->SetCopyAudioCallback(CopyAudioCB());
+  has_copy_audio_callback_ = false;
 }
 
 int WebAudioSourceProviderImpl::RenderForTesting(media::AudioBus* audio_bus) {
   return tee_filter_->Render(base::TimeDelta(), base::TimeTicks::Now(), 0,
                              audio_bus);
+}
+
+bool WebAudioSourceProviderImpl::IsAudioBeingCaptured() const {
+  return has_copy_audio_callback_ || client_;
 }
 
 void WebAudioSourceProviderImpl::OnSetFormat() {

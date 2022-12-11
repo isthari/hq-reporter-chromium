@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -78,13 +78,6 @@ PP_Resource ResourceCreationImpl::CreateBuffer(PP_Instance instance,
 
 PP_Resource ResourceCreationImpl::CreateCameraDevicePrivate(
     PP_Instance instance) {
-  return 0;  // Not supported in-process.
-}
-
-PP_Resource ResourceCreationImpl::CreateFlashFontFile(
-    PP_Instance instance,
-    const PP_BrowserFont_Trusted_Description* description,
-    PP_PrivateFontCharset charset) {
   return 0;  // Not supported in-process.
 }
 

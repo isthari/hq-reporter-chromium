@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/child_process_data.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/common/content_features.h"
 #include "gpu/config/gpu_feature_type.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_switches.h"
@@ -50,7 +51,7 @@ std::unique_ptr<SystemInfo::Size> GfxSizeToSystemInfoSize(
 // Windows builds need more time -- see Issue 873112 and 1004472.
 // Mac builds need more time - see Issue angleproject:6182.
 #if ((BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && !defined(NDEBUG)) || \
-    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || defined(USE_OZONE)
+    BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_OZONE)
 static constexpr int kGPUInfoWatchdogTimeoutMultiplierOS = 3;
 #else
 static constexpr int kGPUInfoWatchdogTimeoutMultiplierOS = 1;
@@ -70,39 +71,36 @@ static constexpr int kGPUInfoWatchdogTimeoutMs =
 
 class AuxGPUInfoEnumerator : public gpu::GPUInfo::Enumerator {
  public:
-  AuxGPUInfoEnumerator(protocol::DictionaryValue* dictionary)
-      : dictionary_(dictionary),
-        in_aux_attributes_(false) { }
+  explicit AuxGPUInfoEnumerator(base::Value::Dict* dictionary)
+      : dictionary_(*dictionary) {}
+
+ private:
+  template <typename T>
+  void MaybeSetAuxAttribute(const char* name, T value) {
+    if (in_aux_attributes_)
+      dictionary_.Set(name, value);
+  }
 
   void AddInt64(const char* name, int64_t value) override {
-    if (in_aux_attributes_)
-      dictionary_->setDouble(name, value);
+    AddInt(name, value);
   }
-
   void AddInt(const char* name, int value) override {
-    if (in_aux_attributes_)
-      dictionary_->setInteger(name, value);
+    MaybeSetAuxAttribute(name, value);
   }
-
   void AddString(const char* name, const std::string& value) override {
-    if (in_aux_attributes_)
-      dictionary_->setString(name, value);
+    MaybeSetAuxAttribute(name, value);
   }
-
   void AddBool(const char* name, bool value) override {
-    if (in_aux_attributes_)
-      dictionary_->setBoolean(name, value);
+    MaybeSetAuxAttribute(name, value);
   }
-
   void AddTimeDeltaInSecondsF(const char* name,
                               const base::TimeDelta& value) override {
-    if (in_aux_attributes_)
-      dictionary_->setDouble(name, value.InSecondsF());
+    MaybeSetAuxAttribute(name, value.InSecondsF());
   }
 
   void AddBinary(const char* name,
                  const base::span<const uint8_t>& value) override {
-    // TODO(penghuang): send vulkan info to devtool
+    // TODO(penghuang): send vulkan info to DevTools.
   }
 
   void BeginGPUDevice() override {}
@@ -133,9 +131,8 @@ class AuxGPUInfoEnumerator : public gpu::GPUInfo::Enumerator {
     in_aux_attributes_ = false;
   }
 
- private:
-  protocol::DictionaryValue* dictionary_;
-  bool in_aux_attributes_;
+  protocol::DictionaryValue& dictionary_;
+  bool in_aux_attributes_ = false;
 };
 
 std::unique_ptr<GPUDevice> GPUDeviceToProtocol(
@@ -230,26 +227,23 @@ void SendGetInfoResponse(std::unique_ptr<GetInfoCallback> callback) {
       continue;
     devices->emplace_back(GPUDeviceToProtocol(gpu_info.secondary_gpus[i]));
   }
-  std::unique_ptr<protocol::DictionaryValue> aux_attributes =
-      protocol::DictionaryValue::create();
+  auto aux_attributes = std::make_unique<base::Value::Dict>();
   AuxGPUInfoEnumerator enumerator(aux_attributes.get());
   gpu_info.EnumerateFields(&enumerator);
-  enumerator.BeginAuxAttributes();
-  enumerator.AddInt("processCrashCount", GpuProcessHost::GetGpuCrashCount());
-  enumerator.AddInt("visibilityCallbackCallCount",
-                    gpu_info.visibility_callback_call_count);
-  enumerator.EndAuxAttributes();
+  aux_attributes->Set("processCrashCount", GpuProcessHost::GetGpuCrashCount());
+  aux_attributes->Set(
+      "visibilityCallbackCallCount",
+      static_cast<int>(gpu_info.visibility_callback_call_count));
 
-  auto feature_status = protocol::DictionaryValue::cast(
-      protocol::toProtocolValue(GetFeatureStatus(), 1000));
-
+  auto feature_status = std::make_unique<base::Value::Dict>(
+      std::move(GetFeatureStatus().GetDict()));
   auto driver_bug_workarounds =
       std::make_unique<protocol::Array<std::string>>(GetDriverBugWorkarounds());
 
   auto decoding_profiles = std::make_unique<
       protocol::Array<SystemInfo::VideoDecodeAcceleratorCapability>>();
   for (const auto& profile :
-       gpu_info.video_decode_accelerator_capabilities.supported_profiles) {
+       gpu_info.video_decode_accelerator_supported_profiles) {
     decoding_profiles->emplace_back(
         VideoDecodeAcceleratorSupportedProfileToProtocol(profile));
   }
@@ -323,9 +317,7 @@ class SystemInfoHandlerGpuObserver : public content::GpuDataManagerObserver {
     UnregisterAndSendResponse();
   }
 
-  void OnGpuProcessCrashed(base::TerminationStatus exit_code) override {
-    UnregisterAndSendResponse();
-  }
+  void OnGpuProcessCrashed() override { UnregisterAndSendResponse(); }
 
   void ObserverWatchdogCallback() {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -434,6 +426,16 @@ void SystemInfoHandler::GetProcessInfo(
   AddRendererProcessInfo(process_info.get());
   AddChildProcessInfo(process_info.get());
   callback->sendSuccess(std::move(process_info));
+}
+
+Response SystemInfoHandler::GetFeatureState(const String& in_featureState,
+                                            bool* featureEnabled) {
+  if (in_featureState == "PrerenderHoldback") {
+    *featureEnabled =
+        std::move(base::FeatureList::IsEnabled(features::kPrerender2Holdback));
+    return Response::Success();
+  }
+  return Response::InvalidParams("Unknown feature");
 }
 
 }  // namespace protocol

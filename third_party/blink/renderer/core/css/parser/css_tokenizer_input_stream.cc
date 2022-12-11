@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,6 @@
 #include "third_party/blink/renderer/platform/wtf/text/string_to_number.h"
 
 namespace blink {
-
-CSSTokenizerInputStream::CSSTokenizerInputStream(const String& input)
-    : offset_(0), string_length_(input.length()), string_(input.Impl()) {}
 
 void CSSTokenizerInputStream::AdvanceUntilNonWhitespace() {
   // Using HTML space here rather than CSS space since we don't do preprocessing

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include "base/notreached.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece_forward.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "device/gamepad/test_support/fake_igamepad.h"
@@ -32,7 +31,7 @@ HRESULT WINAPI FakeIGamepadStatics::add_GamepadAdded(
         ABI::Windows::Gaming::Input::Gamepad*>* event_handler,
     EventRegistrationToken* token) {
   if (FakeWinrtWgiEnvironment::GetError() ==
-      ErrorCode::kGamepadAddGamepadAddedFailed) {
+      WgiTestErrorCode::kGamepadAddGamepadAddedFailed) {
     return E_FAIL;
   }
 
@@ -52,7 +51,7 @@ HRESULT WINAPI FakeIGamepadStatics::add_GamepadRemoved(
         ABI::Windows::Gaming::Input::Gamepad*>* event_handler,
     EventRegistrationToken* token) {
   if (FakeWinrtWgiEnvironment::GetError() ==
-      ErrorCode::kGamepadAddGamepadRemovedFailed) {
+      WgiTestErrorCode::kGamepadAddGamepadRemovedFailed) {
     return E_FAIL;
   }
 
@@ -70,7 +69,7 @@ HRESULT WINAPI FakeIGamepadStatics::add_GamepadRemoved(
 HRESULT WINAPI
 FakeIGamepadStatics::remove_GamepadAdded(EventRegistrationToken token) {
   if (FakeWinrtWgiEnvironment::GetError() ==
-      ErrorCode::kGamepadRemoveGamepadAddedFailed) {
+      WgiTestErrorCode::kGamepadRemoveGamepadAddedFailed) {
     return E_FAIL;
   }
   size_t items_removed = base::EraseIf(
@@ -84,7 +83,7 @@ FakeIGamepadStatics::remove_GamepadAdded(EventRegistrationToken token) {
 HRESULT WINAPI
 FakeIGamepadStatics::remove_GamepadRemoved(EventRegistrationToken token) {
   if (FakeWinrtWgiEnvironment::GetError() ==
-      ErrorCode::kGamepadRemoveGamepadRemovedFailed) {
+      WgiTestErrorCode::kGamepadRemoveGamepadRemovedFailed) {
     return E_FAIL;
   }
   size_t items_removed = base::EraseIf(
@@ -141,7 +140,7 @@ HRESULT FakeIGamepadStatics::FromGameController(
     ABI::Windows::Gaming::Input::IGameController* gameController,
     ABI::Windows::Gaming::Input::IRawGameController** value) {
   if (FakeWinrtWgiEnvironment::GetError() ==
-      ErrorCode::kErrorWgiRawGameControllerFromGameControllerFailed) {
+      WgiTestErrorCode::kErrorWgiRawGameControllerFromGameControllerFailed) {
     return E_FAIL;
   }
 

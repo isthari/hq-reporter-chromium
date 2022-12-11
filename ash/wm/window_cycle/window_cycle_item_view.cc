@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,9 @@
 #include "ash/shell.h"
 #include "ash/wm/window_cycle/window_cycle_controller.h"
 #include "ash/wm/window_preview_view.h"
+#include "base/cxx17_backports.h"
+#include "ui/accessibility/ax_action_data.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/aura/window.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -116,6 +119,21 @@ gfx::Size WindowCycleItemView::CalculatePreferredSize() const {
   const int margin = GetInsets().width();
   preview_size.Enlarge(margin, margin + WindowMiniView::kHeaderHeightDp);
   return preview_size;
+}
+
+bool WindowCycleItemView::HandleAccessibleAction(
+    const ui::AXActionData& action_data) {
+  // Since this class destroys itself on mouse press, and
+  // View::HandleAccessibleAction calls OnEvent twice (first with a mouse press
+  // event, then with a mouse release event), override the base impl from
+  // triggering that behavior which leads to a UAF.
+  if (action_data.action == ax::mojom::Action::kDoDefault) {
+    Shell::Get()->window_cycle_controller()->SetFocusedWindow(source_window());
+    Shell::Get()->window_cycle_controller()->CompleteCycling();
+    return true;
+  }
+
+  return View::HandleAccessibleAction(action_data);
 }
 
 BEGIN_METADATA(WindowCycleItemView, WindowMiniView)

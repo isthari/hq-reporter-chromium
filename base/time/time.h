@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,9 +67,12 @@
 
 #include <iosfwd>
 #include <limits>
+#include <ostream>
 
 #include "base/base_export.h"
+#include "base/check.h"
 #include "base/check_op.h"
+#include "base/compiler_specific.h"
 #include "base/numerics/clamped_math.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -102,6 +105,7 @@ namespace ABI {
 namespace Windows {
 namespace Foundation {
 struct DateTime;
+struct TimeSpan;
 }  // namespace Foundation
 }  // namespace Windows
 }  // namespace ABI
@@ -110,6 +114,10 @@ struct DateTime;
 namespace base {
 
 class PlatformThreadHandle;
+class TimeDelta;
+
+template <typename T>
+constexpr TimeDelta Microseconds(T n);
 
 // TimeDelta ------------------------------------------------------------------
 
@@ -123,6 +131,7 @@ class BASE_EXPORT TimeDelta {
   // based on absolute time
   static TimeDelta FromFileTime(FILETIME ft);
   static TimeDelta FromWinrtDateTime(ABI::Windows::Foundation::DateTime dt);
+  static TimeDelta FromWinrtTimeSpan(ABI::Windows::Foundation::TimeSpan ts);
 #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
   static TimeDelta FromTimeSpec(const timespec& ts);
 #endif
@@ -194,6 +203,7 @@ class BASE_EXPORT TimeDelta {
 #endif
 #if BUILDFLAG(IS_WIN)
   ABI::Windows::Foundation::DateTime ToWinrtDateTime() const;
+  ABI::Windows::Foundation::TimeSpan ToWinrtTimeSpan() const;
 #endif
 
   // Returns the frequency in Hertz (cycles per second) that has a period of
@@ -437,13 +447,11 @@ class TimeBase {
   // the other subclasses can vary each time the application is restarted.
   constexpr TimeDelta since_origin() const;
 
-  constexpr TimeClass& operator=(TimeClass other) {
-    us_ = other.us_;
-    return *(static_cast<TimeClass*>(this));
-  }
-
   // Compute the difference between two times.
-  constexpr TimeDelta operator-(TimeClass other) const;
+#if !defined(__aarch64__) && BUILDFLAG(IS_ANDROID)
+  NOINLINE  // https://crbug.com/1369775
+#endif
+  constexpr TimeDelta operator-(const TimeBase<TimeClass>& other) const;
 
   // Return a new time modified by some delta.
   constexpr TimeClass operator+(TimeDelta delta) const;
@@ -458,19 +466,46 @@ class TimeBase {
   }
 
   // Comparison operators
-  constexpr bool operator==(TimeClass other) const { return us_ == other.us_; }
-  constexpr bool operator!=(TimeClass other) const { return us_ != other.us_; }
-  constexpr bool operator<(TimeClass other) const { return us_ < other.us_; }
-  constexpr bool operator<=(TimeClass other) const { return us_ <= other.us_; }
-  constexpr bool operator>(TimeClass other) const { return us_ > other.us_; }
-  constexpr bool operator>=(TimeClass other) const { return us_ >= other.us_; }
+  constexpr bool operator==(const TimeBase<TimeClass>& other) const {
+    return us_ == other.us_;
+  }
+  constexpr bool operator!=(const TimeBase<TimeClass>& other) const {
+    return us_ != other.us_;
+  }
+  constexpr bool operator<(const TimeBase<TimeClass>& other) const {
+    return us_ < other.us_;
+  }
+  constexpr bool operator<=(const TimeBase<TimeClass>& other) const {
+    return us_ <= other.us_;
+  }
+  constexpr bool operator>(const TimeBase<TimeClass>& other) const {
+    return us_ > other.us_;
+  }
+  constexpr bool operator>=(const TimeBase<TimeClass>& other) const {
+    return us_ >= other.us_;
+  }
 
  protected:
   constexpr explicit TimeBase(int64_t us) : us_(us) {}
 
   // Time value in a microsecond timebase.
-  int64_t us_;
+  ClampedNumeric<int64_t> us_;
 };
+
+#if BUILDFLAG(IS_WIN)
+#if defined(ARCH_CPU_ARM64)
+// TSCTicksPerSecond is not supported on Windows on Arm systems because the
+// cycle-counting methods use the actual CPU cycle count, and not a consistent
+// incrementing counter.
+#else
+// Returns true if the CPU support constant rate TSC.
+[[nodiscard]] BASE_EXPORT bool HasConstantRateTSC();
+
+// Returns the frequency of the TSC in ticks per second, or 0 if it hasn't
+// been measured yet. Needs to be guarded with a call to HasConstantRateTSC().
+[[nodiscard]] BASE_EXPORT double TSCTicksPerSecond();
+#endif
+#endif  // BUILDFLAG(IS_WIN)
 
 }  // namespace time_internal
 
@@ -589,8 +624,13 @@ class BASE_EXPORT Time : public time_internal::TimeBase<Time> {
   //       base::Microseconds(LoadFromDatabase()));
   //
   // Do not use `FromInternalValue()` or `ToInternalValue()` for this purpose.
-  static Time FromDeltaSinceWindowsEpoch(TimeDelta delta);
-  TimeDelta ToDeltaSinceWindowsEpoch() const;
+  static constexpr Time FromDeltaSinceWindowsEpoch(TimeDelta delta) {
+    return Time(delta.InMicroseconds());
+  }
+
+  constexpr TimeDelta ToDeltaSinceWindowsEpoch() const {
+    return Microseconds(us_);
+  }
 
   // Converts to/from time_t in UTC and a Time class.
   static constexpr Time FromTimeT(time_t tt);
@@ -922,7 +962,8 @@ constexpr TimeDelta TimeBase<TimeClass>::since_origin() const {
 }
 
 template <class TimeClass>
-constexpr TimeDelta TimeBase<TimeClass>::operator-(TimeClass other) const {
+constexpr TimeDelta TimeBase<TimeClass>::operator-(
+    const TimeBase<TimeClass>& other) const {
   return Microseconds(us_ - other.us_);
 }
 
@@ -1012,11 +1053,34 @@ class BASE_EXPORT TimeTicks : public time_internal::TimeBase<TimeTicks> {
 
 #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
   // Converts to TimeTicks the value obtained from SystemClock.uptimeMillis().
-  // Note: this convertion may be non-monotonic in relation to previously
+  // Note: this conversion may be non-monotonic in relation to previously
   // obtained TimeTicks::Now() values because of the truncation (to
   // milliseconds) performed by uptimeMillis().
   static TimeTicks FromUptimeMillis(int64_t uptime_millis_value);
-#endif
+
+#endif  // BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if BUILDFLAG(IS_ANDROID)
+  // Converts to TimeTicks the value obtained from System.nanoTime(). This
+  // conversion will be monotonic in relation to previously obtained
+  // TimeTicks::Now() values as the clocks are based on the same posix monotonic
+  // clock, with nanoTime() potentially providing higher resolution.
+  static TimeTicks FromJavaNanoTime(int64_t nano_time_value);
+
+  // Truncates the TimeTicks value to the precision of SystemClock#uptimeMillis.
+  // Note that the clocks already share the same monotonic clock source.
+  jlong ToUptimeMillis() const;
+
+  // Returns the TimeTicks value as microseconds in the timebase of
+  // SystemClock#uptimeMillis.
+  // Note that the clocks already share the same monotonic clock source.
+  //
+  // System.nanoTime() may be used to get sub-millisecond precision in Java code
+  // and may be compared against this value as the two share the same clock
+  // source (though be sure to convert nanos to micros).
+  jlong ToUptimeMicros() const;
+
+#endif  // BUILDFLAG(IS_ANDROID)
 
   // Get an estimate of the TimeTick value at the time of the UnixEpoch. Because
   // Time and TimeTicks respond differently to user-set time and NTP
@@ -1027,6 +1091,8 @@ class BASE_EXPORT TimeTicks : public time_internal::TimeBase<TimeTicks> {
   // the same value for the duration of the application, but will be different
   // in future application runs.
   static TimeTicks UnixEpoch();
+
+  static void SetSharedUnixEpoch(TimeTicks);
 
   // Returns |this| snapped to the next tick, given a |tick_phase| and
   // repeating |tick_interval| in both directions. |this| may be before,
@@ -1134,20 +1200,6 @@ class BASE_EXPORT ThreadTicks : public time_internal::TimeBase<ThreadTicks> {
   constexpr explicit ThreadTicks(int64_t us) : TimeBase(us) {}
 
 #if BUILDFLAG(IS_WIN)
-  FRIEND_TEST_ALL_PREFIXES(TimeTicks, TSCTicksPerSecond);
-
-#if defined(ARCH_CPU_ARM64)
-  // TSCTicksPerSecond is not supported on Windows on Arm systems because the
-  // cycle-counting methods use the actual CPU cycle count, and not a consistent
-  // incrementing counter.
-#else
-  // Returns the frequency of the TSC in ticks per second, or 0 if it hasn't
-  // been measured yet. Needs to be guarded with a call to IsSupported().
-  // This method is declared here rather than in the anonymous namespace to
-  // allow testing.
-  static double TSCTicksPerSecond();
-#endif
-
   [[nodiscard]] static bool IsSupportedWin();
   static void WaitUntilInitializedWin();
 #endif

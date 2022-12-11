@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@
 #include "content/public/browser/render_process_host_observer.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_controller_factory.h"
+#include "content/public/browser/web_ui_controller_interface_binder.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/url_constants.h"
@@ -187,10 +188,10 @@ class MojoWebUIControllerBrowserTest : public InProcessBrowserTest {
         mojo::BinderMapWithContext<content::RenderFrameHost*>* map) override {
       ChromeContentBrowserClient::RegisterBrowserInterfaceBindersForFrame(
           render_frame_host, map);
-      chrome::internal::RegisterWebUIControllerInterfaceBinder<
-          ::test::mojom::Bar, FooBarUI>(map);
-      chrome::internal::RegisterWebUIControllerInterfaceBinder<
-          ::test::mojom::Foo, FooUI, FooBarUI>(map);
+      content::RegisterWebUIControllerInterfaceBinder<::test::mojom::Bar,
+                                                      FooBarUI>(map);
+      content::RegisterWebUIControllerInterfaceBinder<::test::mojom::Foo, FooUI,
+                                                      FooBarUI>(map);
     }
   };
 
@@ -265,7 +266,7 @@ IN_PROC_BROWSER_TEST_F(MojoWebUIControllerBrowserTest, CrashForNoBinder) {
 
   content::ScopedAllowRendererCrashes allow;
   content::RenderProcessHostBadMojoMessageWaiter watcher(
-      web_contents->GetMainFrame()->GetProcess());
+      web_contents->GetPrimaryMainFrame()->GetProcess());
 
   // Attempt to bind an interface with no browser binders registered.
   EXPECT_FALSE(content::EvalJs(web_contents,

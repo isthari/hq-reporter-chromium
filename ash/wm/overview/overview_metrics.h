@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,8 @@ enum class OverviewStartAction {
   k3FingerVerticalScroll,
   kDevTools,
   kTests,
-  kMaxValue = kTests,
+  kOverviewDeskSwitch,
+  kMaxValue = kOverviewDeskSwitch,
 };
 void RecordOverviewStartAction(OverviewStartAction type);
 
@@ -48,7 +49,8 @@ enum class OverviewEndAction {
   kShelfAlignmentChanged,
   kDevTools,
   kTests,
-  kMaxValue = kTests,
+  kShowGlanceables,
+  kMaxValue = kShowGlanceables,
 };
 void RecordOverviewEndAction(OverviewEndAction type);
 

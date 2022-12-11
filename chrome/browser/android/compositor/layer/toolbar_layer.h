@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,7 +60,7 @@ class ToolbarLayer : public Layer {
  private:
   int GetIndexOfLayer(scoped_refptr<cc::Layer> layer);
 
-  raw_ptr<ui::ResourceManager> resource_manager_;
+  raw_ptr<ui::ResourceManager, DanglingUntriaged> resource_manager_;
 
   scoped_refptr<cc::Layer> layer_;
   scoped_refptr<cc::SolidColorLayer> toolbar_background_layer_;

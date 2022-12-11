@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,10 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "device/bluetooth/public/cpp/bluetooth_uuid.h"
 #include "device/bluetooth/test/fake_remote_gatt_service.h"
 
@@ -73,12 +73,10 @@ void FakePeripheral::SetNextGATTDiscoveryResponse(uint16_t code) {
 
 bool FakePeripheral::AllResponsesConsumed() {
   return !next_connection_response_ && !next_discovery_response_ &&
-         std::all_of(gatt_services_.begin(), gatt_services_.end(),
-                     [](const auto& e) {
-                       FakeRemoteGattService* fake_remote_gatt_service =
-                           static_cast<FakeRemoteGattService*>(e.second.get());
-                       return fake_remote_gatt_service->AllResponsesConsumed();
-                     });
+         base::ranges::all_of(gatt_services_, [](const auto& e) {
+           return static_cast<FakeRemoteGattService*>(e.second.get())
+               ->AllResponsesConsumed();
+         });
 }
 
 void FakePeripheral::SimulateGATTDisconnection() {
@@ -182,6 +180,13 @@ bool FakePeripheral::IsPaired() const {
   NOTREACHED();
   return false;
 }
+
+#if BUILDFLAG(IS_CHROMEOS)
+bool FakePeripheral::IsBonded() const {
+  NOTREACHED();
+  return false;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 bool FakePeripheral::IsConnected() const {
   NOTREACHED();
@@ -316,7 +321,7 @@ bool FakePeripheral::IsGattServicesDiscoveryComplete() const {
   // DiscoverGattServices() is implemented.
   if (!pending_gatt_discovery_ && !discovery_complete) {
     pending_gatt_discovery_ = true;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&FakePeripheral::DispatchDiscoveryResponse,
                                   weak_ptr_factory_.GetWeakPtr()));
   }
@@ -326,7 +331,7 @@ bool FakePeripheral::IsGattServicesDiscoveryComplete() const {
 
 void FakePeripheral::CreateGattConnectionImpl(
     absl::optional<device::BluetoothUUID>) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&FakePeripheral::DispatchConnectionResponse,
                                 weak_ptr_factory_.GetWeakPtr()));
 }
@@ -366,7 +371,7 @@ void FakePeripheral::DispatchDiscoveryResponse() {
 void FakePeripheral::DisconnectGatt() {
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 void FakePeripheral::ExecuteWrite(base::OnceClosure callback,
                                   ExecuteWriteErrorCallback error_callback) {
   NOTIMPLEMENTED();
@@ -376,6 +381,6 @@ void FakePeripheral::AbortWrite(base::OnceClosure callback,
                                 AbortWriteErrorCallback error_callback) {
   NOTIMPLEMENTED();
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 }  // namespace bluetooth

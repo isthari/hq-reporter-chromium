@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "content/browser/child_process_launcher.h"
 #include "content/public/browser/child_process_launcher_utils.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
+#include "printing/buildflags/buildflags.h"
 #include "sandbox/policy/mojom/sandbox.mojom.h"
 
 namespace content {
@@ -43,6 +44,10 @@ const char* ProcessNameFromSandboxType(sandbox::mojom::Sandbox sandbox_type) {
       return "print-compositor";
     case sandbox::mojom::Sandbox::kSpeechRecognition:
       return "speech-recognition";
+#if BUILDFLAG(ENABLE_OOP_PRINTING)
+    case sandbox::mojom::Sandbox::kPrintBackend:
+      return "print-backend";
+#endif
   }
 }
 
@@ -87,6 +92,7 @@ bool ChildProcessLauncherHelper::BeforeLaunchOnLauncherThread(
     PosixFileDescriptorInfo& files_to_register,
     base::LaunchOptions* options) {
   DCHECK(CurrentlyOnProcessLauncherTaskRunner());
+  DCHECK(sandbox_policy_);
 
   mojo_channel_->PrepareToPassRemoteEndpoint(&options->handles_to_transfer,
                                              command_line());
@@ -110,8 +116,12 @@ ChildProcessLauncherHelper::LaunchProcessOnLauncherThread(
   DCHECK(CurrentlyOnProcessLauncherTaskRunner());
   DCHECK(mojo_channel_);
   DCHECK(mojo_channel_->remote_endpoint().is_valid());
+  DCHECK(sandbox_policy_);
 
   Process child_process;
+  // Move `sandbox_policy_` into the child process object so that it doesn't get
+  // destroyed before the child process.
+  child_process.sandbox_policy = std::move(sandbox_policy_);
   child_process.process = base::LaunchProcess(*command_line(), options);
   return child_process;
 }
@@ -125,6 +135,8 @@ void ChildProcessLauncherHelper::AfterLaunchOnLauncherThread(
 void ChildProcessLauncherHelper::ForceNormalProcessTerminationSync(
     ChildProcessLauncherHelper::Process process) {
   DCHECK(CurrentlyOnProcessLauncherTaskRunner());
+  // Wait for the process to terminate to ensure that `process` and its child
+  // `sandbox_policy` aren't destroyed before the process is terminated.
   process.process.Terminate(RESULT_CODE_NORMAL_EXIT, true);
 }
 

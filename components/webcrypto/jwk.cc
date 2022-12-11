@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "components/webcrypto/algorithms/util.h"
-#include "components/webcrypto/crypto_data.h"
 #include "components/webcrypto/status.h"
 
 // JSON Web Key Format (JWK) is defined by:
@@ -85,7 +84,7 @@ const JwkToWebCryptoUsageMapping kJwkWebCryptoUsageMap[] = {
     {"wrapKey", blink::kWebCryptoKeyUsageWrapKey},
     {"unwrapKey", blink::kWebCryptoKeyUsageUnwrapKey}};
 
-bool JwkKeyOpToWebCryptoUsage(const std::string& key_op,
+bool JwkKeyOpToWebCryptoUsage(base::StringPiece key_op,
                               blink::WebCryptoKeyUsage* usage) {
   for (const auto& crypto_usage_entry : kJwkWebCryptoUsageMap) {
     if (crypto_usage_entry.jwk_key_op == key_op) {
@@ -108,15 +107,14 @@ base::Value CreateJwkKeyOpsFromWebCryptoUsages(
 }
 
 // Composes a Web Crypto usage mask from an array of JWK key_ops values.
-Status GetWebCryptoUsagesFromJwkKeyOps(const base::ListValue* key_ops,
+Status GetWebCryptoUsagesFromJwkKeyOps(const base::Value::List& key_ops,
                                        blink::WebCryptoKeyUsageMask* usages) {
   // This set keeps track of all unrecognized key_ops values.
   std::set<std::string> unrecognized_usages;
 
   *usages = 0;
-  base::Value::ConstListView key_ops_list = key_ops->GetList();
-  for (size_t i = 0; i < key_ops_list.size(); ++i) {
-    const base::Value& key_op_value = key_ops_list[i];
+  for (size_t i = 0; i < key_ops.size(); ++i) {
+    const base::Value& key_op_value = key_ops[i];
     if (!key_op_value.is_string()) {
       return Status::ErrorJwkMemberWrongType(
           base::StringPrintf("key_ops[%d]", static_cast<int>(i)), "string");
@@ -146,7 +144,7 @@ Status GetWebCryptoUsagesFromJwkKeyOps(const base::ListValue* key_ops,
 Status VerifyUsages(const JwkReader& jwk,
                     blink::WebCryptoKeyUsageMask expected_usages) {
   // JWK "key_ops" (optional) --> usages parameter
-  const base::ListValue* jwk_key_ops_value = nullptr;
+  const base::Value::List* jwk_key_ops_value = nullptr;
   bool has_jwk_key_ops;
   Status status =
       jwk.GetOptionalList("key_ops", &jwk_key_ops_value, &has_jwk_key_ops);
@@ -155,7 +153,7 @@ Status VerifyUsages(const JwkReader& jwk,
   blink::WebCryptoKeyUsageMask jwk_key_ops_mask = 0;
   if (has_jwk_key_ops) {
     status =
-        GetWebCryptoUsagesFromJwkKeyOps(jwk_key_ops_value, &jwk_key_ops_mask);
+        GetWebCryptoUsagesFromJwkKeyOps(*jwk_key_ops_value, &jwk_key_ops_mask);
     if (status.IsError())
       return status;
     // The input usages must be a subset of jwk_key_ops_mask.
@@ -198,14 +196,14 @@ JwkReader::JwkReader() {
 JwkReader::~JwkReader() {
 }
 
-Status JwkReader::Init(const CryptoData& bytes,
+Status JwkReader::Init(base::span<const uint8_t> bytes,
                        bool expected_extractable,
                        blink::WebCryptoKeyUsageMask expected_usages,
-                       const std::string& expected_kty,
-                       const std::string& expected_alg) {
+                       base::StringPiece expected_kty,
+                       base::StringPiece expected_alg) {
   // Parse the incoming JWK JSON.
-  base::StringPiece json_string(reinterpret_cast<const char*>(bytes.bytes()),
-                                bytes.byte_length());
+  base::StringPiece json_string(reinterpret_cast<const char*>(bytes.data()),
+                                bytes.size());
 
   {
     // Limit the visibility for |value| as it is moved to |dict_| (via
@@ -245,11 +243,11 @@ Status JwkReader::Init(const CryptoData& bytes,
   return Status::Success();
 }
 
-bool JwkReader::HasMember(const std::string& member_name) const {
+bool JwkReader::HasMember(base::StringPiece member_name) const {
   return !!dict_.FindKey(member_name);
 }
 
-Status JwkReader::GetString(const std::string& member_name,
+Status JwkReader::GetString(base::StringPiece member_name,
                             std::string* result) const {
   const base::Value* value = dict_.FindKey(member_name);
   if (!value)
@@ -260,7 +258,7 @@ Status JwkReader::GetString(const std::string& member_name,
   return Status::Success();
 }
 
-Status JwkReader::GetOptionalString(const std::string& member_name,
+Status JwkReader::GetOptionalString(base::StringPiece member_name,
                                     std::string* result,
                                     bool* member_exists) const {
   *member_exists = false;
@@ -276,8 +274,8 @@ Status JwkReader::GetOptionalString(const std::string& member_name,
   return Status::Success();
 }
 
-Status JwkReader::GetOptionalList(const std::string& member_name,
-                                  const base::ListValue** result,
+Status JwkReader::GetOptionalList(base::StringPiece member_name,
+                                  const base::Value::List** result,
                                   bool* member_exists) const {
   *member_exists = false;
   const base::Value* value = dict_.FindKey(member_name);
@@ -287,13 +285,13 @@ Status JwkReader::GetOptionalList(const std::string& member_name,
   if (!value->is_list())
     return Status::ErrorJwkMemberWrongType(member_name, "list");
 
-  *result = &base::Value::AsListValue(*value);
+  *result = &value->GetList();
   *member_exists = true;
   return Status::Success();
 }
 
-Status JwkReader::GetBytes(const std::string& member_name,
-                           std::string* result) const {
+Status JwkReader::GetBytes(base::StringPiece member_name,
+                           std::vector<uint8_t>* result) const {
   std::string base64_string;
   Status status = GetString(member_name, &base64_string);
   if (status.IsError())
@@ -301,17 +299,19 @@ Status JwkReader::GetBytes(const std::string& member_name,
 
   // The JSON web signature spec says that padding is omitted.
   // https://tools.ietf.org/html/draft-ietf-jose-json-web-signature-36#section-2
+  std::string result_str;
   if (!base::Base64UrlDecode(base64_string,
                              base::Base64UrlDecodePolicy::DISALLOW_PADDING,
-                             result)) {
+                             &result_str)) {
     return Status::ErrorJwkBase64Decode(member_name);
   }
 
+  result->assign(result_str.begin(), result_str.end());
   return Status::Success();
 }
 
-Status JwkReader::GetBigInteger(const std::string& member_name,
-                                std::string* result) const {
+Status JwkReader::GetBigInteger(base::StringPiece member_name,
+                                std::vector<uint8_t>* result) const {
   Status status = GetBytes(member_name, result);
   if (status.IsError())
     return status;
@@ -328,7 +328,7 @@ Status JwkReader::GetBigInteger(const std::string& member_name,
   return Status::Success();
 }
 
-Status JwkReader::GetOptionalBool(const std::string& member_name,
+Status JwkReader::GetOptionalBool(base::StringPiece member_name,
                                   bool* result,
                                   bool* member_exists) const {
   *member_exists = false;
@@ -348,7 +348,7 @@ Status JwkReader::GetAlg(std::string* alg, bool* has_alg) const {
   return GetOptionalString("alg", alg, has_alg);
 }
 
-Status JwkReader::VerifyAlg(const std::string& expected_alg) const {
+Status JwkReader::VerifyAlg(base::StringPiece expected_alg) const {
   bool has_jwk_alg;
   std::string jwk_alg_value;
   Status status = GetAlg(&jwk_alg_value, &has_jwk_alg);
@@ -361,10 +361,10 @@ Status JwkReader::VerifyAlg(const std::string& expected_alg) const {
   return Status::Success();
 }
 
-JwkWriter::JwkWriter(const std::string& algorithm,
+JwkWriter::JwkWriter(base::StringPiece algorithm,
                      bool extractable,
                      blink::WebCryptoKeyUsageMask usages,
-                     const std::string& kty)
+                     base::StringPiece kty)
     : dict_(base::Value::Type::DICTIONARY) {
   if (!algorithm.empty())
     dict_.SetStringKey("alg", algorithm);
@@ -373,19 +373,19 @@ JwkWriter::JwkWriter(const std::string& algorithm,
   dict_.SetStringKey("kty", kty);
 }
 
-void JwkWriter::SetString(const std::string& member_name,
-                          const std::string& value) {
+void JwkWriter::SetString(base::StringPiece member_name,
+                          base::StringPiece value) {
   dict_.SetStringKey(member_name, value);
 }
 
-void JwkWriter::SetBytes(const std::string& member_name,
-                         const CryptoData& value) {
+void JwkWriter::SetBytes(base::StringPiece member_name,
+                         base::span<const uint8_t> value) {
   // The JSON web signature spec says that padding is omitted.
   // https://tools.ietf.org/html/draft-ietf-jose-json-web-signature-36#section-2
   std::string base64url_encoded;
   base::Base64UrlEncode(
-      base::StringPiece(reinterpret_cast<const char*>(value.bytes()),
-                        value.byte_length()),
+      base::StringPiece(reinterpret_cast<const char*>(value.data()),
+                        value.size()),
       base::Base64UrlEncodePolicy::OMIT_PADDING, &base64url_encoded);
 
   dict_.SetStringKey(member_name, base64url_encoded);
@@ -398,7 +398,7 @@ void JwkWriter::ToJson(std::vector<uint8_t>* utf8_bytes) const {
 }
 
 Status GetWebCryptoUsagesFromJwkKeyOpsForTest(
-    const base::ListValue* key_ops,
+    const base::Value::List& key_ops,
     blink::WebCryptoKeyUsageMask* usages) {
   return GetWebCryptoUsagesFromJwkKeyOps(key_ops, usages);
 }

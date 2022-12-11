@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,7 +36,7 @@ class SaveUPIBubbleControllerImplTest : public DialogBrowserTest {
   }
 
  private:
-  raw_ptr<SaveUPIBubbleControllerImpl> controller_ = nullptr;
+  raw_ptr<SaveUPIBubbleControllerImpl, DanglingUntriaged> controller_ = nullptr;
 };
 
 IN_PROC_BROWSER_TEST_F(SaveUPIBubbleControllerImplTest, InvokeUi) {

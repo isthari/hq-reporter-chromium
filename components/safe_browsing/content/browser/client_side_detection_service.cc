@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,11 +15,11 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/escape.h"
 #include "base/strings/strcat.h"
-#include "base/task/post_task.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "base/values.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/content/browser/client_side_detection_host.h"
 #include "components/safe_browsing/content/browser/client_side_phishing_model.h"
@@ -38,8 +38,9 @@
 #include "content/public/browser/render_process_host.h"
 #include "crypto/sha2.h"
 #include "google_apis/google_api_keys.h"
+#include "ipc/ipc_channel_proxy.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "net/base/escape.h"
 #include "net/base/ip_address.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_request_headers.h"
@@ -147,7 +148,7 @@ void ClientSideDetectionService::SendClientReportPhishingRequest(
     ClientReportPhishingRequestCallback callback,
     const std::string& access_token) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           &ClientSideDetectionService::StartClientReportPhishingRequest,
@@ -163,19 +164,6 @@ bool ClientSideDetectionService::IsPrivateIPAddress(
 bool ClientSideDetectionService::IsLocalResource(
     const net::IPAddress& address) const {
   return !address.IsValid();
-}
-
-void ClientSideDetectionService::AddClientSideDetectionHost(
-    ClientSideDetectionHost* host) {
-  csd_hosts_.push_back(host);
-}
-
-void ClientSideDetectionService::RemoveClientSideDetectionHost(
-    ClientSideDetectionHost* host) {
-  std::vector<ClientSideDetectionHost*>::iterator position =
-      std::find(csd_hosts_.begin(), csd_hosts_.end(), host);
-  if (position != csd_hosts_.end())
-    csd_hosts_.erase(position);
 }
 
 void ClientSideDetectionService::OnURLLoaderComplete(
@@ -200,8 +188,10 @@ void ClientSideDetectionService::OnURLLoaderComplete(
 }
 
 void ClientSideDetectionService::SendModelToRenderers() {
-  for (ClientSideDetectionHost* host : csd_hosts_) {
-    host->SendModelToRenderFrame();
+  for (content::RenderProcessHost::iterator it(
+           content::RenderProcessHost::AllHostsIterator());
+       !it.IsAtEnd(); it.Advance()) {
+    SetPhishingModel(it.GetCurrentValue());
   }
 }
 
@@ -216,9 +206,6 @@ void ClientSideDetectionService::StartClientReportPhishingRequest(
       std::move(callback).Run(GURL(request->url()), false);
     return;
   }
-
-  // Fill in metadata about which model we used.
-  *request->mutable_population() = delegate_->GetUserPopulation();
 
   std::string request_data;
   request->SerializeToString(&request_data);
@@ -291,8 +278,8 @@ void ClientSideDetectionService::StartClientReportPhishingRequest(
   // The following is to log this ClientPhishingRequest on any open
   // chrome://safe-browsing pages. If no such page is open, the request is
   // dropped and the |request| object deleted.
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&WebUIInfoSingleton::AddToClientPhishingRequestsSent,
                      base::Unretained(WebUIInfoSingleton::GetInstance()),
                      std::move(request), access_token));
@@ -318,8 +305,8 @@ void ClientSideDetectionService::HandlePhishingVerdict(
     is_phishing = response.phishy();
   }
 
-  base::PostTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
       base::BindOnce(&WebUIInfoSingleton::AddToClientPhishingResponsesReceived,
                      base::Unretained(WebUIInfoSingleton::GetInstance()),
                      std::make_unique<ClientPhishingResponse>(response)));
@@ -404,10 +391,11 @@ void ClientSideDetectionService::AddPhishingReport(base::Time timestamp) {
   if (!delegate_ || !delegate_->GetPrefs())
     return;
 
-  base::ListValue time_list;
+  base::Value::List time_list;
   for (const base::Time& report_time : phishing_report_times_)
     time_list.Append(base::Value(report_time.ToDoubleT()));
-  delegate_->GetPrefs()->Set(prefs::kSafeBrowsingCsdPingTimestamps, time_list);
+  delegate_->GetPrefs()->SetList(prefs::kSafeBrowsingCsdPingTimestamps,
+                                 std::move(time_list));
 }
 
 void ClientSideDetectionService::LoadPhishingReportTimesFromPrefs() {
@@ -416,9 +404,7 @@ void ClientSideDetectionService::LoadPhishingReportTimesFromPrefs() {
 
   phishing_report_times_.clear();
   for (const base::Value& timestamp :
-       delegate_->GetPrefs()
-           ->GetList(prefs::kSafeBrowsingCsdPingTimestamps)
-           ->GetList()) {
+       delegate_->GetPrefs()->GetList(prefs::kSafeBrowsingCsdPingTimestamps)) {
     phishing_report_times_.push_back(
         base::Time::FromDoubleT(timestamp.GetDouble()));
   }
@@ -430,7 +416,7 @@ GURL ClientSideDetectionService::GetClientReportUrl(
   GURL url(report_url);
   std::string api_key = google_apis::GetAPIKey();
   if (!api_key.empty())
-    url = url.Resolve("?key=" + net::EscapeQueryParamValue(api_key, true));
+    url = url.Resolve("?key=" + base::EscapeQueryParamValue(api_key, true));
 
   return url;
 }
@@ -455,6 +441,36 @@ const base::File& ClientSideDetectionService::GetVisualTfLiteModel() {
 void ClientSideDetectionService::SetURLLoaderFactoryForTesting(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
   url_loader_factory_ = url_loader_factory;
+}
+
+void ClientSideDetectionService::OnRenderProcessHostCreated(
+    content::RenderProcessHost* rph) {
+  SetPhishingModel(rph);
+}
+
+void ClientSideDetectionService::SetPhishingModel(
+    content::RenderProcessHost* rph) {
+  if (!rph->GetChannel())
+    return;
+  mojo::AssociatedRemote<mojom::PhishingModelSetter> model_setter;
+  rph->GetChannel()->GetRemoteAssociatedInterface(&model_setter);
+  switch (GetModelType()) {
+    case CSDModelType::kNone:
+      return;
+    case CSDModelType::kProtobuf:
+      model_setter->SetPhishingModel(GetModelStr(),
+                                     GetVisualTfLiteModel().Duplicate());
+      return;
+    case CSDModelType::kFlatbuffer:
+      model_setter->SetPhishingFlatBufferModel(
+          GetModelSharedMemoryRegion(), GetVisualTfLiteModel().Duplicate());
+      return;
+  }
+}
+
+base::WeakPtr<ClientSideDetectionService>
+ClientSideDetectionService::GetWeakPtr() {
+  return weak_factory_.GetWeakPtr();
 }
 
 }  // namespace safe_browsing

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/notreached.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/supervised_user/supervised_user_interstitial.h"
 #include "chrome/browser/supervised_user/supervised_user_navigation_observer.h"
@@ -58,7 +57,6 @@ int GetHistogramValueForFilteringBehavior(
     bool uncertain) {
   switch (behavior) {
     case SupervisedUserURLFilter::ALLOW:
-    case SupervisedUserURLFilter::WARN:
       if (reason == supervised_user_error_page::ALLOWLIST)
         return FILTERING_BEHAVIOR_ALLOW_ALLOWLIST;
       return uncertain ? FILTERING_BEHAVIOR_ALLOW_UNCERTAIN
@@ -194,7 +192,7 @@ void SupervisedUserNavigationThrottle::ShowInterstitial(
   // NavigationThrottle. This also lets OnInterstitialResult to be invoked
   // synchronously, once a callback is passed into the
   // SupervisedUserNavigationObserver.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&SupervisedUserNavigationThrottle::ShowInterstitialAsync,
                      weak_ptr_factory_.GetWeakPtr(), reason));

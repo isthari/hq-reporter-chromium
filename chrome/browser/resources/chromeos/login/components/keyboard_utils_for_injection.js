@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
  * Code which is embedded inside of the enterprise enrollment webview.
  * See /screens/oobe/enterprise_enrollment.js for details.
  */
-const INJECTED_WEBVIEW_SCRIPT = String.raw`
+const KEYBOARD_UTILS_FOR_INJECTION = String.raw`
                     (function() {
                        // <include src="../../keyboard/keyboard_utils.js">
                        keyboard.initializeKeyboardFlow(true);
                      })();`;
 
-window.INJECTED_WEBVIEW_SCRIPT = INJECTED_WEBVIEW_SCRIPT;
+window.KEYBOARD_UTILS_FOR_INJECTION = KEYBOARD_UTILS_FOR_INJECTION;

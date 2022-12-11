@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,7 +44,7 @@ TEST_P(ExtensionActionAPIUnitTest, MultiIcons) {
   TestExtensionDir test_extension_dir;
   test_extension_dir.WriteManifest(base::StringPrintf(
       kManifestTemplate, GetManifestVersionForActionType(GetParam()),
-      GetManifestKeyForActionType(GetParam())));
+      ActionInfo::GetManifestKeyForActionType(GetParam())));
 
   {
     std::string icon_file_content;
@@ -89,7 +89,7 @@ TEST_P(ExtensionActionAPIUnitTest, ActionLocalization) {
          })";
   test_dir.WriteManifest(
       base::StringPrintf(kManifest, GetManifestVersionForActionType(GetParam()),
-                         GetManifestKeyForActionType(GetParam())));
+                         ActionInfo::GetManifestKeyForActionType(GetParam())));
 
   constexpr char kMessages[] =
       R"({

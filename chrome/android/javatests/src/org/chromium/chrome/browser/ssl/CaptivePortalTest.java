@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,6 +28,7 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.browser.TabTitleObserver;
+import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.security_interstitials.CaptivePortalHelper;
 import org.chromium.net.X509Util;
 import org.chromium.net.test.EmbeddedTestServer;
@@ -88,7 +89,7 @@ public class CaptivePortalTest {
 
     @Before
     public void setUp() {
-        mActivityTestRule.startMainActivityFromLauncher();
+        mActivityTestRule.startMainActivityWithURL(UrlConstants.NTP_URL);
         mServer = EmbeddedTestServer.createAndStartHTTPSServer(
                 InstrumentationRegistry.getContext(), ServerCertificate.CERT_MISMATCHED_NAME);
 

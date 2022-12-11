@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -216,7 +216,7 @@ class EditorViewController : public PaymentRequestSheetController,
   ErrorLabelMap error_labels_;
 
   // The input field view in the editor used to set the initial focus.
-  raw_ptr<views::View> initial_focus_field_view_;
+  raw_ptr<views::View, DanglingUntriaged> initial_focus_field_view_;
 
   // Identifies where to go back when the editing completes successfully.
   BackNavigationType back_navigation_type_;

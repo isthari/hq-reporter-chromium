@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/test/gmock_callback_support.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "media/base/audio_encoder.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/media_util.h"
@@ -252,9 +253,8 @@ TEST_F(MojoAudioEncoderTest, Encode) {
         EXPECT_LE(input_number, input_count);
 
         AudioParameters params(AudioParameters::AUDIO_PCM_LOW_LATENCY,
-                               CHANNEL_LAYOUT_DISCRETE, options.sample_rate,
-                               audio_bus->frames());
-        params.set_channels_for_discrete(audio_bus->channels());
+                               {CHANNEL_LAYOUT_DISCRETE, audio_bus->channels()},
+                               options.sample_rate, audio_bus->frames());
 
         size_t size = audio_bus->frames();
         std::unique_ptr<uint8_t[]> data(new uint8_t[size]);
@@ -328,8 +328,7 @@ TEST_F(MojoAudioEncoderTest, EncodeWithEmptyResult) {
         std::move(done_cb).Run(EncoderStatus::Codes::kOk);
 
         AudioParameters params(AudioParameters::AUDIO_PCM_LOW_LATENCY,
-                               CHANNEL_LAYOUT_DISCRETE, 8000, 1);
-        params.set_channels_for_discrete(1);
+                               {CHANNEL_LAYOUT_DISCRETE, 1}, 8000, 1);
 
         EncodedAudioBuffer output(params, nullptr, 0, capture_time);
 
@@ -375,9 +374,8 @@ TEST_F(MojoAudioEncoderTest, Flush) {
         std::move(done_cb).Run(EncoderStatus::Codes::kOk);
 
         AudioParameters params(AudioParameters::AUDIO_PCM_LOW_LATENCY,
-                               CHANNEL_LAYOUT_DISCRETE, options.sample_rate,
-                               audio_bus->frames());
-        params.set_channels_for_discrete(audio_bus->channels());
+                               {CHANNEL_LAYOUT_DISCRETE, audio_bus->channels()},
+                               options.sample_rate, audio_bus->frames());
         EncodedAudioBuffer output(params, nullptr, 0, capture_time);
         service_output_cb.Run(std::move(output), {});
       }));

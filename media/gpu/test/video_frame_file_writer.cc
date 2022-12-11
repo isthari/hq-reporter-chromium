@@ -1,9 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/gpu/test/video_frame_file_writer.h"
 
+#include <sys/mman.h>
 #include <utility>
 #include <vector>
 
@@ -207,7 +208,8 @@ void VideoFrameFileWriter::WriteVideoFramePNG(
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
   if (video_frame->storage_type() == VideoFrame::STORAGE_DMABUFS) {
     CHECK(video_frame_mapper_);
-    mapped_frame = video_frame_mapper_->Map(std::move(video_frame));
+    mapped_frame = video_frame_mapper_->Map(std::move(video_frame),
+                                            PROT_READ | PROT_WRITE);
   }
 #endif  // BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
 
@@ -250,7 +252,8 @@ void VideoFrameFileWriter::WriteVideoFrameYUV(
 #if BUILDFLAG(USE_CHROMEOS_MEDIA_ACCELERATION)
   if (video_frame->storage_type() == VideoFrame::STORAGE_DMABUFS) {
     CHECK(video_frame_mapper_);
-    mapped_frame = video_frame_mapper_->Map(std::move(video_frame));
+    mapped_frame = video_frame_mapper_->Map(std::move(video_frame),
+                                            PROT_READ | PROT_WRITE);
   }
 #endif
   if (!mapped_frame) {

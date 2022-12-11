@@ -1,12 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/alert_view/alert_view_controller.h"
 
-#include <ostream>
+#import <ostream>
 
-#include "base/notreached.h"
+#import "base/notreached.h"
 #import "ios/chrome/browser/ui/alert_view/alert_action.h"
 #import "ios/chrome/browser/ui/elements/gray_highlight_button.h"
 #import "ios/chrome/browser/ui/elements/text_field_configuration.h"
@@ -68,7 +68,7 @@ constexpr NSUInteger kUIViewAnimationCurveToOptionsShift = 16;
 @interface AlertViewController () <UITextFieldDelegate,
                                    UIGestureRecognizerDelegate>
 
-// The actions for to this alert. |copy| for safety against mutable objects.
+// The actions for to this alert. `copy` for safety against mutable objects.
 @property(nonatomic, copy) NSArray<AlertAction*>* actions;
 
 // This maps UIButtons' tags with AlertActions' uniqueIdentifiers.
@@ -83,7 +83,7 @@ constexpr NSUInteger kUIViewAnimationCurveToOptionsShift = 16;
 @property(nonatomic, copy) NSString* message;
 
 // Text field configurations for this alert. One text field will be created for
-// each |TextFieldConfiguration|. |copy| for safety against mutable objects.
+// each `TextFieldConfiguration`. `copy` for safety against mutable objects.
 @property(nonatomic, copy)
     NSArray<TextFieldConfiguration*>* textFieldConfigurations;
 
@@ -101,7 +101,7 @@ constexpr NSUInteger kUIViewAnimationCurveToOptionsShift = 16;
 @property(nonatomic, strong) UISwipeGestureRecognizer* swipeRecognizer;
 
 // This is the last focused text field, the gestures to dismiss the keyboard
-// will end up calling |resignFirstResponder| on this.
+// will end up calling `resignFirstResponder` on this.
 @property(nonatomic, weak) UITextField* lastFocusedTextField;
 
 // This holds the text field stack view. A reference is needed because its
@@ -234,8 +234,8 @@ constexpr NSUInteger kUIViewAnimationCurveToOptionsShift = 16;
   heightConstraint.priority = UILayoutPriorityDefaultHigh - 1;
   heightConstraint.active = YES;
 
-  ChromeDirectionalEdgeInsets stackViewInsets =
-      ChromeDirectionalEdgeInsetsMake(kAlertMarginTop, 0, 0, 0);
+  NSDirectionalEdgeInsets stackViewInsets =
+      NSDirectionalEdgeInsetsMake(kAlertMarginTop, 0, 0, 0);
   AddSameConstraintsWithInsets(stackView, scrollView, stackViewInsets);
 
   if (self.title.length) {
@@ -250,7 +250,7 @@ constexpr NSUInteger kUIViewAnimationCurveToOptionsShift = 16;
     [stackView addArrangedSubview:titleLabel];
     [stackView setCustomSpacing:kTitleInsetBottom afterView:titleLabel];
 
-    ChromeDirectionalEdgeInsets titleInsets = ChromeDirectionalEdgeInsetsMake(
+    NSDirectionalEdgeInsets titleInsets = NSDirectionalEdgeInsetsMake(
         0, kTitleInsetLeading, 0, kTitleInsetTrailing);
     AddSameConstraintsToSidesWithInsets(
         titleLabel, self.contentView,
@@ -269,7 +269,7 @@ constexpr NSUInteger kUIViewAnimationCurveToOptionsShift = 16;
     [stackView addArrangedSubview:messageLabel];
     [stackView setCustomSpacing:kMessageInsetBottom afterView:messageLabel];
 
-    ChromeDirectionalEdgeInsets messageInsets = ChromeDirectionalEdgeInsetsMake(
+    NSDirectionalEdgeInsets messageInsets = NSDirectionalEdgeInsetsMake(
         0, kMessageInsetLeading, 0, kMessageInsetTrailing);
     AddSameConstraintsToSidesWithInsets(
         messageLabel, self.contentView,
@@ -277,7 +277,7 @@ constexpr NSUInteger kUIViewAnimationCurveToOptionsShift = 16;
   }
 
   if (self.textFieldConfigurations.count) {
-    // |stackHolder| has the background, border and round corners of the stacked
+    // `stackHolder` has the background, border and round corners of the stacked
     // fields.
     UIView* stackHolder = [[UIView alloc] init];
     stackHolder.layer.cornerRadius = kTextFieldCornerRadius;
@@ -309,9 +309,9 @@ constexpr NSUInteger kUIViewAnimationCurveToOptionsShift = 16;
     }
     [stackView addArrangedSubview:stackHolder];
 
-    ChromeDirectionalEdgeInsets stackHolderContentInsets =
-        ChromeDirectionalEdgeInsetsMake(0, kTextfieldStackInsetLeading, 0,
-                                        kTextfieldStackInsetTrailing);
+    NSDirectionalEdgeInsets stackHolderContentInsets =
+        NSDirectionalEdgeInsetsMake(0, kTextfieldStackInsetLeading, 0,
+                                    kTextfieldStackInsetTrailing);
     AddSameConstraintsToSidesWithInsets(
         stackHolder, self.contentView,
         LayoutSides::kTrailing | LayoutSides::kLeading,
@@ -323,9 +323,8 @@ constexpr NSUInteger kUIViewAnimationCurveToOptionsShift = 16;
     fieldStack.spacing = kTextfieldInset;
     fieldStack.alignment = UIStackViewAlignmentCenter;
     [stackHolder addSubview:fieldStack];
-    ChromeDirectionalEdgeInsets fieldStackContentInsets =
-        ChromeDirectionalEdgeInsetsMake(kTextfieldInset, 0.0, kTextfieldInset,
-                                        0.0);
+    NSDirectionalEdgeInsets fieldStackContentInsets =
+        NSDirectionalEdgeInsetsMake(kTextfieldInset, 0.0, kTextfieldInset, 0.0);
     AddSameConstraintsWithInsets(fieldStack, stackHolder,
                                  fieldStackContentInsets);
 
@@ -360,7 +359,7 @@ constexpr NSUInteger kUIViewAnimationCurveToOptionsShift = 16;
       textField.adjustsFontForContentSizeCategory = YES;
 
       [fieldStack addArrangedSubview:textField];
-      ChromeDirectionalEdgeInsets fieldInsets = ChromeDirectionalEdgeInsetsMake(
+      NSDirectionalEdgeInsets fieldInsets = NSDirectionalEdgeInsetsMake(
           0.0, kTextfieldInset, 0.0, kTextfieldInset);
       AddSameConstraintsToSidesWithInsets(
           textField, fieldStack, LayoutSides::kTrailing | LayoutSides::kLeading,

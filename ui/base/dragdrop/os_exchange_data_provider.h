@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,10 @@
 #include "ui/base/dragdrop/download_file_info.h"
 #include "ui/base/dragdrop/download_file_interface.h"
 #include "url/gurl.h"
+
+#if BUILDFLAG(IS_WIN)
+#include "base/callback_forward.h"
+#endif
 
 #if defined(USE_AURA) || BUILDFLAG(IS_APPLE)
 #include "ui/gfx/geometry/vector2d.h"

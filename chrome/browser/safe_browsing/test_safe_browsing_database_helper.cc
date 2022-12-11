@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,7 +54,7 @@ class InsertingDatabaseFactory : public safe_browsing::TestV4DatabaseFactory {
       const std::vector<safe_browsing::ListIdentifier>& lists_to_insert)
       : lists_to_insert_(lists_to_insert), store_factory_(store_factory) {}
 
-  std::unique_ptr<safe_browsing::V4Database> Create(
+  std::unique_ptr<safe_browsing::V4Database, base::OnTaskRunnerDeleter> Create(
       const scoped_refptr<base::SequencedTaskRunner>& db_task_runner,
       std::unique_ptr<safe_browsing::StoreMap> store_map) override {
     const base::FilePath base_store_path(FILE_PATH_LITERAL("UrlDb.store"));

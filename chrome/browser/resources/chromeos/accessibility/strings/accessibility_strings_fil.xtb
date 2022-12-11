@@ -25,6 +25,7 @@
 <translation id="1156488781945104845">Kasalukuyang oras</translation>
 <translation id="1161762950103988776">Lumaktaw</translation>
 <translation id="1164857107703583584">Magagamit ang mga jump command para mahusay na mag-navigate sa isang web page.</translation>
+<translation id="116896278675803795">Awtomatikong baguhin ang wika para tumugma sa napiling content</translation>
 <translation id="1175914831232945926">Mga Digit</translation>
 <translation id="1188858454923323853">complementary</translation>
 <translation id="1189258430971676908">Lugar ng pagsasanay: Mga drop-down na listahan</translation>
@@ -32,6 +33,7 @@
 <translation id="1197088940767939838">Orange</translation>
 <translation id="1198865190323699001">Mga Touch Gesture</translation>
 <translation id="1201402288615127009">Susunod</translation>
+<translation id="1202112913213080585">kanselahin</translation>
 <translation id="1206619573307042055">marquee</translation>
 <translation id="1207086294218137981">Walang susunod na heading sa antas 4</translation>
 <translation id="1212770441379271564">Ang susunod na ilang shortcut ay hindi mga command sa ChromeVox, pero napakakapaki-pakinabang pa rin ng mga ito para masulit ang paggamit sa Chrome.
@@ -43,6 +45,7 @@
     Para buksan ang menu ng Chrome browser, pindutin ang Alt+F.</translation>
 <translation id="1213216066620407844">ChromeVox - Nagbibigay ng Boses sa Chrome</translation>
 <translation id="1225969361094801578">Dark Slate Grey</translation>
+<translation id="122928249241119550">pumunta sa nakaraang pangungusap</translation>
 <translation id="1230503547248836149">Simula ng pagpipilian</translation>
 <translation id="1236794971743289975">Endnote</translation>
 <translation id="1237797094773582699">Gayundin, puwede ring mag-swipe pakaliwa gamit ang apat na daliri para lumipat sa nakaraang seksyon. Subukan ito ngayon!</translation>
@@ -136,9 +139,9 @@
 <translation id="1812527064848182527">landscape</translation>
 <translation id="1829244130665387512">Hanapin sa page</translation>
 <translation id="1834891354138622109">Column</translation>
-<translation id="1845944666972354496">I-double tap para i-activate</translation>
 <translation id="1846771122725914429">Bluetooth na Braille Display</translation>
 <translation id="1852018405765032699">Kapag na-tap ang screen gamit ang apat na daliri, magbubukas at magsasara ang mga menu ng ChromeVox. Naglalaman ang mga menu na ito ng nakakatulong na impormasyon tungkol sa mga command at shortcut. Kapag nakabukas ang mga menu, puwede kang mag-swipe pataas gamit ang isang daliri para mag-navigate sa mga item, at mag-double tap para mag-activate ng mga item. Para magpatuloy, i-tap ang screen gamit ang apat na daliri.</translation>
+<translation id="1864430479908918647">Pindutin ang Search+Space</translation>
 <translation id="1865601187525349519">Dulo ng text</translation>
 <translation id="1876229593313240038">doc</translation>
 <translation id="1902396333223336119">Cell</translation>
@@ -213,6 +216,7 @@
 <translation id="2435422727584637732">Dodger Blue</translation>
 <translation id="2438712309510062123">Magmungkahi</translation>
 <translation id="2450814015951372393">Check box</translation>
+<translation id="2450992626945324272">pumunta sa susunod na pangungusap</translation>
 <translation id="2461822463642141190">Kasalukuyan</translation>
 <translation id="2462626033734746142">Pangkat ng radio button</translation>
 <translation id="2467741090055146971">i-unselect</translation>
@@ -235,6 +239,7 @@
 <translation id="2619344480613750862">Puwede ka ring magpalipat-lipat sa mga seksyon ng screen. Halimbawa, puwede kang lumipat sa pagitan ng launcher, shelf, at iyong mga tab ng Chrome. Para lumipat sa susunod na seksyon, mag-swipe pakanan gamit ang apat na daliri. Subukan ito ngayon para magpatuloy.</translation>
 <translation id="2624431853467395961">Buksan ang learn mode</translation>
 <translation id="2626530649491650971">naki-click</translation>
+<translation id="263637551280112393">Pindutin ang Search+Shift+Space</translation>
 <translation id="2637227747952042642">Math</translation>
 <translation id="2638785836053527382">Nagpatuloy ang pag-download ng <ph name="FILE_NAME" /></translation>
 <translation id="2639750663247012216">Modifier ng ChromeVox</translation>
@@ -376,6 +381,7 @@
 <translation id="3389259863310851658">Nakaraang field ng form</translation>
 <translation id="3393605254399152980">Mag-drag ng isang daliri para marinig ang pipindutin mo</translation>
 <translation id="3406283310380167331">Ipakita ang listahan ng mga form</translation>
+<translation id="3407726812456125464">Pakinggan ang piniling text</translation>
 <translation id="3414400929511680526">Alice Blue</translation>
 <translation id="3418936350470374046">Walang cell sa ibaba</translation>
 <translation id="3419269701801640163">i-paste</translation>
@@ -489,6 +495,7 @@
 <translation id="42164919740161077">Cadet Blue</translation>
 <translation id="4217571870635786043">Pagdidikta</translation>
 <translation id="4218529045364428769">{COUNT,plural, =1{gitling}one{# gitling}other{# na gitling}}</translation>
+<translation id="4220024144662591089">piliin mula <ph name="START_PHRASE" /> hanggang <ph name="END_PHRASE" /></translation>
 <translation id="4221012616705981690">Walang nakaraang listahan</translation>
 <translation id="4225355998815256469">Mga Control ng Form</translation>
 <translation id="4230834257931120629">Light Slate Grey</translation>
@@ -507,6 +514,7 @@
 <translation id="4300318234632215983">Ianunsyo ang URL sa likod ng isang link</translation>
 <translation id="4322625298640984693">Sienna</translation>
 <translation id="4342180618051828363">{COUNT,plural, =1{tuldok}=3{ellipsis}one{# tuldok}other{# na tuldok}}</translation>
+<translation id="4352022650330571548">i-type ang <ph name="PHRASE" /></translation>
 <translation id="4372435075475052704">min:<ph name="X" /></translation>
 <translation id="4372705107434148843">Ihinto ang speech</translation>
 <translation id="4376316291247992553">Tingnan ang Graphic Bilang Braille</translation>
@@ -524,6 +532,7 @@
 <translation id="4479068155583208887">Fire Brick</translation>
 <translation id="4482330759234983253">Nakaraang talahanayan</translation>
 <translation id="4491109536499578614">Larawan</translation>
+<translation id="4507332368061453500">Mag-click nang matagal sa kasalukuyang item</translation>
 <translation id="4511186779140817916">Blanched Almond</translation>
 <translation id="451510441928265982">Walang nakaraang heading sa antas 2</translation>
 <translation id="4515799157838123044">I-shade ang content ng background</translation>
@@ -536,6 +545,7 @@
 <translation id="4601367666219428522">tbl <ph name="TABLENAME" /> <ph name="TABLEROWS" />x<ph name="TABLECOLS" /></translation>
 <translation id="4615592953348396470">Babalewalain ang susunod na pagpindot ng key</translation>
 <translation id="4623097797855662355">Colophon</translation>
+<translation id="4624970070706497034">Hindi na nagbibigay ang TalkBack ng pag-customize para sa mga Chromebook. Magagamit mo pa rin ito, pero gamitin ang mga default na keyboard shortcut ng TalkBack. Pindutin ang Search+A, pagkatapos ay K para makita ang lahat ng available na shortcut. Kung gusto mo pa ring gamitin ang TalkBack, pindutin ulit ang command.</translation>
 <translation id="463135993322337640">Pindutin ang ChromeVox o, n upang malaman kung ano ang bago</translation>
 <translation id="4649220074413114917">Puwedeng i-tap ang screen gamit ang dalawang daliri para ihinto ang anumang kasalukuyang speech. Kapaki-pakinabang ito kung ayaw mong magbasa ang ChromeVox. Para magpatuloy, i-tap ang screen gamit ang dalawang daliri.</translation>
 <translation id="4660783501463101648">Inalis ang classic. Inalis ang toggle ng keyboard upang lumipat sa ChromeVox Classic.</translation>
@@ -591,7 +601,6 @@
 <translation id="4993152509206108683"><ph name="PERCENT" /> (na) porsyento ang rate</translation>
 <translation id="4994420463726586413">Ianunsyo ang kasalukuyang status ng baterya</translation>
 <translation id="4997282455736854877">Pinili ang <ph name="NAME" />, radio button</translation>
-<translation id="5011664330025416377">Pindutin ang Search+Space para i-activate</translation>
 <translation id="5012724933919010465">Pinili ang <ph name="NAME" />, radio button ng item sa menu</translation>
 <translation id="5020651427400641814">I-enable ang pag-log ng speech</translation>
 <translation id="5041394372352067729">Ilipat ang display ng braille sa itaas ng page</translation>
@@ -618,7 +627,6 @@
 <translation id="5170206230005240598">Na-enable ang mga caption ng braille</translation>
 <translation id="5183440668879371625">Nakaraang Linya ng Braille</translation>
 <translation id="5189244881767082992">Linya</translation>
-<translation id="5234747236692380506">i-type ang <ph name="TEXT" /></translation>
 <translation id="5263034204789987535">Cornsilk</translation>
 <translation id="5263344797180442561">h2</translation>
 <translation id="528468243742722775">Tapusin</translation>
@@ -645,6 +653,7 @@
 <translation id="5355014376930441909">Walang susunod na seksyon</translation>
 <translation id="5368000168321181111">Naka-off ang mga earcon</translation>
 <translation id="5368505757342402527"><ph name="PROGRESS" />% kumpleto ang pag-download ng <ph name="FILE_NAME" />. Humigit-kumulang <ph name="TIME" /> <ph name="UNITS" /> ang natitira.</translation>
+<translation id="5381388086899614489">mag-click nang matagal</translation>
 <translation id="5400836586163650660">Grey</translation>
 <translation id="5402367795255837559">Braille</translation>
 <translation id="5402791055281059602">Isang modal na alerto</translation>
@@ -666,6 +675,7 @@
 <translation id="5522423213731659107">Tapos na ang mabilisang orientation!</translation>
 <translation id="5534303576632885660">hdr</translation>
 <translation id="5539820223028224601">Gainsboro</translation>
+<translation id="554893713779400387">I-toggle ang pagdidikta</translation>
 <translation id="5549179427201066174">I-on o i-off ang feedback ng tunog (mga earcon)</translation>
 <translation id="556042886152191864">Pindutan</translation>
 <translation id="5561345396546889625">Susunod na listahan</translation>
@@ -684,6 +694,8 @@
 <translation id="5623842676595125836">Log</translation>
 <translation id="5628125749885014029">h4</translation>
 <translation id="5632083598315326067">Simbolo ng graphics</translation>
+<translation id="5648939288050772726">Congratulations! Matagumpay mong natutunan ang mga kinakailangan sa paggamit ng ChromeVox. Tandaang mabubuksan mo ang menu ng command sa ChromeVox anumang oras sa pamamagitan ng pagpindot sa Paghahanap+Tuldok. Para matuto pa tungkol sa ChromeVox at ChromeOS, bisitahin ang mga sumusunod na artikulo.
+    Kung tapos ka na sa tutorial, gamitin ang ChromeVox para mag-navigate papunta sa button na Isara at i-click ito.</translation>
 <translation id="5653397561111110475">Gamitin ang mga feature sa pagiging naa-access ng touch screen ng Chromebook</translation>
 <translation id="5655682562155942719">Mga Command sa Paglaktaw</translation>
 <translation id="56637627897541303">Lugar ng text</translation>
@@ -754,8 +766,10 @@
 <translation id="6100239002225743044">Umakyat nang isang linya</translation>
 <translation id="6118126368611144850">Mga android app para sa Chrome. Kung may Play Store ka sa iyong device, maunang makita ang ChromeVox sa pamamagitan ng mga Android app. Subukan ang pinag-eeksperimentuhang suporta sa pamamagitan ng pag-download ng Google Chrome Canary mula sa Play Store.</translation>
 <translation id="611827076493383239">vtd</translation>
+<translation id="6119846243427417423">isaaktibo</translation>
 <translation id="6122013438240733403">btn</translation>
 <translation id="6132506484792346370">Isang listbox o combo box</translation>
+<translation id="613344593214611552">i-delete ang nakaraang pangungusap</translation>
 <translation id="6142308968191113180">Heading 4</translation>
 <translation id="6150023170003443621">Yellow Green</translation>
 <translation id="6158882249329863701">row <ph name="TABLECELLROWINDEX" /> column <ph name="TABLECELLCOLUMNINDEX" /></translation>
@@ -765,9 +779,11 @@
 <translation id="6186305613600865047">Pumunta sa ibaba ng page</translation>
 <translation id="6187190722927752226">Aquamarine</translation>
 <translation id="6197361807490522975">Dark Blue</translation>
+<translation id="6218813441317556731">palitan ang <ph name="DELETE_PHRASE" /> ng <ph name="INSERT_PHRASE" /></translation>
 <translation id="6236061028292614533">Susunod na heading</translation>
 <translation id="6254901459154107917">Susunod na na-e-edit na lugar ng text</translation>
 <translation id="6259464875943891919">Lumabas sa <ph name="TYPE" />.</translation>
+<translation id="6280088282605782512">I-double tap</translation>
 <translation id="6282062888058716985">nav</translation>
 <translation id="6295699829709583154">Mahahalagang Key: Search</translation>
 <translation id="6305702903308659374">I-play sa normal na volume kahit na nagsasalita ang ChromeVox</translation>
@@ -938,6 +954,7 @@
 <translation id="7533226154149229506">Light Golden Rod Yellow</translation>
 <translation id="7543255924852002459">I-discard ang label</translation>
 <translation id="7552432549459840808">Mga Kapaki-pakinabang na Shortcut sa Chrome</translation>
+<translation id="7553679324939294712">ilagay ang <ph name="INSERT_PHRASE" /> bago ang <ph name="BEFORE_PHRASE" /></translation>
 <translation id="7569983096843329377">Itim</translation>
 <translation id="7579911500627256166">dot <ph name="DOT" /></translation>
 <translation id="7592060599656252486">Ilan</translation>
@@ -961,16 +978,16 @@
 <translation id="7684431668231950609">I-edit ang text, entry ng URL</translation>
 <translation id="7685589220304187312">tlbar</translation>
 <translation id="7693840228159394336">Nakaraang radio button</translation>
+<translation id="7696631298608145306">pumunta sa susunod na salita</translation>
 <translation id="7701040980221191251">Wala</translation>
 <translation id="7701196182766842984">autolst</translation>
 <translation id="7713139339518499741">Natural na boses</translation>
 <translation id="7714340021005120797">Walang susunod na combo box</translation>
-<translation id="772146615414628379">Binabati ka namin! Matagumpay mong natutunan ang mga kinakailangan sa paggamit ng ChromeVox. Tandaang mabubuksan mo ang menu ng command sa ChromeVox anumang oras sa pamamagitan ng pagpindot sa Paghahanap+Tuldok. Para matuto pa tungkol sa ChromeVox at Chrome OS, bisitahin ang mga sumusunod na artikulo.
-    Kung tapos ka na sa tutorial, gamitin ang ChromeVox para mag-navigate sa button na Isara at i-click ito.</translation>
 <translation id="7724603315864178912">I-cut</translation>
 <translation id="7731785449856576010">Walang susunod na widget ng media</translation>
 <translation id="7735498529470878067">Makakatulong sa iyo ang explore by touch na makakuha kaagad ng ideya kung ano ang nasa screen.</translation>
 <translation id="773906353055481349">Pindutin ang Search+Ctrl+Alt at gamitin ang mga arrow para mag-navigate sa bawat cell</translation>
+<translation id="7746976083433980639"><ph name="ACTION" /> para <ph name="LABEL" /></translation>
 <translation id="7763537600611320912">Nagsimula na ang pag-download ng <ph name="FILE_NAME" /></translation>
 <translation id="7768784765476638775">Select to Speak</translation>
 <translation id="7776293189010177726">Buksan ang mga menu ng ChromeVox</translation>
@@ -1070,6 +1087,7 @@
 <translation id="8455868257606149352">Max <ph name="X" /></translation>
 <translation id="84575901236241018">may access key, <ph name="KEY" /></translation>
 <translation id="8463645336674919227">Umaalis sa error sa grammar</translation>
+<translation id="8465573210279050749">i-delete ang nakaraang salita</translation>
 <translation id="847040613207937740">Walang susunod na checkbox</translation>
 <translation id="8473540203671727883">Bigkasin ang text na hino-hover ng cursor</translation>
 <translation id="8476408756881832830">I-pause ang pag-playback kapag nagsasalita ang ChromeVox</translation>
@@ -1106,6 +1124,7 @@
 <translation id="8697111817566059991">{COUNT,plural, =1{pipe}one{# vertical pipe}other{# na vertical pipe}}</translation>
 <translation id="8741370088760768424">Hint: Pindutin ang Search + Space para i-activate ang kasalukuyang item.</translation>
 <translation id="8743786158317878347">maglagay ng nakabalangkas na nilalaman, gaya ng mga talahanayan</translation>
+<translation id="8746846427395705317">pumunta sa nakaraang salita</translation>
 <translation id="8747966237988593539">Nakaayos na Listahan</translation>
 <translation id="8749988712346667988">Silver</translation>
 <translation id="875769700429317857">Nakumpleto ang pag-download ng <ph name="FILE_NAME" /></translation>
@@ -1133,6 +1152,7 @@
 <translation id="8970172509886453271">Walang nakaraang seksyon</translation>
 <translation id="89720367119469899">Escape</translation>
 <translation id="8978496506222343566">tltip</translation>
+<translation id="898089897833732740">i-delete ang <ph name="PHRASE" /></translation>
 <translation id="8986362086234534611">Kalimutan</translation>
 <translation id="8989104346085848538">Para ihinto ang anumang kasalukuyang pagsasalita ng ChromeVox, pindutin ang Control key.</translation>
 <translation id="8993737615451556423">Nagbibigay ng mga kontrol para pabilisin, pabagalin, at i-pause ang boses sa pagbabasa</translation>

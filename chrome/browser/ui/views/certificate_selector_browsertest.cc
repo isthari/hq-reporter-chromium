@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -103,7 +103,7 @@ class CertificateSelectorTest : public InProcessBrowserTest {
 
   // The selector will be owned by the Views hierarchy and will at latest be
   // deleted during the browser shutdown.
-  raw_ptr<TestCertificateSelector> selector_ = nullptr;
+  raw_ptr<TestCertificateSelector, DanglingUntriaged> selector_ = nullptr;
 };
 
 }  // namespace

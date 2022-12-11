@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "components/grpc_support/include/bidirectional_stream_c.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/network_isolation_key.h"
@@ -78,7 +79,7 @@ class BidirectionalStreamTestURLRequestContextGetter
       url::SchemeHostPort quic_hint_server(
           "https", net::QuicSimpleTestServer::GetHost(), 443);
       request_context_->http_server_properties()->SetQuicAlternativeService(
-          quic_hint_server, net::NetworkIsolationKey(), alternative_service,
+          quic_hint_server, net::NetworkAnonymizationKey(), alternative_service,
           base::Time::Max(), quic::ParsedQuicVersionVector());
     }
     return request_context_.get();

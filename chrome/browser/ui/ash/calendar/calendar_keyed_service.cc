@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,7 +46,11 @@ constexpr net::NetworkTrafficAnnotationTag kCalendarTrafficAnnotation =
         policy {
           cookies_allowed: NO
           setting: "This feature cannot be disabled in settings."
-          policy_exception_justification: "Not implemented."
+          chrome_policy {
+              CalendarIntegrationEnabled {
+                CalendarIntegrationEnabled: true
+              }
+          }
         })");
 
 }  // namespace
@@ -96,6 +100,9 @@ void CalendarKeyedService::Shutdown() {
         account_id_,
         /*client=*/nullptr);
   }
+  // Reset `sender_` early to prevent a crash during destruction of
+  // CalendarKeyedService. See https://crbug.com/1319563.
+  sender_.reset();
 }
 
 base::OnceClosure CalendarKeyedService::GetEventList(

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,10 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "ui/gl/gl_bindings.h"
+#include "ui/gl/gl_utils.h"
 #include "ui/gl/init/gl_factory.h"
 
 namespace android_webview {
@@ -37,8 +38,8 @@ class FakeWindow::ScopedMakeCurrent {
     // Release the underlying EGLContext. This is required because the real
     // GLContextEGL may no longer be current here and to satisfy DCHECK in
     // GLContextEGL::IsCurrent.
-    eglMakeCurrent(view_root_->surface_->GetDisplay(), EGL_NO_SURFACE,
-                   EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    eglMakeCurrent(view_root_->surface_->GetGLDisplay()->GetDisplay(),
+                   EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     view_root_->context_->ReleaseCurrent(view_root_->surface_.get());
   }
 
@@ -117,7 +118,7 @@ void FakeWindow::PostInvalidate() {
   if (on_draw_hardware_pending_)
     return;
   on_draw_hardware_pending_ = true;
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&FakeWindow::OnDrawHardware,
                                 weak_ptr_factory_.GetWeakPtr()));
 }
@@ -166,7 +167,7 @@ void FakeWindow::DrawFunctorOnRT(FakeFunctor* functor,
 }
 
 void FakeWindow::CheckCurrentlyOnUIThread() {
-  DCHECK(ui_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(ui_checker_);
 }
 
 void FakeWindow::CreateRenderThreadIfNeeded() {
@@ -182,7 +183,7 @@ void FakeWindow::CreateRenderThreadIfNeeded() {
   }
 
   render_thread_loop_ = g_render_thread->task_runner();
-  rt_checker_.DetachFromSequence();
+  DETACH_FROM_SEQUENCE(rt_checker_);
 
   base::WaitableEvent completion(
       base::WaitableEvent::ResetPolicy::MANUAL,
@@ -195,7 +196,8 @@ void FakeWindow::CreateRenderThreadIfNeeded() {
 
 void FakeWindow::InitializeOnRT(base::WaitableEvent* sync) {
   CheckCurrentlyOnRT();
-  surface_ = gl::init::CreateOffscreenGLSurface(surface_size_);
+  surface_ = gl::init::CreateOffscreenGLSurface(gl::GetDefaultDisplayEGL(),
+                                                surface_size_);
   DCHECK(surface_);
   DCHECK(surface_->GetHandle());
   context_ = gl::init::CreateGLContext(nullptr, surface_.get(),
@@ -215,7 +217,7 @@ void FakeWindow::DestroyOnRT(base::WaitableEvent* sync) {
 }
 
 void FakeWindow::CheckCurrentlyOnRT() {
-  DCHECK(rt_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(rt_checker_);
 }
 
 FakeFunctor::FakeFunctor() : window_(nullptr) {}
@@ -271,7 +273,7 @@ void FakeFunctor::ReleaseOnUIWithoutInvoke(base::OnceClosure callback) {
           &FakeFunctor::ReleaseOnRT, base::Unretained(this),
           base::BindOnce(
               base::IgnoreResult(&base::SingleThreadTaskRunner::PostTask),
-              base::ThreadTaskRunnerHandle::Get(), FROM_HERE,
+              base::SingleThreadTaskRunner::GetCurrentDefault(), FROM_HERE,
               std::move(callback))));
 }
 

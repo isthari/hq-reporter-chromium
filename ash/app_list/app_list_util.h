@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "ash/ash_export.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/views/widget/widget.h"
 
 namespace gfx {
 class Canvas;
@@ -64,24 +65,32 @@ ASH_EXPORT bool ProcessLeftRightKeyTraversalForTextfield(
 // Returns a new image with the `icon` atop a circle background with
 // `background_color`.
 ASH_EXPORT gfx::ImageSkia CreateIconWithCircleBackground(
-    const gfx::ImageSkia& icon,
-    SkColor background_color);
+    const gfx::ImageSkia& icon);
 
 // Paints a rounded focus bar on `canvas` starting at `content_origin` extending
-// `height` dips vertically.
+// `height` dips vertically. The given `widget` is the widget of the view which
+// calls this function and it's used to get the color provider to retrieve the
+// correct color.
 ASH_EXPORT void PaintFocusBar(gfx::Canvas* canvas,
                               const gfx::Point& content_origin,
-                              int height);
+                              int height,
+                              const views::Widget* widget);
 
 // Paints a circle on `canvas` centered at `content_origin` with inner radius
-// `radius`.
+// `radius`. The given `widget` is the widget of the view which calls this
+// function and it's used to get the color provider to retrieve the correct
+// color.
 ASH_EXPORT void PaintFocusRing(gfx::Canvas* canvas,
                                const gfx::Point& content_origin,
-                               int outer_radius);
+                               int outer_radius,
+                               const views::Widget* widget);
 
 // Sets a view as an ignored leaf node, so that it and its child views will be
 // ignored by ChromeVox.
 ASH_EXPORT void SetViewIgnoredForAccessibility(views::View* view, bool ignored);
+
+// Get the scale factor for the cardified apps grid and app icons.
+ASH_EXPORT float GetAppsGridCardifiedScale();
 
 }  // namespace ash
 

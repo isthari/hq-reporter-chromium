@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,7 +40,9 @@ LayoutWorkletGlobalScopeProxy::LayoutWorkletGlobalScopeProxy(
 
   LocalFrameClient* frame_client = frame->Client();
   const String user_agent =
-      RuntimeEnabledFeatures::UserAgentReductionEnabled(window)
+      RuntimeEnabledFeatures::SendFullUserAgentAfterReductionEnabled(window)
+          ? frame_client->FullUserAgent()
+      : RuntimeEnabledFeatures::UserAgentReductionEnabled(window)
           ? frame_client->ReducedUserAgent()
           : frame_client->UserAgent();
 
@@ -53,17 +55,16 @@ LayoutWorkletGlobalScopeProxy::LayoutWorkletGlobalScopeProxy(
       window->GetReferrerPolicy(), window->GetSecurityOrigin(),
       window->IsSecureContext(), window->GetHttpsState(),
       nullptr /* worker_clients */,
-      frame_client->CreateWorkerContentSettingsClient(), window->AddressSpace(),
+      frame_client->CreateWorkerContentSettingsClient(),
       OriginTrialContext::GetInheritedTrialFeatures(window).get(),
       base::UnguessableToken::Create(), nullptr /* worker_settings */,
       mojom::blink::V8CacheOptions::kDefault, module_responses_map,
       mojo::NullRemote() /* browser_interface_broker */,
       mojo::NullRemote() /* code_cache_host_interface */,
-      BeginFrameProviderParams(), nullptr /* parent_permissions_policy */,
-      window->GetAgentClusterID(), ukm::kInvalidSourceId,
-      window->GetExecutionContextToken(),
-      window->CrossOriginIsolatedCapability(),
-      window->DirectSocketCapability());
+      mojo::NullRemote() /* blob_url_store */, BeginFrameProviderParams(),
+      nullptr /* parent_permissions_policy */, window->GetAgentClusterID(),
+      ukm::kInvalidSourceId, window->GetExecutionContextToken(),
+      window->CrossOriginIsolatedCapability(), window->IsIsolatedContext());
   global_scope_ = LayoutWorkletGlobalScope::Create(
       frame, std::move(creation_params), *reporting_proxy_,
       pending_layout_registry);

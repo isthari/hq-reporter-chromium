@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,15 +14,14 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/cxx17_backports.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_clock.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/blocklist/opt_out_blocklist/opt_out_blocklist_delegate.h"
 #include "components/blocklist/opt_out_blocklist/opt_out_blocklist_item.h"
@@ -112,7 +111,7 @@ class TestOptOutStore : public OptOutStore {
 
   void LoadBlockList(std::unique_ptr<BlocklistData> blocklist_data,
                      LoadBlockListCallback callback) override {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(std::move(callback),
                        data_ ? std::move(data_) : std::move(blocklist_data)));
@@ -1113,7 +1112,7 @@ TEST_F(OptOutBlocklistTest, PassedReasonsWhenUserBlocklisted) {
       BlocklistReason::kBlocklistNotLoaded,
       BlocklistReason::kUserOptedOutInSession,
   };
-  EXPECT_EQ(base::size(expected_reasons), passed_reasons_.size());
+  EXPECT_EQ(std::size(expected_reasons), passed_reasons_.size());
   for (size_t i = 0; i < passed_reasons_.size(); i++) {
     EXPECT_EQ(expected_reasons[i], passed_reasons_[i]);
   }
@@ -1150,7 +1149,7 @@ TEST_F(OptOutBlocklistTest, PassedReasonsWhenHostBlocklisted) {
       BlocklistReason::kUserOptedOutInSession,
       BlocklistReason::kUserOptedOutInGeneral,
   };
-  EXPECT_EQ(base::size(expected_reasons), passed_reasons_.size());
+  EXPECT_EQ(std::size(expected_reasons), passed_reasons_.size());
   for (size_t i = 0; i < passed_reasons_.size(); i++) {
     EXPECT_EQ(expected_reasons[i], passed_reasons_[i]);
   }
@@ -1189,7 +1188,7 @@ TEST_F(OptOutBlocklistTest, PassedReasonsWhenAllowed) {
       BlocklistReason::kUserOptedOutOfHost,
       BlocklistReason::kUserOptedOutOfType,
   };
-  EXPECT_EQ(base::size(expected_reasons), passed_reasons_.size());
+  EXPECT_EQ(std::size(expected_reasons), passed_reasons_.size());
   for (size_t i = 0; i < passed_reasons_.size(); i++) {
     EXPECT_EQ(expected_reasons[i], passed_reasons_[i]);
   }

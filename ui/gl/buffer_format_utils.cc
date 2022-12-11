@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,6 +41,8 @@ unsigned BufferFormatToGLInternalFormat(gfx::BufferFormat format) {
       return GL_RGB_YCRCB_420_CHROMIUM;
     case gfx::BufferFormat::YUV_420_BIPLANAR:
       return GL_RGB_YCBCR_420V_CHROMIUM;
+    case gfx::BufferFormat::YUVA_420_TRIPLANAR:
+      return GL_NONE;
     case gfx::BufferFormat::P010:
       return GL_RGB_YCBCR_P010_CHROMIUM;
   }
@@ -72,6 +74,7 @@ unsigned BufferFormatToGLDataType(gfx::BufferFormat format) {
       return GL_HALF_FLOAT_OES;
     case gfx::BufferFormat::YVU_420:
     case gfx::BufferFormat::YUV_420_BIPLANAR:
+    case gfx::BufferFormat::YUVA_420_TRIPLANAR:
     case gfx::BufferFormat::P010:
       return GL_NONE;
   }

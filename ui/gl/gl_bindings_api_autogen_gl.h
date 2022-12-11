@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -1174,6 +1174,7 @@ void glProgramUniformMatrix4x3fvFn(GLuint program,
                                    GLsizei count,
                                    GLboolean transpose,
                                    const GLfloat* value) override;
+void glProvokingVertexANGLEFn(GLenum provokeMode) override;
 void glPushDebugGroupFn(GLenum source,
                         GLuint id,
                         GLsizei length,

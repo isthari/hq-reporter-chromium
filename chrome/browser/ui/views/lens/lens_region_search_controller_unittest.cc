@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "chrome/browser/lens/region_search/lens_region_search_controller.h"
@@ -6,6 +6,7 @@
 #include "base/feature_list.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/lens/metrics/lens_metrics.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/test_with_browser_view.h"
 #include "components/lens/lens_features.h"
@@ -19,13 +20,21 @@ class LensRegionSearchControllerTest : public TestWithBrowserView {
  public:
   void SetUp() override {
     base::test::ScopedFeatureList features;
-    features.InitWithFeatures({features::kLensRegionSearch}, {});
+    features.InitWithFeatures(
+        {features::kLensStandalone, ::features::kUnifiedSidePanel}, {});
     TestWithBrowserView::SetUp();
 
     // Create an active web contents.
     AddTab(browser_view()->browser(), GURL("about:blank"));
-    controller_ = std::make_unique<LensRegionSearchController>(
-        browser_view()->GetActiveWebContents(), browser_view()->browser());
+    controller_ =
+        std::make_unique<LensRegionSearchController>(browser_view()->browser());
+    controller_->SetWebContentsForTesting(
+        browser_view()->GetActiveWebContents());
+  }
+
+  void TearDown() override {
+    TestWithBrowserView::TearDown();
+    controller_.reset();
   }
 
  protected:

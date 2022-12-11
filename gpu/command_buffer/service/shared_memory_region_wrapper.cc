@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,11 +17,11 @@ namespace {
 // Validate that |stride| will work for pixels with |size| and |format|.
 bool ValidateStride(const gfx::Size size,
                     viz::ResourceFormat format,
-                    int32_t stride) {
+                    uint32_t stride) {
   if (!base::IsValueInRangeForNumericType<size_t>(stride))
     return false;
 
-  int32_t min_width_in_bytes = 0;
+  uint32_t min_width_in_bytes = 0;
   if (!viz::ResourceSizes::MaybeWidthInBytes(size.width(), format,
                                              &min_width_in_bytes)) {
     return false;
@@ -43,7 +43,8 @@ bool ValidateStride(const gfx::Size size,
     case 4:
       break;
     default:
-      // YVU420 and YUV_420_BIPLANAR format aren't supported.
+      // YVU420, YUV_420_BIPLANAR, and YUVA_420_TRIPLANAR format aren't
+      // supported.
       NOTREACHED();
       return false;
   }
@@ -122,6 +123,10 @@ base::span<const uint8_t> SharedMemoryRegionWrapper::GetMemoryAsSpan() const {
 size_t SharedMemoryRegionWrapper::GetStride() const {
   DCHECK(IsValid());
   return stride_;
+}
+
+const base::UnguessableToken& SharedMemoryRegionWrapper::GetMappingGuid() {
+  return mapping_.guid();
 }
 
 }  // namespace gpu

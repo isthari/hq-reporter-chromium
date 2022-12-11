@@ -1,4 +1,4 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Generator to output information about blocking CQ builders.
@@ -6,11 +6,13 @@
 This generator copies commit-queue.cfg, removing builders that are experimental
 or includable_only and removing other fields that don't impact when the CQ is
 triggered or what the CQ triggers. The resultant file is output as
-cq-usage/details.cfg. This enables applying limited owners for changes that
+cq-usage/default.cfg. This enables applying limited owners for changes that
 would impact the CQ for all users.
 """
 
 load("@stdlib//internal/luci/proto.star", "cq_pb")
+load("//lib/try.star", "location_filters_without_defaults")
+load("//subprojects/chromium/fallback-cq.star", "fallback_cq")
 
 def _remove_none(l):
     return [e for e in l if e != None]
@@ -18,15 +20,18 @@ def _remove_none(l):
 def _trim_builder(builder, include_path_based):
     if builder.includable_only or builder.experiment_percentage:
         return None
-    if not include_path_based and builder.location_regexp and list(builder.location_regexp) != [".*"]:
+
+    # The majority of CQ builders will exclude something because we don't
+    # trigger most builders on changes to non-code directories (e.g. docs), so
+    # only consider them path-based if they have an include filter
+    if not include_path_based and location_filters_without_defaults(builder):
         return None
     trimmed = cq_pb.Verifiers.Tryjob.Builder(
         name = builder.name,
         disable_reuse = builder.disable_reuse,
     )
     if include_path_based:
-        trimmed.location_regexp = builder.location_regexp
-        trimmed.location_regexp_exclude = builder.location_regexp_exclude
+        trimmed.location_filters = builder.location_filters
     return trimmed
 
 def _trim_tryjob(tryjob, include_path_based):
@@ -58,10 +63,18 @@ def _trim_config_group(config_group, include_path_based):
 def _generate_cq_usage(ctx):
     cfg = ctx.output["luci/commit-queue.cfg"]
     ctx.output["cq-usage/default.cfg"] = cq_pb.Config(config_groups = _remove_none(
-        [_trim_config_group(g, include_path_based = False) for g in cfg.config_groups],
+        [
+            _trim_config_group(g, include_path_based = False)
+            for g in cfg.config_groups
+            if g.name != fallback_cq.GROUP
+        ],
     ))
     ctx.output["cq-usage/full.cfg"] = cq_pb.Config(config_groups = _remove_none(
-        [_trim_config_group(g, include_path_based = True) for g in cfg.config_groups],
+        [
+            _trim_config_group(g, include_path_based = True)
+            for g in cfg.config_groups
+            if g.name != fallback_cq.GROUP
+        ],
     ))
 
 lucicfg.generator(_generate_cq_usage)

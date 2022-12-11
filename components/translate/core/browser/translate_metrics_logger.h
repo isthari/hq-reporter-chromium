@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -126,7 +126,8 @@ enum class UIInteraction {
   kNeverTranslateSite = 7,
   kCloseUIExplicitly = 8,
   kCloseUILostFocus = 9,
-  kMaxValue = kCloseUILostFocus,
+  kCloseUITimerRanOut = 10,
+  kMaxValue = kCloseUITimerRanOut,
 };
 
 // TranslateMetricsLogger tracks and logs various UKM and UMA metrics for Chrome
@@ -160,13 +161,12 @@ class TranslateMetricsLogger {
   // highest priority trigger decision will be logged to UMA at the end of the
   // page load.
   virtual void LogTriggerDecision(TriggerDecision trigger_decision) = 0;
-  virtual void LogAutofillAssistantDeferredTriggerDecision() = 0;
 
   // Tracks the state of Translate over the course of the page load.
   virtual void LogInitialState() = 0;
   virtual void LogTranslationStarted(TranslationType translation_type) = 0;
   virtual void LogTranslationFinished(bool was_successful,
-                                      TranslateErrors::Type error_type) = 0;
+                                      TranslateErrors error_type) = 0;
   virtual void LogReversion() = 0;
   virtual void LogUIChange(bool is_ui_shown) = 0;
   virtual void LogOmniboxIconChange(bool is_omnibox_icon_show) = 0;

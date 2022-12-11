@@ -1,13 +1,16 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web/web_state/ui/crw_wk_ui_handler.h"
 
-#include "base/logging.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/logging.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/strings/sys_string_conversions.h"
+#import "ios/web/common/features.h"
 #import "ios/web/navigation/wk_navigation_action_util.h"
 #import "ios/web/navigation/wk_navigation_util.h"
+#import "ios/web/public/permissions/permissions.h"
 #import "ios/web/public/ui/context_menu_params.h"
 #import "ios/web/public/ui/java_script_dialog_type.h"
 #import "ios/web/public/web_client.h"
@@ -17,11 +20,28 @@
 #import "ios/web/web_view/wk_security_origin_util.h"
 #import "ios/web/webui/mojo_facade.h"
 #import "net/base/mac/url_conversions.h"
-#include "url/gurl.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
+
+namespace {
+
+// Histogram name that logs permission requests.
+const char kPermissionRequestsHistogram[] = "IOS.Permission.Requests";
+
+// Values for UMA permission histograms. These values are based on
+// WKMediaCaptureType and persisted to logs. Entries should not be renumbered
+// and numeric values should never be reused.
+enum class PermissionRequest {
+  RequestCamera = 0,
+  RequestMicrophone = 1,
+  RequestCameraAndMicrophone = 2,
+  kMaxValue = RequestCameraAndMicrophone,
+};
+
+}  // namespace
 
 @interface CRWWKUIHandler () {
   // Backs up property with the same name.
@@ -57,6 +77,42 @@
 }
 
 #pragma mark - WKUIDelegate
+
+- (void)webView:(WKWebView*)webView
+    requestMediaCapturePermissionForOrigin:(WKSecurityOrigin*)origin
+                          initiatedByFrame:(WKFrameInfo*)frame
+                                      type:(WKMediaCaptureType)type
+                           decisionHandler:
+                               (void (^)(WKPermissionDecision decision))
+                                   decisionHandler API_AVAILABLE(ios(15.0)) {
+  PermissionRequest request;
+  NSArray<NSNumber*>* permissionsRequested;
+  switch (type) {
+    case WKMediaCaptureTypeCamera:
+      request = PermissionRequest::RequestCamera;
+      permissionsRequested = @[ @(web::PermissionCamera) ];
+      break;
+    case WKMediaCaptureTypeMicrophone:
+      request = PermissionRequest::RequestMicrophone;
+      permissionsRequested = @[ @(web::PermissionMicrophone) ];
+      break;
+    case WKMediaCaptureTypeCameraAndMicrophone:
+      request = PermissionRequest::RequestCameraAndMicrophone;
+      permissionsRequested =
+          @[ @(web::PermissionCamera), @(web::PermissionMicrophone) ];
+      break;
+  }
+  base::UmaHistogramEnumeration(kPermissionRequestsHistogram, request);
+  if (web::features::IsFullscreenAPIEnabled()) {
+    [webView closeAllMediaPresentationsWithCompletionHandler:^{
+      [self displayPromptForPermissions:permissionsRequested
+                    withDecisionHandler:decisionHandler];
+    }];
+    return;
+  }
+  [self displayPromptForPermissions:permissionsRequested
+                withDecisionHandler:decisionHandler];
+}
 
 - (WKWebView*)webView:(WKWebView*)webView
     createWebViewWithConfiguration:(WKWebViewConfiguration*)configuration
@@ -98,8 +154,8 @@
     return nil;
 
   // WKWebView requires WKUIDelegate to return a child view created with
-  // exactly the same |configuration| object (exception is raised if config is
-  // different). |configuration| param and config returned by
+  // exactly the same `configuration` object (exception is raised if config is
+  // different). `configuration` param and config returned by
   // WKWebViewConfigurationProvider are different objects because WKWebView
   // makes a shallow copy of the config inside init, so every WKWebView
   // owns a separate shallow copy of WKWebViewConfiguration.
@@ -109,7 +165,10 @@
 }
 
 - (void)webViewDidClose:(WKWebView*)webView {
-  if (self.webStateImpl && self.webStateImpl->HasOpener()) {
+  // This is triggered by a JavaScript `close()` method call, only if the tab
+  // was opened using `window.open`. WebKit is checking that this is the case,
+  // so we can close the tab unconditionally here.
+  if (self.webStateImpl) {
     __weak __typeof(self) weakSelf = self;
     // -webViewDidClose will typically trigger another webState to activate,
     // which may in turn also close. To prevent reentrant modificationre in
@@ -210,8 +269,8 @@
 
 #pragma mark - Helper
 
-// Helper to respond to |webView:runJavaScript...| delegate methods.
-// |completionHandler| must not be nil.
+// Helper to respond to `webView:runJavaScript...| delegate methods.
+// `completionHandler` must not be nil.
 - (void)runJavaScriptDialogOfType:(web::JavaScriptDialogType)type
                  initiatedByFrame:(WKFrameInfo*)frame
                           message:(NSString*)message
@@ -244,6 +303,28 @@
       base::BindOnce(^(bool success, NSString* input) {
         completionHandler(success, input);
       }));
+}
+
+// Helper that displays a prompt to the user that asks for access to
+// `permissions`.
+- (void)displayPromptForPermissions:(NSArray<NSNumber*>*)permissions
+                withDecisionHandler:
+                    (void (^)(WKPermissionDecision decision))handler
+    API_AVAILABLE(ios(15.0)) {
+  web::WebStateImpl* webStateImpl = self.webStateImpl;
+  if (!webStateImpl) {
+    // If the web state doesn't exist, it is likely that the web view isn't
+    // visible to the user, or that some other issue has happened. Deny
+    // permission.
+    handler(WKPermissionDecisionDeny);
+    return;
+  }
+  web::GetWebClient()->WillDisplayMediaCapturePermissionPrompt(webStateImpl);
+  if (web::features::IsMediaPermissionsControlEnabled()) {
+    webStateImpl->RequestPermissionsWithDecisionHandler(permissions, handler);
+  } else {
+    handler(WKPermissionDecisionPrompt);
+  }
 }
 
 @end

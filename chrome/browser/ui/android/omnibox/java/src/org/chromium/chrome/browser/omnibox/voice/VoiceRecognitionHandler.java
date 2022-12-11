@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,9 @@ import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.ApplicationState;
+import org.chromium.base.ApplicationStatus;
 import org.chromium.base.CallbackController;
-import org.chromium.base.FeatureList;
 import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
 import org.chromium.base.ThreadUtils;
@@ -27,6 +28,8 @@ import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.MutableFlagWithSafeDefault;
+import org.chromium.chrome.browser.flags.PostNativeFlag;
 import org.chromium.chrome.browser.omnibox.LocationBarDataProvider;
 import org.chromium.chrome.browser.omnibox.R;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteCoordinator;
@@ -44,8 +47,8 @@ import org.chromium.content_public.browser.NavigationHandle;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
-import org.chromium.ui.base.PermissionCallback;
 import org.chromium.ui.base.WindowAndroid;
+import org.chromium.ui.permissions.PermissionCallback;
 import org.chromium.url.GURL;
 
 import java.util.ArrayList;
@@ -147,6 +150,21 @@ public class VoiceRecognitionHandler {
     @VisibleForTesting
     static final String EXTRA_VOICE_ENTRYPOINT = "com.android.chrome.voice.VOICE_ENTRYPOINT";
 
+    private static final MutableFlagWithSafeDefault sToolbarMicIphFlag =
+            new MutableFlagWithSafeDefault(ChromeFeatureList.TOOLBAR_MIC_IPH_ANDROID, false);
+    private static final MutableFlagWithSafeDefault sAssistantIntentPageUrlFlag =
+            new MutableFlagWithSafeDefault(ChromeFeatureList.ASSISTANT_INTENT_PAGE_URL, false);
+    private static final MutableFlagWithSafeDefault sAssistantIntentExperimentIdFlag =
+            new MutableFlagWithSafeDefault(ChromeFeatureList.ASSISTANT_INTENT_EXPERIMENT_ID, false);
+    private static final MutableFlagWithSafeDefault sAssistantNonPersonalizedVoiceSearchFlag =
+            new MutableFlagWithSafeDefault(
+                    ChromeFeatureList.ASSISTANT_NON_PERSONALIZED_VOICE_SEARCH, true);
+    private static final MutableFlagWithSafeDefault sAssistantIntentTranslateInfoFlag =
+            new MutableFlagWithSafeDefault(
+                    ChromeFeatureList.ASSISTANT_INTENT_TRANSLATE_INFO, false);
+    private static final PostNativeFlag sCacheVoiceSearchEnabledFlag =
+            new PostNativeFlag(ChromeFeatureList.IS_VOICE_SEARCH_ENABLED_CACHE);
+
     private static Boolean sIsRecognitionIntentPresentForTesting;
     private final Delegate mDelegate;
     private Long mQueryStartTimeMs;
@@ -157,6 +175,8 @@ public class VoiceRecognitionHandler {
     private final Runnable mLaunchAssistanceSettingsAction;
     private CallbackController mCallbackController = new CallbackController();
     private ObservableSupplier<Profile> mProfileSupplier;
+    private Boolean mIsVoiceSearchEnabledCached;
+    private boolean mRegisteredActivityStateListener;
 
     /**
      * AudioPermissionState defined in tools/metrics/histograms/enums.xml.
@@ -421,12 +441,16 @@ public class VoiceRecognitionHandler {
         }
 
         @Override
-        public void didFinishNavigation(NavigationHandle navigation) {
-            if (navigation.hasCommitted() && navigation.isInPrimaryMainFrame()
-                    && !navigation.isErrorPage()) {
+        public void didFinishNavigationInPrimaryMainFrame(NavigationHandle navigation) {
+            if (navigation.hasCommitted() && !navigation.isErrorPage()) {
                 setReceivedUserGesture(navigation.getUrl());
             }
             destroy();
+        }
+
+        @Override
+        public void didFinishNavigationNoop(NavigationHandle navigation) {
+            if (!navigation.isInPrimaryMainFrame()) return;
         }
     }
 
@@ -469,10 +493,9 @@ public class VoiceRecognitionHandler {
             }
 
             // Log successful voice use for IPH purposes.
-            if (FeatureList.isInitialized()
-                    && ChromeFeatureList.isEnabled(ChromeFeatureList.TOOLBAR_MIC_IPH_ANDROID)
-                    && mProfileSupplier.hasValue()) {
-                // mic shouldn't be visibble
+            // Log successful voice use for IPH purposes.
+            if (sToolbarMicIphFlag.isEnabled() && mProfileSupplier.hasValue()) {
+                // mic shouldn't be visible
                 assert !mProfileSupplier.get().isOffTheRecord();
                 Tracker tracker = TrackerFactory.getTrackerForProfile(mProfileSupplier.get());
                 tracker.notifyEvent(EventConstants.SUCCESSFUL_VOICE_SEARCH);
@@ -480,8 +503,7 @@ public class VoiceRecognitionHandler {
             // Assume transcription by default when the page URL feature is disabled.
             @AssistantActionPerformed
             int actionPerformed = AssistantActionPerformed.TRANSCRIPTION;
-            if (FeatureList.isInitialized()
-                    && ChromeFeatureList.isEnabled(ChromeFeatureList.ASSISTANT_INTENT_PAGE_URL)) {
+            if (sAssistantIntentPageUrlFlag.isEnabled()) {
                 actionPerformed = getActionPerformed(data.getExtras());
             }
 
@@ -714,13 +736,11 @@ public class VoiceRecognitionHandler {
     public void startVoiceRecognition(@VoiceInteractionSource int source) {
         ThreadUtils.assertOnUiThread();
         startTrackingQueryDuration();
-
         WindowAndroid windowAndroid = mDelegate.getWindowAndroid();
         if (windowAndroid == null) {
             mDelegate.notifyVoiceRecognitionCanceled();
             return;
         }
-
         Activity activity = windowAndroid.getActivity().get();
         if (activity == null) {
             mDelegate.notifyVoiceRecognitionCanceled();
@@ -869,31 +889,32 @@ public class VoiceRecognitionHandler {
         intent.putExtra(EXTRA_VOICE_ENTRYPOINT, source);
         // Allows Assistant to track intent latency.
         intent.putExtra(EXTRA_INTENT_SENT_TIMESTAMP, System.currentTimeMillis());
-        intent.putExtra(EXTRA_INTENT_USER_EMAIL, assistantVoiceSearchService.getUserEmail());
 
-        if (FeatureList.isInitialized()
-                && ChromeFeatureList.isEnabled(ChromeFeatureList.ASSISTANT_INTENT_EXPERIMENT_ID)) {
+        if (sAssistantIntentExperimentIdFlag.isEnabled()) {
             attachAssistantExperimentId(intent);
         }
 
-        if (shouldAddPageUrl(source)) {
-            String url = getUrl();
-            if (url != null) {
-                intent.putExtra(EXTRA_PAGE_URL, url);
+        if (!sAssistantNonPersonalizedVoiceSearchFlag.isEnabled()) {
+            // TODO(crbug.com/1344574): This is currently still needed by AGSA.
+            intent.putExtra(EXTRA_INTENT_USER_EMAIL, assistantVoiceSearchService.getUserEmail());
+
+            if (shouldAddPageUrl(source)) {
+                String url = getUrl();
+                if (url != null) {
+                    intent.putExtra(EXTRA_PAGE_URL, url);
+                }
+            }
+
+            if (source == VoiceInteractionSource.TOOLBAR
+                    && sAssistantIntentTranslateInfoFlag.isEnabled()) {
+                boolean attached = attachTranslateExtras(intent);
+                recordTranslateExtrasAttachResult(attached);
             }
         }
-
-        if (source == VoiceInteractionSource.TOOLBAR && FeatureList.isInitialized()
-                && ChromeFeatureList.isEnabled(ChromeFeatureList.ASSISTANT_INTENT_TRANSLATE_INFO)) {
-            boolean attached = attachTranslateExtras(intent);
-            recordTranslateExtrasAttachResult(attached);
-        }
-
         if (!showSpeechRecognitionIntent(
                     windowAndroid, intent, source, VoiceIntentTarget.ASSISTANT)) {
             notifyVoiceAvailabilityImpacted();
             recordVoiceSearchFailureEvent(source, VoiceIntentTarget.ASSISTANT);
-
             return false;
         }
 
@@ -909,8 +930,7 @@ public class VoiceRecognitionHandler {
         // less obvious that user actions in Assistant may interact with the current page. Omit the
         // page URL in those cases to signal to Assistant that page-actions (e.g. translate,
         // readout) should be disallowed.
-        return source == VoiceInteractionSource.TOOLBAR && FeatureList.isInitialized()
-                && ChromeFeatureList.isEnabled(ChromeFeatureList.ASSISTANT_INTENT_PAGE_URL);
+        return source == VoiceInteractionSource.TOOLBAR && sAssistantIntentPageUrlFlag.isEnabled();
     }
 
     /**
@@ -1013,8 +1033,31 @@ public class VoiceRecognitionHandler {
         WindowAndroid windowAndroid = mDelegate.getWindowAndroid();
         if (windowAndroid == null) return false;
         if (windowAndroid.getActivity().get() == null) return false;
-        if (!VoiceRecognitionUtil.isVoiceSearchEnabled(windowAndroid)) return false;
-        return true;
+        if (!VoiceRecognitionUtil.isVoiceSearchPermittedByPolicy(false)) return false;
+
+        if (!sCacheVoiceSearchEnabledFlag.isEnabled()) {
+            return VoiceRecognitionUtil.isVoiceSearchEnabled(windowAndroid);
+        }
+
+        if (mIsVoiceSearchEnabledCached == null) {
+            mIsVoiceSearchEnabledCached = VoiceRecognitionUtil.isVoiceSearchEnabled(windowAndroid);
+
+            // isVoiceSearchEnabled depends on whether or not the user gives permissions to
+            // record audio. This permission can be changed either when we display a UI prompt
+            // to request permissions, or when the permissions are changed in Android settings.
+            // In both scenarios, the state of the application will change to being paused before
+            // the permission is changed, so we invalidate the cache here.
+            if (!mRegisteredActivityStateListener) {
+                ApplicationStatus.registerApplicationStateListener(newState -> {
+                    if (newState == ApplicationState.HAS_PAUSED_ACTIVITIES) {
+                        mIsVoiceSearchEnabledCached = null;
+                    }
+                });
+                mRegisteredActivityStateListener = true;
+            }
+        }
+
+        return mIsVoiceSearchEnabledCached;
     }
 
     /** Start tracking query duration by capturing when it started */
@@ -1037,8 +1080,7 @@ public class VoiceRecognitionHandler {
 
         // We should only record per-action metrics when the page URL feature is enabled. When
         // disabled, only transcription should occur.
-        if (FeatureList.isInitialized()
-                && ChromeFeatureList.isEnabled(ChromeFeatureList.ASSISTANT_INTENT_PAGE_URL)) {
+        if (sAssistantIntentPageUrlFlag.isEnabled()) {
             recordAssistantActionPerformed(source, action);
             recordPerActionVoiceSearchOpenDuration(action, elapsedTimeMs);
         }
@@ -1256,6 +1298,11 @@ public class VoiceRecognitionHandler {
     /*package*/ static void setIsRecognitionIntentPresentForTesting(
             Boolean isRecognitionIntentPresent) {
         sIsRecognitionIntentPresentForTesting = isRecognitionIntentPresent;
+    }
+
+    @VisibleForTesting
+    protected void setIsVoiceSearchEnabledCacheForTesting(Boolean value) {
+        mIsVoiceSearchEnabledCached = value;
     }
 
     /** Sets the start time for testing. */

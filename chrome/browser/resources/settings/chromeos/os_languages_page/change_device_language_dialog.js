@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,75 +6,89 @@
  * @fileoverview 'os-settings-change-device-language-dialog' is a dialog for
  * changing device language.
  */
-import '//resources/cr_elements/cr_button/cr_button.m.js';
-import '//resources/cr_elements/cr_search_field/cr_search_field.js';
-import '//resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import '//resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
-import '//resources/polymer/v3_0/iron-list/iron-list.js';
-import '//resources/polymer/v3_0/paper-ripple/paper-ripple.js';
-import './shared_style.js';
-import '//resources/cr_components/chromeos/localized_link/localized_link.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_search_field/cr_search_field.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
+import 'chrome://resources/polymer/v3_0/iron-list/iron-list.js';
+import 'chrome://resources/polymer/v3_0/paper-ripple/paper-ripple.js';
+import './shared_style.css.js';
+import 'chrome://resources/cr_components/localized_link/localized_link.js';
 import './languages.js';
-import '../../settings_shared_css.js';
+import '../../settings_shared.css.js';
 
-import {CrScrollableBehavior} from '//resources/cr_elements/cr_scrollable_behavior.m.js';
-import {assert, assertNotReached} from '//resources/js/assert.m.js';
-import {I18nBehavior} from '//resources/js/i18n_behavior.m.js';
-import {afterNextRender, flush, html, Polymer, TemplateInstanceBase, Templatizer} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrScrollableBehavior, CrScrollableBehaviorInterface} from 'chrome://resources/ash/common/cr_scrollable_behavior.js';
+import {assert} from 'chrome://resources/js/assert.js';
+import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/ash/common/i18n_behavior.js';
+import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {LifetimeBrowserProxyImpl} from '../../lifetime_browser_proxy.js';
-import {recordClick, recordNavigation, recordPageBlur, recordPageFocus, recordSearch, recordSettingChange, setUserActionRecorderForTesting} from '../metrics_recorder.m.js';
+import {recordSettingChange} from '../metrics_recorder.js';
 
-import {InputsShortcutReminderState, LanguagesMetricsProxy, LanguagesMetricsProxyImpl, LanguagesPageInteraction} from './languages_metrics_proxy.js';
+import {getTemplate} from './change_device_language_dialog.html.js';
+import {LanguagesMetricsProxy, LanguagesMetricsProxyImpl, LanguagesPageInteraction} from './languages_metrics_proxy.js';
 import {LanguageHelper, LanguagesModel} from './languages_types.js';
 
-Polymer({
-  _template: html`{__html_template__}`,
-  is: 'os-settings-change-device-language-dialog',
+/**
+ * @constructor
+ * @extends {PolymerElement}
+ * @implements {CrScrollableBehaviorInterface}
+ * @implements {I18nBehaviorInterface}
+ */
+const OsSettingsChangeDeviceLanguageDialogElementBase =
+    mixinBehaviors([CrScrollableBehavior, I18nBehavior], PolymerElement);
 
-  behaviors: [
-    CrScrollableBehavior,
-    I18nBehavior,
-  ],
+/** @polymer */
+class OsSettingsChangeDeviceLanguageDialogElement extends
+    OsSettingsChangeDeviceLanguageDialogElementBase {
+  static get is() {
+    return 'os-settings-change-device-language-dialog';
+  }
 
-  properties: {
-    /** @type {!LanguagesModel|undefined} */
-    languages: Object,
+  static get template() {
+    return getTemplate();
+  }
 
-    /** @private {!Array<!chrome.languageSettingsPrivate.Language>} */
-    displayedLanguages_: {
-      type: Array,
-      computed: `getPossibleDeviceLanguages_(languages.supported,
-          languages.enabled.*, lowercaseQueryString_)`,
-    },
+  static get properties() {
+    return {
+      /** @type {!LanguagesModel|undefined} */
+      languages: Object,
 
-    /** @private {boolean} */
-    displayedLanguagesEmpty_: {
-      type: Boolean,
-      computed: 'isZero_(displayedLanguages_.length)',
-    },
+      /** @private {!Array<!chrome.languageSettingsPrivate.Language>} */
+      displayedLanguages_: {
+        type: Array,
+        computed: `getPossibleDeviceLanguages_(languages.supported,
+            languages.enabled.*, lowercaseQueryString_)`,
+      },
 
-    /** @type {!LanguageHelper} */
-    languageHelper: Object,
+      /** @private {boolean} */
+      displayedLanguagesEmpty_: {
+        type: Boolean,
+        computed: 'isZero_(displayedLanguages_.length)',
+      },
 
-    /** @private {?chrome.languageSettingsPrivate.Language} */
-    selectedLanguage_: {
-      type: Object,
-      value: null,
-    },
+      /** @type {!LanguageHelper} */
+      languageHelper: Object,
 
-    /** @private */
-    disableActionButton_: {
-      type: Boolean,
-      computed: 'shouldDisableActionButton_(selectedLanguage_)',
-    },
+      /** @private {?chrome.languageSettingsPrivate.Language} */
+      selectedLanguage_: {
+        type: Object,
+        value: null,
+      },
 
-    /** @private */
-    lowercaseQueryString_: {
-      type: String,
-      value: '',
-    },
-  },
+      /** @private */
+      disableActionButton_: {
+        type: Boolean,
+        computed: 'shouldDisableActionButton_(selectedLanguage_)',
+      },
+
+      /** @private */
+      lowercaseQueryString_: {
+        type: String,
+        value: '',
+      },
+    };
+  }
 
   /**
    * @param {!CustomEvent<string>} e
@@ -82,7 +96,7 @@ Polymer({
    */
   onSearchChanged_(e) {
     this.lowercaseQueryString_ = e.detail.toLowerCase();
-  },
+  }
 
   /**
    * @return {!Array<!chrome.languageSettingsPrivate.Language>} A list of
@@ -111,7 +125,7 @@ Polymer({
           // is not manually specified).
           return a.nativeDisplayName.localeCompare(b.nativeDisplayName, 'en');
         });
-  },
+  }
 
   /**
    * @param {boolean} selected
@@ -119,7 +133,7 @@ Polymer({
    */
   getItemClass_(selected) {
     return selected ? 'selected' : '';
-  },
+  }
 
   /**
    * @param {!chrome.languageSettingsPrivate.Language} item
@@ -131,7 +145,7 @@ Polymer({
     const instruction = selected ? 'selectedDeviceLanguageInstruction' :
                                    'notSelectedDeviceLanguageInstruction';
     return this.i18n(instruction, this.getDisplayText_(item));
-  },
+  }
 
   /**
    * @param {!chrome.languageSettingsPrivate.Language} language
@@ -145,17 +159,17 @@ Polymer({
       displayText += ' - ' + language.displayName;
     }
     return displayText;
-  },
+  }
 
   /** @private */
   shouldDisableActionButton_() {
     return this.selectedLanguage_ === null;
-  },
+  }
 
   /** @private */
   onCancelButtonTap_() {
     this.$.dialog.close();
-  },
+  }
 
   /**
    * Sets device language and restarts device.
@@ -164,18 +178,20 @@ Polymer({
   onActionButtonTap_() {
     assert(this.selectedLanguage_);
     const languageCode = this.selectedLanguage_.code;
-    this.languageHelper.setProspectiveUILanguage(languageCode);
-    // If the language isn't enabled yet, it should be added and moved to top.
-    // If it's already present, we don't do anything.
+    this.languageHelper.setProspectiveUiLanguage(languageCode);
+    // If the language isn't enabled yet, it should be added.
     if (!this.languageHelper.isLanguageEnabled(languageCode)) {
       this.languageHelper.enableLanguage(languageCode);
-      this.languageHelper.moveLanguageToFront(languageCode);
     }
+    // The new language should always be moved to the top, as users get confused
+    // that websites are displaying in a different language:
+    // https://crbug.com/1330209
+    this.languageHelper.moveLanguageToFront(languageCode);
     recordSettingChange();
     LanguagesMetricsProxyImpl.getInstance().recordInteraction(
         LanguagesPageInteraction.RESTART);
     LifetimeBrowserProxyImpl.getInstance().signOutAndRestart();
-  },
+  }
 
   /**
    * @param {!KeyboardEvent} e
@@ -188,7 +204,7 @@ Polymer({
     } else if (e.key !== 'PageDown' && e.key !== 'PageUp') {
       this.$.search.scrollIntoViewIfNeeded();
     }
-  },
+  }
 
   /**
    * @param {number} num
@@ -197,5 +213,9 @@ Polymer({
    */
   isZero_(num) {
     return num === 0;
-  },
-});
+  }
+}
+
+customElements.define(
+    OsSettingsChangeDeviceLanguageDialogElement.is,
+    OsSettingsChangeDeviceLanguageDialogElement);

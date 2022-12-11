@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,7 +68,9 @@ class ExtensionServiceTestBase : public testing::Test {
     bool extensions_enabled = true;
     bool is_first_run = true;
     bool profile_is_supervised = false;
+    bool profile_is_guest = false;
     bool enable_bookmark_model = false;
+    bool enable_install_limiter = false;
 
     raw_ptr<policy::PolicyService> policy_service = nullptr;
 
@@ -111,7 +113,9 @@ class ExtensionServiceTestBase : public testing::Test {
   // |source_install_dir|.
   void InitializeInstalledExtensionService(
       const base::FilePath& prefs_file,
-      const base::FilePath& source_install_dir);
+      const base::FilePath& source_install_dir,
+      const ExtensionServiceInitParams& additional_params =
+          ExtensionServiceInitParams{});
 
   // Initialize an ExtensionService with a few already-installed extensions.
   void InitializeGoodInstalledExtensionService();
@@ -157,6 +161,7 @@ class ExtensionServiceTestBase : public testing::Test {
   policy::MockConfigurationPolicyProvider* policy_provider() {
     return &policy_provider_;
   }
+  policy::PolicyService* policy_service() { return policy_service_.get(); }
 
   // If a test uses a feature list, it should be destroyed after
   // |task_environment_|, to avoid tsan data races between the ScopedFeatureList

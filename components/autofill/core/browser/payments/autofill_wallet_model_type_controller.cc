@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/prefs/pref_service.h"
-#include "components/sync/driver/sync_driver_switches.h"
+#include "components/sync/base/features.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_user_settings.h"
 #include "google_apis/gaia/google_service_auth_error.h"
@@ -31,7 +31,8 @@ AutofillWalletModelTypeController::AutofillWalletModelTypeController(
       sync_service_(sync_service) {
   DCHECK(type == syncer::AUTOFILL_WALLET_DATA ||
          type == syncer::AUTOFILL_WALLET_METADATA ||
-         type == syncer::AUTOFILL_WALLET_OFFER);
+         type == syncer::AUTOFILL_WALLET_OFFER ||
+         type == syncer::AUTOFILL_WALLET_USAGE);
   SubscribeToPrefChanges();
   sync_service_->AddObserver(this);
 }
@@ -51,7 +52,8 @@ AutofillWalletModelTypeController::AutofillWalletModelTypeController(
       sync_service_(sync_service) {
   DCHECK(type == syncer::AUTOFILL_WALLET_DATA ||
          type == syncer::AUTOFILL_WALLET_METADATA ||
-         type == syncer::AUTOFILL_WALLET_OFFER);
+         type == syncer::AUTOFILL_WALLET_OFFER ||
+         type == syncer::AUTOFILL_WALLET_USAGE);
   SubscribeToPrefChanges();
   sync_service_->AddObserver(this);
 }
@@ -80,6 +82,9 @@ void AutofillWalletModelTypeController::Stop(
 syncer::DataTypeController::PreconditionState
 AutofillWalletModelTypeController::GetPreconditionState() const {
   DCHECK(CalledOnValidThread());
+  // TODO(crbug.com/1156584): No need to handle IsPersistentError() once the
+  // feature toggle is cleaned up and sync gets paused for all persistent auth
+  // errors.
   bool preconditions_met =
       pref_service_->GetBoolean(
           autofill::prefs::kAutofillWalletImportEnabled) &&
@@ -99,7 +104,7 @@ bool AutofillWalletModelTypeController::ShouldRunInTransportOnlyMode() const {
   }
   if (sync_service_->GetUserSettings()->IsUsingExplicitPassphrase() &&
       !base::FeatureList::IsEnabled(
-          switches::kSyncAllowWalletDataInTransportModeWithCustomPassphrase)) {
+          syncer::kSyncAllowWalletDataInTransportModeWithCustomPassphrase)) {
     return false;
   }
   return true;

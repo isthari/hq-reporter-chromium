@@ -1,9 +1,11 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_UI_COCOA_APPLESCRIPT_WINDOW_APPLESCRIPT_H_
 #define CHROME_BROWSER_UI_COCOA_APPLESCRIPT_WINDOW_APPLESCRIPT_H_
+
+#include "base/memory/raw_ptr.h"
 
 #import <Cocoa/Cocoa.h>
 
@@ -16,7 +18,7 @@ class Profile;
 // Represents a window class.
 @interface WindowAppleScript : ElementAppleScript {
  @private
-  Browser* _browser;  // weak.
+  raw_ptr<Browser> _browser;  // weak.
 }
 
 // Creates a new window, returns nil if there is an error.

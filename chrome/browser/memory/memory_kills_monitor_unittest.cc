@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,10 +21,6 @@ base::HistogramBase* GetLowMemoryKillsCountHistogram() {
       "Memory.LowMemoryKiller.Count");
 }
 
-base::HistogramBase* GetOOMKillsCountHistogram() {
-  return base::StatisticsRecorder::FindHistogram("Memory.OOMKills.Count");
-}
-
 }  // namespace.
 
 class MemoryKillsMonitorTest : public testing::Test {
@@ -44,24 +40,15 @@ TEST_F(MemoryKillsMonitorTest, TestHistograms) {
   MemoryKillsMonitor::LogLowMemoryKill("TAB", 10000);
 
   auto* lmk_count_histogram = GetLowMemoryKillsCountHistogram();
-  auto* oom_count_histogram = GetOOMKillsCountHistogram();
   // Before StartMonitoring() is called, nothing is recorded.
   ASSERT_FALSE(lmk_count_histogram);
-  ASSERT_FALSE(oom_count_histogram);
 
   // Start monitoring.
   g_memory_kills_monitor_unittest_instance->StartMonitoring();
   lmk_count_histogram = GetLowMemoryKillsCountHistogram();
-  oom_count_histogram = GetOOMKillsCountHistogram();
   ASSERT_TRUE(lmk_count_histogram);
-  ASSERT_TRUE(oom_count_histogram);
   {
     auto count_samples = lmk_count_histogram->SnapshotSamples();
-    EXPECT_EQ(1, count_samples->TotalCount());
-    EXPECT_EQ(1, count_samples->GetCount(0));
-  }
-  {
-    auto count_samples = oom_count_histogram->SnapshotSamples();
     EXPECT_EQ(1, count_samples->TotalCount());
     EXPECT_EQ(1, count_samples->GetCount(0));
   }
@@ -94,47 +81,10 @@ TEST_F(MemoryKillsMonitorTest, TestHistograms) {
     EXPECT_EQ(1, freed_size_samples->GetCount(10000));
   }
 
-  {
-    auto* histogram_time_delta = base::StatisticsRecorder::FindHistogram(
-        "Memory.LowMemoryKiller.TimeDelta");
-    ASSERT_TRUE(histogram_time_delta);
-    auto time_delta_samples = histogram_time_delta->SnapshotSamples();
-    EXPECT_EQ(3, time_delta_samples->TotalCount());
-    // First time delta is set to kMaxMemoryKillTimeDelta.
-    EXPECT_EQ(1, time_delta_samples->GetCount(
-                     kMaxMemoryKillTimeDelta.InMilliseconds()));
-    // Time delta for the other 2 events depends on Now() so we skip testing it
-    // here.
-  }
-
-  // OOM kills.
-  // Simulate getting 3 more oom kills.
-  g_memory_kills_monitor_unittest_instance->CheckOOMKillImpl(
-      g_memory_kills_monitor_unittest_instance->last_oom_kills_count_ + 3);
-
-  oom_count_histogram = GetOOMKillsCountHistogram();
-  ASSERT_TRUE(oom_count_histogram);
-  {
-    auto count_samples = oom_count_histogram->SnapshotSamples();
-    EXPECT_EQ(4, count_samples->TotalCount());
-    // The zero count is implicitly added when StartMonitoring() is called.
-    EXPECT_EQ(1, count_samples->GetCount(0));
-    EXPECT_EQ(1, count_samples->GetCount(1));
-    EXPECT_EQ(1, count_samples->GetCount(2));
-    EXPECT_EQ(1, count_samples->GetCount(3));
-  }
-
   lmk_count_histogram = GetLowMemoryKillsCountHistogram();
   ASSERT_TRUE(lmk_count_histogram);
   {
     auto count_samples = lmk_count_histogram->SnapshotSamples();
-    // Ensure zero count is not increased.
-    EXPECT_EQ(1, count_samples->GetCount(0));
-  }
-  oom_count_histogram = GetOOMKillsCountHistogram();
-  ASSERT_TRUE(oom_count_histogram);
-  {
-    auto count_samples = oom_count_histogram->SnapshotSamples();
     // Ensure zero count is not increased.
     EXPECT_EQ(1, count_samples->GetCount(0));
   }

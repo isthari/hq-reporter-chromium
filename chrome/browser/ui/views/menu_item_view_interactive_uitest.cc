@@ -1,11 +1,12 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "chrome/browser/ui/views/menu_test_base.h"
-#include "ui/native_theme/themed_vector_icon.h"
+#include "ui/base/themed_vector_icon.h"
 #include "ui/views/controls/menu/menu_item_view.h"
 #include "ui/views/controls/menu/submenu_view.h"
 
@@ -58,8 +59,6 @@ using MenuItemViewTestBasic2 = MenuItemViewTestBasic<2>;
 // If this flakes, disable and log details in http://crbug.com/523255.
 VIEW_TEST(MenuItemViewTestBasic0, SelectItem0)
 VIEW_TEST(MenuItemViewTestBasic1, SelectItem1)
-
-// If this flakes, disable and log details in http://crbug.com/523255.
 VIEW_TEST(MenuItemViewTestBasic2, SelectItem2)
 
 // Test class for inserting a menu item while the menu is open.
@@ -219,7 +218,7 @@ VIEW_TEST(MenuItemViewTestInsertWithSubmenu0, InsertItemWithSubmenu0)
 
 // If this flakes, disable and log details in http://crbug.com/523255.
 // Failing on Linux Ozone Tester (Wayland) (See crbug.com/1236048).
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #define MAYBE_InsertItemWithSubmenu1 DISABLED_InsertItemWithSubmenu1
 #else
 #define MAYBE_InsertItemWithSubmenu1 InsertItemWithSubmenu1
@@ -364,4 +363,10 @@ using MenuItemViewTestRemoveWithSubmenu1 = MenuItemViewTestRemoveWithSubmenu<1>;
 VIEW_TEST(MenuItemViewTestRemoveWithSubmenu0, RemoveItemWithSubmenu0)
 
 // If this flakes, disable and log details in http://crbug.com/523255.
-VIEW_TEST(MenuItemViewTestRemoveWithSubmenu1, RemoveItemWithSubmenu1)
+// TODO(https://crbug.com/1379761): Flaky on Wayland.
+#if BUILDFLAG(IS_OZONE)
+#define MAYBE_RemoveItemWithSubmenu1 DISABLED_RemoveItemWithSubmenu1
+#else
+#define MAYBE_RemoveItemWithSubmenu1 RemoveItemWithSubmenu1
+#endif
+VIEW_TEST(MenuItemViewTestRemoveWithSubmenu1, MAYBE_RemoveItemWithSubmenu1)

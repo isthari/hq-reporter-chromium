@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,19 +7,14 @@
 #include <memory>
 #include <string>
 
-#include "ash/app_list/app_list_util.h"
 #include "ash/app_list/app_list_view_delegate.h"
 #include "ash/app_list/model/app_list_item.h"
-#include "ash/app_list/model/app_list_model.h"
 #include "ash/app_list/views/app_list_item_view.h"
-#include "ash/controls/scroll_view_gradient_helper.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/notreached.h"
 #include "base/time/time.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
-#include "ui/views/animation/bounds_animator.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/view_model_utils.h"
@@ -53,15 +48,14 @@ ScrollableAppsGridView::ScrollableAppsGridView(
     AppsGridViewFolderDelegate* folder_delegate,
     views::ScrollView* parent_scroll_view,
     AppListFolderController* folder_controller,
-    AppsGridViewFocusDelegate* focus_delegate)
+    AppListKeyboardController* keyboard_controller)
     : AppsGridView(a11y_announcer,
                    view_delegate,
                    folder_delegate,
                    folder_controller,
-                   focus_delegate),
+                   keyboard_controller),
       scroll_view_(parent_scroll_view) {
   DCHECK(scroll_view_);
-  view_structure_.Init(PagedViewStructure::Mode::kSinglePage);
 }
 
 ScrollableAppsGridView::~ScrollableAppsGridView() {
@@ -76,9 +70,6 @@ void ScrollableAppsGridView::Layout() {
   if (ignore_layout())
     return;
 
-  if (bounds_animator()->IsAnimating())
-    bounds_animator()->Cancel();
-
   if (GetContentsBounds().IsEmpty())
     return;
 
@@ -86,7 +77,7 @@ void ScrollableAppsGridView::Layout() {
   items_container()->SetBoundsRect(GetContentsBounds());
 
   CalculateIdealBounds();
-  for (int i = 0; i < view_model()->view_size(); ++i) {
+  for (size_t i = 0; i < view_model()->view_size(); ++i) {
     AppListItemView* view = GetItemViewAt(i);
     view->SetBoundsRect(view_model()->ideal_bounds(i));
   }
@@ -100,7 +91,7 @@ gfx::Size ScrollableAppsGridView::GetTileViewSize() const {
 
 gfx::Insets ScrollableAppsGridView::GetTilePadding(int page) const {
   if (has_fixed_tile_padding_)
-    return gfx::Insets(-vertical_tile_padding_, -horizontal_tile_padding_);
+    return gfx::Insets::VH(-vertical_tile_padding_, -horizontal_tile_padding_);
 
   int content_width = GetContentsBounds().width();
   int tile_width = app_list_config()->grid_tile_width();
@@ -114,27 +105,26 @@ gfx::Insets ScrollableAppsGridView::GetTilePadding(int page) const {
   // is double the tile padding size.
   const int horizontal_tile_padding =
       width_to_distribute / (spaces_between_items * 2);
-  return gfx::Insets(-kVerticalTilePadding, -horizontal_tile_padding);
+  return gfx::Insets::VH(-kVerticalTilePadding, -horizontal_tile_padding);
 }
 
 gfx::Size ScrollableAppsGridView::GetTileGridSize() const {
   // AppListItemList may contain page break items, so use the view_model().
-  int items = view_model()->view_size();
+  size_t items = view_model()->view_size() + pulsing_blocks_model().view_size();
   // Tests sometimes start with 0 items. Ensure space for at least 1 item.
   if (items == 0) {
     items = 1;
   }
+
+  if (HasExtraSlotForReorderPlaceholder())
+    ++items;
+
   const bool is_last_row_full = (items % cols() == 0);
   const int rows = is_last_row_full ? items / cols() : items / cols() + 1;
   gfx::Size tile_size = GetTotalTileSize(/*page=*/0);
   gfx::Rect grid(tile_size.width() * cols(), tile_size.height() * rows);
   grid.Inset(-GetTilePadding(/*page=*/0));
   return grid.size();
-}
-
-int ScrollableAppsGridView::GetPaddingBetweenPages() const {
-  // The scrollable apps grid does not use pages.
-  return 0;
 }
 
 int ScrollableAppsGridView::GetTotalPages() const {
@@ -145,8 +135,19 @@ int ScrollableAppsGridView::GetSelectedPage() const {
   return 0;
 }
 
-bool ScrollableAppsGridView::IsScrollAxisVertical() const {
-  return true;
+bool ScrollableAppsGridView::IsPageFull(size_t page_index) const {
+  return false;
+}
+
+GridIndex ScrollableAppsGridView::GetGridIndexFromIndexInViewModel(
+    int index) const {
+  return GridIndex(0, index);
+}
+
+int ScrollableAppsGridView::GetNumberOfPulsingBlocksToShow(
+    int item_count) const {
+  const int residue = item_count % cols();
+  return cols() + (residue ? cols() - residue : 0);
 }
 
 bool ScrollableAppsGridView::MaybeAutoScroll() {
@@ -266,7 +267,7 @@ void ScrollableAppsGridView::HandleScrollFromParentView(
   scroll_view_->vertical_scroll_bar()->OnScroll(/*dx=*/0, offset.y());
 }
 
-void ScrollableAppsGridView::SetFocusAfterEndDrag() {
+void ScrollableAppsGridView::SetFocusAfterEndDrag(AppListItem* drag_item) {
   auto* focus_manager = GetFocusManager();
   if (!focus_manager)  // Does not exist during widget close.
     return;
@@ -289,10 +290,8 @@ void ScrollableAppsGridView::RecordAppMovingTypeMetrics(
                             kMaxAppListAppMovingType);
 }
 
-int ScrollableAppsGridView::GetMaxRowsInPage(int page) const {
-  // Return an arbitrary large number, chosen to be small enough
-  // that cols*rows_per_page will not overflow.
-  return 100000;
+absl::optional<int> ScrollableAppsGridView::GetMaxRowsInPage(int page) const {
+  return absl::nullopt;
 }
 
 gfx::Vector2d ScrollableAppsGridView::GetGridCenteringOffset(int page) const {
@@ -300,7 +299,7 @@ gfx::Vector2d ScrollableAppsGridView::GetGridCenteringOffset(int page) const {
 }
 
 void ScrollableAppsGridView::EnsureViewVisible(const GridIndex& index) {
-  // If called after usesr action that changes the grid size, make sure grid
+  // If called after user action that changes the grid size, make sure grid
   // view ancestor layout is up to date before attempting scroll.
   GetWidget()->LayoutRootViewIfNecessary();
 
@@ -318,7 +317,7 @@ ScrollableAppsGridView::GetVisibleItemIndexRange() const {
   absl::optional<int> first_invisible_row;
 
   const gfx::Rect scroll_view_visible_rect = scroll_view_->GetVisibleRect();
-  for (int view_index = 0; view_index < view_model()->view_size();
+  for (size_t view_index = 0; view_index < view_model()->view_size();
        view_index += cols()) {
     // Calculate an item view's bounds in the scroll content's coordinates.
     gfx::Point item_view_local_origin;

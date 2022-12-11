@@ -1,9 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/unified/quiet_mode_feature_pod_controller.h"
 
+#include "ash/constants/quick_settings_catalogs.h"
 #include "ash/public/cpp/notifier_metadata.h"
 #include "ash/public/cpp/notifier_settings_controller.h"
 #include "ash/resources/vector_icons/vector_icons.h"
@@ -12,6 +13,7 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/machine_learning/user_settings_event_logger.h"
 #include "ash/system/unified/feature_pod_button.h"
+#include "ash/system/unified/quick_settings_metrics_util.h"
 #include "ash/system/unified/unified_system_tray_controller.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
@@ -47,9 +49,13 @@ FeaturePodButton* QuietModeFeaturePodController::CreateButton() {
   DCHECK(!button_);
   button_ = new FeaturePodButton(this);
   button_->SetVectorIcon(kUnifiedMenuDoNotDisturbIcon);
-  button_->SetVisible(
+  const bool visible =
       Shell::Get()->session_controller()->ShouldShowNotificationTray() &&
-      !Shell::Get()->session_controller()->IsScreenLocked());
+      !Shell::Get()->session_controller()->IsScreenLocked();
+  button_->SetVisible(visible);
+  if (visible)
+    TrackVisibilityUMA();
+
   button_->SetLabel(
       l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_NOTIFICATIONS_LABEL));
   button_->SetIconTooltip(l10n_util::GetStringFUTF16(
@@ -61,9 +67,14 @@ FeaturePodButton* QuietModeFeaturePodController::CreateButton() {
   return button_;
 }
 
+QsFeatureCatalogName QuietModeFeaturePodController::GetCatalogName() {
+  return QsFeatureCatalogName::kQuietMode;
+}
+
 void QuietModeFeaturePodController::OnIconPressed() {
   MessageCenter* message_center = MessageCenter::Get();
   bool is_quiet_mode = message_center->IsQuietMode();
+  TrackToggleUMA(/*target_toggle_state=*/!is_quiet_mode);
   LogUserQuietModeEvent(!is_quiet_mode);
   message_center->SetQuietMode(!is_quiet_mode);
 
@@ -76,11 +87,8 @@ void QuietModeFeaturePodController::OnIconPressed() {
 }
 
 void QuietModeFeaturePodController::OnLabelPressed() {
+  TrackDiveInUMA();
   tray_controller_->ShowNotifierSettingsView();
-}
-
-SystemTrayItemUmaType QuietModeFeaturePodController::GetUmaType() const {
-  return SystemTrayItemUmaType::UMA_QUIET_MODE;
 }
 
 void QuietModeFeaturePodController::OnQuietModeChanged(bool in_quiet_mode) {

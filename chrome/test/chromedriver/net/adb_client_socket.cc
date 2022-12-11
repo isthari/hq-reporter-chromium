@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -391,7 +391,7 @@ class AdbSendFileSocket : AdbClientSocket {
   }
 
   void SendDone() {
-    int data = time(NULL);
+    int data = time(nullptr);
     SendPayload(kDoneCommand, data, nullptr, 0,
                 base::BindOnce(&AdbSendFileSocket::ReadFinalResponse,
                                base::Unretained(this)));
@@ -407,15 +407,15 @@ class AdbSendFileSocket : AdbClientSocket {
   void SendPayload(const char* command,
                    int data,
                    const char* payload,
-                   size_t payloadLength,
+                   size_t payload_length,
                    net::CompletionOnceCallback callback) {
     std::string buffer(command);
     for (int i = 0; i < 4; i++) {
       buffer.append(1, static_cast<char>(data & 0xff));
       data >>= 8;
     }
-    if (payloadLength > 0)
-      buffer.append(payload, payloadLength);
+    if (payload_length > 0)
+      buffer.append(payload, payload_length);
 
     scoped_refptr<net::StringIOBuffer> request_buffer =
         base::MakeRefCounted<net::StringIOBuffer>(buffer);
@@ -431,7 +431,7 @@ class AdbSendFileSocket : AdbClientSocket {
   bool CheckNetResultOrDie(int result) {
     if (result >= 0)
       return true;
-    callback_.Run(result, NULL);
+    callback_.Run(result, std::string());
     delete this;
     return false;
   }

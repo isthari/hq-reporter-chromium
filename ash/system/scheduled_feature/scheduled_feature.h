@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "ash/ash_export.h"
+#include "ash/public/cpp/schedule_enums.h"
 #include "ash/public/cpp/session/session_observer.h"
 #include "ash/system/geolocation/geolocation_controller.h"
 #include "ash/system/time/time_of_day.h"
@@ -24,30 +25,19 @@ class PrefService;
 
 namespace ash {
 
+// ScheduledFeature represents a feature that can be automatically scheduled to
+// be on and off at a specific time. By default, it supports no scheduler and
+// auto scheduler (enable during sunset to sunrise). Optionally it may support
+// a custom scheduler with a custom start and end time.
 class ASH_EXPORT ScheduledFeature
     : public GeolocationController::Observer,
       public aura::EnvObserver,
       public SessionObserver,
       public chromeos::PowerManagerClient::Observer {
  public:
-  // These values are written to logs. New enum values can be added, but
-  // existing enums must never be renumbered or deleted and reused.
-  enum ScheduleType {
-    // Automatic toggling of ScheduledFeature is turned off.
-    kNone = 0,
-
-    // Turned automatically on at the user's local sunset time, and off at the
-    // user's local sunrise time.
-    kSunsetToSunrise = 1,
-
-    // Toggled automatically based on the custom set start and end times
-    // selected by the user from the system settings.
-    kCustom = 2,
-
-    // kMaxValue is required for UMA_HISTOGRAM_ENUMERATION.
-    kMaxValue = kCustom,
-  };
-
+  // `prefs_path_custom_start_time` and `prefs_path_custom_end_time` can be
+  // empty strings. Supplying only one of the custom time prefs is invalid,
+  // while supplying both of them enables the custom scheduling support.
   ScheduledFeature(const std::string prefs_path_enabled,
                    const std::string prefs_path_schedule_type,
                    const std::string prefs_path_custom_start_time,
@@ -57,6 +47,9 @@ class ASH_EXPORT ScheduledFeature
   ScheduledFeature& operator=(const ScheduledFeature&) = delete;
   ~ScheduledFeature() override;
 
+  PrefService* active_user_pref_service() const {
+    return active_user_pref_service_;
+  }
   base::OneShotTimer* timer() { return &timer_; }
 
   bool GetEnabled() const;
@@ -109,8 +102,11 @@ class ASH_EXPORT ScheduledFeature
   // changed.
   void OnEnabledPrefChanged();
 
-  // Called when the user pref for the schedule type is changed.
-  void OnScheduleTypePrefChanged();
+  // Called when the user pref for the schedule type is changed or initialized.
+  // During initialization, `keep_manual_toggles_during_schedules` is set to
+  // true, so the load user pref override any user current toggled setting. For
+  // more detail about `keep_manual_toggles_during_schedules`, see `Refresh()`.
+  void OnScheduleTypePrefChanged(bool keep_manual_toggles_during_schedules);
 
   // Called when either of the custom schedule prefs (custom start or end times)
   // are changed.

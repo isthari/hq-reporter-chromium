@@ -1,7 +1,5 @@
 package(
-    default_visibility = [
-        "//tensorflow_lite_support:internal",
-    ],
+    default_applicable_licenses = ["//tensorflow_lite_support:license"],
     licenses = ["notice"],  # Apache 2.0
 )
 
@@ -49,6 +47,19 @@ py_binary(
     srcs = ["image_segmenter_demo.py"],
     data = ["//tensorflow_lite_support/examples/task/vision/desktop:image_segmenter_demo"],
     deps = [
+        "@absl_py//absl:app",
+        "@absl_py//absl/flags",
+    ],
+)
+
+py_binary(
+    name = "image_embedder_demo",
+    srcs = ["image_embedder_demo.py"],
+    deps = [
+        "//tensorflow_lite_support/python/task/core/proto:base_options_py_pb2",
+        "//tensorflow_lite_support/python/task/processor/proto:embedding_options_pb2",
+        "//tensorflow_lite_support/python/task/vision:image_embedder",
+        "//tensorflow_lite_support/python/task/vision/core:tensor_image",
         "@absl_py//absl:app",
         "@absl_py//absl/flags",
     ],

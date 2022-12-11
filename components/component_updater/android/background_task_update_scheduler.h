@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,9 +18,6 @@ namespace component_updater {
 // BackgroundTaskScheduler.
 class BackgroundTaskUpdateScheduler : public UpdateScheduler {
  public:
-  // Returns true if this scheduler can be used.
-  static bool IsAvailable();
-
   BackgroundTaskUpdateScheduler();
 
   BackgroundTaskUpdateScheduler(const BackgroundTaskUpdateScheduler&) = delete;

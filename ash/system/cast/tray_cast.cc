@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,13 @@
 #include <utility>
 #include <vector>
 
-#include "ash/metrics/user_metrics_recorder.h"
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/ash_view_ids.h"
 #include "ash/public/cpp/system_tray_client.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/rounded_container.h"
 #include "ash/system/model/system_tray_model.h"
 #include "ash/system/tray/hover_highlight_view.h"
 #include "ash/system/tray/tray_constants.h"
@@ -22,7 +23,10 @@
 #include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/branding_buildflags.h"
+#include "components/access_code_cast/common/access_code_cast_metrics.h"
+#include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -60,8 +64,6 @@ const gfx::VectorIcon& SinkIconTypeToIcon(SinkIconType icon_type) {
 }
 
 }  // namespace
-
-namespace tray {
 
 CastDetailedView::CastDetailedView(DetailedViewDelegate* delegate)
     : TrayDetailedView(delegate) {
@@ -106,28 +108,33 @@ void CastDetailedView::OnDevicesUpdated(
   Layout();
 }
 
-const char* CastDetailedView::GetClassName() const {
-  return "CastDetailedView";
-}
-
 void CastDetailedView::UpdateReceiverListFromCachedData() {
   // Remove all of the existing views.
   view_to_sink_map_.clear();
   scroll_content()->RemoveAllChildViews();
 
+  // QsRevamp places items in a rounded container.
+  views::View* item_container =
+      features::IsQsRevampEnabled()
+          ? scroll_content()->AddChildView(std::make_unique<RoundedContainer>())
+          : scroll_content();
+
+  // Per product requirement, access code receiver should be shown before other
+  // receivers.
+  if (CastConfigController::Get()->AccessCodeCastingEnabled()) {
+    add_access_code_device_ = AddScrollListItem(
+        item_container, vector_icons::kKeyboardIcon,
+        l10n_util::GetStringUTF16(
+            IDS_ASH_STATUS_TRAY_CAST_ACCESS_CODE_CAST_CONNECT));
+  }
+
   // Add a view for each receiver.
   for (auto& it : sinks_and_routes_) {
     const CastSink& sink = it.second.sink;
     views::View* container = AddScrollListItem(
-        SinkIconTypeToIcon(sink.sink_icon_type), base::UTF8ToUTF16(sink.name));
+        item_container, SinkIconTypeToIcon(sink.sink_icon_type),
+        base::UTF8ToUTF16(sink.name));
     view_to_sink_map_[container] = sink.id;
-  }
-
-  if (CastConfigController::Get()->AccessCodeCastingEnabled()) {
-    add_access_code_device_ = AddScrollListItem(
-        kSystemMenuQrCodeIcon,
-        l10n_util::GetStringUTF16(
-          IDS_ASH_STATUS_TRAY_CAST_ACCESS_CODE_CAST_CONNECT));
   }
 
   scroll_content()->SizeToPreferredSize();
@@ -139,14 +146,20 @@ void CastDetailedView::HandleViewClicked(views::View* view) {
   auto it = view_to_sink_map_.find(view);
   if (it != view_to_sink_map_.end()) {
     CastConfigController::Get()->CastToSink(it->second);
-    Shell::Get()->metrics()->RecordUserMetricsAction(
-        UMA_STATUS_AREA_DETAILED_CAST_VIEW_LAUNCH_CAST);
+    base::RecordAction(
+        base::UserMetricsAction("StatusArea_Cast_Detailed_Launch_Cast"));
   } else if (view == add_access_code_device_) {
     base::RecordAction(base::UserMetricsAction(
         "StatusArea_Cast_Detailed_Launch_AccesCastDialog"));
-    Shell::Get()->system_tray_model()->client()->ShowAccessCodeCastingDialog();
+    Shell::Get()->system_tray_model()->client()->ShowAccessCodeCastingDialog(
+        AccessCodeCastDialogOpenLocation::kSystemTrayCastMenu);
   }
+  // Close the system tray to emphasize the pinned Cast notification.
+  if (features::IsQsRevampEnabled())
+    CloseBubble();  // Deletes `this`.
 }
 
-}  // namespace tray
+BEGIN_METADATA(CastDetailedView, TrayDetailedView)
+END_METADATA
+
 }  // namespace ash

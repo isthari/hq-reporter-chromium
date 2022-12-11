@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -3983,6 +3983,12 @@ MockGLInterface::Mock_glProgramUniformMatrix4x3fv(GLuint program,
 }
 
 void GL_BINDING_CALL
+MockGLInterface::Mock_glProvokingVertexANGLE(GLenum provokeMode) {
+  MakeGlMockFunctionUnique("glProvokingVertexANGLE");
+  interface_->ProvokingVertexANGLE(provokeMode);
+}
+
+void GL_BINDING_CALL
 MockGLInterface::Mock_glPushDebugGroup(GLenum source,
                                        GLuint id,
                                        GLsizei length,
@@ -6552,6 +6558,8 @@ MockGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "glProgramUniformMatrix4x3fv") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glProgramUniformMatrix4x3fv);
+  if (strcmp(name, "glProvokingVertexANGLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glProvokingVertexANGLE);
   if (strcmp(name, "glPushDebugGroup") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glPushDebugGroup);
   if (strcmp(name, "glPushDebugGroupKHR") == 0)

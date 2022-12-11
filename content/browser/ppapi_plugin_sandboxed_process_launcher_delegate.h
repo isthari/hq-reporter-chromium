@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
 #include "content/public/common/zygote/zygote_buildflags.h"
-#include "ppapi/shared_impl/ppapi_permissions.h"
 
 #if BUILDFLAG(USE_ZYGOTE_HANDLE)
 #include "content/public/common/zygote/zygote_handle.h"  // nogncheck
@@ -20,8 +19,7 @@ namespace content {
 class CONTENT_EXPORT PpapiPluginSandboxedProcessLauncherDelegate
     : public content::SandboxedProcessLauncherDelegate {
  public:
-  explicit PpapiPluginSandboxedProcessLauncherDelegate(
-      const ppapi::PpapiPermissions& permissions);
+  PpapiPluginSandboxedProcessLauncherDelegate() = default;
 
   PpapiPluginSandboxedProcessLauncherDelegate(
       const PpapiPluginSandboxedProcessLauncherDelegate&) = delete;
@@ -31,6 +29,7 @@ class CONTENT_EXPORT PpapiPluginSandboxedProcessLauncherDelegate
   ~PpapiPluginSandboxedProcessLauncherDelegate() override = default;
 
 #if BUILDFLAG(IS_WIN)
+  std::string GetSandboxTag() override;
   bool PreSpawnTarget(sandbox::TargetPolicy* policy) override;
 #endif  // BUILDFLAG(IS_WIN)
 
@@ -43,11 +42,6 @@ class CONTENT_EXPORT PpapiPluginSandboxedProcessLauncherDelegate
 #if BUILDFLAG(IS_MAC)
   bool DisclaimResponsibility() override;
   bool EnableCpuSecurityMitigations() override;
-#endif
-
- private:
-#if BUILDFLAG(IS_WIN)
-  const ppapi::PpapiPermissions permissions_;
 #endif
 };
 }  // namespace content

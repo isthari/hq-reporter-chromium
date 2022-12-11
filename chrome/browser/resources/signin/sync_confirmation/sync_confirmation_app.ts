@@ -1,29 +1,34 @@
-/* Copyright 2017 The Chromium Authors. All rights reserved.
+/* Copyright 2017 The Chromium Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file. */
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
+import 'chrome://resources/polymer/v3_0/paper-spinner/paper-spinner-lite.js';
 import 'chrome://resources/polymer/v3_0/paper-styles/color.js';
-import 'chrome://resources/cr_elements/icons.m.js';
+import 'chrome://resources/cr_elements/icons.html.js';
+import './icons.html.js';
 import './strings.m.js';
-import './signin_shared_css.js';
-import './signin_vars_css.js';
+import './signin_shared.css.js';
+import './signin_vars.css.js';
 
-import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {WebUIListenerMixin} from 'chrome://resources/js/web_ui_listener_mixin.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {assert, assertNotReached} from 'chrome://resources/js/assert_ts.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {SyncConfirmationBrowserProxy, SyncConfirmationBrowserProxyImpl} from './sync_confirmation_browser_proxy.js';
+import {getTemplate} from './sync_confirmation_app.html.js';
+import {SyncBenefit, SyncConfirmationBrowserProxy, SyncConfirmationBrowserProxyImpl} from './sync_confirmation_browser_proxy.js';
 
 
-type AccountInfo = {
-  src: string,
-  showEnterpriseBadge: boolean,
-};
+interface AccountInfo {
+  src: string;
+  showEnterpriseBadge: boolean;
+}
 
-const SyncConfirmationAppElementBase = WebUIListenerMixin(PolymerElement);
+const SyncConfirmationAppElementBase =
+    WebUiListenerMixin(I18nMixin(PolymerElement));
 
 export class SyncConfirmationAppElement extends SyncConfirmationAppElementBase {
   static get is() {
@@ -31,7 +36,7 @@ export class SyncConfirmationAppElement extends SyncConfirmationAppElementBase {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -43,31 +48,30 @@ export class SyncConfirmationAppElement extends SyncConfirmationAppElementBase {
         },
       },
 
-      isNewDesignModalDialog_: {
+      anyButtonClicked_: {
         type: Boolean,
-        reflectToAttribute: true,
-        value() {
-          return loadTimeData.getBoolean('isModalDialog') &&
-              loadTimeData.getBoolean('isNewDesign');
-        }
+        value: false,
       },
 
-      isNewDesign_: {
+      isModalDialog_: {
         type: Boolean,
         value() {
-          return loadTimeData.getBoolean('isNewDesign');
-        }
+          return loadTimeData.getBoolean('isModalDialog');
+        },
       },
 
-      highlightColor_: {
-        type: String,
+      isSigninInterceptFre_: {
+        type: Boolean,
         value() {
-          if (!loadTimeData.valueExists('highlightColor')) {
-            return '';
-          }
+          return loadTimeData.getBoolean('isSigninInterceptFre');
+        },
+      },
 
-          return loadTimeData.getString('highlightColor');
-        }
+      isTangibleSync_: {
+        type: Boolean,
+        value() {
+          return loadTimeData.getBoolean('isTangibleSync');
+        },
       },
 
       showEnterpriseBadge_: {
@@ -75,57 +79,53 @@ export class SyncConfirmationAppElement extends SyncConfirmationAppElementBase {
         value: false,
       },
 
-      syncForced_: {
-        type: Boolean,
-        value() {
-          return loadTimeData.getBoolean('syncForced');
-        }
-      },
-
-      syncOptionalClass_: {
-        type: String,
-        value() {
-          if (loadTimeData.getBoolean('syncForced')) {
-            return '';
-          }
-          return 'sync-optional';
-        },
+      /**
+       * Sync benefits list supplied by SyncConfirmationBrowserProxy.
+       */
+      syncBenefitsList_: {
+        type: Array,
+        value: () => [],
       },
     };
   }
 
   private accountImageSrc_: string;
-  private isNewDesignModalDialog_: boolean;
-  private isNewDesign_: boolean;
-  private highlightColor_: string;
+  private anyButtonClicked_: boolean;
+  private isModalDialog_: boolean;
+  private isSigninInterceptFre_: boolean;
+  private isTangibleSync_: boolean;
   private showEnterpriseBadge_: boolean;
-  private syncForced_: boolean;
-  private syncOptionalClass_: string;
+  private syncBenefitsList_: SyncBenefit[];
   private syncConfirmationBrowserProxy_: SyncConfirmationBrowserProxy =
       SyncConfirmationBrowserProxyImpl.getInstance();
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
-    this.addWebUIListener(
+    this.addWebUiListener(
         'account-info-changed', this.handleAccountInfoChanged_.bind(this));
     this.syncConfirmationBrowserProxy_.requestAccountInfo();
+    this.syncConfirmationBrowserProxy_.getSyncBenefitsList().then(
+        list => this.syncBenefitsList_ = list);
   }
 
   private onConfirm_(e: Event) {
+    this.anyButtonClicked_ = true;
     this.syncConfirmationBrowserProxy_.confirm(
         this.getConsentDescription_(),
-        this.getConsentConfirmation_(e.composedPath() as Array<HTMLElement>));
+        this.getConsentConfirmation_(e.composedPath() as HTMLElement[]));
   }
 
   private onUndo_() {
+    this.anyButtonClicked_ = true;
     this.syncConfirmationBrowserProxy_.undo();
   }
 
   private onGoToSettings_(e: Event) {
+    this.anyButtonClicked_ = true;
     this.syncConfirmationBrowserProxy_.goToSettings(
         this.getConsentDescription_(),
-        this.getConsentConfirmation_(e.composedPath() as Array<HTMLElement>));
+        this.getConsentConfirmation_(e.composedPath() as HTMLElement[]));
   }
 
   /**
@@ -133,7 +133,7 @@ export class SyncConfirmationAppElement extends SyncConfirmationAppElementBase {
    *     element.
    * @return The text of the consent confirmation element.
    */
-  private getConsentConfirmation_(path: Array<HTMLElement>): string {
+  private getConsentConfirmation_(path: HTMLElement[]): string {
     for (const element of path) {
       if (element.nodeType !== Node.DOCUMENT_FRAGMENT_NODE &&
           element.hasAttribute('consent-confirmation')) {
@@ -141,7 +141,6 @@ export class SyncConfirmationAppElement extends SyncConfirmationAppElementBase {
       }
     }
     assertNotReached('No consent confirmation element found.');
-    return '';
   }
 
   /** @return Text of the consent description elements. */
@@ -161,6 +160,19 @@ export class SyncConfirmationAppElement extends SyncConfirmationAppElementBase {
   private handleAccountInfoChanged_(accountInfo: AccountInfo) {
     this.accountImageSrc_ = accountInfo.src;
     this.showEnterpriseBadge_ = accountInfo.showEnterpriseBadge;
+  }
+
+  private getSigninInterceptDesignClass_(isSigninInterceptFre: boolean):
+      string {
+    return isSigninInterceptFre ? 'signin-intercept-design' : '';
+  }
+
+  private isModalDialogWithoutTangibleSync_(): boolean {
+    return this.isModalDialog_ && !this.isTangibleSync_;
+  }
+
+  private isWindowVersionWithoutTangibleSync_(): boolean {
+    return !this.isModalDialog_ && !this.isTangibleSync_;
   }
 }
 

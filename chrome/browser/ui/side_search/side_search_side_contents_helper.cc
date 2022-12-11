@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,20 +12,10 @@
 #include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/web_contents.h"
-#include "net/base/url_util.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "url/gurl.h"
 
 namespace {
-
-constexpr char kSideSearchQueryParam[] = "sidesearch";
-constexpr char kSideSearchVersion[] = "1";
-
-#if !BUILDFLAG(IS_CHROMEOS)
-constexpr char kChromeOSUserAgent[] =
-    "Mozilla/5.0 (X11; CrOS x86_64 14233.0.0) AppleWebKit/537.36 (KHTML, like "
-    "Gecko) Chrome/96.0.4650.0 Safari/537.36";
-#endif  // !BUILDFLAG(IS_CHROMEOS)
 
 class SideSearchContentsThrottle : public content::NavigationThrottle {
  public:
@@ -71,6 +61,20 @@ class SideSearchContentsThrottle : public content::NavigationThrottle {
 
 }  // namespace
 
+void SideSearchSideContentsHelper::DidOpenRequestedURL(
+    content::WebContents* new_contents,
+    content::RenderFrameHost* source_render_frame_host,
+    const GURL& url,
+    const content::Referrer& referrer,
+    WindowOpenDisposition disposition,
+    ui::PageTransition transition,
+    bool started_from_context_menu,
+    bool renderer_initiated) {
+  DCHECK(delegate_);
+  delegate_->CarryOverSideSearchStateToNewTab(web_contents()->GetVisibleURL(),
+                                              new_contents);
+}
+
 bool SideSearchSideContentsHelper::Delegate::HandleKeyboardEvent(
     content::WebContents* source,
     const content::NativeWebKeyboardEvent& event) {
@@ -100,17 +104,8 @@ SideSearchSideContentsHelper::MaybeCreateThrottleFor(
   return std::make_unique<SideSearchContentsThrottle>(handle);
 }
 
-void SideSearchSideContentsHelper::DidFinishNavigation(
-    content::NavigationHandle* navigation_handle) {
-  // DidFinishNavigation triggers even if the navigation has been cancelled by
-  // the throttle. Early return if this is the case.
-  if (!navigation_handle->IsInPrimaryMainFrame() ||
-      navigation_handle->IsSameDocument() ||
-      !navigation_handle->HasCommitted()) {
-    return;
-  }
-
-  const auto& url = navigation_handle->GetURL();
+void SideSearchSideContentsHelper::PrimaryPageChanged(content::Page& page) {
+  const auto& url = page.GetMainDocument().GetLastCommittedURL();
   DCHECK(GetConfig()->ShouldNavigateInSidePanel(url));
   DCHECK(delegate_);
   delegate_->LastSearchURLUpdated(url);
@@ -162,8 +157,7 @@ void SideSearchSideContentsHelper::LoadURL(const GURL& url) {
   if (web_contents()->GetLastCommittedURL() == url)
     return;
 
-  GURL side_search_url =
-      net::AppendQueryParameter(url, kSideSearchQueryParam, kSideSearchVersion);
+  const GURL side_search_url = GetConfig()->GenerateSideSearchURL(url);
   content::NavigationController::LoadURLParams load_url_params(side_search_url);
 
   // Fake the user agent on non ChromeOS systems to allow for development and
@@ -176,9 +170,10 @@ void SideSearchSideContentsHelper::LoadURL(const GURL& url) {
 #endif  // !BUILDFLAG(IS_CHROMEOS)
 
   web_contents()->GetController().LoadURLWithParams(load_url_params);
+}
 
-  MaybeRecordMetricsPerJourney();
-  has_loaded_url_ = true;
+content::WebContents* SideSearchSideContentsHelper::GetTabWebContents() {
+  return delegate_->GetTabWebContents();
 }
 
 void SideSearchSideContentsHelper::SetDelegate(Delegate* delegate) {
@@ -194,26 +189,15 @@ SideSearchSideContentsHelper::SideSearchSideContentsHelper(
                         "SideSearch.LoadCompletedTime") {
   Observe(web_contents);
 
-#if !BUILDFLAG(IS_CHROMEOS)
-  web_contents->SetUserAgentOverride(
-      blink::UserAgentOverride::UserAgentOnly(kChromeOSUserAgent), true);
-  web_contents->SetRendererInitiatedUserAgentOverrideOption(
-      content::NavigationController::UA_OVERRIDE_TRUE);
-#endif  // !BUILDFLAG(IS_CHROMEOS)
-
   web_contents->SetDelegate(this);
 }
 
 void SideSearchSideContentsHelper::MaybeRecordMetricsPerJourney() {
-  // Do not record metrics if url has not loaded.
-  if (!has_loaded_url_)
-    return;
-
   RecordNavigationCommittedWithinSideSearchCountPerJourney(
-      navigation_within_side_search_count_);
-  RecordRedirectionToTabCountPerJourney(redirection_to_tab_count_);
-  navigation_within_side_search_count_ = 0;
-  redirection_to_tab_count_ = 0;
+      is_created_from_menu_option_, navigation_within_side_search_count_,
+      auto_triggered_);
+  RecordRedirectionToTabCountPerJourney(
+      is_created_from_menu_option_, redirection_to_tab_count_, auto_triggered_);
 }
 
 SideSearchConfig* SideSearchSideContentsHelper::GetConfig() {

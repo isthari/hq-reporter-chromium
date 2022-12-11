@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,12 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/debug/leak_annotations.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/numerics/safe_math.h"
 #include "components/nacl/browser/nacl_browser.h"
 #include "components/nacl/browser/pnacl_translation_cache.h"
@@ -30,11 +32,10 @@ static const base::FilePath::CharType kTranslationCacheDirectoryName[] =
 static const int kTranslationCacheInitializationDelayMs = 20;
 
 void CloseBaseFile(base::File file) {
-  base::ThreadPool::PostTask(
-      FROM_HERE,
-      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::BindOnce([](base::File) {}, std::move(file)));
+  base::ThreadPool::PostTask(FROM_HERE,
+                             {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+                              base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+                             base::DoNothingWithBoundArgs(std::move(file)));
 }
 
 }  // namespace
@@ -49,7 +50,7 @@ class FileProxy {
 
  private:
   std::unique_ptr<base::File> file_;
-  PnaclHost* host_;
+  raw_ptr<PnaclHost> host_;
 };
 
 FileProxy::FileProxy(std::unique_ptr<base::File> file, PnaclHost* host)

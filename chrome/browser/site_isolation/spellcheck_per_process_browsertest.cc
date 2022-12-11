@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -295,7 +295,7 @@ class ChromeSitePerProcessSpellCheckTest : public ChromeSitePerProcessTest {
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     content::RenderFrameHost* cross_site_subframe =
-        ChildFrameAt(web_contents->GetMainFrame(), 0);
+        ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
 
     MockSpellCheckHost* spell_check_host =
         spell_check_helper.GetSpellCheckHostForProcess(
@@ -330,7 +330,7 @@ class ChromeSitePerProcessSpellCheckTest : public ChromeSitePerProcessTest {
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     content::RenderFrameHost* cross_site_subframe =
-        ChildFrameAt(web_contents->GetMainFrame(), 0);
+        ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
 
     MockSpellCheckHost* spell_check_host =
         spell_check_helper.GetSpellCheckHostForProcess(
@@ -370,7 +370,7 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessSpellCheckTest,
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   content::RenderFrameHost* cross_site_subframe =
-      ChildFrameAt(web_contents->GetMainFrame(), 0);
+      ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
 
   EXPECT_TRUE(cross_site_subframe->IsCrossProcessSubframe());
 

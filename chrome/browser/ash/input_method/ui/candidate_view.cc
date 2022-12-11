@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
 #include "ui/gfx/color_utils.h"
-#include "ui/views/accessibility/accessibility_paint_checks.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
@@ -66,13 +65,12 @@ class ShortcutLabel : public views::Label {
     // candidate_label, like Chinese font for Chinese input method?
 
     // Setup paddings.
-    const gfx::Insets kVerticalShortcutLabelInsets(1, 6, 1, 6);
-    const gfx::Insets kHorizontalShortcutLabelInsets(1, 3, 1, 0);
+    const auto kVerticalShortcutLabelInsets = gfx::Insets::TLBR(1, 6, 1, 6);
+    const auto kHorizontalShortcutLabelInsets = gfx::Insets::TLBR(1, 3, 1, 0);
     const gfx::Insets insets = (orientation == ui::CandidateWindow::VERTICAL
                                     ? kVerticalShortcutLabelInsets
                                     : kHorizontalShortcutLabelInsets);
-    SetBorder(views::CreateEmptyBorder(insets.top(), insets.left(),
-                                       insets.bottom(), insets.right()));
+    SetBorder(views::CreateEmptyBorder(insets));
 
     SetElideBehavior(gfx::NO_ELIDE);
   }
@@ -151,7 +149,7 @@ std::unique_ptr<views::Label> CreateCandidateLabel(
 CandidateView::CandidateView(PressedCallback callback,
                              ui::CandidateWindow::Orientation orientation)
     : views::Button(std::move(callback)), orientation_(orientation) {
-  SetBorder(views::CreateEmptyBorder(1, 1, 1, 1));
+  SetBorder(views::CreateEmptyBorder(1));
 
   shortcut_label_ = AddChildView(std::make_unique<ShortcutLabel>(orientation));
   candidate_label_ = AddChildView(CreateCandidateLabel(orientation));
@@ -161,11 +159,6 @@ CandidateView::CandidateView(PressedCallback callback,
     infolist_icon_ = AddChildView(std::make_unique<views::View>());
 
   SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
-
-  // TODO(crbug.com/1218186): Remove this, this is in place temporarily to be
-  // able to submit accessibility checks, but this focusable View needs to
-  // add a name so that the screen reader knows what to announce.
-  SetProperty(views::kSkipAccessibilityPaintChecks, true);
 }
 
 void CandidateView::GetPreferredWidths(int* shortcut_width,
@@ -216,7 +209,7 @@ void CandidateView::SetHighlighted(bool highlighted) {
     }
   } else {
     SetBackground(nullptr);
-    SetBorder(views::CreateEmptyBorder(1, 1, 1, 1));
+    SetBorder(views::CreateEmptyBorder(1));
   }
   SchedulePaint();
 }

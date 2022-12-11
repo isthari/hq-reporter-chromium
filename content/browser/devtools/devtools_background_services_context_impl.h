@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
+#include "base/time/time.h"
 #include "content/browser/devtools/devtools_background_services.pb.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/common/content_export.h"
@@ -69,7 +70,7 @@ class CONTENT_EXPORT DevToolsBackgroundServicesContextImpl
   bool IsRecording(DevToolsBackgroundService service) override;
   void LogBackgroundServiceEvent(
       uint64_t service_worker_registration_id,
-      const url::Origin& origin,
+      blink::StorageKey storage_key,
       DevToolsBackgroundService service,
       const std::string& event_name,
       const std::string& instance_id,

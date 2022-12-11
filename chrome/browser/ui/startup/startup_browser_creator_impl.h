@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,14 @@
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/ui/startup/startup_tab.h"
 #include "chrome/browser/ui/startup/startup_types.h"
 #include "url/gurl.h"
 
 class Browser;
-class LaunchModeRecorder;
+class OldLaunchModeRecorder;
 class Profile;
 class StartupBrowserCreator;
 class StartupTabProvider;
@@ -62,7 +63,7 @@ class StartupBrowserCreatorImpl {
   // launch another instance.
   void Launch(Profile* profile,
               chrome::startup::IsProcessStartup process_startup,
-              std::unique_ptr<LaunchModeRecorder> launch_mode_recorder);
+              std::unique_ptr<OldLaunchModeRecorder> launch_mode_recorder);
 
   // Convenience for OpenTabsInBrowser that converts |urls| into a set of
   // Tabs.
@@ -98,6 +99,8 @@ class StartupBrowserCreatorImpl {
                            DetermineBrowserOpenBehavior_NotStartup);
   FRIEND_TEST_ALL_PREFIXES(StartupBrowserCreatorImplTest,
                            DetermineStartupTabs_NewFeaturesPage);
+  FRIEND_TEST_ALL_PREFIXES(StartupBrowserCreatorImplTest,
+                           DetermineStartupTabs_PrivacySandbox);
 
   enum class LaunchResult {
     kNormally,
@@ -165,7 +168,8 @@ class StartupBrowserCreatorImpl {
       bool has_incompatible_applications,
       bool promotional_tabs_enabled,
       bool welcome_enabled,
-      bool whats_new_enabled);
+      bool whats_new_enabled,
+      bool privacy_sandbox_confirmation_required);
 
   // Begins an asynchronous session restore if current state allows it (e.g.,
   // this is not process startup) and SessionService indicates that one is
@@ -204,7 +208,7 @@ class StartupBrowserCreatorImpl {
   static bool IsKioskModeEnabled();
 
   const base::FilePath cur_dir_;
-  const base::CommandLine& command_line_;
+  const raw_ref<const base::CommandLine> command_line_;
   raw_ptr<Profile> profile_ = nullptr;
   raw_ptr<StartupBrowserCreator> browser_creator_;
   chrome::startup::IsFirstRun is_first_run_;

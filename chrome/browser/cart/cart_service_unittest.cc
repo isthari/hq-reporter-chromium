@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,21 +6,23 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "chrome/browser/cart/cart_db_content.pb.h"
 #include "chrome/browser/cart/cart_discount_metric_collector.h"
 #include "chrome/browser/cart/cart_service_factory.h"
 #include "chrome/browser/cart/fetch_discount_worker.h"
 #include "chrome/browser/commerce/coupons/coupon_service.h"
 #include "chrome/browser/history/history_service_factory.h"
-#include "chrome/browser/persisted_state_db/profile_proto_db.h"
-#include "chrome/browser/persisted_state_db/profile_proto_db_factory.h"
+#include "chrome/browser/persisted_state_db/session_proto_db_factory.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/commerce/core/commerce_feature_list.h"
+#include "components/commerce/core/commerce_heuristics_data.h"
+#include "components/commerce/core/commerce_heuristics_data_metrics_helper.h"
+#include "components/commerce/core/proto/cart_db_content.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/search/ntp_features.h"
+#include "components/session_proto_db/session_proto_db.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_task_environment.h"
@@ -74,6 +76,34 @@ cart_db::ChromeCartContentProto AddDiscountToProto(
   return proto;
 }
 
+cart_db::ChromeCartContentProto AddCouponDiscountToProto(
+    cart_db::ChromeCartContentProto proto,
+    const double timestamp,
+    const char* discount_text) {
+  proto.mutable_discount_info()->set_last_fetched_timestamp(timestamp);
+  proto.mutable_discount_info()->set_discount_text(discount_text);
+  proto.mutable_discount_info()->set_has_coupons(true);
+  return proto;
+}
+
+cart_db::ChromeCartContentProto AddCouponDiscountToProto(
+    cart_db::ChromeCartContentProto proto,
+    const double timestamp,
+    const char* discount_text,
+    const char* promo_id) {
+  proto.mutable_discount_info()->set_last_fetched_timestamp(timestamp);
+  proto.mutable_discount_info()->set_discount_text(discount_text);
+  proto.mutable_discount_info()->set_has_coupons(true);
+
+  cart_db::CouponInfoProto coupon_info;
+  coupon_info.set_promo_id(promo_id);
+  std::vector<cart_db::CouponInfoProto> coupon_info_protos;
+  coupon_info_protos.emplace_back(coupon_info);
+  *proto.mutable_discount_info()->mutable_coupon_info() = {
+      coupon_info_protos.begin(), coupon_info_protos.end()};
+  return proto;
+}
+
 MATCHER_P(EqualsProto, message, "") {
   std::string expected_serialized, actual_serialized;
   message.SerializeToString(&expected_serialized);
@@ -88,7 +118,25 @@ const char kMockMerchantB[] = "bar.com";
 const char kMockMerchantURLB[] = "https://www.bar.com";
 const char kMockMerchantC[] = "baz.com";
 const char kMockMerchantURLC[] = "https://www.baz.com";
+const char kNoDiscountMerchant[] = "nodiscount.com";
+const char kNoDiscountMerchantURL[] = "https://www.nodiscount.com";
 const char kProductURL[] = "https://www.product.com";
+const char kCommerceHintHeuristicsJSONData[] = R"###(
+      {
+          "foo.com": {
+              "merchant_name": "Foo",
+              "cart_url": "https://foo.com/cart"
+          },
+          "bar.com": {
+              "merchant_name": "Bar"
+          }
+      }
+  )###";
+const char kGlobalHeuristicsJSONData[] = R"###(
+      {
+        "no_discount_merchant_regex": "nodiscount"
+      }
+)###";
 const cart_db::ChromeCartContentProto kMockProtoA =
     BuildProto(kMockMerchantA, kMockMerchantURLA);
 const cart_db::ChromeCartContentProto kMockProtoB =
@@ -98,7 +146,7 @@ const cart_db::ChromeCartContentProto kMockProtoC =
 const cart_db::ChromeCartContentProto kMockProtoCWithProduct =
     BuildProtoWithProducts(kMockMerchantC, kMockMerchantURLC, {kProductURL});
 using ShoppingCarts =
-    std::vector<ProfileProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>;
+    std::vector<SessionProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>;
 using ProductInfos = std::vector<cart_db::ChromeCartProductProto>;
 const ShoppingCarts kExpectedA = {{kMockMerchantA, kMockProtoA}};
 const ShoppingCarts kExpectedB = {{kMockMerchantB, kMockProtoB}};
@@ -117,6 +165,7 @@ const cart_db::ChromeCartProductProto kMockProductB =
 
 // Value used for discount.
 const char kMockMerchantADiscountRuleId[] = "1";
+const char kMockMerchantADiscountPromoId[] = "2";
 const int kMockMerchantADiscountsPercentOff = 10;
 const char kMockMerchantADiscountsRawMerchantOfferId[] = "merchantAOfferId";
 const bool kNotATester = false;
@@ -173,6 +222,7 @@ class CartServiceTest : public testing::Test {
     EXPECT_EQ(found.size(), expected.size());
     for (size_t i = 0; i < expected.size(); i++) {
       EXPECT_EQ(found[i].first, expected[i].first);
+      EXPECT_EQ(found[i].second.merchant(), expected[i].second.merchant());
       EXPECT_EQ(found[i].second.merchant_cart_url(),
                 expected[i].second.merchant_cart_url());
       for (int j = 0; j < expected[i].second.product_image_urls().size(); j++) {
@@ -256,8 +306,11 @@ class CartServiceTest : public testing::Test {
                                   bool result,
                                   ShoppingCarts found) {
     EXPECT_EQ(found.size(), 1U);
-    CartDB::KeyAndValue found_pair = found[0];
-    EXPECT_FALSE(found_pair.second.has_discount_info());
+    cart_db::ChromeCartContentProto cart = found[0].second;
+    EXPECT_TRUE(!cart.has_discount_info() ||
+                (cart.discount_info().rule_discount_info().empty() &&
+                 cart.discount_info().coupon_info().empty() &&
+                 !cart.discount_info().has_coupons()));
     std::move(closure).Run();
   }
 
@@ -302,8 +355,9 @@ class CartServiceTest : public testing::Test {
     return *res;
   }
 
-  void CacheUsedDiscounts(const cart_db::ChromeCartContentProto& proto) {
-    service_->CacheUsedDiscounts(proto);
+  void CacheUsedDiscounts(const cart_db::ChromeCartContentProto& proto,
+                          bool is_code_based_rbd) {
+    service_->CacheUsedDiscounts(proto, is_code_based_rbd);
   }
 
   void CleanUpDiscounts(const cart_db::ChromeCartContentProto& proto) {
@@ -313,6 +367,8 @@ class CartServiceTest : public testing::Test {
   void TearDown() override {
     // Clean up the used discounts dictionary prefs.
     profile_->GetPrefs()->ClearPref(prefs::kCartUsedDiscounts);
+    auto& data = commerce_heuristics::CommerceHeuristicsData::GetInstance();
+    data.PopulateDataFromComponent("{}", "{}", "", "");
   }
 
  protected:
@@ -324,6 +380,7 @@ class CartServiceTest : public testing::Test {
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestingProfile> profile_;
   raw_ptr<CartService> service_;
+  base::HistogramTester histogram_tester_;
 };
 
 // Verifies the hide status is flipped by hiding and restoring.
@@ -392,8 +449,63 @@ TEST_F(CartServiceTest, TestUpdateDiscounts) {
                                    run_loop[2].QuitClosure(), expected));
   run_loop[2].Run();
 
-  CacheUsedDiscounts(cart_with_discount_proto);
+  CacheUsedDiscounts(cart_with_discount_proto, false);
   service_->UpdateDiscounts(GURL(kMockMerchantURLA), cart_with_discount_proto,
+                            kNotATester);
+  cart_db->LoadCart(
+      kMockMerchantA,
+      base::BindOnce(&CartServiceTest::GetEvaluationEmptyDiscount,
+                     base::Unretained(this), run_loop[3].QuitClosure()));
+  run_loop[3].Run();
+}
+
+// Test updating code-based RBD for one cart.
+TEST_F(CartServiceTest, TestUpdateDiscounts_CodeBasedRBD) {
+  base::test::ScopedFeatureList feature_list;
+  std::vector<base::test::FeatureRefAndParams> enabled_features;
+  base::FieldTrialParams code_based_rbd_param;
+  code_based_rbd_param[commerce::kCodeBasedRuleDiscountParam] = "true";
+  enabled_features.emplace_back(commerce::kCodeBasedRBD, code_based_rbd_param);
+  feature_list.InitWithFeaturesAndParameters(enabled_features,
+                                             /*disabled_features*/ {});
+
+  CartDB* cart_db = service_->GetDB();
+  cart_db::ChromeCartContentProto proto =
+      BuildProto(kMockMerchantA, kMockMerchantURLA);
+
+  base::RunLoop run_loop[4];
+  cart_db->AddCart(
+      kMockMerchantA, proto,
+      base::BindOnce(&CartServiceTest::OperationEvaluation,
+                     base::Unretained(this), run_loop[0].QuitClosure(), true));
+  run_loop[0].Run();
+
+  cart_db->LoadCart(
+      kMockMerchantA,
+      base::BindOnce(&CartServiceTest::GetEvaluationEmptyDiscount,
+                     base::Unretained(this), run_loop[1].QuitClosure()));
+  run_loop[1].Run();
+
+  const double timestamp = 1;
+
+  cart_db::ChromeCartContentProto cart_with_coupon_proto =
+      AddCouponDiscountToProto(proto, timestamp,
+                               /*discount_text=*/"10% off",
+                               kMockMerchantADiscountPromoId);
+
+  service_->UpdateDiscounts(GURL(kMockMerchantURLA), cart_with_coupon_proto,
+                            kNotATester);
+
+  const ShoppingCarts expected = {{kMockMerchantA, cart_with_coupon_proto}};
+
+  cart_db->LoadCart(kMockMerchantA,
+                    base::BindOnce(&CartServiceTest::GetEvaluationDiscount,
+                                   base::Unretained(this),
+                                   run_loop[2].QuitClosure(), expected));
+  run_loop[2].Run();
+
+  CacheUsedDiscounts(cart_with_coupon_proto, true);
+  service_->UpdateDiscounts(GURL(kMockMerchantURLA), cart_with_coupon_proto,
                             kNotATester);
   cart_db->LoadCart(
       kMockMerchantA,
@@ -933,8 +1045,8 @@ TEST_F(CartServiceTest, TestDomainToCartURLMapping) {
   EXPECT_EQ("", getDomainCartURL("example.com"));
 }
 
-// Tests looking up cart URL and merchant name when adding cart.
-TEST_F(CartServiceTest, TestLookupCartInfo) {
+// Tests looking up cart URL and merchant name from resources when adding cart.
+TEST_F(CartServiceTest, TestLookupCartInfo_FromResource) {
   CartDB* cart_db_ = service_->GetDB();
   const char* amazon_domain = "amazon.com";
   base::RunLoop run_loop[3];
@@ -942,6 +1054,9 @@ TEST_F(CartServiceTest, TestLookupCartInfo) {
       BuildProto(amazon_domain, kMockMerchantURLA);
   service_->AddCart(amazon_domain, absl::nullopt, merchant_A_proto);
   task_environment_.RunUntilIdle();
+  histogram_tester_.ExpectBucketCount(
+      "Commerce.Heuristics.MerchantNameSource",
+      CommerceHeuristicsDataMetricsHelper::HeuristicsSource::FROM_RESOURCE, 1);
 
   merchant_A_proto.set_merchant_cart_url(getDomainCartURL(amazon_domain));
   merchant_A_proto.set_merchant(getDomainName(amazon_domain));
@@ -960,6 +1075,9 @@ TEST_F(CartServiceTest, TestLookupCartInfo) {
       BuildProto(fake_domain, fake_cart_url);
   service_->AddCart(fake_domain, absl::nullopt, fake_proto);
   task_environment_.RunUntilIdle();
+  histogram_tester_.ExpectBucketCount(
+      "Commerce.Heuristics.MerchantNameSource",
+      CommerceHeuristicsDataMetricsHelper::HeuristicsSource::MISSING, 1);
 
   const ShoppingCarts result2 = {{fake_domain, fake_proto}};
   cart_db_->LoadCart(
@@ -967,6 +1085,30 @@ TEST_F(CartServiceTest, TestLookupCartInfo) {
       base::BindOnce(&CartServiceTest::GetEvaluationURL, base::Unretained(this),
                      run_loop[2].QuitClosure(), result2));
   run_loop[2].Run();
+}
+
+// Tests looking up merchant name from component when adding cart.
+TEST_F(CartServiceTest, TestLookupCartInfo_FromComponent) {
+  ASSERT_TRUE(commerce_heuristics::CommerceHeuristicsData::GetInstance()
+                  .PopulateDataFromComponent(kCommerceHintHeuristicsJSONData,
+                                             "{}", "", ""));
+  CartDB* cart_db_ = service_->GetDB();
+  base::RunLoop run_loop;
+  cart_db::ChromeCartContentProto merchant_proto =
+      BuildProto(kMockMerchantA, "https://foo.com/cart");
+  service_->AddCart(kMockMerchantA, absl::nullopt, merchant_proto);
+  task_environment_.RunUntilIdle();
+  histogram_tester_.ExpectBucketCount(
+      "Commerce.Heuristics.MerchantNameSource",
+      CommerceHeuristicsDataMetricsHelper::HeuristicsSource::FROM_COMPONENT, 1);
+
+  merchant_proto.set_merchant("Foo");
+  const ShoppingCarts result = {{kMockMerchantA, merchant_proto}};
+  cart_db_->LoadCart(
+      kMockMerchantA,
+      base::BindOnce(&CartServiceTest::GetEvaluationURL, base::Unretained(this),
+                     run_loop.QuitClosure(), result));
+  run_loop.Run();
 }
 
 // Tests the priority of cart URL sources.
@@ -1036,7 +1178,7 @@ TEST_F(CartServiceTest, TestCacheUsedDiscounts) {
       kMockMerchantADiscountRuleId, kMockMerchantADiscountsPercentOff,
       kMockMerchantADiscountsRawMerchantOfferId);
 
-  CacheUsedDiscounts(cart_with_discount_proto);
+  CacheUsedDiscounts(cart_with_discount_proto, false);
   EXPECT_TRUE(service_->IsDiscountUsed(kMockMerchantADiscountRuleId));
 }
 
@@ -1116,7 +1258,7 @@ TEST_F(CartServiceTest, TestUpdateDiscountsTesterByPassCachedRuleId) {
   const ShoppingCarts has_discount_cart = {
       {kMockMerchantA, cart_with_discount_proto}};
 
-  CacheUsedDiscounts(cart_with_discount_proto);
+  CacheUsedDiscounts(cart_with_discount_proto, false);
   EXPECT_TRUE(service_->IsDiscountUsed(kMockMerchantADiscountRuleId));
 
   base::RunLoop run_loop[2];
@@ -1266,12 +1408,6 @@ TEST_F(CartServiceTest, TestNoShowConsentWithoutFeature) {
   run_loop.Run();
 }
 
-// Tests discount is disabled without feature param.
-TEST_F(CartServiceTest, TestDiscountDisabledWithoutFeature) {
-  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, true);
-  ASSERT_FALSE(service_->IsCartDiscountEnabled());
-}
-
 // Tests acknowledging discount consent is reflected in profile pref.
 TEST_F(CartServiceTest, TestAcknowledgeDiscountConsent) {
   ASSERT_FALSE(profile_->GetPrefs()->GetBoolean(prefs::kCartDiscountEnabled));
@@ -1288,6 +1424,29 @@ TEST_F(CartServiceTest, TestAcknowledgeDiscountConsent) {
   ASSERT_FALSE(profile_->GetPrefs()->GetBoolean(prefs::kCartDiscountEnabled));
   ASSERT_TRUE(
       profile_->GetPrefs()->GetBoolean(prefs::kCartDiscountAcknowledged));
+}
+
+class CartServiceNoDiscountTest : public CartServiceTest {
+ public:
+  // Features need to be initialized before CartServiceTest::SetUp runs, in
+  // order to avoid tsan data race error on FeatureList.
+  CartServiceNoDiscountTest() {
+    features_.InitAndEnableFeatureWithParameters(
+        ntp_features::kNtpChromeCartModule,
+        {{ntp_features::kNtpChromeCartModuleAbandonedCartDiscountParam,
+          "false"}});
+  }
+
+  void TearDown() override {
+    // Set the feature to default disabled state after test.
+    profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, false);
+  }
+};
+
+// Tests discount is disabled without feature param.
+TEST_F(CartServiceNoDiscountTest, TestDiscountDisabledWithoutFeature) {
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, true);
+  ASSERT_FALSE(service_->IsCartDiscountEnabled());
 }
 
 class MockCartDiscountLinkFetcher : public CartDiscountLinkFetcher {
@@ -1318,15 +1477,22 @@ class CartServiceDiscountTest : public CartServiceTest {
   // Features need to be initialized before CartServiceTest::SetUp runs, in
   // order to avoid tsan data race error on FeatureList.
   CartServiceDiscountTest() {
-    std::vector<base::test::ScopedFeatureList::FeatureAndParams>
-        enabled_features;
-    base::FieldTrialParams cart_params, coupon_params;
-    cart_params["NtpChromeCartModuleAbandonedCartDiscountParam"] = "true";
-    cart_params["partner-merchant-pattern"] = "(foo.com)";
+    std::vector<base::test::FeatureRefAndParams> enabled_features;
+    base::FieldTrialParams cart_params, coupon_params, code_based_rbd_param;
+    cart_params[ntp_features::kNtpChromeCartModuleAbandonedCartDiscountParam] =
+        "true";
+    cart_params
+        [ntp_features::kNtpChromeCartModuleAbandonedCartDiscountUseUtmParam] =
+            "false";
+
     enabled_features.emplace_back(ntp_features::kNtpChromeCartModule,
                                   cart_params);
-    coupon_params["coupon-partner-merchant-pattern"] = "(bar.com)";
     enabled_features.emplace_back(commerce::kRetailCoupons, coupon_params);
+
+    code_based_rbd_param[commerce::kCodeBasedRuleDiscountParam] = "true";
+    enabled_features.emplace_back(commerce::kCodeBasedRBD,
+                                  code_based_rbd_param);
+
     features_.InitWithFeaturesAndParameters(enabled_features,
                                             /*disabled_features*/ {});
   }
@@ -1339,6 +1505,15 @@ class CartServiceDiscountTest : public CartServiceTest {
     task_environment_.RunUntilIdle();
     // The feature is enabled for this test class.
     profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, true);
+
+    auto& data = commerce_heuristics::CommerceHeuristicsData::GetInstance();
+    ASSERT_TRUE(data.PopulateDataFromComponent("{}", R"###(
+        {
+          "rule_discount_partner_merchant_regex": "(foo.com)",
+          "coupon_discount_partner_merchant_regex": "(bar.com)"
+        }
+    )###",
+                                               "", ""));
   }
 
   void TearDown() override {
@@ -1356,9 +1531,6 @@ class CartServiceDiscountTest : public CartServiceTest {
     }
     service_->SetCartDiscountLinkFetcherForTesting(std::move(mock_fetcher));
   }
-
- protected:
-  base::HistogramTester histogram_tester_;
 };
 
 // Tests discount consent should not show when welcome surface is still showing.
@@ -1440,12 +1612,9 @@ TEST_F(CartServiceDiscountTest, TestSetCartDiscountEnabled) {
 // merchant.
 TEST_F(CartServiceDiscountTest, TestNoFetchForNonPartner) {
   base::RunLoop run_loop[2];
-  const double timestamp = 1;
   SetCartDiscountURLForTesting(GURL("https://www.discount.com"), false);
-  cart_db::ChromeCartContentProto cart_proto = AddDiscountToProto(
-      BuildProto(kMockMerchantB, kMockMerchantURLB), timestamp,
-      kMockMerchantADiscountRuleId, kMockMerchantADiscountsPercentOff,
-      kMockMerchantADiscountsRawMerchantOfferId);
+  cart_db::ChromeCartContentProto cart_proto =
+      BuildProto(kMockMerchantB, kMockMerchantURLB);
   service_->GetDB()->AddCart(
       kMockMerchantB, cart_proto,
       base::BindOnce(&CartServiceTest::OperationEvaluation,
@@ -1459,6 +1628,10 @@ TEST_F(CartServiceDiscountTest, TestNoFetchForNonPartner) {
                      base::Unretained(this), run_loop[1].QuitClosure(),
                      default_cart_url));
   run_loop[1].Run();
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      false, 1);
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      true, 0);
 }
 
 // Tests no fetching for discount URL if the cart doesn't have discount info.
@@ -1478,6 +1651,10 @@ TEST_F(CartServiceDiscountTest, TestNoFetchWhenNoDiscount) {
                      base::Unretained(this), run_loop[1].QuitClosure(),
                      default_cart_url));
   run_loop[1].Run();
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      false, 1);
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      true, 0);
 }
 
 // Tests no fetching for discount URL if the feature is disabled.
@@ -1504,6 +1681,82 @@ TEST_F(CartServiceDiscountTest, TestNoFetchWhenFeatureDisabled) {
                      base::Unretained(this), run_loop[1].QuitClosure(),
                      default_cart_url));
   run_loop[1].Run();
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      false, 1);
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      true, 0);
+}
+
+// Tests no fetching discounted URL for coupon discount.
+TEST_F(CartServiceDiscountTest, TestNoDiscountedURLFetchForCouponDiscount) {
+  base::RunLoop run_loop[2];
+  const double timestamp = 1;
+  GURL discount_url("https://www.discount.com");
+  SetCartDiscountURLForTesting(discount_url, /*expect_call=*/false);
+  cart_db::ChromeCartContentProto cart_proto = AddCouponDiscountToProto(
+      BuildProto(kMockMerchantA, kMockMerchantURLA), timestamp,
+      /*discount_text=*/"10% off");
+  service_->GetDB()->AddCart(
+      kMockMerchantA, cart_proto,
+      base::BindOnce(&CartServiceTest::OperationEvaluation,
+                     base::Unretained(this), run_loop[0].QuitClosure(), true));
+  run_loop[0].Run();
+
+  GURL default_cart_url(kMockMerchantURLA);
+  service_->GetDiscountURL(
+      default_cart_url,
+      base::BindOnce(&CartServiceTest::GetEvaluationDiscountURL,
+                     base::Unretained(this), run_loop[1].QuitClosure(),
+                     default_cart_url));
+  run_loop[1].Run();
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      false, 0);
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      true, 1);
+}
+
+// Clicking code-based RBD discount results in coupon consumption, and no
+// fetching.
+TEST_F(CartServiceDiscountTest,
+       TestNoDiscountedURLFetchForCodeBasedRuleDiscount) {
+  base::RunLoop run_loop[4];
+  const double timestamp = 1;
+  GURL discount_url("https://www.discount.com");
+  SetCartDiscountURLForTesting(discount_url, /*expect_call=*/false);
+  cart_db::ChromeCartContentProto cart_proto = AddCouponDiscountToProto(
+      BuildProto(kMockMerchantA, kMockMerchantURLA), timestamp,
+      /*discount_text=*/"10% off", kMockMerchantADiscountPromoId);
+  service_->GetDB()->AddCart(
+      kMockMerchantA, cart_proto,
+      base::BindOnce(&CartServiceTest::OperationEvaluation,
+                     base::Unretained(this), run_loop[0].QuitClosure(), true));
+  run_loop[0].Run();
+
+  const ShoppingCarts expected = {{kMockMerchantA, cart_proto}};
+
+  service_->GetDB()->LoadCart(
+      kMockMerchantA, base::BindOnce(&CartServiceTest::GetEvaluationDiscount,
+                                     base::Unretained(this),
+                                     run_loop[1].QuitClosure(), expected));
+  run_loop[1].Run();
+
+  GURL default_cart_url(kMockMerchantURLA);
+  service_->GetDiscountURL(
+      default_cart_url,
+      base::BindOnce(&CartServiceTest::GetEvaluationDiscountURL,
+                     base::Unretained(this), run_loop[2].QuitClosure(),
+                     default_cart_url));
+  run_loop[2].Run();
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      false, 0);
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      true, 1);
+
+  service_->GetDB()->LoadCart(
+      kMockMerchantA,
+      base::BindOnce(&CartServiceTest::GetEvaluationEmptyDiscount,
+                     base::Unretained(this), run_loop[3].QuitClosure()));
+  run_loop[3].Run();
 }
 
 // Tests CartService returning fetched discount URL.
@@ -1543,6 +1796,10 @@ TEST_F(CartServiceDiscountTest, TestReturnDiscountURL) {
       base::BindOnce(&CartServiceTest::GetEvaluationEmptyDiscount,
                      base::Unretained(this), run_loop[3].QuitClosure()));
   run_loop[3].Run();
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      false, 0);
+  histogram_tester_.ExpectBucketCount("NewTabPage.Carts.ClickCart.HasDiscount",
+                                      true, 1);
 }
 
 // Tests CartService returning original cart URL as a fallback if the fetch
@@ -1749,6 +2006,76 @@ TEST_F(CartServiceDiscountTest, TestRecordDiscountConsentStatus_Accepted) {
       CartDiscountMetricCollector::DiscountConsentStatus::ACCEPTED, 1);
 }
 
+class CartServiceMerchantWideDiscountTest : public CartServiceTest {
+ public:
+  // Features need to be initialized before CartServiceTest::SetUp runs, in
+  // order to avoid tsan data race error on FeatureList.
+  CartServiceMerchantWideDiscountTest() {
+    std::vector<base::test::FeatureRefAndParams> enabled_features;
+    base::FieldTrialParams cart_params, merchant_wide_params;
+    cart_params[ntp_features::kNtpChromeCartModuleAbandonedCartDiscountParam] =
+        "true";
+    enabled_features.emplace_back(ntp_features::kNtpChromeCartModule,
+                                  cart_params);
+    enabled_features.emplace_back(commerce::kMerchantWidePromotion,
+                                  merchant_wide_params);
+
+    features_.InitWithFeaturesAndParameters(enabled_features, {});
+  }
+
+  void SetUp() override {
+    CartServiceTest::SetUp();
+
+    auto& data = commerce_heuristics::CommerceHeuristicsData::GetInstance();
+    ASSERT_TRUE(data.PopulateDataFromComponent("{}", kGlobalHeuristicsJSONData,
+                                               "", ""));
+  }
+};
+
+TEST_F(CartServiceMerchantWideDiscountTest, TestDiscountConsentShown) {
+  // Add a merchant cart.
+  service_->AddCart(kMockMerchantA, absl::nullopt, kMockProtoA);
+  task_environment_.RunUntilIdle();
+
+  base::RunLoop run_loop;
+  for (int i = 0; i < CartService::kWelcomSurfaceShowLimit + 1; i++) {
+    service_->IncreaseWelcomeSurfaceCounter();
+  }
+  ASSERT_FALSE(service_->ShouldShowWelcomeSurface());
+  ASSERT_FALSE(
+      profile_->GetPrefs()->GetBoolean(prefs::kCartDiscountConsentShown));
+
+  service_->ShouldShowDiscountConsent(
+      base::BindOnce(&CartServiceTest::GetEvaluationBoolResult,
+                     base::Unretained(this), run_loop.QuitClosure(), true));
+  run_loop.Run();
+  ASSERT_TRUE(
+      profile_->GetPrefs()->GetBoolean(prefs::kCartDiscountConsentShown));
+}
+
+TEST_F(CartServiceMerchantWideDiscountTest,
+       TestNoDiscountConsentShownForNoDiscountMerchant) {
+  // Add a no-discount merchant cart.
+  service_->AddCart(kNoDiscountMerchantURL, absl::nullopt,
+                    BuildProto(kNoDiscountMerchant, kNoDiscountMerchantURL));
+  task_environment_.RunUntilIdle();
+
+  base::RunLoop run_loop;
+  for (int i = 0; i < CartService::kWelcomSurfaceShowLimit + 1; i++) {
+    service_->IncreaseWelcomeSurfaceCounter();
+  }
+  ASSERT_FALSE(service_->ShouldShowWelcomeSurface());
+  ASSERT_FALSE(
+      profile_->GetPrefs()->GetBoolean(prefs::kCartDiscountConsentShown));
+
+  service_->ShouldShowDiscountConsent(
+      base::BindOnce(&CartServiceTest::GetEvaluationBoolResult,
+                     base::Unretained(this), run_loop.QuitClosure(), false));
+  run_loop.Run();
+  ASSERT_FALSE(
+      profile_->GetPrefs()->GetBoolean(prefs::kCartDiscountConsentShown));
+}
+
 class CartServiceSkipExtractionTest : public CartServiceTest {
  public:
   // Features need to be initialized before CartServiceTest::SetUp runs, in
@@ -1813,17 +2140,27 @@ TEST_F(CartServiceSkipExtractionTest, TestLoadCartForSkippedMerchants) {
   run_loop[3].Run();
 }
 
-class CartServiceRbdFastPathTest : public CartServiceTest {
+class CartServiceCartURLUTMTest : public CartServiceTest {
  public:
-  CartServiceRbdFastPathTest() {
+  CartServiceCartURLUTMTest() {
     // This needs to be called before any tasks that run on other threads check
     // if a feature is enabled.
     features_.InitAndEnableFeatureWithParameters(
         ntp_features::kNtpChromeCartModule,
-        {{"NtpChromeCartModuleAbandonedCartDiscountParam", "true"},
-         {"partner-merchant-pattern", "(foo.com)"},
+        {{ntp_features::kNtpChromeCartModuleAbandonedCartDiscountParam, "true"},
          {ntp_features::kNtpChromeCartModuleAbandonedCartDiscountUseUtmParam,
           "true"}});
+  }
+  void SetUp() override {
+    CartServiceTest::SetUp();
+
+    auto& data = commerce_heuristics::CommerceHeuristicsData::GetInstance();
+    ASSERT_TRUE(data.PopulateDataFromComponent("{}", R"###(
+        {
+          "rule_discount_partner_merchant_regex": "(foo.com)"
+        }
+    )###",
+                                               "", ""));
   }
   void TearDown() override {
     // Set the feature to default disabled state after test.
@@ -1831,28 +2168,52 @@ class CartServiceRbdFastPathTest : public CartServiceTest {
   }
 };
 
-TEST_F(CartServiceRbdFastPathTest, TestAppendUTM) {
+TEST_F(CartServiceCartURLUTMTest, TestAppendUTMForPartnerMerchants) {
   EXPECT_FALSE(service_->IsCartDiscountEnabled());
-  EXPECT_EQ(GURL("https://www.foo.com?utm_source=chrome_cart_no_rbd"),
-            CartService::AppendUTM(GURL(kMockMerchantURLA), false));
+  EXPECT_EQ(GURL("https://"
+                 "www.foo.com?utm_source=chrome&utm_medium=app&utm_campaign="
+                 "chrome-cart-discount-off"),
+            service_->AppendUTM(GURL(kMockMerchantURLA)));
 
   profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, true);
   EXPECT_TRUE(service_->IsCartDiscountEnabled());
-  EXPECT_EQ(GURL("https://www.foo.com?utm_source=chrome_cart_rbd"),
-            CartService::AppendUTM(GURL(kMockMerchantURLA), true));
+  EXPECT_EQ(GURL("https://"
+                 "www.foo.com?utm_source=chrome&utm_medium=app&utm_campaign="
+                 "chrome-cart-discount-on"),
+            service_->AppendUTM(GURL(kMockMerchantURLA)));
 }
 
-TEST_F(CartServiceRbdFastPathTest, TestAppendUTMAvoidDuplicates) {
-  std::string merchantUrl = "https://www.foo.com";
+TEST_F(CartServiceCartURLUTMTest, TestAppendUTMForNonPartnerMerchants) {
   EXPECT_FALSE(service_->IsCartDiscountEnabled());
-  EXPECT_EQ(GURL("https://www.foo.com?utm_source=chrome_cart_no_rbd"),
-            CartService::AppendUTM(GURL(kMockMerchantURLA), false));
+  EXPECT_EQ(GURL("https://"
+                 "www.bar.com?utm_source=chrome&utm_medium=app&utm_campaign="
+                 "chrome-cart"),
+            service_->AppendUTM(GURL(kMockMerchantURLB)));
 
-  merchantUrl = "https://www.foo.com?utm_source=chrome_cart_no_rbd";
   profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, true);
   EXPECT_TRUE(service_->IsCartDiscountEnabled());
-  EXPECT_EQ(GURL("https://www.foo.com?utm_source=chrome_cart_rbd"),
-            CartService::AppendUTM(GURL(kMockMerchantURLA), true));
+  EXPECT_EQ(GURL("https://"
+                 "www.bar.com?utm_source=chrome&utm_medium=app&utm_campaign="
+                 "chrome-cart"),
+            service_->AppendUTM(GURL(kMockMerchantURLB)));
+}
+
+TEST_F(CartServiceCartURLUTMTest, TestAppendUTMAvoidDuplicates) {
+  GURL merchantUrl = GURL("https://www.foo.com");
+  EXPECT_FALSE(service_->IsCartDiscountEnabled());
+  merchantUrl = service_->AppendUTM(GURL(merchantUrl));
+  EXPECT_EQ(GURL("https://"
+                 "www.foo.com?utm_source=chrome&utm_medium=app&utm_campaign="
+                 "chrome-cart-discount-off"),
+            merchantUrl);
+
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, true);
+  EXPECT_TRUE(service_->IsCartDiscountEnabled());
+  merchantUrl = service_->AppendUTM(GURL(merchantUrl));
+  EXPECT_EQ(GURL("https://"
+                 "www.foo.com?utm_source=chrome&utm_medium=app&utm_campaign="
+                 "chrome-cart-discount-on"),
+            merchantUrl);
 }
 
 class FakeFetchDiscountWorker : public FetchDiscountWorker {
@@ -1893,7 +2254,7 @@ class CartServiceDiscountFetchTest : public CartServiceTest {
     // if a feature is enabled.
     features_.InitAndEnableFeatureWithParameters(
         ntp_features::kNtpChromeCartModule,
-        {{"NtpChromeCartModuleAbandonedCartDiscountParam", "true"},
+        {{ntp_features::kNtpChromeCartModuleAbandonedCartDiscountParam, "true"},
          {"discount-fetch-delay", "2s"}});
   }
 
@@ -2082,14 +2443,14 @@ TEST_F(CartServiceCouponTest, TestCartFeatureStatusUpdate) {
   profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, true);
 
   EXPECT_CALL(coupon_service_, MaybeFeatureStatusChanged(false)).Times(2);
-  ListPrefUpdate(profile_->GetPrefs(), prefs::kNtpDisabledModules)
-      ->Append(base::Value("chrome_cart"));
-  ListPrefUpdate(profile_->GetPrefs(), prefs::kNtpDisabledModules)
-      ->Append(base::Value("something_unrelated"));
+  ScopedListPrefUpdate(profile_->GetPrefs(), prefs::kNtpDisabledModules)
+      ->Append("chrome_cart");
+  ScopedListPrefUpdate(profile_->GetPrefs(), prefs::kNtpDisabledModules)
+      ->Append("something_unrelated");
 
   EXPECT_CALL(coupon_service_, MaybeFeatureStatusChanged(true)).Times(1);
-  ListPrefUpdate(profile_->GetPrefs(), prefs::kNtpDisabledModules)
-      ->EraseListValue(base::Value("chrome_cart"));
+  ScopedListPrefUpdate(profile_->GetPrefs(), prefs::kNtpDisabledModules)
+      ->EraseValue(base::Value("chrome_cart"));
 }
 
 TEST_F(CartServiceCouponTest, TestModuleFeatureStatusUpdate) {
@@ -2115,4 +2476,398 @@ TEST_F(CartServiceModulesRedesignedTest, TestIgnoresHidden) {
   ASSERT_FALSE(service_->IsHidden());
   service_->Hide();
   ASSERT_FALSE(service_->IsHidden());
+}
+
+class CartServiceDiscountConsentV2Test : public CartServiceTest {
+ public:
+  // Features need to be initialized before CartServiceTest::SetUp runs, in
+  // order to avoid tsan data race error on FeatureList.
+  CartServiceDiscountConsentV2Test() {
+    std::vector<base::test::FeatureRefAndParams> enabled_features;
+    base::FieldTrialParams consent_v2_params, cart_params;
+    cart_params[ntp_features::kNtpChromeCartModuleAbandonedCartDiscountParam] =
+        "true";
+    enabled_features.emplace_back(ntp_features::kNtpChromeCartModule,
+                                  cart_params);
+    consent_v2_params["discount-consent-ntp-reshow-time"] = "1m";
+    consent_v2_params["discount-consent-ntp-max-dismiss-count"] = "2";
+    consent_v2_params["discount-consent-ntp-variation"] = "2";
+    enabled_features.emplace_back(commerce::kDiscountConsentV2,
+                                  consent_v2_params);
+    features_.InitWithFeaturesAndParameters(enabled_features,
+                                            /*disabled_features*/ {});
+
+    auto& data = commerce_heuristics::CommerceHeuristicsData::GetInstance();
+    data.PopulateDataFromComponent("{}", R"###(
+        {
+          "rule_discount_partner_merchant_regex": "(foo.com)"
+        }
+    )###",
+                                   "", "");
+  }
+
+  void SetUp() override {
+    CartServiceTest::SetUp();
+
+    // Add a partner merchant cart.
+    service_->AddCart(kMockMerchantA, absl::nullopt, kMockProtoA);
+    task_environment_.RunUntilIdle();
+    // Simulate that the welcome surface is not showing, the discount feature is
+    // disabled and there is no partner merchant carts.
+    profile_->GetPrefs()->SetInteger(prefs::kCartModuleWelcomeSurfaceShownTimes,
+                                     CartService::kWelcomSurfaceShowLimit);
+  }
+
+  void TearDown() override {
+    profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentPastDismissedCount,
+                                     0);
+    profile_->GetPrefs()->SetInteger(prefs::kCartModuleWelcomeSurfaceShownTimes,
+                                     0);
+  }
+
+  void RecordDiscountConsentStatusAtLoad(bool should_show_consent) {
+    service_->RecordDiscountConsentStatusAtLoad(should_show_consent);
+  }
+};
+
+// Tests discount consent doesn't show after dismiss count reach the max
+// allowance.
+TEST_F(CartServiceDiscountConsentV2Test, TestNoConsentAfterDimissAllowance) {
+  // Simulate that use has dismissed the consent once.
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentPastDismissedCount,
+                                   1);
+  {
+    base::RunLoop run_loop;
+
+    service_->ShouldShowDiscountConsent(
+        base::BindOnce(&CartServiceTest::GetEvaluationBoolResult,
+                       base::Unretained(this), run_loop.QuitClosure(), true));
+    run_loop.Run();
+  }
+
+  service_->DismissedDiscountConsent();
+  {
+    base::RunLoop run_loop;
+    service_->ShouldShowDiscountConsent(
+        base::BindOnce(&CartServiceTest::GetEvaluationBoolResult,
+                       base::Unretained(this), run_loop.QuitClosure(), false));
+    run_loop.Run();
+  }
+}
+
+// Tests discount consent doesn't show if reshow time threshold does not meet.
+TEST_F(CartServiceDiscountConsentV2Test,
+       TestNoConsentBeforeReshowTimeThreshold) {
+  {
+    base::RunLoop run_loop;
+    service_->ShouldShowDiscountConsent(
+        base::BindOnce(&CartServiceTest::GetEvaluationBoolResult,
+                       base::Unretained(this), run_loop.QuitClosure(), true));
+    run_loop.Run();
+  }
+
+  service_->DismissedDiscountConsent();
+  {
+    base::RunLoop run_loop;
+    service_->ShouldShowDiscountConsent(
+        base::BindOnce(&CartServiceTest::GetEvaluationBoolResult,
+                       base::Unretained(this), run_loop.QuitClosure(), false));
+    run_loop.Run();
+  }
+}
+
+// Tests discount consent reshow after the reshow time threshold.
+TEST_F(CartServiceDiscountConsentV2Test,
+       TestReshowConsentAfterReshowTimeThreshold) {
+  {
+    base::RunLoop run_loop;
+    service_->ShouldShowDiscountConsent(
+        base::BindOnce(&CartServiceTest::GetEvaluationBoolResult,
+                       base::Unretained(this), run_loop.QuitClosure(), true));
+    run_loop.Run();
+  }
+
+  service_->DismissedDiscountConsent();
+
+  {
+    base::RunLoop run_loop;
+    service_->ShouldShowDiscountConsent(
+        base::BindOnce(&CartServiceTest::GetEvaluationBoolResult,
+                       base::Unretained(this), run_loop.QuitClosure(), false));
+    run_loop.Run();
+  }
+
+  task_environment_.FastForwardBy(base::Minutes(2));
+
+  {
+    base::RunLoop run_loop;
+    service_->ShouldShowDiscountConsent(
+        base::BindOnce(&CartServiceTest::GetEvaluationBoolResult,
+                       base::Unretained(this), run_loop.QuitClosure(), true));
+    run_loop.Run();
+  }
+}
+
+TEST_F(CartServiceDiscountConsentV2Test,
+       TestRecordDiscountConsentStatus_AcceptedInVariation) {
+  // Simulate consent has been accepted in the default variation.
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentDecisionMadeIn, 0);
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountAcknowledged, true);
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, true);
+  bool should_show = false;
+
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.AcceptedIn",
+      commerce::DiscountConsentNtpVariation::kDefault, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.AcceptedIn",
+      commerce::DiscountConsentNtpVariation::kDefault, 1);
+
+  // Simulate consent has been accepted in the Inline variation.
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentDecisionMadeIn, 2);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.AcceptedIn",
+      commerce::DiscountConsentNtpVariation::kInline, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.AcceptedIn",
+      commerce::DiscountConsentNtpVariation::kInline, 1);
+}
+
+TEST_F(CartServiceDiscountConsentV2Test,
+       TestRecordDiscountConsentStatus_RejectedInVariation) {
+  // Simulate consent has been rejected in the Default variation.
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentDecisionMadeIn, 0);
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountAcknowledged, true);
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, false);
+  bool should_show = false;
+
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.RejectedIn",
+      commerce::DiscountConsentNtpVariation::kDefault, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.RejectedIn",
+      commerce::DiscountConsentNtpVariation::kDefault, 1);
+
+  // Simulate consent has been rejected in the Inline variation.
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentDecisionMadeIn, 2);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.RejectedIn",
+      commerce::DiscountConsentNtpVariation::kInline, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.RejectedIn",
+      commerce::DiscountConsentNtpVariation::kInline, 1);
+}
+
+TEST_F(CartServiceDiscountConsentV2Test,
+       TestRecordDiscountConsentStatus_NoShowAfterDecidedInVariation) {
+  // Simulate consent has been rejected in the Default variation.
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountAcknowledged, true);
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, false);
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentDecisionMadeIn, 0);
+  bool should_show = false;
+
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.NoShowHasFinalized",
+      commerce::DiscountConsentNtpVariation::kDefault, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.NoShowHasFinalized",
+      commerce::DiscountConsentNtpVariation::kDefault, 1);
+
+  // Simulate consent has been accepted in the Default variation.
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, true);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.NoShowHasFinalized",
+      commerce::DiscountConsentNtpVariation::kDefault, 2);
+
+  // Simulate consent has been accepted in the Inline variation.
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountEnabled, true);
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentDecisionMadeIn, 2);
+
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.NoShowHasFinalized",
+      commerce::DiscountConsentNtpVariation::kInline, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.NoShowHasFinalized",
+      commerce::DiscountConsentNtpVariation::kInline, 1);
+}
+
+TEST_F(CartServiceDiscountConsentV2Test,
+       TestRecordDiscountConsentStatus_DismissedInVariation) {
+  // Simulate consent has been dismissed in the Inline variation.
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountAcknowledged, false);
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentDismissedIn, 2);
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentPastDismissedCount,
+                                   1);
+  bool should_show = true;
+
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.DismissedIn",
+      commerce::DiscountConsentNtpVariation::kInline, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.DismissedIn",
+      commerce::DiscountConsentNtpVariation::kInline, 1);
+
+  // Simulate consent has been dismissed in the Dialog variation.
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentDismissedIn, 3);
+
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.DismissedIn",
+      commerce::DiscountConsentNtpVariation::kDialog, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.DismissedIn",
+      commerce::DiscountConsentNtpVariation::kDialog, 1);
+}
+
+TEST_F(CartServiceDiscountConsentV2Test,
+       TestRecordDiscountConsentStatus_ShowInterestInVariation) {
+  // Simulate 'continue' button is clicked in the Inline variation.
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountAcknowledged, false);
+  profile_->GetPrefs()->SetBoolean(prefs::kDiscountConsentShowInterest, true);
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentShowInterestIn, 2);
+  bool should_show = true;
+
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.InterestedButNoActionIn",
+      commerce::DiscountConsentNtpVariation::kInline, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.InterestedButNoActionIn",
+      commerce::DiscountConsentNtpVariation::kInline, 1);
+
+  // Simulate 'continue' button is clicked in the Dialog variation.
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentShowInterestIn, 3);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.InterestedButNoActionIn",
+      commerce::DiscountConsentNtpVariation::kDialog, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.InterestedButNoActionIn",
+      commerce::DiscountConsentNtpVariation::kDialog, 1);
+}
+
+TEST_F(CartServiceDiscountConsentV2Test,
+       TestRecordDiscountConsentStatus_NeverShowInVariation) {
+  // Simulate consent is shown in the Default variation before. And the current
+  // variation is Inline.
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountAcknowledged, false);
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentLastShownInVariation,
+                                   0);
+  bool should_show = false;
+
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.NeverShownIn",
+      commerce::DiscountConsentNtpVariation::kInline, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.NeverShownIn",
+      commerce::DiscountConsentNtpVariation::kInline, 1);
+
+  // Simulate consent is shown in the Inline variation before.
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentLastShownInVariation,
+                                   2);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.NeverShownIn",
+      commerce::DiscountConsentNtpVariation::kInline, 1);
+}
+
+TEST_F(CartServiceDiscountConsentV2Test,
+       TestRecordDiscountConsentStatus_NoShowInVariation) {
+  // Simulate the consent shown in the Inline variation before. And the current
+  // variation is also Inline.
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountAcknowledged, false);
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountConsentShown, true);
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentLastShownInVariation,
+                                   2);
+  bool should_show = false;
+
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.NoShowIn",
+      commerce::DiscountConsentNtpVariation::kInline, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.NoShowIn",
+      commerce::DiscountConsentNtpVariation::kInline, 1);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.NoShowIn",
+      commerce::DiscountConsentNtpVariation::kInline, 2);
+}
+
+TEST_F(CartServiceDiscountConsentV2Test,
+       TestRecordDiscountConsentStatus_IgnoredInVariation) {
+  // Simulate consent is shown in the Inline variation before, but no action has
+  // been taken.
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountAcknowledged, false);
+  profile_->GetPrefs()->SetInteger(prefs::kDiscountConsentLastShownInVariation,
+                                   2);
+  bool should_show = true;
+
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.IgnoredIn",
+      commerce::DiscountConsentNtpVariation::kInline, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.IgnoredIn",
+      commerce::DiscountConsentNtpVariation::kInline, 1);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.IgnoredIn",
+      commerce::DiscountConsentNtpVariation::kInline, 2);
+}
+
+TEST_F(CartServiceDiscountConsentV2Test,
+       TestRecordDiscountConsentStatus_ShownInVariation) {
+  // The current variation is Inline.
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountAcknowledged, false);
+  bool should_show = true;
+
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.ShownIn",
+      commerce::DiscountConsentNtpVariation::kInline, 0);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.ShownIn",
+      commerce::DiscountConsentNtpVariation::kInline, 1);
+
+  RecordDiscountConsentStatusAtLoad(should_show);
+  histogram_tester_.ExpectBucketCount(
+      "NewTabPage.Carts.DiscountConsentStatusAtLoad.ShownIn",
+      commerce::DiscountConsentNtpVariation::kInline, 2);
+}
+
+TEST_F(CartServiceDiscountConsentV2Test, TestLastShownInVariationUpdated) {
+  // The current variation is Inline.
+  profile_->GetPrefs()->SetBoolean(prefs::kCartDiscountAcknowledged, false);
+
+  RecordDiscountConsentStatusAtLoad(true);
+  ASSERT_EQ(2, profile_->GetPrefs()->GetInteger(
+                   prefs::kDiscountConsentLastShownInVariation));
 }

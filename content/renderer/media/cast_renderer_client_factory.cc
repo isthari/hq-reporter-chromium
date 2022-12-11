@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,7 @@ CastRendererClientFactory::CastRendererClientFactory(
 CastRendererClientFactory::~CastRendererClientFactory() = default;
 
 std::unique_ptr<media::Renderer> CastRendererClientFactory::CreateRenderer(
-    const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner,
+    const scoped_refptr<base::SequencedTaskRunner>& media_task_runner,
     const scoped_refptr<base::TaskRunner>& worker_task_runner,
     media::AudioRendererSink* audio_renderer_sink,
     media::VideoRendererSink* video_renderer_sink,

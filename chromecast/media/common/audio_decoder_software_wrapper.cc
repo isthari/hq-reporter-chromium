@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/logging.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chromecast/media/api/decoder_buffer_base.h"
 #include "chromecast/media/common/base/decoder_config_logging.h"
 
@@ -36,10 +36,7 @@ bool IsChannelLayoutSupported(AudioConfig config) {
 
 // Codecs that cannot be decoded on the device and must be passed through.
 constexpr media::AudioCodec kPassthroughCodecs[] = {
-    kCodecEAC3,
-    kCodecAC3,
-    kCodecDTS,
-    kCodecMpegHAudio,
+    kCodecEAC3, kCodecAC3, kCodecDTS, kCodecDTSXP2, kCodecMpegHAudio,
 };
 
 }  // namespace
@@ -117,6 +114,15 @@ AudioDecoderSoftwareWrapper::GetRenderingDelay() {
   return backend_decoder_->GetRenderingDelay();
 }
 
+AudioDecoderSoftwareWrapper::AudioTrackTimestamp
+AudioDecoderSoftwareWrapper::GetAudioTrackTimestamp() {
+  return backend_decoder_->GetAudioTrackTimestamp();
+}
+
+int AudioDecoderSoftwareWrapper::GetStartThresholdInFrames() {
+  return backend_decoder_->GetStartThresholdInFrames();
+}
+
 bool AudioDecoderSoftwareWrapper::IsUsingSoftwareDecoder() {
   return software_decoder_.get() != nullptr;
 }
@@ -130,7 +136,7 @@ bool AudioDecoderSoftwareWrapper::CreateSoftwareDecoder(
   }
   // TODO(kmackay) Consider using planar float instead.
   software_decoder_ = media::CastAudioDecoder::Create(
-      base::ThreadTaskRunnerHandle::Get(), config,
+      base::SingleThreadTaskRunner::GetCurrentDefault(), config,
       media::CastAudioDecoder::kOutputSigned16);
   if (!software_decoder_) {
     decoder_error_ = true;

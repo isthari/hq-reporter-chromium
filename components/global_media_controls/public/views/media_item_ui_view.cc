@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/feature_list.h"
+#include "base/observer_list.h"
 #include "components/global_media_controls/public/constants.h"
 #include "components/global_media_controls/public/media_item_manager.h"
 #include "components/global_media_controls/public/media_item_ui_observer.h"
@@ -30,6 +31,7 @@
 #include "ui/views/controls/button/image_button_factory.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/image_view.h"
+#include "ui/views/controls/scroll_view.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
 
@@ -85,8 +87,6 @@ MediaItemUIView::MediaItemUIView(
                                         base::Unretained(this))),
       id_(id),
       footer_view_(footer_view.get()),
-      foreground_color_(kDefaultForegroundColor),
-      background_color_(kDefaultBackgroundColor),
       is_cros_(theme.has_value()) {
   DCHECK(item);
   SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -136,7 +136,7 @@ MediaItemUIView::MediaItemUIView(
     view =
         std::make_unique<media_message_center::MediaNotificationViewModernImpl>(
             this, std::move(item), std::move(dismiss_button_placeholder),
-            std::move(footer_view), kModernUIWidth);
+            std::move(footer_view), kModernUIWidth, theme);
     SetPreferredSize(kModernUISize);
   } else {
     view = std::make_unique<media_message_center::MediaNotificationViewImpl>(
@@ -184,6 +184,11 @@ void MediaItemUIView::OnMouseEntered(const ui::MouseEvent& event) {
 
 void MediaItemUIView::OnMouseExited(const ui::MouseEvent& event) {
   UpdateDismissButtonVisibility();
+}
+
+void MediaItemUIView::OnGestureEvent(ui::GestureEvent* event) {
+  if (scroll_view_ && event->IsScrollGestureEvent())
+    scroll_view_->OnGestureEvent(event);
 }
 
 void MediaItemUIView::OnDidChangeFocus(views::View* focused_before,
@@ -243,9 +248,13 @@ void MediaItemUIView::OnMediaArtworkChanged(const gfx::ImageSkia& image) {
   ForceExpandedState();
 }
 
-void MediaItemUIView::OnColorsChanged(SkColor foreground, SkColor background) {
-  if (foreground_color_ != foreground) {
+void MediaItemUIView::OnColorsChanged(SkColor foreground,
+                                      SkColor foreground_disabled,
+                                      SkColor background) {
+  if (foreground_color_ != foreground ||
+      foreground_disabled_color_ != foreground_disabled) {
     foreground_color_ = foreground;
+    foreground_disabled_color_ = foreground_disabled;
     UpdateDismissButtonIcon();
   }
 
@@ -275,6 +284,22 @@ ui::Layer* MediaItemUIView::GetSlideOutLayer() {
   return swipeable_container_->layer();
 }
 
+void MediaItemUIView::OnSlideChanged(bool in_progress) {
+  // Make sure we are only scrolling in one dimension.
+  if (scroll_view_ && in_progress && !is_sliding_ &&
+      slide_out_controller_->GetGestureAmount()) {
+    is_sliding_ = true;
+    scroll_view_->SetVerticalScrollBarMode(
+        views::ScrollView::ScrollBarMode::kDisabled);
+  }
+
+  if (!in_progress && scroll_view_ && is_sliding_) {
+    is_sliding_ = false;
+    scroll_view_->SetVerticalScrollBarMode(
+        views::ScrollView::ScrollBarMode::kEnabled);
+  }
+}
+
 void MediaItemUIView::OnSlideOut() {
   DismissNotification();
 }
@@ -293,6 +318,10 @@ const std::u16string& MediaItemUIView::GetTitle() const {
   return title_;
 }
 
+void MediaItemUIView::SetScrollView(views::ScrollView* scroll_view) {
+  scroll_view_ = scroll_view;
+}
+
 views::ImageButton* MediaItemUIView::GetDismissButtonForTesting() {
   return dismiss_button_;
 }
@@ -303,9 +332,9 @@ void MediaItemUIView::UpdateDismissButtonIcon() {
   if (base::FeatureList::IsEnabled(media::kGlobalMediaControlsModernUI))
     icon_size = kModernDismissButtonIconSize;
 
-  views::SetImageFromVectorIconWithColor(dismiss_button_,
-                                         vector_icons::kCloseRoundedIcon,
-                                         icon_size, foreground_color_);
+  views::SetImageFromVectorIconWithColor(
+      dismiss_button_, vector_icons::kCloseRoundedIcon, icon_size,
+      foreground_color_, foreground_disabled_color_);
 }
 
 void MediaItemUIView::UpdateDismissButtonBackground() {

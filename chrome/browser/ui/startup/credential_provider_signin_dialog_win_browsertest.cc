@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "chrome/browser/ui/test/test_browser_dialog.h"
 #include "chrome/credential_provider/common/gcp_strings.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/window_container_type.mojom-shared.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
@@ -53,8 +54,8 @@ class CredentialProviderSigninDialogWinBaseTest : public InProcessBrowserTest {
   content::WebContents* web_contents() { return web_contents_; }
   virtual void WaitForDialogToLoad();
 
-  raw_ptr<views::WebDialogView> web_view_ = nullptr;
-  raw_ptr<content::WebContents> web_contents_ = nullptr;
+  raw_ptr<views::WebDialogView, DanglingUntriaged> web_view_ = nullptr;
+  raw_ptr<content::WebContents, DanglingUntriaged> web_contents_ = nullptr;
 };
 
 CredentialProviderSigninDialogWinBaseTest::
@@ -95,7 +96,7 @@ class CredentialProviderSigninDialogWinDialogTest
   // A HandleGCPWSiginCompleteResult callback to check that the signin dialog
   // has correctly received and procesed the sign in complete message.
   void HandleSignInComplete(
-      base::Value signin_result,
+      base::Value::Dict signin_result,
       const std::string& additional_mdm_oauth_scopes,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader);
   bool signin_complete_called_ = false;
@@ -104,7 +105,7 @@ class CredentialProviderSigninDialogWinDialogTest
   std::string result_refresh_token_;
   std::string additional_mdm_oauth_scopes_;
   int exit_code_;
-  base::Value result_value_;
+  base::Value::Dict result_dict_;
   CredentialProviderSigninDialogTestDataStorage test_data_storage_;
 
  private:
@@ -122,7 +123,7 @@ void CredentialProviderSigninDialogWinDialogTest::SendSigninCompleteMessage(
 
   std::string login_complete_message =
       "chrome.send('lstFetchResults', [" + json_string + "]);";
-  content::RenderFrameHost* root = web_contents()->GetMainFrame();
+  content::RenderFrameHost* root = web_contents()->GetPrimaryMainFrame();
   content::ExecuteScriptAsync(root, login_complete_message);
   WaitForSigninCompleteMessage();
 }
@@ -151,29 +152,20 @@ void CredentialProviderSigninDialogWinDialogTest::ShowSigninDialog(
 }
 
 void CredentialProviderSigninDialogWinDialogTest::HandleSignInComplete(
-    base::Value signin_result,
+    base::Value::Dict signin_result,
     const std::string& additional_mdm_oauth_scopes,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader) {
   additional_mdm_oauth_scopes_ = additional_mdm_oauth_scopes;
-  exit_code_ = signin_result
-                   .FindKeyOfType(credential_provider::kKeyExitCode,
-                                  base::Value::Type::INTEGER)
-                   ->GetInt();
+  exit_code_ = *signin_result.FindInt(credential_provider::kKeyExitCode);
   if (exit_code_ == credential_provider::kUiecSuccess) {
     result_access_token_ =
-        signin_result
-            .FindKeyOfType(credential_provider::kKeyAccessToken,
-                           base::Value::Type::STRING)
-            ->GetString();
+        *signin_result.FindString(credential_provider::kKeyAccessToken);
     result_refresh_token_ =
-        signin_result
-            .FindKeyOfType(credential_provider::kKeyRefreshToken,
-                           base::Value::Type::STRING)
-            ->GetString();
+        *signin_result.FindString(credential_provider::kKeyRefreshToken);
   }
   EXPECT_FALSE(signin_complete_called_);
   signin_complete_called_ = true;
-  result_value_ = std::move(signin_result);
+  result_dict_ = std::move(signin_result);
 
   if (signin_complete_closure_)
     std::move(signin_complete_closure_).Run();
@@ -211,16 +203,30 @@ IN_PROC_BROWSER_TEST_F(CredentialProviderSigninDialogWinDialogTest,
   run_loop.RunUntilIdle();
 
   EXPECT_TRUE(signin_complete_called_);
-  EXPECT_TRUE(result_value_.is_dict());
-  EXPECT_EQ(result_value_.DictSize(), 1u);
-  const base::DictionaryValue* result_dict;
-  EXPECT_TRUE(result_value_.GetAsDictionary(&result_dict));
-  int exit_code;
-  EXPECT_TRUE(
-      result_dict->GetInteger(credential_provider::kKeyExitCode, &exit_code));
-  EXPECT_EQ(credential_provider::kUiecAbort, exit_code);
+  EXPECT_EQ(result_dict_.size(), 1u);
+  absl::optional<int> exit_code =
+      result_dict_.FindInt(credential_provider::kKeyExitCode);
+  EXPECT_TRUE(exit_code);
+  EXPECT_EQ(credential_provider::kUiecAbort, exit_code.value());
   EXPECT_TRUE(result_access_token_.empty());
   EXPECT_TRUE(result_refresh_token_.empty());
+}
+
+IN_PROC_BROWSER_TEST_F(CredentialProviderSigninDialogWinDialogTest,
+                       ShouldNotCreateWebContents) {
+  ShowSigninDialog(base::CommandLine(base::CommandLine::NoProgram::NO_PROGRAM));
+  WaitForDialogToLoad();
+
+  ASSERT_TRUE(web_view_->IsWebContentsCreationOverridden(
+      nullptr /* source_site_instance */,
+      content::mojom::WindowContainerType::NORMAL /* window_container_type */,
+      GURL() /* opener_url */, "foo" /* frame_name */,
+      GURL::EmptyGURL() /* target_url */));
+
+  web_view_->GetWidget()->CloseWithReason(
+      views::Widget::ClosedReason::kEscKeyPressed);
+  base::RunLoop run_loop;
+  run_loop.RunUntilIdle();
 }
 
 IN_PROC_BROWSER_TEST_F(CredentialProviderSigninDialogWinDialogTest,
@@ -229,8 +235,7 @@ IN_PROC_BROWSER_TEST_F(CredentialProviderSigninDialogWinDialogTest,
   WaitForDialogToLoad();
   SendSigninCompleteMessage(test_data_storage_.MakeSignInResponseValue());
   EXPECT_TRUE(signin_complete_called_);
-  EXPECT_TRUE(result_value_.is_dict());
-  EXPECT_EQ(result_value_.DictSize(), 1u);
+  EXPECT_EQ(result_dict_.size(), 1u);
   EXPECT_TRUE(result_access_token_.empty());
   EXPECT_TRUE(result_refresh_token_.empty());
 }
@@ -245,8 +250,7 @@ IN_PROC_BROWSER_TEST_F(CredentialProviderSigninDialogWinDialogTest,
       test_data_storage_.GetSuccessAccessToken(),
       test_data_storage_.GetSuccessRefreshToken()));
   EXPECT_TRUE(signin_complete_called_);
-  EXPECT_TRUE(result_value_.is_dict());
-  EXPECT_EQ(result_value_.DictSize(), 1u);
+  EXPECT_EQ(result_dict_.size(), 1u);
   EXPECT_TRUE(result_access_token_.empty());
   EXPECT_TRUE(result_refresh_token_.empty());
 }
@@ -261,8 +265,7 @@ IN_PROC_BROWSER_TEST_F(CredentialProviderSigninDialogWinDialogTest,
       test_data_storage_.GetSuccessAccessToken(),
       test_data_storage_.GetSuccessRefreshToken()));
   EXPECT_TRUE(signin_complete_called_);
-  EXPECT_TRUE(result_value_.is_dict());
-  EXPECT_EQ(result_value_.DictSize(), 1u);
+  EXPECT_EQ(result_dict_.size(), 1u);
   EXPECT_TRUE(result_access_token_.empty());
   EXPECT_TRUE(result_refresh_token_.empty());
 }
@@ -277,8 +280,7 @@ IN_PROC_BROWSER_TEST_F(CredentialProviderSigninDialogWinDialogTest,
       test_data_storage_.GetSuccessAccessToken(),
       test_data_storage_.GetSuccessRefreshToken()));
   EXPECT_TRUE(signin_complete_called_);
-  EXPECT_TRUE(result_value_.is_dict());
-  EXPECT_EQ(result_value_.DictSize(), 1u);
+  EXPECT_EQ(result_dict_.size(), 1u);
   EXPECT_TRUE(result_access_token_.empty());
   EXPECT_TRUE(result_refresh_token_.empty());
 }
@@ -293,8 +295,7 @@ IN_PROC_BROWSER_TEST_F(CredentialProviderSigninDialogWinDialogTest,
       test_data_storage_.GetSuccessEmail(), std::string(),
       test_data_storage_.GetSuccessRefreshToken()));
   EXPECT_TRUE(signin_complete_called_);
-  EXPECT_TRUE(result_value_.is_dict());
-  EXPECT_EQ(result_value_.DictSize(), 1u);
+  EXPECT_EQ(result_dict_.size(), 1u);
   EXPECT_TRUE(result_access_token_.empty());
   EXPECT_TRUE(result_refresh_token_.empty());
 }
@@ -309,8 +310,7 @@ IN_PROC_BROWSER_TEST_F(CredentialProviderSigninDialogWinDialogTest,
       test_data_storage_.GetSuccessEmail(),
       test_data_storage_.GetSuccessAccessToken(), std::string()));
   EXPECT_TRUE(signin_complete_called_);
-  EXPECT_TRUE(result_value_.is_dict());
-  EXPECT_EQ(result_value_.DictSize(), 1u);
+  EXPECT_EQ(result_dict_.size(), 1u);
   EXPECT_TRUE(result_access_token_.empty());
   EXPECT_TRUE(result_refresh_token_.empty());
 }
@@ -321,22 +321,20 @@ IN_PROC_BROWSER_TEST_F(CredentialProviderSigninDialogWinDialogTest,
   WaitForDialogToLoad();
   SendValidSigninCompleteMessage();
   EXPECT_TRUE(signin_complete_called_);
-  EXPECT_TRUE(result_value_.is_dict());
-  EXPECT_GT(result_value_.DictSize(), 1u);
-  const base::DictionaryValue* result_dict;
-  EXPECT_TRUE(result_value_.GetAsDictionary(&result_dict));
-  std::string id_in_dict;
-  EXPECT_TRUE(result_dict->GetString(credential_provider::kKeyId, &id_in_dict));
-  std::string email_in_dict;
-  EXPECT_TRUE(
-      result_dict->GetString(credential_provider::kKeyEmail, &email_in_dict));
-  std::string password_in_dict;
-  EXPECT_TRUE(result_dict->GetString(credential_provider::kKeyPassword,
-                                     &password_in_dict));
+  EXPECT_GT(result_dict_.size(), 1u);
+  const std::string* id_in_dict =
+      result_dict_.FindString(credential_provider::kKeyId);
+  ASSERT_NE(id_in_dict, nullptr);
+  const std::string* email_in_dict =
+      result_dict_.FindString(credential_provider::kKeyEmail);
+  ASSERT_NE(email_in_dict, nullptr);
+  const std::string* password_in_dict =
+      result_dict_.FindString(credential_provider::kKeyPassword);
+  ASSERT_NE(password_in_dict, nullptr);
 
-  EXPECT_EQ(id_in_dict, test_data_storage_.GetSuccessId());
-  EXPECT_EQ(email_in_dict, test_data_storage_.GetSuccessEmail());
-  EXPECT_EQ(password_in_dict, test_data_storage_.GetSuccessPassword());
+  EXPECT_EQ(*id_in_dict, test_data_storage_.GetSuccessId());
+  EXPECT_EQ(*email_in_dict, test_data_storage_.GetSuccessEmail());
+  EXPECT_EQ(*password_in_dict, test_data_storage_.GetSuccessPassword());
   EXPECT_EQ(result_access_token_, test_data_storage_.GetSuccessAccessToken());
   EXPECT_EQ(result_refresh_token_, test_data_storage_.GetSuccessRefreshToken());
 }
@@ -375,30 +373,20 @@ IN_PROC_BROWSER_TEST_P(CredentialProviderSigninDialogWinDialogExitCodeTest,
 
   SendSigninCompleteMessage(signin_result);
   EXPECT_TRUE(signin_complete_called_);
-  EXPECT_TRUE(result_value_.is_dict());
   EXPECT_EQ(exit_code_, expected_error_code);
-  const base::Value* exit_code_value = result_value_.FindKeyOfType(
-      credential_provider::kKeyExitCode, base::Value::Type::INTEGER);
-  EXPECT_NE(exit_code_value, nullptr);
-  EXPECT_EQ(exit_code_value->GetInt(), expected_error_code);
+  absl::optional<int> exit_code_value =
+      result_dict_.FindInt(credential_provider::kKeyExitCode);
+  EXPECT_EQ(exit_code_value, expected_error_code);
 
   if (should_succeed) {
-    EXPECT_GT(result_value_.DictSize(), 1u);
+    EXPECT_GT(result_dict_.size(), 1u);
 
-    std::string id_in_dict = result_value_
-                                 .FindKeyOfType(credential_provider::kKeyId,
-                                                base::Value::Type::STRING)
-                                 ->GetString();
+    std::string id_in_dict =
+        *result_dict_.FindString(credential_provider::kKeyId);
     std::string email_in_dict =
-        result_value_
-            .FindKeyOfType(credential_provider::kKeyEmail,
-                           base::Value::Type::STRING)
-            ->GetString();
+        *result_dict_.FindString(credential_provider::kKeyEmail);
     std::string password_in_dict =
-        result_value_
-            .FindKeyOfType(credential_provider::kKeyPassword,
-                           base::Value::Type::STRING)
-            ->GetString();
+        *result_dict_.FindString(credential_provider::kKeyPassword);
 
     EXPECT_EQ(id_in_dict, test_data_storage_.GetSuccessId());
     EXPECT_EQ(email_in_dict, test_data_storage_.GetSuccessEmail());
@@ -407,7 +395,7 @@ IN_PROC_BROWSER_TEST_P(CredentialProviderSigninDialogWinDialogExitCodeTest,
     EXPECT_EQ(result_refresh_token_,
               test_data_storage_.GetSuccessRefreshToken());
   } else {
-    EXPECT_EQ(result_value_.DictSize(), 1u);
+    EXPECT_EQ(result_dict_.size(), 1u);
     EXPECT_TRUE(result_access_token_.empty());
     EXPECT_TRUE(result_refresh_token_.empty());
   }

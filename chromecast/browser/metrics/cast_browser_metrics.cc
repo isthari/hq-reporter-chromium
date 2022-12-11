@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include "base/bind.h"
 #include "base/check.h"
 #include "base/command_line.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "chromecast/base/chromecast_switches.h"
 #include "chromecast/base/path_utils.h"
@@ -101,7 +101,7 @@ void CastBrowserMetrics::Initialize() {
 void CastBrowserMetrics::Finalize() {
 #if !BUILDFLAG(IS_ANDROID)
   // Signal that the session has exited cleanly.
-  metrics_service_client_->GetMetricsService()->RecordCompletedSessionEnd();
+  metrics_service_client_->GetMetricsService()->LogCleanShutdown();
 #endif  // !BUILDFLAG(IS_ANDROID)
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
@@ -122,8 +122,8 @@ void CastBrowserMetrics::CollectFinalMetricsForLog(
   // is called on log upload, metrics that occur between log upload and child
   // process termination will not be uploaded.
   content::FetchHistogramsAsynchronously(
-      base::ThreadTaskRunnerHandle::Get(), std::move(done_callback),
-      base::Seconds(kMetricsFetchTimeoutSeconds));
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
+      std::move(done_callback), base::Seconds(kMetricsFetchTimeoutSeconds));
 }
 
 void CastBrowserMetrics::ProcessExternalEvents(base::OnceClosure cb) {

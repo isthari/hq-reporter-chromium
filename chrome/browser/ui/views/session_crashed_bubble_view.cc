@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include "base/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/task/task_runner_util.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -22,7 +21,6 @@
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/sessions/exit_type_service.h"
 #include "chrome/browser/sessions/session_restore.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/bubble_anchor_util.h"
@@ -41,9 +39,11 @@
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/buildflags.h"
+#include "ui/base/interaction/element_identifier.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/dialog_model.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/base/window_open_disposition_utils.h"
 #include "ui/views/bubble/bubble_dialog_model_host.h"
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/button/label_button_border.h"
@@ -100,7 +100,7 @@ void OpenUmaLink(Browser* browser, const ui::Event& event) {
   RecordBubbleHistogramValue(SESSION_CRASHED_BUBBLE_HELP);
 }
 
-constexpr int kUmaConsentCheckboxId = 1;
+DEFINE_LOCAL_ELEMENT_IDENTIFIER_VALUE(kUmaConsentCheckboxId);
 
 class SessionCrashedBubbleDelegate : public ui::DialogModelDelegate {
  public:
@@ -212,11 +212,12 @@ void SessionCrashedBubble::ShowIfNotOffTheRecordProfile(
           browser);
 
   if (DoesSupportConsentCheck()) {
-    base::PostTaskAndReplyWithResult(
-        GoogleUpdateSettings::CollectStatsConsentTaskRunner(), FROM_HERE,
-        base::BindOnce(&GoogleUpdateSettings::GetCollectStatsConsent),
-        base::BindOnce(&SessionCrashedBubbleView::Show,
-                       std::move(browser_observer), skip_tab_checking));
+    GoogleUpdateSettings::CollectStatsConsentTaskRunner()
+        ->PostTaskAndReplyWithResult(
+            FROM_HERE,
+            base::BindOnce(&GoogleUpdateSettings::GetCollectStatsConsent),
+            base::BindOnce(&SessionCrashedBubbleView::Show,
+                           std::move(browser_observer), skip_tab_checking));
   } else {
     SessionCrashedBubbleView::Show(std::move(browser_observer),
                                    skip_tab_checking, false);
@@ -256,8 +257,6 @@ views::BubbleDialogDelegate* SessionCrashedBubbleView::ShowBubble(
     Browser* browser,
     bool uma_opted_in_already,
     bool offer_uma_optin) {
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::SESSION_CRASHED);
-
   views::View* anchor_view = BrowserView::GetBrowserViewForBrowser(browser)
                                  ->toolbar_button_provider()
                                  ->GetAppMenuButton();
@@ -274,16 +273,16 @@ views::BubbleDialogDelegate* SessionCrashedBubbleView::ShowBubble(
       .SetDialogDestroyingCallback(
           base::BindOnce(&SessionCrashedBubbleDelegate::OnWindowClosing,
                          base::Unretained(bubble_delegate)))
-      .AddBodyText(ui::DialogModelLabel(IDS_SESSION_CRASHED_VIEW_MESSAGE));
+      .AddParagraph(ui::DialogModelLabel(IDS_SESSION_CRASHED_VIEW_MESSAGE));
 
   if (offer_uma_optin) {
     RecordBubbleHistogramValue(SESSION_CRASHED_BUBBLE_OPTIN_BAR_SHOWN);
 
     dialog_builder.AddCheckbox(
         kUmaConsentCheckboxId,
-        ui::DialogModelLabel::CreateWithLink(
+        ui::DialogModelLabel::CreateWithReplacement(
             IDS_SESSION_CRASHED_VIEW_UMA_OPTIN,
-            ui::DialogModelLabel::Link(
+            ui::DialogModelLabel::CreateLink(
                 IDS_SESSION_CRASHED_BUBBLE_UMA_LINK_TEXT,
                 base::BindRepeating(&OpenUmaLink, browser)))
             .set_is_secondary());
@@ -302,7 +301,8 @@ views::BubbleDialogDelegate* SessionCrashedBubbleView::ShowBubble(
   dialog_builder.AddOkButton(
       base::BindOnce(&SessionCrashedBubbleDelegate::RestorePreviousSession,
                      base::Unretained(bubble_delegate), browser),
-      l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_RESTORE_BUTTON));
+      ui::DialogModelButton::Params().SetLabel(
+          l10n_util::GetStringUTF16(IDS_SESSION_CRASHED_VIEW_RESTORE_BUTTON)));
 
   auto bubble = std::make_unique<views::BubbleDialogModelHost>(
       dialog_builder.Build(), anchor_view, views::BubbleBorder::TOP_RIGHT);

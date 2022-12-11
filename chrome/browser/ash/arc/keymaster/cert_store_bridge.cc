@@ -1,14 +1,16 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/arc/keymaster/cert_store_bridge.h"
 
+#include <cstdint>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/logging.h"
+#include "mojo/core/embedder/embedder.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/platform/platform_channel.h"
 
@@ -47,8 +49,18 @@ void CertStoreBridge::GetSecurityTokenOperation(
 void CertStoreBridge::BindToInvitation(mojo::OutgoingInvitation* invitation) {
   VLOG(2) << "CertStoreBridge::BootstrapMojoConnection";
 
-  mojo::ScopedMessagePipeHandle pipe =
-      invitation->AttachMessagePipe("arc-cert-store-pipe");
+  mojo::ScopedMessagePipeHandle pipe;
+  if (mojo::core::IsMojoIpczEnabled()) {
+    constexpr uint64_t kCertStorePipeAttachment = 1;
+    pipe = invitation->AttachMessagePipe(kCertStorePipeAttachment);
+  } else {
+    pipe = invitation->AttachMessagePipe("arc-cert-store-pipe");
+  }
+
+  if (!pipe.is_valid()) {
+    LOG(ERROR) << "CertStoreBridge could not bind to invitation";
+    return;
+  }
 
   cert_store_proxy_.Bind(
       mojo::PendingRemote<keymaster::mojom::CertStoreInstance>(std::move(pipe),

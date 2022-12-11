@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,56 +9,95 @@
  * Event 'reload' will be fired when the user click the retry button.
  */
 
-const UIState = {
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '//resources/polymer/v3_0/paper-progress/paper-progress.js';
+import '../components/buttons/oobe_text_button.js';
+import '../components/common_styles/oobe_dialog_host_styles.m.js';
+import '../components/dialogs/oobe_adaptive_dialog.js';
+import '../components/dialogs/oobe_content_dialog.js';
+import './assistant_icon.m.js';
+import './assistant_common_styles.m.js';
+
+import {afterNextRender, html, mixinBehaviors, Polymer, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {MultiStepBehavior, MultiStepBehaviorInterface} from '../components/behaviors/multi_step_behavior.m.js';
+import {OobeDialogHostBehavior} from '../components/behaviors/oobe_dialog_host_behavior.m.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../components/behaviors/oobe_i18n_behavior.js';
+
+import {BrowserProxyImpl} from './browser_proxy.m.js';
+
+
+const AssistantLoadingUIState = {
   LOADING: 'loading',
   LOADED: 'loaded',
   ERROR: 'error',
 };
 
-Polymer({
-  is: 'assistant-loading',
+/**
+ * @constructor
+ * @extends {PolymerElement}
+ */
+const AssistantLoadingBase =
+    mixinBehaviors([OobeI18nBehavior, MultiStepBehavior], PolymerElement);
 
-  behaviors: [OobeI18nBehavior, MultiStepBehavior],
+/**
+ * @polymer
+ */
+class AssistantLoading extends AssistantLoadingBase {
+  static get is() {
+    return 'assistant-loading';
+  }
 
-  properties: {
+  static get template() {
+    return html`{__html_template__}`;
+  }
+
+  static get properties() {
+    return {
+      /**
+       * Buttons are disabled when the page content is loading.
+       */
+      buttonsDisabled: {
+        type: Boolean,
+        value: true,
+      },
+    };
+  }
+
+  constructor() {
+    super();
+
+    this.UI_STEPS = AssistantLoadingUIState;
+
     /**
-     * Buttons are disabled when the page content is loading.
+     * Whether an error occurs while the page is loading.
+     * @type {boolean}
+     * @private
      */
-    buttonsDisabled: {
-      type: Boolean,
-      value: true,
-    },
-  },
+    this.loadingError_ = false;
 
-  /**
-   * Whether an error occurs while the page is loading.
-   * @type {boolean}
-   * @private
-   */
-  loadingError_: false,
+    /**
+     * Timeout ID for loading animation.
+     * @type {number}
+     * @private
+     */
+    this.animationTimeout_ = null;
 
-  /**
-   * Timeout ID for loading animation.
-   * @type {number}
-   * @private
-   */
-  animationTimeout_: null,
+    /**
+     * Timeout ID for loading (will fire an error).
+     * @type {number}
+     * @private
+     */
+    this.loadingTimeout_ = null;
 
-  /**
-   * Timeout ID for loading (will fire an error).
-   * @type {number}
-   * @private
-   */
-  loadingTimeout_: null,
-
-  /** @private {?assistant.BrowserProxy} */
-  browserProxy_: null,
+    /** @private {?BrowserProxy} */
+    this.browserProxy_ = BrowserProxyImpl.getInstance();
+  }
 
   defaultUIStep() {
-    return UIState.LOADED;
-  },
+    return AssistantLoadingUIState.LOADED;
+  }
 
-  UI_STEPS: UIState,
 
   /**
    * On-tap event handler for retry button.
@@ -66,8 +105,9 @@ Polymer({
    * @private
    */
   onRetryTap_() {
-    this.fire('reload');
-  },
+    this.dispatchEvent(
+        new CustomEvent('reload', {bubbles: true, composed: true}));
+  }
 
   /**
    * On-tap event handler for skip button.
@@ -80,12 +120,7 @@ Polymer({
     }
     this.buttonsDisabled = true;
     this.browserProxy_.flowFinished();
-  },
-
-  /** @override */
-  created() {
-    this.browserProxy_ = assistant.BrowserProxyImpl.getInstance();
-  },
+  }
 
   /**
    * Reloads the page.
@@ -93,15 +128,13 @@ Polymer({
   reloadPage() {
     window.clearTimeout(this.animationTimeout_);
     window.clearTimeout(this.loadingTimeout_);
-    this.setUIStep(UIState.LOADED);
+    this.setUIStep(AssistantLoadingUIState.LOADED);
     this.buttonsDisabled = true;
-    this.animationTimeout_ = window.setTimeout(function() {
-      this.setUIStep(UIState.LOADING);
-    }.bind(this), 500);
-    this.loadingTimeout_ = window.setTimeout(function() {
-      this.onLoadingTimeout();
-    }.bind(this), 15000);
-  },
+    this.animationTimeout_ = window.setTimeout(
+        () => this.setUIStep(AssistantLoadingUIState.LOADING), 500);
+    this.loadingTimeout_ =
+        window.setTimeout(() => this.onLoadingTimeout(), 15000);
+  }
 
   /**
    * Handles event when page content cannot be loaded.
@@ -110,11 +143,11 @@ Polymer({
     this.loadingError_ = true;
     window.clearTimeout(this.animationTimeout_);
     window.clearTimeout(this.loadingTimeout_);
-    this.setUIStep(UIState.ERROR);
+    this.setUIStep(AssistantLoadingUIState.ERROR);
 
     this.buttonsDisabled = false;
     this.$['retry-button'].focus();
-  },
+  }
 
   /**
    * Handles event when all the page content has been loaded.
@@ -122,8 +155,8 @@ Polymer({
   onPageLoaded() {
     window.clearTimeout(this.animationTimeout_);
     window.clearTimeout(this.loadingTimeout_);
-    this.setUIStep(UIState.LOADED);
-  },
+    this.setUIStep(AssistantLoadingUIState.LOADED);
+  }
 
   /**
    * Called when the loading timeout is triggered.
@@ -131,14 +164,15 @@ Polymer({
   onLoadingTimeout() {
     this.browserProxy_.timeout();
     this.onErrorOccurred();
-  },
+  }
 
   /**
    * Signal from host to show the screen.
    */
   onShow() {
     this.reloadPage();
-    Polymer.RenderStatus.afterNextRender(
-        this, () => this.$['loading-dialog'].focus());
-  },
-});
+    afterNextRender(this, () => this.$['loading-dialog'].focus());
+  }
+}
+
+customElements.define(AssistantLoading.is, AssistantLoading);

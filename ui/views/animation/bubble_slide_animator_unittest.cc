@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/test/bind.h"
+#include "base/time/time.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/gfx/animation/animation_test_api.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"

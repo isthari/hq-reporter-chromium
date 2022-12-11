@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <string>
 
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
 #include "base/version.h"
 #include "base/win/scoped_handle.h"
 #include "build/build_config.h"
@@ -33,22 +32,22 @@ gfx::Transform XrPoseToGfxTransform(const XrPosef& pose) {
   decomp.translate[1] = pose.position.y;
   decomp.translate[2] = pose.position.z;
 
-  return gfx::ComposeTransform(decomp);
+  return gfx::Transform::Compose(decomp);
 }
 
 XrPosef GfxTransformToXrPose(const gfx::Transform& transform) {
-  gfx::DecomposedTransform decomposed_transform;
-  bool decomposition_result =
-      gfx::DecomposeTransform(&decomposed_transform, transform);
+  absl::optional<gfx::DecomposedTransform> decomposed_transform =
+      transform.Decompose();
   // This pose should always be a simple translation and rotation so this should
   // always be true
-  DCHECK(decomposition_result);
-  return {{static_cast<float>(decomposed_transform.quaternion.x()),
-           static_cast<float>(decomposed_transform.quaternion.y()),
-           static_cast<float>(decomposed_transform.quaternion.z()),
-           static_cast<float>(decomposed_transform.quaternion.w())},
-          {decomposed_transform.translate[0], decomposed_transform.translate[1],
-           decomposed_transform.translate[2]}};
+  DCHECK(decomposed_transform);
+  return {{static_cast<float>(decomposed_transform->quaternion.x()),
+           static_cast<float>(decomposed_transform->quaternion.y()),
+           static_cast<float>(decomposed_transform->quaternion.z()),
+           static_cast<float>(decomposed_transform->quaternion.w())},
+          {static_cast<float>(decomposed_transform->translate[0]),
+           static_cast<float>(decomposed_transform->translate[1]),
+           static_cast<float>(decomposed_transform->translate[2])}};
 }
 
 bool IsPoseValid(XrSpaceLocationFlags locationFlags) {
@@ -97,7 +96,7 @@ XrResult CreateInstance(
                                  version_info::GetMajorVersionNumber();
   errno_t error =
       strcpy_s(instance_create_info.applicationInfo.applicationName,
-               base::size(instance_create_info.applicationInfo.applicationName),
+               std::size(instance_create_info.applicationInfo.applicationName),
                application_name.c_str());
   DCHECK_EQ(error, 0);
 
@@ -109,7 +108,7 @@ XrResult CreateInstance(
   instance_create_info.applicationInfo.applicationVersion = build;
 
   error = strcpy_s(instance_create_info.applicationInfo.engineName,
-                   base::size(instance_create_info.applicationInfo.engineName),
+                   std::size(instance_create_info.applicationInfo.engineName),
                    "Chromium");
   DCHECK_EQ(error, 0);
 
@@ -164,6 +163,9 @@ XrResult CreateInstance(
           XR_MSFT_SECONDARY_VIEW_CONFIGURATION_EXTENSION_NAME)) {
     EnableExtensionIfSupported(XR_MSFT_FIRST_PERSON_OBSERVER_EXTENSION_NAME);
   }
+
+  EnableExtensionIfSupported(
+      XR_KHR_WIN32_CONVERT_PERFORMANCE_COUNTER_TIME_EXTENSION_NAME);
 
   instance_create_info.enabledExtensionCount =
       static_cast<uint32_t>(extensions.size());

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@
 #include <memory>
 #include <vector>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "ui/gfx/geometry/size.h"
@@ -60,6 +62,9 @@ class WaylandCanvasSurface : public SurfaceOzoneCanvas,
   void PresentCanvas(const gfx::Rect& damage) override;
   std::unique_ptr<gfx::VSyncProvider> CreateVSyncProvider() override;
   bool SupportsOverridePlatformSize() const override;
+  bool SupportsAsyncBufferSwap() const override;
+  void OnSwapBuffers(SwapBuffersCallback swap_ack_callback,
+                     gl::FrameData data) override;
 
  private:
   // Internal helper class, which creates a shared memory region, asks the
@@ -73,16 +78,16 @@ class WaylandCanvasSurface : public SurfaceOzoneCanvas,
   void ProcessUnsubmittedBuffers();
 
   // WaylandSurfaceGpu overrides:
-  void OnSubmission(uint32_t buffer_id,
+  void OnSubmission(uint32_t frame_id,
                     const gfx::SwapResult& swap_result,
                     gfx::GpuFenceHandle release_fence) override;
-  void OnPresentation(uint32_t buffer_id,
+  void OnPresentation(uint32_t frame_id,
                       const gfx::PresentationFeedback& feedback) override;
 
   sk_sp<SkSurface> GetNextSurface();
   std::unique_ptr<SharedMemoryBuffer> CreateSharedMemoryBuffer();
 
-  WaylandBufferManagerGpu* const buffer_manager_;
+  const raw_ptr<WaylandBufferManagerGpu> buffer_manager_;
   const gfx::AcceleratedWidget widget_;
 
   gfx::Size size_;
@@ -94,14 +99,14 @@ class WaylandCanvasSurface : public SurfaceOzoneCanvas,
 
   // Pending buffer that is to be placed into the |unsubmitted_buffers_| to be
   // processed.
-  SharedMemoryBuffer* pending_buffer_ = nullptr;
+  raw_ptr<SharedMemoryBuffer, DanglingUntriaged> pending_buffer_ = nullptr;
 
   // Currently used buffer. Set on PresentCanvas() and released on
   // OnSubmission() call.
-  SharedMemoryBuffer* current_buffer_ = nullptr;
+  raw_ptr<SharedMemoryBuffer, DanglingUntriaged> current_buffer_ = nullptr;
 
   // Previously used buffer. Set on OnSubmission().
-  SharedMemoryBuffer* previous_buffer_ = nullptr;
+  raw_ptr<SharedMemoryBuffer, DanglingUntriaged> previous_buffer_ = nullptr;
 
   // Used by the internal VSyncProvider implementation. Set on OnPresentation().
   base::TimeTicks last_timestamp_;

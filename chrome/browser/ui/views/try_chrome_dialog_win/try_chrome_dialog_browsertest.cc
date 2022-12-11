@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include "base/command_line.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
 #include "chrome/common/chrome_result_codes.h"
@@ -114,6 +114,7 @@ class TryChromeDialogBrowserTestBase : public InProcessBrowserTest {
   // content:BrowserTestBase:
   void SetUpOnMainThread() override {
     dialog_ = base::WrapUnique(new TryChromeDialog(group_, &delegate_));
+    dialog_->BypassTaskbarIconSearchForTesting();
   }
   void TearDownInProcessBrowserTestFixture() override { dialog_.reset(); }
 
@@ -140,7 +141,7 @@ class TryChromeDialogBrowserTestBase : public InProcessBrowserTest {
   // Posts a task to the UI thread to simulate a rendezvous from another browser
   // process.
   void PostRendezvousTask() {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&TryChromeDialog::OnProcessNotification,
                                   base::Unretained(dialog_.get())));
   }

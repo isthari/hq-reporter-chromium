@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/task_observer.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "content/browser/child_process_security_policy_impl.h"
@@ -68,7 +67,7 @@ void DeferredQuitRunLoop(base::OnceClosure quit_task, int num_quit_deferrals) {
   if (num_quit_deferrals <= 0) {
     std::move(quit_task).Run();
   } else {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&DeferredQuitRunLoop, std::move(quit_task),
                                   num_quit_deferrals - 1));
   }
@@ -133,13 +132,7 @@ blink::mojom::FetchAPIRequestPtr CreateFetchAPIRequest(
 }
 
 void RunMessageLoop() {
-  base::RunLoop run_loop;
-  RunThisRunLoop(&run_loop);
-}
-
-void RunThisRunLoop(base::RunLoop* run_loop) {
-  base::CurrentThread::ScopedNestableTaskAllower allow;
-  run_loop->Run();
+  base::RunLoop(base::RunLoop::Type::kNestableTasksAllowed).Run();
 }
 
 void RunAllPendingInMessageLoop() {
@@ -251,16 +244,16 @@ bool CanSameSiteMainFrameNavigationsChangeRenderFrameHosts() {
 
 bool CanSameSiteMainFrameNavigationsChangeSiteInstances() {
   return IsProactivelySwapBrowsingInstanceOnSameSiteNavigationEnabled() ||
-         IsSameSiteBackForwardCacheEnabled();
+         IsBackForwardCacheEnabled();
 }
 
 void DisableProactiveBrowsingInstanceSwapFor(RenderFrameHost* rfh) {
   if (!CanSameSiteMainFrameNavigationsChangeSiteInstances())
     return;
-  // If the RFH is not a main frame, navigations on it will never result in a
-  // proactive BrowsingInstance swap, so we shouldn't call this function on
+  // If the RFH is not a primary main frame, navigations on it will never result
+  // in a proactive BrowsingInstance swap, so we shouldn't call this function on
   // subframes.
-  DCHECK(!rfh->GetParent());
+  DCHECK(rfh->IsInPrimaryMainFrame());
   static_cast<RenderFrameHostImpl*>(rfh)
       ->DisableProactiveBrowsingInstanceSwapForTesting();
 }
@@ -286,8 +279,11 @@ WebContents* CreateAndAttachInnerContents(RenderFrameHost* rfh) {
 
   // Attach. |inner_contents| becomes owned by |outer_contents|.
   WebContents* inner_contents = inner_contents_ptr.get();
-  outer_contents->AttachInnerWebContents(std::move(inner_contents_ptr), rfh,
-                                         false /* is_full_page */);
+  outer_contents->AttachInnerWebContents(
+      std::move(inner_contents_ptr), rfh,
+      /*remote_frame=*/mojo::NullAssociatedRemote(),
+      /*remote_frame_host_receiver=*/mojo::NullAssociatedReceiver(),
+      /*is_full_page=*/false);
 
   return inner_contents;
 }
@@ -341,7 +337,7 @@ void MessageLoopRunner::Run() {
     return;
 
   loop_running_ = true;
-  RunThisRunLoop(&run_loop_);
+  run_loop_.Run();
 }
 
 base::OnceClosure MessageLoopRunner::QuitClosure() {
@@ -413,6 +409,21 @@ void WindowedNotificationObserver::Observe(int type,
   if (!callback_.is_null() && !callback_.Run(source, details))
     return;
 
+  seen_ = true;
+  run_loop_.Quit();
+}
+
+LoadStopObserver::LoadStopObserver(WebContents* web_contents)
+    : WebContentsObserver(web_contents) {}
+
+void LoadStopObserver::Wait() {
+  if (!seen_)
+    run_loop_.Run();
+
+  EXPECT_TRUE(seen_);
+}
+
+void LoadStopObserver::DidStopLoading() {
   seen_ = true;
   run_loop_.Quit();
 }
@@ -507,7 +518,7 @@ bool RenderFrameHostWrapper::IsDestroyed() const {
 
 // See RenderFrameDeletedObserver for notes on the difference between
 // RenderFrame being deleted and RenderFrameHost being destroyed.
-bool RenderFrameHostWrapper::WaitUntilRenderFrameDeleted() {
+bool RenderFrameHostWrapper::WaitUntilRenderFrameDeleted() const {
   return deleted_observer_->WaitUntilDeleted();
 }
 

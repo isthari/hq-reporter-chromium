@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include "base/base64.h"
 #include "base/bind.h"
 #include "base/callback_helpers.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/payments/content/icon/icon_size.h"
 #include "content/browser/renderer_host/render_frame_host_impl.h"
-#include "content/browser/storage_partition_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -45,7 +45,7 @@ void OnIconFetched(
 
   if (bitmap.drawsNothing()) {
     if (icons.empty()) {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(callback), std::string()));
     } else {
       // If could not download or decode the chosen image(e.g. not supported,
@@ -64,7 +64,7 @@ void OnIconFetched(
       base::StringPiece(reinterpret_cast<const char*>(&bitmap_data[0]),
                         bitmap_data.size()),
       &encoded_data);
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), encoded_data));
 }
 
@@ -79,7 +79,7 @@ void DownloadBestMatchingIcon(
   WebContents* web_contents =
       GetWebContentsFromFrameRoutingIds(scope, *frame_routing_ids);
   if (web_contents == nullptr) {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), std::string()));
     return;
   }
@@ -95,7 +95,7 @@ void DownloadBestMatchingIcon(
     // developers in advance unlike when fetching or decoding fails. We already
     // checked whether they are valid in renderer side. So, if the icon url is
     // invalid, it's something wrong.
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), std::string()));
     return;
   }

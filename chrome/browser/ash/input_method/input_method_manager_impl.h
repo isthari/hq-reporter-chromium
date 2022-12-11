@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,30 +20,31 @@
 #include "chrome/browser/ash/input_method/candidate_window_controller.h"
 #include "chrome/browser/ash/input_method/ime_service_connector.h"
 #include "chrome/browser/profiles/profile.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
-// TODO(https://crbug.com/1164001): remove and use forward declaration.
-#include "ui/base/ime/ash/component_extension_ime_manager.h"
-#include "ui/base/ime/ash/ime_engine_handler_interface.h"
-// TODO(https://crbug.com/1164001): remove and use forward declaration.
-#include "ui/base/ime/ash/ime_keyboard.h"
-// TODO(https://crbug.com/1164001): remove and use forward declaration.
-#include "ui/base/ime/ash/input_method_delegate.h"
 #include "ui/base/ime/ash/input_method_manager.h"
 #include "ui/base/ime/ash/input_method_util.h"
+#include "ui/base/ime/ash/text_input_method.h"
 
 namespace ui {
-class IMEEngineHandlerInterface;
+class TextInputMethod;
 }  // namespace ui
 
 namespace ash {
+
+class ComponentExtensionIMEManager;
+class ComponentExtensionIMEManagerDelegate;
+class ImeKeyboard;
+class InputMethodDelegate;
+
+namespace ime {
+struct AssistiveWindow;
+}  // namespace ime
+
 namespace input_method {
 
 // The implementation of InputMethodManager.
 class InputMethodManagerImpl : public InputMethodManager,
                                public CandidateWindowController::Observer,
-                               public AssistiveWindowControllerDelegate,
-                               public content::NotificationObserver {
+                               public AssistiveWindowControllerDelegate {
  public:
   class StateImpl : public InputMethodManager::State {
    public:
@@ -71,10 +72,9 @@ class InputMethodManagerImpl : public InputMethodManager,
 
     // InputMethodManager::State overrides.
     scoped_refptr<InputMethodManager::State> Clone() const override;
-    void AddInputMethodExtension(
-        const std::string& extension_id,
-        const InputMethodDescriptors& descriptors,
-        ui::IMEEngineHandlerInterface* instance) override;
+    void AddInputMethodExtension(const std::string& extension_id,
+                                 const InputMethodDescriptors& descriptors,
+                                 ui::TextInputMethod* instance) override;
     void RemoveInputMethodExtension(const std::string& extension_id) override;
     void ChangeInputMethod(const std::string& input_method_id,
                            bool show_message) override;
@@ -86,12 +86,11 @@ class InputMethodManagerImpl : public InputMethodManager,
     void EnableLoginLayouts(
         const std::string& language_code,
         const std::vector<std::string>& initial_layouts) override;
-    void EnableLockScreenLayouts() override;
+    void DisableNonLockScreenLayouts() override;
     void GetInputMethodExtensions(InputMethodDescriptors* result) override;
-    std::unique_ptr<InputMethodDescriptors>
-    GetEnabledInputMethodsSortedByLocalizedDisplayNames() const override;
-    std::unique_ptr<InputMethodDescriptors> GetEnabledInputMethods()
+    InputMethodDescriptors GetEnabledInputMethodsSortedByLocalizedDisplayNames()
         const override;
+    InputMethodDescriptors GetEnabledInputMethods() const override;
     const std::vector<std::string>& GetEnabledInputMethodIds() const override;
     const InputMethodDescriptor* GetInputMethodFromId(
         const std::string& input_method_id) const override;
@@ -106,9 +105,9 @@ class InputMethodManagerImpl : public InputMethodManager,
     bool ReplaceEnabledInputMethods(
         const std::vector<std::string>& new_enabled_input_method_ids) override;
     bool SetAllowedInputMethods(
-        const std::vector<std::string>& new_allowed_input_method_ids,
-        bool enable_allowed_input_methods) override;
+        const std::vector<std::string>& new_allowed_input_method_ids) override;
     const std::vector<std::string>& GetAllowedInputMethodIds() const override;
+    std::string GetAllowedFallBackKeyboardLayout() const override;
     void EnableInputView() override;
     void DisableInputView() override;
     const GURL& GetInputViewUrl() const override;
@@ -133,10 +132,6 @@ class InputMethodManagerImpl : public InputMethodManager,
     // called, the passed keyboard layout input methods are allowed and all
     // non-keyboard input methods remain to be allowed.
     bool IsInputMethodAllowed(const std::string& input_method_id) const;
-
-    // Returns the first hardware input method that is allowed or the first
-    // allowed input method, if no hardware input method is allowed.
-    std::string GetAllowedFallBackKeyboardLayout() const;
 
     // Returns Input Method that best matches given id.
     const InputMethodDescriptor* LookupInputMethod(
@@ -213,8 +208,7 @@ class InputMethodManagerImpl : public InputMethodManager,
       InputMethodManager::ImeMenuObserver* observer) override;
   void ActivateInputMethodMenuItem(const std::string& key) override;
   void ConnectInputEngineManager(
-      mojo::PendingReceiver<chromeos::ime::mojom::InputEngineManager> receiver)
-      override;
+      mojo::PendingReceiver<ime::mojom::InputEngineManager> receiver) override;
   bool IsISOLevel5ShiftUsedByCurrentInputMethod() const override;
   bool IsAltGrUsedByCurrentInputMethod() const override;
   bool ArePositionalShortcutsUsedByCurrentInputMethod() const override;
@@ -226,7 +220,6 @@ class InputMethodManagerImpl : public InputMethodManager,
   void SetImeMenuFeatureEnabled(ImeMenuFeature feature, bool enabled) override;
   bool GetImeMenuFeatureEnabled(ImeMenuFeature feature) const override;
   void NotifyObserversImeExtraInputStateChange() override;
-  ui::VirtualKeyboardController* GetVirtualKeyboardController() override;
   void NotifyInputMethodExtensionAdded(
       const std::string& extension_id) override;
   void NotifyInputMethodExtensionRemoved(
@@ -242,10 +235,7 @@ class InputMethodManagerImpl : public InputMethodManager,
   void SetState(scoped_refptr<InputMethodManager::State> state) override;
   void ImeMenuActivationChanged(bool is_active) override;
 
-  // content::NotificationObserver overrides:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
+  void OnAppTerminating();
 
  private:
   // CandidateWindowController::Observer overrides:
@@ -256,6 +246,8 @@ class InputMethodManagerImpl : public InputMethodManager,
   // AssistiveWindowControllerDelegate overrides:
   void AssistiveWindowButtonClicked(
       const ui::ime::AssistiveWindowButton& button) const override;
+  void AssistiveWindowChanged(
+      const ash::ime::AssistiveWindow& window) const override;
 
   // Creates and initializes |candidate_window_controller_| if it hasn't been
   // done.
@@ -325,7 +317,7 @@ class InputMethodManagerImpl : public InputMethodManager,
   uint32_t features_enabled_state_;
 
   // The engine map from extension_id to an engine.
-  using EngineMap = std::map<std::string, ui::IMEEngineHandlerInterface*>;
+  using EngineMap = std::map<std::string, ui::TextInputMethod*>;
   using ProfileEngineMap = std::map<Profile*, EngineMap, ProfileCompare>;
   ProfileEngineMap engine_map_;
 
@@ -335,17 +327,10 @@ class InputMethodManagerImpl : public InputMethodManager,
           ImeServiceConnectorMap;
   ImeServiceConnectorMap ime_service_connectors_;
 
-  content::NotificationRegistrar notification_registrar_;
+  base::CallbackListSubscription on_app_terminating_subscription_;
 };
 
 }  // namespace input_method
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when ChromeOS code migration is done.
-namespace chromeos {
-namespace input_method {
-using ::ash::input_method::InputMethodManagerImpl;
-}  // namespace input_method
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_INPUT_METHOD_INPUT_METHOD_MANAGER_IMPL_H_

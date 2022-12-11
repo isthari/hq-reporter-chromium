@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,6 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "chrome/browser/ash/arc/policy/arc_policy_util.h"
@@ -53,7 +52,7 @@
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
-#include "components/version_info/version_info.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
@@ -61,6 +60,10 @@
 #include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
+
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
 
 namespace arc {
 
@@ -140,9 +143,9 @@ bool IsUnaffiliatedArcAllowed() {
       case ArcSessionManager::State::STOPPED:
         // Apply logic below
         break;
-      case ArcSessionManager::State::NEGOTIATING_TERMS_OF_SERVICE:
-      case ArcSessionManager::State::CHECKING_ANDROID_MANAGEMENT:
+      case ArcSessionManager::State::CHECKING_REQUIREMENTS:
       case ArcSessionManager::State::REMOVING_DATA_DIR:
+      case ArcSessionManager::State::READY:
       case ArcSessionManager::State::ACTIVE:
       case ArcSessionManager::State::STOPPING:
         // Never forbid unaffiliated ARC while ARC is running
@@ -228,9 +231,16 @@ void SharePathIfRequired(ConvertToContentUrlsAndShareCallback callback,
     return;
   }
 
+  const auto& vm_info = arc::ArcSessionManager::Get()->GetVmInfo();
+  if (!vm_info) {
+    LOG(WARNING) << "ARCVM not running, cannot share paths";
+    std::move(callback).Run(std::vector<GURL>());
+    return;
+  }
   guest_os::GuestOsSharePath::GetForProfile(
       ProfileManager::GetPrimaryUserProfile())
-      ->SharePaths(arc::kArcVmName, path_list, /*persist=*/false,
+      ->SharePaths(arc::kArcVmName, vm_info->seneschal_server_handle(),
+                   path_list,
                    base::BindOnce(
                        [](ConvertToContentUrlsAndShareCallback callback,
                           const std::vector<GURL>& content_urls, bool success,
@@ -250,7 +260,7 @@ void SharePathIfRequired(ConvertToContentUrlsAndShareCallback callback,
 
 bool IsRealUserProfile(const Profile* profile) {
   // Return false for signin, lock screen and incognito profiles.
-  return profile && ash::ProfileHelper::IsRegularProfile(profile) &&
+  return profile && ash::ProfileHelper::IsUserProfile(profile) &&
          !profile->IsOffTheRecord();
 }
 
@@ -368,7 +378,7 @@ bool SetArcPlayStoreEnabledForProfile(Profile* profile, bool enabled) {
       if (ash::switches::IsTabletFormFactor()) {
         VLOG(1) << "Showing contact admin dialog managed user of tablet form "
                    "factor devices.";
-        base::ThreadTaskRunnerHandle::Get()->PostTask(
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
             FROM_HERE, base::BindOnce(&ShowContactAdminDialog));
       }
       return false;
@@ -383,10 +393,12 @@ bool SetArcPlayStoreEnabledForProfile(Profile* profile, bool enabled) {
     // |arc_session_manager| can be nullptr in unit_tests.
     if (!arc_session_manager)
       return false;
-    if (enabled)
+    if (enabled) {
+      arc_session_manager->AllowActivation();
       arc_session_manager->RequestEnable();
-    else
+    } else {
       arc_session_manager->RequestDisableWithArcDataRemoval();
+    }
 
     return true;
   }
@@ -445,12 +457,12 @@ bool IsArcOobeOptInConfigurationBased() {
   if (!oobe_configuration->CheckCompleted())
     return false;
   // Check configuration value that triggers automatic ARC TOS acceptance.
-  auto& configuration = oobe_configuration->GetConfiguration();
-  auto* auto_accept = configuration.FindKeyOfType(
-      ash::configuration::kArcTosAutoAccept, base::Value::Type::BOOLEAN);
+  auto& configuration = oobe_configuration->configuration();
+  auto auto_accept =
+      configuration.FindBool(ash::configuration::kArcTosAutoAccept);
   if (!auto_accept)
     return false;
-  return auto_accept->GetBool();
+  return *auto_accept;
 }
 
 bool IsArcTermsOfServiceNegotiationNeeded(const Profile* profile) {
@@ -602,10 +614,7 @@ bool IsPlayStoreAvailable() {
   if (!ash::DemoSession::IsDeviceInDemoMode())
     return false;
 
-  // TODO(b/154290639): Remove check for |IsDemoModeOfflineEnrolled| when fixed
-  //                    in Play Store.
-  return !ash::DemoSession::IsDemoModeOfflineEnrolled() &&
-         chromeos::features::ShouldShowPlayStoreInDemoMode();
+  return ash::features::ShouldShowPlayStoreInDemoMode();
 }
 
 bool ShouldStartArcSilentlyForManagedProfile(const Profile* profile) {
@@ -639,8 +648,7 @@ std::unique_ptr<content::WebContents> CreateArcCustomTabWebContents(
   // also for |structured_ua.platform_version| below.
   constexpr char kOsOverrideForTabletSite[] = "Linux; Android 9; Chrome tablet";
   // Override the user agent to request mobile version web sites.
-  const std::string product =
-      version_info::GetProductNameAndVersionForUserAgent();
+  const std::string product = embedder_support::GetProductAndVersion();
   blink::UserAgentOverride ua_override;
   ua_override.ua_string_override = content::BuildUserAgentFromOSAndProduct(
       kOsOverrideForTabletSite, product);
@@ -677,8 +685,7 @@ std::string GetHistogramNameByUserType(const std::string& base_name,
   if (IsRobotOrOfflineDemoAccountMode()) {
     auto* demo_session = ash::DemoSession::Get();
     if (demo_session && demo_session->started()) {
-      return demo_session->offline_enrolled() ? base_name + ".OfflineDemoMode"
-                                              : base_name + ".DemoMode";
+      return base_name + ".DemoMode";
     }
     return base_name + ".RobotAccount";
   }

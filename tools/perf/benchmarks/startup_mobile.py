@@ -1,4 +1,4 @@
-# Copyright 2018 The Chromium Authors. All rights reserved.
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -68,7 +68,6 @@ from devil.android.sdk import intent # pylint: disable=import-error
 # Note: "startup_mobile_benchmark" instead of "startup.mobile".
 
 _NUMBER_OF_ITERATIONS = 10
-_NUMBER_OF_ITERATIONS_FOR_WEBLAYER = 20
 _MAX_BATTERY_TEMP = 32
 
 class _MobileStartupSharedState(story_module.SharedState):
@@ -103,9 +102,6 @@ class _MobileStartupSharedState(story_module.SharedState):
     self.platform.InstallApplication(maps_webapk)
     wpr_mode = wpr_modes.WPR_REPLAY
     self._number_of_iterations = _NUMBER_OF_ITERATIONS
-    if 'android-weblayer' in self._possible_browser.GetTypExpectationsTags():
-      # As discussed in crbug.com/1032364, use a higher number to reduce noise.
-      self._number_of_iterations = _NUMBER_OF_ITERATIONS_FOR_WEBLAYER
     if finder_options.use_live_sites:
       wpr_mode = wpr_modes.WPR_OFF
     elif finder_options.browser_options.wpr_mode == wpr_modes.WPR_RECORD:
@@ -210,12 +206,12 @@ class _MobileStartupSharedState(story_module.SharedState):
     return True
 
 
-def _DriveMobileStartupWithIntent(state, flush_caches):
-  for _ in range(state.number_of_iterations):
+def _DriveMobileStartupWithIntent(shared_state, flush_caches):
+  for _ in range(shared_state.number_of_iterations):
     # TODO(pasko): Find a way to fail the benchmark when WPR is set up
     # incorrectly and error pages get loaded.
-    state.LaunchBrowser('http://bbc.co.uk', flush_caches)
-    with state.FindBrowser() as browser:
+    shared_state.LaunchBrowser('http://bbc.co.uk', flush_caches)
+    with shared_state.FindBrowser() as browser:
       action_runner = browser.foreground_tab.action_runner
       action_runner.tab.WaitForDocumentReadyStateToBeComplete()
 
@@ -225,8 +221,8 @@ class _MobileStartupWithIntentStory(story_module.Story):
     super(_MobileStartupWithIntentStory, self).__init__(
         _MobileStartupSharedState, name='intent:coldish:bbc')
 
-  def Run(self, state):
-    _DriveMobileStartupWithIntent(state, flush_caches=True)
+  def Run(self, shared_state):
+    _DriveMobileStartupWithIntent(shared_state, flush_caches=True)
 
 
 class _MobileStartupWithIntentStoryWarm(story_module.Story):
@@ -234,8 +230,8 @@ class _MobileStartupWithIntentStoryWarm(story_module.Story):
     super(_MobileStartupWithIntentStoryWarm, self).__init__(
         _MobileStartupSharedState, name='intent:warm:bbc')
 
-  def Run(self, state):
-    _DriveMobileStartupWithIntent(state, flush_caches=False)
+  def Run(self, shared_state):
+    _DriveMobileStartupWithIntent(shared_state, flush_caches=False)
 
 
 class _MobileStartupWithCctIntentStory(story_module.Story):
@@ -243,10 +239,10 @@ class _MobileStartupWithCctIntentStory(story_module.Story):
     super(_MobileStartupWithCctIntentStory, self).__init__(
         _MobileStartupSharedState, name='cct:coldish:bbc')
 
-  def Run(self, state):
-    for _ in range(state.number_of_iterations):
-      state.LaunchCCT('http://bbc.co.uk')
-      with state.FindBrowser() as browser:
+  def Run(self, shared_state):
+    for _ in range(shared_state.number_of_iterations):
+      shared_state.LaunchCCT('http://bbc.co.uk')
+      with shared_state.FindBrowser() as browser:
         action_runner = browser.foreground_tab.action_runner
         action_runner.tab.WaitForDocumentReadyStateToBeComplete()
 
@@ -256,11 +252,11 @@ class _MapsPwaStartupStory(story_module.Story):
     super(_MapsPwaStartupStory, self).__init__(
         _MobileStartupSharedState, name='maps_pwa:with_http_cache')
 
-  def Run(self, state):
-    for _ in range(state.number_of_iterations):
+  def Run(self, shared_state):
+    for _ in range(shared_state.number_of_iterations):
       # TODO(pasko): Flush HTTP cache for 'maps_pwa:no_http_cache'.
-      state.LaunchMapsPwa()
-      with state.FindBrowser() as browser:
+      shared_state.LaunchMapsPwa()
+      with shared_state.FindBrowser() as browser:
         action_runner = browser.foreground_tab.action_runner
         action_runner.tab.WaitForDocumentReadyStateToBeComplete()
 

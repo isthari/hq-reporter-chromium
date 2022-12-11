@@ -1,27 +1,27 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/app_restore/full_restore_service.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
+#include "base/command_line.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_util.h"
 #include "chrome/app/vector_icons/vector_icons.h"
-#include "chrome/browser/apps/app_service/app_service_proxy.h"
-#include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
-#include "chrome/browser/apps/app_service/browser_app_instance_registry.h"
 #include "chrome/browser/ash/app_restore/app_restore_arc_task_handler.h"
 #include "chrome/browser/ash/app_restore/full_restore_app_launch_handler.h"
 #include "chrome/browser/ash/app_restore/full_restore_data_handler.h"
 #include "chrome/browser/ash/app_restore/full_restore_prefs.h"
 #include "chrome/browser/ash/app_restore/full_restore_service_factory.h"
-#include "chrome/browser/ash/app_restore/lacros_window_handler.h"
 #include "chrome/browser/ash/app_restore/new_user_restore_pref_handler.h"
+#include "chrome/browser/ash/policy/scheduled_task_handler/reboot_notifications_scheduler.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/first_run/first_run.h"
+#include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
@@ -30,20 +30,41 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/account_id/account_id.h"
+#include "components/app_restore/app_restore_info.h"
 #include "components/app_restore/features.h"
-#include "components/app_restore/full_restore_info.h"
 #include "components/app_restore/full_restore_save_handler.h"
 #include "components/app_restore/full_restore_utils.h"
 #include "components/prefs/pref_service.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_source.h"
+#include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/chromeos/devicetype_utils.h"
 #include "ui/message_center/public/cpp/notification.h"
 
-namespace ash {
-namespace full_restore {
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
+
+namespace ash::full_restore {
+
+namespace {
+
+// If the reboot occurred due to DeviceScheduledRebootPolicy, change the title
+// to notify the user that the device was rebooted by the administrator.
+int GetRestoreNotificationTitleId(Profile* profile) {
+  if (policy::RebootNotificationsScheduler::ShouldShowPostRebootNotification(
+          profile)) {
+    return IDS_POLICY_DEVICE_POST_REBOOT_TITLE;
+  }
+  return IDS_RESTORE_NOTIFICATION_TITLE;
+}
+
+// Returns true if `profile` is the primary user profile.
+bool IsPrimaryUser(Profile* profile) {
+  return ProfileHelper::Get()->GetUserByProfile(profile) ==
+         user_manager::UserManager::Get()->GetPrimaryUser();
+}
+
+}  // namespace
 
 bool g_restore_for_testing = true;
 
@@ -86,8 +107,7 @@ FullRestoreService* FullRestoreService::GetForProfile(Profile* profile) {
 
 // static
 void FullRestoreService::MaybeCloseNotification(Profile* profile) {
-  auto* full_restore_service =
-      ash::full_restore::FullRestoreService::GetForProfile(profile);
+  auto* full_restore_service = FullRestoreService::GetForProfile(profile);
   if (full_restore_service)
     full_restore_service->MaybeCloseNotification();
 }
@@ -99,8 +119,9 @@ FullRestoreService::FullRestoreService(Profile* profile)
           /*should_init_service=*/true)),
       restore_data_handler_(
           std::make_unique<FullRestoreDataHandler>(profile_)) {
-  notification_registrar_.Add(this, chrome::NOTIFICATION_APP_TERMINATING,
-                              content::NotificationService::AllSources());
+  on_app_terminating_subscription_ =
+      browser_shutdown::AddAppTerminatingCallback(base::BindOnce(
+          &FullRestoreService::OnAppTerminating, base::Unretained(this)));
 
   PrefService* prefs = profile_->GetPrefs();
   DCHECK(prefs);
@@ -114,24 +135,15 @@ FullRestoreService::FullRestoreService(Profile* profile)
   const user_manager::User* user =
       ProfileHelper::Get()->GetUserByProfile(profile_);
   if (user) {
-    ::full_restore::FullRestoreInfo::GetInstance()->SetRestorePref(
+    ::app_restore::AppRestoreInfo::GetInstance()->SetRestorePref(
         user->GetAccountId(), CanPerformRestore(prefs));
   }
 
   // Set profile path before init the restore process to create
   // FullRestoreSaveHandler to observe restore windows.
-  if (ProfileHelper::Get()->GetUserByProfile(profile_) ==
-      user_manager::UserManager::Get()->GetPrimaryUser()) {
+  if (IsPrimaryUser(profile_)) {
     ::full_restore::FullRestoreSaveHandler::GetInstance()
         ->SetPrimaryProfilePath(profile_->GetPath());
-
-    auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile_);
-    if (proxy && proxy->BrowserAppInstanceRegistry() &&
-        ::full_restore::features::IsFullRestoreForLacrosEnabled()) {
-      lacros_window_handler_ =
-          std::make_unique<app_restore::LacrosWindowHandler>(
-              *proxy->BrowserAppInstanceRegistry());
-    }
 
     // In Multi-Profile mode, only set for the primary user. For other users,
     // active profile path is set when switch users.
@@ -155,7 +167,7 @@ FullRestoreService::FullRestoreService(Profile* profile)
 
 FullRestoreService::~FullRestoreService() = default;
 
-void FullRestoreService::Init() {
+void FullRestoreService::Init(bool& show_notification) {
   // If it is the first time to migrate to the full restore release, we don't
   // have other restore data, so we don't need to consider restoration.
   if (first_run_full_restore_)
@@ -185,7 +197,8 @@ void FullRestoreService::Init() {
     if (!HasRestorePref(prefs))
       SetDefaultRestorePrefIfNecessary(prefs);
 
-    MaybeShowRestoreNotification(kRestoreForCrashNotificationId);
+    MaybeShowRestoreNotification(kRestoreForCrashNotificationId,
+                                 show_notification);
     return;
   }
 
@@ -207,7 +220,7 @@ void FullRestoreService::Init() {
       Restore();
       break;
     case RestoreOption::kAskEveryTime:
-      MaybeShowRestoreNotification(kRestoreNotificationId);
+      MaybeShowRestoreNotification(kRestoreNotificationId, show_notification);
       break;
     case RestoreOption::kDoNotRestore:
       ::full_restore::FullRestoreSaveHandler::GetInstance()->AllowSave();
@@ -221,7 +234,8 @@ void FullRestoreService::OnTransitionedToNewActiveUser(Profile* profile) {
     return;
 
   can_be_inited_ = true;
-  Init();
+  bool show_notification = false;
+  Init(show_notification);
 }
 
 void FullRestoreService::LaunchBrowserWhenReady() {
@@ -247,6 +261,11 @@ void FullRestoreService::MaybeCloseNotification(bool allow_save) {
     // timer.
     ::full_restore::FullRestoreSaveHandler::GetInstance()->AllowSave();
   }
+}
+
+void FullRestoreService::Restore() {
+  if (app_launch_handler_)
+    app_launch_handler_->SetShouldRestore();
 }
 
 void FullRestoreService::Close(bool by_user) {
@@ -303,10 +322,7 @@ void FullRestoreService::Click(const absl::optional<int>& button_index,
   MaybeCloseNotification();
 }
 
-void FullRestoreService::Observe(int type,
-                                 const content::NotificationSource& source,
-                                 const content::NotificationDetails& details) {
-  DCHECK_EQ(chrome::NOTIFICATION_APP_TERMINATING, type);
+void FullRestoreService::OnAppTerminating() {
   if (auto* arc_task_handler =
           app_restore::AppRestoreArcTaskHandler::GetForProfile(profile_)) {
     arc_task_handler->Shutdown();
@@ -392,9 +408,19 @@ bool FullRestoreService::CanBeInited() {
   return true;
 }
 
-void FullRestoreService::MaybeShowRestoreNotification(const std::string& id) {
+void FullRestoreService::MaybeShowRestoreNotification(const std::string& id,
+                                                      bool& show_notification) {
   if (!ShouldShowNotification())
     return;
+
+  // TODO(crbug.com/1353119): Update this logic once PM/UX have decided on how
+  // glanceables interact with full restore. For now, suppress the non-crash
+  // full restore notification for the primary user, because glanceables are
+  // only shown for the primary user.
+  if (features::AreGlanceablesEnabled() && id == kRestoreNotificationId &&
+      IsPrimaryUser(profile_)) {
+    return;
+  }
 
   // If the system is restored from crash, create the crash lock for the browser
   // session restore to help set the browser saving flag.
@@ -403,7 +429,7 @@ void FullRestoreService::MaybeShowRestoreNotification(const std::string& id) {
   if (id == kRestoreForCrashNotificationId && exit_type_service)
     crashed_lock_ = exit_type_service->CreateCrashedLock();
 
-  auto* accelerator_controller = ash::AcceleratorController::Get();
+  auto* accelerator_controller = AcceleratorController::Get();
   if (accelerator_controller) {
     DCHECK(!accelerator_controller_observer_.IsObserving());
     accelerator_controller_observer_.Observe(accelerator_controller);
@@ -431,7 +457,7 @@ void FullRestoreService::MaybeShowRestoreNotification(const std::string& id) {
     VLOG(1) << "Show the restore notification for crash for "
             << profile_->GetPath();
   } else {
-    title = l10n_util::GetStringUTF16(IDS_RESTORE_NOTIFICATION_TITLE);
+    title = l10n_util::GetStringUTF16(GetRestoreNotificationTitleId(profile_));
     VLOG(1) << "Show the restore notification for the normal startup for "
             << profile_->GetPath();
   }
@@ -442,13 +468,13 @@ void FullRestoreService::MaybeShowRestoreNotification(const std::string& id) {
   else
     message_id = IDS_RESTORE_NOTIFICATION_MESSAGE;
 
-  notification_ = ash::CreateSystemNotification(
+  notification_ = CreateSystemNotificationPtr(
       message_center::NOTIFICATION_TYPE_SIMPLE, id, title,
       l10n_util::GetStringUTF16(message_id),
       l10n_util::GetStringUTF16(IDS_RESTORE_NOTIFICATION_DISPLAY_SOURCE),
       GURL(),
       message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
-                                 id),
+                                 id, NotificationCatalogName::kFullRestore),
       notification_data,
       base::MakeRefCounted<message_center::ThunkNotificationDelegate>(
           weak_ptr_factory_.GetWeakPtr()),
@@ -462,18 +488,7 @@ void FullRestoreService::MaybeShowRestoreNotification(const std::string& id) {
   notification_display_service->Display(NotificationHandler::Type::TRANSIENT,
                                         *notification_,
                                         /*metadata=*/nullptr);
-}
-
-void FullRestoreService::Restore() {
-  const user_manager::User* user =
-      ProfileHelper::Get()->GetUserByProfile(profile_);
-  if (user) {
-    ::full_restore::FullRestoreInfo::GetInstance()->SetRestoreFlag(
-        user->GetAccountId(), true);
-  }
-
-  if (app_launch_handler_)
-    app_launch_handler_->SetShouldRestore();
+  show_notification = true;
 }
 
 void FullRestoreService::RecordRestoreAction(const std::string& notification_id,
@@ -494,7 +509,7 @@ void FullRestoreService::OnPreferenceChanged(const std::string& pref_name) {
   const user_manager::User* user =
       ProfileHelper::Get()->GetUserByProfile(profile_);
   if (user) {
-    ::full_restore::FullRestoreInfo::GetInstance()->SetRestorePref(
+    ::app_restore::AppRestoreInfo::GetInstance()->SetRestorePref(
         user->GetAccountId(), CanPerformRestore(profile_->GetPrefs()));
   }
 }
@@ -512,5 +527,4 @@ ScopedRestoreForTesting::~ScopedRestoreForTesting() {
   g_restore_for_testing = true;
 }
 
-}  // namespace full_restore
-}  // namespace ash
+}  // namespace ash::full_restore

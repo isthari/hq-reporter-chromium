@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -158,7 +158,7 @@ CardUnmaskPromptViewAndroid::GetOrCreateJavaObject() {
              ResourceMapper::MapToJavaDrawableId(controller_->GetCvcImageRid()),
              ResourceMapper::MapToJavaDrawableId(
                  controller_->GetGooglePayImageRid()),
-             controller_->IsCardLocal(),
+             controller_->IsCardLocal(), controller_->IsVirtualCard(),
              controller_->ShouldRequestExpirationDate(),
              controller_->GetStoreLocallyStartState(),
              controller_->ShouldOfferWebauthn(),

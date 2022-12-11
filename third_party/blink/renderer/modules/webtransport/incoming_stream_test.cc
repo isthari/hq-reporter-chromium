@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -105,6 +105,18 @@ class IncomingStreamTest : public ::testing::Test {
     return IteratorFromReadResult(scope, tester.Value().V8Value());
   }
 
+  static Iterator Read(V8TestingScope& scope,
+                       ReadableStreamBYOBReader* reader,
+                       NotShared<DOMArrayBufferView> view) {
+    auto* script_state = scope.GetScriptState();
+    ScriptPromise read_promise =
+        reader->read(script_state, view, ASSERT_NO_EXCEPTION);
+    ScriptPromiseTester tester(script_state, read_promise);
+    tester.WaitUntilSettled();
+    EXPECT_TRUE(tester.IsFulfilled());
+    return IteratorFromReadResult(scope, tester.Value().V8Value());
+  }
+
   static Iterator IteratorFromReadResult(V8TestingScope& scope,
                                          v8::Local<v8::Value> result) {
     CHECK(result->IsObject());
@@ -148,6 +160,35 @@ TEST_F(IncomingStreamTest, ReadArrayBuffer) {
   Iterator result = Read(scope, reader);
   EXPECT_FALSE(result.done);
   EXPECT_THAT(result.value, ElementsAre('A'));
+}
+
+// Respond BYOB requests created before and after receiving data.
+TEST_F(IncomingStreamTest, ReadArrayBufferWithBYOBReader) {
+  V8TestingScope scope;
+
+  auto* incoming_stream = CreateIncomingStream(scope);
+  auto* script_state = scope.GetScriptState();
+  auto* reader = incoming_stream->Readable()->GetBYOBReaderForTesting(
+      script_state, ASSERT_NO_EXCEPTION);
+  NotShared<DOMArrayBufferView> view =
+      NotShared<DOMUint8Array>(DOMUint8Array::Create(1));
+  ScriptPromise read_promise =
+      reader->read(script_state, view, ASSERT_NO_EXCEPTION);
+  ScriptPromiseTester tester(script_state, read_promise);
+  EXPECT_FALSE(tester.IsFulfilled());
+
+  WriteToPipe({'A', 'B', 'C'});
+
+  tester.WaitUntilSettled();
+  EXPECT_TRUE(tester.IsFulfilled());
+  Iterator result = IteratorFromReadResult(scope, tester.Value().V8Value());
+  EXPECT_FALSE(result.done);
+  EXPECT_THAT(result.value, ElementsAre('A'));
+
+  view = NotShared<DOMUint8Array>(DOMUint8Array::Create(2));
+  result = Read(scope, reader, view);
+  EXPECT_FALSE(result.done);
+  EXPECT_THAT(result.value, ElementsAre('B', 'C'));
 }
 
 // Reading data followed by a remote close should not lose data.
@@ -222,6 +263,29 @@ TEST_F(IncomingStreamTest, ReadThenClosedWithoutFin) {
             static_cast<uint16_t>(DOMExceptionCode::kNetworkError));
   EXPECT_EQ(exception->message(),
             "The stream was aborted by the remote server");
+}
+
+// Reading after remote close should not lose data.
+TEST_F(IncomingStreamTest, ClosedWithFinThenRead) {
+  V8TestingScope scope;
+
+  auto* incoming_stream = CreateIncomingStream(scope);
+
+  EXPECT_CALL(mock_on_abort_, Run(absl::optional<uint8_t>()));
+
+  auto* script_state = scope.GetScriptState();
+  auto* reader = incoming_stream->Readable()->GetDefaultReaderForTesting(
+      script_state, ASSERT_NO_EXCEPTION);
+  WriteToPipe({'B'});
+  incoming_stream->OnIncomingStreamClosed(true);
+  ClosePipe();
+
+  Iterator result1 = Read(scope, reader);
+  EXPECT_FALSE(result1.done);
+  EXPECT_THAT(result1.value, ElementsAre('B'));
+
+  Iterator result2 = Read(scope, reader);
+  EXPECT_TRUE(result2.done);
 }
 
 // reader.closed is fulfilled without any read() call, when the stream is empty.

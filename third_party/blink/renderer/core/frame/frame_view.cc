@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "third_party/blink/renderer/core/layout/layout_embedded_content.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/page/page_animator.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/transform.h"
 
@@ -33,7 +34,7 @@ bool FrameView::CanThrottleRenderingForPropagation() const {
   if (CanThrottleRendering())
     return true;
   Frame& frame = GetFrame();
-  if (!frame.IsCrossOriginToMainFrame())
+  if (!frame.IsCrossOriginToNearestMainFrame())
     return false;
   if (frame.IsLocalFrame() && To<LocalFrame>(frame).IsHidden())
     return true;
@@ -70,7 +71,7 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
 
   Document& owner_document = owner_element->GetDocument();
   gfx::Rect viewport_intersection, mainframe_intersection;
-  TransformationMatrix main_frame_transform_matrix;
+  gfx::Transform main_frame_transform_matrix;
   DocumentLifecycle::LifecycleState parent_lifecycle_state =
       owner_document.Lifecycle().GetState();
   mojom::blink::FrameOcclusionState occlusion_state =
@@ -83,11 +84,14 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
 
   LayoutEmbeddedContent* owner_layout_object =
       owner_element->GetLayoutEmbeddedContent();
+  bool display_locked_in_parent_frame = DisplayLockedInParentFrame();
   if (!owner_layout_object || owner_layout_object->ContentSize().IsEmpty() ||
-      (flags & IntersectionObservation::kAncestorFrameIsDetachedFromLayout)) {
+      (flags & IntersectionObservation::kAncestorFrameIsDetachedFromLayout) ||
+      display_locked_in_parent_frame) {
     // The frame, or an ancestor frame, is detached from layout, not visible, or
-    // zero size; leave viewport_intersection empty, and signal the frame as
-    // occluded if necessary.
+    // zero size, or it's display locked in parent frame; leave
+    // viewport_intersection empty, and signal the frame as occluded if
+    // necessary.
     occlusion_state = mojom::blink::FrameOcclusionState::kPossiblyOccluded;
   } else if (parent_lifecycle_state >= DocumentLifecycle::kLayoutClean &&
              !owner_document.View()->NeedsLayout()) {
@@ -125,9 +129,9 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
     // child frame.
     parent_frame_to_iframe_content_transform.Move(
         owner_layout_object->PhysicalContentBoxOffset());
-    TransformationMatrix matrix =
+    gfx::Transform matrix =
         parent_frame_to_iframe_content_transform.AccumulatedTransform()
-            .Inverse();
+            .InverseOrIdentity();
     if (geometry.IsIntersecting()) {
       PhysicalRect intersection_rect = PhysicalRect::EnclosingRect(
           matrix
@@ -188,6 +192,11 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
 
     TransformState child_frame_to_root_frame(
         TransformState::kUnapplyInverseTransformDirection);
+    // TODO: Should this be IsOutermostMainFrame()?
+    if (owner_document.GetFrame()->LocalFrameRoot().IsMainFrame()) {
+      child_frame_to_root_frame.Move(PhysicalOffset::FromPointFRound(
+          gfx::PointF(frame.GetOutermostMainFrameScrollPosition())));
+    }
     if (owner_layout_object) {
       owner_layout_object->MapAncestorToLocal(
           nullptr, child_frame_to_root_frame,
@@ -206,14 +215,13 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
 
   // An iframe's content is always pixel-snapped, even if the iframe element has
   // non-pixel-aligned location.
-  gfx::Transform main_frame_gfx_transform =
-      TransformationMatrix::ToTransform(main_frame_transform_matrix);
-  main_frame_gfx_transform.RoundTranslationComponents();
+  gfx::Transform pixel_snapped_transform = main_frame_transform_matrix;
+  pixel_snapped_transform.Round2dTranslationComponents();
 
   SetViewportIntersection(mojom::blink::ViewportIntersectionState(
       viewport_intersection, mainframe_intersection, gfx::Rect(),
-      occlusion_state, frame.GetMainFrameViewportSize(),
-      frame.GetMainFrameScrollOffset(), main_frame_gfx_transform));
+      occlusion_state, frame.GetOutermostMainFrameSize(),
+      frame.GetOutermostMainFrameScrollPosition(), pixel_snapped_transform));
 
   UpdateFrameVisibility(!viewport_intersection.IsEmpty());
 
@@ -228,24 +236,29 @@ void FrameView::UpdateViewportIntersection(unsigned flags,
     GetFrame().Client()->OnMainFrameIntersectionChanged(projected_rect);
   }
 
-  // We don't throttle zero-area or display:none iframes unless they are
-  // cross-origin and ThrottleCrossOriginIframes is enabled, because in practice
-  // they are sometimes used to drive UI logic.
-  bool hidden_for_throttling = viewport_intersection.IsEmpty();
+  // We don't throttle display:none iframes unless they are cross-origin and
+  // ThrottleCrossOriginIframes is enabled, because in practice they are
+  // sometimes used to drive UI logic. Zero-area iframes are only throttled if
+  // they are also display:none.
+  bool zero_viewport_intersection = viewport_intersection.IsEmpty();
   bool is_display_none = !owner_layout_object;
   bool has_zero_area = FrameRect().IsEmpty();
-  bool has_flag = RuntimeEnabledFeatures::
-      ThrottleDisplayNoneAndVisibilityHiddenCrossOriginIframesEnabled();
-  if (!has_flag && (is_display_none || has_zero_area))
-    hidden_for_throttling = false;
+  bool has_flag = features::
+      IsThrottleDisplayNoneAndVisibilityHiddenCrossOriginIframesEnabled();
+
+  bool should_throttle =
+      has_flag
+          ? (is_display_none || (zero_viewport_intersection && !has_zero_area))
+          : (!is_display_none && zero_viewport_intersection && !has_zero_area);
+
   bool subtree_throttled = false;
   Frame* parent_frame = GetFrame().Tree().Parent();
   if (parent_frame && parent_frame->View()) {
     subtree_throttled =
         parent_frame->View()->CanThrottleRenderingForPropagation();
   }
-  UpdateRenderThrottlingStatus(hidden_for_throttling, subtree_throttled,
-                               DisplayLockedInParentFrame());
+  UpdateRenderThrottlingStatus(should_throttle, subtree_throttled,
+                               display_locked_in_parent_frame);
 }
 
 void FrameView::UpdateFrameVisibility(bool intersects_viewport) {

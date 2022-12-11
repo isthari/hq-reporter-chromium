@@ -32,6 +32,7 @@
 #include <cstdint>
 #include "base/check_op.h"
 #include "third_party/blink/renderer/core/style/computed_style_base_constants.h"
+#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 
 namespace blink {
 
@@ -74,10 +75,11 @@ enum PseudoId : uint8_t {
   kPseudoIdSpellingError,
   kPseudoIdGrammarError,
   // The following IDs are public but not tracked.
-  kPseudoIdTransition,
-  kPseudoIdTransitionContainer,
-  kPseudoIdTransitionOldContent,
-  kPseudoIdTransitionNewContent,
+  kPseudoIdViewTransition,
+  kPseudoIdViewTransitionGroup,
+  kPseudoIdViewTransitionImagePair,
+  kPseudoIdViewTransitionOld,
+  kPseudoIdViewTransitionNew,
   // Internal IDs follow:
   kPseudoIdFirstLineInherited,
   kPseudoIdScrollbarThumb,
@@ -107,12 +109,24 @@ inline bool IsHighlightPseudoElement(PseudoId pseudo_id) {
   }
 }
 
+inline bool UsesHighlightPseudoInheritance(PseudoId pseudo_id) {
+  // ::highlight() pseudos, ::spelling-error, and ::grammar-error use highlight
+  // inheritance rather than originating inheritance, regardless of whether the
+  // highlight inheritance feature is enabled.
+  return ((IsHighlightPseudoElement(pseudo_id) &&
+           RuntimeEnabledFeatures::HighlightInheritanceEnabled()) ||
+          pseudo_id == PseudoId::kPseudoIdHighlight ||
+          pseudo_id == PseudoId::kPseudoIdSpellingError ||
+          pseudo_id == PseudoId::kPseudoIdGrammarError);
+}
+
 inline bool IsTransitionPseudoElement(PseudoId pseudo_id) {
   switch (pseudo_id) {
-    case kPseudoIdTransition:
-    case kPseudoIdTransitionContainer:
-    case kPseudoIdTransitionOldContent:
-    case kPseudoIdTransitionNewContent:
+    case kPseudoIdViewTransition:
+    case kPseudoIdViewTransitionGroup:
+    case kPseudoIdViewTransitionImagePair:
+    case kPseudoIdViewTransitionOld:
+    case kPseudoIdViewTransitionNew:
       return true;
     default:
       return false;
@@ -122,6 +136,10 @@ inline bool IsTransitionPseudoElement(PseudoId pseudo_id) {
 inline bool PseudoElementHasArguments(PseudoId pseudo_id) {
   switch (pseudo_id) {
     case kPseudoIdHighlight:
+    case kPseudoIdViewTransitionGroup:
+    case kPseudoIdViewTransitionImagePair:
+    case kPseudoIdViewTransitionNew:
+    case kPseudoIdViewTransitionOld:
       return true;
     default:
       return false;
@@ -232,7 +250,7 @@ inline Containment& operator|=(Containment& a, Containment b) {
 
 static const size_t kContainerTypeBits = 2;
 enum EContainerType {
-  kContainerTypeNone = 0x0,
+  kContainerTypeNormal = 0x0,
   kContainerTypeInlineSize = 0x1,
   kContainerTypeBlockSize = 0x2,
   kContainerTypeSize = kContainerTypeInlineSize | kContainerTypeBlockSize,
@@ -374,19 +392,16 @@ enum EPaintOrder {
   kPaintOrderMarkersStrokeFill
 };
 
-// To prevent increasing NodeRareData, the dynamic restyle flags for ':has()'
-// are defined as ComputedStyle extra field flags.
-// Unlike using the DynamicRestyleFlags, the ComputedStyle extra field flag
-// only works for the subject elements. So the filtering with these flags is
-// less targeted then the filtering with DynamicRestyleFlags which works
-// directly for the descendant elements being changed.
-enum EDynamicRestyleFlagsForHas {
-  kAncestorsAffectedByHas = 1 << 0,
-  kAncestorsAffectedByHoverInHas = 1 << 1,
-  kAncestorsAffectedByActiveInHas = 1 << 2,
-  kAncestorsAffectedByFocusInHas = 1 << 3,
-  kAncestorsAffectedByFocusVisibleInHas = 1 << 4,
+constexpr size_t kViewportUnitFlagBits = 2;
+enum class ViewportUnitFlag {
+  // v*, sv*, lv*
+  kStatic = 0x1,
+  // dv*
+  kDynamic = 0x2,
 };
+
+enum class TimelineAxis { kBlock, kInline, kVertical, kHorizontal };
+enum class TimelineScroller { kNearest, kRoot };
 
 }  // namespace blink
 

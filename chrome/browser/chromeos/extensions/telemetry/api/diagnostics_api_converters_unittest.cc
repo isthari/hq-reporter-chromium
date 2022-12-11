@@ -1,10 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/extensions/telemetry/api/diagnostics_api_converters.h"
-#include "ash/webui/telemetry_extension_ui/mojom/diagnostics_service.mojom.h"
 #include "chrome/common/chromeos/extensions/api/diagnostics.h"
+#include "chromeos/crosapi/mojom/diagnostics_service.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace chromeos {
@@ -12,16 +12,28 @@ namespace converters {
 
 namespace {
 
-using MojoRoutineCommandType = ash::health::mojom::DiagnosticRoutineCommandEnum;
-using MojoRoutineStatus = ::ash::health::mojom::DiagnosticRoutineStatusEnum;
-using MojoRoutineType = ::ash::health::mojom::DiagnosticRoutineEnum;
+using MojoRoutineCommandType = crosapi::mojom::DiagnosticsRoutineCommandEnum;
+using MojoRoutineStatus = ::crosapi::mojom::DiagnosticsRoutineStatusEnum;
+using MojoRoutineType = ::crosapi::mojom::DiagnosticsRoutineEnum;
 using MojoRoutineUserMessageType =
-    ash::health::mojom::DiagnosticRoutineUserMessageEnum;
+    crosapi::mojom::DiagnosticsRoutineUserMessageEnum;
+using MojoDiskReadRoutineType =
+    crosapi::mojom::DiagnosticsDiskReadRoutineTypeEnum;
+using MojoAcPowerStatusType = crosapi::mojom::DiagnosticsAcPowerStatusEnum;
+using MojoNvmeSelfTestType = crosapi::mojom::DiagnosticsNvmeSelfTestTypeEnum;
 
 using RoutineCommandType = ::chromeos::api::os_diagnostics::RoutineCommandType;
 using RoutineStatus = ::chromeos::api::os_diagnostics::RoutineStatus;
 using RoutineType = ::chromeos::api::os_diagnostics::RoutineType;
 using RoutineUserMessageType = ::chromeos::api::os_diagnostics::UserMessageType;
+using RoutineDiskReadRoutineType =
+    ::chromeos::api::os_diagnostics::DiskReadRoutineType;
+using RoutineAcPowerStatusRoutineType =
+    ::chromeos::api::os_diagnostics::AcPowerStatus;
+using RoutineNvmeSelfTestRoutineType =
+    ::chromeos::api::os_diagnostics::RunNvmeSelfTestRequest;
+using RoutineNvmeSelfTestEnum =
+    ::chromeos::api::os_diagnostics::NvmeSelfTestType;
 
 }  // namespace
 
@@ -31,6 +43,11 @@ using RoutineUserMessageType = ::chromeos::api::os_diagnostics::UserMessageType;
 TEST(TelemetryExtensionDiagnosticsApiConvertersUnitTest,
      ConvertMojoRoutineTest) {
   // Tests for supported routines.
+  {
+    RoutineType out;
+    EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kAcPower, &out));
+    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_AC_POWER);
+  }
   {
     RoutineType out;
     EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kBatteryCapacity, &out));
@@ -73,38 +90,66 @@ TEST(TelemetryExtensionDiagnosticsApiConvertersUnitTest,
     EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_CPU_STRESS);
   }
   {
+    RoutineType out = RoutineType::ROUTINE_TYPE_NONE;
+    EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kDiskRead, &out));
+    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_DISK_READ);
+  }
+  {
+    RoutineType out = RoutineType::ROUTINE_TYPE_NONE;
+    EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kDnsResolution, &out));
+    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_DNS_RESOLUTION);
+  }
+  {
+    RoutineType out = RoutineType::ROUTINE_TYPE_NONE;
+    EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kDnsResolverPresent, &out));
+    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_DNS_RESOLVER_PRESENT);
+  }
+  {
     RoutineType out;
     EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kMemory, &out));
     EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_MEMORY);
   }
-
-  // Tests for unsupported routines.
-  // Note: If an unsupported routine becomes supported, the respective test
-  // should be changed.
   {
     RoutineType out = RoutineType::ROUTINE_TYPE_NONE;
-    EXPECT_FALSE(ConvertMojoRoutine(MojoRoutineType::kSmartctlCheck, &out));
-    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_NONE);
+    EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kNvmeSelfTest, &out));
+    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_NVME_SELF_TEST);
   }
   {
     RoutineType out = RoutineType::ROUTINE_TYPE_NONE;
-    EXPECT_FALSE(ConvertMojoRoutine(MojoRoutineType::kAcPower, &out));
-    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_NONE);
+    EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kNvmeWearLevel, &out));
+    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_NVME_WEAR_LEVEL);
   }
   {
     RoutineType out = RoutineType::ROUTINE_TYPE_NONE;
-    EXPECT_FALSE(ConvertMojoRoutine(MojoRoutineType::kNvmeWearLevel, &out));
-    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_NONE);
+    EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kSignalStrength, &out));
+    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_SIGNAL_STRENGTH);
   }
   {
     RoutineType out = RoutineType::ROUTINE_TYPE_NONE;
-    EXPECT_FALSE(ConvertMojoRoutine(MojoRoutineType::kNvmeSelfTest, &out));
-    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_NONE);
+    EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kGatewayCanBePinged, &out));
+    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_GATEWAY_CAN_BE_PINGED);
   }
   {
     RoutineType out = RoutineType::ROUTINE_TYPE_NONE;
-    EXPECT_FALSE(ConvertMojoRoutine(MojoRoutineType::kDiskRead, &out));
-    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_NONE);
+    EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kSensitiveSensor, &out));
+    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_SENSITIVE_SENSOR);
+  }
+  {
+    RoutineType out = RoutineType::ROUTINE_TYPE_NONE;
+    EXPECT_TRUE(ConvertMojoRoutine(
+        MojoRoutineType::kSmartctlCheckWithPercentageUsed, &out));
+    EXPECT_EQ(out,
+              RoutineType::ROUTINE_TYPE_SMARTCTL_CHECK_WITH_PERCENTAGE_USED);
+  }
+  {
+    RoutineType out = RoutineType::ROUTINE_TYPE_NONE;
+    EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kSmartctlCheck, &out));
+    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_SMARTCTL_CHECK);
+  }
+  {
+    RoutineType out = RoutineType::ROUTINE_TYPE_NONE;
+    EXPECT_TRUE(ConvertMojoRoutine(MojoRoutineType::kFingerprintAlive, &out));
+    EXPECT_EQ(out, RoutineType::ROUTINE_TYPE_FINGERPRINT_ALIVE);
   }
 }
 
@@ -159,6 +204,45 @@ TEST(TelemetryExtensionDiagnosticsApiConvertersUnitTest,
   EXPECT_EQ(
       ConvertRoutineUserMessage(MojoRoutineUserMessageType::kPlugInACPower),
       RoutineUserMessageType::USER_MESSAGE_TYPE_PLUG_IN_AC_POWER);
+}
+
+TEST(TelemetryExtensionDiagnosticsApiConvertersUnitTest,
+     ConvertDiskReadRoutineType) {
+  EXPECT_EQ(ConvertDiskReadRoutineType(
+                RoutineDiskReadRoutineType::DISK_READ_ROUTINE_TYPE_LINEAR),
+            MojoDiskReadRoutineType::kLinearRead);
+  EXPECT_EQ(ConvertDiskReadRoutineType(
+                RoutineDiskReadRoutineType::DISK_READ_ROUTINE_TYPE_RANDOM),
+            MojoDiskReadRoutineType::kRandomRead);
+}
+
+TEST(TelemetryExtensionDiagnosticsApiConvertersUnitTest,
+     ConvertAcPowerStatusRoutineType) {
+  EXPECT_EQ(ConvertAcPowerStatusRoutineType(
+                RoutineAcPowerStatusRoutineType::AC_POWER_STATUS_CONNECTED),
+            MojoAcPowerStatusType::kConnected);
+  EXPECT_EQ(ConvertAcPowerStatusRoutineType(
+                RoutineAcPowerStatusRoutineType::AC_POWER_STATUS_DISCONNECTED),
+            MojoAcPowerStatusType::kDisconnected);
+}
+
+TEST(TelemetryExtensionDiagnosticsApiConvertersUnitTest,
+     ConvertNvmeSelfTestRoutineType) {
+  RoutineNvmeSelfTestRoutineType input_short;
+  input_short.test_type =
+      RoutineNvmeSelfTestEnum::NVME_SELF_TEST_TYPE_SHORT_TEST;
+  EXPECT_EQ(ConvertNvmeSelfTestRoutineType(std::move(input_short)),
+            MojoNvmeSelfTestType::kShortSelfTest);
+
+  RoutineNvmeSelfTestRoutineType input_long;
+  input_long.test_type = RoutineNvmeSelfTestEnum::NVME_SELF_TEST_TYPE_LONG_TEST;
+  EXPECT_EQ(ConvertNvmeSelfTestRoutineType(std::move(input_long)),
+            MojoNvmeSelfTestType::kLongSelfTest);
+
+  RoutineNvmeSelfTestRoutineType input_unknown;
+  input_unknown.test_type = RoutineNvmeSelfTestEnum::NVME_SELF_TEST_TYPE_NONE;
+  EXPECT_EQ(ConvertNvmeSelfTestRoutineType(std::move(input_unknown)),
+            MojoNvmeSelfTestType::kUnknown);
 }
 
 }  // namespace converters

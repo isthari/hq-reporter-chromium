@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,6 @@
 #include "ui/gl/gl_surface.h"
 #include "ui/gl/gpu_switching_manager.h"
 #include "ui/gl/scoped_cgl.h"
-#include "ui/gl/yuv_to_rgb_converter.h"
 
 namespace gl {
 
@@ -44,11 +43,6 @@ static CGLPixelFormatObj GetPixelFormat() {
   if (GLContext::SwitchableGPUsSupported()) {
     attribs.push_back(kCGLPFAAllowOfflineRenderers);
     g_support_renderer_switching = true;
-  }
-  if (GetGLImplementation() == kGLImplementationAppleGL) {
-    attribs.push_back(kCGLPFARendererID);
-    attribs.push_back((CGLPixelFormatAttribute) kCGLRendererGenericFloatID);
-    g_support_renderer_switching = false;
   }
   if (GetGLImplementation() == kGLImplementationDesktopGLCoreProfile) {
     attribs.push_back(kCGLPFAOpenGLProfile);
@@ -122,7 +116,7 @@ bool GLContextCGL::Initialize(GLSurface* compatible_surface,
 }
 
 void GLContextCGL::Destroy() {
-  if (!yuv_to_rgb_converters_.empty() || HasBackpressureFences()) {
+  if (HasBackpressureFences()) {
     // If this context is not current, bind this context's API so that the YUV
     // converter and GLFences can safely destruct
     GLContext* current_context = GetRealCurrent();
@@ -132,7 +126,6 @@ void GLContextCGL::Destroy() {
 
     ScopedCGLSetCurrentContext scoped_set_current(
         static_cast<CGLContextObj>(context_));
-    yuv_to_rgb_converters_.clear();
     DestroyBackpressureFences();
 
     // Rebind the current context's API if needed.
@@ -190,16 +183,6 @@ bool GLContextCGL::ForceGpuSwitchIfNeeded() {
     }
   }
   return true;
-}
-
-YUVToRGBConverter* GLContextCGL::GetYUVToRGBConverter(
-    const gfx::ColorSpace& color_space) {
-  std::unique_ptr<YUVToRGBConverter>& yuv_to_rgb_converter =
-      yuv_to_rgb_converters_[color_space];
-  if (!yuv_to_rgb_converter)
-    yuv_to_rgb_converter =
-        std::make_unique<YUVToRGBConverter>(*GetVersionInfo(), color_space);
-  return yuv_to_rgb_converter.get();
 }
 
 bool GLContextCGL::MakeCurrentImpl(GLSurface* surface) {

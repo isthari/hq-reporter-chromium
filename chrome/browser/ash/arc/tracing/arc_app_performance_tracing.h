@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 #include "ash/components/arc/mojom/metrics.mojom.h"
 #include "base/callback.h"
 #include "base/time/time.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "components/exo/surface_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "ui/aura/window_observer.h"

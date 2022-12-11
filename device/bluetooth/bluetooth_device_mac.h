@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,6 +30,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothDeviceMac : public BluetoothDevice {
       BluetoothGattService::GattErrorCode error_code);
   static BluetoothGattService::GattErrorCode GetGattErrorCodeFromNSError(
       NSError* error);
+  virtual bool IsLowEnergyDevice() = 0;
 
  protected:
   BluetoothDeviceMac(BluetoothAdapterMac* adapter);

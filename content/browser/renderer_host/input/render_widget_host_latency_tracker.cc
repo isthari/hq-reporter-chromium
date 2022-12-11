@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,13 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/browser/renderer_host/render_widget_host_delegate.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/common/content_client.h"
 #include "ui/events/blink/web_input_event_traits.h"
-#include "ui/latency/latency_histogram_macros.h"
 
 using blink::WebGestureEvent;
 using blink::WebInputEvent;
@@ -57,6 +57,7 @@ const char* GetTraceNameFromType(blink::WebInputEvent::Type type) {
     CASE_TYPE(GestureTapCancel);
     CASE_TYPE(GestureDoubleTap);
     CASE_TYPE(GestureTwoFingerTap);
+    CASE_TYPE(GestureShortPress);
     CASE_TYPE(GestureLongPress);
     CASE_TYPE(GestureLongTap);
     CASE_TYPE(GesturePinchBegin);

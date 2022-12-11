@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,13 +26,15 @@
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/download_item_utils.h"
-#include "content/public/browser/permission_type.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/user_agent.h"
 #include "net/base/filename_util.h"
+#include "third_party/blink/public/common/permissions/permission_utils.h"
 #include "url/gurl.h"
 #include "v8/include/v8-version-string.h"
+
+using blink::PermissionType;
 
 namespace content {
 namespace protocol {
@@ -111,6 +113,8 @@ std::unique_ptr<Browser::Histogram> Convert(base::HistogramBase& in_histogram,
   if (!in_delta) {
     in_buckets = in_histogram.SnapshotSamples();
   } else {
+    // TODO(crbug/1377433): Remove this call, as SnapshotDelta() should not be
+    // called outside the metrics collection system.
     in_buckets = in_histogram.SnapshotDelta();
   }
   DCHECK(in_buckets);
@@ -205,11 +209,13 @@ Response PermissionDescriptorToPermissionType(
   } else if (name == "nfc") {
     *permission_type = PermissionType::NFC;
   } else if (name == "window-placement") {
-    *permission_type = PermissionType::WINDOW_PLACEMENT;
-  } else if (name == "font-access") {
-    *permission_type = PermissionType::FONT_ACCESS;
+    *permission_type = PermissionType::WINDOW_MANAGEMENT;
+  } else if (name == "local-fonts") {
+    *permission_type = PermissionType::LOCAL_FONTS;
   } else if (name == "display-capture") {
     *permission_type = PermissionType::DISPLAY_CAPTURE;
+  } else if (name == "storage-access") {
+    *permission_type = PermissionType::STORAGE_ACCESS_GRANT;
   } else {
     return Response::InvalidParams("Invalid PermissionDescriptor name: " +
                                    name);
@@ -269,8 +275,14 @@ Response FromProtocolPermissionType(
     *out_type = PermissionType::WAKE_LOCK_SYSTEM;
   } else if (type == protocol::Browser::PermissionTypeEnum::Nfc) {
     *out_type = PermissionType::NFC;
+  } else if (type == protocol::Browser::PermissionTypeEnum::WindowManagement) {
+    *out_type = PermissionType::WINDOW_MANAGEMENT;
+  } else if (type == protocol::Browser::PermissionTypeEnum::LocalFonts) {
+    *out_type = PermissionType::LOCAL_FONTS;
   } else if (type == protocol::Browser::PermissionTypeEnum::DisplayCapture) {
     *out_type = PermissionType::DISPLAY_CAPTURE;
+  } else if (type == protocol::Browser::PermissionTypeEnum::StorageAccess) {
+    *out_type = PermissionType::STORAGE_ACCESS_GRANT;
   } else {
     return Response::InvalidParams("Unknown permission type: " + type);
   }
@@ -567,7 +579,8 @@ Response BrowserHandler::Crash() {
 }
 
 Response BrowserHandler::CrashGpuProcess() {
-  GpuProcessHost::CallOnIO(GPU_PROCESS_KIND_SANDBOXED, false /* force_create */,
+  GpuProcessHost::CallOnIO(FROM_HERE, GPU_PROCESS_KIND_SANDBOXED,
+                           false /* force_create */,
                            base::BindOnce([](GpuProcessHost* host) {
                              if (host)
                                host->gpu_service()->Crash();
@@ -611,9 +624,10 @@ void BrowserHandler::DownloadWillBegin(FrameTreeNode* ftn,
       item->GetURL(), item->GetContentDisposition(), std::string(),
       item->GetSuggestedFilename(), item->GetMimeType(), "download");
 
-  frontend_->DownloadWillBegin(ftn->devtools_frame_token().ToString(),
-                               item->GetGuid(), item->GetURL().spec(),
-                               base::UTF16ToUTF8(likely_filename));
+  frontend_->DownloadWillBegin(
+      ftn->current_frame_host()->devtools_frame_token().ToString(),
+      item->GetGuid(), item->GetURL().spec(),
+      base::UTF16ToUTF8(likely_filename));
   item->AddObserver(this);
   pending_downloads_.insert(item);
 }

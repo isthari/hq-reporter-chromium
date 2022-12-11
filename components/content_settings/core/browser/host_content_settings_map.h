@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,6 +25,7 @@
 #include "components/content_settings/core/browser/user_modifiable_provider.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_constraints.h"
+#include "components/content_settings/core/common/content_settings_metadata.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/keyed_service/core/refcounted_keyed_service.h"
@@ -36,7 +37,7 @@ class PrefService;
 namespace base {
 class Value;
 class Clock;
-}
+}  // namespace base
 
 namespace content_settings {
 class ObservableProvider;
@@ -45,7 +46,7 @@ class PrefProvider;
 class TestUtils;
 class RuleIterator;
 class WebsiteSettingsInfo;
-}
+}  // namespace content_settings
 
 namespace user_prefs {
 class PrefRegistrySyncable;
@@ -81,7 +82,8 @@ class HostContentSettingsMap : public content_settings::Observer,
   HostContentSettingsMap(PrefService* prefs,
                          bool is_off_the_record,
                          bool store_last_modified,
-                         bool restore_session);
+                         bool restore_session,
+                         bool should_record_metrics);
 
   HostContentSettingsMap(const HostContentSettingsMap&) = delete;
   HostContentSettingsMap& operator=(const HostContentSettingsMap&) = delete;
@@ -91,8 +93,7 @@ class HostContentSettingsMap : public content_settings::Observer,
   // Adds a new provider for |type|. This should be used instead of
   // |RegisterProvider|, not in addition.
   //
-  // Providers added via this method will be queried when
-  // |GetSettingLastModifiedDate| is called and their settings may be cleared by
+  // Providers added via this method may be cleared by
   // |ClearSettingsForOneTypeWithPredicate| if they were recently modified.
   void RegisterUserModifiableProvider(
       ProviderType type,
@@ -238,10 +239,9 @@ class HostContentSettingsMap : public content_settings::Observer,
 
   // Check if a call to SetNarrowestContentSetting would succeed or if it would
   // fail because of an invalid pattern.
-  bool CanSetNarrowestContentSetting(
-      const GURL& primary_url,
-      const GURL& secondary_url,
-      ContentSettingsType type) const;
+  bool CanSetNarrowestContentSetting(const GURL& primary_url,
+                                     const GURL& secondary_url,
+                                     ContentSettingsType type) const;
 
   // Checks whether the specified |type| controls a feature that is restricted
   // to secure origins.
@@ -259,20 +259,16 @@ class HostContentSettingsMap : public content_settings::Observer,
       ContentSetting setting,
       const content_settings::ContentSettingConstraints& constraints = {});
 
+  // Updates the last visited time to a recent coarse timestamp
+  // (week-precision).
+  void UpdateLastVisitedTime(const ContentSettingsPattern& primary_pattern,
+                             const ContentSettingsPattern& secondary_pattern,
+                             ContentSettingsType type);
+
   // Clears all host-specific settings for one content type.
   //
   // This should only be called on the UI thread.
   void ClearSettingsForOneType(ContentSettingsType content_type);
-
-  // Return the |last_modified| date of a content setting. This will only return
-  // valid values for settings from the PreferenceProvider. Settings from other
-  // providers will return base::Time().
-  //
-  // This may be called on any thread.
-  base::Time GetSettingLastModifiedDate(
-      const ContentSettingsPattern& primary_pattern,
-      const ContentSettingsPattern& secondary_pattern,
-      ContentSettingsType content_type) const;
 
   using PatternSourcePredicate = base::RepeatingCallback<bool(
       const ContentSettingsPattern& primary_pattern,
@@ -398,7 +394,7 @@ class HostContentSettingsMap : public content_settings::Observer,
       bool include_incognito,
       ContentSettingsPattern* primary_pattern,
       ContentSettingsPattern* secondary_pattern,
-      content_settings::SessionModel* session_model);
+      content_settings::RuleMetaData* metadata);
 
   static base::Value GetContentSettingValueAndPatterns(
       content_settings::RuleIterator* rule_iterator,
@@ -406,7 +402,7 @@ class HostContentSettingsMap : public content_settings::Observer,
       const GURL& secondary_url,
       ContentSettingsPattern* primary_pattern,
       ContentSettingsPattern* secondary_pattern,
-      content_settings::SessionModel* session_model);
+      content_settings::RuleMetaData* metadata);
 
   // Migrate requesting and top level origin content settings to remove all
   // settings that have a top level pattern. If there is a pattern set for

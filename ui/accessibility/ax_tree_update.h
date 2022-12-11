@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,7 +67,7 @@ struct AX_BASE_EXPORT AXTreeUpdate {
   // The id of the root of the tree, if the root is changing. This is
   // required to be set if the root of the tree is changing or Unserialize
   // will fail. If the root of the tree is not changing this is optional
-  // and it is allowed to pass 0.
+  // and it is allowed to pass `kInvalidAXNodeID`.
   AXNodeID root_id = kInvalidAXNodeID;
 
   // A vector of nodes to update, according to the rules above.

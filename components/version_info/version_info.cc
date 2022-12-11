@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/sanitizer_buildflags.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/version.h"
 #include "build/branding_buildflags.h"
@@ -21,6 +22,14 @@ const std::string& GetProductNameAndVersionForUserAgent() {
   static const base::NoDestructor<std::string> product_and_version(
       "Chrome/" + GetVersionNumber());
   return *product_and_version;
+}
+
+const std::string GetProductNameAndVersionForReducedUserAgent(
+    const std::string& build_version) {
+  std::string product_and_version;
+  base::StrAppend(&product_and_version, {"Chrome/", GetMajorVersionNumber(),
+                                         ".0.", build_version, ".0"});
+  return product_and_version;
 }
 
 std::string GetProductName() {
@@ -60,15 +69,15 @@ std::string GetOSType() {
   return "iOS";
 #elif BUILDFLAG(IS_MAC)
   return "Mac OS X";
-#elif BUILDFLAG(IS_CHROMEOS_ASH)
+#elif BUILDFLAG(IS_CHROMEOS)
 # if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-  return "Chrome OS";
+  return "ChromeOS";
 # else
-  return "Chromium OS";
+  return "ChromiumOS";
 # endif
 #elif BUILDFLAG(IS_ANDROID)
   return "Android";
-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif BUILDFLAG(IS_LINUX)
   return "Linux";
 #elif BUILDFLAG(IS_FREEBSD)
   return "FreeBSD";

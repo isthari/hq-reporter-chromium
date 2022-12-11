@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,15 +10,15 @@
 #include <utility>
 
 #include "base/containers/contains.h"
-#include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/site_instance.h"
+#include "content/public/browser/site_isolation_policy.h"
 #include "content/public/common/child_process_host.h"
-#include "services/network/public/cpp/cross_origin_embedder_policy.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -55,6 +55,9 @@ BrowserContext* ServiceWorkerProcessManager::browser_context() {
 
 void ServiceWorkerProcessManager::Shutdown() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  // `StoragePartitionImpl` might be destroyed before `this` is destroyed. Set
+  // `storage_partition_` to nullptr to avoid holding a dangling ptr.
+  storage_partition_ = nullptr;
   {
     base::AutoLock lock(browser_context_lock_);
     browser_context_ = nullptr;
@@ -85,9 +88,9 @@ blink::ServiceWorkerStatusCode
 ServiceWorkerProcessManager::AllocateWorkerProcess(
     int embedded_worker_id,
     const GURL& script_url,
-    const absl::optional<network::CrossOriginEmbedderPolicy>&
-        cross_origin_embedder_policy,
+    network::mojom::CrossOriginEmbedderPolicyValue coep_value,
     bool can_use_existing_process,
+    blink::mojom::AncestorFrameType ancestor_frame_type,
     AllocatedProcessInfo* out_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -119,10 +122,11 @@ ServiceWorkerProcessManager::AllocateWorkerProcess(
   // TODO(alexmos): Support CrossOriginIsolated for guests.
   DCHECK(storage_partition_);
   const bool is_guest = storage_partition_->is_guest();
+  const bool is_fenced =
+      ancestor_frame_type == blink::mojom::AncestorFrameType::kFencedFrame &&
+      SiteIsolationPolicy::IsProcessIsolationForFencedFramesEnabled();
   const bool is_coop_coep_cross_origin_isolated =
-      !is_guest && cross_origin_embedder_policy.has_value() &&
-      network::CompatibleWithCrossOriginIsolated(
-          cross_origin_embedder_policy->value);
+      !is_guest && network::CompatibleWithCrossOriginIsolated(coep_value);
   UrlInfo url_info(
       UrlInfoInit(script_url)
           .WithStoragePartitionConfig(storage_partition_->GetConfig())
@@ -132,8 +136,9 @@ ServiceWorkerProcessManager::AllocateWorkerProcess(
                         url::Origin::Create(script_url))
                   : WebExposedIsolationInfo::CreateNonIsolated()));
   scoped_refptr<SiteInstanceImpl> site_instance =
-      SiteInstanceImpl::CreateForServiceWorker(
-          browser_context_, url_info, can_use_existing_process, is_guest);
+      SiteInstanceImpl::CreateForServiceWorker(browser_context_, url_info,
+                                               can_use_existing_process,
+                                               is_guest, is_fenced);
 
   // Get the process from the SiteInstance.
   RenderProcessHost* rph = site_instance->GetProcess();

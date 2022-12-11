@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,10 @@
   SecureContext
 ] partial interface Navigator {
   [CallWith=ScriptState, Measure, RaisesException]
-  void joinAdInterestGroup(AuctionAdInterestGroup group, double durationSeconds);
+  Promise<void> joinAdInterestGroup(AuctionAdInterestGroup group, double durationSeconds);
 
   [CallWith=ScriptState, Measure, RaisesException]
-  void leaveAdInterestGroup(AuctionAdInterestGroup group);
+  Promise<void> leaveAdInterestGroup(optional AuctionAdInterestGroup group);
 
   [CallWith=ScriptState, Measure, RaisesException]
   void updateAdInterestGroups();
@@ -30,7 +30,10 @@
   sequence<USVString> adAuctionComponents([Clamp] unsigned short numComponents);
 
   [RuntimeEnable=AllowURLsinIframes, CallWith=ScriptState, Measure, RaisesException]
-  Promise<USVString> deprecatedURNToURL(USVString uuid_url);
+  Promise<USVString> deprecatedURNToURL(USVString uuid_url, optional boolean send_reports = false);
+
+  [RuntimeEnable=AllowURLsinIframes, CallWith=ScriptState, Measure, RaisesException]
+  Promise<void> deprecatedReplaceInURN(USVString uuid_url, record<USVString, USVString> replacements);
 
   [RuntimeEnabled=Parakeet, CallWith=ScriptState, Measure, RaisesException]
   Promise<Ads> createAdRequest(AdRequestConfig config);

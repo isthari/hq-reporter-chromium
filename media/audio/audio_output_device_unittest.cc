@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,11 +70,9 @@ class MockAudioOutputIPC : public AudioOutputIPC {
                void(AudioOutputIPCDelegate* delegate,
                     const base::UnguessableToken& session_id,
                     const std::string& device_id));
-  MOCK_METHOD3(
-      CreateStream,
-      void(AudioOutputIPCDelegate* delegate,
-           const AudioParameters& params,
-           const absl::optional<base::UnguessableToken>& processing_id));
+  MOCK_METHOD2(CreateStream,
+               void(AudioOutputIPCDelegate* delegate,
+                    const AudioParameters& params));
   MOCK_METHOD0(PlayStream, void());
   MOCK_METHOD0(PauseStream, void());
   MOCK_METHOD0(FlushStream, void());
@@ -125,7 +123,7 @@ class AudioOutputDeviceTest : public testing::Test {
 AudioOutputDeviceTest::AudioOutputDeviceTest()
     : device_status_(OUTPUT_DEVICE_STATUS_ERROR_INTERNAL) {
   default_audio_parameters_.Reset(AudioParameters::AUDIO_PCM_LINEAR,
-                                  CHANNEL_LAYOUT_STEREO, 48000, 1024);
+                                  ChannelLayoutConfig::Stereo(), 48000, 1024);
   SetDevice(kDefaultDeviceId);
 }
 
@@ -177,7 +175,7 @@ void AudioOutputDeviceTest::ReceiveAuthorization(OutputDeviceStatus status) {
 
 void AudioOutputDeviceTest::StartAudioDevice() {
   if (device_status_ == OUTPUT_DEVICE_STATUS_OK)
-    EXPECT_CALL(*audio_output_ipc_, CreateStream(audio_device_.get(), _, _));
+    EXPECT_CALL(*audio_output_ipc_, CreateStream(audio_device_.get(), _));
   else
     EXPECT_CALL(callback_, OnRenderError());
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,12 +12,14 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/containers/flat_set.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_piece_forward.h"
 #include "components/url_pattern_index/closed_hash_map.h"
 #include "components/url_pattern_index/flat/url_pattern_index_generated.h"
 #include "components/url_pattern_index/proto/rules.pb.h"
 #include "components/url_pattern_index/uint64_hasher.h"
+#include "components/url_pattern_index/url_pattern.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/flatbuffers/src/include/flatbuffers/flatbuffers.h"
 
@@ -85,7 +87,7 @@ int CompareDomains(base::StringPiece lhs_domain, base::StringPiece rhs_domain);
 // Increase this value when introducing an incompatible change to the
 // UrlPatternIndex schema (flat/url_pattern_index.fbs). url_pattern_index
 // clients can use this as a signal to rebuild rulesets.
-constexpr int kUrlPatternIndexFormatVersion = 13;
+constexpr int kUrlPatternIndexFormatVersion = 14;
 
 // The class used to construct an index over the URL patterns of a set of URL
 // rules. The rules themselves need to be converted to FlatBuffers format by the
@@ -200,7 +202,8 @@ class UrlPatternIndexMatcher {
       bool is_third_party,
       bool disable_generic_rules,
       const EmbedderConditionsMatcher& embedder_conditions_matcher,
-      FindRuleStrategy strategy) const;
+      FindRuleStrategy strategy,
+      const base::flat_set<int>& disabled_rule_ids) const;
 
   // Helper function to work with flat::*Type(s). If the index contains one or
   // more UrlRules that match the request, returns one of them depending on
@@ -214,7 +217,8 @@ class UrlPatternIndexMatcher {
       bool is_third_party,
       bool disable_generic_rules,
       const EmbedderConditionsMatcher& embedder_conditions_matcher,
-      FindRuleStrategy strategy) const;
+      FindRuleStrategy strategy,
+      const base::flat_set<int>& disabled_rule_ids) const;
 
   // Same as FindMatch, except this function returns all UrlRules that match the
   // request for the index. If no UrlRules match, returns an empty vector.
@@ -225,7 +229,8 @@ class UrlPatternIndexMatcher {
       proto::ActivationType activation_type,
       bool is_third_party,
       bool disable_generic_rules,
-      const EmbedderConditionsMatcher& embedder_conditions_matcher) const;
+      const EmbedderConditionsMatcher& embedder_conditions_matcher,
+      const base::flat_set<int>& disabled_rule_ids) const;
 
   // Helper function to work with flat::*Type(s). Returns all UrlRules that
   // match the request for the index. If no UrlRules match, returns an empty
@@ -238,7 +243,8 @@ class UrlPatternIndexMatcher {
       flat::RequestMethod request_method,
       bool is_third_party,
       bool disable_generic_rules,
-      const EmbedderConditionsMatcher& embedder_conditions_matcher) const;
+      const EmbedderConditionsMatcher& embedder_conditions_matcher,
+      const base::flat_set<int>& disabled_rule_ids) const;
 
  private:
   // Must outlive this instance.
@@ -248,19 +254,24 @@ class UrlPatternIndexMatcher {
   mutable absl::optional<size_t> rules_count_;
 };
 
-// Returns whether the |origin| matches the domain list of the |rule|. A match
-// means that the longest domain in |domains| that |origin| is a sub-domain of
-// is not an exception OR all the |domains| are exceptions and neither matches
-// the |origin|. Thus, domain filters with more domain components trump filters
-// with fewer domain components, i.e. the more specific a filter is, the higher
-// the priority.
-//
-// A rule whose domain list is empty or contains only negative domains is still
-// considered a "generic" rule. Therefore, if |disable_generic_rules| is set,
-// this function will always return false for such rules.
-bool DoesOriginMatchDomainList(const url::Origin& origin,
-                               const flat::UrlRule& rule,
-                               bool disable_generic_rules);
+// Returns whether the `rule` is considered "generic". A generic rule is one
+// whose initator domain list is either empty or contains only negative domains.
+bool IsRuleGeneric(const flat::UrlRule& rule);
+
+// Returns whether the `origin` matches the initiator domain list of the `rule`.
+// A match means that the longest domain in `domains` that `origin` is a
+// sub-domain of is not an exception OR all the `domains` are exceptions and
+// neither matches the `origin`. Thus, domain filters with more domain
+// components trump filters with fewer domain components, i.e. the more specific
+// a filter is, the higher the priority.
+bool DoesOriginMatchInitiatorDomainList(const url::Origin& origin,
+                                        const flat::UrlRule& rule);
+
+// Returns whether the request URL matches the request domain list of the
+// `rule`. See `DoesOriginMatchInitiatorDomainList` for an explanation of the
+// matching logic.
+bool DoesURLMatchRequestDomainList(const UrlPattern::UrlInfo& url,
+                                   const flat::UrlRule& rule);
 
 // Returns whether the request matches flags of the specified `rule`. Takes into
 // account:

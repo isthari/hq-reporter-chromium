@@ -1,12 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_SYSTEM_AUDIO_MIC_GAIN_SLIDER_VIEW_H_
 #define ASH_SYSTEM_AUDIO_MIC_GAIN_SLIDER_VIEW_H_
 
-#include "ash/components/audio/cras_audio_handler.h"
 #include "ash/system/unified/unified_slider_view.h"
+#include "chromeos/ash/components/audio/cras_audio_handler.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 
 namespace ash {
 
@@ -15,6 +16,8 @@ class MicGainSliderController;
 class MicGainSliderView : public UnifiedSliderView,
                           public CrasAudioHandler::AudioObserver {
  public:
+  METADATA_HEADER(MicGainSliderView);
+
   explicit MicGainSliderView(MicGainSliderController* controller);
   MicGainSliderView(MicGainSliderController* controller,
                     uint64_t device_id,
@@ -25,12 +28,11 @@ class MicGainSliderView : public UnifiedSliderView,
 
   // CrasAudioHandler::AudioObserver:
   void OnInputNodeGainChanged(uint64_t node_id, int gain) override;
-  void OnInputMuteChanged(bool mute_on) override;
+  void OnInputMuteChanged(
+      bool mute_on,
+      CrasAudioHandler::InputMuteChangeMethod method) override;
   void OnInputMutedByMicrophoneMuteSwitchChanged(bool muted) override;
   void OnActiveInputNodeChanged() override;
-
-  // views::View:
-  const char* GetClassName() const override;
 
  private:
   void Update(bool by_user);

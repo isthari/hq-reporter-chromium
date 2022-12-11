@@ -1,22 +1,20 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/base/fake_demuxer_stream.h"
 
 #include <stdint.h>
-#include <memory>
 
+#include <memory>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
 #include "base/location.h"
 #include "base/notreached.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/decrypt_config.h"
@@ -54,7 +52,7 @@ FakeDemuxerStream::FakeDemuxerStream(int num_configs,
                                      bool is_encrypted,
                                      gfx::Size start_coded_size,
                                      gfx::Vector2dF coded_size_delta)
-    : task_runner_(base::ThreadTaskRunnerHandle::Get()),
+    : task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
       num_configs_(num_configs),
       num_buffers_in_one_config_(num_buffers_in_one_config),
       config_changes_(num_configs > 1),
@@ -206,9 +204,8 @@ void FakeDemuxerStream::DoRead() {
   // TODO(xhwang): Output out-of-order buffers if needed.
   if (is_encrypted_) {
     buffer->set_decrypt_config(DecryptConfig::CreateCencConfig(
-        std::string(kKeyId, kKeyId + base::size(kKeyId)),
-        std::string(kIv, kIv + base::size(kIv)),
-        std::vector<SubsampleEntry>()));
+        std::string(kKeyId, kKeyId + std::size(kKeyId)),
+        std::string(kIv, kIv + std::size(kIv)), std::vector<SubsampleEntry>()));
   }
   buffer->set_timestamp(current_timestamp_);
   buffer->set_duration(duration_);

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,19 @@
  * @fileoverview Polymer element for Device Disabled message screen.
  */
 
-/* #js_imports_placeholder */
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '../../components/oobe_icons.m.js';
+import '../../components/common_styles/oobe_common_styles.m.js';
+import '../../components/common_styles/oobe_dialog_host_styles.m.js';
+
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.m.js';
+import {OobeDialogHostBehavior} from '../../components/behaviors/oobe_dialog_host_behavior.m.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OobeAdaptiveDialog} from '../../components/dialogs/oobe_adaptive_dialog.js';
+import {OOBE_UI_STATE} from '../../components/display_manager_types.js';
+
 
 /**
  * @constructor
@@ -14,13 +26,13 @@
  * @implements {OobeI18nBehaviorInterface}
  * @implements {LoginScreenBehaviorInterface}
  */
-const DeviceDisabledElementBase = Polymer.mixinBehaviors(
+const DeviceDisabledElementBase = mixinBehaviors(
     [OobeI18nBehavior, OobeDialogHostBehavior, LoginScreenBehavior],
-    Polymer.Element);
+    PolymerElement);
 
 /**
  * @typedef {{
- *   dialog:  OobeAdaptiveDialogElement,
+ *   dialog:  OobeAdaptiveDialog,
  * }}
  */
 DeviceDisabledElementBase.$;
@@ -30,7 +42,9 @@ class DeviceDisabled extends DeviceDisabledElementBase {
     return 'device-disabled-element';
   }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -71,9 +85,7 @@ class DeviceDisabled extends DeviceDisabledElementBase {
 
   ready() {
     super.ready();
-    this.initializeLoginScreen('DeviceDisabledScreen', {
-      resetAllowed: false,
-    });
+    this.initializeLoginScreen('DeviceDisabledScreen');
   }
 
   /** @override */
@@ -98,12 +110,15 @@ class DeviceDisabled extends DeviceDisabledElementBase {
    * @param {Object} data Screen init payload
    */
   onBeforeShow(data) {
-    if ('serial' in data)
+    if ('serial' in data) {
       this.serial_ = data.serial;
-    if ('domain' in data)
+    }
+    if ('domain' in data) {
       this.enrollmentDomain_ = data.domain;
-    if ('message' in data)
+    }
+    if ('message' in data) {
       this.message_ = data.message;
+    }
   }
 
   /**

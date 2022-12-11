@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "components/webrtc/thread_wrapper.h"
 #include "remoting/base/logging.h"
@@ -108,7 +107,7 @@ void FtlSignalingPlayground::StartLoop() {
 
   auto url_request_context_getter =
       base::MakeRefCounted<URLRequestContextGetter>(
-          base::ThreadTaskRunnerHandle::Get());
+          base::SingleThreadTaskRunner::GetCurrentDefault());
   url_loader_factory_owner_ =
       std::make_unique<network::TransitionalURLLoaderFactoryOwner>(
           url_request_context_getter);
@@ -252,6 +251,7 @@ void FtlSignalingPlayground::InitializeTransport() {
       protocol::NetworkSettings::NAT_TRAVERSAL_FULL);
   auto transport_context = base::MakeRefCounted<protocol::TransportContext>(
       std::make_unique<protocol::ChromiumPortAllocatorFactory>(),
+      webrtc::ThreadWrapper::current()->SocketServer(),
       url_loader_factory_owner_->GetURLLoaderFactory(), nullptr,
       network_settings, transport_role_);
   auto close_callback =

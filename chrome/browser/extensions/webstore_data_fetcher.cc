@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,10 +35,7 @@ namespace extensions {
 WebstoreDataFetcher::WebstoreDataFetcher(WebstoreDataFetcherDelegate* delegate,
                                          const GURL& referrer_url,
                                          const std::string webstore_item_id)
-    : delegate_(delegate),
-      referrer_url_(referrer_url),
-      id_(webstore_item_id),
-      max_auto_retries_(0) {}
+    : delegate_(delegate), referrer_url_(referrer_url), id_(webstore_item_id) {}
 
 WebstoreDataFetcher::~WebstoreDataFetcher() {}
 
@@ -121,20 +118,18 @@ void WebstoreDataFetcher::OnResponseStarted(
 
 void WebstoreDataFetcher::OnJsonParsed(
     data_decoder::DataDecoder::ValueOrError result) {
-  if (!result.value) {
-    delegate_->OnWebstoreResponseParseFailure(id_, *result.error);
+  if (!result.has_value()) {
+    delegate_->OnWebstoreResponseParseFailure(id_, result.error());
     return;
   }
 
-  if (!result.value->is_dict()) {
+  if (!result->is_dict()) {
     delegate_->OnWebstoreResponseParseFailure(id_,
                                               kInvalidWebstoreResponseError);
     return;
   }
 
-  delegate_->OnWebstoreResponseParseSuccess(
-      id_, base::DictionaryValue::From(
-               base::Value::ToUniquePtrValue(std::move(*result.value))));
+  delegate_->OnWebstoreResponseParseSuccess(id_, result->GetDict());
 }
 
 void WebstoreDataFetcher::OnSimpleLoaderComplete(
@@ -146,8 +141,8 @@ void WebstoreDataFetcher::OnSimpleLoaderComplete(
 
   // The parser will call us back via one of the callbacks.
   data_decoder::DataDecoder::ParseJsonIsolated(
-      *response_body,
-      base::BindOnce(&WebstoreDataFetcher::OnJsonParsed, AsWeakPtr()));
+      *response_body, base::BindOnce(&WebstoreDataFetcher::OnJsonParsed,
+                                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 }  // namespace extensions

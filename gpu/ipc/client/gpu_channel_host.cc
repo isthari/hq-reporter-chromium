@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/common/gpu_memory_buffer_support.h"
 #include "gpu/ipc/client/client_shared_image_interface.h"
@@ -19,6 +18,7 @@
 #include "gpu/ipc/common/gpu_watchdog_timeout.h"
 #include "ipc/ipc_channel_mojo.h"
 #include "mojo/public/cpp/bindings/lib/message_quota_checker.h"
+#include "mojo/public/cpp/bindings/sync_call_restrictions.h"
 #include "url/gurl.h"
 
 using base::AutoLock;
@@ -31,8 +31,9 @@ GpuChannelHost::GpuChannelHost(
     const gpu::GpuFeatureInfo& gpu_feature_info,
     mojo::ScopedMessagePipeHandle handle,
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner)
-    : io_thread_(io_task_runner ? io_task_runner
-                                : base::ThreadTaskRunnerHandle::Get()),
+    : io_thread_(io_task_runner
+                     ? io_task_runner
+                     : base::SingleThreadTaskRunner::GetCurrentDefault()),
       channel_id_(channel_id),
       gpu_info_(gpu_info),
       gpu_feature_info_(gpu_feature_info),

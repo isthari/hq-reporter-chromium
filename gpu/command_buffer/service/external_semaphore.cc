@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,7 +27,7 @@ GLuint ImportSemaphoreHandleToGLSemaphore(SemaphoreHandle handle) {
   if (!handle.is_valid())
     return 0;
 
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
+#if BUILDFLAG(IS_POSIX)
   if (handle.vk_handle_type() !=
       VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT) {
     DLOG(ERROR) << "Importing semaphore handle of unexpected type:"
@@ -154,7 +154,7 @@ void ExternalSemaphore::Reset() {
 
   if (gl_semaphore_ != 0) {
     auto* current_gl = gl::g_current_gl_context_tls->Get();
-    auto* api = current_gl->Driver ? current_gl->Api : nullptr;
+    auto* api = current_gl->Driver ? current_gl->Api.get() : nullptr;
     // We assume there is always one GL context current. If there isn't a
     // GL context current, we assume the last GL context is destroyed, in that
     // case, we will skip glDeleteSemaphoresEXT().
@@ -185,6 +185,13 @@ VkSemaphore ExternalSemaphore::GetVkSemaphore() {
         implementation->ImportSemaphoreHandle(device, handle_.Duplicate());
   }
   return semaphore_;
+}
+
+SemaphoreHandle ExternalSemaphore::TakeSemaphoreHandle() {
+  SemaphoreHandle handle = std::move(handle_);
+  DCHECK(!handle_.is_valid());
+  Reset();
+  return handle;
 }
 
 }  // namespace gpu

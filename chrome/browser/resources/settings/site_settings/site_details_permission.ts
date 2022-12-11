@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,20 @@
  * 'site-details-permission' handles showing the state of one permission, such
  * as Geolocation, for a given origin.
  */
-import 'chrome://resources/cr_elements/md_select_css.m.js';
+import 'chrome://resources/cr_elements/md_select.css.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
-import '../settings_shared_css.js';
-import '../settings_vars_css.js';
+import '../settings_shared.css.js';
+import '../settings_vars.css.js';
 import '../i18n_setup.js';
 
-import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
-import {I18nMixin} from 'chrome://resources/js/i18n_mixin.js';
-import {WebUIListenerMixin} from 'chrome://resources/js/web_ui_listener_mixin.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {assert, assertNotReached} from 'chrome://resources/js/assert_ts.js';
+import {sanitizeInnerHtml} from 'chrome://resources/js/parse_html_subset.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {ContentSetting, ContentSettingsTypes, SiteSettingSource} from './constants.js';
+import {getTemplate} from './site_details_permission.html.js';
 import {SiteSettingsMixin} from './site_settings_mixin.js';
 import {RawSiteException} from './site_settings_prefs_browser_proxy.js';
 
@@ -32,7 +34,7 @@ export interface SiteDetailsPermissionElement {
 }
 
 const SiteDetailsPermissionElementBase =
-    SiteSettingsMixin(WebUIListenerMixin(I18nMixin(PolymerElement)));
+    SiteSettingsMixin(WebUiListenerMixin(I18nMixin(PolymerElement)));
 
 export class SiteDetailsPermissionElement extends
     SiteDetailsPermissionElementBase {
@@ -41,7 +43,7 @@ export class SiteDetailsPermissionElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -88,10 +90,10 @@ export class SiteDetailsPermissionElement extends
   label: string;
   icon: string;
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
-    this.addWebUIListener(
+    this.addWebUiListener(
         'contentSettingCategoryChanged',
         (category: ContentSettingsTypes) =>
             this.onDefaultSettingChanged_(category));
@@ -193,7 +195,6 @@ export class SiteDetailsPermissionElement extends
     }
     assertNotReached(
         `No string for ${this.category}'s default of ${defaultSetting}`);
-    return '';
   }
 
   /**
@@ -232,13 +233,16 @@ export class SiteDetailsPermissionElement extends
       setting: ContentSetting): boolean {
     // This method assumes that an empty string will be returned for categories
     // that have no permission info string.
-    return this.permissionInfoString_(
+    return String(this.permissionInfoString_(
                source, category, setting,
                // Set all permission info string arguments as null. This is OK
                // because there is no need to know what the information string
                // will be, just whether there is one or not.
-               null, null, null, null, null, null, null, null, null, null, null,
-               null) !== '';
+               null, null, null, null, null, null,
+               // <if expr="is_win and _google_chrome">
+               null,
+               // </if>
+               null, null, null, null, null, null)) !== '';
   }
 
   /**
@@ -340,24 +344,28 @@ export class SiteDetailsPermissionElement extends
    * @param setting The permission setting.
    * @param  allowlistString The string to show if the permission is
    *     allowlisted.
-   * @param adsBlacklistString The string to show if the site is
-   *     blacklisted for showing bad ads.
+   * @param adsBlocklistString The string to show if the site is
+   *     blocklisted for showing bad ads.
    * @param adsBlockString The string to show if ads are blocked, but
-   *     the site is not blacklisted.
+   *     the site is not blocklisted.
    * @return The permission information string to display in the HTML.
    */
   private permissionInfoString_(
       source: SiteSettingSource, category: ContentSettingsTypes,
       setting: ContentSetting, allowlistString: string|null,
-      adsBlacklistString: string|null, adsBlockString: string|null,
+      adsBlocklistString: string|null, adsBlockString: string|null,
       embargoString: string|null, insecureOriginString: string|null,
-      killSwitchString: string|null, extensionAllowString: string|null,
-      extensionBlockString: string|null, extensionAskString: string|null,
-      policyAllowString: string|null, policyBlockString: string|null,
-      policyAskString: string|null): (string|null) {
+      killSwitchString: string|null,
+      // <if expr="is_win and _google_chrome">
+      protectedContentIdentifierAllowedString: string|null,
+      // </if>
+      extensionAllowString: string|null, extensionBlockString: string|null,
+      extensionAskString: string|null, policyAllowString: string|null,
+      policyBlockString: string|null,
+      policyAskString: string|null): (TrustedHTML|null) {
     if (source === undefined || category === undefined ||
         setting === undefined) {
-      return null;
+      return window.trustedTypes!.emptyHTML;
     }
 
     const extensionStrings: {[key: string]: string|null} = {};
@@ -370,43 +378,52 @@ export class SiteDetailsPermissionElement extends
     policyStrings[ContentSetting.BLOCK] = policyBlockString;
     policyStrings[ContentSetting.ASK] = policyAskString;
 
+    function htmlOrNull(str: string|null): TrustedHTML|null {
+      return str === null ? null : sanitizeInnerHtml(str);
+    }
+
     if (source === SiteSettingSource.ALLOWLIST) {
-      return allowlistString;
+      return htmlOrNull(allowlistString);
     } else if (source === SiteSettingSource.ADS_FILTER_BLACKLIST) {
       assert(
           ContentSettingsTypes.ADS === category,
-          'The ads filter blacklist only applies to Ads.');
-      return adsBlacklistString;
+          'The ads filter blocklist only applies to Ads.');
+      return htmlOrNull(adsBlocklistString);
     } else if (
         category === ContentSettingsTypes.ADS &&
         setting === ContentSetting.BLOCK) {
-      return adsBlockString;
+      return htmlOrNull(adsBlockString);
     } else if (source === SiteSettingSource.EMBARGO) {
       assert(
           ContentSetting.BLOCK === setting,
           'Embargo is only used to block permissions.');
-      return embargoString;
+      return htmlOrNull(embargoString);
     } else if (source === SiteSettingSource.EXTENSION) {
-      return extensionStrings[setting];
+      return htmlOrNull(extensionStrings[setting]);
     } else if (source === SiteSettingSource.INSECURE_ORIGIN) {
       assert(
           ContentSetting.BLOCK === setting,
           'Permissions can only be blocked due to insecure origins.');
-      return insecureOriginString;
+      return htmlOrNull(insecureOriginString);
     } else if (source === SiteSettingSource.KILL_SWITCH) {
       assert(
           ContentSetting.BLOCK === setting,
           'The permissions kill switch can only be used to block permissions.');
-      return killSwitchString;
+      return htmlOrNull(killSwitchString);
     } else if (source === SiteSettingSource.POLICY) {
-      return policyStrings[setting];
+      return htmlOrNull(policyStrings[setting]);
+      // <if expr="is_win and _google_chrome">
+    } else if (
+        category === ContentSettingsTypes.PROTECTED_CONTENT &&
+        setting === ContentSetting.ALLOW) {
+      return htmlOrNull(protectedContentIdentifierAllowedString);
+      // </if>
     } else if (
         source === SiteSettingSource.DEFAULT ||
         source === SiteSettingSource.PREFERENCE) {
-      return '';
+      return window.trustedTypes!.emptyHTML;
     }
     assertNotReached(`No string for ${category} setting source '${source}'`);
-    return '';
   }
 }
 

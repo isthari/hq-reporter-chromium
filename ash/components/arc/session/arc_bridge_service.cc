@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "ash/components/arc/mojom/bluetooth.mojom.h"
 #include "ash/components/arc/mojom/boot_phase_monitor.mojom.h"
 #include "ash/components/arc/mojom/camera.mojom.h"
-#include "ash/components/arc/mojom/cast_receiver.mojom.h"
 #include "ash/components/arc/mojom/cert_store.mojom.h"
 #include "ash/components/arc/mojom/clipboard.mojom.h"
 #include "ash/components/arc/mojom/crash_collector.mojom.h"

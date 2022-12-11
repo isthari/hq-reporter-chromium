@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,12 @@
 
 #include <windows.h>
 
+#include "base/time/time.h"
 #include "chrome/updater/updater_branding.h"
 
 namespace updater {
 
 extern const wchar_t kLegacyGoogleUpdaterAppID[];
-
-extern const wchar_t kUpdaterProcessName[];
 
 // The prefix to use for global names in WIN32 API's. The prefix is necessary
 // to avoid collision on kernel object names.
@@ -30,6 +29,7 @@ extern const wchar_t kPrefsAccessMutex[];
 #define UPDATER_KEY COMPANY_KEY L"Update\\"
 #define CLIENTS_KEY UPDATER_KEY L"Clients\\"
 #define CLIENT_STATE_KEY UPDATER_KEY L"ClientState\\"
+#define CLIENT_STATE_MEDIUM_KEY UPDATER_KEY L"ClientStateMedium\\"
 
 #define COMPANY_POLICIES_KEY \
   L"Software\\Policies\\" COMPANY_SHORTNAME_STRING L"\\"
@@ -58,11 +58,20 @@ extern const wchar_t kRegValueInstallerResult[];
 extern const wchar_t kRegValueInstallerResultUIString[];
 extern const wchar_t kRegValueInstallerSuccessLaunchCmdLine[];
 
+// AppCommand registry constants.
+extern const wchar_t kRegKeyCommands[];
+extern const wchar_t kRegValueCommandLine[];
+extern const wchar_t kRegValueAutoRunOnOSUpgrade[];
+
 // Device management.
 //
 // Registry for enrollment token.
 extern const wchar_t kRegKeyCompanyCloudManagement[];
 extern const wchar_t kRegValueEnrollmentToken[];
+
+// The name of the policy indicating that enrollment in cloud-based device
+// management is mandatory.
+extern const wchar_t kRegValueEnrollmentMandatory[];
 
 // Registry for DM token.
 extern const wchar_t kRegKeyCompanyEnrollment[];
@@ -71,15 +80,21 @@ extern const wchar_t kRegValueDmToken[];
 extern const wchar_t kWindowsServiceName[];
 extern const wchar_t kWindowsInternalServiceName[];
 
+// Windows event name used to signal the legacy GoogleUpdate processes to exit.
+extern const wchar_t kShutdownEvent[];
+
+// EXE name for the legacy GoogleUpdate processes.
+extern const wchar_t kLegacyExeName[];
+
 // crbug.com/1259178: there is a race condition on activating the COM service
 // and the service shutdown. The race condition is likely to occur when a new
-// instance of an updater coclass is created right after the last reference
-// to an object hosted by the COM service is released. The execution flow inside
-// the updater is sequential, for the most part. Therefore, introducing a slight
-// delay before creating coclasses reduces (but it does not eliminate) the
-// probability of running into this race condition, until a better soulution is
-// found.
-constexpr int kCreateUpdaterInstanceDelayMs = 100;
+// instance of an updater coclass is created right after the last reference to
+// an object hosted by the COM service is released. Therefore, introducing a
+// slight delay before creating coclasses reduces (but it does not eliminate)
+// the probability of running into this race condition, until a better
+// solution is found.
+inline constexpr base::TimeDelta kCreateUpdaterInstanceDelay =
+    base::Milliseconds(200);
 
 }  // namespace updater
 

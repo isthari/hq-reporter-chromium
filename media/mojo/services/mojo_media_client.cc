@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,7 +45,8 @@ std::unique_ptr<VideoDecoder> MojoMediaClient::CreateVideoDecoder(
     MediaLog* media_log,
     mojom::CommandBufferIdPtr command_buffer_id,
     RequestOverlayInfoCB request_overlay_info_cb,
-    const gfx::ColorSpace& target_color_space) {
+    const gfx::ColorSpace& target_color_space,
+    mojo::PendingRemote<stable::mojom::StableVideoDecoder> oop_video_decoder) {
   return nullptr;
 }
 
@@ -73,7 +74,9 @@ std::unique_ptr<Renderer> MojoMediaClient::CreateMediaFoundationRenderer(
     mojom::FrameInterfaceFactory* frame_interfaces,
     mojo::PendingRemote<mojom::MediaLog> media_log_remote,
     mojo::PendingReceiver<mojom::MediaFoundationRendererExtension>
-        renderer_extension_receiver) {
+        renderer_extension_receiver,
+    mojo::PendingRemote<media::mojom::MediaFoundationRendererClientExtension>
+        client_extension_remote) {
   return nullptr;
 }
 #endif  // BUILDFLAG(IS_WIN)

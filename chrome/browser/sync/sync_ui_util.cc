@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/strings/grit/components_strings.h"
-#include "components/sync/driver/sync_driver_switches.h"
+#include "components/sync/base/features.h"
 #include "components/sync/driver/sync_service.h"
 #include "components/sync/driver/sync_user_settings.h"
 #include "google_apis/gaia/gaia_urls.h"
@@ -36,10 +36,11 @@
 
 namespace {
 
-SyncStatusLabels GetStatusForUnrecoverableError(bool is_user_signout_allowed) {
+SyncStatusLabels GetStatusForUnrecoverableError(
+    bool is_user_clear_primary_account_allowed) {
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
   int status_label_string_id =
-      is_user_signout_allowed
+      is_user_clear_primary_account_allowed
           ? IDS_SYNC_STATUS_UNRECOVERABLE_ERROR
           :
           // The message for managed accounts is the same as that on ChromeOS.
@@ -83,7 +84,7 @@ SyncStatusLabels GetStatusForAuthError(
 
 SyncStatusLabels GetSyncStatusLabelsImpl(
     const syncer::SyncService* service,
-    bool is_user_signout_allowed,
+    bool is_user_clear_primary_account_allowed,
     const GoogleServiceAuthError& auth_error) {
   DCHECK(service);
 
@@ -105,7 +106,8 @@ SyncStatusLabels GetSyncStatusLabelsImpl(
 
   // Then check for an unrecoverable error.
   if (service->HasUnrecoverableError()) {
-    return GetStatusForUnrecoverableError(is_user_signout_allowed);
+    return GetStatusForUnrecoverableError(
+        is_user_clear_primary_account_allowed);
   }
 
   // Then check for an auth error.
@@ -184,8 +186,9 @@ SyncStatusLabels GetSyncStatusLabelsImpl(
 void FocusWebContents(Browser* browser) {
   content::WebContents* const contents =
       browser->tab_strip_model()->GetActiveWebContents();
-  if (contents)
+  if (contents) {
     contents->Focus();
+  }
 }
 
 void OpenTabForSyncTrustedVaultUserAction(Browser* browser, const GURL& url) {
@@ -221,9 +224,10 @@ absl::optional<AvatarSyncErrorType> GetTrustedVaultError(
 
 }  // namespace
 
-SyncStatusLabels GetSyncStatusLabels(syncer::SyncService* sync_service,
-                                     signin::IdentityManager* identity_manager,
-                                     bool is_user_signout_allowed) {
+SyncStatusLabels GetSyncStatusLabels(
+    syncer::SyncService* sync_service,
+    signin::IdentityManager* identity_manager,
+    bool is_user_clear_primary_account_allowed) {
   if (!sync_service) {
     // This can happen if Sync is disabled via the command line.
     return {SyncStatusMessageType::kPreSynced, IDS_SETTINGS_EMPTY_STRING,
@@ -234,8 +238,8 @@ SyncStatusLabels GetSyncStatusLabels(syncer::SyncService* sync_service,
   GoogleServiceAuthError auth_error =
       identity_manager->GetErrorStateOfRefreshTokenForAccount(
           account_info.account_id);
-  return GetSyncStatusLabelsImpl(sync_service, is_user_signout_allowed,
-                                 auth_error);
+  return GetSyncStatusLabelsImpl(
+      sync_service, is_user_clear_primary_account_allowed, auth_error);
 }
 
 SyncStatusLabels GetSyncStatusLabels(Profile* profile) {
@@ -243,7 +247,8 @@ SyncStatusLabels GetSyncStatusLabels(Profile* profile) {
   return GetSyncStatusLabels(
       SyncServiceFactory::GetForProfile(profile),
       IdentityManagerFactory::GetForProfile(profile),
-      signin_util::IsUserSignoutAllowedForProfile(profile));
+      signin_util::UserSignoutSetting::GetForProfile(profile)
+          ->IsClearPrimaryAccountAllowed());
 }
 
 SyncStatusMessageType GetSyncStatusMessageType(Profile* profile) {
@@ -251,14 +256,9 @@ SyncStatusMessageType GetSyncStatusMessageType(Profile* profile) {
 }
 
 absl::optional<AvatarSyncErrorType> GetAvatarSyncErrorType(Profile* profile) {
-  if (!SyncServiceFactory::IsSyncAllowed(profile)) {
-    return absl::nullopt;
-  }
-
   const syncer::SyncService* service =
       SyncServiceFactory::GetForProfile(profile);
   if (!service) {
-    // This can happen in incognito, where IsSyncAllowed() returns true.
     return absl::nullopt;
   }
 
@@ -274,7 +274,8 @@ absl::optional<AvatarSyncErrorType> GetAvatarSyncErrorType(Profile* profile) {
   // RequiresClientUpgrade() is unrecoverable, but is treated separately below.
   if (service->HasUnrecoverableError() && !service->RequiresClientUpgrade()) {
     // Display different messages and buttons for managed accounts.
-    if (!signin_util::IsUserSignoutAllowedForProfile(profile)) {
+    if (!signin_util::UserSignoutSetting::GetForProfile(profile)
+             ->IsClearPrimaryAccountAllowed()) {
       return AvatarSyncErrorType::kManagedUserUnrecoverableError;
     }
     return AvatarSyncErrorType::kUnrecoverableError;
@@ -371,7 +372,7 @@ bool ShouldShowSyncKeysMissingError(const syncer::SyncService* sync_service,
 
   // Guard under the main feature toggle for trusted vault changes.
   if (!base::FeatureList::IsEnabled(
-          switches::kSyncTrustedVaultPassphraseRecovery)) {
+          syncer::kSyncTrustedVaultPassphraseRecovery)) {
     return false;
   }
 
@@ -405,7 +406,7 @@ bool ShouldShowTrustedVaultDegradedRecoverabilityError(
   }
 
   DCHECK(base::FeatureList::IsEnabled(
-      switches::kSyncTrustedVaultPassphraseRecovery));
+      syncer::kSyncTrustedVaultPassphraseRecovery));
 
   // In transport-only mode, IsTrustedVaultRecoverabilityDegraded() returns true
   // even if the user isn't trying to sync any of the encrypted types. The check
@@ -436,11 +437,6 @@ void OpenTabForSyncKeyRetrieval(
                                               continue_url.spec());
   }
   OpenTabForSyncTrustedVaultUserAction(browser, retrieval_url);
-}
-
-void OpenTabForSyncTrustedVaultUserActionForTesting(Browser* browser,
-                                                    const GURL& url) {
-  OpenTabForSyncTrustedVaultUserAction(browser, url);
 }
 
 void OpenTabForSyncKeyRecoverabilityDegraded(

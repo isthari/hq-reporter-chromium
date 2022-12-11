@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,13 @@
 #define REMOTING_HOST_CLIENT_SESSION_H_
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner_helpers.h"
@@ -44,6 +46,7 @@
 #include "remoting/protocol/mouse_input_filter.h"
 #include "remoting/protocol/pairing_registry.h"
 #include "remoting/protocol/video_stream.h"
+#include "third_party/webrtc/modules/desktop_capture/desktop_capture_metadata.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_capture_types.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
 #include "third_party/webrtc/modules/desktop_capture/mouse_cursor.h"
@@ -141,6 +144,7 @@ class ClientSession : public protocol::HostStub,
       const protocol::SelectDesktopDisplayRequest& select_display) override;
   void ControlPeerConnection(
       const protocol::PeerConnectionParameters& parameters) override;
+  void SetVideoLayout(const protocol::VideoLayout& video_layout) override;
 
   // protocol::ConnectionToClient::EventHandler interface.
   void OnConnectionAuthenticating() override;
@@ -247,6 +251,12 @@ class ClientSession : public protocol::HostStub,
       const std::string& channel_name,
       std::unique_ptr<protocol::MessagePipe> pipe);
 
+  void CreatePerMonitorVideoStreams();
+
+  // True if |index| corresponds with an existing display (or the combined
+  // display).
+  bool IsValidDisplayIndex(webrtc::ScreenId index) const;
+
   raw_ptr<EventHandler> event_handler_;
 
   // Used to create a DesktopEnvironment instance for this session.
@@ -301,7 +311,8 @@ class ClientSession : public protocol::HostStub,
   base::OneShotTimer max_duration_timer_;
 
   // Objects responsible for sending video, audio.
-  std::unique_ptr<protocol::VideoStream> video_stream_;
+  std::map<webrtc::ScreenId, std::unique_ptr<protocol::VideoStream>>
+      video_streams_;
   std::unique_ptr<protocol::AudioStream> audio_stream_;
 
   // The set of all capabilities supported by the client.
@@ -385,9 +396,6 @@ class ClientSession : public protocol::HostStub,
   // Objects to monitor and send updates for mouse shape and keyboard layout.
   std::unique_ptr<MouseShapePump> mouse_shape_pump_;
   std::unique_ptr<KeyboardLayoutMonitor> keyboard_layout_monitor_;
-
-  base::WeakPtr<DesktopAndCursorConditionalComposer>
-      desktop_and_cursor_composer_;
 
   base::WeakPtr<RemoteWebAuthnMessageHandler> remote_webauthn_message_handler_;
   base::WeakPtr<RemoteOpenUrlMessageHandler> remote_open_url_message_handler_;

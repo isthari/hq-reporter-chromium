@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/policy/policy_ui_handler.h"
 #include "chrome/browser/ui/webui/webui_util.h"
@@ -14,6 +15,7 @@
 #include "components/grit/dev_ui_components_resources.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_ui.h"
+#include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/base/webui/web_ui_util.h"
 
 namespace {
@@ -34,8 +36,11 @@ content::WebUIDataSource* CreatePolicyUIHtmlSource() {
     {"labelAssetId", IDS_POLICY_LABEL_ASSET_ID},
     {"labelClientId", IDS_POLICY_LABEL_CLIENT_ID},
     {"labelDirectoryApiId", IDS_POLICY_LABEL_DIRECTORY_API_ID},
+    {"labelError", IDS_POLICY_LABEL_ERROR},
     {"labelGaiaId", IDS_POLICY_LABEL_GAIA_ID},
     {"labelIsAffiliated", IDS_POLICY_LABEL_IS_AFFILIATED},
+    {"labelLastCloudReportSentTimestamp",
+     IDS_POLICY_LABEL_LAST_CLOUD_REPORT_SENT_TIMESTAMP},
     {"labelLocation", IDS_POLICY_LABEL_LOCATION},
     {"labelMachineEnrollmentDomain",
      IDS_POLICY_LABEL_MACHINE_ENROLLMENT_DOMAIN},
@@ -47,8 +52,11 @@ content::WebUIDataSource* CreatePolicyUIHtmlSource() {
     {"labelIsOffHoursActive", IDS_POLICY_LABEL_IS_OFFHOURS_ACTIVE},
     {"labelPoliciesPush", IDS_POLICY_LABEL_PUSH_POLICIES},
     {"labelPrecedence", IDS_POLICY_LABEL_PRECEDENCE},
+    {"labelProfileId", IDS_POLICY_LABEL_PROFILE_ID},
     {"labelRefreshInterval", IDS_POLICY_LABEL_REFRESH_INTERVAL},
     {"labelStatus", IDS_POLICY_LABEL_STATUS},
+    {"labelTimeSinceLastFetchAttempt",
+     IDS_POLICY_LABEL_TIME_SINCE_LAST_FETCH_ATTEMPT},
     {"labelTimeSinceLastRefresh", IDS_POLICY_LABEL_TIME_SINCE_LAST_REFRESH},
     {"labelUsername", IDS_POLICY_LABEL_USERNAME},
     {"labelManagedBy", IDS_POLICY_LABEL_MANAGED_BY},
@@ -67,21 +75,42 @@ content::WebUIDataSource* CreatePolicyUIHtmlSource() {
     {"showUnset", IDS_POLICY_SHOW_UNSET},
     {"signinProfile", IDS_POLICY_SIGNIN_PROFILE},
     {"status", IDS_POLICY_STATUS},
+    {"statusErrorManagedNoPolicy", IDS_POLICY_STATUS_ERROR_MANAGED_NO_POLICY},
     {"statusDevice", IDS_POLICY_STATUS_DEVICE},
     {"statusMachine", IDS_POLICY_STATUS_MACHINE},
 #if BUILDFLAG(IS_WIN) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
     {"statusUpdater", IDS_POLICY_STATUS_UPDATER},
 #endif
     {"statusUser", IDS_POLICY_STATUS_USER},
-    {"labelLastCloudReportSentTimestamp",
-     IDS_POLICY_LABEL_LAST_CLOUD_REPORT_SENT_TIMESTAMP},
+#if !BUILDFLAG(IS_CHROMEOS)
+    {"uploadReport", IDS_UPLOAD_REPORT},
+#endif  // !BUILDFLAG(IS_CHROMEOS)
   };
   source->AddLocalizedStrings(kStrings);
 
   source->AddResourcePath("policy.css", IDR_POLICY_CSS);
   source->AddResourcePath("policy_base.js", IDR_POLICY_BASE_JS);
   source->AddResourcePath("policy.js", IDR_POLICY_JS);
+  source->AddResourcePath("policy_conflict.html.js",
+                          IDR_POLICY_POLICY_CONFLICT_HTML_JS);
+  source->AddResourcePath("policy_conflict.js", IDR_POLICY_POLICY_CONFLICT_JS);
+  source->AddResourcePath("policy_row.html.js", IDR_POLICY_POLICY_ROW_HTML_JS);
+  source->AddResourcePath("policy_row.js", IDR_POLICY_POLICY_ROW_JS);
+  source->AddResourcePath("policy_precedence_row.html.js",
+                          IDR_POLICY_POLICY_PRECEDENCE_ROW_HTML_JS);
+  source->AddResourcePath("policy_precedence_row.js",
+                          IDR_POLICY_POLICY_PRECEDENCE_ROW_JS);
+  source->AddResourcePath("policy_table.html.js",
+                          IDR_POLICY_POLICY_TABLE_HTML_JS);
+  source->AddResourcePath("policy_table.js", IDR_POLICY_POLICY_TABLE_JS);
+  source->AddResourcePath("status_box.html.js", IDR_POLICY_STATUS_BOX_HTML_JS);
+  source->AddResourcePath("status_box.js", IDR_POLICY_STATUS_BOX_JS);
   source->SetDefaultResource(IDR_POLICY_HTML);
+
+  source->EnableReplaceI18nInJS();
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::TrustedTypes,
+      "trusted-types static-types;");
   return source;
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,10 +20,7 @@ namespace autofill {
 class SaveUpdateAddressProfileBubbleControllerImplTest
     : public DialogBrowserTest {
  public:
-  SaveUpdateAddressProfileBubbleControllerImplTest() {
-    feature_list_.InitAndEnableFeature(
-        features::kAutofillAddressProfileSavePrompt);
-  }
+  SaveUpdateAddressProfileBubbleControllerImplTest() = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     DialogBrowserTest::SetUpCommandLine(command_line);
@@ -51,8 +48,8 @@ class SaveUpdateAddressProfileBubbleControllerImplTest
   }
 
  private:
-  raw_ptr<SaveUpdateAddressProfileBubbleControllerImpl> controller_ = nullptr;
-  base::test::ScopedFeatureList feature_list_;
+  raw_ptr<SaveUpdateAddressProfileBubbleControllerImpl, DanglingUntriaged>
+      controller_ = nullptr;
 };
 
 IN_PROC_BROWSER_TEST_F(SaveUpdateAddressProfileBubbleControllerImplTest,

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,7 +28,7 @@ class TestDefaultBrowserBrowserProxy extends TestBrowserProxy implements
       canBeDefault: true,
       isDefault: false,
       isDisabledByPolicy: false,
-      isUnknownError: false
+      isUnknownError: false,
     };
   }
 
@@ -66,7 +66,7 @@ suite('DefaultBrowserPageTest', function() {
 
   function initPage() {
     browserProxy.reset();
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     page = document.createElement('settings-default-browser-page');
     document.body.appendChild(page);
     return browserProxy.whenCalled('requestDefaultBrowserState');
@@ -77,7 +77,7 @@ suite('DefaultBrowserPageTest', function() {
       canBeDefault: true,
       isDefault: false,
       isDisabledByPolicy: false,
-      isUnknownError: false
+      isUnknownError: false,
     });
 
     return initPage().then(function() {
@@ -98,7 +98,7 @@ suite('DefaultBrowserPageTest', function() {
       canBeDefault: true,
       isDefault: true,
       isDisabledByPolicy: false,
-      isUnknownError: false
+      isUnknownError: false,
     });
 
     return initPage().then(function() {
@@ -120,7 +120,7 @@ suite('DefaultBrowserPageTest', function() {
       canBeDefault: false,
       isDefault: false,
       isDisabledByPolicy: false,
-      isUnknownError: false
+      isUnknownError: false,
     });
 
     return initPage().then(function() {
@@ -142,7 +142,7 @@ suite('DefaultBrowserPageTest', function() {
       canBeDefault: true,
       isDefault: false,
       isDisabledByPolicy: true,
-      isUnknownError: false
+      isUnknownError: false,
     });
 
     return initPage().then(function() {
@@ -165,7 +165,7 @@ suite('DefaultBrowserPageTest', function() {
       canBeDefault: true,
       isDefault: false,
       isDisabledByPolicy: false,
-      isUnknownError: true
+      isUnknownError: true,
     });
 
     return initPage().then(function() {

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/callback_helpers.h"
 #include "base/logging.h"
+#include "chromeos/ash/components/dbus/dlcservice/dlcservice.pb.h"
 
 namespace arc {
 
@@ -61,8 +62,10 @@ void ArcDlcInstaller::Install() {
 
   state_ = InstallerState::kInstalling;
   VLOG(2) << "Installing ARC DLC: " << kHoudiniRvcDlc;
-  chromeos::DlcserviceClient::Get()->Install(
-      kHoudiniRvcDlc,
+  dlcservice::InstallRequest install_request;
+  install_request.set_id(kHoudiniRvcDlc);
+  ash::DlcserviceClient::Get()->Install(
+      install_request,
       base::BindOnce(&ArcDlcInstaller::OnDlcInstalled,
                      weak_ptr_factory_.GetWeakPtr(), kHoudiniRvcDlc),
       base::DoNothing());
@@ -70,7 +73,7 @@ void ArcDlcInstaller::Install() {
 
 void ArcDlcInstaller::OnDlcInstalled(
     const std::string& dlc,
-    const chromeos::DlcserviceClient::InstallResult& install_result) {
+    const ash::DlcserviceClient::InstallResult& install_result) {
   if (install_result.error == dlcservice::kErrorNone) {
     VLOG(1) << dlc << " is installed successfully.";
   } else if (install_result.error == dlcservice::kErrorInvalidDlc) {
@@ -114,7 +117,7 @@ void ArcDlcInstaller::Uninstall() {
 
   state_ = InstallerState::kUninstalling;
   VLOG(2) << "Uninstalling ARC DLC: " << kHoudiniRvcDlc;
-  chromeos::DlcserviceClient::Get()->Uninstall(
+  ash::DlcserviceClient::Get()->Uninstall(
       kHoudiniRvcDlc,
       base::BindOnce(&ArcDlcInstaller::OnDlcUninstalled,
                      weak_ptr_factory_.GetWeakPtr(), kHoudiniRvcDlc));

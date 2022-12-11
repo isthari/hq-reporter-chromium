@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,13 +18,7 @@ const CSSProperty& GetCSSPropertyVariable() {
 }
 
 bool CSSProperty::HasEqualCSSPropertyName(const CSSProperty& other) const {
-  return property_id_ == other.PropertyID();
-}
-
-const CSSProperty& CSSProperty::Get(CSSPropertyID id) {
-  DCHECK_NE(id, CSSPropertyID::kInvalid);
-  DCHECK_LE(id, kLastCSSProperty);  // last property id
-  return To<CSSProperty>(CSSUnresolvedProperty::GetNonAliasProperty(id));
+  return property_id_ == other.property_id_;
 }
 
 // The correctness of static functions that operate on CSSPropertyName is

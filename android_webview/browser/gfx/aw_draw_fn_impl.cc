@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -139,10 +139,10 @@ HardwareRendererDrawParams CreateHRDrawParams(T* params,
   if (color_space)
     hr_params.color_space = gfx::ColorSpace(*color_space);
 
-  static_assert(base::size(decltype(params->transform){}) ==
-                    base::size(hr_params.transform),
+  static_assert(std::size(decltype(params->transform){}) ==
+                    std::size(hr_params.transform),
                 "transform size mismatch");
-  for (size_t i = 0; i < base::size(hr_params.transform); ++i) {
+  for (size_t i = 0; i < std::size(hr_params.transform); ++i) {
     hr_params.transform[i] = params->transform[i];
   }
 

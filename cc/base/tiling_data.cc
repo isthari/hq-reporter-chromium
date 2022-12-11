@@ -1,4 +1,4 @@
-// Copyright 2010 The Chromium Authors. All rights reserved.
+// Copyright 2010 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -334,7 +334,7 @@ int TilingData::TileSizeY(int y_index) const {
 
 gfx::RectF TilingData::TexelExtent(int i, int j) const {
   gfx::RectF result(TileBoundsWithBorder(i, j));
-  result.Inset(0.5f, 0.5f);
+  result.Inset(0.5f);
   return result;
 }
 

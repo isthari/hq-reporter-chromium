@@ -1,15 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import './shimless_rma_shared_css.js';
 import './base_page.js';
 
-import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/js/i18n_behavior.m.js';
+import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/ash/common/i18n_behavior.js';
 import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {getShimlessRmaService} from './mojo_interface_provider.js';
 import {HardwareWriteProtectionStateObserverInterface, HardwareWriteProtectionStateObserverReceiver, ShimlessRmaServiceInterface, StateResult} from './shimless_rma_types.js';
+import {disableAllButtons, focusPageTitle} from './shimless_rma_util.js';
 
 /**
  * @fileoverview
@@ -64,30 +65,45 @@ export class OnboardingWaitForManualWpDisablePage extends
             .bindNewPipeAndPassRemote());
   }
 
+  /** @override */
+  ready() {
+    super.ready();
+
+    focusPageTitle(this);
+  }
+
   /**
-   * @public
    * @param {boolean} enabled
+   * @public
    */
   onHardwareWriteProtectionStateChanged(enabled) {
     this.hwwpEnabled_ = enabled;
 
     if(!this.hidden) {
-      // TODO(gavindodd): Should this automatically progress to the next state?
-      this.dispatchEvent(new CustomEvent(
-          'disable-next-button',
-          {bubbles: true, composed: true, detail: this.hwwpEnabled_},
-          ));
+      if (!this.hwwpEnabled_) {
+        disableAllButtons(this, /*showBusyStateOverlay=*/ false);
+        // TODO(swifton): Hide the cancel button.
+      }
     }
   }
 
-  /** @return {!Promise<!StateResult>} */
-  onNextButtonClick() {
-    if (!this.hwwpEnabled_) {
-      return this.shimlessRmaService_.writeProtectManuallyDisabled();
-    } else {
-      return Promise.reject(
-          new Error('Hardware Write Protection is not disabled.'));
-    }
+  /**
+   * @return {string}
+   * @protected
+   */
+  getPageTitle_() {
+    return this.hwwpEnabled_ ? this.i18n('manuallyDisableWpTitleText') :
+                               this.i18n('manuallyDisableWpTitleTextReboot');
+  }
+
+  /**
+   * @return {string}
+   * @protected
+   */
+  getInstructions_() {
+    return this.hwwpEnabled_ ?
+        this.i18n('manuallyDisableWpInstructionsText') :
+        this.i18n('manuallyDisableWpInstructionsTextReboot');
   }
 }
 

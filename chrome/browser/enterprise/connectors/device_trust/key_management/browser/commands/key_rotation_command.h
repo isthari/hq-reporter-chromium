@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,8 @@
 namespace enterprise_connectors {
 
 // Interface for classes that handle kicking-off device trust key rotation
-// commands. There is an implementation for each platform.
+// commands. There is an implementation for each platform. Command instances are
+// not meant for parallel usages.
 class KeyRotationCommand {
  public:
   // Completion status of the rotate command, passed as an argument to the
@@ -21,6 +22,8 @@ class KeyRotationCommand {
     SUCCEEDED,
     FAILED,
     TIMED_OUT,
+    FAILED_KEY_CONFLICT,
+    FAILED_OS_RESTRICTION,
   };
 
   // Trigger completion callback.  The single argument is the status of the

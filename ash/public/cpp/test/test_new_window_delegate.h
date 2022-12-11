@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,7 +27,9 @@ class ASH_PUBLIC_EXPORT TestNewWindowDelegate : public NewWindowDelegate {
       aura::Window* source_window,
       const ui::OSExchangeData& drop_data,
       NewWindowForDetachingTabCallback closure) override;
-  void OpenUrl(const GURL& url, bool from_user_interaction) override;
+  void OpenUrl(const GURL& url,
+               OpenUrlFrom from,
+               Disposition disposition) override;
   void OpenCalculator() override;
   void OpenFileManager() override;
   void OpenDownloadsFolder() override;
@@ -46,8 +48,16 @@ class ASH_PUBLIC_EXPORT TestNewWindowDelegate : public NewWindowDelegate {
 class ASH_PUBLIC_EXPORT TestNewWindowDelegateProvider
     : public NewWindowDelegateProvider {
  public:
+  // This provider's GetInstance() and GetPrimary() will both return |delegate|.
   explicit TestNewWindowDelegateProvider(
       std::unique_ptr<TestNewWindowDelegate> delegate);
+
+  // This provider's GetInstance() will return |ash|, its GetPrimary() will
+  // return |lacros|.
+  explicit TestNewWindowDelegateProvider(
+      std::unique_ptr<TestNewWindowDelegate> ash,
+      std::unique_ptr<TestNewWindowDelegate> lacros);
+
   TestNewWindowDelegateProvider(const TestNewWindowDelegateProvider&) = delete;
   TestNewWindowDelegateProvider& operator=(
       const TestNewWindowDelegateProvider&) = delete;
@@ -58,7 +68,8 @@ class ASH_PUBLIC_EXPORT TestNewWindowDelegateProvider
   NewWindowDelegate* GetPrimary() override;
 
  private:
-  std::unique_ptr<TestNewWindowDelegate> delegate_;
+  std::unique_ptr<TestNewWindowDelegate> ash_;
+  std::unique_ptr<TestNewWindowDelegate> lacros_;
 };
 
 }  // namespace ash

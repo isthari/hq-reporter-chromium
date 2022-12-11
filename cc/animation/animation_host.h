@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "base/time/time.h"
 #include "cc/animation/animation_export.h"
 #include "cc/animation/keyframe_model.h"
+#include "cc/base/protected_sequence_synchronizer.h"
 #include "cc/trees/mutator_host.h"
 #include "cc/trees/mutator_host_client.h"
 #include "ui/gfx/geometry/box_f.h"
@@ -62,26 +63,25 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
 
   void AddAnimationTimeline(scoped_refptr<AnimationTimeline> timeline);
   void RemoveAnimationTimeline(scoped_refptr<AnimationTimeline> timeline);
-  AnimationTimeline* GetTimelineById(int timeline_id) const;
+  const AnimationTimeline* GetTimelineById(int timeline_id) const;
+  AnimationTimeline* GetTimelineById(int timeline_id);
 
   void RegisterAnimationForElement(ElementId element_id, Animation* animation);
   void UnregisterAnimationForElement(ElementId element_id,
                                      Animation* animation);
-
-  scoped_refptr<ElementAnimations> GetElementAnimationsForElementId(
-      ElementId element_id) const;
-
+  void UpdateClientAnimationStateForElementAnimations(ElementId element_id);
   gfx::PointF GetScrollOffsetForAnimation(ElementId element_id) const;
+
+  scoped_refptr<const ElementAnimations>
+  GetElementAnimationsForElementIdForTesting(ElementId element_id) const;
 
   // Parent LayerTreeHost or LayerTreeHostImpl.
   MutatorHostClient* mutator_host_client() {
-    DCHECK(!mutator_host_client_ ||
-           mutator_host_client_->RunsOnCurrentThread());
+    DCHECK(IsOwnerThread() || InProtectedSequence());
     return mutator_host_client_;
   }
   const MutatorHostClient* mutator_host_client() const {
-    DCHECK(!mutator_host_client_ ||
-           mutator_host_client_->RunsOnCurrentThread());
+    DCHECK(IsOwnerThread() || InProtectedSequence());
     return mutator_host_client_;
   }
 
@@ -92,23 +92,18 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
 
   void SetNeedsCommit();
   void SetNeedsPushProperties();
-  bool needs_push_properties() const { return needs_push_properties_; }
+  bool needs_push_properties() const {
+    return needs_push_properties_.Read(*this);
+  }
 
   // MutatorHost implementation.
   std::unique_ptr<MutatorHost> CreateImplInstance() const override;
   void ClearMutators() override;
   base::TimeDelta MinimumTickInterval() const override;
 
-  // Processes the current |element_to_animations_map_|, registering animations
-  // which can now be animated and unregistering those that can't based on the
-  // elements in the |changed_list|.
-  void UpdateRegisteredElementIds(ElementListType changed_list) override;
   void InitClientAnimationState() override;
 
-  void RegisterElementId(ElementId element_id,
-                         ElementListType list_type) override;
-  void UnregisterElementId(ElementId element_id,
-                           ElementListType list_type) override;
+  void RemoveElementId(ElementId element_id) override;
 
   void SetMutatorHostClient(MutatorHostClient* client) override;
 
@@ -139,28 +134,14 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
 
   bool ScrollOffsetAnimationWasInterrupted(ElementId element_id) const override;
 
-  bool IsAnimatingFilterProperty(ElementId element_id,
-                                 ElementListType list_type) const override;
-  bool IsAnimatingBackdropFilterProperty(
-      ElementId element_id,
-      ElementListType list_type) const override;
-  bool IsAnimatingOpacityProperty(ElementId element_id,
-                                  ElementListType list_type) const override;
-  bool IsAnimatingTransformProperty(ElementId element_id,
-                                    ElementListType list_type) const override;
+  bool IsAnimatingProperty(ElementId element_id,
+                           ElementListType list_type,
+                           TargetProperty::Type property) const override;
 
-  bool HasPotentiallyRunningFilterAnimation(
+  bool HasPotentiallyRunningAnimationForProperty(
       ElementId element_id,
-      ElementListType list_type) const override;
-  bool HasPotentiallyRunningBackdropFilterAnimation(
-      ElementId element_id,
-      ElementListType list_type) const override;
-  bool HasPotentiallyRunningOpacityAnimation(
-      ElementId element_id,
-      ElementListType list_type) const override;
-  bool HasPotentiallyRunningTransformAnimation(
-      ElementId element_id,
-      ElementListType list_type) const override;
+      ElementListType list_type,
+      TargetProperty::Type property) const override;
 
   bool HasAnyAnimationTargetingProperty(
       ElementId element_id,
@@ -195,9 +176,10 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   void ScrollAnimationAbort() override;
 
   ElementId ImplOnlyScrollAnimatingElement() const override;
+  void ImplOnlyScrollAnimatingElementRemoved() override;
 
   // This should only be called from the main thread.
-  ScrollOffsetAnimations& scroll_offset_animations() const;
+  ScrollOffsetAnimations& scroll_offset_animations();
 
   // Registers the given animation as ticking. A ticking animation is one that
   // has a running keyframe model.
@@ -227,6 +209,7 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   bool HasCanvasInvalidation() const override;
   bool HasJSAnimation() const override;
   bool HasSmilAnimation() const override;
+  bool HasSharedElementTransition() const override;
 
   // Starts/stops throughput tracking represented by |sequence_id|.
   void StartThroughputTracking(TrackedAnimationSequenceId sequence_id);
@@ -236,11 +219,17 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   void SetHasCanvasInvalidation(bool has_canvas_invalidation);
   void SetHasInlineStyleMutation(bool has_inline_style_mutation);
   void SetHasSmilAnimation(bool has_svg_smil_animation);
+  void SetHasSharedElementTransition(bool hash_shared_element_transition);
   void SetCurrentFrameHadRaf(bool current_frame_had_raf);
   void SetNextFrameHasPendingRaf(bool next_frame_has_pending_raf);
 
  private:
   explicit AnimationHost(ThreadInstance thread_instance);
+
+  const ElementAnimations* GetElementAnimationsForElementId(
+      ElementId element_id) const;
+  scoped_refptr<ElementAnimations> GetElementAnimationsForElementId(
+      ElementId element_id);
 
   void PushTimelinesToImplThread(AnimationHost* host_impl) const;
   void RemoveTimelinesFromImplThread(AnimationHost* host_impl) const;
@@ -263,15 +252,18 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   // if there is no match.
   WorkletAnimation* FindWorkletAnimation(WorkletAnimationId id);
 
-  ElementToAnimationsMap element_to_animations_map_;
-  AnimationsList ticking_animations_;
+  ProtectedSequenceReadable<ElementToAnimationsMap> element_to_animations_map_;
+  ProtectedSequenceReadable<AnimationsList> ticking_animations_;
 
   // A list of all timelines which this host owns.
   using IdToTimelineMap =
       std::unordered_map<int, scoped_refptr<AnimationTimeline>>;
-  IdToTimelineMap id_to_timeline_map_;
+  ProtectedSequenceReadable<IdToTimelineMap> id_to_timeline_map_;
 
-  raw_ptr<MutatorHostClient> mutator_host_client_;
+  // AnimationHosts's ProtectedSequenceSynchronizer implementation is
+  // implemented using this member. As such the various helpers can not be used
+  // to protect access (otherwise we would get infinite recursion).
+  raw_ptr<MutatorHostClient> mutator_host_client_ = nullptr;
 
   // This is only non-null within the call scope of PushPropertiesTo().
   const PropertyTrees* property_trees_ = nullptr;
@@ -280,23 +272,27 @@ class CC_ANIMATION_EXPORT AnimationHost : public MutatorHost,
   // will be non-null for a given AnimationHost instance (the former if
   // thread_instance_ == ThreadInstance::MAIN, the latter if thread_instance_ ==
   // ThreadInstance::IMPL).
-  std::unique_ptr<ScrollOffsetAnimations> scroll_offset_animations_;
-  std::unique_ptr<ScrollOffsetAnimationsImpl> scroll_offset_animations_impl_;
+  ProtectedSequenceWritable<std::unique_ptr<ScrollOffsetAnimations>>
+      scroll_offset_animations_;
+  ProtectedSequenceReadable<std::unique_ptr<ScrollOffsetAnimationsImpl>>
+      scroll_offset_animations_impl_;
 
   const ThreadInstance thread_instance_;
 
-  bool needs_push_properties_;
+  ProtectedSequenceWritable<bool> needs_push_properties_{false};
 
-  std::unique_ptr<LayerTreeMutator> mutator_;
+  ProtectedSequenceReadable<std::unique_ptr<LayerTreeMutator>> mutator_;
 
-  size_t main_thread_animations_count_ = 0;
-  bool current_frame_had_raf_ = false;
-  bool next_frame_has_pending_raf_ = false;
-  bool has_canvas_invalidation_ = false;
-  bool has_inline_style_mutation_ = false;
-  bool has_smil_animation_ = false;
+  ProtectedSequenceReadable<size_t> main_thread_animations_count_{0};
+  ProtectedSequenceReadable<bool> current_frame_had_raf_{false};
+  ProtectedSequenceReadable<bool> next_frame_has_pending_raf_{false};
+  ProtectedSequenceReadable<bool> has_canvas_invalidation_{false};
+  ProtectedSequenceReadable<bool> has_inline_style_mutation_{false};
+  ProtectedSequenceReadable<bool> has_smil_animation_{false};
+  ProtectedSequenceReadable<bool> has_shared_element_transition_{false};
 
-  PendingThroughputTrackerInfos pending_throughput_tracker_infos_;
+  ProtectedSequenceWritable<PendingThroughputTrackerInfos>
+      pending_throughput_tracker_infos_;
 
   base::WeakPtrFactory<AnimationHost> weak_factory_{this};
 };

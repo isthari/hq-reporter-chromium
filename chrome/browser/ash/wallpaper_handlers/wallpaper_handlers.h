@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,10 @@
 #include "ash/webui/personalization_app/mojom/personalization_app.mojom-forward.h"
 #include "base/callback_forward.h"
 #include "base/scoped_observation.h"
+#include "base/values.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "services/data_decoder/public/cpp/data_decoder.h"
+#include "url/gurl.h"
 
 class GoogleServiceAuthError;
 class Profile;
@@ -22,10 +24,6 @@ namespace backdrop {
 class Collection;
 class Image;
 }  // namespace backdrop
-
-namespace base {
-class Value;
-}  // namespace base
 
 namespace net {
 struct NetworkTrafficAnnotationTag;
@@ -166,22 +164,35 @@ class GooglePhotosFetcher : public signin::IdentityManager::Observer {
   // function that prepares `service_url`--with appended query params from the
   // client if applicable--and delegates the rest of the work to this function.
   using ClientCallback = base::OnceCallback<void(T)>;
-  void AddRequestAndStartIfNecessary(const std::string& service_url,
+  void AddRequestAndStartIfNecessary(const GURL& service_url,
                                      ClientCallback callback);
 
   // Called when the API request finishes. `response` will be absent if there
   // was an error in sending the request, receiving the response, or parsing the
   // response; otherwise, it will hold a response in the API's specified
   // structure.
-  virtual T ParseResponse(absl::optional<base::Value> response) = 0;
+  virtual T ParseResponse(const base::Value::Dict* response) = 0;
+
+  // Returns the count of results contained within the specified `result`.
+  virtual absl::optional<size_t> GetResultCount(const T& result) = 0;
+
+  // Contains logic for different HTTP error codes that we receive, as they can
+  // carry information on the state of the user's Google Photos library.
+  virtual absl::optional<base::Value> CreateErrorResponse(int error_code);
 
  private:
-  void OnTokenReceived(const std::string& service_url,
-                       GoogleServiceAuthError error,
-                       signin::AccessTokenInfo token_info);
-  void OnJsonReceived(const std::string& service_url,
+  void OnTokenReceived(
+      std::unique_ptr<signin::PrimaryAccountAccessTokenFetcher> fetcher,
+      const GURL& service_url,
+      base::TimeTicks start_time,
+      GoogleServiceAuthError error,
+      signin::AccessTokenInfo token_info);
+  void OnJsonReceived(std::unique_ptr<network::SimpleURLLoader> loader,
+                      const GURL& service_url,
+                      base::TimeTicks start_time,
                       std::unique_ptr<std::string> response_body);
-  void OnResponseReady(const std::string& service_url,
+  void OnResponseReady(const GURL& service_url,
+                       base::TimeTicks start_time,
                        absl::optional<base::Value> response);
 
   // Profile associated with the Google Photos account that will be queried.
@@ -199,17 +210,7 @@ class GooglePhotosFetcher : public signin::IdentityManager::Observer {
   // Callbacks for each distinct query this fetcher has been asked to make. A
   // URL's callbacks are called and then removed when the download finishes,
   // successfully or in error.
-  std::map<std::string, std::vector<ClientCallback>> pending_client_callbacks_;
-
-  // OAuth2 access token fetcher for each distinct query this fetcher has been
-  // asked to make. A URL's fetcher exists until its callbacks have been called.
-  std::map<std::string,
-           std::unique_ptr<signin::PrimaryAccountAccessTokenFetcher>>
-      token_fetchers_;
-
-  // Used to download the client's desired information from the Google Photos
-  // service. A URL's loader exists until its callbacks have been called.
-  std::map<std::string, std::unique_ptr<network::SimpleURLLoader>> url_loaders_;
+  std::map<GURL, std::vector<ClientCallback>> pending_client_callbacks_;
 
   base::WeakPtrFactory<GooglePhotosFetcher> weak_factory_{this};
 };
@@ -235,30 +236,38 @@ class GooglePhotosAlbumsFetcher
  protected:
   // GooglePhotosFetcher:
   GooglePhotosAlbumsCbkArgs ParseResponse(
-      absl::optional<base::Value> response) override;
+      const base::Value::Dict* response) override;
+  absl::optional<size_t> GetResultCount(
+      const GooglePhotosAlbumsCbkArgs& result) override;
 };
 
-// Downloads the number of photos in a user's Google Photos library.
-class GooglePhotosCountFetcher : public GooglePhotosFetcher<int> {
+using ash::personalization_app::mojom::GooglePhotosEnablementState;
+// Downloads whether the user is allowed to access Google Photos data.
+class GooglePhotosEnabledFetcher
+    : public GooglePhotosFetcher<GooglePhotosEnablementState> {
  public:
-  explicit GooglePhotosCountFetcher(Profile* profile);
+  explicit GooglePhotosEnabledFetcher(Profile* profile);
 
-  GooglePhotosCountFetcher(const GooglePhotosCountFetcher&) = delete;
-  GooglePhotosCountFetcher& operator=(const GooglePhotosCountFetcher&) = delete;
+  GooglePhotosEnabledFetcher(const GooglePhotosEnabledFetcher&) = delete;
+  GooglePhotosEnabledFetcher& operator=(const GooglePhotosEnabledFetcher&) =
+      delete;
 
-  ~GooglePhotosCountFetcher() override;
+  ~GooglePhotosEnabledFetcher() override;
 
   virtual void AddRequestAndStartIfNecessary(
-      base::OnceCallback<void(int)> callback);
+      base::OnceCallback<void(GooglePhotosEnablementState)> callback);
 
  protected:
   // GooglePhotosFetcher:
-  int ParseResponse(absl::optional<base::Value> response) override;
+  GooglePhotosEnablementState ParseResponse(
+      const base::Value::Dict* response) override;
+  absl::optional<size_t> GetResultCount(
+      const GooglePhotosEnablementState& result) override;
 };
 
 using GooglePhotosPhotosCbkArgs =
     ash::personalization_app::mojom::FetchGooglePhotosPhotosResponsePtr;
-// Downloads the visible photos in a user's Google Photos library.
+// Downloads visible photos from a user's Google Photos library.
 class GooglePhotosPhotosFetcher
     : public GooglePhotosFetcher<GooglePhotosPhotosCbkArgs> {
  public:
@@ -271,13 +280,19 @@ class GooglePhotosPhotosFetcher
   ~GooglePhotosPhotosFetcher() override;
 
   virtual void AddRequestAndStartIfNecessary(
+      const absl::optional<std::string>& item_id,
+      const absl::optional<std::string>& album_id,
       const absl::optional<std::string>& resume_token,
+      bool shuffle,
       base::OnceCallback<void(GooglePhotosPhotosCbkArgs)> callback);
 
  protected:
   // GooglePhotosFetcher:
+  absl::optional<base::Value> CreateErrorResponse(int error_code) override;
   GooglePhotosPhotosCbkArgs ParseResponse(
-      absl::optional<base::Value> response) override;
+      const base::Value::Dict* response) override;
+  absl::optional<size_t> GetResultCount(
+      const GooglePhotosPhotosCbkArgs& result) override;
 };
 
 }  // namespace wallpaper_handlers

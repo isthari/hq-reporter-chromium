@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,7 @@
 #include "ui/platform_window/platform_window_delegate.h"
 #include "ui/platform_window/platform_window_init_properties.h"
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "ui/ozone/public/ozone_gpu_test_helper.h"
 #include "ui/ozone/public/ozone_platform.h"
 #include "ui/ozone/public/surface_factory_ozone.h"
@@ -118,9 +118,9 @@ class DemoWindow : public ui::PlatformWindowDelegate {
   std::unique_ptr<ui::PlatformWindow> CreatePlatformWindow(
       const gfx::Rect& bounds) {
     ui::PlatformWindowInitProperties props(bounds);
-#if defined(USE_OZONE)
-      return ui::OzonePlatform::GetInstance()->CreatePlatformWindow(
-          this, std::move(props));
+#if BUILDFLAG(IS_OZONE)
+    return ui::OzonePlatform::GetInstance()->CreatePlatformWindow(
+        this, std::move(props));
 #elif BUILDFLAG(IS_WIN)
     return std::make_unique<ui::WinWindow>(this, props.bounds);
 #else
@@ -148,7 +148,7 @@ class DemoWindow : public ui::PlatformWindowDelegate {
     // Next, create the host and the service, and pass them the right ends of
     // the message-pipes.
     host_ = std::make_unique<demo::DemoHost>(
-        widget_, platform_window_->GetBounds().size(),
+        widget_, platform_window_->GetBoundsInPixels().size(),
         std::move(frame_sink_manager_client_receiver),
         std::move(frame_sink_manager));
 
@@ -159,7 +159,7 @@ class DemoWindow : public ui::PlatformWindowDelegate {
 
   // ui::PlatformWindowDelegate:
   void OnBoundsChanged(const BoundsChange& bounds) override {
-    host_->Resize(bounds.bounds.size());
+    host_->Resize(platform_window_->GetBoundsInPixels().size());
   }
 
   void OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget) override {
@@ -195,7 +195,7 @@ int DemoMain() {
   return 0;
 }
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 std::unique_ptr<ui::OzoneGpuTestHelper> gpu_helper;
 
 static void SetupOzone(base::WaitableEvent* done) {
@@ -211,7 +211,7 @@ static void SetupOzone(base::WaitableEvent* done) {
 }  // namespace
 
 int main(int argc, char** argv) {
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   base::CommandLine command_line(argc, argv);
   auto feature_list = std::make_unique<base::FeatureList>();
   feature_list->InitializeFromCommandLine(
@@ -226,7 +226,7 @@ int main(int argc, char** argv) {
   InitMojo mojo;
   InitUI ui;
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   ui::OzonePlatform::InitParams params;
   params.single_process = true;
   ui::OzonePlatform::InitializeForUI(params);

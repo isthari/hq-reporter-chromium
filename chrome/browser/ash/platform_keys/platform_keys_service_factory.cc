@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,17 +9,14 @@
 #include "base/memory/singleton.h"
 #include "base/scoped_observation.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
-#include "chrome/browser/ash/certificate_provider/certificate_provider.h"
 #include "chrome/browser/ash/net/client_cert_store_ash.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/certificate_provider/certificate_provider.h"
 #include "chrome/browser/net/nss_service.h"
 #include "chrome/browser/net/nss_service_factory.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chromeos/network/system_token_cert_db_storage.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "chromeos/ash/components/network/system_token_cert_db_storage.h"
 #include "components/user_manager/user.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -30,9 +27,6 @@ namespace ash {
 namespace platform_keys {
 
 namespace {
-
-// TODO(https://crbug.com/1164001): remove when migrated to ash.
-using ::chromeos::ClientCertStoreAsh;
 
 // Invoked on the IO thread when a NSSCertDatabase is available, delegates back
 // to origin thread.
@@ -75,7 +69,8 @@ class DelegateForUser : public PlatformKeysServiceImplDelegate {
     content::GetIOThreadTaskRunner({})->PostTask(
         FROM_HERE,
         base::BindOnce(&GetCertDatabaseOnIoThread,
-                       base::ThreadTaskRunnerHandle::Get(), std::move(callback),
+                       base::SingleThreadTaskRunner::GetCurrentDefault(),
+                       std::move(callback),
                        NssServiceFactory::GetForContext(browser_context_)
                            ->CreateNSSCertDatabaseGetterForIOThread()));
   }
@@ -171,9 +166,9 @@ void PlatformKeysServiceFactory::SetTestingMode(bool is_testing_mode) {
 }
 
 PlatformKeysServiceFactory::PlatformKeysServiceFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "PlatformKeysService",
-          BrowserContextDependencyManager::GetInstance()) {
+          ProfileSelections::BuildRedirectedInIncognito()) {
   DependsOn(NssServiceFactory::GetInstance());
 }
 
@@ -183,7 +178,7 @@ KeyedService* PlatformKeysServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
   std::unique_ptr<PlatformKeysServiceImplDelegate> delegate;
   Profile* profile = Profile::FromBrowserContext(context);
-  if (!ProfileHelper::IsRegularProfile(profile)) {
+  if (!ProfileHelper::IsUserProfile(profile)) {
     delegate = std::make_unique<DelegateForDevice>();
   } else {
     delegate = std::make_unique<DelegateForUser>(context);
@@ -207,11 +202,6 @@ void PlatformKeysServiceFactory::BrowserContextShutdown(
   }
 
   BrowserContextKeyedServiceFactory::BrowserContextShutdown(context);
-}
-
-content::BrowserContext* PlatformKeysServiceFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
 }
 
 }  // namespace platform_keys

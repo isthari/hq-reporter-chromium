@@ -1,28 +1,29 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/policy/cr_tooltip_icon.m.js';
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/cr_elements/policy/cr_tooltip_icon.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
 import 'chrome://resources/polymer/v3_0/paper-tooltip/paper-tooltip.js';
-import '../settings_shared_css.js';
+import '../settings_shared.css.js';
 import '../i18n_setup.js';
 
-import {CrTooltipIconElement} from 'chrome://resources/cr_elements/policy/cr_tooltip_icon.m.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {focusWithoutInk} from 'chrome://resources/js/cr/ui/focus_without_ink.m.js';
-import {I18nMixin, I18nMixinInterface} from 'chrome://resources/js/i18n_mixin.js';
-import {WebUIListenerMixin, WebUIListenerMixinInterface} from 'chrome://resources/js/web_ui_listener_mixin.js';
+import {CrTooltipIconElement} from 'chrome://resources/cr_elements/policy/cr_tooltip_icon.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
+import {focusWithoutInk} from 'chrome://resources/js/focus_without_ink.js';
+import {I18nMixin, I18nMixinInterface} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {WebUiListenerMixin, WebUiListenerMixinInterface} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
 import {PaperTooltipElement} from 'chrome://resources/polymer/v3_0/paper-tooltip/paper-tooltip.js';
-import {DomRepeatEvent, html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {DomRepeatEvent, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
+import {FocusConfig} from '../focus_config.js';
 import {routes} from '../route.js';
 import {Route, RouteObserverMixin, RouteObserverMixinInterface, Router} from '../router.js';
 import {AllSitesAction2, ContentSetting, ContentSettingsTypes, SiteSettingSource} from '../site_settings/constants.js';
 import {SiteSettingsMixin, SiteSettingsMixinInterface} from '../site_settings/site_settings_mixin.js';
 import {RawSiteException, RecentSitePermissions} from '../site_settings/site_settings_prefs_browser_proxy.js';
 
-type FocusConfig = Map<string, (string|(() => void))>;
+import {getTemplate} from './recent_site_permissions.html.js';
 
 export interface SettingsRecentSitePermissionsElement {
   $: {
@@ -32,10 +33,10 @@ export interface SettingsRecentSitePermissionsElement {
 
 const SettingsRecentSitePermissionsElementBase =
     RouteObserverMixin(
-        SiteSettingsMixin(WebUIListenerMixin(I18nMixin(PolymerElement)))) as {
-      new ():
-          PolymerElement & I18nMixinInterface & WebUIListenerMixinInterface &
-      SiteSettingsMixinInterface & RouteObserverMixinInterface
+        SiteSettingsMixin(WebUiListenerMixin(I18nMixin(PolymerElement)))) as {
+      new (): PolymerElement & I18nMixinInterface &
+          WebUiListenerMixinInterface & SiteSettingsMixinInterface &
+          RouteObserverMixinInterface,
     };
 
 export class SettingsRecentSitePermissionsElement extends
@@ -45,7 +46,7 @@ export class SettingsRecentSitePermissionsElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -75,7 +76,7 @@ export class SettingsRecentSitePermissionsElement extends
 
   noRecentPermissions: boolean;
   private shouldFocusAfterPopulation_: boolean;
-  private recentSitePermissionsList_: Array<RecentSitePermissions>;
+  private recentSitePermissionsList_: RecentSitePermissions[];
   focusConfig: FocusConfig;
   private lastSelected_: {origin: string, incognito: boolean, index: number}|
       null;
@@ -109,16 +110,16 @@ export class SettingsRecentSitePermissionsElement extends
    * Reload the site recent site permission list whenever the user navigates
    * to the site settings page.
    */
-  currentRouteChanged(currentRoute: Route) {
+  override currentRouteChanged(currentRoute: Route) {
     if (currentRoute.path === routes.SITE_SETTINGS.path) {
       this.populateList_();
     }
   }
 
-  ready() {
+  override ready() {
     super.ready();
 
-    this.addWebUIListener(
+    this.addWebUiListener(
         'onIncognitoStatusChanged',
         (hasIncognito: boolean) =>
             this.onIncognitoStatusChanged_(hasIncognito));
@@ -177,6 +178,8 @@ export class SettingsRecentSitePermissionsElement extends
         return this.i18n('siteSettingsPaymentHandlerMidSentence');
       case ContentSettingsTypes.MIXEDSCRIPT:
         return this.i18n('siteSettingsInsecureContentMidSentence');
+      case ContentSettingsTypes.FEDERATED_IDENTITY_API:
+        return this.i18n('siteSettingsFederatedIdentityApiMidSentence');
       case ContentSettingsTypes.BLUETOOTH_SCANNING:
         return this.i18n('siteSettingsBluetoothScanningMidSentence');
       case ContentSettingsTypes.FILE_SYSTEM_WRITE:
@@ -187,9 +190,9 @@ export class SettingsRecentSitePermissionsElement extends
         return this.i18n('siteSettingsArMidSentence');
       case ContentSettingsTypes.VR:
         return this.i18n('siteSettingsVrMidSentence');
-      case ContentSettingsTypes.WINDOW_PLACEMENT:
-        return this.i18n('siteSettingsWindowPlacementMidSentence');
-      case ContentSettingsTypes.FONT_ACCESS:
+      case ContentSettingsTypes.WINDOW_MANAGEMENT:
+        return this.i18n('siteSettingsWindowManagementMidSentence');
+      case ContentSettingsTypes.LOCAL_FONTS:
         return this.i18n('siteSettingsFontAccessMidSentence');
       case ContentSettingsTypes.IDLE_DETECTION:
         return this.i18n('siteSettingsIdleDetectionMidSentence');
@@ -204,7 +207,8 @@ export class SettingsRecentSitePermissionsElement extends
    */
   private getDisplayName_(recentSitePermissions: RecentSitePermissions):
       string {
-    return this.toUrl(recentSitePermissions.origin)!.host;
+    return recentSitePermissions.isolatedWebAppName ??
+        this.toUrl(recentSitePermissions.origin)!.host;
   }
 
   /**
@@ -260,7 +264,7 @@ export class SettingsRecentSitePermissionsElement extends
    *    together and applies the appropriate description based on |setting|.
    */
   private getPermissionGroupText_(
-      setting: string, exceptions: Array<RawSiteException>): string {
+      setting: string, exceptions: RawSiteException[]): string {
     const typeStrings = exceptions.map(
         exception => this.getI18nContentTypeString_(
             exception.type as ContentSettingsTypes));
@@ -370,13 +374,18 @@ export class SettingsRecentSitePermissionsElement extends
     const index = currentIndex > -1 ? currentIndex : fallbackIndex;
 
     if (this.recentSitePermissionsList_[index].incognito) {
-      focusWithoutInk(assert(
-          (this.shadowRoot!.querySelector(`#incognitoInfoIcon_${index}`) as
-           CrTooltipIconElement)
-              .getFocusableElement()));
+      const icon = this.shadowRoot!.querySelector<CrTooltipIconElement>(
+          `#incognitoInfoIcon_${index}`);
+      assert(!!icon);
+      const toFocus = icon.getFocusableElement() as HTMLElement;
+      assert(!!toFocus);
+      focusWithoutInk(toFocus);
     } else {
-      focusWithoutInk(
-          assert(this.shadowRoot!.querySelector(`#siteEntryButton_${index}`)!));
+      const toFocus =
+          this.shadowRoot!.querySelector<HTMLElement>(
+              `#siteEntryButton_${index}`);
+      assert(!!toFocus);
+      focusWithoutInk(toFocus);
     }
   }
 

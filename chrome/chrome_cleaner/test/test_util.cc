@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <stdint.h>
 #include <windows.h>
 
-#include <algorithm>
 #include <iterator>
 #include <memory>
 #include <set>
@@ -17,12 +16,14 @@
 
 #include "base/base_paths.h"
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -166,7 +167,7 @@ int RunChromeCleanerTestSuite(int argc,
       argc, argv,
       /*parallel_jobs=*/1U,        // Like LaunchUnitTestsSerially
       /*default_batch_limit=*/10,  // Like LaunchUnitTestsSerially
-      use_job_objects,
+      use_job_objects, base::DoNothing(),
       base::BindOnce(&base::TestSuite::Run, base::Unretained(&test_suite)));
 
   if (!IsSandboxedProcess())
@@ -268,8 +269,8 @@ void ExpectScheduledTaskFootprint(const PUPData::PUP& pup,
 
 bool StringContainsCaseInsensitive(const std::string& value,
                                    const std::string& substring) {
-  return std::search(
-             value.begin(), value.end(), substring.begin(), substring.end(),
+  return base::ranges::search(
+             value, substring,
              base::CaseInsensitiveCompareASCII<std::string::value_type>()) !=
          value.end();
 }

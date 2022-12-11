@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@ import './app.js';
 
 export {changeFolderOpen, clearSearch, createBookmark, deselectItems, editBookmark, moveBookmark, removeBookmark, reorderChildren, selectFolder, SelectFolderAction, selectItem, SelectItemsAction, setSearchResults, setSearchTerm, updateAnchor} from './actions.js';
 export {BookmarksAppElement} from './app.js';
+export {BookmarksApiProxy, BookmarksApiProxyImpl, Query} from './bookmarks_api_proxy.js';
 export {BrowserProxy, BrowserProxyImpl} from './browser_proxy.js';
 export {BookmarksCommandManagerElement} from './command_manager.js';
 export {Command, DropPosition, IncognitoAvailability, LOCAL_STORAGE_FOLDER_STATE_KEY, LOCAL_STORAGE_TREE_WIDTH_KEY, MenuSource, ROOT_NODE_ID} from './constants.js';

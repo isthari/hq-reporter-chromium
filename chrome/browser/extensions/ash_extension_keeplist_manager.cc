@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,11 @@
 #include "base/check.h"
 #include "base/feature_list.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
-#include "chrome/browser/extensions/extension_keeplist_ash.h"
+#include "chrome/browser/ash/crosapi/hosted_app_util.h"
+#include "chrome/browser/extensions/extension_keeplist_chromeos.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "components/app_constants/constants.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
@@ -23,16 +25,9 @@ AshExtensionKeeplistManager::AshExtensionKeeplistManager(
     ExtensionService* extension_service)
     : extension_prefs_(extension_prefs),
       extension_service_(extension_service),
-      registry_(ExtensionRegistry::Get(profile)) {
-  // We should enforce the keep list when Lacros is the only browser. However,
-  // Lacros as the only browser is not supported yet. To make it easy to test,
-  // allow enforcing the keep list with Lacros as primary browser.
-  // TODO(crbug.com/1268846): Enable the enforcement when Lacros is the only
-  // browser when Lacros as the only browser is supported.
-  should_enforce_keeplist_ =
-      crosapi::browser_util::IsLacrosPrimaryBrowser() &&
-      base::FeatureList::IsEnabled(
-          chromeos::features::kEnforceAshExtensionKeeplist);
+      registry_(ExtensionRegistry::Get(profile)),
+      should_enforce_keeplist_(
+          crosapi::browser_util::ShouldEnforceAshExtensionKeepList()) {
   if (should_enforce_keeplist_)
     registry_observation_.Observe(registry_);
 }
@@ -60,12 +55,18 @@ void AshExtensionKeeplistManager::ActivateKeeplistEnforcement() {
 
 bool AshExtensionKeeplistManager::ShouldDisable(
     const Extension* extension) const {
-  if (extension->is_extension() && !ExtensionRunsInAsh(extension->id()))
+  if (extension->is_extension() && !ExtensionRunsInOS(extension->id()))
     return true;
 
   if (extension->is_platform_app() &&
       crosapi::browser_util::IsLacrosChromeAppsEnabled() &&
-      !ExtensionAppRunsInAsh(extension->id())) {
+      !ExtensionAppRunsInOS(extension->id())) {
+    return true;
+  }
+
+  if (extension->is_hosted_app() &&
+      extension->id() != app_constants::kChromeAppId &&
+      crosapi::IsStandaloneBrowserHostedAppsEnabled()) {
     return true;
   }
 

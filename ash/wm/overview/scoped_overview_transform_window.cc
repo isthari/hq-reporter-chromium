@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,6 @@
 #include "ash/wm/window_util.h"
 #include "base/bind.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/ui/base/window_properties.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/transient_window_client.h"
@@ -401,7 +400,7 @@ void ScopedOverviewTransformWindow::SetClipping(
       } else {
         // Transform affects the clip rect, so take that into account.
         const gfx::Vector2dF scale =
-            window_->layer()->GetTargetTransform().Scale2d();
+            window_->layer()->GetTargetTransform().To2dScale();
         size.Scale(1 / scale.x(), 1 / scale.y());
       }
       break;
@@ -416,7 +415,7 @@ void ScopedOverviewTransformWindow::SetClipping(
   // TODO(afakhry|sammiequon): Investigate a proper fix for this.
   const int top_inset = GetTopInset();
   if (top_inset > 0)
-    clip_rect.Inset(gfx::Insets(top_inset + 1, 0, 0, 0));
+    clip_rect.Inset(gfx::Insets::TLBR(top_inset + 1, 0, 0, 0));
   ClipWindow(window_, clip_rect);
 }
 
@@ -454,7 +453,7 @@ gfx::RectF ScopedOverviewTransformWindow::ShrinkRectToFitPreservingAspectRatio(
       } else {
         const float new_height = bounds.width() / window_ratio;
         new_bounds = bounds;
-        new_bounds.Inset(0, title_height, 0, 0);
+        new_bounds.Inset(gfx::InsetsF::TLBR(title_height, 0, 0, 0));
         if (top_view_inset) {
           new_bounds.set_height(new_height);
           // Calculate `scaled_top_view_inset` without considering `title_height`
@@ -499,7 +498,7 @@ void ScopedOverviewTransformWindow::Close() {
     return;
   }
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&ScopedOverviewTransformWindow::CloseWidget,
                      weak_ptr_factory_.GetWeakPtr()),
@@ -541,7 +540,7 @@ void ScopedOverviewTransformWindow::UpdateRoundedCorners(bool show) {
     DCHECK(!show);
 
   ui::Layer* layer = window_->layer();
-  const float scale = layer->transform().Scale2d().x();
+  const float scale = layer->transform().To2dScale().x();
   const int radius = views::LayoutProvider::Get()->GetCornerRadiusMetric(
       views::Emphasis::kLow);
   const gfx::RoundedCornersF radii(show ? (radius / scale) : 0.0f);
@@ -621,6 +620,11 @@ void ScopedOverviewTransformWindow::OnWindowBoundsChanged(
 
   overview_item_->SetBounds(overview_item_->target_bounds(),
                             OVERVIEW_ANIMATION_NONE);
+}
+
+void ScopedOverviewTransformWindow::OnWindowDestroying(aura::Window* window) {
+  DCHECK(window_observations_.IsObservingSource(window));
+  window_observations_.RemoveObservation(window);
 }
 
 // static

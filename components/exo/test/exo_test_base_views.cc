@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,6 +34,8 @@ class WMHelperTester : public WMHelper, public VSyncTimingManager::Delegate {
   void AddActivationObserver(wm::ActivationChangeObserver* observer) override {}
   void RemoveActivationObserver(
       wm::ActivationChangeObserver* observer) override {}
+  void AddTooltipObserver(wm::TooltipObserver* observer) override {}
+  void RemoveTooltipObserver(wm::TooltipObserver* observer) override {}
   void AddFocusObserver(aura::client::FocusChangeObserver* observer) override {}
   void RemoveFocusObserver(
       aura::client::FocusChangeObserver* observer) override {}
@@ -70,6 +72,7 @@ class WMHelperTester : public WMHelper, public VSyncTimingManager::Delegate {
     return root_window_;
   }
   aura::client::CursorClient* GetCursorClient() override { return nullptr; }
+  aura::client::DragDropClient* GetDragDropClient() override { return nullptr; }
   void AddPreTargetHandler(ui::EventHandler* handler) override {}
   void PrependPreTargetHandler(ui::EventHandler* handler) override {}
   void RemovePreTargetHandler(ui::EventHandler* handler) override {}
@@ -92,11 +95,6 @@ class WMHelperTester : public WMHelper, public VSyncTimingManager::Delegate {
     return aura::client::DragUpdateInfo();
   }
   void OnDragExited() override {}
-  ui::mojom::DragOperation OnPerformDrop(
-      const ui::DropTargetEvent& event,
-      std::unique_ptr<ui::OSExchangeData> data) override {
-    return ui::mojom::DragOperation::kNone;
-  }
   WMHelper::DropCallback GetDropCallback(
       const ui::DropTargetEvent& event) override {
     return base::DoNothing();

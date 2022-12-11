@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/android/jni_generator/jni_generator_helper.h"
 #include "base/android/jni_utils.h"
-#include "chrome/android/modules/stack_unwinder/internal/jni_registration.h"
+#include "chrome/android/modules/stack_unwinder/internal/jni_registration_generated.h"
 
 extern "C" {
 // This JNI registration method is found and called by module framework

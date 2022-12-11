@@ -1,20 +1,20 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// clang-format off
-// #import 'chrome://os-settings/chromeos/os_settings.js';
+import 'chrome://os-settings/strings.m.js';
 
-// #import 'chrome://os-settings/strings.m.js';
+import {Router, routes} from 'chrome://os-settings/chromeos/os_settings.js';
+import {mojoString16ToString} from 'chrome://resources/ash/common/bluetooth/bluetooth_utils.js';
+import {setBluetoothConfigForTesting} from 'chrome://resources/ash/common/bluetooth/cros_bluetooth_config.js';
+import {BluetoothSystemProperties, BluetoothSystemState, DeviceConnectionState, SystemPropertiesObserverInterface} from 'chrome://resources/mojo/chromeos/ash/services/bluetooth_config/public/mojom/cros_bluetooth_config.mojom-webui.js';
+import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {createDefaultBluetoothDevice, FakeBluetoothConfig} from 'chrome://webui-test/cr_components/chromeos/bluetooth/fake_bluetooth_config.js';
+import {waitBeforeNextRender} from 'chrome://webui-test/polymer_test_util.js';
+import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
-// #import {flush, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-// #import {Router, Route, routes} from 'chrome://os-settings/chromeos/os_settings.js';
-// #import {assertTrue, assertEquals, assertNotEquals} from '../../../chai_assert.js';
-// #import {createDefaultBluetoothDevice, FakeBluetoothConfig,} from 'chrome://test/cr_components/chromeos/bluetooth/fake_bluetooth_config.js';
-// #import {setBluetoothConfigForTesting} from 'chrome://resources/cr_components/chromeos/bluetooth/cros_bluetooth_config.js';
-// #import {mojoString16ToString} from 'chrome://resources/cr_components/chromeos/bluetooth/bluetooth_utils.js';
-// #import {eventToPromise, waitAfterNextRender} from 'chrome://test/test_util.js';
-// clang-format on
+import {assertEquals, assertNotEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {assertFalse} from 'chrome://webui-test/chai_assert.js';
 
 suite('OsBluetoothSummaryTest', function() {
   /** @type {!FakeBluetoothConfig} */
@@ -24,16 +24,11 @@ suite('OsBluetoothSummaryTest', function() {
   let bluetoothSummary;
 
   /**
-   * @type {!chromeos.bluetoothConfig.mojom.SystemPropertiesObserverInterface}
+   * @type {!SystemPropertiesObserverInterface}
    */
   let propertiesObserver;
 
-  /** @type {!chromeos.bluetoothConfig.mojom} */
-  let mojom;
-
   setup(function() {
-    mojom = chromeos.bluetoothConfig.mojom;
-
     bluetoothConfig = new FakeBluetoothConfig();
     setBluetoothConfigForTesting(bluetoothConfig);
   });
@@ -41,23 +36,23 @@ suite('OsBluetoothSummaryTest', function() {
   function init() {
     bluetoothSummary = document.createElement('os-settings-bluetooth-summary');
     document.body.appendChild(bluetoothSummary);
-    Polymer.dom.flush();
+    flush();
 
     propertiesObserver = {
       /**
        * SystemPropertiesObserverInterface override
-       * @param {!chromeos.bluetoothConfig.mojom.BluetoothSystemProperties}
+       * @param {!BluetoothSystemProperties}
        *     properties
        */
       onPropertiesUpdated(properties) {
         bluetoothSummary.systemProperties = properties;
-      }
+      },
     };
     bluetoothConfig.observeSystemProperties(propertiesObserver);
   }
 
   function flushAsync() {
-    Polymer.dom.flush();
+    flush();
     return new Promise(resolve => setTimeout(resolve));
   }
 
@@ -65,54 +60,58 @@ suite('OsBluetoothSummaryTest', function() {
     init();
     bluetoothConfig.setBluetoothEnabledState(/*enabled=*/ true);
     await flushAsync();
-    const iconButton = bluetoothSummary.$$('#arrowIconButton');
+    const iconButton =
+        bluetoothSummary.shadowRoot.querySelector('#arrowIconButton');
     assertTrue(!!iconButton);
-    iconButton.click();
 
-    await flushAsync();
+    iconButton.click();
     assertEquals(
-        settings.Router.getInstance().getCurrentRoute(),
-        settings.routes.BLUETOOTH_DEVICES);
+        Router.getInstance().getCurrentRoute(), routes.BLUETOOTH_DEVICES);
+    assertNotEquals(
+        iconButton, bluetoothSummary.shadowRoot.activeElement,
+        'subpage icon should not be focused');
 
     // Navigate back to the top-level page.
-    assertNotEquals(iconButton, bluetoothSummary.shadowRoot.activeElement);
-    const windowPopstatePromise = test_util.eventToPromise('popstate', window);
-    settings.Router.getInstance().navigateToPreviousRoute();
+    const windowPopstatePromise = eventToPromise('popstate', window);
+    Router.getInstance().navigateToPreviousRoute();
     await windowPopstatePromise;
+    await waitBeforeNextRender(bluetoothSummary);
 
     // Check that |iconButton| has been focused.
-    assertEquals(iconButton, bluetoothSummary.shadowRoot.activeElement);
+    assertEquals(
+        iconButton, bluetoothSummary.shadowRoot.activeElement,
+        'subpage icon should be focused');
   });
 
   test('Toggle button creation and a11y', async function() {
-    bluetoothConfig.setSystemState(
-        chromeos.bluetoothConfig.mojom.BluetoothSystemState.kEnabled);
+    bluetoothConfig.setSystemState(BluetoothSystemState.kEnabled);
     await flushAsync();
     init();
-    let ironAnnouncerPromise =
-        test_util.eventToPromise('iron-announce', bluetoothSummary);
+    let a11yMessagesEventPromise =
+        eventToPromise('cr-a11y-announcer-messages-sent', document.body);
 
-    const toggle = bluetoothSummary.$$('#enableBluetoothToggle');
+    const toggle =
+        bluetoothSummary.shadowRoot.querySelector('#enableBluetoothToggle');
     assertTrue(toggle.checked);
 
     toggle.click();
-    let result = await ironAnnouncerPromise;
-    assertEquals(
-        result.detail.text,
-        bluetoothSummary.i18n('bluetoothDisabledA11YLabel'));
+    let a11yMessagesEvent = await a11yMessagesEventPromise;
+    assertTrue(a11yMessagesEvent.detail.messages.includes(
+        bluetoothSummary.i18n('bluetoothDisabledA11YLabel')));
 
-    ironAnnouncerPromise =
-        test_util.eventToPromise('iron-announce', bluetoothSummary);
+    a11yMessagesEventPromise =
+        eventToPromise('cr-a11y-announcer-messages-sent', document.body);
     toggle.click();
 
-    result = await ironAnnouncerPromise;
-    assertEquals(
-        result.detail.text, bluetoothSummary.i18n('bluetoothEnabledA11YLabel'));
+    a11yMessagesEvent = await a11yMessagesEventPromise;
+    assertTrue(a11yMessagesEvent.detail.messages.includes(
+        bluetoothSummary.i18n('bluetoothEnabledA11YLabel')));
   });
 
   test('Toggle button states', async function() {
     init();
-    const enableBluetoothToggle = bluetoothSummary.$$('#enableBluetoothToggle');
+    const enableBluetoothToggle =
+        bluetoothSummary.shadowRoot.querySelector('#enableBluetoothToggle');
     assertTrue(!!enableBluetoothToggle);
     assertFalse(enableBluetoothToggle.checked);
 
@@ -145,10 +144,10 @@ suite('OsBluetoothSummaryTest', function() {
     assertTrue(enableBluetoothToggle.checked);
 
     // Mock systemState becoming unavailable.
-    bluetoothConfig.setSystemState(
-        chromeos.bluetoothConfig.mojom.BluetoothSystemState.kUnavailable);
+    bluetoothConfig.setSystemState(BluetoothSystemState.kUnavailable);
     await flushAsync();
     assertTrue(enableBluetoothToggle.disabled);
+    assertFalse(enableBluetoothToggle.checked);
   });
 
   test('UI states test', async function() {
@@ -156,17 +155,22 @@ suite('OsBluetoothSummaryTest', function() {
 
     // Simulate device state is disabled.
     const bluetoothSecondaryLabel =
-        bluetoothSummary.$$('#bluetoothSecondaryLabel');
+        bluetoothSummary.shadowRoot.querySelector('#bluetoothSecondaryLabel');
     const getBluetoothArrowIconBtn = () =>
-        bluetoothSummary.$$('#arrowIconButton');
-    const getBluetoothStatusIcon = () => bluetoothSummary.$$('#statusIcon');
+        bluetoothSummary.shadowRoot.querySelector('#arrowIconButton');
+    const getBluetoothStatusIcon = () =>
+        bluetoothSummary.shadowRoot.querySelector('#statusIcon');
+    const getSecondaryLabel = () => bluetoothSecondaryLabel.textContent.trim();
+    const getPairNewDeviceBtn = () =>
+        bluetoothSummary.shadowRoot.querySelector('#pairNewDeviceBtn');
 
     assertFalse(!!getBluetoothArrowIconBtn());
     assertTrue(!!getBluetoothStatusIcon());
+    assertFalse(!!getPairNewDeviceBtn());
     assertTrue(!!bluetoothSecondaryLabel);
-    let label = bluetoothSecondaryLabel.textContent.trim();
 
-    assertEquals(bluetoothSummary.i18n('bluetoothSummaryPageOff'), label);
+    assertEquals(
+        bluetoothSummary.i18n('bluetoothSummaryPageOff'), getSecondaryLabel());
     assertEquals(
         'os-settings:bluetooth-disabled', getBluetoothStatusIcon().icon);
 
@@ -174,22 +178,23 @@ suite('OsBluetoothSummaryTest', function() {
     await flushAsync();
 
     assertTrue(!!getBluetoothArrowIconBtn());
+    assertTrue(!!getPairNewDeviceBtn());
     // Bluetooth Icon should be default because no devices are connected.
     assertEquals('cr:bluetooth', getBluetoothStatusIcon().icon);
 
     const device1 = createDefaultBluetoothDevice(
         /*id=*/ '123456789', /*publicName=*/ 'BeatsX',
         /*connectionState=*/
-        chromeos.bluetoothConfig.mojom.DeviceConnectionState.kConnected,
+        DeviceConnectionState.kConnected,
         /*opt_nickname=*/ 'device1');
     const device2 = createDefaultBluetoothDevice(
         /*id=*/ '987654321', /*publicName=*/ 'MX 3',
         /*connectionState=*/
-        chromeos.bluetoothConfig.mojom.DeviceConnectionState.kConnected);
+        DeviceConnectionState.kConnected);
     const device3 = createDefaultBluetoothDevice(
         /*id=*/ '456789', /*publicName=*/ 'Radio head',
         /*connectionState=*/
-        chromeos.bluetoothConfig.mojom.DeviceConnectionState.kConnected,
+        DeviceConnectionState.kConnected,
         /*opt_nickname=*/ 'device3');
 
     const mockPairedBluetoothDeviceProperties = [
@@ -205,39 +210,46 @@ suite('OsBluetoothSummaryTest', function() {
 
     assertEquals(
         'os-settings:bluetooth-connected', getBluetoothStatusIcon().icon);
-
-    label = bluetoothSecondaryLabel.textContent.trim();
     assertEquals(
         bluetoothSummary.i18n(
             'bluetoothSummaryPageTwoOrMoreDevicesDescription', device1.nickname,
             mockPairedBluetoothDeviceProperties.length - 1),
-        label);
+        getSecondaryLabel());
 
     // Simulate 2 connected devices.
     bluetoothConfig.removePairedDevice(device3);
     await flushAsync();
 
-    label = bluetoothSecondaryLabel.textContent.trim();
     assertEquals(
         bluetoothSummary.i18n(
             'bluetoothSummaryPageTwoDevicesDescription', device1.nickname,
             mojoString16ToString(device2.deviceProperties.publicName)),
-        label);
+        getSecondaryLabel());
 
     // Simulate a single connected device.
     bluetoothConfig.removePairedDevice(device2);
     await flushAsync();
 
-    label = bluetoothSecondaryLabel.textContent.trim();
-    assertEquals(device1.nickname, label);
+    assertEquals(device1.nickname, getSecondaryLabel());
 
     /// Simulate no connected device.
     bluetoothConfig.removePairedDevice(device1);
     await flushAsync();
 
-    label = bluetoothSecondaryLabel.textContent.trim();
-    assertEquals(bluetoothSummary.i18n('bluetoothSummaryPageOn'), label);
+    assertEquals(
+        bluetoothSummary.i18n('bluetoothSummaryPageOn'), getSecondaryLabel());
     assertEquals('cr:bluetooth', getBluetoothStatusIcon().icon);
+    assertTrue(!!getPairNewDeviceBtn());
+
+    // Mock systemState becoming unavailable.
+    bluetoothConfig.setSystemState(BluetoothSystemState.kUnavailable);
+    await flushAsync();
+    assertFalse(!!getBluetoothArrowIconBtn());
+    assertFalse(!!getPairNewDeviceBtn());
+    assertEquals(
+        bluetoothSummary.i18n('bluetoothSummaryPageOff'), getSecondaryLabel());
+    assertEquals(
+        'os-settings:bluetooth-disabled', getBluetoothStatusIcon().icon);
   });
 
   test('start-pairing is fired on pairNewDeviceBtn click', async function() {
@@ -246,8 +258,9 @@ suite('OsBluetoothSummaryTest', function() {
     await flushAsync();
 
     const toggleBluetoothPairingUiPromise =
-        test_util.eventToPromise('start-pairing', bluetoothSummary);
-    const getPairNewDeviceBtn = () => bluetoothSummary.$$('#pairNewDeviceBtn');
+        eventToPromise('start-pairing', bluetoothSummary);
+    const getPairNewDeviceBtn = () =>
+        bluetoothSummary.shadowRoot.querySelector('#pairNewDeviceBtn');
 
     assertTrue(!!getPairNewDeviceBtn());
     getPairNewDeviceBtn().click();
@@ -265,11 +278,13 @@ suite('OsBluetoothSummaryTest', function() {
 
     bluetoothConfig.setBluetoothEnabledState(/*enabled=*/ true);
     await flushAsync();
-    const bluetoothSummaryPrimary = bluetoothSummary.$$('#bluetoothSummary');
+    const bluetoothSummaryPrimary =
+        bluetoothSummary.shadowRoot.querySelector('#bluetoothSummary');
     const bluetoothSummarySecondary =
-        bluetoothSummary.$$('#bluetoothSummarySeconday');
+        bluetoothSummary.shadowRoot.querySelector('#bluetoothSummarySeconday');
     const bluetoothSummarySecondaryText =
-        bluetoothSummary.$$('#bluetoothSummarySecondayText');
+        bluetoothSummary.shadowRoot.querySelector(
+            '#bluetoothSummarySecondayText');
 
     assertFalse(!!bluetoothSummaryPrimary);
     assertTrue(!!bluetoothSummarySecondary);
@@ -279,5 +294,4 @@ suite('OsBluetoothSummaryTest', function() {
             'bluetoothPrimaryUserControlled', primaryUserEmail),
         bluetoothSummarySecondaryText.textContent.trim());
   });
-
 });

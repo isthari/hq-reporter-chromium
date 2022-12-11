@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
-#include "base/task/post_task.h"
+#include "base/strings/strcat.h"
 #include "base/time/time.h"
 #include "content/public/browser/browser_thread.h"
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
@@ -80,7 +80,9 @@ class BrowserURLLoaderThrottle : public blink::URLLoaderThrottle {
 
   using NativeUrlCheckNotifier =
       base::OnceCallback<void(bool /* proceed */,
-                              bool /* showed_interstitial */)>;
+                              bool /* showed_interstitial */,
+                              bool /* did_perform_real_time_check */,
+                              bool /* did_check_allowlist */)>;
 
   // |web_contents_getter| is used for displaying SafeBrowsing UI when
   // necessary.
@@ -94,7 +96,11 @@ class BrowserURLLoaderThrottle : public blink::URLLoaderThrottle {
   // |slow_check| indicates whether it reports the result of a slow check.
   // (Please see comments of CheckerOnIO::OnCheckUrlResult() for what slow check
   // means).
-  void OnCompleteCheck(bool slow_check, bool proceed, bool showed_interstitial);
+  void OnCompleteCheck(bool slow_check,
+                       bool proceed,
+                       bool showed_interstitial,
+                       bool did_perform_real_time_check,
+                       bool did_check_allowlist);
 
   // Called to skip future safe browsing checks and resume the request if
   // necessary.
@@ -111,6 +117,10 @@ class BrowserURLLoaderThrottle : public blink::URLLoaderThrottle {
   size_t pending_slow_checks_ = 0;
   bool blocked_ = false;
 
+  // The time when |WillStartRequest| is called.
+  base::TimeTicks start_request_time_;
+  bool is_start_request_called_ = false;
+
   // The time when we started deferring the request.
   base::TimeTicks defer_start_time_;
   bool deferred_ = false;
@@ -124,6 +134,15 @@ class BrowserURLLoaderThrottle : public blink::URLLoaderThrottle {
   bool skip_checks_ = false;
 
   std::unique_ptr<CheckerOnIO> io_checker_;
+
+  // Metric suffix for the URL lookup service.
+  std::string url_lookup_service_metric_suffix_;
+
+  // Whether real time lookup is enabled for the user.
+  bool real_time_lookup_enabled_;
+
+  // Tracks how many times |WillProcessResponse| is called.
+  int will_process_response_count_ = 0;
 
   base::WeakPtrFactory<BrowserURLLoaderThrottle> weak_factory_{this};
 };

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #include "base/bind.h"
 #include "base/containers/span.h"
 #include "base/memory/raw_ptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "net/base/ip_endpoint.h"
 #include "services/network/public/mojom/udp_socket.mojom.h"
@@ -74,7 +74,7 @@ class MockUDPSocket : public network::TestUDPSocket {
   void Connect(const net::IPEndPoint& remote_addr,
                network::mojom::UDPSocketOptionsPtr socket_options,
                ConnectCallback callback) override {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), net::OK,
                                   /*local_addr_out=*/absl::nullopt));
   }

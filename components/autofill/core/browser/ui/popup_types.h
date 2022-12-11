@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,7 +60,17 @@ enum class PopupHidingReason {
   kElementOutsideOfContentArea = 15,
   // The frame holds a pointer lock.
   kMouseLocked = 16,
-  kMaxValue = kMouseLocked
+  // The password generation popup would overlap and hide autofill popup.
+  kOverlappingWithPasswordGenerationPopup = 17,
+  // The Touch To Fill surface is shown instead of autofill suggestions.
+  kOverlappingWithTouchToFillSurface = 18,
+  // The context menu is shown instead of the autofill suggestions.
+  kOverlappingWithAutofillContextMenu = 19,
+  // The Fast Checkout surface is shown instead of autofill suggestions.
+  kOverlappingWithFastCheckoutSurface = 20,
+  // The picture-in-picture window overlaps with the autofill suggestions.
+  kOverlappingWithPictureInPictureWindow = 21,
+  kMaxValue = kOverlappingWithPictureInPictureWindow
 };
 
 }  // namespace autofill

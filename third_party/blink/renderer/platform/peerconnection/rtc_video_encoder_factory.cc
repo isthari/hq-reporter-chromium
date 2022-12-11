@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/containers/contains.h"
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
@@ -22,6 +23,23 @@
 namespace blink {
 
 namespace {
+
+#if BUILDFLAG(IS_WIN)
+// Enables AV1 encode acceleration for Windows.
+BASE_FEATURE(kMediaFoundationAV1Encoding,
+             "MediaFoundationAV1Encoding",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+// Enables H.264 CBP encode acceleration for Windows.
+BASE_FEATURE(kMediaFoundationH264CbpEncoding,
+             "MediaFoundationH264CbpEncoding",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+// Enables VP9 encode acceleration for Windows.
+BASE_FEATURE(kMediaFoundationVP9Encoding,
+             "MediaFoundationVP9Encoding",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+#endif
 
 absl::optional<media::VideoCodecProfile> WebRTCFormatToCodecProfile(
     const webrtc::SdpVideoFormat& sdp) {
@@ -155,7 +173,8 @@ struct SupportedFormats {
 };
 
 SupportedFormats GetSupportedFormatsInternal(
-    media::GpuVideoAcceleratorFactories* gpu_factories) {
+    media::GpuVideoAcceleratorFactories* gpu_factories,
+    const std::vector<media::VideoCodecProfile>& disabled_profiles) {
   SupportedFormats supported_formats;
   auto profiles = gpu_factories->GetVideoEncodeAcceleratorSupportedProfiles();
   if (!profiles)
@@ -165,14 +184,25 @@ SupportedFormats GetSupportedFormatsInternal(
   // querying GPU process.
   supported_formats.unknown = false;
   for (const auto& profile : *profiles) {
+    if (base::Contains(disabled_profiles, profile.profile))
+      continue;
+
     absl::optional<webrtc::SdpVideoFormat> format = VEAToWebRTCFormat(profile);
     if (format) {
       supported_formats.profiles.push_back(profile.profile);
       supported_formats.scalability_modes.push_back(profile.scalability_modes);
       supported_formats.sdp_formats.push_back(std::move(*format));
 
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX)
 #if BUILDFLAG(IS_WIN)
-      if (profile.profile == media::VideoCodecProfile::H264PROFILE_BASELINE) {
+      const bool kShouldAddH264Cbp =
+          base::FeatureList::IsEnabled(kMediaFoundationH264CbpEncoding) &&
+          profile.profile == media::VideoCodecProfile::H264PROFILE_BASELINE;
+#elif BUILDFLAG(IS_LINUX)
+      const bool kShouldAddH264Cbp =
+          profile.profile == media::VideoCodecProfile::H264PROFILE_BASELINE;
+#endif
+      if (kShouldAddH264Cbp) {
         supported_formats.profiles.push_back(profile.profile);
         supported_formats.scalability_modes.push_back(
             profile.scalability_modes);
@@ -218,7 +248,21 @@ bool IsScalabiltiyModeSupported(
 
 RTCVideoEncoderFactory::RTCVideoEncoderFactory(
     media::GpuVideoAcceleratorFactories* gpu_factories)
-    : gpu_factories_(gpu_factories), gpu_codec_support_waiter_(gpu_factories) {}
+    : gpu_factories_(gpu_factories), gpu_codec_support_waiter_(gpu_factories) {
+#if BUILDFLAG(IS_WIN)
+  if (!base::FeatureList::IsEnabled(kMediaFoundationVP9Encoding)) {
+    disabled_profiles_.emplace_back(media::VP9PROFILE_PROFILE0);
+    disabled_profiles_.emplace_back(media::VP9PROFILE_PROFILE1);
+    disabled_profiles_.emplace_back(media::VP9PROFILE_PROFILE2);
+    disabled_profiles_.emplace_back(media::VP9PROFILE_PROFILE3);
+  }
+  if (!base::FeatureList::IsEnabled(kMediaFoundationAV1Encoding)) {
+    disabled_profiles_.emplace_back(media::AV1PROFILE_PROFILE_MAIN);
+    disabled_profiles_.emplace_back(media::AV1PROFILE_PROFILE_HIGH);
+    disabled_profiles_.emplace_back(media::AV1PROFILE_PROFILE_PRO);
+  }
+#endif
+}
 
 RTCVideoEncoderFactory::~RTCVideoEncoderFactory() {}
 
@@ -239,7 +283,8 @@ RTCVideoEncoderFactory::CreateVideoEncoder(
 
   std::unique_ptr<webrtc::VideoEncoder> encoder;
   bool is_constrained_h264 = IsConstrainedH264(format);
-  auto supported_formats = GetSupportedFormatsInternal(gpu_factories_);
+  auto supported_formats =
+      GetSupportedFormatsInternal(gpu_factories_, disabled_profiles_);
   if (!supported_formats.unknown) {
     for (size_t i = 0; i < supported_formats.sdp_formats.size(); ++i) {
       if (format.IsSameCodec(supported_formats.sdp_formats[i])) {
@@ -263,7 +308,8 @@ std::vector<webrtc::SdpVideoFormat>
 RTCVideoEncoderFactory::GetSupportedFormats() const {
   CheckAndWaitEncoderSupportStatusIfNeeded();
 
-  return GetSupportedFormatsInternal(gpu_factories_).sdp_formats;
+  return GetSupportedFormatsInternal(gpu_factories_, disabled_profiles_)
+      .sdp_formats;
 }
 
 webrtc::VideoEncoderFactory::CodecSupport
@@ -272,7 +318,7 @@ RTCVideoEncoderFactory::QueryCodecSupport(
     absl::optional<std::string> scalability_mode) const {
   CheckAndWaitEncoderSupportStatusIfNeeded();
   SupportedFormats supported_formats =
-      GetSupportedFormatsInternal(gpu_factories_);
+      GetSupportedFormatsInternal(gpu_factories_, disabled_profiles_);
 
   for (size_t i = 0; i < supported_formats.sdp_formats.size(); ++i) {
     if (format.IsSameCodec(supported_formats.sdp_formats[i])) {

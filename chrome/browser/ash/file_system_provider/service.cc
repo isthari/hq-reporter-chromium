@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/values.h"
 #include "chrome/browser/ash/file_system_provider/mount_path_util.h"
@@ -258,11 +259,16 @@ bool Service::RequestUnmount(const ProviderId& provider_id,
   return true;
 }
 
-bool Service::RequestMount(const ProviderId& provider_id) {
+bool Service::RequestMount(const ProviderId& provider_id,
+                           RequestMountCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   ProviderInterface* const provider = GetProvider(provider_id);
-  return provider->RequestMount(profile_);
+  if (!provider) {
+    std::move(callback).Run(base::File::FILE_ERROR_FAILED);
+    return false;
+  }
+  return provider->RequestMount(profile_, std::move(callback));
 }
 
 std::vector<ProvidedFileSystemInfo> Service::GetProvidedFileSystemInfoList() {
@@ -300,7 +306,7 @@ ProvidedFileSystemInterface* Service::GetProvidedFileSystem(
   const auto file_system_it = file_system_map_.find(
       FileSystemKey(provider_id.ToString(), file_system_id));
   if (file_system_it == file_system_map_.end())
-    return NULL;
+    return nullptr;
 
   return file_system_it->second.get();
 }
@@ -404,11 +410,11 @@ ProvidedFileSystemInterface* Service::GetProvidedFileSystem(
 
   const auto mapping_it = mount_point_name_to_key_map_.find(mount_point_name);
   if (mapping_it == mount_point_name_to_key_map_.end())
-    return NULL;
+    return nullptr;
 
   const auto file_system_it = file_system_map_.find(mapping_it->second);
   if (file_system_it == file_system_map_.end())
-    return NULL;
+    return nullptr;
 
   return file_system_it->second.get();
 }

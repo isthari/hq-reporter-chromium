@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,7 +57,6 @@ void MaybePatchGdiGetFontData() {
   auto service_sandbox_type =
       sandbox::policy::SandboxTypeFromCommandLine(command_line);
   bool need_gdi =
-      service_sandbox_type == sandbox::mojom::Sandbox::kPpapi ||
       service_sandbox_type == sandbox::mojom::Sandbox::kPrintCompositor ||
       service_sandbox_type == sandbox::mojom::Sandbox::kPdfConversion ||
       (service_sandbox_type == sandbox::mojom::Sandbox::kRenderer &&

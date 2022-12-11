@@ -1,10 +1,9 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.content.browser.accessibility;
 
-import android.annotation.TargetApi;
 import android.app.assist.AssistStructure.ViewNode;
 import android.graphics.Rect;
 import android.os.Build;
@@ -33,7 +32,6 @@ public class ViewStructureBuilder {
         this.mRenderCoordinates = renderCoordinates;
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     private void populateViewStructureNode(ViewStructure node, String text, boolean hasSelection,
             int selStart, int selEnd, int color, int bgcolor, float size, boolean bold,
@@ -58,7 +56,6 @@ public class ViewStructureBuilder {
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     private void setViewStructureNodeBounds(ViewStructure node, boolean isRootNode,
             int parentRelativeLeft, int parentRelativeTop, int width, int height) {
@@ -75,7 +72,6 @@ public class ViewStructureBuilder {
         node.setDimens(boundsInParent.left, boundsInParent.top, 0, 0, width, height);
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     protected void setViewStructureNodeHtmlInfo(
             ViewStructure node, String htmlTag, String cssDisplay, String[][] htmlAttributes) {
@@ -87,7 +83,6 @@ public class ViewStructureBuilder {
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     protected void setViewStructureNodeHtmlMetadata(ViewStructure node, String[] metadataStrings) {
         Bundle extras = node.getExtras();
@@ -95,13 +90,11 @@ public class ViewStructureBuilder {
                 "metadata", new ArrayList<String>(Arrays.asList(metadataStrings)));
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     private void commitViewStructureNode(ViewStructure node) {
         node.asyncCommit();
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     private ViewStructure addViewStructureNodeChild(ViewStructure node, int index) {
         return node.asyncNewChild(index);

@@ -1,21 +1,21 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/passwords/password_breach_mediator.h"
 
-#include "base/strings/sys_string_conversions.h"
-#include "components/password_manager/core/browser/leak_detection_dialog_utils.h"
-#include "components/password_manager/core/browser/password_manager_metrics_util.h"
-#include "components/password_manager/core/common/password_manager_features.h"
-#include "components/strings/grit/components_strings.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/password_manager/core/browser/leak_detection_dialog_utils.h"
+#import "components/password_manager/core/browser/password_manager_metrics_util.h"
+#import "components/password_manager/core/common/password_manager_features.h"
+#import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/commands/application_commands.h"
 #import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
 #import "ios/chrome/browser/ui/passwords/password_breach_consumer.h"
 #import "ios/chrome/browser/ui/passwords/password_breach_presenter.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -27,14 +27,17 @@ using password_manager::GetAcceptButtonLabel;
 using password_manager::GetCancelButtonLabel;
 using password_manager::GetDescription;
 using password_manager::GetLeakDialogType;
-using password_manager::GetTitle;
 using password_manager::GetPasswordCheckupURL;
+using password_manager::GetTitle;
 using password_manager::ShouldCheckPasswords;
 using password_manager::metrics_util::LeakDialogDismissalReason;
+using password_manager::metrics_util::LeakDialogMetricsRecorder;
 using password_manager::metrics_util::LeakDialogType;
-using password_manager::metrics_util::LogLeakDialogTypeAndDismissalReason;
 
-@interface PasswordBreachMediator ()
+@interface PasswordBreachMediator () {
+  // Metrics recorder for UMA and UKM
+  std::unique_ptr<LeakDialogMetricsRecorder> recorder;
+}
 
 // Leak type of the dialog.
 @property(nonatomic, assign) LeakDialogType leakType;
@@ -54,6 +57,8 @@ using password_manager::metrics_util::LogLeakDialogTypeAndDismissalReason;
 
 - (instancetype)initWithConsumer:(id<PasswordBreachConsumer>)consumer
                        presenter:(id<PasswordBreachPresenter>)presenter
+                metrics_recorder:
+                    (std::unique_ptr<LeakDialogMetricsRecorder>)metrics_recorder
                         leakType:(CredentialLeakType)leakType {
   self = [super init];
   if (self) {
@@ -61,6 +66,8 @@ using password_manager::metrics_util::LogLeakDialogTypeAndDismissalReason;
     _credentialLeakType = leakType;
     _leakType = GetLeakDialogType(leakType);
     _dismissReason = LeakDialogDismissalReason::kNoDirectInteraction;
+
+    recorder = std::move(metrics_recorder);
 
     if (base::FeatureList::IsEnabled(
             password_manager::features::
@@ -96,7 +103,7 @@ using password_manager::metrics_util::LogLeakDialogTypeAndDismissalReason;
 }
 
 - (void)disconnect {
-  LogLeakDialogTypeAndDismissalReason(self.leakType, self.dismissReason);
+  recorder->LogLeakDialogTypeAndDismissalReason(self.dismissReason);
 }
 
 #pragma mark - ConfirmationAlertActionHandler
@@ -110,7 +117,7 @@ using password_manager::metrics_util::LogLeakDialogTypeAndDismissalReason;
   if (ShouldCheckPasswords(self.credentialLeakType)) {
     self.dismissReason = LeakDialogDismissalReason::kClickedCheckPasswords;
     // Opening Password page will stop the presentation in the presenter.
-    // No need to send |stop|.
+    // No need to send `stop`.
     [self.presenter startPasswordCheck];
   } else {
     [self confirmationAlertDismissAction];

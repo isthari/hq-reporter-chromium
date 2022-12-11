@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,6 @@
 #include "base/callback_forward.h"
 #include "base/mac/scoped_mach_port.h"
 #include "base/memory/ref_counted.h"
-#include "base/synchronization/lock.h"
 #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 #include <list>
 #include <utility>
@@ -105,10 +104,10 @@ class BASE_EXPORT WaitableEvent {
   // have elapsed if this returns false.
   //
   // TimedWait can synchronise its own destruction like |Wait|.
-  bool NOT_TAIL_CALLED TimedWait(const TimeDelta& wait_delta);
+  bool NOT_TAIL_CALLED TimedWait(TimeDelta wait_delta);
 
 #if BUILDFLAG(IS_WIN)
-  HANDLE handle() const { return handle_.Get(); }
+  HANDLE handle() const { return handle_.get(); }
 #endif
 
   // Declares that this WaitableEvent will only ever be used by a thread that is
@@ -118,6 +117,11 @@ class BASE_EXPORT WaitableEvent {
   // when it's merely idle and ready to do work. As such, this is only expected
   // to be used by thread and thread pool impls.
   void declare_only_used_while_idle() { waiting_is_blocking_ = false; }
+
+  // Declares that this WaitableEvent should not emit wakeup.flow trace events
+  // in order to prevent duplicate flow events when the owner is emitting their
+  // flow events more specifically.
+  void opt_out_of_wakeup_flow_events() { emit_wakeup_flow_ = false; }
 
   // Wait, synchronously, on multiple events.
   //   waitables: an array of WaitableEvent pointers
@@ -169,19 +173,14 @@ class BASE_EXPORT WaitableEvent {
  private:
   friend class WaitableEventWatcher;
 
+  // The platform specific portions of Signal and TimedWait (which do the actual
+  // signaling and waiting).
+  void SignalImpl();
+  bool TimedWaitImpl(TimeDelta wait_delta);
+
 #if BUILDFLAG(IS_WIN)
   win::ScopedHandle handle_;
 #elif BUILDFLAG(IS_APPLE)
-  // Prior to macOS 10.12, a TYPE_MACH_RECV dispatch source may not be invoked
-  // immediately. If a WaitableEventWatcher is used on a manual-reset event,
-  // and another thread that is Wait()ing on the event calls Reset()
-  // immediately after waking up, the watcher may not receive the callback.
-  // On macOS 10.12 and higher, dispatch delivery is reliable. But for OSes
-  // prior, a lock-protected list of callbacks is used for manual-reset event
-  // watchers. Automatic-reset events are not prone to this issue, since the
-  // first thread to wake will claim the event.
-  static bool UseSlowWatchList(ResetPolicy policy);
-
   // Peeks the message queue named by |port| and returns true if a message
   // is present and false if not. If |dequeue| is true, the messsage will be
   // drained from the queue. If |dequeue| is false, the queue will only be
@@ -196,37 +195,18 @@ class BASE_EXPORT WaitableEvent {
   // must be reference-counted manually.
   class ReceiveRight : public RefCountedThreadSafe<ReceiveRight> {
    public:
-    ReceiveRight(mach_port_t name, bool create_slow_watch_list);
+    explicit ReceiveRight(mach_port_t name);
 
     ReceiveRight(const ReceiveRight&) = delete;
     ReceiveRight& operator=(const ReceiveRight&) = delete;
 
     mach_port_t Name() const { return right_.get(); }
 
-    // This structure is used iff UseSlowWatchList() is true. See the comment
-    // in Signal() for details.
-    struct WatchList {
-      WatchList();
-      ~WatchList();
-
-      // The lock protects a list of closures to be run when the event is
-      // Signal()ed. The closures are invoked on the signaling thread, so they
-      // must be safe to be called from any thread.
-      Lock lock;
-      std::list<OnceClosure> list;
-    };
-
-    WatchList* SlowWatchList() const { return slow_watch_list_.get(); }
-
    private:
     friend class RefCountedThreadSafe<ReceiveRight>;
     ~ReceiveRight();
 
     mac::ScopedMachReceiveRight right_;
-
-    // This is allocated iff UseSlowWatchList() is true. It is created on the
-    // heap to avoid performing initialization when not using the slow path.
-    std::unique_ptr<WatchList> slow_watch_list_;
   };
 
   const ResetPolicy policy_;
@@ -287,6 +267,10 @@ class BASE_EXPORT WaitableEvent {
   // Whether a thread invoking Wait() on this WaitableEvent should be considered
   // blocked as opposed to idle (and potentially replaced if part of a pool).
   bool waiting_is_blocking_ = true;
+
+  // Whether this WaitableEvent should emit a wakeup.flow event on
+  // Signal => TimedWait.
+  bool emit_wakeup_flow_ = true;
 };
 
 }  // namespace base

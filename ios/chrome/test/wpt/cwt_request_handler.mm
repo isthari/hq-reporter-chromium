@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,19 +6,19 @@
 
 #import <XCTest/XCTest.h>
 
-#include "base/debug/stack_trace.h"
-#include "base/files/file_path.h"
-#include "base/files/file_util.h"
-#include "base/guid.h"
-#include "base/json/json_reader.h"
-#include "base/json/json_writer.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/test/ios/wait_util.h"
-#include "components/version_info/version_info.h"
+#import "base/debug/stack_trace.h"
+#import "base/files/file_path.h"
+#import "base/files/file_util.h"
+#import "base/guid.h"
+#import "base/json/json_reader.h"
+#import "base/json/json_writer.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/test/ios/wait_util.h"
+#import "components/version_info/version_info.h"
 #import "ios/chrome/test/wpt/cwt_constants.h"
 #import "ios/chrome/test/wpt/cwt_webdriver_app_interface.h"
 #import "ios/third_party/edo/src/Service/Sources/EDOClientService.h"
-#include "net/http/http_status_code.h"
+#import "net/http/http_status_code.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -31,8 +31,8 @@ using net::test_server::HttpResponse;
 
 namespace {
 
-const NSTimeInterval kDefaultScriptTimeout = 30;
-const NSTimeInterval kDefaultPageLoadTimeout = 300;
+constexpr base::TimeDelta kDefaultScriptTimeout = base::Seconds(30);
+constexpr base::TimeDelta kDefaultPageLoadTimeout = base::Seconds(300);
 
 // WebDriver commands.
 const char kWebDriverSessionCommand[] = "session";
@@ -44,6 +44,7 @@ const char kWebDriverSyncScriptCommand[] = "sync";
 const char kWebDriverAsyncScriptCommand[] = "async";
 const char kWebDriverScreenshotCommand[] = "screenshot";
 const char kWebDriverWindowRectCommand[] = "rect";
+const char kWebDriverActionsCommand[] = "actions";
 
 // Non-standard commands used only for testing Chrome.
 // This command is similar to the standard "url" command. It loads the URL
@@ -258,6 +259,9 @@ absl::optional<base::Value> CWTRequestHandler::ProcessCommand(
     if (command == kWebDriverWindowCommand)
       return CloseTargetTab();
 
+    if (command == kWebDriverActionsCommand)
+      return ReleaseActions();
+
     return absl::nullopt;
   }
 
@@ -318,9 +322,9 @@ base::Value CWTRequestHandler::InitializeSession() {
   capabilities.SetKey(kCapabilitiesProxyField,
                       base::Value(base::Value::Type::DICTIONARY));
   capabilities.SetIntPath(kCapabilitiesScriptTimeoutField,
-                          script_timeout_ * 1000);
+                          script_timeout_.InMilliseconds());
   capabilities.SetIntPath(kCapabilitiesPageLoadTimeoutField,
-                          page_load_timeout_ * 1000);
+                          page_load_timeout_.InMilliseconds());
   capabilities.SetIntPath(kCapabilitiesImplicitTimeoutField, 0);
   capabilities.SetKey(kCapabilitiesCanResizeWindowsField, base::Value(false));
 
@@ -334,6 +338,10 @@ base::Value CWTRequestHandler::CloseSession() {
   return base::Value(base::Value::Type::NONE);
 }
 
+base::Value CWTRequestHandler::ReleaseActions() {
+  return base::Value(base::Value::Type::NONE);
+}
+
 base::Value CWTRequestHandler::NavigateToUrl(const base::Value* url) {
   if (!url || !url->is_string()) {
     return CreateErrorValue(kWebDriverInvalidArgumentError,
@@ -341,9 +349,9 @@ base::Value CWTRequestHandler::NavigateToUrl(const base::Value* url) {
   }
 
   NSError* error = [CWTWebDriverAppInterface
-               loadURL:base::SysUTF8ToNSString(url->GetString())
-                 inTab:base::SysUTF8ToNSString(target_tab_id_)
-      timeoutInSeconds:page_load_timeout_];
+      loadURL:base::SysUTF8ToNSString(url->GetString())
+        inTab:base::SysUTF8ToNSString(target_tab_id_)
+      timeout:page_load_timeout_];
   if (!error)
     return base::Value(base::Value::Type::NONE);
 
@@ -388,9 +396,9 @@ base::Value CWTRequestHandler::NavigateToUrlForCrashTest(
   // tab is closed. Re-launch the app if it crashes.
   @try {
     NSError* error = [CWTWebDriverAppInterface
-                 loadURL:base::SysUTF8ToNSString(url.spec())
-                   inTab:base::SysUTF8ToNSString(target_tab_id_)
-        timeoutInSeconds:page_load_timeout_];
+        loadURL:base::SysUTF8ToNSString(url.spec())
+          inTab:base::SysUTF8ToNSString(target_tab_id_)
+        timeout:page_load_timeout_];
 
     if (!error) {
       const base::Value* extra_wait = input.FindKey(kChromeCrashWaitTime);
@@ -428,22 +436,20 @@ base::Value CWTRequestHandler::NavigateToUrlForCrashTest(
 }
 
 base::Value CWTRequestHandler::SetTimeouts(const base::Value& timeouts) {
-  for (const auto timeout : timeouts.DictItems()) {
-    if (!timeout.second.is_int() || timeout.second.GetInt() < 0) {
+  for (const auto pair : timeouts.DictItems()) {
+    if (!pair.second.is_int() || pair.second.GetInt() < 0) {
       return CreateErrorValue(kWebDriverInvalidArgumentError,
                               kWebDriverInvalidTimeoutMessage);
     }
 
-    int timeout_in_milliseconds = timeout.second.GetInt();
-    NSTimeInterval timeout_in_seconds =
-        static_cast<double>(timeout_in_milliseconds) / 1000;
+    const base::TimeDelta timeout = base::Milliseconds(pair.second.GetInt());
 
     // Only script and page load timeouts are supported in CWTChromeDriver.
     // Other values are ignored.
-    if (timeout.first == kWebDriverScriptTimeoutRequestField)
-      script_timeout_ = timeout_in_seconds;
-    else if (timeout.first == kWebDriverPageLoadTimeoutRequestField)
-      page_load_timeout_ = timeout_in_seconds;
+    if (pair.first == kWebDriverScriptTimeoutRequestField)
+      script_timeout_ = timeout;
+    else if (pair.first == kWebDriverPageLoadTimeoutRequestField)
+      page_load_timeout_ = timeout;
   }
   return base::Value(base::Value::Type::NONE);
 }
@@ -508,13 +514,13 @@ base::Value CWTRequestHandler::ExecuteScript(const base::Value* script,
 
   NSString* function_to_execute;
   if (is_async_function) {
-    // The provided |script| is a function body that already calls its last
+    // The provided `script` is a function body that already calls its last
     // argument with the result of its computation.
     function_to_execute =
         [NSString stringWithFormat:@"function f(completionHandler) { %s }",
                                    script->GetString().c_str()];
   } else {
-    // The provided |script| directly computes a result. Convert to a function
+    // The provided `script` directly computes a result. Convert to a function
     // that calls a completion handler with the result of its computation.
     NSString* input_function = [NSString
         stringWithFormat:@"() => { %s }", script->GetString().c_str()];
@@ -528,7 +534,7 @@ base::Value CWTRequestHandler::ExecuteScript(const base::Value* script,
   NSString* result_as_json = [CWTWebDriverAppInterface
       executeAsyncJavaScriptFunction:function_to_execute
                                inTab:base::SysUTF8ToNSString(target_tab_id_)
-                    timeoutInSeconds:script_timeout_];
+                             timeout:script_timeout_];
 
   if (!result_as_json) {
     return CreateErrorValue(kWebDriverScriptTimeoutError,

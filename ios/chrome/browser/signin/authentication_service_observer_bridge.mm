@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,11 +18,6 @@ AuthenticationServiceObserverBridge::AuthenticationServiceObserverBridge(
 
 AuthenticationServiceObserverBridge::~AuthenticationServiceObserverBridge() =
     default;
-
-void AuthenticationServiceObserverBridge::OnPrimaryAccountRestricted() {
-  if ([observer_ respondsToSelector:@selector(onPrimaryAccountRestricted)])
-    [observer_ onPrimaryAccountRestricted];
-}
 
 void AuthenticationServiceObserverBridge::OnServiceStatusChanged() {
   if ([observer_ respondsToSelector:@selector(onServiceStatusChanged)])

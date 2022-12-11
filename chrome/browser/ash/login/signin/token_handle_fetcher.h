@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "components/account_id/account_id.h"
 #include "components/keyed_service/core/keyed_service_shutdown_notifier.h"
@@ -56,8 +55,7 @@ class TokenHandleFetcher : public gaia::GaiaOAuthClient::Delegate {
   // GaiaOAuthClient::Delegate overrides:
   void OnOAuthError() override;
   void OnNetworkError(int response_code) override;
-  void OnGetTokenInfoResponse(
-      std::unique_ptr<base::DictionaryValue> token_info) override;
+  void OnGetTokenInfoResponse(const base::Value::Dict& token_info) override;
 
   void FillForAccessToken(const std::string& access_token);
 

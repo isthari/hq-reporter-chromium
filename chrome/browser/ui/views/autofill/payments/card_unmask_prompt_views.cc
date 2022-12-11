@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,8 @@
 #include "base/location.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/autofill/payments/create_card_unmask_prompt_view.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/autofill/payments/payments_view_util.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
@@ -52,8 +50,7 @@ namespace autofill {
 CardUnmaskPromptViews::CardUnmaskPromptViews(
     CardUnmaskPromptController* controller,
     content::WebContents* web_contents)
-    : controller_(controller), web_contents_(web_contents) {
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::CARD_UNMASK);
+    : controller_(controller), web_contents_(web_contents->GetWeakPtr()) {
   UpdateButtons();
 
   SetModalType(ui::MODAL_TYPE_CHILD);
@@ -67,7 +64,14 @@ CardUnmaskPromptViews::~CardUnmaskPromptViews() {
 }
 
 void CardUnmaskPromptViews::Show() {
-  constrained_window::ShowWebModalDialogViews(this, web_contents_);
+  // Don't show the bubble if the web contents are or will soon be destroyed.
+  // (e.g. when closing the platform authentication tab that usually triggers
+  // the unmask flow as a fallback).
+  if (!web_contents_ || web_contents_->IsBeingDestroyed()) {
+    delete this;
+    return;
+  }
+  constrained_window::ShowWebModalDialogViews(this, web_contents_.get());
 }
 
 void CardUnmaskPromptViews::ControllerGone() {
@@ -93,7 +97,7 @@ void CardUnmaskPromptViews::GotVerificationResult(
     overlay_label_->SetText(l10n_util::GetStringUTF16(
         IDS_AUTOFILL_CARD_UNMASK_VERIFICATION_SUCCESS));
     progress_throbber_->SetChecked(true);
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&CardUnmaskPromptViews::ClosePrompt,
                        weak_ptr_factory_.GetWeakPtr()),
@@ -109,32 +113,39 @@ void CardUnmaskPromptViews::GotVerificationResult(
         // invalid since we don't know the location of the problem.
         cvc_input_->SetInvalid(true);
 
-        // Show a "New card?" link, which when clicked will cause us to ask
-        // for expiration date.
-        ShowNewCardLink();
+        // For non-virtual cards, show a "Update card" link that triggers the UI
+        // to update the expiration date. This isn't relevant for virtual cards
+        // since they never expire.
+        if (!controller_->IsVirtualCard())
+          ShowNewCardLink();
       }
 
       // TODO(estade): When do we hide |error_label_|?
       SetRetriableErrorMessage(error_message);
     } else {
       SetRetriableErrorMessage(std::u16string());
+
+      // Remove all child views. Since this is a permanent error we do not
+      // intend to return to a previous state.
       overlay_->RemoveAllChildViews();
 
-      // The label of the overlay will now show the error in red.
+      // Create and add the error icon.
+      overlay_->AddChildView(
+          std::make_unique<views::ImageView>(ui::ImageModel::FromVectorIcon(
+              kBrowserToolsErrorIcon, ui::kColorAlertHighSeverity)));
+
+      // Create and add the label of the overlay, and show the error in red.
       auto error_label = std::make_unique<views::Label>(error_message);
       views::SetCascadingColorProviderColor(error_label.get(),
                                             views::kCascadingLabelEnabledColor,
                                             ui::kColorAlertHighSeverity);
+      error_label->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
       error_label->SetMultiLine(true);
 
-      // Replace the throbber with a warning icon. Since this is a permanent
-      // error we do not intend to return to a previous state.
-      auto error_icon =
-          std::make_unique<views::ImageView>(ui::ImageModel::FromVectorIcon(
-              kBrowserToolsErrorIcon, ui::kColorAlertHighSeverity));
-
-      overlay_->AddChildView(std::move(error_icon));
       overlay_->AddChildView(std::move(error_label));
+
+      // Re-layout to correctly format the views on the overlay.
+      overlay_->Layout();
 
       // If it is a virtual card retrieval failure, we will need to update the
       // window title.
@@ -159,10 +170,10 @@ void CardUnmaskPromptViews::SetRetriableErrorMessage(
   // Update the dialog's size.
   if (GetWidget() && web_contents_) {
     constrained_window::UpdateWebContentsModalDialogPosition(
-        GetWidget(),
-        web_modal::WebContentsModalDialogManager::FromWebContents(web_contents_)
-            ->delegate()
-            ->GetWebContentsModalDialogHost());
+        GetWidget(), web_modal::WebContentsModalDialogManager::FromWebContents(
+                         web_contents_.get())
+                         ->delegate()
+                         ->GetWebContentsModalDialogHost());
   }
 
   Layout();
@@ -242,11 +253,11 @@ bool CardUnmaskPromptViews::Accept() {
 
   controller_->OnUnmaskPromptAccepted(
       cvc_input_->GetText(),
-      month_input_->GetVisible()
-          ? month_input_->GetTextForRow(month_input_->GetSelectedIndex())
-          : std::u16string(),
+      month_input_->GetVisible() ? month_input_->GetTextForRow(
+                                       month_input_->GetSelectedIndex().value())
+                                 : std::u16string(),
       year_input_->GetVisible()
-          ? year_input_->GetTextForRow(year_input_->GetSelectedIndex())
+          ? year_input_->GetTextForRow(year_input_->GetSelectedIndex().value())
           : std::u16string(),
       /*enable_fido_auth=*/false);
   return false;
@@ -270,9 +281,9 @@ void CardUnmaskPromptViews::DateChanged() {
       SetRetriableErrorMessage(std::u16string());
     }
   } else if (month_input_->GetSelectedIndex() !=
-                 month_combobox_model_.GetDefaultIndex() &&
+                 month_combobox_model_.GetDefaultIndex().value() &&
              year_input_->GetSelectedIndex() !=
-                 year_combobox_model_.GetDefaultIndex()) {
+                 year_combobox_model_.GetDefaultIndex().value()) {
     month_input_->SetInvalid(true);
     year_input_->SetInvalid(true);
     SetRetriableErrorMessage(l10n_util::GetStringUTF16(
@@ -342,7 +353,19 @@ void CardUnmaskPromptViews::InitIfNecessary() {
     year_input_->SetVisible(false);
   }
 
-  std::unique_ptr<views::Textfield> cvc_input = CreateCvcTextfield();
+  std::unique_ptr<views::Textfield> cvc_input =
+      std::make_unique<views::Textfield>();
+  // Only put a placeholder text if there is no challenge option present. A
+  // challenge option being present indicates we are unmasking a virtual card
+  // CVC.
+  if (!controller_->IsChallengeOptionPresent()) {
+    cvc_input->SetPlaceholderText(
+        l10n_util::GetStringUTF16(IDS_AUTOFILL_DIALOG_PLACEHOLDER_CVC));
+  }
+  cvc_input->SetAccessibleName(l10n_util::GetStringUTF16(
+      IDS_AUTOFILL_DIALOG_ACCESSIBLE_NAME_SECURITY_CODE));
+  cvc_input->SetDefaultWidthInChars(8);
+  cvc_input->SetTextInputType(ui::TextInputType::TEXT_INPUT_TYPE_NUMBER);
   cvc_input->set_controller(this);
   cvc_input_ = input_row->AddChildView(std::move(cvc_input));
 
@@ -389,15 +412,14 @@ void CardUnmaskPromptViews::InitIfNecessary() {
           .SetMainAxisAlignment(views::BoxLayout::MainAxisAlignment::kCenter)
           .SetCrossAxisAlignment(views::BoxLayout::CrossAxisAlignment::kCenter)
           .SetVisible(false)
+          .AddChildren(
+              views::Builder<views::Throbber>().CopyAddressTo(
+                  &progress_throbber_),
+              views::Builder<views::Label>()
+                  .CopyAddressTo(&overlay_label_)
+                  .SetText(l10n_util::GetStringUTF16(
+                      IDS_AUTOFILL_CARD_UNMASK_VERIFICATION_IN_PROGRESS)))
           .Build());
-
-  // TODO(crbug.com/1269126): Add view builder support to throbber and move
-  // adding children to construction of overlay above.
-  progress_throbber_ =
-      overlay_->AddChildView(std::make_unique<views::Throbber>());
-  overlay_label_ = overlay_->AddChildView(
-      std::make_unique<views::Label>(l10n_util::GetStringUTF16(
-          IDS_AUTOFILL_CARD_UNMASK_VERIFICATION_IN_PROGRESS)));
 }
 
 bool CardUnmaskPromptViews::ExpirationDateIsValid() const {
@@ -405,8 +427,8 @@ bool CardUnmaskPromptViews::ExpirationDateIsValid() const {
     return true;
 
   return controller_->InputExpirationIsValid(
-      month_input_->GetTextForRow(month_input_->GetSelectedIndex()),
-      year_input_->GetTextForRow(year_input_->GetSelectedIndex()));
+      month_input_->GetTextForRow(month_input_->GetSelectedIndex().value()),
+      year_input_->GetTextForRow(year_input_->GetSelectedIndex().value()));
 }
 
 void CardUnmaskPromptViews::ClosePrompt() {

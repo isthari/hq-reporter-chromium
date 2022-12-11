@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.chromium.base.annotations.CalledByNative;
+import org.chromium.chrome.browser.omnibox.action.OmniboxActionType;
 import org.chromium.chrome.browser.omnibox.action.OmniboxPedalType;
 import org.chromium.url.GURL;
 
@@ -34,10 +35,27 @@ public class OmniboxPedal {
         mUrl = url;
     }
 
+    public boolean hasPedalId() {
+        return (mId >= OmniboxPedalType.NONE) && mId < (OmniboxPedalType.TOTAL_COUNT);
+    }
+
+    public boolean hasActionId() {
+        return (mId >= OmniboxActionType.FIRST) && mId < (OmniboxActionType.LAST);
+    }
+
     /**
-     * @return an ID used to identify some actions. Not defined for all Actions.
+     * @return an ID used to identify the underlying pedal.
      */
-    public @OmniboxPedalType int getID() {
+    public @OmniboxPedalType int getPedalID() {
+        assert hasPedalId();
+        return mId;
+    }
+
+    /**
+     * @return an ID used to identify the underlying action.
+     */
+    public @OmniboxActionType int getActionID() {
+        assert hasActionId();
         return mId;
     }
 

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,6 +38,15 @@ void BaseTelemetryExtensionApiGuardFunction::OnCanAccessApi(std::string error) {
                                      name(), error.c_str())));
     return;
   }
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  if (!IsCrosApiAvailable()) {
+    error = "Not implemented.";
+    Respond(Error(
+        base::StringPrintf("API chrome.%s failed. %s", name(), error.c_str())));
+    return;
+  }
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
   RunIfAllowed();
 }

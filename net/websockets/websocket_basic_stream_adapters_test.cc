@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,9 +50,7 @@ using testing::Test;
 using testing::StrictMock;
 using testing::_;
 
-namespace net {
-
-namespace test {
+namespace net::test {
 
 class WebSocketClientSocketHandleAdapterTest : public TestWithTaskEnvironment {
  protected:
@@ -65,15 +63,17 @@ class WebSocketClientSocketHandleAdapterTest : public TestWithTaskEnvironment {
   ~WebSocketClientSocketHandleAdapterTest() override = default;
 
   bool InitClientSocketHandle(ClientSocketHandle* connection) {
+    auto ssl_config_for_origin = std::make_unique<SSLConfig>();
+    ssl_config_for_origin->alpn_protos = {kProtoHTTP11};
     scoped_refptr<ClientSocketPool::SocketParams> socks_params =
         base::MakeRefCounted<ClientSocketPool::SocketParams>(
-            std::make_unique<SSLConfig>() /* ssl_config_for_origin */,
-            nullptr /* ssl_config_for_proxy */);
+            std::move(ssl_config_for_origin),
+            /*ssl_config_for_proxy=*/nullptr);
     TestCompletionCallback callback;
     int rv = connection->Init(
         ClientSocketPool::GroupId(
             url::SchemeHostPort(url::kHttpsScheme, "www.example.org", 443),
-            PrivacyMode::PRIVACY_MODE_DISABLED, NetworkIsolationKey(),
+            PrivacyMode::PRIVACY_MODE_DISABLED, NetworkAnonymizationKey(),
             SecureDnsPolicy::kAllow),
         socks_params, TRAFFIC_ANNOTATION_FOR_TESTS /* proxy_annotation_tag */,
         MEDIUM, SocketTag(), ClientSocketPool::RespectLimits::ENABLED,
@@ -289,7 +289,7 @@ class WebSocketSpdyStreamAdapterTest : public TestWithTaskEnvironment {
              PRIVACY_MODE_DISABLED,
              SpdySessionKey::IsProxySession::kFalse,
              SocketTag(),
-             NetworkIsolationKey(),
+             NetworkAnonymizationKey(),
              SecureDnsPolicy::kAllow),
         session_(SpdySessionDependencies::SpdyCreateSession(&session_deps_)),
         ssl_(SYNCHRONOUS, OK) {}
@@ -1057,6 +1057,4 @@ TEST_F(WebSocketSpdyStreamAdapterTest,
   ASSERT_EQ(ERR_CONNECTION_CLOSED, rv);
 }
 
-}  // namespace test
-
-}  // namespace net
+}  // namespace net::test

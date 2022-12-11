@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,23 @@
 
 namespace content {
 
-// Whether the FedCM JavaScript API is enabled.
-bool IsFedCmEnabled();
+// IDP IdpSigninStatus API modes.
+enum class FedCmIdpSigninStatusMode { DISABLED, METRICS_ONLY, ENABLED };
 
 // Whether FedCM auto sign-in is enabled.
 bool IsFedCmAutoSigninEnabled();
 
-// Whether FedCM HTTP filtering is enabled.
-bool IsFedCmInterceptionEnabled();
+// Whether FedCM IDP sign-out is enabled.
+bool IsFedCmIdpSignoutEnabled();
+
+// Whether multiple identity providers are enabled.
+bool IsFedCmMultipleIdentityProvidersEnabled();
+
+// Returns the IdpSigninStatus API mode.
+FedCmIdpSigninStatusMode GetFedCmIdpSigninStatusMode();
+
+// Whether metrics endpoint is enabled.
+bool IsFedCmMetricsEndpointEnabled();
 
 }  // namespace content
 

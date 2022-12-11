@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -207,6 +207,10 @@ base::Value Validator::MapArray(const OncValueSignature& array_signature,
   bool nested_error_in_current_array = false;
   base::Value result = Mapper::MapArray(array_signature, onc_array,
                                         &nested_error_in_current_array);
+
+  if (&array_signature == &kNetworkConfigurationListSignature) {
+    ValidateEthernetConfigs(&result);
+  }
 
   // Drop individual networks and certificates instead of rejecting all of
   // the configuration.
@@ -850,8 +854,8 @@ bool Validator::ValidateVPN(base::Value* result) {
 }
 
 bool Validator::ValidateIPsec(base::Value* result) {
-  const std::vector<const char*> valid_authentications = {::onc::ipsec::kPSK,
-                                                          ::onc::ipsec::kCert};
+  const std::vector<const char*> valid_authentications = {
+      ::onc::ipsec::kPSK, ::onc::ipsec::kCert, ::onc::ipsec::kEAP};
   if (FieldExistsAndHasNoValidValue(*result, ::onc::ipsec::kAuthenticationType,
                                     valid_authentications) ||
       FieldExistsAndIsEmpty(*result, ::onc::ipsec::kServerCARefs)) {
@@ -870,19 +874,26 @@ bool Validator::ValidateIPsec(base::Value* result) {
       RequireField(*result, ::onc::ipsec::kIKEVersion);
   std::string auth =
       GetStringFromDict(*result, ::onc::ipsec::kAuthenticationType);
-  bool has_server_ca_cert = result->FindKey(::onc::ipsec::kServerCARefs) ||
-                            result->FindKey(::onc::ipsec::kServerCARef);
   if (auth == ::onc::ipsec::kCert) {
     all_required_exist &=
         RequireField(*result, ::onc::client_cert::kClientCertType);
-    if (!has_server_ca_cert) {
-      all_required_exist = false;
-      std::ostringstream msg;
-      msg << "The required field '" << ::onc::ipsec::kServerCARefs
-          << "' is missing.";
-      AddValidationIssue(error_on_missing_field_, msg.str());
-    }
-  } else if (has_server_ca_cert) {
+  }
+
+  // For cert-based or EAP-based authentication, server CA must exist.
+  // For PSK-based authentication, server CA must not exist.
+  bool has_server_ca_cert = result->FindKey(::onc::ipsec::kServerCARefs) ||
+                            result->FindKey(::onc::ipsec::kServerCARef) ||
+                            result->FindKey(::onc::ipsec::kServerCAPEMs);
+  if ((auth == ::onc::ipsec::kCert || auth == ::onc::ipsec::kEAP) &&
+      !has_server_ca_cert) {
+    all_required_exist = false;
+    std::ostringstream msg;
+    msg << "Server CA config is missing (one of the fields "
+        << ::onc::ipsec::kServerCARefs << " or " << ::onc::ipsec::kServerCAPEMs
+        << ").";
+    AddValidationIssue(error_on_missing_field_, msg.str());
+  }
+  if (auth == ::onc::ipsec::kPSK && has_server_ca_cert) {
     std::ostringstream msg;
     msg << "Field '" << ::onc::ipsec::kServerCARefs << "' (or '"
         << ::onc::ipsec::kServerCARef << "') can only be set if '"
@@ -1048,10 +1059,12 @@ bool Validator::ValidateGlobalNetworkConfiguration(base::Value* result) {
     }
   }
 
-  // Validate that kDisableNetworkTypes, kAllowOnlyPolicyWiFiToConnect,
-  // kAllowOnlyPolicyCellularNetworks and kBlockedHexSSIDs are only allowed in
-  // device policy.
+  // Validate that kAllowCellularSimLock, kDisableNetworkTypes,
+  // kAllowOnlyPolicyWiFiToConnect, kAllowOnlyPolicyCellularNetworks and
+  // kBlockedHexSSIDs are only allowed in device policy.
   if (!IsInDevicePolicy(result,
+                        ::onc ::global_network_config::kAllowCellularSimLock) ||
+      !IsInDevicePolicy(result,
                         ::onc::global_network_config::kDisableNetworkTypes) ||
       !IsInDevicePolicy(
           result,
@@ -1108,10 +1121,18 @@ bool Validator::ValidateEAP(base::Value* result) {
   const std::vector<const char*> valid_inner_values = {
       ::onc::eap::kAutomatic, ::onc::eap::kGTC, ::onc::eap::kMD5,
       ::onc::eap::kMSCHAPv2, ::onc::eap::kPAP};
-  const std::vector<const char*> valid_outer_values = {
+  std::vector<const char*> valid_outer_values = {
       ::onc::eap::kPEAP,   ::onc::eap::kEAP_TLS, ::onc::eap::kEAP_TTLS,
       ::onc::eap::kLEAP,   ::onc::eap::kEAP_SIM, ::onc::eap::kEAP_FAST,
       ::onc::eap::kEAP_AKA};
+
+  // If this EAP dict is in a IPsec dict (i.e., IPsec is the second-to-last
+  // element in its path), the only valid method is MSCHAPv2.
+  if (path_.size() >= 2) {
+    auto it = std::next(path_.rbegin());
+    if (*it == ::onc::vpn::kIPsec)
+      valid_outer_values = {::onc::eap::kMSCHAPv2};
+  }
 
   if (FieldExistsAndHasNoValidValue(*result, ::onc::eap::kInner,
                                     valid_inner_values) ||
@@ -1234,6 +1255,80 @@ bool Validator::ValidateTether(base::Value* result) {
   all_required_exist &= RequireField(*result, ::onc::tether::kCarrier);
 
   return !error_on_missing_field_ || all_required_exist;
+}
+
+void Validator::ValidateEthernetConfigs(
+    base::Value* network_configurations_list) {
+  // Ensures that at most one NetworkConfiguration is effective within these
+  // categories:
+  // - "Type": "Ethernet" and "Authentication": "None"
+  // - "Type": "Ethernet" and "Authentication": "8021X"
+  // This is currently necessary because shill only persists one configuration
+  // per such category and the UI only supports one Ethernet configuration.
+  // TODO(b/159725895): Design better Ethernet configuration + policy
+  // management.
+  DCHECK(network_configurations_list->is_list());
+  std::vector<std::string> ethernet_auth_none_guids;
+  std::vector<std::string> ethernet_auth_8021x_guids;
+
+  for (const base::Value& network_configuration :
+       network_configurations_list->GetList()) {
+    const std::string* guid = network_configuration.GetDict().FindString(
+        ::onc::network_config::kGUID);
+    const base::Value::Dict* ethernet =
+        network_configuration.GetDict().FindDict(
+            ::onc::network_config::kEthernet);
+    if (!guid || !ethernet)
+      continue;
+
+    const std::string* auth =
+        ethernet->FindString(::onc::ethernet::kAuthentication);
+    if (!auth)
+      continue;
+    if (*auth == ::onc::ethernet::kAuthenticationNone)
+      ethernet_auth_none_guids.push_back(*guid);
+    if (*auth == ::onc::ethernet::k8021X)
+      ethernet_auth_8021x_guids.push_back(*guid);
+  }
+
+  // If there were multiple NetworkConfigurations in such a bucket, keep the
+  // last one because that's the one which would be effective, as it would be
+  // applies last in shill.
+  OnlyKeepLast(network_configurations_list, ethernet_auth_none_guids,
+               /*type_for_messages=*/"Ethernet");
+  OnlyKeepLast(network_configurations_list, ethernet_auth_8021x_guids,
+               /*type_for_messages=*/"Ethernet 802.1x");
+}
+
+void Validator::OnlyKeepLast(base::Value* network_configurations_list,
+                             const std::vector<std::string>& guids,
+                             const char* type_for_messages) {
+  if (guids.size() < 2)
+    return;
+  for (size_t i = 0; i < guids.size() - 1; ++i) {
+    RemoveNetworkConfigurationWithGuid(network_configurations_list, guids[i]);
+
+    std::ostringstream msg;
+    msg << "NetworkConfiguration '" << guids[i] << "' ignored - only one "
+        << type_for_messages << " configuration can be processed";
+    AddValidationIssue(/*is_error=*/false, msg.str());
+  }
+}
+
+void Validator::RemoveNetworkConfigurationWithGuid(
+    base::Value* network_configurations_list,
+    const std::string& guid_to_remove) {
+  base::Value::List& list = network_configurations_list->GetList();
+  for (auto it = list.begin(); it != list.end(); ++it) {
+    const std::string* guid =
+        it->GetDict().FindString(::onc::network_config::kGUID);
+    if (!guid)
+      continue;
+    if (*guid == guid_to_remove) {
+      list.erase(it);
+      return;
+    }
+  }
 }
 
 void Validator::AddValidationIssue(bool is_error,

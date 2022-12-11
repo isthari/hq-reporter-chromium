@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "ui/base/x/x11_display_util.h"
 #include "ui/gfx/x/future.h"
 #include "ui/gfx/x/randr.h"
@@ -34,8 +34,6 @@ XDisplayManager::~XDisplayManager() = default;
 void XDisplayManager::Init() {
   if (IsXrandrAvailable()) {
     auto& randr = connection_->randr();
-    xrandr_event_base_ = randr.first_event();
-
     randr.SelectInput(
         {x_root_window_, x11::RandR::NotifyMask::ScreenChange |
                              x11::RandR::NotifyMask::OutputChange |
@@ -104,8 +102,8 @@ void XDisplayManager::UpdateDisplayList() {
 void XDisplayManager::DispatchDelayedDisplayListUpdate() {
   update_task_.Reset(base::BindOnce(&XDisplayManager::UpdateDisplayList,
                                     base::Unretained(this)));
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                update_task_.callback());
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, update_task_.callback());
 }
 
 gfx::Point XDisplayManager::GetCursorLocation() const {

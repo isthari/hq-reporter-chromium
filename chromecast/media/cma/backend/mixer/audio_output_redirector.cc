@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include "base/logging.h"
 #include "base/strings/pattern.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "chromecast/media/audio/audio_fader.h"
 #include "chromecast/media/audio/audio_log.h"
 #include "chromecast/media/audio/mixer_service/mixer_service_transport.pb.h"
@@ -304,7 +303,7 @@ AudioOutputRedirector::AudioOutputRedirector(
       output_channel_layout_(
           GetMediaChannelLayout(config_.output_channel_layout,
                                 config_.num_output_channels)),
-      io_task_runner_(base::SequencedTaskRunnerHandle::Get()),
+      io_task_runner_(base::SequencedTaskRunner::GetCurrentDefault()),
       buffer_pool_(
           base::MakeRefCounted<IOBufferPool>(kDefaultBufferSize,
                                              std::numeric_limits<size_t>::max(),
@@ -446,7 +445,7 @@ void AudioOutputRedirector::MixInput(MixerInput* mixer_input,
     float* dest_channel = current_mix_data_ + c * next_num_frames_;
     if (config_.apply_volume) {
       mixer_input->VolumeScaleAccumulate(data->channel(c), num_frames,
-                                         dest_channel);
+                                         dest_channel, c);
     } else {
       const float* temp_channel = data->channel(c);
       for (int i = 0; i < num_frames; ++i) {

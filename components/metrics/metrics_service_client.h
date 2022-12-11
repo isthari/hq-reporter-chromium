@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,16 +17,16 @@
 #include "third_party/metrics_proto/system_profile.pb.h"
 #include "url/gurl.h"
 
-namespace base {
-class FilePath;
-}
-
 namespace ukm {
 class UkmService;
 }
 
 namespace network_time {
 class NetworkTimeTracker;
+}
+
+namespace variations {
+class SyntheticTrialRegistry;
 }
 
 namespace metrics {
@@ -44,6 +44,10 @@ class MetricsServiceClient {
   MetricsServiceClient& operator=(const MetricsServiceClient&) = delete;
 
   virtual ~MetricsServiceClient();
+
+  // Returns the synthetic trial registry shared by MetricsService and
+  // UkmService.
+  virtual variations::SyntheticTrialRegistry* GetSyntheticTrialRegistry() = 0;
 
   // Returns the MetricsService instance that this client is associated with.
   // With the exception of testing contexts, the returned instance must be valid
@@ -129,9 +133,6 @@ class MetricsServiceClient {
   // Called when loading state changed, e.g. start/stop loading.
   virtual void LoadingStateChanged(bool is_loading) {}
 
-  // Called on plugin loading errors.
-  virtual void OnPluginLoadingError(const base::FilePath& plugin_path) {}
-
   // Called on renderer crashes in some embedders (e.g., those that do not use
   // //content and thus do not have //content's notification system available
   // as a mechanism for observing renderer crashes).
@@ -154,10 +155,6 @@ class MetricsServiceClient {
   // Returns true iff UKM is allowed for all profiles.
   // See //components/ukm/observers/ukm_consent_state_observer.h for details.
   virtual bool IsUkmAllowedForAllProfiles();
-
-  // Returns true iff UKM is allowed to capture extensions for all profiles.
-  // See //components/ukm/observers/ukm_consent_state_observer.h for details.
-  virtual bool IsUkmAllowedWithExtensionsForAllProfiles();
 
   // Returns whether UKM notification listeners were attached to all profiles.
   virtual bool AreNotificationListenersEnabledOnAllProfiles();

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,6 +70,15 @@ const DevicePolicyToUserPolicyMapEntry kDevicePoliciesWithPolicyOptionsMap[] = {
     {key::kDeviceLoginScreenExtensions, key::kExtensionInstallForcelist},
     {key::kDeviceLoginScreenPromptOnMultipleMatchingCertificates,
      key::kPromptOnMultipleMatchingCertificates},
+    {key::kDeviceLoginScreenContextAwareAccessSignalsAllowlist,
+     key::kContextAwareAccessSignalsAllowlist},
+
+    // key::kDeviceLoginScreenLocales maps to the ash::kDeviceLoginScreenLocales
+    // CrosSetting elsewhere. Also map it to the key::kForcedLanguages policy in
+    // the login/lock screen profile so web contents within those profiles
+    // generate a corresponding Accept-Languages header
+    // (https://crbug.com/1336382).
+    {key::kDeviceLoginScreenLocales, key::kForcedLanguages},
 };
 
 const DevicePolicyToUserPolicyMapEntry kRecommendedDevicePoliciesMap[] = {
@@ -124,7 +133,8 @@ void ApplyDevicePolicyAsRecommendedPolicy(const std::string& device_policy,
                                           const std::string& user_policy,
                                           const PolicyMap& device_policy_map,
                                           PolicyMap* user_policy_map) {
-  const base::Value* value = device_policy_map.GetValue(device_policy);
+  // It is safe to use `GetValueUnsafe()` as multiple policy types are handled.
+  const base::Value* value = device_policy_map.GetValueUnsafe(device_policy);
   ApplyValueAsRecommendedPolicy(value, user_policy, user_policy_map);
 }
 
@@ -144,7 +154,8 @@ void ApplyDevicePolicyWithPolicyOptions(const std::string& device_policy,
   const PolicyMap::Entry* entry = device_policy_map.Get(device_policy);
   if (entry) {
     user_policy_map->Set(user_policy, entry->level, POLICY_SCOPE_USER,
-                         POLICY_SOURCE_CLOUD, entry->value()->Clone(), nullptr);
+                         POLICY_SOURCE_CLOUD, entry->value_unsafe()->Clone(),
+                         nullptr);
   }
 }
 }  // namespace
@@ -203,8 +214,8 @@ void LoginProfilePolicyProvider::UpdateFromDevicePolicy() {
   const PolicyNamespace chrome_namespaces(POLICY_DOMAIN_CHROME, std::string());
   const PolicyMap& device_policy_map =
       device_policy_service_->GetPolicies(chrome_namespaces);
-  std::unique_ptr<PolicyBundle> bundle(new PolicyBundle);
-  PolicyMap& user_policy_map = bundle->Get(chrome_namespaces);
+  PolicyBundle bundle;
+  PolicyMap& user_policy_map = bundle.Get(chrome_namespaces);
 
   // The device policies which includes the policy options
   // |kDevicePoliciesWithPolicyOptionsMap| should be applied after
@@ -222,9 +233,9 @@ void LoginProfilePolicyProvider::UpdateFromDevicePolicy() {
                                        device_policy_map, &user_policy_map);
   }
 
-  const base::Value* value =
-      device_policy_map.GetValue(key::kDeviceLoginScreenPowerManagement);
-  if (value && value->is_dict()) {
+  const base::Value* value = device_policy_map.GetValue(
+      key::kDeviceLoginScreenPowerManagement, base::Value::Type::DICT);
+  if (value) {
     base::Value policy_value = value->Clone();
     const std::string* lid_close_action =
         policy_value.FindStringKey(kLidCloseAction);

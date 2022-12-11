@@ -89,7 +89,7 @@ class MemoryCacheCorrectnessTest : public testing::Test {
     return resource;
   }
   void AddResourceToMemoryCache(Resource* resource) {
-    GetMemoryCache()->Add(resource);
+    MemoryCache::Get()->Add(resource);
   }
   // TODO(toyoshim): Consider to use MockResource for all tests instead of
   // RawResource.
@@ -137,7 +137,7 @@ class MemoryCacheCorrectnessTest : public testing::Test {
     Resource::SetClockForTesting(platform_->test_task_runner()->GetMockClock());
   }
   void TearDown() override {
-    GetMemoryCache()->EvictResources();
+    MemoryCache::Get()->EvictResources();
 
     Resource::SetClockForTesting(nullptr);
 
@@ -145,6 +145,7 @@ class MemoryCacheCorrectnessTest : public testing::Test {
     ReplaceMemoryCacheForTesting(global_memory_cache_.Release());
   }
 
+  base::test::SingleThreadTaskEnvironment task_environment_;
   Persistent<MemoryCache> global_memory_cache_;
   scoped_refptr<const SecurityOrigin> security_origin_;
   Persistent<ResourceFetcher> fetcher_;
@@ -167,7 +168,6 @@ TEST_F(MemoryCacheCorrectnessTest, FreshFromLastModified) {
 
   MockResource* fetched = FetchMockResource();
   EXPECT_EQ(fresh200, fetched);
-  EXPECT_NE(GetMemoryCache()->size(), 0u);
 }
 
 TEST_F(MemoryCacheCorrectnessTest, FreshFromExpires) {
@@ -361,16 +361,6 @@ TEST_F(MemoryCacheCorrectnessTest, RequestWithNoStore) {
       ResourceFromResourceRequest(std::move(no_store_request));
   MockResource* fetched = FetchMockResource();
   EXPECT_NE(no_store_resource, fetched);
-}
-
-TEST_F(MemoryCacheCorrectnessTest, DisableCache) {
-  GetMemoryCache()->SetCapacity(0);
-  ResourceRequest request;
-  request.SetRequestorOrigin(GetSecurityOrigin());
-  MockResource* resource = ResourceFromResourceRequest(std::move(request));
-  MockResource* fetched = FetchMockResource();
-  EXPECT_NE(resource, fetched);
-  EXPECT_EQ(GetMemoryCache()->size(), 0u);
 }
 
 // FIXME: Determine if ignoring must-revalidate for blink is correct behaviour.

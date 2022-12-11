@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,14 +11,15 @@
 
 #include "base/base64.h"
 #include "base/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "components/arc/common/intent_helper/adaptive_icon_delegate.h"
 #include "third_party/abseil-cpp/absl/types/variant.h"
 #include "ui/base/layout.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/image/image_skia_operations.h"
+#include "ui/gfx/image/image_skia_rep.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/components/arc/arc_util.h"
@@ -118,7 +119,7 @@ class Adapter {
   }
 
  private:
-  crosapi::mojom::Arc* instance_;
+  raw_ptr<crosapi::mojom::Arc> instance_;
 };
 
 // Lacros requests icons to ash-chrome via crosapi.

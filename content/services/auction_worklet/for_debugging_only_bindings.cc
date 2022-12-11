@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/feature_list.h"
-#include "base/logging.h"
-#include "base/strings/strcat.h"
 #include "content/services/auction_worklet/auction_v8_helper.h"
 #include "gin/converter.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -26,10 +24,12 @@
 
 namespace auction_worklet {
 
-ForDebuggingOnlyBindings::ForDebuggingOnlyBindings(
-    AuctionV8Helper* v8_helper,
-    v8::Local<v8::ObjectTemplate> global_template)
-    : v8_helper_(v8_helper) {
+ForDebuggingOnlyBindings::ForDebuggingOnlyBindings(AuctionV8Helper* v8_helper)
+    : v8_helper_(v8_helper) {}
+ForDebuggingOnlyBindings::~ForDebuggingOnlyBindings() = default;
+
+void ForDebuggingOnlyBindings::FillInGlobalTemplate(
+    v8::Local<v8::ObjectTemplate> global_template) {
   v8::Isolate* isolate = v8_helper_->isolate();
   v8::Local<v8::External> v8_this = v8::External::New(isolate, this);
   v8::Local<v8::ObjectTemplate> debugging_template =
@@ -62,22 +62,16 @@ ForDebuggingOnlyBindings::ForDebuggingOnlyBindings(
                        debugging_template);
 }
 
-ForDebuggingOnlyBindings::~ForDebuggingOnlyBindings() = default;
+void ForDebuggingOnlyBindings::Reset() {
+  loss_report_url_ = absl::nullopt;
+  win_report_url_ = absl::nullopt;
+}
 
 void ForDebuggingOnlyBindings::ReportAdAuctionLoss(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
   ForDebuggingOnlyBindings* bindings = static_cast<ForDebuggingOnlyBindings*>(
       v8::External::Cast(*args.Data())->Value());
   AuctionV8Helper* v8_helper = bindings->v8_helper_;
-  bindings->loss_report_url_.reset();
-
-  if (!bindings->first_loss_report_call_) {
-    args.GetIsolate()->ThrowException(
-        v8::Exception::TypeError(v8_helper->CreateStringFromLiteral(
-            "reportAdAuctionLoss may be called at most once")));
-    return;
-  }
-  bindings->first_loss_report_call_ = false;
 
   std::string url_string;
   if (args.Length() < 1 || args[0].IsEmpty() ||
@@ -103,15 +97,6 @@ void ForDebuggingOnlyBindings::ReportAdAuctionWin(
   ForDebuggingOnlyBindings* bindings = static_cast<ForDebuggingOnlyBindings*>(
       v8::External::Cast(*args.Data())->Value());
   AuctionV8Helper* v8_helper = bindings->v8_helper_;
-  bindings->win_report_url_.reset();
-
-  if (!bindings->first_win_report_call_) {
-    args.GetIsolate()->ThrowException(
-        v8::Exception::TypeError(v8_helper->CreateStringFromLiteral(
-            "reportAdAuctionWin may be called at most once")));
-    return;
-  }
-  bindings->first_win_report_call_ = false;
 
   std::string url_string;
   if (args.Length() < 1 || args[0].IsEmpty() ||

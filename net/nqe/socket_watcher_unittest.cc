@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include "base/bind.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/simple_test_tick_clock.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "net/base/address_list.h"
@@ -17,11 +17,7 @@
 #include "net/test/test_with_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace net {
-
-namespace nqe {
-
-namespace internal {
+namespace net::nqe::internal {
 
 namespace {
 
@@ -119,7 +115,8 @@ TEST_F(NetworkQualitySocketWatcherTest, NotificationsThrottled) {
 
   SocketWatcher socket_watcher(
       SocketPerformanceWatcherFactory::PROTOCOL_TCP, address_list,
-      base::Milliseconds(2000), false, base::ThreadTaskRunnerHandle::Get(),
+      base::Milliseconds(2000), false,
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
       base::BindRepeating(OnUpdatedRTTAvailable),
       base::BindRepeating(ShouldNotifyRTTCallback), &tick_clock);
 
@@ -163,7 +160,8 @@ TEST_F(NetworkQualitySocketWatcherTest, QuicFirstNotificationDropped) {
 
   SocketWatcher socket_watcher(
       SocketPerformanceWatcherFactory::PROTOCOL_QUIC, address_list,
-      base::Milliseconds(2000), false, base::ThreadTaskRunnerHandle::Get(),
+      base::Milliseconds(2000), false,
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
       base::BindRepeating(OnUpdatedRTTAvailableStoreParams),
       base::BindRepeating(ShouldNotifyRTTCallback), &tick_clock);
 
@@ -223,7 +221,8 @@ TEST_F(NetworkQualitySocketWatcherTest, MAYBE_PrivateAddressRTTNotNotified) {
 
     SocketWatcher socket_watcher(
         SocketPerformanceWatcherFactory::PROTOCOL_TCP, address_list,
-        base::Milliseconds(2000), false, base::ThreadTaskRunnerHandle::Get(),
+        base::Milliseconds(2000), false,
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
         base::BindRepeating(OnUpdatedRTTAvailable),
         base::BindRepeating(ShouldNotifyRTTCallback), &tick_clock);
 
@@ -262,7 +261,8 @@ TEST_F(NetworkQualitySocketWatcherTest, RemoteHostIPHashComputedCorrectly) {
 
     SocketWatcher socket_watcher(
         SocketPerformanceWatcherFactory::PROTOCOL_TCP, address_list,
-        base::Milliseconds(2000), false, base::ThreadTaskRunnerHandle::Get(),
+        base::Milliseconds(2000), false,
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
         base::BindRepeating(OnUpdatedRTTAvailableStoreParams),
         base::BindRepeating(ShouldNotifyRTTCallback), &tick_clock);
     EXPECT_TRUE(socket_watcher.ShouldNotifyUpdatedRTT());
@@ -275,8 +275,4 @@ TEST_F(NetworkQualitySocketWatcherTest, RemoteHostIPHashComputedCorrectly) {
 
 }  // namespace
 
-}  // namespace internal
-
-}  // namespace nqe
-
-}  // namespace net
+}  // namespace net::nqe::internal

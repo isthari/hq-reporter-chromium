@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -266,7 +266,7 @@ absl::optional<gfx::Insets> TypeConverter<gfx::Insets>::FromString(
       base::StringToInt(values[1], &left) &&
       base::StringToInt(values[2], &bottom) &&
       base::StringToInt(values[3], &right)) {
-    return gfx::Insets(top, left, bottom, right);
+    return gfx::Insets::TLBR(top, left, bottom, right);
   }
   return absl::nullopt;
 }

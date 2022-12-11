@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "base/feature_list.h"
 #include "base/logging.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/config/gpu_finch_features.h"
 #include "gpu/ipc/common/gpu_surface_lookup.h"
@@ -19,6 +19,7 @@ namespace gpu {
 
 // static
 scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
+    gl::GLDisplay* display,
     base::WeakPtr<ImageTransportSurfaceDelegate> delegate,
     SurfaceHandle surface_handle,
     gl::GLSurfaceFormat format) {
@@ -42,9 +43,11 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
       delegate->GetFeatureInfo()->feature_flags().android_surface_control &&
       can_be_used_with_surface_control) {
     surface = new gl::GLSurfaceEGLSurfaceControl(
-        window, base::ThreadTaskRunnerHandle::Get());
+        display->GetAs<gl::GLDisplayEGL>(), window,
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   } else {
-    surface = new gl::NativeViewGLSurfaceEGL(window, nullptr);
+    surface = new gl::NativeViewGLSurfaceEGL(display->GetAs<gl::GLDisplayEGL>(),
+                                             window, nullptr);
   }
 
   bool initialize_success = surface->Initialize(format);

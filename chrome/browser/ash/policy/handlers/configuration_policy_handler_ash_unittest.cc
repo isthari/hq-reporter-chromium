@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "chromeos/dbus/power/power_policy_controller.h"
 #include "components/policy/core/browser/configuration_policy_handler.h"
 #include "components/policy/core/browser/policy_error_map.h"
+#include "components/policy/core/common/cloud/mock_cloud_external_data_manager.h"
 #include "components/policy/core/common/external_data_fetcher.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_types.h"
@@ -173,9 +174,12 @@ TEST(ExternalDataPolicyHandlerTest, Valid) {
       "hash",
       "1234567890123456789012345678901234567890123456789012345678901234");
   PolicyMap policy_map;
-  policy_map.Set(key::kUserAvatarImage, POLICY_LEVEL_MANDATORY,
-                 POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD, std::move(dict),
-                 nullptr);
+  MockCloudExternalDataManager external_data_manager;
+
+  policy_map.Set(
+      key::kUserAvatarImage, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
+      POLICY_SOURCE_CLOUD, std::move(dict),
+      external_data_manager.CreateExternalDataFetcher(key::kUserAvatarImage));
   PolicyErrorMap errors;
   EXPECT_TRUE(ExternalDataPolicyHandler(key::kUserAvatarImage)
                   .CheckPolicySettings(policy_map, &errors));
@@ -296,52 +300,13 @@ TEST(NetworkConfigurationPolicyHandlerTest, Sanitization) {
       NetworkConfigurationPolicyHandler::CreateForUserPolicy());
   PolicyErrorMap errors;
   handler->PrepareForDisplaying(&policy_map);
-  const base::Value* sanitized =
-      policy_map.GetValue(key::kOpenNetworkConfiguration);
+  const base::Value* sanitized = policy_map.GetValue(
+      key::kOpenNetworkConfiguration, base::Value::Type::STRING);
   ASSERT_TRUE(sanitized);
-  std::string sanitized_onc;
-  EXPECT_TRUE(sanitized->GetAsString(&sanitized_onc));
+  ASSERT_TRUE(sanitized->is_string());
+  const std::string& sanitized_onc = sanitized->GetString();
   EXPECT_FALSE(sanitized_onc.empty());
   EXPECT_EQ(std::string::npos, sanitized_onc.find("pass"));
-}
-
-TEST(PinnedLauncherAppsPolicyHandler, PrefTranslation) {
-  base::Value list(base::Value::Type::LIST);
-  PolicyMap policy_map;
-  PrefValueMap prefs;
-  base::Value expected_pinned_apps(base::Value::Type::LIST);
-  PinnedLauncherAppsPolicyHandler handler;
-
-  policy_map.Set(key::kPinnedLauncherApps, POLICY_LEVEL_MANDATORY,
-                 POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD, list.Clone(), nullptr);
-  handler.ApplyPolicySettings(policy_map, &prefs);
-  EXPECT_EQ(expected_pinned_apps,
-            GetPref(&prefs, prefs::kPolicyPinnedLauncherApps));
-
-  // Extension IDs are OK.
-  base::Value entry1("abcdefghijklmnopabcdefghijklmnop");
-  base::Value entry1_dict(base::Value::Type::DICTIONARY);
-  entry1_dict.SetKey(ChromeShelfPrefs::kPinnedAppsPrefAppIDKey, entry1.Clone());
-  expected_pinned_apps.Append(std::move(entry1_dict));
-  list.Append(entry1.Clone());
-
-  // Android appds are OK.
-  base::Value entry2("com.google.android.gm");
-  auto entry2_dict = base::Value(base::Value::Type::DICTIONARY);
-  entry2_dict.SetKey(ChromeShelfPrefs::kPinnedAppsPrefAppIDKey, entry2.Clone());
-  expected_pinned_apps.Append(std::move(entry2_dict));
-  list.Append(entry2.Clone());
-
-  // Anything else is not OK.
-  base::Value entry3("invalid");
-  list.Append(entry3.Clone());
-
-  policy_map.Set(key::kPinnedLauncherApps, POLICY_LEVEL_MANDATORY,
-                 POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD, list.Clone(), nullptr);
-  prefs.Clear();
-  handler.ApplyPolicySettings(policy_map, &prefs);
-  EXPECT_EQ(expected_pinned_apps,
-            GetPref(&prefs, prefs::kPolicyPinnedLauncherApps));
 }
 
 TEST_F(LoginScreenPowerManagementPolicyHandlerTest, Empty) {

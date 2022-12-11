@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/mac/scoped_nsobject.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #import "media/capture/video/mac/video_capture_device_avfoundation_mac.h"
 #include "media/capture/video/video_capture_device.h"
@@ -73,8 +73,7 @@ class VideoCaptureDeviceMac
   void SetPhotoOptions(mojom::PhotoSettingsPtr settings,
                        SetPhotoOptionsCallback callback) override;
   // VideoFrameConsumerFeedbackObserver implementation.
-  void OnUtilizationReport(int frame_feedback_id,
-                           media::VideoCaptureFeedback feedback) override;
+  void OnUtilizationReport(media::VideoCaptureFeedback feedback) override;
 
   bool Init(VideoCaptureApi capture_api_type);
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -200,6 +200,7 @@
 
 #include "base/export_template.h"
 #include "base/hash/md5_constexpr.h"
+#include "base/notreached.h"
 #include "base/task/common/task_annotator.h"
 #include "ipc/ipc_message_templates.h"
 #include "ipc/ipc_message_utils.h"

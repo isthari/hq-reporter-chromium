@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "base/i18n/time_formatting.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
@@ -24,7 +25,6 @@
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_data_util.h"
 #include "components/autofill/core/browser/autofill_field.h"
-#include "components/autofill/core/browser/autofill_regexes.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/data_model/autofill_metadata.h"
 #include "components/autofill/core/browser/data_model/data_model_utils.h"
@@ -34,6 +34,7 @@
 #include "components/autofill/core/common/autofill_constants.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_payments_features.h"
+#include "components/autofill/core/common/autofill_regexes.h"
 #include "components/autofill/core/common/form_field_data.h"
 #include "components/grit/components_scaled_resources.h"
 #include "components/strings/grit/components_strings.h"
@@ -42,8 +43,6 @@
 using base::ASCIIToUTF16;
 
 namespace autofill {
-
-using structured_address::VerificationStatus;
 
 // Unicode characters used in card number obfuscation:
 //  - \u2022 - Bullet.
@@ -159,13 +158,20 @@ CreditCard::CreditCard(RecordType type, const std::string& server_id)
   server_id_ = server_id;
 }
 
+CreditCard::CreditCard(RecordType type, const int64_t& instrument_id)
+    : CreditCard() {
+  DCHECK(type == MASKED_SERVER_CARD || type == FULL_SERVER_CARD);
+  record_type_ = type;
+  instrument_id_ = instrument_id;
+}
+
 CreditCard::CreditCard() : CreditCard(base::GenerateGUID(), std::string()) {}
 
 CreditCard::CreditCard(const CreditCard& credit_card) : CreditCard() {
   operator=(credit_card);
 }
 
-CreditCard::~CreditCard() {}
+CreditCard::~CreditCard() = default;
 
 // static
 const std::u16string CreditCard::StripSeparators(const std::u16string& number) {
@@ -369,6 +375,11 @@ std::u16string CreditCard::GetMidlineEllipsisDots(size_t num_dots) {
   return dots;
 }
 
+// static
+bool CreditCard::IsLocalCard(const CreditCard* card) {
+  return card && card->record_type() == CreditCard::LOCAL_CARD;
+}
+
 void CreditCard::SetNetworkForMaskedCard(base::StringPiece network) {
   DCHECK_EQ(MASKED_SERVER_CARD, record_type());
   network_ = std::string(network);
@@ -381,7 +392,19 @@ AutofillMetadata CreditCard::GetMetadata() const {
   return metadata;
 }
 
-bool CreditCard::SetMetadata(const AutofillMetadata metadata) {
+double CreditCard::GetRankingScore(base::Time current_time) const {
+  int virtual_card_boost = 0;
+  if (virtual_card_enrollment_state_ == VirtualCardEnrollmentState::ENROLLED) {
+    virtual_card_boost =
+        features::kAutofillRankingFormulaVirtualCardBoost.Get() *
+        exp(-GetDaysSinceLastUse(current_time) /
+            features::kAutofillRankingFormulaVirtualCardBoostHalfLife.Get());
+  }
+
+  return AutofillDataModel::GetRankingScore(current_time) + virtual_card_boost;
+}
+
+bool CreditCard::SetMetadata(const AutofillMetadata& metadata) {
   // Make sure the ids matches.
   if (metadata.id != (record_type_ == LOCAL_CARD ? guid() : server_id_))
     return false;
@@ -399,7 +422,6 @@ bool CreditCard::IsDeletable() const {
 }
 
 std::u16string CreditCard::GetRawInfo(ServerFieldType type) const {
-  DCHECK_EQ(FieldTypeGroup::kCreditCard, AutofillType(type).group());
   switch (type) {
     case CREDIT_CARD_NAME_FULL:
       return name_on_card_;
@@ -451,9 +473,10 @@ std::u16string CreditCard::GetRawInfo(ServerFieldType type) const {
   }
 }
 
-void CreditCard::SetRawInfoWithVerificationStatus(ServerFieldType type,
-                                                  const std::u16string& value,
-                                                  VerificationStatus status) {
+void CreditCard::SetRawInfoWithVerificationStatus(
+    ServerFieldType type,
+    const std::u16string& value,
+    structured_address::VerificationStatus status) {
   DCHECK_EQ(FieldTypeGroup::kCreditCard, AutofillType(type).group());
   switch (type) {
     case CREDIT_CARD_NAME_FULL:
@@ -540,8 +563,9 @@ void CreditCard::GetMatchingTypes(const std::u16string& text,
 }
 
 void CreditCard::SetInfoForMonthInputType(const std::u16string& value) {
+  static constexpr char16_t kDateRegex[] = u"^[0-9]{4}-[0-9]{1,2}$";
   // Check if |text| is "yyyy-mm" format first, and check normal month format.
-  if (!MatchesPattern(value, u"^[0-9]{4}-[0-9]{1,2}$"))
+  if (!MatchesRegex<kDateRegex>(value))
     return;
 
   std::vector<base::StringPiece16> year_month = base::SplitStringPiece(
@@ -573,10 +597,6 @@ void CreditCard::SetNickname(const std::u16string& nickname) {
   base::TrimString(nickname_, u" ", &nickname_);
 }
 
-bool CreditCard::IsGoogleIssuedCard() const {
-  return card_issuer_ == CreditCard::Issuer::GOOGLE;
-}
-
 void CreditCard::operator=(const CreditCard& credit_card) {
   set_use_count(credit_card.use_count());
   set_use_date(credit_card.use_date());
@@ -598,9 +618,11 @@ void CreditCard::operator=(const CreditCard& credit_card) {
   temp_card_last_name_ = credit_card.temp_card_last_name_;
   nickname_ = credit_card.nickname_;
   card_issuer_ = credit_card.card_issuer_;
+  issuer_id_ = credit_card.issuer_id_;
   instrument_id_ = credit_card.instrument_id_;
   virtual_card_enrollment_state_ = credit_card.virtual_card_enrollment_state_;
   card_art_url_ = GURL(credit_card.card_art_url_);
+  product_description_ = credit_card.product_description_;
 
   set_guid(credit_card.guid());
   set_origin(credit_card.origin());
@@ -677,6 +699,10 @@ int CreditCard::Compare(const CreditCard& credit_card) const {
   if (comparison != 0)
     return comparison;
 
+  comparison = product_description_.compare(credit_card.product_description_);
+  if (comparison != 0)
+    return comparison;
+
   if (static_cast<int>(card_issuer_) <
       static_cast<int>(credit_card.card_issuer_)) {
     return -1;
@@ -685,6 +711,10 @@ int CreditCard::Compare(const CreditCard& credit_card) const {
       static_cast<int>(credit_card.card_issuer_)) {
     return 1;
   }
+
+  comparison = issuer_id_.compare(credit_card.issuer_id_);
+  if (comparison != 0)
+    return comparison;
 
   if (static_cast<int>(virtual_card_enrollment_state_) <
       static_cast<int>(credit_card.virtual_card_enrollment_state_)) {
@@ -795,10 +825,12 @@ bool CreditCard::SetExpirationYearFromString(const std::u16string& text) {
 }
 
 void CreditCard::SetExpirationDateFromString(const std::u16string& text) {
+  static constexpr char16_t kDateRegex[] =
+      uR"(^\s*[0-9]{1,2}\s*[-/|]?\s*[0-9]{2,4}\s*$)";
   // Check that |text| fits the supported patterns: mmyy, mmyyyy, m-yy,
   // mm-yy, m-yyyy and mm-yyyy. Note that myy and myyyy matched by this pattern
   // but are not supported (ambiguous). Separators: -, / and |.
-  if (!MatchesPattern(text, uR"(^\s*[0-9]{1,2}\s*[-/|]?\s*[0-9]{2,4}\s*$)"))
+  if (!MatchesRegex<kDateRegex>(text))
     return;
 
   std::u16string month;
@@ -839,9 +871,7 @@ void CreditCard::SetExpirationDateFromString(const std::u16string& text) {
   SetExpirationYear(num);
 }
 
-const std::pair<std::u16string, std::u16string> CreditCard::LabelPieces()
-    const {
-  std::u16string label;
+std::pair<std::u16string, std::u16string> CreditCard::LabelPieces() const {
   if (number().empty()) {
     // No CC number, if valid nickname is present, return nickname only.
     // Otherwise, return cardholder name only.
@@ -851,22 +881,16 @@ const std::pair<std::u16string, std::u16string> CreditCard::LabelPieces()
     return std::make_pair(name_on_card_, std::u16string());
   }
 
-  std::u16string obfuscated_cc_number =
-      CardIdentifierStringForAutofillDisplay();
-  // No expiration date set.
-  if (!expiration_month_ || !expiration_year_)
-    return std::make_pair(obfuscated_cc_number, std::u16string());
-
-  std::u16string formatted_date = ExpirationDateForDisplay();
-
-  std::u16string separator =
-      l10n_util::GetStringUTF16(IDS_AUTOFILL_ADDRESS_SUMMARY_SEPARATOR);
-  return std::make_pair(obfuscated_cc_number, separator + formatted_date);
+  return std::make_pair(CardIdentifierStringForAutofillDisplay(),
+                        name_on_card_);
 }
 
-const std::u16string CreditCard::Label() const {
+std::u16string CreditCard::Label() const {
   std::pair<std::u16string, std::u16string> pieces = LabelPieces();
-  return pieces.first + pieces.second;
+  if (pieces.first.empty() || pieces.second.empty())
+    return pieces.first + pieces.second;
+
+  return pieces.first + u", " + pieces.second;
 }
 
 std::u16string CreditCard::LastFourDigits() const {
@@ -901,10 +925,6 @@ std::u16string CreditCard::ObfuscatedLastFourDigitsForSplitFields() const {
 }
 
 std::string CreditCard::CardIconStringForAutofillSuggestion() const {
-  if (base::FeatureList::IsEnabled(features::kAutofillEnableGoogleIssuedCard) &&
-      IsGoogleIssuedCard()) {
-    return kGoogleIssuedCard;
-  }
   return network_;
 }
 
@@ -924,22 +944,33 @@ std::u16string CreditCard::NetworkAndLastFourDigits(
                          : network + u"  " + obfuscated_string;
 }
 
+// TODO(crbug.com/1357204): Rename to CardNameAndLastFourDigits.
 std::u16string CreditCard::CardIdentifierStringForAutofillDisplay(
     std::u16string customized_nickname,
     int obfuscation_length) const {
+  std::u16string card_name = CardNameForAutofillDisplay(customized_nickname);
+  std::u16string last_four = LastFourDigits();
+
+  if (last_four.empty())
+    return card_name;
+
+  std::u16string obfuscated_last_four =
+      internal::GetObfuscatedStringForCardDigits(last_four, obfuscation_length);
+  return card_name.empty()
+             ? obfuscated_last_four
+             : base::StrCat({card_name, u"  ", obfuscated_last_four});
+}
+
+std::u16string CreditCard::CardNameForAutofillDisplay(
+    const std::u16string& customized_nickname) const {
   if (HasNonEmptyValidNickname() || !customized_nickname.empty()) {
-    return NicknameAndLastFourDigits(customized_nickname, obfuscation_length);
+    return customized_nickname.empty() ? nickname_ : customized_nickname;
   }
-  std::u16string networkAndLastFourDigits =
-      NetworkAndLastFourDigits(obfuscation_length);
-  // Add Plex before the network and last four digits to identify it as a Google
-  // Plex card.
-  if (base::FeatureList::IsEnabled(features::kAutofillEnableGoogleIssuedCard) &&
-      IsGoogleIssuedCard()) {
-    return l10n_util::GetStringUTF16(IDS_AUTOFILL_CC_GOOGLE_ISSUED) + u" " +
-           networkAndLastFourDigits;
+  if (base::FeatureList::IsEnabled(features::kAutofillEnableCardProductName) &&
+      !product_description_.empty()) {
+    return product_description_;
   }
-  return networkAndLastFourDigits;
+  return NetworkForDisplay();
 }
 
 #if BUILDFLAG(IS_ANDROID)
@@ -1068,7 +1099,7 @@ bool CreditCard::SetInfoWithVerificationStatusImpl(
     const AutofillType& type,
     const std::u16string& value,
     const std::string& app_locale,
-    VerificationStatus status) {
+    structured_address::VerificationStatus status) {
   ServerFieldType storable_type = type.GetStorableType();
   if (storable_type == CREDIT_CARD_EXP_MONTH)
     return SetExpirationMonthFromString(value, app_locale);
@@ -1122,8 +1153,18 @@ bool CreditCard::IsExpired(const base::Time& current_time) const {
                                           current_time);
 }
 
+bool CreditCard::masked() const {
+  return record_type() == CreditCard::MASKED_SERVER_CARD ||
+         record_type() == CreditCard::VIRTUAL_CARD;
+}
+
 bool CreditCard::ShouldUpdateExpiration() const {
   return IsExpired(AutofillClock::Now());
+}
+
+bool CreditCard::IsCompleteValidCard() const {
+  return !IsExpired(AutofillClock::Now()) && HasNameOnCard() &&
+         (masked() || HasValidCardNumber());
 }
 
 // So we can compare CreditCards with EXPECT_EQ().
@@ -1149,15 +1190,22 @@ std::ostream& operator<<(std::ostream& os, const CreditCard& credit_card) {
             << credit_card.use_count() << " " << credit_card.use_date() << " "
             << credit_card.billing_address_id() << " " << credit_card.nickname()
             << " " << credit_card.card_issuer() << " "
+            << " " << credit_card.issuer_id() << " "
             << credit_card.instrument_id() << " "
             << credit_card.virtual_card_enrollment_state() << " "
-            << credit_card.card_art_url().spec();
+            << credit_card.card_art_url().spec() << " "
+            << base::UTF16ToUTF8(credit_card.product_description());
 }
 
 void CreditCard::SetNameOnCardFromSeparateParts() {
-  DCHECK(name_on_card_.empty() && !temp_card_first_name_.empty() &&
-         !temp_card_last_name_.empty());
-  name_on_card_ = temp_card_first_name_ + u" " + temp_card_last_name_;
+  DCHECK(!temp_card_first_name_.empty() && !temp_card_last_name_.empty());
+
+  std::u16string new_name_on_card =
+      temp_card_first_name_ + u" " + temp_card_last_name_;
+
+  DCHECK(name_on_card_.empty() || name_on_card_ == new_name_on_card);
+
+  name_on_card_ = new_name_on_card;
 }
 
 const char kAmericanExpressCard[] = "americanExpressCC";
@@ -1165,7 +1213,6 @@ const char kDinersCard[] = "dinersCC";
 const char kDiscoverCard[] = "discoverCC";
 const char kEloCard[] = "eloCC";
 const char kGenericCard[] = "genericCC";
-const char kGoogleIssuedCard[] = "googleIssuedCC";
 const char kJCBCard[] = "jcbCC";
 const char kMasterCard[] = "masterCardCC";
 const char kMirCard[] = "mirCC";

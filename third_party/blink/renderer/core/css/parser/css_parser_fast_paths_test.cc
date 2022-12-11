@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,18 +55,20 @@ TEST(CSSParserFastPathsTest, ParseCSSWideKeywords) {
 }
 
 TEST(CSSParserFastPathsTest, ParseRevert) {
-  // Revert enabled, IsKeywordPropertyID=false
+  // Revert enabled, IsHandledByKeywordFastPath=false
   {
-    DCHECK(!CSSParserFastPaths::IsKeywordPropertyID(CSSPropertyID::kMarginTop));
+    DCHECK(!CSSParserFastPaths::IsHandledByKeywordFastPath(
+        CSSPropertyID::kMarginTop));
     CSSValue* value = CSSParserFastPaths::MaybeParseValue(
         CSSPropertyID::kMarginTop, "revert", kHTMLStandardMode);
     ASSERT_TRUE(value);
     EXPECT_TRUE(value->IsRevertValue());
   }
 
-  // Revert enabled, IsKeywordPropertyID=true
+  // Revert enabled, IsHandledByKeywordFastPath=true
   {
-    DCHECK(CSSParserFastPaths::IsKeywordPropertyID(CSSPropertyID::kDirection));
+    DCHECK(CSSParserFastPaths::IsHandledByKeywordFastPath(
+        CSSPropertyID::kDirection));
     CSSValue* value = CSSParserFastPaths::MaybeParseValue(
         CSSPropertyID::kDirection, "revert", kHTMLStandardMode);
     ASSERT_TRUE(value);
@@ -75,44 +77,24 @@ TEST(CSSParserFastPathsTest, ParseRevert) {
 }
 
 TEST(CSSParserFastPathsTest, ParseRevertLayer) {
-  ScopedCSSCascadeLayersForTest enabled(true);
-
-  // 'revert-layer' enabled, IsKeywordPropertyID=false
+  // 'revert-layer' enabled, IsHandledByKeywordFastPath=false
   {
-    DCHECK(!CSSParserFastPaths::IsKeywordPropertyID(CSSPropertyID::kMarginTop));
+    DCHECK(!CSSParserFastPaths::IsHandledByKeywordFastPath(
+        CSSPropertyID::kMarginTop));
     CSSValue* value = CSSParserFastPaths::MaybeParseValue(
         CSSPropertyID::kMarginTop, "revert-layer", kHTMLStandardMode);
     ASSERT_TRUE(value);
     EXPECT_TRUE(value->IsRevertLayerValue());
   }
 
-  // 'revert-layer' enabled, IsKeywordPropertyID=true
+  // 'revert-layer' enabled, IsHandledByKeywordFastPath=true
   {
-    DCHECK(CSSParserFastPaths::IsKeywordPropertyID(CSSPropertyID::kDirection));
+    DCHECK(CSSParserFastPaths::IsHandledByKeywordFastPath(
+        CSSPropertyID::kDirection));
     CSSValue* value = CSSParserFastPaths::MaybeParseValue(
         CSSPropertyID::kDirection, "revert-layer", kHTMLStandardMode);
     ASSERT_TRUE(value);
     EXPECT_TRUE(value->IsRevertLayerValue());
-  }
-}
-
-TEST(CSSParserFastPathsTest, ParseRevertLayerDisable) {
-  ScopedCSSCascadeLayersForTest disabled(false);
-
-  // 'revert-layer' disabled, IsKeywordPropertyID=false
-  {
-    DCHECK(!CSSParserFastPaths::IsKeywordPropertyID(CSSPropertyID::kMarginTop));
-    CSSValue* value = CSSParserFastPaths::MaybeParseValue(
-        CSSPropertyID::kMarginTop, "revert-layer", kHTMLStandardMode);
-    EXPECT_FALSE(value);
-  }
-
-  // 'revert-layer' disabled, IsKeywordPropertyID=true
-  {
-    DCHECK(CSSParserFastPaths::IsKeywordPropertyID(CSSPropertyID::kDirection));
-    CSSValue* value = CSSParserFastPaths::MaybeParseValue(
-        CSSPropertyID::kDirection, "revert-layer", kHTMLStandardMode);
-    EXPECT_FALSE(value);
   }
 }
 
@@ -193,16 +175,6 @@ TEST(CSSParserFastPathsTest, ParseColorWithNewSyntax) {
   EXPECT_EQ(Color::kBlack, To<cssvalue::CSSColor>(*value).Value());
 
   value = CSSParserFastPaths::ParseColor("rgba(0, 0, 0, 1)", kHTMLStandardMode);
-  ASSERT_NE(nullptr, value);
-  EXPECT_TRUE(value->IsColorValue());
-  EXPECT_EQ(Color::kBlack, To<cssvalue::CSSColor>(*value).Value());
-
-  value = CSSParserFastPaths::ParseColor("RGBA(0 0 0 / 1)", kHTMLStandardMode);
-  ASSERT_NE(nullptr, value);
-  EXPECT_TRUE(value->IsColorValue());
-  EXPECT_EQ(Color::kBlack, To<cssvalue::CSSColor>(*value).Value());
-
-  value = CSSParserFastPaths::ParseColor("RGB(0 0 0 / 1)", kHTMLStandardMode);
   ASSERT_NE(nullptr, value);
   EXPECT_TRUE(value->IsColorValue());
   EXPECT_EQ(Color::kBlack, To<cssvalue::CSSColor>(*value).Value());
@@ -371,18 +343,39 @@ TEST(CSSParserFastPathsTest, ParseHSLInvalid) {
 }
 
 TEST(CSSParserFastPathsTest, IsValidKeywordPropertyAndValueOverflowClip) {
-  {
-    ScopedOverflowClipForTest overflow_clip_feature_enabler(false);
-    EXPECT_FALSE(CSSParserFastPaths::IsValidKeywordPropertyAndValue(
-        CSSPropertyID::kOverflowX, CSSValueID::kClip,
-        CSSParserMode::kHTMLStandardMode));
-  }
-  {
-    ScopedOverflowClipForTest overflow_clip_feature_enabler(true);
-    EXPECT_TRUE(CSSParserFastPaths::IsValidKeywordPropertyAndValue(
-        CSSPropertyID::kOverflowX, CSSValueID::kClip,
-        CSSParserMode::kHTMLStandardMode));
-  }
+  EXPECT_TRUE(CSSParserFastPaths::IsValidKeywordPropertyAndValue(
+      CSSPropertyID::kOverflowX, CSSValueID::kClip,
+      CSSParserMode::kHTMLStandardMode));
+}
+
+TEST(CSSParserFastPathsTest, InternalColorsOnlyAllowedInUaMode) {
+  EXPECT_EQ(CSSParserFastPaths::ParseColor("blue", kHTMLStandardMode),
+            CSSIdentifierValue::Create(CSSValueID::kBlue));
+  EXPECT_EQ(CSSParserFastPaths::ParseColor("blue", kHTMLQuirksMode),
+            CSSIdentifierValue::Create(CSSValueID::kBlue));
+  EXPECT_EQ(CSSParserFastPaths::ParseColor("blue", kUASheetMode),
+            CSSIdentifierValue::Create(CSSValueID::kBlue));
+
+  EXPECT_EQ(CSSParserFastPaths::ParseColor("-internal-spelling-error-color",
+                                           kHTMLStandardMode),
+            nullptr);
+  EXPECT_EQ(CSSParserFastPaths::ParseColor("-internal-spelling-error-color",
+                                           kHTMLQuirksMode),
+            nullptr);
+  EXPECT_EQ(
+      CSSParserFastPaths::ParseColor("-internal-spelling-error-color",
+                                     kUASheetMode),
+      CSSIdentifierValue::Create(CSSValueID::kInternalSpellingErrorColor));
+
+  EXPECT_EQ(CSSParserFastPaths::ParseColor("-internal-grammar-error-color",
+                                           kHTMLStandardMode),
+            nullptr);
+  EXPECT_EQ(CSSParserFastPaths::ParseColor("-internal-grammar-error-color",
+                                           kHTMLQuirksMode),
+            nullptr);
+  EXPECT_EQ(CSSParserFastPaths::ParseColor("-internal-grammar-error-color",
+                                           kUASheetMode),
+            CSSIdentifierValue::Create(CSSValueID::kInternalGrammarErrorColor));
 }
 
 }  // namespace blink

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,6 @@
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/tests/gl_manager.h"
 #include "gpu/command_buffer/tests/gl_test_utils.h"
@@ -38,7 +37,7 @@ class GLReadbackTest : public testing::Test {
     if (done) {
       std::move(cb).Run();
     } else {
-      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
           FROM_HERE,
           base::BindOnce(&GLReadbackTest::WaitForQueryCallback,
                          base::Unretained(this), q, std::move(cb)),
@@ -98,7 +97,7 @@ static float HalfToFloat32(uint16_t value) {
   if (e == 0) {
     if (m == 0) {
       uint32_t result = s << 31;
-      return bit_cast<float>(result);
+      return base::bit_cast<float>(result);
     } else {
       while (!(m & 0x00000400)) {
         m <<= 1;
@@ -111,10 +110,10 @@ static float HalfToFloat32(uint16_t value) {
   } else if (e == 31) {
     if (m == 0) {
       uint32_t result = (s << 31) | 0x7f800000;
-      return bit_cast<float>(result);
+      return base::bit_cast<float>(result);
     } else {
       uint32_t result = (s << 31) | 0x7f800000 | (m << 13);
-      return bit_cast<float>(result);
+      return base::bit_cast<float>(result);
     }
   }
 
@@ -122,7 +121,7 @@ static float HalfToFloat32(uint16_t value) {
   m = m << 13;
 
   uint32_t result = (s << 31) | (e << 23) | m;
-  return bit_cast<float>(result);
+  return base::bit_cast<float>(result);
 }
 
 static GLuint CompileShader(GLenum type, const char *data) {

@@ -1,27 +1,26 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/reading_list/reading_list_download_service.h"
+#import "ios/chrome/browser/reading_list/reading_list_download_service.h"
 
-#include <memory>
-#include <utility>
+#import <memory>
+#import <utility>
 
-#include "base/bind.h"
-#include "base/files/file_enumerator.h"
-#include "base/files/file_path.h"
-#include "base/files/file_util.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/strings/string_util.h"
-#include "base/task/post_task.h"
-#include "base/task/thread_pool.h"
-#include "components/reading_list/core/offline_url_utils.h"
-#include "components/reading_list/core/reading_list_entry.h"
-#include "components/reading_list/core/reading_list_model.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/reading_list/reading_list_distiller_page_factory.h"
-#include "net/base/network_change_notifier.h"
-#include "services/network/public/cpp/shared_url_loader_factory.h"
+#import "base/bind.h"
+#import "base/files/file_enumerator.h"
+#import "base/files/file_path.h"
+#import "base/files/file_util.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/strings/string_util.h"
+#import "base/task/thread_pool.h"
+#import "components/reading_list/core/offline_url_utils.h"
+#import "components/reading_list/core/reading_list_entry.h"
+#import "components/reading_list/core/reading_list_model.h"
+#import "ios/chrome/browser/application_context/application_context.h"
+#import "ios/chrome/browser/reading_list/reading_list_distiller_page_factory.h"
+#import "net/base/network_change_notifier.h"
+#import "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -48,8 +47,8 @@ const int kNumberOfFailsBeforeWifiOnly = 5;
 // it.
 const int kNumberOfFailsBeforeStop = 7;
 
-// Scans |root| directory and deletes all subdirectories not listed
-// in |directories_to_keep|.
+// Scans `root` directory and deletes all subdirectories not listed
+// in `directories_to_keep`.
 // Must be called on File thread.
 void CleanUpFiles(base::FilePath root,
                   const std::set<std::string>& processed_directories) {
@@ -89,20 +88,14 @@ ReadingListDownloadService::ReadingListDownloadService(
                           base::Unretained(this)),
       base::BindRepeating(&ReadingListDownloadService::OnDeleteEnd,
                           base::Unretained(this)));
-
-  GetApplicationContext()
-      ->GetNetworkConnectionTracker()
-      ->AddNetworkConnectionObserver(this);
+  network_observation_.Observe(
+      GetApplicationContext()->GetNetworkConnectionTracker());
 }
 
-ReadingListDownloadService::~ReadingListDownloadService() {
-  GetApplicationContext()
-      ->GetNetworkConnectionTracker()
-      ->RemoveNetworkConnectionObserver(this);
-}
+ReadingListDownloadService::~ReadingListDownloadService() = default;
 
 void ReadingListDownloadService::Initialize() {
-  reading_list_model_->AddObserver(this);
+  model_observation_.Observe(reading_list_model_);
 }
 
 base::FilePath ReadingListDownloadService::OfflineRoot() const {
@@ -110,7 +103,8 @@ base::FilePath ReadingListDownloadService::OfflineRoot() const {
 }
 
 void ReadingListDownloadService::Shutdown() {
-  reading_list_model_->RemoveObserver(this);
+  model_observation_.Reset();
+  network_observation_.Reset();
 }
 
 void ReadingListDownloadService::ReadingListModelLoaded(

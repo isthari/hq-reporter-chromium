@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -260,6 +260,58 @@ TEST_P(BoxPainterTest, ScrollHitTestProperties) {
   // and the contents should be scrolled by this node.
   EXPECT_EQ(&contents_transform,
             scroll_hit_test_chunk.hit_test_data->scroll_translation);
+}
+
+// crbug.com/1256990
+TEST_P(BoxPainterTest, ScrollerUnderInlineTransform3DSceneLeafCrash) {
+  SetBodyInnerHTML(R"HTML(
+    <div style="transform-style: preserve-3d">
+      <div style="display:inline">
+        <div style="display: inline-block; overflow: scroll;
+                    width: 100px; height: 100px">
+          <div style="height: 200px"></div>
+        </div>
+      </div>
+    </div>
+  )HTML");
+  // This should not crash.
+}
+
+size_t CountDrawImagesWithConstraint(const cc::PaintOpBuffer* buffer,
+                                     SkCanvas::SrcRectConstraint constraint) {
+  size_t count = 0;
+  for (cc::PaintOpBuffer::Iterator it(buffer); it; ++it) {
+    if (it->GetType() == cc::PaintOpType::DrawImageRect) {
+      const auto& image_op = static_cast<cc::DrawImageRectOp&>(*it);
+      if (image_op.constraint == constraint)
+        ++count;
+    } else if (it->GetType() == cc::PaintOpType::DrawRecord) {
+      const auto& record_op = static_cast<cc::DrawRecordOp&>(*it);
+      count +=
+          CountDrawImagesWithConstraint(record_op.record.get(), constraint);
+    }
+  }
+  return count;
+}
+
+TEST_P(BoxPainterTest, ImageClampingMode) {
+  SetBodyInnerHTML(R"HTML(
+    <!doctype html>
+    <style>
+      div#test {
+        height: 500px;
+        width: 353.743px;
+        background-image: url("data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==");
+        background-size: contain;
+        background-repeat: no-repeat;
+      }
+    </style>
+    <div id="test"></div>
+  )HTML");
+
+  sk_sp<PaintRecord> record = GetDocument().View()->GetPaintRecord();
+  EXPECT_EQ(1U, CountDrawImagesWithConstraint(
+                    record.get(), SkCanvas::kFast_SrcRectConstraint));
 }
 
 }  // namespace blink

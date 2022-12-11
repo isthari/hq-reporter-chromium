@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,6 +66,11 @@ bool CurrentThread::IsBoundToCurrentThread() const {
 bool CurrentThread::IsIdleForTesting() {
   DCHECK(current_->IsBoundToCurrentThread());
   return current_->IsIdleForTesting();
+}
+
+void CurrentThread::EnableMessagePumpTimeKeeperMetrics(
+    const char* thread_name) {
+  return current_->EnableMessagePumpTimeKeeperMetrics(thread_name);
 }
 
 void CurrentThread::AddTaskObserver(TaskObserver* task_observer) {
@@ -145,7 +150,7 @@ MessagePumpForUI* CurrentUIThread::GetMessagePumpForUI() const {
   return static_cast<MessagePumpForUI*>(current_->GetMessagePump());
 }
 
-#if defined(USE_OZONE) && !BUILDFLAG(IS_FUCHSIA) && !BUILDFLAG(IS_WIN)
+#if BUILDFLAG(IS_OZONE) && !BUILDFLAG(IS_FUCHSIA) && !BUILDFLAG(IS_WIN)
 bool CurrentUIThread::WatchFileDescriptor(
     int fd,
     bool persistent,

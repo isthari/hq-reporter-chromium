@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include "base/bind.h"
 #include "base/cxx17_backports.h"
 #include "base/logging.h"
-#include "base/threading/thread_task_runner_handle.h"
-#include "chrome/browser/ash/crostini/crostini_shelf_utils.h"
+#include "base/task/single_thread_task_runner.h"
+#include "chrome/browser/ash/guest_os/guest_os_shelf_utils.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
@@ -127,11 +127,13 @@ class SpinningEffectSource : public gfx::CanvasImageSource {
                          0, 0);
 
     const int gap = kSpinningGapPercent * inactive_image_.width() / 100;
+    constexpr SkColor kThrobberColor = SK_ColorWHITE;
     gfx::PaintThrobberSpinning(
         canvas,
         gfx::Rect(gap, gap, inactive_image_.width() - 2 * gap,
                   inactive_image_.height() - 2 * gap),
-        SkColorSetA(SK_ColorWHITE, 0xFF * (1.0 - std::abs(animation_lirp))),
+        SkColorSetA(kThrobberColor, SkColorGetA(kThrobberColor) *
+                                        (1.0 - std::abs(animation_lirp))),
         now - data_.creation_time());
   }
 
@@ -144,9 +146,9 @@ class SpinningEffectSource : public gfx::CanvasImageSource {
     if (data_.IsFadingIn()) {
       return 1.0 -
              TimeProportionSince(data_.creation_time(), now, kFadeInDuration);
-    } else {
-      return TimeProportionSince(data_.removal_time(), now, kFadeOutDuration);
     }
+
+    return TimeProportionSince(data_.removal_time(), now, kFadeOutDuration);
   }
 
   ShelfSpinnerController::ShelfSpinnerData data_;
@@ -236,7 +238,7 @@ void ShelfSpinnerController::CloseCrostiniSpinners() {
   const Profile* profile =
       ash::ProfileHelper::Get()->GetProfileByAccountId(current_account_id_);
   for (const auto& app_id_controller_pair : app_controller_map_) {
-    if (crostini::IsCrostiniShelfAppId(profile, app_id_controller_pair.first))
+    if (guest_os::IsCrostiniShelfAppId(profile, app_id_controller_pair.first))
       app_ids_to_close.push_back(app_id_controller_pair.first);
   }
   for (const auto& app_id : app_ids_to_close)
@@ -326,7 +328,7 @@ void ShelfSpinnerController::UpdateApps() {
 }
 
 void ShelfSpinnerController::RegisterNextUpdate() {
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&ShelfSpinnerController::UpdateApps,
                      weak_ptr_factory_.GetWeakPtr()),

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,10 +20,9 @@
 #include "chromecast/public/media/media_capabilities_shlib.h"
 #include "chromecast/renderer/cast_url_loader_throttle_provider.h"
 #include "chromecast/renderer/cast_websocket_handshake_throttle_provider.h"
-#include "chromecast/renderer/js_channel_bindings.h"
 #include "chromecast/renderer/media/key_systems_cast.h"
 #include "chromecast/renderer/media/media_caps_observer_impl.h"
-#include "chromecast/renderer/url_rewrite_rules_provider.h"
+#include "components/cast_receiver/renderer/public/content_renderer_client_mixins.h"
 #include "components/media_control/renderer/media_playback_options.h"
 #include "components/network_hints/renderer/web_prescient_networking_impl.h"
 #include "components/on_load_script_injector/renderer/on_load_script_injector.h"
@@ -31,7 +30,6 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
-#include "content/public/renderer/render_view.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/media.h"
 #include "media/remoting/receiver_controller.h"
@@ -49,22 +47,12 @@
 #include "third_party/blink/public/web/web_view.h"
 
 #if BUILDFLAG(IS_ANDROID)
+#include "base/android/bundle_utils.h"
 #include "chromecast/media/audio/cast_audio_device_factory.h"
 #include "media/base/android/media_codec_util.h"
 #else
 #include "chromecast/renderer/memory_pressure_observer_impl.h"
 #endif  // BUILDFLAG(IS_ANDROID)
-
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-#include "chromecast/common/cast_extensions_client.h"
-#include "chromecast/renderer/cast_extensions_renderer_client.h"
-#include "components/guest_view/renderer/guest_view_container_dispatcher.h"
-#include "content/public/common/content_constants.h"
-#include "extensions/common/common_manifest_handlers.h"  // nogncheck
-#include "extensions/common/extension_urls.h"            // nogncheck
-#include "extensions/renderer/dispatcher.h"              // nogncheck
-#include "extensions/renderer/extension_frame_helper.h"  // nogncheck
-#endif
 
 namespace chromecast {
 namespace shell {
@@ -97,7 +85,9 @@ constexpr base::TimeDelta kAudioRendererStartingCapacityEncrypted =
 #endif  // BUILDFLAG(IS_ANDROID)
 
 CastContentRendererClient::CastContentRendererClient()
-    : supported_profiles_(
+    : cast_receiver_mixins_(cast_receiver::ContentRendererClientMixins::Create(
+          base::BindRepeating(&IsCorsExemptHeader))),
+      supported_profiles_(
           std::make_unique<media::SupportedCodecProfileLevelsMemo>()),
       activity_url_filter_manager_(
           std::make_unique<CastActivityUrlFilterManager>()) {
@@ -144,43 +134,21 @@ void CastContentRendererClient::RenderThreadStarted() {
       command_line->GetSwitchValueNative(switches::kPreviousApp);
   if (!previous_app.empty())
     AppStateTracker::SetPreviousApp(previous_app);
-
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-  extensions_client_ = std::make_unique<extensions::CastExtensionsClient>();
-  extensions::ExtensionsClient::Set(extensions_client_.get());
-
-  extensions_renderer_client_ =
-      std::make_unique<extensions::CastExtensionsRendererClient>();
-  extensions::ExtensionsRendererClient::Set(extensions_renderer_client_.get());
-
-  thread->AddObserver(extensions_renderer_client_->GetDispatcher());
-
-  guest_view_container_dispatcher_ =
-      std::make_unique<guest_view::GuestViewContainerDispatcher>();
-  thread->AddObserver(guest_view_container_dispatcher_.get());
-#endif
 }
 
 void CastContentRendererClient::RenderFrameCreated(
     content::RenderFrame* render_frame) {
   DCHECK(render_frame);
 
+  cast_receiver_mixins_->RenderFrameCreated(*render_frame);
+
   // Lifetime is tied to |render_frame| via content::RenderFrameObserver.
   if (render_frame->IsMainFrame()) {
-    if (main_frame_feature_manager_on_associated_interface_) {
-      LOG(DFATAL) << "main_frame_feature_manager_on_associated_interface_ gets "
-                     "overwritten.";
-    }
     main_frame_feature_manager_on_associated_interface_ =
         new FeatureManagerOnAssociatedInterface(render_frame);
   } else {
     new FeatureManagerOnAssociatedInterface(render_frame);
   }
-  new media_control::MediaPlaybackOptions(render_frame);
-
-  // Add script injection support to the RenderFrame, used by Cast platform
-  // APIs. The injector's lifetime is bound to the RenderFrame's lifetime.
-  new on_load_script_injector::OnLoadScriptInjector(render_frame);
 
   if (!app_media_capabilities_observer_receiver_.is_bound()) {
     mojo::Remote<mojom::ApplicationMediaCapabilities> app_media_capabilities;
@@ -190,55 +158,22 @@ void CastContentRendererClient::RenderFrameCreated(
         app_media_capabilities_observer_receiver_.BindNewPipeAndPassRemote());
   }
 
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-  extensions::Dispatcher* dispatcher =
-      extensions_renderer_client_->GetDispatcher();
-  // ExtensionFrameHelper destroys itself when the RenderFrame is destroyed.
-  new extensions::ExtensionFrameHelper(render_frame, dispatcher);
-
-  dispatcher->OnRenderFrameCreated(render_frame);
-#endif
-
-#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(USE_OZONE)
-  // JsChannelBindings destroys itself when the RenderFrame is destroyed.
-  JsChannelBindings::Create(render_frame);
-#endif
-
   activity_url_filter_manager_->OnRenderFrameCreated(render_frame);
-
-  // |base::Unretained| is safe here since the callback is triggered before the
-  // destruction of UrlRewriteRulesProvider by which point
-  // CastContentRendererClient should be alive.
-  url_rewrite_rules_providers_.emplace(
-      render_frame->GetRoutingID(),
-      std::make_unique<UrlRewriteRulesProvider>(
-          render_frame,
-          base::BindOnce(&CastContentRendererClient::OnRenderFrameRemoved,
-                         base::Unretained(this))));
 }
 
 void CastContentRendererClient::RunScriptsAtDocumentStart(
-    content::RenderFrame* render_frame) {
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-  extensions_renderer_client_->GetDispatcher()->RunScriptsAtDocumentStart(
-      render_frame);
-#endif
-}
+    content::RenderFrame* render_frame) {}
 
 void CastContentRendererClient::RunScriptsAtDocumentEnd(
-    content::RenderFrame* render_frame) {
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-  extensions_renderer_client_->GetDispatcher()->RunScriptsAtDocumentEnd(
-      render_frame);
-#endif
-}
+    content::RenderFrame* render_frame) {}
 
-void CastContentRendererClient::AddSupportedKeySystems(
-    std::vector<std::unique_ptr<::media::KeySystemProperties>>*
-        key_systems_properties) {
-  media::AddChromecastKeySystems(key_systems_properties,
+void CastContentRendererClient::GetSupportedKeySystems(
+    ::media::GetSupportedKeySystemsCB cb) {
+  ::media::KeySystemInfos key_systems;
+  media::AddChromecastKeySystems(&key_systems,
                                  false /* enable_persistent_license_support */,
                                  false /* enable_playready */);
+  std::move(cb).Run(std::move(key_systems));
 }
 
 bool CastContentRendererClient::IsSupportedAudioType(
@@ -295,18 +230,18 @@ bool CastContentRendererClient::IsSupportedAudioType(
 
 bool CastContentRendererClient::IsSupportedVideoType(
     const ::media::VideoType& type) {
-// TODO(servolk): make use of eotf.
+  // TODO(servolk): make use of eotf.
 
   // TODO(1066567): Check attached screen for support of type.hdr_metadata_type.
-if (type.hdr_metadata_type != ::gfx::HdrMetadataType::kNone) {
-  NOTIMPLEMENTED() << "HdrMetadataType support signaling not implemented.";
-  return false;
-}
+  if (type.hdr_metadata_type != ::gfx::HdrMetadataType::kNone) {
+    NOTIMPLEMENTED() << "HdrMetadataType support signaling not implemented.";
+    return false;
+  }
 
 #if BUILDFLAG(IS_ANDROID)
-return supported_profiles_->IsSupportedVideoConfig(
-    media::ToCastVideoCodec(type.codec, type.profile),
-    media::ToCastVideoProfile(type.profile), type.level);
+  return supported_profiles_->IsSupportedVideoConfig(
+      media::ToCastVideoCodec(type.codec, type.profile),
+      media::ToCastVideoProfile(type.profile), type.level);
 #else
   return media::MediaCapabilitiesShlib::IsSupportedVideoConfig(
       media::ToCastVideoCodec(type.codec, type.profile),
@@ -344,14 +279,15 @@ bool CastContentRendererClient::DeferMediaLoad(
     content::RenderFrame* render_frame,
     bool render_frame_has_played_media_before,
     base::OnceClosure closure) {
-  return RunWhenInForeground(render_frame, std::move(closure));
+  return cast_receiver_mixins_->DeferMediaLoad(*render_frame,
+                                               std::move(closure));
 }
 
 std::unique_ptr<::media::Demuxer>
 CastContentRendererClient::OverrideDemuxerForUrl(
     content::RenderFrame* render_frame,
     const GURL& url,
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
+    scoped_refptr<base::SequencedTaskRunner> task_runner) {
   if (render_frame->GetRenderFrameMediaPlaybackOptions()
           .is_remoting_renderer_enabled() &&
       url.SchemeIs(::media::remoting::kRemotingScheme)) {
@@ -359,15 +295,6 @@ CastContentRendererClient::OverrideDemuxerForUrl(
         ::media::remoting::ReceiverController::GetInstance(), task_runner);
   }
   return nullptr;
-}
-
-bool CastContentRendererClient::RunWhenInForeground(
-    content::RenderFrame* render_frame,
-    base::OnceClosure closure) {
-  auto* playback_options =
-      media_control::MediaPlaybackOptions::Get(render_frame);
-  DCHECK(playback_options);
-  return playback_options->RunWhenInForeground(std::move(closure));
 }
 
 bool CastContentRendererClient::IsIdleMediaSuspendEnabled() {
@@ -397,16 +324,18 @@ CastContentRendererClient::CreateWebSocketHandshakeThrottleProvider() {
 std::unique_ptr<blink::URLLoaderThrottleProvider>
 CastContentRendererClient::CreateURLLoaderThrottleProvider(
     blink::URLLoaderThrottleProviderType type) {
-  return std::make_unique<CastURLLoaderThrottleProvider>(
-      type, activity_url_filter_manager(), this,
-      base::BindRepeating(&IsCorsExemptHeader));
+  auto throttle_provider = std::make_unique<CastURLLoaderThrottleProvider>(
+      type, activity_url_filter_manager());
+  return cast_receiver_mixins_->ExtendURLLoaderThrottleProvider(
+      std::move(throttle_provider));
 }
 
 absl::optional<::media::AudioRendererAlgorithmParameters>
 CastContentRendererClient::GetAudioRendererAlgorithmParameters(
     ::media::AudioParameters audio_parameters) {
 #if BUILDFLAG(IS_ANDROID)
-  if (base::FeatureList::IsEnabled(kEnableCastAudioOutputDevice)) {
+  if (base::android::BundleUtils::IsBundle() ||
+      base::FeatureList::IsEnabled(kEnableCastAudioOutputDevice)) {
     return absl::nullopt;
   }
   ::media::AudioRendererAlgorithmParameters parameters;
@@ -418,28 +347,6 @@ CastContentRendererClient::GetAudioRendererAlgorithmParameters(
 #else
   return absl::nullopt;
 #endif
-}
-
-scoped_refptr<url_rewrite::UrlRequestRewriteRules>
-CastContentRendererClient::GetUrlRequestRewriteRules(
-    int render_frame_id) const {
-  auto it = url_rewrite_rules_providers_.find(render_frame_id);
-  if (it == url_rewrite_rules_providers_.end()) {
-    LOG(WARNING)
-        << "Can't find the URL rewrite rules provider for render frame: "
-        << render_frame_id;
-    return nullptr;
-  }
-  return it->second->GetCachedRules();
-}
-
-void CastContentRendererClient::OnRenderFrameRemoved(int render_frame_id) {
-  size_t result = url_rewrite_rules_providers_.erase(render_frame_id);
-  if (result != 1U) {
-    LOG(WARNING)
-        << "Can't find the URL rewrite rules provider for render frame: "
-        << render_frame_id;
-  }
 }
 
 }  // namespace shell

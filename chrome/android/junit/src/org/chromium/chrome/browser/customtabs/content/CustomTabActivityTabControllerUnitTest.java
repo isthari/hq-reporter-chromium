@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.customtabs.content;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -13,6 +14,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -23,28 +25,33 @@ import static org.mockito.Mockito.when;
 import android.content.Intent;
 import android.os.Bundle;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.annotation.Config;
 
+import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.chrome.browser.customtabs.content.TabObserverRegistrar.CustomTabTabObserver;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.test.util.browser.Features;
+import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.components.embedder_support.util.ShadowUrlUtilities;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.testing.local.LocalRobolectricTestRunner;
 
 /**
  * Tests for {@link CustomTabActivityTabController}.
  */
-@RunWith(LocalRobolectricTestRunner.class)
+@RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE, shadows = {ShadowUrlUtilities.class})
-@Features.DisableFeatures({ChromeFeatureList.CCT_EXTERNAL_LINK_HANDLING})
+@DisableFeatures({ChromeFeatureList.CCT_REAL_TIME_ENGAGEMENT_SIGNALS})
 public class CustomTabActivityTabControllerUnitTest {
     @Rule
     public final CustomTabActivityContentTestEnvironment env =
@@ -63,6 +70,11 @@ public class CustomTabActivityTabControllerUnitTest {
         MockitoAnnotations.initMocks(this);
         Profile.setLastUsedProfileForTesting(mProfile);
         mTabController = env.createTabController();
+    }
+
+    @After
+    public void tearDown() {
+        Profile.setLastUsedProfileForTesting(null);
     }
 
     @Test
@@ -198,5 +210,35 @@ public class CustomTabActivityTabControllerUnitTest {
         mTabController.finishNativeInitialization();
         Tab tab = env.prepareTab();
         assertTrue(tab.isIncognito());
+    }
+
+    @Test
+    @Features.DisableFeatures({ChromeFeatureList.CCT_REAL_TIME_ENGAGEMENT_SIGNALS})
+    public void doesNotSetGreatestScrollPercentageSupplierIfFeatureIsDisabled() {
+        env.reachNativeInit(mTabController);
+
+        ArgumentCaptor<TabObserver> tabObservers = ArgumentCaptor.forClass(TabObserver.class);
+        verify(env.tabObserverRegistrar, atLeastOnce()).registerTabObserver(tabObservers.capture());
+        for (TabObserver observer : tabObservers.getAllValues()) {
+            assertFalse("RealtimeEngagementSignalObserver is not attached.",
+                    observer instanceof RealtimeEngagementSignalObserver);
+        }
+    }
+
+    @Test
+    @Features.EnableFeatures({ChromeFeatureList.CCT_REAL_TIME_ENGAGEMENT_SIGNALS})
+    public void attachEngagementSignalObserver() {
+        env.reachNativeInit(mTabController);
+
+        ArgumentCaptor<CustomTabTabObserver> tabObservers =
+                ArgumentCaptor.forClass(CustomTabTabObserver.class);
+        verify(env.tabObserverRegistrar, atLeastOnce())
+                .registerActivityTabObserver(tabObservers.capture());
+        for (TabObserver observer : tabObservers.getAllValues()) {
+            if (observer instanceof RealtimeEngagementSignalObserver) {
+                return;
+            }
+        }
+        throw new AssertionError("RealtimeEngagementSignalObserver is not attached.");
     }
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -96,17 +96,17 @@ class PrintPreviewDialogController
   // the initiator or preview WebContents is closed.
   void WebContentsDestroyed(content::WebContents* contents) override;
 
-  // Handles the commit of a navigation entry for `contents`. This is observed
-  // when the renderer for either WebContents is navigated to a different page.
-  void NavigationEntryCommitted(
+  // Handles the commit of a navigation for `contents`. This is observed when
+  // the renderer for either WebContents is navigated to a different page.
+  void DidFinishNavigation(
       content::WebContents* contents,
-      const content::LoadCommittedDetails& details) override;
+      content::NavigationHandle* navigation_handle) override;
 
-  // Helpers for NavigationEntryCommitted().
+  // Helpers for DidFinishNavigation().
   void OnInitiatorNavigated(content::WebContents* initiator,
-                            const content::LoadCommittedDetails& details);
+                            content::NavigationHandle* navigation_handle);
   void OnPreviewDialogNavigated(content::WebContents* preview_dialog,
-                                const content::LoadCommittedDetails& details);
+                                content::NavigationHandle* navigation_handle);
 
   // Creates a new print preview dialog.
   content::WebContents* CreatePrintPreviewDialog(
@@ -124,10 +124,6 @@ class PrintPreviewDialogController
   PrintPreviewDialogMap preview_dialog_map_;
 
   WebContentsCollection web_contents_collection_;
-
-  // True if the controller is waiting for a new preview dialog via
-  // content::NAVIGATION_TYPE_NEW_ENTRY.
-  bool waiting_for_new_preview_page_ = false;
 
   // Whether the PrintPreviewDialogController is in the middle of creating a
   // print preview dialog.

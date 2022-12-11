@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,14 @@
 
 #include "base/bind.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "content/browser/devtools/protocol/devtools_protocol_test_support.h"
 #include "content/browser/renderer_host/delegated_frame_host.h"
 #include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
-#include "content/browser/renderer_host/render_widget_host_view_aura.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -42,7 +41,7 @@ const char kMinimalPageDataURL[] =
 // call stack.
 void GiveItSomeTime() {
   base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(250));
   run_loop.Run();
 }
@@ -75,7 +74,7 @@ class RenderWidgetHostViewAuraBrowserTest : public ContentBrowserTest {
  public:
   RenderViewHost* GetRenderViewHost() const {
     RenderViewHost* const rvh =
-        shell()->web_contents()->GetMainFrame()->GetRenderViewHost();
+        shell()->web_contents()->GetPrimaryMainFrame()->GetRenderViewHost();
     CHECK(rvh);
     return rvh;
   }
@@ -96,7 +95,9 @@ class RenderWidgetHostViewAuraBrowserTest : public ContentBrowserTest {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewAuraBrowserTest,
-                       StaleFrameContentOnEvictionNormal) {
+                       // TODO(crbug.com/1377184): Re-enable this test
+                       // TODO(crbug.com/1376643): Re-enable this test
+                       DISABLED_StaleFrameContentOnEvictionNormal) {
   EXPECT_TRUE(NavigateToURL(shell(), GURL(kMinimalPageDataURL)));
 
   // Make sure the renderer submits at least one frame before hiding it.
@@ -327,7 +328,7 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewAuraDevtoolsBrowserTest,
   EXPECT_TRUE(NavigateToURL(shell(), page));
   auto* wc = shell()->web_contents();
   Attach();
-  SendCommand("Debugger.enable", nullptr);
+  SendCommandSync("Debugger.enable");
 
   ASSERT_TRUE(ExecJs(wc, "focusSelectMenu();"));
   SimulateKeyPress(wc, ui::DomKey::FromCharacter(' '), ui::DomCode::SPACE,
@@ -473,9 +474,17 @@ class RenderWidgetHostViewAuraActiveWidgetTest : public ContentBrowserTest {
     return active;
   }
 
+  bool FrameIsFocused(content::RenderFrameHost* rfh) {
+    bool is_focused = false;
+    EXPECT_TRUE(ExecuteScriptAndExtractBool(
+        rfh, "window.domAutomationController.send(document.hasFocus())",
+        &is_focused));
+    return is_focused;
+  }
+
   RenderViewHost* GetRenderViewHost() const {
     RenderViewHost* const rvh =
-        shell()->web_contents()->GetMainFrame()->GetRenderViewHost();
+        shell()->web_contents()->GetPrimaryMainFrame()->GetRenderViewHost();
     CHECK(rvh);
     return rvh;
   }
@@ -502,12 +511,14 @@ class RenderWidgetHostViewAuraActiveWidgetTest : public ContentBrowserTest {
 };
 
 // In this test, toggling the value of 'active' state changes the
-// active state of frame on the renderer side.
-// SimulateActiveStateForWidget toggles the 'active' state of widget
-// over IPC.
+// active state of frame on the renderer side. Cross origin iframes
+// are checked to ensure the active state is replicated across all
+// processes. SimulateActiveStateForWidget toggles the 'active' state
+// of widget over IPC.
 IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewAuraActiveWidgetTest,
                        FocusIsInactive) {
-  GURL main_url(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  GURL main_url(embedded_test_server()->GetURL(
+      "a.com", "/cross_site_iframe_factory.html?a(b)"));
   EXPECT_TRUE(NavigateToURL(shell(), main_url));
 
   content::WebContents* web_contents = shell()->web_contents();
@@ -515,26 +526,47 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewAuraActiveWidgetTest,
   // The main_frame_a should have a focus to start with.
   // On renderer side, blink::FocusController's both 'active' and
   //'focus' states are set to true.
-  content::RenderFrameHost* main_frame = web_contents->GetMainFrame();
-  EXPECT_TRUE(FrameIsActivated(main_frame));
+  content::RenderFrameHost* main_frame = web_contents->GetPrimaryMainFrame();
+  content::RenderFrameHost* iframe = ChildFrameAt(main_frame, 0);
+  EXPECT_TRUE(FrameIsFocused(main_frame));
+  EXPECT_TRUE(FrameIsActivated(iframe));
+  EXPECT_TRUE(FrameIsFocused(main_frame));
+  EXPECT_FALSE(FrameIsFocused(iframe));
 
   // After changing the 'active' state of main_frame to false
-  // blink::FocusController's 'active' set to false.
+  // blink::FocusController's 'active' set to false and
+  // document.hasFocus() will return false.
   content::SimulateActiveStateForWidget(main_frame, false);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(FrameIsActivated(main_frame));
+  EXPECT_FALSE(FrameIsActivated(iframe));
+  EXPECT_FALSE(FrameIsFocused(main_frame));
+  EXPECT_FALSE(FrameIsFocused(iframe));
 
   // After changing the 'active' state of main_frame to true
-  // blink::FocusController's 'active' set to true.
+  // blink::FocusController's 'active' set to true and
+  // document.hasFocus() will return true.
   content::SimulateActiveStateForWidget(main_frame, true);
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(FrameIsActivated(main_frame));
+  EXPECT_TRUE(FrameIsActivated(iframe));
+  EXPECT_TRUE(FrameIsFocused(main_frame));
+  EXPECT_FALSE(FrameIsFocused(iframe));
+
+  // Now unfocus the main frame, this should keep the active state.
+  main_frame->GetRenderWidgetHost()->Blur();
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(FrameIsActivated(main_frame));
+  EXPECT_TRUE(FrameIsActivated(iframe));
+  EXPECT_FALSE(FrameIsFocused(main_frame));
+  EXPECT_FALSE(FrameIsFocused(iframe));
 }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // Verifies that getting active input control accounts for iframe positioning.
+// Flaky: crbug.com/1293700
 IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewAuraActiveWidgetTest,
-                       TextControlBoundingRegionInIframe) {
+                       DISABLED_TextControlBoundingRegionInIframe) {
   GURL page(
       embedded_test_server()->GetURL("example.com", "/input_in_iframe.html"));
   EXPECT_TRUE(NavigateToURL(shell(), page));

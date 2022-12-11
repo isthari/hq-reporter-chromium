@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 
 #import "base/check.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_cells_constants.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
 #import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
+#import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -45,12 +45,10 @@ constexpr CGFloat kChromeTableViewTwoLinesCellHeight = 58.f;
   cell.textLabel.text = self.text;
   [cell setDetailText:self.detailText];
 
-  // Update the icon image, if one is present.
-  UIImage* iconImage = nil;
-  if ([self.iconImageName length]) {
-    iconImage = [UIImage imageNamed:self.iconImageName];
-  }
-  [cell setIconImage:iconImage];
+  [cell setIconImage:self.iconImage
+            tintColor:self.iconTintColor
+      backgroundColor:self.iconBackgroundColor
+         cornerRadius:self.iconCornerRadius];
   [cell setTextLayoutConstraintAxis:self.textLayoutConstraintAxis];
 }
 
@@ -60,12 +58,12 @@ constexpr CGFloat kChromeTableViewTwoLinesCellHeight = 58.f;
 
 @interface TableViewDetailIconCell ()
 
-// View containing UILabels |text| and |detailText|.
+// View containing UILabels `text` and `detailText`.
 @property(nonatomic, strong) UIStackView* textStackView;
 // Padding layout constraints.
 @property(nonatomic, strong)
     NSArray<NSLayoutConstraint*>* verticalPaddingConstraints;
-// Constraint to set the cell minimun height.
+// Constraint to set the cell minimum height.
 @property(nonatomic, strong) NSLayoutConstraint* minimumCellHeightConstraint;
 // Text width constraint between the title and the detail text.
 @property(nonatomic, strong) NSLayoutConstraint* textWidthConstraint;
@@ -75,6 +73,7 @@ constexpr CGFloat kChromeTableViewTwoLinesCellHeight = 58.f;
 @end
 
 @implementation TableViewDetailIconCell {
+  UIView* _iconBackground;
   UIImageView* _iconImageView;
   NSLayoutConstraint* _iconHiddenConstraint;
   NSLayoutConstraint* _iconVisibleConstraint;
@@ -90,10 +89,17 @@ constexpr CGFloat kChromeTableViewTwoLinesCellHeight = 58.f;
     self.isAccessibilityElement = YES;
     UIView* contentView = self.contentView;
 
+    _iconBackground = [[UIView alloc] init];
+    _iconBackground.translatesAutoresizingMaskIntoConstraints = NO;
+    _iconBackground.hidden = YES;
+    [contentView addSubview:_iconBackground];
+
     _iconImageView = [[UIImageView alloc] init];
     _iconImageView.translatesAutoresizingMaskIntoConstraints = NO;
-    _iconImageView.hidden = YES;
-    [contentView addSubview:_iconImageView];
+    _iconImageView.contentMode = UIViewContentModeCenter;
+    [_iconBackground addSubview:_iconImageView];
+
+    AddSameCenterConstraints(_iconBackground, _iconImageView);
 
     _textLabel = [[UILabel alloc] init];
     _textLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -113,28 +119,28 @@ constexpr CGFloat kChromeTableViewTwoLinesCellHeight = 58.f;
         constraintEqualToAnchor:contentView.leadingAnchor
                        constant:kTableViewHorizontalSpacing];
     _iconVisibleConstraint = [_textStackView.leadingAnchor
-        constraintEqualToAnchor:_iconImageView.trailingAnchor
+        constraintEqualToAnchor:_iconBackground.trailingAnchor
                        constant:kTableViewImagePadding];
 
     _minimumCellHeightConstraint = [contentView.heightAnchor
         constraintGreaterThanOrEqualToConstant:kChromeTableViewCellHeight];
     // Lower the priority for transition. The content view has autoresizing mask
     // to have the same height than the cell. To avoid breaking the constaints
-    // while updatingn the minimum height constant, the constraint has to have
+    // while updating the minimum height constant, the constraint has to have
     // a lower priority.
     _minimumCellHeightConstraint.priority = UILayoutPriorityDefaultHigh - 1;
     _minimumCellHeightConstraint.active = YES;
 
     [NSLayoutConstraint activateConstraints:@[
-      // Image.
-      [_iconImageView.leadingAnchor
+      // Icon.
+      [_iconBackground.leadingAnchor
           constraintEqualToAnchor:contentView.leadingAnchor
                          constant:kTableViewHorizontalSpacing],
-      [_iconImageView.widthAnchor
+      [_iconBackground.widthAnchor
           constraintEqualToConstant:kTableViewIconImageSize],
-      [_iconImageView.heightAnchor
-          constraintEqualToAnchor:_iconImageView.widthAnchor],
-      [_iconImageView.centerYAnchor
+      [_iconBackground.heightAnchor
+          constraintEqualToAnchor:_iconBackground.widthAnchor],
+      [_iconBackground.centerYAnchor
           constraintEqualToAnchor:contentView.centerYAnchor],
 
       // Text labels.
@@ -145,7 +151,7 @@ constexpr CGFloat kChromeTableViewTwoLinesCellHeight = 58.f;
           constraintEqualToAnchor:contentView.centerYAnchor],
       _iconHiddenConstraint,
 
-      // Leading constraint for |customSeparator|.
+      // Leading constraint for `customSeparator`.
       [self.customSeparator.leadingAnchor
           constraintEqualToAnchor:_textStackView.leadingAnchor],
     ]];
@@ -160,14 +166,25 @@ constexpr CGFloat kChromeTableViewTwoLinesCellHeight = 58.f;
   return self;
 }
 
-- (void)setIconImage:(UIImage*)image {
+- (void)setIconImage:(UIImage*)image
+           tintColor:(UIColor*)tintColor
+     backgroundColor:(UIColor*)backgroundColor
+        cornerRadius:(CGFloat)cornerRadius {
   if (image == nil && _iconImageView.image == nil) {
     return;
   }
 
-  BOOL hidden = (image == nil);
+  if (tintColor) {
+    image = [image imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+  }
+
   _iconImageView.image = image;
-  _iconImageView.hidden = hidden;
+  _iconImageView.tintColor = tintColor;
+  _iconBackground.backgroundColor = backgroundColor;
+  _iconBackground.layer.cornerRadius = cornerRadius;
+
+  BOOL hidden = (image == nil);
+  _iconBackground.hidden = hidden;
   if (hidden) {
     _iconVisibleConstraint.active = NO;
     _iconHiddenConstraint.active = YES;
@@ -242,7 +259,7 @@ constexpr CGFloat kChromeTableViewTwoLinesCellHeight = 58.f;
   [super prepareForReuse];
 
   [self setTextLayoutConstraintAxis:UILayoutConstraintAxisHorizontal];
-  [self setIconImage:nil];
+  [self setIconImage:nil tintColor:nil backgroundColor:nil cornerRadius:0];
   [self setDetailText:nil];
 }
 
@@ -260,13 +277,13 @@ constexpr CGFloat kChromeTableViewTwoLinesCellHeight = 58.f;
   self.detailTextLabel.textColor = [UIColor colorNamed:kTextSecondaryColor];
   self.detailTextLabel.backgroundColor = UIColor.clearColor;
   [self.textStackView addArrangedSubview:self.detailTextLabel];
-  // In case the two labels don't fit in width, have the |textLabel| be 3
-  // times the width of the |detailTextLabel| (so 75% / 25%).
+  // In case the two labels don't fit in width, have the `textLabel` be 3
+  // times the width of the `detailTextLabel` (so 75% / 25%).
   self.textWidthConstraint = [self.textLabel.widthAnchor
       constraintEqualToAnchor:self.detailTextLabel.widthAnchor
                    multiplier:kCellLabelsWidthProportion];
-  // Set low priority to the proportion constraint between |self.textLabel| and
-  // |self.detailTextLabel|, so that it won't break other layouts.
+  // Set low priority to the proportion constraint between `self.textLabel` and
+  // `self.detailTextLabel`, so that it won't break other layouts.
   self.textWidthConstraint.priority = UILayoutPriorityDefaultLow;
   [self updateCellForAccessibilityContentSizeCategory:
             UIContentSizeCategoryIsAccessibilityCategory(
@@ -285,7 +302,7 @@ constexpr CGFloat kChromeTableViewTwoLinesCellHeight = 58.f;
 
 // Updates the cell such as it is layouted correctly with regard to the
 // preferred content size category, if it is an
-// |accessibilityContentSizeCategory| or not.
+// `accessibilityContentSizeCategory` or not.
 - (void)updateCellForAccessibilityContentSizeCategory:
     (BOOL)accessibilityContentSizeCategory {
   if (accessibilityContentSizeCategory) {

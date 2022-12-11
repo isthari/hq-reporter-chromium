@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,6 +28,7 @@
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/widget/widget_observer.h"
 #include "ui/wm/public/activation_change_observer.h"
+#include "ui/wm/public/tooltip_observer.h"
 
 namespace ash {
 class WindowState;
@@ -52,7 +53,8 @@ class ShellSurfaceBase : public SurfaceTreeHost,
                          public views::WidgetDelegate,
                          public views::WidgetObserver,
                          public views::View,
-                         public wm::ActivationChangeObserver {
+                         public wm::ActivationChangeObserver,
+                         public wm::TooltipObserver {
  public:
   // The |origin| is the initial position in screen coordinates. The position
   // specified as part of the geometry is relative to the shell surface.
@@ -85,17 +87,29 @@ class ShellSurfaceBase : public SurfaceTreeHost,
     surface_destroyed_callback_ = std::move(surface_destroyed_callback);
   }
 
-  // Activates the shell surface.
+  // Whether the connected client supports setting window bounds and is
+  // expecting to receive window origin in configure updates.
+  bool client_supports_window_bounds() const {
+    return client_supports_window_bounds_;
+  }
+
+  void set_client_supports_window_bounds(bool enable) {
+    client_supports_window_bounds_ = enable;
+  }
+
+  // Activates the shell surface. Brings it to the foreground.
   void Activate();
+  void RequestActivation();
+
+  // Deactivates the shell surface. Makes it not the foreground.
+  void Deactivate();
+  void RequestDeactivation();
 
   // Set title for the surface.
   void SetTitle(const std::u16string& title);
 
   // Set icon for the surface.
   void SetIcon(const gfx::ImageSkia& icon);
-
-  // Sets the system modality.
-  void SetSystemModal(bool system_modal);
 
   // Set the application ID for the surface.
   void SetApplicationId(const char* application_id);
@@ -136,6 +150,9 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   // |widget_|'s origin and |bounds| via `UpdateResizeShadowBoundsOfWindow()`.
   void SetBoundsForShadows(const absl::optional<gfx::Rect>& bounds);
 
+  // Make the shell surface menu type.
+  void SetMenu();
+
   // Prevents shell surface from being moved.
   void DisableMovement();
 
@@ -146,6 +163,24 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   void RebindRootSurface(Surface* root_surface,
                          bool can_minimize,
                          int container);
+
+  // Set the window bounds. The bounds specify 'visible bounds' of the
+  // shell surface.
+  void SetWindowBounds(const gfx::Rect& bounds_in_screen);
+
+  // Set `restore_session_id_` and `restore_window_id_` to be the browser
+  // session id and restore id, respectively.
+  void SetRestoreInfo(int32_t restore_id, int32_t restore_window_id);
+
+  // Set `restore_window_id_source` to be the app id for Restore to fetch window
+  // id for.
+  void SetRestoreInfoWithWindowIdSource(
+      int32_t restore_id,
+      const std::string& restore_window_id_source);
+
+  // Floats (place on top of other surfaces) or unfloats the shell surface.
+  void SetFloat();
+  void UnsetFloat();
 
   // Returns a trace value representing the state of the surface.
   std::unique_ptr<base::trace_event::TracedValue> AsTracedValue() const;
@@ -181,6 +216,10 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   // //ash/display/screen_orientation_controller.h.
   void SetOrientationLock(chromeos::OrientationType orientation_lock);
 
+  // Sets the z order for the window. If the window's widget has not yet been
+  // initialized, it saves `z_order` for when it is initialized.
+  void SetZOrder(ui::ZOrderLevel z_order);
+
   // SurfaceDelegate:
   void OnSurfaceCommit() override;
   bool IsInputEnabled(Surface* surface) const override;
@@ -207,12 +246,17 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   void SetInitialWorkspace(const char* initial_workspace) override;
   void Pin(bool trusted) override;
   void Unpin() override;
+  void SetSystemModal(bool system_modal) override;
 
   // SurfaceObserver:
   void OnSurfaceDestroying(Surface* surface) override;
   void OnContentSizeChanged(Surface*) override {}
   void OnFrameLockingChanged(Surface*, bool) override {}
   void OnDeskChanged(Surface*, int) override {}
+  void OnTooltipShown(Surface* surface,
+                      const std::u16string& text,
+                      const gfx::Rect& bounds) override {}
+  void OnTooltipHidden(Surface* surface) override {}
 
   // CaptureClientObserver:
   void OnCaptureChanged(aura::Window* lost_capture,
@@ -226,6 +270,7 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   views::View* GetContentsView() override;
   std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
       views::Widget* widget) override;
+  bool ShouldSaveWindowPlacement() const override;
   bool WidgetHasHitTestMask() const override;
   void GetWidgetHitTestMask(SkPath* mask) const override;
 
@@ -234,6 +279,9 @@ class ShellSurfaceBase : public SurfaceTreeHost,
 
   // views::View:
   gfx::Size CalculatePreferredSize() const override;
+  // This returns the surface's min/max size. If you want to know the
+  // widget/window's min/mx size, you must use
+  // ShellSurfaceBase::GetWidget()->GetXxxSize.
   gfx::Size GetMinimumSize() const override;
   gfx::Size GetMaximumSize() const override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
@@ -252,6 +300,12 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   void OnWindowActivated(ActivationReason reason,
                          aura::Window* gained_active,
                          aura::Window* lost_active) override;
+
+  // wm::TooltipObserver:
+  void OnTooltipShown(aura::Window* target,
+                      const std::u16string& text,
+                      const gfx::Rect& bounds) override;
+  void OnTooltipHidden(aura::Window* target) override;
 
   // ui::AcceleratorTarget:
   bool AcceleratorPressed(const ui::Accelerator& accelerator) override;
@@ -272,6 +326,13 @@ class ShellSurfaceBase : public SurfaceTreeHost,
     return overlay_widget_.get();
   }
 
+  // Returns true if surface is currently being dragged.
+  bool IsDragged() const;
+
+  void set_in_extended_drag(bool in_extended_drag) {
+    in_extended_drag_ = in_extended_drag;
+  }
+
  protected:
   // Creates the |widget_| for |surface_|. |show_state| is the initial state
   // of the widget (e.g. maximized).
@@ -287,8 +348,14 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   // Updates the bounds of widget to match the current surface bounds.
   void UpdateWidgetBounds();
 
-  // Called by UpdateWidgetBounds to set widget bounds.
-  virtual void SetWidgetBounds(const gfx::Rect& bounds) = 0;
+  // Returns a bounds that WindowManager might have applied the constraints to.
+  virtual gfx::Rect ComputeAdjustedBounds(const gfx::Rect& bounds) const;
+
+  // Called by UpdateWidgetBounds to set widget bounds. If the
+  // `adjusted_by_server` is true, the bounds requested by a client is updated
+  // to satisfy the constraints.
+  virtual void SetWidgetBounds(const gfx::Rect& bounds,
+                               bool adjusted_by_server) = 0;
 
   // Updates the bounds of surface to match the current widget bounds.
   void UpdateSurfaceBounds();
@@ -309,8 +376,11 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   // Returns the "visible bounds" for the surface from the user's perspective.
   gfx::Rect GetVisibleBounds() const;
 
-  // Returns the bounds of the client area.nnn
+  // Returns the bounds of the client area.
   gfx::Rect GetClientViewBounds() const;
+
+  // Computes the widget bounds using visible bounds.
+  gfx::Rect GetWidgetBoundsFromVisibleBounds() const;
 
   // In the local coordinate system of the window.
   virtual gfx::Rect GetShadowBounds() const;
@@ -333,13 +403,15 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   void SetParentInternal(aura::Window* window);
   void SetContainerInternal(int container);
 
-  // Returns the resizability of the window. Useful to get the resizability
-  // without actually updating it.
-  bool CalculateCanResize() const;
+  // Converts min/max sizes to resizeability. This needs to be overridden as
+  // different clients have different default min/max values.
+  virtual bool GetCanResizeFromSizeConstraints() const = 0;
 
   // Returns true if this surface will exit fullscreen from a restore or
   // maximize request. Currently only true for Lacros.
   bool ShouldExitFullscreenFromRestoreOrMaximized();
+
+  static bool IsPopupWithGrab(aura::Window* window);
 
   views::Widget* widget_ = nullptr;
   bool movement_disabled_ = false;
@@ -349,16 +421,21 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   int container_;
   gfx::Rect geometry_;
   gfx::Rect pending_geometry_;
-  gfx::Size initial_size_;
+  absl::optional<gfx::Rect> initial_bounds_;
+
   int64_t display_id_ = display::kInvalidDisplayId;
   int64_t pending_display_id_ = display::kInvalidDisplayId;
   absl::optional<gfx::Rect> shadow_bounds_;
   bool shadow_bounds_changed_ = false;
   SurfaceFrameType frame_type_ = SurfaceFrameType::NONE;
   bool is_popup_ = false;
+  bool is_menu_ = false;
   bool has_grab_ = false;
   bool server_side_resize_ = false;
   bool needs_layout_on_show_ = false;
+  bool client_supports_window_bounds_ = false;
+  gfx::Size minimum_size_;
+  gfx::Size maximum_size_;
 
   // The orientation to be applied when widget is being created. Only set when
   // widget is not created yet orientation lock is being set. This is currently
@@ -391,6 +468,10 @@ class ShellSurfaceBase : public SurfaceTreeHost,
 
   void UpdatePinned();
 
+  // Returns the resizability of the window. Useful to get the resizability
+  // without actually updating it.
+  bool CalculateCanResize() const;
+
   aura::Window* parent_ = nullptr;
   bool activatable_ = true;
   bool can_minimize_ = true;
@@ -406,19 +487,34 @@ class ShellSurfaceBase : public SurfaceTreeHost,
   base::OnceClosure surface_destroyed_callback_;
   bool system_modal_ = false;
   bool non_system_modal_window_was_active_ = false;
-  gfx::Size minimum_size_;
   gfx::Size pending_minimum_size_;
-  gfx::Size maximum_size_;
   gfx::Size pending_maximum_size_;
   gfx::SizeF pending_aspect_ratio_;
   bool pending_pip_ = false;
+  bool in_extended_drag_ = false;
   absl::optional<std::string> initial_workspace_;
+  absl::optional<ui::ZOrderLevel> initial_z_order_;
+
+  // Restore members. These pass window restore related ids from exo clients,
+  // e.g. Lacros, so that the window can be created with the correct restore
+  // info looked up using the ids.
+  absl::optional<int32_t> restore_session_id_;
+  absl::optional<int32_t> restore_window_id_;
+  absl::optional<std::string> restore_window_id_source_;
 
   // Overlay members.
   std::unique_ptr<views::Widget> overlay_widget_;
   bool skip_ime_processing_ = false;
   bool overlay_overlaps_frame_ = true;
   absl::optional<bool> overlay_can_resize_;
+
+  // We independently store whether a widget should be activated on creation.
+  // The source of truth is on widget, but there are two problems:
+  //   (1) The widget has no activation state before it has shown.
+  //   (2) In the wayland protocol, asynchronous buffer-commit causes a surface
+  //   to be shown. Because this is asynchronous, it's possible for a surface to
+  //   be deactivated before shown.
+  bool initially_activated_ = true;
 
   // Pin members.
   chromeos::WindowPinType current_pinned_state_ =

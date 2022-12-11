@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,8 +35,7 @@ class MODULES_EXPORT CSSPaintImageGeneratorImpl final
   // The |container_size| is without subpixel snapping.
   scoped_refptr<Image> Paint(const ImageResourceObserver&,
                              const gfx::SizeF& container_size,
-                             const CSSStyleValueVector*,
-                             float device_scale_factor) final;
+                             const CSSStyleValueVector*) final;
   const Vector<CSSPropertyID>& NativeInvalidationProperties() const final;
   const Vector<AtomicString>& CustomInvalidationProperties() const final;
   bool HasAlpha() const final;

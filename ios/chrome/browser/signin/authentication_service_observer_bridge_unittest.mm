@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 
 #import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/chrome/browser/signin/authentication_service_fake.h"
+#import "ios/chrome/browser/signin/fake_authentication_service_delegate.h"
 #import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/platform_test.h"
@@ -23,10 +23,12 @@ class AuthenticationServiceObserverBridgeTest : public PlatformTest {
     TestChromeBrowserState::Builder builder;
     builder.AddTestingFactory(
         AuthenticationServiceFactory::GetInstance(),
-        base::BindRepeating(
-            &AuthenticationServiceFake::CreateAuthenticationService));
+        AuthenticationServiceFactory::GetDefaultFactory());
     browser_state_ = builder.Build();
-    auth_service_ = static_cast<AuthenticationServiceFake*>(
+    AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
+        browser_state_.get(),
+        std::make_unique<FakeAuthenticationServiceDelegate>());
+    auth_service_ = static_cast<AuthenticationService*>(
         AuthenticationServiceFactory::GetInstance()->GetForBrowserState(
             browser_state_.get()));
   }
@@ -37,17 +39,17 @@ class AuthenticationServiceObserverBridgeTest : public PlatformTest {
   web::WebTaskEnvironment task_environment_;
   IOSChromeScopedTestingLocalState scoped_testing_local_state_;
   std::unique_ptr<TestChromeBrowserState> browser_state_;
-  AuthenticationServiceFake* auth_service_ = nullptr;
+  AuthenticationService* auth_service_ = nullptr;
 };
 
-// Tests that |OnPrimaryAccountRestricted| is forwarded from the service.
-TEST_F(AuthenticationServiceObserverBridgeTest, primaryAccountRestricted) {
+// Tests that `OnServiceStatusChanged` is forwarded from the service.
+TEST_F(AuthenticationServiceObserverBridgeTest, TestOnServiceStatusChanged) {
   id<AuthenticationServiceObserving> observer_delegate =
       OCMStrictProtocolMock(@protocol(AuthenticationServiceObserving));
   AuthenticationServiceObserverBridge bridge(GetAuthenticationService(),
                                              observer_delegate);
 
-  OCMExpect([observer_delegate onPrimaryAccountRestricted]);
-  bridge.OnPrimaryAccountRestricted();
+  OCMExpect([observer_delegate onServiceStatusChanged]);
+  bridge.OnServiceStatusChanged();
   EXPECT_OCMOCK_VERIFY(observer_delegate);
 }

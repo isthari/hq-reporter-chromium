@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -104,7 +104,7 @@ IN_PROC_BROWSER_TEST_F(UserCloudExternalDataManagerTest, FetchExternalData) {
       PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()));
   const PolicyMap::Entry* policy_entry = policies.Get(key::kWallpaperImage);
   ASSERT_TRUE(policy_entry);
-  EXPECT_EQ(*metadata_, *policy_entry->value());
+  EXPECT_EQ(*metadata_, *policy_entry->value(base::Value::Type::DICT));
   ASSERT_TRUE(policy_entry->external_data_fetcher);
 
   base::RunLoop run_loop;

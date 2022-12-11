@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "third_party/blink/renderer/platform/testing/fake_display_item_client.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/skia/include/core/SkTypes.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -32,8 +33,7 @@ class DrawingDisplayItemTest : public testing::Test {
 
 static sk_sp<PaintRecord> CreateRectRecord(const gfx::RectF& record_bounds) {
   PaintRecorder recorder;
-  cc::PaintCanvas* canvas =
-      recorder.beginRecording(record_bounds.width(), record_bounds.height());
+  cc::PaintCanvas* canvas = recorder.beginRecording();
   canvas->drawRect(gfx::RectFToSkRect(record_bounds), cc::PaintFlags());
   return recorder.finishRecordingAsPicture();
 }
@@ -43,8 +43,7 @@ static sk_sp<PaintRecord> CreateRectRecordWithTranslate(
     float dx,
     float dy) {
   PaintRecorder recorder;
-  cc::PaintCanvas* canvas =
-      recorder.beginRecording(record_bounds.width(), record_bounds.height());
+  cc::PaintCanvas* canvas = recorder.beginRecording();
   canvas->save();
   canvas->translate(dx, dy);
   canvas->drawRect(gfx::RectFToSkRect(record_bounds), cc::PaintFlags());
@@ -159,8 +158,7 @@ TEST_F(DrawingDisplayItemTest, NonSolidColorOval) {
   gfx::RectF record_bounds(5, 6, 10, 10);
 
   PaintRecorder recorder;
-  cc::PaintCanvas* canvas =
-      recorder.beginRecording(record_bounds.width(), record_bounds.height());
+  cc::PaintCanvas* canvas = recorder.beginRecording();
   canvas->drawOval(gfx::RectFToSkRect(record_bounds), cc::PaintFlags());
 
   DrawingDisplayItem item(client_->Id(), DisplayItem::Type::kDocumentBackground,
@@ -172,9 +170,24 @@ TEST_F(DrawingDisplayItemTest, NonSolidColorOval) {
   EXPECT_FALSE(item.IsSolidColor());
 }
 
-// This test ensures that DrawingDisplayItem::RectKnownToBeOpaque() doesn't
-// cover any antialiased pixels around the corners.
-TEST_F(DrawingDisplayItemTest, OpaqueRectForDrawRRect) {
+// Checks that DrawingDisplayItem::RectKnownToBeOpaque() doesn't cover any
+// non-opaque (including antialiased pixels) around the rounded corners.
+static void CheckOpaqueRectPixels(const DrawingDisplayItem& item,
+                                  SkBitmap& bitmap) {
+  gfx::Rect opaque_rect = item.RectKnownToBeOpaque();
+  bitmap.eraseColor(SK_ColorBLACK);
+  SkiaPaintCanvas(bitmap).drawPicture(item.GetPaintRecord());
+  for (int y = opaque_rect.y(); y < opaque_rect.bottom(); ++y) {
+    for (int x = opaque_rect.x(); x < opaque_rect.right(); ++x) {
+      SkColor pixel = bitmap.getColor(x, y);
+      EXPECT_EQ(SK_ColorWHITE, pixel)
+          << " x=" << x << " y=" << y << " non-white pixel=" << std::hex
+          << pixel;
+    }
+  }
+}
+
+TEST_F(DrawingDisplayItemTest, OpaqueRectForDrawRRectUniform) {
   constexpr float kRadiusStep = 0.1;
   constexpr int kSize = 100;
   SkBitmap bitmap;
@@ -184,25 +197,39 @@ TEST_F(DrawingDisplayItemTest, OpaqueRectForDrawRRect) {
   flags.setColor(SK_ColorWHITE);
   for (float r = kRadiusStep; r < kSize / 2; r += kRadiusStep) {
     PaintRecorder recorder;
-    recorder.beginRecording(kSize, kSize)
-        ->drawRRect(SkRRect::MakeRectXY(SkRect::MakeWH(kSize, kSize), r, r),
-                    flags);
+    recorder.beginRecording()->drawRRect(
+        SkRRect::MakeRectXY(SkRect::MakeWH(kSize, kSize), r, r), flags);
     DrawingDisplayItem item(
         client_->Id(), DisplayItem::Type::kDocumentBackground,
         gfx::Rect(0, 0, kSize, kSize), recorder.finishRecordingAsPicture(),
         RasterEffectOutset::kNone);
 
-    auto rect = item.RectKnownToBeOpaque();
-    bitmap.eraseColor(SK_ColorBLACK);
-    SkiaPaintCanvas(bitmap).drawPicture(item.GetPaintRecord());
-    for (int y = rect.y(); y < rect.bottom(); ++y) {
-      for (int x = rect.x(); x < rect.right(); ++x) {
-        SkColor pixel = bitmap.getColor(x, y);
-        EXPECT_EQ(SK_ColorWHITE, pixel)
-            << " radius=" << r << " x=" << x << " y=" << y
-            << " non-white pixel=" << std::hex << pixel;
-      }
-    }
+    SCOPED_TRACE(String::Format("r=%f", r));
+    CheckOpaqueRectPixels(item, bitmap);
+  }
+}
+
+TEST_F(DrawingDisplayItemTest, OpaqueRectForDrawRRectNonUniform) {
+  constexpr float kRadiusStep = 0.1;
+  constexpr int kSize = 100;
+  SkBitmap bitmap;
+  bitmap.allocN32Pixels(kSize, kSize);
+  cc::PaintFlags flags;
+  flags.setAntiAlias(true);
+  flags.setColor(SK_ColorWHITE);
+  for (float r = kRadiusStep; r < kSize / 4; r += kRadiusStep) {
+    PaintRecorder recorder;
+    SkRRect rrect;
+    SkVector radii[4] = {{r, r}, {r, r * 2}, {r * 4, r * 3}, {r, r * 5}};
+    rrect.setRectRadii(SkRect::MakeWH(kSize, kSize), radii);
+    recorder.beginRecording()->drawRRect(rrect, flags);
+    DrawingDisplayItem item(
+        client_->Id(), DisplayItem::Type::kDocumentBackground,
+        gfx::Rect(0, 0, kSize, kSize), recorder.finishRecordingAsPicture(),
+        RasterEffectOutset::kNone);
+
+    SCOPED_TRACE(String::Format("r=%f", r));
+    CheckOpaqueRectPixels(item, bitmap);
   }
 }
 
@@ -212,9 +239,9 @@ TEST_F(DrawingDisplayItemTest, DrawEmptyImage) {
                    .set_id(1)
                    .TakePaintImage();
   PaintRecorder recorder;
-  recorder.beginRecording(100, 100)->drawImageRect(
-      image, SkRect::MakeEmpty(), SkRect::MakeEmpty(),
-      SkCanvas::kFast_SrcRectConstraint);
+  recorder.beginRecording()->drawImageRect(image, SkRect::MakeEmpty(),
+                                           SkRect::MakeEmpty(),
+                                           SkCanvas::kFast_SrcRectConstraint);
   DrawingDisplayItem item(
       client_->Id(), DisplayItem::kBoxDecorationBackground, gfx::Rect(10, 20),
       recorder.finishRecordingAsPicture(), RasterEffectOutset::kNone);

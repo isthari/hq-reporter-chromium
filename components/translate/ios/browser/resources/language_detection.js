@@ -1,16 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /**
  * @fileoverview Installs Language Detection management functions on the
  * __gCrWeb object.
- *
- * TODO(crbug.com/659442): Enable checkTypes error for this file.
- * @suppress {checkTypes}
  */
-
-goog.provide('__crWeb.languageDetection');
 
 __gCrWeb.languageDetection = {};
 
@@ -19,7 +14,6 @@ __gCrWeb.languageDetection = {};
 // the minification.
 __gCrWeb['languageDetection'] = __gCrWeb.languageDetection;
 
-(function() {
 /**
  * The cache of the text content that was extracted from the page
  */
@@ -73,7 +67,7 @@ __gCrWeb.languageDetection['nonTextNodeNames'] = {
   'NOSCRIPT': 1,
   'STYLE': 1,
   'EMBED': 1,
-  'OBJECT': 1
+  'OBJECT': 1,
 };
 
 /**
@@ -134,7 +128,7 @@ __gCrWeb.languageDetection['detectLanguage'] = function() {
   // |-detectLanguage| to the native side.
   // Matches desktop implementation.
   // Note: This should stay in sync with the constant in
-  // language_detection_controller.mm .
+  // ios_language_detection_tab_helper.mm .
   const kMaxIndexChars = 65535;
   const captureBeginTime = new Date();
   __gCrWeb.languageDetection.activeRequests += 1;
@@ -149,7 +143,7 @@ __gCrWeb.languageDetection['detectLanguage'] = function() {
     'hasNoTranslate': false,
     'captureTextTime': captureTextTime,
     'htmlLang': document.documentElement.lang,
-    'httpContentLanguage': httpContentLanguage
+    'httpContentLanguage': httpContentLanguage,
   };
 
   if (__gCrWeb.languageDetection.hasNoTranslate()) {
@@ -170,4 +164,3 @@ __gCrWeb.languageDetection['retrieveBufferedTextContent'] = function() {
   }
   return textContent;
 };
-}());  // End of anonymous function.

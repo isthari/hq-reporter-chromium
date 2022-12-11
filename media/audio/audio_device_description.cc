@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,19 @@ const char AudioDeviceDescription::kCommunicationsDeviceId[] = "communications";
 const char AudioDeviceDescription::kLoopbackInputDeviceId[] = "loopback";
 const char AudioDeviceDescription::kLoopbackWithMuteDeviceId[] =
     "loopbackWithMute";
+
+namespace {
+constexpr char kAirpodsNameSubstring[] = "AirPods";
+
+// Sanitize names which are known to contain the user's name, such as AirPods'
+// default name. See crbug.com/1163072 and crbug.com/1293761.
+void RedactDeviceName(std::string& name) {
+  if (name.find(kAirpodsNameSubstring) != std::string::npos) {
+    name = kAirpodsNameSubstring;
+  }
+}
+
+}  // namespace
 
 // static
 bool AudioDeviceDescription::IsDefaultDevice(const std::string& device_id) {
@@ -58,7 +71,9 @@ std::string AudioDeviceDescription::GetDefaultDeviceName() {
 std::string AudioDeviceDescription::GetCommunicationsDeviceName() {
 #if BUILDFLAG(IS_WIN)
   return GetLocalizedStringUTF8(COMMUNICATIONS_AUDIO_DEVICE_NAME);
-#elif BUILDFLAG(IS_CHROMECAST)
+#elif BUILDFLAG(IS_CASTOS) || BUILDFLAG(IS_CAST_ANDROID)
+  // TODO(crbug.com/1336055): Re-evaluate if this is still needed now that CMA
+  // is deprecated.
   return "";
 #else
   NOTREACHED();
@@ -90,6 +105,8 @@ std::string AudioDeviceDescription::GetCommunicationsDeviceName(
 void AudioDeviceDescription::LocalizeDeviceDescriptions(
     AudioDeviceDescriptions* device_descriptions) {
   for (auto& description : *device_descriptions) {
+    RedactDeviceName(description.device_name);
+
     if (media::AudioDeviceDescription::IsDefaultDevice(description.unique_id)) {
       description.device_name =
           media::AudioDeviceDescription::GetDefaultDeviceName(

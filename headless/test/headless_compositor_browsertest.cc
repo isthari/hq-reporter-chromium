@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,15 +20,17 @@ class HeadlessCompositorBrowserTest : public HeadlessProtocolBrowserTest {
   void SetUpCommandLine(base::CommandLine* command_line) override {
     HeadlessProtocolBrowserTest::SetUpCommandLine(command_line);
     // The following switches are recommended for BeginFrameControl required by
-    // compositor tests, see https://goo.gl/3zHXhB for details
+    // compositor tests. See https://goo.gle/chrome-headless-rendering for
+    // details.
     static const char* const compositor_switches[] = {
         // We control BeginFrames ourselves and need all compositing stages to
         // run.
         ::switches::kRunAllCompositorStagesBeforeDraw,
         ::switches::kDisableNewContentRenderingTimeout,
 
-        // Animtion-only BeginFrames are only supported when updates from the
-        // impl-thread are disabled, see go/headless-rendering.
+        // Animation-only BeginFrames are only supported when updates from the
+        // impl-thread are disabled. See
+        // https://goo.gle/chrome-headless-rendering.
         cc::switches::kDisableThreadedAnimation,
         cc::switches::kDisableCheckerImaging,
         blink::switches::kDisableThreadedScrolling,
@@ -153,8 +155,17 @@ HEADLESS_COMPOSITOR_TEST(RendererFrameLoadEvents,
 HEADLESS_COMPOSITOR_TEST(RendererCssUrlFilter,
                          "sanity/renderer-css-url-filter.js")
 HEADLESS_COMPOSITOR_TEST(RendererCanvas, "sanity/renderer-canvas.js")
+HEADLESS_COMPOSITOR_TEST(ScreenshotWebp, "sanity/screenshot-webp.js")
+HEADLESS_COMPOSITOR_TEST(ScreenshotOptimizeForSpeed,
+                         "sanity/screenshot-optimize-for-speed.js")
 
-HEADLESS_COMPOSITOR_TEST(RendererOpacityAnimation,
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
+// Flaky on at least Linux and Windows: crbug.com/1294751.
+#define MAYBE_RendererOpacityAnimation DISABLED_RendererOpacityAnimation
+#else
+#define MAYBE_RendererOpacityAnimation RendererOpacityAnimation
+#endif
+HEADLESS_COMPOSITOR_TEST(MAYBE_RendererOpacityAnimation,
                          "sanity/renderer-opacity-animation.js")
 HEADLESS_COMPOSITOR_TEST(ScreenshotAfterMetricsOverride,
                          "sanity/screenshot-after-metrics-override.js")
@@ -162,5 +173,7 @@ HEADLESS_COMPOSITOR_TEST(ScreenshotDeviceScaleFactor,
                          "emulation/screenshot-device-scale-factor.js")
 HEADLESS_COMPOSITOR_TEST(VirtualTimeIntersectionObserverWithViewport,
                          "emulation/intersection-observer-with-viewport.js")
+HEADLESS_COMPOSITOR_TEST(VeryLargeViewportCrash,
+                         "emulation/very-large-viewport-crash.js")
 
 }  // namespace headless

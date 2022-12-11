@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,6 +77,11 @@ struct GPU_EXPORT
   static int cuda_compute_capability_major(
       const gpu::GPUInfo::GPUDevice& input) {
     return input.cuda_compute_capability_major;
+  }
+
+  static gl::GpuPreference gpu_preference(
+      const gpu::GPUInfo::GPUDevice& input) {
+    return input.gpu_preference;
   }
 };
 
@@ -380,16 +385,14 @@ struct GPU_EXPORT StructTraits<gpu::mojom::GpuInfoDataView, gpu::GPUInfo> {
   static const gpu::OverlayInfo& overlay_info(const gpu::GPUInfo& input) {
     return input.overlay_info;
   }
-#endif
 
-  static const gpu::VideoDecodeAcceleratorCapabilities&
-  video_decode_accelerator_capabilities(const gpu::GPUInfo& input) {
-    return input.video_decode_accelerator_capabilities;
+  static bool shared_image_d3d(const gpu::GPUInfo& input) {
+    return input.shared_image_d3d;
   }
-
+#endif
   static const gpu::VideoDecodeAcceleratorSupportedProfiles&
-  video_decoder_capabilities(const gpu::GPUInfo& input) {
-    return input.video_decoder_capabilities;
+  video_decode_accelerator_supported_profiles(const gpu::GPUInfo& input) {
+    return input.video_decode_accelerator_supported_profiles;
   }
 
   static std::vector<gpu::VideoEncodeAcceleratorSupportedProfile>
@@ -415,7 +418,7 @@ struct GPU_EXPORT StructTraits<gpu::mojom::GpuInfoDataView, gpu::GPUInfo> {
   }
 
 #if BUILDFLAG(ENABLE_VULKAN)
-  static const absl::optional<gpu::VulkanInfo> vulkan_info(
+  static const absl::optional<gpu::VulkanInfo>& vulkan_info(
       const gpu::GPUInfo& input) {
     return input.vulkan_info;
   }

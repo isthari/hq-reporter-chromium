@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,6 +60,31 @@ SharedStorageWorkletHostManager::GetOrCreateSharedStorageWorkletHost(
   attached_shared_storage_worklet_hosts_.insert(
       {document_service, std::move(worklet_host)});
   return worklet_host_ptr;
+}
+
+void SharedStorageWorkletHostManager::AddSharedStorageObserver(
+    SharedStorageObserverInterface* observer) {
+  observers_.AddObserver(observer);
+}
+
+void SharedStorageWorkletHostManager::RemoveSharedStorageObserver(
+    SharedStorageObserverInterface* observer) {
+  observers_.RemoveObserver(observer);
+}
+
+void SharedStorageWorkletHostManager::NotifySharedStorageAccessed(
+    SharedStorageObserverInterface::AccessType type,
+    const std::string& main_frame_id,
+    const std::string& owner_origin,
+    const SharedStorageEventParams& params) {
+  // Don't bother getting the time if there are no observers.
+  if (observers_.empty())
+    return;
+  base::Time now = base::Time::Now();
+  for (SharedStorageObserverInterface& observer : observers_) {
+    observer.OnSharedStorageAccessed(now, type, main_frame_id, owner_origin,
+                                     params);
+  }
 }
 
 std::unique_ptr<SharedStorageWorkletHost>

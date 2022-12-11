@@ -1,24 +1,49 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 source_set("network") {
   public = [
     "key_network_delegate.h",
-    "key_network_delegate_factory.h",
+    "key_upload_request.h",
+    "mojo_key_network_delegate.h",
+    "util.h",
   ]
 
-  sources = [ "key_network_delegate_factory.cc" ]
+  sources = [
+    "key_upload_request.cc",
+    "mojo_key_network_delegate.cc",
+    "util.cc",
+  ]
 
-  deps = [ "//base" ]
+  public_deps = [
+    "//third_party/abseil-cpp:absl",
+    "//url",
+  ]
+
+  deps = [
+    "//base",
+    "//chrome/browser/enterprise/connectors/device_trust/common",
+    "//chrome/browser/enterprise/connectors/device_trust/key_management/core",
+    "//components/policy/proto",
+    "//crypto",
+    "//mojo/public/cpp/bindings",
+    "//mojo/public/cpp/platform",
+    "//services/network/public/cpp",
+    "//services/network/public/mojom",
+    "//url",
+  ]
 
   if (is_win) {
-    sources += [
-      "win_key_network_delegate.cc",
-      "win_key_network_delegate.h",
-    ]
+    public += [ "win_key_network_delegate.h" ]
+
+    sources += [ "win_key_network_delegate.cc" ]
+
+    public_deps += [ "//components/winhttp" ]
+
     deps += [
-      "//components/winhttp",
+      "//chrome/browser/enterprise/connectors/device_trust/key_management/core/network/fetcher",
+      "//net",
       "//url",
     ]
   }
@@ -35,4 +60,26 @@ source_set("test_support") {
     "//testing/gmock",
     "//url",
   ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [ "mojo_key_network_delegate_unittest.cc" ]
+
+  deps = [
+    ":network",
+    ":test_support",
+    "//base",
+    "//base/test:test_support",
+    "//mojo/public/cpp/bindings",
+    "//net",
+    "//services/network:test_support",
+    "//testing/gtest",
+  ]
+
+  if (is_win) {
+    sources += [ "win_key_network_delegate_unittest.cc" ]
+
+    deps += [ "//chrome/browser/enterprise/connectors/device_trust/key_management/core/network/fetcher:test_support" ]
+  }
 }

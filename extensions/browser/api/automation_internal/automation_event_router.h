@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
+#include "base/observer_list.h"
 #include "base/scoped_multi_source_observation.h"
 #include "content/public/browser/ax_event_notification_details.h"
 #include "content/public/browser/render_process_host.h"
@@ -34,6 +35,7 @@ struct ExtensionMsg_AccessibilityLocationChangeParams;
 
 namespace extensions {
 struct AutomationListener;
+struct WorkerId;
 
 class AutomationEventRouterObserver {
  public:
@@ -42,7 +44,8 @@ class AutomationEventRouterObserver {
 };
 
 class AutomationEventRouter : public content::RenderProcessHostObserver,
-                              public AutomationEventRouterInterface {
+                              public AutomationEventRouterInterface,
+                              public ui::AXActionHandlerObserver {
  public:
   static AutomationEventRouter* GetInstance();
 
@@ -63,12 +66,20 @@ class AutomationEventRouter : public content::RenderProcessHostObserver,
       int listener_process_id,
       content::WebContents* web_contents);
 
+  // Undoes the Register call above. May result in disabling of automation.
+  void UnregisterListenerWithDesktopPermission(int listener_process_id);
+
+  // Like the above function, but for all listeners. Definitely results in
+  // disabling of automation.
+  void UnregisterAllListenersWithDesktopPermission();
+
   // The following two methods should only be called by Lacros.
   void NotifyAllAutomationExtensionsGone();
   void NotifyExtensionListenerAdded();
 
   void AddObserver(AutomationEventRouterObserver* observer);
   void RemoveObserver(AutomationEventRouterObserver* observer);
+  bool HasObserver(AutomationEventRouterObserver* observer);
 
   // AutomationEventRouterInterface:
   void DispatchAccessibilityEvents(const ui::AXTreeID& tree_id,
@@ -77,9 +88,7 @@ class AutomationEventRouter : public content::RenderProcessHostObserver,
                                    std::vector<ui::AXEvent> events) override;
   void DispatchAccessibilityLocationChange(
       const ExtensionMsg_AccessibilityLocationChangeParams& params) override;
-  void DispatchTreeDestroyedEvent(
-      ui::AXTreeID tree_id,
-      content::BrowserContext* browser_context) override;
+  void DispatchTreeDestroyedEvent(ui::AXTreeID tree_id) override;
   void DispatchActionResult(
       const ui::AXActionData& data,
       bool result,
@@ -102,8 +111,7 @@ class AutomationEventRouter : public content::RenderProcessHostObserver,
     ~AutomationListener() override;
 
     // content:WebContentsObserver:
-    void DidFinishNavigation(
-        content::NavigationHandle* navigation_handle) override;
+    void PrimaryPageChanged(content::Page& page) override;
 
     raw_ptr<AutomationEventRouter> router;
     ExtensionId extension_id;
@@ -135,6 +143,9 @@ class AutomationEventRouter : public content::RenderProcessHostObserver,
       const content::ChildProcessTerminationInfo& info) override;
   void RenderProcessHostDestroyed(content::RenderProcessHost* host) override;
 
+  // ui::AXActionHandlerObserver:
+  void TreeRemoved(ui::AXTreeID ax_tree_id) override;
+
   void RemoveAutomationListener(content::RenderProcessHost* host);
 
   // Called when the user switches profiles or when a listener is added
@@ -151,6 +162,8 @@ class AutomationEventRouter : public content::RenderProcessHostObserver,
 
   content::NotificationRegistrar registrar_;
   std::vector<std::unique_ptr<AutomationListener>> listeners_;
+
+  std::map<WorkerId, std::string> keepalive_request_uuid_for_worker_;
 
   raw_ptr<content::BrowserContext> active_context_;
 

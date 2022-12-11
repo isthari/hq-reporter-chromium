@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/files/file_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/pickle.h"
 #include "base/strings/string_split.h"
@@ -58,8 +59,8 @@ void TestDataExchangeDelegate::SendFileInfo(
   for (const auto& file : files) {
     lines.push_back("file://" + file.path.value());
   }
-  std::string result = base::JoinString(lines, "\r\n");
-  std::move(callback).Run(base::RefCountedString::TakeString(&result));
+  std::move(callback).Run(base::MakeRefCounted<base::RefCountedString>(
+      base::JoinString(lines, "\r\n")));
 }
 
 bool TestDataExchangeDelegate::HasUrlsInPickle(
@@ -78,9 +79,9 @@ void TestDataExchangeDelegate::RunSendPickleCallback(std::vector<GURL> urls) {
   for (const auto& url : urls) {
     lines.push_back(url.spec());
   }
-  std::string result = base::JoinString(lines, "\r\n");
   std::move(send_pickle_callback_)
-      .Run(base::RefCountedString::TakeString(&result));
+      .Run(base::MakeRefCounted<base::RefCountedString>(
+          base::JoinString(lines, "\r\n")));
 }
 
 std::vector<ui::FileInfo> TestDataExchangeDelegate::ParseFileSystemSources(
@@ -95,6 +96,37 @@ std::vector<ui::FileInfo> TestDataExchangeDelegate::ParseFileSystemSources(
       file_info.push_back(ui::FileInfo(std::move(path), base::FilePath()));
   }
   return file_info;
+}
+
+TestDataSourceDelegate::TestDataSourceDelegate() = default;
+TestDataSourceDelegate::~TestDataSourceDelegate() = default;
+
+void TestDataSourceDelegate::OnSend(const std::string& mime_type,
+                                    base::ScopedFD fd) {
+  constexpr char kText[] = "test";
+  if (data_map_.empty()) {
+    base::WriteFileDescriptor(fd.get(), kText);
+  } else {
+    base::WriteFileDescriptor(fd.get(), data_map_[mime_type]);
+  }
+}
+
+void TestDataSourceDelegate::OnCancelled() {
+  cancelled_ = true;
+}
+
+void TestDataSourceDelegate::OnDndFinished() {
+  finished_ = true;
+}
+
+bool TestDataSourceDelegate::CanAcceptDataEventsForSurface(
+    Surface* surface) const {
+  return true;
+}
+
+void TestDataSourceDelegate::SetData(const std::string& mime_type,
+                                     std::vector<uint8_t> data) {
+  data_map_[mime_type] = std::move(data);
 }
 
 }  // namespace exo

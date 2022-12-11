@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,15 +40,12 @@ class TestSafeBrowsingDatabaseManager : public SafeBrowsingDatabaseManager {
   bool CheckExtensionIDs(const std::set<std::string>& extension_ids,
                          Client* client) override;
   bool CheckResourceUrl(const GURL& url, Client* client) override;
-  AsyncMatch CheckUrlForHighConfidenceAllowlist(const GURL& url,
-                                                Client* client) override;
+  bool CheckUrlForHighConfidenceAllowlist(const GURL& url) override;
   bool CheckUrlForSubresourceFilter(const GURL& url, Client* client) override;
-  bool CheckUrlForAccuracyTips(const GURL& url, Client* client) override;
   bool MatchDownloadAllowlistUrl(const GURL& url) override;
   bool MatchMalwareIP(const std::string& ip_address) override;
   safe_browsing::ThreatSource GetThreatSource() const override;
   bool IsDownloadProtectionEnabled() const override;
-  bool IsSupported() const override;
   void StartOnIOThread(
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const V4ProtocolConfig& config) override;

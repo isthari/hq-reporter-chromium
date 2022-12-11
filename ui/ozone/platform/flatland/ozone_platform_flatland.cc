@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,6 +31,7 @@
 #include "ui/ozone/platform/flatland/flatland_sysmem_buffer_collection.h"
 #include "ui/ozone/platform/flatland/flatland_window.h"
 #include "ui/ozone/platform/flatland/flatland_window_manager.h"
+#include "ui/ozone/platform/flatland/overlay_manager_flatland.h"
 #include "ui/ozone/platform/scenic/mojom/scenic_gpu_service.mojom.h"
 #include "ui/ozone/platform_selection.h"
 #include "ui/ozone/public/gpu_platform_support_host.h"
@@ -103,10 +104,12 @@ class OzonePlatformFlatland : public OzonePlatform,
       CHECK_EQ(ZX_OK, status) << "zx_channel_create";
       properties.view_creation_token = std::move(child_token);
       properties.view_ref_pair = scenic::ViewRefPair::New();
-      ::ui::fuchsia::GetFlatlandViewPresenter().Run(std::move(parent_token));
+      properties.view_controller =
+          ::ui::fuchsia::GetFlatlandViewPresenter().Run(
+              std::move(parent_token));
     }
 
-    // TODO(crbug.com/1230150): Add a hook for the RootPresenter equivalent of
+    // TODO(fxbug.dev/93998): Add a hook for the RootPresenter equivalent of
     // Flatland to ui::fuchsia::InitializeViewTokenAndPresentView() create a
     // window.
     CHECK(properties.view_creation_token.value.is_valid());
@@ -141,11 +144,12 @@ class OzonePlatformFlatland : public OzonePlatform,
   void InitScreen(PlatformScreen* screen) override {}
 
   std::unique_ptr<InputMethod> CreateInputMethod(
-      internal::InputMethodDelegate* delegate,
+      ImeKeyEventDispatcher* ime_key_event_dispatcher,
       gfx::AcceleratedWidget widget) override {
     return std::make_unique<InputMethodFuchsia>(
         window_manager_->GetWindow(widget)->virtual_keyboard_enabled(),
-        delegate, window_manager_->GetWindow(widget)->CloneViewRef());
+        ime_key_event_dispatcher,
+        window_manager_->GetWindow(widget)->CloneViewRef());
   }
 
   bool InitializeUI(const InitParams& params) override {
@@ -168,7 +172,7 @@ class OzonePlatformFlatland : public OzonePlatform,
     if (!surface_factory_)
       surface_factory_ = std::make_unique<FlatlandSurfaceFactory>();
 
-    if (base::ThreadTaskRunnerHandle::IsSet())
+    if (base::SingleThreadTaskRunner::HasCurrentDefault())
       BindInMainProcessIfNecessary();
 
     return true;
@@ -190,13 +194,24 @@ class OzonePlatformFlatland : public OzonePlatform,
       surface_factory_->Initialize(std::move(flatland_gpu_host_remote));
     }
 
-    // TODO(crbug.com/1230150): Add overlay manager.
+    overlay_manager_ = std::make_unique<OverlayManagerFlatland>();
+  }
+
+  const PlatformRuntimeProperties& GetPlatformRuntimeProperties() override {
+    static OzonePlatform::PlatformRuntimeProperties properties;
+
+    // This property is set when the GetPlatformRuntimeProperties is
+    // called on the gpu process side.
+    if (has_initialized_gpu())
+      properties.supports_native_pixmaps = true;
+
+    return properties;
   }
 
   void AddInterfaces(mojo::BinderMap* binders) override {
     binders->Add<mojom::ScenicGpuService>(
         flatland_gpu_service_->GetBinderCallback(),
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 
   bool IsNativePixmapConfigSupported(gfx::BufferFormat format,

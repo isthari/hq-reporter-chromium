@@ -1,13 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/files/scoped_temp_dir.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread.h"
 #include "components/services/storage/public/cpp/buckets/bucket_info.h"
+#include "components/services/storage/public/cpp/buckets/bucket_locator.h"
 #include "components/services/storage/public/cpp/buckets/constants.h"
 #include "components/services/storage/public/cpp/quota_error_or.h"
 #include "components/services/storage/public/mojom/storage_usage_info.mojom.h"
@@ -17,6 +19,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "storage/browser/test/mock_quota_manager.h"
 #include "storage/browser/test/mock_quota_manager_proxy.h"
+#include "storage/browser/test/mock_special_storage_policy.h"
 #include "storage/browser/test/quota_manager_proxy_sync.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/storage_key/storage_key.h"
@@ -29,14 +32,20 @@ const char kGoogleStorageKey[] = "https://google.com";
 
 class CacheStorageContextTest : public testing::Test {
  public:
+  CacheStorageContextTest()
+      : special_storage_policy_(
+            base::MakeRefCounted<storage::MockSpecialStoragePolicy>()) {}
+  ~CacheStorageContextTest() override = default;
+
   void SetUp() override {
     ASSERT_TRUE(data_dir_.CreateUniqueTempDir());
     quota_manager_ = base::MakeRefCounted<storage::MockQuotaManager>(
         /*is_incognito=*/false, data_dir_.GetPath(),
-        base::ThreadTaskRunnerHandle::Get().get(),
+        base::SingleThreadTaskRunner::GetCurrentDefault().get(),
         /*special storage policy=*/nullptr);
     quota_manager_proxy_ = base::MakeRefCounted<storage::MockQuotaManagerProxy>(
-        quota_manager_.get(), base::ThreadTaskRunnerHandle::Get());
+        quota_manager_.get(),
+        base::SingleThreadTaskRunner::GetCurrentDefault());
     cache_storage_context_ =
         std::make_unique<CacheStorageContextImpl>(quota_manager_proxy());
 
@@ -53,7 +62,8 @@ class CacheStorageContextTest : public testing::Test {
       const blink::StorageKey& storage_key) {
     network::CrossOriginEmbedderPolicy cross_origin_embedder_policy;
     cache_storage_context_->AddReceiver(
-        cross_origin_embedder_policy, mojo::NullRemote(), storage_key,
+        cross_origin_embedder_policy, mojo::NullRemote(),
+        storage::BucketLocator::ForDefaultBucket(storage_key),
         storage::mojom::CacheStorageOwner::kCacheAPI,
         std::move(cache_storage_receiver));
   }
@@ -62,6 +72,8 @@ class CacheStorageContextTest : public testing::Test {
   storage::QuotaManagerProxy* quota_manager_proxy() {
     return quota_manager_proxy_.get();
   }
+
+  scoped_refptr<storage::MockSpecialStoragePolicy> special_storage_policy_;
 
   base::ScopedTempDir data_dir_;
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -148,7 +148,10 @@ class ContentIndexTest : public InProcessBrowserTest,
  private:
   void RunScript(const std::string& script, std::string* result) {
     ASSERT_TRUE(content::ExecuteScriptAndExtractString(
-        browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame(),
+        browser()
+            ->tab_strip_model()
+            ->GetActiveWebContents()
+            ->GetPrimaryMainFrame(),
         "WrapFunction(async () => " + script + ")", result));
     ASSERT_TRUE(
         base::StartsWith(*result, "ok - ", base::CompareCase::SENSITIVE))
@@ -156,7 +159,7 @@ class ContentIndexTest : public InProcessBrowserTest,
   }
 
   std::map<std::string, OfflineItem> offline_items_;
-  raw_ptr<ContentIndexProviderImpl> provider_;
+  raw_ptr<ContentIndexProviderImpl, DanglingUntriaged> provider_;
   std::unique_ptr<net::EmbeddedTestServer> https_server_;
   base::OnceClosure wait_for_tab_change_;
 };

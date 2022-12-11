@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/services/storage/public/cpp/quota_client_callback_wrapper.h"
 #include "content/browser/log_console_message.h"
 #include "content/browser/renderer_host/render_frame_host_impl.h"
@@ -300,6 +299,10 @@ ServiceWorkerContextCore::ServiceWorkerContextCore(
         storage::QuotaClientType::kServiceWorker,
         {blink::mojom::StorageType::kTemporary});
   }
+
+  registry_->GetRegisteredStorageKeys(
+      base::BindOnce(&ServiceWorkerContextCore::DidGetRegisteredStorageKeys,
+                     AsWeakPtr(), base::TimeTicks::Now()));
 }
 
 ServiceWorkerContextCore::ServiceWorkerContextCore(
@@ -326,6 +329,13 @@ ServiceWorkerContextCore::ServiceWorkerContextCore(
       &ServiceWorkerContextCore::OnContainerHostReceiverDisconnected,
       base::Unretained(this)));
   quota_client_->ResetContext(*this);
+
+  // Uma (ServiceWorker.Storage.RegisteredStorageKeyCacheInitialization.Time)
+  // shouldn't be recorded when ServiceWorkerContextCore is recreated. Hence we
+  // specify a null TimeTicks here.
+  registry_->GetRegisteredStorageKeys(
+      base::BindOnce(&ServiceWorkerContextCore::DidGetRegisteredStorageKeys,
+                     AsWeakPtr(), base::TimeTicks()));
 }
 
 ServiceWorkerContextCore::~ServiceWorkerContextCore() {
@@ -369,7 +379,7 @@ void ServiceWorkerContextCore::HasMainFrameWindowClient(
                                            /*include_reserved_clients=*/false);
 
   if (container_host_iterator->IsAtEnd()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), false));
     return;
   }
@@ -388,7 +398,7 @@ void ServiceWorkerContextCore::HasMainFrameWindowClient(
     container_host_iterator->Advance();
   }
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), has_main_frame));
 }
 
@@ -501,7 +511,8 @@ void ServiceWorkerContextCore::RegisterServiceWorker(
     blink::mojom::FetchClientSettingsObjectPtr
         outside_fetch_client_settings_object,
     RegistrationCallback callback,
-    const GlobalRenderFrameHostId& requesting_frame_id) {
+    const GlobalRenderFrameHostId& requesting_frame_id,
+    const PolicyContainerPolicies& policy_container_policies) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   std::string error_message;
   if (!IsValidRegisterRequest(script_url, options.scope, key, &error_message)) {
@@ -510,12 +521,20 @@ void ServiceWorkerContextCore::RegisterServiceWorker(
         blink::mojom::kInvalidServiceWorkerRegistrationId);
     return;
   }
+
+  auto* render_frame_host = RenderFrameHostImpl::FromID(requesting_frame_id);
+  const blink::mojom::AncestorFrameType ancestor_frame_type =
+      render_frame_host && render_frame_host->IsNestedWithinFencedFrame()
+          ? blink::mojom::AncestorFrameType::kFencedFrame
+          : blink::mojom::AncestorFrameType::kNormalFrame;
+
   was_service_worker_registered_ = true;
   job_coordinator_->Register(
       script_url, options, key, std::move(outside_fetch_client_settings_object),
-      requesting_frame_id,
+      requesting_frame_id, ancestor_frame_type,
       base::BindOnce(&ServiceWorkerContextCore::RegistrationComplete,
-                     AsWeakPtr(), options.scope, key, std::move(callback)));
+                     AsWeakPtr(), options.scope, key, std::move(callback)),
+      policy_container_policies);
 }
 
 void ServiceWorkerContextCore::UpdateServiceWorker(
@@ -633,6 +652,27 @@ void ServiceWorkerContextCore::NotifyClientIsExecutionReady(
       FROM_HERE, &ServiceWorkerContextCoreObserver::OnClientIsExecutionReady,
       container_host.ukm_source_id(), container_host.url(),
       container_host.GetClientType());
+}
+
+bool ServiceWorkerContextCore::MaybeHasRegistrationForStorageKey(
+    const blink::StorageKey& key) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (!registrations_initialized_) {
+    return true;
+  }
+  if (registered_storage_keys_.find(key) != registered_storage_keys_.end()) {
+    return true;
+  }
+  return false;
+}
+
+void ServiceWorkerContextCore::WaitForRegistrationsInitializedForTest() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (registrations_initialized_)
+    return;
+  base::RunLoop loop;
+  on_registrations_initialized_for_test_ = loop.QuitClosure();
+  loop.Run();
 }
 
 void ServiceWorkerContextCore::RegistrationComplete(
@@ -814,7 +854,7 @@ void ServiceWorkerContextCore::UnprotectVersion(int64_t version_id) {
 
 void ServiceWorkerContextCore::ScheduleDeleteAndStartOver() const {
   registry()->PrepareForDeleteAndStartOver();
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&ServiceWorkerContextWrapper::DeleteAndStartOver,
                      wrapper_));
@@ -916,6 +956,7 @@ void ServiceWorkerContextCore::NotifyRegistrationStored(
     const GURL& scope,
     const blink::StorageKey& key) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  registered_storage_keys_.insert(key);
   observer_list_->Notify(
       FROM_HERE, &ServiceWorkerContextCoreObserver::OnRegistrationStored,
       registration_id, scope, key);
@@ -924,6 +965,7 @@ void ServiceWorkerContextCore::NotifyRegistrationStored(
 void ServiceWorkerContextCore::NotifyAllRegistrationsDeletedForStorageKey(
     const blink::StorageKey& key) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  registered_storage_keys_.erase(key);
   observer_list_->Notify(
       FROM_HERE,
       &ServiceWorkerContextCoreObserver::OnAllRegistrationsDeletedForStorageKey,
@@ -1120,6 +1162,27 @@ void ServiceWorkerContextCore::OnRegistrationFinishedForCheckHasServiceWorker(
   }
 
   CheckFetchHandlerOfInstalledServiceWorker(std::move(callback), registration);
+}
+
+void ServiceWorkerContextCore::DidGetRegisteredStorageKeys(
+    base::TimeTicks start_time,
+    const std::vector<blink::StorageKey>& storage_keys) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  for (const blink::StorageKey& storage_key : storage_keys)
+    registered_storage_keys_.insert(storage_key);
+
+  DCHECK(!registrations_initialized_);
+  registrations_initialized_ = true;
+
+  if (on_registrations_initialized_for_test_)
+    std::move(on_registrations_initialized_for_test_).Run();
+
+  if (!start_time.is_null()) {
+    base::UmaHistogramMediumTimes(
+        "ServiceWorker.Storage.RegisteredStorageKeyCacheInitialization.Time",
+        base::TimeTicks::Now() - start_time);
+  }
 }
 
 }  // namespace content

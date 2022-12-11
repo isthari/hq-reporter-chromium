@@ -1,9 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/autocomplete/chrome_autocomplete_scheme_classifier.h"
 
+#include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
@@ -56,9 +57,9 @@ ChromeAutocompleteSchemeClassifier::GetInputTypeForScheme(
   }
   if (base::IsStringASCII(scheme) &&
       (ProfileIOData::IsHandledProtocol(scheme) ||
-       base::LowerCaseEqualsASCII(scheme, content::kViewSourceScheme) ||
-       base::LowerCaseEqualsASCII(scheme, url::kJavaScriptScheme) ||
-       base::LowerCaseEqualsASCII(scheme, url::kDataScheme))) {
+       base::EqualsCaseInsensitiveASCII(scheme, content::kViewSourceScheme) ||
+       base::EqualsCaseInsensitiveASCII(scheme, url::kJavaScriptScheme) ||
+       base::EqualsCaseInsensitiveASCII(scheme, url::kDataScheme))) {
     return metrics::OmniboxInputType::URL;
   }
 
@@ -66,7 +67,7 @@ ChromeAutocompleteSchemeClassifier::GetInputTypeForScheme(
   // can be handled by web pages/apps.
   custom_handlers::ProtocolHandlerRegistry* registry =
       profile_ ? ProtocolHandlerRegistryFactory::GetForBrowserContext(profile_)
-               : NULL;
+               : nullptr;
   if (registry && registry->IsHandledProtocol(scheme))
     return metrics::OmniboxInputType::URL;
 

@@ -1,10 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.browser_ui.share;
 
-import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
@@ -148,7 +147,6 @@ public class ShareHelper {
      * Receiver to record the chosen component when sharing an Intent.
      */
     public static class TargetChosenReceiver extends BroadcastReceiver implements IntentCallback {
-        private static final String EXTRA_RECEIVER_TOKEN = "receiver_token";
         private static final Object LOCK = new Object();
 
         private static String sTargetChosenReceiveAction;
@@ -166,7 +164,6 @@ public class ShareHelper {
                     && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1;
         }
 
-        @TargetApi(Build.VERSION_CODES.LOLLIPOP_MR1)
         public static void sendChooserIntent(WindowAndroid window, Intent sharingIntent,
                 @Nullable TargetChosenCallback callback) {
             final Context context = ContextUtils.getApplicationContext();
@@ -183,13 +180,13 @@ public class ShareHelper {
                     sLastRegisteredReceiver.cancel();
                 }
                 sLastRegisteredReceiver = new TargetChosenReceiver(callback);
-                context.registerReceiver(
-                        sLastRegisteredReceiver, new IntentFilter(sTargetChosenReceiveAction));
+                ContextUtils.registerNonExportedBroadcastReceiver(context, sLastRegisteredReceiver,
+                        new IntentFilter(sTargetChosenReceiveAction));
             }
 
             Intent intent = new Intent(sTargetChosenReceiveAction);
             intent.setPackage(packageName);
-            intent.putExtra(EXTRA_RECEIVER_TOKEN, sLastRegisteredReceiver.hashCode());
+            IntentUtils.addTrustedIntentExtras(intent);
             Activity activity = window.getActivity().get();
             final PendingIntent pendingIntent = PendingIntent.getBroadcast(activity, 0, intent,
                     PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_ONE_SHOT
@@ -210,10 +207,7 @@ public class ShareHelper {
                 ContextUtils.getApplicationContext().unregisterReceiver(sLastRegisteredReceiver);
                 sLastRegisteredReceiver = null;
             }
-            if (!intent.hasExtra(EXTRA_RECEIVER_TOKEN)
-                    || intent.getIntExtra(EXTRA_RECEIVER_TOKEN, 0) != this.hashCode()) {
-                return;
-            }
+            if (!IntentUtils.isTrustedIntentFromSelf(intent)) return;
 
             ComponentName target = intent.getParcelableExtra(Intent.EXTRA_CHOSEN_COMPONENT);
             if (mCallback != null) {
@@ -268,7 +262,7 @@ public class ShareHelper {
         final ShareDialogAdapter adapter =
                 new ShareDialogAdapter(context, manager, resolveInfoList);
         AlertDialog.Builder builder =
-                new AlertDialog.Builder(context, R.style.Theme_Chromium_AlertDialog);
+                new AlertDialog.Builder(context, R.style.ThemeOverlay_BrowserUI_AlertDialog);
         builder.setTitle(context.getString(R.string.share_link_chooser_title));
         builder.setAdapter(adapter, null);
 

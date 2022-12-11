@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,6 +26,7 @@ enum class WindowStateType;
 
 namespace gfx {
 class Rect;
+class Size;
 }
 
 namespace ash {
@@ -101,10 +102,6 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
 // window and when this window is at the bottom of its navigation stack.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool*>* const
     kMinimizeOnBackKey;
-
-// A property key to store the window state the window had before entering PIP.
-ASH_PUBLIC_EXPORT extern const aura::WindowProperty<
-    chromeos::WindowStateType>* const kPrePipWindowStateTypeKey;
 
 // If true, the current PIP window is spawned from this window.
 // Android PIP has two types of behavior depending on how many activities the

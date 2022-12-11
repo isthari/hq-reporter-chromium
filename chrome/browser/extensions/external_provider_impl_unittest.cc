@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,6 +27,7 @@
 #include "chrome/browser/web_applications/preinstalled_app_install_features.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_test_util.h"
 #include "chrome/common/pref_names.h"
@@ -36,6 +37,7 @@
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/pref_names.h"
 #include "extensions/browser/updater/extension_cache_fake.h"
+#include "extensions/browser/updater/extension_downloader_test_helper.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
@@ -124,6 +126,11 @@ class ExternalProviderImplTest : public ExtensionServiceTestBase {
     if (block_external.has_value())
       SetExternalExtensionsBlockedByPolicy(block_external.value());
 
+    // This switch is set when creating a TestingProfile, but needs to be
+    // removed for some ExternalProviders to be created.
+    base::CommandLine::ForCurrentProcess()->RemoveSwitch(
+        switches::kDisableDefaultApps);
+
     ProviderCollection providers;
     extensions::ExternalProviderImpl::CreateExternalProviders(
         service_, profile_.get(), &providers);
@@ -207,17 +214,11 @@ class ExternalProviderImplTest : public ExtensionServiceTestBase {
       if (url.path() == test_extension.update_path) {
         auto response = std::make_unique<net::test_server::BasicHttpResponse>();
         response->set_code(net::HTTP_OK);
-        response->set_content(base::StringPrintf(
-            "<?xml version='1.0' encoding='UTF-8'?>\n"
-            "<gupdate xmlns='http://www.google.com/update2/response' "
-            "protocol='2.0'>\n"
-            "  <app appid='%s'>\n"
-            "    <updatecheck codebase='%s' version='%s' />\n"
-            "  </app>\n"
-            "</gupdate>",
-            test_extension.app_id,
-            test_server_->GetURL(test_extension.app_path).spec().c_str(),
-            test_extension.version));
+        response->set_content(CreateUpdateManifest(
+            {UpdateManifestItem(test_extension.app_id)
+                 .version(test_extension.version)
+                 .codebase(
+                     test_server_->GetURL(test_extension.app_path).spec())}));
         response->set_content_type("text/xml");
         return std::move(response);
       }

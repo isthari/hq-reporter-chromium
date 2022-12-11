@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,14 +32,14 @@ class DeviceIdMap {
   // Registers preferences used by this class in the provided |registry|.
   static void RegisterLocalStatePrefs(PrefRegistrySimple* registry);
 
-  DeviceIdMap();
+  explicit DeviceIdMap(scoped_refptr<device::BluetoothAdapter> adapter);
   DeviceIdMap(const DeviceIdMap&) = delete;
   DeviceIdMap& operator=(const DeviceIdMap&) = delete;
   ~DeviceIdMap();
 
   // Saves device ID -> model ID records for the devices matching both
   // the BLE and Classic address in memory, stored in device_id_to_model_id.
-  void SaveModelIdForDevice(scoped_refptr<Device> device);
+  bool SaveModelIdForDevice(scoped_refptr<Device> device);
 
   // Persists the device ID -> model ID records for |device|
   // to local state prefs. Returns true if a record was persisted, false
@@ -60,6 +60,9 @@ class DeviceIdMap {
   // local state prefs, false otherwise.
   bool HasPersistedRecordsForModelId(const std::string& model_id);
 
+  // Clears the in-memory map and reloads from prefs.
+  void RefreshCacheForTest();
+
  private:
   // Returns the device ID that owns |address|, if found.
   absl::optional<const std::string> GetDeviceIdForAddress(
@@ -71,7 +74,6 @@ class DeviceIdMap {
   // Loads device ID -> model ID records persisted in prefs to
   // device_id_to_model_id_.
   void LoadPersistedRecordsFromPrefs();
-  void OnGetAdapter(scoped_refptr<device::BluetoothAdapter> adapter);
 
   // Used to lazily load saved records from prefs.
   bool loaded_records_from_prefs_ = false;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include "base/scoped_observation.h"
 #include "chrome/browser/ash/printing/cups_printers_manager.h"
 #include "chrome/browser/ash/printing/cups_printers_manager_proxy.h"
-#include "chromeos/dbus/services/cros_dbus_service.h"
+#include "chromeos/ash/components/dbus/services/cros_dbus_service.h"
 #include "dbus/exported_object.h"
 
 namespace ash {
@@ -19,7 +19,7 @@ namespace ash {
 // make a request for more printers through a side channel e.g. cups_proxy.
 class PrintersServiceProvider
     : public CrosDBusService::ServiceProviderInterface,
-      public chromeos::CupsPrintersManager::Observer {
+      public CupsPrintersManager::Observer {
  public:
   PrintersServiceProvider();
 
@@ -43,16 +43,11 @@ class PrintersServiceProvider
   // A reference on ExportedObject for sending signals.
   scoped_refptr<dbus::ExportedObject> exported_object_;
 
-  base::ScopedObservation<chromeos::CupsPrintersManagerProxy,
-                          chromeos::CupsPrintersManager::Observer>
+  base::ScopedObservation<CupsPrintersManagerProxy,
+                          CupsPrintersManager::Observer>
       printers_manager_observation_{this};
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when ChromeOS code migration is done.
-namespace chromeos {
-using ::ash::PrintersServiceProvider;
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_DBUS_PRINTERS_SERVICE_PROVIDER_H_

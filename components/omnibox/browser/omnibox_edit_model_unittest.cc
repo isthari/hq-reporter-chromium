@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <memory>
 #include <string>
 
-#include "base/cxx17_backports.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -19,7 +18,6 @@
 #include "components/dom_distiller/core/url_utils.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
 #include "components/omnibox/browser/autocomplete_match.h"
-#include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/omnibox_popup_view.h"
 #include "components/omnibox/browser/omnibox_prefs.h"
 #include "components/omnibox/browser/omnibox_view.h"
@@ -35,6 +33,7 @@
 #include "components/url_formatter/url_fixer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
+#include "ui/base/window_open_disposition.h"
 #include "ui/gfx/geometry/rect.h"
 
 using metrics::OmniboxEventProto;
@@ -53,11 +52,34 @@ class TestOmniboxPopupView : public OmniboxPopupView {
   void OnDragCanceled() override {}
 };
 
+void OpenUrlFromEditBox(TestOmniboxEditModel* model,
+                        const std::u16string url_text,
+                        bool is_autocompleted) {
+  AutocompleteMatch match(model->autocomplete_controller()->search_provider(),
+                          0, false, AutocompleteMatchType::OPEN_TAB);
+  match.destination_url = GURL(url_text);
+  match.allowed_to_be_default_match = true;
+  if (is_autocompleted) {
+    match.inline_autocompletion = url_text;
+  } else {
+    model->SetUserText(url_text);
+  }
+  model->OnSetFocus(false);
+  model->OpenMatch(match, WindowOpenDisposition::CURRENT_TAB, GURL(),
+                   std::u16string(), 0);
+}
+
 }  // namespace
 
 class OmniboxEditModelTest : public testing::Test {
  public:
   void SetUp() override {
+    // The #omnibox-site-search-starter-pack feature flag has to be enabled
+    // before set up in order for the OpenTabProvider to be initialized (needed
+    // for OpenTabMatch test).
+    base::test::ScopedFeatureList feature_list;
+    feature_list.InitAndEnableFeature(omnibox::kSiteSearchStarterPack);
+
     controller_ = std::make_unique<TestOmniboxEditController>();
     view_ = std::make_unique<TestOmniboxView>(controller_.get());
     view_->SetModel(std::make_unique<TestOmniboxEditModel>(
@@ -164,28 +186,28 @@ TEST_F(OmniboxEditModelTest, AdjustTextForCopy) {
 
       // Verifies that non-ASCII characters are %-escaped for valid copied URLs,
       // as long as the host has not been modified from the page URL.
-      {u8"https://ja.wikipedia.org/wiki/目次", 0, "", false,
-       u8"https://ja.wikipedia.org/wiki/目次",
+      {"https://ja.wikipedia.org/wiki/目次", 0, "", false,
+       "https://ja.wikipedia.org/wiki/目次",
        "https://ja.wikipedia.org/wiki/%E7%9B%AE%E6%AC%A1", true,
        "https://ja.wikipedia.org/wiki/%E7%9B%AE%E6%AC%A1"},
       // Test escaping when part of the path was not copied.
-      {u8"https://ja.wikipedia.org/wiki/目次", 0, "", false,
-       u8"https://ja.wikipedia.org/wiki/目",
+      {"https://ja.wikipedia.org/wiki/目次", 0, "", false,
+       "https://ja.wikipedia.org/wiki/目",
        "https://ja.wikipedia.org/wiki/%E7%9B%AE", true,
        "https://ja.wikipedia.org/wiki/%E7%9B%AE"},
       // Correctly handle escaping in the scheme-elided case as well.
-      {u8"https://ja.wikipedia.org/wiki/目次", 0, "", false,
-       u8"ja.wikipedia.org/wiki/目次",
+      {"https://ja.wikipedia.org/wiki/目次", 0, "", false,
+       "ja.wikipedia.org/wiki/目次",
        "https://ja.wikipedia.org/wiki/%E7%9B%AE%E6%AC%A1", true,
        "https://ja.wikipedia.org/wiki/%E7%9B%AE%E6%AC%A1",
-       u8"ja.wikipedia.org/wiki/目次"},
+       "ja.wikipedia.org/wiki/目次"},
       // Don't escape when host was modified.
-      {u8"https://ja.wikipedia.org/wiki/目次", 0, "", false,
-       u8"https://wikipedia.org/wiki/目次", u8"https://wikipedia.org/wiki/目次",
+      {"https://ja.wikipedia.org/wiki/目次", 0, "", false,
+       "https://wikipedia.org/wiki/目次", "https://wikipedia.org/wiki/目次",
        false, ""},
   };
 
-  for (size_t i = 0; i < base::size(input); ++i) {
+  for (size_t i = 0; i < std::size(input); ++i) {
     location_bar_model()->set_formatted_full_url(
         base::UTF8ToUTF16(input[i].url_for_editing));
     location_bar_model()->set_url_for_display(
@@ -244,7 +266,7 @@ TEST_F(OmniboxEditModelTest, DISABLED_InlineAutocompleteText) {
   model()->SetUserText(u"he");
   model()->OnPopupDataChanged(std::u16string(),
                               /*is_temporary_text=*/false, u"llo",
-                              std::u16string(), {}, std::u16string(), false,
+                              std::u16string(), std::u16string(), false,
                               std::u16string());
   EXPECT_EQ(u"hello", view()->GetText());
   EXPECT_EQ(u"llo", view()->inline_autocompletion());
@@ -257,7 +279,7 @@ TEST_F(OmniboxEditModelTest, DISABLED_InlineAutocompleteText) {
   EXPECT_EQ(std::u16string(), view()->inline_autocompletion());
   model()->OnPopupDataChanged(std::u16string(),
                               /*is_temporary_text=*/false, u"lo",
-                              std::u16string(), {}, std::u16string(), false,
+                              std::u16string(), std::u16string(), false,
                               std::u16string());
   EXPECT_EQ(u"hello", view()->GetText());
   EXPECT_EQ(u"lo", view()->inline_autocompletion());
@@ -269,7 +291,7 @@ TEST_F(OmniboxEditModelTest, DISABLED_InlineAutocompleteText) {
   model()->SetUserText(u"he");
   model()->OnPopupDataChanged(std::u16string(),
                               /*is_temporary_text=*/false, u"llo",
-                              std::u16string(), {}, std::u16string(), false,
+                              std::u16string(), std::u16string(), false,
                               std::u16string());
   EXPECT_EQ(u"hello", view()->GetText());
   EXPECT_EQ(u"llo", view()->inline_autocompletion());
@@ -299,7 +321,7 @@ TEST_F(OmniboxEditModelTest, RespectUnelisionInZeroSuggest) {
   EXPECT_EQ(std::u16string(), view()->inline_autocompletion());
   model()->StartZeroSuggestRequest();
   model()->OnPopupDataChanged(std::u16string(), /*is_temporary_text=*/false,
-                              std::u16string(), std::u16string(), {},
+                              std::u16string(), std::u16string(),
                               std::u16string(), false, std::u16string());
   EXPECT_EQ(u"https://www.example.com/", view()->GetText());
   EXPECT_FALSE(model()->user_input_in_progress());
@@ -319,7 +341,7 @@ TEST_F(OmniboxEditModelTest, RevertZeroSuggestTemporaryText) {
   model()->StartZeroSuggestRequest();
   model()->OnPopupDataChanged(u"fake_temporary_text",
                               /*is_temporary_text=*/true, std::u16string(),
-                              std::u16string(), {}, std::u16string(), false,
+                              std::u16string(), std::u16string(), false,
                               std::u16string());
 
   // Test that reverting brings back the original input text.
@@ -542,7 +564,7 @@ TEST_F(OmniboxEditModelTest, KeywordModePreservesTemporaryText) {
   // OnPopupDataChanged() is called when the user focuses a suggestion.
   model()->OnPopupDataChanged(u"match text",
                               /*is_temporary_text=*/true, std::u16string(),
-                              std::u16string(), {}, std::u16string(), false,
+                              std::u16string(), std::u16string(), false,
                               std::u16string());
 
   // Entering keyword search mode should preserve temporary text as the user
@@ -574,7 +596,7 @@ TEST_F(OmniboxEditModelTest, CtrlEnterNavigatesToDesiredTLDTemporaryText) {
   model()->StartAutocomplete(false, false);
   model()->OnPopupDataChanged(u"foobar",
                               /*is_temporary_text=*/true, std::u16string(),
-                              std::u16string(), {}, std::u16string(), false,
+                              std::u16string(), std::u16string(), false,
                               std::u16string());
 
   model()->OnControlKeyChanged(true);
@@ -642,7 +664,7 @@ TEST_F(OmniboxEditModelPopupTest, SetSelectedLine) {
   auto* result = &model()->autocomplete_controller()->result_;
   AutocompleteInput input(u"match", metrics::OmniboxEventProto::NTP,
                           TestSchemeClassifier());
-  result->AppendMatches(input, matches);
+  result->AppendMatches(matches);
   result->SortAndCull(input, nullptr);
   model()->OnPopupResultChanged();
   EXPECT_TRUE(model()->IsPopupSelectionOnInitialLine());
@@ -664,7 +686,7 @@ TEST_F(OmniboxEditModelPopupTest, SetSelectedLineWithNoDefaultMatches) {
   auto* result = &model()->autocomplete_controller()->result_;
   AutocompleteInput input(u"match", metrics::OmniboxEventProto::NTP,
                           TestSchemeClassifier());
-  result->AppendMatches(input, matches);
+  result->AppendMatches(matches);
   result->SortAndCull(input, nullptr);
 
   model()->OnPopupResultChanged();
@@ -696,7 +718,7 @@ TEST_F(OmniboxEditModelPopupTest, PopupPositionChanging) {
   auto* result = &model()->autocomplete_controller()->result_;
   AutocompleteInput input(u"match", metrics::OmniboxEventProto::NTP,
                           TestSchemeClassifier());
-  result->AppendMatches(input, matches);
+  result->AppendMatches(matches);
   result->SortAndCull(input, nullptr);
   model()->OnPopupResultChanged();
   EXPECT_EQ(0u, model()->GetPopupSelection().line);
@@ -714,7 +736,7 @@ TEST_F(OmniboxEditModelPopupTest, PopupPositionChanging) {
 
 TEST_F(OmniboxEditModelPopupTest, PopupStepSelection) {
   ACMatches matches;
-  for (size_t i = 0; i < 5; ++i) {
+  for (size_t i = 0; i < 6; ++i) {
     AutocompleteMatch match(nullptr, 1000, false,
                             AutocompleteMatchType::URL_WHAT_YOU_TYPED);
     match.keyword = u"match";
@@ -735,24 +757,35 @@ TEST_F(OmniboxEditModelPopupTest, PopupStepSelection) {
   matches[3].has_tab_match = true;
   matches[3].deletable = true;
   // Make match index 4 have a suggestion_group_id to test header behavior.
-  matches[4].suggestion_group_id = 7;
+  const auto kNewGroupId = omnibox::GROUP_PREVIOUS_SEARCH_RELATED;
+  matches[4].suggestion_group_id = kNewGroupId;
+  // Make match index 5 have a suggestion_group_id but no header text.
+  matches[5].suggestion_group_id = omnibox::GROUP_HISTORY_CLUSTER;
 
   auto* result = &model()->autocomplete_controller()->result_;
+  result->AppendMatches(matches);
+
+  omnibox::GroupConfigMap suggestion_groups_map;
+  suggestion_groups_map[kNewGroupId].set_header_text("header");
+  suggestion_groups_map[omnibox::GROUP_HISTORY_CLUSTER].set_header_text("");
+
+  // Do not set the original_group_id on purpose to test that default visibility
+  // can be safely queried via AutocompleteResult::IsSuggestionGroupHidden().
+  result->MergeSuggestionGroupsMap(suggestion_groups_map);
+
   AutocompleteInput input(u"match", metrics::OmniboxEventProto::NTP,
                           TestSchemeClassifier());
-  result->AppendMatches(input, matches);
-  result->MergeHeadersMap({{7, u"header"}});
   result->SortAndCull(input, nullptr);
   model()->OnPopupResultChanged();
   EXPECT_EQ(0u, model()->GetPopupSelection().line);
 
   // Step by lines forward.
-  for (size_t n : {1, 2, 3, 4, 0}) {
+  for (size_t n : {1, 2, 3, 4, 5, 0}) {
     model()->StepPopupSelection(Selection::kForward, Selection::kWholeLine);
     EXPECT_EQ(n, model()->GetPopupSelection().line);
   }
   // Step by lines backward.
-  for (size_t n : {4, 3, 2, 1, 0}) {
+  for (size_t n : {5, 4, 3, 2, 1, 0}) {
     model()->StepPopupSelection(Selection::kBackward, Selection::kWholeLine);
     EXPECT_EQ(n, model()->GetPopupSelection().line);
   }
@@ -769,6 +802,7 @@ TEST_F(OmniboxEditModelPopupTest, PopupStepSelection) {
            Selection(3, Selection::FOCUSED_BUTTON_REMOVE_SUGGESTION),
            Selection(4, Selection::FOCUSED_BUTTON_HEADER),
            Selection(4, Selection::NORMAL),
+           Selection(5, Selection::NORMAL),
            Selection(0, Selection::NORMAL),
        }) {
     model()->StepPopupSelection(Selection::kForward, Selection::kStateOrLine);
@@ -777,6 +811,7 @@ TEST_F(OmniboxEditModelPopupTest, PopupStepSelection) {
   // Step by states backward. Unlike prior to suggestion button row, there is
   // no difference in behavior for KEYWORD mode moving forward or backward.
   for (auto selection : {
+           Selection(5, Selection::NORMAL),
            Selection(4, Selection::NORMAL),
            Selection(4, Selection::FOCUSED_BUTTON_HEADER),
            Selection(3, Selection::FOCUSED_BUTTON_REMOVE_SUGGESTION),
@@ -788,6 +823,7 @@ TEST_F(OmniboxEditModelPopupTest, PopupStepSelection) {
            Selection(1, Selection::FOCUSED_BUTTON_REMOVE_SUGGESTION),
            Selection(1, Selection::NORMAL),
            Selection(0, Selection::NORMAL),
+           Selection(5, Selection::NORMAL),
            Selection(4, Selection::NORMAL),
            Selection(4, Selection::FOCUSED_BUTTON_HEADER),
            Selection(3, Selection::FOCUSED_BUTTON_REMOVE_SUGGESTION),
@@ -800,7 +836,7 @@ TEST_F(OmniboxEditModelPopupTest, PopupStepSelection) {
   model()->StepPopupSelection(Selection::kBackward, Selection::kAllLines);
   EXPECT_EQ(Selection(0, Selection::NORMAL), model()->GetPopupSelection());
   model()->StepPopupSelection(Selection::kForward, Selection::kAllLines);
-  EXPECT_EQ(Selection(4, Selection::NORMAL), model()->GetPopupSelection());
+  EXPECT_EQ(Selection(5, Selection::NORMAL), model()->GetPopupSelection());
 }
 
 TEST_F(OmniboxEditModelPopupTest, PopupStepSelectionWithHiddenGroupIds) {
@@ -814,16 +850,23 @@ TEST_F(OmniboxEditModelPopupTest, PopupStepSelectionWithHiddenGroupIds) {
   }
 
   // Hide the second two matches.
-  matches[2].suggestion_group_id = 7;
-  matches[3].suggestion_group_id = 7;
-  omnibox::SetSuggestionGroupVisibility(
-      pref_service(), 7, omnibox::SuggestionGroupVisibility::HIDDEN);
+  const auto kNewGroupId = omnibox::GROUP_PREVIOUS_SEARCH_RELATED;
+  matches[2].suggestion_group_id = kNewGroupId;
+  matches[3].suggestion_group_id = kNewGroupId;
 
   auto* result = &model()->autocomplete_controller()->result_;
+  result->AppendMatches(matches);
+
+  omnibox::GroupConfigMap suggestion_groups_map;
+  suggestion_groups_map[kNewGroupId].set_header_text("header");
+  // Setting the original_group_id allows the default visibility to be set via
+  // AutocompleteResult::SetSuggestionGroupHidden().
+  result->MergeSuggestionGroupsMap(suggestion_groups_map);
+  result->SetSuggestionGroupHidden(pref_service(), kNewGroupId,
+                                   /*hidden=*/true);
+
   AutocompleteInput input(u"match", metrics::OmniboxEventProto::NTP,
                           TestSchemeClassifier());
-  result->AppendMatches(input, matches);
-  result->MergeHeadersMap({{7, u"header"}});
   result->SortAndCull(input, nullptr);
   model()->OnPopupResultChanged();
   EXPECT_EQ(0u, model()->GetPopupSelection().line);
@@ -883,20 +926,27 @@ TEST_F(OmniboxEditModelPopupTest, PopupInlineAutocompleteAndTemporaryText) {
   matches[0].inline_autocompletion = u"1";
   matches[1].fill_into_edit = u"a2";
   matches[2].fill_into_edit = u"a3";
-  matches[2].suggestion_group_id = 7;
+  const auto kNewGroupId = omnibox::GROUP_PREVIOUS_SEARCH_RELATED;
+  matches[2].suggestion_group_id = kNewGroupId;
 
   auto* result = &model()->autocomplete_controller()->result_;
+  result->AppendMatches(matches);
+
+  omnibox::GroupConfigMap suggestion_groups_map;
+  suggestion_groups_map[kNewGroupId].set_header_text("header");
+  // Do not set the original_group_id on purpose to test that default visibility
+  // can be safely queried via AutocompleteResult::IsSuggestionGroupHidden().
+  result->MergeSuggestionGroupsMap(suggestion_groups_map);
+
   AutocompleteInput input(u"a", metrics::OmniboxEventProto::NTP,
                           TestSchemeClassifier());
-  result->AppendMatches(input, matches);
-  result->MergeHeadersMap({{7, u"header"}});
   result->SortAndCull(input, nullptr);
   model()->OnPopupResultChanged();
 
   // Simulate OmniboxController updating the popup, then check initial state.
   model()->OnPopupDataChanged(std::u16string(),
                               /*is_temporary_text=*/false, u"1",
-                              std::u16string(), {}, std::u16string(), false,
+                              std::u16string(), std::u16string(), false,
                               std::u16string());
   EXPECT_EQ(Selection(0, Selection::NORMAL), model()->GetPopupSelection());
   EXPECT_EQ(u"1", model()->text());
@@ -955,7 +1005,7 @@ TEST_F(OmniboxEditModelPopupTest, TestFocusFixing) {
   auto* result = &model()->autocomplete_controller()->result_;
   AutocompleteInput input(u"match", metrics::OmniboxEventProto::NTP,
                           TestSchemeClassifier());
-  result->AppendMatches(input, matches);
+  result->AppendMatches(matches);
   result->SortAndCull(input, nullptr);
   model()->OnPopupResultChanged();
   model()->SetPopupSelection(Selection(0), true, false);
@@ -974,7 +1024,7 @@ TEST_F(OmniboxEditModelPopupTest, TestFocusFixing) {
   // Give it a different name so not deduped.
   matches[0].contents = u"match2.com";
   matches[0].destination_url = GURL("http://match2.com");
-  result->AppendMatches(input, matches);
+  result->AppendMatches(matches);
   result->SortAndCull(input, nullptr);
   model()->OnPopupResultChanged();
   EXPECT_EQ(Selection::FOCUSED_BUTTON_TAB_SWITCH,
@@ -991,7 +1041,7 @@ TEST_F(OmniboxEditModelPopupTest, TestFocusFixing) {
   matches[0].relevance = 999;
   matches[0].contents = u"match3.com";
   matches[0].destination_url = GURL("http://match3.com");
-  result->AppendMatches(input, matches);
+  result->AppendMatches(matches);
   result->SortAndCull(input, nullptr);
   model()->OnPopupResultChanged();
   EXPECT_EQ(0U, model()->GetPopupSelection().line);
@@ -1004,7 +1054,7 @@ TEST_F(OmniboxEditModelPopupTest, TestFocusFixing) {
   matches[0].relevance = 1100;
   matches[0].contents = u"match4.com";
   matches[0].destination_url = GURL("http://match4.com");
-  result->AppendMatches(input, matches);
+  result->AppendMatches(matches);
   result->SortAndCull(input, nullptr);
   model()->OnPopupResultChanged();
   EXPECT_EQ(0U, model()->GetPopupSelection().line);
@@ -1020,12 +1070,9 @@ TEST_F(OmniboxEditModelPopupTest, TestFocusFixing) {
 
 TEST_F(OmniboxEditModelTest, OmniboxEscapeHistogram) {
   {
-    // With both `kClosePopupWithEscape` and `kBlurWithEscape` enabled, escape
-    // should incrementally revert temporary text, close the popup, clear input,
-    // and blur the omnibox.
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitWithFeatures(
-        {omnibox::kClosePopupWithEscape, omnibox::kBlurWithEscape}, {});
+    // With `kClosePopupWithEscape` enabled, escape should incrementally revert
+    // temporary text, close the popup, clear input, and blur the omnibox.
+    base::test::ScopedFeatureList feature_list{omnibox::kClosePopupWithEscape};
 
     AutocompleteMatch match;
     match.type = AutocompleteMatchType::NAVSUGGEST;
@@ -1038,7 +1085,7 @@ TEST_F(OmniboxEditModelTest, OmniboxEscapeHistogram) {
     model()->SetPopupIsOpen(true);
     model()->OnPopupDataChanged(/*temporary_text=*/u"fake_temporary_text",
                                 /*is_temporary_text=*/true, std::u16string(),
-                                std::u16string(), {}, std::u16string(), false,
+                                std::u16string(), std::u16string(), false,
                                 std::u16string());
 
     EXPECT_TRUE(model()->HasTemporaryText());
@@ -1101,12 +1148,11 @@ TEST_F(OmniboxEditModelTest, OmniboxEscapeHistogram) {
   }
 
   {
-    // With both `kClosePopupWithEscape` and `kBlurWithEscape` disabled, escape
-    // should incrementally revert temporary text then simultaneously close the
-    // popup & clear input.
+    // With `kClosePopupWithEscape` disabled, escape should incrementally revert
+    // temporary text then simultaneously close the popup & clear input, and
+    // lastly blur the omnibox.
     base::test::ScopedFeatureList feature_list;
-    feature_list.InitWithFeatures(
-        {}, {omnibox::kClosePopupWithEscape, omnibox::kBlurWithEscape});
+    feature_list.InitWithFeatures({}, {omnibox::kClosePopupWithEscape});
 
     AutocompleteMatch match;
     match.type = AutocompleteMatchType::NAVSUGGEST;
@@ -1119,7 +1165,7 @@ TEST_F(OmniboxEditModelTest, OmniboxEscapeHistogram) {
     model()->SetPopupIsOpen(true);
     model()->OnPopupDataChanged(/*temporary_text=*/u"fake_temporary_text",
                                 /*is_temporary_text=*/true, std::u16string(),
-                                std::u16string(), {}, std::u16string(), false,
+                                std::u16string(), std::u16string(), false,
                                 std::u16string());
 
     EXPECT_TRUE(model()->HasTemporaryText());
@@ -1155,17 +1201,74 @@ TEST_F(OmniboxEditModelTest, OmniboxEscapeHistogram) {
     }
 
     {
-      // Should not handle the key press.
+      // Blur the omnibox.
       base::HistogramTester histogram_tester;
-      EXPECT_FALSE(model()->OnEscapeKeyPressed());
-      histogram_tester.ExpectUniqueSample("Omnibox.Escape", 0, 1);
-      model()->SetPopupIsOpen(
-          false);  // `TestOmniboxEditModel` stubs the popup.
+      EXPECT_TRUE(model()->OnEscapeKeyPressed());
+      histogram_tester.ExpectUniqueSample("Omnibox.Escape", 5, 1);
+      model()->OnKillFocus();  // `TestOmniboxEditModel` stubs the client which
+                               // handles blurring the omnibox.
       EXPECT_FALSE(model()->HasTemporaryText());
       EXPECT_FALSE(model()->PopupIsOpen());
       EXPECT_EQ(view()->GetText(), u"");
       EXPECT_FALSE(model()->user_input_in_progress());
-      EXPECT_TRUE(model()->has_focus());
+      EXPECT_FALSE(model()->has_focus());
     }
   }
 }
+
+TEST_F(OmniboxEditModelTest, IPv4AddressPartsCount) {
+  base::HistogramTester histogram_tester;
+  constexpr char kIPv4AddressPartsCountHistogramName[] =
+      "Omnibox.IPv4AddressPartsCount";
+  // Hostnames shall not be recorded.
+  OpenUrlFromEditBox(model(), u"http://example.com", false);
+  histogram_tester.ExpectTotalCount(kIPv4AddressPartsCountHistogramName, 0);
+
+  // Autocompleted navigations shall not be recorded.
+  OpenUrlFromEditBox(model(), u"http://127.0.0.1", true);
+  histogram_tester.ExpectTotalCount(kIPv4AddressPartsCountHistogramName, 0);
+
+  // Test IPv4 parts are correctly counted.
+  OpenUrlFromEditBox(model(), u"http://127.0.0.1", false);
+  OpenUrlFromEditBox(model(), u"http://127.1/test.html", false);
+  OpenUrlFromEditBox(model(), u"http://[::127.0.1]", false);
+  EXPECT_THAT(
+      histogram_tester.GetAllSamples(kIPv4AddressPartsCountHistogramName),
+      testing::ElementsAre(base::Bucket(2, 1), base::Bucket(3, 1),
+                           base::Bucket(4, 1)));
+}
+
+#if !(BUILDFLAG(IS_IOS) || BUILDFLAG(IS_ANDROID))
+// The keyword mode feature is only available on Desktop. Do not test on mobile.
+TEST_F(OmniboxEditModelTest, OpenTabMatch) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(omnibox::kSiteSearchStarterPack);
+
+  // When the match comes from the Open Tab Provider while in keyword mode,
+  // the disposition should be set to SWITCH_TO_TAB.
+  AutocompleteMatch match(
+      model()->autocomplete_controller()->open_tab_provider(), 0, false,
+      AutocompleteMatchType::OPEN_TAB);
+  match.destination_url = GURL("https://foo/");
+  match.from_keyword = true;
+
+  model()->OnSetFocus(false);  // Avoids DCHECK in OpenMatch().
+  model()->SetUserText(u"http://abcd");
+  model()->OpenMatch(match, WindowOpenDisposition::CURRENT_TAB, GURL(),
+                     std::u16string(), 0);
+  EXPECT_EQ(controller_->disposition(), WindowOpenDisposition::SWITCH_TO_TAB);
+
+  // Suggestions not from the Open Tab Provider or not from keyword mode should
+  // not change the disposition.
+  match.from_keyword = false;
+  model()->OpenMatch(match, WindowOpenDisposition::CURRENT_TAB, GURL(),
+                     std::u16string(), 0);
+  EXPECT_EQ(controller_->disposition(), WindowOpenDisposition::CURRENT_TAB);
+
+  match.provider = model()->autocomplete_controller()->search_provider();
+  match.from_keyword = true;
+  model()->OpenMatch(match, WindowOpenDisposition::CURRENT_TAB, GURL(),
+                     std::u16string(), 0);
+  EXPECT_EQ(controller_->disposition(), WindowOpenDisposition::CURRENT_TAB);
+}
+#endif  // !(BUILDFLAG(IS_IOS) || BUILDFLAG(IS_ANDROID))

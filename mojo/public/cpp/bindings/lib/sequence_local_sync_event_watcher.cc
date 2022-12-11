@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -110,10 +110,10 @@ class SequenceLocalSyncEventWatcher::SequenceLocalState {
     if (registered_watchers_.empty()) {
       // If no more watchers are registered, clear our sequence-local storage.
       // Deletes |this|.
-      // Check if the current task runner is valid before doing this to avoid
-      // races at shutdown when other objects use SequenceLocalStorageSlot and
-      // indirectly call to here.
-      if (base::SequencedTaskRunnerHandle::IsSet())
+      // Check if the SequenceLocalStorageMap is valid before doing this to
+      // avoid races at shutdown when other objects use SequenceLocalStorageSlot
+      // and indirectly call to here.
+      if (base::internal::SequenceLocalStorageMap::IsSetForCurrentThread())
         GetStorageSlot().reset();
     }
   }
@@ -259,7 +259,7 @@ class SequenceLocalSyncEventWatcher::Registration {
 
  private:
   const base::WeakPtr<SequenceLocalState> weak_shared_state_;
-  const raw_ptr<SequenceLocalState> shared_state_;
+  const raw_ptr<SequenceLocalState, DanglingUntriaged> shared_state_;
   WatcherStateMap::iterator watcher_state_iterator_;
   const scoped_refptr<WatcherState> watcher_state_;
 };

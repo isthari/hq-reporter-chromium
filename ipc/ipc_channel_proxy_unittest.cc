@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -251,7 +251,8 @@ class IPCChannelProxyTest : public IPCChannelMojoTestBase {
     listener_ = std::make_unique<QuitListener>();
     channel_proxy_ = IPC::ChannelProxy::Create(
         TakeHandle().release(), IPC::Channel::MODE_SERVER, listener_.get(),
-        thread_->task_runner(), base::ThreadTaskRunnerHandle::Get());
+        thread_->task_runner(),
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 
   void TearDown() override {

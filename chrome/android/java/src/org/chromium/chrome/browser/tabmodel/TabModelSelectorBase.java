@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,7 +43,7 @@ public abstract class TabModelSelectorBase
             new ObserverList<>();
 
     @Nullable
-    private IncognitoReauthDialogDelegate mIncognitoReauthDialogDelegate;
+    protected IncognitoReauthDialogDelegate mIncognitoReauthDialogDelegate;
 
     private boolean mTabStateInitialized;
     private boolean mStartIncognito;
@@ -133,13 +133,14 @@ public abstract class TabModelSelectorBase
         previousModel.setActive(false);
         newModel.setActive(true);
         mActiveModelIndex = newIndex;
-        for (TabModelSelectorObserver listener : mObservers) {
-            listener.onTabModelSelected(newModel, previousModel);
+
+        // Notify the re-auth code first so we show the re-auth dialog first.
+        if (mIncognitoReauthDialogDelegate != null && newModel.isIncognito()) {
+            mIncognitoReauthDialogDelegate.onBeforeIncognitoTabModelSelected();
         }
 
-        // This should be invoked after all the other observers have been notified.
-        if (mIncognitoReauthDialogDelegate != null) {
-            mIncognitoReauthDialogDelegate.onAfterTabModelSelected(newModel, previousModel);
+        for (TabModelSelectorObserver listener : mObservers) {
+            listener.onTabModelSelected(newModel, previousModel);
         }
     }
 
@@ -249,7 +250,7 @@ public abstract class TabModelSelectorBase
     @Override
     public void closeAllTabs(boolean uponExit) {
         for (int i = 0; i < getModels().size(); i++) {
-            mTabModels.get(i).closeAllTabs(!uponExit, uponExit);
+            mTabModels.get(i).closeAllTabs(uponExit);
         }
     }
 
@@ -271,9 +272,6 @@ public abstract class TabModelSelectorBase
     public void removeObserver(TabModelSelectorObserver observer) {
         mObservers.removeObserver(observer);
     }
-
-    @Override
-    public void setCloseAllTabsDelegate(CloseAllTabsDelegate delegate) { }
 
     /**
      * Marks the task state being initialized and notifies observers.

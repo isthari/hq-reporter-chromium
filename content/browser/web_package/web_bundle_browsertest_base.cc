@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -94,147 +94,78 @@ void DownloadObserver::OnDownloadCreated(content::DownloadManager* manager,
   run_loop_.Quit();
 }
 
-MockParser::MockParser(
-    MockParserFactory* factory,
-    mojo::PendingReceiver<web_package::mojom::WebBundleParser> receiver,
-    const Index& index,
-    const GURL& primary_url,
-    bool simulate_parse_metadata_crash,
-    bool simulate_parse_response_crash)
-    : factory_(factory),
-      receiver_(this, std::move(receiver)),
-      index_(index),
-      primary_url_(primary_url),
-      simulate_parse_metadata_crash_(simulate_parse_metadata_crash),
-      simulate_parse_response_crash_(simulate_parse_response_crash) {}
-
-MockParser::~MockParser() = default;
-
 MockParserFactory::MockParserFactory(std::vector<GURL> urls,
-                                     const base::FilePath& response_body_file)
-    : primary_url_(urls[0]) {
+                                     const base::FilePath& response_body_file) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   int64_t response_body_file_size;
   EXPECT_TRUE(base::GetFileSize(response_body_file, &response_body_file_size));
+
+  base::flat_map<GURL, web_package::mojom::BundleResponseLocationPtr> requests;
   for (const auto& url : urls) {
-    web_package::mojom::BundleIndexValuePtr item =
-        web_package::mojom::BundleIndexValue::New();
-    item->response_locations.push_back(
-        web_package::mojom::BundleResponseLocation::New(
-            0u, response_body_file_size));
-    index_.insert({url, std::move(item)});
+    requests.insert({url, web_package::mojom::BundleResponseLocation::New(
+                              0u, response_body_file_size)});
   }
-  in_process_data_decoder_.service().SetWebBundleParserFactoryBinderForTesting(
-      base::BindRepeating(&MockParserFactory::BindWebBundleParserFactory,
-                          base::Unretained(this)));
-}
-MockParserFactory::MockParserFactory(
-    const std::vector<std::pair<GURL, const std::string&>> items)
-    : primary_url_(items[0].first) {
-  uint64_t offset = 0;
-  for (const auto& item : items) {
-    web_package::mojom::BundleIndexValuePtr index_value =
-        web_package::mojom::BundleIndexValue::New();
-    index_value->response_locations.push_back(
-        web_package::mojom::BundleResponseLocation::New(offset,
-                                                        item.second.length()));
-    offset += item.second.length();
-    index_.insert({item.first, std::move(index_value)});
-  }
-  in_process_data_decoder_.service().SetWebBundleParserFactoryBinderForTesting(
-      base::BindRepeating(&MockParserFactory::BindWebBundleParserFactory,
-                          base::Unretained(this)));
-}
-
-MockParserFactory::~MockParserFactory() = default;
-
-void MockParser::ParseMetadata(ParseMetadataCallback callback) {
-  if (simulate_parse_metadata_crash_) {
-    factory_->SimulateParserDisconnect();
-    return;
-  }
-
-  base::flat_map<GURL, web_package::mojom::BundleIndexValuePtr> items;
-  for (const auto& item : index_) {
-    items.insert({item.first, item.second.Clone()});
-  }
-
   web_package::mojom::BundleMetadataPtr metadata =
       web_package::mojom::BundleMetadata::New();
-  metadata->primary_url = primary_url_;
-  metadata->requests = std::move(items);
+  metadata->primary_url = urls[0];
+  metadata->requests = std::move(requests);
 
-  std::move(callback).Run(std::move(metadata), nullptr);
+  FinishSetUp(std::move(metadata));
+}
+MockParserFactory::MockParserFactory(
+    const std::vector<std::pair<GURL, const std::string&>> items) {
+  base::flat_map<GURL, web_package::mojom::BundleResponseLocationPtr> requests;
+  uint64_t offset = 0;
+  for (const auto& item : items) {
+    requests.insert(
+        {item.first, web_package::mojom::BundleResponseLocation::New(
+                         offset, item.second.length())});
+    offset += item.second.length();
+  }
+  web_package::mojom::BundleMetadataPtr metadata =
+      web_package::mojom::BundleMetadata::New();
+  metadata->primary_url = items[0].first;
+  metadata->requests = std::move(requests);
+
+  FinishSetUp(std::move(metadata));
 }
 
-void MockParser::ParseResponse(uint64_t response_offset,
-                               uint64_t response_length,
-                               ParseResponseCallback callback) {
-  if (simulate_parse_response_crash_) {
-    factory_->SimulateParserDisconnect();
-    return;
-  }
+void MockParserFactory::FinishSetUp(
+    web_package::mojom::BundleMetadataPtr metadata) {
+  wrapped_factory_.SetMetadataParseResult(std::move(metadata));
+
   web_package::mojom::BundleResponsePtr response =
       web_package::mojom::BundleResponse::New();
   response->response_code = 200;
   response->response_headers.insert({"content-type", "text/html"});
-  response->payload_offset = response_offset;
-  response->payload_length = response_length;
-  std::move(callback).Run(std::move(response), nullptr);
+  wrapped_factory_.SetResponseParseResult(std::move(response));
+
+  in_process_data_decoder_.service().SetWebBundleParserFactoryBinderForTesting(
+      base::BindRepeating(&MockParserFactory::BindWebBundleParserFactory,
+                          base::Unretained(this)));
 }
 
 int MockParserFactory::GetParserCreationCount() const {
-  return parser_creation_count_;
+  return wrapped_factory_.GetParserCreationCount();
 }
 void MockParserFactory::SimulateParserDisconnect() {
-  parser_ = nullptr;
+  wrapped_factory_.SimulateParserDisconnect();
 }
 void MockParserFactory::SimulateParseMetadataCrash() {
-  simulate_parse_metadata_crash_ = true;
+  wrapped_factory_.SimulateParseMetadataCrash();
 }
 void MockParserFactory::SimulateParseResponseCrash() {
-  simulate_parse_response_crash_ = true;
+  wrapped_factory_.SimulateParseResponseCrash();
 }
 
 void MockParserFactory::BindWebBundleParserFactory(
     mojo::PendingReceiver<web_package::mojom::WebBundleParserFactory>
         receiver) {
-  receivers_.Add(this, std::move(receiver));
-}
-
-// web_package::mojom::WebBundleParserFactory implementation.
-void MockParserFactory::GetParserForFile(
-    mojo::PendingReceiver<web_package::mojom::WebBundleParser> receiver,
-    base::File file) {
-  {
-    base::ScopedAllowBlockingForTesting allow_blocking;
-    file.Close();
-  }
-  DCHECK(!parser_);
-  parser_ = std::make_unique<MockParser>(
-      this, std::move(receiver), index_, primary_url_,
-      simulate_parse_metadata_crash_, simulate_parse_response_crash_);
-  parser_creation_count_++;
-}
-
-void MockParserFactory::GetParserForDataSource(
-    mojo::PendingReceiver<web_package::mojom::WebBundleParser> receiver,
-    mojo::PendingRemote<web_package::mojom::BundleDataSource> data_source) {
-  DCHECK(!parser_);
-  parser_ = std::make_unique<MockParser>(
-      this, std::move(receiver), index_, primary_url_,
-      simulate_parse_metadata_crash_, simulate_parse_response_crash_);
-  parser_creation_count_++;
+  wrapped_factory_.AddReceiver(std::move(receiver));
 }
 
 bool TestBrowserClient::CanAcceptUntrustedExchangesIfNeeded() {
   return true;
-}
-std::string TestBrowserClient::GetAcceptLangs(BrowserContext* context) {
-  return accept_langs_;
-}
-void TestBrowserClient::SetAcceptLangs(const std::string langs) {
-  accept_langs_ = langs;
 }
 
 void WebBundleBrowserTestBase::SetUpOnMainThread() {
@@ -245,10 +176,6 @@ void WebBundleBrowserTestBase::SetUpOnMainThread() {
 void WebBundleBrowserTestBase::TearDownOnMainThread() {
   ContentBrowserTest::TearDownOnMainThread();
   SetBrowserClientForTesting(original_client_);
-}
-
-void WebBundleBrowserTestBase::SetAcceptLangs(const std::string langs) {
-  browser_client_.SetAcceptLangs(langs);
 }
 
 void WebBundleBrowserTestBase::NavigateToBundleAndWaitForReady(
@@ -346,7 +273,7 @@ std::string ExpectNavigationFailureAndReturnConsoleMessage(
   EXPECT_EQ(net::ERR_INVALID_WEB_BUNDLE,
             *finish_navigation_observer.error_code());
   if (console_observer.messages().empty())
-    console_observer.Wait();
+    EXPECT_TRUE(console_observer.Wait());
 
   if (console_observer.messages().empty()) {
     ADD_FAILURE() << "Could not find a console message.";
@@ -363,8 +290,9 @@ FrameTreeNode* GetFirstChild(WebContents* web_contents) {
 }
 
 std::string CreateSimpleWebBundle(const GURL& primary_url) {
-  web_package::WebBundleBuilder builder(primary_url.spec(), "");
-  builder.AddExchange(primary_url.spec(),
+  web_package::WebBundleBuilder builder;
+  builder.AddPrimaryURL(primary_url);
+  builder.AddExchange(primary_url,
                       {{":status", "200"}, {"content-type", "text/html"}},
                       "<title>Ready</title>");
   std::vector<uint8_t> bundle = builder.CreateBundle();
@@ -375,7 +303,7 @@ void AddHtmlFile(web_package::WebBundleBuilder* builder,
                  const GURL& base_url,
                  const std::string& path,
                  const std::string& content) {
-  builder->AddExchange(base_url.Resolve(path).spec(),
+  builder->AddExchange(base_url.Resolve(path),
                        {{":status", "200"}, {"content-type", "text/html"}},
                        content);
 }
@@ -385,15 +313,15 @@ void AddScriptFile(web_package::WebBundleBuilder* builder,
                    const std::string& path,
                    const std::string& content) {
   builder->AddExchange(
-      base_url.Resolve(path).spec(),
+      base_url.Resolve(path),
       {{":status", "200"}, {"content-type", "application/javascript"}},
       content);
 }
 
 std::string CreatePathTestWebBundle(const GURL& base_url) {
   const std::string primary_url_path = "/web_bundle/path_test/in_scope/";
-  web_package::WebBundleBuilder builder(
-      base_url.Resolve(primary_url_path).spec(), "");
+  web_package::WebBundleBuilder builder;
+  builder.AddPrimaryURL(base_url.Resolve(primary_url_path));
   AddHtmlFile(&builder, base_url, primary_url_path, "<title>Ready</title>");
   AddHtmlFile(
       &builder, base_url, "/web_bundle/path_test/in_scope/page.html",
@@ -471,8 +399,8 @@ void SetUpSubPageTest(net::EmbeddedTestServer* primary_server,
   *primary_url_origin = primary_server->GetURL("/");
   *third_party_origin = third_party_server->GetURL("/");
 
-  web_package::WebBundleBuilder builder(
-      primary_url_origin->Resolve("/top").spec(), "");
+  web_package::WebBundleBuilder builder;
+  builder.AddPrimaryURL(primary_url_origin->Resolve("/top"));
   AddHtmlFile(&builder, *primary_url_origin, "/top", R"(
     <script>
     window.addEventListener('message',
@@ -684,8 +612,8 @@ void SetUpSharedNavigationsTest(net::EmbeddedTestServer* server,
                                 GURL* url_origin,
                                 std::string* web_bundle_content) {
   SetUpNavigationTestServer(server, url_origin);
-  web_package::WebBundleBuilder builder(
-      url_origin->Resolve("/top-page/").spec(), "");
+  web_package::WebBundleBuilder builder;
+  builder.AddPrimaryURL(url_origin->Resolve("/top-page/"));
   for (const auto& path : pathes)
     AddHtmlAndScriptForNavigationTest(&builder, *url_origin, path, "");
 
@@ -1052,8 +980,8 @@ void SetUpIframeNavigationTest(net::EmbeddedTestServer* server,
                                GURL* url_origin,
                                std::string* web_bundle_content) {
   SetUpNavigationTestServer(server, url_origin);
-  web_package::WebBundleBuilder builder(
-      url_origin->Resolve("/top-page/").spec(), "");
+  web_package::WebBundleBuilder builder;
+  builder.AddPrimaryURL(url_origin->Resolve("/top-page/"));
   const std::vector<std::string> pathes = {"/top-page/", "/1-page/",
                                            "/2-page/"};
   for (const auto& path : pathes)

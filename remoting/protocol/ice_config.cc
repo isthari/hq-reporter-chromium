@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +16,7 @@
 #include "net/base/url_util.h"
 #include "remoting/proto/remoting/v1/network_traversal_messages.pb.h"
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 namespace {
 
@@ -113,17 +112,16 @@ IceConfig::IceConfig(const IceConfig& other) = default;
 IceConfig::~IceConfig() = default;
 
 // static
-IceConfig IceConfig::Parse(const base::DictionaryValue& dictionary) {
-  const base::ListValue* ice_servers_list = nullptr;
-  if (!dictionary.GetList("iceServers", &ice_servers_list)) {
+IceConfig IceConfig::Parse(const base::Value::Dict& dictionary) {
+  const base::Value::List* ice_servers_list = dictionary.FindList("iceServers");
+  if (!ice_servers_list) {
     return IceConfig();
   }
 
   IceConfig ice_config;
 
   // Parse lifetimeDuration field.
-  const std::string* lifetime_str =
-      dictionary.FindStringKey("lifetimeDuration");
+  const std::string* lifetime_str = dictionary.FindString("lifetimeDuration");
   base::TimeDelta lifetime;
   if (!lifetime_str || !ParseLifetime(*lifetime_str, &lifetime)) {
     LOG(ERROR) << "Received invalid lifetimeDuration value: " << lifetime_str;
@@ -138,25 +136,26 @@ IceConfig IceConfig::Parse(const base::DictionaryValue& dictionary) {
   // Parse iceServers list and store them in |ice_config|.
   bool errors_found = false;
   ice_config.max_bitrate_kbps = 0;
-  for (const auto& server : ice_servers_list->GetList()) {
-    if (!server.is_dict()) {
+  for (const auto& server : *ice_servers_list) {
+    const base::Value::Dict* server_dict = server.GetIfDict();
+    if (!server_dict) {
       errors_found = true;
       continue;
     }
 
-    const base::Value* urls_list = server.FindListKey("urls");
+    const base::Value::List* urls_list = server_dict->FindList("urls");
     if (!urls_list) {
       errors_found = true;
       continue;
     }
 
     std::string username;
-    const std::string* maybe_username = server.FindStringKey("username");
+    const std::string* maybe_username = server_dict->FindString("username");
     if (maybe_username)
       username = *maybe_username;
 
     std::string password;
-    const std::string* maybe_password = server.FindStringKey("credential");
+    const std::string* maybe_password = server_dict->FindString("credential");
     if (maybe_password)
       password = *maybe_password;
 
@@ -164,14 +163,14 @@ IceConfig IceConfig::Parse(const base::DictionaryValue& dictionary) {
     // Ideally the bitrate would be stored per ICE server, but it is not
     // possible (at the application level) to look up which particular
     // ICE server was used for the P2P connection.
-    auto new_bitrate_double = server.FindDoubleKey("maxRateKbps");
+    auto new_bitrate_double = server_dict->FindDouble("maxRateKbps");
     if (new_bitrate_double.has_value()) {
       ice_config.max_bitrate_kbps =
           MinimumSpecified(ice_config.max_bitrate_kbps,
                            static_cast<int>(new_bitrate_double.value()));
     }
 
-    for (const auto& url : urls_list->GetList()) {
+    for (const auto& url : *urls_list) {
       const std::string* url_str = url.GetIfString();
       if (!url_str) {
         errors_found = true;
@@ -210,19 +209,20 @@ IceConfig IceConfig::Parse(const std::string& config_json) {
     return IceConfig();
   }
 
-  if (!json->is_dict()) {
+  base::Value::Dict* dictionary = json->GetIfDict();
+  if (!dictionary) {
     return IceConfig();
   }
 
   // Handle the case when the config is wrapped in 'data', i.e. as {'data': {
   // 'iceServers': {...} }}.
-  if (!json->FindKey("iceServers")) {
-    base::Value* data_dictionary = json->FindDictKey("data");
+  if (!dictionary->Find("iceServers")) {
+    base::Value::Dict* data_dictionary = dictionary->FindDict("data");
     if (data_dictionary)
-      return Parse(base::Value::AsDictionaryValue(*data_dictionary));
+      return Parse(*data_dictionary);
   }
 
-  return Parse(base::Value::AsDictionaryValue(*json));
+  return Parse(*dictionary);
 }
 
 // static
@@ -262,5 +262,4 @@ IceConfig IceConfig::Parse(const apis::v1::GetIceConfigResponse& config) {
   return ice_config;
 }
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@
 #include "android_webview/browser/gfx/task_queue_webview.h"
 #include "android_webview/browser/gfx/viz_compositor_thread_runner_webview.h"
 #include "android_webview/common/aw_switches.h"
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
@@ -98,6 +99,8 @@ class HardwareRendererViz::OnViz : public viz::DisplayClient {
   void DisplayDidReceiveCALayerParams(
       const gfx::CALayerParams& ca_layer_params) override {}
   void DisplayDidCompleteSwapWithSize(const gfx::Size& pixel_size) override {}
+  void DisplayAddChildWindowToBrowser(
+      gpu::SurfaceHandle child_window) override {}
   void SetWideColorEnabled(bool enabled) override {}
   void SetPreferredFrameInterval(base::TimeDelta interval) override {}
   base::TimeDelta GetPreferredFrameIntervalForFrameSinkId(
@@ -117,6 +120,7 @@ class HardwareRendererViz::OnViz : public viz::DisplayClient {
   std::unique_ptr<viz::HitTestAggregator> hit_test_aggregator_;
   viz::SurfaceId child_surface_id_;
   const bool viz_frame_submission_;
+  const bool use_new_invalidate_heuristic_;
   bool expect_context_loss_ = false;
 
   // Initialized in ctor and never changes, so it's safe to access from both
@@ -131,7 +135,9 @@ HardwareRendererViz::OnViz::OnViz(
     const scoped_refptr<RootFrameSink>& root_frame_sink)
     : without_gpu_(root_frame_sink),
       frame_sink_id_(without_gpu_->root_frame_sink_id()),
-      viz_frame_submission_(features::IsUsingVizFrameSubmissionForWebView()) {
+      viz_frame_submission_(features::IsUsingVizFrameSubmissionForWebView()),
+      use_new_invalidate_heuristic_(base::FeatureList::IsEnabled(
+          features::kWebViewNewInvalidateHeuristic)) {
   DCHECK_CALLED_ON_VALID_THREAD(viz_thread_checker_);
 
   std::unique_ptr<viz::DisplayCompositorMemoryAndTaskController>
@@ -224,7 +230,8 @@ void HardwareRendererViz::OnViz::DrawAndSwapOnViz(
   surface_quad->SetNew(quad_state, gfx::Rect(quad_state->quad_layer_rect),
                        gfx::Rect(quad_state->quad_layer_rect),
                        viz::SurfaceRange(absl::nullopt, child_id),
-                       SK_ColorWHITE, /*stretch_content_to_fill_bounds=*/false);
+                       SkColors::kWhite,
+                       /*stretch_content_to_fill_bounds=*/false);
 
   viz::CompositorFrame frame;
   // We draw synchronously, so acknowledge a manual BeginFrame.
@@ -252,6 +259,49 @@ void HardwareRendererViz::OnViz::DrawAndSwapOnViz(
   const auto& local_surface_id =
       without_gpu_->SubmitRootCompositorFrame(std::move(frame));
 
+  if (use_new_invalidate_heuristic_) {
+    auto root_surface_id =
+        viz::SurfaceId(without_gpu_->root_frame_sink_id(), local_surface_id);
+
+    auto commit_predicate = base::BindRepeating(
+        [](const viz::BeginFrameId& current_frame_id,
+           const viz::FrameSinkId& root_frame_sink_id,
+           const viz::FrameSinkId& child_frame_sink_id,
+           const viz::SurfaceId& surface_id,
+           const viz::BeginFrameId& frame_id) {
+          // Always commit frame from different begin frame sources, because we
+          // can't order with them.
+          if (frame_id.source_id != current_frame_id.source_id) {
+            // We always should have single source_id except for the manual
+            // acks.
+            DCHECK_EQ(frame_id.source_id, viz::BeginFrameArgs::kManualSourceId);
+            return true;
+          }
+
+          // Commit all frames that are older than current one.
+          if (frame_id.sequence_number < current_frame_id.sequence_number)
+            return true;
+
+          // All clients except root renderer and root surface are frame behind.
+          const bool is_frame_behind =
+              surface_id.frame_sink_id() != root_frame_sink_id &&
+              surface_id.frame_sink_id() != child_frame_sink_id;
+
+          // If this surface is not frame behind, commit it for current frame
+          // too.
+          if (!is_frame_behind &&
+              frame_id.sequence_number == current_frame_id.sequence_number)
+            return true;
+
+          return false;
+        },
+        child_frame->begin_frame_args.frame_id, root_surface_id.frame_sink_id(),
+        child_surface_id_.frame_sink_id());
+
+    GetFrameSinkManager()->surface_manager()->CommitFramesInRangeRecursively(
+        viz::SurfaceRange(root_surface_id), commit_predicate);
+  }
+
   if (root_local_surface_id_ != local_surface_id) {
     root_local_surface_id_ = local_surface_id;
     display_->SetLocalSurfaceId(local_surface_id, device_scale_factor);
@@ -259,7 +309,9 @@ void HardwareRendererViz::OnViz::DrawAndSwapOnViz(
 
   display_->Resize(viewport);
   auto now = base::TimeTicks::Now();
-  display_->DrawAndSwap(now, now);
+  display_->DrawAndSwap({now, now});
+
+  without_gpu_->SetContainedSurfaces(display_->GetContainedSurfaceIds());
 }
 
 void HardwareRendererViz::OnViz::PostDrawOnViz(
@@ -312,7 +364,6 @@ HardwareRendererViz::HardwareRendererViz(
     AwVulkanContextProvider* context_provider)
     : HardwareRenderer(state), output_surface_provider_(context_provider) {
   DCHECK_CALLED_ON_VALID_THREAD(render_thread_checker_);
-  DCHECK(output_surface_provider_.renderer_settings().use_skia_renderer);
 
   VizCompositorThreadRunnerWebView::GetInstance()->ScheduleOnVizAndBlock(
       base::BindOnce(&HardwareRendererViz::InitializeOnViz,
@@ -334,7 +385,7 @@ HardwareRendererViz::~HardwareRendererViz() {
   DCHECK_CALLED_ON_VALID_THREAD(render_thread_checker_);
   output_surface_provider_.shared_context_state()->MakeCurrent(nullptr);
   VizCompositorThreadRunnerWebView::GetInstance()->ScheduleOnVizAndBlock(
-      base::BindOnce([](std::unique_ptr<OnViz>) {}, std::move(on_viz_)));
+      base::DoNothingWithBoundArgs(std::move(on_viz_)));
 }
 
 bool HardwareRendererViz::IsUsingVulkan() const {
@@ -357,8 +408,7 @@ void HardwareRendererViz::DrawAndSwap(const HardwareRendererDrawParams& params,
 
   viz::FrameTimingDetailsMap timing_details;
 
-  gfx::Transform transform(gfx::Transform::kSkipInitialization);
-  transform.matrix().setColMajorf(params.transform);
+  gfx::Transform transform = gfx::Transform::ColMajorF(params.transform);
   transform.Translate(scroll_offset_.x(), scroll_offset_.y());
 
   gfx::Size viewport(params.width, params.height);
@@ -400,7 +450,8 @@ void HardwareRendererViz::DrawAndSwap(const HardwareRendererDrawParams& params,
 
   // ANGLE will restore GL context state for us, so we don't need to call
   // GrContext::resetContext().
-  if (!gl::GLSurfaceEGL::IsANGLEExternalContextAndSurfaceSupported()) {
+  if (!gl::GLSurfaceEGL::GetGLDisplayEGL()
+           ->IsANGLEExternalContextAndSurfaceSupported()) {
     DCHECK(output_surface_provider_.shared_context_state());
     output_surface_provider_.shared_context_state()
         ->PessimisticallyResetGrContext();

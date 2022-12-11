@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,11 +17,13 @@ import androidx.annotation.VisibleForTesting;
 import androidx.core.view.ViewCompat;
 
 import org.chromium.base.Callback;
+import org.chromium.base.ObserverList;
 import org.chromium.base.StrictModeContext;
 import org.chromium.base.jank_tracker.JankTracker;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.omnibox.LocationBarDataProvider;
+import org.chromium.chrome.browser.omnibox.OmniboxFeatures;
 import org.chromium.chrome.browser.omnibox.R;
 import org.chromium.chrome.browser.omnibox.UrlBar.UrlTextChangeListener;
 import org.chromium.chrome.browser.omnibox.UrlBarEditingTextStateProvider;
@@ -33,14 +35,15 @@ import org.chromium.chrome.browser.omnibox.suggestions.base.BaseSuggestionView;
 import org.chromium.chrome.browser.omnibox.suggestions.base.BaseSuggestionViewBinder;
 import org.chromium.chrome.browser.omnibox.suggestions.basic.BasicSuggestionProcessor.BookmarkState;
 import org.chromium.chrome.browser.omnibox.suggestions.basic.SuggestionViewViewBinder;
+import org.chromium.chrome.browser.omnibox.suggestions.carousel.BaseCarouselSuggestionItemViewBuilder;
 import org.chromium.chrome.browser.omnibox.suggestions.carousel.BaseCarouselSuggestionViewBinder;
+import org.chromium.chrome.browser.omnibox.suggestions.dividerline.DividerLineView;
+import org.chromium.chrome.browser.omnibox.suggestions.dividerline.DividerLineViewBinder;
 import org.chromium.chrome.browser.omnibox.suggestions.editurl.EditUrlSuggestionView;
 import org.chromium.chrome.browser.omnibox.suggestions.editurl.EditUrlSuggestionViewBinder;
 import org.chromium.chrome.browser.omnibox.suggestions.entity.EntitySuggestionViewBinder;
 import org.chromium.chrome.browser.omnibox.suggestions.header.HeaderView;
 import org.chromium.chrome.browser.omnibox.suggestions.header.HeaderViewBinder;
-import org.chromium.chrome.browser.omnibox.suggestions.mostvisited.ExploreIconProvider;
-import org.chromium.chrome.browser.omnibox.suggestions.mostvisited.MostVisitedTilesProcessor;
 import org.chromium.chrome.browser.omnibox.suggestions.pedal.PedalSuggestionView;
 import org.chromium.chrome.browser.omnibox.suggestions.pedal.PedalSuggestionViewBinder;
 import org.chromium.chrome.browser.omnibox.suggestions.tail.TailSuggestionView;
@@ -71,7 +74,10 @@ public class AutocompleteCoordinator implements UrlFocusChangeListener, UrlTextC
     private final @NonNull ObservableSupplier<Profile> mProfileSupplier;
     private final @NonNull Callback<Profile> mProfileChangeCallback;
     private final @NonNull AutocompleteMediator mMediator;
+    private final @NonNull Supplier<ModalDialogManager> mModalDialogManagerSupplier;
     private @Nullable OmniboxSuggestionsDropdown mDropdown;
+    private @NonNull ObserverList<OmniboxSuggestionsDropdownScrollListener> mScrollListenerList =
+            new ObserverList<>();
 
     public AutocompleteCoordinator(@NonNull ViewGroup parent,
             @NonNull AutocompleteDelegate delegate,
@@ -85,9 +91,10 @@ public class AutocompleteCoordinator implements UrlFocusChangeListener, UrlTextC
             @NonNull Callback<Tab> bringToForegroundCallback,
             @NonNull Supplier<TabWindowManager> tabWindowManagerSupplier,
             @NonNull BookmarkState bookmarkState, @NonNull JankTracker jankTracker,
-            @NonNull ExploreIconProvider exploreIconProvider,
-            @NonNull OmniboxPedalDelegate omniboxPedalDelegate) {
+            @NonNull OmniboxPedalDelegate omniboxPedalDelegate,
+            @NonNull OmniboxSuggestionsDropdownScrollListener scrollListener) {
         mParent = parent;
+        mModalDialogManagerSupplier = modalDialogManagerSupplier;
         Context context = parent.getContext();
 
         PropertyModel listModel = new PropertyModel(SuggestionListProperties.ALL_KEYS);
@@ -100,11 +107,17 @@ public class AutocompleteCoordinator implements UrlFocusChangeListener, UrlTextC
         mMediator = new AutocompleteMediator(context, delegate, urlBarEditingTextProvider,
                 listModel, new Handler(), modalDialogManagerSupplier, activityTabSupplier,
                 shareDelegateSupplier, locationBarDataProvider, bringToForegroundCallback,
-                tabWindowManagerSupplier, bookmarkState, jankTracker, exploreIconProvider,
-                omniboxPedalDelegate);
+                tabWindowManagerSupplier, bookmarkState, jankTracker, omniboxPedalDelegate);
         mMediator.initDefaultProcessors();
 
-        listModel.set(SuggestionListProperties.OBSERVER, mMediator);
+        mScrollListenerList.addObserver(scrollListener);
+        mScrollListenerList.addObserver(mMediator);
+        listModel.set(SuggestionListProperties.GESTURE_OBSERVER, mMediator);
+        listModel.set(SuggestionListProperties.DROPDOWN_HEIGHT_CHANGE_LISTENER,
+                mMediator::onSuggestionDropdownHeightChanged);
+        listModel.set(SuggestionListProperties.DROPDOWN_SCROLL_LISTENER, this::dropdownScrolled);
+        listModel.set(SuggestionListProperties.DROPDOWN_SCROLL_TO_TOP_LISTENER,
+                this::dropdownOverscrolledToTop);
 
         ViewProvider<SuggestionListViewHolder> viewProvider =
                 createViewProvider(context, listItems);
@@ -147,7 +160,9 @@ public class AutocompleteCoordinator implements UrlFocusChangeListener, UrlTextC
 
                 // Start with visibility GONE to ensure that show() is called.
                 // http://crbug.com/517438
-                dropdown.getViewGroup().setVisibility(View.GONE);
+                if (!OmniboxFeatures.shouldRemoveExcessiveRecycledViewClearCalls()) {
+                    dropdown.getViewGroup().setVisibility(View.GONE);
+                }
                 dropdown.getViewGroup().setClipToPadding(false);
 
                 OmniboxSuggestionsDropdownAdapter adapter =
@@ -195,7 +210,7 @@ public class AutocompleteCoordinator implements UrlFocusChangeListener, UrlTextC
 
                 adapter.registerType(
                         OmniboxSuggestionUiType.TILE_NAVSUGGEST,
-                        MostVisitedTilesProcessor::createView,
+                        BaseCarouselSuggestionItemViewBuilder::createView,
                         BaseCarouselSuggestionViewBinder::bind);
 
                 adapter.registerType(
@@ -204,10 +219,15 @@ public class AutocompleteCoordinator implements UrlFocusChangeListener, UrlTextC
                         HeaderViewBinder::bind);
 
                 adapter.registerType(
-                        OmniboxSuggestionUiType.PEDAL_SUGGESTION,
-                        parent -> new PedalSuggestionView<View>(
-                                parent.getContext(), R.layout.omnibox_basic_suggestion),
-                        new PedalSuggestionViewBinder<View>(SuggestionViewViewBinder::bind));
+                    OmniboxSuggestionUiType.PEDAL_SUGGESTION,
+                    parent -> new PedalSuggestionView<View>(
+                            parent.getContext(), R.layout.omnibox_basic_suggestion),
+                    new PedalSuggestionViewBinder<View>(SuggestionViewViewBinder::bind));
+
+                adapter.registerType(
+                    OmniboxSuggestionUiType.DIVIDER_LINE,
+                    parent -> new DividerLineView(parent.getContext()),
+                    DividerLineViewBinder::bind);
                 // clang-format on
 
                 ViewGroup container = (ViewGroup) ((ViewStub) mParent.getRootView().findViewById(
@@ -331,14 +351,19 @@ public class AutocompleteCoordinator implements UrlFocusChangeListener, UrlTextC
      * @return Whether the key event was handled.
      */
     public boolean handleKeyEvent(int keyCode, KeyEvent event) {
-        boolean isShowingList = mDropdown != null && mDropdown.getViewGroup().isShown();
+        // Note: this method receives key events for key presses and key releases.
+        // Make sure we focus only on key press events alone.
+        if (!KeyNavigationUtil.isActionDown(event)) {
+            return false;
+        }
 
+        boolean isShowingList = mDropdown != null && mDropdown.getViewGroup().isShown();
         boolean isAnyDirection = KeyNavigationUtil.isGoAnyDirection(event);
+
         if (isShowingList && mMediator.getSuggestionCount() > 0 && isAnyDirection) {
             mMediator.allowPendingItemSelection();
         }
-        boolean isValidListKey = isAnyDirection || KeyNavigationUtil.isEnter(event);
-        if (isShowingList && isValidListKey && mDropdown.getViewGroup().onKeyDown(keyCode, event)) {
+        if (isShowingList && mDropdown.getViewGroup().onKeyDown(keyCode, event)) {
             return true;
         }
         if (KeyNavigationUtil.isEnter(event) && mParent.getVisibility() == View.VISIBLE) {
@@ -391,7 +416,7 @@ public class AutocompleteCoordinator implements UrlFocusChangeListener, UrlTextC
      * Sends a zero suggest request to the server in order to pre-populate the result cache.
      */
     public void prefetchZeroSuggestResults() {
-        AutocompleteControllerJni.get().prefetchZeroSuggestResults();
+        mMediator.startPrefetch();
     }
 
     /** @return Suggestions Dropdown view, showing the list of suggestions. */
@@ -410,5 +435,35 @@ public class AutocompleteCoordinator implements UrlFocusChangeListener, UrlTextC
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     public ModelList getSuggestionModelListForTest() {
         return mMediator.getSuggestionModelListForTest();
+    }
+
+    @VisibleForTesting
+    public @NonNull ModalDialogManager getModalDialogManagerForTest() {
+        assert mModalDialogManagerSupplier.hasValue();
+        return mModalDialogManagerSupplier.get();
+    }
+
+    @VisibleForTesting
+    public void stopAutocompleteForTest(boolean clearResults) {
+        mMediator.stopAutocomplete(clearResults);
+    }
+
+    /**
+     * Notify the {@link OmniboxSuggestionsDropdownScrollListener} that the dropdown is scrolled.
+     */
+    public void dropdownScrolled() {
+        for (OmniboxSuggestionsDropdownScrollListener listener : mScrollListenerList) {
+            listener.onSuggestionDropdownScroll();
+        }
+    }
+
+    /**
+     * Notify the {@link OmniboxSuggestionsDropdownScrollListener} that the dropdown is scrolled to
+     * the top.
+     */
+    public void dropdownOverscrolledToTop() {
+        for (OmniboxSuggestionsDropdownScrollListener listener : mScrollListenerList) {
+            listener.onSuggestionDropdownOverscrolledToTop();
+        }
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,18 @@
 #define CHROME_BROWSER_EXTENSIONS_API_WEB_AUTHENTICATION_PROXY_WEB_AUTHENTICATION_PROXY_SERVICE_H_
 
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
 #include "base/scoped_observation.h"
 #include "base/sequence_checker.h"
+#include "chrome/browser/profiles/profile_keyed_service_factory.h"
 #include "chrome/common/extensions/api/web_authentication_proxy.h"
-#include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/web_authentication_request_proxy.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "extensions/common/extension.h"
+#include "services/data_decoder/public/cpp/data_decoder.h"
 
 namespace content {
 class BrowserContext;
@@ -33,6 +35,8 @@ class WebAuthenticationProxyService
       public KeyedService,
       public ExtensionRegistryObserver {
  public:
+  using RespondCallback = base::OnceCallback<void(absl::optional<std::string>)>;
+
   // Returns the extension registered as the request proxy, or `nullptr` if none
   // is active.
   const Extension* GetActiveRequestProxy();
@@ -45,15 +49,23 @@ class WebAuthenticationProxyService
   // Unregisters the currently active request proxy extension, if any.
   void ClearActiveRequestProxy();
 
-  // Injects the result for the
-  // `events::WEB_AUTHENTICATION_PROXY_CREATE_REQUEST` with `EventId` matching
-  // the one in `details`.
+  // Injects the result for the `onCreateRequest` extension API event
+  // with `EventId` matching the one in `details`.
   //
-  // Returns whether completing the request succeeded. If it didn't, `error_out`
-  // contains an error message.
-  bool CompleteCreateRequest(
+  // On completion, `callback` is invoked with an error or `absl::nullopt` on
+  // success.
+  void CompleteCreateRequest(
       const api::web_authentication_proxy::CreateResponseDetails& details,
-      std::string* error_out);
+      RespondCallback callback);
+
+  // Injects the result for the `onGetRequest` extension API event with
+  // `EventId` matching the one in `details`.
+  //
+  // On completion, `callback` is invoked with an error or `absl::nullopt` on
+  // success.
+  void CompleteGetRequest(
+      const api::web_authentication_proxy::GetResponseDetails& details,
+      RespondCallback callback);
 
   // Injects the result for the
   // `events::WEB_AUTHENTICATION_PROXY_ON_ISUVPAA_REQUEST` event with
@@ -73,12 +85,23 @@ class WebAuthenticationProxyService
 
   void CancelPendingCallbacks();
   RequestId NewRequestId();
+  void OnParseCreateResponse(
+      RespondCallback respondCallback,
+      RequestId request_id,
+      data_decoder::DataDecoder::ValueOrError value_or_error);
+  void OnParseGetResponse(
+      RespondCallback respondCallback,
+      RequestId request_id,
+      data_decoder::DataDecoder::ValueOrError value_or_error);
 
   // content::WebAuthenticationRequestProxy:
   bool IsActive() override;
   RequestId SignalCreateRequest(
       const blink::mojom::PublicKeyCredentialCreationOptionsPtr& options,
       CreateCallback callback) override;
+  RequestId SignalGetRequest(
+      const blink::mojom::PublicKeyCredentialRequestOptionsPtr& options,
+      GetCallback callback) override;
   RequestId SignalIsUvpaaRequest(IsUvpaaCallback callback) override;
   void CancelRequest(RequestId request_id) override;
 
@@ -100,14 +123,16 @@ class WebAuthenticationProxyService
 
   std::map<RequestId, IsUvpaaCallback> pending_is_uvpaa_callbacks_;
   std::map<RequestId, CreateCallback> pending_create_callbacks_;
+  std::map<RequestId, GetCallback> pending_get_callbacks_;
 
   SEQUENCE_CHECKER(sequence_checker_);
+
+  base::WeakPtrFactory<WebAuthenticationProxyService> weak_ptr_factory_{this};
 };
 
 // WebAuthenticationProxyServiceFactory creates instances of
 // WebAuthenticationProxyService for a given BrowserContext.
-class WebAuthenticationProxyServiceFactory
-    : public BrowserContextKeyedServiceFactory {
+class WebAuthenticationProxyServiceFactory : public ProfileKeyedServiceFactory {
  public:
   static WebAuthenticationProxyServiceFactory* GetInstance();
 
@@ -122,8 +147,6 @@ class WebAuthenticationProxyServiceFactory
 
   // BrowserContextKeyedServiceFactory:
   KeyedService* BuildServiceInstanceFor(
-      content::BrowserContext* context) const override;
-  content::BrowserContext* GetBrowserContextToUse(
       content::BrowserContext* context) const override;
 };
 

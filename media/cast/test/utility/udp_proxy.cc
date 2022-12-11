@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,11 @@
 #include "base/message_loop/message_pump_type.h"
 #include "base/rand_util.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_tick_clock.h"
+#include "base/time/time.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/log/net_log_source.h"
@@ -747,10 +748,12 @@ class UDPProxyImpl final : public UDPProxy {
         std::make_unique<net::UDPServerSocket>(net_log, net::NetLogSource());
     BuildPipe(&to_dest_pipe_, new PacketSender(this, &destination_));
     BuildPipe(&from_dest_pipe_, new PacketSender(this, &return_address_));
-    to_dest_pipe_->InitOnIOThread(base::ThreadTaskRunnerHandle::Get(),
-                                  base::DefaultTickClock::GetInstance());
-    from_dest_pipe_->InitOnIOThread(base::ThreadTaskRunnerHandle::Get(),
-                                    base::DefaultTickClock::GetInstance());
+    to_dest_pipe_->InitOnIOThread(
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
+        base::DefaultTickClock::GetInstance());
+    from_dest_pipe_->InitOnIOThread(
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
+        base::DefaultTickClock::GetInstance());
 
     VLOG(0) << "From:" << local_port_.ToString();
     if (!destination_is_mutable_)

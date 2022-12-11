@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,8 +47,7 @@ class MetricsServiceUserDemographicsBrowserTest
       // Enable UMA and reporting of the synced user's birth year and gender.
       scoped_feature_list_.InitWithFeatures(
           // enabled_features =
-          {internal::kMetricsReportingFeature,
-           DemographicMetricsProvider::kDemographicMetricsReporting},
+          {internal::kMetricsReportingFeature, kDemographicMetricsReporting},
           // disabled_features =
           {});
     } else {
@@ -56,7 +55,7 @@ class MetricsServiceUserDemographicsBrowserTest
           // enabled_features =
           {internal::kMetricsReportingFeature},
           // disabled_features =
-          {DemographicMetricsProvider::kDemographicMetricsReporting});
+          {kDemographicMetricsReporting});
     }
   }
 
@@ -77,6 +76,8 @@ class MetricsServiceUserDemographicsBrowserTest
         &metrics_consent_);
     SyncTest::SetUp();
   }
+
+  PrefService* local_state() { return g_browser_process->local_state(); }
 
   // Forces a log record to be generated. Returns a copy of the record on
   // success; otherwise, returns nullptr.
@@ -119,7 +120,7 @@ IN_PROC_BROWSER_TEST_P(MetricsServiceUserDemographicsBrowserTest,
 
   // TODO(crbug/1076461): Try to replace the below set-up code with functions
   // from SyncTest.
-  Profile* test_profile = ProfileManager::GetActiveUserProfile();
+  Profile* test_profile = ProfileManager::GetLastUsedProfileIfLoaded();
 
   // Enable sync for the test profile.
   std::unique_ptr<SyncServiceImplHarness> harness =
@@ -137,9 +138,8 @@ IN_PROC_BROWSER_TEST_P(MetricsServiceUserDemographicsBrowserTest,
 
   // Check log content and the histogram.
   if (param.expect_reported_demographics) {
-    EXPECT_EQ(
-        test::GetNoisedBirthYear(*test_profile->GetPrefs(), test_birth_year),
-        uma_proto->user_demographics().birth_year());
+    EXPECT_EQ(test::GetNoisedBirthYear(local_state(), test_birth_year),
+              uma_proto->user_demographics().birth_year());
     EXPECT_EQ(test_gender, uma_proto->user_demographics().gender());
     histogram.ExpectUniqueSample("UMA.UserDemographics.Status",
                                  UserDemographicsStatus::kSuccess, 1);

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,16 @@
 #include <string>
 
 #include "base/callback_forward.h"
-#include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
+#include "chrome/browser/ash/login/oobe_quick_start/target_device_bootstrap_controller.h"
 #include "chrome/browser/ash/login/screens/base_screen.h"
-#include "chrome/browser/ui/webui/chromeos/login/quick_start_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/quick_start_screen_handler.h"
 
 namespace ash {
 
-class QuickStartScreen : public BaseScreen {
+class QuickStartScreen
+    : public BaseScreen,
+      public quick_start::TargetDeviceBootstrapController::Observer {
  public:
   using TView = QuickStartView;
 
@@ -22,7 +25,8 @@ class QuickStartScreen : public BaseScreen {
 
   using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
 
-  QuickStartScreen(TView* view, const ScreenExitCallback& exit_callback);
+  QuickStartScreen(base::WeakPtr<TView> view,
+                   const ScreenExitCallback& exit_callback);
 
   QuickStartScreen(const QuickStartScreen&) = delete;
   QuickStartScreen& operator=(const QuickStartScreen&) = delete;
@@ -31,28 +35,27 @@ class QuickStartScreen : public BaseScreen {
 
   static std::string GetResultString(Result result);
 
-  // This method is called when the view is being destroyed.
-  void OnViewDestroyed(TView* view);
-
  private:
   // BaseScreen:
-  bool MaybeSkip(WizardContext* context) override;
+  bool MaybeSkip(WizardContext& context) override;
   void ShowImpl() override;
   void HideImpl() override;
-  void OnUserAction(const std::string& action_id) override;
+  void OnUserAction(const base::Value::List& args) override;
 
+  // quick_start::TargetDeviceBootstrapController::Observer:
+  void OnStatusChanged(
+      const quick_start::TargetDeviceBootstrapController::Status& status) final;
+
+  void UnbindFromBootstrapController();
   void SendRandomFiguresForTesting() const;
 
-  base::raw_ptr<TView> view_;
+  base::WeakPtr<TView> view_;
   ScreenExitCallback exit_callback_;
+
+  base::WeakPtr<quick_start::TargetDeviceBootstrapController>
+      bootstrap_controller_;
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::QuickStartScreen;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_SCREENS_QUICK_START_SCREEN_H_

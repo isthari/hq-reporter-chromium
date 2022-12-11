@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -76,19 +76,19 @@ SE_OBJECT_TYPE ConvertObjectType(SecurityObjectType object_type) {
 absl::optional<DWORD> GetIntegrityLevelValue(IntegrityLevel integrity_level) {
   switch (integrity_level) {
     case INTEGRITY_LEVEL_SYSTEM:
-      return SECURITY_MANDATORY_SYSTEM_RID;
+      return DWORD{SECURITY_MANDATORY_SYSTEM_RID};
     case INTEGRITY_LEVEL_HIGH:
-      return SECURITY_MANDATORY_HIGH_RID;
+      return DWORD{SECURITY_MANDATORY_HIGH_RID};
     case INTEGRITY_LEVEL_MEDIUM:
-      return SECURITY_MANDATORY_MEDIUM_RID;
+      return DWORD{SECURITY_MANDATORY_MEDIUM_RID};
     case INTEGRITY_LEVEL_MEDIUM_LOW:
-      return SECURITY_MANDATORY_MEDIUM_RID - 2048;
+      return DWORD{SECURITY_MANDATORY_MEDIUM_RID - 2048};
     case INTEGRITY_LEVEL_LOW:
-      return SECURITY_MANDATORY_LOW_RID;
+      return DWORD{SECURITY_MANDATORY_LOW_RID};
     case INTEGRITY_LEVEL_BELOW_LOW:
-      return SECURITY_MANDATORY_LOW_RID - 2048;
+      return DWORD{SECURITY_MANDATORY_LOW_RID - 2048};
     case INTEGRITY_LEVEL_UNTRUSTED:
-      return SECURITY_MANDATORY_UNTRUSTED_RID;
+      return DWORD{SECURITY_MANDATORY_UNTRUSTED_RID};
     case INTEGRITY_LEVEL_LAST:
       return absl::nullopt;
   }

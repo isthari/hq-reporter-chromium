@@ -1,11 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROMECAST_BROWSER_CAST_WEB_CONTENTS_BROWSERTEST_H_
 #define CHROMECAST_BROWSER_CAST_WEB_CONTENTS_BROWSERTEST_H_
 
-#include <algorithm>
 #include <memory>
 #include <string>
 
@@ -15,10 +14,10 @@
 #include "base/containers/flat_set.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
+#include "base/ranges/algorithm.h"
 #include "base/run_loop.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -474,10 +473,8 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest, ErrorLoadFailSubFrames) {
 
   ASSERT_EQ(2, (int)render_frames_.size());
   auto it =
-      std::find_if(render_frames_.begin(), render_frames_.end(),
-                   [this](content::RenderFrameHost* frame) {
-                     return frame->GetParent() == web_contents_->GetMainFrame();
-                   });
+      base::ranges::find(render_frames_, web_contents_->GetPrimaryMainFrame(),
+                         &content::RenderFrameHost::GetParent);
   ASSERT_NE(render_frames_.end(), it);
   content::RenderFrameHost* sub_frame = *it;
   ASSERT_NE(nullptr, sub_frame);
@@ -490,8 +487,9 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest, ErrorLoadFailSubFrames) {
   EXPECT_CALL(mock_cast_wc_observer_, PageStateChanged(_)).Times(0);
   EXPECT_CALL(mock_cast_wc_observer_, PageStopped(_, _)).Times(0);
   cast_web_contents_->DidFailLoad(
-      web_contents_->GetMainFrame(),
-      web_contents_->GetMainFrame()->GetLastCommittedURL(), net::ERR_ABORTED);
+      web_contents_->GetPrimaryMainFrame(),
+      web_contents_->GetPrimaryMainFrame()->GetLastCommittedURL(),
+      net::ERR_ABORTED);
 
   // ===========================================================================
   // Test: If main frame fails to load, page should enter ERROR state.
@@ -501,8 +499,9 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest, ErrorLoadFailSubFrames) {
               PageStopped(PageState::ERROR, net::ERR_FAILED))
       .WillOnce(InvokeWithoutArgs([&]() { QuitRunLoop(); }));
   cast_web_contents_->DidFailLoad(
-      web_contents_->GetMainFrame(),
-      web_contents_->GetMainFrame()->GetLastCommittedURL(), net::ERR_FAILED);
+      web_contents_->GetPrimaryMainFrame(),
+      web_contents_->GetPrimaryMainFrame()->GetLastCommittedURL(),
+      net::ERR_FAILED);
   run_loop_->Run();
 }
 
@@ -801,7 +800,7 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest, PostMessagePassMessagePort) {
 
   TestMessageReceiver message_receiver;
   platform_port.SetReceiver(&message_receiver,
-                            base::ThreadTaskRunnerHandle::Get());
+                            base::SingleThreadTaskRunner::GetCurrentDefault());
 
   // Make sure we could send a MessagePort (ScopedMessagePipeHandle) to the
   // page.
@@ -868,7 +867,7 @@ IN_PROC_BROWSER_TEST_F(CastWebContentsBrowserTest,
   // Bind platform side port
   TestMessageReceiver message_receiver;
   platform_port.SetReceiver(&message_receiver,
-                            base::ThreadTaskRunnerHandle::Get());
+                            base::SingleThreadTaskRunner::GetCurrentDefault());
 
   // Make sure we could post a MessagePort (ScopedMessagePipeHandle) to
   // the page.

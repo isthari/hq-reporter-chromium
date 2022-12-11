@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,10 +31,9 @@ void SearchResultPageDialogController::Show(
   dialog_->widget()->Show();
 }
 
-void SearchResultPageDialogController::SetEnabled(bool enabled) {
+void SearchResultPageDialogController::Reset(bool enabled) {
   enabled_ = enabled;
-  if (!enabled)
-    dialog_.reset();
+  dialog_.reset();
 }
 
 void SearchResultPageDialogController::OnAnchoredDialogClosed() {

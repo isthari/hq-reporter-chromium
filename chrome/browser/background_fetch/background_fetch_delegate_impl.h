@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,10 +67,6 @@ class BackgroundFetchDelegateImpl
   void RenameItem(const offline_items_collection::ContentId& id,
                   const std::string& name,
                   RenameCallback callback) override;
-  void ChangeSchedule(
-      const offline_items_collection::ContentId& id,
-      absl::optional<offline_items_collection::OfflineItemSchedule> schedule)
-      override;
 
  protected:
   // BackgroundFetchDelegateBase:

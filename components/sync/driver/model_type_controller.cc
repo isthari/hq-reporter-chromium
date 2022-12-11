@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,12 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/signin/public/identity_manager/account_info.h"
-#include "components/sync/base/data_type_histogram.h"
 #include "components/sync/driver/configure_context.h"
 #include "components/sync/engine/data_type_activation_response.h"
 #include "components/sync/model/data_type_activation_request.h"
-#include "components/sync/model/data_type_error_handler_impl.h"
 #include "components/sync/model/type_entities_count.h"
 
 namespace syncer {
@@ -94,7 +93,7 @@ void ModelTypeController::LoadModels(
 
   DataTypeActivationRequest request;
   request.error_handler = base::BindRepeating(
-      &ReportErrorOnModelThread, base::SequencedTaskRunnerHandle::Get(),
+      &ReportErrorOnModelThread, base::SequencedTaskRunner::GetCurrentDefault(),
       base::BindRepeating(&ModelTypeController::ReportModelError,
                           base::AsWeakPtr(this), SyncError::DATATYPE_ERROR));
   request.authenticated_account_id = configure_context.authenticated_account_id;

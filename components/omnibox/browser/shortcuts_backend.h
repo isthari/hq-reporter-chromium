@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -151,7 +151,7 @@ class ShortcutsBackend : public RefcountedKeyedService,
   // Deletes all of the shortcuts.
   bool DeleteAllShortcuts();
 
-  raw_ptr<TemplateURLService> template_url_service_;
+  raw_ptr<TemplateURLService, DanglingUntriaged> template_url_service_;
   std::unique_ptr<SearchTermsData> search_terms_data_;
 
   CurrentState current_state_;

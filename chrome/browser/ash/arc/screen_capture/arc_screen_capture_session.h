@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -99,6 +99,7 @@ class ArcScreenCaptureSession : public mojom::ScreenCaptureSession,
   void OnDesktopCaptured(std::unique_ptr<viz::CopyOutputResult> result);
   // Callback for completion of GL commands.
   void QueryCompleted(GLuint query_id,
+                      std::unique_ptr<DesktopTexture> desktop_texture,
                       std::unique_ptr<PendingBuffer> pending_buffer);
   // Callback for a user clicking Stop on the notification for screen capture.
   void NotificationStop();

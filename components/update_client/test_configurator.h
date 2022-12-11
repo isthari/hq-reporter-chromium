@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,10 @@
 #include <vector>
 
 #include "base/containers/flat_map.h"
+#include "base/files/scoped_temp_dir.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
+#include "components/update_client/buildflags.h"
 #include "components/update_client/configurator.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -103,17 +105,22 @@ class TestConfigurator : public Configurator {
       const override;
   absl::optional<bool> IsMachineExternallyManaged() const override;
   UpdaterStateProvider GetUpdaterStateProvider() const override;
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+  absl::optional<base::FilePath> GetCrxCachePath() const override;
+#endif
 
   void SetOnDemandTime(int seconds);
   void SetInitialDelay(double seconds);
   void SetDownloadPreference(const std::string& download_preference);
   void SetEnabledCupSigning(bool use_cup_signing);
   void SetUpdateCheckUrl(const GURL& url);
+  void SetUpdateCheckUrls(const std::vector<GURL>& urls);
   void SetPingUrl(const GURL& url);
   void SetCrxDownloaderFactory(
       scoped_refptr<CrxDownloaderFactory> crx_downloader_factory);
   void SetIsMachineExternallyManaged(
       absl::optional<bool> is_machine_externally_managed);
+  void SetUpdaterStateProvider(UpdaterStateProvider update_state_provider);
   network::TestURLLoaderFactory* test_url_loader_factory() {
     return &test_url_loader_factory_;
   }
@@ -129,7 +136,7 @@ class TestConfigurator : public Configurator {
   std::string download_preference_;
   bool enabled_cup_signing_;
   raw_ptr<PrefService> pref_service_;  // Not owned by this class.
-  GURL update_check_url_;
+  std::vector<GURL> update_check_urls_;
   GURL ping_url_;
 
   scoped_refptr<update_client::UnzipChromiumFactory> unzip_factory_;
@@ -139,8 +146,9 @@ class TestConfigurator : public Configurator {
   network::TestURLLoaderFactory test_url_loader_factory_;
   scoped_refptr<NetworkFetcherFactory> network_fetcher_factory_;
   scoped_refptr<CrxDownloaderFactory> crx_downloader_factory_;
-
+  UpdaterStateProvider updater_state_provider_;
   absl::optional<bool> is_machine_externally_managed_;
+  base::ScopedTempDir crx_cache_root_temp_dir_;
 };
 
 }  // namespace update_client

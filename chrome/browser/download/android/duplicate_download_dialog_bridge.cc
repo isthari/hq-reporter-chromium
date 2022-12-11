@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,7 +53,7 @@ void DuplicateDownloadDialogBridge::Show(
   base::android::ScopedJavaLocalRef<jobject> j_otr_profile_id;
   ui::WindowAndroid* window_android = web_contents->GetTopLevelNativeWindow();
   if (!window_android) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), false));
     return;
   }

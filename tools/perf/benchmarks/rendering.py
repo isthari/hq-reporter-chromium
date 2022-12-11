@@ -1,4 +1,4 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 import logging
@@ -18,21 +18,21 @@ RENDERING_BENCHMARK_UMA = [
     'Compositing.Display.DrawToSwapUs',
     'CompositorLatency.TotalLatency',
     'CompositorLatency.Type',
-    'Event.Latency.ScrollBegin.Touch.TimeToScrollUpdateSwapBegin4',
-    'Event.Latency.ScrollUpdate.Touch.TimeToScrollUpdateSwapBegin4',
-    'Event.Latency.ScrollBegin.Wheel.TimeToScrollUpdateSwapBegin4',
-    'Event.Latency.ScrollUpdate.Wheel.TimeToScrollUpdateSwapBegin4',
+    'EventLatency.FirstGestureScrollUpdate.Touchscreen.TotalLatency',
+    'EventLatency.FirstGestureScrollUpdate.Wheel.TotalLatency',
+    'EventLatency.GestureScrollUpdate.Touchscreen.TotalLatency',
+    'EventLatency.GestureScrollUpdate.Wheel.TotalLatency',
+    'Graphics.Smoothness.Checkerboarding.AllAnimations',
+    'Graphics.Smoothness.Checkerboarding.AllInteractions',
+    'Graphics.Smoothness.Checkerboarding.AllSequences',
     'Graphics.Smoothness.Checkerboarding.TouchScroll',
     'Graphics.Smoothness.Checkerboarding.WheelScroll',
     'Graphics.Smoothness.Jank.AllAnimations',
     'Graphics.Smoothness.Jank.AllInteractions',
     'Graphics.Smoothness.Jank.AllSequences',
-    'Graphics.Smoothness.PercentDroppedFrames.AllAnimations',
-    'Graphics.Smoothness.PercentDroppedFrames.AllInteractions',
-    'Graphics.Smoothness.PercentDroppedFrames.AllSequences',
-    'Graphics.Smoothness.PercentDroppedFrames2.AllAnimations',
-    'Graphics.Smoothness.PercentDroppedFrames2.AllInteractions',
-    'Graphics.Smoothness.PercentDroppedFrames2.AllSequences',
+    'Graphics.Smoothness.PercentDroppedFrames3.AllAnimations',
+    'Graphics.Smoothness.PercentDroppedFrames3.AllInteractions',
+    'Graphics.Smoothness.PercentDroppedFrames3.AllSequences',
     'Memory.GPU.PeakMemoryUsage2.Scroll',
     'Memory.GPU.PeakMemoryUsage2.PageLoad',
 ]
@@ -101,10 +101,10 @@ class _RenderingBenchmark(perf_benchmark.PerfBenchmark):
     return options
 
 
-@benchmark.Info(emails=['behdadb@chromium.org', 'jonross@chromium.org',
-                        'sadrul@chromium.org'],
-                documentation_url='https://bit.ly/rendering-benchmarks',
-                component='Internals>GPU>Metrics')
+@benchmark.Info(
+    emails=['jonross@chromium.org', 'chrome-gpu-metrics@google.com'],
+    documentation_url='https://bit.ly/rendering-benchmarks',
+    component='Internals>GPU>Metrics')
 class RenderingDesktop(_RenderingBenchmark):
   # TODO(rmhasan): Remove the SUPPORTED_PLATFORMS lists.
   # SUPPORTED_PLATFORMS is deprecated, please put system specifier tags
@@ -129,10 +129,30 @@ class RenderingDesktop(_RenderingBenchmark):
           '--use-gpu-high-thread-priority-for-perf-tests')
 
 
-@benchmark.Info(emails=['behdadb@chromium.org', 'jonross@chromium.org',
-                        'sadrul@chromium.org'],
-                documentation_url='https://bit.ly/rendering-benchmarks',
-                component='Internals>GPU>Metrics')
+@benchmark.Info(
+    emails=['jonross@chromium.org', 'chrome-gpu-metrics@google.com'],
+    documentation_url='https://bit.ly/rendering-benchmarks',
+    component='Internals>GPU>Metrics')
+class RenderingDesktopNoTracing(RenderingDesktop):
+  @classmethod
+  def Name(cls):
+    return 'rendering.desktop.notracing'
+
+  def CreateStorySet(self, options):
+    return page_sets.RenderingStorySet(platform=self.PLATFORM_NAME,
+                                       disable_tracing=True)
+
+  def CreateCoreTimelineBasedMeasurementOptions(self):
+    options = timeline_based_measurement.Options()
+    options.config.enable_chrome_trace = False
+    options.config.enable_platform_display_trace = False
+    return options
+
+
+@benchmark.Info(
+    emails=['jonross@chromium.org', 'chrome-gpu-metrics@google.com'],
+    documentation_url='https://bit.ly/rendering-benchmarks',
+    component='Internals>GPU>Metrics')
 class RenderingMobile(_RenderingBenchmark):
   # TODO(rmhasan): Remove the SUPPORTED_PLATFORMS lists.
   # SUPPORTED_PLATFORMS is deprecated, please put system specifier tags
@@ -167,4 +187,24 @@ class RenderingMobile(_RenderingBenchmark):
     options = super(
         RenderingMobile, self).CreateCoreTimelineBasedMeasurementOptions()
     options.config.enable_platform_display_trace = True
+    return options
+
+
+@benchmark.Info(
+    emails=['jonross@chromium.org', 'chrome-gpu-metrics@google.com'],
+    documentation_url='https://bit.ly/rendering-benchmarks',
+    component='Internals>GPU>Metrics')
+class RenderingMobileNoTracing(RenderingMobile):
+  @classmethod
+  def Name(cls):
+    return 'rendering.mobile.notracing'
+
+  def CreateStorySet(self, options):
+    return page_sets.RenderingStorySet(platform=self.PLATFORM_NAME,
+                                       disable_tracing=True)
+
+  def CreateCoreTimelineBasedMeasurementOptions(self):
+    options = timeline_based_measurement.Options()
+    options.config.enable_chrome_trace = False
+    options.config.enable_platform_display_trace = False
     return options

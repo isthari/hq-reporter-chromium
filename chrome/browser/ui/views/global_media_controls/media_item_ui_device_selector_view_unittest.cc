@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "chrome/browser/ui/global_media_controls/media_notification_device_provider.h"
 #include "chrome/browser/ui/global_media_controls/media_notification_service.h"
 #include "chrome/browser/ui/media_router/cast_dialog_model.h"
+#include "chrome/browser/ui/media_router/media_route_starter.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/views/chrome_views_test_base.h"
 #include "components/media_router/browser/presentation/start_presentation_context.h"
@@ -43,6 +44,13 @@ constexpr char kItemId[] = "item_id";
 constexpr char kSinkId[] = "sink_id";
 constexpr char kSinkFriendlyName[] = "Nest Hub";
 constexpr char16_t kSinkFriendlyName16[] = u"Nest Hub";
+
+ui::MouseEvent pressed_event(ui::ET_MOUSE_PRESSED,
+                             gfx::Point(),
+                             gfx::Point(),
+                             ui::EventTimeForNow(),
+                             ui::EF_LEFT_MOUSE_BUTTON,
+                             ui::EF_LEFT_MOUSE_BUTTON);
 
 UIMediaSink CreateMediaSink(
     UIMediaSinkState state = UIMediaSinkState::AVAILABLE) {
@@ -103,6 +111,10 @@ class MockMediaItemUIDeviceSelectorDelegate
               OnAudioSinkChosen,
               (const std::string& item_id, const std::string& sink_id),
               (override));
+  MOCK_METHOD(bool,
+              OnMediaRemotingRequested,
+              (const std::string& item_id),
+              (override));
 
   base::CallbackListSubscription RegisterAudioOutputDeviceDescriptionsCallback(
       MediaNotificationDeviceProvider::GetOutputDevicesCallbackList::
@@ -142,9 +154,8 @@ class MockCastDialogController : public CastDialogController {
                     media_router::MediaCastMode cast_mode));
   MOCK_METHOD1(StopCasting, void(const std::string& route_id));
   MOCK_METHOD1(ClearIssue, void(const media_router::Issue::Id& issue_id));
-  MOCK_METHOD0(GetInitiator, content::WebContents*());
-  MOCK_METHOD0(TakeStartPresentationContext,
-               std::unique_ptr<media_router::StartPresentationContext>());
+  MOCK_METHOD0(TakeMediaRouteStarter,
+               std::unique_ptr<media_router::MediaRouteStarter>());
 };
 
 }  // anonymous namespace
@@ -175,8 +186,11 @@ class MediaItemUIDeviceSelectorViewTest : public ChromeViewsTestBase {
 
   void SimulateButtonClick(views::View* view) {
     views::test::ButtonTestApi(static_cast<views::Button*>(view))
-        .NotifyClick(ui::MouseEvent(ui::ET_MOUSE_PRESSED, gfx::Point(),
-                                    gfx::Point(), ui::EventTimeForNow(), 0, 0));
+        .NotifyClick(pressed_event);
+  }
+
+  void SimulateMouseClick(views::View* view) {
+    view->OnMousePressed(pressed_event);
   }
 
   std::string EntryLabelText(views::View* entry_view) {
@@ -262,9 +276,22 @@ TEST_F(MediaItemUIDeviceSelectorViewTest, ExpandButtonOpensEntryContainer) {
   AddAudioDevices(delegate);
   view_ = CreateDeviceSelectorView(&delegate);
 
+  // Clicking on the dropdown button should expand the device list.
   ASSERT_TRUE(view_->GetDropdownButtonForTesting());
   EXPECT_FALSE(view_->GetDeviceEntryViewVisibilityForTesting());
   SimulateButtonClick(view_->GetDropdownButtonForTesting());
+  EXPECT_TRUE(view_->GetDeviceEntryViewVisibilityForTesting());
+}
+
+TEST_F(MediaItemUIDeviceSelectorViewTest, ExpandLabelOpensEntryContainer) {
+  NiceMock<MockMediaItemUIDeviceSelectorDelegate> delegate;
+  AddAudioDevices(delegate);
+  view_ = CreateDeviceSelectorView(&delegate);
+
+  // Clicking on the device selector view should expand the device list.
+  ASSERT_TRUE(view_.get());
+  EXPECT_FALSE(view_->GetDeviceEntryViewVisibilityForTesting());
+  SimulateMouseClick(view_.get());
   EXPECT_TRUE(view_->GetDeviceEntryViewVisibilityForTesting());
 }
 
@@ -303,7 +330,8 @@ TEST_F(MediaItemUIDeviceSelectorViewTest,
   }
 }
 
-TEST_F(MediaItemUIDeviceSelectorViewTest, CastDeviceButtonClickStartsCasting) {
+TEST_F(MediaItemUIDeviceSelectorViewTest,
+       CastDeviceButtonClickStartsCasting_Presentation) {
   NiceMock<MockMediaItemUIDeviceSelectorDelegate> delegate;
   auto cast_controller = std::make_unique<NiceMock<MockCastDialogController>>();
   auto* cast_controller_ptr = cast_controller.get();
@@ -322,11 +350,16 @@ TEST_F(MediaItemUIDeviceSelectorViewTest, CastDeviceButtonClickStartsCasting) {
   auto cast_connected_sink = CreateMediaSink(UIMediaSinkState::CONNECTED);
   cast_connected_sink.provider =
       media_router::mojom::MediaRouteProviderId::CAST;
-  view_->OnModelUpdated(
-      CreateModelWithSinks({CreateMediaSink(), cast_connected_sink}));
+  auto cast_remote_playback_sink = CreateMediaSink();
+  cast_remote_playback_sink.cast_modes = {
+      media_router::MediaCastMode::REMOTE_PLAYBACK};
+  view_->OnModelUpdated(CreateModelWithSinks(
+      {CreateMediaSink(), cast_connected_sink, cast_remote_playback_sink}));
   EXPECT_CALL(*cast_controller_ptr,
               StartCasting(_, media_router::MediaCastMode::PRESENTATION))
       .Times(2);
+  EXPECT_CALL(*cast_controller_ptr,
+              StartCasting(_, media_router::MediaCastMode::REMOTE_PLAYBACK));
   for (views::View* child : GetDeviceEntryViewsContainer()->children()) {
     SimulateButtonClick(child);
   }

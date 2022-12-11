@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,7 @@ import android.text.TextUtils;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.omnibox.ChromeAutocompleteSchemeClassifier;
-import org.chromium.chrome.browser.performance_hints.PerformanceHintsObserver.PerformanceClass;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.components.embedder_support.contextmenu.ContextMenuParams;
 import org.chromium.components.omnibox.OmniboxUrlEmphasizer;
@@ -26,21 +24,17 @@ class ContextMenuHeaderCoordinator {
     private PropertyModel mModel;
     private ContextMenuHeaderMediator mMediator;
 
-    ContextMenuHeaderCoordinator(Activity activity, @PerformanceClass int performanceClass,
-            ContextMenuParams params, Profile profile, ContextMenuNativeDelegate nativeDelegate) {
+    ContextMenuHeaderCoordinator(Activity activity, ContextMenuParams params, Profile profile,
+            ContextMenuNativeDelegate nativeDelegate) {
         mModel = buildModel(
                 activity, ContextMenuUtils.getTitle(params), getUrl(activity, params, profile));
-        mMediator = new ContextMenuHeaderMediator(
-                activity, mModel, performanceClass, params, profile, nativeDelegate);
+        mMediator =
+                new ContextMenuHeaderMediator(activity, mModel, params, profile, nativeDelegate);
     }
 
     @VisibleForTesting
     static PropertyModel buildModel(Context context, String title, CharSequence url) {
-        boolean usePopupContextMenu =
-                ChromeFeatureList.isEnabled(ChromeFeatureList.CONTEXT_MENU_POPUP_STYLE);
-        boolean hideHeaderImage = ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
-                ChromeFeatureList.CONTEXT_MENU_POPUP_STYLE,
-                ContextMenuCoordinator.HIDE_HEADER_IMAGE_PARAM, false);
+        boolean usePopupContextMenu = ContextMenuUtils.usePopupContextMenuForContext(context);
 
         int monogramSizeDimen = usePopupContextMenu
                 ? R.dimen.context_menu_popup_header_monogram_size
@@ -54,11 +48,8 @@ class ContextMenuHeaderCoordinator {
                         .with(ContextMenuHeaderProperties.URL, url)
                         .with(ContextMenuHeaderProperties.URL_MAX_LINES,
                                 TextUtils.isEmpty(title) ? 2 : 1)
-                        .with(ContextMenuHeaderProperties.URL_PERFORMANCE_CLASS,
-                                PerformanceClass.PERFORMANCE_UNKNOWN)
                         .with(ContextMenuHeaderProperties.IMAGE, null)
                         .with(ContextMenuHeaderProperties.CIRCLE_BG_VISIBLE, false)
-                        .with(ContextMenuHeaderProperties.HIDE_HEADER_IMAGE, hideHeaderImage)
                         .with(ContextMenuHeaderProperties.MONOGRAM_SIZE_PIXEL,
                                 context.getResources().getDimensionPixelSize(monogramSizeDimen))
                         .build();
@@ -95,9 +86,9 @@ class ContextMenuHeaderCoordinator {
                     new SpannableString(ChromeContextMenuPopulator.createUrlText(params));
             ChromeAutocompleteSchemeClassifier chromeAutocompleteSchemeClassifier =
                     new ChromeAutocompleteSchemeClassifier(profile);
-            OmniboxUrlEmphasizer.emphasizeUrl(spannableUrl, activity.getResources(),
-                    chromeAutocompleteSchemeClassifier, ConnectionSecurityLevel.NONE, false,
-                    useDarkColors, false);
+            OmniboxUrlEmphasizer.emphasizeUrl(spannableUrl, activity,
+                    chromeAutocompleteSchemeClassifier, ConnectionSecurityLevel.NONE, useDarkColors,
+                    false);
             chromeAutocompleteSchemeClassifier.destroy();
             url = spannableUrl;
         }

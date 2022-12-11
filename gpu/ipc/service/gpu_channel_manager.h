@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "base/process/process_handle.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
+#include "base/time/time.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/common/activity_flags.h"
@@ -28,11 +29,13 @@
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "gpu/command_buffer/service/passthrough_discardable_manager.h"
 #include "gpu/command_buffer/service/service_discardable_manager.h"
+#include "gpu/command_buffer/service/service_utils.h"
 #include "gpu/command_buffer/service/shader_translator_cache.h"
 #include "gpu/command_buffer/service/shared_context_state.h"
 #include "gpu/config/gpu_driver_bug_workarounds.h"
 #include "gpu/config/gpu_feature_info.h"
 #include "gpu/config/gpu_preferences.h"
+#include "gpu/ipc/common/gpu_disk_cache_type.h"
 #include "gpu/ipc/common/gpu_peak_memory.h"
 #include "gpu/ipc/service/gpu_ipc_service_export.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -71,6 +74,10 @@ namespace gles2 {
 class Outputter;
 class ProgramCache;
 }  // namespace gles2
+
+namespace webgpu {
+class DawnCachingInterfaceFactory;
+}  // namespace webgpu
 
 // A GpuChannelManager is a thread responsible for issuing rendering commands
 // managing the lifetimes of GPU channels and forwarding IPC requests from the
@@ -113,14 +120,16 @@ class GPU_IPC_SERVICE_EXPORT GpuChannelManager
   GpuChannel* EstablishChannel(const base::UnguessableToken& channel_token,
                                int client_id,
                                uint64_t client_tracing_id,
-                               bool is_gpu_host,
-                               bool cache_shaders_on_disk);
+                               bool is_gpu_host);
 
   void SetChannelClientPid(int client_id, base::ProcessId client_pid);
+  void SetChannelDiskCacheHandle(int client_id,
+                                 const gpu::GpuDiskCacheHandle& handle);
+  void OnDiskCacheHandleDestoyed(const gpu::GpuDiskCacheHandle& handle);
 
-  void PopulateShaderCache(int32_t client_id,
-                           const std::string& key,
-                           const std::string& program);
+  void PopulateCache(const gpu::GpuDiskCacheHandle& handle,
+                     const std::string& key,
+                     const std::string& program);
   void DestroyGpuMemoryBuffer(gfx::GpuMemoryBufferId id,
                               int client_id,
                               const SyncToken& sync_token);
@@ -132,7 +141,7 @@ class GPU_IPC_SERVICE_EXPORT GpuChannelManager
   // Remove the channel for a particular renderer.
   void RemoveChannel(int client_id);
 
-  void OnContextLost(bool synthetic_loss);
+  void OnContextLost(int context_lost_count, bool synthetic_loss);
 
   const GpuPreferences& gpu_preferences() const { return gpu_preferences_; }
   const GpuDriverBugWorkarounds& gpu_driver_bug_workarounds() const {
@@ -187,6 +196,11 @@ class GPU_IPC_SERVICE_EXPORT GpuChannelManager
     return shared_image_manager_;
   }
 
+  bool use_passthrough_cmd_decoder() const {
+    return gpu_preferences_.use_passthrough_cmd_decoder &&
+           gles2::PassthroughCommandDecoderSupported();
+  }
+
   // Retrieve GPU Resource consumption statistics for the task manager
   void GetVideoMemoryUsageStats(
       VideoMemoryUsageStats* video_memory_usage_stats) const;
@@ -207,6 +221,16 @@ class GPU_IPC_SERVICE_EXPORT GpuChannelManager
   raster::GrShaderCache* gr_shader_cache() {
     return gr_shader_cache_ ? &*gr_shader_cache_ : nullptr;
   }
+
+#if BUILDFLAG(USE_DAWN)
+  webgpu::DawnCachingInterfaceFactory* dawn_caching_interface_factory() {
+    return dawn_caching_interface_factory_.get();
+  }
+#else
+  webgpu::DawnCachingInterfaceFactory* dawn_caching_interface_factory() {
+    return nullptr;
+  }
+#endif
 
   // raster::GrShaderCache::Client implementation.
   void StoreShader(const std::string& key, const std::string& shader) override;
@@ -356,6 +380,11 @@ class GPU_IPC_SERVICE_EXPORT GpuChannelManager
   // allow the decoders to manage its lifetime.
   absl::optional<raster::GrShaderCache> gr_shader_cache_;
   scoped_refptr<SharedContextState> shared_context_state_;
+
+#if BUILDFLAG(USE_DAWN)
+  std::unique_ptr<webgpu::DawnCachingInterfaceFactory>
+      dawn_caching_interface_factory_;
+#endif
 
   // With --enable-vulkan, |vulkan_context_provider_| will be set from
   // viz::GpuServiceImpl. The raster decoders will use it for rasterization if

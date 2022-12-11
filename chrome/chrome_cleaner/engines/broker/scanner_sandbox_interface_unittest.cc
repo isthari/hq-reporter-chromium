@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <windows.h>
 
-#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -15,6 +14,7 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/path_service.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
 #include "base/test/test_reg_util_win.h"
@@ -426,7 +426,7 @@ TEST(ScannerSandboxInterface, GetProcesses) {
   ASSERT_TRUE(SandboxGetProcesses(&processes));
 
   base::ProcessId current_pid = ::GetCurrentProcessId();
-  EXPECT_EQ(1, std::count(processes.begin(), processes.end(), current_pid));
+  EXPECT_EQ(1, base::ranges::count(processes, current_pid));
   EXPECT_LT(1UL, processes.size());
 }
 

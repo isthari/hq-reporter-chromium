@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,6 @@
 #include "components/metrics/url_constants.h"
 
 namespace metrics {
-
 namespace {
 
 // The minimum time in seconds between consecutive metrics report uploads.
@@ -69,10 +68,26 @@ bool MetricsServiceClient::ShouldUploadMetricsForUserId(uint64_t user_id) {
 }
 
 GURL MetricsServiceClient::GetMetricsServerUrl() {
+#ifndef NDEBUG
+  // Only allow overriding the server URL through the command line in debug
+  // builds. This is to prevent, for example, rerouting metrics due to malware.
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kUmaServerUrl))
+    return GURL(command_line->GetSwitchValueASCII(switches::kUmaServerUrl));
+#endif  // NDEBUG
   return GURL(kNewMetricsServerUrl);
 }
 
 GURL MetricsServiceClient::GetInsecureMetricsServerUrl() {
+#ifndef NDEBUG
+  // Only allow overriding the server URL through the command line in debug
+  // builds. This is to prevent, for example, rerouting metrics due to malware.
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(switches::kUmaInsecureServerUrl)) {
+    return GURL(
+        command_line->GetSwitchValueASCII(switches::kUmaInsecureServerUrl));
+  }
+#endif  // NDEBUG
   return GURL(kNewMetricsServerUrlInsecure);
 }
 
@@ -116,10 +131,6 @@ bool MetricsServiceClient::IsExternalExperimentAllowlistEnabled() {
 }
 
 bool MetricsServiceClient::IsUkmAllowedForAllProfiles() {
-  return false;
-}
-
-bool MetricsServiceClient::IsUkmAllowedWithExtensionsForAllProfiles() {
   return false;
 }
 

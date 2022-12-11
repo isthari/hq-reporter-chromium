@@ -1,12 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/platform_keys/platform_keys.h"
 
+#include <stdint.h>
+
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/check_op.h"
@@ -60,8 +64,7 @@ void IntersectOnWorkerThread(const net::CertificateList& certs1,
 
 }  // namespace
 
-namespace chromeos {
-namespace platform_keys {
+namespace chromeos::platform_keys {
 
 std::string StatusToString(Status status) {
   switch (status) {
@@ -224,6 +227,16 @@ std::string GetSubjectPublicKeyInfo(
   return std::string(spki_bytes);
 }
 
+std::vector<uint8_t> GetSubjectPublicKeyInfoBlob(
+    const scoped_refptr<net::X509Certificate>& certificate) {
+  base::StringPiece spki_bytes;
+  if (!net::asn1::ExtractSPKIFromDERCert(
+          net::x509_util::CryptoBufferAsStringPiece(certificate->cert_buffer()),
+          &spki_bytes))
+    return {};
+  return std::vector<uint8_t>(spki_bytes.begin(), spki_bytes.end());
+}
+
 // Extracts the public exponent out of an EVP_PKEY and verifies if it is equal
 // to 65537 (Fermat number with n=4). This values is enforced by
 // platform_keys::GetPublicKey() and platform_keys::GetPublicKeyBySpki().
@@ -275,7 +288,7 @@ bool GetPublicKey(const scoped_refptr<net::X509Certificate>& certificate,
     return false;
   }
 
-  switch (EVP_PKEY_type(pkey->type)) {
+  switch (EVP_PKEY_id(pkey.get())) {
     case EVP_PKEY_RSA: {
       if (!VerifyRSAPublicExponent(pkey.get())) {
         return false;
@@ -417,7 +430,7 @@ GetPublicKeyAndAlgorithmOutput GetPublicKeyAndAlgorithm(
     return output;
   }
 
-  absl::optional<base::DictionaryValue> algorithm =
+  absl::optional<base::Value::Dict> algorithm =
       BuildWebCrypAlgorithmDictionary(key_info);
   DCHECK(algorithm.has_value());
   output.algorithm = std::move(algorithm.value());
@@ -465,16 +478,16 @@ net::X509Certificate::PublicKeyType GetKeyTypeForAlgorithm(
   return net::X509Certificate::kPublicKeyTypeUnknown;
 }
 
-absl::optional<base::DictionaryValue> BuildWebCrypAlgorithmDictionary(
+absl::optional<base::Value::Dict> BuildWebCrypAlgorithmDictionary(
     const PublicKeyInfo& key_info) {
   switch (key_info.key_type) {
     case net::X509Certificate::kPublicKeyTypeRSA: {
-      base::DictionaryValue result;
+      base::Value::Dict result;
       BuildWebCryptoRSAAlgorithmDictionary(key_info, &result);
       return result;
     }
     case net::X509Certificate::kPublicKeyTypeECDSA: {
-      base::DictionaryValue result;
+      base::Value::Dict result;
       BuildWebCryptoEcdsaAlgorithmDictionary(key_info, &result);
       return result;
     }
@@ -484,25 +497,25 @@ absl::optional<base::DictionaryValue> BuildWebCrypAlgorithmDictionary(
 }
 
 void BuildWebCryptoRSAAlgorithmDictionary(const PublicKeyInfo& key_info,
-                                          base::DictionaryValue* algorithm) {
+                                          base::Value::Dict* algorithm) {
   CHECK_EQ(net::X509Certificate::kPublicKeyTypeRSA, key_info.key_type);
-  algorithm->SetStringKey("name", kWebCryptoRsassaPkcs1v15);
-  algorithm->SetKey("modulusLength",
-                    base::Value(static_cast<int>(key_info.key_size_bits)));
+  algorithm->Set("name", kWebCryptoRsassaPkcs1v15);
+  algorithm->Set("modulusLength", static_cast<int>(key_info.key_size_bits));
 
   // Equals 65537.
   static constexpr uint8_t kDefaultPublicExponent[] = {0x01, 0x00, 0x01};
-  algorithm->SetKey("publicExponent",
-                    base::Value(base::make_span(kDefaultPublicExponent)));
+  algorithm->Set("publicExponent",
+                 base::Value::BlobStorage(std::begin(kDefaultPublicExponent),
+                                          std::end(kDefaultPublicExponent)));
 }
 
 void BuildWebCryptoEcdsaAlgorithmDictionary(const PublicKeyInfo& key_info,
-                                            base::DictionaryValue* algorithm) {
+                                            base::Value::Dict* algorithm) {
   CHECK_EQ(net::X509Certificate::kPublicKeyTypeECDSA, key_info.key_type);
-  algorithm->SetStringKey("name", kWebCryptoEcdsa);
+  algorithm->Set("name", kWebCryptoEcdsa);
 
   // Only P-256 named curve is supported.
-  algorithm->SetStringKey("namedCurve", kWebCryptoNamedCurveP256);
+  algorithm->Set("namedCurve", kWebCryptoNamedCurveP256);
 }
 
 ClientCertificateRequest::ClientCertificateRequest() = default;
@@ -512,5 +525,4 @@ ClientCertificateRequest::ClientCertificateRequest(
 
 ClientCertificateRequest::~ClientCertificateRequest() = default;
 
-}  // namespace platform_keys
-}  // namespace chromeos
+}  // namespace chromeos::platform_keys

@@ -92,6 +92,12 @@ LayoutCustomScrollbarPart* LayoutCustomScrollbarPart::CreateAnonymous(
   return layout_object;
 }
 
+void LayoutCustomScrollbarPart::Trace(Visitor* visitor) const {
+  visitor->Trace(scrollable_area_);
+  visitor->Trace(scrollbar_);
+  LayoutReplaced::Trace(visitor);
+}
+
 // TODO(crbug.com/1020913): Support subpixel layout of scrollbars and remove
 // ToInt() in the following functions.
 int LayoutCustomScrollbarPart::ComputeSize(SizeType size_type,
@@ -155,6 +161,21 @@ int LayoutCustomScrollbarPart::ComputeLength() const {
   if (scrollbar_->Orientation() == kHorizontalScrollbar)
     return ComputeWidth(visible_content_rect.width());
   return ComputeHeight(visible_content_rect.height());
+}
+
+void LayoutCustomScrollbarPart::SetOverriddenFrameRect(const LayoutRect& rect) {
+  NOT_DESTROYED();
+  overridden_rect_ = rect;
+}
+
+LayoutPoint LayoutCustomScrollbarPart::Location() const {
+  NOT_DESTROYED();
+  return overridden_rect_.Location();
+}
+
+LayoutSize LayoutCustomScrollbarPart::Size() const {
+  NOT_DESTROYED();
+  return overridden_rect_.Size();
 }
 
 static LayoutUnit ComputeMargin(const Length& style_margin) {

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/dom/dom_token_list.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
+#include "third_party/blink/renderer/core/dom/pseudo_element.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/layout_ng_text_combine.h"
@@ -217,7 +218,7 @@ TEST_F(NGInlineNodeTest, CollectInlinesFloat) {
             "</div>");
   NGInlineNodeForTest node = CreateInlineNode();
   node.CollectInlines();
-  EXPECT_EQ(u8"abc\uFFFCghi\uFFFCmno", node.Text())
+  EXPECT_EQ("abc\uFFFCghi\uFFFCmno", node.Text())
       << "floats are appeared as an object replacement character";
   HeapVector<NGInlineItem>& items = node.Items();
   ASSERT_EQ(5u, items.size());
@@ -235,7 +236,7 @@ TEST_F(NGInlineNodeTest, CollectInlinesInlineBlock) {
             "</div>");
   NGInlineNodeForTest node = CreateInlineNode();
   node.CollectInlines();
-  EXPECT_EQ(u8"abc\uFFFCjkl", node.Text())
+  EXPECT_EQ("abc\uFFFCjkl", node.Text())
       << "inline-block is appeared as an object replacement character";
   HeapVector<NGInlineItem>& items = node.Items();
   ASSERT_EQ(3u, items.size());
@@ -315,7 +316,7 @@ TEST_F(NGInlineNodeTest, CollectInlinesMixedTextEndWithON) {
 }
 
 TEST_F(NGInlineNodeTest, CollectInlinesTextCombineBR) {
-  ScopedLayoutNGTextCombineForTest enable_layout_ng_text_combine(true);
+  ScopedLayoutNGForTest enable_layout_ng(true);
   InsertStyleElement(
       "#t { text-combine-upright: all; writing-mode: vertical-rl; }");
   SetupHtml("t", u"<div id=t>a<br>z</div>");
@@ -332,7 +333,7 @@ TEST_F(NGInlineNodeTest, CollectInlinesTextCombineBR) {
 
 // http://crbug.com/1222633
 TEST_F(NGInlineNodeTest, CollectInlinesTextCombineListItemMarker) {
-  ScopedLayoutNGTextCombineForTest enable_layout_ng_text_combine(true);
+  ScopedLayoutNGForTest enable_layout_ng(true);
   InsertStyleElement(
       "#t { text-combine-upright: all; writing-mode: vertical-rl; }");
   SetupHtml("t", u"<li id=t>ab</li>");
@@ -345,7 +346,7 @@ TEST_F(NGInlineNodeTest, CollectInlinesTextCombineListItemMarker) {
   NGInlineNodeForTest node = CreateInlineNode(
       To<LayoutNGTextCombine>(layout_object_->SlowFirstChild()));
   node.CollectInlines();
-  EXPECT_EQ(u8"\u2022", node.Text());
+  EXPECT_EQ("\u2022", node.Text());
   HeapVector<NGInlineItem>& items = node.Items();
   ASSERT_EQ(1u, items.size());
   TEST_ITEM_TYPE_OFFSET(items[0], kText, 0u, 1u);
@@ -353,7 +354,7 @@ TEST_F(NGInlineNodeTest, CollectInlinesTextCombineListItemMarker) {
 }
 
 TEST_F(NGInlineNodeTest, CollectInlinesTextCombineNewline) {
-  ScopedLayoutNGTextCombineForTest enable_layout_ng_text_combine(true);
+  ScopedLayoutNGForTest enable_layout_ng(true);
   InsertStyleElement(
       "#t { text-combine-upright: all; writing-mode: vertical-rl; }");
   SetupHtml("t", u"<pre id=t>a\nz</pre>");
@@ -369,14 +370,14 @@ TEST_F(NGInlineNodeTest, CollectInlinesTextCombineNewline) {
 }
 
 TEST_F(NGInlineNodeTest, CollectInlinesTextCombineWBR) {
-  ScopedLayoutNGTextCombineForTest enable_layout_ng_text_combine(true);
+  ScopedLayoutNGForTest enable_layout_ng(true);
   InsertStyleElement(
       "#t { text-combine-upright: all; writing-mode: vertical-rl; }");
   SetupHtml("t", u"<div id=t>a<wbr>z</div>");
   NGInlineNodeForTest node =
       CreateInlineNode(To<LayoutNGBlockFlow>(layout_object_.Get()));
   node.CollectInlines();
-  EXPECT_EQ(u8"a\u200Bz", node.Text());
+  EXPECT_EQ("a\u200Bz", node.Text());
   HeapVector<NGInlineItem>& items = node.Items();
   ASSERT_EQ(3u, items.size());
   TEST_ITEM_TYPE_OFFSET(items[0], kText, 0u, 1u);
@@ -1238,8 +1239,13 @@ TEST_F(NGInlineNodeTest, ClearFirstInlineFragmentOnSplitFlow) {
   inner_span_cb_cursor.MoveToFirstLine();
   inner_span_cb_cursor.MoveToFirstChild();
   EXPECT_TRUE(inner_span_cb_cursor);
-  EXPECT_EQ(inner_span_cb_cursor.Current().GetLayoutObject(),
-            text->GetLayoutObject());
+  if (RuntimeEnabledFeatures::LayoutNGBlockInInlineEnabled()) {
+    EXPECT_EQ(inner_span_cb_cursor.Current().GetLayoutObject(),
+              outer_span->GetLayoutObject());
+  } else {
+    EXPECT_EQ(inner_span_cb_cursor.Current().GetLayoutObject(),
+              text->GetLayoutObject());
+  }
 }
 
 TEST_F(NGInlineNodeTest, AddChildToSVGRoot) {
@@ -1548,76 +1554,30 @@ TEST_F(NGInlineNodeTest, ReuseFirstNonSafeRtl) {
   EXPECT_TRUE(NGInlineNode::NeedsShapingForTesting(item_v));
 }
 
-TEST_F(NGInlineNodeTest, LetterSpacingUseCounterFalse) {
-  SetBodyInnerHTML(R"HTML(
-    <p id="p" style="letter-spacing: 1em; text-align: center">
-      text
-    </p>
-  )HTML");
-  auto* p = To<LayoutNGBlockFlow>(GetLayoutObjectByElementId("p"));
-  EXPECT_FALSE(NGInlineNode(p).ShouldReportLetterSpacingUseCounterForTesting(
-      p->FirstChild(), /* first_line */ false, p));
-}
+TEST_F(NGInlineNodeTest, InitialLetter) {
+  ScopedCSSInitialLetterForTest enable_initial_letter_scope(true);
+  LoadAhem();
+  InsertStyleElement(
+      "p { font: 20px/24px Ahem; }"
+      "p::first-letter { initial-letter: 3 }");
+  SetBodyContent("<p id=sample>This paragraph has an initial letter.</p>");
+  auto& sample = *GetElementById("sample");
+  auto& block_flow = *To<LayoutBlockFlow>(sample.GetLayoutObject());
+  auto& initial_letter_box = *To<LayoutBlockFlow>(
+      sample.GetPseudoElement(kPseudoIdFirstLetter)->GetLayoutObject());
 
-TEST_F(NGInlineNodeTest, LetterSpacingUseCounterCenterTextIndent) {
-  SetBodyInnerHTML(R"HTML(
-    <p id="p" style="letter-spacing: 1em; text-align: center; text-indent: 1em">
-      text
-    </p>
-  )HTML");
-  auto* p = To<LayoutNGBlockFlow>(GetLayoutObjectByElementId("p"));
-  EXPECT_TRUE(NGInlineNode(p).ShouldReportLetterSpacingUseCounterForTesting(
-      p->FirstChild(), /* first_line */ false, p));
-}
+  EXPECT_TRUE(NGInlineNode(&block_flow).HasInitialLetterBox());
+  EXPECT_TRUE(NGBlockNode(&initial_letter_box).IsInitialLetterBox());
+  EXPECT_TRUE(NGInlineNode(&initial_letter_box).IsInitialLetterBox());
+  EXPECT_TRUE(initial_letter_box.GetPhysicalFragment(0)->IsInitialLetterBox());
 
-TEST_F(NGInlineNodeTest, LetterSpacingUseCounterCenterPadding) {
-  SetBodyInnerHTML(R"HTML(
-    <p id="p" style="letter-spacing: 1em; text-align: center; padding-left: 1em">
-      text
-    </p>
-  )HTML");
-  auto* p = To<LayoutNGBlockFlow>(GetLayoutObjectByElementId("p"));
-  EXPECT_TRUE(NGInlineNode(p).ShouldReportLetterSpacingUseCounterForTesting(
-      p->FirstChild(), /* first_line */ false, p));
-}
-
-TEST_F(NGInlineNodeTest, LetterSpacingUseCounterRight) {
-  SetBodyInnerHTML(R"HTML(
-    <p id="p" style="letter-spacing: 1em; text-align: right; margin-right: -1em">
-      text
-    </p>
-  )HTML");
-  auto* p = To<LayoutNGBlockFlow>(GetLayoutObjectByElementId("p"));
-  EXPECT_TRUE(NGInlineNode(p).ShouldReportLetterSpacingUseCounterForTesting(
-      p->FirstChild(), /* first_line */ false, p));
-}
-
-TEST_F(NGInlineNodeTest, LetterSpacingUseCounterBorder) {
-  SetBodyInnerHTML(R"HTML(
-    <p id="p" style="letter-spacing: 1em">
-      <span id="span" style="border:1px solid; padding-left:1em">span</span>
-    </p>
-  )HTML");
-  auto* p = To<LayoutNGBlockFlow>(GetLayoutObjectByElementId("p"));
-  const LayoutObject* span = GetLayoutObjectByElementId("span");
-  EXPECT_TRUE(NGInlineNode(p).ShouldReportLetterSpacingUseCounterForTesting(
-      span->SlowFirstChild(), /* first_line */ false, p));
-}
-
-TEST_F(NGInlineNodeTest, LetterSpacingUseCounterUnderline) {
-  SetBodyInnerHTML(R"HTML(
-    <p id="p" style="letter-spacing: 1em">
-      <span id="span" style="text-decoration: underline">span</span>
-    </p>
-  )HTML");
-  auto* p = To<LayoutNGBlockFlow>(GetLayoutObjectByElementId("p"));
-  const LayoutObject* span = GetLayoutObjectByElementId("span");
-  EXPECT_TRUE(NGInlineNode(p).ShouldReportLetterSpacingUseCounterForTesting(
-      span->SlowFirstChild(), /* first_line */ false, p));
+  const NGInlineNodeData& data = *block_flow.GetNGInlineNodeData();
+  const NGInlineItem& initial_letter_item = data.items[0];
+  EXPECT_EQ(NGInlineItem::kInitialLetterBox, initial_letter_item.Type());
 }
 
 TEST_F(NGInlineNodeTest, TextCombineUsesScalingX) {
-  ScopedLayoutNGTextCombineForTest enable_layout_ng_text_combine(true);
+  ScopedLayoutNGForTest enable_layout_ng(true);
   LoadAhem();
   InsertStyleElement(
       "div {"
@@ -1639,7 +1599,7 @@ TEST_F(NGInlineNodeTest, TextCombineUsesScalingX) {
 
 // http://crbug.com/1226930
 TEST_F(NGInlineNodeTest, TextCombineWordSpacing) {
-  ScopedLayoutNGTextCombineForTest enable_layout_ng_text_combine(true);
+  ScopedLayoutNGForTest enable_layout_ng(true);
   LoadAhem();
   InsertStyleElement(
       "div {"

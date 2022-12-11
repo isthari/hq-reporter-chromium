@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,16 @@
 #include "ash/quick_pair/common/protocol.h"
 #include "ash/quick_pair/ui/actions.h"
 #include "ash/quick_pair/ui/fast_pair/fast_pair_presenter.h"
+#include "ash/quick_pair/ui/fast_pair/fast_pair_presenter_impl.h"
 #include "base/bind.h"
+#include "ui/message_center/message_center.h"
 
 namespace ash {
 namespace quick_pair {
 
 UIBrokerImpl::UIBrokerImpl()
-    : fast_pair_presenter_(std::make_unique<FastPairPresenter>()) {}
+    : fast_pair_presenter_(FastPairPresenterImpl::Factory::Create(
+          message_center::MessageCenter::Get())) {}
 
 UIBrokerImpl::~UIBrokerImpl() = default;
 
@@ -98,14 +101,12 @@ void UIBrokerImpl::ShowCompanionApp(scoped_refptr<Device> device) {
   }
 }
 
-void UIBrokerImpl::RemoveNotifications(scoped_refptr<Device> device) {
-  switch (device->protocol) {
-    case Protocol::kFastPairInitial:
-    case Protocol::kFastPairRetroactive:
-    case Protocol::kFastPairSubsequent:
-      fast_pair_presenter_->RemoveNotifications(std::move(device));
-      break;
-  }
+void UIBrokerImpl::RemoveNotifications() {
+  fast_pair_presenter_->RemoveNotifications();
+}
+
+void UIBrokerImpl::ExtendNotification() {
+  fast_pair_presenter_->ExtendNotification();
 }
 
 void UIBrokerImpl::NotifyDiscoveryAction(scoped_refptr<Device> device,

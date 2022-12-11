@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,10 @@
 namespace base {
 class SequencedTaskRunner;
 }  // namespace base
+
+namespace syncer {
+class SyncService;
+}  // namespace syncer
 
 namespace password_manager {
 
@@ -50,26 +54,28 @@ class PasswordStoreBuiltInBackend : public PasswordStoreBackend,
   void Shutdown(base::OnceClosure shutdown_completed) override;
   void GetAllLoginsAsync(LoginsOrErrorReply callback) override;
   void GetAutofillableLoginsAsync(LoginsOrErrorReply callback) override;
+  void GetAllLoginsForAccountAsync(absl::optional<std::string> account,
+                                   LoginsOrErrorReply callback) override;
   void FillMatchingLoginsAsync(
-      LoginsReply callback,
+      LoginsOrErrorReply callback,
       bool include_psl,
       const std::vector<PasswordFormDigest>& forms) override;
   void AddLoginAsync(const PasswordForm& form,
-                     PasswordStoreChangeListReply callback) override;
+                     PasswordChangesOrErrorReply callback) override;
   void UpdateLoginAsync(const PasswordForm& form,
-                        PasswordStoreChangeListReply callback) override;
+                        PasswordChangesOrErrorReply callback) override;
   void RemoveLoginAsync(const PasswordForm& form,
-                        PasswordStoreChangeListReply callback) override;
+                        PasswordChangesOrErrorReply callback) override;
   void RemoveLoginsCreatedBetweenAsync(
       base::Time delete_begin,
       base::Time delete_end,
-      PasswordStoreChangeListReply callback) override;
+      PasswordChangesOrErrorReply callback) override;
   void RemoveLoginsByURLAndTimeAsync(
       const base::RepeatingCallback<bool(const GURL&)>& url_filter,
       base::Time delete_begin,
       base::Time delete_end,
       base::OnceCallback<void(bool)> sync_completion,
-      PasswordStoreChangeListReply callback) override;
+      PasswordChangesOrErrorReply callback) override;
   void DisableAutoSignInForOriginsAsync(
       const base::RepeatingCallback<bool(const GURL&)>& origin_filter,
       base::OnceClosure completion) override;
@@ -78,6 +84,7 @@ class PasswordStoreBuiltInBackend : public PasswordStoreBackend,
   std::unique_ptr<syncer::ProxyModelTypeControllerDelegate>
   CreateSyncControllerDelegate() override;
   void ClearAllLocalPasswords() override;
+  void OnSyncServiceInitialized(syncer::SyncService* sync_service) override;
 
   // SmartBubbleStatsStore:
   void AddSiteStats(const InteractionsStats& stats) override;

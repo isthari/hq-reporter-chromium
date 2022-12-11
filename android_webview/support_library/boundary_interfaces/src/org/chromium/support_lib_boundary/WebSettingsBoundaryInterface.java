@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@ package org.chromium.support_lib_boundary;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Set;
 
 /**
  * Boundary interface for WebSettingsCompat.
@@ -30,6 +31,9 @@ public interface WebSettingsBoundaryInterface {
 
     void setForceDark(int forceDarkMode);
     int getForceDark();
+
+    void setAlgorithmicDarkeningAllowed(boolean allow);
+    boolean isAlgorithmicDarkeningAllowed();
 
     @Retention(RetentionPolicy.SOURCE)
     @interface ForceDarkBehavior {
@@ -52,4 +56,10 @@ public interface WebSettingsBoundaryInterface {
     void setWebAuthnSupport(@WebAuthnSupport int support);
     @WebAuthnSupport
     int getWebAuthnSupport();
+
+    void setRequestedWithHeaderOriginAllowList(Set<String> allowedOriginRules);
+    Set<String> getRequestedWithHeaderOriginAllowList();
+
+    void setEnterpriseAuthenticationAppLinkPolicyEnabled(boolean enabled);
+    boolean getEnterpriseAuthenticationAppLinkPolicyEnabled();
 }

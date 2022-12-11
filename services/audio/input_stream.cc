@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,15 +12,18 @@
 #include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "media/audio/audio_manager.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/user_input_monitor.h"
+#include "media/mojo/mojom/audio_processing.mojom.h"
 #include "mojo/public/cpp/system/buffer.h"
 #include "mojo/public/cpp/system/handle.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 #include "services/audio/input_sync_writer.h"
 #include "services/audio/user_input_monitor.h"
+#include "third_party/abseil-cpp/absl/utility/utility.h"
 
 namespace audio {
 
@@ -70,9 +73,10 @@ InputStream::InputStream(
     mojo::PendingRemote<media::mojom::AudioInputStreamObserver> observer,
     mojo::PendingRemote<media::mojom::AudioLog> log,
     media::AudioManager* audio_manager,
+    media::AecdumpRecordingManager* aecdump_recording_manager,
     std::unique_ptr<UserInputMonitor> user_input_monitor,
-    InputStreamActivityMonitor* activity_monitor,
     DeviceOutputListener* device_output_listener,
+    media::mojom::AudioProcessingConfigPtr processing_config,
     const std::string& device_id,
     const media::AudioParameters& params,
     uint32_t shared_memory_count,
@@ -94,7 +98,6 @@ InputStream::InputStream(
           &foreign_socket_)),
       user_input_monitor_(std::move(user_input_monitor)) {
   DCHECK(audio_manager);
-  DCHECK(activity_monitor);
   DCHECK(receiver_.is_bound());
   DCHECK(client_);
   DCHECK(created_callback_);
@@ -133,7 +136,8 @@ InputStream::InputStream(
 
   controller_ = InputController::Create(
       audio_manager, this, writer_.get(), user_input_monitor_.get(),
-      activity_monitor, device_output_listener, params, device_id, enable_agc);
+      device_output_listener, aecdump_recording_manager,
+      std::move(processing_config), params, device_id, enable_agc);
 }
 
 InputStream::~InputStream() {
@@ -223,7 +227,7 @@ void InputStream::OnCreated(bool initially_muted) {
   DCHECK(socket_handle.is_valid());
 
   std::move(created_callback_)
-      .Run({base::in_place, std::move(shared_memory_region),
+      .Run({absl::in_place, std::move(shared_memory_region),
             std::move(socket_handle)},
            initially_muted, id_);
 }
@@ -294,7 +298,7 @@ void InputStream::OnStreamError(
   }
 
   // Defer callback so we're not destructed while in the constructor.
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&InputStream::CallDeleter, weak_factory_.GetWeakPtr()));
   receiver_.reset();

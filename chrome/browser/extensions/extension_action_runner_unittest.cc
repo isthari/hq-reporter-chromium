@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -433,20 +433,20 @@ TEST_F(ExtensionActionRunnerUnitTest, TestDifferentScriptRunLocations) {
 
   NavigateAndCommit(GURL("https://www.foo.com"));
 
-  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension));
+  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension->id()));
 
   RequestInjection(extension, mojom::RunLocation::kDocumentEnd);
   EXPECT_EQ(BLOCKED_ACTION_SCRIPT_OTHER,
-            runner()->GetBlockedActions(extension));
+            runner()->GetBlockedActions(extension->id()));
   RequestInjection(extension, mojom::RunLocation::kDocumentIdle);
   EXPECT_EQ(BLOCKED_ACTION_SCRIPT_OTHER,
-            runner()->GetBlockedActions(extension));
+            runner()->GetBlockedActions(extension->id()));
   RequestInjection(extension, mojom::RunLocation::kDocumentStart);
   EXPECT_EQ(BLOCKED_ACTION_SCRIPT_AT_START | BLOCKED_ACTION_SCRIPT_OTHER,
-            runner()->GetBlockedActions(extension));
+            runner()->GetBlockedActions(extension->id()));
 
   runner()->RunForTesting(extension);
-  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension));
+  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension->id()));
 }
 
 TEST_F(ExtensionActionRunnerUnitTest, TestWebRequestBlocked) {
@@ -455,20 +455,21 @@ TEST_F(ExtensionActionRunnerUnitTest, TestWebRequestBlocked) {
 
   NavigateAndCommit(GURL("https://www.foo.com"));
 
-  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension));
+  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension->id()));
   EXPECT_FALSE(runner()->WantsToRun(extension));
 
   runner()->OnWebRequestBlocked(extension);
-  EXPECT_EQ(BLOCKED_ACTION_WEB_REQUEST, runner()->GetBlockedActions(extension));
+  EXPECT_EQ(BLOCKED_ACTION_WEB_REQUEST,
+            runner()->GetBlockedActions(extension->id()));
   EXPECT_TRUE(runner()->WantsToRun(extension));
 
   RequestInjection(extension);
   EXPECT_EQ(BLOCKED_ACTION_WEB_REQUEST | BLOCKED_ACTION_SCRIPT_OTHER,
-            runner()->GetBlockedActions(extension));
+            runner()->GetBlockedActions(extension->id()));
   EXPECT_TRUE(runner()->WantsToRun(extension));
 
   NavigateAndCommit(GURL("https://www.bar.com"));
-  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension));
+  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension->id()));
   EXPECT_FALSE(runner()->WantsToRun(extension));
 }
 

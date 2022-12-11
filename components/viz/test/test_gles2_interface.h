@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@
 #include "base/containers/contains.h"
 #include "base/containers/flat_map.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/gles2_interface_stub.h"
@@ -72,12 +71,6 @@ class TestGLES2Interface : public gpu::gles2::GLES2InterfaceStub {
   void BindFramebuffer(GLenum target, GLuint buffer) override;
 
   void PixelStorei(GLenum pname, GLint param) override;
-
-  GLuint CreateImageCHROMIUM(ClientBuffer buffer,
-                             GLsizei width,
-                             GLsizei height,
-                             GLenum internalformat) override;
-  void DestroyImageCHROMIUM(GLuint image_id) override;
 
   void* MapBufferCHROMIUM(GLuint target, GLenum access) override;
   GLboolean UnmapBufferCHROMIUM(GLuint target) override;
@@ -133,31 +126,24 @@ class TestGLES2Interface : public gpu::gles2::GLES2InterfaceStub {
   void set_context_lost(bool context_lost) { context_lost_ = context_lost; }
   void set_times_bind_texture_succeeds(int times);
 
-  void set_have_extension_io_surface(bool have);
   void set_have_extension_egl_image(bool have);
-  void set_have_post_sub_buffer(bool have);
-  void set_have_swap_buffers_with_bounds(bool have);
-  void set_have_commit_overlay_planes(bool have);
-  void set_have_discard_framebuffer(bool have);
-  void set_support_compressed_texture_etc1(bool support);
   void set_support_texture_format_bgra8888(bool support);
-  void set_support_texture_storage(bool support);
-  void set_support_texture_usage(bool support);
   void set_support_sync_query(bool support);
-  void set_support_texture_rectangle(bool support);
   void set_support_texture_half_float_linear(bool support);
   void set_support_texture_norm16(bool support);
   void set_msaa_is_slow(bool msaa_is_slow);
   void set_gpu_rasterization(bool gpu_rasterization);
   void set_avoid_stencil_buffers(bool avoid_stencil_buffers);
   void set_support_multisample_compatibility(bool support);
-  void set_support_texture_storage_image(bool support);
+  void set_supports_scanout_shared_images(bool support);
   void set_support_texture_npot(bool support);
   void set_supports_oop_raster(bool support);
   void set_max_texture_size(int size);
   void set_supports_shared_image_swap_chain(bool support);
   void set_supports_gpu_memory_buffer_format(gfx::BufferFormat format,
                                              bool support);
+  void set_supports_texture_rg(bool support);
+
   // When set, MapBufferCHROMIUM will return NULL after this many times.
   void set_times_map_buffer_chromium_succeeds(int times) {
     times_map_buffer_chromium_succeeds_ = times;
@@ -242,7 +228,6 @@ class TestGLES2Interface : public gpu::gles2::GLES2InterfaceStub {
   unsigned next_texture_id_ = 1;
   unsigned next_renderbuffer_id_ = 1;
   std::unordered_map<unsigned, std::unique_ptr<Buffer>> buffers_;
-  std::unordered_set<unsigned> images_;
   std::unordered_set<unsigned> textures_;
   std::unordered_set<unsigned> renderbuffer_set_;
 

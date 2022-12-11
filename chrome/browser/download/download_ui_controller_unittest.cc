@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -130,7 +130,7 @@ class DownloadUIControllerTest : public ChromeRenderViewHostTestHarness {
   // QueryDownloads is called.
   class HistoryAdapter : public DownloadHistory::HistoryAdapter {
    public:
-    HistoryAdapter() : DownloadHistory::HistoryAdapter(NULL) {}
+    HistoryAdapter() : DownloadHistory::HistoryAdapter(nullptr) {}
     HistoryService::DownloadQueryCallback download_query_callback_;
 
    private:
@@ -177,12 +177,11 @@ void DownloadUIControllerTest::SetUp() {
   EXPECT_CALL(*manager_, IsManagerInitialized()).Times(AnyNumber());
   EXPECT_CALL(*manager_, AddObserver(_))
       .WillOnce(SaveArg<0>(&download_history_manager_observer_));
-  EXPECT_CALL(*manager_,
-              RemoveObserver(testing::Eq(
-                  testing::ByRef(download_history_manager_observer_))))
+  EXPECT_CALL(*manager_, RemoveObserver(testing::Eq(testing::ByRef(
+                             download_history_manager_observer_))))
       .WillOnce(testing::Assign(
           &download_history_manager_observer_,
-          static_cast<content::DownloadManager::Observer*>(NULL)));
+          static_cast<content::DownloadManager::Observer*>(nullptr)));
   EXPECT_CALL(*manager_, GetAllDownloads(_)).Times(AnyNumber());
 
   std::unique_ptr<HistoryAdapter> history_adapter(new HistoryAdapter);
@@ -197,7 +196,7 @@ void DownloadUIControllerTest::SetUp() {
               RemoveObserver(testing::Eq(testing::ByRef(manager_observer_))))
       .WillOnce(testing::Assign(
           &manager_observer_,
-          static_cast<content::DownloadManager::Observer*>(NULL)));
+          static_cast<content::DownloadManager::Observer*>(nullptr)));
   TestDownloadCoreService* download_core_service =
       static_cast<TestDownloadCoreService*>(
           DownloadCoreServiceFactory::GetInstance()->SetTestingFactoryAndUse(
@@ -225,7 +224,11 @@ DownloadUIControllerTest::CreateMockInProgressDownload() {
   EXPECT_CALL(*item, GetUrlChain())
       .WillRepeatedly(ReturnRefOfCopy(std::vector<GURL>()));
   EXPECT_CALL(*item, GetReferrerUrl()).WillRepeatedly(ReturnRefOfCopy(GURL()));
-  EXPECT_CALL(*item, GetSiteUrl()).WillRepeatedly(ReturnRefOfCopy(GURL()));
+  EXPECT_CALL(*item, GetSerializedEmbedderDownloadData())
+      .WillRepeatedly(ReturnRefOfCopy(
+          manager_->StoragePartitionConfigToSerializedEmbedderDownloadData(
+              content::StoragePartitionConfig::CreateDefault(
+                  browser_context()))));
   EXPECT_CALL(*item, GetTabUrl()).WillRepeatedly(ReturnRefOfCopy(GURL()));
   EXPECT_CALL(*item, GetTabReferrerUrl())
       .WillRepeatedly(ReturnRefOfCopy(GURL()));
@@ -374,6 +377,9 @@ TEST_F(DownloadUIControllerTest, DownloadUIController_HistoryDownload) {
       *manager(),
       PostInitialization(content::DownloadManager::
                              DOWNLOAD_INITIALIZATION_DEPENDENCY_HISTORY_DB));
+  EXPECT_CALL(*manager(), GetStoragePartitionConfigForSiteUrl(_))
+      .WillRepeatedly(Return(
+          content::StoragePartitionConfig::CreateDefault(browser_context())));
 
   {
     testing::InSequence s;

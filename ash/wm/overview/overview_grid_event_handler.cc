@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -81,6 +81,14 @@ void OverviewGridEventHandler::OnGestureEvent(ui::GestureEvent* event) {
     event->SetHandled();
     return;
   }
+
+  // TODO(crbug.com/1341128): Enable context menu via long-press in library page
+  // `SavedDeskLibraryView` will take over gesture event if it's active. When
+  // it's `ET_GESTURE_TAP`, here it does not set event to handled, and thus
+  // `HandleClickOrTap()` would be executed from
+  // `SavedDeskLibraryView::OnLocatedEvent()`.
+  if (grid_->IsShowingDesksTemplatesGrid())
+    return;
 
   switch (event->type()) {
     case ui::ET_GESTURE_TAP: {

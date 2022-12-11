@@ -1,15 +1,16 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/screens/mock_arc_terms_of_service_screen.h"
+#include "base/memory/weak_ptr.h"
 
 namespace ash {
 
 MockArcTermsOfServiceScreen::MockArcTermsOfServiceScreen(
-    ArcTermsOfServiceScreenView* view,
+    base::WeakPtr<ArcTermsOfServiceScreenView> view,
     const ScreenExitCallback& exit_callback)
-    : ArcTermsOfServiceScreen(view, exit_callback) {}
+    : ArcTermsOfServiceScreen(std::move(view), exit_callback) {}
 
 MockArcTermsOfServiceScreen::~MockArcTermsOfServiceScreen() = default;
 

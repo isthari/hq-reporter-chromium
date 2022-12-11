@@ -38,11 +38,13 @@
 #include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_audio_latency_hint.h"
+#include "third_party/blink/public/platform/web_audio_sink_descriptor.h"
 #include "third_party/blink/renderer/platform/audio/audio_utilities.h"
 #include "third_party/blink/renderer/platform/audio/push_pull_fifo.h"
 #include "third_party/blink/renderer/platform/audio/vector_math.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
@@ -72,20 +74,24 @@ const char* DeviceStateToString(AudioDestination::DeviceState state) {
 
 scoped_refptr<AudioDestination> AudioDestination::Create(
     AudioIOCallback& callback,
+    const WebAudioSinkDescriptor& sink_descriptor,
     unsigned number_of_output_channels,
     const WebAudioLatencyHint& latency_hint,
     absl::optional<float> context_sample_rate,
     unsigned render_quantum_frames) {
   return base::AdoptRef(
-      new AudioDestination(callback, number_of_output_channels, latency_hint,
-                           context_sample_rate, render_quantum_frames));
+      new AudioDestination(callback, sink_descriptor, number_of_output_channels,
+                           latency_hint, context_sample_rate,
+                           render_quantum_frames));
 }
 
-AudioDestination::AudioDestination(AudioIOCallback& callback,
-                                   unsigned number_of_output_channels,
-                                   const WebAudioLatencyHint& latency_hint,
-                                   absl::optional<float> context_sample_rate,
-                                   unsigned render_quantum_frames)
+AudioDestination::AudioDestination(
+    AudioIOCallback& callback,
+    const WebAudioSinkDescriptor& sink_descriptor,
+    unsigned number_of_output_channels,
+    const WebAudioLatencyHint& latency_hint,
+    absl::optional<float> context_sample_rate,
+    unsigned render_quantum_frames)
     : render_quantum_frames_(render_quantum_frames),
       number_of_output_channels_(number_of_output_channels),
       fifo_(std::make_unique<PushPullFIFO>(number_of_output_channels,
@@ -103,12 +109,9 @@ AudioDestination::AudioDestination(AudioIOCallback& callback,
                                 number_of_output_channels));
   SendLogMessage(
       String::Format("%s => (FIFO size=%u bytes)", __func__, fifo_->length()));
-  // Create WebAudioDevice. blink::WebAudioDevice is designed to support the
-  // local input (e.g. loopback from OS audio system), but Chromium's media
-  // renderer does not support it currently. Thus, we use zero for the number
-  // of input channels.
+
   web_audio_device_ = Platform::Current()->CreateAudioDevice(
-      0, number_of_output_channels, latency_hint, this, String());
+      sink_descriptor, number_of_output_channels, latency_hint, this);
   DCHECK(web_audio_device_);
 
   callback_buffer_size_ = web_audio_device_->FramesPerBuffer();
@@ -186,11 +189,9 @@ AudioDestination::~AudioDestination() {
 void AudioDestination::Render(const WebVector<float*>& destination_data,
                               uint32_t number_of_frames,
                               double delay,
-                              double delay_timestamp,
-                              size_t prior_frames_skipped) {
-  TRACE_EVENT_BEGIN2("webaudio", "AudioDestination::Render",
-                     "callback_buffer_size", number_of_frames, "frames skipped",
-                     prior_frames_skipped);
+                              double delay_timestamp) {
+  TRACE_EVENT_BEGIN1("webaudio", "AudioDestination::Render",
+                     "callback_buffer_size", number_of_frames);
   CHECK_EQ(destination_data.size(), number_of_output_channels_);
   CHECK_EQ(number_of_frames, callback_buffer_size_);
 
@@ -233,13 +234,11 @@ void AudioDestination::Render(const WebVector<float*>& destination_data,
         *worklet_task_runner_, FROM_HERE,
         CrossThreadBindOnce(&AudioDestination::RequestRender,
                             WrapRefCounted(this), number_of_frames,
-                            frames_to_render, delay, delay_timestamp,
-                            prior_frames_skipped));
+                            frames_to_render, delay, delay_timestamp));
   } else {
     // Otherwise use the single-thread rendering.
     size_t frames_to_render = fifo_->Pull(output_bus_.get(), number_of_frames);
-    RequestRender(number_of_frames, frames_to_render, delay,
-                  delay_timestamp, prior_frames_skipped);
+    RequestRender(number_of_frames, frames_to_render, delay, delay_timestamp);
   }
   TRACE_EVENT_END2("webaudio", "AudioDestination::Render", "timestamp (s)",
                    delay_timestamp, "delay (s)", delay);
@@ -248,8 +247,7 @@ void AudioDestination::Render(const WebVector<float*>& destination_data,
 void AudioDestination::RequestRender(size_t frames_requested,
                                      size_t frames_to_render,
                                      double delay,
-                                     double delay_timestamp,
-                                     size_t prior_frames_skipped) {
+                                     double delay_timestamp) {
   TRACE_EVENT2("webaudio", "AudioDestination::RequestRender",
                "frames_to_render", frames_to_render, "timestamp (s)",
                delay_timestamp);
@@ -272,11 +270,11 @@ void AudioDestination::RequestRender(size_t frames_requested,
     SendLogMessage(String::Format("%s => (rendering is now alive)", __func__));
   }
 
-  frames_elapsed_ -= std::min(frames_elapsed_, prior_frames_skipped);
   output_position_.position =
       frames_elapsed_ / static_cast<double>(web_audio_device_->SampleRate()) -
       delay;
   output_position_.timestamp = delay_timestamp;
+  output_position_.hardware_output_latency = delay;
   base::TimeTicks callback_request = base::TimeTicks::Now();
 
   for (size_t pushed_frames = 0; pushed_frames < frames_to_render;

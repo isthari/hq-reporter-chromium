@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_ASH_SHARESHEET_COPY_TO_CLIPBOARD_SHARE_ACTION_H_
 
 #include "chrome/browser/sharesheet/share_action/share_action.h"
+#include "components/services/app_service/public/cpp/intent.h"
 
 class Profile;
 
@@ -28,14 +29,14 @@ class CopyToClipboardShareAction : public ::sharesheet::ShareAction {
   const gfx::VectorIcon& GetActionIcon() override;
   void LaunchAction(::sharesheet::SharesheetController* controller,
                     views::View* root_view,
-                    apps::mojom::IntentPtr intent) override;
+                    apps::IntentPtr intent) override;
   void OnClosing(::sharesheet::SharesheetController* controller) override;
-  bool ShouldShowAction(const apps::mojom::IntentPtr& intent,
+  bool ShouldShowAction(const apps::IntentPtr& intent,
                         bool contains_hosted_document) override;
 
  private:
   // Virtual so that it can be overridden in testing.
-  virtual void ShowToast(const ash::ToastData& toast_data);
+  virtual void ShowToast(ash::ToastData toast_data);
 
   Profile* profile_;
 };

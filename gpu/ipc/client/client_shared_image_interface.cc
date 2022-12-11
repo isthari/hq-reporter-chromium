@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "gpu/ipc/client/client_shared_image_interface.h"
 
 #include "build/build_config.h"
+#include "gpu/command_buffer/common/shared_image_usage.h"
 #include "gpu/ipc/client/shared_image_interface_proxy.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/gpu_memory_buffer.h"
@@ -41,18 +42,14 @@ void ClientSharedImageInterface::PresentSwapChain(const SyncToken& sync_token,
 
 #if BUILDFLAG(IS_FUCHSIA)
 void ClientSharedImageInterface::RegisterSysmemBufferCollection(
-    gfx::SysmemBufferCollectionId id,
-    zx::channel token,
+    zx::eventpair service_handle,
+    zx::channel sysmem_token,
     gfx::BufferFormat format,
     gfx::BufferUsage usage,
     bool register_with_image_pipe) {
-  proxy_->RegisterSysmemBufferCollection(id, std::move(token), format, usage,
+  proxy_->RegisterSysmemBufferCollection(std::move(service_handle),
+                                         std::move(sysmem_token), format, usage,
                                          register_with_image_pipe);
-}
-
-void ClientSharedImageInterface::ReleaseSysmemBufferCollection(
-    gfx::SysmemBufferCollectionId id) {
-  proxy_->ReleaseSysmemBufferCollection(id);
 }
 #endif  // BUILDFLAG(IS_FUCHSIA)
 
@@ -87,8 +84,10 @@ Mailbox ClientSharedImageInterface::CreateSharedImage(
     uint32_t usage,
     gpu::SurfaceHandle surface_handle) {
   DCHECK_EQ(surface_handle, kNullSurfaceHandle);
+  DCHECK(gpu::IsValidClientUsage(usage));
+  auto si_format = viz::SharedImageFormat::SinglePlane(format);
   return AddMailbox(proxy_->CreateSharedImage(
-      format, size, color_space, surface_origin, alpha_type, usage));
+      si_format, size, color_space, surface_origin, alpha_type, usage));
 }
 
 Mailbox ClientSharedImageInterface::CreateSharedImage(
@@ -99,9 +98,26 @@ Mailbox ClientSharedImageInterface::CreateSharedImage(
     SkAlphaType alpha_type,
     uint32_t usage,
     base::span<const uint8_t> pixel_data) {
-  return AddMailbox(proxy_->CreateSharedImage(format, size, color_space,
+  DCHECK(gpu::IsValidClientUsage(usage));
+  auto si_format = viz::SharedImageFormat::SinglePlane(format);
+  return AddMailbox(proxy_->CreateSharedImage(si_format, size, color_space,
                                               surface_origin, alpha_type, usage,
                                               pixel_data));
+}
+
+Mailbox ClientSharedImageInterface::CreateSharedImage(
+    viz::SharedImageFormat format,
+    const gfx::Size& size,
+    const gfx::ColorSpace& color_space,
+    GrSurfaceOrigin surface_origin,
+    SkAlphaType alpha_type,
+    uint32_t usage,
+    gfx::GpuMemoryBufferHandle buffer_handle) {
+  DCHECK(gpu::IsValidClientUsage(usage));
+  DCHECK(format.is_multi_plane());
+  return AddMailbox(proxy_->CreateSharedImage(format, size, color_space,
+                                              surface_origin, alpha_type, usage,
+                                              std::move(buffer_handle)));
 }
 
 Mailbox ClientSharedImageInterface::CreateSharedImage(
@@ -112,39 +128,17 @@ Mailbox ClientSharedImageInterface::CreateSharedImage(
     GrSurfaceOrigin surface_origin,
     SkAlphaType alpha_type,
     uint32_t usage) {
+  DCHECK(gpu::IsValidClientUsage(usage));
   return AddMailbox(proxy_->CreateSharedImage(
       gpu_memory_buffer, gpu_memory_buffer_manager, plane, color_space,
       surface_origin, alpha_type, usage));
 }
 
 #if BUILDFLAG(IS_WIN)
-std::vector<Mailbox> ClientSharedImageInterface::CreateSharedImageVideoPlanes(
-    gfx::GpuMemoryBuffer* gpu_memory_buffer,
-    GpuMemoryBufferManager* gpu_memory_buffer_manager,
-    uint32_t usage) {
-  DCHECK_EQ(gpu_memory_buffer->GetType(), gfx::DXGI_SHARED_HANDLE);
-  auto mailboxes = proxy_->CreateSharedImageVideoPlanes(
-      gpu_memory_buffer, gpu_memory_buffer_manager, usage);
-  for (const auto& mailbox : mailboxes) {
-    AddMailbox(mailbox);
-  }
-  return mailboxes;
-}
-
 void ClientSharedImageInterface::CopyToGpuMemoryBuffer(
     const SyncToken& sync_token,
     const Mailbox& mailbox) {
   proxy_->CopyToGpuMemoryBuffer(sync_token, mailbox);
-}
-#endif
-
-#if BUILDFLAG(IS_ANDROID)
-Mailbox ClientSharedImageInterface::CreateSharedImageWithAHB(
-    const Mailbox& mailbox,
-    uint32_t usage,
-    const SyncToken& sync_token) {
-  return AddMailbox(
-      proxy_->CreateSharedImageWithAHB(mailbox, usage, sync_token));
 }
 #endif
 
@@ -155,6 +149,7 @@ ClientSharedImageInterface::CreateSwapChain(viz::ResourceFormat format,
                                             GrSurfaceOrigin surface_origin,
                                             SkAlphaType alpha_type,
                                             uint32_t usage) {
+  DCHECK(gpu::IsValidClientUsage(usage));
   auto mailboxes = proxy_->CreateSwapChain(format, size, color_space,
                                            surface_origin, alpha_type, usage);
   AddMailbox(mailboxes.front_buffer);

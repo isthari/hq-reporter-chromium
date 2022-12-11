@@ -1,22 +1,22 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/ui/webui/ukm_internals_ui.h"
+#import "ios/chrome/browser/ui/webui/ukm_internals_ui.h"
 
-#include "base/bind.h"
-#include "base/memory/ref_counted_memory.h"
-#include "components/metrics_services_manager/metrics_services_manager.h"
-#include "components/ukm/debug/ukm_debug_data_extractor.h"
-#include "components/ukm/ukm_service.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/grit/ios_resources.h"
-#include "ios/web/public/webui/url_data_source_ios.h"
-#include "ios/web/public/webui/web_ui_ios.h"
-#include "ios/web/public/webui/web_ui_ios_data_source.h"
-#include "ios/web/public/webui/web_ui_ios_message_handler.h"
+#import "base/bind.h"
+#import "base/memory/ref_counted_memory.h"
+#import "components/metrics_services_manager/metrics_services_manager.h"
+#import "components/ukm/debug/ukm_debug_data_extractor.h"
+#import "components/ukm/ukm_service.h"
+#import "ios/chrome/browser/application_context/application_context.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/url/chrome_url_constants.h"
+#import "ios/chrome/grit/ios_resources.h"
+#import "ios/web/public/webui/url_data_source_ios.h"
+#import "ios/web/public/webui/web_ui_ios.h"
+#import "ios/web/public/webui/web_ui_ios_data_source.h"
+#import "ios/web/public/webui/web_ui_ios_message_handler.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -47,7 +47,7 @@ class UkmMessageHandler : public web::WebUIIOSMessageHandler {
   void RegisterMessages() override;
 
  private:
-  void HandleRequestUkmData(const base::ListValue* args);
+  void HandleRequestUkmData(const base::Value::List& args);
 
   const ukm::UkmService* ukm_service_;
 };
@@ -58,20 +58,19 @@ UkmMessageHandler::UkmMessageHandler(const ukm::UkmService* ukm_service)
 UkmMessageHandler::~UkmMessageHandler() {}
 
 void UkmMessageHandler::RegisterMessages() {
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "requestUkmData",
       base::BindRepeating(&UkmMessageHandler::HandleRequestUkmData,
                           base::Unretained(this)));
 }
 
-void UkmMessageHandler::HandleRequestUkmData(const base::ListValue* args) {
-  base::Value::ConstListView args_list = args->GetList();
+void UkmMessageHandler::HandleRequestUkmData(const base::Value::List& args) {
   base::Value ukm_debug_data =
       ukm::debug::UkmDebugDataExtractor::GetStructuredData(ukm_service_);
 
   std::string callback_id;
-  if (!args_list.empty() && args_list[0].is_string())
-    callback_id = args_list[0].GetString();
+  if (!args.empty() && args[0].is_string())
+    callback_id = args[0].GetString();
 
   web_ui()->ResolveJavascriptCallback(base::Value(callback_id),
                                       std::move(ukm_debug_data));

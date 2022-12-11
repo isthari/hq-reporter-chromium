@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,19 +11,31 @@ import android.graphics.Rect;
 import android.graphics.Region;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
+import android.os.Looper;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewStub;
 
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.content.res.AppCompatResources;
 
+import org.chromium.base.Callback;
 import org.chromium.base.TraceEvent;
-import org.chromium.chrome.browser.flags.CachedFeatureFlags;
+import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.Supplier;
+import org.chromium.chrome.browser.browser_controls.BrowserStateBrowserControlsVisibilityDelegate;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.toolbar.ConstraintsChecker;
 import org.chromium.chrome.browser.toolbar.ControlContainer;
 import org.chromium.chrome.browser.toolbar.R;
+import org.chromium.chrome.browser.toolbar.ToolbarCaptureType;
+import org.chromium.chrome.browser.toolbar.ToolbarFeatures;
 import org.chromium.chrome.browser.toolbar.ToolbarProgressBar;
+import org.chromium.chrome.browser.toolbar.top.CaptureReadinessResult.TopToolbarBlockCaptureReason;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.widget.ClipDrawableProgressBar.DrawingInfo;
 import org.chromium.components.browser_ui.widget.ViewResourceFrameLayout;
@@ -32,7 +44,10 @@ import org.chromium.components.browser_ui.widget.gesture.SwipeGestureListener.Sw
 import org.chromium.ui.KeyboardVisibilityDelegate;
 import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.resources.dynamics.ViewResourceAdapter;
+import org.chromium.ui.util.TokenHolder;
 import org.chromium.ui.widget.OptimizedFrameLayout;
+
+import java.util.function.BooleanSupplier;
 
 /**
  * Layout for the browser controls (omnibox, menu, tab strip, etc..).
@@ -98,14 +113,32 @@ public class ToolbarControlContainer extends OptimizedFrameLayout implements Con
         }
     }
 
+    @Override
+    public void destroy() {
+        ((ToolbarViewResourceAdapter) getToolbarResourceAdapter()).destroy();
+    }
+
     /**
      * @param toolbar The toolbar contained inside this control container. Should be called
      *                after inflation is complete.
      * @param isIncognito Whether the toolbar should be initialized with incognito colors.
+     * @param constraintsSupplier Used to access current constraints of the browser controls.
+     * @param tabSupplier Used to access the current tab state.
+     * @param compositorInMotionSupplier Whether there is an ongoing touch or gesture.
+     * @param browserStateBrowserControlsVisibilityDelegate Used to keep controls locked when
+     *        captures are stale and not able to be taken.
      */
-    public void setToolbar(Toolbar toolbar, boolean isIncognito) {
+    public void setPostInitializationDependencies(Toolbar toolbar, boolean isIncognito,
+            ObservableSupplier<Integer> constraintsSupplier, Supplier<Tab> tabSupplier,
+            ObservableSupplier<Boolean> compositorInMotionSupplier,
+            BrowserStateBrowserControlsVisibilityDelegate
+                    browserStateBrowserControlsVisibilityDelegate) {
         mToolbar = toolbar;
-        mToolbarContainer.setToolbar(mToolbar);
+
+        BooleanSupplier isVisible = () -> this.getVisibility() == View.VISIBLE;
+        mToolbarContainer.setPostInitializationDependencies(mToolbar, constraintsSupplier,
+                tabSupplier, compositorInMotionSupplier,
+                browserStateBrowserControlsVisibilityDelegate, isVisible);
 
         View toolbarView = findViewById(R.id.toolbar);
         assert toolbarView != null;
@@ -170,14 +203,23 @@ public class ToolbarControlContainer extends OptimizedFrameLayout implements Con
         protected ViewResourceAdapter createResourceAdapter() {
             boolean useHardwareBitmapDraw = false;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                useHardwareBitmapDraw = CachedFeatureFlags.isEnabled(
-                        ChromeFeatureList.TOOLBAR_USE_HARDWARE_BITMAP_DRAW);
+                useHardwareBitmapDraw = ChromeFeatureList.sToolbarUseHardwareBitmapDraw.isEnabled();
             }
             return new ToolbarViewResourceAdapter(this, useHardwareBitmapDraw);
         }
 
-        public void setToolbar(Toolbar toolbar) {
-            ((ToolbarViewResourceAdapter) getResourceAdapter()).setToolbar(toolbar);
+        /** @see ToolbarViewResourceAdapter#setPostInitializationDependencies. */
+        public void setPostInitializationDependencies(Toolbar toolbar,
+                ObservableSupplier<Integer> constraintsSupplier, Supplier<Tab> tabSupplier,
+                ObservableSupplier<Boolean> compositorInMotionSupplier,
+                BrowserStateBrowserControlsVisibilityDelegate
+                        browserStateBrowserControlsVisibilityDelegate,
+                BooleanSupplier isVisible) {
+            ToolbarViewResourceAdapter adapter =
+                    ((ToolbarViewResourceAdapter) getResourceAdapter());
+            adapter.setPostInitializationDependencies(toolbar, constraintsSupplier, tabSupplier,
+                    compositorInMotionSupplier, browserStateBrowserControlsVisibilityDelegate,
+                    isVisible);
         }
 
         @Override
@@ -186,14 +228,31 @@ public class ToolbarControlContainer extends OptimizedFrameLayout implements Con
         }
     }
 
-    private static class ToolbarViewResourceAdapter extends ViewResourceAdapter {
+    @VisibleForTesting
+    protected static class ToolbarViewResourceAdapter extends ViewResourceAdapter {
         private final int[] mTempPosition = new int[2];
         private final Rect mLocationBarRect = new Rect();
         private final Rect mToolbarRect = new Rect();
         private final View mToolbarContainer;
+        private final Callback<Boolean> mOnCompositorInMotionChange =
+                this::onCompositorInMotionChange;
 
+        @Nullable
         private Toolbar mToolbar;
         private int mTabStripHeightPx;
+        @Nullable
+        private ConstraintsChecker mConstraintsObserver;
+        @Nullable
+        private Supplier<Tab> mTabSupplier;
+        @Nullable
+        private ObservableSupplier<Boolean> mCompositorInMotionSupplier;
+        @Nullable
+        private BrowserStateBrowserControlsVisibilityDelegate
+                mBrowserStateBrowserControlsVisibilityDelegate;
+        @Nullable
+        private BooleanSupplier mControlContainerIsVisibleSupplier;
+
+        private int mControlsToken = TokenHolder.INVALID_TOKEN;
 
         /** Builds the resource adapter for the toolbar. */
         public ToolbarViewResourceAdapter(View toolbarContainer, boolean useHardwareBitmapDraw) {
@@ -204,10 +263,35 @@ public class ToolbarControlContainer extends OptimizedFrameLayout implements Con
         /**
          * Set the toolbar after it has been dynamically inflated.
          * @param toolbar The browser's toolbar.
+         * @param constraintsSupplier Used to access current constraints of the browser controls.
+         * @param tabSupplier Used to access the current tab state.
+         * @param compositorInMotionSupplier Whether there is an ongoing touch or gesture.
+         * @param browserStateBrowserControlsVisibilityDelegate Used to keep controls locked when
+         *        captures are stale and not able to be taken.
+         * @param controlContainerIsVisibleSupplier Whether the toolbar is visible.
          */
-        public void setToolbar(Toolbar toolbar) {
+        public void setPostInitializationDependencies(Toolbar toolbar,
+                ObservableSupplier<Integer> constraintsSupplier, Supplier<Tab> tabSupplier,
+                ObservableSupplier<Boolean> compositorInMotionSupplier,
+                BrowserStateBrowserControlsVisibilityDelegate
+                        browserStateBrowserControlsVisibilityDelegate,
+                BooleanSupplier controlContainerIsVisibleSupplier) {
+            assert mToolbar == null;
             mToolbar = toolbar;
             mTabStripHeightPx = mToolbar.getTabStripHeight();
+
+            // These dependencies only matter when ChromeFeatureList.SUPPRESS_TOOLBAR_CAPTURES is
+            // enabled. Unfortunately this method is often called before native is initialized,
+            // and so we do not know if we'll need them yet. Store all of them, and then
+            // conditionally use them when captures are requested.
+            mConstraintsObserver =
+                    new ConstraintsChecker(this, constraintsSupplier, Looper.getMainLooper());
+            mTabSupplier = tabSupplier;
+            mCompositorInMotionSupplier = compositorInMotionSupplier;
+            mCompositorInMotionSupplier.addObserver(mOnCompositorInMotionChange);
+            mBrowserStateBrowserControlsVisibilityDelegate =
+                    browserStateBrowserControlsVisibilityDelegate;
+            mControlContainerIsVisibleSupplier = controlContainerIsVisibleSupplier;
         }
 
         /**
@@ -220,11 +304,63 @@ public class ToolbarControlContainer extends OptimizedFrameLayout implements Con
 
         @Override
         public boolean isDirty() {
-            return mToolbar != null && mToolbar.isReadyForTextureCapture() && super.isDirty();
+            if (!super.isDirty()) {
+                CaptureReadinessResult.logCaptureReasonFromResult(CaptureReadinessResult.notReady(
+                        TopToolbarBlockCaptureReason.VIEW_NOT_DIRTY));
+                return false;
+            }
+
+            if (ToolbarFeatures.shouldSuppressCaptures()) {
+                if (mConstraintsObserver != null && mTabSupplier != null) {
+                    Tab tab = mTabSupplier.get();
+
+                    // TODO(https://crbug.com/1355516): Understand and fix this for native pages. It
+                    // seems capturing is required for some part of theme observers to work
+                    // correctly, but it shouldn't be.
+                    boolean isNativePage = tab == null || tab.isNativePage();
+                    if (!isNativePage && mConstraintsObserver.areControlsLocked()) {
+                        mConstraintsObserver.scheduleRequestResourceOnUnlock();
+                        CaptureReadinessResult.logCaptureReasonFromResult(
+                                CaptureReadinessResult.notReady(
+                                        TopToolbarBlockCaptureReason.BROWSER_CONTROLS_LOCKED));
+                        return false;
+                    }
+                }
+
+                // The heavy lifting is done by #onCompositorInMotionChange and the above browser
+                // controls state check. This logic only needs to guard against a capture when
+                // the controls were partially or fully scrolled off, in the middle of motion,
+                // before the view became dirty.
+                if (mCompositorInMotionSupplier != null) {
+                    Boolean compositorInMotion = mCompositorInMotionSupplier.get();
+                    if (Boolean.TRUE.equals(compositorInMotion)) {
+                        CaptureReadinessResult.logCaptureReasonFromResult(
+                                CaptureReadinessResult.notReady(
+                                        TopToolbarBlockCaptureReason.COMPOSITOR_IN_MOTION));
+                        return false;
+                    }
+                }
+            }
+
+            CaptureReadinessResult isReadyResult =
+                    mToolbar == null ? null : mToolbar.isReadyForTextureCapture();
+            if (isReadyResult != null
+                    && isReadyResult.blockReason == TopToolbarBlockCaptureReason.SNAPSHOT_SAME) {
+                // If our view was invalidated but no meaningful properties have changed (which is
+                // what SNAPSHOT_SAME implies), we can safely avoid re-checking until the next view
+                // invalidation.
+                setDirtyRectEmpty();
+            }
+
+            CaptureReadinessResult.logCaptureReasonFromResult(isReadyResult);
+            return isReadyResult == null ? false : isReadyResult.isReady;
         }
 
         @Override
-        protected void onCaptureStart(Canvas canvas, Rect dirtyRect) {
+        public void onCaptureStart(Canvas canvas, Rect dirtyRect) {
+            RecordHistogram.recordEnumeratedHistogram("Android.Toolbar.BitmapCapture",
+                    ToolbarCaptureType.TOP, ToolbarCaptureType.NUM_ENTRIES);
+
             // Erase the canvas because assets drawn are not fully opaque and therefore painting
             // twice would be bad.
             canvas.save();
@@ -239,7 +375,7 @@ public class ToolbarControlContainer extends OptimizedFrameLayout implements Con
         }
 
         @Override
-        protected void onCaptureEnd() {
+        public void onCaptureEnd() {
             mToolbar.setTextureCaptureMode(false);
             // Forcing a texture capture should only be done for one draw. Turn off forced
             // texture capture.
@@ -259,6 +395,50 @@ public class ToolbarControlContainer extends OptimizedFrameLayout implements Con
                     mToolbarContainer.getHeight() - mToolbar.getHeight() - mTabStripHeightPx;
             return ResourceFactory.createToolbarContainerResource(
                     mToolbarRect, mLocationBarRect, shadowHeight);
+        }
+
+        public void destroy() {
+            if (mConstraintsObserver != null) {
+                mConstraintsObserver.destroy();
+            }
+            if (mCompositorInMotionSupplier != null) {
+                mCompositorInMotionSupplier.removeObserver(mOnCompositorInMotionChange);
+            }
+        }
+
+        private void onCompositorInMotionChange(Boolean compositorInMotion) {
+            if (!ToolbarFeatures.shouldSuppressCaptures() || mToolbar == null
+                    || mBrowserStateBrowserControlsVisibilityDelegate == null
+                    || mControlContainerIsVisibleSupplier == null) {
+                return;
+            }
+
+            if (!Boolean.TRUE.equals(compositorInMotion)) {
+                if (mControlsToken == TokenHolder.INVALID_TOKEN) {
+                    // Only needed when the ConstraintsChecker doesn't drive the capture.
+                    // TODO(https://crbug.com/1378721): Make this post a task similar to
+                    // ConstraintsChecker.
+                    onResourceRequested();
+                } else {
+                    mBrowserStateBrowserControlsVisibilityDelegate.releasePersistentShowingToken(
+                            mControlsToken);
+                    mControlsToken = TokenHolder.INVALID_TOKEN;
+                }
+            } else if (super.isDirty() && mToolbar.isReadyForTextureCapture().isReady) {
+                // Motion is starting, and we don't have a good capture. Lock the controls so that a
+                // new capture doesn't happen and the old capture is not shown. This can be fixed
+                // once the motion is over.
+                if (mControlContainerIsVisibleSupplier.getAsBoolean()) {
+                    mControlsToken =
+                            mBrowserStateBrowserControlsVisibilityDelegate
+                                    .showControlsPersistentAndClearOldToken(mControlsToken);
+                    // Utilize posted task in ConstraintsChecker to drive new capture.
+                    mConstraintsObserver.scheduleRequestResourceOnUnlock();
+                    CaptureReadinessResult.logCaptureReasonFromResult(
+                            CaptureReadinessResult.notReady(
+                                    TopToolbarBlockCaptureReason.COMPOSITOR_IN_MOTION));
+                }
+            }
         }
     }
 

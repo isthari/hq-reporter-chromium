@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "ash/wm/window_dimmer.h"
 #include "ash/wm/window_util.h"
 #include "base/containers/contains.h"
+#include "base/ranges/algorithm.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/wm/core/coordinate_conversion.h"
@@ -39,7 +40,8 @@ bool HasTransientAncestor(const aura::Window* window,
   return transient_parent ? HasTransientAncestor(transient_parent, ancestor)
                           : false;
 }
-}
+
+}  // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 // SystemModalContainerLayoutManager, public:
@@ -231,7 +233,7 @@ void SystemModalContainerLayoutManager::AddModalWindow(aura::Window* window) {
 
 bool SystemModalContainerLayoutManager::RemoveModalWindow(
     aura::Window* window) {
-  auto it = std::find(modal_windows_.begin(), modal_windows_.end(), window);
+  auto it = base::ranges::find(modal_windows_, window);
   if (it == modal_windows_.end())
     return false;
   modal_windows_.erase(it);

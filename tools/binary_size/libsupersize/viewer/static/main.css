@@ -1,4 +1,4 @@
-/* Copyright 2018 The Chromium Authors. All rights reserved.
+/* Copyright 2018 The Chromium Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file. */
 
@@ -72,12 +72,13 @@ body {
 }
 
 .headline {
-  margin: 0;
-  font-family: "Google Sans", Arial, sans-serif;
-  font-weight: normal;
   color: #202124;
-  font-size: 22px;
   flex: 1;
+  font-family: "Google Sans", Arial, sans-serif;
+  font-size: 22px;
+  font-weight: normal;
+  line-height: 34px;
+  margin: 0;
 }
 .subtitle {
   font-weight: 500;
@@ -165,7 +166,6 @@ ul {
   width: 0;
   height: 0;
 }
-
 [aria-expanded]>.node::before {
   /** Draw a 5x10 triangle */
   margin: 5px 7px 5px 8px;
@@ -176,6 +176,14 @@ ul {
 }
 [aria-expanded="true"]>.node::before {
   transform: rotate(90deg);
+}
+
+/** Tree leaves */
+:not([aria-expanded])>.node:focus {
+  background: #eef;
+}
+:not([aria-expanded])>.node:hover:focus {
+  background: #ddf;
 }
 
 /** Tree node sub items */
@@ -231,31 +239,82 @@ ul {
 
 .modal {
   background-color: rgba(0,0,0,0.5);
-  height: 100%;
+  bottom: 0;
   left: 0;
-  overflow: auto;
   position: fixed;
+  right: 0;
   top: 0;
-  width: 100%;
-  z-index: 1;
+  z-index: 10;
 }
 
 .modal-content {
-  align-items: flex-end;   /* Or center if you'd prefer */
+  align-items: center;
   background-color: #fefefe;
-  border: 1px solid #888;
   border-radius: 5px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  margin: 15% auto;
-  min-width: 250px;
-  padding: 20px;
-  width: 50%;
+  left: 0;
+  margin: auto;
+  max-height: calc(100% - 80px);
+  max-width: calc(100% - 60px);
+  overflow: auto;
+  padding: 10px;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .download-button {
   fill: #1a73e8;
   margin-left: 8px;
   vertical-align: middle;
+}
+
+.metadata-symbol-name {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  padding-left: 5px;
+  word-break: break-word;
+}
+
+.metadata {
+  margin: 0 auto;
+  max-width: 1200px;
+}
+
+#metadata-view:not(.active) {
+  display: none;
+}
+
+#metadata-content:not(.active) {
+  display: none;
+}
+
+#review-info{
+  font-size: 13px;
+}
+
+#review-text {
+  color: #0000d1;
+  text-decoration: none;
+  white-space: pre;
+}
+
+#no-symbols-msg {
+  position: relative;
+  text-align: center;
+  top: -1em;
+}
+
+#disassembly-code {
+  border: 1px solid #ccc;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 500px;
+  overflow: auto;
+  position: relative;
 }

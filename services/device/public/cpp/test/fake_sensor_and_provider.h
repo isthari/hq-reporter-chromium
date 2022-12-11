@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 #define SERVICES_DEVICE_PUBLIC_CPP_TEST_FAKE_SENSOR_AND_PROVIDER_H_
 
 #include "base/memory/raw_ptr.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "mojo/public/cpp/system/buffer.h"
 #include "services/device/public/cpp/generic_sensor/sensor_reading.h"
 #include "services/device/public/mojom/sensor.mojom.h"
 #include "services/device/public/mojom/sensor_provider.mojom.h"
@@ -134,13 +134,13 @@ class FakeSensorProvider : public mojom::SensorProvider {
 
   // The following sensor pointers are owned by the caller of
   // FakeSensorProvider::GetSensor().
-  raw_ptr<FakeSensor> ambient_light_sensor_ = nullptr;
-  raw_ptr<FakeSensor> accelerometer_ = nullptr;
-  raw_ptr<FakeSensor> linear_acceleration_sensor_ = nullptr;
-  raw_ptr<FakeSensor> gravity_sensor_ = nullptr;
-  raw_ptr<FakeSensor> gyroscope_ = nullptr;
-  raw_ptr<FakeSensor> relative_orientation_sensor_ = nullptr;
-  raw_ptr<FakeSensor> absolute_orientation_sensor_ = nullptr;
+  raw_ptr<FakeSensor, DanglingUntriaged> ambient_light_sensor_ = nullptr;
+  raw_ptr<FakeSensor, DanglingUntriaged> accelerometer_ = nullptr;
+  raw_ptr<FakeSensor, DanglingUntriaged> linear_acceleration_sensor_ = nullptr;
+  raw_ptr<FakeSensor, DanglingUntriaged> gravity_sensor_ = nullptr;
+  raw_ptr<FakeSensor, DanglingUntriaged> gyroscope_ = nullptr;
+  raw_ptr<FakeSensor, DanglingUntriaged> relative_orientation_sensor_ = nullptr;
+  raw_ptr<FakeSensor, DanglingUntriaged> absolute_orientation_sensor_ = nullptr;
 
   SensorReading ambient_light_sensor_reading_;
   SensorReading accelerometer_reading_;
@@ -157,8 +157,7 @@ class FakeSensorProvider : public mojom::SensorProvider {
   bool relative_orientation_sensor_is_available_ = true;
   bool absolute_orientation_sensor_is_available_ = true;
   mojo::ReceiverSet<mojom::SensorProvider> receivers_{};
-  mojo::ScopedSharedBufferHandle shared_buffer_handle_;
-  mojo::ScopedSharedBufferMapping shared_buffer_mapping_;
+  base::MappedReadOnlyRegion mapped_region_;
 };
 
 }  // namespace device

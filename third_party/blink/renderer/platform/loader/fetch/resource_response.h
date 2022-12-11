@@ -34,6 +34,7 @@
 #include "base/time/time.h"
 #include "net/base/ip_endpoint.h"
 #include "net/ssl/ssl_info.h"
+#include "services/network/public/mojom/alternate_protocol_usage.mojom-shared.h"
 #include "services/network/public/mojom/cross_origin_embedder_policy.mojom-shared.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "services/network/public/mojom/ip_address_space.mojom-shared.h"
@@ -226,6 +227,13 @@ class PLATFORM_EXPORT ResourceResponse final {
     was_fetched_via_service_worker_ = value;
   }
 
+  base::TimeTicks ArrivalTimeAtRenderer() const {
+    return arrival_time_at_renderer_;
+  }
+  void SetArrivalTimeAtRenderer(base::TimeTicks value) {
+    arrival_time_at_renderer_ = value;
+  }
+
   network::mojom::FetchResponseSource GetServiceWorkerResponseSource() const {
     return service_worker_response_source_;
   }
@@ -293,6 +301,13 @@ class PLATFORM_EXPORT ResourceResponse final {
     address_space_ = value;
   }
 
+  network::mojom::IPAddressSpace ClientAddressSpace() const {
+    return client_address_space_;
+  }
+  void SetClientAddressSpace(network::mojom::IPAddressSpace value) {
+    client_address_space_ = value;
+  }
+
   bool WasAlpnNegotiated() const { return was_alpn_negotiated_; }
   void SetWasAlpnNegotiated(bool was_alpn_negotiated) {
     was_alpn_negotiated_ = was_alpn_negotiated;
@@ -310,6 +325,13 @@ class PLATFORM_EXPORT ResourceResponse final {
   }
   void SetAlpnNegotiatedProtocol(const AtomicString& value) {
     alpn_negotiated_protocol_ = value;
+  }
+
+  net::AlternateProtocolUsage AlternateProtocolUsage() const {
+    return alternate_protocol_usage_;
+  }
+  void SetAlternateProtocolUsage(net::AlternateProtocolUsage value) {
+    alternate_protocol_usage_ = value;
   }
 
   net::HttpResponseInfo::ConnectionInfo ConnectionInfo() const {
@@ -434,7 +456,13 @@ class PLATFORM_EXPORT ResourceResponse final {
   net::IPEndPoint remote_ip_endpoint_;
 
   // The address space from which this resource was fetched.
+  // https://wicg.github.io/private-network-access/#response-ip-address-space
   network::mojom::IPAddressSpace address_space_ =
+      network::mojom::IPAddressSpace::kUnknown;
+
+  // The address space of the request client.
+  // https://wicg.github.io/private-network-access/#policy-container-ip-address-space
+  network::mojom::IPAddressSpace client_address_space_ =
       network::mojom::IPAddressSpace::kUnknown;
 
   bool was_cached_ : 1;
@@ -571,6 +599,11 @@ class PLATFORM_EXPORT ResourceResponse final {
   // ALPN negotiated protocol of the socket which fetched this resource.
   AtomicString alpn_negotiated_protocol_;
 
+  // The reason why Chrome uses a specific transport protocol for HTTP
+  // semantics.
+  net::AlternateProtocolUsage alternate_protocol_usage_ =
+      net::AlternateProtocolUsage::ALTERNATE_PROTOCOL_USAGE_UNSPECIFIED_REASON;
+
   // Information about the type of connection used to fetch this resource.
   net::HttpResponseInfo::ConnectionInfo connection_info_ =
       net::HttpResponseInfo::ConnectionInfo::CONNECTION_INFO_UNKNOWN;
@@ -584,6 +617,9 @@ class PLATFORM_EXPORT ResourceResponse final {
   // Sizes of the response body in bytes after any content-encoding is
   // removed.
   int64_t decoded_body_length_ = 0;
+
+  // Represents when the response arrives at the renderer.
+  base::TimeTicks arrival_time_at_renderer_;
 
   // This is propagated from the browser process's PrefetchURLLoader on
   // cross-origin prefetch responses. It is used to pass the token along to

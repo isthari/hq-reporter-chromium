@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,9 @@
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
+#include "components/update_client/buildflags.h"
 #include "components/update_client/component.h"
+#include "components/update_client/crx_cache.h"
 #include "components/update_client/crx_downloader.h"
 #include "components/update_client/crx_update_item.h"
 #include "components/update_client/ping_manager.h"
@@ -57,18 +59,21 @@ class UpdateEngine : public base::RefCountedThreadSafe<UpdateEngine> {
   // is not found.
   bool GetUpdateState(const std::string& id, CrxUpdateItem* update_state);
 
-  void Update(bool is_foreground,
-              const std::vector<std::string>& ids,
-              UpdateClient::CrxDataCallback crx_data_callback,
-              UpdateClient::CrxStateChangeCallback crx_state_change_callback,
-              Callback update_callback);
+  // Update the given app ids. Returns a closure that can be called to trigger
+  // cancellation of the operation. `update_callback` will be called when the
+  // operation is complete (even if cancelled). The cancellation callback
+  // should be called only on the main thread.
+  base::RepeatingClosure Update(
+      bool is_foreground,
+      bool is_install,
+      const std::vector<std::string>& ids,
+      UpdateClient::CrxDataCallback crx_data_callback,
+      UpdateClient::CrxStateChangeCallback crx_state_change_callback,
+      Callback update_callback);
 
   void SendUninstallPing(const CrxComponent& crx_component,
                          int reason,
                          Callback update_callback);
-
-  void SendRegistrationPing(const CrxComponent& crx_component,
-                            Callback update_callback);
 
  private:
   friend class base::RefCountedThreadSafe<UpdateEngine>;
@@ -103,6 +108,12 @@ class UpdateEngine : public base::RefCountedThreadSafe<UpdateEngine> {
   // Called when CRX state changes occur.
   const NotifyObserversCallback notify_observers_callback_;
 
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+  // TODO(crbug.com/1349060) once Puffin patches are fully implemented,
+  // we should remove this #if.
+  absl::optional<scoped_refptr<CrxCache>> crx_cache_;
+#endif
+
   // Contains the contexts associated with each update in progress.
   UpdateContexts update_contexts_;
 
@@ -115,21 +126,49 @@ class UpdateEngine : public base::RefCountedThreadSafe<UpdateEngine> {
 
 // Describes a group of components which are installed or updated together.
 struct UpdateContext : public base::RefCountedThreadSafe<UpdateContext> {
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+  // TODO(crbug.com/1349060) once Puffin patches are fully implemented,
+  // we should remove this #if.
   UpdateContext(
       scoped_refptr<Configurator> config,
+      absl::optional<scoped_refptr<CrxCache>> crx_cache,
       bool is_foreground,
+      bool is_install,
       const std::vector<std::string>& ids,
       UpdateClient::CrxStateChangeCallback crx_state_change_callback,
       const UpdateEngine::NotifyObserversCallback& notify_observers_callback,
       UpdateEngine::Callback callback,
       PersistedData* persisted_data);
+#else
+  UpdateContext(
+      scoped_refptr<Configurator> config,
+      bool is_foreground,
+      bool is_install,
+      const std::vector<std::string>& ids,
+      UpdateClient::CrxStateChangeCallback crx_state_change_callback,
+      const UpdateEngine::NotifyObserversCallback& notify_observers_callback,
+      UpdateEngine::Callback callback,
+      PersistedData* persisted_data);
+#endif
   UpdateContext(const UpdateContext&) = delete;
   UpdateContext& operator=(const UpdateContext&) = delete;
 
   scoped_refptr<Configurator> config;
 
+#if BUILDFLAG(ENABLE_PUFFIN_PATCHES)
+  // TODO(crbug.com/1349060) once Puffin patches are fully implemented,
+  // we should remove this #if.
+  absl::optional<scoped_refptr<CrxCache>> crx_cache_;
+#endif
+
   // True if the component is updated as a result of user interaction.
   bool is_foreground = false;
+
+  // True if the component is updating in an installation flow.
+  bool is_install = false;
+
+  // True if and only if this operation has been canceled.
+  bool is_cancelled = false;
 
   // Contains the ids of all CRXs in this context in the order specified
   // by the caller of |UpdateClient::Update| or |UpdateClient:Install|.

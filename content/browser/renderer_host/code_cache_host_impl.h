@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -102,7 +102,9 @@ class CONTENT_EXPORT CodeCacheHostImpl : public blink::mojom::CodeCacheHost {
 
   // Helpers.
   GeneratedCodeCache* GetCodeCache(blink::mojom::CodeCacheType cache_type);
-  void OnReceiveCachedCode(FetchCachedCodeCallback callback,
+  void OnReceiveCachedCode(blink::mojom::CodeCacheType cache_type,
+                           base::TimeTicks start_time,
+                           FetchCachedCodeCallback callback,
                            const base::Time& response_time,
                            mojo_base::BigBuffer data);
 

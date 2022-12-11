@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/containers/cxx20_erase.h"
 #include "base/location.h"
@@ -80,6 +81,7 @@ void ForwardingAudioStreamFactory::Core::CreateInputStream(
     const media::AudioParameters& params,
     uint32_t shared_memory_count,
     bool enable_agc,
+    media::mojom::AudioProcessingConfigPtr processing_config,
     mojo::PendingRemote<blink::mojom::RendererAudioInputStreamFactoryClient>
         renderer_factory_client) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
@@ -89,6 +91,7 @@ void ForwardingAudioStreamFactory::Core::CreateInputStream(
       .insert(broker_factory_->CreateAudioInputStreamBroker(
           render_process_id, render_frame_id, device_id, params,
           shared_memory_count, user_input_monitor_, enable_agc,
+          std::move(processing_config),
           base::BindOnce(&ForwardingAudioStreamFactory::Core::RemoveInput,
                          base::Unretained(this)),
           std::move(renderer_factory_client)))
@@ -237,8 +240,7 @@ ForwardingAudioStreamFactory::~ForwardingAudioStreamFactory() {
   // causes issues in unit tests where the UI thread and the IO thread are the
   // same.
   GetIOThreadTaskRunner({})->PostTask(
-      FROM_HERE,
-      base::BindOnce([](std::unique_ptr<Core>) {}, std::move(core_)));
+      FROM_HERE, base::DoNothingWithBoundArgs(std::move(core_)));
 }
 
 void ForwardingAudioStreamFactory::LoopbackStreamStarted() {

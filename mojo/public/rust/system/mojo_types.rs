@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,37 +14,19 @@
 //! a whole because it is intended to be used that way. It contains
 //! all of the basic types needed by all system-level Mojo bindings.
 
-use crate::system::ffi::types::*;
+use crate::system::ffi::types::{self, *};
 use std::fmt;
 use std::u64;
 
-/// A MojoHandle is represented as a plain 32-bit unsigned int.
-pub type MojoHandle = u32;
-
-/// An opaque pointer to a wait set. Since the C bindings no longer have wait sets, our glue code creates a C++ mojo::WaitSet object and returns it as an opaque pointer.
-pub type MojoWaitSetHandle = usize;
-
-/// From //mojo/public/c/system/message_pipe.h. Represents a message object.
-pub type MojoMessageHandle = usize;
-
-/// Represents time ticks as specified by Mojo. A time tick value
-/// is meaningless when not used relative to another time tick.
-pub type MojoTimeTicks = i64;
+pub use types::MojoHandle;
+pub use types::MojoMessageHandle;
+pub use types::MojoTimeTicks;
 
 /// Represents a deadline for wait() calls.
 pub type MojoDeadline = u64;
 pub static MOJO_INDEFINITE: MojoDeadline = u64::MAX;
 
-pub type CreateFlags = u32;
-pub type DuplicateFlags = u32;
-pub type InfoFlags = u32;
-pub type MapFlags = u32;
-pub type WriteFlags = u32;
-pub type ReadFlags = u32;
-pub type CreateMessageFlags = u32;
-pub type AppendMessageFlags = u32;
-pub type GetMessageFlags = u32;
-pub type AddFlags = u32;
+pub use crate::system::wait_set::WaitSetResult;
 
 /// MojoResult represents anything that can happen
 /// as a result of performing some operation in Mojo.
@@ -135,142 +117,72 @@ impl fmt::Display for MojoResult {
     }
 }
 
-/// This tuple struct represents a bit vector configuration of possible
-/// Mojo signals. Used in wait() and wait_many() primarily as a convenience.
-///
-/// One invariant must be true for this data structure and it is that:
-///     sizeof(HandleSignals) == sizeof(MojoHandleSignals)
-/// If this is ever not the case or there is a way in Rust to ensure that,
-/// this data structure must be updated to reflect that.
-#[repr(C)]
-#[derive(Clone, Copy, Default, PartialEq)]
-pub struct HandleSignals(MojoHandleSignals);
+bitflags::bitflags! {
+    #[derive(Default)]
+    #[repr(transparent)]
+    pub struct HandleSignals: MojoHandleSignals {
+        const READABLE = 1 << 0;
+        const WRITABLE = 1 << 1;
+        const PEER_CLOSED = 1 <<2;
+        const NEW_DATA_READABLE = 1 <<3;
+        const PEER_REMOTE = 1 << 4;
+        const QUOTA_EXCEEDED = 1 << 5;
+    }
+}
 
 impl HandleSignals {
-    /// Create a new HandleSignals given the raw MojoHandleSignals
-    pub fn new(s: MojoHandleSignals) -> HandleSignals {
-        HandleSignals(s)
-    }
-
-    /// Check if the readable flag is set
+    /// Check if the readable flag is set.
     pub fn is_readable(&self) -> bool {
-        (self.0 & (Signals::Readable as u32)) != 0
+        self.contains(HandleSignals::READABLE)
     }
 
-    /// Check if the writable flag is set
+    /// Check if the writable flag is set.
     pub fn is_writable(&self) -> bool {
-        (self.0 & (Signals::Writable as u32)) != 0
+        self.contains(HandleSignals::WRITABLE)
     }
 
-    /// Check if the peer-closed flag is set
+    /// Check if the peer-closed flag is set.
     pub fn is_peer_closed(&self) -> bool {
-        (self.0 & (Signals::PeerClosed as u32)) != 0
-    }
-
-    /// Pull the raw MojoHandleSignals out of the data structure
-    pub fn get_bits(&self) -> MojoHandleSignals {
-        self.0
+        self.contains(HandleSignals::PEER_CLOSED)
     }
 }
 
 /// Represents the signals state of a handle: which signals are satisfied,
 /// and which are satisfiable.
-///
-/// One invariant must be true for this data structure and it is that:
-///     sizeof(SignalsState) == sizeof(MojoSignalsState) (defined in handle.h)
-/// If this is ever not the case or there is a way in Rust to ensure that,
-/// this data structure must be updated to reflect that.
-///
-
-// The Mojo API requires this to be 4-byte aligned.
-#[repr(C, align(4))]
-#[derive(Default)]
-pub struct SignalsState {
-    satisfied: HandleSignals,
-    satisfiable: HandleSignals,
-}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug)]
+pub struct SignalsState(pub MojoHandleSignalsState);
 
 impl SignalsState {
     /// Generates a new SignalsState
     pub fn new(satisfied: HandleSignals, satisfiable: HandleSignals) -> SignalsState {
-        SignalsState { satisfied: satisfied, satisfiable: satisfiable }
+        SignalsState(MojoHandleSignalsState {
+            satisfied_signals: satisfied.bits(),
+            satisfiable_signals: satisfiable.bits(),
+        })
     }
     /// Gets a reference to the satisfied signals
-    pub fn satisfied(&self) -> &HandleSignals {
-        &self.satisfied
+    pub fn satisfied(&self) -> HandleSignals {
+        HandleSignals::from_bits_truncate(self.0.satisfied_signals)
     }
     /// Gets a reference to the satisfiable signals
-    pub fn satisfiable(&self) -> &HandleSignals {
-        &self.satisfiable
+    pub fn satisfiable(&self) -> HandleSignals {
+        HandleSignals::from_bits_truncate(self.0.satisfiable_signals)
     }
-    /// Consume the SignalsState and release its tender interior
-    ///
-    /// Returns (satisfied, satisfiable)
-    pub fn unwrap(self) -> (HandleSignals, HandleSignals) {
-        (self.satisfied, self.satisfiable)
+
+    /// Return the wrapped Mojo FFI struct.
+    pub fn to_raw(self) -> MojoHandleSignalsState {
+        self.0
+    }
+
+    /// Get a pointer to the inner struct for FFI calls.
+    pub fn as_raw_mut_ptr(&mut self) -> *mut MojoHandleSignalsState {
+        &mut self.0 as *mut _
     }
 }
 
-/// The different signals options that can be
-/// used by wait() and wait_many(). You may use
-/// these directly to build a bit-vector, but
-/// the signals! macro will already do it for you.
-/// See the root of the library for more information.
-#[repr(u32)]
-pub enum Signals {
-    None = 0,
-    /// Wait for the handle to be readable
-    Readable = 1 << 0,
-
-    /// Wait for the handle to be writable
-    Writable = 1 << 1,
-
-    /// Wait for the handle to be closed by the peer
-    /// (for message pipes and data pipes, this is
-    /// the counterpart handle to the pipe)
-    PeerClosed = 1 << 2,
-
-    /// Wait for the handle to have at least some
-    /// readable data
-    NewDataReadable = 1 << 3,
-
-    /// ???
-    PeerRemote = 1 << 4,
-
-    // ???
-    QuotaExceeded = 1 << 5,
-}
-
-/// The result struct used by the wait_set module
-/// to return wait result information. Should remain
-/// semantically identical to the implementation of
-/// this struct in wait_set.h in the C bindings.
-///
-/// This struct should never be constructed by anything
-/// but the Mojo system in MojoWaitSetWait.
-#[repr(C, align(8))]
-pub struct WaitSetResult {
-    cookie: u64,
-    result: MojoResultCode,
-    reserved: u32,
-    signals_state: SignalsState,
-}
-
-impl WaitSetResult {
-    /// Getter for the cookie corresponding to the handle
-    /// which just finished waiting.
-    pub fn cookie(&self) -> u64 {
-        self.cookie
-    }
-
-    /// Getter for the wait result.
-    pub fn result(&self) -> MojoResult {
-        MojoResult::from_code(self.result)
-    }
-
-    /// Getter for the signals state that comes with any
-    /// wait result.
-    pub fn state(&self) -> &SignalsState {
-        &self.signals_state
+impl std::default::Default for SignalsState {
+    fn default() -> Self {
+        SignalsState(MojoHandleSignalsState { satisfied_signals: 0, satisfiable_signals: 0 })
     }
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -112,7 +112,7 @@ ChromotingHostContext::url_loader_factory() {
 }
 
 policy::ManagementService* ChromotingHostContext::management_service() {
-  return &platform_management_service_;
+  return policy::PlatformManagementService::GetInstance();
 }
 
 std::unique_ptr<ChromotingHostContext> ChromotingHostContext::Create(

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/bind.h"
@@ -233,10 +232,10 @@ TEST_F(WorkletLoaderTest, DeleteBeforeCallback) {
 }
 
 TEST_F(WorkletLoaderTest, LoadWasmSuccess) {
-  AddResponse(&url_loader_factory_, url_, "application/wasm",
-              /*charset=*/absl::nullopt,
-              std::string(kMinimalWasmModuleBytes,
-                          base::size(kMinimalWasmModuleBytes)));
+  AddResponse(
+      &url_loader_factory_, url_, "application/wasm",
+      /*charset=*/absl::nullopt,
+      std::string(kMinimalWasmModuleBytes, std::size(kMinimalWasmModuleBytes)));
   WorkletWasmLoader worklet_loader(
       &url_loader_factory_, url_, v8_helper_,
       scoped_refptr<AuctionV8Helper::DebugId>(),

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -107,14 +107,14 @@ void PolicyLoaderIOS::InitOnBackgroundThread() {
                                                 taskRunner:task_runner()];
 }
 
-std::unique_ptr<PolicyBundle> PolicyLoaderIOS::Load() {
-  std::unique_ptr<PolicyBundle> bundle(new PolicyBundle());
+PolicyBundle PolicyLoaderIOS::Load() {
+  PolicyBundle bundle;
   NSDictionary* configuration = [[NSUserDefaults standardUserDefaults]
       dictionaryForKey:kPolicyLoaderIOSConfigurationKey];
-  LoadNSDictionaryToPolicyBundle(configuration, bundle.get());
+  LoadNSDictionaryToPolicyBundle(configuration, &bundle);
 
   const PolicyNamespace chrome_ns(POLICY_DOMAIN_CHROME, std::string());
-  size_t count = bundle->Get(chrome_ns).size();
+  size_t count = bundle.Get(chrome_ns).size();
   UMA_HISTOGRAM_COUNTS_100("Enterprise.IOSPolicies", count);
 
   return bundle;
@@ -139,14 +139,14 @@ void PolicyLoaderIOS::LoadNSDictionaryToPolicyBundle(NSDictionary* dictionary,
   // CFPropertyListRef.
   std::unique_ptr<base::Value> value =
       PropertyToValue((__bridge CFPropertyListRef)(dictionary));
-  base::DictionaryValue* dict = NULL;
-  if (value && value->GetAsDictionary(&dict)) {
-    PolicyMap& map = bundle->Get(PolicyNamespace(POLICY_DOMAIN_CHROME, ""));
-    for (const auto it : dict->DictItems()) {
-      map.Set(it.first, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
-              POLICY_SOURCE_PLATFORM,
-              ConvertPolicyDataIfNecessary(it.first, it.second), nullptr);
-    }
+  if (!value || !value->is_dict())
+    return;
+
+  PolicyMap& map = bundle->Get(PolicyNamespace(POLICY_DOMAIN_CHROME, ""));
+  for (const auto it : value->GetDict()) {
+    map.Set(it.first, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE,
+            POLICY_SOURCE_PLATFORM,
+            ConvertPolicyDataIfNecessary(it.first, it.second), nullptr);
   }
 }
 
@@ -160,7 +160,9 @@ base::Value PolicyLoaderIOS::ConvertPolicyDataIfNecessary(
   }
 
   // Handle the case of a JSON-encoded string for a dict policy.
-  if (schema.type() == base::Value::Type::DICTIONARY && value.is_string()) {
+  if ((schema.type() == base::Value::Type::DICTIONARY ||
+       schema.type() == base::Value::Type::LIST) &&
+      value.is_string()) {
     absl::optional<base::Value> decoded_value = base::JSONReader::Read(
         value.GetString(), base::JSONParserOptions::JSON_ALLOW_TRAILING_COMMAS);
     if (decoded_value.has_value()) {

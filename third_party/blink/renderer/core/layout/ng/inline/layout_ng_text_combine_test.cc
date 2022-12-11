@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,11 +19,8 @@ namespace blink {
 
 using ::testing::ElementsAre;
 
-class LayoutNGTextCombineTest : public NGLayoutTest,
-                                private ScopedLayoutNGTextCombineForTest {
+class LayoutNGTextCombineTest : public NGLayoutTest {
  protected:
-  LayoutNGTextCombineTest() : ScopedLayoutNGTextCombineForTest(true) {}
-
   std::string AsInkOverflowString(const LayoutBlockFlow& root) {
     std::ostringstream ostream;
     ostream << std::endl;
@@ -557,13 +554,13 @@ LayoutNGBlockFlow DIV id="root"
   |  +--LayoutInline ::before
   |  |  +--LayoutQuote (anonymous)
   |  |  |  +--LayoutNGTextCombine (anonymous)
-  |  |  |  |  +--LayoutTextFragment (anonymous) ("\"")
+  |  |  |  |  +--LayoutTextFragment (anonymous) ("\u201C")
   |  +--LayoutNGTextCombine (anonymous)
   |  |  +--LayoutText #text "ab"
   |  +--LayoutInline ::after
   |  |  +--LayoutQuote (anonymous)
   |  |  |  +--LayoutNGTextCombine (anonymous)
-  |  |  |  |  +--LayoutTextFragment (anonymous) ("\"")
+  |  |  |  |  +--LayoutTextFragment (anonymous) ("\u201D")
 )DUMP",
             ToSimpleLayoutTree(*root.GetLayoutObject()));
 
@@ -577,11 +574,11 @@ LayoutBlockFlow DIV id="root"
   +--LayoutInline Q
   |  +--LayoutInline ::before
   |  |  +--LayoutQuote (anonymous)
-  |  |  |  +--LayoutTextFragment (anonymous) ("\"")
+  |  |  |  +--LayoutTextFragment (anonymous) ("\u201C")
   |  +--LayoutTextCombine #text "ab"
   |  +--LayoutInline ::after
   |  |  +--LayoutQuote (anonymous)
-  |  |  |  +--LayoutTextFragment (anonymous) ("\"")
+  |  |  |  +--LayoutTextFragment (anonymous) ("\u201D")
 )DUMP",
             ToSimpleLayoutTree(*root.GetLayoutObject()))
       << "No more LayoutNGTextCombine";
@@ -643,7 +640,7 @@ LayoutNGBlockFlow OL id="root"
   +--LayoutNGListItem LI
   |  +--LayoutNGOutsideListMarker ::marker
   |  |  +--LayoutNGTextCombine (anonymous)
-  |  |  |  +--LayoutText (anonymous) "1. "
+  |  |  |  +--LayoutTextFragment (anonymous) ("1. ")
 )DUMP",
             ToSimpleLayoutTree(root_layout_object));
 
@@ -664,6 +661,30 @@ LayoutNGBlockFlow OL id="root" style="list-style-image: url(\"data:image/gif;bas
   +--LayoutNGListItem LI
   |  +--LayoutNGOutsideListMarker ::marker
   |  |  +--LayoutImage (anonymous)
+)DUMP",
+            ToSimpleLayoutTree(root_layout_object));
+}
+
+// http://crbug.com/1342520
+TEST_F(LayoutNGTextCombineTest, ListMarkerWidthOfSymbol) {
+  InsertStyleElement(
+      "#root {"
+      " text-combine-upright: all;"
+      " writing-mode: vertical-lr;"
+      " font-size: 1e-7px;"
+      "}");
+  SetBodyInnerHTML("<li id=root>ab</li>");
+  auto& root = *GetElementById("root");
+  const auto& root_layout_object =
+      *To<LayoutNGBlockFlow>(root.GetLayoutObject());
+
+  EXPECT_EQ(R"DUMP(
+LayoutNGListItem LI id="root"
+  +--LayoutNGInsideListMarker ::marker
+  |  +--LayoutNGTextCombine (anonymous)
+  |  |  +--LayoutTextFragment (anonymous) ("\u2022 ")
+  +--LayoutNGTextCombine (anonymous)
+  |  +--LayoutText #text "ab"
 )DUMP",
             ToSimpleLayoutTree(root_layout_object));
 }
@@ -738,22 +759,20 @@ TEST_F(LayoutNGTextCombineTest, Outline) {
   // Sample 1 with text-combine-upright:all
   const auto& sample1 = *GetLayoutObjectByElementId("t1");
   Vector<PhysicalRect> standard_outlines1;
-  sample1.AddOutlineRects(standard_outlines1, PhysicalOffset(),
+  sample1.AddOutlineRects(standard_outlines1, nullptr, PhysicalOffset(),
                           NGOutlineType::kDontIncludeBlockVisualOverflow);
   EXPECT_THAT(
       standard_outlines1,
       ElementsAre(PhysicalRect(PhysicalOffset(0, 0), PhysicalSize(150, 200))));
 
   Vector<PhysicalRect> focus_outlines1;
-  sample1.AddOutlineRects(focus_outlines1, PhysicalOffset(),
+  sample1.AddOutlineRects(focus_outlines1, nullptr, PhysicalOffset(),
                           NGOutlineType::kIncludeBlockVisualOverflow);
   EXPECT_THAT(
       focus_outlines1,
       ElementsAre(
           PhysicalRect(PhysicalOffset(0, 0), PhysicalSize(150, 200)),
           // tcy
-          PhysicalRect(PhysicalOffset(25, 0), PhysicalSize(100, 100)),
-          PhysicalRect(PhysicalOffset(20, 0), PhysicalSize(110, 100)),
           PhysicalRect(PhysicalOffset(25, 0), PhysicalSize(100, 100)),
           PhysicalRect(PhysicalOffset(20, 0), PhysicalSize(110, 100)),
           // "X"
@@ -763,22 +782,20 @@ TEST_F(LayoutNGTextCombineTest, Outline) {
   // Sample 1 without text-combine-upright:all
   const auto& sample2 = *GetLayoutObjectByElementId("t2");
   Vector<PhysicalRect> standard_outlines2;
-  sample2.AddOutlineRects(standard_outlines2, PhysicalOffset(),
+  sample2.AddOutlineRects(standard_outlines2, nullptr, PhysicalOffset(),
                           NGOutlineType::kDontIncludeBlockVisualOverflow);
   EXPECT_THAT(
       standard_outlines2,
       ElementsAre(PhysicalRect(PhysicalOffset(0, 0), PhysicalSize(150, 100))));
 
   Vector<PhysicalRect> focus_outlines2;
-  sample1.AddOutlineRects(focus_outlines2, PhysicalOffset(),
+  sample1.AddOutlineRects(focus_outlines2, nullptr, PhysicalOffset(),
                           NGOutlineType::kIncludeBlockVisualOverflow);
   EXPECT_THAT(
       focus_outlines2,
       ElementsAre(
           PhysicalRect(PhysicalOffset(0, 0), PhysicalSize(150, 200)),
           // "a"
-          PhysicalRect(PhysicalOffset(25, 0), PhysicalSize(100, 100)),
-          PhysicalRect(PhysicalOffset(20, 0), PhysicalSize(110, 100)),
           PhysicalRect(PhysicalOffset(25, 0), PhysicalSize(100, 100)),
           PhysicalRect(PhysicalOffset(20, 0), PhysicalSize(110, 100)),
           // "X"
@@ -852,7 +869,7 @@ LayoutNGBlockFlow DETAILS id="root"
   +--LayoutNGListItem SUMMARY
   |  +--LayoutNGInsideListMarker ::marker
   |  |  +--LayoutNGTextCombine (anonymous)
-  |  |  |  +--LayoutText (anonymous) "\u25BE "
+  |  |  |  +--LayoutTextFragment (anonymous) ("\u25BE ")
   |  +--LayoutNGTextCombine (anonymous)
   |  |  +--LayoutText #text "XY"
   +--LayoutNGBlockFlow (anonymous)
@@ -872,7 +889,7 @@ LayoutNGBlockFlow DETAILS id="root" style="color: red !important;"
   +--LayoutNGListItem SUMMARY
   |  +--LayoutNGInsideListMarker ::marker
   |  |  +--LayoutNGTextCombine (anonymous)
-  |  |  |  +--LayoutText (anonymous) "\u25BE "
+  |  |  |  +--LayoutTextFragment (anonymous) ("\u25BE ")
   |  +--LayoutNGTextCombine (anonymous)
   |  |  +--LayoutText #text "XY"
   +--LayoutNGBlockFlow (anonymous)
@@ -1462,7 +1479,7 @@ LayoutNGBlockFlow OL id="root"
   +--LayoutNGListItem LI
   |  +--LayoutNGOutsideListMarker ::marker
   |  |  +--LayoutNGTextCombine (anonymous)
-  |  |  |  +--LayoutText (anonymous) "1. "
+  |  |  |  +--LayoutTextFragment (anonymous) ("1. ")
   |  +--LayoutNGTextCombine (anonymous)
   |  |  +--LayoutText #text "ab"
 )DUMP",
@@ -1482,13 +1499,13 @@ LayoutNGBlockFlow DIV id="root"
   |  +--LayoutInline ::before
   |  |  +--LayoutQuote (anonymous)
   |  |  |  +--LayoutNGTextCombine (anonymous)
-  |  |  |  |  +--LayoutTextFragment (anonymous) ("\"")
+  |  |  |  |  +--LayoutTextFragment (anonymous) ("\u201C")
   |  +--LayoutNGTextCombine (anonymous)
   |  |  +--LayoutText #text "XY"
   |  +--LayoutInline ::after
   |  |  +--LayoutQuote (anonymous)
   |  |  |  +--LayoutNGTextCombine (anonymous)
-  |  |  |  |  +--LayoutTextFragment (anonymous) ("\"")
+  |  |  |  |  +--LayoutTextFragment (anonymous) ("\u201D")
 )DUMP",
             ToSimpleLayoutTree(root_layout_object));
 }

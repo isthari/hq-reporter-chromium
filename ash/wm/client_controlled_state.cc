@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -73,19 +73,6 @@ void ClientControlledState::HandleTransitionEvents(WindowState* window_state,
     WindowStateType next_state_type =
         GetStateForTransitionEvent(window_state, event);
     delegate_->HandleWindowStateRequest(window_state, next_state_type);
-    WindowStateType old_state_type = state_type_;
-
-    bool was_pinned = window_state->IsPinned();
-    bool was_trusted_pinned = window_state->IsTrustedPinned();
-
-    set_next_bounds_change_animation_type(kAnimationCrossFade);
-    EnterNextState(window_state, next_state_type);
-
-    VLOG(1) << "Processing Pinned Transtion: event=" << event_type
-            << ", state=" << old_state_type << "=>" << next_state_type
-            << ", pinned=" << was_pinned << "=>" << window_state->IsPinned()
-            << ", trusted pinned=" << was_trusted_pinned << "=>"
-            << window_state->IsTrustedPinned();
     return;
   }
 
@@ -98,12 +85,15 @@ void ClientControlledState::HandleTransitionEvents(WindowState* window_state,
     case WM_EVENT_SNAP_SECONDARY: {
       WindowStateType next_state =
           GetResolvedNextWindowStateType(window_state, event);
-      UpdateWindowForTransitionEvents(window_state, next_state, event_type);
+      UpdateWindowForTransitionEvents(window_state, next_state, event);
       break;
     }
+    case WM_EVENT_FLOAT:
+      // TODO(crbug.com/1346061): Implement this.
+      break;
     case WM_EVENT_RESTORE:
       UpdateWindowForTransitionEvents(
-          window_state, window_state->GetRestoreWindowState(), event_type);
+          window_state, window_state->GetRestoreWindowState(), event);
       break;
     case WM_EVENT_SHOW_INACTIVE:
       NOTREACHED();
@@ -163,8 +153,8 @@ void ClientControlledState::HandleCompoundEvents(WindowState* window_state,
   switch (event->type()) {
     case WM_EVENT_TOGGLE_MAXIMIZE_CAPTION:
       if (window_state->IsFullscreen()) {
-        const WMEvent event(WM_EVENT_TOGGLE_FULLSCREEN);
-        window_state->OnWMEvent(&event);
+        const WMEvent wm_event(WM_EVENT_TOGGLE_FULLSCREEN);
+        window_state->OnWMEvent(&wm_event);
       } else if (window_state->IsMaximized()) {
         window_state->Restore();
       } else if (window_state->IsNormalOrSnapped()) {
@@ -174,8 +164,8 @@ void ClientControlledState::HandleCompoundEvents(WindowState* window_state,
       break;
     case WM_EVENT_TOGGLE_MAXIMIZE:
       if (window_state->IsFullscreen()) {
-        const WMEvent event(WM_EVENT_TOGGLE_FULLSCREEN);
-        window_state->OnWMEvent(&event);
+        const WMEvent wm_event(WM_EVENT_TOGGLE_FULLSCREEN);
+        window_state->OnWMEvent(&wm_event);
       } else if (window_state->IsMaximized()) {
         window_state->Restore();
       } else if (window_state->CanMaximize()) {
@@ -212,19 +202,22 @@ void ClientControlledState::HandleBoundsEvents(WindowState* window_state,
       const gfx::Rect& bounds = set_bounds_event->requested_bounds();
       if (set_bounds_locally_) {
         switch (next_bounds_change_animation_type_) {
-          case kAnimationNone:
+          case WindowState::BoundsChangeAnimationType::kNone:
             window_state->SetBoundsDirect(bounds);
             break;
-          case kAnimationCrossFade:
+          case WindowState::BoundsChangeAnimationType::kCrossFade:
             window_state->SetBoundsDirectCrossFade(bounds);
             break;
-          case kAnimationAnimated:
+          case WindowState::BoundsChangeAnimationType::kAnimate:
             window_state->SetBoundsDirectAnimated(
                 bounds, bounds_change_animation_duration_);
             break;
+          case WindowState::BoundsChangeAnimationType::kAnimateZero:
+            NOTREACHED();
+            break;
         }
-        next_bounds_change_animation_type_ = kAnimationNone;
-
+        next_bounds_change_animation_type_ =
+            WindowState::BoundsChangeAnimationType::kNone;
       } else if (!window_state->IsPinned()) {
         // TODO(oshima): Define behavior for pinned app.
         bounds_change_animation_duration_ = set_bounds_event->duration();
@@ -285,10 +278,11 @@ bool ClientControlledState::EnterNextState(WindowState* window_state,
 
   if (IsPinnedWindowStateType(next_state_type) ||
       IsPinnedWindowStateType(previous_state_type)) {
+    set_next_bounds_change_animation_type(
+        WindowState::BoundsChangeAnimationType::kCrossFade);
     Shell::Get()->screen_pinning_controller()->SetPinnedWindow(
         window_state->window());
   }
-
   return true;
 }
 
@@ -309,7 +303,8 @@ WindowStateType ClientControlledState::GetResolvedNextWindowStateType(
 void ClientControlledState::UpdateWindowForTransitionEvents(
     WindowState* window_state,
     chromeos::WindowStateType next_state_type,
-    WMEventType event_type) {
+    const WMEvent* event) {
+  const WMEventType event_type = event->type();
   aura::Window* window = window_state->window();
 
   if (next_state_type == WindowStateType::kPrimarySnapped ||
@@ -319,12 +314,35 @@ void ClientControlledState::UpdateWindowForTransitionEvents(
                            next_state_type == WindowStateType::kPrimarySnapped
                                ? WM_EVENT_SNAP_PRIMARY
                                : WM_EVENT_SNAP_SECONDARY);
+
+      if (event_type == WM_EVENT_RESTORE) {
+        window_state->set_snap_action_source(
+            WindowSnapActionSource::kSnapByWindowStateRestore);
+      }
+      window_state->RecordAndResetWindowSnapActionSource(
+          window_state->GetStateType(), next_state_type);
+
       // Get the desired window bounds for the snap state.
-      gfx::Rect bounds =
-          GetSnappedWindowBoundsInParent(window, next_state_type);
+      const bool is_restoring =
+          window_state->window()->GetProperty(aura::client::kIsRestoringKey) ||
+          event_type == WM_EVENT_RESTORE;
+      // TODO(b/246683799): Investigate why window_state->snap_ratio() can be
+      // empty.
+      const float snap_ratio_to_restore =
+          event->IsSnapInfoAvailable()
+              ? WindowSnapWMEvent::GetFloatValueForSnapRatio(
+                    static_cast<const WindowSnapWMEvent*>(event)->snap_ratio())
+              : (is_restoring && window_state->snap_ratio().has_value()
+                     ? window_state->snap_ratio().value()
+                     : kDefaultSnapRatio);
+      gfx::Rect bounds = GetSnappedWindowBoundsInParent(window, next_state_type,
+                                                        snap_ratio_to_restore);
       // We don't want Unminimize() to restore the pre-snapped state during the
-      // transition.
-      window->ClearProperty(aura::client::kPreMinimizedShowStateKey);
+      // transition. See crbug.com/1031313 for why we need this.
+      // kRestoreShowStateKey property will be updated properly after the window
+      // is snapped correctly.
+      if (window_state->IsMinimized())
+        window->ClearProperty(aura::client::kRestoreShowStateKey);
 
       window_state->UpdateWindowPropertiesFromStateType();
       VLOG(1) << "Processing State Transtion: event=" << event_type

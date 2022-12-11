@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,7 +43,6 @@ class IOSChromeSyncClient : public browser_sync::BrowserSyncClient {
   syncer::DeviceInfoSyncService* GetDeviceInfoSyncService() override;
   send_tab_to_self::SendTabToSelfSyncService* GetSendTabToSelfSyncService()
       override;
-  bookmarks::BookmarkModel* GetBookmarkModel() override;
   favicon::FaviconService* GetFaviconService() override;
   history::HistoryService* GetHistoryService() override;
   sync_preferences::PrefServiceSyncable* GetPrefServiceSyncable() override;
@@ -53,7 +52,6 @@ class IOSChromeSyncClient : public browser_sync::BrowserSyncClient {
   invalidation::InvalidationService* GetInvalidationService() override;
   syncer::SyncInvalidationsService* GetSyncInvalidationsService() override;
   syncer::TrustedVaultClient* GetTrustedVaultClient() override;
-  BookmarkUndoService* GetBookmarkUndoService() override;
   scoped_refptr<syncer::ExtensionsActivity> GetExtensionsActivity() override;
   base::WeakPtr<syncer::ModelTypeControllerDelegate>
   GetControllerDelegateForModelType(syncer::ModelType type) override;
@@ -73,9 +71,12 @@ class IOSChromeSyncClient : public browser_sync::BrowserSyncClient {
   // respective backend threads.
   scoped_refptr<autofill::AutofillWebDataService> profile_web_data_service_;
   scoped_refptr<autofill::AutofillWebDataService> account_web_data_service_;
-  scoped_refptr<password_manager::PasswordStoreInterface> password_store_;
+  scoped_refptr<password_manager::PasswordStoreInterface>
+      profile_password_store_;
+  scoped_refptr<password_manager::PasswordStoreInterface>
+      account_password_store_;
 
-  // The task runner for the |web_data_service_|, if any.
+  // The task runner for the `web_data_service_`, if any.
   scoped_refptr<base::SingleThreadTaskRunner> db_thread_;
 };
 

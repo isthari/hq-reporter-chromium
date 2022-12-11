@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/md_text_button.h"
+#include "ui/views/examples/examples_color_id.h"
 #include "ui/views/examples/examples_window.h"
 #include "ui/views/examples/grit/views_examples_resources.h"
 #include "ui/views/layout/box_layout.h"
@@ -37,8 +38,7 @@ const char16_t kLongText[] =
     u"Really Really Really Really Really Long Button Text";
 }  // namespace
 
-namespace views {
-namespace examples {
+namespace views::examples {
 
 ButtonExample::ButtonExample() : ExampleBase("Button") {
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
@@ -48,7 +48,7 @@ ButtonExample::ButtonExample() : ExampleBase("Button") {
 ButtonExample::~ButtonExample() = default;
 
 void ButtonExample::CreateExampleView(View* container) {
-  container->SetLayoutManager(std::make_unique<FillLayout>());
+  container->SetUseDefaultFillLayout(true);
   ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
 
   auto start_throbber_cb = [](MdTextButton* button) {
@@ -59,7 +59,8 @@ void ButtonExample::CreateExampleView(View* container) {
                   .SetInsideBorderInsets(gfx::Insets(10))
                   .SetBetweenChildSpacing(10)
                   .SetCrossAxisAlignment(BoxLayout::CrossAxisAlignment::kCenter)
-                  .SetBackground(CreateSolidBackground(SK_ColorWHITE))
+                  .SetBackground(CreateThemedSolidBackground(
+                      ExamplesColorIds::kColorButtonExampleBackground))
                   .AddChildren(Builder<LabelButton>()
                                    .CopyAddressTo(&label_button_)
                                    .SetText(kLabelButton)
@@ -143,5 +144,4 @@ void ButtonExample::ImageButtonPressed() {
   PrintStatus("Image Button Pressed! count: %d", ++count_);
 }
 
-}  // namespace examples
-}  // namespace views
+}  // namespace views::examples

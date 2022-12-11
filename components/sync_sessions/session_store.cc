@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@
 #include "components/sync/model/entity_change.h"
 #include "components/sync/model/metadata_batch.h"
 #include "components/sync/model/mutable_data_batch.h"
+#include "components/sync/protocol/entity_metadata.pb.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 #include "components/sync/protocol/session_specifics.pb.h"
 #include "components/sync_device_info/local_device_info_util.h"
@@ -130,7 +131,7 @@ absl::optional<syncer::ModelError> ParseInitialDataOnBackendSequence(
 }  // namespace
 
 struct SessionStore::Builder {
-  raw_ptr<SyncSessionsClient> sessions_client = nullptr;
+  raw_ptr<SyncSessionsClient, DanglingUntriaged> sessions_client = nullptr;
   OpenCallback callback;
   SessionInfo local_session_info;
   std::unique_ptr<syncer::ModelTypeStore> underlying_store;
@@ -151,6 +152,8 @@ void SessionStore::Open(const std::string& cache_guid,
   builder->callback = std::move(callback);
 
   builder->local_session_info.device_type = syncer::GetLocalDeviceType();
+  builder->local_session_info.device_form_factor =
+      syncer::GetLocalDeviceFormFactor();
   builder->local_session_info.session_tag = GetSessionTagWithPrefs(
       cache_guid, sessions_client->GetSessionSyncPrefs());
 
@@ -409,9 +412,9 @@ SessionStore::SessionStore(
       store_(std::move(underlying_store)),
       sessions_client_(sessions_client),
       session_tracker_(sessions_client) {
-  session_tracker_.InitLocalSession(local_session_info_.session_tag,
-                                    local_session_info_.client_name,
-                                    local_session_info_.device_type);
+  session_tracker_.InitLocalSession(
+      local_session_info_.session_tag, local_session_info_.client_name,
+      local_session_info_.device_type, local_session_info_.device_form_factor);
 
   DCHECK(store_);
 
@@ -542,9 +545,9 @@ void SessionStore::DeleteAllDataAndMetadata() {
   sessions_client_->GetSessionSyncPrefs()->ClearLegacySyncSessionsGUID();
 
   // At all times, the local session must be tracked.
-  session_tracker_.InitLocalSession(local_session_info_.session_tag,
-                                    local_session_info_.client_name,
-                                    local_session_info_.device_type);
+  session_tracker_.InitLocalSession(
+      local_session_info_.session_tag, local_session_info_.client_name,
+      local_session_info_.device_type, local_session_info_.device_form_factor);
 }
 
 }  // namespace sync_sessions

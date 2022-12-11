@@ -1,18 +1,20 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/ash/system_tray_client_impl.h"
 
-#include "ash/components/settings/cros_settings_names.h"
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/ash_view_ids.h"
 #include "ash/public/cpp/login_screen_test_api.h"
+#include "ash/public/cpp/login_types.h"
 #include "ash/public/cpp/system_tray_test_api.h"
 #include "ash/shell.h"
+#include "ash/system/model/enterprise_domain_model.h"
 #include "ash/system/model/system_tray_model.h"
 #include "base/i18n/time_formatting.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/ash/login/lock/screen_locker_tester.h"
@@ -21,26 +23,37 @@
 #include "chrome/browser/ash/login/test/login_manager_mixin.h"
 #include "chrome/browser/ash/login/test/user_policy_mixin.h"
 #include "chrome/browser/ash/login/ui/user_adding_screen.h"
+#include "chrome/browser/ash/policy/core/browser_policy_connector_ash.h"
+#include "chrome/browser/ash/policy/core/device_cloud_policy_manager_ash.h"
+#include "chrome/browser/ash/policy/core/device_cloud_policy_store_ash.h"
 #include "chrome/browser/ash/policy/core/device_policy_cros_browser_test.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/ash/settings/scoped_testing_cros_settings.h"
 #include "chrome/browser/ash/settings/stub_cros_settings_provider.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/web_app_id_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/webui_url_constants.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "components/account_id/account_id.h"
+#include "components/policy/core/common/cloud/cloud_policy_constants.h"
+#include "components/policy/core/common/cloud/mock_cloud_policy_store.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
+#include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/chromeos/devicetype_utils.h"
 #include "url/gurl.h"
@@ -48,7 +61,7 @@
 using ::ash::ProfileHelper;
 using user_manager::UserManager;
 
-using SystemTrayClientEnterpriseTest = policy::DevicePolicyCrosBrowserTest;
+namespace {
 
 const char kManager[] = "admin@example.com";
 const char16_t kManager16[] = u"admin@example.com";
@@ -57,26 +70,130 @@ const char kNewGaiaID[] = "11111";
 const char kManagedUser[] = "user@example.com";
 const char kManagedGaiaID[] = "33333";
 
-IN_PROC_BROWSER_TEST_F(SystemTrayClientEnterpriseTest, TrayEnterprise) {
+}  // namespace
+
+// Parameterized by feature QsRevamp.
+class SystemTrayClientEnterpriseTest
+    : public policy::DevicePolicyCrosBrowserTest,
+      public testing::WithParamInterface<bool> {
+ public:
+  SystemTrayClientEnterpriseTest() {
+    if (GetParam()) {
+      feature_list_.InitWithFeatures(
+          {ash::features::kQsRevamp, ash::features::kQsRevampWip}, {});
+    }
+  }
+
+  base::test::ScopedFeatureList feature_list_;
+};
+
+INSTANTIATE_TEST_SUITE_P(QsRevamp,
+                         SystemTrayClientEnterpriseTest,
+                         testing::Bool());
+
+IN_PROC_BROWSER_TEST_P(SystemTrayClientEnterpriseTest, TrayEnterprise) {
   auto test_api = ash::SystemTrayTestApi::Create();
 
   // Managed devices show an item in the menu.
-  EXPECT_TRUE(test_api->IsBubbleViewVisible(ash::VIEW_ID_TRAY_ENTERPRISE,
+  EXPECT_TRUE(test_api->IsBubbleViewVisible(ash::VIEW_ID_QS_MANAGED_BUTTON,
                                             true /* open_tray */));
   std::u16string expected_text =
-      ash::features::IsManagedDeviceUIRedesignEnabled()
-          ? l10n_util::GetStringFUTF16(IDS_ASH_SHORT_MANAGED_BY, u"example.com")
-          : l10n_util::GetStringFUTF16(IDS_ASH_ENTERPRISE_DEVICE_MANAGED_BY,
-                                       ui::GetChromeOSDeviceName(),
-                                       u"example.com");
+      l10n_util::GetStringFUTF16(IDS_ASH_SHORT_MANAGED_BY, u"example.com");
   EXPECT_EQ(expected_text,
-            test_api->GetBubbleViewTooltip(ash::VIEW_ID_TRAY_ENTERPRISE));
+            test_api->GetBubbleViewTooltip(ash::VIEW_ID_QS_MANAGED_BUTTON));
 
   // Clicking the item opens the management page.
-  test_api->ClickBubbleView(ash::VIEW_ID_TRAY_ENTERPRISE);
+  test_api->ClickBubbleView(ash::VIEW_ID_QS_MANAGED_BUTTON);
   EXPECT_EQ(
       GURL(chrome::kChromeUIManagementURL),
       browser()->tab_strip_model()->GetActiveWebContents()->GetVisibleURL());
+}
+
+using ConsumerDeviceTest = MixinBasedInProcessBrowserTest;
+
+// Verify that the management device mode is indeed none of the
+// enterprise licenses.
+IN_PROC_BROWSER_TEST_F(ConsumerDeviceTest, WithNoLicense) {
+  EXPECT_EQ(ash::Shell::Get()
+                ->system_tray_model()
+                ->enterprise_domain()
+                ->management_device_mode(),
+            ash::ManagementDeviceMode::kNone);
+}
+
+class EnterpriseManagedTest : public MixinBasedInProcessBrowserTest {
+ public:
+  EnterpriseManagedTest() {
+    device_state_.set_skip_initial_policy_setup(true);
+    scoped_feature_list_.InitAndEnableFeature(
+        ash::features::kEnableKioskLoginScreen);
+  }
+  ~EnterpriseManagedTest() override = default;
+  EnterpriseManagedTest(const EnterpriseManagedTest&) = delete;
+  void operator=(const EnterpriseManagedTest&) = delete;
+
+ protected:
+  policy::DevicePolicyCrosTestHelper* policy_helper() {
+    return &policy_helper_;
+  }
+
+ private:
+  ash::DeviceStateMixin device_state_{
+      &mixin_host_,
+      ash::DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED};
+  policy::DevicePolicyCrosTestHelper policy_helper_;
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// Verify that the management device mode is indeed Kiosk Sku.
+IN_PROC_BROWSER_TEST_F(EnterpriseManagedTest, WithKioskSku) {
+  policy_helper()->device_policy()->policy_data().set_license_sku(
+      policy::kKioskSkuName);
+  policy_helper()->RefreshPolicyAndWaitUntilDeviceCloudPolicyUpdated();
+
+  EXPECT_EQ(ash::Shell::Get()
+                ->system_tray_model()
+                ->enterprise_domain()
+                ->management_device_mode(),
+            ash::ManagementDeviceMode::kKioskSku);
+}
+
+// Verify that the management device mode is indeed education license.
+IN_PROC_BROWSER_TEST_F(EnterpriseManagedTest, WithEducationLicense) {
+  policy_helper()->device_policy()->policy_data().set_market_segment(
+      enterprise_management::PolicyData::ENROLLED_EDUCATION);
+  policy_helper()->RefreshPolicyAndWaitUntilDeviceCloudPolicyUpdated();
+
+  EXPECT_EQ(ash::Shell::Get()
+                ->system_tray_model()
+                ->enterprise_domain()
+                ->management_device_mode(),
+            ash::ManagementDeviceMode::kChromeEducation);
+}
+
+// Verify that the management device mode is indeed enterprise license.
+IN_PROC_BROWSER_TEST_F(EnterpriseManagedTest, WithEnterpriseLicense) {
+  policy_helper()->device_policy()->policy_data().set_market_segment(
+      enterprise_management::PolicyData::ENROLLED_ENTERPRISE);
+  policy_helper()->RefreshPolicyAndWaitUntilDeviceCloudPolicyUpdated();
+
+  EXPECT_EQ(ash::Shell::Get()
+                ->system_tray_model()
+                ->enterprise_domain()
+                ->management_device_mode(),
+            ash::ManagementDeviceMode::kChromeEnterprise);
+}
+
+// Verify that the management device mode is indeed unknown when the market
+// segment of the device policy data does not have value.
+IN_PROC_BROWSER_TEST_F(EnterpriseManagedTest, WithUnknownLicense) {
+  policy_helper()->RefreshPolicyAndWaitUntilDeviceCloudPolicyUpdated();
+
+  EXPECT_EQ(ash::Shell::Get()
+                ->system_tray_model()
+                ->enterprise_domain()
+                ->management_device_mode(),
+            ash::ManagementDeviceMode::kOther);
 }
 
 class SystemTrayClientClockTest : public ash::LoginManagerTest {
@@ -210,22 +327,19 @@ IN_PROC_BROWSER_TEST_F(SystemTrayClientClockUnknownPrefTest, SwitchToDefault) {
   EXPECT_TRUE(tray_test_api->Is24HourClock());
 }
 
-class SystemTrayClientEnterpriseAccountTest : public ash::LoginManagerTest {
+// Parameterized by feature QsRevamp.
+class SystemTrayClientEnterpriseAccountTest
+    : public ash::LoginManagerTest,
+      public testing::WithParamInterface<bool> {
  protected:
-  SystemTrayClientEnterpriseAccountTest() : LoginManagerTest() {
-    scoped_feature_list_.InitAndEnableFeature(
-        ash::features::kManagedDeviceUIRedesign);
-
+  SystemTrayClientEnterpriseAccountTest() {
+    feature_list_.InitWithFeatureState(ash::features::kQsRevamp, GetParam());
     std::unique_ptr<ash::ScopedUserPolicyUpdate> scoped_user_policy_update =
         user_policy_mixin_.RequestPolicyUpdate();
     scoped_user_policy_update->policy_data()->set_managed_by(kManager);
   }
-  SystemTrayClientEnterpriseAccountTest(
-      const SystemTrayClientEnterpriseAccountTest&) = delete;
-  SystemTrayClientEnterpriseAccountTest& operator=(
-      const SystemTrayClientEnterpriseAccountTest&) = delete;
-  ~SystemTrayClientEnterpriseAccountTest() override = default;
 
+  base::test::ScopedFeatureList feature_list_;
   const ash::LoginManagerMixin::TestUserInfo unmanaged_user_{
       AccountId::FromUserEmailGaiaId(kNewUser, kNewGaiaID)};
   const ash::LoginManagerMixin::TestUserInfo managed_user_{
@@ -234,56 +348,57 @@ class SystemTrayClientEnterpriseAccountTest : public ash::LoginManagerTest {
                                           managed_user_.account_id};
   ash::LoginManagerMixin login_mixin_{&mixin_host_,
                                       {managed_user_, unmanaged_user_}};
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-IN_PROC_BROWSER_TEST_F(SystemTrayClientEnterpriseAccountTest,
+INSTANTIATE_TEST_SUITE_P(QsRevamp,
+                         SystemTrayClientEnterpriseAccountTest,
+                         testing::Bool());
+
+IN_PROC_BROWSER_TEST_P(SystemTrayClientEnterpriseAccountTest,
                        TrayEnterpriseManagedAccount) {
   auto test_api = ash::SystemTrayTestApi::Create();
 
   // User hasn't signed in yet, user management should not be shown in tray.
-  EXPECT_FALSE(test_api->IsBubbleViewVisible(ash::VIEW_ID_TRAY_ENTERPRISE,
+  EXPECT_FALSE(test_api->IsBubbleViewVisible(ash::VIEW_ID_QS_MANAGED_BUTTON,
                                              true /* open_tray */));
 
   // After login, the tray should show user management information.
   LoginUser(managed_user_.account_id);
-  EXPECT_TRUE(test_api->IsBubbleViewVisible(ash::VIEW_ID_TRAY_ENTERPRISE,
+  EXPECT_TRUE(test_api->IsBubbleViewVisible(ash::VIEW_ID_QS_MANAGED_BUTTON,
                                             true /* open_tray */));
   EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_ASH_SHORT_MANAGED_BY, kManager16),
-            test_api->GetBubbleViewTooltip(ash::VIEW_ID_TRAY_ENTERPRISE));
+            test_api->GetBubbleViewTooltip(ash::VIEW_ID_QS_MANAGED_BUTTON));
 
   // Switch to unmanaged account should still show the managed string (since the
   // primary user is managed user). However, the string should not contain the
   // account manager of the primary user.
   ash::UserAddingScreen::Get()->Start();
   AddUser(unmanaged_user_.account_id);
-  EXPECT_TRUE(test_api->IsBubbleViewVisible(ash::VIEW_ID_TRAY_ENTERPRISE,
+  EXPECT_TRUE(test_api->IsBubbleViewVisible(ash::VIEW_ID_QS_MANAGED_BUTTON,
                                             true /* open_tray */));
   EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_ASH_ENTERPRISE_DEVICE_MANAGED,
                                        ui::GetChromeOSDeviceName()),
-            test_api->GetBubbleViewTooltip(ash::VIEW_ID_TRAY_ENTERPRISE));
+            test_api->GetBubbleViewTooltip(ash::VIEW_ID_QS_MANAGED_BUTTON));
 
   // Switch back to managed account.
   UserManager::Get()->SwitchActiveUser(managed_user_.account_id);
-  EXPECT_TRUE(test_api->IsBubbleViewVisible(ash::VIEW_ID_TRAY_ENTERPRISE,
+  EXPECT_TRUE(test_api->IsBubbleViewVisible(ash::VIEW_ID_QS_MANAGED_BUTTON,
                                             true /* open_tray */));
   EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_ASH_SHORT_MANAGED_BY, kManager16),
-            test_api->GetBubbleViewTooltip(ash::VIEW_ID_TRAY_ENTERPRISE));
+            test_api->GetBubbleViewTooltip(ash::VIEW_ID_QS_MANAGED_BUTTON));
 }
 
-IN_PROC_BROWSER_TEST_F(SystemTrayClientEnterpriseAccountTest,
+IN_PROC_BROWSER_TEST_P(SystemTrayClientEnterpriseAccountTest,
                        TrayEnterpriseUnmanagedAccount) {
   auto test_api = ash::SystemTrayTestApi::Create();
 
-  EXPECT_FALSE(test_api->IsBubbleViewVisible(ash::VIEW_ID_TRAY_ENTERPRISE,
+  EXPECT_FALSE(test_api->IsBubbleViewVisible(ash::VIEW_ID_QS_MANAGED_BUTTON,
                                              true /* open_tray */));
 
   // After login with unmanaged user, the tray should not show user management
   // information.
   LoginUser(unmanaged_user_.account_id);
-  EXPECT_FALSE(test_api->IsBubbleViewVisible(ash::VIEW_ID_TRAY_ENTERPRISE,
+  EXPECT_FALSE(test_api->IsBubbleViewVisible(ash::VIEW_ID_QS_MANAGED_BUTTON,
                                              true /* open_tray */));
 }
 
@@ -293,27 +408,26 @@ class SystemTrayClientEnterpriseSessionRestoreTest
   SystemTrayClientEnterpriseSessionRestoreTest() {
     login_mixin_.set_session_restore_enabled();
   }
-  SystemTrayClientEnterpriseSessionRestoreTest(
-      const SystemTrayClientEnterpriseSessionRestoreTest&) = delete;
-  SystemTrayClientEnterpriseSessionRestoreTest& operator=(
-      const SystemTrayClientEnterpriseSessionRestoreTest&) = delete;
-  ~SystemTrayClientEnterpriseSessionRestoreTest() override = default;
 };
 
-IN_PROC_BROWSER_TEST_F(SystemTrayClientEnterpriseSessionRestoreTest,
+INSTANTIATE_TEST_SUITE_P(QsRevamp,
+                         SystemTrayClientEnterpriseSessionRestoreTest,
+                         testing::Bool());
+
+IN_PROC_BROWSER_TEST_P(SystemTrayClientEnterpriseSessionRestoreTest,
                        PRE_SessionRestore) {
   LoginUser(managed_user_.account_id);
 }
 
-IN_PROC_BROWSER_TEST_F(SystemTrayClientEnterpriseSessionRestoreTest,
+IN_PROC_BROWSER_TEST_P(SystemTrayClientEnterpriseSessionRestoreTest,
                        SessionRestore) {
   auto test_api = ash::SystemTrayTestApi::Create();
 
   // Verify that tray is showing info on chrome restart.
-  EXPECT_TRUE(test_api->IsBubbleViewVisible(ash::VIEW_ID_TRAY_ENTERPRISE,
+  EXPECT_TRUE(test_api->IsBubbleViewVisible(ash::VIEW_ID_QS_MANAGED_BUTTON,
                                             true /* open_tray */));
   EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_ASH_SHORT_MANAGED_BY, kManager16),
-            test_api->GetBubbleViewTooltip(ash::VIEW_ID_TRAY_ENTERPRISE));
+            test_api->GetBubbleViewTooltip(ash::VIEW_ID_QS_MANAGED_BUTTON));
 }
 
 class SystemTrayClientShowCalendarTest : public ash::LoginManagerTest {
@@ -330,9 +444,9 @@ class SystemTrayClientShowCalendarTest : public ash::LoginManagerTest {
 
   ~SystemTrayClientShowCalendarTest() override = default;
 
-  apps::mojom::AppPtr MakeApp(const char* app_id, const char* name) {
-    apps::mojom::AppPtr app = apps::mojom::App::New();
-    app->app_id = app_id;
+  apps::AppPtr MakeApp(const char* app_id, const char* name) {
+    apps::AppPtr app =
+        std::make_unique<apps::App>(apps::AppType::kChromeApp, app_id);
     app->name = name;
     app->short_name = name;
     return app;
@@ -344,10 +458,10 @@ class SystemTrayClientShowCalendarTest : public ash::LoginManagerTest {
     apps::AppServiceProxyAsh* proxy =
         apps::AppServiceProxyFactory::GetForProfile(profile);
 
-    std::vector<apps::mojom::AppPtr> registry_deltas;
+    std::vector<apps::AppPtr> registry_deltas;
     registry_deltas.push_back(MakeApp(app_id, name));
     proxy->AppRegistryCache().OnApps(std::move(registry_deltas),
-                                     apps::mojom::AppType::kUnknown,
+                                     apps::AppType::kUnknown,
                                      /*should_notify_initialized=*/false);
   }
 
@@ -362,24 +476,27 @@ IN_PROC_BROWSER_TEST_F(SystemTrayClientShowCalendarTest, NoEventUrl) {
   // Login a user.
   LoginUser(account_id_);
 
-  // Show the calendar, no URL and no PWA installed.
-  const char kOfficialCalendarUrlPrefix[] =
-      "https://calendar.google.com/calendar/";
+  // Show the calendar, no URL and no PWA installed. We expect to navigate to
+  // `date`.
+  const char kExpectedUrlStr[] =
+      "https://calendar.google.com/calendar/r/week/2021/11/18";
   GURL final_url;
   bool opened_pwa = false;
+  base::Time date;
+  ASSERT_TRUE(base::Time::FromString("18 Nov 2021 10:00 GMT", &date));
   ash::Shell::Get()->system_tray_model()->client()->ShowCalendarEvent(
-      absl::nullopt, opened_pwa, final_url);
+      absl::nullopt, date, opened_pwa, final_url);
   EXPECT_FALSE(opened_pwa);
-  EXPECT_EQ(final_url.spec(), GURL(kOfficialCalendarUrlPrefix).spec());
+  EXPECT_EQ(final_url.spec(), GURL(kExpectedUrlStr).spec());
 
   // Now install the calendar PWA.
   InstallApp(web_app::kGoogleCalendarAppId, "Google Calendar");
   opened_pwa = false;
   final_url = GURL();
   ash::Shell::Get()->system_tray_model()->client()->ShowCalendarEvent(
-      absl::nullopt, opened_pwa, final_url);
+      absl::nullopt, date, opened_pwa, final_url);
   EXPECT_TRUE(opened_pwa);
-  EXPECT_EQ(final_url.spec(), GURL(kOfficialCalendarUrlPrefix).spec());
+  EXPECT_EQ(final_url.spec(), GURL(kExpectedUrlStr).spec());
 }
 
 IN_PROC_BROWSER_TEST_F(SystemTrayClientShowCalendarTest, OfficialEventUrl) {
@@ -394,8 +511,10 @@ IN_PROC_BROWSER_TEST_F(SystemTrayClientShowCalendarTest, OfficialEventUrl) {
   GURL event_url(kOfficialCalendarEventUrl);
   GURL final_url;
   bool opened_pwa = false;
+  base::Time date;
+  ASSERT_TRUE(base::Time::FromString("18 Nov 2021 10:00 GMT", &date));
   ash::Shell::Get()->system_tray_model()->client()->ShowCalendarEvent(
-      event_url, opened_pwa, final_url);
+      event_url, date, opened_pwa, final_url);
   EXPECT_FALSE(opened_pwa);
   EXPECT_EQ(final_url.spec(), event_url.spec());
 
@@ -404,7 +523,7 @@ IN_PROC_BROWSER_TEST_F(SystemTrayClientShowCalendarTest, OfficialEventUrl) {
   opened_pwa = false;
   final_url = GURL();
   ash::Shell::Get()->system_tray_model()->client()->ShowCalendarEvent(
-      event_url, opened_pwa, final_url);
+      event_url, date, opened_pwa, final_url);
   EXPECT_TRUE(opened_pwa);
   EXPECT_EQ(final_url.spec(), event_url.spec());
 }
@@ -423,8 +542,10 @@ IN_PROC_BROWSER_TEST_F(SystemTrayClientShowCalendarTest, UnofficialEventUrl) {
   GURL event_url(kUnofficialCalendarEventUrl);
   GURL final_url;
   bool opened_pwa = false;
+  base::Time date;
+  ASSERT_TRUE(base::Time::FromString("18 Nov 2021 10:00 GMT", &date));
   ash::Shell::Get()->system_tray_model()->client()->ShowCalendarEvent(
-      event_url, opened_pwa, final_url);
+      event_url, date, opened_pwa, final_url);
   EXPECT_FALSE(opened_pwa);
   EXPECT_EQ(final_url.spec(), GURL(kOfficialCalendarEventUrl).spec());
 
@@ -433,7 +554,54 @@ IN_PROC_BROWSER_TEST_F(SystemTrayClientShowCalendarTest, UnofficialEventUrl) {
   opened_pwa = false;
   final_url = GURL();
   ash::Shell::Get()->system_tray_model()->client()->ShowCalendarEvent(
-      event_url, opened_pwa, final_url);
+      event_url, date, opened_pwa, final_url);
   EXPECT_TRUE(opened_pwa);
   EXPECT_EQ(final_url.spec(), GURL(kOfficialCalendarEventUrl).spec());
+}
+
+class SystemTrayClientShowChannelInfoGiveFeedbackTest
+    : public ash::LoginManagerTest {
+ public:
+  SystemTrayClientShowChannelInfoGiveFeedbackTest() {
+    login_mixin_.AppendRegularUsers(1);
+    account_id_ = login_mixin_.users()[0].account_id;
+  }
+
+  SystemTrayClientShowChannelInfoGiveFeedbackTest(
+      const SystemTrayClientShowCalendarTest&) = delete;
+  SystemTrayClientShowChannelInfoGiveFeedbackTest& operator=(
+      const SystemTrayClientShowChannelInfoGiveFeedbackTest&) = delete;
+
+  ~SystemTrayClientShowChannelInfoGiveFeedbackTest() override = default;
+
+ protected:
+  AccountId account_id_;
+  ash::LoginManagerMixin login_mixin_{&mixin_host_};
+};
+
+// TODO(crbug.com/1352326): Flaky on release bots.
+#if defined(NDEBUG)
+#define MAYBE_RecordFeedbackSourceChannelIndicator \
+  DISABLED_RecordFeedbackSourceChannelIndicator
+#else
+#define MAYBE_RecordFeedbackSourceChannelIndicator \
+  RecordFeedbackSourceChannelIndicator
+#endif
+IN_PROC_BROWSER_TEST_F(SystemTrayClientShowChannelInfoGiveFeedbackTest,
+                       MAYBE_RecordFeedbackSourceChannelIndicator) {
+  base::HistogramTester histograms;
+  auto tray_test_api = ash::SystemTrayTestApi::Create();
+
+  LoginUser(account_id_);
+
+  histograms.ExpectBucketCount("Feedback.RequestSource",
+                               chrome::kFeedbackSourceChannelIndicator,
+                               /*expected_count=*/0);
+  ash::Shell::Get()
+      ->system_tray_model()
+      ->client()
+      ->ShowChannelInfoGiveFeedback();
+  histograms.ExpectBucketCount("Feedback.RequestSource",
+                               chrome::kFeedbackSourceChannelIndicator,
+                               /*expected_count=*/1);
 }

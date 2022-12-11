@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@
 
 #if defined(USE_AURA)
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "ui/base/cursor/cursor.h"
 #endif
 
 namespace content {
@@ -63,13 +62,13 @@ class CONTENT_EXPORT WebCursor {
   // The basic cursor info.
   ui::Cursor cursor_;
 
-#if defined(USE_AURA) || defined(USE_OZONE)
+#if defined(USE_AURA) || BUILDFLAG(IS_OZONE)
   // Only used for custom cursors.
   float device_scale_factor_ = 1.f;
   display::Display::Rotation rotation_ = display::Display::ROTATE_0;
 #endif
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   // This matches ozone drm_util.cc's kDefaultCursorWidth/Height.
   static constexpr int kDefaultMaxSize = 64;
   gfx::Size maximum_cursor_size_ = {kDefaultMaxSize, kDefaultMaxSize};

@@ -1,8 +1,8 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {assertGE, assertLE} from 'chrome://webui-test/chai_assert.js';
 
 /**
@@ -14,7 +14,7 @@ export function disableAnimationBehavior(klass: any, functionName: string) {
   klass.prototype[functionName] = function(options: any) {
     const args = [];
     if (typeof options === 'object' && options !== null) {
-      let noAnimationOptions = Object.assign({}, options);
+      const noAnimationOptions = Object.assign({}, options);
       delete noAnimationOptions.behavior;
 
       args.push(noAnimationOptions);
@@ -65,4 +65,14 @@ export function initLoadTimeDataWithDefaults(
         recentlyClosedDefaultItemDisplayCount: 5,
       },
       loadTimeOverriddenData));
+}
+
+/**
+ * Returns a style property number value that needs to be determined from the
+ * computed style of an HTML element.
+ */
+export function getStylePropertyPixelValue(
+    element: HTMLElement, name: string): number {
+  const pxValue = getComputedStyle(element).getPropertyValue(name);
+  return Number.parseInt(pxValue.trim().slice(0, -2), 10);
 }

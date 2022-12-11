@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -105,7 +105,7 @@ void FakeLocalFrame::AdvanceFocusInFrame(
     blink::mojom::FocusType focus_type,
     const absl::optional<blink::RemoteFrameToken>& source_frame_token) {}
 
-void FakeLocalFrame::AdvanceFocusInForm(blink::mojom::FocusType focus_type) {}
+void FakeLocalFrame::AdvanceFocusForIME(blink::mojom::FocusType focus_type) {}
 
 void FakeLocalFrame::ReportContentSecurityPolicyViolation(
     network::mojom::CSPViolationPtr violation) {}
@@ -122,7 +122,7 @@ void FakeLocalFrame::PostMessageEvent(
 void FakeLocalFrame::JavaScriptMethodExecuteRequest(
     const std::u16string& object_name,
     const std::u16string& method_name,
-    base::Value arguments,
+    base::Value::List arguments,
     bool wants_result,
     JavaScriptMethodExecuteRequestCallback callback) {}
 
@@ -187,6 +187,22 @@ void FakeLocalFrame::HandleRendererDebugURL(const GURL& url) {}
 
 void FakeLocalFrame::GetCanonicalUrlForSharing(
     base::OnceCallback<void(const absl::optional<GURL>&)> callback) {}
+
+void FakeLocalFrame::GetOpenGraphMetadata(
+    base::OnceCallback<void(blink::mojom::OpenGraphMetadataPtr)>) {}
+
+void FakeLocalFrame::SetNavigationApiHistoryEntriesForRestore(
+    blink::mojom::NavigationApiHistoryEntryArraysPtr entry_arrays) {}
+
+void FakeLocalFrame::NotifyNavigationApiOfDisposedEntries(
+    const std::vector<std::string>& keys) {}
+
+void FakeLocalFrame::TraverseCancelled(
+    const std::string& navigation_api_key,
+    blink::mojom::TraverseCancelledReason reason) {}
+
+void FakeLocalFrame::SnapshotDocumentForViewTransition(
+    SnapshotDocumentForViewTransitionCallback callback) {}
 
 void FakeLocalFrame::BindFrameHostReceiver(
     mojo::ScopedInterfaceEndpointHandle handle) {

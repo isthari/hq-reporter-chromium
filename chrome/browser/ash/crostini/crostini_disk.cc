@@ -1,32 +1,31 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/crostini/crostini_disk.h"
 
-#include <algorithm>
 #include <cmath>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/system/sys_info.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/ash/crostini/crostini_features.h"
 #include "chrome/browser/ash/crostini/crostini_manager.h"
 #include "chrome/browser/ash/crostini/crostini_simple_types.h"
 #include "chrome/browser/ash/crostini/crostini_types.mojom.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/concierge/concierge_service.pb.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_service.pb.h"
+#include "chromeos/ash/components/dbus/spaced/spaced_client.h"
 #include "ui/base/text/bytes_formatting.h"
 
 using DiskImageStatus = vm_tools::concierge::DiskImageStatus;
 
 namespace {
-chromeos::ConciergeClient* GetConciergeClient() {
-  return chromeos::ConciergeClient::Get();
+ash::ConciergeClient* GetConciergeClient() {
+  return ash::ConciergeClient::Get();
 }
 
 std::string FormatBytes(const int64_t value) {
@@ -67,10 +66,8 @@ void GetDiskInfo(OnceDiskInfoCallback callback,
     return;
   }
   if (full_info) {
-    base::ThreadPool::PostTaskAndReplyWithResult(
-        FROM_HERE, {base::MayBlock()},
-        base::BindOnce(&base::SysInfo::AmountOfFreeDiskSpace,
-                       base::FilePath(crostini::kHomeDirectory)),
+    ash::SpacedClient::Get()->GetFreeDiskSpace(
+        crostini::kHomeDirectory,
         base::BindOnce(&OnAmountOfFreeDiskSpace, std::move(callback), profile,
                        std::move(vm_name)));
   } else {
@@ -89,19 +86,20 @@ void GetDiskInfo(OnceDiskInfoCallback callback,
 void OnAmountOfFreeDiskSpace(OnceDiskInfoCallback callback,
                              Profile* profile,
                              std::string vm_name,
-                             int64_t free_space) {
-  if (free_space == 0) {
+                             absl::optional<int64_t> free_space) {
+  if (!free_space.has_value() || free_space.value() <= 0) {
     LOG(ERROR) << "Failed to get amount of free disk space";
     std::move(callback).Run(nullptr);
   } else {
     VLOG(1) << "Starting vm " << vm_name;
-    auto container_id = ContainerId(vm_name, kCrostiniDefaultContainerName);
+    auto container_id = guest_os::GuestId(kCrostiniDefaultVmType, vm_name,
+                                          kCrostiniDefaultContainerName);
     CrostiniManager::RestartOptions options;
     options.start_vm_only = true;
     CrostiniManager::GetForProfile(profile)->RestartCrostiniWithOptions(
         std::move(container_id), std::move(options),
         base::BindOnce(&OnCrostiniSufficientlyRunning, std::move(callback),
-                       profile, std::move(vm_name), free_space));
+                       profile, std::move(vm_name), free_space.value()));
   }
 }
 
@@ -141,9 +139,8 @@ void OnListVmDisks(
     return;
   }
   auto disk_info = std::make_unique<CrostiniDiskInfo>();
-  auto image =
-      std::find_if(response->images().begin(), response->images().end(),
-                   [&vm_name](const auto& a) { return a.name() == vm_name; });
+  auto image = base::ranges::find(response->images(), vm_name,
+                                  &vm_tools::concierge::VmDiskInfo::name);
   if (image == response->images().end()) {
     // No match found for the VM:
     LOG(ERROR) << "No VM found with name " << vm_name;
@@ -233,13 +230,13 @@ std::vector<crostini::mojom::DiskSliderTickPtr> GetTicks(
   return ticks;
 }
 
-class Observer : public chromeos::ConciergeClient::DiskImageObserver {
+class Observer : public ash::ConciergeClient::DiskImageObserver {
  public:
   Observer(std::string uuid, base::OnceCallback<void(bool)> callback)
       : uuid_(std::move(uuid)), callback_(std::move(callback)) {}
   ~Observer() override { GetConciergeClient()->RemoveDiskImageObserver(this); }
 
-  // chromeos::ConciergeClient::DiskImageObserver:
+  // ash::ConciergeClient::DiskImageObserver:
   void OnDiskImageProgress(
       const vm_tools::concierge::DiskImageStatusResponse& signal) override {
     if (signal.command_uuid() != uuid_ ||
@@ -266,7 +263,8 @@ void ResizeCrostiniDisk(Profile* profile,
                         std::string vm_name,
                         uint64_t size_bytes,
                         base::OnceCallback<void(bool)> callback) {
-  ContainerId container_id(vm_name, kCrostiniDefaultContainerName);
+  guest_os::GuestId container_id(kCrostiniDefaultVmType, vm_name,
+                                 kCrostiniDefaultContainerName);
   CrostiniManager::RestartOptions options;
   options.start_vm_only = true;
   CrostiniManager::GetForProfile(profile)->RestartCrostiniWithOptions(

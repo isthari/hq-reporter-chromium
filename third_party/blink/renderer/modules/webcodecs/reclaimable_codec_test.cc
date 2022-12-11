@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/time/default_tick_clock.h"
+#include "base/time/time.h"
 #include "media/base/test_helpers.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -88,9 +89,9 @@ class BaseReclaimableCodecTest
 class ReclaimBackgroundOnlyTest : public BaseReclaimableCodecTest {
  public:
   ReclaimBackgroundOnlyTest() {
-    std::vector<base::Feature> enabled_features{
+    std::vector<base::test::FeatureRef> enabled_features{
         kReclaimInactiveWebCodecs, kOnlyReclaimBackgroundWebCodecs};
-    std::vector<base::Feature> disabled_features{};
+    std::vector<base::test::FeatureRef> disabled_features{};
     feature_list_.InitWithFeatures(enabled_features, disabled_features);
   }
 
@@ -103,8 +104,9 @@ class ReclaimBackgroundOnlyTest : public BaseReclaimableCodecTest {
 class ReclaimForegroundSameAsBackgroundTest : public BaseReclaimableCodecTest {
  public:
   ReclaimForegroundSameAsBackgroundTest() {
-    std::vector<base::Feature> enabled_features{kReclaimInactiveWebCodecs};
-    std::vector<base::Feature> disabled_features{
+    std::vector<base::test::FeatureRef> enabled_features{
+        kReclaimInactiveWebCodecs};
+    std::vector<base::test::FeatureRef> disabled_features{
         kOnlyReclaimBackgroundWebCodecs};
     feature_list_.InitWithFeatures(enabled_features, disabled_features);
   }
@@ -117,8 +119,8 @@ class ReclaimForegroundSameAsBackgroundTest : public BaseReclaimableCodecTest {
 class ReclaimDisabledTest : public BaseReclaimableCodecTest {
  public:
   ReclaimDisabledTest() {
-    std::vector<base::Feature> enabled_features{};
-    std::vector<base::Feature> disabled_features{
+    std::vector<base::test::FeatureRef> enabled_features{};
+    std::vector<base::test::FeatureRef> disabled_features{
         kReclaimInactiveWebCodecs, kOnlyReclaimBackgroundWebCodecs};
     feature_list_.InitWithFeatures(enabled_features, disabled_features);
   }

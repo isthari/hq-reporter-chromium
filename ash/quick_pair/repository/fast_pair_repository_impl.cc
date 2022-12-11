@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,31 +13,93 @@
 #include "ash/quick_pair/repository/fast_pair/device_metadata_fetcher.h"
 #include "ash/quick_pair/repository/fast_pair/fast_pair_image_decoder_impl.h"
 #include "ash/quick_pair/repository/fast_pair/footprints_fetcher.h"
+#include "ash/quick_pair/repository/fast_pair/footprints_fetcher_impl.h"
+#include "ash/quick_pair/repository/fast_pair/pending_write_store.h"
 #include "ash/quick_pair/repository/fast_pair/proto_conversions.h"
 #include "ash/quick_pair/repository/fast_pair/saved_device_registry.h"
-#include "ash/services/quick_pair/public/cpp/account_key_filter.h"
 #include "base/callback_helpers.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
-#include "chromeos/services/bluetooth_config/public/cpp/device_image_info.h"
+#include "chromeos/ash/components/network/network_handler.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
+#include "chromeos/ash/services/bluetooth_config/public/cpp/device_image_info.h"
+#include "chromeos/ash/services/quick_pair/public/cpp/account_key_filter.h"
+#include "crypto/sha2.h"
+#include "device/bluetooth/bluetooth_adapter.h"
+#include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/bluetooth_device.h"
+#include "device/bluetooth/public/cpp/bluetooth_address.h"
+
+namespace {
+
+constexpr base::TimeDelta kOfflineRetryTimeout = base::Minutes(1);
+constexpr base::TimeDelta kCacheInvalidationTime = base::Minutes(30);
+
+// Checks if the mac address of a FastPairDevice is the same as the given
+// |mac_address| by checking if the SHA256 from the given |device| equals to
+// SHA256(concat(account_key of |device|, |mac_address|)).
+bool IsDeviceSha256Matched(const nearby::fastpair::FastPairDevice& device,
+                           const std::string& mac_address) {
+  if (!device.has_account_key() ||
+      !device.has_sha256_account_key_public_address()) {
+    return false;
+  }
+
+  return device.sha256_account_key_public_address() ==
+         ash::quick_pair::FastPairRepository::
+             GenerateSha256OfAccountKeyAndMacAddress(device.account_key(),
+                                                     mac_address);
+}
+
+}  // namespace
 
 namespace ash {
 namespace quick_pair {
 
 FastPairRepositoryImpl::FastPairRepositoryImpl()
-    : FastPairRepository(),
-      device_metadata_fetcher_(std::make_unique<DeviceMetadataFetcher>()),
-      footprints_fetcher_(std::make_unique<FootprintsFetcher>()),
+    : device_metadata_fetcher_(std::make_unique<DeviceMetadataFetcher>()),
+      footprints_fetcher_(std::make_unique<FootprintsFetcherImpl>()),
       image_decoder_(std::make_unique<FastPairImageDecoderImpl>()),
-      device_id_map_(std::make_unique<DeviceIdMap>()),
       device_image_store_(
           std::make_unique<DeviceImageStore>(image_decoder_.get())),
-      saved_device_registry_(std::make_unique<SavedDeviceRegistry>()),
-      footprints_last_updated_(base::Time::UnixEpoch()) {}
+      footprints_last_updated_(base::Time::UnixEpoch()) {
+  device::BluetoothAdapterFactory::Get()->GetAdapter(base::BindOnce(
+      &FastPairRepositoryImpl::OnGetAdapter, weak_ptr_factory_.GetWeakPtr()));
+  chromeos::NetworkHandler::Get()->network_state_handler()->AddObserver(
+      this, FROM_HERE);
+}
 
-FastPairRepositoryImpl::~FastPairRepositoryImpl() = default;
+void FastPairRepositoryImpl::OnGetAdapter(
+    scoped_refptr<device::BluetoothAdapter> adapter) {
+  adapter_ = adapter;
+  device_id_map_ = std::make_unique<DeviceIdMap>(adapter_);
+  saved_device_registry_ = std::make_unique<SavedDeviceRegistry>(adapter_);
+}
+
+FastPairRepositoryImpl::FastPairRepositoryImpl(
+    scoped_refptr<device::BluetoothAdapter> adapter,
+    std::unique_ptr<DeviceMetadataFetcher> device_metadata_fetcher,
+    std::unique_ptr<FootprintsFetcher> footprints_fetcher,
+    std::unique_ptr<FastPairImageDecoder> image_decoder,
+    std::unique_ptr<DeviceIdMap> device_id_map,
+    std::unique_ptr<DeviceImageStore> device_image_store,
+    std::unique_ptr<SavedDeviceRegistry> saved_device_registry,
+    std::unique_ptr<PendingWriteStore> pending_write_store)
+    : adapter_(adapter),
+      device_metadata_fetcher_(std::move(device_metadata_fetcher)),
+      footprints_fetcher_(std::move(footprints_fetcher)),
+      image_decoder_(std::move(image_decoder)),
+      device_id_map_(std::move(device_id_map)),
+      device_image_store_(std::move(device_image_store)),
+      saved_device_registry_(std::move(saved_device_registry)),
+      pending_write_store_(std::move(pending_write_store)),
+      footprints_last_updated_(base::Time::UnixEpoch()),
+      retry_write_or_delete_last_attempted_(base::Time::UnixEpoch()) {}
+
+FastPairRepositoryImpl::~FastPairRepositoryImpl() {
+  chromeos::NetworkHandler::Get()->network_state_handler()->RemoveObserver(
+      this, FROM_HERE);
+}
 
 void FastPairRepositoryImpl::GetDeviceMetadata(
     const std::string& hex_model_id,
@@ -97,31 +159,85 @@ void FastPairRepositoryImpl::OnImageDecoded(
                           /*has_retryable_error=*/false);
 }
 
-void FastPairRepositoryImpl::IsValidModelId(
-    const std::string& hex_model_id,
-    base::OnceCallback<void(bool)> callback) {
-  QP_LOG(INFO) << __func__;
-  std::move(callback).Run(false);
+bool FastPairRepositoryImpl::IsAccountKeyPairedLocally(
+    const std::vector<uint8_t>& account_key) {
+  // Before we check if the |account_key| matches any of the devices saved in
+  // the Saved Device Registry, we fetch all the devices saved to the user's
+  // account and cross check the SHA256(concat(account_key, mac_address)) of
+  // the saved devices with the SHA256(concat(account_key, mac_address)) of any
+  // devices paired to the adapter using the paired device's mac address and
+  // the given |account_key|. If there are any matches, we should add the
+  // (mac_address, account_key) pair to the Saved Device Registry before
+  // completing our check. This handles the edge case where a user pairs a
+  // device already saved to their account from another platform via classic
+  // BT pairing, and the device still emits a not discoverable advertisement,
+  // and we want to prevent showing a Subsequent pairing notification in this
+  // case.
+  for (device::BluetoothDevice* device : adapter_->GetDevices()) {
+    if (!device->IsPaired())
+      continue;
+
+    // Use the paired device's |mac_address| and the given |account_key| to
+    // generate a SHA256(concat(account_key, mac_address)), and use this
+    // SHA256 hash to check if there are any matches with any saved devices in
+    // Footprints.
+    const std::string& mac_address = device->GetAddress();
+    std::string paired_device_hash = GenerateSha256OfAccountKeyAndMacAddress(
+        std::string(account_key.begin(), account_key.end()), mac_address);
+
+    for (const auto& info : user_devices_cache_.fast_pair_info()) {
+      if (info.has_device() &&
+          info.device().has_sha256_account_key_public_address() &&
+          info.device().sha256_account_key_public_address() ==
+              paired_device_hash) {
+        QP_LOG(VERBOSE)
+            << __func__
+            << ": paired device already saved to account at address = "
+            << mac_address << "; adding to registry";
+        saved_device_registry_->SaveAccountKey(mac_address, account_key);
+
+        // We only expect there to be at most one match with |account_key| in
+        // the devices saved to Footprints. An account key is uniquely written
+        // to one device in the pairing flows. Since we found a match and
+        // saved it locally, we can return "true" since the account key matches
+        // a paired device.
+        return true;
+      }
+    }
+  }
+
+  return saved_device_registry_->IsAccountKeySavedToRegistry(account_key);
 }
 
 void FastPairRepositoryImpl::CheckAccountKeys(
     const AccountKeyFilter& account_key_filter,
     CheckAccountKeysCallback callback) {
   CheckAccountKeysImpl(account_key_filter, std::move(callback),
-                       /*refresh_cache_on_miss=*/true);
+                       /*allow_cache_refresh=*/true);
 }
 
 void FastPairRepositoryImpl::CheckAccountKeysImpl(
     const AccountKeyFilter& account_key_filter,
     CheckAccountKeysCallback callback,
-    bool refresh_cache_on_miss) {
+    bool allow_cache_refresh) {
   QP_LOG(INFO) << __func__;
+  if (allow_cache_refresh &&
+      (base::Time::Now() - footprints_last_updated_) > kCacheInvalidationTime) {
+    // If it has been >30 minutes since the cache was updated, try to get
+    // user devices from the server before proceeding.
+    footprints_fetcher_->GetUserDevices(base::BindOnce(
+        &FastPairRepositoryImpl::UpdateCacheAndRetryCheckAccountKeys,
+        weak_ptr_factory_.GetWeakPtr(), account_key_filter,
+        std::move(callback)));
+    return;
+  }
+
   for (const auto& info : user_devices_cache_.fast_pair_info()) {
     if (info.has_device()) {
       const std::string& string_key = info.device().account_key();
       const std::vector<uint8_t> binary_key(string_key.begin(),
                                             string_key.end());
-      if (account_key_filter.Test(binary_key)) {
+      if (account_key_filter.IsAccountKeyInFilter(binary_key)) {
         nearby::fastpair::StoredDiscoveryItem device;
         if (device.ParseFromString(info.device().discovery_item_bytes())) {
           QP_LOG(INFO) << "Account key matched with a paired device: "
@@ -137,7 +253,9 @@ void FastPairRepositoryImpl::CheckAccountKeysImpl(
     }
   }
 
-  if (refresh_cache_on_miss &&
+  // On cache miss, query the server to make sure the device isn't saved to the
+  // account unless we've already queried the server in the past minute.
+  if (allow_cache_refresh &&
       (base::Time::Now() - footprints_last_updated_) > base::Minutes(1)) {
     footprints_fetcher_->GetUserDevices(
         base::BindOnce(&FastPairRepositoryImpl::RetryCheckAccountKeys,
@@ -153,6 +271,7 @@ void FastPairRepositoryImpl::RetryCheckAccountKeys(
     const AccountKeyFilter& account_key_filter,
     CheckAccountKeysCallback callback,
     absl::optional<nearby::fastpair::UserReadDevicesResponse> user_devices) {
+  QP_LOG(INFO) << __func__;
   if (!user_devices) {
     std::move(callback).Run(absl::nullopt);
     return;
@@ -160,7 +279,22 @@ void FastPairRepositoryImpl::RetryCheckAccountKeys(
 
   UpdateUserDevicesCache(user_devices);
   CheckAccountKeysImpl(account_key_filter, std::move(callback),
-                       /*refresh_cache_on_miss=*/false);
+                       /*allow_cache_refresh=*/false);
+}
+
+void FastPairRepositoryImpl::UpdateCacheAndRetryCheckAccountKeys(
+    const AccountKeyFilter& account_key_filter,
+    CheckAccountKeysCallback callback,
+    absl::optional<nearby::fastpair::UserReadDevicesResponse> user_devices) {
+  QP_LOG(INFO) << __func__;
+  if (!user_devices) {
+    QP_LOG(INFO) << __func__
+                 << "Failed to update user devices cache. Using stale cache";
+  } else {
+    UpdateUserDevicesCache(user_devices);
+  }
+  CheckAccountKeysImpl(account_key_filter, std::move(callback),
+                       /*allow_cache_refresh=*/false);
 }
 
 void FastPairRepositoryImpl::CompleteAccountKeyLookup(
@@ -193,12 +327,29 @@ void FastPairRepositoryImpl::AssociateAccountKey(
   DCHECK(device->classic_address());
   GetDeviceMetadata(
       device->metadata_id,
-      base::BindOnce(&FastPairRepositoryImpl::AddToFootprints,
+      base::BindOnce(&FastPairRepositoryImpl::WriteDeviceToFootprints,
                      weak_ptr_factory_.GetWeakPtr(), device->metadata_id,
                      device->classic_address().value(), account_key));
 }
 
-void FastPairRepositoryImpl::AddToFootprints(
+bool FastPairRepositoryImpl::AssociateAccountKeyLocally(
+    scoped_refptr<Device> device) {
+  QP_LOG(VERBOSE) << __func__;
+
+  absl::optional<std::vector<uint8_t>> account_key = device->account_key();
+  if (!account_key) {
+    QP_LOG(WARNING) << __func__ << ": Account key not found for device.";
+    return false;
+  }
+
+  DCHECK(device->classic_address());
+  saved_device_registry_->SaveAccountKey(device->classic_address().value(),
+                                         account_key.value());
+  QP_LOG(INFO) << __func__ << ": Saved account key locally.";
+  return true;
+}
+
+void FastPairRepositoryImpl::WriteDeviceToFootprints(
     const std::string& hex_model_id,
     const std::string& mac_address,
     const std::vector<uint8_t>& account_key,
@@ -209,41 +360,345 @@ void FastPairRepositoryImpl::AddToFootprints(
     return;
   }
 
-  footprints_fetcher_->AddUserDevice(
-      BuildFastPairInfo(hex_model_id, account_key, metadata),
-      base::BindOnce(&FastPairRepositoryImpl::OnAddToFootprintsComplete,
+  const nearby::fastpair::FastPairInfo fast_pair_info =
+      BuildFastPairInfo(hex_model_id, account_key, mac_address, metadata);
+
+  pending_write_store_->WritePairedDevice(mac_address, fast_pair_info);
+  footprints_fetcher_->AddUserFastPairInfo(
+      fast_pair_info,
+      base::BindOnce(&FastPairRepositoryImpl::OnWriteDeviceToFootprintsComplete,
                      weak_ptr_factory_.GetWeakPtr(), mac_address, account_key));
 }
 
-void FastPairRepositoryImpl::OnAddToFootprintsComplete(
+void FastPairRepositoryImpl::OnWriteDeviceToFootprintsComplete(
     const std::string& mac_address,
     const std::vector<uint8_t>& account_key,
     bool success) {
   if (!success) {
-    // TODO(jonmann): Handle caching to disk + retries.
+    QP_LOG(WARNING)
+        << __func__
+        << ": Failed to write device to Footprints--"
+           "deferring addition to SavedDeviceRegistry until we succeed.";
+    return;
+  }
+  QP_LOG(INFO) << __func__ << ": Successfully added device to Footprints.";
+
+  // Remove pending write on successful Footprints write.
+  pending_write_store_->OnPairedDeviceSaved(mac_address);
+
+  // Save/Update account key in the saved device registry.
+  saved_device_registry_->SaveAccountKey(mac_address, account_key);
+  if (saved_device_registry_->IsAccountKeySavedToRegistry(account_key)) {
+    QP_LOG(INFO) << __func__
+                 << ": Successfully wrote device to Saved Device Registry.";
     return;
   }
 
-  saved_device_registry_->SaveAccountKey(mac_address, account_key);
+  QP_LOG(WARNING) << __func__
+                  << ": Failed to write device to Saved Device Registry.";
 }
 
-bool FastPairRepositoryImpl::DeleteAssociatedDevice(
-    const device::BluetoothDevice* device) {
+void FastPairRepositoryImpl::CheckOptInStatus(
+    CheckOptInStatusCallback callback) {
+  footprints_fetcher_->GetUserDevices(
+      base::BindOnce(&FastPairRepositoryImpl::OnCheckOptInStatus,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void FastPairRepositoryImpl::OnCheckOptInStatus(
+    CheckOptInStatusCallback callback,
+    absl::optional<nearby::fastpair::UserReadDevicesResponse> user_devices) {
   QP_LOG(INFO) << __func__;
-  absl::optional<const std::vector<uint8_t>> account_key =
-      saved_device_registry_->GetAccountKey(device->GetAddress());
-  if (!account_key) {
-    QP_LOG(VERBOSE)
+  if (!user_devices) {
+    QP_LOG(WARNING)
         << __func__
-        << ": Cannot find matching account key for unpaired device.";
-    return false;
+        << ": Missing UserReadDevicesResponse from call to Footprints";
+    std::move(callback).Run(nearby::fastpair::OptInStatus::STATUS_UNKNOWN);
+    return;
   }
 
+  for (const auto& info : user_devices->fast_pair_info()) {
+    if (info.has_opt_in_status()) {
+      std::move(callback).Run(info.opt_in_status());
+      return;
+    }
+  }
+
+  std::move(callback).Run(nearby::fastpair::OptInStatus::STATUS_UNKNOWN);
+}
+
+void FastPairRepositoryImpl::UpdateOptInStatus(
+    nearby::fastpair::OptInStatus opt_in_status,
+    UpdateOptInStatusCallback callback) {
+  footprints_fetcher_->AddUserFastPairInfo(
+      BuildFastPairInfoForOptIn(opt_in_status),
+      base::BindOnce(&FastPairRepositoryImpl::OnUpdateOptInStatusComplete,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void FastPairRepositoryImpl::OnUpdateOptInStatusComplete(
+    UpdateOptInStatusCallback callback,
+    bool success) {
+  QP_LOG(INFO) << __func__ << ": success=" << success;
+  std::move(callback).Run(success);
+}
+
+void FastPairRepositoryImpl::GetSavedDevices(GetSavedDevicesCallback callback) {
+  footprints_fetcher_->GetUserDevices(
+      base::BindOnce(&FastPairRepositoryImpl::OnGetSavedDevices,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void FastPairRepositoryImpl::OnGetSavedDevices(
+    GetSavedDevicesCallback callback,
+    absl::optional<nearby::fastpair::UserReadDevicesResponse> user_devices) {
+  RecordGetSavedDevicesResult(/*success=*/user_devices.has_value());
+
+  // |user_devices| will be null if we either didn't get a response from the
+  // Footprints server or if we could not parse the response. Therefore we
+  // should bubble up an error status and empty device list to the UI.
+  if (!user_devices.has_value()) {
+    QP_LOG(WARNING)
+        << __func__
+        << ": Missing UserReadDevicesResponse from call to Footprints";
+    std::move(callback).Run(nearby::fastpair::OptInStatus::
+                                STATUS_ERROR_RETRIEVING_FROM_FOOTPRINTS_SERVER,
+                            /*saved_device_list=*/{});
+    return;
+  }
+
+  nearby::fastpair::OptInStatus opt_in_status =
+      nearby::fastpair::OptInStatus::STATUS_UNKNOWN;
+  std::vector<nearby::fastpair::FastPairDevice> saved_devices;
+  for (const auto& info : user_devices->fast_pair_info()) {
+    if (info.has_opt_in_status()) {
+      opt_in_status = info.opt_in_status();
+    }
+
+    if (info.has_device()) {
+      saved_devices.push_back(info.device());
+    }
+  }
+
+  // If the opt in status is `STATUS_OPTED_OUT`, then we can expect the list of
+  // saved devices to be empty, since an opted out status removes all saved
+  // devices from the list, although there still might be saved devices, if
+  // an Android or Chromebook writes to the user's account against their wishes.
+  std::move(callback).Run(opt_in_status, std::move(saved_devices));
+}
+
+void FastPairRepositoryImpl::DeleteAssociatedDevice(
+    const std::string& mac_address,
+    DeleteAssociatedDeviceCallback callback) {
+  absl::optional<const std::vector<uint8_t>> account_key =
+      saved_device_registry_->GetAccountKey(mac_address);
+  if (!account_key) {
+    QP_LOG(WARNING) << __func__ << ": No saved account key.";
+    std::move(callback).Run(/*success=*/false);
+    return;
+  }
+  std::string hex_account_key = base::HexEncode(*account_key);
+
+  QP_LOG(VERBOSE) << __func__
+                  << ": Removing device from Footprints with address: "
+                  << mac_address;
+  pending_write_store_->DeletePairedDevice(mac_address, hex_account_key);
+  footprints_fetcher_->DeleteUserDevice(
+      hex_account_key,
+      base::BindOnce(&FastPairRepositoryImpl::OnDeleteAssociatedDevice,
+                     weak_ptr_factory_.GetWeakPtr(), mac_address,
+                     std::move(callback)));
+}
+
+void FastPairRepositoryImpl::OnDeleteAssociatedDevice(
+    const std::string& mac_address,
+    DeleteAssociatedDeviceCallback callback,
+    bool success) {
+  if (!success) {
+    QP_LOG(WARNING)
+        << __func__
+        << ": Failed to remove device from Footprints--"
+           "deferring removal from SavedDeviceRegistry until we succeed.";
+    std::move(callback).Run(/*success=*/false);
+    return;
+  }
+  QP_LOG(INFO) << __func__ << ": Successfully removed device from Footprints.";
+
+  // Remove pending delete on successful Footprints delete.
+  pending_write_store_->OnPairedDeviceDeleted(mac_address);
+
+  // Query the server and update the cache so the removal is reflected.
+  footprints_fetcher_->GetUserDevices(
+      base::BindOnce(&FastPairRepositoryImpl::UpdateUserDevicesCache,
+                     weak_ptr_factory_.GetWeakPtr()));
+
+  if (!saved_device_registry_->GetAccountKey(mac_address).has_value()) {
+    QP_LOG(INFO) << __func__
+                 << ": Device was already removed from Saved Device Registry.";
+    std::move(callback).Run(/*success=*/true);
+    return;
+  }
+
+  if (saved_device_registry_->DeleteAccountKey(mac_address)) {
+    QP_LOG(INFO) << __func__
+                 << ": Successfully removed device from Saved Device Registry.";
+    std::move(callback).Run(/*success=*/true);
+    return;
+  }
+
+  QP_LOG(WARNING) << __func__
+                  << ": Failed to remove device from Saved Device Registry.";
+  std::move(callback).Run(/*success=*/false);
+}
+
+void FastPairRepositoryImpl::DefaultNetworkChanged(
+    const NetworkState* network) {
+  // Only retry when we have an active connected network.
+  if (!network || !network->IsConnectedState()) {
+    return;
+  }
+
+  // To prevent API call spam, only try to retry once per timeout.
+  if ((base::Time::Now() - retry_write_or_delete_last_attempted_) <
+      kOfflineRetryTimeout) {
+    return;
+  }
+
+  retry_write_or_delete_last_attempted_ = base::Time::Now();
+
+  // A call to |GetSavedDevices| isn't necessary; we don't have to check
+  // the devices' most recent footprint before retrying a write since, in the
+  // worst case, an already saved device will be updated with the same
+  // information.
+  if (!pending_write_store_->GetPendingWrites().empty()) {
+    RetryPendingWrites();
+  }
+
+  // We must check whether there is a footprint in Footprints for the device
+  // we want to delete; otherwise, the delete will fail, and the delete
+  // will remain in the PendingDelete store forever.
+  if (!pending_write_store_->GetPendingDeletes().empty()) {
+    GetSavedDevices(base::BindOnce(&FastPairRepositoryImpl::RetryPendingDeletes,
+                                   weak_ptr_factory_.GetWeakPtr()));
+  }
+}
+
+void FastPairRepositoryImpl::RetryPendingWrites() {
+  for (const PendingWriteStore::PendingWrite& pending_write :
+       pending_write_store_->GetPendingWrites()) {
+    QP_LOG(VERBOSE) << __func__
+                    << ": Retrying write for device with mac address: "
+                    << pending_write.mac_address;
+
+    // Parse device account key from device fast pair info.
+    const std::string& account_key_str =
+        pending_write.fast_pair_info.device().account_key();
+    std::vector<uint8_t> account_key =
+        std::vector<uint8_t>{account_key_str.begin(), account_key_str.end()};
+
+    footprints_fetcher_->AddUserFastPairInfo(
+        pending_write.fast_pair_info,
+        base::BindOnce(
+            &FastPairRepositoryImpl::OnWriteDeviceToFootprintsComplete,
+            weak_ptr_factory_.GetWeakPtr(), pending_write.mac_address,
+            account_key));
+  }
+}
+
+// Parameter |status| is passed but not used.
+void FastPairRepositoryImpl::RetryPendingDeletes(
+    nearby::fastpair::OptInStatus status,
+    std::vector<nearby::fastpair::FastPairDevice> devices) {
+  // For each pending delete, check to see if the account key is stored in
+  // Footprints. While the device failed to delete on this Chromebook, it could
+  // have been successfully deleted on a different device.
+  for (const PendingWriteStore::PendingDelete& pending_delete :
+       pending_write_store_->GetPendingDeletes()) {
+    QP_LOG(VERBOSE) << __func__
+                    << ": Checking if failed delete should be retried "
+                       "for account key: "
+                    << pending_delete.hex_account_key;
+
+    // Check if this pending delete is for a device that is in Footprints.
+    bool found_in_saved_devices = false;
+    for (const auto& device : devices) {
+      // Account key may be null for a device removed from Android Saved
+      // Devices.
+      if (!device.has_account_key())
+        continue;
+
+      const std::string saved_account_key =
+          base::HexEncode(std::vector<uint8_t>(device.account_key().begin(),
+                                               device.account_key().end()));
+      found_in_saved_devices =
+          saved_account_key == pending_delete.hex_account_key;
+      if (found_in_saved_devices)
+        break;
+    }
+
+    // If our failed-to-delete account key is still found in Footprints, then
+    // proceed with retrying the delete.
+    if (found_in_saved_devices) {
+      QP_LOG(VERBOSE) << __func__
+                      << ": Retrying delete for device with account key "
+                      << pending_delete.hex_account_key;
+      footprints_fetcher_->DeleteUserDevice(
+          pending_delete.hex_account_key,
+          base::BindOnce(&FastPairRepositoryImpl::OnDeleteAssociatedDevice,
+                         weak_ptr_factory_.GetWeakPtr(),
+                         pending_delete.mac_address, base::DoNothing()));
+    } else if (saved_device_registry_->GetAccountKey(pending_delete.mac_address)
+                   .has_value()) {
+      // If the device was already removed from Footprints, but hasn't been
+      // removed from the registry, ensure that we remove it from the registry.
+      bool result =
+          saved_device_registry_->DeleteAccountKey(pending_delete.mac_address);
+      QP_LOG(INFO) << __func__
+                   << ": Device removed from Footprints, removing from "
+                      "SavedDeviceRegistry was "
+                   << (result ? "sucessful." : "unsuccessful.");
+
+      // Remove from our list of pending deletes since the device isn't in
+      // Footprints.
+      pending_write_store_->OnPairedDeviceDeleted(pending_delete.mac_address);
+    }
+  }
+}
+
+void FastPairRepositoryImpl::DeleteAssociatedDeviceByAccountKey(
+    const std::vector<uint8_t>& account_key,
+    DeleteAssociatedDeviceByAccountKeyCallback callback) {
   QP_LOG(INFO) << __func__ << ": Removing device from Footprints.";
-  footprints_fetcher_->DeleteUserDevice(base::HexEncode(*account_key),
-                                        base::DoNothing());
-  // TODO(jonmann): Handle saving pending update to disk + retries.
-  return true;
+  footprints_fetcher_->DeleteUserDevice(
+      base::HexEncode(account_key),
+      base::BindOnce(
+          &FastPairRepositoryImpl::OnDeleteAssociatedDeviceByAccountKey,
+          weak_ptr_factory_.GetWeakPtr(), account_key, std::move(callback)));
+}
+
+void FastPairRepositoryImpl::OnDeleteAssociatedDeviceByAccountKey(
+    const std::vector<uint8_t>& account_key,
+    DeleteAssociatedDeviceByAccountKeyCallback callback,
+    bool footprints_removal_success) {
+  // Remove pending delete on successful Footprints delete.
+  pending_write_store_->OnPairedDeviceDeleted(account_key);
+
+  bool saved_device_registry_removal_success =
+      saved_device_registry_->DeleteAccountKey(account_key);
+
+  QP_LOG(INFO) << __func__ << ": Device removal: from Footprints: "
+               << footprints_removal_success << "; from SavedDeviceRegistry: "
+               << saved_device_registry_removal_success;
+  if (footprints_removal_success) {
+    // If removing from footprints was successful, Query the server and update
+    // the cache so the removal is reflected.
+    footprints_fetcher_->GetUserDevices(
+        base::BindOnce(&FastPairRepositoryImpl::UpdateUserDevicesCache,
+                       weak_ptr_factory_.GetWeakPtr()));
+  }
+
+  std::move(callback).Run(/*success=*/footprints_removal_success &&
+                          saved_device_registry_removal_success);
 }
 
 void FastPairRepositoryImpl::FetchDeviceImages(scoped_refptr<Device> device) {
@@ -252,12 +707,40 @@ void FastPairRepositoryImpl::FetchDeviceImages(scoped_refptr<Device> device) {
   // Save a record of the device ID -> model ID for this device so that we can
   // display images for device objects that lack a model ID, such as
   // device::BluetoothDevice.
-  device_id_map_->SaveModelIdForDevice(device);
+  if (!device_id_map_->SaveModelIdForDevice(device)) {
+    QP_LOG(WARNING) << __func__
+                    << ": Unable to save device ID -> model ID"
+                       " mapping for model ID "
+                    << device->metadata_id;
+  }
 
   GetDeviceMetadata(
       device->metadata_id,
       base::BindOnce(&FastPairRepositoryImpl::CompleteFetchDeviceImages,
                      weak_ptr_factory_.GetWeakPtr(), device->metadata_id));
+}
+
+absl::optional<std::string>
+FastPairRepositoryImpl::GetDeviceDisplayNameFromCache(
+    std::vector<uint8_t> account_key) {
+  std::string account_key_str =
+      std::string(account_key.begin(), account_key.end());
+
+  QP_LOG(INFO) << __func__ << ": Scanning cache for device name.";
+  for (const auto& info : user_devices_cache_.fast_pair_info()) {
+    if (!info.has_device()) {
+      continue;
+    }
+    const std::string& device_account_key_str = info.device().account_key();
+
+    if (account_key_str == device_account_key_str) {
+      nearby::fastpair::StoredDiscoveryItem item;
+      item.ParseFromString(info.device().discovery_item_bytes());
+      QP_LOG(VERBOSE) << __func__ << ": Found display name: " << item.title();
+      return item.title();
+    }
+  }
+  return nullptr;
 }
 
 void FastPairRepositoryImpl::CompleteFetchDeviceImages(
@@ -280,7 +763,12 @@ void FastPairRepositoryImpl::CompleteFetchDeviceImages(
 bool FastPairRepositoryImpl::PersistDeviceImages(scoped_refptr<Device> device) {
   QP_LOG(INFO) << __func__ << ": Persisting device images for model ID "
                << device->metadata_id;
-  device_id_map_->PersistRecordsForDevice(device);
+  if (!device_id_map_->PersistRecordsForDevice(device)) {
+    QP_LOG(WARNING) << __func__
+                    << ": Unable to persist address -> model ID"
+                       " mapping for model ID "
+                    << device->metadata_id;
+  }
   return device_image_store_->PersistDeviceImages(device->metadata_id);
 }
 
@@ -300,14 +788,51 @@ bool FastPairRepositoryImpl::EvictDeviceImages(
   return device_image_store_->EvictDeviceImages(hex_model_id.value());
 }
 
-absl::optional<chromeos::bluetooth_config::DeviceImageInfo>
+absl::optional<bluetooth_config::DeviceImageInfo>
 FastPairRepositoryImpl::GetImagesForDevice(const std::string& device_id) {
   absl::optional<const std::string> hex_model_id =
       device_id_map_->GetModelIdForDeviceId(device_id);
-  if (!hex_model_id)
+  if (!hex_model_id) {
     return absl::nullopt;
+  }
 
   return device_image_store_->GetImagesForDeviceModel(hex_model_id.value());
+}
+
+void FastPairRepositoryImpl::IsDeviceSavedToAccount(
+    const std::string& mac_address,
+    IsDeviceSavedToAccountCallback callback) {
+  footprints_fetcher_->GetUserDevices(base::BindOnce(
+      &FastPairRepositoryImpl::CompleteIsDeviceSavedToAccount,
+      weak_ptr_factory_.GetWeakPtr(), mac_address, std::move(callback)));
+}
+
+void FastPairRepositoryImpl::CompleteIsDeviceSavedToAccount(
+    const std::string& mac_address,
+    IsDeviceSavedToAccountCallback callback,
+    absl::optional<nearby::fastpair::UserReadDevicesResponse> user_devices) {
+  QP_LOG(INFO) << __func__;
+
+  if (!user_devices) {
+    QP_LOG(WARNING)
+        << __func__
+        << ": Missing UserReadDevicesResponse from call to Footprints";
+    std::move(callback).Run(false);
+    return;
+  }
+
+  for (const auto& info : user_devices->fast_pair_info()) {
+    if (info.has_device() &&
+        IsDeviceSha256Matched(info.device(), mac_address)) {
+      QP_LOG(VERBOSE) << __func__
+                      << ": found a SHA256 match for device at address = "
+                      << mac_address;
+      std::move(callback).Run(true);
+      return;
+    }
+  }
+
+  std::move(callback).Run(false);
 }
 
 }  // namespace quick_pair

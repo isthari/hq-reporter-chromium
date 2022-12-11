@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "media/base/bind_to_current_loop.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 #include "url/gurl.h"
@@ -44,7 +43,7 @@ namespace content {
 
 MediaPermissionDispatcher::MediaPermissionDispatcher(
     RenderFrameImpl* render_frame)
-    : task_runner_(base::ThreadTaskRunnerHandle::Get()),
+    : task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
       next_request_id_(0),
       render_frame_(render_frame) {
   DCHECK(render_frame_);

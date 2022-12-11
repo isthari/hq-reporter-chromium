@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,8 @@
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/menu_util.h"
 #include "chrome/browser/apps/app_service/metrics/app_service_metrics.h"
+#include "chrome/browser/ash/app_list/internal_app/internal_app_metadata.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/app_list/internal_app/internal_app_metadata.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/services/app_service/public/cpp/app_types.h"
@@ -27,15 +27,14 @@
 
 namespace {
 
-std::unique_ptr<apps::App> CreateApp(
-    const app_list::InternalApp& internal_app) {
+apps::AppPtr CreateApp(const app_list::InternalApp& internal_app) {
   if ((internal_app.app_id == nullptr) ||
       (internal_app.name_string_resource_id == 0) ||
       (internal_app.icon_resource_id <= 0)) {
     return nullptr;
   }
 
-  std::unique_ptr<apps::App> app = apps::AppPublisher::MakeApp(
+  auto app = apps::AppPublisher::MakeApp(
       apps::AppType::kBuiltIn, internal_app.app_id, apps::Readiness::kReady,
       l10n_util::GetStringUTF8(internal_app.name_string_resource_id),
       apps::InstallReason::kSystem, apps::InstallSource::kSystem);
@@ -118,14 +117,15 @@ void BuiltInChromeOsApps::Initialize() {
 
   RegisterPublisher(AppType::kBuiltIn);
 
-  std::vector<std::unique_ptr<App>> apps;
+  std::vector<AppPtr> apps;
   for (const auto& internal_app : app_list::GetInternalAppList(profile_)) {
-    std::unique_ptr<App> app = CreateApp(internal_app);
+    AppPtr app = CreateApp(internal_app);
     if (app) {
       apps.push_back(std::move(app));
     }
   }
-  AppPublisher::Publish(std::move(apps));
+  AppPublisher::Publish(std::move(apps), AppType::kBuiltIn,
+                        /*should_notify_initialized=*/true);
 }
 
 void BuiltInChromeOsApps::LoadIcon(const std::string& app_id,
@@ -145,12 +145,40 @@ void BuiltInChromeOsApps::LoadIcon(const std::string& app_id,
   std::move(callback).Run(std::make_unique<IconValue>());
 }
 
+void BuiltInChromeOsApps::Launch(const std::string& app_id,
+                                 int32_t event_flags,
+                                 LaunchSource launch_source,
+                                 WindowInfoPtr window_info) {
+  if (app_id == ash::kInternalAppIdKeyboardShortcutViewer) {
+    ash::ToggleKeyboardShortcutViewer();
+  }
+}
+
 void BuiltInChromeOsApps::LaunchAppWithParams(AppLaunchParams&& params,
                                               LaunchCallback callback) {
-  Launch(params.app_id, ui::EF_NONE, apps::mojom::LaunchSource::kUnknown,
-         nullptr);
+  Launch(params.app_id, ui::EF_NONE, LaunchSource::kUnknown, nullptr);
+
   // TODO(crbug.com/1244506): Add launch return value.
   std::move(callback).Run(LaunchResult());
+}
+
+void BuiltInChromeOsApps::GetMenuModel(
+    const std::string& app_id,
+    MenuType menu_type,
+    int64_t display_id,
+    base::OnceCallback<void(MenuItems)> callback) {
+  MenuItems menu_items;
+
+  if (ShouldAddOpenItem(app_id, menu_type, profile_)) {
+    AddCommandItem(ash::LAUNCH_NEW, IDS_APP_CONTEXT_MENU_ACTIVATE_ARC,
+                   menu_items);
+  }
+
+  if (ShouldAddCloseItem(app_id, menu_type, profile_)) {
+    AddCommandItem(ash::MENU_CLOSE, IDS_SHELF_CONTEXT_MENU_CLOSE, menu_items);
+  }
+
+  std::move(callback).Run(std::move(menu_items));
 }
 
 void BuiltInChromeOsApps::Connect(
@@ -177,53 +205,6 @@ void BuiltInChromeOsApps::Connect(
   // mojo::RemoteSet<apps::mojom::Subscriber> subscribers_) after this
   // function returns. The list of built-in Chrome OS apps is fixed for the
   // lifetime of the Chrome OS session. There won't be any further updates.
-}
-
-void BuiltInChromeOsApps::LoadIcon(const std::string& app_id,
-                                   apps::mojom::IconKeyPtr icon_key,
-                                   apps::mojom::IconType icon_type,
-                                   int32_t size_hint_in_dip,
-                                   bool allow_placeholder_icon,
-                                   LoadIconCallback callback) {
-  constexpr bool is_placeholder_icon = false;
-  if (icon_key &&
-      (icon_key->resource_id != apps::mojom::IconKey::kInvalidResourceId)) {
-    LoadIconFromResource(
-        ConvertMojomIconTypeToIconType(icon_type), size_hint_in_dip,
-        icon_key->resource_id, is_placeholder_icon,
-        static_cast<IconEffects>(icon_key->icon_effects),
-        IconValueToMojomIconValueCallback(std::move(callback)));
-    return;
-  }
-  // On failure, we still run the callback, with the zero IconValue.
-  std::move(callback).Run(apps::mojom::IconValue::New());
-}
-
-void BuiltInChromeOsApps::Launch(const std::string& app_id,
-                                 int32_t event_flags,
-                                 apps::mojom::LaunchSource launch_source,
-                                 apps::mojom::WindowInfoPtr window_info) {
-  if (app_id == ash::kInternalAppIdKeyboardShortcutViewer) {
-    ash::ToggleKeyboardShortcutViewer();
-  }
-}
-
-void BuiltInChromeOsApps::GetMenuModel(const std::string& app_id,
-                                       apps::mojom::MenuType menu_type,
-                                       int64_t display_id,
-                                       GetMenuModelCallback callback) {
-  apps::mojom::MenuItemsPtr menu_items = apps::mojom::MenuItems::New();
-
-  if (ShouldAddOpenItem(app_id, menu_type, profile_)) {
-    AddCommandItem(ash::MENU_OPEN_NEW, IDS_APP_CONTEXT_MENU_ACTIVATE_ARC,
-                   &menu_items);
-  }
-
-  if (ShouldAddCloseItem(app_id, menu_type, profile_)) {
-    AddCommandItem(ash::MENU_CLOSE, IDS_SHELF_CONTEXT_MENU_CLOSE, &menu_items);
-  }
-
-  std::move(callback).Run(std::move(menu_items));
 }
 
 }  // namespace apps

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include "base/logging.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 
 int main(int argc, char* argv[]) {
@@ -34,16 +34,16 @@ int main(int argc, char* argv[]) {
   base::RunLoop run_loop;
   base::TimeDelta duration = base::Seconds(duration_seconds);
 
-  base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, base::BindOnce(run_loop.QuitClosure()), duration);
 
   // Tasks are run asynchronously, so this will print before the task runs.
   LOG(INFO) << "Going to sleep for " << duration_seconds << " seconds...";
 
-  // Runs all the tasks that have been posted to the |SequencedTaskRunner|.
+  // Runs all the tasks that have been posted to the task runner.
   run_loop.Run();
 
-  // This will NOT complete until |run_loop.QuitClosure()| runs.
+  // This will NOT run until after `run_loop.QuitClosure()` is called.
   LOG(INFO) << "I'm awake!";
 
   return 0;

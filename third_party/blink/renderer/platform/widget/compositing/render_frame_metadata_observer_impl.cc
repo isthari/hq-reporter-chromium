@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,7 +28,7 @@ RenderFrameMetadataObserverImpl::RenderFrameMetadataObserverImpl(
 
 RenderFrameMetadataObserverImpl::~RenderFrameMetadataObserverImpl() {}
 
-void RenderFrameMetadataObserverImpl::BindToCurrentThread() {
+void RenderFrameMetadataObserverImpl::BindToCurrentSequence() {
   DCHECK(receiver_.is_valid());
   render_frame_metadata_observer_receiver_.Bind(std::move(receiver_));
   render_frame_metadata_observer_client_.Bind(std::move(client_remote_));

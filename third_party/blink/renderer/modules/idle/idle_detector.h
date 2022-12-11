@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_idle_options.h"
+#include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/event_modules.h"
@@ -22,7 +23,6 @@
 
 namespace blink {
 
-class AbortSignal;
 class ExceptionState;
 
 class MODULES_EXPORT IdleDetector final
@@ -58,9 +58,12 @@ class MODULES_EXPORT IdleDetector final
   void Trace(Visitor*) const override;
 
   void SetTaskRunnerForTesting(
-      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+      const base::TickClock* tick_clock);
 
  private:
+  class StartAbortAlgorithm;
+
   // mojom::blink::IdleMonitor implementation. Invoked on a state change, and
   // causes an event to be dispatched.
   void Update(mojom::blink::IdleStatePtr state,
@@ -88,6 +91,9 @@ class MODULES_EXPORT IdleDetector final
 
   base::TimeDelta threshold_ = base::Seconds(60);
   Member<AbortSignal> signal_;
+  // The handle is valid from the time start() is called until the detector is
+  // stopped, if an AbortSignal is passed to start().
+  Member<AbortSignal::AlgorithmHandle> abort_handle_;
   Member<ScriptPromiseResolver> resolver_;
 
   // Holds a pipe which the service uses to notify this object

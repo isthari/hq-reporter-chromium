@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,11 @@ public class EmptyTabModelFilter extends TabModelFilter {
     }
 
     // TabModelFilter implementation.
+    @Override
+    public int getValidPosition(Tab tab, int proposedPosition) {
+        return proposedPosition;
+    }
+
     @Override
     protected void addTab(Tab tab) {}
 
@@ -58,10 +63,5 @@ public class EmptyTabModelFilter extends TabModelFilter {
     @Override
     public int indexOf(Tab tab) {
         return getTabModel().indexOf(tab);
-    }
-
-    @Override
-    public boolean isClosurePending(int tabId) {
-        return getTabModel().isClosurePending(tabId);
     }
 }

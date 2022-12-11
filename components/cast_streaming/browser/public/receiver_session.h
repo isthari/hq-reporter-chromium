@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,13 @@
 #include <memory>
 
 #include "base/callback.h"
-#include "components/cast_streaming/public/mojom/cast_streaming_session.mojom.h"
+#include "base/time/time.h"
+#include "components/cast_streaming/public/mojom/demuxer_connector.mojom.h"
+#include "components/cast_streaming/public/mojom/renderer_controller.mojom.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
+
+// TODO(crbug.com/1220176): When fixed, remove this include and add it to a file
+// with the narrowest scope possible.
 #include "third_party/openscreen/src/cast/streaming/receiver_session.h"
 
 namespace cast_api_bindings {
@@ -23,12 +28,14 @@ class VideoDecoderConfig;
 
 namespace cast_streaming {
 
+class ReceiverConfig;
+
 // This interface handles a single Cast Streaming Receiver Session over a given
-// |message_port| and with a given |cast_streaming_receiver|. On destruction,
+// |message_port| and with a given |demuxer_connector|. On destruction,
 // the Cast Streaming Receiver Session will be terminated if it was ever
 // started.
-// TODO(1220176): Forward declare ReceiverSession::Preferences instead of
-// requiring the import above.
+// TODO(crbug.com/1220176): Forward declare ReceiverSession::Preferences instead
+// of requiring the import above.
 class ReceiverSession {
  public:
   class Client {
@@ -41,6 +48,27 @@ class ReceiverSession {
         const media::AudioDecoderConfig& audio_config) = 0;
     virtual void OnVideoConfigUpdated(
         const media::VideoDecoderConfig& video_config) = 0;
+  };
+
+  // Provides controls for a media::Renderer instance. Methods are a subset of
+  // those provided by a media::Renderer.
+  class RendererController {
+   public:
+    virtual ~RendererController() = default;
+
+    // Returns true if calls may be made to this object.
+    virtual bool IsValid() const = 0;
+
+    // Starts rendering from |time|. May only be called if this object is valid.
+    virtual void StartPlayingFrom(base::TimeDelta time) = 0;
+
+    // Updates the current playback rate. The default playback rate should be 0.
+    // May only be called if this object is valid.
+    virtual void SetPlaybackRate(double playback_rate) = 0;
+
+    // Sets the output volume. The default volume should be 1. May only be
+    // called if this object is valid.
+    virtual void SetVolume(float volume) = 0;
   };
 
   using MessagePortProvider =
@@ -60,14 +88,32 @@ class ReceiverSession {
       std::unique_ptr<AVConstraints> av_constraints,
       MessagePortProvider message_port_provider,
       Client* client = nullptr);
+  static std::unique_ptr<ReceiverSession> Create(
+      const ReceiverConfig& av_constraints,
+      MessagePortProvider message_port_provider,
+      Client* client = nullptr);
 
-  // Sets up the CastStreamingReceiver mojo remote. This will immediately call
-  // CastStreamingReceiver::EnableReceiver(). Upon receiving the callback for
-  // this method, the Cast Streaming Receiver Session will be started and audio
+  // Schedules a call to begin streaming, following initial internal
+  // initialization of the component. Following this initialization, audio
   // and/or video frames will be sent over a Mojo channel.
-  virtual void SetCastStreamingReceiver(
-      mojo::AssociatedRemote<mojom::CastStreamingReceiver>
-          cast_streaming_receiver) = 0;
+  // NOTE: Depending on the media::Renderer currently being used for media
+  // playback, additional steps may be required to begin playback. If the
+  // |PlaybackCommandForwardingRenderer| is being used, the below overload is
+  // recommended instead.
+  virtual void StartStreamingAsync(
+      mojo::AssociatedRemote<mojom::DemuxerConnector> demuxer_connector) = 0;
+
+  // As above, but also sets the |renderer_controller| to be used to control a
+  // renderer-process |PlaybackCommandForwardingRenderer|. This control may then
+  // be done through the RenderControls returned by GetRendererControls() below.
+  virtual void StartStreamingAsync(
+      mojo::AssociatedRemote<mojom::DemuxerConnector> demuxer_connector,
+      mojo::AssociatedRemote<mojom::RendererController>
+          renderer_controller) = 0;
+
+  // Returns a RendererController through which commands may be injected into
+  // the renderer-process PlaybackCommandForwardingRenderer.
+  virtual RendererController* GetRendererControls() = 0;
 };
 
 }  // namespace cast_streaming

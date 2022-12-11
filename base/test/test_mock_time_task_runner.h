@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,14 +21,11 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/test_pending_task.h"
 #include "base/threading/thread_checker_impl.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/clock.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
 
 namespace base {
-
-class ThreadTaskRunnerHandle;
 
 // ATTENTION: Prefer using base::test::SingleThreadTaskEnvironment with a
 // base::test::SingleThreadTaskEnvironment::TimeSource::MOCK_TIME trait instead.
@@ -43,7 +40,9 @@ class ThreadTaskRunnerHandle;
 //
 //   - Methods RunsTasksInCurrentSequence() and Post[Delayed]Task() can be
 //     called from any thread, but the rest of the methods must be called on
-//     the same thread the TestMockTimeTaskRunner was created on.
+//     the same thread the TestMockTimeTaskRunner was created on unless a call
+//     is made to DetachFromThread(), in which case usage can switch to a
+//     different thread.
 //   - It allows for reentrancy, in that it handles the running of tasks that in
 //     turn call back into it (e.g., to post more tasks).
 //   - Tasks are stored in a priority queue, and executed in the increasing
@@ -122,8 +121,8 @@ class TestMockTimeTaskRunner : public SingleThreadTaskRunner,
     ~ScopedContext();
 
    private:
-    ThreadTaskRunnerHandleOverrideForTesting
-        thread_task_runner_handle_override_;
+    SingleThreadTaskRunner::CurrentHandleOverrideForTesting
+        single_thread_task_runner_current_default_handle_override_;
   };
 
   enum class Type {
@@ -200,6 +199,10 @@ class TestMockTimeTaskRunner : public SingleThreadTaskRunner,
   bool HasPendingTask();
   size_t GetPendingTaskCount();
   TimeDelta NextPendingTaskDelay();
+
+  // Allow invoking methods from different threads.
+  // It is the caller's responsibility to ensure there are no data races.
+  void DetachFromThread();
 
   // SingleThreadTaskRunner:
   bool RunsTasksInCurrentSequence() const override;
@@ -311,7 +314,8 @@ class TestMockTimeTaskRunner : public SingleThreadTaskRunner,
   ConditionVariable tasks_lock_cv_;
 
   const scoped_refptr<NonOwningProxyTaskRunner> proxy_task_runner_;
-  std::unique_ptr<ThreadTaskRunnerHandle> thread_task_runner_handle_;
+  std::unique_ptr<SingleThreadTaskRunner::CurrentDefaultHandle>
+      thread_task_runner_handle_;
 
   // Set to true in RunLoop::Delegate::Quit() to signal the topmost
   // RunLoop::Delegate::Run() instance to stop, reset to false when it does.

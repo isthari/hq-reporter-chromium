@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_ASH_PRINTING_CUPS_PRINTERS_MANAGER_FACTORY_H_
 
 #include <memory>
-#include "components/keyed_service/content/browser_context_keyed_service_factory.h"
+#include "chrome/browser/profiles/profile_keyed_service_factory.h"
 
 namespace content {
 class BrowserContext;
@@ -17,12 +17,12 @@ template <typename T>
 struct DefaultSingletonTraits;
 }
 
-namespace chromeos {
+namespace ash {
 
 class CupsPrintersManager;
 class CupsPrintersManagerProxy;
 
-class CupsPrintersManagerFactory : public BrowserContextKeyedServiceFactory {
+class CupsPrintersManagerFactory : public ProfileKeyedServiceFactory {
  public:
   static CupsPrintersManagerFactory* GetInstance();
   static CupsPrintersManager* GetForBrowserContext(
@@ -46,8 +46,6 @@ class CupsPrintersManagerFactory : public BrowserContextKeyedServiceFactory {
   KeyedService* BuildServiceInstanceFor(
       content::BrowserContext* context) const override;
   void BrowserContextShutdown(content::BrowserContext* context) override;
-  content::BrowserContext* GetBrowserContextToUse(
-      content::BrowserContext* context) const override;
   bool ServiceIsCreatedWithBrowserContext() const override;
   bool ServiceIsNULLWhileTesting() const override;
 
@@ -55,6 +53,6 @@ class CupsPrintersManagerFactory : public BrowserContextKeyedServiceFactory {
   std::unique_ptr<CupsPrintersManagerProxy> proxy_;
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_CUPS_PRINTERS_MANAGER_FACTORY_H_

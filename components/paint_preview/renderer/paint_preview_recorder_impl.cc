@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,8 @@
 #include "base/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/task/bind_post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
@@ -121,10 +123,11 @@ void SerializeFileRecording(sk_sp<const SkPicture> skp,
       FROM_HERE,
       {base::TaskPriority::USER_VISIBLE, base::MayBlock(),
        base::WithBaseSyncPrimitives()},
-      BindOnce(&RecordToFileOnThreadPool, skp, std::move(skp_file),
-               std::move(tracker), max_capture_size, std::move(out),
-               base::BindPostTask(base::SequencedTaskRunnerHandle::Get(),
-                                  std::move(callback))));
+      BindOnce(
+          &RecordToFileOnThreadPool, skp, std::move(skp_file),
+          std::move(tracker), max_capture_size, std::move(out),
+          base::BindPostTask(base::SequencedTaskRunner::GetCurrentDefault(),
+                             std::move(callback))));
 }
 
 // Handles memory buffer persistence storage.
@@ -202,10 +205,12 @@ PaintPreviewRecorderImpl::PaintPreviewRecorderImpl(
     content::RenderFrame* render_frame)
     : content::RenderFrameObserver(render_frame),
       is_painting_preview_(false),
-      is_main_frame_(render_frame->IsMainFrame()) {
-  render_frame->GetAssociatedInterfaceRegistry()->AddInterface(
-      base::BindRepeating(&PaintPreviewRecorderImpl::BindPaintPreviewRecorder,
-                          weak_ptr_factory_.GetWeakPtr()));
+      is_main_frame_(render_frame->IsMainFrame() &&
+                     !render_frame->IsInFencedFrameTree()) {
+  render_frame->GetAssociatedInterfaceRegistry()
+      ->AddInterface<mojom::PaintPreviewRecorder>(base::BindRepeating(
+          &PaintPreviewRecorderImpl::BindPaintPreviewRecorder,
+          weak_ptr_factory_.GetWeakPtr()));
 }
 
 PaintPreviewRecorderImpl::~PaintPreviewRecorderImpl() = default;
@@ -235,7 +240,8 @@ void PaintPreviewRecorderImpl::CapturePaintPreview(
 
 void PaintPreviewRecorderImpl::OnDestruct() {
   paint_preview_recorder_receiver_.reset();
-  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+  base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                this);
 }
 
 void PaintPreviewRecorderImpl::BindPaintPreviewRecorder(
@@ -334,8 +340,7 @@ void PaintPreviewRecorderImpl::CapturePaintPreviewInternal(
   response->frame_offsets = gfx::Point(bounds.x(), bounds.y());
 
   cc::PaintRecorder recorder;
-  cc::PaintCanvas* canvas =
-      recorder.beginRecording(bounds.width(), bounds.height());
+  cc::PaintCanvas* canvas = recorder.beginRecording();
   canvas->save();
   canvas->concat(SkMatrix::Translate(-bounds.x(), -bounds.y()));
   canvas->SetPaintPreviewTracker(tracker.get());

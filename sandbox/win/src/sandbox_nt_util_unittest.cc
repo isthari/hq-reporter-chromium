@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,18 +9,29 @@
 #include <memory>
 #include <vector>
 
-#include "base/cxx17_backports.h"
 #include "base/files/file.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/scoped_process_information.h"
+#include "sandbox/win/src/nt_internals.h"
 #include "sandbox/win/src/policy_broker.h"
 #include "sandbox/win/src/win_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace sandbox {
 namespace {
+
+using ScopedUnicodeString = std::unique_ptr<UNICODE_STRING, NtAllocDeleter>;
+void InitUnicodeString(UNICODE_STRING* unistr, const wchar_t* wstr) {
+  static RtlInitUnicodeStringFunction rtl_init_unicode_string = nullptr;
+  if (!rtl_init_unicode_string) {
+    rtl_init_unicode_string =
+        reinterpret_cast<RtlInitUnicodeStringFunction>(::GetProcAddress(
+            ::GetModuleHandle(L"ntdll.dll"), "RtlInitUnicodeString"));
+  }
+  rtl_init_unicode_string(unistr, wstr);
+}
 
 TEST(SandboxNtUtil, IsSameProcessPseudoHandle) {
   HANDLE current_process_pseudo = GetCurrentProcess();
@@ -250,9 +261,9 @@ TEST(SandboxNtUtil, NtGetPathFromHandle) {
                              base::CompareCase::INSENSITIVE_ASCII));
 
   // Compare to GetNtPathFromWin32Path for extra check.
-  std::wstring nt_path;
-  EXPECT_TRUE(GetNtPathFromWin32Path(exe.value(), &nt_path));
-  EXPECT_STREQ(path.get(), nt_path.c_str());
+  auto nt_path = GetNtPathFromWin32Path(exe.value());
+  EXPECT_TRUE(nt_path);
+  EXPECT_STREQ(path.get(), nt_path->c_str());
 }
 
 TEST(SandboxNtUtil, CopyNameAndAttributes) {
@@ -286,8 +297,8 @@ TEST(SandboxNtUtil, CopyNameAndAttributes) {
             sandbox::CopyNameAndAttributes(&object_attributes, &name, &name_len,
                                            &attributes));
   EXPECT_EQ(object_attributes.Attributes, attributes);
-  EXPECT_EQ(base::size(name_buffer), name_len);
-  EXPECT_EQ(0, wcsncmp(name.get(), name_buffer, base::size(name_buffer)));
+  EXPECT_EQ(std::size(name_buffer), name_len);
+  EXPECT_EQ(0, wcsncmp(name.get(), name_buffer, std::size(name_buffer)));
   EXPECT_EQ(L'\0', name.get()[name_len]);
 }
 
@@ -298,6 +309,50 @@ TEST(SandboxNtUtil, GetNtExports) {
   // Verify that the structure is fully initialized.
   for (size_t i = 0; i < sizeof(NtExports) / sizeof(void*); i++)
     EXPECT_TRUE(reinterpret_cast<void* const*>(exports)[i]);
+}
+
+TEST(SandboxNtUtil, ExtractModuleName) {
+  {
+    UNICODE_STRING module_path = {};
+    InitUnicodeString(&module_path, L"no-path-sep");
+    ScopedUnicodeString result(ExtractModuleName(&module_path));
+    EXPECT_TRUE(result);
+    EXPECT_EQ(result->Length, module_path.Length);
+    EXPECT_EQ(std::wstring(module_path.Buffer), std::wstring(result->Buffer));
+  }
+  {
+    UNICODE_STRING module_path = {};
+    InitUnicodeString(&module_path, L"c:\\has a\\path\\module.dll");
+    ScopedUnicodeString result(ExtractModuleName(&module_path));
+
+    EXPECT_TRUE(result);
+    EXPECT_EQ(result->Length, 10 * sizeof(wchar_t));
+    EXPECT_EQ(std::wstring(L"module.dll"), std::wstring(result->Buffer));
+  }
+  {
+    UNICODE_STRING module_path = {};
+    InitUnicodeString(&module_path, L"c:\\only a\\path\\");
+    ScopedUnicodeString result(ExtractModuleName(&module_path));
+
+    EXPECT_FALSE(result);
+  }
+  {
+    UNICODE_STRING module_path = {};
+    InitUnicodeString(&module_path, L"A");
+    ScopedUnicodeString result(ExtractModuleName(&module_path));
+
+    EXPECT_TRUE(result);
+    EXPECT_EQ(result->Length, module_path.Length);
+    EXPECT_EQ(std::wstring(module_path.Buffer), std::wstring(result->Buffer));
+  }
+  {
+    UNICODE_STRING module_path = {};
+    InitUnicodeString(&module_path, L"");
+    ScopedUnicodeString result(ExtractModuleName(&module_path));
+
+    EXPECT_TRUE(result);
+    EXPECT_EQ(result->Length, 0);
+  }
 }
 
 }  // namespace

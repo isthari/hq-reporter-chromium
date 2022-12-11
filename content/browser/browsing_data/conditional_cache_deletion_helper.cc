@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "base/location.h"
 #include "base/sequence_checker.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "content/public/browser/browser_thread.h"
 
 namespace {
@@ -93,9 +92,10 @@ void ConditionalCacheDeletionHelper::IterateOverEntries(
       // (e.g. the cache was destroyed). We cannot distinguish between the two,
       // but we know that there is nothing more that we can do, so we return OK.
       DCHECK(completion_callback_);
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(completion_callback_), net::OK));
-      base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+      base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                    this);
       return;
     }
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/containers/flat_map.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/android/android_surface_control_compat.h"
 #include "ui/gl/gl_export.h"
@@ -30,7 +31,8 @@ namespace gl {
 
 class GL_EXPORT GLSurfaceEGLSurfaceControl : public GLSurfaceEGL {
  public:
-  explicit GLSurfaceEGLSurfaceControl(
+  GLSurfaceEGLSurfaceControl(
+      GLDisplayEGL* display,
       ANativeWindow* window,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
@@ -48,7 +50,7 @@ class GL_EXPORT GLSurfaceEGLSurfaceControl : public GLSurfaceEGL {
   gfx::Size GetSize() override;
   bool OnMakeCurrent(GLContext* context) override;
   bool ScheduleOverlayPlane(
-      GLImage* image,
+      OverlayImage image,
       std::unique_ptr<gfx::GpuFence> gpu_fence,
       const gfx::OverlayPlaneData& overlay_plane_data) override;
   bool IsSurfaceless() const override;
@@ -56,25 +58,30 @@ class GL_EXPORT GLSurfaceEGLSurfaceControl : public GLSurfaceEGL {
   void PreserveChildSurfaceControls() override;
 
   // Sync versions of frame update, should never be used.
-  gfx::SwapResult SwapBuffers(PresentationCallback callback) override;
-  gfx::SwapResult CommitOverlayPlanes(PresentationCallback callback) override;
+  gfx::SwapResult SwapBuffers(PresentationCallback callback,
+                              FrameData data) override;
+  gfx::SwapResult CommitOverlayPlanes(PresentationCallback callback,
+                                      FrameData data) override;
   gfx::SwapResult PostSubBuffer(int x,
                                 int y,
                                 int width,
                                 int height,
-                                PresentationCallback callback) override;
+                                PresentationCallback callback,
+                                FrameData data) override;
 
   void SwapBuffersAsync(SwapCompletionCallback completion_callback,
-                        PresentationCallback presentation_callback) override;
-  void CommitOverlayPlanesAsync(
-      SwapCompletionCallback completion_callback,
-      PresentationCallback presentation_callback) override;
+                        PresentationCallback presentation_callback,
+                        FrameData data) override;
+  void CommitOverlayPlanesAsync(SwapCompletionCallback completion_callback,
+                                PresentationCallback presentation_callback,
+                                FrameData data) override;
   void PostSubBufferAsync(int x,
                           int y,
                           int width,
                           int height,
                           SwapCompletionCallback completion_callback,
-                          PresentationCallback presentation_callback) override;
+                          PresentationCallback presentation_callback,
+                          FrameData data) override;
 
   bool SupportsAsyncSwap() override;
   bool SupportsPlaneGpuFences() const override;
@@ -83,6 +90,8 @@ class GL_EXPORT GLSurfaceEGLSurfaceControl : public GLSurfaceEGL {
   void SetDisplayTransform(gfx::OverlayTransform transform) override;
   gfx::SurfaceOrigin GetOrigin() const override;
   void SetFrameRate(float frame_rate) override;
+  void SetChoreographerVsyncIdForNextFrame(
+      absl::optional<int64_t> choreographer_vsync_id) override;
 
  private:
   ~GLSurfaceEGLSurfaceControl() override;
@@ -177,8 +186,7 @@ class GL_EXPORT GLSurfaceEGLSurfaceControl : public GLSurfaceEGL {
     base::CancelableOnceClosure hang_detection_cb_;
   };
 
-  void CommitPendingTransaction(const gfx::Rect& damage_rect,
-                                SwapCompletionCallback completion_callback,
+  void CommitPendingTransaction(SwapCompletionCallback completion_callback,
                                 PresentationCallback callback);
 
   // Called on the |gpu_task_runner_| when a transaction is acked by the
@@ -197,15 +205,8 @@ class GL_EXPORT GLSurfaceEGLSurfaceControl : public GLSurfaceEGL {
   void AdvanceTransactionQueue();
   void CheckPendingPresentationCallbacks();
 
-  gfx::Rect ApplyDisplayInverse(const gfx::Rect& input) const;
-  const gfx::ColorSpace& GetNearestSupportedColorSpace(
-      const gfx::ColorSpace& buffer_color_space) const;
-
   const std::string root_surface_name_;
   const std::string child_surface_name_;
-
-  // The rect of the native window backing this surface.
-  gfx::Rect window_rect_;
 
   // Holds the surface state changes made since the last call to SwapBuffers.
   absl::optional<gfx::SurfaceControl::Transaction> pending_transaction_;
@@ -263,7 +264,12 @@ class GL_EXPORT GLSurfaceEGLSurfaceControl : public GLSurfaceEGL {
 
   scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner_;
 
+  // Use target deadline API instead of queuing transactions and submitting
+  // after previous transaction is ack-ed.
+  const bool use_target_deadline_;
   const bool using_on_commit_callback_;
+
+  absl::optional<int64_t> choreographer_vsync_id_for_next_frame_;
 
   base::WeakPtrFactory<GLSurfaceEGLSurfaceControl> weak_factory_{this};
 };

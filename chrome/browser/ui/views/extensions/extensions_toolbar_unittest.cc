@@ -1,29 +1,35 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/extensions/extensions_toolbar_unittest.h"
 
+#include "base/command_line.h"
+#include "base/run_loop.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/scripting_permissions_modifier.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
 #include "components/crx_file/id_util.h"
+#include "content/public/browser/notification_service.h"
+#include "content/public/test/test_utils.h"
+#include "extensions/browser/notification_types.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/value_builder.h"
+#include "extensions/test/permissions_manager_waiter.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/views/layout/animating_layout_manager_test_util.h"
 #include "ui/views/view_utils.h"
 
 namespace {
 
-std::unique_ptr<base::ListValue> ToListValue(
-    const std::vector<std::string>& permissions) {
+base::Value::List ToListValue(const std::vector<std::string>& permissions) {
   extensions::ListBuilder builder;
   for (const std::string& permission : permissions)
     builder.Append(permission);
-  return builder.Build();
+  return builder.BuildList();
 }
 
 }  // namespace
@@ -46,16 +52,32 @@ void ExtensionsToolbarUnitTest::SetUp() {
 
 scoped_refptr<const extensions::Extension>
 ExtensionsToolbarUnitTest::InstallExtension(const std::string& name) {
-  return InstallExtensionWithHostPermissions(name, {});
+  return InstallExtension(name, {}, {});
 }
 
 scoped_refptr<const extensions::Extension>
 ExtensionsToolbarUnitTest::InstallExtensionWithHostPermissions(
     const std::string& name,
     const std::vector<std::string>& host_permissions) {
+  return InstallExtension(name, {}, host_permissions);
+}
+
+scoped_refptr<const extensions::Extension>
+ExtensionsToolbarUnitTest::InstallExtensionWithPermissions(
+    const std::string& name,
+    const std::vector<std::string>& permissions) {
+  return InstallExtension(name, permissions, {});
+}
+
+scoped_refptr<const extensions::Extension>
+ExtensionsToolbarUnitTest::InstallExtension(
+    const std::string& name,
+    const std::vector<std::string>& permissions,
+    const std::vector<std::string>& host_permissions) {
   scoped_refptr<const extensions::Extension> extension =
       extensions::ExtensionBuilder(name)
           .SetManifestVersion(3)
+          .AddPermissions(permissions)
           .SetManifestKey("host_permissions", ToListValue(host_permissions))
           .SetID(crx_file::id_util::GenerateId(name))
           .Build();
@@ -74,9 +96,18 @@ void ExtensionsToolbarUnitTest::ReloadExtension(
 
 void ExtensionsToolbarUnitTest::UninstallExtension(
     const extensions::ExtensionId& extension_id) {
+  // In some cases, exiting the test too early could cause it to fail,
+  // because a worker thread is holding a lock to files it's trying to delete.
+  // This prevents the test's temp dir from cleaning up properly.
+  //
+  // This is also a known bug for Ephemeral Profiles. NukeProfileFromDisk() can
+  // race with a bunch of things, and extension uninstall is just one of them.
+  // See crbug.com/1191455.
+  base::RunLoop run_loop;
   extension_service()->UninstallExtension(
       extension_id, extensions::UninstallReason::UNINSTALL_REASON_FOR_TESTING,
-      nullptr);
+      nullptr, run_loop.QuitClosure());
+  run_loop.Run();
 }
 
 void ExtensionsToolbarUnitTest::EnableExtension(
@@ -90,6 +121,15 @@ void ExtensionsToolbarUnitTest::DisableExtension(
       extension_id, extensions::disable_reason::DISABLE_USER_ACTION);
 }
 
+void ExtensionsToolbarUnitTest::WithholdHostPermissions(
+    const extensions::Extension* extension) {
+  extensions::PermissionsManagerWaiter waiter(
+      extensions::PermissionsManager::Get(profile()));
+  extensions::ScriptingPermissionsModifier(profile(), extension)
+      .RemoveAllGrantedHostPermissions();
+  waiter.WaitForExtensionPermissionsUpdate();
+}
+
 void ExtensionsToolbarUnitTest::ClickButton(views::Button* button) const {
   ui::MouseEvent press_event(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
                              ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON,
@@ -99,6 +139,12 @@ void ExtensionsToolbarUnitTest::ClickButton(views::Button* button) const {
                                gfx::Point(), ui::EventTimeForNow(),
                                ui::EF_LEFT_MOUSE_BUTTON, 0);
   button->OnMouseReleased(release_event);
+}
+
+extensions::PermissionsManager::UserSiteSetting
+ExtensionsToolbarUnitTest::GetUserSiteSetting(const GURL& url) {
+  return extensions::PermissionsManager::Get(browser()->profile())
+      ->GetUserSiteSetting(url::Origin::Create(url));
 }
 
 std::vector<ToolbarActionView*>

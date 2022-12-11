@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,10 @@
 #include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/strings/strcat.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/simple_test_clock.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/crash_upload_list/crash_upload_list.h"
 #include "chrome/browser/error_reporting/mock_chrome_js_error_report_processor.h"
 #include "chrome/common/chrome_paths.h"
@@ -140,7 +140,7 @@ TEST_F(ChromeJsErrorReportProcessorTest, Basic) {
           {"variations=",
            MockChromeJsErrorReportProcessor::kDefaultExperimentListString})));
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if !BUILDFLAG(IS_CHROMEOS)
   // This is from MockChromeJsErrorReportProcessor::GetOsVersion()
   EXPECT_THAT(actual_report->query, HasSubstr("os_version=7.20.1"));
 #endif
@@ -208,7 +208,7 @@ void ChromeJsErrorReportProcessorTest::TestAllFields() {
           {"variations=",
            MockChromeJsErrorReportProcessor::kDefaultExperimentListString})));
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if !BUILDFLAG(IS_CHROMEOS)
   // This is from MockChromeJsErrorReportProcessor::GetOsVersion()
   EXPECT_THAT(actual_report->query, HasSubstr("os_version=7.20.1"));
 #endif
@@ -226,7 +226,7 @@ TEST_F(ChromeJsErrorReportProcessorTest, AllFields) {
   TestAllFields();
 }
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if !BUILDFLAG(IS_CHROMEOS)
 // On Chrome OS, consent checks are handled in the crash_reporter, not in the
 // browser.
 TEST_F(ChromeJsErrorReportProcessorTest, NoConsent) {
@@ -239,7 +239,7 @@ TEST_F(ChromeJsErrorReportProcessorTest, NoConsent) {
 
   EXPECT_FALSE(endpoint_->last_report());
 }
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 
 TEST_F(ChromeJsErrorReportProcessorTest, StackTraceWithErrorMessage) {
   auto report = MakeErrorReport("Hello World");
@@ -475,7 +475,7 @@ TEST_F(ChromeJsErrorReportProcessorTest, DifferentColumnNumbersAreDistinct) {
   EXPECT_EQ(endpoint_->report_count(), 3);
 }
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if !BUILDFLAG(IS_CHROMEOS)
 static std::string UploadInfoStateToString(
     UploadList::UploadInfo::State state) {
   switch (state) {
@@ -546,11 +546,11 @@ TEST_F(ChromeJsErrorReportProcessorTest, UpdatesUploadsLog) {
   EXPECT_TRUE(found) << "Didn't find upload record in "
                      << UploadInfoVectorToString(uploads);
 }
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 TEST_F(ChromeJsErrorReportProcessorTest, WorksWithoutMemfdCreate) {
   processor_->set_force_non_memfd_for_test();
   TestAllFields();
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS)

@@ -1,7 +1,8 @@
-<!-- Copyright 2015 The Chromium Authors. All rights reserved.
-  -- Use of this source code is governed by a BSD-style license that can be
-  -- found in the LICENSE file.
-  -->
+<!--
+Copyright 2015 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
 <style>
   .container {
     --cr-toast-background: var(--cros-bg-color-elevation-2-inverted);
@@ -51,5 +52,5 @@
 </style>
 <cr-toast class="container" id="container" duration="5000">
   <div class="text" id="text"></div>
-  <cr-button class="action" id="action" on-tap="onActionTapped_"></cr-button>
+  <cr-button class="action" id="action" on-click="onActionClicked_"></cr-button>
 </cr-toast>

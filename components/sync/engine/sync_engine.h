@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/time/time.h"
+#include "base/values.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/sync/base/extensions_activity.h"
 #include "components/sync/base/model_type.h"
@@ -31,6 +32,7 @@ namespace syncer {
 
 class EngineComponentsFactory;
 class HttpPostProviderFactory;
+class KeyDerivationParams;
 class Nigori;
 class SyncEngineHost;
 struct SyncStatus;
@@ -42,7 +44,7 @@ struct SyncStatus;
 class SyncEngine : public ModelTypeConfigurer {
  public:
   using AllNodesCallback =
-      base::OnceCallback<void(ModelType, std::unique_ptr<base::ListValue>)>;
+      base::OnceCallback<void(ModelType, base::Value::List)>;
   using HttpPostProviderFactoryGetter =
       base::OnceCallback<std::unique_ptr<HttpPostProviderFactory>()>;
 
@@ -57,7 +59,7 @@ class SyncEngine : public ModelTypeConfigurer {
 
     ~InitParams();
 
-    raw_ptr<SyncEngineHost> host = nullptr;
+    raw_ptr<SyncEngineHost, DanglingUntriaged> host = nullptr;
     std::unique_ptr<SyncEncryptionHandler::Observer> encryption_observer_proxy;
     scoped_refptr<ExtensionsActivity> extensions_activity;
     GURL service_url;
@@ -113,11 +115,17 @@ class SyncEngine : public ModelTypeConfigurer {
   // browser from the cloud / sync servers.
   virtual void StartSyncingWithServer() = 0;
 
+  // Starts handling incoming standalone invalidations. This method must be
+  // called when data types are configured.
+  virtual void StartHandlingInvalidations() = 0;
+
   // Asynchronously set a new passphrase for encryption. Note that it is an
   // error to call SetEncryptionPassphrase under the following circumstances:
   // - An explicit passphrase has already been set
   // - We have pending keys.
-  virtual void SetEncryptionPassphrase(const std::string& passphrase) = 0;
+  virtual void SetEncryptionPassphrase(
+      const std::string& passphrase,
+      const KeyDerivationParams& key_derivation_params) = 0;
 
   // Use the provided decryption key to asynchronously attempt decryption. If
   // new encrypted keys arrive during the asynchronous call,
@@ -174,7 +182,7 @@ class SyncEngine : public ModelTypeConfigurer {
   // Enables/Disables invalidations for session sync related datatypes.
   virtual void SetInvalidationsForSessionsEnabled(bool enabled) = 0;
 
-  // Returns a ListValue representing Nigori node.
+  // Returns a Value::List representing Nigori node.
   virtual void GetNigoriNodeForDebugging(AllNodesCallback callback) = 0;
 };
 

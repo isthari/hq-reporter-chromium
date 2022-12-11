@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,33 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/css/css_test_helpers.h"
+#include "third_party/blink/renderer/core/css/parser/css_parser.h"
 #include "third_party/blink/renderer/core/css/resolver/style_resolver.h"
 #include "third_party/blink/renderer/core/css/selector_filter.h"
+#include "third_party/blink/renderer/core/css/style_sheet_contents.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
+#include "third_party/blink/renderer/core/execution_context/security_context.h"
+#include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 
 namespace blink {
+
+static RuleSet* RuleSetFromSingleRule(Document& document, const String& text) {
+  auto* style_rule =
+      DynamicTo<StyleRule>(css_test_helpers::ParseRule(document, text));
+  if (style_rule == nullptr) {
+    return nullptr;
+  }
+  RuleSet* rule_set = MakeGarbageCollected<RuleSet>();
+  MediaQueryEvaluator* medium =
+      MakeGarbageCollected<MediaQueryEvaluator>(document.GetFrame());
+  rule_set->AddStyleRule(style_rule, *medium, kRuleHasNoSpecialState);
+  return rule_set;
+}
 
 class ElementRuleCollectorTest : public PageTestBase {
  public:
@@ -39,17 +57,13 @@ class ElementRuleCollectorTest : public PageTestBase {
     ElementResolveContext context(*element);
     SelectorFilter filter;
     MatchResult result;
-    auto style = GetDocument().GetStyleResolver().CreateComputedStyle();
     ElementRuleCollector collector(context, StyleRecalcContext(), filter,
-                                   result, style.get(), InsideLink(element));
+                                   result, InsideLink(element));
 
     String rule = selector + " { color: green }";
-    auto* style_rule =
-        DynamicTo<StyleRule>(css_test_helpers::ParseRule(GetDocument(), rule));
-    if (!style_rule)
+    RuleSet* rule_set = RuleSetFromSingleRule(GetDocument(), rule);
+    if (!rule_set)
       return absl::nullopt;
-    RuleSet* rule_set = MakeGarbageCollected<RuleSet>();
-    rule_set->AddStyleRule(style_rule, kRuleHasNoSpecialState);
 
     MatchRequest request(rule_set, scope);
 
@@ -68,6 +82,19 @@ class ElementRuleCollectorTest : public PageTestBase {
     for (const auto& matched_propeties : vector)
       link_match_type |= matched_propeties.types_.link_match_type;
     return link_match_type;
+  }
+
+  Vector<MatchedRule> GetAllMatchedRules(Element* element, RuleSet* rule_set) {
+    ElementResolveContext context(*element);
+    SelectorFilter filter;
+    MatchResult result;
+    ElementRuleCollector collector(context, StyleRecalcContext(), filter,
+                                   result, InsideLink(element));
+
+    MatchRequest request(rule_set, {});
+
+    collector.CollectMatchingRules(request);
+    return Vector<MatchedRule>{collector.MatchedRulesForTest()};
   }
 };
 
@@ -247,6 +274,208 @@ TEST_F(ElementRuleCollectorTest, LinkMatchTypeHostContext) {
     EXPECT_EQ(Match(element, ":host-context(:is(:visited, :link)) div", scope),
               kMatchAll);
   }
+}
+
+TEST_F(ElementRuleCollectorTest, MatchesNonUniversalHighlights) {
+  String markup =
+      "<html xmlns='http://www.w3.org/1999/xhtml'><body class='foo'>"
+      "<none xmlns=''/>"
+      "<bar xmlns='http://example.org/bar'/>"
+      "<default xmlns='http://example.org/default'/>"
+      "</body></html>";
+  scoped_refptr<SharedBuffer> data =
+      SharedBuffer::Create(markup.Utf8().data(), markup.length());
+  GetFrame().ForceSynchronousDocumentInstall("text/xml", data);
+
+  // Creates a StyleSheetContents with selector and optional default @namespace,
+  // matches rules for originating element, then returns the non-universal flag
+  // for ::highlight(x) or the given PseudoId.
+  auto run = [&](Element& element, String selector,
+                 absl::optional<AtomicString> defaultNamespace) {
+    auto* parser_context = MakeGarbageCollected<CSSParserContext>(
+        kHTMLStandardMode, SecureContextMode::kInsecureContext);
+    auto* sheet = MakeGarbageCollected<StyleSheetContents>(parser_context);
+    sheet->ParserAddNamespace("bar", "http://example.org/bar");
+    if (defaultNamespace)
+      sheet->ParserAddNamespace(g_null_atom, *defaultNamespace);
+    MediaQueryEvaluator* medium =
+        MakeGarbageCollected<MediaQueryEvaluator>(GetDocument().GetFrame());
+    RuleSet& rules = sheet->EnsureRuleSet(*medium, kRuleHasNoSpecialState);
+    auto* rule = To<StyleRule>(CSSParser::ParseRule(
+        sheet->ParserContext(), sheet, selector + " { color: green }"));
+    rules.AddStyleRule(rule, *medium, kRuleHasNoSpecialState);
+
+    MatchResult result;
+    ElementResolveContext context{element};
+    ElementRuleCollector collector(context, StyleRecalcContext(),
+                                   SelectorFilter(), result,
+                                   EInsideLink::kNotInsideLink);
+    collector.CollectMatchingRules(MatchRequest{&sheet->GetRuleSet(), nullptr});
+
+    // Pretty-print the arguments for debugging.
+    StringBuilder args{};
+    args.Append("(<");
+    args.Append(element.ToString());
+    args.Append(">, ");
+    args.Append(selector);
+    args.Append(", ");
+    if (defaultNamespace)
+      args.Append(String("\"" + *defaultNamespace + "\""));
+    else
+      args.Append("{}");
+    args.Append(")");
+
+    return result.HasNonUniversalHighlightPseudoStyles();
+  };
+
+  Element& body = *GetDocument().body();
+  Element& none = *body.QuerySelector("none");
+  Element& bar = *body.QuerySelector("bar");
+  Element& def = *body.QuerySelector("default");
+  AtomicString defNs = "http://example.org/default";
+
+  // Cases that only make sense without a default @namespace.
+  // ::selection kSubSelector :window-inactive
+  EXPECT_TRUE(run(body, "::selection:window-inactive", {}));
+  EXPECT_TRUE(run(body, "body::highlight(x)", {}));    // body::highlight(x)
+  EXPECT_TRUE(run(body, ".foo::highlight(x)", {}));    // .foo::highlight(x)
+  EXPECT_TRUE(run(body, "* ::highlight(x)", {}));      // ::highlight(x) *
+  EXPECT_TRUE(run(body, "* body::highlight(x)", {}));  // body::highlight(x) *
+
+  // Cases that depend on whether there is a default @namespace.
+  EXPECT_FALSE(run(def, "::highlight(x)", {}));     // ::highlight(x)
+  EXPECT_FALSE(run(def, "*::highlight(x)", {}));    // ::highlight(x)
+  EXPECT_TRUE(run(def, "::highlight(x)", defNs));   // null|*::highlight(x)
+  EXPECT_TRUE(run(def, "*::highlight(x)", defNs));  // null|*::highlight(x)
+
+  // Cases that are independent of whether there is a default @namespace.
+  for (auto& ns : Vector<absl::optional<AtomicString>>{{}, defNs}) {
+    // no default ::highlight(x), default *|*::highlight(x)
+    EXPECT_FALSE(run(body, "*|*::highlight(x)", ns));
+    // no default .foo::highlight(x), default *|*.foo::highlight(x)
+    EXPECT_TRUE(run(body, "*|*.foo::highlight(x)", ns));
+    EXPECT_TRUE(run(none, "|*::highlight(x)", ns));    // empty|*::highlight(x)
+    EXPECT_TRUE(run(bar, "bar|*::highlight(x)", ns));  // bar|*::highlight(x)
+  }
+}
+
+TEST_F(ElementRuleCollectorTest, DirectNesting) {
+  SetBodyInnerHTML(R"HTML(
+    <div id="foo" class="a">
+      <div id="bar" class="b">
+         <div id="baz" class="b">
+         </div>
+      </div>
+    </div>
+  )HTML");
+  String rule = R"CSS(
+    #foo {
+       color: green;
+       &.a { color: red; }
+       & > .b { color: navy; }
+    }
+  )CSS";
+  RuleSet* rule_set = RuleSetFromSingleRule(GetDocument(), rule);
+  ASSERT_NE(nullptr, rule_set);
+
+  Element* foo = GetDocument().getElementById("foo");
+  Element* bar = GetDocument().getElementById("bar");
+  Element* baz = GetDocument().getElementById("baz");
+  ASSERT_NE(nullptr, foo);
+  ASSERT_NE(nullptr, bar);
+  ASSERT_NE(nullptr, baz);
+
+  Vector<MatchedRule> foo_rules = GetAllMatchedRules(foo, rule_set);
+  ASSERT_EQ(2u, foo_rules.size());
+  EXPECT_EQ("#foo", foo_rules[0].GetRuleData()->Selector().SelectorText());
+  EXPECT_EQ("&.a", foo_rules[1].GetRuleData()->Selector().SelectorText());
+
+  Vector<MatchedRule> bar_rules = GetAllMatchedRules(bar, rule_set);
+  ASSERT_EQ(1u, bar_rules.size());
+  EXPECT_EQ("& > .b", bar_rules[0].GetRuleData()->Selector().SelectorText());
+
+  Vector<MatchedRule> baz_rules = GetAllMatchedRules(baz, rule_set);
+  ASSERT_EQ(0u, baz_rules.size());
+}
+
+TEST_F(ElementRuleCollectorTest, RuleNotStartingWithAmpersand) {
+  SetBodyInnerHTML(R"HTML(
+    <div id="foo"></div>
+    <div id="bar"></div>
+  )HTML");
+  String rule = R"CSS(
+    #foo {
+       color: green;
+       :not(&) { color: red; }
+    }
+  )CSS";
+  RuleSet* rule_set = RuleSetFromSingleRule(GetDocument(), rule);
+  ASSERT_NE(nullptr, rule_set);
+
+  Element* foo = GetDocument().getElementById("foo");
+  Element* bar = GetDocument().getElementById("bar");
+  ASSERT_NE(nullptr, foo);
+  ASSERT_NE(nullptr, bar);
+
+  Vector<MatchedRule> foo_rules = GetAllMatchedRules(foo, rule_set);
+  ASSERT_EQ(1u, foo_rules.size());
+  EXPECT_EQ("#foo", foo_rules[0].GetRuleData()->Selector().SelectorText());
+
+  Vector<MatchedRule> bar_rules = GetAllMatchedRules(bar, rule_set);
+  ASSERT_EQ(1u, bar_rules.size());
+  EXPECT_EQ(":not(&)", bar_rules[0].GetRuleData()->Selector().SelectorText());
+}
+
+TEST_F(ElementRuleCollectorTest, NestingAtToplevelMatchesNothing) {
+  SetBodyInnerHTML(R"HTML(
+    <div id="foo"></div>
+  )HTML");
+  String rule = R"CSS(
+    & { color: red; }
+  )CSS";
+  RuleSet* rule_set = RuleSetFromSingleRule(GetDocument(), rule);
+  ASSERT_NE(nullptr, rule_set);
+
+  Element* foo = GetDocument().getElementById("foo");
+  ASSERT_NE(nullptr, foo);
+
+  Vector<MatchedRule> foo_rules = GetAllMatchedRules(foo, rule_set);
+  EXPECT_EQ(0u, foo_rules.size());
+}
+
+TEST_F(ElementRuleCollectorTest, NestedRulesInMediaQuery) {
+  SetBodyInnerHTML(R"HTML(
+    <div id="foo"><div id="bar" class="c"></div></div>
+    <div id="baz"></div>
+  )HTML");
+  String rule = R"CSS(
+    #foo {
+        color: oldlace;
+        @media screen {
+            & .c { color: palegoldenrod; }
+        }
+    }
+  )CSS";
+  RuleSet* rule_set = RuleSetFromSingleRule(GetDocument(), rule);
+  ASSERT_NE(nullptr, rule_set);
+
+  Element* foo = GetDocument().getElementById("foo");
+  Element* bar = GetDocument().getElementById("bar");
+  Element* baz = GetDocument().getElementById("baz");
+  ASSERT_NE(nullptr, foo);
+  ASSERT_NE(nullptr, bar);
+  ASSERT_NE(nullptr, baz);
+
+  Vector<MatchedRule> foo_rules = GetAllMatchedRules(foo, rule_set);
+  ASSERT_EQ(1u, foo_rules.size());
+  EXPECT_EQ("#foo", foo_rules[0].GetRuleData()->Selector().SelectorText());
+
+  Vector<MatchedRule> bar_rules = GetAllMatchedRules(bar, rule_set);
+  ASSERT_EQ(1u, bar_rules.size());
+  EXPECT_EQ("& .c", bar_rules[0].GetRuleData()->Selector().SelectorText());
+
+  Vector<MatchedRule> baz_rules = GetAllMatchedRules(baz, rule_set);
+  EXPECT_EQ(0u, baz_rules.size());
 }
 
 }  // namespace blink

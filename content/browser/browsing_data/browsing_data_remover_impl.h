@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browsing_data_remover.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "url/origin.h"
 
 namespace content {
@@ -43,6 +44,11 @@ class CONTENT_EXPORT BrowsingDataRemoverImpl
   // Is the BrowsingDataRemoverImpl currently in the process of removing data?
   bool IsRemovingForTesting() { return is_removing_; }
 
+  void RemoveStorageBucketsAndReply(
+      const blink::StorageKey& storage_key,
+      const std::set<std::string>& storage_buckets,
+      base::OnceClosure callback);
+
   // BrowsingDataRemover implementation:
   void SetEmbedderDelegate(
       BrowsingDataRemoverDelegate* embedder_delegate) override;
@@ -54,6 +60,12 @@ class CONTENT_EXPORT BrowsingDataRemoverImpl
               const base::Time& delete_end,
               uint64_t remove_mask,
               uint64_t origin_type_mask) override;
+  void RemoveWithFilter(
+      const base::Time& delete_begin,
+      const base::Time& delete_end,
+      uint64_t remove_mask,
+      uint64_t origin_type_mask,
+      std::unique_ptr<BrowsingDataFilterBuilder> filter_builder) override;
   void RemoveAndReply(const base::Time& delete_begin,
                       const base::Time& delete_end,
                       uint64_t remove_mask,
@@ -98,7 +110,9 @@ class CONTENT_EXPORT BrowsingDataRemoverImpl
 
   // For debugging purposes. Please add new deletion tasks at the end.
   // This enum is recorded in a histogram, so don't change or reuse ids.
-  // Entries must also be added to BrowsingDataRemoverTasks in enums.xml.
+  // Entries must also be added to BrowsingDataRemoverTasks in enums.xml and
+  // History.ClearBrowsingData.Duration.Task.{Task} in
+  // histograms/metadata/history/histograms.xml.
   enum class TracingDataType {
     kSynchronous = 1,
     kEmbedderData = 2,
@@ -116,6 +130,10 @@ class CONTENT_EXPORT BrowsingDataRemoverImpl
     kDeferredCookies = 14,
     kMaxValue = kDeferredCookies,
   };
+
+  // Returns the suffix for the History.ClearBrowsingData.Duration.Task.{Task}
+  // histogram
+  const char* GetHistogramSuffix(TracingDataType task);
 
   // Represents a single removal task. Contains all parameters needed to execute
   // it and a pointer to the observer that added it. CONTENT_EXPORTed to be
@@ -173,7 +191,10 @@ class CONTENT_EXPORT BrowsingDataRemoverImpl
 
   // Called by the closures returned by CreateTaskCompletionClosure().
   // Checks if all tasks have completed, and if so, calls Notify().
-  void OnTaskComplete(TracingDataType data_type);
+  void OnTaskComplete(TracingDataType data_type, base::TimeTicks started);
+
+  // Called when the storage buckets data has been removed.
+  void DidRemoveStorageBuckets(base::OnceClosure callback);
 
   // Increments the number of pending tasks by one, and returns a OnceClosure
   // that calls OnTaskComplete(). The Remover is complete once all the closures
@@ -199,7 +220,7 @@ class CONTENT_EXPORT BrowsingDataRemoverImpl
   raw_ptr<BrowserContext> browser_context_;
 
   // A delegate to delete the embedder-specific data. Owned by the embedder.
-  raw_ptr<BrowsingDataRemoverDelegate> embedder_delegate_;
+  raw_ptr<BrowsingDataRemoverDelegate, DanglingUntriaged> embedder_delegate_;
 
   // Start time to delete from.
   base::Time delete_begin_;

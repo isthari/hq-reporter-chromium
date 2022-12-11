@@ -1,6 +1,8 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "content/browser/service_worker/service_worker_version.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -13,7 +15,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
-#include "base/cxx17_backports.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/statistics_recorder.h"
@@ -36,7 +37,6 @@
 #include "content/browser/service_worker/service_worker_host.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_test_utils.h"
-#include "content/browser/service_worker/service_worker_version.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -70,6 +70,9 @@ using blink::mojom::CacheStorageError;
 namespace content {
 
 namespace {
+
+using ::testing::Eq;
+using ::testing::Pointee;
 
 // V8ScriptRunner::setCacheTimeStamp() stores 16 byte data (marker + tag +
 // timestamp).
@@ -216,7 +219,7 @@ CreateMainScriptResponse() {
       "Content-Type: application/javascript\0"
       "\0";
   response_head.headers =
-      new net::HttpResponseHeaders(std::string(data, base::size(data)));
+      new net::HttpResponseHeaders(std::string(data, std::size(data)));
   return std::make_unique<ServiceWorkerVersion::MainScriptResponse>(
       response_head);
 }
@@ -462,8 +465,7 @@ class ServiceWorkerVersionBrowserTest : public ContentBrowserTest {
             /*is_parent_frame_secure=*/true, wrapper()->context()->AsWeakPtr(),
             &remote_endpoints_.back());
     const GURL url = embedded_test_server()->GetURL("/service_worker/host");
-    container_host->UpdateUrls(url, net::SiteForCookies::FromUrl(url),
-                               url::Origin::Create(url),
+    container_host->UpdateUrls(url, url::Origin::Create(url),
                                blink::StorageKey(url::Origin::Create(url)));
     container_host->SetControllerRegistration(
         registration_, false /* notify_controllerchange */);
@@ -476,8 +478,8 @@ class ServiceWorkerVersionBrowserTest : public ContentBrowserTest {
             wrapper()->context()->registry(), registration_.get(),
             embedded_test_server()->GetURL(worker_url),
             blink::mojom::ScriptType::kClassic));
-    waiting_version->set_fetch_handler_existence(
-        ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
+    waiting_version->set_fetch_handler_type(
+        ServiceWorkerVersion::FetchHandlerType::kNotSkippable);
     waiting_version->SetStatus(ServiceWorkerVersion::INSTALLED);
     registration_->SetWaitingVersion(waiting_version.get());
     registration_->ActivateWaitingVersionWhenReady();
@@ -710,8 +712,8 @@ class ServiceWorkerVersionBrowserTest : public ContentBrowserTest {
 
   void SetActiveVersion(ServiceWorkerRegistration* registration,
                         ServiceWorkerVersion* version) {
-    version->set_fetch_handler_existence(
-        ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
+    version->set_fetch_handler_type(
+        ServiceWorkerVersion::FetchHandlerType::kNotSkippable);
     version->SetStatus(ServiceWorkerVersion::ACTIVATED);
     registration->SetActiveVersion(version);
   }
@@ -937,6 +939,8 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
             blink::ServiceWorkerStatusCode::kOk);
   EXPECT_EQ(ServiceWorkerVersion::FetchHandlerExistence::EXISTS,
             version_->fetch_handler_existence());
+  EXPECT_EQ(ServiceWorkerVersion::FetchHandlerType::kNotSkippable,
+            version_->fetch_handler_type());
 }
 
 IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
@@ -946,6 +950,19 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
             blink::ServiceWorkerStatusCode::kOk);
   EXPECT_EQ(ServiceWorkerVersion::FetchHandlerExistence::DOES_NOT_EXIST,
             version_->fetch_handler_existence());
+  EXPECT_EQ(ServiceWorkerVersion::FetchHandlerType::kNoHandler,
+            version_->fetch_handler_type());
+}
+
+IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
+                       InstallEmptyFetchHandler) {
+  StartServerAndNavigateToSetup();
+  ASSERT_EQ(Install("/service_worker/empty_fetch_event.js"),
+            blink::ServiceWorkerStatusCode::kOk);
+  EXPECT_EQ(ServiceWorkerVersion::FetchHandlerExistence::EXISTS,
+            version_->fetch_handler_existence());
+  EXPECT_EQ(ServiceWorkerVersion::FetchHandlerType::kEmptyFetchHandler,
+            version_->fetch_handler_type());
 }
 
 // Check that fetch event handler added in the install event should result in a
@@ -1149,9 +1166,14 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest, FetchEvent_Response) {
             storage::BlobToString(blob.get()));
 }
 
+#if BUILDFLAG(IS_ANDROID)
+#define MAYBE_FetchEvent_ResponseNetwork DISABLED_FetchEvent_ResponseNetwork
+#else
+#define MAYBE_FetchEvent_ResponseNetwork FetchEvent_ResponseNetwork
+#endif
 // Tests for response type when a service worker does respondWith(fetch()).
 IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
-                       FetchEvent_ResponseNetwork) {
+                       MAYBE_FetchEvent_ResponseNetwork) {
   const char* kPath = "/service_worker/http_cache.html";
 
   StartServerAndNavigateToSetup();
@@ -1417,7 +1439,7 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest, RendererCrash) {
 
   // Crash the renderer process. The version should stop.
   RenderProcessHost* process =
-      shell()->web_contents()->GetMainFrame()->GetProcess();
+      shell()->web_contents()->GetPrimaryMainFrame()->GetProcess();
   RenderProcessHostWatcher process_watcher(
       process, RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
   base::RunLoop run_loop;
@@ -1447,8 +1469,8 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerVersionBrowserTest,
   // Once it's started, the worker script is read from the network and the COEP
   // value is set to the version.
   ASSERT_EQ(StartWorker(), blink::ServiceWorkerStatusCode::kOk);
-  EXPECT_EQ(CrossOriginEmbedderPolicyRequireCorp(),
-            version_->cross_origin_embedder_policy());
+  EXPECT_THAT(version_->cross_origin_embedder_policy(),
+              Pointee(Eq(CrossOriginEmbedderPolicyRequireCorp())));
 }
 
 // Tests that JS can be executed in the context of a running service worker.

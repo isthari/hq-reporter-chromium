@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 #include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/numerics/math_constants.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "chrome/browser/vr/content_input_delegate.h"
 #include "chrome/browser/vr/elements/content_element.h"
@@ -637,8 +637,9 @@ gfx::Point3F Ui::GetTargetPointForTesting(UserFriendlyElementName element_name,
   // the actual element.
   auto scaled_position = ScalePoint(position, target_element->size().width(),
                                     target_element->size().height());
-  gfx::Point3F target(scaled_position.x(), scaled_position.y(), 0.0f);
-  target_element->ComputeTargetWorldSpaceTransform().TransformPoint(&target);
+  gfx::Point3F target =
+      target_element->ComputeTargetWorldSpaceTransform().MapPoint(
+          gfx::Point3F(scaled_position));
   // We do hit testing with respect to the eye position (world origin), so we
   // need to project the target point into the background.
   gfx::Vector3dF direction = target - kOrigin;
@@ -776,7 +777,7 @@ void Ui::HandleMenuButtonEvents(InputEventList* input_event_list) {
         case InputEvent::kMenuButtonClicked:
           // Post a task, rather than calling directly, to avoid modifying UI
           // state in the midst of frame rendering.
-          base::ThreadTaskRunnerHandle::Get()->PostTask(
+          base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
               FROM_HERE,
               base::BindOnce(&Ui::OnMenuButtonClicked, base::Unretained(this)));
           break;
@@ -829,19 +830,14 @@ FovRectangle Ui::GetMinimalFov(const gfx::Transform& view_matrix,
   bool has_visible_element = false;
 
   for (const auto* element : elements) {
-    gfx::Point3F left_bottom{-0.5, -0.5, 0};
-    gfx::Point3F left_top{-0.5, 0.5, 0};
-    gfx::Point3F right_bottom{0.5, -0.5, 0};
-    gfx::Point3F right_top{0.5, 0.5, 0};
-
     gfx::Transform transform = element->world_space_transform();
-    transform.ConcatTransform(view_matrix);
+    transform.PostConcat(view_matrix);
 
     // Transform to view space.
-    transform.TransformPoint(&left_bottom);
-    transform.TransformPoint(&left_top);
-    transform.TransformPoint(&right_bottom);
-    transform.TransformPoint(&right_top);
+    gfx::Point3F left_bottom = transform.MapPoint(gfx::Point3F(-0.5, -0.5, 0));
+    gfx::Point3F left_top = transform.MapPoint(gfx::Point3F(-0.5, 0.5, 0));
+    gfx::Point3F right_bottom = transform.MapPoint(gfx::Point3F(0.5, -0.5, 0));
+    gfx::Point3F right_top = transform.MapPoint(gfx::Point3F(0.5, 0.5, 0));
 
     // Project point to Z near plane in view space.
     left_bottom.Scale(-z_near / left_bottom.z());
@@ -915,6 +911,6 @@ __attribute__((visibility("default"))) UiInterface* CreateUi(
                 ui_initial_state);
 }
 }  // extern "C"
-#endif  // defined(OS_ANDROID
+#endif  // BUILDFLAG(IS_ANDROID)
 
 }  // namespace vr

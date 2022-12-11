@@ -1,11 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/component_updater/component_updater_service.h"
 
-#include <algorithm>
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -13,15 +13,18 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
+#include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "components/component_updater/component_installer.h"
 #include "components/component_updater/component_updater_service_internal.h"
 #include "components/component_updater/component_updater_utils.h"
 #include "components/component_updater/pref_names.h"
@@ -126,6 +129,18 @@ void CrxUpdateService::RemoveObserver(Observer* observer) {
   update_client_->RemoveObserver(observer);
 }
 
+base::Version CrxUpdateService::GetRegisteredVersion(
+    const std::string& app_id) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  base::Version registered_version =
+      std::make_unique<update_client::PersistedData>(
+          config_->GetPrefService(), config_->GetActivityDataService())
+          ->GetProductVersion(app_id);
+
+  return (registered_version.IsValid()) ? registered_version
+                                        : base::Version(kNullVersion);
+}
+
 void CrxUpdateService::Start() {
   DCHECK(thread_checker_.CalledOnValidThread());
   VLOG(1) << "CrxUpdateService starting up. "
@@ -214,8 +229,7 @@ bool CrxUpdateService::DoUnregisterComponent(const std::string& id) {
 
   const bool result = components_.find(id)->second.installer->Uninstall();
 
-  const auto pos =
-      std::find(components_order_.begin(), components_order_.end(), id);
+  const auto pos = base::ranges::find(components_order_, id);
   if (pos != components_order_.end())
     components_order_.erase(pos);
 
@@ -308,7 +322,7 @@ void CrxUpdateService::OnDemandUpdate(const std::string& id,
 
   if (!GetComponent(id)) {
     if (!callback.is_null()) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(callback),
                                     update_client::Error::INVALID_ARGUMENT));
     }
@@ -367,52 +381,26 @@ bool CrxUpdateService::CheckForUpdates(
   UMA_HISTOGRAM_ENUMERATION("ComponentUpdater.Calls", UPDATE_TYPE_AUTOMATIC,
                             UPDATE_TYPE_COUNT);
 
-  std::vector<std::string> secure_ids;    // Requires HTTPS for update checks.
-  std::vector<std::string> unsecure_ids;  // Can fallback to HTTP.
-  for (const auto& id : components_order_) {
-    DCHECK(components_.find(id) != components_.end());
-
-    const auto component = GetComponent(id);
-    if (!component || component->requires_network_encryption)
-      secure_ids.push_back(id);
-    else
-      unsecure_ids.push_back(id);
-  }
-
-  if (unsecure_ids.empty() && secure_ids.empty()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  std::move(on_finished));
+  if (components_order_.empty()) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(on_finished));
     return true;
   }
 
-  Callback on_finished_callback = base::BindOnce(
-      [](UpdateScheduler::OnFinishedCallback on_finished,
-         update_client::Error error) { std::move(on_finished).Run(); },
-      std::move(on_finished));
-
-  if (!unsecure_ids.empty()) {
-    update_client_->Update(
-        unsecure_ids,
-        base::BindOnce(&CrxUpdateService::GetCrxComponents,
-                       base::Unretained(this)),
-        {}, false,
-        base::BindOnce(
-            &CrxUpdateService::OnUpdateComplete, base::Unretained(this),
-            secure_ids.empty() ? std::move(on_finished_callback) : Callback(),
-            base::TimeTicks::Now()));
-  }
-
-  if (!secure_ids.empty()) {
-    update_client_->Update(
-        secure_ids,
-        base::BindOnce(&CrxUpdateService::GetCrxComponents,
-                       base::Unretained(this)),
-        {}, false,
-        base::BindOnce(&CrxUpdateService::OnUpdateComplete,
-                       base::Unretained(this), std::move(on_finished_callback),
-                       base::TimeTicks::Now()));
-  }
-
+  update_client_->Update(
+      components_order_,
+      base::BindOnce(&CrxUpdateService::GetCrxComponents,
+                     base::Unretained(this)),
+      {}, false,
+      base::BindOnce(&CrxUpdateService::OnUpdateComplete,
+                     base::Unretained(this),
+                     base::BindOnce(
+                         [](UpdateScheduler::OnFinishedCallback on_finished,
+                            update_client::Error /*error*/) {
+                           std::move(on_finished).Run();
+                         },
+                         std::move(on_finished)),
+                     base::TimeTicks::Now()));
   return true;
 }
 
@@ -470,7 +458,7 @@ void CrxUpdateService::OnUpdateComplete(Callback callback,
   }
 
   if (!callback.is_null()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), error));
   }
 }
@@ -480,7 +468,7 @@ void CrxUpdateService::OnEvent(Events event, const std::string& id) {
 
   // Unblock all throttles for the component.
   if (event == Observer::Events::COMPONENT_UPDATED ||
-      event == Observer::Events::COMPONENT_NOT_UPDATED ||
+      event == Observer::Events::COMPONENT_ALREADY_UP_TO_DATE ||
       event == Observer::Events::COMPONENT_UPDATE_ERROR) {
     auto callbacks = ready_callbacks_.equal_range(id);
     for (auto it = callbacks.first; it != callbacks.second; ++it) {

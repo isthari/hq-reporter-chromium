@@ -22,7 +22,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
-#include "absl/strings/str_join.h"   // from @com_google_absl
+#include "absl/strings/str_join.h"  // from @com_google_absl
 #include "absl/strings/str_split.h"  // from @com_google_absl
 #include "flatbuffers/flatbuffers.h"  // from @flatbuffers
 #include "tensorflow/lite/c/common.h"
@@ -46,6 +46,8 @@ enum class SchemaMembers {
   kSubGraphMetadataOutputTensorGroups = 6,
   kProcessUnitOptionsRegexTokenizerOptions = 7,
   kContentPropertiesAudioProperties = 8,
+  kAssociatedFileTypeScannIndexFile = 9,
+  kAssociatedFileVersion = 10,
 };
 
 // Helper class to compare semantic versions in terms of three integers, major,
@@ -110,6 +112,10 @@ Version GetMemberVersion(SchemaMembers member) {
       return Version(1, 2, 1);
     case SchemaMembers::kContentPropertiesAudioProperties:
       return Version(1, 3, 0);
+    case SchemaMembers::kAssociatedFileTypeScannIndexFile:
+      return Version(1, 4, 0);
+    case SchemaMembers::kAssociatedFileVersion:
+      return Version(1, 4, 1);
     default:
       // Should never happen.
       TFLITE_LOG(FATAL) << "Unsupported schema member: "
@@ -153,6 +159,17 @@ void UpdateMinimumVersionForTable<tflite::AssociatedFile>(
     UpdateMinimumVersion(
         GetMemberVersion(SchemaMembers::kAssociatedFileTypeVocabulary),
         min_version);
+  }
+
+  if (table->type() == AssociatedFileType_SCANN_INDEX_FILE) {
+    UpdateMinimumVersion(
+        GetMemberVersion(SchemaMembers::kAssociatedFileTypeScannIndexFile),
+        min_version);
+  }
+
+  if (table->version() != nullptr) {
+    UpdateMinimumVersion(
+        GetMemberVersion(SchemaMembers::kAssociatedFileVersion), min_version);
   }
 }
 

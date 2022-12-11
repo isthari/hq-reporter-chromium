@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,7 +27,7 @@ class VideoRendererSink;
 namespace content {
 
 // RendererFactory implementation for Cast. This class is similar to
-// DefaultRendererFactory, but provides its own CastAudioRenderer for audio.
+// RendererImplFactory, but provides its own CastAudioRenderer for audio.
 class CastRendererFactory final : public media::RendererFactory {
  public:
   using GetGpuFactoriesCB =

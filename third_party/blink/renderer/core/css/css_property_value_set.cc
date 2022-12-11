@@ -23,18 +23,17 @@
 
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
 
-#include "third_party/blink/renderer/core/css/css_custom_property_declaration.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_context.h"
 #include "third_party/blink/renderer/core/css/properties/css_property.h"
+#include "third_party/blink/renderer/core/css/property_bitsets.h"
 #include "third_party/blink/renderer/core/css/style_property_serializer.h"
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
 #include "third_party/blink/renderer/core/style_property_shorthand.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/wtf/size_assertions.h"
-#include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 #ifndef NDEBUG
 #include <stdio.h>
@@ -45,8 +44,10 @@ namespace blink {
 static AdditionalBytes
 AdditionalBytesForImmutableCSSPropertyValueSetWithPropertyCount(
     unsigned count) {
-  return AdditionalBytes(sizeof(Member<CSSValue>) * count +
-                         sizeof(CSSPropertyValueMetadata) * count);
+  return AdditionalBytes(
+      base::bits::AlignUp(sizeof(Member<CSSValue>) * count,
+                          alignof(CSSPropertyValueMetadata)) +
+      sizeof(CSSPropertyValueMetadata) * count);
 }
 
 ImmutableCSSPropertyValueSet* ImmutableCSSPropertyValueSet::Create(
@@ -83,11 +84,8 @@ MutableCSSPropertyValueSet::MutableCSSPropertyValueSet(
   property_vector_.ReserveInitialCapacity(length);
   for (unsigned i = 0; i < length; ++i) {
     property_vector_.UncheckedAppend(properties[i]);
-    if (!may_have_logical_properties_) {
-      const CSSProperty& prop = CSSProperty::Get(properties[i].Id());
-      may_have_logical_properties_ =
-          prop.IsInLogicalPropertyGroup() && prop.IsSurrogate();
-    }
+    may_have_logical_properties_ |=
+        kLogicalGroupProperties.Has(properties[i].Id());
   }
 }
 
@@ -189,11 +187,8 @@ MutableCSSPropertyValueSet::MutableCSSPropertyValueSet(
       PropertyReference property = other.PropertyAt(i);
       property_vector_.UncheckedAppend(
           CSSPropertyValue(property.PropertyMetadata(), property.Value()));
-      if (!may_have_logical_properties_) {
-        const CSSProperty& prop = CSSProperty::Get(property.Id());
-        may_have_logical_properties_ =
-            prop.IsInLogicalPropertyGroup() && prop.IsSurrogate();
-      }
+      may_have_logical_properties_ |=
+          kLogicalGroupProperties.Has(property.Id());
     }
   }
 }
@@ -238,6 +233,15 @@ CSSPropertyValueSet::GetPropertyValue<AtRuleDescriptorID>(
 template CORE_EXPORT String
 CSSPropertyValueSet::GetPropertyValue<AtomicString>(const AtomicString&) const;
 
+String CSSPropertyValueSet::GetPropertyValueWithHint(
+    const AtomicString& property_name,
+    unsigned index) const {
+  const CSSValue* value = GetPropertyCSSValueWithHint(property_name, index);
+  if (value)
+    return value->CssText();
+  return g_empty_string;
+}
+
 template <typename T>
 const CSSValue* CSSPropertyValueSet::GetPropertyCSSValue(
     const T& property) const {
@@ -252,6 +256,13 @@ template CORE_EXPORT const CSSValue* CSSPropertyValueSet::GetPropertyCSSValue<
     AtRuleDescriptorID>(const AtRuleDescriptorID&) const;
 template CORE_EXPORT const CSSValue* CSSPropertyValueSet::GetPropertyCSSValue<
     AtomicString>(const AtomicString&) const;
+
+const CSSValue* CSSPropertyValueSet::GetPropertyCSSValueWithHint(
+    const AtomicString& property_name,
+    unsigned index) const {
+  DCHECK_EQ(property_name, PropertyAt(index).Name().ToAtomicString());
+  return &PropertyAt(index).Value();
+}
 
 void CSSPropertyValueSet::Trace(Visitor* visitor) const {
   if (is_mutable_)
@@ -321,10 +332,17 @@ bool CSSPropertyValueSet::PropertyIsImportant(const T& property) const {
     return PropertyAt(found_property_index).IsImportant();
   return ShorthandIsImportant(property);
 }
-template bool CSSPropertyValueSet::PropertyIsImportant<CSSPropertyID>(
-    const CSSPropertyID&) const;
+template CORE_EXPORT bool CSSPropertyValueSet::PropertyIsImportant<
+    CSSPropertyID>(const CSSPropertyID&) const;
 template bool CSSPropertyValueSet::PropertyIsImportant<AtomicString>(
     const AtomicString&) const;
+
+bool CSSPropertyValueSet::PropertyIsImportantWithHint(
+    const AtomicString& property_name,
+    unsigned index) const {
+  DCHECK_EQ(property_name, PropertyAt(index).Name().ToAtomicString());
+  return PropertyAt(index).IsImportant();
+}
 
 bool CSSPropertyValueSet::ShorthandIsImportant(
     CSSPropertyID property_id) const {
@@ -354,7 +372,8 @@ bool CSSPropertyValueSet::IsPropertyImplicit(CSSPropertyID property_id) const {
   return PropertyAt(found_property_index).IsImplicit();
 }
 
-MutableCSSPropertyValueSet::SetResult MutableCSSPropertyValueSet::SetProperty(
+MutableCSSPropertyValueSet::SetResult
+MutableCSSPropertyValueSet::ParseAndSetProperty(
     CSSPropertyID unresolved_property,
     const String& value,
     bool important,
@@ -365,10 +384,10 @@ MutableCSSPropertyValueSet::SetResult MutableCSSPropertyValueSet::SetProperty(
   // Setting the value to an empty string just removes the property in both IE
   // and Gecko. Setting it to null seems to produce less consistent results, but
   // we treat it just the same.
-  if (value.IsEmpty()) {
-    bool did_parse = true;
-    bool did_change = RemoveProperty(ResolveCSSPropertyID(unresolved_property));
-    return SetResult{did_parse, did_change};
+  if (value.empty()) {
+    return RemoveProperty(ResolveCSSPropertyID(unresolved_property))
+               ? kChangedPropertySet
+               : kUnchanged;
   }
 
   // When replacing an existing property value, this moves the property to the
@@ -378,17 +397,17 @@ MutableCSSPropertyValueSet::SetResult MutableCSSPropertyValueSet::SetProperty(
                                secure_context_mode, context_style_sheet);
 }
 
-MutableCSSPropertyValueSet::SetResult MutableCSSPropertyValueSet::SetProperty(
+MutableCSSPropertyValueSet::SetResult
+MutableCSSPropertyValueSet::ParseAndSetCustomProperty(
     const AtomicString& custom_property_name,
     const String& value,
     bool important,
     SecureContextMode secure_context_mode,
     StyleSheetContents* context_style_sheet,
     bool is_animation_tainted) {
-  if (value.IsEmpty()) {
-    bool did_parse = true;
-    bool did_change = RemoveProperty(custom_property_name);
-    return MutableCSSPropertyValueSet::SetResult{did_parse, did_change};
+  if (value.empty()) {
+    return RemoveProperty(custom_property_name) ? kChangedPropertySet
+                                                : kUnchanged;
   }
   return CSSParser::ParseValueForCustomProperty(
       this, custom_property_name, value, important, secure_context_mode,
@@ -398,9 +417,21 @@ MutableCSSPropertyValueSet::SetResult MutableCSSPropertyValueSet::SetProperty(
 void MutableCSSPropertyValueSet::SetProperty(const CSSPropertyName& name,
                                              const CSSValue& value,
                                              bool important) {
-  StylePropertyShorthand shorthand = shorthandForProperty(name.Id());
+  if (name.Id() == CSSPropertyID::kVariable) {
+    SetLonghandProperty(CSSPropertyValue(name, value, important));
+  } else {
+    SetProperty(name.Id(), value, important);
+  }
+}
+
+void MutableCSSPropertyValueSet::SetProperty(CSSPropertyID property_id,
+                                             const CSSValue& value,
+                                             bool important) {
+  DCHECK_NE(property_id, CSSPropertyID::kVariable);
+  StylePropertyShorthand shorthand = shorthandForProperty(property_id);
   if (!shorthand.length()) {
-    SetProperty(CSSPropertyValue(name, value, important));
+    SetLonghandProperty(
+        CSSPropertyValue(CSSPropertyName(property_id), value, important));
     return;
   }
 
@@ -413,56 +444,76 @@ void MutableCSSPropertyValueSet::SetProperty(const CSSPropertyName& name,
   }
 }
 
-void MutableCSSPropertyValueSet::SetProperty(CSSPropertyID property_id,
-                                             const CSSValue& value,
-                                             bool important) {
-  DCHECK_NE(property_id, CSSPropertyID::kVariable);
-  SetProperty(CSSPropertyName(property_id), value, important);
-}
-
-bool MutableCSSPropertyValueSet::SetProperty(const CSSPropertyValue& property,
-                                             CSSPropertyValue* slot) {
+ALWAYS_INLINE CSSPropertyValue*
+MutableCSSPropertyValueSet::FindInsertionPointForID(CSSPropertyID property_id) {
   CSSPropertyValue* to_replace =
-      slot ? slot : FindCSSPropertyWithName(property.Name());
-  if (to_replace) {
-    if (may_have_logical_properties_) {
-      const CSSProperty& prop = CSSProperty::Get(property.Id());
-      if (prop.IsInLogicalPropertyGroup()) {
-        DCHECK(property_vector_.Contains(*to_replace));
-        int to_replace_index =
-            static_cast<int>(to_replace - property_vector_.begin());
-        for (int n = property_vector_.size() - 1; n > to_replace_index; --n) {
-          if (prop.IsInSameLogicalPropertyGroupWithDifferentMappingLogic(
-                  PropertyAt(n).Id())) {
-            RemovePropertyAtIndex(to_replace_index, nullptr);
-            to_replace = nullptr;
-            break;
-          }
+      const_cast<CSSPropertyValue*>(FindPropertyPointer(property_id));
+  if (to_replace == nullptr) {
+    return nullptr;
+  }
+  if (may_have_logical_properties_) {
+    const CSSProperty& prop = CSSProperty::Get(property_id);
+    if (prop.IsInLogicalPropertyGroup()) {
+      DCHECK(property_vector_.Contains(*to_replace));
+      int to_replace_index =
+          static_cast<int>(to_replace - property_vector_.begin());
+      for (int n = property_vector_.size() - 1; n > to_replace_index; --n) {
+        if (prop.IsInSameLogicalPropertyGroupWithDifferentMappingLogic(
+                PropertyAt(n).Id())) {
+          RemovePropertyAtIndex(to_replace_index, nullptr);
+          return nullptr;
         }
       }
     }
-    if (to_replace) {
-      if (*to_replace == property)
-        return false;
-      *to_replace = property;
-      return true;
-    }
-  } else if (!may_have_logical_properties_) {
-    const CSSProperty& prop = CSSProperty::Get(property.Id());
-    may_have_logical_properties_ =
-        prop.IsInLogicalPropertyGroup() && prop.IsSurrogate();
   }
-  property_vector_.push_back(property);
-  return true;
+  return to_replace;
 }
 
-bool MutableCSSPropertyValueSet::SetProperty(CSSPropertyID property_id,
-                                             CSSValueID identifier,
-                                             bool important) {
+MutableCSSPropertyValueSet::SetResult
+MutableCSSPropertyValueSet::SetLonghandProperty(CSSPropertyValue property) {
+  const CSSPropertyID id = property.Id();
+  DCHECK_EQ(shorthandForProperty(id).length(), 0u)
+      << CSSProperty::Get(id).GetPropertyNameString() << " is a shorthand";
+  CSSPropertyValue* to_replace;
+  if (id == CSSPropertyID::kVariable) {
+    to_replace = const_cast<CSSPropertyValue*>(
+        FindPropertyPointer(property.Name().ToAtomicString()));
+  } else {
+    to_replace = FindInsertionPointForID(id);
+  }
+  if (to_replace) {
+    if (*to_replace == property)
+      return kUnchanged;
+    *to_replace = std::move(property);
+    return kModifiedExisting;
+  } else {
+    may_have_logical_properties_ |= kLogicalGroupProperties.Has(id);
+  }
+  property_vector_.push_back(std::move(property));
+  return kChangedPropertySet;
+}
+
+void MutableCSSPropertyValueSet::SetLonghandProperty(CSSPropertyID property_id,
+                                                     const CSSValue& value) {
+  DCHECK_EQ(shorthandForProperty(property_id).length(), 0u)
+      << CSSProperty::Get(property_id).GetPropertyNameString()
+      << " is a shorthand";
+  CSSPropertyValue* to_replace = FindInsertionPointForID(property_id);
+  if (to_replace) {
+    *to_replace = CSSPropertyValue(CSSPropertyName(property_id), value);
+  } else {
+    may_have_logical_properties_ |= kLogicalGroupProperties.Has(property_id);
+    property_vector_.emplace_back(CSSPropertyName(property_id), value);
+  }
+}
+
+MutableCSSPropertyValueSet::SetResult
+MutableCSSPropertyValueSet::SetLonghandProperty(CSSPropertyID property_id,
+                                                CSSValueID identifier,
+                                                bool important) {
   CSSPropertyName name(property_id);
-  SetProperty(CSSPropertyValue(name, *CSSIdentifierValue::Create(identifier),
-                               important));
-  return true;
+  return SetLonghandProperty(CSSPropertyValue(
+      name, *CSSIdentifierValue::Create(identifier), important));
 }
 
 void MutableCSSPropertyValueSet::ParseDeclarationList(
@@ -484,12 +535,13 @@ void MutableCSSPropertyValueSet::ParseDeclarationList(
   CSSParser::ParseDeclarationList(context, this, style_declaration);
 }
 
-bool MutableCSSPropertyValueSet::AddParsedProperties(
-    const HeapVector<CSSPropertyValue, 256>& properties) {
-  bool changed = false;
-  property_vector_.ReserveCapacity(property_vector_.size() + properties.size());
+MutableCSSPropertyValueSet::SetResult
+MutableCSSPropertyValueSet::AddParsedProperties(
+    const HeapVector<CSSPropertyValue, 64>& properties) {
+  SetResult changed = kUnchanged;
+  property_vector_.reserve(property_vector_.size() + properties.size());
   for (unsigned i = 0; i < properties.size(); ++i)
-    changed |= SetProperty(properties[i]);
+    changed = std::max(changed, SetLonghandProperty(properties[i]));
   return changed;
 }
 
@@ -497,7 +549,7 @@ bool MutableCSSPropertyValueSet::AddRespectingCascade(
     const CSSPropertyValue& property) {
   // Only add properties that have no !important counterpart present
   if (!PropertyIsImportant(property.Id()) || property.IsImportant())
-    return SetProperty(property);
+    return SetLonghandProperty(property);
   return false;
 }
 
@@ -510,14 +562,8 @@ void MutableCSSPropertyValueSet::MergeAndOverrideOnConflict(
   unsigned size = other->PropertyCount();
   for (unsigned n = 0; n < size; ++n) {
     PropertyReference to_merge = other->PropertyAt(n);
-    CSSPropertyValue* old = FindCSSPropertyWithName(to_merge.Name());
-    if (old) {
-      SetProperty(
-          CSSPropertyValue(to_merge.PropertyMetadata(), to_merge.Value()), old);
-    } else {
-      property_vector_.push_back(
-          CSSPropertyValue(to_merge.PropertyMetadata(), to_merge.Value()));
-    }
+    SetLonghandProperty(
+        CSSPropertyValue(to_merge.PropertyMetadata(), to_merge.Value()));
   }
 }
 
@@ -548,7 +594,7 @@ inline bool ContainsId(const CSSProperty* const set[],
 bool MutableCSSPropertyValueSet::RemovePropertiesInSet(
     const CSSProperty* const set[],
     unsigned length) {
-  if (property_vector_.IsEmpty())
+  if (property_vector_.empty())
     return false;
 
   CSSPropertyValue* properties = property_vector_.data();
@@ -571,12 +617,9 @@ bool MutableCSSPropertyValueSet::RemovePropertiesInSet(
 
 CSSPropertyValue* MutableCSSPropertyValueSet::FindCSSPropertyWithName(
     const CSSPropertyName& name) {
-  int found_property_index = name.IsCustomProperty()
-                                 ? FindPropertyIndex(name.ToAtomicString())
-                                 : FindPropertyIndex(name.Id());
-  if (found_property_index == -1)
-    return nullptr;
-  return &property_vector_.at(found_property_index);
+  return const_cast<CSSPropertyValue*>(
+      name.IsCustomProperty() ? FindPropertyPointer(name.ToAtomicString())
+                              : FindPropertyPointer(name.Id()));
 }
 
 bool CSSPropertyValueSet::PropertyMatches(
@@ -622,7 +665,7 @@ MutableCSSPropertyValueSet* CSSPropertyValueSet::MutableCopy() const {
 
 MutableCSSPropertyValueSet* CSSPropertyValueSet::CopyPropertiesInSet(
     const Vector<const CSSProperty*>& properties) const {
-  HeapVector<CSSPropertyValue, 256> list;
+  HeapVector<CSSPropertyValue, 64> list;
   list.ReserveInitialCapacity(properties.size());
   for (unsigned i = 0; i < properties.size(); ++i) {
     CSSPropertyName name(properties[i]->PropertyID());
@@ -652,6 +695,18 @@ CSSStyleDeclaration* MutableCSSPropertyValueSet::EnsureCSSStyleDeclaration(
 template <typename T>
 int MutableCSSPropertyValueSet::FindPropertyIndex(const T& property) const {
   const CSSPropertyValue* begin = property_vector_.data();
+  const CSSPropertyValue* it = FindPropertyPointer(property);
+  return (it == nullptr) ? -1 : static_cast<int>(it - begin);
+}
+template CORE_EXPORT int MutableCSSPropertyValueSet::FindPropertyIndex(
+    const CSSPropertyID&) const;
+template CORE_EXPORT int MutableCSSPropertyValueSet::FindPropertyIndex(
+    const AtomicString&) const;
+
+template <typename T>
+const CSSPropertyValue* MutableCSSPropertyValueSet::FindPropertyPointer(
+    const T& property) const {
+  const CSSPropertyValue* begin = property_vector_.data();
   const CSSPropertyValue* end = begin + property_vector_.size();
 
   uint16_t id = GetConvertedCSSPropertyID(property);
@@ -660,13 +715,8 @@ int MutableCSSPropertyValueSet::FindPropertyIndex(const T& property) const {
       begin, end, [property, id](const CSSPropertyValue& css_property) -> bool {
         return IsPropertyMatch(css_property.Metadata(), id, property);
       });
-
-  return (it == end) ? -1 : static_cast<int>(it - begin);
+  return (it == end) ? nullptr : it;
 }
-template CORE_EXPORT int MutableCSSPropertyValueSet::FindPropertyIndex(
-    const CSSPropertyID&) const;
-template CORE_EXPORT int MutableCSSPropertyValueSet::FindPropertyIndex(
-    const AtomicString&) const;
 
 void MutableCSSPropertyValueSet::TraceAfterDispatch(
     blink::Visitor* visitor) const {

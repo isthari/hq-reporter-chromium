@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -71,7 +71,7 @@ void FakeAudioOutputStream::CallOnMoreData(base::TimeTicks ideal_time,
   // current system time; and so the same is done here.
   const auto delay =
       fixed_data_delay_ + std::max(base::TimeDelta(), ideal_time - now);
-  callback_->OnMoreData(delay, now, 0, audio_bus_.get());
+  callback_->OnMoreData(delay, now, {}, audio_bus_.get());
 }
 
 void FakeAudioOutputStream::SetMute(bool muted) {}

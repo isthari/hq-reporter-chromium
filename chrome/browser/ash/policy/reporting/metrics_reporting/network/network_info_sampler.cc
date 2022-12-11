@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,11 @@
 #include <utility>
 
 #include "ash/constants/ash_features.h"
-#include "chromeos/dbus/hermes/hermes_euicc_client.h"
-#include "chromeos/dbus/hermes/hermes_manager_client.h"
-#include "chromeos/network/device_state.h"
-#include "chromeos/network/network_state_handler.h"
-#include "chromeos/network/network_type_pattern.h"
+#include "chromeos/ash/components/dbus/hermes/hermes_euicc_client.h"
+#include "chromeos/ash/components/dbus/hermes/hermes_manager_client.h"
+#include "chromeos/ash/components/network/device_state.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
+#include "chromeos/ash/components/network/network_type_pattern.h"
 #include "components/reporting/proto/synced/metric_data.pb.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -34,7 +34,7 @@ absl::optional<NetworkDeviceType> GetNetworkDeviceType(
 
 }  // namespace
 
-void NetworkInfoSampler::Collect(MetricCallback callback) {
+void NetworkInfoSampler::MaybeCollect(OptionalMetricCallback callback) {
   ::ash::NetworkStateHandler::DeviceStateList device_list;
   ::ash::NetworkStateHandler* network_state_handler =
       ::ash::NetworkHandler::Get()->network_state_handler();
@@ -72,12 +72,11 @@ void NetworkInfoSampler::Collect(MetricCallback callback) {
     }
 
     // Report EIDs for cellular connections.
-    if (type.Equals(::ash::NetworkTypePattern::Cellular()) &&
-        ::ash::features::IsESimPolicyEnabled()) {
+    if (type.Equals(::ash::NetworkTypePattern::Cellular())) {
       for (const auto& euicc_path :
-           ::chromeos::HermesManagerClient::Get()->GetAvailableEuiccs()) {
-        ::chromeos::HermesEuiccClient::Properties* properties =
-            ::chromeos::HermesEuiccClient::Get()->GetProperties(euicc_path);
+           ::ash::HermesManagerClient::Get()->GetAvailableEuiccs()) {
+        ::ash::HermesEuiccClient::Properties* properties =
+            ::ash::HermesEuiccClient::Get()->GetProperties(euicc_path);
         interface->add_eids(properties->eid().value());
       }
     }
@@ -85,7 +84,10 @@ void NetworkInfoSampler::Collect(MetricCallback callback) {
 
   if (!networks_info->network_interfaces().empty()) {
     std::move(callback).Run(std::move(metric_data));
+    return;
   }
+
+  std::move(callback).Run(absl::nullopt);
 }
 
 }  // namespace reporting

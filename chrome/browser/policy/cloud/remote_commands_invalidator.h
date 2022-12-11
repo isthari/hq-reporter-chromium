@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -84,12 +84,12 @@ class RemoteCommandsInvalidator : public invalidation::InvalidationHandler {
   // subscribes to the given |topic| with the invalidation service.
   void Register(const invalidation::Topic& topic);
 
-  // Unregisters this handler and unsubscribes from the current topic with
+  // Unregisters this handler but keeps the current topic subscribed with
   // the invalidation service.
-  // TODO(crbug.com/1056114): Topic subscription remains active after browser
-  // restart, so explicit unsubscription here causes redundant (un)subscription
-  // traffic (and potentially leaking subscriptions).
   void Unregister();
+
+  // Unsubscribes from the current topics but keeps the registration as is.
+  void UnsubscribeFromTopics();
 
   // Updates invalidations_enabled_.
   void UpdateInvalidationsEnabled();

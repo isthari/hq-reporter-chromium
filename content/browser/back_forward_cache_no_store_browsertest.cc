@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,14 @@
 #include "build/buildflag.h"
 #include "build/chromecast_buildflags.h"
 #include "content/browser/renderer_host/navigation_request.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/shell/browser/shell.h"
 #include "net/test/embedded_test_server/controllable_http_response.h"
+#include "third_party/blink/public/common/scheduler/web_scheduler_tracked_feature.h"
 
 // This file contains back-/forward-cache tests for the
 // `Cache-control: no-store` header. It was forked from
@@ -25,6 +27,9 @@
 namespace content {
 
 using NotRestoredReason = BackForwardCacheMetrics::NotRestoredReason;
+using NotRestoredReasons =
+    BackForwardCacheCanStoreDocumentResult::NotRestoredReasons;
+using BlocklistedFeature = blink::scheduler::WebSchedulerTrackedFeature;
 
 namespace {
 
@@ -108,13 +113,13 @@ class BackForwardCacheBrowserTestAllowCacheControlNoStore
 // Test that a page with cache-control:no-store enters bfcache with the flag on,
 // but does not get restored and gets evicted.
 // Turned off on cast for https://crbug.com/1281665 , along with others.
-#if BUILDFLAG(IS_CHROMECAST)
+#if BUILDFLAG(IS_CASTOS)
 #define MAYBE_PagesWithCacheControlNoStoreEnterBfcacheAndEvicted \
         DISABLED_PagesWithCacheControlNoStoreEnterBfcacheAndEvicted
 #else
 #define MAYBE_PagesWithCacheControlNoStoreEnterBfcacheAndEvicted \
         PagesWithCacheControlNoStoreEnterBfcacheAndEvicted
-#endif
+#endif  // BUILDFLAG(IS_CASTOS)
 IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTestAllowCacheControlNoStore,
                        MAYBE_PagesWithCacheControlNoStoreEnterBfcacheAndEvicted) {
   net::test_server::ControllableHttpResponse response(embedded_test_server(),
@@ -134,6 +139,7 @@ IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTestAllowCacheControlNoStore,
   response.Send(kResponseWithNoCache);
   response.Done();
   observer.Wait();
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 2) Navigate away. |rfh_a| should enter the bfcache.
   EXPECT_TRUE(NavigateToURL(shell(), url_b));
@@ -149,19 +155,24 @@ IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTestAllowCacheControlNoStore,
 
   ExpectNotRestored({NotRestoredReason::kCacheControlNoStore}, {}, {}, {}, {},
                     FROM_HERE);
+  // Make sure that the tree result also has the same reason.
+  EXPECT_THAT(GetTreeResult()->GetDocumentResult(),
+              MatchesDocumentResult(
+                  NotRestoredReasons(NotRestoredReason::kCacheControlNoStore),
+                  BlockListedFeatures()));
 }
 
 // Test that a page with cache-control:no-store enters bfcache with the flag on,
 // and if a cookie is modified while it is in bfcache via JavaScript, gets
 // evicted with cookie modified marked.
 // Turned off on cast for https://crbug.com/1281665 .
-#if BUILDFLAG(IS_CHROMECAST)
+#if BUILDFLAG(IS_CASTOS)
 #define MAYBE_PagesWithCacheControlNoStoreCookieModifiedThroughJavaScript \
         DISABLED_PagesWithCacheControlNoStoreCookieModifiedThroughJavaScript
 #else
 #define MAYBE_PagesWithCacheControlNoStoreCookieModifiedThroughJavaScript \
         PagesWithCacheControlNoStoreCookieModifiedThroughJavaScript
-#endif
+#endif  // BUILDFLAG(IS_CASTOS)
 IN_PROC_BROWSER_TEST_F(
     BackForwardCacheBrowserTestAllowCacheControlNoStore,
     MAYBE_PagesWithCacheControlNoStoreCookieModifiedThroughJavaScript) {
@@ -186,6 +197,7 @@ IN_PROC_BROWSER_TEST_F(
   response.Send(kResponseWithNoCache);
   response.Done();
   observer.Wait();
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 2) Set a normal cookie from JavaScript.
   EXPECT_TRUE(ExecJs(tab_to_be_bfcached, "document.cookie='foo=bar'"));
@@ -213,23 +225,20 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_EQ("foo=baz", EvalJs(tab_to_be_bfcached, "document.cookie"));
   ExpectNotRestored({NotRestoredReason::kCacheControlNoStoreCookieModified}, {},
                     {}, {}, {}, FROM_HERE);
+  // Make sure that the tree result also has the same reason.
+  EXPECT_THAT(GetTreeResult()->GetDocumentResult(),
+              MatchesDocumentResult(
+                  NotRestoredReasons(
+                      NotRestoredReason::kCacheControlNoStoreCookieModified),
+                  BlockListedFeatures()));
 }
 
-// Disabled due to flakiness on Cast Audio Linux https://crbug.com/1229182
-#if BUILDFLAG(IS_CHROMECAST)
-#define MAYBE_PagesWithCacheControlNoStoreCookieModifiedBackTwice \
-  DISABLED_PagesWithCacheControlNoStoreCookieModifiedBackTwice
-#else
-#define MAYBE_PagesWithCacheControlNoStoreCookieModifiedBackTwice \
-  PagesWithCacheControlNoStoreCookieModifiedBackTwice
-#endif
 // Test that a page with cache-control:no-store enters bfcache with the flag on,
 // and if a cookie is modified, it gets evicted with cookie changed, but if
 // navigated away again and navigated back, it gets evicted without cookie
 // change marked.
-IN_PROC_BROWSER_TEST_F(
-    BackForwardCacheBrowserTestAllowCacheControlNoStore,
-    MAYBE_PagesWithCacheControlNoStoreCookieModifiedBackTwice) {
+IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTestAllowCacheControlNoStore,
+                       PagesWithCacheControlNoStoreCookieModifiedBackTwice) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   GURL url_a(embedded_test_server()->GetURL(
@@ -243,6 +252,7 @@ IN_PROC_BROWSER_TEST_F(
   // 1) Load the document and specify no-store for the main resource.
   EXPECT_TRUE(NavigateToURL(tab_to_be_bfcached, url_a));
   RenderFrameHostImplWrapper rfh_a(current_frame_host());
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 2) Set a normal cookie from JavaScript.
   EXPECT_TRUE(ExecJs(tab_to_be_bfcached, "document.cookie='foo=bar'"));
@@ -265,7 +275,13 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_EQ("foo=baz", EvalJs(tab_to_be_bfcached, "document.cookie"));
   ExpectNotRestored({NotRestoredReason::kCacheControlNoStoreCookieModified}, {},
                     {}, {}, {}, FROM_HERE);
+  EXPECT_THAT(GetTreeResult()->GetDocumentResult(),
+              MatchesDocumentResult(
+                  NotRestoredReasons(
+                      NotRestoredReason::kCacheControlNoStoreCookieModified),
+                  BlockListedFeatures()));
   RenderFrameHostImplWrapper rfh_a_2(current_frame_host());
+  rfh_a_2->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 6) Navigate away to b.com. |rfh_a_2| should enter bfcache again.
   EXPECT_TRUE(NavigateToURL(tab_to_be_bfcached, url_b));
@@ -276,20 +292,27 @@ IN_PROC_BROWSER_TEST_F(
   ASSERT_TRUE(HistoryGoBack(tab_to_be_bfcached->web_contents()));
   ExpectNotRestored({NotRestoredReason::kCacheControlNoStore}, {}, {}, {}, {},
                     FROM_HERE);
+  EXPECT_THAT(GetTreeResult()->GetDocumentResult(),
+              MatchesDocumentResult(
+                  NotRestoredReasons(NotRestoredReason::kCacheControlNoStore),
+                  BlockListedFeatures()));
 }
 
-// Flaky on Cast Audio Linux https://crbug.com/1229182
 // Test that a page with cache-control:no-store enters bfcache with the flag on,
 // and even if a cookie is modified on a different domain than the entry, the
 // entry is not marked as cookie modified.
 // Turned off on cast for https://crbug.com/1281665 .
-#if BUILDFLAG(IS_CHROMECAST)
+//
+// TODO(crbug.com/1336055): It may be possible to re-enable this test now that
+// crbug.com/1229182 has been resolved. This was originally disabled due to
+// flakiness on Cast Audio Linux.
+#if BUILDFLAG(IS_CASTOS)
 #define MAYBE_PagesWithCacheControlNoStoreCookieModifiedThroughJavaScriptOnDifferentDomain \
         DISABLED_PagesWithCacheControlNoStoreCookieModifiedThroughJavaScriptOnDifferentDomain
 #else
 #define MAYBE_PagesWithCacheControlNoStoreCookieModifiedThroughJavaScriptOnDifferentDomain \
         PagesWithCacheControlNoStoreCookieModifiedThroughJavaScriptOnDifferentDomain
-#endif
+#endif  // BUILDFLAG(IS_CASTOS)
 IN_PROC_BROWSER_TEST_F(
     BackForwardCacheBrowserTestAllowCacheControlNoStore,
     MAYBE_PagesWithCacheControlNoStoreCookieModifiedThroughJavaScriptOnDifferentDomain) {
@@ -314,6 +337,7 @@ IN_PROC_BROWSER_TEST_F(
   response.Send(kResponseWithNoCache);
   response.Done();
   observer.Wait();
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 2) Set a normal cookie from JavaScript.
   EXPECT_TRUE(ExecJs(tab_to_be_bfcached, "document.cookie='foo=bar'"));
@@ -340,6 +364,10 @@ IN_PROC_BROWSER_TEST_F(
 
   ExpectNotRestored({NotRestoredReason::kCacheControlNoStore}, {}, {}, {}, {},
                     FROM_HERE);
+  EXPECT_THAT(GetTreeResult()->GetDocumentResult(),
+              MatchesDocumentResult(
+                  NotRestoredReasons(NotRestoredReason::kCacheControlNoStore),
+                  BlockListedFeatures()));
 }
 
 // Test that a page with cache-control:no-store records other not restored
@@ -356,6 +384,7 @@ IN_PROC_BROWSER_TEST_F(
   // 1) Load the document and specify no-store for the main resource.
   EXPECT_TRUE(NavigateToURL(shell(), url_a));
   RenderFrameHostImplWrapper rfh_a(current_frame_host());
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 2) Navigate away. At this point the page should be in bfcache.
   EXPECT_TRUE(NavigateToURL(shell(), url_b));
@@ -370,6 +399,11 @@ IN_PROC_BROWSER_TEST_F(
   ExpectNotRestored({NotRestoredReason::kJavaScriptExecution,
                      NotRestoredReason::kCacheControlNoStore},
                     {}, {}, {}, {}, FROM_HERE);
+  EXPECT_THAT(GetTreeResult()->GetDocumentResult(),
+              MatchesDocumentResult(
+                  NotRestoredReasons(NotRestoredReason::kJavaScriptExecution,
+                                     NotRestoredReason::kCacheControlNoStore),
+                  BlockListedFeatures()));
 }
 
 // Test that a page with cache-control:no-store records other not restored
@@ -387,13 +421,13 @@ IN_PROC_BROWSER_TEST_F(
   // 1) Load the document and specify no-store for the main resource.
   EXPECT_TRUE(NavigateToURL(shell(), url_a));
   RenderFrameHostImplWrapper rfh_a(current_frame_host());
-  RenderFrameDeletedObserver delete_observer_rfh_a(rfh_a.get());
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
   // Use blocklisted feature.
   EXPECT_TRUE(ExecJs(rfh_a.get(), "window.foo = new BroadcastChannel('foo');"));
 
   // 2) Navigate away. |rfh_a| should not enter bfcache.
   EXPECT_TRUE(NavigateToURL(shell(), url_b));
-  delete_observer_rfh_a.WaitUntilDeleted();
+  ASSERT_TRUE(rfh_a.WaitUntilRenderFrameDeleted());
 
   // 3) Go back.
   ASSERT_TRUE(HistoryGoBack(web_contents()));
@@ -403,6 +437,49 @@ IN_PROC_BROWSER_TEST_F(
        NotRestoredReason::kCacheControlNoStore},
       {blink::scheduler::WebSchedulerTrackedFeature::kBroadcastChannel}, {}, {},
       {}, FROM_HERE);
+  EXPECT_THAT(
+      GetTreeResult()->GetDocumentResult(),
+      MatchesDocumentResult(
+          NotRestoredReasons(NotRestoredReason::kBlocklistedFeatures,
+                             NotRestoredReason::kCacheControlNoStore),
+          BlockListedFeatures(blink::scheduler::WebSchedulerTrackedFeature::
+                                  kBroadcastChannel)));
+}
+
+// Test that a page with cache-control:no-store records eviction reasons along
+// with kCacheControlNoStore when the entry is evicted for other reasons.
+IN_PROC_BROWSER_TEST_F(
+    BackForwardCacheBrowserTestAllowCacheControlNoStore,
+    PagesWithCacheControlNoStoreRecordOtherReasonsForEviction) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  GURL url_a(embedded_test_server()->GetURL(
+      "a.com", "/set-header?Cache-Control: no-store"));
+  GURL url_b(embedded_test_server()->GetURL("b.com", "/title1.html"));
+
+  // 1) Load the document and specify no-store for the main resource.
+  EXPECT_TRUE(NavigateToURL(shell(), url_a));
+  RenderFrameHostImplWrapper rfh_a(current_frame_host());
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
+
+  // 2) Navigate away. |rfh_a| should enter bfcache.
+  EXPECT_TRUE(NavigateToURL(shell(), url_b));
+  EXPECT_TRUE(rfh_a->IsInBackForwardCache());
+
+  // 3) Evict |rfh_a| by JavaScriptExecution.
+  EvictByJavaScript(rfh_a.get());
+  ASSERT_TRUE(rfh_a.WaitUntilRenderFrameDeleted());
+
+  // 4) Go back.
+  ASSERT_TRUE(HistoryGoBack(web_contents()));
+  ExpectNotRestored({NotRestoredReason::kJavaScriptExecution,
+                     NotRestoredReason::kCacheControlNoStore},
+                    {}, {}, {}, {}, FROM_HERE);
+  EXPECT_THAT(GetTreeResult()->GetDocumentResult(),
+              MatchesDocumentResult(
+                  NotRestoredReasons(NotRestoredReason::kJavaScriptExecution,
+                                     NotRestoredReason::kCacheControlNoStore),
+                  BlockListedFeatures()));
 }
 
 namespace {
@@ -431,8 +508,14 @@ const char kResponseWithNoCacheWithHTTPOnlyCookie2[] =
     "The server speaks HTTP!";
 }  // namespace
 
-// Disabled due to flakiness on Cast Audio Linux https://crbug.com/1229182
-#if BUILDFLAG(IS_CHROMECAST)
+// TODO(crbug.com/1336055): It may be possible to re-enable this test now that
+// crbug.com/1229182 has been resolved. This was originally disabled due to
+// flakiness on Cast Audio Linux.
+#if BUILDFLAG(IS_CASTOS)
+#define MAYBE_PagesWithCacheControlNoStoreSetFromResponseHeader \
+  DISABLED_PagesWithCacheControlNoStoreSetFromResponseHeader
+#elif BUILDFLAG(IS_LINUX)
+// Flaky: https://crbug.com/1353858
 #define MAYBE_PagesWithCacheControlNoStoreSetFromResponseHeader \
   DISABLED_PagesWithCacheControlNoStoreSetFromResponseHeader
 #else
@@ -466,6 +549,7 @@ IN_PROC_BROWSER_TEST_F(
   response.Send(kResponseWithNoCacheWithCookie);
   response.Done();
   observer.Wait();
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
   EXPECT_EQ("foo=bar", EvalJs(tab_to_be_bfcached, "document.cookie"));
 
   // 2) Navigate away. |rfh_a| should enter bfcache.
@@ -491,16 +575,23 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_EQ("foo=baz", EvalJs(tab_to_be_bfcached, "document.cookie"));
   ExpectNotRestored({NotRestoredReason::kCacheControlNoStoreCookieModified}, {},
                     {}, {}, {}, FROM_HERE);
+  EXPECT_THAT(GetTreeResult()->GetDocumentResult(),
+              MatchesDocumentResult(
+                  NotRestoredReasons(
+                      NotRestoredReason::kCacheControlNoStoreCookieModified),
+                  BlockListedFeatures()));
 }
 
-// Disabled due to flakiness on Cast Audio Linux https://crbug.com/1229182
-#if BUILDFLAG(IS_CHROMECAST)
+// TODO(crbug.com/1336055): It may be possible to re-enable this test now that
+// crbug.com/1229182 has been resolved. This was originally disabled due to
+// flakiness on Cast Audio Linux.
+#if BUILDFLAG(IS_CASTOS)
 #define MAYBE_PagesWithCacheControlNoStoreSetFromResponseHeaderHTTPOnlyCookie \
   DISABLED_PagesWithCacheControlNoStoreSetFromResponseHeaderHTTPOnlyCookie
 #else
 #define MAYBE_PagesWithCacheControlNoStoreSetFromResponseHeaderHTTPOnlyCookie \
   PagesWithCacheControlNoStoreSetFromResponseHeaderHTTPOnlyCookie
-#endif
+#endif  // BUILDFLAG(IS_CASTOS)
 // Test that a page with cache-control:no-store enters bfcache with the flag on,
 // and if HTTPOnly cookie is modified while it is in bfcache, gets evicted with
 // HTTPOnly cookie modified marked.
@@ -532,6 +623,7 @@ IN_PROC_BROWSER_TEST_F(
   response.Send(kResponseWithNoCacheWithHTTPOnlyCookie);
   response.Done();
   observer.Wait();
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
   // HTTPOnly cookie should not be accessible from JavaScript.
   EXPECT_EQ("", EvalJs(tab_to_be_bfcached, "document.cookie"));
 
@@ -558,23 +650,21 @@ IN_PROC_BROWSER_TEST_F(
   ExpectNotRestored(
       {NotRestoredReason::kCacheControlNoStoreHTTPOnlyCookieModified}, {}, {},
       {}, {}, FROM_HERE);
+  EXPECT_THAT(
+      GetTreeResult()->GetDocumentResult(),
+      MatchesDocumentResult(
+          NotRestoredReasons(
+              NotRestoredReason::kCacheControlNoStoreHTTPOnlyCookieModified),
+          BlockListedFeatures()));
 }
 
-// Disabled due to flakiness on Cast Audio Linux https://crbug.com/1229182
-#if BUILDFLAG(IS_CHROMECAST)
-#define MAYBE_PagesWithCacheControlNoStoreHTTPOnlyCookieModifiedBackTwice \
-  DISABLED_PagesWithCacheControlNoStoreHTTPOnlyCookieModifiedBackTwice
-#else
-#define MAYBE_PagesWithCacheControlNoStoreHTTPOnlyCookieModifiedBackTwice \
-  PagesWithCacheControlNoStoreHTTPOnlyCookieModifiedBackTwice
-#endif
 // Test that a page with cache-control:no-store enters bfcache with the flag on,
 // and if a HTTPOnly cookie is modified, it gets evicted with cookie changed,
 // but if navigated away again and navigated back, it gets evicted without
 // HTTPOnly cookie change marked.
 IN_PROC_BROWSER_TEST_F(
     BackForwardCacheBrowserTestAllowCacheControlNoStore,
-    MAYBE_PagesWithCacheControlNoStoreHTTPOnlyCookieModifiedBackTwice) {
+    PagesWithCacheControlNoStoreHTTPOnlyCookieModifiedBackTwice) {
   CreateHttpsServer();
   net::test_server::ControllableHttpResponse response(https_server(),
                                                       "/main_document");
@@ -601,6 +691,7 @@ IN_PROC_BROWSER_TEST_F(
   response.Send(kResponseWithNoCacheWithHTTPOnlyCookie);
   response.Done();
   observer.Wait();
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 2) Navigate away. |rfh_a| should enter bfcache.
   EXPECT_TRUE(NavigateToURL(tab_to_be_bfcached, url_b));
@@ -626,7 +717,15 @@ IN_PROC_BROWSER_TEST_F(
   ExpectNotRestored(
       {NotRestoredReason::kCacheControlNoStoreHTTPOnlyCookieModified}, {}, {},
       {}, {}, FROM_HERE);
+  EXPECT_THAT(
+      GetTreeResult()->GetDocumentResult(),
+      MatchesDocumentResult(
+          NotRestoredReasons(
+              NotRestoredReason::kCacheControlNoStoreHTTPOnlyCookieModified),
+          BlockListedFeatures()));
+
   RenderFrameHostImplWrapper rfh_a_2(current_frame_host());
+  rfh_a_2->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 5) Navigate away to b.com. |rfh_a_2| should enter bfcache again.
   EXPECT_TRUE(NavigateToURL(tab_to_be_bfcached, url_b));
@@ -642,6 +741,229 @@ IN_PROC_BROWSER_TEST_F(
   observer4.Wait();
   ExpectNotRestored({NotRestoredReason::kCacheControlNoStore}, {}, {}, {}, {},
                     FROM_HERE);
+  EXPECT_THAT(GetTreeResult()->GetDocumentResult(),
+              MatchesDocumentResult(
+                  NotRestoredReasons(NotRestoredReason::kCacheControlNoStore),
+                  BlockListedFeatures()));
+}
+
+namespace {
+// Causes a fetch using the "Authorization" header to start and complete in the
+// target frame.
+void UseAuthorizationHeader(const ToRenderFrameHost& execution_target,
+                            GURL url) {
+  ASSERT_EQ(42, EvalJs(execution_target, JsReplace(
+                                             R"(
+      fetch($1, {headers: {Authorization: 'foo'}})
+          .then(p   => {
+              // Ensure that we drain the pipe to avoid blocking on network
+              // activity.
+              p.text();
+              return 42;
+          })
+      )",
+                                             url)));
+}
+
+// Creates an iframe in the target frame with this url. It waits until the frame
+// has loaded.
+void CreateIframe(const ToRenderFrameHost& execution_target, GURL url) {
+  ASSERT_EQ(42, EvalJs(execution_target, JsReplace(
+                                             R"(
+      const iframeElement = document.createElement("iframe");
+      iframeElement.src = $1;
+      document.body.appendChild(iframeElement);
+      new Promise(r => {
+          iframeElement.onload = () => {r(42)};
+      });
+      )",
+                                             url)));
+}
+}  // namespace
+
+// Test that a page without CCNS that makes a fetch with the "Authorization"
+// header does not log the header.
+IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
+                       AuthorizationHeaderNotLogged) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  GURL url_a(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  GURL url_b(embedded_test_server()->GetURL("b.com", "/title1.html"));
+
+  // Load the document.
+  ASSERT_TRUE(NavigateToURL(shell(), url_a));
+  RenderFrameHostImplWrapper rfh_a(current_frame_host());
+
+  // Do a fetch with the "Authorization" header in the main frame.
+  UseAuthorizationHeader(shell(), url_a);
+
+  // Navigate away.
+  ASSERT_TRUE(NavigateToURL(shell(), url_b));
+
+  // Check that the document is cached.
+  ASSERT_TRUE(rfh_a->IsInBackForwardCache());
+
+  // Go back and check that it was restored.
+  ASSERT_TRUE(HistoryGoBack(shell()->web_contents()));
+  ExpectRestored(FROM_HERE);
+}
+
+// Test that a page with CCNS that makes a fetch with the "Authorization" header
+// logs the header.
+IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
+                       AuthorizationHeaderLoggedMainFrame) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  GURL url_a_no_store(embedded_test_server()->GetURL(
+      "a.com", "/set-header?Cache-Control: no-store"));
+  GURL url_a_2(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  GURL url_b(embedded_test_server()->GetURL("b.com", "/title1.html"));
+
+  // Load the document and specify no-store for the main resource.
+  ASSERT_TRUE(NavigateToURL(shell(), url_a_no_store));
+  RenderFrameHostImplWrapper rfh_a(current_frame_host());
+
+  // Do a fetch with the "Authorization" header in the main frame.
+  UseAuthorizationHeader(shell(), url_a_2);
+
+  // Navigate away.
+  ASSERT_TRUE(NavigateToURL(shell(), url_b));
+
+  // Wait until the first document has been destroyed.
+  ASSERT_TRUE(rfh_a.WaitUntilRenderFrameDeleted());
+
+  // Go back and check that it was not restored.
+  ASSERT_TRUE(HistoryGoBack(shell()->web_contents()));
+  ExpectNotRestored({NotRestoredReason::kBlocklistedFeatures},
+                    {BlocklistedFeature::kMainResourceHasCacheControlNoStore,
+                     BlocklistedFeature::kAuthorizationHeader},
+                    {}, {}, {}, FROM_HERE);
+}
+
+// Test that a page with CCNS that makes a fetch with the "Authorization" header
+// in a same-as-root-origin subframe of a cross-origin subframe logs the header.
+IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
+                       AuthorizationHeaderSameOriginSubFrameLogged) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  GURL url_a_no_store(embedded_test_server()->GetURL(
+      "a.com", "/set-header?Cache-Control: no-store"));
+  GURL url_a_2(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  GURL url_b(embedded_test_server()->GetURL("b.com", "/title1.html"));
+
+  // Load the document and specify no-store for the main resource.
+  ASSERT_TRUE(NavigateToURL(shell(), url_a_no_store));
+  RenderFrameHostImplWrapper rfh_a(current_frame_host());
+
+  // Create a cross-origin iframe with same-as-root-origin iframe inside that
+  // and do a fetch with the "Authorization" header in that grand-child iframe.
+  CreateIframe(rfh_a.get(), url_b);
+  CreateIframe(DescendantRenderFrameHostImplAt(rfh_a.get(), {0}), url_a_2);
+
+  UseAuthorizationHeader(DescendantRenderFrameHostImplAt(rfh_a.get(), {0, 0}),
+                         url_a_2);
+
+  // Navigate away.
+  ASSERT_TRUE(NavigateToURL(shell(), url_b));
+
+  // Wait until the first document has been destroyed.
+  ASSERT_TRUE(rfh_a.WaitUntilRenderFrameDeleted());
+
+  // Go back and check that it was not cached and that both reasons are present.
+  ASSERT_TRUE(HistoryGoBack(shell()->web_contents()));
+  ExpectNotRestored({NotRestoredReason::kBlocklistedFeatures},
+                    {BlocklistedFeature::kMainResourceHasCacheControlNoStore,
+                     BlocklistedFeature::kAuthorizationHeader},
+                    {}, {}, {}, FROM_HERE);
+}
+
+// Test that a page with CCNS that makes a fetch with the "Authorization" header
+// in a same-origin subframe logs the header in the correct place in the tree of
+// reasons.
+IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
+                       AuthorizationHeaderSubFrameTree) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  GURL url_a_no_store(embedded_test_server()->GetURL(
+      "a.com", "/set-header?Cache-Control: no-store"));
+  GURL url_a_2(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  GURL url_b(embedded_test_server()->GetURL("b.com", "/title1.html"));
+
+  // Load the document and specify no-store for the main resource.
+  ASSERT_TRUE(NavigateToURL(shell(), url_a_no_store));
+  RenderFrameHostImplWrapper rfh_a(current_frame_host());
+
+  // Create a same-origin iframe do a fetch with the "Authorization" header.
+  CreateIframe(rfh_a.get(), url_a_2);
+
+  UseAuthorizationHeader(DescendantRenderFrameHostImplAt(rfh_a.get(), {0}),
+                         url_a_2);
+
+  // Navigate away.
+  ASSERT_TRUE(NavigateToURL(shell(), url_b));
+
+  // Wait until the first document has been destroyed.
+  ASSERT_TRUE(rfh_a.WaitUntilRenderFrameDeleted());
+
+  // Go back and check that it was not cached and that both reasons are present.
+  ASSERT_TRUE(HistoryGoBack(shell()->web_contents()));
+  ExpectNotRestored({NotRestoredReason::kBlocklistedFeatures},
+                    {BlocklistedFeature::kMainResourceHasCacheControlNoStore,
+                     BlocklistedFeature::kAuthorizationHeader},
+                    {}, {}, {}, FROM_HERE);
+
+  auto subframe_result = MatchesNotRestoredReasons(
+      blink::mojom::BFCacheBlocked::kYes,
+      MatchesSameOriginDetails(
+          /*id=*/"", /*name=*/"", /*src=*/url_a_2.spec(),
+          /*url=*/url_a_2.spec(),
+          /*reasons=*/{"AuthorizationHeader"},
+          /*children=*/{}));
+  EXPECT_THAT(current_frame_host()->NotRestoredReasonsForTesting(),
+              MatchesNotRestoredReasons(
+                  blink::mojom::BFCacheBlocked::kYes,
+                  MatchesSameOriginDetails(
+                      /*id=*/"", /*name=*/"", /*src=*/"",
+                      /*url=*/url_a_no_store.spec(),
+                      /*reasons=*/{"MainResourceHasCacheControlNoStore"},
+                      /*children=*/
+                      {subframe_result})));
+}
+
+// Test that a page with CCNS that makes a fetch with the "Authorization" header
+// in a cross-origin subframe does not log the header.
+IN_PROC_BROWSER_TEST_F(BackForwardCacheBrowserTest,
+                       AuthorizationHeaderCrossOriginSubFrameNotLogged) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  GURL url_a_no_store(embedded_test_server()->GetURL(
+      "a.com", "/set-header?Cache-Control: no-store"));
+  GURL url_a_2(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  GURL url_b(embedded_test_server()->GetURL("b.com", "/title1.html"));
+
+  // Load the document and specify no-store for the main resource.
+  ASSERT_TRUE(NavigateToURL(shell(), url_a_no_store));
+  RenderFrameHostImplWrapper rfh_a(current_frame_host());
+
+  // Create an same-origin iframe and do a fetch with the "Authorization" header
+  // in that iframe.
+  CreateIframe(rfh_a.get(), url_b);
+
+  UseAuthorizationHeader(DescendantRenderFrameHostImplAt(rfh_a.get(), {0}),
+                         url_b);
+
+  // Navigate away.
+  ASSERT_TRUE(NavigateToURL(shell(), url_b));
+
+  // Wait until the first document has been destroyed.
+  ASSERT_TRUE(rfh_a.WaitUntilRenderFrameDeleted());
+
+  // Go back and check that it was not cached and that only CCNS reason is
+  // present.
+  ASSERT_TRUE(HistoryGoBack(shell()->web_contents()));
+  ExpectNotRestored({NotRestoredReason::kBlocklistedFeatures},
+                    {BlocklistedFeature::kMainResourceHasCacheControlNoStore},
+                    {}, {}, {}, FROM_HERE);
 }
 
 class BackForwardCacheBrowserTestRestoreCacheControlNoStoreUnlessCookieChange
@@ -655,19 +977,11 @@ class BackForwardCacheBrowserTestRestoreCacheControlNoStoreUnlessCookieChange
   }
 };
 
-// TODO(https://crbug.com/1231849): flaky on Cast Linux.
 // Test that a page with cache-control:no-store enters bfcache with the flag on,
 // and gets restored if cookies do not change.
-#if BUILDFLAG(IS_CHROMECAST)
-#define MAYBE_PagesWithCacheControlNoStoreRestoreFromBackForwardCache \
-  DISABLED_PagesWithCacheControlNoStoreRestoreFromBackForwardCache
-#else
-#define MAYBE_PagesWithCacheControlNoStoreRestoreFromBackForwardCache \
-  PagesWithCacheControlNoStoreRestoreFromBackForwardCache
-#endif
 IN_PROC_BROWSER_TEST_F(
     BackForwardCacheBrowserTestRestoreCacheControlNoStoreUnlessCookieChange,
-    MAYBE_PagesWithCacheControlNoStoreRestoreFromBackForwardCache) {
+    PagesWithCacheControlNoStoreRestoreFromBackForwardCache) {
   net::test_server::ControllableHttpResponse response(embedded_test_server(),
                                                       "/main_document");
   net::test_server::ControllableHttpResponse response2(embedded_test_server(),
@@ -695,20 +1009,41 @@ IN_PROC_BROWSER_TEST_F(
   ExpectRestored(FROM_HERE);
 }
 
-// Flaky on Cast: crbug.com/1229182
-// Test that a page with cache-control:no-store enters bfcache with the flag on,
-// but gets evicted if cookies change.
-// Turned off on cast for https://crbug.com/1281665 .
-#if BUILDFLAG(IS_CHROMECAST)
-#define MAYBE_PagesWithCacheControlNoStoreEvictedIfCookieChange \
-        DISABLED_PagesWithCacheControlNoStoreEvictedIfCookieChange
-#else
-#define MAYBE_PagesWithCacheControlNoStoreEvictedIfCookieChange \
-        PagesWithCacheControlNoStoreEvictedIfCookieChange
-#endif
+// Test that a page with CCNS that makes a fetch with the "Authorization" header
+// is blocked even when CCNS pages are allowed to be restored.
 IN_PROC_BROWSER_TEST_F(
     BackForwardCacheBrowserTestRestoreCacheControlNoStoreUnlessCookieChange,
-    MAYBE_PagesWithCacheControlNoStoreEvictedIfCookieChange) {
+    AuthorizationHeaderBlocks) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  GURL url_a_no_store(embedded_test_server()->GetURL(
+      "a.com", "/set-header?Cache-Control: no-store"));
+  GURL url_a_2(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  GURL url_b(embedded_test_server()->GetURL("b.com", "/title1.html"));
+
+  // Load the document and specify no-store for the main resource.
+  ASSERT_TRUE(NavigateToURL(shell(), url_a_no_store));
+  RenderFrameHostImplWrapper rfh_a(current_frame_host());
+
+  // Do a fetch with the "Authorization" header in the main frame.
+  UseAuthorizationHeader(shell(), url_a_2);
+
+  // Navigate away.
+  ASSERT_TRUE(NavigateToURL(shell(), url_b));
+
+  // Wait until the first document has been destroyed.
+  ASSERT_TRUE(rfh_a.WaitUntilRenderFrameDeleted());
+
+  // Go back and check that it was not restored.
+  ASSERT_TRUE(HistoryGoBack(shell()->web_contents()));
+  ExpectNotRestored({NotRestoredReason::kBlocklistedFeatures},
+                    {BlocklistedFeature::kAuthorizationHeader}, {}, {}, {},
+                    FROM_HERE);
+}
+
+IN_PROC_BROWSER_TEST_F(
+    BackForwardCacheBrowserTestRestoreCacheControlNoStoreUnlessCookieChange,
+    PagesWithCacheControlNoStoreEvictedIfCookieChange) {
   net::test_server::ControllableHttpResponse response(embedded_test_server(),
                                                       "/main_document");
   net::test_server::ControllableHttpResponse response2(embedded_test_server(),
@@ -730,6 +1065,7 @@ IN_PROC_BROWSER_TEST_F(
   response.Send(kResponseWithNoCache);
   response.Done();
   observer.Wait();
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 2) Set a normal cookie from JavaScript.
   EXPECT_TRUE(ExecJs(tab_to_be_bfcached, "document.cookie='foo=bar'"));
@@ -757,6 +1093,11 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_EQ("foo=baz", EvalJs(tab_to_be_bfcached, "document.cookie"));
   ExpectNotRestored({NotRestoredReason::kCacheControlNoStoreCookieModified}, {},
                     {}, {}, {}, FROM_HERE);
+  EXPECT_THAT(GetTreeResult()->GetDocumentResult(),
+              MatchesDocumentResult(
+                  NotRestoredReasons(
+                      NotRestoredReason::kCacheControlNoStoreCookieModified),
+                  BlockListedFeatures()));
 }
 
 // TODO(https://crbug.com/1231849): flaky on Cast Linux.
@@ -798,6 +1139,7 @@ IN_PROC_BROWSER_TEST_F(
   response.Send(kResponseWithNoCacheWithHTTPOnlyCookie);
   response.Done();
   observer.Wait();
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 2) Navigate away. |rfh_a| should enter bfcache.
   EXPECT_TRUE(NavigateToURL(tab_to_be_bfcached, url_b));
@@ -824,6 +1166,12 @@ IN_PROC_BROWSER_TEST_F(
   ExpectNotRestored(
       {NotRestoredReason::kCacheControlNoStoreHTTPOnlyCookieModified}, {}, {},
       {}, {}, FROM_HERE);
+  EXPECT_THAT(
+      GetTreeResult()->GetDocumentResult(),
+      MatchesDocumentResult(
+          NotRestoredReasons(
+              NotRestoredReason::kCacheControlNoStoreHTTPOnlyCookieModified),
+          BlockListedFeatures()));
 }
 
 class BackForwardCacheBrowserTestRestoreUnlessHTTPOnlyCookieChange
@@ -965,6 +1313,7 @@ IN_PROC_BROWSER_TEST_F(
   response.Send(kResponseWithNoCacheWithHTTPOnlyCookie);
   response.Done();
   observer.Wait();
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 2) Navigate away. |rfh_a| should enter bfcache.
   EXPECT_TRUE(NavigateToURL(tab_to_be_bfcached, url_b));
@@ -989,6 +1338,12 @@ IN_PROC_BROWSER_TEST_F(
   ExpectNotRestored(
       {NotRestoredReason::kCacheControlNoStoreHTTPOnlyCookieModified}, {}, {},
       {}, {}, FROM_HERE);
+  EXPECT_THAT(
+      GetTreeResult()->GetDocumentResult(),
+      MatchesDocumentResult(
+          NotRestoredReasons(
+              NotRestoredReason::kCacheControlNoStoreHTTPOnlyCookieModified),
+          BlockListedFeatures()));
 }
 
 // TODO(https://crbug.com/1231849): flaky on Cast Linux.
@@ -1028,6 +1383,7 @@ IN_PROC_BROWSER_TEST_F(
   response.Send(kResponseWithNoCacheWithHTTPOnlyCookie);
   response.Done();
   observer.Wait();
+  rfh_a->GetBackForwardCacheMetrics()->SetObserverForTesting(this);
 
   // 2) Navigate away. |rfh_a| should enter bfcache.
   EXPECT_TRUE(NavigateToURL(tab_to_be_bfcached, url_b));
@@ -1054,6 +1410,12 @@ IN_PROC_BROWSER_TEST_F(
   ExpectNotRestored(
       {NotRestoredReason::kCacheControlNoStoreHTTPOnlyCookieModified}, {}, {},
       {}, {}, FROM_HERE);
+  EXPECT_THAT(
+      GetTreeResult()->GetDocumentResult(),
+      MatchesDocumentResult(
+          NotRestoredReasons(
+              NotRestoredReason::kCacheControlNoStoreHTTPOnlyCookieModified),
+          BlockListedFeatures()));
 }
 
 }  // namespace content

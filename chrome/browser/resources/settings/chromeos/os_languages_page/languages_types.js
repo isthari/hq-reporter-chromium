@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -92,7 +92,7 @@ export class LanguageHelper {
    * the actual UI language until a restart.
    * @param {string} languageCode
    */
-  setProspectiveUILanguage(languageCode) {}
+  setProspectiveUiLanguage(languageCode) {}
 
   /**
    * True if the prospective UI language has been changed.

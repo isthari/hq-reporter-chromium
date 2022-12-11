@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #define CHROME_BROWSER_BROWSER_FEATURES_H_
 
 #include "base/feature_list.h"
+#include "base/metrics/field_trial_params.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 
@@ -17,55 +18,69 @@ namespace features {
 // All features in alphabetical order. The features should be documented
 // alongside the definition of their values in the .cc file.
 
-extern const base::Feature kClosedTabCache;
+BASE_DECLARE_FEATURE(kClosedTabCache);
 
-extern const base::Feature kColorProviderRedirectionForThemeProvider;
+BASE_DECLARE_FEATURE(kColorProviderRedirectionForThemeProvider);
 
-extern const base::Feature kDestroyProfileOnBrowserClose;
-extern const base::Feature kDestroySystemProfiles;
+BASE_DECLARE_FEATURE(kDestroyProfileOnBrowserClose);
+BASE_DECLARE_FEATURE(kDestroySystemProfiles);
 
-extern const base::Feature kNukeProfileBeforeCreateMultiAsync;
+BASE_DECLARE_FEATURE(kDevToolsTabTarget);
 
-extern const base::Feature kPromoBrowserCommands;
+BASE_DECLARE_FEATURE(kNukeProfileBeforeCreateMultiAsync);
+
+BASE_DECLARE_FEATURE(kPromoBrowserCommands);
 extern const char kBrowserCommandIdParam[];
 
-extern const base::Feature kUseManagementService;
+BASE_DECLARE_FEATURE(kUseManagementService);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-extern const base::Feature kDoubleTapToZoomInTabletMode;
-extern const base::Feature kQuickSettingsPWANotifications;
+BASE_DECLARE_FEATURE(kQuickSettingsPWANotifications);
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS)
+BASE_DECLARE_FEATURE(kDoubleTapToZoomInTabletMode);
 #endif
 
 #if BUILDFLAG(IS_MAC)
-extern const base::Feature kEnableUniveralLinks;
+BASE_DECLARE_FEATURE(kEnableUniveralLinks);
 #endif
 
 #if !BUILDFLAG(IS_ANDROID)
-extern const base::Feature kCopyLinkToText;
-extern const base::Feature kMuteNotificationSnoozeAction;
+BASE_DECLARE_FEATURE(kCopyLinkToText);
+BASE_DECLARE_FEATURE(kMuteNotificationSnoozeAction);
 #endif
 
-#if BUILDFLAG(IS_WIN)
-extern const base::Feature kPrewarmSearchResultsPageFonts;
+BASE_DECLARE_FEATURE(kSandboxExternalProtocolBlocked);
+BASE_DECLARE_FEATURE(kSandboxExternalProtocolBlockedWarning);
+BASE_DECLARE_FEATURE(kTriggerNetworkDataMigration);
+
+#if BUILDFLAG(IS_CHROMEOS)
+BASE_DECLARE_FEATURE(kTabCaptureBlueBorderCrOS);
 #endif
 
-extern const base::Feature kPwaUpdateDialogForNameAndIcon;
-
-extern const base::Feature kSandboxExternalProtocolBlocked;
-extern const base::Feature kTabCaptureBlueBorder;
-extern const base::Feature kTabCaptureBlueBorderForSelfCaptureRegionCaptureOT;
-extern const base::Feature kTriggerNetworkDataMigration;
-
-extern const base::Feature kWebUsbDeviceDetection;
+BASE_DECLARE_FEATURE(kWebUsbDeviceDetection);
 
 #if BUILDFLAG(IS_ANDROID)
-extern const base::Feature kCertificateTransparencyAndroid;
+BASE_DECLARE_FEATURE(kCertificateTransparencyAndroid);
 #endif
 
-extern const base::Feature kLargeFaviconFromGoogle;
+BASE_DECLARE_FEATURE(kLargeFaviconFromGoogle);
 extern const base::FeatureParam<int> kLargeFaviconFromGoogleSizeInDip;
 
-extern const base::Feature kObserverBasedPostProfileInit;
+BASE_DECLARE_FEATURE(kObserverBasedPostProfileInit);
+
+BASE_DECLARE_FEATURE(kRestartNetworkServiceUnsandboxedForFailedLaunch);
+
+BASE_DECLARE_FEATURE(kKeyPinningComponentUpdater);
+
+#if BUILDFLAG(IS_WIN)
+BASE_DECLARE_FEATURE(kAppBoundEncryptionMetrics);
+#endif
+
+BASE_DECLARE_FEATURE(kFlexOrgManagementDisclosure);
+
+BASE_DECLARE_FEATURE(kFedCmWithoutThirdPartyCookies);
 
 }  // namespace features
 

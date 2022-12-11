@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,14 +22,15 @@
 #include "base/threading/scoped_blocking_call.h"
 #include "base/timer/timer.h"
 #include "base/values.h"
-#include "chromeos/network/device_state.h"
-#include "chromeos/network/network_activation_handler.h"
-#include "chromeos/network/network_configuration_handler.h"
-#include "chromeos/network/network_connect.h"
-#include "chromeos/network/network_connection_handler.h"
-#include "chromeos/network/network_event_log.h"
-#include "chromeos/network/network_handler_callbacks.h"
-#include "chromeos/network/network_state_handler.h"
+#include "chromeos/ash/components/network/device_state.h"
+#include "chromeos/ash/components/network/network_activation_handler.h"
+#include "chromeos/ash/components/network/network_configuration_handler.h"
+#include "chromeos/ash/components/network/network_connect.h"
+#include "chromeos/ash/components/network/network_connection_handler.h"
+#include "chromeos/ash/components/network/network_event_log.h"
+#include "chromeos/ash/components/network/network_handler_callbacks.h"
+#include "chromeos/ash/components/network/network_state.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
@@ -52,7 +53,7 @@ const int kOTASPRetryDelay = 40000;
 const int kMaxReconnectTime = 30000;
 
 // Returns true if the device follows the simple activation flow.
-bool IsSimpleActivationFlow(const chromeos::NetworkState* network) {
+bool IsSimpleActivationFlow(const NetworkState* network) {
   return (network->activation_type() == shill::kActivationTypeNonCellular ||
           network->activation_type() == shill::kActivationTypeOTA);
 }
@@ -86,10 +87,8 @@ void MobileActivator::TerminateActivation() {
   continue_reconnect_timer_.Stop();
   reconnect_timeout_timer_.Stop();
 
-  if (NetworkHandler::IsInitialized()) {
-    NetworkHandler::Get()->network_state_handler()->RemoveObserver(this,
-                                                                   FROM_HERE);
-  }
+  network_state_handler_observer_.Reset();
+
   meid_.clear();
   iccid_.clear();
   service_path_.clear();
@@ -129,6 +128,10 @@ void MobileActivator::NetworkPropertiesUpdated(const NetworkState* network) {
   service_path_ = network->path();
 
   EvaluateCellularNetwork(network);
+}
+
+void MobileActivator::OnShuttingDown() {
+  network_state_handler_observer_.Reset();
 }
 
 void MobileActivator::AddObserver(MobileActivator::Observer* observer) {
@@ -215,7 +218,7 @@ void MobileActivator::OnPortalLoaded(bool success) {
 void MobileActivator::HandlePortalLoaded(bool success) {
   const NetworkState* network = GetNetworkState(service_path_);
   if (!network) {
-    ChangeState(NULL, PlanActivationState::kError,
+    ChangeState(nullptr, PlanActivationState::kError,
                 ActivationError::kNoCellularService);
     return;
   }
@@ -233,7 +236,7 @@ void MobileActivator::HandlePortalLoaded(bool success) {
 
       payment_reconnect_count_++;
       if (payment_reconnect_count_ > kMaxPortalReconnectCount) {
-        ChangeState(NULL, PlanActivationState::kError,
+        ChangeState(nullptr, PlanActivationState::kError,
                     ActivationError::kNoCellularService);
         return;
       }
@@ -268,12 +271,13 @@ void MobileActivator::StartActivation() {
     } else {
       error = ActivationError::kNoCellularService;
     }
-    ChangeState(NULL, PlanActivationState::kError, error);
+    ChangeState(nullptr, PlanActivationState::kError, error);
     return;
   }
 
   // Start monitoring network property changes.
-  NetworkHandler::Get()->network_state_handler()->AddObserver(this, FROM_HERE);
+  network_state_handler_observer_.Observe(
+      NetworkHandler::Get()->network_state_handler());
 
   if (network->activation_type() == shill::kActivationTypeNonCellular) {
     StartActivationOverNonCellularNetwork();
@@ -545,51 +549,10 @@ void MobileActivator::EvaluateCellularNetwork(const NetworkState* network) {
 
 MobileActivator::PlanActivationState MobileActivator::PickNextState(
     const NetworkState* network) const {
-  PlanActivationState new_state = state_;
   if (!network->IsConnectedState())
-    new_state = PickNextOfflineState(network);
+    return PickNextOfflineState(network);
   else
-    new_state = PickNextOnlineState(network);
-
-  if (new_state != PlanActivationState::kError &&
-      network->connection_state() == shill::kStateActivationFailure) {
-    // Check for this special case when we try to do activate partially
-    // activated device. If that attempt failed, try to disconnect to clear the
-    // state and reconnect again.
-    const std::string& activation = network->activation_state();
-    if ((activation == shill::kActivationStatePartiallyActivated ||
-         activation == shill::kActivationStateActivating) &&
-        (network->GetError().empty() ||
-         network->GetError() == shill::kErrorOtaspFailed)) {
-      NET_LOG(EVENT) << "Activation failure detected for "
-                     << NetworkId(network);
-      switch (state_) {
-        case PlanActivationState::kOTASP:
-          new_state = PlanActivationState::kDelayOTASP;
-          break;
-        case PlanActivationState::kInitiatingActivation:
-        case PlanActivationState::kTryingOTASP:
-          new_state = PlanActivationState::kStart;
-          break;
-        case PlanActivationState::kStart:
-          // We are just starting, so this must be previous activation attempt
-          // failure.
-          new_state = PlanActivationState::kTryingOTASP;
-          break;
-        case PlanActivationState::kDelayOTASP:
-          new_state = state_;
-          break;
-        default:
-          new_state = PlanActivationState::kError;
-          break;
-      }
-    } else {
-      LOG(WARNING) << "Unexpected activation failure for " << network->path();
-      new_state = PlanActivationState::kError;
-    }
-  }
-
-  return new_state;
+    return PickNextOnlineState(network);
 }
 
 MobileActivator::PlanActivationState MobileActivator::PickNextOfflineState(
@@ -742,8 +705,7 @@ const char* MobileActivator::GetStateDescription(PlanActivationState state) {
 
 void MobileActivator::CompleteActivation() {
   // Remove observers, we are done with this page.
-  NetworkHandler::Get()->network_state_handler()->RemoveObserver(this,
-                                                                 FROM_HERE);
+  network_state_handler_observer_.Reset();
 }
 
 bool MobileActivator::RunningActivation() const {

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "android_webview/browser/aw_contents.h"
 #include "android_webview/browser/aw_form_database_service.h"
 #include "android_webview/browser_jni_headers/AwAutofillClient_jni.h"
+#include "base/android/build_info.h"
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
@@ -45,7 +46,7 @@ void AwAutofillClient::SetSaveFormData(bool enabled) {
   save_form_data_ = enabled;
 }
 
-bool AwAutofillClient::GetSaveFormData() {
+bool AwAutofillClient::GetSaveFormData() const {
   return save_form_data_;
 }
 
@@ -60,7 +61,7 @@ AwAutofillClient::GetAutocompleteHistoryManager() {
 }
 
 PrefService* AwAutofillClient::GetPrefs() {
-  return const_cast<PrefService*>(base::as_const(*this).GetPrefs());
+  return const_cast<PrefService*>(std::as_const(*this).GetPrefs());
 }
 
 const PrefService* AwAutofillClient::GetPrefs() const {
@@ -101,8 +102,12 @@ autofill::AddressNormalizer* AwAutofillClient::GetAddressNormalizer() {
   return nullptr;
 }
 
-const GURL& AwAutofillClient::GetLastCommittedURL() const {
-  return GetWebContents().GetLastCommittedURL();
+const GURL& AwAutofillClient::GetLastCommittedPrimaryMainFrameURL() const {
+  return GetWebContents().GetPrimaryMainFrame()->GetLastCommittedURL();
+}
+
+url::Origin AwAutofillClient::GetLastCommittedPrimaryMainFrameOrigin() const {
+  return GetWebContents().GetPrimaryMainFrame()->GetLastCommittedOrigin();
 }
 
 security_state::SecurityLevel
@@ -126,7 +131,7 @@ void AwAutofillClient::ShowAutofillSettings(bool show_credit_card_settings) {
 
 void AwAutofillClient::ShowUnmaskPrompt(
     const autofill::CreditCard& card,
-    UnmaskCardReason reason,
+    const autofill::CardUnmaskPromptOptions& card_unmask_prompt_options,
     base::WeakPtr<autofill::CardUnmaskDelegate> delegate) {
   NOTIMPLEMENTED();
 }
@@ -188,6 +193,41 @@ void AwAutofillClient::ScanCreditCard(CreditCardScanCallback callback) {
   NOTIMPLEMENTED();
 }
 
+bool AwAutofillClient::IsFastCheckoutSupported() {
+  return false;
+}
+
+bool AwAutofillClient::IsFastCheckoutTriggerForm(
+    const autofill::FormData& form,
+    const autofill::FormFieldData& field) {
+  return false;
+}
+
+bool AwAutofillClient::ShowFastCheckout(
+    base::WeakPtr<autofill::FastCheckoutDelegate> delegate) {
+  NOTREACHED();
+  return false;
+}
+
+void AwAutofillClient::HideFastCheckout() {
+  NOTREACHED();
+}
+
+bool AwAutofillClient::IsTouchToFillCreditCardSupported() {
+  return false;
+}
+
+bool AwAutofillClient::ShowTouchToFillCreditCard(
+    base::WeakPtr<autofill::TouchToFillDelegate> delegate,
+    base::span<const autofill::CreditCard* const> cards_to_suggest) {
+  NOTREACHED();
+  return false;
+}
+
+void AwAutofillClient::HideTouchToFillCreditCard() {
+  NOTREACHED();
+}
+
 void AwAutofillClient::ShowAutofillPopup(
     const autofill::AutofillClient::PopupOpenArgs& open_args,
     base::WeakPtr<autofill::AutofillPopupDelegate> delegate) {
@@ -243,12 +283,27 @@ void AwAutofillClient::HideAutofillPopup(autofill::PopupHidingReason reason) {
   Java_AwAutofillClient_hideAutofillPopup(env, obj);
 }
 
-bool AwAutofillClient::IsAutocompleteEnabled() {
+bool AwAutofillClient::IsAutocompleteEnabled() const {
   return GetSaveFormData();
 }
 
+bool AwAutofillClient::IsPasswordManagerEnabled() {
+  // Android O+ relies on the AndroidAutofillManager, which does not call this
+  // function. If it ever does, the function needs to be implemented in a
+  // meaningful way.
+  if (base::android::BuildInfo::GetInstance()->sdk_int() >=
+      base::android::SDK_VERSION_OREO) {
+    NOTREACHED();
+  }
+  // This is behavior preserving: For pre-O versions, AwAutofill did rely on a
+  // BrowserAutofillManager, which now calls the function. But pre-O only
+  // offered an autocomplete feature that restored values of specific input
+  // elements. It did not support password management.
+  return false;
+}
+
 void AwAutofillClient::PropagateAutofillPredictions(
-    content::RenderFrameHost* rfh,
+    autofill::AutofillDriver* driver,
     const std::vector<autofill::FormStructure*>& forms) {}
 
 void AwAutofillClient::DidFillOrPreviewField(
@@ -285,6 +340,17 @@ void AwAutofillClient::ExecuteCommand(int id) {
   NOTIMPLEMENTED();
 }
 
+void AwAutofillClient::OpenPromoCodeOfferDetailsURL(const GURL& url) {
+  NOTIMPLEMENTED();
+}
+
+autofill::FormInteractionsFlowId
+AwAutofillClient::GetCurrentFormInteractionsFlowId() {
+  // Currently not in use here. See `ChromeAutofillClient` for a proper
+  // implementation.
+  return {};
+}
+
 void AwAutofillClient::LoadRiskData(
     base::OnceCallback<void(const std::string&)> callback) {
   NOTIMPLEMENTED();
@@ -299,9 +365,7 @@ void AwAutofillClient::SuggestionSelected(JNIEnv* env,
                                           const JavaParamRef<jobject>& object,
                                           jint position) {
   if (delegate_) {
-    delegate_->DidAcceptSuggestion(suggestions_[position].value,
-                                   suggestions_[position].frontend_id,
-                                   suggestions_[position].backend_id, position);
+    delegate_->DidAcceptSuggestion(suggestions_[position], position);
   }
 }
 
@@ -338,9 +402,13 @@ void AwAutofillClient::ShowAutofillPopupImpl(
 
   for (size_t i = 0; i < count; ++i) {
     ScopedJavaLocalRef<jstring> name =
-        ConvertUTF16ToJavaString(env, suggestions[i].value);
+        ConvertUTF16ToJavaString(env, suggestions[i].main_text.value);
     ScopedJavaLocalRef<jstring> label =
-        ConvertUTF16ToJavaString(env, suggestions[i].label);
+        base::android::ConvertUTF8ToJavaString(env, std::string());
+    // For Android, we only show the primary/first label in the matrix.
+    if (!suggestions[i].labels.empty())
+      label = ConvertUTF16ToJavaString(env, suggestions[i].labels[0][0].value);
+
     Java_AwAutofillClient_addToAutofillSuggestionArray(
         env, data_array, i, name, label, suggestions[i].frontend_id);
   }

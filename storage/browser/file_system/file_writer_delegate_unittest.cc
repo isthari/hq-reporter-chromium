@@ -1,8 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "storage/browser/file_system/file_writer_delegate.h"
+
 #include <stdint.h>
+
 #include <limits>
 #include <string>
 #include <utility>
@@ -10,27 +13,20 @@
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/cxx17_backports.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "net/base/io_buffer.h"
 #include "net/base/request_priority.h"
 #include "net/http/http_response_headers.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
-#include "net/url_request/url_request.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_job.h"
-#include "net/url_request/url_request_job_factory.h"
 #include "storage/browser/blob/blob_data_builder.h"
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/file_system/file_system_context.h"
 #include "storage/browser/file_system/file_system_quota_util.h"
-#include "storage/browser/file_system/file_writer_delegate.h"
 #include "storage/browser/file_system/sandbox_file_stream_writer.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/browser/test/async_file_test_helper.h"
@@ -49,7 +45,7 @@ const char kOrigin[] = "http://example.com";
 const FileSystemType kFileSystemType = kFileSystemTypeTest;
 
 const char kData[] = "The quick brown fox jumps over the lazy dog.\n";
-const int kDataSize = base::size(kData) - 1;
+const int kDataSize = std::size(kData) - 1;
 
 class Result {
  public:
@@ -107,7 +103,8 @@ class FileWriterDelegateTest : public PlatformTest {
 
   int64_t GetFileSizeOnDisk(const char* test_file_path) {
     // There might be in-flight flush/write.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, base::DoNothing());
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::DoNothing());
     base::RunLoop().RunUntilIdle();
 
     FileSystemURL url = GetFileSystemURL(test_file_path);

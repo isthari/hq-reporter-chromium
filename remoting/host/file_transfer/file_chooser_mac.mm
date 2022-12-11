@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,8 @@
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/memory/weak_ptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/sequence_bound.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "remoting/base/string_resources.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
@@ -31,7 +31,7 @@
 - (BOOL)panel:(id)sender validateURL:(NSURL*)url error:(NSError**)outError {
   // Refuse to accept users closing the dialog with a key repeat, since the key
   // may have been first pressed while the user was looking at something else.
-  if ([[NSApp currentEvent] type] == NSKeyDown &&
+  if ([[NSApp currentEvent] type] == NSEventTypeKeyDown &&
       [[NSApp currentEvent] isARepeat]) {
     return NO;
   }
@@ -113,7 +113,7 @@ void MacFileChooserOnUiThread::Show() {
   [open_panel_ setCanChooseDirectories:NO];
   [open_panel_ setDelegate:delegate_];
   [open_panel_ beginWithCompletionHandler:^(NSModalResponse result) {
-    if (result == NSFileHandlingPanelOKButton) {
+    if (result == NSModalResponseOK) {
       NSURL* url = [open_panel_ URLs][0];
       if (![url isFileURL]) {
         // Delegate should prevent this.
@@ -143,7 +143,7 @@ FileChooserMac::FileChooserMac(
     : callback_(std::move(callback)), weak_ptr_factory_(this) {
   mac_file_chooser_on_ui_thread_ =
       base::SequenceBound<MacFileChooserOnUiThread>(
-          ui_task_runner, base::SequencedTaskRunnerHandle::Get(),
+          ui_task_runner, base::SequencedTaskRunner::GetCurrentDefault(),
           weak_ptr_factory_.GetWeakPtr());
 }
 

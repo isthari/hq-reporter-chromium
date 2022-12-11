@@ -1,11 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_INSTALLED_SCRIPT_LOADER_H_
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_INSTALLED_SCRIPT_LOADER_H_
 
+#include "base/time/time.h"
 #include "content/browser/service_worker/service_worker_installed_script_reader.h"
+#include "content/browser/service_worker/url_loader_client_checker.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/data_pipe.h"
@@ -70,14 +72,13 @@ class ServiceWorkerInstalledScriptLoader
   void OnDataAvailable(const void* data, size_t num_bytes) override {}
   void OnDataComplete() override {}
 
-  mojo::Remote<network::mojom::URLLoaderClient> client_;
+  URLLoaderClientCheckedRemote client_;
   scoped_refptr<ServiceWorkerVersion>
       version_for_main_script_http_response_info_;
   base::TimeTicks request_start_;
   std::unique_ptr<ServiceWorkerInstalledScriptReader> reader_;
 
   std::string encoding_;
-  mojo::ScopedDataPipeConsumerHandle body_handle_;
   uint64_t body_size_ = 0;
   std::unique_ptr<mojo::DataPipeDrainer> metadata_drainer_;
 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,13 +26,13 @@
 #include "base/timer/timer.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
+#include "net/base/network_anonymization_key.h"
 #include "net/base/network_change_notifier.h"
-#include "net/base/network_isolation_key.h"
+#include "net/base/network_handle.h"
 #include "net/base/prioritized_dispatcher.h"
 #include "net/dns/dns_config.h"
 #include "net/dns/host_cache.h"
 #include "net/dns/host_resolver.h"
-#include "net/dns/host_resolver_proc.h"
 #include "net/dns/httpssvc_metrics.h"
 #include "net/dns/public/dns_config_overrides.h"
 #include "net/dns/public/dns_query_type.h"
@@ -52,7 +52,6 @@ class TickClock;
 
 namespace net {
 
-class AddressList;
 class DnsClient;
 class DnsProbeRunner;
 class IPAddress;
@@ -68,10 +67,11 @@ class NetLog;
 //
 // For each hostname that is requested, HostResolver creates a
 // HostResolverManager::Job. When this job gets dispatched it creates a task
-// (ProcTask for the system resolver or DnsTask for the async resolver) which
-// resolves the hostname. If requests for that same host are made during the
-// job's lifetime, they are attached to the existing job rather than creating a
-// new one. This avoids doing parallel resolves for the same host.
+// (HostResolverSystemTask for the system resolver or DnsTask for the async
+// resolver) which resolves the hostname. If requests for that same host are
+// made during the job's lifetime, they are attached to the existing job rather
+// than creating a new one. This avoids doing parallel resolves for the same
+// host.
 //
 // The way these classes fit together is illustrated by:
 //
@@ -101,6 +101,7 @@ class NET_EXPORT HostResolverManager
  public:
   using MdnsListener = HostResolver::MdnsListener;
   using ResolveHostParameters = HostResolver::ResolveHostParameters;
+  using PassKey = base::PassKey<HostResolverManager>;
 
   // Creates a HostResolver as specified by |options|. Blocking tasks are run in
   // ThreadPool.
@@ -126,6 +127,17 @@ class NET_EXPORT HostResolverManager
   // be called.
   ~HostResolverManager() override;
 
+  // Same as constructor above, but binds the HostResolverManager to
+  // `target_network`: all DNS requests will be performed for `target_network`
+  // only, requests will fail if `target_network` disconnects. Only
+  // HostResolvers bound to the same network will be able to use this.
+  // Only implemented for Android.
+  static std::unique_ptr<HostResolverManager>
+  CreateNetworkBoundHostResolverManager(
+      const HostResolver::ManagerOptions& options,
+      handles::NetworkHandle target_network,
+      NetLog* net_log);
+
   // |resolve_context| must have already been added (via
   // RegisterResolveContext()). If |optional_parameters| specifies any cache
   // usage other than LOCAL_ONLY, there must be a 1:1 correspondence between
@@ -136,7 +148,14 @@ class NET_EXPORT HostResolverManager
   // instead of passing it separately.
   std::unique_ptr<HostResolver::ResolveHostRequest> CreateRequest(
       absl::variant<url::SchemeHostPort, HostPortPair> host,
-      NetworkIsolationKey network_isolation_key,
+      NetworkAnonymizationKey network_anonymization_key,
+      NetLogWithSource net_log,
+      absl::optional<ResolveHostParameters> optional_parameters,
+      ResolveContext* resolve_context,
+      HostCache* host_cache);
+  std::unique_ptr<HostResolver::ResolveHostRequest> CreateRequest(
+      HostResolver::Host host,
+      NetworkAnonymizationKey network_anonymization_key,
       NetLogWithSource net_log,
       absl::optional<ResolveHostParameters> optional_parameters,
       ResolveContext* resolve_context,
@@ -151,9 +170,9 @@ class NET_EXPORT HostResolverManager
   // Enables or disables the built-in asynchronous DnsClient. If enabled, by
   // default (when no |ResolveHostParameters::source| is specified), the
   // DnsClient will be used for resolves and, in case of failure, resolution
-  // will fallback to the system resolver (HostResolverProc from
-  // ProcTaskParams). If the DnsClient is not pre-configured with a valid
-  // DnsConfig, a new config is fetched from NetworkChangeNotifier.
+  // will fallback to the system resolver (in tests, HostResolverProc from
+  // HostResolverSystemTask::Params). If the DnsClient is not pre-configured
+  // with a valid DnsConfig, a new config is fetched from NetworkChangeNotifier.
   //
   // Setting to |true| has no effect if |ENABLE_BUILT_IN_DNS| not defined.
   virtual void SetInsecureDnsClientEnabled(bool enabled,
@@ -179,8 +198,9 @@ class NET_EXPORT HostResolverManager
   void RegisterResolveContext(ResolveContext* context);
   void DeregisterResolveContext(const ResolveContext* context);
 
-  void set_proc_params_for_test(const ProcTaskParams& proc_params) {
-    proc_params_ = proc_params;
+  void set_host_resolver_system_params_for_test(
+      const HostResolverSystemTask::Params& host_resolver_system_params) {
+    host_resolver_system_params_ = host_resolver_system_params;
   }
 
   void InvalidateCachesForTesting() { InvalidateCaches(); }
@@ -203,6 +223,12 @@ class NET_EXPORT HostResolverManager
   // setting DnsConfig.
   void SetDnsClientForTesting(std::unique_ptr<DnsClient> dns_client);
 
+  // Explicitly disable the system resolver even if tests have set a catch-all
+  // DNS block. See `ForceSystemResolverDueToTestOverride`.
+  void DisableSystemResolverForTesting() {
+    system_resolver_disabled_for_testing_ = true;
+  }
+
   // Sets the last IPv6 probe result for testing. Uses the standard timeout
   // duration, so it's up to the test fixture to ensure it doesn't expire by
   // mocking time, if expiration would pose a problem.
@@ -219,19 +245,30 @@ class NET_EXPORT HostResolverManager
 
   bool check_ipv6_on_wifi_for_testing() const { return check_ipv6_on_wifi_; }
 
+  handles::NetworkHandle target_network_for_testing() const {
+    return target_network_;
+  }
+
+  const HostResolver::HttpsSvcbOptions& https_svcb_options_for_testing() const {
+    return https_svcb_options_;
+  }
+
+  // Public to be called from std::make_unique. Not to be called directly.
+  HostResolverManager(base::PassKey<HostResolverManager>,
+                      const HostResolver::ManagerOptions& options,
+                      SystemDnsConfigChangeNotifier* system_dns_config_notifier,
+                      handles::NetworkHandle target_network,
+                      NetLog* net_log);
+
  protected:
   // Callback from HaveOnlyLoopbackAddresses probe.
   void SetHaveOnlyLoopbackAddresses(bool result);
-
-  // Sets the task runner used for HostResolverProc tasks.
-  void SetTaskRunnerForTesting(scoped_refptr<base::TaskRunner> task_runner);
 
  private:
   friend class HostResolverManagerTest;
   friend class HostResolverManagerDnsTest;
   class Job;
   struct JobKey;
-  class ProcTask;
   class LoopbackProbeJob;
   class DnsTask;
   class RequestImpl;
@@ -239,15 +276,21 @@ class NET_EXPORT HostResolverManager
   using JobMap = std::map<JobKey, std::unique_ptr<Job>>;
 
   // Task types that a Job might run.
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused
   enum class TaskType {
-    PROC,
-    DNS,
-    SECURE_DNS,
-    MDNS,
-    CACHE_LOOKUP,
-    INSECURE_CACHE_LOOKUP,
-    SECURE_CACHE_LOOKUP,
-    CONFIG_PRESET,
+    SYSTEM = 0,
+    DNS = 1,
+    SECURE_DNS = 2,
+    MDNS = 3,
+    CACHE_LOOKUP = 4,
+    INSECURE_CACHE_LOOKUP = 5,
+    SECURE_CACHE_LOOKUP = 6,
+    CONFIG_PRESET = 7,
+    NAT64 = 8,
+    HOSTS = 9,
+
+    kMaxValue = HOSTS,
   };
 
   // Returns true if the task is local, synchronous, and instantaneous.
@@ -277,7 +320,8 @@ class NET_EXPORT HostResolverManager
       const IPAddress& ip_address,
       ResolveHostParameters::CacheUsage cache_usage,
       SecureDnsPolicy secure_dns_policy,
-      const NetLogWithSource& request_net_log,
+      HostResolverSource source,
+      const NetLogWithSource& source_net_log,
       HostCache* cache,
       std::deque<TaskType>* out_tasks,
       absl::optional<HostCache::EntryStaleness>* out_stale_info);
@@ -343,14 +387,15 @@ class NET_EXPORT HostResolverManager
   // global DnsConfig mode and any per-request policy.
   SecureDnsMode GetEffectiveSecureDnsMode(SecureDnsPolicy secure_dns_policy);
 
-  // Returns true if a catch-all DNS block has been set for unit tests. No
-  // DnsTasks should be issued in this case.
-  bool HaveTestProcOverride();
+  // Returns true when a catch-all DNS block has been set for tests, unless
+  // `SetDisableSystemResolverForTesting` has been called to explicitly disable
+  // that safety net. DnsTasks should never be issued when this returns true.
+  bool ShouldForceSystemResolverDueToTestOverride() const;
 
   // Helper method to add DnsTasks and related tasks based on the SecureDnsMode
   // and fallback parameters. If |prioritize_local_lookups| is true, then we
   // may push an insecure cache lookup ahead of a secure DnsTask.
-  void PushDnsTasks(bool proc_task_allowed,
+  void PushDnsTasks(bool system_task_allowed,
                     SecureDnsMode secure_dns_mode,
                     bool insecure_tasks_allowed,
                     bool allow_cache,
@@ -405,17 +450,18 @@ class NET_EXPORT HostResolverManager
   // Removes Jobs for this context.
   void RemoveAllJobs(const ResolveContext* context);
 
-  // Aborts both scheduled and running jobs with ERR_NETWORK_CHANGED and
-  // notifies their requests. Aborts only running jobs if |in_progress_only| is
-  // true. Might start new jobs.
-  void AbortAllJobs(bool in_progress_only);
+  // Aborts all jobs (both scheduled and running) which are not targeting a
+  // specific network with ERR_NETWORK_CHANGED and notifies their requests.
+  // Aborts only running jobs if `in_progress_only` is true. Might start new
+  // jobs.
+  void AbortJobsWithoutTargetNetwork(bool in_progress_only);
 
   // Aborts all in progress insecure DnsTasks. In-progress jobs will fall back
-  // to ProcTasks if able and otherwise abort with |error|. Might start new
-  // jobs, if any jobs were taking up two dispatcher slots.
+  // to HostResolverSystemTasks if able and otherwise abort with |error|. Might
+  // start new jobs, if any jobs were taking up two dispatcher slots.
   //
   // If |fallback_only|, insecure DnsTasks will only abort if they can fallback
-  // to ProcTask.
+  // to HostResolverSystemTasks.
   void AbortInsecureDnsTasks(int error, bool fallback_only);
 
   // Attempts to serve each Job in |jobs_| from the HOSTS file if we have
@@ -434,8 +480,8 @@ class NET_EXPORT HostResolverManager
 
   void UpdateJobsForChangedConfig();
 
-  // Called on successful resolve after falling back to ProcTask after a failed
-  // DnsTask resolve.
+  // Called on successful resolve after falling back to HostResolverSystemTask
+  // after a failed DnsTask resolve.
   void OnFallbackResolve(int dns_task_error);
 
   int GetOrCreateMdnsClient(MDnsClient** out_client);
@@ -443,6 +489,12 @@ class NET_EXPORT HostResolverManager
   // |network_change| indicates whether or not the invalidation was triggered
   // by a network connection change.
   void InvalidateCaches(bool network_change = false);
+
+  void UpdateConnectionType(NetworkChangeNotifier::ConnectionType type);
+
+  bool IsBoundToNetwork() const {
+    return target_network_ != handles::kInvalidNetworkHandle;
+  }
 
   // Returns |nullptr| if DoH probes are currently not allowed (due to
   // configuration or current connection state).
@@ -461,10 +513,10 @@ class NET_EXPORT HostResolverManager
   std::unique_ptr<PrioritizedDispatcher> dispatcher_;
 
   // Limit on the maximum number of jobs queued in |dispatcher_|.
-  size_t max_queued_jobs_;
+  size_t max_queued_jobs_ = 0;
 
-  // Parameters for ProcTask.
-  ProcTaskParams proc_params_;
+  // Parameters for HostResolverSystemTask.
+  HostResolverSystemTask::Params host_resolver_system_params_;
 
   raw_ptr<NetLog> net_log_;
 
@@ -473,35 +525,36 @@ class NET_EXPORT HostResolverManager
 
   raw_ptr<SystemDnsConfigChangeNotifier> system_dns_config_notifier_;
 
+  handles::NetworkHandle target_network_;
+
   // False if IPv6 should not be attempted and assumed unreachable when on a
   // WiFi connection. See https://crbug.com/696569 for further context.
   bool check_ipv6_on_wifi_;
 
   base::TimeTicks last_ipv6_probe_time_;
-  bool last_ipv6_probe_result_;
+  bool last_ipv6_probe_result_ = true;
 
   // Any resolver flags that should be added to a request by default.
-  HostResolverFlags additional_resolver_flags_;
+  HostResolverFlags additional_resolver_flags_ = 0;
 
-  // Allow fallback to ProcTask if DnsTask fails.
-  bool allow_fallback_to_proctask_;
-
-  // Task runner used for DNS lookups using the system resolver. Normally a
-  // ThreadPool task runner, but can be overridden for tests.
-  scoped_refptr<base::TaskRunner> proc_task_runner_;
+  // Allow fallback to HostResolverSystemTask if DnsTask fails.
+  bool allow_fallback_to_systemtask_ = true;
 
   // Shared tick clock, overridden for testing.
   raw_ptr<const base::TickClock> tick_clock_;
+
+  // When true, ignore the catch-all DNS block if it exists.
+  bool system_resolver_disabled_for_testing_ = false;
 
   // For per-context cache invalidation notifications.
   base::ObserverList<ResolveContext,
                      true /* check_empty */,
                      false /* allow_reentrancy */>
       registered_contexts_;
-  bool invalidation_in_progress_;
+  bool invalidation_in_progress_ = false;
 
-  // Helper for metrics associated with `features::kDnsHttpssvc`.
-  HttpssvcExperimentDomainCache httpssvc_domain_cache_;
+  // An experimental flag for features::kUseDnsHttpsSvcb.
+  HostResolver::HttpsSvcbOptions https_svcb_options_;
 
   THREAD_CHECKER(thread_checker_);
 
@@ -516,8 +569,9 @@ class NET_EXPORT HostResolverManager
 // This function is only exposed so it can be unit-tested.
 // TODO(tfarina): It would be better to change the tests so this function
 // gets exercised indirectly through HostResolverManager.
-NET_EXPORT_PRIVATE bool ResolveLocalHostname(base::StringPiece host,
-                                             AddressList* address_list);
+NET_EXPORT_PRIVATE bool ResolveLocalHostname(
+    base::StringPiece host,
+    std::vector<IPEndPoint>* address_list);
 
 }  // namespace net
 

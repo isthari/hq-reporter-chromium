@@ -11,11 +11,13 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method constructor
 [Worker] interface AbortSignal : EventTarget
 [Worker]     static method abort
+[Worker]     static method timeout
 [Worker]     attribute @@toStringTag
 [Worker]     getter aborted
 [Worker]     getter onabort
 [Worker]     getter reason
 [Worker]     method constructor
+[Worker]     method throwIfAborted
 [Worker]     setter onabort
 [Worker] interface BackgroundFetchManager
 [Worker]     attribute @@toStringTag
@@ -68,6 +70,21 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     getter highWaterMark
 [Worker]     getter size
 [Worker]     method constructor
+[Worker] interface CSPViolationReportBody : ReportBody
+[Worker]     attribute @@toStringTag
+[Worker]     getter blockedURL
+[Worker]     getter columnNumber
+[Worker]     getter disposition
+[Worker]     getter documentURL
+[Worker]     getter effectiveDirective
+[Worker]     getter lineNumber
+[Worker]     getter originalPolicy
+[Worker]     getter referrer
+[Worker]     getter sample
+[Worker]     getter sourceFile
+[Worker]     getter statusCode
+[Worker]     method constructor
+[Worker]     method toJSON
 [Worker] interface CSSSkewX : CSSTransformComponent
 [Worker]     attribute @@toStringTag
 [Worker]     getter ax
@@ -118,10 +135,25 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     getter readable
 [Worker]     getter writable
 [Worker]     method constructor
+[Worker] interface CoopAccessViolationReportBody : ReportBody
+[Worker]     attribute @@toStringTag
+[Worker]     getter columnNumber
+[Worker]     getter lineNumber
+[Worker]     getter openeeURL
+[Worker]     getter openerURL
+[Worker]     getter otherDocumentURL
+[Worker]     getter property
+[Worker]     getter sourceFile
+[Worker]     getter type
+[Worker]     method constructor
+[Worker]     method toJSON
 [Worker] interface CountQueuingStrategy
 [Worker]     attribute @@toStringTag
 [Worker]     getter highWaterMark
 [Worker]     getter size
+[Worker]     method constructor
+[Worker] interface CropTarget
+[Worker]     attribute @@toStringTag
 [Worker]     method constructor
 [Worker] interface Crypto
 [Worker]     attribute @@toStringTag
@@ -345,6 +377,26 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     getter readable
 [Worker]     getter writable
 [Worker]     method constructor
+[Worker] interface DeprecationReportBody : ReportBody
+[Worker]     attribute @@toStringTag
+[Worker]     getter anticipatedRemoval
+[Worker]     getter columnNumber
+[Worker]     getter id
+[Worker]     getter lineNumber
+[Worker]     getter message
+[Worker]     getter sourceFile
+[Worker]     method constructor
+[Worker]     method toJSON
+[Worker] interface DocumentPolicyViolationReportBody : ReportBody
+[Worker]     attribute @@toStringTag
+[Worker]     getter columnNumber
+[Worker]     getter disposition
+[Worker]     getter featureId
+[Worker]     getter lineNumber
+[Worker]     getter message
+[Worker]     getter sourceFile
+[Worker]     method constructor
+[Worker]     method toJSON
 [Worker] interface ErrorEvent : Event
 [Worker]     attribute @@toStringTag
 [Worker]     getter colno
@@ -366,7 +418,6 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     getter currentTarget
 [Worker]     getter defaultPrevented
 [Worker]     getter eventPhase
-[Worker]     getter path
 [Worker]     getter returnValue
 [Worker]     getter srcElement
 [Worker]     getter target
@@ -464,6 +515,7 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method constructor
 [Worker]     method createWritable
 [Worker]     method getFile
+[Worker]     method move
 [Worker] interface FileSystemHandle
 [Worker]     attribute @@toStringTag
 [Worker]     getter kind
@@ -689,6 +741,15 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     getter height
 [Worker]     getter width
 [Worker]     method constructor
+[Worker] interface InterventionReportBody : ReportBody
+[Worker]     attribute @@toStringTag
+[Worker]     getter columnNumber
+[Worker]     getter id
+[Worker]     getter lineNumber
+[Worker]     getter message
+[Worker]     getter sourceFile
+[Worker]     method constructor
+[Worker]     method toJSON
 [Worker] interface Lock
 [Worker]     attribute @@toStringTag
 [Worker]     getter mode
@@ -703,6 +764,7 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     attribute @@toStringTag
 [Worker]     method constructor
 [Worker]     method decodingInfo
+[Worker]     method encodingInfo
 [Worker] interface MessageChannel
 [Worker]     attribute @@toStringTag
 [Worker]     getter port1
@@ -975,9 +1037,11 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     getter nextHopProtocol
 [Worker]     getter redirectEnd
 [Worker]     getter redirectStart
+[Worker]     getter renderBlockingStatus
 [Worker]     getter requestStart
 [Worker]     getter responseEnd
 [Worker]     getter responseStart
+[Worker]     getter responseStatus
 [Worker]     getter secureConnectionStart
 [Worker]     getter serverTiming
 [Worker]     getter transferSize
@@ -1084,6 +1148,17 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method constructor
 [Worker]     method read
 [Worker]     method releaseLock
+[Worker] interface Report
+[Worker]     attribute @@toStringTag
+[Worker]     getter body
+[Worker]     getter type
+[Worker]     getter url
+[Worker]     method constructor
+[Worker]     method toJSON
+[Worker] interface ReportBody
+[Worker]     attribute @@toStringTag
+[Worker]     method constructor
+[Worker]     method toJSON
 [Worker] interface ReportingObserver
 [Worker]     attribute @@toStringTag
 [Worker]     method constructor
@@ -1092,6 +1167,7 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method takeRecords
 [Worker] interface Request
 [Worker]     attribute @@toStringTag
+[Worker]     getter body
 [Worker]     getter bodyUsed
 [Worker]     getter cache
 [Worker]     getter credentials
@@ -1260,6 +1336,13 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     getter readable
 [Worker]     getter writable
 [Worker]     method constructor
+[Worker] interface TransformStreamDefaultController
+[Worker]     attribute @@toStringTag
+[Worker]     getter desiredSize
+[Worker]     method constructor
+[Worker]     method enqueue
+[Worker]     method error
+[Worker]     method terminate
 [Worker] interface TrustedHTML
 [Worker]     attribute @@toStringTag
 [Worker]     method constructor
@@ -1920,8 +2003,10 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     attribute WAIT_FAILED
 [Worker]     attribute ZERO
 [Worker]     getter canvas
+[Worker]     getter drawingBufferColorSpace
 [Worker]     getter drawingBufferHeight
 [Worker]     getter drawingBufferWidth
+[Worker]     getter unpackColorSpace
 [Worker]     method activeTexture
 [Worker]     method attachShader
 [Worker]     method beginQuery
@@ -2148,6 +2233,8 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method vertexAttribPointer
 [Worker]     method viewport
 [Worker]     method waitSync
+[Worker]     setter drawingBufferColorSpace
+[Worker]     setter unpackColorSpace
 [Worker] interface WebGLActiveInfo
 [Worker]     attribute @@toStringTag
 [Worker]     getter name
@@ -2468,8 +2555,10 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     attribute VIEWPORT
 [Worker]     attribute ZERO
 [Worker]     getter canvas
+[Worker]     getter drawingBufferColorSpace
 [Worker]     getter drawingBufferHeight
 [Worker]     getter drawingBufferWidth
+[Worker]     getter unpackColorSpace
 [Worker]     method activeTexture
 [Worker]     method attachShader
 [Worker]     method bindAttribLocation
@@ -2608,6 +2697,8 @@ Starting worker: resources/global-interface-listing-worker.js
 [Worker]     method vertexAttrib4fv
 [Worker]     method vertexAttribPointer
 [Worker]     method viewport
+[Worker]     setter drawingBufferColorSpace
+[Worker]     setter unpackColorSpace
 [Worker] interface WebGLSampler
 [Worker]     attribute @@toStringTag
 [Worker]     method constructor

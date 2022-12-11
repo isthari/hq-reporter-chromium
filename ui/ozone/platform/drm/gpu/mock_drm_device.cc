@@ -1,17 +1,15 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/ozone/platform/drm/gpu/mock_drm_device.h"
 
-#include <xf86drm.h>
-#include <memory>
 #include <utility>
 
 #include "base/check.h"
 #include "base/containers/contains.h"
-#include "base/containers/flat_map.h"
 #include "base/logging.h"
+#include "base/ranges/algorithm.h"
 #include "skia/ext/legacy_display_globals.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -24,6 +22,7 @@ struct drmModeAtomicReqItem {
   uint32_t object_id;
   uint32_t property_id;
   uint64_t value;
+  uint32_t cursor;
 };
 
 typedef drmModeAtomicReqItem* drmModeAtomicReqItemPtr;
@@ -35,7 +34,6 @@ struct _drmModeAtomicReq {
 };
 
 namespace ui {
-
 namespace {
 
 constexpr uint32_t kTestModesetFlags =
@@ -43,10 +41,10 @@ constexpr uint32_t kTestModesetFlags =
 
 constexpr uint32_t kCommitModesetFlags = DRM_MODE_ATOMIC_ALLOW_MODESET;
 
-template <class Object>
-Object* DrmAllocator() {
-  return static_cast<Object*>(drmMalloc(sizeof(Object)));
-}
+// Seamless modeset is defined by the lack of DRM_MODE_ATOMIC_ALLOW_MODESET.
+// This also happens to be the same set of flags as would be used for a
+// pageflip, or other atomic property changes that do not require modesetting.
+constexpr uint32_t kSeamlessModesetFlags = 0;
 
 ScopedDrmObjectPropertyPtr CreatePropertyObject(
     const std::vector<DrmDevice::Property>& properties) {
@@ -67,8 +65,7 @@ ScopedDrmObjectPropertyPtr CreatePropertyObject(
 
 template <class Type>
 Type* FindObjectById(uint32_t id, std::vector<Type>& properties) {
-  auto it = std::find_if(properties.begin(), properties.end(),
-                         [id](const Type& p) { return p.id == id; });
+  auto it = base::ranges::find(properties, id, &Type::id);
   return it != properties.end() ? &(*it) : nullptr;
 }
 
@@ -188,10 +185,10 @@ void MockDrmDevice::UpdateState(
   plane_crtc_id_prop_id_ = 0;
   for (const PlaneProperties& plane_props : plane_properties) {
     const std::vector<DrmDevice::Property>& props = plane_props.properties;
-    auto it = std::find_if(
-        props.begin(), props.end(),
+    auto it = base::ranges::find(
+        props, "CRTC_ID",
         [&names = property_names_](const DrmDevice::Property& prop) {
-          return names.at(prop.id) == "CRTC_ID";
+          return names.at(prop.id);
         });
     if (it != props.end()) {
       plane_crtc_id_prop_id_ = it->id;
@@ -476,12 +473,20 @@ bool MockDrmDevice::CommitPropertiesInternal(
     uint32_t crtc_count,
     scoped_refptr<PageFlipRequest> page_flip_request) {
   commit_count_++;
-  if (flags == kTestModesetFlags)
-    ++test_modeset_count_;
-  else if (flags == kCommitModesetFlags)
-    ++commit_modeset_count_;
+  const bool test_only = flags & DRM_MODE_ATOMIC_TEST_ONLY;
+  switch (flags) {
+    case kTestModesetFlags:
+      ++test_modeset_count_;
+      break;
+    case kCommitModesetFlags:
+      ++commit_modeset_count_;
+      break;
+    case kSeamlessModesetFlags:
+      ++seamless_modeset_count_;
+      break;
+  }
 
-  if ((flags & kCommitModesetFlags && !set_crtc_expectation_) ||
+  if ((!test_only && !set_crtc_expectation_) ||
       (flags & DRM_MODE_ATOMIC_NONBLOCK && !commit_expectation_)) {
     return false;
   }
@@ -515,7 +520,7 @@ bool MockDrmDevice::CommitPropertiesInternal(
   if (page_flip_request)
     callbacks_.push(page_flip_request->AddPageFlip());
 
-  if (flags & DRM_MODE_ATOMIC_TEST_ONLY)
+  if (test_only)
     return true;
 
   // Only update values if not testing.
@@ -541,6 +546,14 @@ bool MockDrmDevice::SetGammaRamp(
     const std::vector<display::GammaRampRGBEntry>& lut) {
   set_gamma_ramp_count_++;
   return legacy_gamma_ramp_expectation_;
+}
+
+absl::optional<std::string> MockDrmDevice::GetDriverName() const {
+  return driver_name_;
+}
+
+void MockDrmDevice::SetDriverName(absl::optional<std::string> name) {
+  driver_name_ = name;
 }
 
 bool MockDrmDevice::SetCapability(uint64_t capability, uint64_t value) {

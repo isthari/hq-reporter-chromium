@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,12 @@
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/test/property_tree_test_utils.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
 #include "third_party/blink/renderer/core/dom/events/add_event_listener_options_resolved.h"
 #include "third_party/blink/renderer/core/dom/events/native_event_listener.h"
@@ -61,6 +63,10 @@ class WebFrameWidgetSimTest : public SimTest {};
 // WebFrameWidgetImpl requests a new viz::LocalSurfaceId to be allocated on the
 // impl thread.
 TEST_F(WebFrameWidgetSimTest, AutoResizeAllocatedLocalSurfaceId) {
+  LoadURL("about:blank");
+  // Resets CommitState::new_local_surface_id_request.
+  Compositor().BeginFrame();
+
   viz::ParentLocalSurfaceIdAllocator allocator;
 
   // Enable auto-resize.
@@ -273,12 +279,14 @@ class WebFrameWidgetImplSimTest : public SimTest {
       bool never_composited,
       bool is_for_child_local_root,
       bool is_for_nested_main_frame,
+      bool is_for_scalable_page,
       SimCompositor* compositor) override {
     return MakeGarbageCollected<MockWebFrameWidgetImpl>(
         compositor, pass_key, std::move(frame_widget_host),
         std::move(frame_widget), std::move(widget_host), std::move(widget),
         std::move(task_runner), frame_sink_id, hidden, never_composited,
-        is_for_child_local_root, is_for_nested_main_frame);
+        is_for_child_local_root, is_for_nested_main_frame,
+        is_for_scalable_page);
   }
 
   MockWebFrameWidgetImpl* MockMainFrameWidget() {
@@ -486,7 +494,7 @@ class NotifySwapTimesWebFrameWidgetTest : public SimTest {
     color_layer->SetBounds(gfx::Size(100, 100));
     cc::CopyProperties(root_layer, color_layer.get());
     root_layer->SetChildLayerList(cc::LayerList({color_layer}));
-    color_layer->SetBackgroundColor(SK_ColorRED);
+    color_layer->SetBackgroundColor(SkColors::kRed);
   }
 
   WebFrameWidgetImpl* FrameWidgetBase() {
@@ -504,21 +512,21 @@ class NotifySwapTimesWebFrameWidgetTest : public SimTest {
     base::TimeTicks swap_time;
     static_cast<WebFrameWidgetImpl*>(MainFrame().FrameWidget())
         ->NotifySwapAndPresentationTimeForTesting(
-            base::BindOnce(
-                [](base::OnceClosure swap_quit_closure,
-                   base::TimeTicks* swap_time, base::TimeTicks timestamp) {
-                  DCHECK(!timestamp.is_null());
-                  *swap_time = timestamp;
-                  std::move(swap_quit_closure).Run();
-                },
-                swap_run_loop.QuitClosure(), &swap_time),
-            base::BindOnce(
-                [](base::OnceClosure presentation_quit_closure,
-                   base::TimeTicks timestamp) {
-                  DCHECK(!timestamp.is_null());
-                  std::move(presentation_quit_closure).Run();
-                },
-                presentation_run_loop.QuitClosure()));
+            {base::BindOnce(
+                 [](base::OnceClosure swap_quit_closure,
+                    base::TimeTicks* swap_time, base::TimeTicks timestamp) {
+                   DCHECK(!timestamp.is_null());
+                   *swap_time = timestamp;
+                   std::move(swap_quit_closure).Run();
+                 },
+                 swap_run_loop.QuitClosure(), &swap_time),
+             base::BindOnce(
+                 [](base::OnceClosure presentation_quit_closure,
+                    base::TimeTicks timestamp) {
+                   DCHECK(!timestamp.is_null());
+                   std::move(presentation_quit_closure).Run();
+                 },
+                 presentation_run_loop.QuitClosure())});
 
     // Composite and wait for the swap to complete.
     Compositor().BeginFrame(/*time_delta_in_seconds=*/0.016, /*raster=*/true);
@@ -593,35 +601,52 @@ TEST_F(NotifySwapTimesWebFrameWidgetTest, NotifyOnSuccessfulPresentation) {
   base::TimeTicks failed_presentation_time;
   base::TimeTicks successful_presentation_time;
 
+  WebFrameWidgetImpl::PromiseCallbacks callbacks = {
+      base::BindLambdaForTesting([&](base::TimeTicks timestamp) {
+        DCHECK(!timestamp.is_null());
+
+        // Now that the swap time is known, we can determine what
+        // timestamps should we use for the failed and the subsequent
+        // successful presentations.
+        DCHECK(failed_presentation_time.is_null());
+        failed_presentation_time = timestamp + swap_to_failed;
+        DCHECK(successful_presentation_time.is_null());
+        successful_presentation_time =
+            failed_presentation_time + failed_to_successful;
+
+        swap_run_loop.Quit();
+      }),
+      base::BindLambdaForTesting([&](base::TimeTicks timestamp) {
+        DCHECK(!timestamp.is_null());
+        DCHECK(!failed_presentation_time.is_null());
+        DCHECK(!successful_presentation_time.is_null());
+
+        // Verify that this callback is run in response to the
+        // successful presentation, not the failed one before that.
+        EXPECT_NE(timestamp, failed_presentation_time);
+        EXPECT_EQ(timestamp, successful_presentation_time);
+
+        presentation_run_loop.Quit();
+      })};
+
+#if BUILDFLAG(IS_MAC)
+  // Assign a ca_layer error code.
+  constexpr gfx::CALayerResult ca_layer_error_code =
+      gfx::kCALayerFailedTileNotCandidate;
+
+  callbacks.core_animation_error_code_callback = base::BindLambdaForTesting(
+      [&](gfx::CALayerResult core_animation_error_code) {
+        // Verify that the error code received here is the same as the
+        // one sent to DidPresentCompositorFrame.
+        EXPECT_EQ(ca_layer_error_code, core_animation_error_code);
+
+        presentation_run_loop.Quit();
+      });
+#endif
+
   // Register callbacks for swap and presentation times.
   static_cast<WebFrameWidgetImpl*>(MainFrame().FrameWidget())
-      ->NotifySwapAndPresentationTimeForTesting(
-          base::BindLambdaForTesting([&](base::TimeTicks timestamp) {
-            DCHECK(!timestamp.is_null());
-
-            // Now that the swap time is known, we can determine what timestamps
-            // should we use for the failed and the subsequent successful
-            // presentations.
-            DCHECK(failed_presentation_time.is_null());
-            failed_presentation_time = timestamp + swap_to_failed;
-            DCHECK(successful_presentation_time.is_null());
-            successful_presentation_time =
-                failed_presentation_time + failed_to_successful;
-
-            swap_run_loop.Quit();
-          }),
-          base::BindLambdaForTesting([&](base::TimeTicks timestamp) {
-            DCHECK(!timestamp.is_null());
-            DCHECK(!failed_presentation_time.is_null());
-            DCHECK(!successful_presentation_time.is_null());
-
-            // Verify that this callback is run in response to the
-            // successful presentation, not the failed one before that.
-            EXPECT_NE(timestamp, failed_presentation_time);
-            EXPECT_EQ(timestamp, successful_presentation_time);
-
-            presentation_run_loop.Quit();
-          }));
+      ->NotifySwapAndPresentationTimeForTesting(std::move(callbacks));
 
   // Composite and wait for the swap to complete.
   Compositor().BeginFrame(/*time_delta_in_seconds=*/0.016, /*raster=*/true);
@@ -641,6 +666,10 @@ TEST_F(NotifySwapTimesWebFrameWidgetTest, NotifyOnSuccessfulPresentation) {
   viz::FrameTimingDetails successful_timing_details;
   successful_timing_details.presentation_feedback = gfx::PresentationFeedback(
       successful_presentation_time, base::Milliseconds(16), 0);
+#if BUILDFLAG(IS_MAC)
+  successful_timing_details.presentation_feedback.ca_layer_error_code =
+      ca_layer_error_code;
+#endif
   GetWebFrameWidget().LastCreatedFrameSink()->NotifyDidPresentCompositorFrame(
       2, successful_timing_details);
 
@@ -653,6 +682,75 @@ TEST_F(NotifySwapTimesWebFrameWidgetTest, NotifyOnSuccessfulPresentation) {
               testing::ElementsAre(base::Bucket(true, 1)));
   const auto expected_sample = static_cast<base::HistogramBase::Sample>(
       (swap_to_failed + failed_to_successful).InMilliseconds());
+  EXPECT_THAT(
+      histograms.GetAllSamples(
+          "PageLoad.Internal.Renderer.PresentationTime.DeltaFromSwapTime"),
+      testing::ElementsAre(base::Bucket(expected_sample, 1)));
+}
+
+// Tests that the presentation callback is only triggered if there’s
+// a successful commit to the compositor.
+TEST_F(NotifySwapTimesWebFrameWidgetTest,
+       ReportPresentationOnlyOnSuccessfulCommit) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(features::kReportFCPOnlyOnSuccessfulCommit);
+
+  base::HistogramTester histograms;
+  constexpr base::TimeDelta delta = base::Milliseconds(16);
+  constexpr base::TimeDelta delta_from_swap_time = base::Microseconds(2);
+
+  base::RunLoop swap_run_loop;
+  base::RunLoop presentation_run_loop;
+  base::TimeTicks presentation_time;
+
+  // Register callbacks for swap and presentation times.
+  static_cast<WebFrameWidgetImpl*>(MainFrame().FrameWidget())
+      ->NotifySwapAndPresentationTimeForTesting(
+          {base::BindLambdaForTesting([&](base::TimeTicks timestamp) {
+             DCHECK(!timestamp.is_null());
+             DCHECK(presentation_time.is_null());
+
+             // Set the expected presentation time after the swap takes place.
+             presentation_time = timestamp + delta_from_swap_time;
+             swap_run_loop.Quit();
+           }),
+           base::BindLambdaForTesting([&](base::TimeTicks timestamp) {
+             DCHECK(!timestamp.is_null());
+             DCHECK(!presentation_time.is_null());
+
+             // Verify that the presentation is only reported on the successful
+             // commit to the compositor.
+             EXPECT_EQ(timestamp, presentation_time);
+             presentation_run_loop.Quit();
+           })});
+
+  // Simulate a failed commit to the compositor, which should not trigger either
+  // a swap or a presentation callback in response.
+  auto* layer_tree_host = Compositor().LayerTreeHost();
+  layer_tree_host->GetSwapPromiseManager()->BreakSwapPromises(
+      cc::SwapPromise::DidNotSwapReason::COMMIT_FAILS);
+
+  // Check that a swap callback wasn't triggered for the above failed commit.
+  EXPECT_TRUE(presentation_time.is_null());
+
+  // Composite and wait for the swap to complete successfully.
+  Compositor().BeginFrame(delta.InSecondsF(), true);
+  swap_run_loop.Run();
+
+  // Make sure that the swap is completed successfully.
+  EXPECT_FALSE(presentation_time.is_null());
+
+  // Respond with a presentation feedback.
+  viz::FrameTimingDetails frame_timing_details;
+  frame_timing_details.presentation_feedback =
+      gfx::PresentationFeedback(presentation_time, delta, 0);
+  GetWebFrameWidget().LastCreatedFrameSink()->NotifyDidPresentCompositorFrame(
+      1, frame_timing_details);
+
+  // Wait for the presentation callback to be called.
+  presentation_run_loop.Run();
+  const auto expected_sample = static_cast<base::HistogramBase::Sample>(
+      delta_from_swap_time.InMilliseconds());
   EXPECT_THAT(
       histograms.GetAllSamples(
           "PageLoad.Internal.Renderer.PresentationTime.DeltaFromSwapTime"),
@@ -719,7 +817,7 @@ TEST_F(WebFrameWidgetSimTest, DispatchBufferedTouchEvents) {
   // Expect listener does not get called, due to drag.
   touch.MovePoint(0, 14, 14);
   widget->StartDragging(WebDragData(), kDragOperationCopy, SkBitmap(),
-                        gfx::Point());
+                        gfx::Vector2d(), gfx::Rect());
   widget->ProcessInputEventSynchronouslyForTesting(
       WebCoalescedInputEvent(touch.Clone(), {}, {}, ui::LatencyInfo()),
       base::DoNothing());
@@ -746,7 +844,8 @@ TEST_F(WebFrameWidgetSimTest, PropagateScaleToRemoteFrames) {
     WebFrame* grandchild = WebView().MainFrame()->FirstChild()->FirstChild();
     EXPECT_TRUE(grandchild);
     EXPECT_TRUE(grandchild->IsWebLocalFrame());
-    grandchild->Swap(frame_test_helpers::CreateRemote());
+    frame_test_helpers::SwapRemoteFrame(grandchild,
+                                        frame_test_helpers::CreateRemote());
   }
   auto* widget = WebView().MainFrameViewWidget();
   widget->SetPageScaleStateAndLimits(1.3f, true, 1.0f, 3.0f);
@@ -785,12 +884,14 @@ class EventHandlingWebFrameWidgetSimTest : public SimTest {
       bool never_composited,
       bool is_for_child_local_root,
       bool is_for_nested_main_frame,
+      bool is_for_scalable_page,
       SimCompositor* compositor) override {
     return MakeGarbageCollected<TestWebFrameWidget>(
         compositor, pass_key, std::move(frame_widget_host),
         std::move(frame_widget), std::move(widget_host), std::move(widget),
         std::move(task_runner), frame_sink_id, hidden, never_composited,
-        is_for_child_local_root, is_for_nested_main_frame);
+        is_for_child_local_root, is_for_nested_main_frame,
+        is_for_scalable_page);
   }
 
  protected:
@@ -819,7 +920,8 @@ class EventHandlingWebFrameWidgetSimTest : public SimTest {
       *state_ = State::kResolved;
     }
 
-    DidNotSwapAction DidNotSwap(DidNotSwapReason reason) override {
+    DidNotSwapAction DidNotSwap(DidNotSwapReason reason,
+                                base::TimeTicks) override {
       DCHECK_EQ(State::kPending, *state_);
       *state_ = State::kBroken;
       return DidNotSwapAction::BREAK_PROMISE;
@@ -865,18 +967,14 @@ class EventHandlingWebFrameWidgetSimTest : public SimTest {
     void SendInputEventAndWaitForDispatch(
         std::unique_ptr<WebInputEvent> event) {
       MainThreadEventQueue* input_event_queue =
-          widget_base_for_testing()
-              ->widget_input_handler_manager()
-              ->input_event_queue();
+          GetWidgetInputHandlerManager()->input_event_queue();
       input_event_queue->HandleEvent(
           std::make_unique<WebCoalescedInputEvent>(std::move(event),
                                                    ui::LatencyInfo()),
           MainThreadEventQueue::DispatchType::kNonBlocking,
           mojom::blink::InputEventResultState::kSetNonBlocking,
           WebInputEventAttribution(), nullptr, base::DoNothing());
-      auto* main_task_runner = static_cast<scheduler::FakeTaskRunner*>(
-          input_event_queue->main_task_runner_for_testing());
-      main_task_runner->RunUntilIdle();
+      FlushInputHandlerTasks();
     }
 
     void CompositeAndWaitForPresentation(SimCompositor& compositor) {
@@ -886,21 +984,21 @@ class EventHandlingWebFrameWidgetSimTest : public SimTest {
       // Register callbacks for swap and presentation times.
       base::TimeTicks swap_time;
       NotifySwapAndPresentationTimeForTesting(
-          base::BindOnce(
-              [](base::OnceClosure swap_quit_closure,
-                 base::TimeTicks* swap_time, base::TimeTicks timestamp) {
-                DCHECK(!timestamp.is_null());
-                *swap_time = timestamp;
-                std::move(swap_quit_closure).Run();
-              },
-              swap_run_loop.QuitClosure(), &swap_time),
-          base::BindOnce(
-              [](base::OnceClosure presentation_quit_closure,
-                 base::TimeTicks timestamp) {
-                DCHECK(!timestamp.is_null());
-                std::move(presentation_quit_closure).Run();
-              },
-              presentation_run_loop.QuitClosure()));
+          {base::BindOnce(
+               [](base::OnceClosure swap_quit_closure,
+                  base::TimeTicks* swap_time, base::TimeTicks timestamp) {
+                 DCHECK(!timestamp.is_null());
+                 *swap_time = timestamp;
+                 std::move(swap_quit_closure).Run();
+               },
+               swap_run_loop.QuitClosure(), &swap_time),
+           base::BindOnce(
+               [](base::OnceClosure presentation_quit_closure,
+                  base::TimeTicks timestamp) {
+                 DCHECK(!timestamp.is_null());
+                 std::move(presentation_quit_closure).Run();
+               },
+               presentation_run_loop.QuitClosure())});
 
       // Composite and wait for the swap to complete.
       compositor.BeginFrame(/*time_delta_in_seconds=*/0.016, /*raster=*/true);
@@ -939,7 +1037,9 @@ TEST_F(EventHandlingWebFrameWidgetSimTest, NonRafAlignedEventWithoutUpdate) {
   GetTestWebFrameWidget().set_event_causes_update(false);
 
   GetTestWebFrameWidget().SendInputEventAndWaitForDispatch(
-      std::make_unique<WebKeyboardEvent>());
+      std::make_unique<WebKeyboardEvent>(
+          WebInputEvent::Type::kRawKeyDown, WebInputEvent::kNoModifiers,
+          WebInputEvent::GetStaticTimeStampForTests()));
   EXPECT_EQ(TestSwapPromise::State::kBroken, swap_promise_state);
 }
 
@@ -956,7 +1056,9 @@ TEST_F(EventHandlingWebFrameWidgetSimTest,
   GetTestWebFrameWidget().set_event_causes_update(false);
 
   GetTestWebFrameWidget().SendInputEventAndWaitForDispatch(
-      std::make_unique<WebKeyboardEvent>());
+      std::make_unique<WebKeyboardEvent>(
+          WebInputEvent::Type::kRawKeyDown, WebInputEvent::kNoModifiers,
+          WebInputEvent::GetStaticTimeStampForTests()));
   EXPECT_EQ(TestSwapPromise::State::kPending, swap_promise_state);
 
   GetTestWebFrameWidget().CompositeAndWaitForPresentation(Compositor());
@@ -973,7 +1075,9 @@ TEST_F(EventHandlingWebFrameWidgetSimTest, NonRafAlignedEventWithUpdate) {
   GetTestWebFrameWidget().set_event_causes_update(true);
 
   GetTestWebFrameWidget().SendInputEventAndWaitForDispatch(
-      std::make_unique<WebKeyboardEvent>());
+      std::make_unique<WebKeyboardEvent>(
+          WebInputEvent::Type::kRawKeyDown, WebInputEvent::kNoModifiers,
+          WebInputEvent::GetStaticTimeStampForTests()));
   EXPECT_EQ(TestSwapPromise::State::kPending, swap_promise_state);
 
   GetTestWebFrameWidget().CompositeAndWaitForPresentation(Compositor());

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,7 @@ gfx::Size StaticSizedView::GetMaximumSize() const {
 }
 
 ProportionallySizedView::ProportionallySizedView(int factor)
-    : factor_(factor), preferred_width_(-1) {}
+    : factor_(factor) {}
 
 ProportionallySizedView::~ProportionallySizedView() = default;
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,14 +16,9 @@
 #include "base/check_op.h"
 #include "base/mac/mac_util.h"
 #include "base/memory/memory_pressure_monitor.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 
-// Redeclare for partial 10.9 availability.
-DISPATCH_EXPORT const struct dispatch_source_type_s
-    _dispatch_source_type_memorypressure;
-
-namespace memory_pressure {
-namespace mac {
+namespace memory_pressure::mac {
 
 base::MemoryPressureListener::MemoryPressureLevel
 SystemMemoryPressureEvaluator::MemoryPressureLevelForMacMemoryPressureLevel(
@@ -54,7 +49,7 @@ SystemMemoryPressureEvaluator::SystemMemoryPressureEvaluator(
   base::WeakPtr<SystemMemoryPressureEvaluator> weak_this =
       weak_ptr_factory_.GetWeakPtr();
   scoped_refptr<base::TaskRunner> task_runner =
-      base::SequencedTaskRunnerHandle::Get();
+      base::SequencedTaskRunner::GetCurrentDefault();
 
   // Attach an event handler to the memory pressure event source.
   if (memory_level_event_source_.get()) {
@@ -112,5 +107,4 @@ void SystemMemoryPressureEvaluator::OnMemoryPressureChanged() {
   SendCurrentVote(notify);
 }
 
-}  // namespace mac
-}  // namespace memory_pressure
+}  // namespace memory_pressure::mac

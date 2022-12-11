@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 
 #include "ash/quick_pair/common/fast_pair/fast_pair_metrics.h"
 #include "ash/quick_pair/common/logging.h"
-#include "ash/services/quick_pair/quick_pair_process.h"
-#include "ash/services/quick_pair/quick_pair_process_manager.h"
 #include "base/bind.h"
 #include "base/strings/string_number_conversions.h"
+#include "chromeos/ash/services/quick_pair/quick_pair_process.h"
+#include "chromeos/ash/services/quick_pair/quick_pair_process_manager.h"
 #include "device/bluetooth/bluetooth_socket.h"
 #include "net/base/io_buffer.h"
 
@@ -31,6 +31,9 @@ MessageStream::MessageStream(const std::string& device_address,
 }
 
 MessageStream::~MessageStream() {
+  if (socket_.get())
+    socket_->Disconnect(base::DoNothing());
+
   // Notify observers for lifetime management
   for (auto& obs : observers_)
     obs.OnMessageStreamDestroyed(device_address_);
@@ -50,8 +53,12 @@ void MessageStream::Receive() {
         << __func__
         << ": Failed to receive or parse data from socket more than "
         << kMaxRetryCount << " times.";
-    socket_->Disconnect(base::BindOnce(&MessageStream::OnSocketDisconnected,
-                                       weak_ptr_factory_.GetWeakPtr()));
+
+    if (socket_.get()) {
+      socket_->Disconnect(base::BindOnce(&MessageStream::OnSocketDisconnected,
+                                         weak_ptr_factory_.GetWeakPtr()));
+    }
+
     return;
   }
 
@@ -103,11 +110,13 @@ void MessageStream::ReceiveDataError(device::BluetoothSocket::ErrorReason error,
 }
 
 void MessageStream::Disconnect(base::OnceClosure on_disconnect_callback) {
+  QP_LOG(INFO) << __func__;
+
   // If we already have disconnected the socket, then we can run the callback.
   // This can happen since the socket might have disconnected previously but
   // we kept the MessageStream instance alive to preserve messages from the
   // corresponding device.
-  if (!socket_) {
+  if (!socket_.get()) {
     std::move(on_disconnect_callback).Run();
     return;
   }
@@ -118,7 +127,6 @@ void MessageStream::Disconnect(base::OnceClosure on_disconnect_callback) {
 }
 
 void MessageStream::OnSocketDisconnected() {
-  socket_ = nullptr;
   for (auto& obs : observers_)
     obs.OnDisconnected(device_address_);
 }
@@ -131,7 +139,10 @@ void MessageStream::OnSocketDisconnectedWithCallback(
 
 void MessageStream::ParseMessageStreamSuccess(
     std::vector<mojom::MessageStreamMessagePtr> messages) {
+  QP_LOG(VERBOSE) << __func__;
+
   if (messages.empty()) {
+    QP_LOG(WARNING) << __func__ << ": no messages";
     Receive();
     return;
   }
@@ -149,8 +160,47 @@ void MessageStream::ParseMessageStreamSuccess(
   Receive();
 }
 
+std::string MessageStream::MessageStreamMessageTypeToString(
+    const mojom::MessageStreamMessagePtr& message) {
+  if (message->is_model_id())
+    return "Model ID";
+
+  if (message->is_ble_address_update())
+    return "BLE address update";
+
+  if (message->is_battery_update())
+    return "Battery Update";
+
+  if (message->is_remaining_battery_time())
+    return "Remaining Battery Time";
+
+  if (message->is_enable_silence_mode())
+    return "Enable Silence Mode";
+
+  if (message->is_companion_app_log_buffer_full())
+    return "Companion App Log Buffer Full";
+
+  if (message->is_active_components_byte())
+    return "Active Components Byte";
+
+  if (message->is_ring_device_event())
+    return "Ring Device Event";
+
+  if (message->is_acknowledgement())
+    return "Acknowledgement";
+
+  if (message->is_sdk_version())
+    return "SDK version";
+
+  NOTREACHED();
+  return "INVALID MESSAGE TYPE";
+}
+
 void MessageStream::NotifyObservers(
     const mojom::MessageStreamMessagePtr& message) {
+  QP_LOG(VERBOSE) << __func__ << ": MessageStreamMessagePtr is "
+                  << MessageStreamMessageTypeToString(message);
+
   if (message->is_model_id()) {
     for (auto& obs : observers_)
       obs.OnModelIdMessage(device_address_, message->get_model_id());
@@ -228,6 +278,9 @@ void MessageStream::NotifyObservers(
 
     return;
   }
+
+  QP_LOG(WARNING) << __func__ << ": unexpected message type.";
+  NOTREACHED();
 }
 
 void MessageStream::OnUtilityProcessStopped(

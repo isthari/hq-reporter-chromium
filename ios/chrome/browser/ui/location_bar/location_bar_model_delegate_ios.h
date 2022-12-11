@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@ class WebState;
 // WebStateLisy in order to fulfill its duties.
 class LocationBarModelDelegateIOS : public LocationBarModelDelegate {
  public:
-  // |web_state_list| must outlive this LocationBarModelDelegateIOS object.
+  // `web_state_list` must outlive this LocationBarModelDelegateIOS object.
   explicit LocationBarModelDelegateIOS(WebStateList* web_state_list);
 
   LocationBarModelDelegateIOS(const LocationBarModelDelegateIOS&) = delete;

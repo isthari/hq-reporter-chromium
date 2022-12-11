@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #ifndef CONTENT_SHELL_BROWSER_SHELL_H_
@@ -116,7 +116,7 @@ class Shell : public WebContentsDelegate, public WebContentsObserver {
                       std::unique_ptr<WebContents> new_contents,
                       const GURL& target_url,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_rect,
+                      const blink::mojom::WindowFeatures& window_features,
                       bool user_gesture,
                       bool* was_blocked) override;
   void LoadingStateChanged(WebContents* source,
@@ -131,6 +131,12 @@ class Shell : public WebContentsDelegate, public WebContentsObserver {
   bool IsFullscreenForTabOrPending(const WebContents* web_contents) override;
   blink::mojom::DisplayMode GetDisplayMode(
       const WebContents* web_contents) override;
+#if !BUILDFLAG(IS_ANDROID)
+  void RegisterProtocolHandler(RenderFrameHost* requesting_frame,
+                               const std::string& protocol,
+                               const GURL& url,
+                               bool user_gesture) override;
+#endif
   void RequestToLockMouse(WebContents* web_contents,
                           bool user_gesture,
                           bool last_unlocked_by_target) override;
@@ -157,7 +163,7 @@ class Shell : public WebContentsDelegate, public WebContentsObserver {
       base::RepeatingClosure hang_monitor_restarter) override;
   void ActivateContents(WebContents* contents) override;
   bool IsBackForwardCacheSupported() override;
-  bool IsPrerender2Supported() override;
+  bool IsPrerender2Supported(WebContents& web_contents) override;
   std::unique_ptr<content::WebContents> ActivatePortalWebContents(
       content::WebContents* predecessor_contents,
       std::unique_ptr<content::WebContents> portal_contents) override;

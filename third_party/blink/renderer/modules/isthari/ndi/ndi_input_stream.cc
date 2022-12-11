@@ -5,16 +5,18 @@
 #include "media/base/audio_buffer.h"
 #include "media/base/video_frame.h"
 #include "ndi_input_stream.h"
+
+#include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
 #include "third_party/blink/renderer/modules/webcodecs/audio_data.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
-#include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/heap/cross_thread_persistent.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
+#include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/libyuv/include/libyuv.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/convert_from_argb.h"
 
-#include "third_party/blink/renderer/bindings/core/v8/generated_code_helper.h"
 
 #include <chrono>
 
@@ -86,12 +88,12 @@ void NdiInputStream::startInternal() {
     VLOG(0) << "NDI created receiver " << url_;
     
     while(enabled_) {
-        NDIlib_video_frame_v2_t videoFrame;
+        NDIlib_video_frame_v2_t ndiVideoFrame;
 	    NDIlib_audio_frame_v2_t audioFrame;
 	    NDIlib_metadata_frame_t metadata_frame;
 	
         /// calculo de tiempos
-        auto status = NDIlib_recv_capture_v2(receiver, &videoFrame, &audioFrame, &metadata_frame, 2000);
+        auto status = NDIlib_recv_capture_v2(receiver, &ndiVideoFrame, &audioFrame, &metadata_frame, 2000);
         if (startTimestamp_ == 0 && (status==NDIlib_frame_type_video || status==NDIlib_frame_type_audio)) {
             startTimestamp_ = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
         }
@@ -111,8 +113,8 @@ void NdiInputStream::startInternal() {
             break;
         case NDIlib_frame_type_video:
             //VLOG(0) << "NDI received video " << url_;            
-            this->processVideoFrame(videoFrame, timestamp);
-            NDIlib_recv_free_video_v2(receiver, &videoFrame);            
+            this->processVideoFrame(ndiVideoFrame, timestamp);
+            NDIlib_recv_free_video_v2(receiver, &ndiVideoFrame);            
             break;
         case NDIlib_frame_type_audio:    
             //VLOG(0) << "NDI received audio " << url_;	                
@@ -135,32 +137,32 @@ void NdiInputStream::startInternal() {
     }
 }
 
-void NdiInputStream::processVideoFrame(NDIlib_video_frame_v2_t videoFrame, base::TimeDelta timestamp){
-    int width = videoFrame.xres;
-    int height = videoFrame.yres;
+void NdiInputStream::processVideoFrame(NDIlib_video_frame_v2_t ndiVideoFrame, base::TimeDelta timestamp){
+    int width = ndiVideoFrame.xres;
+    int height = ndiVideoFrame.yres;
     frameCounter_++;
     currentFrameTime_ = timestamp;
     
     bool known = false;
     // TODO separar la conversion de imagenes a clase a parte
-    if(videoFrame.FourCC == NDIlib_FourCC_video_type_e::NDIlib_FourCC_video_type_BGRA) {
+    if(ndiVideoFrame.FourCC == NDIlib_FourCC_video_type_e::NDIlib_FourCC_video_type_BGRA) {
         known = true;
         //VLOG(0) << "NDI convert BGRA " << url_;
-        libyuv::ARGBToI420((const uint8_t*) videoFrame.p_data, width*4,
+        libyuv::ARGBToI420((const uint8_t*) ndiVideoFrame.p_data, width*4,
             i420originalSizeY_, (int) (width*1.5),
             i420originalSizeU_, (int) width/2,
             i420originalSizeV_, (int) width/2,
             width, height);           	    	
-    } else if(videoFrame.FourCC == NDIlib_FourCC_video_type_e::NDIlib_FourCC_video_type_UYVY) {
+    } else if(ndiVideoFrame.FourCC == NDIlib_FourCC_video_type_e::NDIlib_FourCC_video_type_UYVY) {
         known = true;
-        libyuv::UYVYToI420((const uint8_t*) videoFrame.p_data, width*2,   
+        libyuv::UYVYToI420((const uint8_t*) ndiVideoFrame.p_data, width*2,   
 	    i420originalSizeY_, width*1.5,
 	    i420originalSizeU_, width/2,
 	    i420originalSizeV_, width/2,
 	    width, height);
     } else {
         VLOG(0) << "NDI critical unknown FourCC ";
-        debugFourCC(videoFrame);
+        debugFourCC(ndiVideoFrame);
     }
     
     if (known) {
@@ -241,20 +243,22 @@ void NdiInputStream::processAudio(NDIlib_audio_frame_v2_t audioFrame, base::Time
     NDIlib_util_audio_to_interleaved_16s_v2(&audioFrame, &audio_frame_16bpp_interleaved);
    
     memcpy(audioDataTemp_[0], audio_frame_16bpp_interleaved.p_data, channels * samples * (bytesPerChannel/8));   
-    auto frame = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
+    audioFrameTransfer_ = media::AudioBuffer::CopyFrom(media::SampleFormat::kSampleFormatS16,
         media::ChannelLayout::CHANNEL_LAYOUT_STEREO,
 	    channels, // channel count
         sampleRate, // sample rate
 	    samples, 
 	    audioDataTemp_,
 	    timestamp);
-    PostCrossThreadTask(*main_task_runner_, FROM_HERE, CrossThreadBindOnce(&NdiInputStream::OnAudioDataReceived,WrapCrossThreadWeakPersistent(this), frame));
+    PostCrossThreadTask(*main_task_runner_, 
+        FROM_HERE, 
+        CrossThreadBindOnce(&NdiInputStream::OnAudioDataReceived,WrapCrossThreadWeakPersistent(this)));
 
 	//deviceOnData(deviceId.c_str(), (void *) audio_frame_16bpp_interleaved.p_data, bytesPerChannel, sampleRate, channels, samples);
     delete[] audio_frame_16bpp_interleaved.p_data;
 }
 
-void NdiInputStream::OnAudioDataReceived(scoped_refptr<media::AudioBuffer> audioBuffer) {    
+void NdiInputStream::OnAudioDataReceived() {    
     ScriptState* callback_relevant_script_state = audioCallback_->
     CallbackRelevantScriptStateOrThrowException("VideoCardAudioCallback", "handleFrame");
 
@@ -267,7 +271,7 @@ void NdiInputStream::OnAudioDataReceived(scoped_refptr<media::AudioBuffer> audio
         this->disable();
         */
     } else {
-        auto *frame2 = MakeGarbageCollected<AudioData>(audioBuffer);
+        auto *frame2 = MakeGarbageCollected<AudioData>(audioFrameTransfer_);
         auto qtf = audioCallback_->handleFrame(nullptr, frame2);
         qtf.IsJust(); 
     }

@@ -30,6 +30,7 @@
 
 #include <memory>
 #include "base/memory/weak_ptr.h"
+#include "base/notreached.h"
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink.h"
 #include "third_party/blink/renderer/platform/graphics/deferred_image_decoder.h"
 #include "third_party/blink/renderer/platform/graphics/image.h"
@@ -67,6 +68,7 @@ class PLATFORM_EXPORT BitmapImage final : public Image {
   gfx::Size SizeWithConfig(SizeConfig) const override;
   bool GetHotSpot(gfx::Point&) const override;
   String FilenameExtension() const override;
+  const AtomicString& MimeType() const override;
 
   SizeAvailability SetData(scoped_refptr<SharedBuffer> data,
                            bool all_data_received) override;

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #define COMPONENTS_OMNIBOX_BROWSER_BOOKMARK_PROVIDER_H_
 
 #include <stddef.h>
+
+#include <vector>
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
@@ -18,7 +20,7 @@ class AutocompleteProviderClient;
 namespace bookmarks {
 class BookmarkModel;
 struct TitledUrlMatch;
-}
+}  // namespace bookmarks
 
 // This class is an autocomplete provider which quickly (and synchronously)
 // provides autocomplete suggestions based on the titles of bookmarks. Page
@@ -74,7 +76,8 @@ class BookmarkProvider : public AutocompleteProvider {
   query_parser::MatchingAlgorithm GetMatchingAlgorithm(AutocompleteInput input);
 
   // Calculates the relevance score for |match|.
-  int CalculateBookmarkMatchRelevance(
+  // Also returns the number of bookmarks containing the destination URL.
+  std::pair<int, int> CalculateBookmarkMatchRelevance(
       const bookmarks::TitledUrlMatch& match) const;
 
   // Removes any URL matches for query parameter keys (if the matching word

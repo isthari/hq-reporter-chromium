@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 
 #include "ash/components/arc/arc_util.h"
 #include "ash/public/cpp/shelf_types.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager_observer.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 
 namespace arc {
 class ArcAppShelfId;
@@ -63,6 +63,12 @@ class AppServiceAppWindowArcTracker : public ArcAppListPrefs::Observer,
 
   // Close all windows for 'app_id'.
   void CloseWindows(const std::string& app_id);
+
+  // Invoked by controller to notify |window| may be replaced from ghost window
+  // to app window.
+  void OnWindowPropertyChanged(aura::Window* window,
+                               const void* key,
+                               intptr_t old);
 
   // ArcAppListPrefs::Observer:
   void OnAppStatesChanged(const std::string& app_id,
@@ -149,6 +155,11 @@ class AppServiceAppWindowArcTracker : public ArcAppListPrefs::Observer,
   SessionIdToArcAppWindowInfo session_id_to_arc_app_window_info_;
   ShelfGroupToAppControllerMap app_shelf_group_to_controller_map_;
 
+  // Temporarily map session id to task id, starting from OnTaskCreated called
+  // to exo application id set (until that `arc::GetWindowTaskId` can return
+  // correct task id for window, or it will still be session id).
+  std::map<int, int> session_id_to_task_id_map_;
+
   // ARC app task id could be created after the window initialized.
   // |arc_window_candidates_| is used to record those initialized ARC app
   // windows, which haven't been assigned a task id. When a task id is created,
@@ -159,6 +170,11 @@ class AppServiceAppWindowArcTracker : public ArcAppListPrefs::Observer,
 
   int active_task_id_ = arc::kNoTaskId;
   int active_session_id_ = arc::kNoTaskId;
+
+  // TODO(crbug.com/1276603): A temp variable used to investigate whether
+  // OnTaskDestroyed is called in the middle of OnTaskCreated. This can be
+  // removed if we have the result.
+  int task_id_being_created_ = arc::kNoTaskId;
 
   base::WeakPtrFactory<AppServiceAppWindowArcTracker> weak_ptr_factory_{this};
 };

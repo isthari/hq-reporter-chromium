@@ -1,10 +1,11 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_PROPERTY_HANDLE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_PROPERTY_HANDLE_H_
 
+#include "base/check_op.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_name.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
@@ -132,19 +133,17 @@ namespace WTF {
 
 template <>
 struct DefaultHash<blink::PropertyHandle> {
-  struct Hash {
-    STATIC_ONLY(Hash);
-    static unsigned GetHash(const blink::PropertyHandle& handle) {
-      return handle.GetHash();
-    }
+  STATIC_ONLY(DefaultHash);
+  static unsigned GetHash(const blink::PropertyHandle& handle) {
+    return handle.GetHash();
+  }
 
-    static bool Equal(const blink::PropertyHandle& a,
-                      const blink::PropertyHandle& b) {
-      return a == b;
-    }
+  static bool Equal(const blink::PropertyHandle& a,
+                    const blink::PropertyHandle& b) {
+    return a == b;
+  }
 
-    static const bool safe_to_compare_to_empty_or_deleted = true;
-  };
+  static const bool safe_to_compare_to_empty_or_deleted = true;
 };
 
 template <>

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/time/time.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_store_change.h"
@@ -32,6 +33,8 @@ bool IsPasswordSyncEnabled(const syncer::SyncService* sync_service) {
       return true;
   }
 }
+
+}  // namespace
 
 // PasswordStoreFetcher ----------------------------------
 
@@ -167,8 +170,6 @@ void PasswordStoreFetcher::CancelAllRequests() {
   weak_ptr_factory_.InvalidateWeakPtrs();
 }
 
-}  // namespace
-
 // PasswordsCounter::PasswordsResult ----------------------------------
 PasswordsCounter::PasswordsResult::PasswordsResult(
     const BrowsingDataCounter* source,
@@ -236,6 +237,10 @@ void PasswordsCounter::Count() {
       base::BindOnce(&PasswordsCounter::OnFetchDone, base::Unretained(this)));
 }
 
+void PasswordsCounter::OnPasswordsFetchDone() {
+  ReportResult(MakeResult());
+}
+
 std::unique_ptr<PasswordsCounter::PasswordsResult>
 PasswordsCounter::MakeResult() {
   DCHECK(!(is_sync_active() && num_account_passwords() > 0));
@@ -246,7 +251,7 @@ PasswordsCounter::MakeResult() {
 
 void PasswordsCounter::OnFetchDone() {
   if (--remaining_tasks_ == 0)
-    ReportResult(MakeResult());
+    OnPasswordsFetchDone();
 }
 
 }  // namespace browsing_data

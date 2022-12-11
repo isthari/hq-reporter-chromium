@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,10 @@
 #include "base/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/task_environment.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/time/time.h"
 #include "media/base/media_util.h"
 #include "media/base/mock_filters.h"
 #include "media/filters/decoder_stream.h"
@@ -49,7 +50,8 @@ class AudioDecoderStreamTest : public testing::Test {
       : audio_decoder_stream_(
             std::make_unique<AudioDecoderStream::StreamTraits>(
                 &media_log_,
-                CHANNEL_LAYOUT_STEREO),
+                CHANNEL_LAYOUT_STEREO,
+                kSampleFormatPlanarF32),
             task_environment_.GetMainThreadTaskRunner(),
             base::BindRepeating(&AudioDecoderStreamTest::CreateMockAudioDecoder,
                                 base::Unretained(this)),
@@ -90,14 +92,14 @@ class AudioDecoderStreamTest : public testing::Test {
     // Make sure successive AudioBuffers have increasing timestamps.
     last_timestamp_ += base::Milliseconds(27);
     const auto& config = demuxer_stream_.audio_decoder_config();
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(
             decoder_output_cb_,
             AudioBuffer::CreateEmptyBuffer(
                 config.channel_layout(), config.channels(),
                 config.samples_per_second(), 1221, last_timestamp_)));
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(std::move(decode_cb), DecoderStatus::Codes::kOk));
   }

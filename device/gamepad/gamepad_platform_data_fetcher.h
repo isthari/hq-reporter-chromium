@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #define DEVICE_GAMEPAD_GAMEPAD_PLATFORM_DATA_FETCHER_H_
 
 #include "base/compiler_specific.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "device/gamepad/gamepad_data_fetcher.h"
 #include "device/gamepad/gamepad_data_fetcher_manager.h"
@@ -41,16 +42,16 @@ void AddGamepadPlatformDataFetchers(GamepadDataFetcherManager* manager) {
 
 #elif BUILDFLAG(IS_WIN)
 
-  manager->AddFactory(new XInputDataFetcherWin::Factory());
-  manager->AddFactory(new NintendoDataFetcher::Factory());
-  manager->AddFactory(new RawInputDataFetcher::Factory());
-
   // Windows.Gaming.Input is available in Windows 10.0.10240.0 and later.
   if (base::FeatureList::IsEnabled(
           features::kEnableWindowsGamingInputDataFetcher) &&
       base::win::GetVersion() >= base::win::Version::WIN10) {
     manager->AddFactory(new WgiDataFetcherWin::Factory());
+  } else {
+    manager->AddFactory(new XInputDataFetcherWin::Factory());
   }
+  manager->AddFactory(new NintendoDataFetcher::Factory());
+  manager->AddFactory(new RawInputDataFetcher::Factory());
 
 #elif BUILDFLAG(IS_MAC)
 
@@ -62,7 +63,7 @@ void AddGamepadPlatformDataFetchers(GamepadDataFetcherManager* manager) {
 #elif (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(USE_UDEV)
 
   manager->AddFactory(new GamepadPlatformDataFetcherLinux::Factory(
-      base::SequencedTaskRunnerHandle::Get()));
+      base::SequencedTaskRunner::GetCurrentDefault()));
   manager->AddFactory(new NintendoDataFetcher::Factory());
 
 #endif

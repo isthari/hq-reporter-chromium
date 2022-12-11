@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -78,19 +78,6 @@ KeyedService* ChromeMediaRouterFactory::BuildServiceInstanceFor(
 #endif
   media_router->Initialize();
   return media_router;
-}
-
-void ChromeMediaRouterFactory::BrowserContextShutdown(
-    content::BrowserContext* context) {
-  // Notify the MediaRouter (which uses the normal/base proflie) of incognito
-  // profile shutdown.
-  if (context->IsOffTheRecord()) {
-    MediaRouter* router =
-        static_cast<MediaRouter*>(GetServiceForBrowserContext(context, false));
-    if (router)
-      router->OnIncognitoProfileShutdown();
-  }
-  BrowserContextKeyedServiceFactory::BrowserContextShutdown(context);
 }
 
 }  // namespace media_router

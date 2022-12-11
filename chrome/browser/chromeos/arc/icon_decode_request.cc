@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,8 +53,8 @@ gfx::ImageSkiaRep IconSource::GetImageForScale(float scale) {
 
   const int dimension_px = static_cast<int>(dimension_dip_ * scale + 0.5);
   if (bitmap_.isNull()) {
-    const int resource_id =
-        dimension_px <= 32 ? IDR_ARC_SUPPORT_ICON_32 : IDR_ARC_SUPPORT_ICON_192;
+    const int resource_id = dimension_px <= 32 ? IDR_ARC_SUPPORT_ICON_32_PNG
+                                               : IDR_ARC_SUPPORT_ICON_192_PNG;
     const gfx::ImageSkia* resource_image =
         ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(resource_id);
     const gfx::ImageSkia resized_image =

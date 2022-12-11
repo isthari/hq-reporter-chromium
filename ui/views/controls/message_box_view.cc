@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -269,7 +269,7 @@ bool MessageBoxView::AcceleratorPressed(const ui::Accelerator& accelerator) {
   ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
   scw.WriteText(std::accumulate(message_labels_.cbegin(),
                                 message_labels_.cend(), std::u16string(),
-                                [](std::u16string& left, Label* right) {
+                                [](const std::u16string& left, Label* right) {
                                   return left + right->GetText();
                                 }));
   return true;
@@ -288,8 +288,14 @@ void MessageBoxView::ResetLayoutManager() {
   if (prompt_field_->GetVisible())
     trailing_content_type = views::DialogContentType::kControl;
 
-  if (checkbox_->GetVisible())
+  bool checkbox_is_visible = checkbox_->GetVisible();
+  if (checkbox_is_visible)
     trailing_content_type = views::DialogContentType::kText;
+
+  // Ignored views are not in the accessibility tree, but their children
+  // still can be exposed. Leaf views have no accessible children.
+  checkbox_->GetViewAccessibility().OverrideIsIgnored(!checkbox_is_visible);
+  checkbox_->GetViewAccessibility().OverrideIsLeaf(!checkbox_is_visible);
 
   if (link_->GetVisible())
     trailing_content_type = views::DialogContentType::kText;
@@ -299,7 +305,7 @@ void MessageBoxView::ResetLayoutManager() {
       views::DialogContentType::kText, trailing_content_type);
   // Horizontal insets have already been applied to the message contents and
   // controls as padding columns. Only apply the missing vertical insets.
-  border_insets.Set(border_insets.top(), 0, border_insets.bottom(), 0);
+  border_insets.set_left_right(0, 0);
   SetBorder(CreateEmptyBorder(border_insets));
 
   InvalidateLayout();
@@ -309,8 +315,7 @@ gfx::Insets MessageBoxView::GetHorizontalInsets(
     const LayoutProvider* provider) {
   gfx::Insets horizontal_insets =
       provider->GetInsetsMetric(views::INSETS_DIALOG);
-  horizontal_insets.Set(0, horizontal_insets.left(), 0,
-                        horizontal_insets.right());
+  horizontal_insets.set_top_bottom(0, 0);
   return horizontal_insets;
 }
 

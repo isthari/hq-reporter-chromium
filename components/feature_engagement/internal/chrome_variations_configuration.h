@@ -1,16 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_FEATURE_ENGAGEMENT_INTERNAL_CHROME_VARIATIONS_CONFIGURATION_H_
 #define COMPONENTS_FEATURE_ENGAGEMENT_INTERNAL_CHROME_VARIATIONS_CONFIGURATION_H_
 
+#include "base/feature_list.h"
 #include "components/feature_engagement/public/configuration.h"
 #include "components/feature_engagement/public/feature_list.h"
-
-namespace base {
-struct Feature;
-}  // namespace base
 
 namespace feature_engagement {
 
@@ -34,6 +31,12 @@ class ChromeVariationsConfiguration : public Configuration {
       const std::string& feature_name) const override;
   const Configuration::ConfigMap& GetRegisteredFeatureConfigs() const override;
   const std::vector<std::string> GetRegisteredFeatures() const override;
+  const GroupConfig& GetGroupConfig(const base::Feature& group) const override;
+  const GroupConfig& GetGroupConfigByName(
+      const std::string& group_name) const override;
+  const Configuration::GroupConfigMap& GetRegisteredGroupConfigs()
+      const override;
+  const std::vector<std::string> GetRegisteredGroups() const override;
 
   // Parses the variations configuration for all of the given |features| and
   // stores the result. It is only valid to call ParseFeatureConfig once.
@@ -48,6 +51,9 @@ class ChromeVariationsConfiguration : public Configuration {
 
   // The current configurations.
   ConfigMap configs_;
+
+  // The current group configurations.
+  GroupConfigMap group_configs_;
 };
 
 }  // namespace feature_engagement

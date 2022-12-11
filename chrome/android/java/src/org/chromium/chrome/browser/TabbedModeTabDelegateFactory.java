@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@ package org.chromium.chrome.browser;
 import android.app.Activity;
 
 import org.chromium.base.jank_tracker.JankTracker;
-import org.chromium.base.supplier.BooleanSupplier;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.app.tab_activity_glue.ActivityTabWebContentsDelegateAndroid;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
@@ -23,6 +22,7 @@ import org.chromium.chrome.browser.init.ChromeActivityNativeDelegate;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.native_page.NativePageFactory;
 import org.chromium.chrome.browser.share.ShareDelegate;
+import org.chromium.chrome.browser.share.crow.CrowButtonDelegate;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabContextMenuItemDelegate;
 import org.chromium.chrome.browser.tab.TabDelegateFactory;
@@ -40,6 +40,8 @@ import org.chromium.components.external_intents.ExternalNavigationHandler;
 import org.chromium.components.externalauth.ExternalAuthUtils;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modaldialog.ModalDialogManager;
+
+import java.util.function.BooleanSupplier;
 
 /**
  * {@link TabDelegateFactory} class to be used in all {@link Tab} instances owned by a
@@ -69,6 +71,7 @@ public class TabbedModeTabDelegateFactory implements TabDelegateFactory {
     private final BooleanSupplier mHadWarmStartSupplier;
     private final JankTracker mJankTracker;
     private final Supplier<Toolbar> mToolbarSupplier;
+    private final CrowButtonDelegate mCrowButtonDelegate;
 
     private NativePageFactory mNativePageFactory;
 
@@ -87,7 +90,8 @@ public class TabbedModeTabDelegateFactory implements TabDelegateFactory {
             BrowserControlsManager browserControlsManager, Supplier<Tab> currentTabSupplier,
             ActivityLifecycleDispatcher lifecycleDispatcher, WindowAndroid windowAndroid,
             Supplier<Long> lastUserInteractionTimeSupplier, BooleanSupplier hadWarmStartSupplier,
-            JankTracker jankTracker, Supplier<Toolbar> toolbarSupplier) {
+            JankTracker jankTracker, Supplier<Toolbar> toolbarSupplier,
+            CrowButtonDelegate crowButtonDelegate) {
         mActivity = activity;
         mAppBrowserControlsVisibilityDelegate = appBrowserControlsVisibilityDelegate;
         mShareDelegateSupplier = shareDelegateSupplier;
@@ -111,6 +115,7 @@ public class TabbedModeTabDelegateFactory implements TabDelegateFactory {
         mHadWarmStartSupplier = hadWarmStartSupplier;
         mJankTracker = jankTracker;
         mToolbarSupplier = toolbarSupplier;
+        mCrowButtonDelegate = crowButtonDelegate;
     }
 
     @Override
@@ -151,7 +156,7 @@ public class TabbedModeTabDelegateFactory implements TabDelegateFactory {
                     mBrowserControlsManager, mCurrentTabSupplier, mSnackbarManagerSupplier,
                     mLifecycleDispatcher, mTabModelSelectorSupplier.get(), mShareDelegateSupplier,
                     mWindowAndroid, mLastUserInteractionTimeSupplier, mHadWarmStartSupplier,
-                    mJankTracker, mToolbarSupplier);
+                    mJankTracker, mToolbarSupplier, mCrowButtonDelegate);
         }
         return mNativePageFactory.createNativePage(url, candidatePage, tab);
     }

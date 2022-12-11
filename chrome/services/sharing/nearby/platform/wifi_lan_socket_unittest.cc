@@ -1,14 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/services/sharing/nearby/platform/wifi_lan_socket.h"
 
-#include "ash/services/nearby/public/cpp/fake_tcp_connected_socket.h"
 #include "base/run_loop.h"
 #include "base/task/thread_pool.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
+#include "base/threading/thread_restrictions.h"
+#include "chromeos/ash/services/nearby/public/cpp/fake_tcp_connected_socket.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "services/network/public/mojom/tcp_socket.mojom.h"
@@ -17,12 +18,6 @@
 namespace location {
 namespace nearby {
 namespace chrome {
-
-namespace {
-
-const net::IPEndPoint kRemoteAddress(net::IPAddress(192, 168, 86, 62), 33333);
-
-}  // namespace
 
 class WifiLanSocketTest : public ::testing::Test {
  public:
@@ -56,9 +51,10 @@ class WifiLanSocketTest : public ::testing::Test {
         tcp_connected_socket.InitWithNewPipeAndPassReceiver());
 
     wifi_lan_socket_ = std::make_unique<WifiLanSocket>(
-        kRemoteAddress, std::move(tcp_connected_socket),
-        std::move(receive_pipe_consumer_handle),
-        std::move(send_pipe_producer_handle));
+        WifiLanSocket::ConnectedSocketParameters(
+            std::move(tcp_connected_socket),
+            std::move(receive_pipe_consumer_handle),
+            std::move(send_pipe_producer_handle)));
   }
 
   void TearDown() override { wifi_lan_socket_.reset(); }

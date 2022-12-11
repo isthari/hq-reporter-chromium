@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,21 +6,22 @@
 
 #include <string>
 
-#include "ash/constants/ash_features.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/system/bluetooth/bluetooth_device_list_item_battery_view.h"
 #include "ash/system/bluetooth/bluetooth_device_list_item_multiple_battery_view.h"
+#include "ash/system/tray/hover_highlight_view.h"
 #include "ash/system/tray/tray_utils.h"
 #include "base/check.h"
 #include "base/notreached.h"
 #include "base/strings/strcat.h"
-#include "chromeos/services/bluetooth_config/public/cpp/cros_bluetooth_config_util.h"
+#include "chromeos/ash/services/bluetooth_config/public/cpp/cros_bluetooth_config_util.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "chromeos/ui/vector_icons/vector_icons.h"
 #include "mojo/public/cpp/bindings/clone_traits.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -28,20 +29,19 @@
 #include "ui/views/controls/label.h"
 
 namespace ash {
+
 namespace {
 
-using chromeos::bluetooth_config::GetPairedDeviceName;
-using chromeos::bluetooth_config::mojom::BatteryPropertiesPtr;
-using chromeos::bluetooth_config::mojom::DeviceBatteryInfoPtr;
-using chromeos::bluetooth_config::mojom::DeviceConnectionState;
-using chromeos::bluetooth_config::mojom::DeviceType;
-using chromeos::bluetooth_config::mojom::PairedBluetoothDevicePropertiesPtr;
+using bluetooth_config::GetPairedDeviceName;
+using bluetooth_config::mojom::BatteryPropertiesPtr;
+using bluetooth_config::mojom::DeviceBatteryInfoPtr;
+using bluetooth_config::mojom::DeviceConnectionState;
+using bluetooth_config::mojom::DeviceType;
+using bluetooth_config::mojom::PairedBluetoothDevicePropertiesPtr;
 
 constexpr int kEnterpriseManagedIconSizeDip = 20;
 
-bool HasMultipleBatteryInfos(
-    const chromeos::bluetooth_config::mojom::DeviceBatteryInfoPtr&
-        battery_info) {
+bool HasMultipleBatteryInfos(const DeviceBatteryInfoPtr& battery_info) {
   DCHECK(battery_info);
   return battery_info->left_bud_info || battery_info->case_info ||
          battery_info->right_bud_info;
@@ -76,6 +76,8 @@ int GetDeviceTypeA11yTextId(const DeviceType device_type) {
       return IDS_BLUETOOTH_A11Y_DEVICE_TYPE_GAME_CONTROLLER;
     case DeviceType::kKeyboard:
       return IDS_BLUETOOTH_A11Y_DEVICE_TYPE_KEYBOARD;
+    case DeviceType::kKeyboardMouseCombo:
+      return IDS_BLUETOOTH_A11Y_DEVICE_TYPE_KEYBOARD_MOUSE_COMBO;
     case DeviceType::kMouse:
       return IDS_BLUETOOTH_A11Y_DEVICE_TYPE_MOUSE;
     case DeviceType::kTablet:
@@ -148,6 +150,8 @@ const gfx::VectorIcon& GetDeviceIcon(const DeviceType device_type) {
       return ash::kSystemMenuGamepadIcon;
     case DeviceType::kKeyboard:
       return ash::kSystemMenuKeyboardIcon;
+    case DeviceType::kKeyboardMouseCombo:
+      return ash::kSystemMenuKeyboardIcon;
     case DeviceType::kMouse:
       return ash::kSystemMenuMouseIcon;
     case DeviceType::kTablet:
@@ -162,9 +166,7 @@ const gfx::VectorIcon& GetDeviceIcon(const DeviceType device_type) {
 
 BluetoothDeviceListItemView::BluetoothDeviceListItemView(
     ViewClickListener* listener)
-    : HoverHighlightView(listener) {
-  DCHECK(ash::features::IsBluetoothRevampEnabled());
-}
+    : HoverHighlightView(listener) {}
 
 BluetoothDeviceListItemView::~BluetoothDeviceListItemView() = default;
 
@@ -184,12 +186,9 @@ void BluetoothDeviceListItemView::UpdateDeviceProperties(
   const DeviceType& device_type =
       device_properties_->device_properties->device_type;
 
-  AddIconAndLabel(
-      gfx::CreateVectorIcon(
-          GetDeviceIcon(device_type),
-          AshColorProvider::Get()->GetContentLayerColor(
-              AshColorProvider::ContentLayerType::kIconColorPrimary)),
-      GetPairedDeviceName(device_properties_));
+  AddIconAndLabel(ui::ImageModel::FromVectorIcon(GetDeviceIcon(device_type),
+                                                 kColorAshIconColorPrimary),
+                  GetPairedDeviceName(device_properties_));
 
   UpdateAccessibleName(device_index, total_device_count);
 

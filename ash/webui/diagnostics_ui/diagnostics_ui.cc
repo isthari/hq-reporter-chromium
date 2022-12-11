@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,33 +6,35 @@
 
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "ash/constants/ash_features.h"
-#include "ash/grit/ash_diagnostics_app_resources.h"
-#include "ash/grit/ash_diagnostics_app_resources_map.h"
 #include "ash/webui/common/backend/plural_string_handler.h"
+#include "ash/webui/common/keyboard_diagram_strings.h"
+#include "ash/webui/diagnostics_ui/backend/common/histogram_util.h"
+#include "ash/webui/diagnostics_ui/backend/connectivity/network_health_provider.h"
 #include "ash/webui/diagnostics_ui/backend/diagnostics_manager.h"
-#include "ash/webui/diagnostics_ui/backend/histogram_util.h"
-#include "ash/webui/diagnostics_ui/backend/input_data_provider.h"
-#include "ash/webui/diagnostics_ui/backend/network_health_provider.h"
+#include "ash/webui/diagnostics_ui/backend/input/input_data_provider.h"
 #include "ash/webui/diagnostics_ui/backend/session_log_handler.h"
-#include "ash/webui/diagnostics_ui/backend/system_data_provider.h"
-#include "ash/webui/diagnostics_ui/backend/system_routine_controller.h"
+#include "ash/webui/diagnostics_ui/backend/system/system_data_provider.h"
+#include "ash/webui/diagnostics_ui/backend/system/system_routine_controller.h"
 #include "ash/webui/diagnostics_ui/diagnostics_metrics.h"
 #include "ash/webui/diagnostics_ui/diagnostics_metrics_message_handler.h"
 #include "ash/webui/diagnostics_ui/mojom/network_health_provider.mojom.h"
 #include "ash/webui/diagnostics_ui/mojom/system_data_provider.mojom.h"
 #include "ash/webui/diagnostics_ui/url_constants.h"
+#include "ash/webui/grit/ash_diagnostics_app_resources.h"
+#include "ash/webui/grit/ash_diagnostics_app_resources_map.h"
 #include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_piece_forward.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
-#include "chromeos/login/login_state/login_state.h"
+#include "chromeos/ash/components/login/login_state/login_state.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -40,9 +42,8 @@
 #include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/webui/web_ui_util.h"
-#include "ui/chromeos/strings/network_element_localized_strings_provider.h"
+#include "ui/chromeos/strings/network/network_element_localized_strings_provider.h"
 #include "ui/resources/grit/webui_generated_resources.h"
-#include "ui/resources/grit/webui_resources.h"
 
 namespace ash {
 
@@ -59,7 +60,7 @@ diagnostics::metrics::NavigationView GetInitialView(const GURL url) {
   }
 
   // Note: Valid query strings map to strings in the GetUrlForPage located in
-  // chrome/browser/ui/webui/chromeos/diagnostics_dialog.cc.
+  // chrome/browser/ui/webui/ash/diagnostics_dialog.cc.
   const std::string& original_query = url.query();  // must outlive |query|.
   const base::StringPiece& query =
       base::TrimString(original_query, " \t", base::TRIM_ALL);
@@ -84,18 +85,22 @@ diagnostics::metrics::NavigationView GetInitialView(const GURL url) {
   return diagnostics::metrics::NavigationView::kSystem;
 }
 
-std::u16string GetSettingsLinkLabel() {
-  int string_id = IDS_DIAGNOSTICS_SETTINGS_LINK_TEXT;
+std::u16string GetLinkLabel(int string_id, const char* url) {
   std::vector<std::u16string> replacements;
-  const char* kOsSettingsUrl = "chrome://os-settings/";
-  replacements.push_back(base::UTF8ToUTF16(kOsSettingsUrl));
-
+  replacements.push_back(base::UTF8ToUTF16(url));
   return l10n_util::GetStringFUTF16(string_id, replacements, nullptr);
 }
 
-std::unique_ptr<base::DictionaryValue> GetDataSourceUpdate() {
-  auto update = std::make_unique<base::DictionaryValue>();
-  update->SetKey("settingsLinkText", base::Value(GetSettingsLinkLabel()));
+base::Value::Dict GetDataSourceUpdate() {
+  base::Value::Dict update;
+  update.Set("settingsLinkText",
+             base::Value(GetLinkLabel(IDS_DIAGNOSTICS_SETTINGS_LINK_TEXT,
+                                      "chrome://os-settings/")));
+  update.Set(
+      "keyboardTesterHelpLink",
+      base::Value(GetLinkLabel(
+          IDS_INPUT_DIAGNOSTICS_KEYBOARD_TESTER_HELP_LINK,
+          "https://support.google.com/chromebook?p=keyboard_troubleshoot")));
   return update;
 }
 
@@ -151,6 +156,7 @@ void AddDiagnosticsStrings(content::WebUIDataSource* html_source) {
       {"currentNowTooltipText", IDS_DIAGNOSTICS_CURRENT_NOW_TOOLTIP_TEXT},
       {"cycleCount", IDS_DIAGNOSTICS_CYCLE_COUNT_LABEL},
       {"cycleCountTooltipText", IDS_DIAGNOSTICS_CYCLE_COUNT_TOOLTIP_TEXT},
+      {"deviceDisconnected", IDS_INPUT_DIAGNOSTICS_DEVICE_DISCONNECTED},
       {"diagnosticsTitle", IDS_DIAGNOSTICS_TITLE},
       {"disabledText", IDS_DIAGNOSTICS_DISABLED_TEXT},
       {"dischargeTestResultText", IDS_DISCHARGE_TEST_RESULT},
@@ -200,6 +206,16 @@ void AddDiagnosticsStrings(content::WebUIDataSource* html_source) {
       {"inputDescriptionUsbTouchpad", IDS_INPUT_DIAGNOSTICS_USB_TOUCHPAD},
       {"inputDescriptionUsbTouchscreen", IDS_INPUT_DIAGNOSTICS_USB_TOUCHSCREEN},
       {"inputDeviceTest", IDS_INPUT_DIAGNOSTICS_RUN_TEST},
+      {"inputDeviceUntestableNote", IDS_INPUT_DIAGNOSTICS_UNTESTABLE_NOTE},
+      {"inputKeyboardUntestableLidClosedNote",
+       IDS_INPUT_DIAGNOSTICS_KEYBOARD_UNTESTABLE_LID_CLOSED_NOTE},
+      {"inputKeyboardUntestableTabletModeNote",
+       IDS_INPUT_DIAGNOSTICS_KEYBOARD_UNTESTABLE_TABLET_MODE_NOTE},
+      {"inputKeyboardTesterClosedToastLidClosed",
+       IDS_INPUT_DIAGNOSTICS_KEYBOARD_TESTER_CLOSED_LID_CLOSED_NOTE},
+      {"inputKeyboardTesterClosedToastTabletMode",
+       IDS_INPUT_DIAGNOSTICS_KEYBOARD_TESTER_CLOSED_TABLET_MODE_NOTE},
+      {"inputTesterDone", IDS_INPUT_DIAGNOSTICS_TESTER_DONE},
       {"internetConnectivityGroupLabel",
        IDS_DIAGNOSTICS_INTERNET_CONNECTIVITY_GROUP_LABEL},
       {"ipConfigInfoDrawerGateway",
@@ -208,6 +224,14 @@ void AddDiagnosticsStrings(content::WebUIDataSource* html_source) {
        IDS_NETWORK_DIAGNOSTICS_IP_CONFIG_INFO_DRAWER_SUBNET_MASK},
       {"ipConfigInfoDrawerTitle",
        IDS_NETWORK_DIAGNOSTICS_IP_CONFIG_INFO_DRAWER_TITLE},
+      {"keyboardTesterFocusLossMessage",
+       IDS_INPUT_DIAGNOSTICS_KEYBOARD_TESTER_FOCUS_LOSS_MESSAGE},
+      {"keyboardTesterInstruction",
+       IDS_INPUT_DIAGNOSTICS_KEYBOARD_TESTER_INSTRUCTION},
+      {"keyboardTesterShortcutInstruction",
+       IDS_INPUT_DIAGNOSTICS_KEYBOARD_TESTER_SHORTCUT_INSTRUCTION},
+      {"keyboardTesterTitle", IDS_INPUT_DIAGNOSTICS_KEYBOARD_TESTER_TITLE},
+      {"keyboardText", IDS_DIAGNOSTICS_KEYBOARD},
       {"joinNetworkLinkText", IDS_DIAGNOSTICS_JOIN_NETWORK_LINK_TEXT},
       {"lanConnectivityFailedText",
        IDS_DIAGNOSTICS_LAN_CONNECTIVITY_FAILED_TEXT},
@@ -317,6 +341,7 @@ void AddDiagnosticsStrings(content::WebUIDataSource* html_source) {
       {"testWarningBadgeText", IDS_DIAGNOSTICS_TEST_WARNING_BADGE_TEXT},
       {"testSuccess", IDS_DIAGNOSTICS_TEST_SUCCESS_TEXT},
       {"testSucceededBadgeText", IDS_DIAGNOSTICS_TEST_SUCCESS_BADGE_TEXT},
+      {"touchpadTesterTitleText", IDS_INPUT_DIAGNOSTICS_TOUCHPAD_TESTER_TITLE},
       {"troubleConnecting", IDS_DIAGNOSTICS_TROUBLE_CONNECTING},
       {"troubleshootingText", IDS_DIAGNOSTICS_TROUBLESHOOTING_TEXT},
       {"versionInfo", IDS_DIAGNOSTICS_VERSION_INFO_TEXT},
@@ -326,7 +351,7 @@ void AddDiagnosticsStrings(content::WebUIDataSource* html_source) {
       {"wifiLabel", IDS_NETWORK_TYPE_WIFI},
   };
   html_source->AddLocalizedStrings(kLocalizedStrings);
-  html_source->AddLocalizedStrings(*GetDataSourceUpdate());
+  html_source->AddLocalizedStrings(GetDataSourceUpdate());
   html_source->UseStringsJs();
 }
 
@@ -345,7 +370,7 @@ void SetUpWebUIDataSource(content::WebUIDataSource* source,
                           base::span<const webui::ResourcePath> resources,
                           int default_resource) {
   source->AddResourcePaths(resources);
-  source->SetDefaultResource(default_resource);
+  source->AddResourcePath("", default_resource);
   source->AddResourcePath("test_loader.html", IDR_WEBUI_HTML_TEST_LOADER_HTML);
   source->AddResourcePath("test_loader.js", IDR_WEBUI_JS_TEST_LOADER_JS);
   source->AddResourcePath("test_loader_util.js",
@@ -355,6 +380,10 @@ void SetUpWebUIDataSource(content::WebUIDataSource* source,
                      features::IsInputInDiagnosticsAppEnabled());
   source->AddBoolean("isNetworkingEnabled",
                      features::IsNetworkingInDiagnosticsAppEnabled());
+  source->AddBoolean("isTouchpadEnabled",
+                     features::IsTouchpadInDiagnosticsAppEnabled());
+  source->AddBoolean("isTouchscreenEnabled",
+                     features::IsTouchscreenInDiagnosticsAppEnabled());
   source->AddBoolean("enableArcNetworkDiagnostics",
                      features::IsArcNetworkDiagnosticsButtonEnabled());
 }
@@ -374,17 +403,20 @@ DiagnosticsDialogUI::DiagnosticsDialogUI(
     HoldingSpaceClient* holding_space_client,
     const base::FilePath& log_directory_path)
     : ui::MojoWebDialogUI(web_ui) {
-  auto html_source = base::WrapUnique(
-      content::WebUIDataSource::Create(kChromeUIDiagnosticsAppHost));
+  content::WebUIDataSource* html_source =
+      content::WebUIDataSource::CreateAndAdd(
+          web_ui->GetWebContents()->GetBrowserContext(),
+          kChromeUIDiagnosticsAppHost);
   html_source->OverrideContentSecurityPolicy(
       network::mojom::CSPDirectiveName::ScriptSrc,
-      "script-src chrome://resources chrome://test 'self';");
+      "script-src chrome://resources chrome://test chrome://webui-test "
+      "'self';");
   html_source->DisableTrustedTypesCSP();
 
   const auto resources = base::make_span(kAshDiagnosticsAppResources,
                                          kAshDiagnosticsAppResourcesSize);
-  SetUpWebUIDataSource(html_source.get(), resources,
-                       IDR_DIAGNOSTICS_APP_INDEX_HTML);
+  SetUpWebUIDataSource(html_source, resources,
+                       IDR_ASH_DIAGNOSTICS_APP_INDEX_HTML);
 
   SetUpPluralStringHandler(web_ui);
 
@@ -394,12 +426,11 @@ DiagnosticsDialogUI::DiagnosticsDialogUI(
       session_log_handler.get(), web_ui);
   web_ui->AddMessageHandler(std::move(session_log_handler));
 
-  AddDiagnosticsStrings(html_source.get());
+  AddDiagnosticsStrings(html_source);
+  ash::common::AddKeyboardDiagramStrings(html_source);
   // Add localized strings required for network-icon.
-  ui::network_element::AddLocalizedStrings(html_source.get());
-  ui::network_element::AddOncLocalizedStrings(html_source.get());
-  content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
-                                html_source.release());
+  ui::network_element::AddLocalizedStrings(html_source);
+  ui::network_element::AddOncLocalizedStrings(html_source);
 
   // Configure SFUL metrics.
   diagnostics_metrics_ =
@@ -426,11 +457,12 @@ DiagnosticsDialogUI::~DiagnosticsDialogUI() {
 
 void DiagnosticsDialogUI::BindInterface(
     mojo::PendingReceiver<diagnostics::mojom::NetworkHealthProvider> receiver) {
-  DCHECK(features::IsNetworkingInDiagnosticsAppEnabled());
-  diagnostics::NetworkHealthProvider* network_health_provider =
-      diagnostics_manager_->GetNetworkHealthProvider();
-  if (network_health_provider) {
-    network_health_provider->BindInterface(std::move(receiver));
+  if (features::IsNetworkingInDiagnosticsAppEnabled()) {
+    diagnostics::NetworkHealthProvider* network_health_provider =
+        diagnostics_manager_->GetNetworkHealthProvider();
+    if (network_health_provider) {
+      network_health_provider->BindInterface(std::move(receiver));
+    }
   }
 }
 

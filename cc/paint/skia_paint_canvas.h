@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,25 @@
 #include "cc/paint/paint_flags.h"
 #include "cc/paint/paint_record.h"
 #include "cc/paint/skottie_color_map.h"
-#include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/skia/include/core/SkColor.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
+#include "third_party/skia/include/core/SkData.h"
+#include "third_party/skia/include/core/SkRefCnt.h"
+#include "third_party/skia/include/core/SkScalar.h"
+#include "third_party/skia/include/core/SkTextBlob.h"
+
+class SkCanvas;
+class SkM44;
+class SkMatrix;
+class SkPath;
+class SkRRect;
+class SkSurfaceProps;
+enum class SkClipOp;
+struct SkImageInfo;
+struct SkIPoint;
+struct SkIRect;
+struct SkRect;
 
 namespace cc {
 class ImageProvider;
@@ -85,8 +103,8 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
   bool getLocalClipBounds(SkRect* bounds) const override;
   SkIRect getDeviceClipBounds() const override;
   bool getDeviceClipBounds(SkIRect* bounds) const override;
-  void drawColor(SkColor color, SkBlendMode mode) override;
-  void clear(SkColor color) override;
+  void drawColor(SkColor4f color, SkBlendMode mode) override;
+  void clear(SkColor4f color) override;
 
   void drawLine(SkScalar x0,
                 SkScalar y0,
@@ -122,7 +140,8 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
                    const SkRect& dst,
                    float t,
                    SkottieFrameDataMap images,
-                   const SkottieColorMap& color_map) override;
+                   const SkottieColorMap& color_map,
+                   SkottieTextPropertyValueMap text_map) override;
   void drawTextBlob(sk_sp<SkTextBlob> blob,
                     SkScalar x,
                     SkScalar y,

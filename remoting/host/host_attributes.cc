@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 
 #include "base/atomicops.h"
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "build/branding_buildflags.h"
@@ -69,7 +68,7 @@ inline constexpr bool IsNonOfficialBuild() {
   return !IsOfficialBuild();
 }
 
-// By using base::size() macro in base/macros.h, it's illegal to have empty
+// By using std::size() macro in base/macros.h, it's illegal to have empty
 // arrays.
 //
 // error: no matching function for call to 'ArraySizeHelper'

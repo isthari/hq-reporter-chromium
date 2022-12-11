@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -62,13 +62,6 @@ void MediaDrmBridgeFactory::Create(
 
   // MediaDrmStorage may be lazy created in MediaDrmStorageBridge.
   storage_ = std::make_unique<MediaDrmStorageBridge>();
-
-  if (!MediaDrmBridge::IsPerOriginProvisioningSupported()) {
-    // Per-origin provisioning isn't supported, so proceed without specifying an
-    // origin ID.
-    CreateMediaDrmBridge("");
-    return;
-  }
 
   storage_->Initialize(
       create_storage_cb_,

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -133,7 +133,7 @@ class HEADLESS_EXPORT HeadlessWebContents::Builder {
 
   explicit Builder(HeadlessBrowserContextImpl* browser_context);
 
-  raw_ptr<HeadlessBrowserContextImpl> browser_context_;
+  raw_ptr<HeadlessBrowserContextImpl, DanglingUntriaged> browser_context_;
 
   GURL initial_url_ = GURL("about:blank");
   gfx::Size window_size_;

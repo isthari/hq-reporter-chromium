@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -111,5 +111,33 @@ public class SearchBoxCoordinator {
 
     public void setIncognitoMode(boolean isIncognito) {
         mIsIncognito = isIncognito;
+    }
+
+    public void setHeight(int height) {
+        mMediator.setHeight(height);
+    }
+
+    public void setTopMargin(int topMargin) {
+        mMediator.setTopMargin(topMargin);
+    }
+
+    public void setEndPadding(int endPadding) {
+        mMediator.setEndPadding(endPadding);
+    }
+
+    public void setTextViewTranslationX(float translationX) {
+        mMediator.setTextViewTranslationX(translationX);
+    }
+
+    public void setButtonsHeight(int height) {
+        mMediator.setButtonsHeight(height);
+    }
+
+    public void setButtonsWidth(int width) {
+        mMediator.setButtonsWidth(width);
+    }
+
+    public void setLensButtonLeftMargin(int leftMargin) {
+        mMediator.setLensButtonLeftMargin(leftMargin);
     }
 }

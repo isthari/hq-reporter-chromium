@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,6 @@ namespace signin {
 // Returns true if the startup sign-in promo should be displayed at boot.
 bool ForceStartupSigninPromo();
 
-// Returns true if extended sync promos should be disabled unconditionally.
-bool ForceDisableExtendedSyncPromos();
-
 // Name of multi-value switch that controls the delay (in minutes) for polling
 // for the existence of Gaia cookies for google.com.
 extern const char kDelayThresholdMinutesToUpdateGaiaCookie[];
@@ -24,10 +21,10 @@ extern const char kDelayThresholdMinutesToUpdateGaiaCookie[];
 extern const char kWaitThresholdMillisecondsForCapabilitiesApi[];
 
 // Feature to enable FRE MICe.
-extern const base::Feature kFREMobileIdentityConsistency;
+BASE_DECLARE_FEATURE(kNewMobileIdentityConsistencyFRE);
 
 // Feature to enable Unicorn account sign-in for iOS.
-extern const base::Feature kEnableUnicornAccountSupport;
+BASE_DECLARE_FEATURE(kEnableUnicornAccountSupport);
 
 }  // namespace signin
 

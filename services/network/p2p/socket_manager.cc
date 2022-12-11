@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,15 @@
 
 #include "base/bind.h"
 #include "base/memory/raw_ptr.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "net/base/address_family.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_anonymization_key.h"
 #include "net/base/network_interfaces.h"
-#include "net/base/network_isolation_key.h"
 #include "net/base/sys_addrinfo.h"
+#include "net/dns/dns_util.h"
 #include "net/dns/host_resolver.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
@@ -29,6 +30,7 @@
 #include "services/network/p2p/socket.h"
 #include "services/network/proxy_resolving_client_socket_factory.h"
 #include "services/network/public/cpp/p2p_param_traits.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/webrtc/media/base/rtp_utils.h"
 #include "third_party/webrtc/media/base/turn_utils.h"
 
@@ -72,6 +74,10 @@ bool HasLocalTld(const std::string& host_name) {
   return EndsWith(host_name, kLocalTld, base::CompareCase::INSENSITIVE_ASCII);
 }
 
+net::DnsQueryType FamilyToDnsQueryType(int family) {
+  return net::AddressFamilyToDnsQueryType(net::ToAddressFamily(family));
+}
+
 }  // namespace
 
 class P2PSocketManager::DnsRequest {
@@ -82,7 +88,8 @@ class P2PSocketManager::DnsRequest {
       : resolver_(host_resolver), enable_mdns_(enable_mdns) {}
 
   void Resolve(const std::string& host_name,
-               const net::NetworkIsolationKey& network_isolation_key,
+               absl::optional<int> family,
+               const net::NetworkAnonymizationKey& network_anonymization_key,
                DoneCallback done_callback) {
     DCHECK(!done_callback.is_null());
 
@@ -111,7 +118,10 @@ class P2PSocketManager::DnsRequest {
       parameters.source = net::HostResolverSource::MULTICAST_DNS;
 #endif  // ENABLE_MDNS
     }
-    request_ = resolver_->CreateRequest(host, network_isolation_key,
+    if (family.has_value()) {
+      parameters.dns_query_type = FamilyToDnsQueryType(family.value());
+    }
+    request_ = resolver_->CreateRequest(host, network_anonymization_key,
                                         net::NetLogWithSource(), parameters);
 
     int result = request_->Start(base::BindOnce(
@@ -147,7 +157,7 @@ class P2PSocketManager::DnsRequest {
 };
 
 P2PSocketManager::P2PSocketManager(
-    const net::NetworkIsolationKey& network_isolation_key,
+    const net::NetworkAnonymizationKey& network_anonymization_key,
     mojo::PendingRemote<mojom::P2PTrustedSocketManagerClient>
         trusted_socket_manager_client,
     mojo::PendingReceiver<mojom::P2PTrustedSocketManager>
@@ -157,7 +167,7 @@ P2PSocketManager::P2PSocketManager(
     net::URLRequestContext* url_request_context)
     : delete_callback_(std::move(delete_callback)),
       url_request_context_(url_request_context),
-      network_isolation_key_(network_isolation_key),
+      network_anonymization_key_(network_anonymization_key),
       network_list_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskPriority::USER_VISIBLE})),
       trusted_socket_manager_client_(std::move(trusted_socket_manager_client)),
@@ -190,12 +200,29 @@ void P2PSocketManager::OnNetworkChanged(
   // network configuration changes. All other notifications can be ignored.
   if (type != net::NetworkChangeNotifier::CONNECTION_NONE)
     return;
+  if (notifications_paused_) {
+    pending_network_change_notification_ = true;
+    return;
+  }
 
   // Notify the renderer about changes to list of network interfaces.
   network_list_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(&P2PSocketManager::DoGetNetworkList,
-                                weak_factory_.GetWeakPtr(),
-                                base::ThreadTaskRunnerHandle::Get()));
+      FROM_HERE,
+      base::BindOnce(&P2PSocketManager::DoGetNetworkList,
+                     weak_factory_.GetWeakPtr(),
+                     base::SingleThreadTaskRunner::GetCurrentDefault()));
+}
+
+void P2PSocketManager::PauseNetworkChangeNotifications() {
+  notifications_paused_ = true;
+}
+
+void P2PSocketManager::ResumeNetworkChangeNotifications() {
+  notifications_paused_ = false;
+  if (pending_network_change_notification_) {
+    pending_network_change_notification_ = false;
+    OnNetworkChanged(net::NetworkChangeNotifier::CONNECTION_NONE);
+  }
 }
 
 void P2PSocketManager::AddAcceptedConnection(
@@ -277,13 +304,32 @@ void P2PSocketManager::StartNetworkNotifications(
   net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
 
   network_list_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(&P2PSocketManager::DoGetNetworkList,
-                                weak_factory_.GetWeakPtr(),
-                                base::ThreadTaskRunnerHandle::Get()));
+      FROM_HERE,
+      base::BindOnce(&P2PSocketManager::DoGetNetworkList,
+                     weak_factory_.GetWeakPtr(),
+                     base::SingleThreadTaskRunner::GetCurrentDefault()));
 }
 
 void P2PSocketManager::GetHostAddress(
     const std::string& host_name,
+    bool enable_mdns,
+    mojom::P2PSocketManager::GetHostAddressCallback callback) {
+  DoGetHostAddress(host_name, /*address_family=*/absl::nullopt, enable_mdns,
+                   std::move(callback));
+}
+
+void P2PSocketManager::GetHostAddressWithFamily(
+    const std::string& host_name,
+    int address_family,
+    bool enable_mdns,
+    mojom::P2PSocketManager::GetHostAddressCallback callback) {
+  DoGetHostAddress(host_name, absl::make_optional(address_family), enable_mdns,
+                   std::move(callback));
+}
+
+void P2PSocketManager::DoGetHostAddress(
+    const std::string& host_name,
+    absl::optional<int> address_family,
     bool enable_mdns,
     mojom::P2PSocketManager::GetHostAddressCallback callback) {
   auto request = std::make_unique<DnsRequest>(
@@ -291,7 +337,7 @@ void P2PSocketManager::GetHostAddress(
   DnsRequest* request_ptr = request.get();
   dns_requests_.insert(std::move(request));
   request_ptr->Resolve(
-      host_name, network_isolation_key_,
+      host_name, address_family, network_anonymization_key_,
       base::BindOnce(&P2PSocketManager::OnAddressResolved,
                      base::Unretained(this), request_ptr, std::move(callback)));
 }
@@ -301,6 +347,7 @@ void P2PSocketManager::CreateSocket(
     const net::IPEndPoint& local_address,
     const P2PPortRange& port_range,
     const P2PHostAndIPEndPoint& remote_address,
+    const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
     mojo::PendingRemote<mojom::P2PSocketClient> client,
     mojo::PendingReceiver<mojom::P2PSocket> receiver) {
   if (port_range.min_port > port_range.max_port ||
@@ -320,6 +367,7 @@ void P2PSocketManager::CreateSocket(
   }
   std::unique_ptr<P2PSocket> socket =
       P2PSocket::Create(this, std::move(client), std::move(receiver), type,
+                        net::NetworkTrafficAnnotationTag(traffic_annotation),
                         url_request_context_->net_log(),
                         proxy_resolving_socket_factory_.get(), &throttler_);
 
@@ -332,7 +380,7 @@ void P2PSocketManager::CreateSocket(
   // Init() may call SocketManager::DestroySocket(), so it must be called after
   // adding the socket to |sockets_|.
   socket_ptr->Init(local_address, port_range.min_port, port_range.max_port,
-                   remote_address, network_isolation_key_);
+                   remote_address, network_anonymization_key_);
 }
 
 void P2PSocketManager::StartRtpDump(bool incoming, bool outgoing) {

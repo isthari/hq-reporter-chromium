@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,10 @@
 #include "ui/display/test/scoped_screen_override.h"
 #include "ui/display/test/test_screen.h"
 #include "ui/events/base_event_utils.h"
+#include "ui/events/gesture_event_details.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/views/animation/slide_out_controller.h"
+#include "ui/views/controls/scroll_view.h"
 #include "ui/views/test/button_test_api.h"
 #include "ui/views/test/view_metadata_test_utils.h"
 #include "ui/views/test/views_test_base.h"
@@ -60,7 +63,7 @@ class MediaItemUIViewTest : public views::ViewsTestBase {
     auto device_selector =
         std::make_unique<NiceMock<test::MockMediaItemUIDeviceSelector>>();
     device_selector_ = device_selector.get();
-    device_selector_->SetPreferredSize({400, 50});
+    device_selector_->SetPreferredSize(gfx::Size(400, 50));
 
     item_ui_ = widget_->SetContentsView(std::make_unique<MediaItemUIView>(
         kTestNotificationId, item_->GetWeakPtr(), std::move(footer),
@@ -350,6 +353,37 @@ TEST_F(MediaItemUIViewTest, SendsClicks) {
   // It should also notify its observers when the header is clicked.
   EXPECT_CALL(observer(), OnMediaItemUIClicked(kTestNotificationId));
   SimulateHeaderClicked();
+}
+
+TEST_F(MediaItemUIViewTest, GestureScrollDisabledWhenSlidingOut) {
+  auto scroll_view = std::make_unique<views::ScrollView>();
+  item_ui()->SetScrollView(scroll_view.get());
+
+  // Vertical scroll bar should be enabled initially.
+  EXPECT_EQ(scroll_view->GetVerticalScrollBarMode(),
+            views::ScrollView::ScrollBarMode::kEnabled);
+
+  // Send a gesture scroll update event with some horizontal value.
+  gfx::Point point;
+  ui::GestureEvent gesture_scroll_update(
+      point.x(), point.y(), 0, ui::EventTimeForNow(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_UPDATE, /*delta_x=*/1.0,
+                              /*delta_y=*/0.0));
+  item_ui()->slide_out_controller_for_testing()->OnGestureEvent(
+      &gesture_scroll_update);
+
+  // Vertical scroll bar should be disabled because of the sliding.
+  EXPECT_EQ(scroll_view->GetVerticalScrollBarMode(),
+            views::ScrollView::ScrollBarMode::kDisabled);
+
+  // Slide ending should re-enabled the vertical scroll bar.
+  ui::GestureEvent gesture_scroll_end(
+      point.x(), point.y(), 0, ui::EventTimeForNow(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_END));
+  item_ui()->slide_out_controller_for_testing()->OnGestureEvent(
+      &gesture_scroll_end);
+  EXPECT_EQ(scroll_view->GetVerticalScrollBarMode(),
+            views::ScrollView::ScrollBarMode::kEnabled);
 }
 
 TEST_F(MediaItemUIViewTest, MetadataTest) {

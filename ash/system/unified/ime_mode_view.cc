@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/system/model/system_tray_model.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/system/tray/tray_constants.h"
@@ -24,8 +25,8 @@ ImeModeView::ImeModeView(Shelf* shelf) : TrayItemView(shelf) {
   CreateLabel();
   SetupLabelForTray(label());
   Update();
-  SetBorder(views::CreateEmptyBorder(kUnifiedTrayTextTopPadding, 0, 0,
-                                     kUnifiedTrayTextRightPadding));
+  SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(
+      kUnifiedTrayTextTopPadding, 0, 0, kUnifiedTrayTextRightPadding)));
 
   Shell::Get()->system_tray_notifier()->AddIMEObserver(this);
   Shell::Get()->system_tray_model()->locale()->AddObserver(this);
@@ -60,22 +61,12 @@ void ImeModeView::OnTabletModeEnded() {
   Update();
 }
 
-void ImeModeView::OnSessionStateChanged(session_manager::SessionState state) {
-  Update();
-}
-
 const char* ImeModeView::GetClassName() const {
   return "ImeModeView";
 }
 
 void ImeModeView::HandleLocaleChange() {
   Update();
-}
-
-void ImeModeView::OnThemeChanged() {
-  TrayItemView::OnThemeChanged();
-  label()->SetEnabledColor(
-      TrayIconColor(Shell::Get()->session_controller()->GetSessionState()));
 }
 
 void ImeModeView::Update() {
@@ -108,8 +99,7 @@ void ImeModeView::Update() {
              (ime_count > 1 || ime_controller->managed_by_policy()));
 
   label()->SetText(ime_controller->current_ime().short_name);
-  label()->SetEnabledColor(
-      TrayIconColor(Shell::Get()->session_controller()->GetSessionState()));
+  label()->SetEnabledColorId(kColorAshIconColorPrimary);
   std::u16string description =
       l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_INDICATOR_IME_TOOLTIP,
                                  ime_controller->current_ime().name);

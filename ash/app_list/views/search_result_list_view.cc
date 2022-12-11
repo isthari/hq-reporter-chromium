@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,6 @@
 #include "ash/app_list/app_list_model_provider.h"
 #include "ash/app_list/app_list_view_delegate.h"
 #include "ash/app_list/model/search/search_result.h"
-#include "ash/app_list/views/app_list_main_view.h"
-#include "ash/app_list/views/search_box_view.h"
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/app_list/app_list_color_provider.h"
 #include "ash/public/cpp/app_list/app_list_config.h"
@@ -30,6 +28,8 @@
 #include "base/bind.h"
 #include "base/dcheck_is_on.h"
 #include "base/time/time.h"
+#include "ui/accessibility/ax_enums.mojom.h"
+#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator.h"
@@ -38,6 +38,7 @@
 #include "ui/gfx/animation/linear_animation.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/animation_builder.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
@@ -54,10 +55,11 @@ constexpr int kPreferredTitleHorizontalMargins = 16;
 constexpr int kPreferredTitleTopMargins = 12;
 constexpr int kPreferredTitleBottomMargins = 4;
 
-constexpr base::TimeDelta kImpressionThreshold = base::Seconds(3);
 constexpr static base::TimeDelta kFadeInDuration = base::Milliseconds(100);
 constexpr static base::TimeDelta kIdentityTranslationDuration =
     base::Milliseconds(200);
+
+constexpr static base::TimeDelta kFastFadeInDuration = base::Milliseconds(0);
 
 // TODO(crbug.com/1199206): Move this into SharedAppListConfig once the UI for
 // categories is more developed.
@@ -66,26 +68,8 @@ constexpr int kAnswerCardMaxResults = 1;
 
 // Show animations for search result views and titles have a translation
 // distance of 'kAnimatedOffsetMultiplier' * i where i is the position of the
-// view in the 'ProductivityLauncherSearchView'.
+// view in the 'AppListSearchView'.
 constexpr int kAnimatedOffsetMultiplier = 4;
-
-SearchResultIdWithPositionIndices GetSearchResultsForLogging(
-    std::vector<SearchResultView*> search_result_views) {
-  SearchResultIdWithPositionIndices results;
-  for (const auto* item : search_result_views) {
-    if (item->result()) {
-      results.emplace_back(SearchResultIdWithPositionIndex(
-          item->result()->id(), item->index_in_container()));
-    }
-  }
-  return results;
-}
-
-size_t GetMaxSearchResultListItems() {
-  if (app_list_features::IsCategoricalSearchEnabled())
-    return kMaxResultsWithCategoricalSearch;
-  return SharedAppListConfig::instance().max_search_result_list_items();
-}
 
 // Maps 'AppListSearchResultCategory' to 'SearchResultListType'.
 SearchResultListView::SearchResultListType CategoryToListType(
@@ -107,23 +91,23 @@ SearchResultListView::SearchResultListType CategoryToListType(
       return SearchResultListView::SearchResultListType::kPlayStore;
     case ash::AppListSearchResultCategory::kSearchAndAssistant:
       return SearchResultListView::SearchResultListType::kSearchAndAssistant;
+    case ash::AppListSearchResultCategory::kGames:
+      return SearchResultListView::SearchResultListType::kGames;
     case ash::AppListSearchResultCategory::kUnknown:
       NOTREACHED();
-      return SearchResultListView::SearchResultListType::kUnified;
+      return SearchResultListView::SearchResultListType::kBestMatch;
   }
 }
 
 }  // namespace
 
 SearchResultListView::SearchResultListView(
-    AppListMainView* main_view,
     AppListViewDelegate* view_delegate,
     SearchResultPageDialogController* dialog_controller,
     SearchResultView::SearchResultViewType search_result_view_type,
     bool animates_result_updates,
     absl::optional<size_t> productivity_launcher_index)
     : SearchResultContainerView(view_delegate),
-      main_view_(main_view),
       view_delegate_(view_delegate),
       animates_result_updates_(animates_result_updates),
       results_container_(new views::View),
@@ -136,9 +120,9 @@ SearchResultListView::SearchResultListView(
       u"", CONTEXT_SEARCH_RESULT_CATEGORY_LABEL, STYLE_PRODUCTIVITY_LAUNCHER));
   title_label_->SetBackgroundColor(SK_ColorTRANSPARENT);
   title_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  title_label_->SetBorder(views::CreateEmptyBorder(
+  title_label_->SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(
       kPreferredTitleTopMargins, kPreferredTitleHorizontalMargins,
-      kPreferredTitleBottomMargins, kPreferredTitleHorizontalMargins));
+      kPreferredTitleBottomMargins, kPreferredTitleHorizontalMargins)));
   title_label_->SetVisible(false);
   title_label_->SetPaintToLayer();
   title_label_->layer()->SetFillsBoundsOpaquely(false);
@@ -146,12 +130,12 @@ SearchResultListView::SearchResultListView(
   results_container_->AddChildView(title_label_);
 
   size_t result_count =
-      GetMaxSearchResultListItems() +
+      kMaxResultsWithCategoricalSearch +
       SharedAppListConfig::instance().max_assistant_search_result_list_items();
 
   for (size_t i = 0; i < result_count; ++i) {
     search_result_views_.emplace_back(new SearchResultView(
-        this, view_delegate_, dialog_controller, search_result_view_type));
+        this, view_delegate_, dialog_controller, search_result_view_type_));
     search_result_views_.back()->set_index_in_container(i);
     search_result_views_.back()->SetPaintToLayer();
     search_result_views_.back()->layer()->SetFillsBoundsOpaquely(false);
@@ -169,9 +153,8 @@ void SearchResultListView::SetListType(SearchResultListType list_type) {
 
   list_type_ = list_type;
   switch (list_type_.value()) {
-    case SearchResultListType::kUnified:
     case SearchResultListType::kAnswerCard:
-      // kUnified and kAnswerCard SearchResultListView do not have labels.
+      // kAnswerCard SearchResultListView do not have labels.
       title_label_->SetText(u"");
       break;
     case SearchResultListType::kBestMatch:
@@ -210,13 +193,15 @@ void SearchResultListView::SetListType(SearchResultListType list_type) {
       title_label_->SetText(l10n_util::GetStringUTF16(
           IDS_ASH_SEARCH_RESULT_CATEGORY_LABEL_SEARCH_AND_ASSISTANT));
       break;
+    case SearchResultListType::kGames:
+      title_label_->SetText(l10n_util::GetStringUTF16(
+          IDS_ASH_SEARCH_RESULT_CATEGORY_LABEL_GAMES));
+      break;
   }
 
   switch (list_type_.value()) {
-    case SearchResultListType::kUnified:
     case SearchResultListType::kAnswerCard:
-      // Classic SearchResultListView and Productivity Launcher Answer Card do
-      // not have category labels.
+      // Answer Cards do not have category labels.
       title_label_->SetVisible(false);
       break;
     case SearchResultListType::kBestMatch:
@@ -228,19 +213,22 @@ void SearchResultListView::SetListType(SearchResultListType list_type) {
     case SearchResultListType::kHelp:
     case SearchResultListType::kPlayStore:
     case SearchResultListType::kSearchAndAssistant:
+    case SearchResultListType::kGames:
       title_label_->SetVisible(true);
       break;
   }
+
+  // A valid role must be set prior to setting the name.
+  GetViewAccessibility().OverrideRole(ax::mojom::Role::kListBox);
+  GetViewAccessibility().OverrideName(l10n_util::GetStringFUTF16(
+      IDS_ASH_SEARCH_RESULT_CATEGORY_LABEL_ACCESSIBLE_NAME,
+      title_label_->GetText()));
 
 #if DCHECK_IS_ON()
   switch (list_type_.value()) {
     case SearchResultListType::kAnswerCard:
       DCHECK(search_result_view_type_ ==
              SearchResultView::SearchResultViewType::kAnswerCard);
-      break;
-    case SearchResultListType::kUnified:
-      DCHECK(search_result_view_type_ ==
-             SearchResultView::SearchResultViewType::kClassic);
       break;
     case SearchResultListType::kBestMatch:
     case SearchResultListType::kApps:
@@ -251,6 +239,7 @@ void SearchResultListView::SetListType(SearchResultListType list_type) {
     case SearchResultListType::kHelp:
     case SearchResultListType::kPlayStore:
     case SearchResultListType::kSearchAndAssistant:
+    case SearchResultListType::kGames:
       DCHECK(search_result_view_type_ ==
              SearchResultView::SearchResultViewType::kDefault);
       break;
@@ -274,7 +263,8 @@ SearchResultListView::GetAllListTypesForCategoricalSearch() {
       SearchResultListType::kSettings,
       SearchResultListType::kHelp,
       SearchResultListType::kPlayStore,
-      SearchResultListType::kSearchAndAssistant};
+      SearchResultListType::kSearchAndAssistant,
+      SearchResultListType::kGames};
   return categorical_search_types;
 }
 
@@ -288,7 +278,6 @@ SearchResultListView::ScheduleResultAnimations(
 
   if (num_results_ < 1 || !enabled_) {
     SetVisible(false);
-    last_container_start_index_ = -1;
     for (auto* result_view : search_result_views_)
       result_view->SetVisible(false);
     return current_animation_info;
@@ -298,19 +287,22 @@ SearchResultListView::ScheduleResultAnimations(
   // *   the container is being shown, or
   // *   any of the result views that precede the container in the search UI are
   //     animating, or
-  // *   the number of result views before this container changed (e.g. if some
-  //     results get removed).
+  // *   if.the first animating result view is in a preceding container.
   bool force_animation =
       !GetVisible() || aggregate_animation_info.animating_views > 0 ||
-      last_container_start_index_ != aggregate_animation_info.total_views;
+      aggregate_animation_info.first_animated_result_view_index <=
+          aggregate_animation_info.total_result_views;
 
   SetVisible(true);
-  last_container_start_index_ = aggregate_animation_info.total_views;
+  current_animation_info.use_short_animations =
+      aggregate_animation_info.use_short_animations;
 
   auto schedule_animation = [this, &current_animation_info,
                              &aggregate_animation_info](views::View* view) {
-    ShowViewWithAnimation(view, current_animation_info.total_views +
-                                    aggregate_animation_info.total_views);
+    ShowViewWithAnimation(view,
+                          current_animation_info.total_views +
+                              aggregate_animation_info.total_views,
+                          current_animation_info.use_short_animations);
     ++current_animation_info.animating_views;
   };
 
@@ -324,25 +316,62 @@ SearchResultListView::ScheduleResultAnimations(
     SearchResultView* result_view = GetResultViewAt(i);
     result_view->SetVisible(i < num_results_);
 
-    const bool needs_animation = result_view->GetAndResetResultChanged();
     if (i < num_results_) {
-      if (force_animation || needs_animation) {
-        // If one of the result views have to be animated, animate all result
-        // views that follow.
+      // Checks whether the index of the current result view is greater than
+      // or equal to the index of the first result view that should be animated.
+      // Force animations if true.
+      if (aggregate_animation_info.total_result_views +
+              current_animation_info.total_result_views >=
+          aggregate_animation_info.first_animated_result_view_index) {
         force_animation = true;
-        schedule_animation(result_view);
       }
+      if (force_animation)
+        schedule_animation(result_view);
+
       ++current_animation_info.total_views;
+      ++current_animation_info.total_result_views;
     }
   }
 
   return current_animation_info;
 }
 
+void SearchResultListView::AppendShownResultMetadata(
+    std::vector<SearchResultAimationMetadata>* result_metadata_) {
+  for (size_t i = 0; i < search_result_views_.size(); ++i) {
+    SearchResultView* result_view = GetResultViewAt(i);
+    if (i >= num_results_ || !result_view->result())
+      return;
+    SearchResultAimationMetadata metadata;
+    metadata.result_id = result_view->result()->id();
+    metadata.skip_animations = result_view->result()->skip_update_animation();
+    result_metadata_->push_back(std::move(metadata));
+  }
+}
+
+bool SearchResultListView::HasAnimatingChildView() {
+  auto is_animating = [](views::View* view) {
+    return (view->GetVisible() && view->layer() &&
+            view->layer()->GetAnimator() &&
+            view->layer()->GetAnimator()->is_animating());
+  };
+
+  if (is_animating(title_label_))
+    return true;
+
+  for (size_t i = 0; i < search_result_views_.size(); ++i) {
+    if (is_animating(GetResultViewAt(i)))
+      return true;
+  }
+  return false;
+}
+
 void SearchResultListView::ShowViewWithAnimation(views::View* view,
-                                                 int position) {
-  // Abort any in-progress layer animation.
+                                                 int position,
+                                                 bool use_short_animations) {
   DCHECK(view->layer()->GetAnimator());
+
+  // Abort any in-progress layer animation.
   view->layer()->GetAnimator()->AbortAllAnimations();
 
   // Animation spec:
@@ -367,10 +396,18 @@ void SearchResultListView::ShowViewWithAnimation(views::View* view,
       .SetTransform(view, translate_down)
       .Then()
       .SetOpacity(view, 1.0f, gfx::Tween::LINEAR)
-      .SetDuration(kFadeInDuration)
+      .SetDuration(use_short_animations ? kFastFadeInDuration : kFadeInDuration)
       .At(base::TimeDelta())
-      .SetDuration(kIdentityTranslationDuration)
+      .SetDuration(
+          use_short_animations
+              ? app_list_features::DynamicSearchUpdateAnimationDuration()
+              : kIdentityTranslationDuration)
       .SetTransform(view, gfx::Transform(), gfx::Tween::LINEAR_OUT_SLOW_IN);
+}
+
+void SearchResultListView::OnSelectedResultChanged() {
+  for (SearchResultView* view : search_result_views_)
+    view->OnSelectedResultChanged();
 }
 
 int SearchResultListView::DoUpdate() {
@@ -388,15 +425,12 @@ int SearchResultListView::DoUpdate() {
   }
 
   if (!enabled_ || !GetWidget() || !GetWidget()->IsVisible()) {
-    SetVisible(false);
-    for (auto* result_view : search_result_views_) {
-      result_view->SetResult(nullptr);
-      result_view->SetVisible(false);
-    }
+    ResetAndHide();
     return 0;
   }
 
   std::vector<SearchResult*> displayed_results = UpdateResultViews();
+  NotifyAccessibilityEvent(ax::mojom::Event::kChildrenChanged, false);
 
   auto* notifier = view_delegate_->GetNotifier();
 
@@ -405,36 +439,13 @@ int SearchResultListView::DoUpdate() {
     std::vector<AppListNotifier::Result> notifier_results;
     for (const auto* result : displayed_results)
       notifier_results.emplace_back(result->id(), result->metrics_type());
-    notifier->NotifyResultsUpdated(SearchResultDisplayType::kList,
-                                   notifier_results);
+    notifier->NotifyResultsUpdated(
+        list_type_ == SearchResultListType::kAnswerCard
+            ? SearchResultDisplayType::kAnswerCard
+            : SearchResultDisplayType::kList,
+        notifier_results);
   }
-
-  // Logic for logging impression of items that were shown to user.
-  // Each time DoUpdate() called, start a timer that will be fired after a
-  // certain amount of time |kImpressionThreshold|. If during the waiting time,
-  // there's another DoUpdate() called, reset the timer and start a new timer
-  // with updated result list.
-  if (impression_timer_.IsRunning())
-    impression_timer_.Stop();
-  impression_timer_.Start(FROM_HERE, kImpressionThreshold, this,
-                          &SearchResultListView::LogImpressions);
   return displayed_results.size();
-}
-
-void SearchResultListView::LogImpressions() {
-  // TODO(crbug.com/1216097): Handle impressions for bubble launcher.
-  if (!main_view_)
-    return;
-
-  // Since no items is actually clicked, send the position index of clicked item
-  // as -1.
-  SearchModel* const search_model = AppListModelProvider::Get()->search_model();
-  if (main_view_->search_box_view()->is_search_box_active()) {
-    view_delegate_->NotifySearchResultsForLogging(
-        search_model->search_box()->text(),
-        GetSearchResultsForLogging(search_result_views_),
-        -1 /* position_index */);
-  }
 }
 
 void SearchResultListView::Layout() {
@@ -449,6 +460,13 @@ const char* SearchResultListView::GetClassName() const {
   return "SearchResultListView";
 }
 
+void SearchResultListView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  // With productivity launcher disabled, the parent search result page view
+  // will have the list box role.
+  if (ash::features::IsProductivityLauncherEnabled())
+    node_data->role = ax::mojom::Role::kListBox;
+}
+
 int SearchResultListView::GetHeightForWidth(int w) const {
   return results_container_->GetHeightForWidth(w);
 }
@@ -456,8 +474,7 @@ int SearchResultListView::GetHeightForWidth(int w) const {
 void SearchResultListView::OnThemeChanged() {
   SearchResultContainerView::OnThemeChanged();
   title_label_->SetEnabledColor(
-      AppListColorProvider::Get()->GetSearchBoxSecondaryTextColor(
-          kDeprecatedSearchBoxTextDefaultColor));
+      AppListColorProvider::Get()->GetSearchBoxSecondaryTextColor(GetWidget()));
 }
 
 void SearchResultListView::SearchResultActivated(SearchResultView* view,
@@ -470,20 +487,14 @@ void SearchResultListView::SearchResultActivated(SearchResultView* view,
 
   RecordSearchResultOpenSource(result, view_delegate_->GetAppListViewState(),
                                view_delegate_->IsInTabletMode());
-  SearchModel* const search_model = AppListModelProvider::Get()->search_model();
-  view_delegate_->NotifySearchResultsForLogging(
-      search_model->search_box()->text(),
-      GetSearchResultsForLogging(search_result_views_),
-      view->index_in_container());
 
   AppListLaunchType launch_type =
       IsAppListSearchResultAnApp(result->result_type())
           ? AppListLaunchType::kAppSearchResult
           : AppListLaunchType::kSearchResult;
   view_delegate_->OpenSearchResult(
-      result->id(), result->result_type(), event_flags,
-      AppListLaunchedFrom::kLaunchedFromSearchBox, launch_type,
-      -1 /* suggestion_index */,
+      result->id(), event_flags, AppListLaunchedFrom::kLaunchedFromSearchBox,
+      launch_type, -1 /* suggestion_index */,
       !by_button_press && view->is_default_result() /* launch_as_default */);
 }
 
@@ -499,59 +510,16 @@ void SearchResultListView::SearchResultActionActivated(
         Update();
         break;
       }
-      case SearchResultActionType::kAppend:
-        main_view_->search_box_view()->UpdateQuery(view->result()->title());
-        break;
-      case SearchResultActionType::kSearchResultActionTypeMax:
-        NOTREACHED();
     }
   }
-}
-
-std::vector<SearchResult*> SearchResultListView::GetAssistantResults() {
-  // Only show Assistant results if there are no tiles. There is not enough
-  // room in launcher to display Assistant results if there are tiles visible.
-  bool visible_tiles = !SearchModel::FilterSearchResultsByDisplayType(
-                            results(), SearchResult::DisplayType::kTile,
-                            /*excludes=*/{}, /*max_results=*/1)
-                            .empty();
-
-  if (visible_tiles)
-    return std::vector<SearchResult*>();
-
-  return SearchModel::FilterSearchResultsByFunction(
-      results(),
-      base::BindRepeating(&SearchResultListView::FilterResultsForUnifiedList,
-                          base::Unretained(this),
-                          /*for_assistant_results=*/true),
-      /*max_results=*/
-      SharedAppListConfig::instance().max_assistant_search_result_list_items());
-}
-
-std::vector<SearchResult*> SearchResultListView::GetUnifiedSearchResults() {
-  std::vector<SearchResult*> search_results =
-      SearchModel::FilterSearchResultsByFunction(
-          results(),
-          base::BindRepeating(
-              &SearchResultListView::FilterResultsForUnifiedList,
-              base::Unretained(this), /*for_assistant_results=*/false),
-          GetMaxSearchResultListItems());
-
-  std::vector<SearchResult*> assistant_results = GetAssistantResults();
-
-  search_results.insert(search_results.end(), assistant_results.begin(),
-                        assistant_results.end());
-
-  return search_results;
 }
 
 SearchResult::Category SearchResultListView::GetSearchCategory() {
   DCHECK(list_type_.has_value());
   switch (list_type_.value()) {
-    case SearchResultListType::kUnified:
     case SearchResultListType::kBestMatch:
     case SearchResultListType::kAnswerCard:
-      // Categories are undefined for |kUnified|, |KBestMatch|, and
+      // Categories are undefined for |KBestMatch|, and
       // |kAnswerCard| list types.
       NOTREACHED();
       return SearchResult::Category::kUnknown;
@@ -571,15 +539,14 @@ SearchResult::Category SearchResultListView::GetSearchCategory() {
       return SearchResult::Category::kPlayStore;
     case SearchResultListType::kSearchAndAssistant:
       return SearchResult::Category::kSearchAndAssistant;
+    case SearchResultListType::kGames:
+      return SearchResult::Category::kGames;
   }
 }
 
 std::vector<SearchResult*> SearchResultListView::GetCategorizedSearchResults() {
   DCHECK(enabled_ && list_type_.has_value());
   switch (list_type_.value()) {
-    case SearchResultListType::kUnified:
-      // Use classic search results for the kUnified list view.
-      return GetUnifiedSearchResults();
     case SearchResultListType::kAnswerCard:
       return SearchModel::FilterSearchResultsByFunction(
           results(), base::BindRepeating([](const SearchResult& result) {
@@ -593,7 +560,7 @@ std::vector<SearchResult*> SearchResultListView::GetCategorizedSearchResults() {
           results(),
           base::BindRepeating(&SearchResultListView::FilterBestMatches,
                               base::Unretained(this)),
-          GetMaxSearchResultListItems());
+          kMaxResultsWithCategoricalSearch);
     case SearchResultListType::kApps:
     case SearchResultListType::kAppShortcuts:
     case SearchResultListType::kWeb:
@@ -602,13 +569,14 @@ std::vector<SearchResult*> SearchResultListView::GetCategorizedSearchResults() {
     case SearchResultListType::kHelp:
     case SearchResultListType::kPlayStore:
     case SearchResultListType::kSearchAndAssistant:
+    case SearchResultListType::kGames:
       SearchResult::Category search_category = GetSearchCategory();
       return SearchModel::FilterSearchResultsByFunction(
           results(),
           base::BindRepeating(
               &SearchResultListView::FilterSearchResultsByCategory,
               base::Unretained(this), search_category),
-          GetMaxSearchResultListItems());
+          kMaxResultsWithCategoricalSearch);
   }
 }
 
@@ -635,18 +603,6 @@ std::vector<SearchResult*> SearchResultListView::UpdateResultViews() {
   if (!animates_result_updates_)
     SetVisible(num_results > 0);
   return display_results;
-}
-
-bool SearchResultListView::FilterResultsForUnifiedList(
-    bool for_assistant_results,
-    const SearchResult& result) const {
-  // Filter out results that have been removed from the list by the user.
-  if (removed_results_.count(result.id()))
-    return false;
-  const bool is_assistant_result =
-      result.result_type() == AppListSearchResultType::kAssistantText;
-  return result.display_type() == SearchResultDisplayType::kList &&
-         for_assistant_results == is_assistant_result;
 }
 
 bool SearchResultListView::FilterBestMatches(const SearchResult& result) const {

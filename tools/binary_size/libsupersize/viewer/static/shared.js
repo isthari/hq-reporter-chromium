@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,9 @@
  *     children that haven't been loaded in yet.
  * @property {?TreeNode} parent - Parent tree node, null if this is a root node.
  * @property {string} idPath - Full path to this node.
+ * @property {string} objPath - Path to the object file containing this symbol.
  * @property {string} srcPath - Path to the source containing this symbol.
+ * @property {string} disassembly - The disassembly for the node.
  * @property {string} container - The container for the node.
  * @property {string} component - OWNERS Component for this symbol.
  * @property {string} fullName - The full name of the node.
@@ -26,10 +28,14 @@
  *     `idPath`. This index indicates where to start to slice the `idPath` to
  *     read the name.
  * @property {number} size - Byte size of this node and its children.
+ * @property {number|undefined} padding - Padding bytes used by this node.
+ * @property {number|undefined} beforeSize - Diff mode only: Byte size of the
+ *     node and its children in the "before" binary.
+ * @property {number|undefined} address - Start address of this node.
+ * @property {number} flags - A bit field to store symbol properties.
  * @property {number} numAliases - Number of aliases for the symbol.
  * @property {string} type - Type of this node. If this node has children, the
  *     string may have a second character to denote the most common child.
- * @property {number} flags - A bit field to store symbol properties.
  * @property {_DIFF_STATUSES} diffStatus
  * @property {Object<string, !TreeNodeChildStats>} childStats - Stats about
  *     this node's descendants, keyed by symbol type.
@@ -70,16 +76,27 @@
  */
 
 /**
+ * Nested key-value pairs that stores metadata of .size or .sizediff files.
+ * @typedef {Object} MetadataType
+ * @property {Object|undefined} before_size_file - Metadata of the "before"
+ *     file, grouped by containers.
+ * @property {Object} size_file - Metadata of the "main" / "after" file,
+ *     grouped by containers.
+ */
+
+/**
  * @typedef {Object} LoadTreeResults
- * @property {boolean} isMultiContainer - Whether diff mod is engaged.
+ * @property {boolean} isMultiContainer - Whether multiple containers exist.
  * @property {string} beforeBlobUrl - The BLOB url of the "before" file.
  * @property {string} loadBlobUrl - The BLOB url of the "main" / "after" file.
+ * @property {?MetadataType} metadata
  */
+
 
 /**
  * @typedef {Object} BuildTreeResults
  * @property {Object} root
- * @property {boolean} diffMode - Whether diff mod is engaged.
+ * @property {boolean} diffMode - Whether diff mode is engaged.
  * @property {?LoadTreeResults} loadResults
  */
 
@@ -124,7 +141,7 @@ const _DIFF_STATUSES = {
  */
 const _ARTIFACT_TYPES = {
   DIRECTORY:  'D',
-  COMPONENT:  'C',
+  GROUP:      'G',
   FILE:       'F',
   JAVA_CLASS: 'J',
 };
@@ -199,4 +216,35 @@ function shortName(treeNode) {
  */
 function hasFlag(flag, symbolNode) {
   return (symbolNode.flags & flag) === flag;
+}
+
+/**
+ * Returns a formatted number with grouping, taking an optional range for number
+ * of digits after the decimal point (default 0, i.e., assume integer).
+ * @param {number} num
+ * @param {number=} lo
+ * @param {number=} hi
+ * @return {string}
+ */
+function formatNumber(num, lo = 0, hi = 0) {
+  return num.toLocaleString(_LOCALE, {
+    useGrouping: true,
+    minimumFractionDigits: lo,
+    maximumFractionDigits: hi
+  });
+}
+
+/**
+ * Same as formatNumber(), but returns percentage instead.
+ * @param {number} num
+ * @param {number=} lo
+ * @param {number=} hi
+ * @return {string}
+ */
+function formatPercent(num, lo = 0, hi = 0) {
+  return num.toLocaleString(_LOCALE, {
+    style: 'percent',
+    minimumFractionDigits: lo,
+    maximumFractionDigits: hi,
+  });
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 
 #include <memory>
 
-#include "base/cxx17_backports.h"
 #include "base/json/json_reader.h"
 #include "base/mac/scoped_aedesc.h"
 #include "base/notreached.h"
@@ -229,7 +228,7 @@ TEST_F(AppleEventUtilTest, ValueToAppleEventDescriptor) {
       typeAEList },
   };
 
-  for (size_t i = 0; i < base::size(cases); ++i) {
+  for (size_t i = 0; i < std::size(cases); ++i) {
     absl::optional<base::Value> value =
         base::JSONReader::Read(cases[i].json_input);
     NSAppleEventDescriptor* descriptor =

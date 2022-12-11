@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -117,6 +117,11 @@ void BeginFrameSourceWebView::AddBeginFrameCompletionCallback(
   DCHECK(parent_);
   DCHECK(inside_begin_frame_);
   parent_->AddBeginFrameCompletionCallback(std::move(callback));
+}
+
+const viz::BeginFrameArgs&
+BeginFrameSourceWebView::LastDispatchedBeginFrameArgs() {
+  return parent_observer_->LastUsedBeginFrameArgs();
 }
 
 // static

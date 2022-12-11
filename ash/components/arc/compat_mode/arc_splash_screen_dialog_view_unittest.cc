@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,9 +29,7 @@ class ArcSplashScreenDialogViewTest : public CompatModeTestBase {
   void SetUp() override {
     CompatModeTestBase::SetUp();
     parent_widget_ = CreateWidget();
-
-    anchor_ = parent_widget_->GetRootView()->AddChildView(
-        std::make_unique<views::View>());
+    EnsureAnchor();
   }
 
   void TearDown() override {
@@ -49,13 +47,24 @@ class ArcSplashScreenDialogViewTest : public CompatModeTestBase {
     return widget;
   }
 
+  void EnsureAnchor() {
+    if (anchor_)
+      return;
+    anchor_ = parent_widget_->GetRootView()->AddChildView(
+        std::make_unique<views::View>());
+  }
+  void RemoveAnchor() {
+    parent_widget_->GetRootView()->RemoveChildViewT(anchor_);
+    anchor_ = nullptr;
+  }
+
   views::View* anchor() { return anchor_; }
   aura::Window* parent_window() { return parent_widget_->GetNativeView(); }
   views::Widget* parent_widget() { return parent_widget_.get(); }
 
  private:
   std::unique_ptr<views::Widget> parent_widget_;
-  views::View* anchor_;
+  views::View* anchor_{nullptr};
 };
 
 TEST_F(ArcSplashScreenDialogViewTest, TestCloseButton) {
@@ -73,15 +82,56 @@ TEST_F(ArcSplashScreenDialogViewTest, TestCloseButton) {
   }
 }
 
+TEST_F(ArcSplashScreenDialogViewTest, TestEscKey) {
+  for (const bool is_for_unresizable : {true, false}) {
+    bool on_close_callback_called = false;
+    auto dialog_view = std::make_unique<ArcSplashScreenDialogView>(
+        base::BindLambdaForTesting([&]() { on_close_callback_called = true; }),
+        parent_window(), anchor(), is_for_unresizable);
+    ArcSplashScreenDialogView::TestApi dialog_view_test(dialog_view.get());
+    auto* const bubble = ShowAsBubble(std::move(dialog_view));
+    EXPECT_FALSE(on_close_callback_called);
+    EXPECT_TRUE(
+        anchor()->GetIndexOf(dialog_view_test.highlight_border()).has_value());
+
+    // Simulates esc key event to close the dialog.
+    ui::KeyEvent event(ui::ET_KEY_PRESSED, ui::VKEY_ESCAPE, ui::EF_NONE);
+    bubble->OnKeyEvent(&event);
+
+    EXPECT_TRUE(on_close_callback_called);
+    EXPECT_FALSE(
+        anchor()->GetIndexOf(dialog_view_test.highlight_border()).has_value());
+  }
+}
+
 TEST_F(ArcSplashScreenDialogViewTest, TestAnchorHighlight) {
   for (const bool is_for_unresizable : {true, false}) {
     auto dialog_view = std::make_unique<ArcSplashScreenDialogView>(
         base::DoNothing(), parent_window(), anchor(), is_for_unresizable);
     ArcSplashScreenDialogView::TestApi dialog_view_test(dialog_view.get());
     ShowAsBubble(std::move(dialog_view));
-    EXPECT_NE(-1, anchor()->GetIndexOf(dialog_view_test.highlight_border()));
+    EXPECT_TRUE(
+        anchor()->GetIndexOf(dialog_view_test.highlight_border()).has_value());
     LeftClickOnView(parent_widget(), dialog_view_test.close_button());
-    EXPECT_EQ(-1, anchor()->GetIndexOf(dialog_view_test.highlight_border()));
+    EXPECT_FALSE(
+        anchor()->GetIndexOf(dialog_view_test.highlight_border()).has_value());
+  }
+}
+
+TEST_F(ArcSplashScreenDialogViewTest, TestAnchorDestroy) {
+  for (const bool is_for_unresizable : {true, false}) {
+    EnsureAnchor();
+    auto dialog_view = std::make_unique<ArcSplashScreenDialogView>(
+        base::DoNothing(), parent_window(), anchor(), is_for_unresizable);
+    ArcSplashScreenDialogView::TestApi dialog_view_test(dialog_view.get());
+    ShowAsBubble(std::move(dialog_view));
+
+    // Removing the anchor from view hierarchy makes the anchor destroyed.
+    RemoveAnchor();
+
+    // Verify that clicking the button won't cause any crash even after
+    // destroying the anchor.
+    LeftClickOnView(parent_widget(), dialog_view_test.close_button());
   }
 }
 

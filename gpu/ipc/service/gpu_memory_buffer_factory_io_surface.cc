@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -88,15 +88,12 @@ ImageFactory* GpuMemoryBufferFactoryIOSurface::AsImageFactory() {
   return this;
 }
 
-bool GpuMemoryBufferFactoryIOSurface::SupportsCreateAnonymousImage() const {
-  return true;
-}
-
 scoped_refptr<gl::GLImage>
 GpuMemoryBufferFactoryIOSurface::CreateImageForGpuMemoryBuffer(
     gfx::GpuMemoryBufferHandle handle,
     const gfx::Size& size,
     gfx::BufferFormat format,
+    const gfx::ColorSpace& color_space,
     gfx::BufferPlane plane,
     int client_id,
     SurfaceHandle surface_handle) {
@@ -143,12 +140,12 @@ GpuMemoryBufferFactoryIOSurface::CreateImageForGpuMemoryBuffer(
   gfx::Size plane_size = GetPlaneSize(plane, size);
 
   gfx::BufferFormat plane_format = GetPlaneBufferFormat(plane, format);
-  unsigned internalformat = gl::BufferFormatToGLInternalFormat(plane_format);
-
   scoped_refptr<gl::GLImageIOSurface> image(
-      gl::GLImageIOSurface::Create(plane_size, internalformat));
+      gl::GLImageIOSurface::Create(plane_size));
+  if (color_space.IsValid())
+    image->SetColorSpace(color_space);
 
-  uint32_t io_surface_plane = (plane == gfx::BufferPlane::UV) ? 1 : 0;
+  uint32_t io_surface_plane = GetPlaneIndex(plane, format);
   if (!image->Initialize(io_surface, io_surface_plane, handle.id,
                          plane_format)) {
     DLOG(ERROR) << "Failed to initialize GLImage for IOSurface.";
@@ -156,45 +153,6 @@ GpuMemoryBufferFactoryIOSurface::CreateImageForGpuMemoryBuffer(
   }
 
   return image;
-}
-
-scoped_refptr<gl::GLImage>
-GpuMemoryBufferFactoryIOSurface::CreateAnonymousImage(
-    const gfx::Size& size,
-    gfx::BufferFormat format,
-    gfx::BufferUsage usage,
-    SurfaceHandle surface_handle,
-    bool* is_cleared) {
-  bool should_clear = false;
-  base::ScopedCFTypeRef<IOSurfaceRef> io_surface(
-      gfx::CreateIOSurface(size, format, should_clear));
-  const uint32_t io_surface_plane = 0;
-  if (!io_surface) {
-    LOG(ERROR) << "Failed to allocate IOSurface.";
-    return nullptr;
-  }
-
-  unsigned internalformat = gl::BufferFormatToGLInternalFormat(format);
-  scoped_refptr<gl::GLImageIOSurface> image(
-      gl::GLImageIOSurface::Create(size, internalformat));
-  // Use an invalid GMB id so that we can differentiate between anonymous and
-  // shared GMBs by using gfx::GenericSharedMemoryId::is_valid().
-  if (!image->Initialize(io_surface.get(), io_surface_plane,
-                         gfx::GenericSharedMemoryId(), format)) {
-    DLOG(ERROR) << "Failed to initialize anonymous GLImage.";
-    return scoped_refptr<gl::GLImage>();
-  }
-
-  *is_cleared = false;
-  return image;
-}
-
-unsigned GpuMemoryBufferFactoryIOSurface::RequiredTextureType() {
-  return GL_TEXTURE_RECTANGLE_ARB;
-}
-
-bool GpuMemoryBufferFactoryIOSurface::SupportsFormatRGB() {
-  return false;
 }
 
 }  // namespace gpu

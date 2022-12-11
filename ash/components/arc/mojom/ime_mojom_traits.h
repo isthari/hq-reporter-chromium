@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -131,6 +131,12 @@ struct StructTraits<arc::mojom::KeyEventDataDataView, KeyEventUniquePtr> {
   }
   static int32_t scan_code(const KeyEventUniquePtr& key_event) {
     return key_event->scan_code();
+  }
+  static bool is_alt_gr_down(const KeyEventUniquePtr& key_event) {
+    return key_event->IsAltGrDown();
+  }
+  static bool is_repeat(const KeyEventUniquePtr& key_event) {
+    return key_event->is_repeat();
   }
 
   static bool Read(arc::mojom::KeyEventDataDataView data,

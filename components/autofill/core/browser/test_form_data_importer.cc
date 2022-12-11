@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,9 +18,10 @@ TestFormDataImporter::TestFormDataImporter(
                        payments_client,
                        personal_data_manager,
                        app_locale) {
-  set_credit_card_save_manager(std::move(credit_card_save_manager));
+  set_credit_card_save_manager_for_testing(std::move(credit_card_save_manager));
 #if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
-  set_local_card_migration_manager(std::move(local_card_migration_manager));
+  set_local_card_migration_manager_for_testing(
+      std::move(local_card_migration_manager));
 #endif  // !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
 }
 

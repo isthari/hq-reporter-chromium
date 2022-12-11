@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,13 @@
 
 #include <numeric>
 
+#include "base/ranges/algorithm.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_css_numeric_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_cssnumericvalue_double.h"
 #include "third_party/blink/renderer/core/css/css_math_expression_node.h"
 #include "third_party/blink/renderer/core/css/css_math_function_value.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
+#include "third_party/blink/renderer/core/css/cssom/css_math_clamp.h"
 #include "third_party/blink/renderer/core/css/cssom/css_math_invert.h"
 #include "third_party/blink/renderer/core/css/cssom/css_math_max.h"
 #include "third_party/blink/renderer/core/css/cssom/css_math_min.h"
@@ -40,7 +42,7 @@ void PrependValueForArithmetic(CSSNumericValueVector& vector,
 template <class BinaryOperation>
 CSSUnitValue* MaybeSimplifyAsUnitValue(const CSSNumericValueVector& values,
                                        const BinaryOperation& op) {
-  DCHECK(!values.IsEmpty());
+  DCHECK(!values.empty());
 
   auto* first_unit_value = DynamicTo<CSSUnitValue>(values[0].Get());
   if (!first_unit_value)
@@ -60,7 +62,7 @@ CSSUnitValue* MaybeSimplifyAsUnitValue(const CSSNumericValueVector& values,
 }
 
 CSSUnitValue* MaybeMultiplyAsUnitValue(const CSSNumericValueVector& values) {
-  DCHECK(!values.IsEmpty());
+  DCHECK(!values.empty());
 
   // We are allowed one unit value with type other than kNumber.
   auto unit_other_than_number = CSSPrimitiveValue::UnitType::kNumber;
@@ -84,9 +86,17 @@ CSSUnitValue* MaybeMultiplyAsUnitValue(const CSSNumericValueVector& values) {
 }
 
 CSSMathOperator CanonicalOperator(CSSMathOperator op) {
-  if (op == CSSMathOperator::kAdd || op == CSSMathOperator::kSubtract)
-    return CSSMathOperator::kAdd;
-  return CSSMathOperator::kMultiply;
+  switch (op) {
+    case CSSMathOperator::kAdd:
+    case CSSMathOperator::kSubtract:
+      return CSSMathOperator::kAdd;
+    case CSSMathOperator::kMultiply:
+    case CSSMathOperator::kDivide:
+      return CSSMathOperator::kMultiply;
+    default:
+      NOTREACHED();
+      return CSSMathOperator::kInvalid;
+  }
 }
 
 bool CanCombineNodes(const CSSMathExpressionNode& root,
@@ -96,9 +106,12 @@ bool CanCombineNodes(const CSSMathExpressionNode& root,
     return false;
   if (node.IsNestedCalc())
     return false;
+  const auto& node_exp = To<CSSMathExpressionOperation>(node);
+  if (node_exp.IsMinOrMax() || node_exp.IsClamp())
+    return false;
   return CanonicalOperator(
              To<CSSMathExpressionOperation>(root).OperatorType()) ==
-         CanonicalOperator(To<CSSMathExpressionOperation>(node).OperatorType());
+         CanonicalOperator(node_exp.OperatorType());
 }
 
 CSSNumericValue* NegateOrInvertIfRequired(CSSMathOperator parent_op,
@@ -144,13 +157,10 @@ CSSNumericValue* CalcToNumericValue(const CSSMathExpressionNode& root) {
     if (node.OperatorType() == CSSMathOperator::kMax)
       return CSSMathMax::Create(std::move(values));
     DCHECK_EQ(CSSMathOperator::kClamp, node.OperatorType());
-    // TODO(pjh0718): Add CSSMathClamp according to
-    // https://drafts.css-houdini.org/css-typed-om-1/#cssmathclamp.
     auto& min = values[0];
     auto& val = values[1];
     auto& max = values[2];
-    return CSSMathMax::Create(
-        {std::move(min), CSSMathMin::Create({std::move(val), std::move(max)})});
+    return CSSMathClamp::Create(std::move(min), std::move(val), std::move(max));
   }
 
   DCHECK_EQ(To<CSSMathExpressionOperation>(root).GetOperands().size(), 2u);
@@ -232,7 +242,7 @@ bool CSSNumericValue::IsValidUnit(CSSPrimitiveValue::UnitType unit) {
 }
 
 CSSPrimitiveValue::UnitType CSSNumericValue::UnitFromName(const String& name) {
-  if (name.IsEmpty())
+  if (name.empty())
     return CSSPrimitiveValue::UnitType::kUnknown;
   if (EqualIgnoringASCIICase(name, "number"))
     return CSSPrimitiveValue::UnitType::kNumber;
@@ -242,8 +252,10 @@ CSSPrimitiveValue::UnitType CSSNumericValue::UnitFromName(const String& name) {
 }
 
 // static
-CSSNumericValue* CSSNumericValue::parse(const String& css_text,
-                                        ExceptionState& exception_state) {
+CSSNumericValue* CSSNumericValue::parse(
+    const ExecutionContext* execution_context,
+    const String& css_text,
+    ExceptionState& exception_state) {
   CSSTokenizer tokenizer(css_text);
   CSSParserTokenStream stream(tokenizer);
   stream.ConsumeWhitespace();
@@ -270,8 +282,12 @@ CSSNumericValue* CSSNumericValue::parse(const String& css_text,
           range.Peek().FunctionId() == CSSValueID::kMin ||
           range.Peek().FunctionId() == CSSValueID::kMax ||
           range.Peek().FunctionId() == CSSValueID::kClamp) {
+        // TODO(crbug.com/1309178): Decide how to handle anchor queries here.
         CSSMathExpressionNode* expression =
-            CSSMathExpressionNode::ParseCalc(range);
+            CSSMathExpressionNode::ParseMathFunction(
+                CSSValueID::kCalc, range,
+                *MakeGarbageCollected<CSSParserContext>(*execution_context),
+                kCSSAnchorQueryTypesNone);
         if (expression)
           return CalcToNumericValue(*expression);
       }
@@ -403,8 +419,7 @@ CSSMathSum* CSSNumericValue::toSum(const Vector<String>& unit_strings,
     result.push_back(CSSUnitValue::Create(total_value, target_unit));
   }
 
-  if (std::any_of(values.begin(), values.end(),
-                  [](const auto& v) { return v; })) {
+  if (base::ranges::any_of(values, [](const auto& v) { return v; })) {
     exception_state.ThrowTypeError(
         "There were leftover terms that were not converted");
     return nullptr;
@@ -527,8 +542,8 @@ bool CSSNumericValue::equals(
     const HeapVector<Member<V8CSSNumberish>>& numberishes
 ) {
   CSSNumericValueVector values = CSSNumberishesToNumericValues(numberishes);
-  return std::all_of(values.begin(), values.end(),
-                     [this](const auto& v) { return this->Equals(*v); });
+  return base::ranges::all_of(
+      values, [this](const auto& v) { return this->Equals(*v); });
 }
 
 String CSSNumericValue::toString() const {

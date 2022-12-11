@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/auto_reset.h"
 #include "build/build_config.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
+#include "third_party/blink/public/mojom/frame/user_activation_notification_type.mojom-blink.h"
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/dom/element.h"
@@ -21,6 +22,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/html/closewatcher/close_watcher.h"
 #include "third_party/blink/renderer/core/html/forms/html_input_element.h"
 #include "third_party/blink/renderer/core/html/html_dialog_element.h"
 #include "third_party/blink/renderer/core/input/event_handler.h"
@@ -29,6 +31,7 @@
 #include "third_party/blink/renderer/core/input/scroll_manager.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/focus_controller.h"
+#include "third_party/blink/renderer/core/page/focusgroup_controller.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/spatial_navigation.h"
 #include "third_party/blink/renderer/core/page/spatial_navigation_controller.h"
@@ -52,7 +55,7 @@ const int kVKeyProcessKey = 229;
 bool MapKeyCodeForScroll(int key_code,
                          WebInputEvent::Modifiers modifiers,
                          mojom::blink::ScrollDirection* scroll_direction,
-                         ScrollGranularity* scroll_granularity,
+                         ui::ScrollGranularity* scroll_granularity,
                          WebFeature* scroll_use_uma) {
   if (modifiers & WebInputEvent::kShiftKey ||
       modifiers & WebInputEvent::kMetaKey)
@@ -82,8 +85,8 @@ bool MapKeyCodeForScroll(int key_code,
           mojom::blink::ScrollDirection::kScrollLeftIgnoringWritingMode;
       *scroll_granularity =
           RuntimeEnabledFeatures::PercentBasedScrollingEnabled()
-              ? ScrollGranularity::kScrollByPercentage
-              : ScrollGranularity::kScrollByLine;
+              ? ui::ScrollGranularity::kScrollByPercentage
+              : ui::ScrollGranularity::kScrollByLine;
       *scroll_use_uma = WebFeature::kScrollByKeyboardArrowKeys;
       break;
     case VKEY_RIGHT:
@@ -91,8 +94,8 @@ bool MapKeyCodeForScroll(int key_code,
           mojom::blink::ScrollDirection::kScrollRightIgnoringWritingMode;
       *scroll_granularity =
           RuntimeEnabledFeatures::PercentBasedScrollingEnabled()
-              ? ScrollGranularity::kScrollByPercentage
-              : ScrollGranularity::kScrollByLine;
+              ? ui::ScrollGranularity::kScrollByPercentage
+              : ui::ScrollGranularity::kScrollByLine;
       *scroll_use_uma = WebFeature::kScrollByKeyboardArrowKeys;
       break;
     case VKEY_UP:
@@ -100,8 +103,8 @@ bool MapKeyCodeForScroll(int key_code,
           mojom::blink::ScrollDirection::kScrollUpIgnoringWritingMode;
       *scroll_granularity =
           RuntimeEnabledFeatures::PercentBasedScrollingEnabled()
-              ? ScrollGranularity::kScrollByPercentage
-              : ScrollGranularity::kScrollByLine;
+              ? ui::ScrollGranularity::kScrollByPercentage
+              : ui::ScrollGranularity::kScrollByLine;
       *scroll_use_uma = WebFeature::kScrollByKeyboardArrowKeys;
       break;
     case VKEY_DOWN:
@@ -109,32 +112,32 @@ bool MapKeyCodeForScroll(int key_code,
           mojom::blink::ScrollDirection::kScrollDownIgnoringWritingMode;
       *scroll_granularity =
           RuntimeEnabledFeatures::PercentBasedScrollingEnabled()
-              ? ScrollGranularity::kScrollByPercentage
-              : ScrollGranularity::kScrollByLine;
+              ? ui::ScrollGranularity::kScrollByPercentage
+              : ui::ScrollGranularity::kScrollByLine;
       *scroll_use_uma = WebFeature::kScrollByKeyboardArrowKeys;
       break;
     case VKEY_HOME:
       *scroll_direction =
           mojom::blink::ScrollDirection::kScrollUpIgnoringWritingMode;
-      *scroll_granularity = ScrollGranularity::kScrollByDocument;
+      *scroll_granularity = ui::ScrollGranularity::kScrollByDocument;
       *scroll_use_uma = WebFeature::kScrollByKeyboardHomeEndKeys;
       break;
     case VKEY_END:
       *scroll_direction =
           mojom::blink::ScrollDirection::kScrollDownIgnoringWritingMode;
-      *scroll_granularity = ScrollGranularity::kScrollByDocument;
+      *scroll_granularity = ui::ScrollGranularity::kScrollByDocument;
       *scroll_use_uma = WebFeature::kScrollByKeyboardHomeEndKeys;
       break;
     case VKEY_PRIOR:  // page up
       *scroll_direction =
           mojom::blink::ScrollDirection::kScrollUpIgnoringWritingMode;
-      *scroll_granularity = ScrollGranularity::kScrollByPage;
+      *scroll_granularity = ui::ScrollGranularity::kScrollByPage;
       *scroll_use_uma = WebFeature::kScrollByKeyboardPageUpDownKeys;
       break;
     case VKEY_NEXT:  // page down
       *scroll_direction =
           mojom::blink::ScrollDirection::kScrollDownIgnoringWritingMode;
-      *scroll_granularity = ScrollGranularity::kScrollByPage;
+      *scroll_granularity = ui::ScrollGranularity::kScrollByPage;
       *scroll_use_uma = WebFeature::kScrollByKeyboardPageUpDownKeys;
       break;
     default:
@@ -171,7 +174,7 @@ bool KeyboardEventManager::HandleAccessKey(const WebKeyboardEvent& evt) {
       frame_->GetDocument()->GetElementByAccessKey(key.DeprecatedLower());
   if (!elem)
     return false;
-  elem->focus(FocusParams(SelectionBehaviorOnFocus::kReset,
+  elem->Focus(FocusParams(SelectionBehaviorOnFocus::kReset,
                           mojom::blink::FocusType::kAccessKey, nullptr));
   elem->AccessKeyAction(SimulatedClickCreationScope::kFromUserAgent);
   return true;
@@ -257,13 +260,21 @@ WebInputEventResult KeyboardEventManager::KeyEvent(
     const int kDomKeysDontSend[] = {0x00200309, 0x00200310};
     const int kDomKeysNotCancellabelUnlessInEditor[] = {0x00400031, 0x00400032,
                                                         0x00400033};
-    for (int dom_key : kDomKeysDontSend) {
+    for (uint32_t dom_key : kDomKeysDontSend) {
       if (initial_key_event.dom_key == dom_key)
         send_key_event = false;
     }
 
-    for (int dom_key : kDomKeysNotCancellabelUnlessInEditor) {
-      if (initial_key_event.dom_key == dom_key && !IsEditableElement(*node))
+    for (uint32_t dom_key : kDomKeysNotCancellabelUnlessInEditor) {
+      auto* text_control = ToTextControlOrNull(node);
+      auto* element = DynamicTo<Element>(node);
+      bool is_editable =
+          IsEditable(*node) ||
+          (text_control && !text_control->IsDisabledOrReadOnly()) ||
+          (element &&
+           EqualIgnoringASCIICase(
+               element->FastGetAttribute(html_names::kRoleAttr), "textbox"));
+      if (initial_key_event.dom_key == dom_key && !is_editable)
         event_cancellable = false;
     }
   } else {
@@ -417,7 +428,7 @@ void KeyboardEventManager::DefaultSpaceEventHandler(
   // TODO(bokan): enable scroll customization in this case. See
   // crbug.com/410974.
   if (scroll_manager_->LogicalScroll(direction,
-                                     ScrollGranularity::kScrollByPage, nullptr,
+                                     ui::ScrollGranularity::kScrollByPage, nullptr,
                                      possible_focused_node)) {
     UseCounter::Count(frame_->GetDocument(),
                       WebFeature::kScrollByKeyboardSpacebarKey);
@@ -435,6 +446,13 @@ void KeyboardEventManager::DefaultArrowEventHandler(
   if (!page)
     return;
 
+  ExecutionContext* context = frame_->GetDocument()->GetExecutionContext();
+  if (RuntimeEnabledFeatures::FocusgroupEnabled(context) &&
+      FocusgroupController::HandleArrowKeyboardEvent(event, frame_)) {
+    event->SetDefaultHandled();
+    return;
+  }
+
   if (IsSpatialNavigationEnabled(frame_) &&
       !frame_->GetDocument()->InDesignMode()) {
     if (page->GetSpatialNavigationController().HandleArrowKeyboardEvent(
@@ -448,7 +466,7 @@ void KeyboardEventManager::DefaultArrowEventHandler(
     return;
 
   mojom::blink::ScrollDirection scroll_direction;
-  ScrollGranularity scroll_granularity;
+  ui::ScrollGranularity scroll_granularity;
   WebFeature scroll_use_uma;
   if (!MapKeyCodeForScroll(event->keyCode(), event->GetModifiers(),
                            &scroll_direction, &scroll_granularity,
@@ -550,8 +568,24 @@ void KeyboardEventManager::DefaultEscapeEventHandler(KeyboardEvent* event) {
     page->GetSpatialNavigationController().HandleEscapeKeyboardEvent(event);
   }
 
-  if (HTMLDialogElement* dialog = frame_->GetDocument()->ActiveModalDialog())
-    dialog->DispatchEvent(*Event::CreateCancelable(event_type_names::kCancel));
+  bool cancel_skipped = false;
+  frame_->DomWindow()->closewatcher_stack()->EscapeKeyHandler(event,
+                                                              &cancel_skipped);
+
+  HTMLDialogElement* dialog = frame_->GetDocument()->ActiveModalDialog();
+  if (dialog && !RuntimeEnabledFeatures::CloseWatcherEnabled()) {
+    auto* cancel_event = Event::CreateCancelable(event_type_names::kCancel);
+    dialog->DispatchEvent(*cancel_event);
+    if (cancel_event->defaultPrevented() && cancel_skipped) {
+      UseCounter::Count(
+          frame_->GetDocument(),
+          WebFeature::kDialogCloseWatcherCancelSkippedAndDefaultPrevented);
+    }
+  }
+
+  auto* target_node = event->GetEventPath()[0].Target()->ToNode();
+  DCHECK(target_node);
+  HTMLElement::HandlePopoverLightDismiss(*event, *target_node);
 }
 
 void KeyboardEventManager::DefaultEnterEventHandler(KeyboardEvent* event) {

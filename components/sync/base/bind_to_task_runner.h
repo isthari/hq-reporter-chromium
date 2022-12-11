@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,17 +10,17 @@
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/task/bind_post_task.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 
 // Helpers for using base::BindPostTask() with the TaskRunner for the current
-// sequence, ie. base::SequencedTaskRunnerHandle::Get().
+// sequence, ie. base::SequencedTaskRunner::GetCurrentDefault().
 namespace syncer {
 
 template <typename T>
 base::OnceCallback<T> BindToCurrentSequence(
     base::OnceCallback<T> callback,
     const base::Location& location = FROM_HERE) {
-  return base::BindPostTask(base::SequencedTaskRunnerHandle::Get(),
+  return base::BindPostTask(base::SequencedTaskRunner::GetCurrentDefault(),
                             std::move(callback), location);
 }
 
@@ -28,7 +28,7 @@ template <typename T>
 base::RepeatingCallback<T> BindToCurrentSequence(
     base::RepeatingCallback<T> callback,
     const base::Location& location = FROM_HERE) {
-  return base::BindPostTask(base::SequencedTaskRunnerHandle::Get(),
+  return base::BindPostTask(base::SequencedTaskRunner::GetCurrentDefault(),
                             std::move(callback), location);
 }
 

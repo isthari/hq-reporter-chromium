@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,19 +48,18 @@ HatsHandler::HatsHandler() = default;
 HatsHandler::~HatsHandler() = default;
 
 void HatsHandler::RegisterMessages() {
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "trustSafetyInteractionOccurred",
       base::BindRepeating(&HatsHandler::HandleTrustSafetyInteractionOccurred,
                           base::Unretained(this)));
 }
 
 void HatsHandler::HandleTrustSafetyInteractionOccurred(
-    const base::ListValue* args) {
+    const base::Value::List& args) {
   AllowJavascript();
 
-  CHECK_EQ(1U, args->GetList().size());
-  auto interaction =
-      static_cast<TrustSafetyInteraction>(args->GetList()[0].GetInt());
+  CHECK_EQ(1U, args.size());
+  auto interaction = static_cast<TrustSafetyInteraction>(args[0].GetInt());
 
   // Both the HaTS service, and the T&S sentiment service (which is another
   // wrapper on the HaTS service), may decide to launch surveys based on this
@@ -94,7 +93,7 @@ void HatsHandler::RequestHatsSurvey(TrustSafetyInteraction interaction) {
     // The control group for the Privacy guide HaTS experiment will need to see
     // either safety check or the privacy page to be eligible and have never
     // seen privacy guide.
-    if (features::kHappinessTrackingSurveysForDesktopSettingsPrivacyNoReview
+    if (features::kHappinessTrackingSurveysForDesktopSettingsPrivacyNoGuide
             .Get() &&
         Profile::FromWebUI(web_ui())->GetPrefs()->GetBoolean(
             prefs::kPrivacyGuideViewed)) {
@@ -118,8 +117,8 @@ void HatsHandler::RequestHatsSurvey(TrustSafetyInteraction interaction) {
         /*require_same_origin=*/true);
   } else if (interaction == TrustSafetyInteraction::COMPLETED_PRIVACY_GUIDE) {
     hats_service->LaunchDelayedSurveyForWebContents(
-        kHatsSurveyTriggerPrivacyReview, web_ui()->GetWebContents(),
-        features::kHappinessTrackingSurveysForDesktopPrivacyReviewTime.Get()
+        kHatsSurveyTriggerPrivacyGuide, web_ui()->GetWebContents(),
+        features::kHappinessTrackingSurveysForDesktopPrivacyGuideTime.Get()
             .InMilliseconds(),
         /*product_specific_bits_data=*/{},
         /*product_specific_string_data=*/{},
@@ -140,6 +139,10 @@ void HatsHandler::InformSentimentService(TrustSafetyInteraction interaction) {
     sentiment_service->RanSafetyCheck();
   } else if (interaction == TrustSafetyInteraction::OPENED_PASSWORD_MANAGER) {
     sentiment_service->OpenedPasswordManager(web_ui()->GetWebContents());
+  } else if (interaction == TrustSafetyInteraction::RAN_PASSWORD_CHECK) {
+    sentiment_service->RanPasswordCheck();
+  } else if (interaction == TrustSafetyInteraction::COMPLETED_PRIVACY_GUIDE) {
+    sentiment_service->FinishedPrivacyGuide();
   }
 }
 

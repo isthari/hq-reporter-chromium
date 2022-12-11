@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include "chrome/browser/web_applications/os_integration_manager.h"
+#include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -22,11 +22,23 @@ class MockOsIntegrationManager : public OsIntegrationManager {
       std::unique_ptr<WebAppProtocolHandlerManager> protocol_handler_manager);
   ~MockOsIntegrationManager() override;
 
+  void SetSubsystems(WebAppSyncBridge* sync_bridge,
+                     WebAppRegistrar* registrar,
+                     WebAppUiManager* ui_manager,
+                     WebAppIconManager* icon_manager) override {}
+  void Start() override {}
+
   // Installation:
+  MOCK_METHOD(void,
+              Synchronize,
+              (const AppId& app_id, base::OnceClosure callback),
+              (override));
+
   MOCK_METHOD(void,
               CreateShortcuts,
               (const AppId& app_id,
                bool add_to_desktop,
+               ShortcutCreationReason reason,
                CreateShortcutsCallback callback),
               (override));
 
@@ -79,13 +91,13 @@ class MockOsIntegrationManager : public OsIntegrationManager {
               UninstallAllOsHooks,
               (const AppId& app_id, UninstallOsHooksCallback callback),
               (override));
-  MOCK_METHOD(bool, UnregisterShortcutsMenu, (const AppId& app_id), (override));
+  MOCK_METHOD(bool,
+              UnregisterShortcutsMenu,
+              (const AppId& app_id, ResultCallback callback),
+              (override));
   MOCK_METHOD(void,
               UnregisterRunOnOsLogin,
-              (const AppId& app_id,
-               const base::FilePath& profile_path,
-               const std::u16string& shortcut_title,
-               ResultCallback callback),
+              (const AppId& app_id, ResultCallback callback),
               (override));
   MOCK_METHOD(void,
               DeleteShortcuts,
@@ -113,7 +125,7 @@ class MockOsIntegrationManager : public OsIntegrationManager {
               UpdateShortcuts,
               (const AppId& app_id,
                base::StringPiece old_name,
-               base::OnceClosure callback),
+               ResultCallback callback),
               (override));
 
   // Utility methods:

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,12 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
+#include "base/values.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+#if BUILDFLAG(IS_WIN)
+#include <windows.h>
+#endif
 
 class PrefService;
 class PrefRegistrySimple;
@@ -18,7 +24,6 @@ class PrefRegistrySimple;
 namespace base {
 class FilePath;
 class Time;
-class Value;
 class Version;
 }  // namespace base
 
@@ -98,15 +103,24 @@ class PersistedData : public base::RefCountedThreadSafe<PersistedData> {
   base::Time GetLastStarted() const;
   void SetLastStarted(const base::Time& time);
 
+#if BUILDFLAG(IS_WIN)
+  // Retrieves the previously stored OS version.
+  absl::optional<OSVERSIONINFOEX> GetLastOSVersion() const;
+
+  // Stores the current os version.
+  void SetLastOSVersion();
+#endif
+
  private:
   friend class base::RefCountedThreadSafe<PersistedData>;
   ~PersistedData();
 
   // Returns nullptr if the app key does not exist.
-  const base::Value* GetAppKey(const std::string& id) const;
+  const base::Value::Dict* GetAppKey(const std::string& id) const;
 
   // Returns an existing or newly created app key under a root pref.
-  base::Value* GetOrCreateAppKey(const std::string& id, base::Value* root);
+  base::Value::Dict* GetOrCreateAppKey(const std::string& id,
+                                       base::Value::Dict& root);
 
   std::string GetString(const std::string& id, const std::string& key) const;
   void SetString(const std::string& id,

@@ -1,12 +1,12 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <algorithm>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/memory/raw_ptr.h"
+#include "base/ranges/algorithm.h"
 #include "chrome/browser/image_fetcher/image_decoder_impl.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image.h"
@@ -16,8 +16,11 @@ class ImageDecoderImpl::DecodeImageRequest
     : public ::ImageDecoder::ImageRequest {
  public:
   DecodeImageRequest(ImageDecoderImpl* decoder,
+                     data_decoder::DataDecoder* data_decoder,
                      image_fetcher::ImageDecodedCallback callback)
-      : decoder_(decoder), callback_(std::move(callback)) {}
+      : ImageRequest(data_decoder),
+        decoder_(decoder),
+        callback_(std::move(callback)) {}
 
   DecodeImageRequest(const DecodeImageRequest&) = delete;
   DecodeImageRequest& operator=(const DecodeImageRequest&) = delete;
@@ -68,9 +71,10 @@ ImageDecoderImpl::~ImageDecoderImpl() {}
 void ImageDecoderImpl::DecodeImage(
     const std::string& image_data,
     const gfx::Size& desired_image_frame_size,
+    data_decoder::DataDecoder* data_decoder,
     image_fetcher::ImageDecodedCallback callback) {
   std::unique_ptr<DecodeImageRequest> decode_image_request(
-      new DecodeImageRequest(this, std::move(callback)));
+      new DecodeImageRequest(this, data_decoder, std::move(callback)));
 
   ::ImageDecoder::StartWithOptions(
       decode_image_request.get(), image_data, ::ImageDecoder::DEFAULT_CODEC,
@@ -82,10 +86,8 @@ void ImageDecoderImpl::DecodeImage(
 void ImageDecoderImpl::RemoveDecodeImageRequest(DecodeImageRequest* request) {
   // Remove the finished request from the request queue.
   auto request_it =
-      std::find_if(decode_image_requests_.begin(), decode_image_requests_.end(),
-                   [request](const std::unique_ptr<DecodeImageRequest>& r) {
-                     return r.get() == request;
-                   });
+      base::ranges::find(decode_image_requests_, request,
+                         &std::unique_ptr<DecodeImageRequest>::get);
   DCHECK(request_it != decode_image_requests_.end());
   decode_image_requests_.erase(request_it);
 }

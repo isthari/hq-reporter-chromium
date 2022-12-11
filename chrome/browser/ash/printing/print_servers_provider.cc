@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,7 @@
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/values.h"
@@ -28,7 +26,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "url/gurl.h"
 
-namespace chromeos {
+namespace ash {
 
 namespace {
 
@@ -50,18 +48,17 @@ TaskResults ParseData(int task_id, std::unique_ptr<std::string> data) {
     return task_data;
   }
 
-  base::JSONReader::ValueWithError value_with_error =
-      base::JSONReader::ReadAndReturnValueWithError(
-          *data, base::JSONParserOptions::JSON_ALLOW_TRAILING_COMMAS);
-  if (!value_with_error.value) {
+  auto value_with_error = base::JSONReader::ReadAndReturnValueWithError(
+      *data, base::JSONParserOptions::JSON_ALLOW_TRAILING_COMMAS);
+  if (!value_with_error.has_value()) {
     LOG(WARNING) << "Failed to parse print servers policy ("
-                 << value_with_error.error_message << ") on line "
-                 << value_with_error.error_line << " at position "
-                 << value_with_error.error_column;
+                 << value_with_error.error().message << ") on line "
+                 << value_with_error.error().line << " at position "
+                 << value_with_error.error().column;
     return task_data;
   }
 
-  base::Value& json_blob = value_with_error.value.value();
+  base::Value& json_blob = *value_with_error;
   if (!json_blob.is_list()) {
     LOG(WARNING) << "Failed to parse print servers policy "
                  << "(an array was expected)";
@@ -80,7 +77,7 @@ TaskResults ParseData(int task_id, std::unique_ptr<std::string> data) {
     const std::string* id = val.FindStringKey("id");
     const std::string* url = val.FindStringKey("url");
     const std::string* name = val.FindStringKey("display_name");
-    if (id == nullptr || url == nullptr || name == nullptr) {
+    if (!id || !url || !name) {
       LOG(WARNING) << "Entry in print servers policy skipped. The following "
                    << "fields are required: id, url, display_name.";
       continue;
@@ -216,8 +213,8 @@ class PrintServersProviderImpl : public PrintServersProvider {
   void SetData(std::unique_ptr<std::string> data) override {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     const bool previously_completed = IsCompleted();
-    base::PostTaskAndReplyWithResult(
-        task_runner_.get(), FROM_HERE,
+    task_runner_->PostTaskAndReplyWithResult(
+        FROM_HERE,
         base::BindOnce(&ParseData, ++last_received_task_, std::move(data)),
         base::BindOnce(&PrintServersProviderImpl::OnComputationComplete,
                        weak_ptr_factory_.GetWeakPtr()));
@@ -238,9 +235,7 @@ class PrintServersProviderImpl : public PrintServersProvider {
     if (last_processed_task_ != last_received_task_)
       return false;
     // The case when prefs are not set.
-    if (prefs_ == nullptr)
-      return false;
-    return true;
+    return !!prefs_;
   }
 
   // Called when a new allowlist is available.
@@ -249,7 +244,7 @@ class PrintServersProviderImpl : public PrintServersProvider {
     // Fetch and parse the allowlist.
     const PrefService::Preference* pref =
         prefs_->FindPreference(allowlist_pref_);
-    if (pref != nullptr && !pref->IsDefaultValue()) {
+    if (pref && !pref->IsDefaultValue()) {
       allowlist_ = std::set<std::string>();
       for (const base::Value& value : pref->GetValue()->GetList()) {
         if (value.is_string()) {
@@ -268,11 +263,11 @@ class PrintServersProviderImpl : public PrintServersProvider {
   // Recalculate the value of |result_servers_| field. Returns true if the new
   // list is different than the previous one.
   bool CalculateResultantList() {
-    std::vector<PrintServer> new_servers;
-    if (prefs_ == nullptr) {
+    if (!prefs_) {
       // |result_servers_| remains empty when prefs is not set.
       return false;
     }
+    std::vector<PrintServer> new_servers;
     if (!allowlist_.has_value()) {
       new_servers = servers_;
     } else {
@@ -355,4 +350,4 @@ std::unique_ptr<PrintServersProvider> PrintServersProvider::Create() {
   return std::make_unique<PrintServersProviderImpl>();
 }
 
-}  // namespace chromeos
+}  // namespace ash

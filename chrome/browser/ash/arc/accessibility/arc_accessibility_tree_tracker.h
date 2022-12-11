@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@
 #include <tuple>
 
 #include "base/scoped_observation.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/arc/accessibility/accessibility_helper_instance_remote_proxy.h"
 #include "chrome/browser/ash/arc/accessibility/ax_tree_source_arc.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/common/extensions/api/accessibility_private.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/env.h"
@@ -110,7 +110,13 @@ class ArcAccessibilityTreeTracker : public aura::EnvObserver {
   // Invalidates all trees (resets serializers).
   void InvalidateTrees();
 
+  int GetTrackingArcWindowCount() const;
+
+  bool IsArcFocused() const;
+
   const TreeMap& trees_for_test() const { return trees_; }
+
+  bool is_native_chromevox_enabled() const { return native_chromevox_enabled_; }
 
  protected:
   // Start observing the given window.
@@ -122,6 +128,7 @@ class ArcAccessibilityTreeTracker : public aura::EnvObserver {
   class ArcInputMethodManagerServiceObserver;
   class MojoConnectionObserver;
   class ArcNotificationSurfaceManagerObserver;
+  class UmaRecorder;
 
   AXTreeSourceArc* GetFromKey(const TreeKey&);
   AXTreeSourceArc* CreateFromKey(TreeKey, aura::Window* window);
@@ -152,6 +159,8 @@ class ArcAccessibilityTreeTracker : public aura::EnvObserver {
   std::unique_ptr<MojoConnectionObserver> connection_observer_;
   std::unique_ptr<ArcNotificationSurfaceManagerObserver>
       notification_surface_observer_;
+
+  std::unique_ptr<UmaRecorder> uma_recorder_;
 
   base::ScopedObservation<aura::Env, aura::EnvObserver> env_observation_{this};
 

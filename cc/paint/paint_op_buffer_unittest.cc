@@ -1,13 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "cc/paint/paint_op_buffer.h"
 
 #include <algorithm>
+#include <string>
 
 #include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/stringprintf.h"
@@ -18,11 +18,13 @@
 #include "cc/paint/image_transfer_cache_entry.h"
 #include "cc/paint/paint_flags.h"
 #include "cc/paint/paint_image_builder.h"
+#include "cc/paint/paint_op_buffer_iterator.h"
 #include "cc/paint/paint_op_buffer_serializer.h"
 #include "cc/paint/paint_op_reader.h"
 #include "cc/paint/paint_op_writer.h"
 #include "cc/paint/shader_transfer_cache_entry.h"
 #include "cc/paint/skottie_resource_metadata.h"
+#include "cc/paint/skottie_text_property_value.h"
 #include "cc/paint/skottie_wrapper.h"
 #include "cc/paint/transfer_cache_entry.h"
 #include "cc/test/lottie_test_data.h"
@@ -42,13 +44,15 @@
 #include "third_party/skia/include/private/chromium/SkChromeRemoteGlyphCache.h"
 #include "ui/gfx/geometry/test/geometry_util.h"
 
-using testing::_;
-using testing::AtLeast;
-using testing::Contains;
-using testing::Key;
-using testing::Mock;
-using testing::NiceMock;
-using testing::NotNull;
+using ::testing::_;
+using ::testing::AtLeast;
+using ::testing::Contains;
+using ::testing::ElementsAre;
+using ::testing::Eq;
+using ::testing::Key;
+using ::testing::Mock;
+using ::testing::NiceMock;
+using ::testing::NotNull;
 
 namespace cc {
 namespace {
@@ -60,8 +64,8 @@ static constexpr size_t kBufferBytesPerOp = 1000 + sizeof(LargestPaintOp);
 template <typename T>
 void ValidateOps(PaintOpBuffer* buffer) {
   // Make sure all test data is valid before serializing it.
-  for (auto* op : PaintOpBuffer::Iterator(buffer))
-    EXPECT_TRUE(static_cast<T*>(op)->IsValid());
+  for (const PaintOp& op : PaintOpBuffer::Iterator(buffer))
+    EXPECT_TRUE(static_cast<const T&>(op).IsValid());
 }
 }  // namespace
 
@@ -74,7 +78,7 @@ class PaintOpSerializationTestUtils {
     shader->start_radius_ = 13.4f;
     shader->tx_ = SkTileMode::kRepeat;
     shader->ty_ = SkTileMode::kMirror;
-    shader->fallback_color_ = SkColorSetARGB(254, 252, 250, 248);
+    shader->fallback_color_ = {0.99f, 0.98f, 0.97f, 0.99f};
     shader->scaling_behavior_ = PaintShader::ScalingBehavior::kRasterAtScale;
     if (use_matrix) {
       shader->local_matrix_.emplace(SkMatrix::I());
@@ -88,8 +92,9 @@ class PaintOpSerializationTestUtils {
     shader->start_degrees_ = 123;
     shader->end_degrees_ = 456;
     // TODO(vmpstr): Add PaintImage/PaintRecord.
-    shader->colors_ = {SkColorSetARGB(1, 2, 3, 4), SkColorSetARGB(5, 6, 7, 8),
-                       SkColorSetARGB(9, 0, 1, 2)};
+    shader->colors_ = {{0.1f, 0.2f, 0.3f, 0.4f},
+                       {0.05f, 0.15f, 0.25f, 0.35f},
+                       {0.0f, 0.5f, 0.9f, 0.1f}};
     shader->positions_ = {0.f, 0.4f, 1.f};
   }
 };
@@ -98,20 +103,20 @@ TEST(PaintOpBufferTest, Empty) {
   PaintOpBuffer buffer;
   EXPECT_EQ(buffer.size(), 0u);
   EXPECT_EQ(buffer.bytes_used(), sizeof(PaintOpBuffer));
-  EXPECT_EQ(PaintOpBuffer::Iterator(&buffer), false);
+  EXPECT_FALSE(PaintOpBuffer::Iterator(&buffer));
 
   buffer.Reset();
   EXPECT_EQ(buffer.size(), 0u);
   EXPECT_EQ(buffer.bytes_used(), sizeof(PaintOpBuffer));
-  EXPECT_EQ(PaintOpBuffer::Iterator(&buffer), false);
+  EXPECT_FALSE(PaintOpBuffer::Iterator(&buffer));
 
   PaintOpBuffer buffer2(std::move(buffer));
   EXPECT_EQ(buffer.size(), 0u);
   EXPECT_EQ(buffer.bytes_used(), sizeof(PaintOpBuffer));
-  EXPECT_EQ(PaintOpBuffer::Iterator(&buffer), false);
+  EXPECT_FALSE(PaintOpBuffer::Iterator(&buffer));
   EXPECT_EQ(buffer2.size(), 0u);
   EXPECT_EQ(buffer2.bytes_used(), sizeof(PaintOpBuffer));
-  EXPECT_EQ(PaintOpBuffer::Iterator(&buffer2), false);
+  EXPECT_FALSE(PaintOpBuffer::Iterator(&buffer2));
 }
 
 class PaintOpAppendTest : public ::testing::Test {
@@ -132,21 +137,23 @@ class PaintOpAppendTest : public ::testing::Test {
 
   void VerifyOps(PaintOpBuffer* buffer) {
     EXPECT_EQ(buffer->size(), 4u);
+    EXPECT_TRUE(buffer->has_draw_ops());
+    EXPECT_TRUE(buffer->has_save_layer_ops());
 
     PaintOpBuffer::Iterator iter(buffer);
     ASSERT_EQ(iter->GetType(), PaintOpType::SaveLayer);
-    SaveLayerOp* save_op = static_cast<SaveLayerOp*>(*iter);
-    EXPECT_EQ(save_op->bounds, rect_);
-    EXPECT_EQ(save_op->flags, flags_);
+    const SaveLayerOp& save_op = static_cast<const SaveLayerOp&>(*iter);
+    EXPECT_EQ(save_op.bounds, rect_);
+    EXPECT_EQ(save_op.flags, flags_);
     ++iter;
 
     ASSERT_EQ(iter->GetType(), PaintOpType::Save);
     ++iter;
 
     ASSERT_EQ(iter->GetType(), PaintOpType::DrawColor);
-    DrawColorOp* op = static_cast<DrawColorOp*>(*iter);
-    EXPECT_EQ(op->color, draw_color_);
-    EXPECT_EQ(op->mode, blend_);
+    const DrawColorOp& op = static_cast<const DrawColorOp&>(*iter);
+    EXPECT_EQ(op.color, draw_color_);
+    EXPECT_EQ(op.mode, blend_);
     ++iter;
 
     ASSERT_EQ(iter->GetType(), PaintOpType::Restore);
@@ -155,10 +162,23 @@ class PaintOpAppendTest : public ::testing::Test {
     EXPECT_FALSE(iter);
   }
 
+  void CheckInitialState(PaintOpBuffer* buffer, bool expect_empty_buffer) {
+    EXPECT_FALSE(buffer->has_draw_ops());
+    EXPECT_FALSE(buffer->has_save_layer_ops());
+    EXPECT_EQ(0u, buffer->size());
+    EXPECT_EQ(0u, buffer->total_op_count());
+    EXPECT_EQ(0u, buffer->next_op_offset());
+    EXPECT_FALSE(PaintOpBuffer::Iterator(buffer));
+    if (expect_empty_buffer) {
+      EXPECT_EQ(0u, buffer->paint_ops_size());
+      EXPECT_EQ(sizeof(PaintOpBuffer), buffer->bytes_used());
+    }
+  }
+
  private:
   SkRect rect_;
   PaintFlags flags_;
-  SkColor draw_color_ = SK_ColorRED;
+  SkColor4f draw_color_ = SkColors::kRed;
   SkBlendMode blend_ = SkBlendMode::kSrc;
 };
 
@@ -168,6 +188,7 @@ TEST_F(PaintOpAppendTest, SimpleAppend) {
   VerifyOps(&buffer);
 
   buffer.Reset();
+  CheckInitialState(&buffer, false);
   PushOps(&buffer);
   VerifyOps(&buffer);
 }
@@ -181,8 +202,7 @@ TEST_F(PaintOpAppendTest, MoveThenDestruct) {
   VerifyOps(&destination);
 
   // Original should be empty, and safe to destruct.
-  EXPECT_EQ(original.size(), 0u);
-  EXPECT_EQ(original.bytes_used(), sizeof(PaintOpBuffer));
+  CheckInitialState(&original, true);
 }
 
 TEST_F(PaintOpAppendTest, MoveThenDestructOperatorEq) {
@@ -195,9 +215,7 @@ TEST_F(PaintOpAppendTest, MoveThenDestructOperatorEq) {
   VerifyOps(&destination);
 
   // Original should be empty, and safe to destruct.
-  EXPECT_EQ(original.size(), 0u);
-  EXPECT_EQ(original.bytes_used(), sizeof(PaintOpBuffer));
-  EXPECT_EQ(PaintOpBuffer::Iterator(&original), false);
+  CheckInitialState(&original, true);
 }
 
 TEST_F(PaintOpAppendTest, MoveThenReappend) {
@@ -230,12 +248,13 @@ TEST_F(PaintOpAppendTest, MoveThenReappendOperatorEq) {
 TEST(PaintOpBufferTest, SaveDrawRestore) {
   PaintOpBuffer buffer;
 
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
 
+  int paint_flags_alpha = 50;
   PaintFlags draw_flags;
-  draw_flags.setColor(SK_ColorMAGENTA);
-  draw_flags.setAlpha(50);
+  draw_flags.setColor(SkColors::kMagenta);
+  draw_flags.setAlpha(paint_flags_alpha);
   EXPECT_TRUE(draw_flags.SupportsFoldingAlpha());
   SkRect rect = SkRect::MakeXYWH(1, 2, 3, 4);
   buffer.push<DrawRectOp>(rect, draw_flags);
@@ -250,15 +269,15 @@ TEST(PaintOpBufferTest, SaveDrawRestore) {
 
   // Expect the alpha from the draw and the save layer to be folded together.
   // Since alpha is stored in a uint8_t and gets rounded, so use tolerance.
-  float expected_alpha = alpha * 50 / 255.f;
-  EXPECT_LE(std::abs(expected_alpha - canvas.paint_.getAlpha()), 1.f);
+  float expected_alpha = alpha * paint_flags_alpha / 255.0f;
+  EXPECT_LE(std::abs(expected_alpha - canvas.paint_.getAlphaf()), 0.01f);
 }
 
 // Verify that we don't optimize SaveLayerAlpha / DrawTextBlob / Restore.
 TEST(PaintOpBufferTest, SaveDrawTextBlobRestore) {
   PaintOpBuffer buffer;
 
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
 
   PaintFlags paint_flags;
@@ -280,11 +299,11 @@ TEST(PaintOpBufferTest, SaveDrawTextBlobRestore) {
 TEST(PaintOpBufferTest, SaveDrawRestoreFail_BadFlags) {
   PaintOpBuffer buffer;
 
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
 
   PaintFlags draw_flags;
-  draw_flags.setColor(SK_ColorMAGENTA);
+  draw_flags.setColor(SkColors::kMagenta);
   draw_flags.setAlpha(50);
   draw_flags.setBlendMode(SkBlendMode::kSrc);
   EXPECT_FALSE(draw_flags.SupportsFoldingAlpha());
@@ -307,11 +326,11 @@ TEST(PaintOpBufferTest, SaveDrawRestoreFail_BadFlags) {
 TEST(PaintOpBufferTest, SaveDrawRestore_BadFlags255Alpha) {
   PaintOpBuffer buffer;
 
-  uint8_t alpha = 255;
+  float alpha = 1.0f;
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
 
   PaintFlags draw_flags;
-  draw_flags.setColor(SK_ColorMAGENTA);
+  draw_flags.setColor(SkColors::kMagenta);
   draw_flags.setAlpha(50);
   draw_flags.setBlendMode(SkBlendMode::kColorBurn);
   EXPECT_FALSE(draw_flags.SupportsFoldingAlpha());
@@ -332,11 +351,11 @@ TEST(PaintOpBufferTest, SaveDrawRestore_BadFlags255Alpha) {
 TEST(PaintOpBufferTest, SaveDrawRestoreFail_TooManyOps) {
   PaintOpBuffer buffer;
 
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
 
   PaintFlags draw_flags;
-  draw_flags.setColor(SK_ColorMAGENTA);
+  draw_flags.setColor(SkColors::kMagenta);
   draw_flags.setAlpha(50);
   draw_flags.setBlendMode(SkBlendMode::kSrcOver);
   EXPECT_TRUE(draw_flags.SupportsFoldingAlpha());
@@ -359,7 +378,7 @@ TEST(PaintOpBufferTest, SaveDrawRestoreFail_TooManyOps) {
 TEST(PaintOpBufferTest, SaveDrawRestore_SingleOpNotADrawOp) {
   PaintOpBuffer buffer;
 
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
 
   buffer.push<NoopOp>();
@@ -377,9 +396,10 @@ TEST(PaintOpBufferTest, SaveDrawRestore_SingleOpNotADrawOp) {
 TEST(PaintOpBufferTest, SaveDrawRestore_SingleOpRecordWithSingleOp) {
   sk_sp<PaintRecord> record = sk_make_sp<PaintRecord>();
 
+  int paint_flags_alpha = 50;
   PaintFlags draw_flags;
-  draw_flags.setColor(SK_ColorMAGENTA);
-  draw_flags.setAlpha(50);
+  draw_flags.setColor(SkColors::kMagenta);
+  draw_flags.setAlpha(paint_flags_alpha);
   EXPECT_TRUE(draw_flags.SupportsFoldingAlpha());
   SkRect rect = SkRect::MakeXYWH(1, 2, 3, 4);
   record->push<DrawRectOp>(rect, draw_flags);
@@ -387,7 +407,7 @@ TEST(PaintOpBufferTest, SaveDrawRestore_SingleOpRecordWithSingleOp) {
 
   PaintOpBuffer buffer;
 
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
   buffer.push<DrawRecordOp>(std::move(record));
   buffer.push<RestoreOp>();
@@ -399,8 +419,8 @@ TEST(PaintOpBufferTest, SaveDrawRestore_SingleOpRecordWithSingleOp) {
   EXPECT_EQ(0, canvas.restore_count_);
   EXPECT_EQ(rect, canvas.draw_rect_);
 
-  float expected_alpha = alpha * 50 / 255.f;
-  EXPECT_LE(std::abs(expected_alpha - canvas.paint_.getAlpha()), 1.f);
+  float expected_alpha = alpha * paint_flags_alpha / 255.f;
+  EXPECT_LE(std::abs(expected_alpha - canvas.paint_.getAlphaf()), 0.01f);
 }
 
 // The same as the above SingleOpRecord test, but the single op is not
@@ -411,11 +431,11 @@ TEST(PaintOpBufferTest, SaveDrawRestore_SingleOpRecordWithSingleNonDrawOp) {
   sk_sp<PaintRecord> record = sk_make_sp<PaintRecord>();
   record->push<NoopOp>();
   EXPECT_EQ(record->size(), 1u);
-  EXPECT_FALSE(record->GetFirstOp()->IsDrawOp());
+  EXPECT_FALSE(record->GetFirstOp().IsDrawOp());
 
   PaintOpBuffer buffer;
 
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
   buffer.push<DrawRecordOp>(std::move(record));
   buffer.push<RestoreOp>();
@@ -429,11 +449,12 @@ TEST(PaintOpBufferTest, SaveDrawRestore_SingleOpRecordWithSingleNonDrawOp) {
 
 TEST(PaintOpBufferTest, SaveLayerRestore_DrawColor) {
   PaintOpBuffer buffer;
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   SkColor original = SkColorSetA(50, SK_ColorRED);
 
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
-  buffer.push<DrawColorOp>(original, SkBlendMode::kSrcOver);
+  buffer.push<DrawColorOp>(SkColor4f::FromColor(original),
+                           SkBlendMode::kSrcOver);
   buffer.push<RestoreOp>();
 
   SaveCountingCanvas canvas;
@@ -506,7 +527,7 @@ TEST(PaintOpBufferTest, DiscardableImagesTracking_OpWithFlags) {
 
 TEST(PaintOpBufferTest, SlowPaths) {
   auto buffer = sk_make_sp<PaintOpBuffer>();
-  EXPECT_EQ(buffer->numSlowPaths(), 0);
+  EXPECT_EQ(buffer->num_slow_paths_up_to_min_for_MSAA(), 0);
 
   // Op without slow paths
   PaintFlags noop_flags;
@@ -522,13 +543,13 @@ TEST(PaintOpBufferTest, SlowPaths) {
   line_effect_slow.setPathEffect(SkDashPathEffect::Make(intervals, 2, 0));
 
   buffer->push<DrawLineOp>(1.f, 2.f, 3.f, 4.f, line_effect_slow);
-  EXPECT_EQ(buffer->numSlowPaths(), 1);
+  EXPECT_EQ(buffer->num_slow_paths_up_to_min_for_MSAA(), 1);
 
   // Line effect special case that Skia handles specially.
   PaintFlags line_effect = line_effect_slow;
   line_effect.setStrokeCap(PaintFlags::kButt_Cap);
   buffer->push<DrawLineOp>(1.f, 2.f, 3.f, 4.f, line_effect);
-  EXPECT_EQ(buffer->numSlowPaths(), 1);
+  EXPECT_EQ(buffer->num_slow_paths_up_to_min_for_MSAA(), 1);
 
   // Antialiased convex path is not slow.
   SkPath path;
@@ -536,7 +557,7 @@ TEST(PaintOpBufferTest, SlowPaths) {
   EXPECT_TRUE(path.isConvex());
   buffer->push<ClipPathOp>(path, SkClipOp::kIntersect, /*antialias=*/true,
                            UsePaintCache::kDisabled);
-  EXPECT_EQ(buffer->numSlowPaths(), 1);
+  EXPECT_EQ(buffer->num_slow_paths_up_to_min_for_MSAA(), 1);
 
   // Concave paths are slow only when antialiased.
   SkPath concave = path;
@@ -544,19 +565,19 @@ TEST(PaintOpBufferTest, SlowPaths) {
   EXPECT_FALSE(concave.isConvex());
   buffer->push<ClipPathOp>(concave, SkClipOp::kIntersect, /*antialias=*/true,
                            UsePaintCache::kDisabled);
-  EXPECT_EQ(buffer->numSlowPaths(), 2);
+  EXPECT_EQ(buffer->num_slow_paths_up_to_min_for_MSAA(), 2);
   buffer->push<ClipPathOp>(concave, SkClipOp::kIntersect, /*antialias=*/false,
                            UsePaintCache::kDisabled);
-  EXPECT_EQ(buffer->numSlowPaths(), 2);
+  EXPECT_EQ(buffer->num_slow_paths_up_to_min_for_MSAA(), 2);
 
   // Drawing a record with slow paths into another adds the same
   // number of slow paths as the record.
   auto buffer2 = sk_make_sp<PaintOpBuffer>();
-  EXPECT_EQ(0, buffer2->numSlowPaths());
+  EXPECT_EQ(0, buffer2->num_slow_paths_up_to_min_for_MSAA());
   buffer2->push<DrawRecordOp>(buffer);
-  EXPECT_EQ(2, buffer2->numSlowPaths());
+  EXPECT_EQ(2, buffer2->num_slow_paths_up_to_min_for_MSAA());
   buffer2->push<DrawRecordOp>(buffer);
-  EXPECT_EQ(4, buffer2->numSlowPaths());
+  EXPECT_EQ(4, buffer2->num_slow_paths_up_to_min_for_MSAA());
 }
 
 TEST(PaintOpBufferTest, NonAAPaint) {
@@ -723,8 +744,8 @@ TEST_F(PaintOpBufferOffsetsTest, EmptyClipRectShouldRejectAnOp) {
   std::vector<size_t> offsets = Select({0});
   for (PaintOpBuffer::PlaybackFoldingIterator iter(&buffer_, &offsets); iter;
        ++iter) {
-    const PaintOp* op = *iter;
-    EXPECT_EQ(op->GetType(), PaintOpType::DrawImageRect);
+    const PaintOp& op = *iter;
+    EXPECT_EQ(op.GetType(), PaintOpType::DrawImageRect);
     EXPECT_TRUE(PaintOp::QuickRejectDraw(op, canvas));
   }
 }
@@ -732,11 +753,11 @@ TEST_F(PaintOpBufferOffsetsTest, EmptyClipRectShouldRejectAnOp) {
 TEST_F(PaintOpBufferOffsetsTest, ContiguousIndices) {
   testing::StrictMock<MockCanvas> canvas;
 
-  push_op<DrawColorOp>(0u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(1u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(2u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(3u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(4u, SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(0u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(1u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(2u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(3u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(4u), SkBlendMode::kClear);
 
   // Plays all items.
   testing::Sequence s;
@@ -751,11 +772,11 @@ TEST_F(PaintOpBufferOffsetsTest, ContiguousIndices) {
 TEST_F(PaintOpBufferOffsetsTest, NonContiguousIndices) {
   testing::StrictMock<MockCanvas> canvas;
 
-  push_op<DrawColorOp>(0u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(1u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(2u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(3u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(4u, SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(0u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(1u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(2u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(3u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(4u), SkBlendMode::kClear);
 
   // Plays 0, 1, 3, 4 indices.
   testing::Sequence s;
@@ -769,11 +790,11 @@ TEST_F(PaintOpBufferOffsetsTest, NonContiguousIndices) {
 TEST_F(PaintOpBufferOffsetsTest, FirstTwoIndices) {
   testing::StrictMock<MockCanvas> canvas;
 
-  push_op<DrawColorOp>(0u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(1u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(2u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(3u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(4u, SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(0u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(1u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(2u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(3u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(4u), SkBlendMode::kClear);
 
   // Plays first two indices.
   testing::Sequence s;
@@ -785,11 +806,11 @@ TEST_F(PaintOpBufferOffsetsTest, FirstTwoIndices) {
 TEST_F(PaintOpBufferOffsetsTest, MiddleIndex) {
   testing::StrictMock<MockCanvas> canvas;
 
-  push_op<DrawColorOp>(0u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(1u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(2u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(3u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(4u, SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(0u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(1u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(2u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(3u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(4u), SkBlendMode::kClear);
 
   // Plays index 2.
   testing::Sequence s;
@@ -800,11 +821,11 @@ TEST_F(PaintOpBufferOffsetsTest, MiddleIndex) {
 TEST_F(PaintOpBufferOffsetsTest, LastTwoElements) {
   testing::StrictMock<MockCanvas> canvas;
 
-  push_op<DrawColorOp>(0u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(1u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(2u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(3u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(4u, SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(0u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(1u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(2u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(3u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(4u), SkBlendMode::kClear);
 
   // Plays last two elements.
   testing::Sequence s;
@@ -816,14 +837,14 @@ TEST_F(PaintOpBufferOffsetsTest, LastTwoElements) {
 TEST_F(PaintOpBufferOffsetsTest, ContiguousIndicesWithSaveLayerAlphaRestore) {
   testing::StrictMock<MockCanvas> canvas;
 
-  push_op<DrawColorOp>(0u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(1u, SkBlendMode::kClear);
-  uint8_t alpha = 100;
+  push_op<DrawColorOp>(SkColor4f::FromColor(0u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(1u), SkBlendMode::kClear);
+  float alpha = 0.4f;
   push_op<SaveLayerAlphaOp>(nullptr, alpha);
   push_op<RestoreOp>();
-  push_op<DrawColorOp>(2u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(3u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(4u, SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(2u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(3u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(4u), SkBlendMode::kClear);
 
   // Items are {0, 1, save, restore, 2, 3, 4}.
 
@@ -842,14 +863,14 @@ TEST_F(PaintOpBufferOffsetsTest,
        NonContiguousIndicesWithSaveLayerAlphaRestore) {
   testing::StrictMock<MockCanvas> canvas;
 
-  push_op<DrawColorOp>(0u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(1u, SkBlendMode::kClear);
-  uint8_t alpha = 100;
+  push_op<DrawColorOp>(SkColor4f::FromColor(0u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(1u), SkBlendMode::kClear);
+  float alpha = 0.4f;
   push_op<SaveLayerAlphaOp>(nullptr, alpha);
-  push_op<DrawColorOp>(2u, SkBlendMode::kClear);
-  push_op<DrawColorOp>(3u, SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(2u), SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(3u), SkBlendMode::kClear);
   push_op<RestoreOp>();
-  push_op<DrawColorOp>(4u, SkBlendMode::kClear);
+  push_op<DrawColorOp>(SkColor4f::FromColor(4u), SkBlendMode::kClear);
 
   // Items are {0, 1, save, 2, 3, restore, 4}.
 
@@ -894,7 +915,7 @@ TEST_F(PaintOpBufferOffsetsTest,
 
   add_draw_rect(0u);
   add_draw_rect(1u);
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   push_op<SaveLayerAlphaOp>(nullptr, alpha);
   add_draw_rect(2u);
   push_op<RestoreOp>();
@@ -927,7 +948,7 @@ TEST_F(PaintOpBufferOffsetsTest,
 
   add_draw_rect(0u);
   add_draw_rect(1u);
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   push_op<SaveLayerAlphaOp>(nullptr, alpha);
   add_draw_rect(2u);
   add_draw_rect(3u);
@@ -986,7 +1007,7 @@ TEST(PaintOpBufferTest, SaveLayerAlphaDrawRestoreWithBadBlendMode) {
   };
 
   add_draw_rect(&buffer, 0u);
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
   add_draw_rect(&buffer, 1u);
   buffer.push<RestoreOp>();
@@ -1015,7 +1036,7 @@ TEST(PaintOpBufferTest, UnmatchedSaveRestoreNoSideEffects) {
 
   // Push 2 saves.
 
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
   add_draw_rect(&buffer, 0u);
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
@@ -1126,7 +1147,7 @@ std::vector<PaintFlags> test_flags = {
       flags.setStrokeJoin(PaintFlags::kBevel_Join);
       flags.setStyle(PaintFlags::kStroke_Style);
       flags.setFilterQuality(PaintFlags::FilterQuality::kMedium);
-      flags.setShader(PaintShader::MakeColor(SkColorSetARGB(1, 2, 3, 4)));
+      flags.setShader(PaintShader::MakeColor({0.1f, 0.2f, 0.3f, 0.4f}));
       return flags;
     }(),
     [] {
@@ -1158,7 +1179,8 @@ std::vector<PaintFlags> test_flags = {
       looper_builder.addLayer(layer_info);
       flags.setLooper(looper_builder.detach());
 
-      sk_sp<PaintShader> shader = PaintShader::MakeColor(SK_ColorTRANSPARENT);
+      sk_sp<PaintShader> shader =
+          PaintShader::MakeColor(SkColors::kTransparent);
       PaintOpSerializationTestUtils::FillArbitraryShaderValues(shader.get(),
                                                                true);
       flags.setShader(std::move(shader));
@@ -1167,13 +1189,14 @@ std::vector<PaintFlags> test_flags = {
     }(),
     [] {
       PaintFlags flags;
-      flags.setShader(PaintShader::MakeColor(SkColorSetARGB(12, 34, 56, 78)));
+      flags.setShader(PaintShader::MakeColor({0.1f, 0.2f, 0.3f, 0.4f}));
 
       return flags;
     }(),
     [] {
       PaintFlags flags;
-      sk_sp<PaintShader> shader = PaintShader::MakeColor(SK_ColorTRANSPARENT);
+      sk_sp<PaintShader> shader =
+          PaintShader::MakeColor(SkColors::kTransparent);
       PaintOpSerializationTestUtils::FillArbitraryShaderValues(shader.get(),
                                                                false);
       flags.setShader(std::move(shader));
@@ -1183,9 +1206,9 @@ std::vector<PaintFlags> test_flags = {
     [] {
       PaintFlags flags;
       SkPoint points[2] = {SkPoint::Make(1, 2), SkPoint::Make(3, 4)};
-      SkColor colors[3] = {SkColorSetARGB(1, 2, 3, 4),
-                           SkColorSetARGB(4, 3, 2, 1),
-                           SkColorSetARGB(0, 10, 20, 30)};
+      SkColor4f colors[3] = {{0.1f, 0.2f, 0.3f, 0.4f},
+                             {0.4f, 0.3f, 0.2f, 0.1f},
+                             {0.2f, 0.4f, 0.6f, 0.0f}};
       SkScalar positions[3] = {0.f, 0.3f, 1.f};
       flags.setShader(PaintShader::MakeLinearGradient(points, colors, positions,
                                                       3, SkTileMode::kMirror));
@@ -1194,9 +1217,9 @@ std::vector<PaintFlags> test_flags = {
     }(),
     [] {
       PaintFlags flags;
-      SkColor colors[3] = {SkColorSetARGB(1, 2, 3, 4),
-                           SkColorSetARGB(4, 3, 2, 1),
-                           SkColorSetARGB(0, 10, 20, 30)};
+      SkColor4f colors[3] = {{0.1f, 0.2f, 0.3f, 0.4f},
+                             {0.4f, 0.3f, 0.2f, 0.1f},
+                             {0.2f, 0.4f, 0.6f, 0.0f}};
       flags.setShader(PaintShader::MakeSweepGradient(
           0.2f, -0.8f, colors, nullptr, 3, SkTileMode::kMirror, 10, 20));
       return flags;
@@ -1205,10 +1228,9 @@ std::vector<PaintFlags> test_flags = {
     PaintFlags(),
 };
 
-std::vector<SkColor> test_colors = {
-    SkColorSetARGB(0, 0, 0, 0),      SkColorSetARGB(255, 255, 255, 255),
-    SkColorSetARGB(0, 255, 10, 255), SkColorSetARGB(255, 0, 20, 255),
-    SkColorSetARGB(30, 255, 0, 255), SkColorSetARGB(255, 40, 0, 0),
+std::vector<SkColor4f> test_colors = {
+    {0, 0, 0, 0},    {1, 1, 1, 1},    {1, 0.04, 1, 0},
+    {0, 0.08, 1, 1}, {1, 0, 1, 0.12}, {0.16, 0, 0, 1},
 };
 
 std::vector<std::string> test_strings = {
@@ -1235,30 +1257,8 @@ std::vector<PaintImage> test_images = {
 
 #if BUILDFLAG(SKIA_SUPPORT_SKOTTIE)
 bool kIsSkottieSupported = true;
-
-std::vector<scoped_refptr<SkottieWrapper>> test_skotties = {
-    CreateSkottie(gfx::Size(10, 20), 4), CreateSkottie(gfx::Size(100, 40), 5),
-    CreateSkottie(gfx::Size(80, 70), 6),
-    CreateSkottieFromString(kLottieDataWith2Assets)};
-std::vector<float> test_skottie_floats = {0, 0.1f, 1.f, 0.2f};
-std::vector<SkRect> test_skottie_rects = {
-    SkRect::MakeXYWH(10, 20, 30, 40), SkRect::MakeXYWH(0, 5, 10, 20),
-    SkRect::MakeXYWH(6, 0, 3, 50), SkRect::MakeXYWH(10, 10, 100, 100)};
-std::vector<SkottieColorMap> test_skottie_color_maps = {
-    {SkottieMapColor("green", SK_ColorGREEN),
-     SkottieMapColor("yellow", SK_ColorYELLOW),
-     SkottieMapColor("red", SK_ColorRED),
-     SkottieMapColor("blue", SK_ColorBLUE)},
-    {},
-    {SkottieMapColor("", SK_ColorGREEN)},
-    {SkottieMapColor("", SK_ColorTRANSPARENT)}};
 #else
 bool kIsSkottieSupported = false;
-
-std::vector<scoped_refptr<SkottieWrapper>> test_skotties;
-std::vector<float> test_skottie_floats;
-std::vector<SkRect> test_skottie_rects;
-std::vector<SkottieColorMap> test_skottie_color_maps;
 #endif
 
 // Writes as many ops in |buffer| as can fit in |output_size| to |output|.
@@ -1276,16 +1276,16 @@ class SimpleSerializer {
       bytes_written_[i] = 0;
 
     size_t op_idx = 0;
-    for (const auto* op : PaintOpBuffer::Iterator(&buffer)) {
-      size_t bytes_written = op->Serialize(
-          current_, remaining_, options_provider_.serialize_options(), nullptr,
-          SkM44(), SkM44());
+    for (const PaintOp& op : PaintOpBuffer::Iterator(&buffer)) {
+      size_t bytes_written = op.Serialize(current_, remaining_,
+                                          options_provider_.serialize_options(),
+                                          nullptr, SkM44(), SkM44());
       if (!bytes_written)
         return;
 
-      PaintOp* written = reinterpret_cast<PaintOp*>(current_.get());
-      EXPECT_EQ(op->GetType(), written->GetType());
-      EXPECT_EQ(bytes_written, written->skip);
+      const PaintOp& written = reinterpret_cast<PaintOp&>(*current_);
+      EXPECT_EQ(op.GetType(), written.GetType());
+      EXPECT_EQ(bytes_written, written.skip);
 
       bytes_written_[op_idx] = bytes_written;
       op_idx++;
@@ -1294,8 +1294,9 @@ class SimpleSerializer {
 
       // Number of bytes bytes_written must be a multiple of PaintOpAlign
       // unless the buffer is filled entirely.
-      if (remaining_ != 0u)
-        DCHECK_EQ(0u, bytes_written % PaintOpBuffer::PaintOpAlign);
+      if (remaining_ != 0u) {
+        DCHECK_EQ(0u, bytes_written % PaintOpBuffer::kPaintOpAlign);
+      }
     }
   }
 
@@ -1353,9 +1354,9 @@ class DeserializerIterator {
     return *this;
   }
 
-  operator bool() const { return remaining_ == 0u; }
+  explicit operator bool() const { return remaining_ > 0u; }
   const PaintOp* operator->() const { return deserialized_op_; }
-  const PaintOp* operator*() const { return deserialized_op_; }
+  const PaintOp& operator*() const { return *deserialized_op_; }
 
  private:
   DeserializerIterator(const void* input,
@@ -1369,7 +1370,7 @@ class DeserializerIterator {
         remaining_(remaining),
         options_(options) {
     data_.reset(static_cast<char*>(base::AlignedAlloc(
-        sizeof(LargestPaintOp), PaintOpBuffer::PaintOpAlign)));
+        sizeof(LargestPaintOp), PaintOpBuffer::kPaintOpAlign)));
     DeserializeCurrentOp();
   }
 
@@ -1445,8 +1446,8 @@ void PushConcatOps(PaintOpBuffer* buffer) {
 }
 
 void PushCustomDataOps(PaintOpBuffer* buffer) {
-  for (size_t i = 0; i < test_ids.size(); ++i)
-    buffer->push<CustomDataOp>(test_ids[i]);
+  for (uint32_t test_id : test_ids)
+    buffer->push<CustomDataOp>(test_id);
   ValidateOps<CustomDataOp>(buffer);
 }
 
@@ -1569,14 +1570,79 @@ SkottieFrameDataMap GetTestImagesForSkottie(SkottieWrapper& skottie,
   return images;
 }
 
+SkottieFrameDataMap GetNullImagesForSkottie(SkottieWrapper& skottie, float t) {
+  SkottieFrameDataMap images;
+  skottie.Seek(
+      t, base::BindLambdaForTesting(
+             [&](SkottieResourceIdHash asset_id, float t_frame,
+                 sk_sp<SkImage>& image_out, SkSamplingOptions& sampling_out) {
+               images[asset_id] = SkottieFrameData();
+               return SkottieWrapper::FrameDataFetchResult::NO_UPDATE;
+             }));
+  return images;
+}
+
 void PushDrawSkottieOps(PaintOpBuffer* buffer) {
+  std::vector<scoped_refptr<SkottieWrapper>> test_skotties;
+  std::vector<float> test_skottie_floats;
+  std::vector<SkRect> test_skottie_rects;
+  std::vector<SkottieFrameDataMap> test_skottie_images;
+  std::vector<SkottieColorMap> test_skottie_color_maps;
+  std::vector<SkottieTextPropertyValueMap> test_skottie_text_maps;
+  if (kIsSkottieSupported) {
+    test_skotties = {
+        CreateSkottie(gfx::Size(10, 20), 4),
+        CreateSkottie(gfx::Size(100, 40), 5),
+        CreateSkottie(gfx::Size(80, 70), 6),
+        CreateSkottieFromString(kLottieDataWith2Assets),
+        CreateSkottieFromString(kLottieDataWith2Assets),
+        CreateSkottieFromTestDataDir(kLottieDataWith2TextFileName)};
+    test_skottie_floats = {0, 0.1f, 1.f, 0.2f, 0.2f, 0.3f};
+    test_skottie_rects = {
+        SkRect::MakeXYWH(10, 20, 30, 40),   SkRect::MakeXYWH(0, 5, 10, 20),
+        SkRect::MakeXYWH(6, 0, 3, 50),      SkRect::MakeXYWH(10, 10, 100, 100),
+        SkRect::MakeXYWH(10, 10, 100, 100), SkRect::MakeXYWH(5, 5, 50, 50)};
+    test_skottie_images = {
+        SkottieFrameDataMap(),
+        SkottieFrameDataMap(),
+        SkottieFrameDataMap(),
+        GetTestImagesForSkottie(*test_skotties[3], test_skottie_rects[3],
+                                PaintFlags::FilterQuality::kHigh,
+                                test_skottie_floats[3]),
+        GetNullImagesForSkottie(*test_skotties[4], test_skottie_floats[4]),
+        SkottieFrameDataMap()};
+    test_skottie_color_maps = {
+        {SkottieMapColor("green", SK_ColorGREEN),
+         SkottieMapColor("yellow", SK_ColorYELLOW),
+         SkottieMapColor("red", SK_ColorRED),
+         SkottieMapColor("blue", SK_ColorBLUE)},
+        {},
+        {SkottieMapColor("green", SK_ColorGREEN)},
+        {SkottieMapColor("transparent", SK_ColorTRANSPARENT)},
+        {},
+        {}};
+    test_skottie_text_maps = {
+        {},
+        {},
+        {},
+        {},
+        {},
+        {{HashSkottieResourceId(kLottieDataWith2TextNode1),
+          SkottieTextPropertyValue(
+              std::string(kLottieDataWith2TextNode1Text.data()),
+              kLottieDataWith2TextNode1Box)},
+         {HashSkottieResourceId(kLottieDataWith2TextNode2),
+          SkottieTextPropertyValue(
+              std::string(kLottieDataWith2TextNode2Text.data()),
+              kLottieDataWith2TextNode2Box)}}};
+  }
+
   size_t len = std::min(test_skotties.size(), test_flags.size());
   for (size_t i = 0; i < len; i++) {
-    buffer->push<DrawSkottieOp>(
-        test_skotties[i], test_skottie_rects[i], test_skottie_floats[i],
-        GetTestImagesForSkottie(*test_skotties[i], test_skottie_rects[i],
-                                PaintFlags::FilterQuality::kHigh, /*t=*/0),
-        test_skottie_color_maps[i]);
+    buffer->push<DrawSkottieOp>(test_skotties[i], test_skottie_rects[i],
+                                test_skottie_floats[i], test_skottie_images[i],
+                                test_skottie_color_maps[i],
+                                test_skottie_text_maps[i]);
   }
   ValidateOps<DrawSkottieOp>(buffer);
 }
@@ -1656,8 +1722,8 @@ void PushRestoreOps(PaintOpBuffer* buffer) {
 }
 
 void PushRotateOps(PaintOpBuffer* buffer) {
-  for (size_t i = 0; i < test_floats.size(); ++i)
-    buffer->push<RotateOp>(test_floats[i]);
+  for (float test_float : test_floats)
+    buffer->push<RotateOp>(test_float);
   ValidateOps<RotateOp>(buffer);
 }
 
@@ -1682,12 +1748,12 @@ void PushSaveLayerOps(PaintOpBuffer* buffer) {
 }
 
 void PushSaveLayerAlphaOps(PaintOpBuffer* buffer) {
-  size_t len = std::min(test_uint8s.size(), test_rects.size());
+  size_t len = std::min(test_floats.size(), test_rects.size());
   for (size_t i = 0; i < len; ++i)
-    buffer->push<SaveLayerAlphaOp>(&test_rects[i], test_uint8s[i]);
+    buffer->push<SaveLayerAlphaOp>(&test_rects[i], test_floats[i]);
 
   // Test optional args.
-  buffer->push<SaveLayerAlphaOp>(nullptr, test_uint8s[0]);
+  buffer->push<SaveLayerAlphaOp>(nullptr, test_floats[0]);
   ValidateOps<SaveLayerAlphaOp>(buffer);
 }
 
@@ -1710,8 +1776,8 @@ void PushTranslateOps(PaintOpBuffer* buffer) {
 }
 
 void PushSetNodeIdOps(PaintOpBuffer* buffer) {
-  for (size_t i = 0; i < test_ids.size(); i++)
-    buffer->push<SetNodeIdOp>(static_cast<int>(test_ids[i]));
+  for (uint32_t test_id : test_ids)
+    buffer->push<SetNodeIdOp>(static_cast<int>(test_id));
   ValidateOps<SetNodeIdOp>(buffer);
 }
 
@@ -1778,7 +1844,8 @@ class PaintOpSerializationTest : public ::testing::TestWithParam<uint8_t> {
         PushDrawSkottieOps(&buffer_);
         break;
       case PaintOpType::DrawTextBlob:
-        PushDrawTextBlobOps(&buffer_);
+        // TODO(crbug.com/1321150): fix the test for DrawTextBlobs
+        // PushDrawTextBlobOps(&buffer_);
         break;
       case PaintOpType::Noop:
         PushNoopOps(&buffer_);
@@ -1818,10 +1885,14 @@ class PaintOpSerializationTest : public ::testing::TestWithParam<uint8_t> {
     // in the buffer_.
     output_size_ = kBufferBytesPerOp * buffer_.size();
     output_.reset(static_cast<char*>(
-        base::AlignedAlloc(output_size_, PaintOpBuffer::PaintOpAlign)));
+        base::AlignedAlloc(output_size_, PaintOpBuffer::kPaintOpAlign)));
   }
 
   bool IsTypeSupported() {
+    // TODO(crbug.com/1321150): fix the test for DrawTextBlobs
+    if (GetParamType() == PaintOpType::DrawTextBlob)
+      return false;
+
     // DrawRecordOps must be flattened and are not currently serialized. All
     // other types must push non-zero amounts of ops in PushTestOps.
     return GetParamType() != PaintOpType::DrawRecord &&
@@ -1851,6 +1922,21 @@ TEST_P(PaintOpSerializationTest, SmokeTest) {
   ResizeOutputBuffer();
 
   SimpleSerializer serializer(output_.get(), output_size_);
+
+  auto canvas =
+      serializer.options_provider()->strike_server()->makeAnalysisCanvas(
+          1024, 768, {}, nullptr, true);
+  PlaybackParams params(nullptr, canvas->getLocalToDevice());
+  params.is_analyzing = true;
+  buffer_.Playback(canvas.get(), params);
+
+  std::vector<uint8_t> strike_data;
+  serializer.options_provider()->strike_server()->writeStrikeData(&strike_data);
+
+  if (!strike_data.empty()) {
+    serializer.options_provider()->strike_client()->readStrikeData(
+        strike_data.data(), strike_data.size());
+  }
   serializer.Serialize(buffer_);
 
   // Expect all ops to write more than 0 bytes.
@@ -1862,13 +1948,13 @@ TEST_P(PaintOpSerializationTest, SmokeTest) {
 
   PaintOpBuffer::Iterator iter(&buffer_);
   size_t i = 0;
-  for (auto* base_written : DeserializerIterator(
+  for (const PaintOp& base_written : DeserializerIterator(
            output_.get(), serializer.TotalBytesWritten(),
            serializer.options_provider()->deserialize_options())) {
     SCOPED_TRACE(base::StringPrintf(
         "%s #%zu", PaintOpTypeToString(GetParamType()).c_str(), i));
-    ASSERT_EQ(!*iter, !base_written);
-    EXPECT_EQ(**iter, *base_written);
+    ASSERT_TRUE(iter);
+    EXPECT_EQ(*iter, base_written);
     ++iter;
     ++i;
   }
@@ -1898,6 +1984,8 @@ TEST_P(PaintOpSerializationTest, SerializationFailures) {
         "%s #%zu", PaintOpTypeToString(GetParamType()).c_str(), op_idx));
     size_t expected_bytes = bytes_written[op_idx];
     EXPECT_GT(expected_bytes, 0u);
+    EXPECT_EQ(expected_bytes,
+              base::bits::AlignUp(expected_bytes, PaintOpWriter::Alignment()));
 
     // Attempt to write op into a buffer of size |i|, and only expect
     // it to succeed if the buffer is large enough.
@@ -1933,7 +2021,7 @@ TEST_P(PaintOpSerializationTest, DeserializationFailures) {
   char* first = static_cast<char*>(output_.get());
   char* current = first;
 
-  static constexpr size_t kAlign = PaintOpBuffer::PaintOpAlign;
+  static constexpr size_t kAlign = PaintOpBuffer::kPaintOpAlign;
   static constexpr size_t kOutputOpSize = kBufferBytesPerOp;
   std::unique_ptr<char, base::AlignedFreeDeleter> deserialize_buffer_(
       static_cast<char*>(base::AlignedAlloc(kOutputOpSize, kAlign)));
@@ -2017,6 +2105,10 @@ TEST_P(PaintOpSerializationTest, UsesOverridenFlags) {
   if (!PaintOp::TypeHasFlags(GetParamType()))
     return;
 
+  // TODO(crbug.com/1321150): fix the test for DrawTextBlobs
+  if (GetParamType() == PaintOpType::DrawTextBlob)
+    return;
+
   PushTestOps(GetParamType());
   ResizeOutputBuffer();
 
@@ -2024,25 +2116,25 @@ TEST_P(PaintOpSerializationTest, UsesOverridenFlags) {
   size_t deserialized_size = sizeof(LargestPaintOp) + PaintOp::kMaxSkip;
   std::unique_ptr<char, base::AlignedFreeDeleter> deserialized(
       static_cast<char*>(
-          base::AlignedAlloc(deserialized_size, PaintOpBuffer::PaintOpAlign)));
-  for (const auto* op : PaintOpBuffer::Iterator(&buffer_)) {
-    size_t bytes_written = op->Serialize(output_.get(), output_size_,
-                                         options_provider.serialize_options(),
-                                         nullptr, SkM44(), SkM44());
+          base::AlignedAlloc(deserialized_size, PaintOpBuffer::kPaintOpAlign)));
+  for (const PaintOp& op : PaintOpBuffer::Iterator(&buffer_)) {
+    size_t bytes_written = op.Serialize(output_.get(), output_size_,
+                                        options_provider.serialize_options(),
+                                        nullptr, SkM44(), SkM44());
     size_t bytes_read = 0u;
     PaintOp* written = PaintOp::Deserialize(
         output_.get(), bytes_written, deserialized.get(), deserialized_size,
         &bytes_read, options_provider.deserialize_options());
     ASSERT_TRUE(written) << PaintOpTypeToString(GetParamType());
-    EXPECT_EQ(*op, *written);
+    EXPECT_EQ(op, *written);
     written->DestroyThis();
     written = nullptr;
 
-    PaintFlags override_flags = static_cast<const PaintOpWithFlags*>(op)->flags;
+    PaintFlags override_flags = static_cast<const PaintOpWithFlags&>(op).flags;
     override_flags.setAlpha(override_flags.getAlpha() * 0.5);
-    bytes_written = op->Serialize(output_.get(), output_size_,
-                                  options_provider.serialize_options(),
-                                  &override_flags, SkM44(), SkM44());
+    bytes_written = op.Serialize(output_.get(), output_size_,
+                                 options_provider.serialize_options(),
+                                 &override_flags, SkM44(), SkM44());
     written = PaintOp::Deserialize(
         output_.get(), bytes_written, deserialized.get(), deserialized_size,
         &bytes_read, options_provider.deserialize_options());
@@ -2067,7 +2159,7 @@ TEST(PaintOpSerializationTest, CompleteBufferSerialization) {
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   TestOptionsProvider options_provider;
   SimpleBufferSerializer serializer(memory.get(),
                                     PaintOpBuffer::kInitialBufferSize,
@@ -2086,44 +2178,44 @@ TEST(PaintOpSerializationTest, CompleteBufferSerialization) {
 
   size_t i = 0;
   auto serialized_iter = PaintOpBuffer::Iterator(&buffer);
-  for (const auto* op : PaintOpBuffer::Iterator(deserialized_buffer.get())) {
+  for (const PaintOp& op : PaintOpBuffer::Iterator(deserialized_buffer.get())) {
     SCOPED_TRACE(i);
     i++;
 
     if (i == 1) {
       // Save.
-      ASSERT_EQ(op->GetType(), PaintOpType::Save)
-          << PaintOpTypeToString(op->GetType());
+      ASSERT_EQ(op.GetType(), PaintOpType::Save)
+          << PaintOpTypeToString(op.GetType());
       continue;
     }
 
     if (i == 2) {
       // Preamble partial raster clear.
-      ASSERT_EQ(op->GetType(), PaintOpType::DrawColor)
-          << PaintOpTypeToString(op->GetType());
+      ASSERT_EQ(op.GetType(), PaintOpType::DrawColor)
+          << PaintOpTypeToString(op.GetType());
       continue;
     }
     if (i == 3) {
       // Preamble playback rect clip.
-      ASSERT_EQ(op->GetType(), PaintOpType::ClipRect)
-          << PaintOpTypeToString(op->GetType());
-      EXPECT_EQ(static_cast<const ClipRectOp*>(op)->rect,
+      ASSERT_EQ(op.GetType(), PaintOpType::ClipRect)
+          << PaintOpTypeToString(op.GetType());
+      EXPECT_EQ(static_cast<const ClipRectOp&>(op).rect,
                 gfx::RectToSkRect(preamble.playback_rect));
       continue;
     }
 
     if (serialized_iter) {
       // Root buffer.
-      ASSERT_EQ(op->GetType(), (*serialized_iter)->GetType())
-          << PaintOpTypeToString(op->GetType());
-      EXPECT_EQ(*op, **serialized_iter);
+      ASSERT_EQ(op.GetType(), (*serialized_iter).GetType())
+          << PaintOpTypeToString(op.GetType());
+      EXPECT_EQ(op, *serialized_iter);
       ++serialized_iter;
       continue;
     }
 
     // End restore.
-    ASSERT_EQ(op->GetType(), PaintOpType::Restore)
-        << PaintOpTypeToString(op->GetType());
+    ASSERT_EQ(op.GetType(), PaintOpType::Restore)
+        << PaintOpTypeToString(op.GetType());
   }
 }
 
@@ -2139,7 +2231,7 @@ TEST(PaintOpSerializationTest, DoNotPreservePaintOps) {
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   TestOptionsProvider options_provider;
   SimpleBufferSerializer serializer(memory.get(),
                                     PaintOpBuffer::kInitialBufferSize,
@@ -2160,11 +2252,11 @@ TEST(PaintOpSerializationTest, Preamble) {
   preamble.requires_clear = true;
 
   PaintOpBuffer buffer;
-  buffer.push<DrawColorOp>(SK_ColorBLUE, SkBlendMode::kSrc);
+  buffer.push<DrawColorOp>(SkColors::kBlue, SkBlendMode::kSrc);
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   TestOptionsProvider options_provider;
   SimpleBufferSerializer serializer(memory.get(),
                                     PaintOpBuffer::kInitialBufferSize,
@@ -2180,75 +2272,75 @@ TEST(PaintOpSerializationTest, Preamble) {
   ASSERT_EQ(deserialized_buffer->size(), buffer.size() + 7u);
 
   size_t i = 0;
-  for (const auto* op : PaintOpBuffer::Iterator(deserialized_buffer.get())) {
+  for (const PaintOp& op : PaintOpBuffer::Iterator(deserialized_buffer.get())) {
     i++;
 
     if (i == 1) {
       // Save.
-      ASSERT_EQ(op->GetType(), PaintOpType::Save)
-          << PaintOpTypeToString(op->GetType());
+      ASSERT_EQ(op.GetType(), PaintOpType::Save)
+          << PaintOpTypeToString(op.GetType());
       continue;
     }
 
     if (i == 2) {
       // Translate.
-      ASSERT_EQ(op->GetType(), PaintOpType::Translate)
-          << PaintOpTypeToString(op->GetType());
-      const auto* translate_op = static_cast<const TranslateOp*>(op);
-      EXPECT_EQ(translate_op->dx, -preamble.full_raster_rect.x());
-      EXPECT_EQ(translate_op->dy, -preamble.full_raster_rect.y());
+      ASSERT_EQ(op.GetType(), PaintOpType::Translate)
+          << PaintOpTypeToString(op.GetType());
+      const auto& translate_op = static_cast<const TranslateOp&>(op);
+      EXPECT_EQ(translate_op.dx, -preamble.full_raster_rect.x());
+      EXPECT_EQ(translate_op.dy, -preamble.full_raster_rect.y());
       continue;
     }
 
     if (i == 3) {
       // Clip.
-      ASSERT_EQ(op->GetType(), PaintOpType::ClipRect)
-          << PaintOpTypeToString(op->GetType());
-      const auto* clip_op = static_cast<const ClipRectOp*>(op);
-      EXPECT_RECTF_EQ(gfx::SkRectToRectF(clip_op->rect),
+      ASSERT_EQ(op.GetType(), PaintOpType::ClipRect)
+          << PaintOpTypeToString(op.GetType());
+      const auto& clip_op = static_cast<const ClipRectOp&>(op);
+      EXPECT_RECTF_EQ(gfx::SkRectToRectF(clip_op.rect),
                       gfx::RectF(preamble.playback_rect));
       continue;
     }
 
     if (i == 4) {
       // Post translate.
-      ASSERT_EQ(op->GetType(), PaintOpType::Translate)
-          << PaintOpTypeToString(op->GetType());
-      const auto* translate_op = static_cast<const TranslateOp*>(op);
-      EXPECT_EQ(translate_op->dx, preamble.post_translation.x());
-      EXPECT_EQ(translate_op->dy, preamble.post_translation.y());
+      ASSERT_EQ(op.GetType(), PaintOpType::Translate)
+          << PaintOpTypeToString(op.GetType());
+      const auto& translate_op = static_cast<const TranslateOp&>(op);
+      EXPECT_EQ(translate_op.dx, preamble.post_translation.x());
+      EXPECT_EQ(translate_op.dy, preamble.post_translation.y());
       continue;
     }
 
     if (i == 5) {
       // Scale.
-      ASSERT_EQ(op->GetType(), PaintOpType::Scale)
-          << PaintOpTypeToString(op->GetType());
-      const auto* scale_op = static_cast<const ScaleOp*>(op);
-      EXPECT_EQ(scale_op->sx, preamble.post_scale.x());
-      EXPECT_EQ(scale_op->sy, preamble.post_scale.y());
+      ASSERT_EQ(op.GetType(), PaintOpType::Scale)
+          << PaintOpTypeToString(op.GetType());
+      const auto& scale_op = static_cast<const ScaleOp&>(op);
+      EXPECT_EQ(scale_op.sx, preamble.post_scale.x());
+      EXPECT_EQ(scale_op.sy, preamble.post_scale.y());
       continue;
     }
 
     if (i == 6) {
       // Partial raster clear goes last.
-      ASSERT_EQ(op->GetType(), PaintOpType::DrawColor)
-          << PaintOpTypeToString(op->GetType());
-      const auto* draw_color_op = static_cast<const DrawColorOp*>(op);
-      EXPECT_EQ(draw_color_op->color, SK_ColorTRANSPARENT);
-      EXPECT_EQ(draw_color_op->mode, SkBlendMode::kSrc);
+      ASSERT_EQ(op.GetType(), PaintOpType::DrawColor)
+          << PaintOpTypeToString(op.GetType());
+      const auto& draw_color_op = static_cast<const DrawColorOp&>(op);
+      EXPECT_EQ(draw_color_op.color, SkColors::kTransparent);
+      EXPECT_EQ(draw_color_op.mode, SkBlendMode::kSrc);
       continue;
     }
 
     if (i == 7) {
       // Buffer.
-      EXPECT_EQ(*op, *buffer.GetFirstOp());
+      EXPECT_EQ(op, buffer.GetFirstOp());
       continue;
     }
 
     // End restore.
-    ASSERT_EQ(op->GetType(), PaintOpType::Restore)
-        << PaintOpTypeToString(op->GetType());
+    ASSERT_EQ(op.GetType(), PaintOpType::Restore)
+        << PaintOpTypeToString(op.GetType());
   }
 }
 
@@ -2261,7 +2353,7 @@ TEST(PaintOpSerializationTest, SerializesNestedRecords) {
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   TestOptionsProvider options_provider;
   SimpleBufferSerializer serializer(memory.get(),
                                     PaintOpBuffer::kInitialBufferSize,
@@ -2278,33 +2370,33 @@ TEST(PaintOpSerializationTest, SerializesNestedRecords) {
 
   size_t i = 0;
   auto serialized_iter = PaintOpBuffer::Iterator(record.get());
-  for (const auto* op : PaintOpBuffer::Iterator(deserialized_buffer.get())) {
+  for (const PaintOp& op : PaintOpBuffer::Iterator(deserialized_buffer.get())) {
     i++;
     if (i == 1 || i == 3) {
       // First 2 saves.
-      ASSERT_EQ(op->GetType(), PaintOpType::Save)
-          << PaintOpTypeToString(op->GetType());
+      ASSERT_EQ(op.GetType(), PaintOpType::Save)
+          << PaintOpTypeToString(op.GetType());
       continue;
     }
     // Clear.
     if (i == 2) {
-      ASSERT_EQ(op->GetType(), PaintOpType::DrawColor)
-          << PaintOpTypeToString(op->GetType());
+      ASSERT_EQ(op.GetType(), PaintOpType::DrawColor)
+          << PaintOpTypeToString(op.GetType());
       continue;
     }
 
     if (serialized_iter) {
       // Nested buffer.
-      ASSERT_EQ(op->GetType(), (*serialized_iter)->GetType())
-          << PaintOpTypeToString(op->GetType());
-      EXPECT_EQ(*op, **serialized_iter);
+      ASSERT_EQ(op.GetType(), serialized_iter->GetType())
+          << PaintOpTypeToString(op.GetType());
+      EXPECT_EQ(op, *serialized_iter);
       ++serialized_iter;
       continue;
     }
 
     // End restores.
-    ASSERT_EQ(op->GetType(), PaintOpType::Restore)
-        << PaintOpTypeToString(op->GetType());
+    ASSERT_EQ(op.GetType(), PaintOpType::Restore)
+        << PaintOpTypeToString(op.GetType());
   }
 }
 
@@ -2332,7 +2424,7 @@ TEST(PaintOpBufferTest, ClipsImagesDuringSerialization) {
 
     std::unique_ptr<char, base::AlignedFreeDeleter> memory(
         static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                              PaintOpBuffer::PaintOpAlign)));
+                                              PaintOpBuffer::kPaintOpAlign)));
     TestOptionsProvider options_provider;
     SimpleBufferSerializer serializer(memory.get(),
                                       PaintOpBuffer::kInitialBufferSize,
@@ -2353,19 +2445,19 @@ TEST(PaintOpBufferTest, ClipsImagesDuringSerialization) {
     ASSERT_TRUE(deserialized_buffer);
 
     auto deserialized_iter = PaintOpBuffer::Iterator(deserialized_buffer.get());
-    ASSERT_EQ((*deserialized_iter)->GetType(), PaintOpType::Save)
-        << PaintOpTypeToString((*deserialized_iter)->GetType());
+    ASSERT_EQ(deserialized_iter->GetType(), PaintOpType::Save)
+        << PaintOpTypeToString(deserialized_iter->GetType());
     ++deserialized_iter;
-    ASSERT_EQ((*deserialized_iter)->GetType(), PaintOpType::ClipRect)
-        << PaintOpTypeToString((*deserialized_iter)->GetType());
+    ASSERT_EQ(deserialized_iter->GetType(), PaintOpType::ClipRect)
+        << PaintOpTypeToString(deserialized_iter->GetType());
     ++deserialized_iter;
     if (test_case.should_draw) {
-      ASSERT_EQ((*deserialized_iter)->GetType(), PaintOpType::DrawImage)
-          << PaintOpTypeToString((*deserialized_iter)->GetType());
+      ASSERT_EQ(deserialized_iter->GetType(), PaintOpType::DrawImage)
+          << PaintOpTypeToString(deserialized_iter->GetType());
       ++deserialized_iter;
     }
-    ASSERT_EQ((*deserialized_iter)->GetType(), PaintOpType::Restore)
-        << PaintOpTypeToString((*deserialized_iter)->GetType());
+    ASSERT_EQ(deserialized_iter->GetType(), PaintOpType::Restore)
+        << PaintOpTypeToString(deserialized_iter->GetType());
     ++deserialized_iter;
     ASSERT_EQ(deserialized_iter.end(), deserialized_iter);
   }
@@ -2374,11 +2466,11 @@ TEST(PaintOpBufferTest, ClipsImagesDuringSerialization) {
 TEST(PaintOpBufferSerializationTest, AlphaFoldingDuringSerialization) {
   PaintOpBuffer buffer;
 
-  uint8_t alpha = 100;
+  float alpha = 0.4f;
   buffer.push<SaveLayerAlphaOp>(nullptr, alpha);
 
   PaintFlags draw_flags;
-  draw_flags.setColor(SK_ColorMAGENTA);
+  draw_flags.setColor(SkColors::kMagenta);
   draw_flags.setAlpha(50);
   SkRect rect = SkRect::MakeXYWH(1, 2, 3, 4);
   buffer.push<DrawRectOp>(rect, draw_flags);
@@ -2392,7 +2484,7 @@ TEST(PaintOpBufferSerializationTest, AlphaFoldingDuringSerialization) {
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   TestOptionsProvider options_provider;
   SimpleBufferSerializer serializer(memory.get(),
                                     PaintOpBuffer::kInitialBufferSize,
@@ -2408,29 +2500,29 @@ TEST(PaintOpBufferSerializationTest, AlphaFoldingDuringSerialization) {
   // 4 additional ops for save, clip, clear, and restore.
   ASSERT_EQ(deserialized_buffer->size(), 4u);
   size_t i = 0;
-  for (const auto* op : PaintOpBuffer::Iterator(deserialized_buffer.get())) {
+  for (const PaintOp& op : PaintOpBuffer::Iterator(deserialized_buffer.get())) {
     ++i;
     if (i == 1) {
-      EXPECT_EQ(op->GetType(), PaintOpType::Save);
+      EXPECT_EQ(op.GetType(), PaintOpType::Save);
       continue;
     }
 
     if (i == 2) {
-      EXPECT_EQ(op->GetType(), PaintOpType::ClipRect);
+      EXPECT_EQ(op.GetType(), PaintOpType::ClipRect);
       continue;
     }
 
     if (i == 4) {
-      EXPECT_EQ(op->GetType(), PaintOpType::Restore);
+      EXPECT_EQ(op.GetType(), PaintOpType::Restore);
       continue;
     }
 
-    ASSERT_EQ(op->GetType(), PaintOpType::DrawRect);
+    ASSERT_EQ(op.GetType(), PaintOpType::DrawRect);
     // Expect the alpha from the draw and the save layer to be folded together.
     // Since alpha is stored in a uint8_t and gets rounded, so use tolerance.
-    float expected_alpha = alpha * 50 / 255.f;
+    float expected_alpha = alpha * 50;
     EXPECT_LE(std::abs(expected_alpha -
-                       static_cast<const DrawRectOp*>(op)->flags.getAlpha()),
+                       static_cast<const DrawRectOp&>(op).flags.getAlpha()),
               1.f);
   }
 }
@@ -2438,17 +2530,17 @@ TEST(PaintOpBufferSerializationTest, AlphaFoldingDuringSerialization) {
 // Test generic PaintOp deserializing failure cases.
 TEST(PaintOpBufferTest, PaintOpDeserialize) {
   static constexpr size_t kSize = sizeof(LargestPaintOp) + 100;
-  static constexpr size_t kAlign = PaintOpBuffer::PaintOpAlign;
+  static constexpr size_t kAlign = PaintOpBuffer::kPaintOpAlign;
   std::unique_ptr<char, base::AlignedFreeDeleter> input_(
       static_cast<char*>(base::AlignedAlloc(kSize, kAlign)));
   std::unique_ptr<char, base::AlignedFreeDeleter> output_(
       static_cast<char*>(base::AlignedAlloc(kSize, kAlign)));
 
   PaintOpBuffer buffer;
-  buffer.push<DrawColorOp>(SK_ColorMAGENTA, SkBlendMode::kSrc);
+  buffer.push<DrawColorOp>(SkColors::kMagenta, SkBlendMode::kSrc);
 
   PaintOpBuffer::Iterator iter(&buffer);
-  PaintOp* op = *iter;
+  PaintOp* op = iter.get();
   ASSERT_TRUE(op);
 
   TestOptionsProvider options_provider;
@@ -2495,10 +2587,10 @@ TEST(PaintOpBufferTest, PaintOpDeserialize) {
 TEST(PaintOpBufferTest, ValidateSkClip) {
   size_t buffer_size = kBufferBytesPerOp;
   std::unique_ptr<char, base::AlignedFreeDeleter> serialized(static_cast<char*>(
-      base::AlignedAlloc(buffer_size, PaintOpBuffer::PaintOpAlign)));
+      base::AlignedAlloc(buffer_size, PaintOpBuffer::kPaintOpAlign)));
   std::unique_ptr<char, base::AlignedFreeDeleter> deserialized(
       static_cast<char*>(
-          base::AlignedAlloc(buffer_size, PaintOpBuffer::PaintOpAlign)));
+          base::AlignedAlloc(buffer_size, PaintOpBuffer::kPaintOpAlign)));
 
   PaintOpBuffer buffer;
 
@@ -2526,10 +2618,10 @@ TEST(PaintOpBufferTest, ValidateSkClip) {
 
   int op_idx = 0;
   for (PaintOpBuffer::Iterator iter(&buffer); iter; ++iter) {
-    const PaintOp* op = *iter;
-    size_t bytes_written = op->Serialize(serialized.get(), buffer_size,
-                                         options_provider.serialize_options(),
-                                         nullptr, SkM44(), SkM44());
+    const PaintOp& op = *iter;
+    size_t bytes_written = op.Serialize(serialized.get(), buffer_size,
+                                        options_provider.serialize_options(),
+                                        nullptr, SkM44(), SkM44());
     ASSERT_GT(bytes_written, 0u);
     size_t bytes_read = 0;
     PaintOp* written = PaintOp::Deserialize(
@@ -2553,15 +2645,15 @@ TEST(PaintOpBufferTest, ValidateSkClip) {
 TEST(PaintOpBufferTest, ValidateSkBlendMode) {
   size_t buffer_size = kBufferBytesPerOp;
   std::unique_ptr<char, base::AlignedFreeDeleter> serialized(static_cast<char*>(
-      base::AlignedAlloc(buffer_size, PaintOpBuffer::PaintOpAlign)));
+      base::AlignedAlloc(buffer_size, PaintOpBuffer::kPaintOpAlign)));
   std::unique_ptr<char, base::AlignedFreeDeleter> deserialized(
       static_cast<char*>(
-          base::AlignedAlloc(buffer_size, PaintOpBuffer::PaintOpAlign)));
+          base::AlignedAlloc(buffer_size, PaintOpBuffer::kPaintOpAlign)));
 
   PaintOpBuffer buffer;
 
   // Successful first two ops.
-  buffer.push<DrawColorOp>(SK_ColorMAGENTA, SkBlendMode::kDstIn);
+  buffer.push<DrawColorOp>(SkColors::kMagenta, SkBlendMode::kDstIn);
   PaintFlags good_flags = test_flags[0];
   good_flags.setBlendMode(SkBlendMode::kColorBurn);
   buffer.push<DrawRectOp>(test_rects[0], good_flags);
@@ -2593,11 +2685,11 @@ TEST(PaintOpBufferTest, ValidateSkBlendMode) {
       static_cast<SkBlendMode>(static_cast<uint8_t>(~0)),
   };
 
-  for (size_t i = 0; i < base::size(bad_modes_for_draw_color); ++i) {
-    buffer.push<DrawColorOp>(SK_ColorMAGENTA, bad_modes_for_draw_color[i]);
+  for (SkBlendMode blend_mode : bad_modes_for_draw_color) {
+    buffer.push<DrawColorOp>(SkColors::kMagenta, blend_mode);
   }
 
-  for (size_t i = 0; i < base::size(bad_modes_for_flags); ++i) {
+  for (size_t i = 0; i < std::size(bad_modes_for_flags); ++i) {
     PaintFlags flags = test_flags[i % test_flags.size()];
     flags.setBlendMode(bad_modes_for_flags[i]);
     buffer.push<DrawRectOp>(test_rects[i % test_rects.size()], flags);
@@ -2607,10 +2699,10 @@ TEST(PaintOpBufferTest, ValidateSkBlendMode) {
 
   int op_idx = 0;
   for (PaintOpBuffer::Iterator iter(&buffer); iter; ++iter) {
-    const PaintOp* op = *iter;
-    size_t bytes_written = op->Serialize(serialized.get(), buffer_size,
-                                         options_provider.serialize_options(),
-                                         nullptr, SkM44(), SkM44());
+    const PaintOp& op = *iter;
+    size_t bytes_written = op.Serialize(serialized.get(), buffer_size,
+                                        options_provider.serialize_options(),
+                                        nullptr, SkM44(), SkM44());
     ASSERT_GT(bytes_written, 0u);
     size_t bytes_read = 0;
     PaintOp* written = PaintOp::Deserialize(
@@ -2634,10 +2726,10 @@ TEST(PaintOpBufferTest, ValidateSkBlendMode) {
 TEST(PaintOpBufferTest, ValidateRects) {
   size_t buffer_size = kBufferBytesPerOp;
   std::unique_ptr<char, base::AlignedFreeDeleter> serialized(static_cast<char*>(
-      base::AlignedAlloc(buffer_size, PaintOpBuffer::PaintOpAlign)));
+      base::AlignedAlloc(buffer_size, PaintOpBuffer::kPaintOpAlign)));
   std::unique_ptr<char, base::AlignedFreeDeleter> deserialized(
       static_cast<char*>(
-          base::AlignedAlloc(buffer_size, PaintOpBuffer::PaintOpAlign)));
+          base::AlignedAlloc(buffer_size, PaintOpBuffer::kPaintOpAlign)));
 
   // Used for QuickRejectDraw
   SkCanvas device(256, 256);
@@ -2661,17 +2753,17 @@ TEST(PaintOpBufferTest, ValidateRects) {
   buffer.push<DrawRectOp>(bad_rect, test_flags[0]);
   buffer.push<SaveLayerOp>(&bad_rect, nullptr);
   buffer.push<SaveLayerOp>(&bad_rect, &test_flags[0]);
-  buffer.push<SaveLayerAlphaOp>(&bad_rect, test_uint8s[0]);
+  buffer.push<SaveLayerAlphaOp>(&bad_rect, test_floats[0]);
 
   TestOptionsProvider options_provider;
 
   // Every op should serialize but fail to deserialize due to the bad rect.
   int op_idx = 0;
   for (PaintOpBuffer::Iterator iter(&buffer); iter; ++iter) {
-    const PaintOp* op = *iter;
-    size_t bytes_written = op->Serialize(serialized.get(), buffer_size,
-                                         options_provider.serialize_options(),
-                                         nullptr, SkM44(), SkM44());
+    const PaintOp& op = *iter;
+    size_t bytes_written = op.Serialize(serialized.get(), buffer_size,
+                                        options_provider.serialize_options(),
+                                        nullptr, SkM44(), SkM44());
     ASSERT_GT(bytes_written, 0u);
     size_t bytes_read = 0;
     PaintOp* written = PaintOp::Deserialize(
@@ -2682,7 +2774,7 @@ TEST(PaintOpBufferTest, ValidateRects) {
     // Additionally, every draw op should be rejected by QuickRejectDraw if
     // the paint op buffer were played back directly without going through
     // deserialization (e.g. canvas2D, crbug.com/1186392)
-    if (op->IsDrawOp()) {
+    if (op.IsDrawOp()) {
       EXPECT_TRUE(PaintOp::QuickRejectDraw(op, canvas));
     }
 
@@ -2695,11 +2787,11 @@ TEST(PaintOpBufferTest, BoundingRect_DrawImageOp) {
   PushDrawImageOps(&buffer);
 
   SkRect rect;
-  for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
-    auto* op = static_cast<DrawImageOp*>(base_op);
+  for (const PaintOp& base_op : PaintOpBuffer::Iterator(&buffer)) {
+    const auto& op = static_cast<const DrawImageOp&>(base_op);
 
-    SkRect image_rect = SkRect::MakeXYWH(op->left, op->top, op->image.width(),
-                                         op->image.height());
+    SkRect image_rect =
+        SkRect::MakeXYWH(op.left, op.top, op.image.width(), op.image.height());
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
     EXPECT_EQ(rect, image_rect.makeSorted());
   }
@@ -2710,11 +2802,11 @@ TEST(PaintOpBufferTest, BoundingRect_DrawImageRectOp) {
   PushDrawImageRectOps(&buffer);
 
   SkRect rect;
-  for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
-    auto* op = static_cast<DrawImageRectOp*>(base_op);
+  for (const PaintOp& base_op : PaintOpBuffer::Iterator(&buffer)) {
+    const auto& op = static_cast<const DrawImageRectOp&>(base_op);
 
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
-    EXPECT_EQ(rect, op->dst.makeSorted());
+    EXPECT_EQ(rect, op.dst.makeSorted());
   }
 }
 
@@ -2723,11 +2815,11 @@ TEST(PaintOpBufferTest, BoundingRect_DrawIRectOp) {
   PushDrawIRectOps(&buffer);
 
   SkRect rect;
-  for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
-    auto* op = static_cast<DrawIRectOp*>(base_op);
+  for (const PaintOp& base_op : PaintOpBuffer::Iterator(&buffer)) {
+    const auto& op = static_cast<const DrawIRectOp&>(base_op);
 
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
-    EXPECT_EQ(rect, SkRect::Make(op->rect).makeSorted());
+    EXPECT_EQ(rect, SkRect::Make(op.rect).makeSorted());
   }
 }
 
@@ -2736,11 +2828,11 @@ TEST(PaintOpBufferTest, BoundingRect_DrawOvalOp) {
   PushDrawOvalOps(&buffer);
 
   SkRect rect;
-  for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
-    auto* op = static_cast<DrawOvalOp*>(base_op);
+  for (const PaintOp& base_op : PaintOpBuffer::Iterator(&buffer)) {
+    const auto& op = static_cast<const DrawOvalOp&>(base_op);
 
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
-    EXPECT_EQ(rect, op->oval.makeSorted());
+    EXPECT_EQ(rect, op.oval.makeSorted());
   }
 }
 
@@ -2749,11 +2841,11 @@ TEST(PaintOpBufferTest, BoundingRect_DrawPathOp) {
   PushDrawPathOps(&buffer);
 
   SkRect rect;
-  for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
-    auto* op = static_cast<DrawPathOp*>(base_op);
+  for (const PaintOp& base_op : PaintOpBuffer::Iterator(&buffer)) {
+    const auto& op = static_cast<const DrawPathOp&>(base_op);
 
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
-    EXPECT_EQ(rect, op->path.getBounds().makeSorted());
+    EXPECT_EQ(rect, op.path.getBounds().makeSorted());
   }
 }
 
@@ -2762,11 +2854,11 @@ TEST(PaintOpBufferTest, BoundingRect_DrawRectOp) {
   PushDrawRectOps(&buffer);
 
   SkRect rect;
-  for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
-    auto* op = static_cast<DrawRectOp*>(base_op);
+  for (const PaintOp& base_op : PaintOpBuffer::Iterator(&buffer)) {
+    const auto& op = static_cast<const DrawRectOp&>(base_op);
 
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
-    EXPECT_EQ(rect, op->rect.makeSorted());
+    EXPECT_EQ(rect, op.rect.makeSorted());
   }
 }
 
@@ -2775,11 +2867,11 @@ TEST(PaintOpBufferTest, BoundingRect_DrawRRectOp) {
   PushDrawRRectOps(&buffer);
 
   SkRect rect;
-  for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
-    auto* op = static_cast<DrawRRectOp*>(base_op);
+  for (const PaintOp& base_op : PaintOpBuffer::Iterator(&buffer)) {
+    const auto& op = static_cast<const DrawRRectOp&>(base_op);
 
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
-    EXPECT_EQ(rect, op->rrect.rect().makeSorted());
+    EXPECT_EQ(rect, op.rrect.rect().makeSorted());
   }
 }
 
@@ -2788,14 +2880,14 @@ TEST(PaintOpBufferTest, BoundingRect_DrawLineOp) {
   PushDrawLineOps(&buffer);
 
   SkRect rect;
-  for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
-    auto* op = static_cast<DrawLineOp*>(base_op);
+  for (const PaintOp& base_op : PaintOpBuffer::Iterator(&buffer)) {
+    const auto& op = static_cast<const DrawLineOp&>(base_op);
 
     SkRect line_rect;
-    line_rect.fLeft = op->x0;
-    line_rect.fTop = op->y0;
-    line_rect.fRight = op->x1;
-    line_rect.fBottom = op->y1;
+    line_rect.fLeft = op.x0;
+    line_rect.fTop = op.y0;
+    line_rect.fRight = op.x1;
+    line_rect.fBottom = op.y1;
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
     EXPECT_EQ(rect, line_rect.makeSorted());
   }
@@ -2806,11 +2898,11 @@ TEST(PaintOpBufferTest, BoundingRect_DrawDRRectOp) {
   PushDrawDRRectOps(&buffer);
 
   SkRect rect;
-  for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
-    auto* op = static_cast<DrawDRRectOp*>(base_op);
+  for (const PaintOp& base_op : PaintOpBuffer::Iterator(&buffer)) {
+    const auto& op = static_cast<const DrawDRRectOp&>(base_op);
 
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
-    EXPECT_EQ(rect, op->outer.getBounds().makeSorted());
+    EXPECT_EQ(rect, op.outer.getBounds().makeSorted());
   }
 }
 
@@ -2819,11 +2911,11 @@ TEST(PaintOpBufferTest, BoundingRect_DrawTextBlobOp) {
   PushDrawTextBlobOps(&buffer);
 
   SkRect rect;
-  for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
-    auto* op = static_cast<DrawTextBlobOp*>(base_op);
+  for (const PaintOp& base_op : PaintOpBuffer::Iterator(&buffer)) {
+    const auto& op = static_cast<const DrawTextBlobOp&>(base_op);
 
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
-    EXPECT_EQ(rect, op->blob->bounds().makeOffset(op->x, op->y).makeSorted());
+    EXPECT_EQ(rect, op.blob->bounds().makeOffset(op.x, op.y).makeSorted());
   }
 }
 
@@ -2913,7 +3005,7 @@ TEST(PaintOpBufferTest, SkipsOpsWithFailedDecodes) {
   image_flags.setShader(PaintShader::MakeImage(paint_image, SkTileMode::kRepeat,
                                                SkTileMode::kRepeat, nullptr));
   buffer.push<DrawRectOp>(SkRect::MakeXYWH(110, 110, 100, 100), image_flags);
-  buffer.push<DrawColorOp>(SK_ColorRED, SkBlendMode::kSrcOver);
+  buffer.push<DrawColorOp>(SkColors::kRed, SkBlendMode::kSrcOver);
 
   testing::StrictMock<MockCanvas> canvas;
   testing::Sequence s;
@@ -3264,7 +3356,7 @@ TEST(PaintOpBufferTest, ReplacesImagesFromProviderOOP) {
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   TestOptionsProvider options_provider;
   SimpleBufferSerializer serializer(memory.get(),
                                     PaintOpBuffer::kInitialBufferSize,
@@ -3277,29 +3369,29 @@ TEST(PaintOpBufferTest, ReplacesImagesFromProviderOOP) {
                                     options_provider.deserialize_options());
   ASSERT_TRUE(deserialized_buffer);
 
-  for (auto* op : PaintOpBuffer::Iterator(deserialized_buffer.get())) {
+  for (const PaintOp& op : PaintOpBuffer::Iterator(deserialized_buffer.get())) {
     testing::NiceMock<MockCanvas> canvas;
     PlaybackParams params(nullptr);
     testing::Sequence s;
 
-    if (op->GetType() == PaintOpType::DrawImage) {
+    if (op.GetType() == PaintOpType::DrawImage) {
       // Save/scale/image/restore from DrawImageop.
       EXPECT_CALL(canvas, willSave()).InSequence(s);
       EXPECT_CALL(canvas, didScale(1.0f / expected_scale.width(),
                                    1.0f / expected_scale.height()));
       EXPECT_CALL(canvas, onDrawImage2(NonLazyImage(), 0.0f, 0.0f, _, _));
       EXPECT_CALL(canvas, willRestore()).InSequence(s);
-      op->Raster(&canvas, params);
-    } else if (op->GetType() == PaintOpType::DrawImageRect) {
+      op.Raster(&canvas, params);
+    } else if (op.GetType() == PaintOpType::DrawImageRect) {
       EXPECT_CALL(canvas, onDrawImageRect2(NonLazyImage(),
                                            MatchesRect(rect, expected_scale),
                                            SkRect::MakeWH(10, 10), _, _,
                                            SkCanvas::kFast_SrcRectConstraint));
-      op->Raster(&canvas, params);
-    } else if (op->GetType() == PaintOpType::DrawOval) {
+      op.Raster(&canvas, params);
+    } else if (op.GetType() == PaintOpType::DrawOval) {
       EXPECT_CALL(canvas, onDrawOval(SkRect::MakeWH(10, 10),
                                      MatchesShader(flags, expected_scale)));
-      op->Raster(&canvas, params);
+      op.Raster(&canvas, params);
     }
   }
 }
@@ -3318,7 +3410,7 @@ TEST_P(PaintFilterSerializationTest, Basic) {
       sk_sp<PaintFilter>{
           new BlurPaintFilter(0.5f, 0.3f, SkTileMode::kRepeat, nullptr)},
       sk_sp<PaintFilter>{new DropShadowPaintFilter(
-          5.f, 10.f, 0.1f, 0.3f, SK_ColorBLUE,
+          5.f, 10.f, 0.1f, 0.3f, SkColors::kBlue,
           DropShadowPaintFilter::ShadowMode::kDrawShadowOnly, nullptr)},
       sk_sp<PaintFilter>{new MagnifierPaintFilter(SkRect::MakeXYWH(5, 6, 7, 8),
                                                   10.5f, nullptr)},
@@ -3339,13 +3431,13 @@ TEST_P(PaintFilterSerializationTest, Basic) {
           SkMatrix::I(), PaintFlags::FilterQuality::kHigh, nullptr)},
       sk_sp<PaintFilter>{new LightingDistantPaintFilter(
           PaintFilter::LightingType::kSpecular, SkPoint3::Make(1, 2, 3),
-          SK_ColorCYAN, 1.1f, 2.2f, 3.3f, nullptr)},
+          SkColors::kCyan, 1.1f, 2.2f, 3.3f, nullptr)},
       sk_sp<PaintFilter>{new LightingPointPaintFilter(
           PaintFilter::LightingType::kDiffuse, SkPoint3::Make(2, 3, 4),
-          SK_ColorRED, 1.2f, 3.4f, 5.6f, nullptr)},
+          SkColors::kRed, 1.2f, 3.4f, 5.6f, nullptr)},
       sk_sp<PaintFilter>{new LightingSpotPaintFilter(
           PaintFilter::LightingType::kSpecular, SkPoint3::Make(100, 200, 300),
-          SkPoint3::Make(400, 500, 600), 1, 2, SK_ColorMAGENTA, 3, 4, 5,
+          SkPoint3::Make(400, 500, 600), 1, 2, SkColors::kMagenta, 3, 4, 5,
           nullptr)},
       sk_sp<PaintFilter>{
           new ImagePaintFilter(CreateDiscardablePaintImage(gfx::Size(100, 100)),
@@ -3432,7 +3524,7 @@ TEST_P(PaintFilterSerializationTest, Basic) {
 TEST(PaintOpBufferTest, PaintRecordShaderSerialization) {
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   sk_sp<PaintOpBuffer> record_buffer(new PaintOpBuffer);
   record_buffer->push<DrawRectOp>(SkRect::MakeXYWH(0, 0, 1, 1), PaintFlags());
 
@@ -3457,12 +3549,12 @@ TEST(PaintOpBufferTest, PaintRecordShaderSerialization) {
   ASSERT_TRUE(deserialized_buffer);
   PaintOpBuffer::Iterator it(deserialized_buffer.get());
   ASSERT_TRUE(it);
-  auto* op = *it;
-  ASSERT_TRUE(op->GetType() == PaintOpType::DrawRect);
-  auto* rect_op = static_cast<DrawRectOp*>(op);
-  EXPECT_SKRECT_EQ(rect_op->rect, SkRect::MakeXYWH(1, 2, 3, 4));
-  EXPECT_TRUE(rect_op->flags == flags);
-  EXPECT_TRUE(*rect_op->flags.getShader() == *flags.getShader());
+  const PaintOp& op = *it;
+  ASSERT_TRUE(op.GetType() == PaintOpType::DrawRect);
+  const auto& rect_op = static_cast<const DrawRectOp&>(op);
+  EXPECT_SKRECT_EQ(rect_op.rect, SkRect::MakeXYWH(1, 2, 3, 4));
+  EXPECT_TRUE(rect_op.flags == flags);
+  EXPECT_TRUE(*rect_op.flags.getShader() == *flags.getShader());
 }
 
 #if BUILDFLAG(SKIA_SUPPORT_SKOTTIE)
@@ -3471,11 +3563,11 @@ TEST(PaintOpBufferTest, BoundingRect_DrawSkottieOp) {
   PushDrawSkottieOps(&buffer);
 
   SkRect rect;
-  for (auto* base_op : PaintOpBuffer::Iterator(&buffer)) {
-    auto* op = static_cast<DrawSkottieOp*>(base_op);
+  for (const PaintOp& base_op : PaintOpBuffer::Iterator(&buffer)) {
+    const auto& op = static_cast<const DrawSkottieOp&>(base_op);
 
     ASSERT_TRUE(PaintOp::GetBounds(op, &rect));
-    EXPECT_EQ(rect, op->dst.makeSorted());
+    EXPECT_EQ(rect, op.dst.makeSorted());
   }
 }
 
@@ -3484,7 +3576,7 @@ TEST(PaintOpBufferTest,
      DrawSkottieOpSerializationFailureFromUnPrivilegedProcess) {
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
 
   scoped_refptr<SkottieWrapper> skottie =
       CreateSkottie(gfx::Size(100, 100), /*duration_secs=*/1);
@@ -3497,7 +3589,7 @@ TEST(PaintOpBufferTest,
       skottie, input_rect, input_t,
       GetTestImagesForSkottie(*skottie, input_rect,
                               PaintFlags::FilterQuality::kHigh, input_t),
-      SkottieColorMap());
+      SkottieColorMap(), SkottieTextPropertyValueMap());
 
   // Serialize
   TestOptionsProvider options_provider;
@@ -3524,7 +3616,25 @@ TEST(PaintOpBufferTest, DrawSkottieOpRasterWithoutImageAssets) {
       CreateSkottie(gfx::Size(100, 100), /*duration_secs=*/5);
   SkRect skottie_rect = SkRect::MakeWH(100, 100);
   DrawSkottieOp skottie_op(skottie, skottie_rect, /*t=*/0.1,
-                           /*images=*/SkottieFrameDataMap(), SkottieColorMap());
+                           /*images=*/SkottieFrameDataMap(), SkottieColorMap(),
+                           SkottieTextPropertyValueMap());
+  PlaybackParams playback_params(/*image_provider=*/nullptr);
+  {
+    NiceMock<MockCanvas> canvas;
+    EXPECT_CALL(canvas, onDrawImage2(_, _, _, _, _)).Times(0);
+    DrawSkottieOp::Raster(&skottie_op, &canvas, playback_params);
+  }
+}
+
+TEST(PaintOpBufferTest, DrawSkottieOpRasterWithNullImages) {
+  scoped_refptr<SkottieWrapper> skottie =
+      CreateSkottieFromString(kLottieDataWith2Assets);
+  SkRect skottie_rect = SkRect::MakeWH(100, 100);
+
+  SkottieFrameDataMap images_in = GetNullImagesForSkottie(*skottie, /*t=*/0.1f);
+  ASSERT_FALSE(images_in.empty());
+  DrawSkottieOp skottie_op(skottie, skottie_rect, /*t=*/0.1, images_in,
+                           SkottieColorMap(), SkottieTextPropertyValueMap());
   PlaybackParams playback_params(/*image_provider=*/nullptr);
   {
     NiceMock<MockCanvas> canvas;
@@ -3541,7 +3651,7 @@ TEST(PaintOpBufferTest, DrawSkottieOpRasterWithoutImageProvider) {
       *skottie, skottie_rect, PaintFlags::FilterQuality::kHigh, /*t=*/0.1f);
   ASSERT_FALSE(images_in.empty());
   DrawSkottieOp skottie_op(skottie, skottie_rect, /*t=*/0.1, images_in,
-                           SkottieColorMap());
+                           SkottieColorMap(), SkottieTextPropertyValueMap());
   PlaybackParams playback_params(/*image_provider=*/nullptr);
   {
     NiceMock<MockCanvas> canvas;
@@ -3573,7 +3683,7 @@ TEST(PaintOpBufferTest, DrawSkottieOpRasterWithImageProvider) {
         *skottie, skottie_rect, PaintFlags::FilterQuality::kHigh, /*t=*/0.25f);
     ASSERT_THAT(images_in, Contains(Key(HashSkottieResourceId("image_0"))));
     DrawSkottieOp skottie_op(skottie, skottie_rect, /*t=*/0.25, images_in,
-                             SkottieColorMap());
+                             SkottieColorMap(), SkottieTextPropertyValueMap());
     NiceMock<MockCanvas> canvas;
     EXPECT_CALL(canvas, onDrawImage2(NotNull(), _, _, _, _)).Times(AtLeast(1));
     DrawSkottieOp::Raster(&skottie_op, &canvas, playback_params);
@@ -3587,7 +3697,7 @@ TEST(PaintOpBufferTest, DrawSkottieOpRasterWithImageProvider) {
         *skottie, skottie_rect, PaintFlags::FilterQuality::kHigh, /*t=*/0.75f);
     ASSERT_THAT(images_in, Contains(Key(HashSkottieResourceId("image_1"))));
     DrawSkottieOp skottie_op(skottie, skottie_rect, /*t=*/0.75, images_in,
-                             SkottieColorMap());
+                             SkottieColorMap(), SkottieTextPropertyValueMap());
     NiceMock<MockCanvas> canvas;
     EXPECT_CALL(canvas, onDrawImage2(NotNull(), _, _, _, _)).Times(AtLeast(1));
     DrawSkottieOp::Raster(&skottie_op, &canvas, playback_params);
@@ -3603,7 +3713,7 @@ TEST(PaintOpBufferTest, DiscardableImagesTrackingSkottieOpNoImages) {
   buffer.push<DrawSkottieOp>(
       CreateSkottie(gfx::Size(100, 100), /*duration_secs=*/1),
       /*dst=*/SkRect::MakeWH(100, 100), /*t=*/0.1f, SkottieFrameDataMap(),
-      SkottieColorMap());
+      SkottieColorMap(), SkottieTextPropertyValueMap());
   EXPECT_FALSE(buffer.HasDiscardableImages());
 }
 
@@ -3616,15 +3726,16 @@ TEST(PaintOpBufferTest, DiscardableImagesTrackingSkottieOpWithImages) {
       *skottie, skottie_rect, PaintFlags::FilterQuality::kHigh, /*t=*/0.1f);
   ASSERT_FALSE(images_in.empty());
   buffer.push<DrawSkottieOp>(skottie, skottie_rect, /*t=*/0.1f, images_in,
-                             SkottieColorMap());
+                             SkottieColorMap(), SkottieTextPropertyValueMap());
   EXPECT_TRUE(buffer.HasDiscardableImages());
 }
 
 TEST(PaintOpBufferTest, OpHasDiscardableImagesSkottieOpNoImages) {
   DrawSkottieOp op(CreateSkottie(gfx::Size(100, 100), /*duration_secs=*/1),
                    /*dst=*/SkRect::MakeWH(100, 100), /*t=*/0.1f,
-                   SkottieFrameDataMap(), SkottieColorMap());
-  EXPECT_FALSE(PaintOp::OpHasDiscardableImages(&op));
+                   SkottieFrameDataMap(), SkottieColorMap(),
+                   SkottieTextPropertyValueMap());
+  EXPECT_FALSE(PaintOp::OpHasDiscardableImages(op));
 }
 
 TEST(PaintOpBufferTest, OpHasDiscardableImagesSkottieOpWithImages) {
@@ -3635,8 +3746,8 @@ TEST(PaintOpBufferTest, OpHasDiscardableImagesSkottieOpWithImages) {
       *skottie, skottie_rect, PaintFlags::FilterQuality::kHigh, /*t=*/0.1f);
   ASSERT_FALSE(images_in.empty());
   DrawSkottieOp op(skottie, skottie_rect, /*t=*/0.1f, images_in,
-                   SkottieColorMap());
-  EXPECT_TRUE(PaintOp::OpHasDiscardableImages(&op));
+                   SkottieColorMap(), SkottieTextPropertyValueMap());
+  EXPECT_TRUE(PaintOp::OpHasDiscardableImages(op));
 }
 #endif  // BUILDFLAG(SKIA_SUPPORT_SKOTTIE)
 
@@ -3654,11 +3765,11 @@ TEST(PaintOpBufferTest, CustomData) {
     PaintOpBuffer new_buffer = std::move(buffer);
     EXPECT_EQ(buffer.size(), 0u);
     EXPECT_EQ(new_buffer.size(), 1u);
-    EXPECT_EQ(new_buffer.GetFirstOp()->GetType(), PaintOpType::CustomData);
+    EXPECT_EQ(new_buffer.GetFirstOp().GetType(), PaintOpType::CustomData);
 
     PaintOpBuffer buffer2;
     buffer2.push<CustomDataOp>(1234u);
-    EXPECT_TRUE(*new_buffer.GetFirstOp() == *buffer2.GetFirstOp());
+    EXPECT_TRUE(new_buffer.GetFirstOp() == buffer2.GetFirstOp());
   }
 
   // Push and verify.
@@ -3700,7 +3811,7 @@ TEST(PaintOpBufferTest, SecurityConstrainedImageSerialization) {
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   TestOptionsProvider options_provider;
   PaintOpWriter writer(memory.get(), PaintOpBuffer::kInitialBufferSize,
                        options_provider.serialize_options(),
@@ -3734,7 +3845,7 @@ TEST(PaintOpBufferTest, DrawImageRectSerializeScaledImages) {
                                 src, dst, SkCanvas::kStrict_SrcRectConstraint);
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   TestOptionsProvider options_provider;
   SimpleBufferSerializer serializer(memory.get(),
                                     PaintOpBuffer::kInitialBufferSize,
@@ -3764,7 +3875,7 @@ TEST(PaintOpBufferTest, RecordShadersSerializeScaledImages) {
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   TestOptionsProvider options_provider;
   SimpleBufferSerializer serializer(memory.get(),
                                     PaintOpBuffer::kInitialBufferSize,
@@ -3792,7 +3903,7 @@ TEST(PaintOpBufferTest, RecordShadersCached) {
   // Generate serialized |memory|.
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   size_t memory_written = 0;
   {
     auto buffer = sk_make_sp<PaintOpBuffer>();
@@ -3811,7 +3922,7 @@ TEST(PaintOpBufferTest, RecordShadersCached) {
   // a scale factor.
   std::unique_ptr<char, base::AlignedFreeDeleter> memory_scaled(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   size_t memory_scaled_written = 0;
   {
     auto buffer = sk_make_sp<PaintOpBuffer>();
@@ -3858,14 +3969,14 @@ TEST(PaintOpBufferTest, RecordShadersCached) {
     else
       EXPECT_EQ(records[i]->size(), 2u);
 
-    for (auto* base_op : PaintOpBuffer::Iterator(records[i].get())) {
-      if (base_op->GetType() != PaintOpType::DrawRect)
+    for (const PaintOp& base_op : PaintOpBuffer::Iterator(records[i].get())) {
+      if (base_op.GetType() != PaintOpType::DrawRect)
         continue;
-      auto* op = static_cast<const DrawRectOp*>(base_op);
+      const auto& op = static_cast<const DrawRectOp&>(base_op);
 
       // In every case, the shader in the op should get cached for future
       // use.
-      auto* op_skshader = op->flags.getShader()->sk_cached_picture_.get();
+      auto* op_skshader = op.flags.getShader()->sk_cached_picture_.get();
       EXPECT_EQ(op_skshader, entry->shader()->sk_cached_picture_.get());
       switch (i) {
         case 0:
@@ -3902,7 +4013,7 @@ TEST(PaintOpBufferTest, RecordShadersCachedSize) {
   // Generate serialized |memory|.
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   auto buffer = sk_make_sp<PaintOpBuffer>();
   PaintFlags flags;
   flags.setShader(shader);
@@ -3946,7 +4057,7 @@ TEST(PaintOpBufferTest, RecordFilterSerializeScaledImages) {
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   TestOptionsProvider options_provider;
   SimpleBufferSerializer serializer(memory.get(),
                                     PaintOpBuffer::kInitialBufferSize,
@@ -3981,7 +4092,7 @@ TEST(PaintOpBufferTest, NullImages) {
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   TestOptionsProvider options_provider;
   SimpleBufferSerializer serializer(memory.get(),
                                     PaintOpBuffer::kInitialBufferSize,
@@ -3995,7 +4106,7 @@ TEST(PaintOpBufferTest, NullImages) {
                                     options_provider.deserialize_options());
   ASSERT_TRUE(deserialized_buffer);
   ASSERT_EQ(deserialized_buffer->size(), 1u);
-  ASSERT_EQ(deserialized_buffer->GetFirstOp()->GetType(),
+  ASSERT_EQ(deserialized_buffer->GetFirstOp().GetType(),
             PaintOpType::DrawImage);
 }
 
@@ -4053,7 +4164,7 @@ TEST(PaintOpBufferTest, HasEffectsPreventingLCDTextForSaveLayerAlpha) {
 
 TEST(PaintOpBufferTest, NeedsAdditionalInvalidationForLCDText) {
   auto buffer1 = sk_make_sp<PaintOpBuffer>();
-  buffer1->push<SaveLayerAlphaOp>(nullptr, uint8_t{100});
+  buffer1->push<SaveLayerAlphaOp>(nullptr, 0.4f);
   EXPECT_FALSE(buffer1->has_draw_text_ops());
   EXPECT_TRUE(buffer1->has_save_layer_alpha_ops());
   EXPECT_FALSE(buffer1->has_effects_preventing_lcd_text_for_save_layer_alpha());
@@ -4134,7 +4245,7 @@ TEST(PaintOpBufferTest, PathCaching) {
 
   std::unique_ptr<char, base::AlignedFreeDeleter> memory(
       static_cast<char*>(base::AlignedAlloc(PaintOpBuffer::kInitialBufferSize,
-                                            PaintOpBuffer::PaintOpAlign)));
+                                            PaintOpBuffer::kPaintOpAlign)));
   auto buffer = sk_make_sp<PaintOpBuffer>();
   buffer->push<DrawPathOp>(path, flags, UsePaintCache::kEnabled);
   SimpleBufferSerializer serializer(memory.get(),
@@ -4150,12 +4261,190 @@ TEST(PaintOpBufferTest, PathCaching) {
                                     options_provider.deserialize_options());
   ASSERT_TRUE(deserialized_buffer);
   ASSERT_EQ(deserialized_buffer->size(), 1u);
-  ASSERT_EQ(deserialized_buffer->GetFirstOp()->GetType(),
-            PaintOpType::DrawPath);
+  ASSERT_EQ(deserialized_buffer->GetFirstOp().GetType(), PaintOpType::DrawPath);
 
   SkPath cached_path;
   EXPECT_TRUE(options_provider.service_paint_cache()->GetPath(
       path.getGenerationID(), &cached_path));
+}
+
+TEST(PaintOpBufferTest, ShrinkToFit) {
+  PaintOpBuffer buffer;
+  EXPECT_EQ(sizeof(PaintOpBuffer), buffer.bytes_used());
+  EXPECT_FALSE(&buffer.GetFirstOp());
+  buffer.ShrinkToFit();
+  EXPECT_EQ(sizeof(PaintOpBuffer), buffer.bytes_used());
+  EXPECT_FALSE(&buffer.GetFirstOp());
+
+  buffer.push<DrawColorOp>(SkColors::kRed, SkBlendMode::kSrc);
+  EXPECT_GT(buffer.bytes_used(), sizeof(PaintOpBuffer) + sizeof(DrawColorOp));
+  const PaintOp* first_op = &buffer.GetFirstOp();
+  ASSERT_TRUE(first_op);
+  buffer.ShrinkToFit();
+  EXPECT_EQ(sizeof(PaintOpBuffer) + sizeof(DrawColorOp), buffer.bytes_used());
+  EXPECT_NE(first_op, &buffer.GetFirstOp());
+
+  first_op = &buffer.GetFirstOp();
+  buffer.ShrinkToFit();
+  EXPECT_EQ(sizeof(PaintOpBuffer) + sizeof(DrawColorOp), buffer.bytes_used());
+  EXPECT_EQ(first_op, &buffer.GetFirstOp());
+}
+
+TEST(PaintOpBufferTest, MoveRetainingBufferIfPossible) {
+  PaintOpBuffer buffer;
+  sk_sp<PaintOpBuffer> move_to = buffer.MoveRetainingBufferIfPossible();
+  EXPECT_EQ(sizeof(PaintOpBuffer), move_to->bytes_used());
+  EXPECT_FALSE(&move_to->GetFirstOp());
+  EXPECT_EQ(sizeof(PaintOpBuffer), buffer.bytes_used());
+  EXPECT_FALSE(&buffer.GetFirstOp());
+
+  // `buffer` has more reserved than used.
+  buffer.push<DrawColorOp>(SkColors::kRed, SkBlendMode::kSrc);
+  size_t old_bytes_used = buffer.bytes_used();
+  EXPECT_GT(old_bytes_used, sizeof(PaintOpBuffer) + sizeof(DrawColorOp));
+  const PaintOp* first_op = &buffer.GetFirstOp();
+  ASSERT_TRUE(first_op);
+  EXPECT_EQ(1u, buffer.size());
+
+  // `move_to` should allocate a new data buffer that fits, and `buffer` should
+  // retain the old data buffer.
+  move_to = buffer.MoveRetainingBufferIfPossible();
+  EXPECT_EQ(1u, move_to->size());
+  EXPECT_EQ(sizeof(PaintOpBuffer) + sizeof(DrawColorOp), move_to->bytes_used());
+  EXPECT_NE(first_op, &move_to->GetFirstOp());
+  EXPECT_EQ(first_op, &buffer.GetFirstOp());
+  EXPECT_EQ(old_bytes_used, buffer.bytes_used());
+
+  // `buffer` now fits.
+  buffer = std::move(*move_to);
+  old_bytes_used = buffer.bytes_used();
+  EXPECT_EQ(old_bytes_used, sizeof(PaintOpBuffer) + sizeof(DrawColorOp));
+  first_op = &buffer.GetFirstOp();
+  ASSERT_TRUE(first_op);
+
+  // `move_to` takes the data buffer of `buffer`.
+  move_to = buffer.MoveRetainingBufferIfPossible();
+  EXPECT_EQ(1u, move_to->size());
+  EXPECT_EQ(sizeof(PaintOpBuffer) + sizeof(DrawColorOp), move_to->bytes_used());
+  EXPECT_EQ(first_op, &move_to->GetFirstOp());
+  EXPECT_FALSE(&buffer.GetFirstOp());
+  EXPECT_EQ(sizeof(PaintOpBuffer), buffer.bytes_used());
+}
+
+TEST(IteratorTest, IterationTest) {
+  PaintOpBuffer buffer;
+  buffer.push<SaveOp>();
+  buffer.push<SetMatrixOp>(SkM44::Scale(1, 2));
+  EXPECT_THAT(PaintOpBuffer::Iterator(&buffer),
+              ElementsAre(Eq(SaveOp()), Eq(SetMatrixOp(SkM44::Scale(1, 2)))));
+}
+
+TEST(IteratorTest, OffsetIterationTest) {
+  PaintOpBuffer buffer;
+  const PaintOp& op1 = buffer.push<SaveOp>();
+  const PaintOp& op2 = buffer.push<RestoreOp>();
+  buffer.push<SetMatrixOp>(SkM44::Scale(1, 2));
+
+  std::vector<size_t> offsets = {0, static_cast<size_t>(op1.skip + op2.skip)};
+  EXPECT_THAT(PaintOpBuffer::OffsetIterator(&buffer, &offsets),
+              ElementsAre(Eq(SaveOp()), Eq(SetMatrixOp(SkM44::Scale(1, 2)))));
+}
+
+TEST(IteratorTest, CompositeIterationTest) {
+  PaintOpBuffer buffer;
+  const PaintOp& op1 = buffer.push<SaveOp>();
+  const PaintOp& op2 = buffer.push<RestoreOp>();
+  buffer.push<SetMatrixOp>(SkM44::Scale(1, 2));
+  std::vector<size_t> offsets = {0, static_cast<size_t>(op1.skip + op2.skip)};
+
+  EXPECT_THAT(PaintOpBuffer::CompositeIterator(&buffer, /*offsets=*/nullptr),
+              ElementsAre(Eq(SaveOp()), Eq(RestoreOp()),
+                          Eq(SetMatrixOp(SkM44::Scale(1, 2)))));
+
+  EXPECT_THAT(PaintOpBuffer::CompositeIterator(&buffer, &offsets),
+              ElementsAre(Eq(SaveOp()), Eq(SetMatrixOp(SkM44::Scale(1, 2)))));
+}
+
+TEST(IteratorTest, EqualityTest) {
+  PaintOpBuffer buffer;
+  buffer.push<SaveOp>();
+  buffer.push<SetMatrixOp>(SkM44::Scale(1, 2));
+  PaintOpBuffer::Iterator iter1(&buffer);
+  PaintOpBuffer::Iterator iter2(&buffer);
+  EXPECT_TRUE(iter1 == iter2);
+  EXPECT_FALSE(iter1 == ++iter2);
+}
+
+TEST(IteratorTest, OffsetEqualityTest) {
+  PaintOpBuffer buffer;
+  size_t offset = 0;
+  offset += buffer.push<SaveOp>().skip;
+  offset += buffer.push<SetMatrixOp>(SkM44::Scale(1, 2)).skip;
+  buffer.push<NoopOp>();
+
+  std::vector<size_t> offsets = {0, offset};
+  PaintOpBuffer::OffsetIterator iter1(&buffer, &offsets);
+  PaintOpBuffer::OffsetIterator iter2(&buffer, &offsets);
+
+  EXPECT_TRUE(iter1 == iter2);
+  EXPECT_FALSE(iter1 == ++iter2);
+}
+
+TEST(IteratorTest, CompositeEqualityTest) {
+  PaintOpBuffer buffer;
+  buffer.push<SaveOp>();
+  buffer.push<SetMatrixOp>(SkM44::Scale(1, 2));
+
+  PaintOpBuffer::CompositeIterator iter1(&buffer, /*offsets=*/nullptr);
+  PaintOpBuffer::CompositeIterator iter2(&buffer, /*offsets=*/nullptr);
+  EXPECT_TRUE(iter1 == iter2);
+  EXPECT_FALSE(iter1 == ++iter2);
+}
+
+TEST(IteratorTest, CompositeOffsetEqualityTest) {
+  PaintOpBuffer buffer;
+  size_t offset = 0;
+  offset += buffer.push<SaveOp>().skip;
+  offset += buffer.push<SetMatrixOp>(SkM44::Scale(1, 2)).skip;
+  buffer.push<NoopOp>();
+
+  std::vector<size_t> offsets = {0, offset};
+  PaintOpBuffer::CompositeIterator iter1(&buffer, &offsets);
+  PaintOpBuffer::CompositeIterator iter2(&buffer, &offsets);
+
+  EXPECT_TRUE(iter1 == iter2);
+  EXPECT_FALSE(iter1 == ++iter2);
+}
+
+TEST(IteratorTest, CompositeOffsetMixedTypeEqualityTest) {
+  PaintOpBuffer buffer;
+  std::vector<size_t> offsets = {0, 4};
+  PaintOpBuffer::CompositeIterator iter(&buffer, /*offsets=*/nullptr);
+  PaintOpBuffer::CompositeIterator offset_iter(&buffer, &offsets);
+
+  EXPECT_TRUE(iter == iter);
+  EXPECT_TRUE(offset_iter == offset_iter);
+  EXPECT_FALSE(iter == offset_iter);
+}
+
+TEST(IteratorTest, CompositeOffsetBoolCheck) {
+  PaintOpBuffer buffer;
+  size_t offset = 0;
+  offset += buffer.push<SaveOp>().skip;
+  offset += buffer.push<SetMatrixOp>(SkM44::Scale(1, 2)).skip;
+  buffer.push<NoopOp>();
+
+  PaintOpBuffer::CompositeIterator iter(&buffer, /*offsets=*/nullptr);
+  EXPECT_TRUE(iter);
+  EXPECT_TRUE(++iter);
+  EXPECT_TRUE(++iter);
+  EXPECT_FALSE(++iter);
+
+  std::vector<size_t> offsets = {0, offset};
+  PaintOpBuffer::CompositeIterator offset_iter(&buffer, &offsets);
+  EXPECT_TRUE(offset_iter);
+  EXPECT_TRUE(++offset_iter);
+  EXPECT_FALSE(++offset_iter);
 }
 
 }  // namespace cc

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,8 @@ using base::test::ios::WaitUntilConditionOrTimeout;
                     return !
                         [ShellEarlGreyAppInterface isCurrentWebStateLoading];
                   }];
-  BOOL pageLoaded = [condition waitWithTimeout:kWaitForPageLoadTimeout];
+  BOOL pageLoaded =
+      [condition waitWithTimeout:kWaitForPageLoadTimeout.InSecondsF()];
   EG_TEST_HELPER_ASSERT_TRUE(pageLoaded, loadingErrorDescription);
 
   EG_TEST_HELPER_ASSERT_NO_ERROR(
@@ -52,8 +53,31 @@ using base::test::ios::WaitUntilConditionOrTimeout;
                                        currentWebStateContainsText:text];
                                  }];
 
-  BOOL containsText = [condition waitWithTimeout:kWaitForPageLoadTimeout];
+  BOOL containsText =
+      [condition waitWithTimeout:kWaitForPageLoadTimeout.InSecondsF()];
   EG_TEST_HELPER_ASSERT_TRUE(containsText, description);
+}
+
+- (void)waitForUIElementToDisappearWithMatcher:(id<GREYMatcher>)matcher {
+  [self waitForUIElementToDisappearWithMatcher:matcher
+                                       timeout:kWaitForUIElementTimeout];
+}
+
+- (void)waitForUIElementToDisappearWithMatcher:(id<GREYMatcher>)matcher
+                                       timeout:(base::TimeDelta)timeout {
+  NSString* errorDescription = [NSString
+      stringWithFormat:
+          @"Failed waiting for element with matcher %@ to disappear", matcher];
+
+  ConditionBlock condition = ^{
+    NSError* error = nil;
+    [[EarlGrey selectElementWithMatcher:matcher] assertWithMatcher:grey_nil()
+                                                             error:&error];
+    return error == nil;
+  };
+
+  bool matched = WaitUntilConditionOrTimeout(timeout, condition);
+  EG_TEST_HELPER_ASSERT_TRUE(matched, errorDescription);
 }
 
 @end

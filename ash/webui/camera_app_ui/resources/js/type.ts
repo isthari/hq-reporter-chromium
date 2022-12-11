@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,16 @@ import {assertExists, assertInstanceof} from './assert.js';
  * Photo or video resolution.
  */
 export class Resolution {
-  constructor(readonly width: number, readonly height: number) {}
+  readonly width: number;
+
+  readonly height: number;
+
+  constructor();
+  constructor(width: number, height: number);
+  constructor(width?: number, height?: number) {
+    this.width = width ?? 0;
+    this.height = height ?? -1;
+  }
 
   /**
    * @return Total pixel number.
@@ -21,27 +30,56 @@ export class Resolution {
    * Aspect ratio calculates from width divided by height.
    */
   get aspectRatio(): number {
+    // Special aspect ratio mapping rule, see http://b/147986763.
+    if (this.width === 848 && this.height === 480) {
+      return (new Resolution(16, 9)).aspectRatio;
+    }
     // Approximate to 4 decimal places to prevent precision error during
     // comparing.
     return parseFloat((this.width / this.height).toFixed(4));
   }
 
   /**
+   * @return The amount of mega pixels to 1 decimal place.
+   */
+  get mp(): number {
+    return parseFloat((this.area / 1000000).toFixed(1));
+  }
+
+  /**
    * Compares width/height of resolutions, see if they are equal or not.
+   *
    * @param resolution Resolution to be compared with.
    * @return Whether width/height of resolutions are equal.
    */
-  equals(resolution: Resolution): boolean {
+  equals(resolution: Resolution|null): boolean {
+    if (resolution === null) {
+      return false;
+    }
     return this.width === resolution.width && this.height === resolution.height;
   }
 
   /**
+   * Compares width/height of resolutions, see if they are equal or not. It also
+   * returns true if the resolution is rotated.
+   *
+   * @param resolution Resolution to be compared with.
+   * @return Whether width/height of resolutions are equal.
+   */
+  equalsWithRotation(resolution: Resolution): boolean {
+    return (this.width === resolution.width &&
+            this.height === resolution.height) ||
+        (this.width === resolution.height && this.height === resolution.width);
+  }
+
+  /**
    * Compares aspect ratio of resolutions, see if they are equal or not.
+   *
    * @param resolution Resolution to be compared with.
    * @return Whether aspect ratio of resolutions are equal.
    */
   aspectRatioEquals(resolution: Resolution): boolean {
-    return this.width * resolution.height === this.height * resolution.width;
+    return this.aspectRatio === resolution.aspectRatio;
   }
 
   /**
@@ -74,7 +112,6 @@ export enum MimeType {
 export enum Mode {
   PHOTO = 'photo',
   VIDEO = 'video',
-  SQUARE = 'square',
   PORTRAIT = 'portrait',
   SCAN = 'scan',
 }
@@ -91,24 +128,24 @@ export enum Facing {
   VIRTUAL_USER = 'virtual_user',
   VIRTUAL_ENV = 'virtual_environment',
   VIRTUAL_EXT = 'virtual_external',
-  NOT_SET = '(not set)',
 }
 
 export enum ViewName {
   CAMERA = 'view-camera',
   CROP_DOCUMENT = 'view-crop-document',
   DOCUMENT_MODE_DIALOG = 'view-document-mode-dialog',
+  DOCUMENT_REVIEW = 'view-document-review',
   EXPERT_SETTINGS = 'view-expert-settings',
   FLASH = 'view-flash',
-  GRID_SETTINGS = 'view-grid-settings',
+  LOW_STORAGE_DIALOG = 'view-low-storage-dialog',
   MESSAGE_DIALOG = 'view-message-dialog',
+  OPTION_PANEL = 'view-option-panel',
+  PHOTO_ASPECT_RATIO_SETTINGS = 'view-photo-aspect-ratio-settings',
   PHOTO_RESOLUTION_SETTINGS = 'view-photo-resolution-settings',
   PTZ_PANEL = 'view-ptz-panel',
-  RESOLUTION_SETTINGS = 'view-resolution-settings',
   REVIEW = 'view-review',
   SETTINGS = 'view-settings',
   SPLASH = 'view-splash',
-  TIMER_SETTINGS = 'view-timer-settings',
   VIDEO_RESOLUTION_SETTINGS = 'view-video-resolution-settings',
   WARNING = 'view-warning',
 }
@@ -118,12 +155,40 @@ export enum VideoType {
   GIF = 'gif',
 }
 
+export enum PhotoResolutionLevel {
+  FULL = 'full',
+  MEDIUM = 'medium',
+  UNKNOWN = 'unknown',
+}
+
+export enum VideoResolutionLevel {
+  FULL = 'full',
+  MEDIUM = 'medium',
+  FOUR_K = '4K',
+  QUAD_HD = 'Quad HD',
+  FULL_HD = 'Full HD',
+  HD = 'HD',
+  UNKNOWN = 'unknown',
+  THREE_SIXTY_P = '360p',
+}
+
+export enum AspectRatioSet {
+  RATIO_4_3 = 1.3333,
+  RATIO_16_9 = 1.7778,
+  RATIO_OTHER = 0.0000,
+  RATIO_SQUARE = 1.0000,
+}
+
 export enum Rotation {
   ANGLE_0 = 0,
   ANGLE_90 = 90,
   ANGLE_180 = 180,
   ANGLE_270 = 270,
 }
+// `ROTATION_ORDER` is used for document scanning fix mode to show/crop images.
+// The length must be fixed at 4.
+export const ROTATION_ORDER =
+    Object.values(Rotation).filter((r): r is Rotation => typeof r === 'number');
 
 export interface VideoConfig {
   width: number;
@@ -199,6 +264,12 @@ export interface VideoTrackSettings {
   frameRate: number;
 }
 
+/**
+ * Gets video track settings from a video track.
+ *
+ * This asserts that all property that should exists on video track settings
+ * (.width, .height, .deviceId, .frameRate) all exists and narrow the type.
+ */
 export function getVideoTrackSettings(videoTrack: MediaStreamTrack):
     VideoTrackSettings {
   // TODO(pihsun): The type from TypeScript lib.dom.d.ts is wrong on Chrome and
@@ -261,6 +332,7 @@ export interface ErrorInfo {
  */
 export enum ErrorType {
   BROKEN_THUMBNAIL = 'broken-thumbnail',
+  CHECK_COVER_FAILURE = 'check-cover-failed',
   DEVICE_INFO_UPDATE_FAILURE = 'device-info-update-failure',
   DEVICE_NOT_EXIST = 'device-not-exist',
   EMPTY_FILE = 'empty-file',
@@ -278,8 +350,8 @@ export enum ErrorType {
   START_CAMERA_FAILURE = 'start-camera-failure',
   START_CAPTURE_FAILURE = 'start-capture-failure',
   STOP_CAPTURE_FAILURE = 'stop-capture-failure',
+  UNCAUGHT_ERROR = 'uncaught-error',
   UNCAUGHT_PROMISE = 'uncaught-promise',
-  UNKNOWN_FACING = 'unknown-facing',
   UNSAFE_INTEGER = 'unsafe-integer',
   UNSUPPORTED_PROTOCOL = 'unsupported-protocol',
 }
@@ -352,6 +424,14 @@ export class EmptyThumbnailError extends Error {
   }
 }
 
+export class LowStorageError extends Error {
+  constructor() {
+    const message = 'Cannot start recording due to low storage.';
+    super(message);
+    this.name = this.constructor.name;
+  }
+}
+
 /**
  * Throws when the recording is ended with no chunk returned.
  */
@@ -360,4 +440,61 @@ export class NoChunkError extends Error {
     super(message);
     this.name = this.constructor.name;
   }
+}
+
+/**
+ * Throws when the GIF recording is ended with no frame captured.
+ */
+export class NoFrameError extends Error {
+  constructor(message = 'No frames captured during GIF recording') {
+    super(message);
+    this.name = this.constructor.name;
+  }
+}
+
+/**
+ * Throws when the portrait mode fails to detect a human face.
+ */
+export class PortraitModeProcessError extends Error {
+  constructor(message = 'No human face detected in the scene') {
+    super(message);
+    this.name = this.constructor.name;
+  }
+}
+
+/**
+ * Types of local storage key.
+ */
+export enum LocalStorageKey {
+  CUSTOM_VIDEO_PARAMETERS = 'customVideoParameters',
+  DOC_MODE_DIALOG_SHOWN = 'isDocModeDialogShown',
+  DOC_MODE_MULTI_PAGE_TOAST_SHOWN = 'isDocModeMultiPageToastShown',
+  DOC_MODE_TOAST_SHOWN = 'isDocModeToastShown',
+  ENABLE_FPS_PICKER = 'enableFPSPicker',
+  ENABLE_FULL_SIZED_VIDEO_SNAPSHOT = 'enableFullSizedVideoSnapshot',
+  ENABLE_MULTISTREAM_RECORDING = 'enableMultistreamRecording',
+  ENABLE_PTZ_FOR_BUILTIN = 'enablePTZForBuiltin',
+  EXPERT_MODE = 'expert',
+  GA_USER_ID = 'google-analytics.analytics.user-id',
+  MIRRORING_TOGGLES = 'mirroringToggles',
+  PREF_DEVICE_PHOTO_ASPECT_RATIO_SET = 'devicePhotoAspectRatioSet',
+  PREF_DEVICE_PHOTO_RESOLUTION_EXPERT = 'devicePhotoResolutionExpert',
+  PREF_DEVICE_PHOTO_RESOLUTION_LEVEL = 'devicePhotoResolutionLevel',
+  PREF_DEVICE_VIDEO_RESOLUTION_EXPERT = 'deviceVideoResolutionExpert',
+  PREF_DEVICE_VIDEO_RESOLUTION_FPS = 'deviceVideoResolutionFps',
+  PREF_DEVICE_VIDEO_RESOLUTION_LEVEL = 'deviceVideoResolutionLevel',
+  PRINT_PERFORMANCE_LOGS = 'printPerformanceLogs',
+  PTZ_TOAST_SHOWN = 'isPTZToastShown',
+  SAVE_METADATA = 'saveMetadata',
+  SHOW_ALL_RESOLUTIONS = 'showAllResolutions',
+  SHOW_METADATA = 'showMetadata',
+  TOGGLE_MIC = 'toggleMic',
+}
+
+/**
+ * Type of low storage dialog.
+ */
+export enum LowStorageDialogType {
+  AUTO_STOP = 'auto-stop',
+  CANNOT_START = 'cannot-start',
 }

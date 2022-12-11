@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/observer_list.h"
 #include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "components/device_event_log/device_event_log.h"
@@ -323,6 +324,14 @@ void BluetoothAdapter::NotifyDevicePairedChanged(BluetoothDevice* device,
   for (auto& observer : observers_)
     observer.DevicePairedChanged(this, device, new_paired_status);
 }
+
+void BluetoothAdapter::NotifyDeviceConnectedStateChanged(
+    BluetoothDevice* device,
+    bool is_connected) {
+  for (auto& observer : observers_) {
+    observer.DeviceConnectedStateChanged(this, device, is_connected);
+  }
+}
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX)
@@ -463,6 +472,15 @@ void BluetoothAdapter::NotifyGattDescriptorValueChanged(
   for (auto& observer : observers_)
     observer.GattDescriptorValueChanged(this, descriptor, value);
 }
+
+#if BUILDFLAG(IS_CHROMEOS)
+void BluetoothAdapter::
+    NotifyLowEnergyScanSessionHardwareOffloadingStatusChanged(
+        LowEnergyScanSessionHardwareOffloadingStatus status) {
+  for (auto& observer : observers_)
+    observer.LowEnergyScanSessionHardwareOffloadingStatusChanged(status);
+}
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 BluetoothAdapter::SetPoweredCallbacks::SetPoweredCallbacks() = default;
 BluetoothAdapter::SetPoweredCallbacks::~SetPoweredCallbacks() = default;

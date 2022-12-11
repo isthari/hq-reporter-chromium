@@ -1,12 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/drag_drop/scoped_drag_drop_observer.h"
 
 #include "ash/shell.h"
-#include "ash/shell_observer.h"
-#include "base/scoped_observation.h"
+#include "ui/aura/client/drag_drop_client.h"
 
 namespace ui {
 class DropTargetEvent;
@@ -28,7 +27,11 @@ void ScopedDragDropObserver::OnDragUpdated(const ui::DropTargetEvent& event) {
   event_callback_.Run(&event);
 }
 
-void ScopedDragDropObserver::OnDragEnded() {
+void ScopedDragDropObserver::OnDragCompleted(const ui::DropTargetEvent& event) {
+  event_callback_.Run(/*event=*/nullptr);
+}
+
+void ScopedDragDropObserver::OnDragCancelled() {
   event_callback_.Run(/*event=*/nullptr);
 }
 

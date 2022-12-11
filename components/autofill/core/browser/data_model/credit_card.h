@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,8 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/strings/string_piece_forward.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
-#include "components/autofill/core/browser/autofill_field.h"
 #include "components/autofill/core/browser/data_model/autofill_data_model.h"
 #include "url/gurl.h"
 
@@ -63,10 +63,13 @@ class CreditCard : public AutofillDataModel {
   enum Issuer {
     ISSUER_UNKNOWN = 0,
     GOOGLE = 1,
+    EXTERNAL_ISSUER = 2,
   };
 
   // Whether the card has been enrolled in the virtual card feature. This must
-  // stay in sync with the proto enum in autofill_specifics.proto.
+  // stay in sync with the proto enum in autofill_specifics.proto. A java
+  // IntDef@ is generated from this.
+  // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.components.autofill
   enum VirtualCardEnrollmentState {
     // State unspecified. This is the default value of this enum. Should not be
     // ever used with cards.
@@ -83,9 +86,13 @@ class CreditCard : public AutofillDataModel {
 
   CreditCard(const std::string& guid, const std::string& origin);
 
-  // Creates a server card.  The type must be MASKED_SERVER_CARD or
+  // Creates a server card. The type must be MASKED_SERVER_CARD or
   // FULL_SERVER_CARD.
   CreditCard(RecordType type, const std::string& server_id);
+
+  // Creates a server card with non-legacy instrument id. The type must be
+  // MASKED_SERVER_CARD or FULL_SERVER_CARD.
+  CreditCard(RecordType type, const int64_t& instrument_id);
 
   // For use in STL containers.
   CreditCard();
@@ -118,13 +125,17 @@ class CreditCard : public AutofillDataModel {
   // Returns string of dots for hidden card information.
   static std::u16string GetMidlineEllipsisDots(size_t num_dots);
 
+  // Returns whether the card is a local card.
+  static bool IsLocalCard(const CreditCard* card);
+
   // Network issuer strings are defined at the bottom of this file, e.g.
   // kVisaCard.
   void SetNetworkForMaskedCard(base::StringPiece network);
 
   // AutofillDataModel:
   AutofillMetadata GetMetadata() const override;
-  bool SetMetadata(const AutofillMetadata metadata) override;
+  double GetRankingScore(base::Time current_time) const override;
+  bool SetMetadata(const AutofillMetadata& metadata) override;
   // Returns whether the card is deletable: if it is expired and has not been
   // used for longer than |kDisusedCreditCardDeletionTimeDelta|.
   bool IsDeletable() const override;
@@ -172,9 +183,8 @@ class CreditCard : public AutofillDataModel {
 
   Issuer card_issuer() const { return card_issuer_; }
   void set_card_issuer(Issuer card_issuer) { card_issuer_ = card_issuer; }
-
-  // Return true if card_issuer_ is set to Issuer::GOOGLE.
-  bool IsGoogleIssuedCard() const;
+  const std::string& issuer_id() const { return issuer_id_; }
+  void set_issuer_id(const std::string& issuer_id) { issuer_id_ = issuer_id; }
 
   // For use in STL containers.
   void operator=(const CreditCard& credit_card);
@@ -193,14 +203,15 @@ class CreditCard : public AutofillDataModel {
   // GUIDs, origins, labels, and unique IDs are not compared, only the values of
   // the cards themselves. A full card is equivalent to its corresponding masked
   // card.
-  int Compare(const CreditCard& credit_card) const;
+  [[nodiscard]] int Compare(const CreditCard& credit_card) const;
 
   // Determines if |this| is a local version of the server card |other|.
-  bool IsLocalDuplicateOfServerCard(const CreditCard& other) const;
+  [[nodiscard]] bool IsLocalDuplicateOfServerCard(
+      const CreditCard& other) const;
 
   // Determines if |this| has the same number as |other|. If either is a masked
   // server card, compares their last four digits and expiration dates.
-  bool HasSameNumberAs(const CreditCard& other) const;
+  [[nodiscard]] bool HasSameNumberAs(const CreditCard& other) const;
 
   // Equality operators compare GUIDs, origins, and the contents.
   // Usage metadata (use count, use date, modification date) are NOT compared.
@@ -240,8 +251,16 @@ class CreditCard : public AutofillDataModel {
   // Returns whether the card is expired based on |current_time|.
   bool IsExpired(const base::Time& current_time) const;
 
+  // Returns whether the card is a masked card. Such cards will only have
+  // the last 4 digits of the card number.
+  bool masked() const;
+
   // Whether the card expiration date should be updated.
   bool ShouldUpdateExpiration() const;
+
+  // Complete = contains number, expiration date and name on card.
+  // Valid = unexpired with valid number format.
+  bool IsCompleteValidCard() const;
 
   const std::string& billing_address_id() const { return billing_address_id_; }
   void set_billing_address_id(const std::string& id) {
@@ -265,11 +284,11 @@ class CreditCard : public AutofillDataModel {
 
   // Various display functions.
 
-  // Card preview summary, for example: "Nickname/Network - ****1234",
-  // ", 01/2020".
-  const std::pair<std::u16string, std::u16string> LabelPieces() const;
+  // Card preview summary, for example: "Nickname/Network - ****1234 John
+  // Smith".
+  std::pair<std::u16string, std::u16string> LabelPieces() const;
   // Like LabelPieces, but appends the two pieces together.
-  const std::u16string Label() const;
+  std::u16string Label() const;
   // The last four digits of the card number (or possibly less if there aren't
   // enough characters).
   std::u16string LastFourDigits() const;
@@ -301,6 +320,11 @@ class CreditCard : public AutofillDataModel {
   std::u16string CardIdentifierStringForAutofillDisplay(
       std::u16string customized_nickname = std::u16string(),
       int obfuscation_length = 4) const;
+  // A name to identify this card. It is the nickname if available, or the
+  // product description. If neither are available, it falls back to the issuer
+  // network.
+  std::u16string CardNameForAutofillDisplay(
+      const std::u16string& customized_nickname = std::u16string()) const;
 
 #if BUILDFLAG(IS_ANDROID)
   // Label for the card to be displayed in the manual filling view on Android.
@@ -359,6 +383,11 @@ class CreditCard : public AutofillDataModel {
   const GURL& card_art_url() const { return card_art_url_; }
   void set_card_art_url(const GURL& card_art_url) {
     card_art_url_ = card_art_url;
+  }
+
+  std::u16string product_description() const { return product_description_; }
+  void set_product_description(const std::u16string& product_description) {
+    product_description_ = product_description;
   }
 
  private:
@@ -429,9 +458,15 @@ class CreditCard : public AutofillDataModel {
   // The nickname of the card. May be empty when nickname is not set.
   std::u16string nickname_;
 
+  // TODO(crbug.com/1394514): Consider removing this field and all its usage
+  // after `issuer_id_` is used.
   // The issuer for the card. This is populated from the sync response. It has a
   // default value of CreditCard::ISSUER_UNKNOWN.
   Issuer card_issuer_;
+
+  // The issuer id of the card. This is set for server cards only (both actual
+  // cards and virtual cards).
+  std::string issuer_id_;
 
   // For masked server cards, this is the ID assigned by the server to uniquely
   // identify this card. |server_id_| is the legacy version of this.
@@ -444,6 +479,10 @@ class CreditCard : public AutofillDataModel {
 
   // The url to fetch the rich card art image.
   GURL card_art_url_;
+
+  // The product description for the card to be used in the UI when card is
+  // presented.
+  std::u16string product_description_;
 };
 
 // So we can compare CreditCards with EXPECT_EQ().
@@ -455,7 +494,6 @@ extern const char kDinersCard[];
 extern const char kDiscoverCard[];
 extern const char kEloCard[];
 extern const char kGenericCard[];
-extern const char kGoogleIssuedCard[];
 extern const char kJCBCard[];
 extern const char kMasterCard[];
 extern const char kMirCard[];

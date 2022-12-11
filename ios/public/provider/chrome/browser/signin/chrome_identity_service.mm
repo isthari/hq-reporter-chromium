@@ -1,16 +1,17 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/public/provider/chrome/browser/signin/chrome_identity_service.h"
+#import "ios/public/provider/chrome/browser/signin/chrome_identity_service.h"
 
-#include "base/metrics/histogram_functions.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/strings/sys_string_conversions.h"
 #import "components/signin/internal/identity_manager/account_capabilities_constants.h"
-#include "components/signin/public/base/signin_metrics.h"
-#include "google_apis/gaia/gaia_auth_util.h"
-#import "ios/public/provider/chrome/browser/signin/chrome_identity.h"
-#include "ios/public/provider/chrome/browser/signin/chrome_identity_interaction_manager.h"
+#import "components/signin/public/base/signin_metrics.h"
+#import "google_apis/gaia/gaia_auth_util.h"
+#import "ios/chrome/browser/signin/system_identity.h"
+#import "ios/public/provider/chrome/browser/signin/chrome_identity_interaction_manager.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -84,17 +85,19 @@ void ChromeIdentityService::ApplicationDidDiscardSceneSessions(
 
 DismissASMViewControllerBlock
 ChromeIdentityService::PresentAccountDetailsController(
-    ChromeIdentity* identity,
+    id<SystemIdentity> identity,
     UIViewController* view_controller,
     BOOL animated) {
+  NOTREACHED() << "Subclasses must override this";
   return nil;
 }
 
 DismissASMViewControllerBlock
 ChromeIdentityService::PresentWebAndAppSettingDetailsController(
-    ChromeIdentity* identity,
+    id<SystemIdentity> identity,
     UIViewController* view_controller,
     BOOL animated) {
+  NOTREACHED() << "Subclasses must override this";
   return nil;
 }
 
@@ -104,41 +107,50 @@ ChromeIdentityService::CreateChromeIdentityInteractionManager() const {
   return nil;
 }
 
-void ChromeIdentityService::IterateOverIdentities(IdentityIteratorCallback) {}
+void ChromeIdentityService::IterateOverIdentities(
+    SystemIdentityIteratorCallback) {
+  // TODO(crbug.com/1392742): Need to add NOTREACHED().
+}
 
-void ChromeIdentityService::ForgetIdentity(ChromeIdentity* identity,
-                                           ForgetIdentityCallback callback) {}
+void ChromeIdentityService::ForgetIdentity(id<SystemIdentity> identity,
+                                           ForgetIdentityCallback callback) {
+  NOTREACHED() << "Subclasses must override this";
+}
 
-void ChromeIdentityService::GetAccessToken(ChromeIdentity* identity,
+void ChromeIdentityService::GetAccessToken(id<SystemIdentity> identity,
                                            const std::set<std::string>& scopes,
-                                           AccessTokenCallback callback) {}
+                                           AccessTokenCallback callback) {
+  NOTREACHED() << "Subclasses must override this";
+}
 
-void ChromeIdentityService::GetAccessToken(ChromeIdentity* identity,
+void ChromeIdentityService::GetAccessToken(id<SystemIdentity> identity,
                                            const std::string& client_id,
                                            const std::set<std::string>& scopes,
                                            AccessTokenCallback callback) {}
 
-void ChromeIdentityService::GetAvatarForIdentity(ChromeIdentity* identity) {
-  NOTREACHED();
+void ChromeIdentityService::GetAvatarForIdentity(id<SystemIdentity> identity) {
+  NOTREACHED() << "Subclasses must override this";
 }
 
 UIImage* ChromeIdentityService::GetCachedAvatarForIdentity(
-    ChromeIdentity* identity) {
-  NOTREACHED();
+    id<SystemIdentity> identity) {
+  NOTREACHED() << "Subclasses must override this";
   return nil;
 }
 
 void ChromeIdentityService::GetHostedDomainForIdentity(
-    ChromeIdentity* identity,
-    GetHostedDomainCallback callback) {}
+    id<SystemIdentity> identity,
+    GetHostedDomainCallback callback) {
+  NOTREACHED() << "Subclasses must override this";
+}
 
 NSString* ChromeIdentityService::GetCachedHostedDomainForIdentity(
-    ChromeIdentity* identity) {
+    id<SystemIdentity> identity) {
   // @gmail.com accounts are end consumer accounts so it is safe to return @""
-  // even when SSOProfileSource has a nil profile for |sso_identity|.
+  // even when SSOProfileSource has a nil profile for `sso_identity`.
   //
   // Note: This is also needed during the sign-in flow as it avoids waiting for
-  // the profile of |sso_identity| to be fetched from the server.
+  // the profile of `sso_identity` to be fetched from the server.
   if (gaia::ExtractDomainName(base::SysNSStringToUTF8(identity.userEmail)) ==
       "gmail.com") {
     return @"";
@@ -147,14 +159,14 @@ NSString* ChromeIdentityService::GetCachedHostedDomainForIdentity(
 }
 
 void ChromeIdentityService::CanOfferExtendedSyncPromos(
-    ChromeIdentity* identity,
+    id<SystemIdentity> identity,
     CapabilitiesCallback completion) {
   FetchCapability(identity, @(kCanOfferExtendedChromeSyncPromosCapabilityName),
                   completion);
 }
 
 void ChromeIdentityService::IsSubjectToParentalControls(
-    ChromeIdentity* identity,
+    id<SystemIdentity> identity,
     CapabilitiesCallback completion) {
   FetchCapability(identity, @(kIsSubjectToParentalControlsCapabilityName),
                   completion);
@@ -166,17 +178,20 @@ bool ChromeIdentityService::IsServiceSupported() {
 
 MDMDeviceStatus ChromeIdentityService::GetMDMDeviceStatus(
     NSDictionary* user_info) {
+  NOTREACHED() << "Subclasses must override this";
   return 0;
 }
 
-bool ChromeIdentityService::HandleMDMNotification(ChromeIdentity* identity,
+bool ChromeIdentityService::HandleMDMNotification(id<SystemIdentity> identity,
                                                   NSDictionary* user_info,
                                                   MDMStatusCallback callback) {
+  NOTREACHED() << "Subclasses must override this";
   return false;
 }
 
-bool ChromeIdentityService::IsMDMError(ChromeIdentity* identity,
+bool ChromeIdentityService::IsMDMError(id<SystemIdentity> identity,
                                        NSError* error) {
+  NOTREACHED() << "Subclasses must override this";
   return false;
 }
 
@@ -193,8 +208,8 @@ bool ChromeIdentityService::IsInvalidGrantError(NSDictionary* user_info) {
 }
 
 void ChromeIdentityService::FetchCapabilities(
-    NSArray* capabilities,
-    ChromeIdentity* identity,
+    id<SystemIdentity> identity,
+    NSArray<NSString*>* capabilities,
     ChromeIdentityCapabilitiesFetchCompletionBlock completion) {
   // Implementation provided by subclass.
 }
@@ -205,23 +220,23 @@ void ChromeIdentityService::FireIdentityListChanged(bool notify_user) {
 }
 
 void ChromeIdentityService::FireAccessTokenRefreshFailed(
-    ChromeIdentity* identity,
+    id<SystemIdentity> identity,
     NSDictionary* user_info) {
   for (auto& observer : observer_list_)
     observer.OnAccessTokenRefreshFailed(identity, user_info);
 }
 
-void ChromeIdentityService::FireProfileDidUpdate(ChromeIdentity* identity) {
+void ChromeIdentityService::FireProfileDidUpdate(id<SystemIdentity> identity) {
   for (auto& observer : observer_list_)
     observer.OnProfileUpdate(identity);
 }
 
-void ChromeIdentityService::FetchCapability(ChromeIdentity* identity,
+void ChromeIdentityService::FetchCapability(id<SystemIdentity> identity,
                                             NSString* capability_name,
                                             CapabilitiesCallback completion) {
-  base::TimeTicks fetch_start = base::TimeTicks::Now();
+  const base::TimeTicks fetch_start = base::TimeTicks::Now();
   FetchCapabilities(
-      @[ capability_name ], identity,
+      identity, @[ capability_name ],
       ^(NSDictionary<NSString*, NSNumber*>* capabilities, NSError* error) {
         base::UmaHistogramTimes(
             "Signin.AccountCapabilities.GetFromSystemLibraryDuration",

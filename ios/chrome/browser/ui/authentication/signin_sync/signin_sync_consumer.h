@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 // Handles sign-in screen UI updates.
 @protocol SigninSyncConsumer <NSObject>
 
-// Sets the |userName|, |email|, |givenName| and |avatar| of the selected
-// identity. The |userName| and |givenName| can be nil. Notifies the UI that an
+// Sets the `userName`, `email`, `givenName` and `avatar` of the selected
+// identity. The `userName` and `givenName` can be nil. Notifies the UI that an
 // identity is available.
 - (void)setSelectedIdentityUserName:(NSString*)userName
                               email:(NSString*)email

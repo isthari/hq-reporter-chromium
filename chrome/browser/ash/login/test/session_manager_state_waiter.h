@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ash {
+
 namespace test {
 
 // Waits for the primary user's session to start, or returns immediately if a
@@ -50,14 +51,5 @@ class SessionStateWaiter : public session_manager::SessionManagerObserver {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::SessionStateWaiter;
-namespace test {
-using ::ash::test::WaitForPrimaryUserSessionStart;
-}  // namespace test
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_TEST_SESSION_MANAGER_STATE_WAITER_H_

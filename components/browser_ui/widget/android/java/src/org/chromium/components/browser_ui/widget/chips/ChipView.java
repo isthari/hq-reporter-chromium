@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.components.browser_ui.widget.chips;
@@ -113,6 +113,8 @@ public class ChipView extends LinearLayout {
                 solidColorChip ? R.dimen.chip_solid_border_width : R.dimen.chip_border_width;
         int chipColorId =
                 a.getResourceId(R.styleable.ChipView_chipColor, R.color.chip_background_color);
+        int chipStateLayerColorId = a.getResourceId(
+                R.styleable.ChipView_chipStateLayerColor, R.color.chip_state_layer_color);
         int rippleColorId =
                 a.getResourceId(R.styleable.ChipView_rippleColor, R.color.chip_ripple_color);
         int chipStrokeColorId =
@@ -136,6 +138,9 @@ public class ChipView extends LinearLayout {
         int verticalInset = a.getDimensionPixelSize(R.styleable.ChipView_verticalInset,
                 getResources().getDimensionPixelSize(R.dimen.chip_bg_vertical_inset));
         boolean allowMultipleLines = a.getBoolean(R.styleable.ChipView_allowMultipleLines, false);
+        int minMultilineVerticalTextPadding = a.getDimensionPixelSize(
+                R.styleable.ChipView_multiLineVerticalPadding,
+                getResources().getDimensionPixelSize(R.dimen.chip_text_multiline_vertical_padding));
         boolean textAlignStart = a.getBoolean(R.styleable.ChipView_textAlignStart, false);
         boolean reduceTextStartPadding =
                 a.getBoolean(R.styleable.ChipView_reduceTextStartPadding, false);
@@ -155,8 +160,8 @@ public class ChipView extends LinearLayout {
         int loadingViewWidthPadding = (iconWidth - loadingViewSize) / 2;
         mLoadingView = new LoadingView(getContext());
         mLoadingView.setVisibility(GONE);
-        mLoadingView.setIndeterminateTintList(ColorStateList.valueOf(ApiCompatibilityUtils.getColor(
-                getResources(), R.color.default_icon_color_accent1_baseline)));
+        mLoadingView.setIndeterminateTintList(ColorStateList.valueOf(
+                getContext().getColor(R.color.default_icon_color_accent1_baseline)));
         mLoadingView.setPaddingRelative(loadingViewWidthPadding, loadingViewHeightPadding,
                 loadingViewWidthPadding, loadingViewHeightPadding);
         addView(mLoadingView, new LayoutParams(iconWidth, iconHeight));
@@ -173,10 +178,6 @@ public class ChipView extends LinearLayout {
         // If false fall back to single line defined in XML styles.
         if (allowMultipleLines) {
             mPrimaryText.setMaxLines(MAX_LINES);
-            // Vertical padding must be explicitly defined for the text view to create space if text
-            // wrapping causes the chip to increase in size vertically.
-            int minMultilineVerticalTextPadding = getResources().getDimensionPixelSize(
-                    R.dimen.chip_text_multiline_vertical_padding);
             // TODO(benwgold): Test for non multiline chips to see if 4dp vertical padding can be
             // safely applied to all chips without affecting styling.
             mPrimaryText.setPaddingRelative(mPrimaryText.getPaddingStart(),
@@ -196,8 +197,9 @@ public class ChipView extends LinearLayout {
         addView(mPrimaryText);
 
         // Reset icon and background:
-        mRippleBackgroundHelper = new RippleBackgroundHelper(this, chipColorId, rippleColorId,
-                mCornerRadius, chipStrokeColorId, chipBorderWidthId, verticalInset);
+        mRippleBackgroundHelper =
+                new RippleBackgroundHelper(this, chipColorId, chipStateLayerColorId, rippleColorId,
+                        mCornerRadius, chipStrokeColorId, chipBorderWidthId, verticalInset);
         setIcon(INVALID_ICON_ID, false);
     }
 
@@ -371,6 +373,11 @@ public class ChipView extends LinearLayout {
 
     @Override
     public void setBackgroundColor(@ColorInt int color) {
+        mRippleBackgroundHelper.setBackgroundColor(color);
+    }
+
+    @Override
+    public void setBackgroundTintList(ColorStateList color) {
         mRippleBackgroundHelper.setBackgroundColor(color);
     }
 

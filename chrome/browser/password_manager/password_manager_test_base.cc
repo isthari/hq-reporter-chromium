@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,13 +24,13 @@
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
-#include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/browser/test_password_store.h"
 #include "components/password_manager/core/common/password_manager_features.h"
-#include "components/sync/driver/test_sync_service.h"
+#include "components/sync/test/test_sync_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_handle.h"
@@ -175,7 +175,7 @@ bool CustomManagePasswordsUIController::WaitForFallbackForSaving(
   base::RunLoop run_loop;
   wait_for_fallback_ = true;
   run_loop_ = &run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop_->QuitClosure(), timeout);
   run_loop_->Run();
   bool shownFallbackForSaving = !wait_for_fallback_;
@@ -478,7 +478,7 @@ void PasswordManagerBrowserTestBase::GetNewTab(
                                                 true);
   if (preexisting_tab) {
     browser->tab_strip_model()->CloseWebContentsAt(0,
-                                                   TabStripModel::CLOSE_NONE);
+                                                   TabCloseTypes::CLOSE_NONE);
   }
   ASSERT_EQ(controller,
             ManagePasswordsUIController::FromWebContents(*web_contents));
@@ -513,7 +513,7 @@ content::WebContents* PasswordManagerBrowserTestBase::WebContents() const {
 
 content::RenderFrameHost* PasswordManagerBrowserTestBase::RenderFrameHost()
     const {
-  return WebContents()->GetMainFrame();
+  return WebContents()->GetPrimaryMainFrame();
 }
 
 void PasswordManagerBrowserTestBase::NavigateToFile(const std::string& path) {
@@ -522,7 +522,7 @@ void PasswordManagerBrowserTestBase::NavigateToFile(const std::string& path) {
   PasswordsNavigationObserver observer(WebContents());
   GURL url = embedded_test_server()->GetURL(path);
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
-  observer.Wait();
+  ASSERT_TRUE(observer.Wait());
 }
 
 void PasswordManagerBrowserTestBase::WaitForElementValue(

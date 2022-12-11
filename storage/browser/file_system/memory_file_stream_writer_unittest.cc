@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,8 +53,8 @@ class MemoryFileStreamWriterTest : public FileStreamWriterTest {
   std::unique_ptr<FileStreamWriter> CreateWriter(const std::string& name,
                                                  int64_t offset) override {
     return std::make_unique<MemoryFileStreamWriter>(
-        base::ThreadTaskRunnerHandle::Get(), file_util_->GetWeakPtr(),
-        Path(name), offset);
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
+        file_util_->GetWeakPtr(), Path(name), offset);
   }
 
   bool FilePathExists(const std::string& name) override {

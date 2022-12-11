@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,12 @@ const g_wasmPromise = new Promise(function(resolve, reject) {
 
 /** @type {string} */
 const _PATH_SEP = '/';
+
+/**
+ * Limit SuperSize JSON size to 64 MiB; anything longer would be an anomaly.
+ * @constant {number}
+ */
+const JSON_MAX_BYTES_TO_READ = 2 ** 26;
 
 /** @type {Object<string, _FLAGS>} */
 const _NAMES_TO_FLAGS = Object.freeze({
@@ -154,6 +160,8 @@ function wasmLoadSizeProperties() {
  * @property {string} includeSections
  * @property {number} minSymbolSize
  * @property {number} flagToFilter
+ * @property {boolean} nonOverhead
+ * @property {boolean} disassemblyMode
  */
 
 /**
@@ -178,7 +186,7 @@ function parseOptions(optionsStr) {
   ret.includeSections = params.get('type');
   if (ret.methodCountMode) {
     ret.includeSections = _DEX_METHOD_SYMBOL_TYPE;
-  } else if (  ret.includeSections === null) {
+  } else if (ret.includeSections === null) {
     // Exclude native symbols by default.
     const includeSectionsSet = new Set(_SYMBOL_TYPE_SET);
     includeSectionsSet.delete('b');
@@ -186,11 +194,13 @@ function parseOptions(optionsStr) {
   }
 
   ret.minSymbolSize = Number(params.get('min_size'));
-  if (Number.isNaN(  ret.minSymbolSize)) {
+  if (Number.isNaN(ret.minSymbolSize)) {
     ret.minSymbolSize = 0;
   }
 
   ret.flagToFilter = _NAMES_TO_FLAGS[params.get('flag_filter')] || 0;
+  ret.nonOverhead = params.get('flag_filter') === 'nonoverhead';
+  ret.disassemblyMode = params.get('flag_filter') === 'disassembly';
 
   return ret;
 }
@@ -222,6 +232,7 @@ async function loadTreeWorkhorse(input, accessToken, optionsStr) {
   let isMultiContainer = null;
   let beforeBlobUrl = null;
   let loadBlobUrl = null;
+  let metadata = null;
   try {
     // It takes a few seconds to process large .size files, so download the main
     // file first, and then overlap its processing with the subsequent download.
@@ -249,12 +260,23 @@ async function loadTreeWorkhorse(input, accessToken, optionsStr) {
             [beforeSizeBuffer.buffer], {type: 'application/octet-stream'}));
       }
     }
+    metadata = wasmLoadMetadata();
   } catch (e) {
     sendProgressMessage(1);
     throw e;
   }
 
-  return {isMultiContainer, beforeBlobUrl, loadBlobUrl}
+  return {isMultiContainer, beforeBlobUrl, loadBlobUrl, metadata};
+}
+
+/**
+ * @return {MetadataType}
+ */
+function wasmLoadMetadata() {
+  const cwrapGetMetaData = Module.cwrap('GetMetadata', 'number', ['']);
+  const stringPtr = cwrapGetMetaData();
+  return /** @type {MetadataType} */ (
+      JSON.parse(Module.UTF8ToString(stringPtr, JSON_MAX_BYTES_TO_READ)));
 }
 
 /**
@@ -270,6 +292,8 @@ async function wasmBuildTree(optionsStr) {
     includeSections,
     minSymbolSize,
     flagToFilter,
+    nonOverhead,
+    disassemblyMode,
   } = parseOptions(optionsStr);
 
   const cwrapBuildTree = Module.cwrap(
@@ -277,8 +301,8 @@ async function wasmBuildTree(optionsStr) {
       ['bool', 'string', 'string', 'string', 'string', 'number', 'number']);
   const start_time = Date.now();
   const diffMode = cwrapBuildTree(
-      methodCountMode, groupBy, includeRegex, excludeRegex,
-      includeSections, minSymbolSize, flagToFilter);
+      methodCountMode, groupBy, includeRegex, excludeRegex, includeSections,
+      minSymbolSize, flagToFilter, nonOverhead, disassemblyMode);
   console.log(
       'Constructed tree in ' + (Date.now() - start_time) / 1000.0 + ' seconds');
   return diffMode;
@@ -291,9 +315,8 @@ async function wasmBuildTree(optionsStr) {
 async function wasmOpen(name) {
   const cwrapOpen = Module.cwrap('Open', 'number', ['string']);
   const stringPtr = cwrapOpen(name);
-  // Something has gone wrong if we get back a string longer than 67MB.
   return /** @type {TreeNode} */ (
-      JSON.parse(Module.UTF8ToString(stringPtr, 2 ** 26)));
+      JSON.parse(Module.UTF8ToString(stringPtr, JSON_MAX_BYTES_TO_READ)));
 }
 
 /**

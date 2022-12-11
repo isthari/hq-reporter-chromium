@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -83,19 +83,20 @@ public class AdsBlockedDialog implements ModalDialogProperties.Controller {
     void show(boolean shouldPostDialog) {
         Resources resources = mContext.getResources();
         mClickableSpan = new NoUnderlineClickableSpan(
-                resources, (view) -> AdsBlockedDialogJni.get().onLearnMoreClicked(mNativeDialog));
-        mDialogModel = new PropertyModel.Builder(ModalDialogProperties.ALL_KEYS)
-                               .with(ModalDialogProperties.CONTROLLER, this)
-                               .with(ModalDialogProperties.TITLE, resources,
-                                       R.string.blocked_ads_dialog_title)
-                               .with(ModalDialogProperties.MESSAGE, getFormattedMessageText())
-                               .with(ModalDialogProperties.POSITIVE_BUTTON_TEXT, resources,
-                                       R.string.blocked_ads_dialog_always_allow)
-                               .with(ModalDialogProperties.NEGATIVE_BUTTON_TEXT, resources,
-                                       R.string.cancel)
-                               .with(ModalDialogProperties.CANCEL_ON_TOUCH_OUTSIDE, true)
-                               .with(ModalDialogProperties.FOCUS_DIALOG, true)
-                               .build();
+                mContext, (view) -> AdsBlockedDialogJni.get().onLearnMoreClicked(mNativeDialog));
+        mDialogModel =
+                new PropertyModel.Builder(ModalDialogProperties.ALL_KEYS)
+                        .with(ModalDialogProperties.CONTROLLER, this)
+                        .with(ModalDialogProperties.TITLE, resources,
+                                R.string.blocked_ads_dialog_title)
+                        .with(ModalDialogProperties.MESSAGE_PARAGRAPH_1, getFormattedMessageText())
+                        .with(ModalDialogProperties.POSITIVE_BUTTON_TEXT, resources,
+                                R.string.blocked_ads_dialog_always_allow)
+                        .with(ModalDialogProperties.NEGATIVE_BUTTON_TEXT, resources,
+                                R.string.cancel)
+                        .with(ModalDialogProperties.CANCEL_ON_TOUCH_OUTSIDE, true)
+                        .with(ModalDialogProperties.FOCUS_DIALOG, true)
+                        .build();
 
         // shouldPostDialog determines if ModalDialogManager#showDialog should be invoked directly
         // or using Handler#post.

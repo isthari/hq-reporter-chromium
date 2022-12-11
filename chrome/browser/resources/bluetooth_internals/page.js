@@ -1,10 +1,17 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {dispatchPropertyChange} from 'chrome://resources/js/cr.m.js';
-import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
-import {getRequiredElement} from 'chrome://resources/js/util.m.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
+
+function getRequiredElement(id) {
+  // Disable getElementById restriction here, because this UI uses non valid
+  // selectors that don't work with querySelector().
+  // eslint-disable-next-line no-restricted-properties
+  const el = document.getElementById(id);
+  assert(el instanceof HTMLElement);
+  return el;
+}
 
 /**
  * Finds a good place to set initial focus. Generally called when UI is shown.
@@ -22,7 +29,7 @@ function setInitialFocus(root) {
     const element = elements[i];
     element.focus();
     // .focus() isn't guaranteed to work. Continue until it does.
-    if (document.activeElement == element) {
+    if (document.activeElement === element) {
       return;
     }
   }
@@ -103,7 +110,7 @@ export class Page extends EventTarget {
    *     should include the leading '#' if not empty.
    */
   setHash(hash) {
-    if (this.hash == hash) {
+    if (this.hash === hash) {
       return;
     }
     this.hash = hash;
@@ -134,7 +141,7 @@ export class Page extends EventTarget {
     if (this.pageDiv.hidden) {
       return false;
     }
-    return this.pageDiv.page == this;
+    return this.pageDiv.page === this;
   }
 
   /**
@@ -148,7 +155,5 @@ export class Page extends EventTarget {
 
     this.pageDiv.page = this;
     this.pageDiv.hidden = !visible;
-
-    dispatchPropertyChange(this, 'visible', visible, !visible);
   }
 }

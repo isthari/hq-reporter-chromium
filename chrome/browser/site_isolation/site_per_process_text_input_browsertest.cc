@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
@@ -44,11 +45,10 @@
 #include "ui/base/ime/text_input_type.h"
 #include "url/gurl.h"
 
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX)
 #include "ui/base/ime/linux/text_edit_command_auralinux.h"
-#include "ui/base/ime/linux/text_edit_key_bindings_delegate_auralinux.h"
+#include "ui/linux/fake_linux_ui.h"
+#include "ui/linux/linux_ui.h"
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -113,8 +113,8 @@ class ViewTextInputTypeObserver : public content::TextInputManagerObserverBase {
       OnSuccess();
   }
 
-  raw_ptr<content::WebContents> web_contents_;
-  raw_ptr<content::RenderWidgetHostView> view_;
+  raw_ptr<content::WebContents, DanglingUntriaged> web_contents_;
+  raw_ptr<content::RenderWidgetHostView, DanglingUntriaged> view_;
   const ui::TextInputType expected_type_;
 };
 
@@ -364,7 +364,8 @@ class SitePerProcessTextInputManagerTest : public InProcessBrowserTest {
   // inside frame. For example, for 'a(b(c, d(e)))', [0] returns b, and
   // [0, 1, 0] returns e;
   content::RenderFrameHost* GetFrame(const IndexVector& indices) {
-    content::RenderFrameHost* current = active_contents()->GetMainFrame();
+    content::RenderFrameHost* current =
+        active_contents()->GetPrimaryMainFrame();
     for (size_t index : indices)
       current = ChildFrameAt(current, index);
     return current;
@@ -637,7 +638,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
 
   // Now destroy the tab. We should exit without crashing.
   browser()->tab_strip_model()->CloseWebContentsAt(
-      0, TabStripModel::CLOSE_USER_GESTURE);
+      0, TabCloseTypes::CLOSE_USER_GESTURE);
 }
 
 // The following test verifies that when the active widget changes value, it is
@@ -1141,10 +1142,8 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
 
 // Ensure that a cross-process subframe can utilize keyboard edit commands.
 // See https://crbug.com/640706.  This test is Linux-specific, as it relies on
-// overriding TextEditKeyBindingsDelegateAuraLinux, which only exists on Linux.
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+// overriding ui::LinuxUi.
+#if BUILDFLAG(IS_LINUX)
 IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
                        SubframeKeyboardEditCommands) {
   GURL main_url(embedded_test_server()->GetURL(
@@ -1159,7 +1158,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
   // Focus the subframe and then its input field.  The return value
   // "input-focus" will be sent once the input field's focus event fires.
   content::RenderFrameHost* child =
-      ChildFrameAt(web_contents->GetMainFrame(), 0);
+      ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
   std::string result;
   std::string script =
       "function onInput(e) {"
@@ -1174,7 +1173,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
   EXPECT_EQ(child, web_contents->GetFocusedFrame());
 
   // Generate a couple of keystrokes, which will be routed to the subframe.
-  content::DOMMessageQueue msg_queue;
+  content::DOMMessageQueue msg_queue(web_contents);
   std::string reply;
   SimulateKeyPress(web_contents, ui::DomKey::FromCharacter('1'),
                    ui::DomCode::DIGIT1, ui::VKEY_1, false, false, false, false);
@@ -1192,16 +1191,16 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
   // Define and install a test delegate that translates any keystroke to a
   // command to delete all text from current cursor position to the beginning
   // of the line.
-  class TextDeleteDelegate : public ui::TextEditKeyBindingsDelegateAuraLinux {
+  class TextDeleteDelegate : public ui::FakeLinuxUi {
    public:
-    TextDeleteDelegate() {}
+    TextDeleteDelegate() = default;
 
     TextDeleteDelegate(const TextDeleteDelegate&) = delete;
     TextDeleteDelegate& operator=(const TextDeleteDelegate&) = delete;
 
-    ~TextDeleteDelegate() override {}
+    ~TextDeleteDelegate() override = default;
 
-    bool MatchEvent(
+    bool GetTextEditCommandsForEvent(
         const ui::Event& event,
         std::vector<ui::TextEditCommandAuraLinux>* commands) override {
       if (commands) {
@@ -1212,10 +1211,8 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
     }
   };
 
-  TextDeleteDelegate delegate;
-  ui::TextEditKeyBindingsDelegateAuraLinux* old_delegate =
-      ui::GetTextEditKeyBindingsDelegate();
-  ui::SetTextEditKeyBindingsDelegate(&delegate);
+  auto test_delete_delegate = std::make_unique<TextDeleteDelegate>();
+  auto* old_linux_ui = ui::LinuxUi::SetInstance(test_delete_delegate.get());
 
   // Press ctrl-alt-shift-D.  The test's delegate will pretend that this
   // corresponds to the command to delete everyting to the beginning of the
@@ -1225,7 +1222,7 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessTextInputManagerTest,
   // commands logic that's tested here.
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(browser(), ui::VKEY_D, true, true,
                                               true, false));
-  ui::SetTextEditKeyBindingsDelegate(old_delegate);
+  ui::LinuxUi::SetInstance(old_linux_ui);
 
   // Verify that the input field in the subframe is erased.
   EXPECT_TRUE(ExecuteScriptAndExtractString(
@@ -1318,7 +1315,7 @@ IN_PROC_BROWSER_TEST_F(
           active_contents()->GetBrowserContext(), nullptr));
   content::WebContents* raw_new_contents = new_contents.get();
   browser()->tab_strip_model()->InsertWebContentsAt(1, std::move(new_contents),
-                                                    TabStripModel::ADD_ACTIVE);
+                                                    AddTabTypes::ADD_ACTIVE);
   EXPECT_EQ(active_contents(), raw_new_contents);
 
   // Simple page with 1 cross origin (out-of-process) <iframe>.
@@ -1386,7 +1383,7 @@ IN_PROC_BROWSER_TEST_F(
           active_contents()->GetBrowserContext(), nullptr));
   content::WebContents* raw_new_contents = new_contents.get();
   browser()->tab_strip_model()->InsertWebContentsAt(1, std::move(new_contents),
-                                                    TabStripModel::ADD_ACTIVE);
+                                                    AddTabTypes::ADD_ACTIVE);
   EXPECT_EQ(active_contents(), raw_new_contents);
 
   // Simple page with no <iframe>s.

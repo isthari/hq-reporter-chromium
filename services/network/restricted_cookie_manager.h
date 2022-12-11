@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/component_export.h"
 #include "base/containers/linked_list.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -22,7 +23,7 @@
 #include "net/cookies/cookie_inclusion_status.h"
 #include "net/cookies/cookie_partition_key_collection.h"
 #include "net/cookies/cookie_store.h"
-#include "net/cookies/first_party_set_metadata.h"
+#include "net/first_party_sets/first_party_set_metadata.h"
 #include "services/network/public/mojom/cookie_access_observer.mojom.h"
 #include "services/network/public/mojom/restricted_cookie_manager.mojom.h"
 #include "url/gurl.h"
@@ -79,7 +80,6 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
       const url::Origin& origin,
       const net::IsolationInfo& isolation_info,
       mojo::PendingRemote<mojom::CookieAccessObserver> cookie_observer,
-      bool first_party_sets_enabled,
       net::FirstPartySetMetadata first_party_set_metadata);
 
   RestrictedCookieManager(const RestrictedCookieManager&) = delete;
@@ -96,7 +96,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
   void OverrideIsolationInfoForTesting(
       const net::IsolationInfo& new_isolation_info);
 
-  const CookieSettings& cookie_settings() const { return cookie_settings_; }
+  const CookieSettings& cookie_settings() const { return *cookie_settings_; }
 
   void GetAllForUrl(const GURL& url,
                     const net::SiteForCookies& site_for_cookies,
@@ -108,6 +108,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
                           const GURL& url,
                           const net::SiteForCookies& site_for_cookies,
                           const url::Origin& top_frame_origin,
+                          net::CookieInclusionStatus status,
                           SetCanonicalCookieCallback callback) override;
 
   void AddChangeListener(
@@ -213,7 +214,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
 
   const mojom::RestrictedCookieManagerRole role_;
   const raw_ptr<net::CookieStore> cookie_store_;
-  const CookieSettings& cookie_settings_;
+  const raw_ref<const CookieSettings> cookie_settings_;
 
   url::Origin origin_;
 
@@ -245,7 +246,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
   // update filtering.
   CookieAccessesByURLAndSite recent_cookie_accesses_;
 
-  const bool first_party_sets_enabled_;
+  bool same_party_attribute_enabled_;
 
   base::WeakPtrFactory<RestrictedCookieManager> weak_ptr_factory_{this};
 };

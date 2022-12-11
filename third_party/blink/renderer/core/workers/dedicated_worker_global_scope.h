@@ -32,6 +32,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_WORKERS_DEDICATED_WORKER_GLOBAL_SCOPE_H_
 
 #include <memory>
+
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/frame/back_forward_cache_controller.mojom-blink.h"
 #include "third_party/blink/public/mojom/worker/dedicated_worker_host.mojom-blink.h"
@@ -39,12 +40,12 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/messaging/message_port.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
-class DedicatedWorker;
 class DedicatedWorkerObjectProxy;
 class DedicatedWorkerThread;
 class PostMessageOptions;
@@ -104,13 +105,13 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
   void Initialize(
       const KURL& response_url,
       network::mojom::ReferrerPolicy response_referrer_policy,
-      network::mojom::IPAddressSpace response_address_space,
       Vector<network::mojom::blink::ContentSecurityPolicyPtr> response_csp,
       const Vector<String>* response_origin_trial_tokens) override;
   void FetchAndRunClassicScript(
       const KURL& script_url,
       std::unique_ptr<WorkerMainScriptLoadParameters>
           worker_main_script_load_params,
+      std::unique_ptr<PolicyContainer> policy_container,
       const FetchClientSettingsObjectSnapshot& outside_settings_object,
       WorkerResourceTimingNotifier& outside_resource_timing_notifier,
       const v8_inspector::V8StackTraceId& stack_id) override;
@@ -118,6 +119,7 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
       const KURL& module_url_record,
       std::unique_ptr<WorkerMainScriptLoadParameters>
           worker_main_script_load_params,
+      std::unique_ptr<PolicyContainer> policy_container,
       const FetchClientSettingsObjectSnapshot& outside_settings_object,
       WorkerResourceTimingNotifier& outside_resource_timing_notifier,
       network::mojom::CredentialsMode,
@@ -125,8 +127,12 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
   bool IsOffMainThreadScriptFetchDisabled() override;
 
   // Implements scheduler::WorkerScheduler::Delegate.
-  void UpdateBackForwardCacheDisablingFeatures(uint64_t features_mask) override;
-
+  void UpdateBackForwardCacheDisablingFeatures(
+      uint64_t features_mask,
+      const BFCacheBlockingFeatureAndLocations&
+          non_sticky_features_and_js_locations,
+      const BFCacheBlockingFeatureAndLocations&
+          sticky_features_and_js_locations) override;
   // Implements BackForwardCacheLoaderHelperImpl::Delegate.
   void EvictFromBackForwardCache(
       mojom::blink::RendererEvictionReason reason) override;
@@ -159,9 +165,7 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
   bool CrossOriginIsolatedCapability() const final {
     return cross_origin_isolated_capability_;
   }
-  bool DirectSocketCapability() const final {
-    return direct_socket_capability_;
-  }
+  bool IsIsolatedContext() const final { return is_isolated_context_; }
   ExecutionContextToken GetExecutionContextToken() const final {
     return token_;
   }
@@ -172,14 +176,6 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
       const final {
     return parent_token_;
   }
-
-  // Adds a DedicatedWorker. This is called when a DedicatedWorker is created in
-  // this ExecutionContext.
-  void AddDedicatedWorker(DedicatedWorker* dedicated_worker);
-
-  // Removes a DedicatedWorker This is called when a DedicatedWorker is
-  // destroyed in this ExecutionContext.
-  void RemoveDedicatedWorker(DedicatedWorker* dedicated_worker);
 
  private:
   struct ParsedCreationParams {
@@ -202,7 +198,7 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
       std::unique_ptr<Vector<OriginTrialFeature>> inherited_trial_features,
       const BeginFrameProviderParams& begin_frame_provider_params,
       bool parent_cross_origin_isolated_capability,
-      bool direct_socket_capability,
+      bool is_isolated_context,
       mojo::PendingRemote<mojom::blink::DedicatedWorkerHost>
           dedicated_worker_host,
       mojo::PendingRemote<mojom::blink::BackForwardCacheControllerHost>
@@ -220,7 +216,7 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
   // The ID of the parent context that owns this worker.
   const ExecutionContextToken parent_token_;
   bool cross_origin_isolated_capability_;
-  bool direct_socket_capability_;
+  bool is_isolated_context_;
   Member<WorkerAnimationFrameProvider> animation_frame_provider_;
   RejectCoepUnsafeNone reject_coep_unsafe_none_ = RejectCoepUnsafeNone(false);
 
@@ -228,9 +224,6 @@ class CORE_EXPORT DedicatedWorkerGlobalScope final : public WorkerGlobalScope {
       this};
   HeapMojoRemote<mojom::blink::BackForwardCacheControllerHost>
       back_forward_cache_controller_host_{this};
-
-  // The set of DedicatedWorkers that are created in this ExecutionContext.
-  HeapHashSet<Member<DedicatedWorker>> dedicated_workers_;
 
   // The total bytes buffered by all network requests in this worker while
   // frozen due to back-forward cache. This number gets reset when the worker

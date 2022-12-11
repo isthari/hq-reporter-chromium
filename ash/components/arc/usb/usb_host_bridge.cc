@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -262,12 +262,6 @@ void ArcUsbHostBridge::Shutdown() {
 
 void ArcUsbHostBridge::SetUiDelegate(ArcUsbHostUiDelegate* ui_delegate) {
   ui_delegate_ = ui_delegate;
-}
-
-// TODO(lgcheng) Remove these part. For ARCVM the usb_host_bridge will not be
-// connected.
-void ArcUsbHostBridge::SetDelegate(std::unique_ptr<Delegate> delegate) {
-  delegate_ = std::move(delegate);
 }
 
 void ArcUsbHostBridge::InitDeviceList(

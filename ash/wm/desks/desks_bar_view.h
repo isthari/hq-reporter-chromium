@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/wm/desks/desks_controller.h"
-#include "ash/wm/desks/templates/desks_templates_metrics_util.h"
+#include "ash/wm/desks/templates/saved_desk_metrics_util.h"
 #include "base/callback_list.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/view.h"
@@ -22,10 +22,9 @@ class DeskBarHoverObserver;
 class DeskDragProxy;
 class DeskMiniView;
 class ExpandedDesksBarButton;
-class GradientLayerDelegate;
-class NewDeskButton;
 class OverviewGrid;
 class PersistentDesksBarVerticalDotsButton;
+class PillButton;
 class ScrollArrowButton;
 class ZeroStateDefaultDeskButton;
 class ZeroStateIconButton;
@@ -59,6 +58,8 @@ class ASH_EXPORT DesksBarView : public views::View,
     is_bounds_animation_on_going_ = value;
   }
 
+  PillButton* up_next_button() const { return up_next_button_; }
+
   ZeroStateDefaultDeskButton* zero_state_default_desk_button() const {
     return zero_state_default_desk_button_;
   }
@@ -88,10 +89,6 @@ class ASH_EXPORT DesksBarView : public views::View,
   bool dragged_item_over_bar() const { return dragged_item_over_bar_; }
 
   OverviewGrid* overview_grid() const { return overview_grid_; }
-
-  void set_should_name_nudge(bool should_name_nudge) {
-    should_name_nudge_ = should_name_nudge;
-  }
 
   // Initializes and creates mini_views for any pre-existing desks, before the
   // bar was created. This should only be called after this view has been added
@@ -164,7 +161,6 @@ class ASH_EXPORT DesksBarView : public views::View,
   void Layout() override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
-  void OnThemeChanged() override;
 
   // DesksController::Observer:
   void OnDeskAdded(const Desk* desk) override;
@@ -172,8 +168,6 @@ class ASH_EXPORT DesksBarView : public views::View,
   void OnDeskReordered(int old_index, int new_index) override;
   void OnDeskActivationChanged(const Desk* activated,
                                const Desk* deactivated) override;
-  void OnDeskSwitchAnimationLaunching() override;
-  void OnDeskSwitchAnimationFinished() override;
   void OnDeskNameChanged(const Desk* desk,
                          const std::u16string& new_name) override;
 
@@ -199,6 +193,10 @@ class ASH_EXPORT DesksBarView : public views::View,
   // and the `zero_state_default_desk_button_`.
   void UpdateButtonsForDesksTemplatesGrid();
 
+  // Updates the visibility of the two buttons inside the zero state desks bar
+  // and the ExpandedDesksBarButton on the desk bar's state.
+  void UpdateDeskButtonsVisibility();
+
   // Updates the visibility of the desks templates button based on whether the
   // desks templates feature is enabled, the user has any desks templates and
   // the state of the desks bar.
@@ -210,6 +208,9 @@ class ASH_EXPORT DesksBarView : public views::View,
 
   // Animates the bar from expanded state to zero state. Clears `mini_views_`.
   void SwitchToZeroState();
+
+  // Bring focus to the name view of the desk with `desk_index`.
+  void NudgeDeskName(int desk_index);
 
  private:
   friend class DesksBarScrollViewLayout;
@@ -231,10 +232,6 @@ class ASH_EXPORT DesksBarView : public views::View,
   // be moved when performing the mini_view creation or deletion animations.
   int GetFirstMiniViewXOffset() const;
 
-  // Updates the visibility of the two buttons inside the zero state desks bar
-  // and the ExpandedDesksBarButton on the desk bar's state.
-  void UpdateDeskButtonsVisibility();
-
   // Updates the visibility of |left_scroll_button_| and |right_scroll_button_|.
   // Show |left_scroll_button_| if there are contents outside of the left edge
   // of the |scroll_view_|, the same for |right_scroll_button_| based on the
@@ -244,7 +241,7 @@ class ASH_EXPORT DesksBarView : public views::View,
   // We will show a fade in gradient besides |left_scroll_button_| and a fade
   // out gradient besides |right_scroll_button_|. Show the gradient only when
   // the corresponding scroll button is visible.
-  void UpdateGradientZone();
+  void UpdateGradientMask();
 
   // Scrolls the desks bar to the previous or next page. The page size is the
   // width of the scroll view, the contents that are outside of the scroll view
@@ -257,6 +254,11 @@ class ASH_EXPORT DesksBarView : public views::View,
   int GetAdjustedUncroppedScrollPosition(int position) const;
 
   void OnDesksTemplatesButtonPressed();
+
+  // If the `DesksCloseAll` flag is enabled, this function cycles through
+  // `mini_views_` and updates the tooltip for each mini view's combine desks
+  // button.
+  void MaybeUpdateCombineDesksTooltips();
 
   // Scrollview callbacks.
   void OnContentsScrolled();
@@ -288,17 +290,15 @@ class ASH_EXPORT DesksBarView : public views::View,
   // `expanded_state_desks_templates_button_` currently.
   views::View* scroll_view_contents_ = nullptr;
 
-  // If this is true, when `UpdateNewMiniViews()` is called, the newly created
-  // mini view's name view will be focused and |should_name_nudge_| will be
-  // reset.
-  bool should_name_nudge_ = false;
-
   // True if the `DesksBarBoundsAnimation` is started and hasn't finished yet.
   // It will be used to hold `Layout` until the bounds animation is completed.
   // `Layout` is expensive and will be called on bounds changes, which means it
   // will be called lots of times during the bounds changes animation. This is
   // done to eliminate the unnecessary `Layout` calls during the animation.
   bool is_bounds_animation_on_going_ = false;
+
+  // Button to return to the glanceables screen.
+  PillButton* up_next_button_ = nullptr;
 
   ZeroStateDefaultDeskButton* zero_state_default_desk_button_ = nullptr;
   ZeroStateIconButton* zero_state_new_desk_button_ = nullptr;
@@ -314,10 +314,6 @@ class ASH_EXPORT DesksBarView : public views::View,
   DeskMiniView* drag_view_ = nullptr;
   // Drag proxy for the dragged desk.
   std::unique_ptr<DeskDragProxy> drag_proxy_;
-
-  // The layer delegate used for |scroll_view_|'s mask layer, with left and
-  // right gradient asides the scroll buttons.
-  std::unique_ptr<GradientLayerDelegate> gradient_layer_delegate_;
 
   // A circular button which when clicked will open the context menu of the
   // persistent desks bar. Note that this button will only be created when

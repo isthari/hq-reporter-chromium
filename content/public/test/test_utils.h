@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,9 +51,6 @@ blink::mojom::FetchAPIRequestPtr CreateFetchAPIRequest(
 // Deprecated: Use RunLoop::Run(). Use RunLoop::Type::kNestableTasksAllowed to
 // force nesting in browser tests.
 void RunMessageLoop();
-
-// Deprecated: Invoke |run_loop->Run()| directly.
-void RunThisRunLoop(base::RunLoop* run_loop);
 
 // Turns on nestable tasks, runs all pending tasks in the message loop, then
 // resets nestable tasks to what they were originally. Can only be called from
@@ -209,7 +206,7 @@ class MessageLoopRunner : public base::RefCountedThreadSafe<MessageLoopRunner> {
   // True after closure returned by |QuitClosure| has been called.
   bool quit_closure_called_ = false;
 
-  base::RunLoop run_loop_;
+  base::RunLoop run_loop_{base::RunLoop::Type::kNestableTasksAllowed};
 
   base::ThreadChecker thread_checker_;
 };
@@ -308,6 +305,36 @@ class WindowedNotificationObserver : public NotificationObserver {
   base::RunLoop run_loop_;
 };
 
+// Helper to wait for loading to stop on a WebContents.  It should be preferred
+// to uses of WindowedNotificationObserver for NOTIFICATION_LOAD_STOP.
+//
+// This helper class exists to avoid the following common pattern in tests:
+//   PerformAction()
+//   WaitForCompletionNotification()
+// The pattern leads to flakiness as there is a window between PerformAction
+// returning and the observers getting registered, where a notification will be
+// missed.
+//
+// Rather, one can do this:
+//   LoadStopObserver signal(web_contents)
+//   PerformAction()
+//   signal.Wait()
+class LoadStopObserver : public WebContentsObserver {
+ public:
+  explicit LoadStopObserver(WebContents* web_contents);
+
+  // Wait until at least one load stop has been observed.  Return immediately if
+  // one has been observed since construction.
+  void Wait();
+
+  // WebContentsObserver
+  void DidStopLoading() override;
+
+ private:
+  bool seen_ = false;
+  base::RunLoop run_loop_;
+};
+
 // Unit tests can use code which runs in the utility process by having it run on
 // an in-process utility thread. This eliminates having two code paths in
 // production code to deal with unit tests, and also helps with the binary
@@ -389,7 +416,7 @@ class RenderFrameHostWrapper {
   // See RenderFrameDeletedObserver for notes on the difference between
   // RenderFrame being deleted and RenderFrameHost being destroyed.
   // Returns true if the frame was deleted before the timeout.
-  [[nodiscard]] bool WaitUntilRenderFrameDeleted();
+  [[nodiscard]] bool WaitUntilRenderFrameDeleted() const;
   bool IsRenderFrameDeleted() const;
 
   // Pointerish operators. Feel free to add more if you need them.

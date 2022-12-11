@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,16 +26,10 @@ Element* ClosestInclusiveAncestorContainer(Element& element,
 
 StyleRecalcContext StyleRecalcContext::FromInclusiveAncestors(
     Element& element) {
-  if (!RuntimeEnabledFeatures::CSSContainerQueriesEnabled())
-    return StyleRecalcContext();
-
   return StyleRecalcContext{ClosestInclusiveAncestorContainer(element)};
 }
 
 StyleRecalcContext StyleRecalcContext::FromAncestors(Element& element) {
-  if (!RuntimeEnabledFeatures::CSSContainerQueriesEnabled())
-    return StyleRecalcContext();
-
   // TODO(crbug.com/1145970): Avoid this work if we're not inside a container
   if (Element* shadow_including_parent = element.ParentOrShadowHostElement())
     return FromInclusiveAncestors(*shadow_including_parent);
@@ -49,12 +43,10 @@ StyleRecalcContext StyleRecalcContext::ForSlotChildren(
   if (!container || container->GetTreeScope() != slot.GetTreeScope())
     return *this;
 
-  DCHECK(RuntimeEnabledFeatures::CSSContainerQueriesEnabled());
-
   // No assigned nodes means we will render the light tree children of the
   // slot as a fallback. Those children are in the same tree scope as the slot
   // which means the current container is the correct one.
-  if (slot.AssignedNodes().IsEmpty())
+  if (slot.AssignedNodes().empty())
     return *this;
 
   // The slot's flat tree children are children of the slot's shadow host, and
@@ -67,9 +59,6 @@ StyleRecalcContext StyleRecalcContext::ForSlotChildren(
 
 StyleRecalcContext StyleRecalcContext::ForSlottedRules(
     HTMLSlotElement& slot) const {
-  if (!RuntimeEnabledFeatures::CSSContainerQueriesEnabled())
-    return *this;
-
   // The current container is the shadow-including inclusive ancestors of the
   // host. When matching ::slotted rules, the closest container may be found in
   // the shadow-including inclusive ancestry of the slot. If we reach the host,
@@ -82,16 +71,13 @@ StyleRecalcContext StyleRecalcContext::ForSlottedRules(
 }
 
 StyleRecalcContext StyleRecalcContext::ForPartRules(Element& host) const {
-  if (!container || !RuntimeEnabledFeatures::CSSContainerQueriesEnabled())
+  DCHECK(IsShadowHost(host));
+
+  if (!container)
     return *this;
 
   // The closest container for matching ::part rules is the originating host.
-  // There is no need to walk past the current container.
-  if (Element* host_container =
-          ClosestInclusiveAncestorContainer(host, container)) {
-    return StyleRecalcContext{host_container};
-  }
-  return *this;
+  return StyleRecalcContext{ClosestInclusiveAncestorContainer(host)};
 }
 
 }  // namespace blink

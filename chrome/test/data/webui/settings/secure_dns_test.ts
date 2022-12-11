@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,13 @@
 // clang-format off
 import 'chrome://settings/lazy_load.js';
 
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {SecureDnsInputElement, SettingsSecureDnsElement} from 'chrome://settings/lazy_load.js';
 import {PrivacyPageBrowserProxyImpl, ResolverOption, SecureDnsMode, SecureDnsUiManagementMode} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {flushTasks} from 'chrome://webui-test/test_util.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 
 import {TestPrivacyPageBrowserProxy} from './test_privacy_page_browser_proxy.js';
 
@@ -44,7 +44,7 @@ suite('SettingsSecureDnsInput', function() {
   setup(function() {
     testBrowserProxy = new TestPrivacyPageBrowserProxy();
     PrivacyPageBrowserProxyImpl.setInstance(testBrowserProxy);
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     testElement = document.createElement('secure-dns-input');
     document.body.appendChild(testElement);
     flush();
@@ -62,7 +62,6 @@ suite('SettingsSecureDnsInput', function() {
     testElement.validate();
     assertEquals('', await testBrowserProxy.whenCalled('isValidConfig'));
     assertFalse(testElement.$.input.invalid);
-    assertFalse(testElement.isInvalid());
   });
 
   test('SecureDnsInputValidFormatAndProbeFail', async function() {
@@ -76,8 +75,7 @@ suite('SettingsSecureDnsInput', function() {
     assertEquals(
         validFailEntry, await testBrowserProxy.whenCalled('probeConfig'));
     assertTrue(testElement.$.input.invalid);
-    assertTrue(testElement.isInvalid());
-    assertEquals(probeFail, testElement.$.input.errorMessage);
+    assertEquals(probeFail, testElement.$.input.firstFooter);
   });
 
   test('SecureDnsInputValidFormatAndProbeSuccess', async function() {
@@ -91,7 +89,6 @@ suite('SettingsSecureDnsInput', function() {
     assertEquals(
         validSuccessEntry, await testBrowserProxy.whenCalled('probeConfig'));
     assertFalse(testElement.$.input.invalid);
-    assertFalse(testElement.isInvalid());
   });
 
   test('SecureDnsInputInvalid', async function() {
@@ -103,13 +100,11 @@ suite('SettingsSecureDnsInput', function() {
         invalidEntry, await testBrowserProxy.whenCalled('isValidConfig'));
     assertEquals(0, testBrowserProxy.getCallCount('probeConfig'));
     assertTrue(testElement.$.input.invalid);
-    assertTrue(testElement.isInvalid());
-    assertEquals(invalidFormat, testElement.$.input.errorMessage);
+    assertEquals(invalidFormat, testElement.$.input.firstFooter);
 
     // Trigger an input event and check that the error clears.
-    testElement.$.input.fire('input');
+    testElement.$.input.dispatchEvent(new CustomEvent('input'));
     assertFalse(testElement.$.input.invalid);
-    assertFalse(testElement.isInvalid());
     assertEquals(invalidEntry, testElement.value);
   });
 });
@@ -152,7 +147,7 @@ suite('SettingsSecureDns', function() {
     testBrowserProxy = new TestPrivacyPageBrowserProxy();
     testBrowserProxy.setResolverList(resolverList);
     PrivacyPageBrowserProxyImpl.setInstance(testBrowserProxy);
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     testElement = document.createElement('settings-secure-dns');
     testElement.prefs = {
       dns_over_https:
@@ -175,7 +170,7 @@ suite('SettingsSecureDns', function() {
   test('SecureDnsOff', function() {
     webUIListenerCallback('secure-dns-setting-changed', {
       mode: SecureDnsMode.OFF,
-      templates: [],
+      config: '',
       managementMode: SecureDnsUiManagementMode.NO_OVERRIDE,
     });
     flush();
@@ -190,7 +185,7 @@ suite('SettingsSecureDns', function() {
   test('SecureDnsAutomatic', function() {
     webUIListenerCallback('secure-dns-setting-changed', {
       mode: SecureDnsMode.AUTOMATIC,
-      templates: [],
+      config: '',
       managementMode: SecureDnsUiManagementMode.NO_OVERRIDE,
     });
     flush();
@@ -205,7 +200,7 @@ suite('SettingsSecureDns', function() {
   test('SecureDnsSecure', function() {
     webUIListenerCallback('secure-dns-setting-changed', {
       mode: SecureDnsMode.SECURE,
-      templates: [],
+      config: '',
       managementMode: SecureDnsUiManagementMode.NO_OVERRIDE,
     });
     flush();
@@ -220,7 +215,7 @@ suite('SettingsSecureDns', function() {
   test('SecureDnsManagedEnvironment', function() {
     webUIListenerCallback('secure-dns-setting-changed', {
       mode: SecureDnsMode.OFF,
-      templates: [],
+      config: '',
       managementMode: SecureDnsUiManagementMode.DISABLED_MANAGED,
     });
     flush();
@@ -239,7 +234,7 @@ suite('SettingsSecureDns', function() {
   test('SecureDnsParentalControl', function() {
     webUIListenerCallback('secure-dns-setting-changed', {
       mode: SecureDnsMode.OFF,
-      templates: [],
+      config: '',
       managementMode: SecureDnsUiManagementMode.DISABLED_PARENTAL_CONTROLS,
     });
     flush();
@@ -263,7 +258,7 @@ suite('SettingsSecureDns', function() {
 
     webUIListenerCallback('secure-dns-setting-changed', {
       mode: SecureDnsMode.AUTOMATIC,
-      templates: [],
+      config: '',
       managementMode: SecureDnsUiManagementMode.NO_OVERRIDE,
     });
     flush();
@@ -277,4 +272,29 @@ suite('SettingsSecureDns', function() {
                     .querySelector('cr-policy-pref-indicator')!.shadowRoot!
                     .querySelector('cr-tooltip-icon')!.hidden);
   });
+
+  // <if expr="chromeos_ash">
+  test('SecureDnsManagedWithIdentifiers', function() {
+    testElement.prefs.dns_over_https.mode.enforcement =
+        chrome.settingsPrivate.Enforcement.ENFORCED;
+    testElement.prefs.dns_over_https.mode.controlledBy =
+        chrome.settingsPrivate.ControlledBy.DEVICE_POLICY;
+
+    const effectiveConfig = 'https://example/dns-query';
+    const displayConfig = 'https://example-for-display/dns-query';
+
+    webUIListenerCallback('secure-dns-setting-changed', {
+      mode: SecureDnsMode.SECURE,
+      config: effectiveConfig,
+      dohWithIdentifiersActive: true,
+      configForDisplay: displayConfig,
+      managementMode: SecureDnsUiManagementMode.NO_OVERRIDE,
+    });
+    flush();
+    const expectedDescription = loadTimeData.substituteString(
+        loadTimeData.getString('secureDnsWithIdentifiersDescription'),
+        displayConfig);
+    assertEquals(expectedDescription, testElement.$.secureDnsToggle.subLabel);
+  });
+  // </if>
 });

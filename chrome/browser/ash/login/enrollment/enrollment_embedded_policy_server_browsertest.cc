@@ -1,15 +1,15 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <string>
 
-#include "ash/components/attestation/attestation_flow_utils.h"
-#include "ash/components/attestation/mock_attestation_flow.h"
+#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "base/bind.h"
 #include "base/check.h"
+#include "base/command_line.h"
 #include "base/test/gtest_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -37,21 +37,25 @@
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/ash/ownership/fake_owner_settings_service.h"
 #include "chrome/browser/ash/policy/core/browser_policy_connector_ash.h"
+#include "chrome/browser/ash/policy/enrollment/auto_enrollment_type_checker.h"
 #include "chrome/browser/ash/policy/enrollment/enrollment_requisition_manager.h"
+#include "chrome/browser/ash/policy/enrollment/psm/fake_rlwe_client.h"
 #include "chrome/browser/ash/policy/server_backed_state/server_backed_state_keys_broker.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/webui/chromeos/login/device_disabled_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/device_disabled_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/error_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/signin_screen_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/ash/components/attestation/mock_attestation_flow.h"
+#include "chromeos/ash/components/dbus/constants/attestation_constants.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/ash/components/install_attributes/install_attributes.h"
 #include "chromeos/system/fake_statistics_provider.h"
-#include "chromeos/tpm/install_attributes.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/core/common/policy_switches.h"
 #include "components/policy/proto/device_management_backend.pb.h"
@@ -66,11 +70,16 @@ namespace {
 
 namespace em = enterprise_management;
 
-// TODO(https://crbug.com/1164001): remove when migrated to ash::
-using ::chromeos::InstallAttributes;
-
 constexpr test::UIPath kEnterprisePrimaryButton = {
     "enterprise-enrollment", "step-signin", "primary-action-button"};
+constexpr test::UIPath kEnterpriseEnrollmentButton = {
+    "enterprise-enrollment", "step-signin", "enterprise-navigation-enterprise"};
+constexpr test::UIPath kKioskEnrollmentButton = {
+    "enterprise-enrollment", "step-signin", "enterprise-navigation-kiosk"};
+constexpr test::UIPath kKioskModeEnterpriseEnrollmentButton = {
+    "enterprise-enrollment", "step-signin", "kiosk-navigation-enterprise"};
+constexpr test::UIPath kKioskModeKioskEnrollmentButton = {
+    "enterprise-enrollment", "step-signin", "kiosk-navigation-kiosk"};
 
 const char kRemoraRequisition[] = "remora";
 
@@ -84,13 +93,8 @@ std::string GetDmTokenFromPolicy(const std::string& blob) {
 }
 
 void AllowlistSimpleChallengeSigningKey() {
-  chromeos::AttestationClient::Get()
-      ->GetTestInterface()
-      ->AllowlistSignSimpleChallengeKey(
-          /*username=*/"",
-          attestation::GetKeyNameForProfile(
-              chromeos::attestation::PROFILE_ENTERPRISE_ENROLLMENT_CERTIFICATE,
-              ""));
+  AttestationClient::Get()->GetTestInterface()->AllowlistSignSimpleChallengeKey(
+      /*username=*/"", attestation::kEnterpriseEnrollmentKey);
 }
 
 class EnrollmentEmbeddedPolicyServerBase : public OobeBaseTest {
@@ -137,7 +141,7 @@ class EnrollmentEmbeddedPolicyServerBase : public OobeBaseTest {
     return auto_enrollment_screen;
   }
 
-  void TriggerEnrollmentAndSignInSuccessfully() {
+  void TriggerEnrollmentAndSignInSuccessfully(bool enroll_kiosk = false) {
     host()->HandleAccelerator(LoginAcceleratorAction::kStartEnrollment);
     OobeScreenWaiter(EnrollmentScreenView::kScreenId).Wait();
 
@@ -150,7 +154,15 @@ class EnrollmentEmbeddedPolicyServerBase : public OobeBaseTest {
     test::OobeJS().ClickOnPath(kEnterprisePrimaryButton);
     SigninFrameJS().TypeIntoPath(FakeGaiaMixin::kFakeUserPassword,
                                  FakeGaiaMixin::kPasswordPath);
-    test::OobeJS().ClickOnPath(kEnterprisePrimaryButton);
+    if (features::IsKioskEnrollmentInOobeEnabled()) {
+      if (enroll_kiosk) {
+        test::OobeJS().ClickOnPath(kKioskEnrollmentButton);
+      } else {
+        test::OobeJS().ClickOnPath(kEnterpriseEnrollmentButton);
+      }
+    } else {
+      test::OobeJS().ClickOnPath(kEnterprisePrimaryButton);
+    }
   }
 
   std::unique_ptr<LoginOrLockScreenVisibleWaiter> CreateLoginVisibleWaiter() {
@@ -203,7 +215,7 @@ class AutoEnrollmentEmbeddedPolicyServer
 
     command_line->AppendSwitchASCII(
         switches::kEnterpriseEnableForcedReEnrollment,
-        AutoEnrollmentController::kForcedReEnrollmentAlways);
+        policy::AutoEnrollmentTypeChecker::kForcedReEnrollmentAlways);
     command_line->AppendSwitchASCII(
         switches::kEnterpriseEnrollmentInitialModulus, "5");
     command_line->AppendSwitchASCII(switches::kEnterpriseEnrollmentModulusLimit,
@@ -223,10 +235,12 @@ class AutoEnrollmentEmbeddedPolicyServer
 class AutoEnrollmentWithStatistics : public AutoEnrollmentEmbeddedPolicyServer {
  public:
   AutoEnrollmentWithStatistics() : AutoEnrollmentEmbeddedPolicyServer() {
-    // AutoEnrollmentController assumes that VPD is in valid state if
+    // `AutoEnrollmentTypeChecker` assumes that VPD is in valid state if
     // "serial_number" or "Product_S/N" could be read from it.
     fake_statistics_provider_.SetMachineStatistic(
         system::kSerialNumberKeyForTest, test::kTestSerialNumber);
+    fake_statistics_provider_.SetVpdStatus(
+        system::StatisticsProvider::VpdStatus::kValid);
   }
 
   AutoEnrollmentWithStatistics(const AutoEnrollmentWithStatistics&) = delete;
@@ -249,6 +263,8 @@ class AutoEnrollmentWithStatistics : public AutoEnrollmentEmbeddedPolicyServer {
   void SetVPDCorrupted() {
     fake_statistics_provider_.ClearMachineStatistic(
         system::kSerialNumberKeyForTest);
+    fake_statistics_provider_.SetVpdStatus(
+        system::StatisticsProvider::VpdStatus::kRwInvalid);
   }
 
  private:
@@ -288,13 +304,9 @@ class InitialEnrollmentTest : public EnrollmentEmbeddedPolicyServerBase {
   void SetUpCommandLine(base::CommandLine* command_line) override {
     EnrollmentEmbeddedPolicyServerBase::SetUpCommandLine(command_line);
 
-    // Enable usage of fake PSM (private set membership) RLWE client.
-    command_line->AppendSwitch(
-        switches::kEnterpriseUseFakePsmRlweClientForTesting);
-
     command_line->AppendSwitchASCII(
         switches::kEnterpriseEnableInitialEnrollment,
-        AutoEnrollmentController::kInitialEnrollmentAlways);
+        policy::AutoEnrollmentTypeChecker::kInitialEnrollmentAlways);
   }
 
   int GetPsmExecutionResultPref() const {
@@ -740,7 +752,8 @@ IN_PROC_BROWSER_TEST_F(EnrollmentEmbeddedPolicyServerBase,
   auto login_waiter = CreateLoginVisibleWaiter();
   enrollment_ui_.LeaveDeviceAttributeErrorScreen();
   login_waiter->WaitEvenIfShown();
-  OobeScreenWaiter(GetFirstSigninScreen()).Wait();
+  // TODO(crbug/1295825): Wait for OOBE to be reloaded on the first screen once
+  // loading is faster and does not cause the test to time out.
 }
 
 // Error during enrollment : Error fetching policy : 500 server error.
@@ -757,6 +770,23 @@ IN_PROC_BROWSER_TEST_F(EnrollmentEmbeddedPolicyServerBase,
   EXPECT_FALSE(StartupUtils::IsDeviceRegistered());
   EXPECT_FALSE(InstallAttributes::Get()->IsEnterpriseManaged());
   enrollment_ui_.RetryAfterError();
+}
+
+// Error during enrollment : Error 418: PACKAGED_DEVICE_KIOSK_DISALLOWED.
+IN_PROC_BROWSER_TEST_F(EnrollmentEmbeddedPolicyServerBase,
+                       EnrollmentErrorPackagedDeviceInvalidForKiosk) {
+  policy_server_.SetDeviceEnrollmentError(
+      policy::DeviceManagementService::kInvalidPackagedDeviceForKiosk);
+
+  TriggerEnrollmentAndSignInSuccessfully();
+
+  enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepError);
+  enrollment_ui_.ExpectErrorMessage(
+      IDS_ENTERPRISE_ENROLLMENT_INVALID_PACKAGED_DEVICE_FOR_KIOSK,
+      /*can_retry=*/true);
+  enrollment_ui_.RetryAfterError();
+  EXPECT_FALSE(StartupUtils::IsDeviceRegistered());
+  EXPECT_FALSE(InstallAttributes::Get()->IsEnterpriseManaged());
 }
 
 // Error during enrollment : Error fetching policy : 902 - policy not found.
@@ -834,7 +864,8 @@ IN_PROC_BROWSER_TEST_F(AutoEnrollmentEmbeddedPolicyServer, ReenrollmentForced) {
   OobeScreenWaiter(EnrollmentScreenView::kScreenId).Wait();
   enrollment_ui_.SetExitHandler();
   enrollment_screen()->OnCancel();
-  EXPECT_EQ(EnrollmentScreen::Result::BACK, enrollment_ui_.WaitForScreenExit());
+  EXPECT_EQ(EnrollmentScreen::Result::BACK_TO_AUTO_ENROLLMENT_CHECK,
+            enrollment_ui_.WaitForScreenExit());
 }
 
 // Device is disabled.
@@ -850,8 +881,6 @@ IN_PROC_BROWSER_TEST_F(AutoEnrollmentEmbeddedPolicyServer, DeviceDisabled) {
 
 // Attestation enrollment.
 IN_PROC_BROWSER_TEST_F(AutoEnrollmentEmbeddedPolicyServer, Attestation) {
-  // Even though the server would allow device attributes update, Chrome OS will
-  // not attempt that for attestation enrollment.
   policy_server_.SetUpdateDeviceAttributesPermission(true);
 
   AllowlistSimpleChallengeSigningKey();
@@ -863,6 +892,7 @@ IN_PROC_BROWSER_TEST_F(AutoEnrollmentEmbeddedPolicyServer, Attestation) {
       test::kTestDomain));
 
   host()->StartWizard(AutoEnrollmentCheckScreenView::kScreenId);
+
   enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepSuccess);
   EXPECT_TRUE(StartupUtils::IsDeviceRegistered());
   EXPECT_TRUE(InstallAttributes::Get()->IsCloudManaged());
@@ -883,6 +913,19 @@ IN_PROC_BROWSER_TEST_F(AutoEnrollmentEmbeddedPolicyServer, TestCaptivePortal) {
 // FRE explicitly required in VPD, but the state keys are missing.
 IN_PROC_BROWSER_TEST_F(AutoEnrollmentNoStateKeys, FREExplicitlyRequired) {
   SetFRERequiredKey("1");
+  host()->StartWizard(AutoEnrollmentCheckScreenView::kScreenId);
+  OobeScreenWaiter(AutoEnrollmentCheckScreenView::kScreenId).Wait();
+
+  OobeScreenWaiter(ErrorScreenView::kScreenId).Wait();
+  test::OobeJS().ExpectHiddenPath({"error-message", "error-guest-signin"});
+  test::OobeJS().ExpectHiddenPath(
+      {"error-message", "error-guest-signin-fix-network"});
+}
+
+// FRE explicitly required when kCheckEnrollmentKey is set to an invalid value.
+IN_PROC_BROWSER_TEST_F(AutoEnrollmentNoStateKeys,
+                       FREExplicitlyRequiredInvalid) {
+  SetFRERequiredKey("anything");
   host()->StartWizard(AutoEnrollmentCheckScreenView::kScreenId);
   OobeScreenWaiter(AutoEnrollmentCheckScreenView::kScreenId).Wait();
 
@@ -958,7 +1001,7 @@ IN_PROC_BROWSER_TEST_F(AutoEnrollmentWithStatistics, CorruptedVPD) {
 
 class EnrollmentRecoveryTest : public EnrollmentEmbeddedPolicyServerBase {
  public:
-  EnrollmentRecoveryTest() : EnrollmentEmbeddedPolicyServerBase() {
+  EnrollmentRecoveryTest() {
     device_state_.SetState(
         DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED);
   }
@@ -969,11 +1012,18 @@ class EnrollmentRecoveryTest : public EnrollmentEmbeddedPolicyServerBase {
   ~EnrollmentRecoveryTest() override = default;
 
  protected:
+  // EnrollmentEmbeddedPolicyServerBase:
   void SetUpInProcessBrowserTestFixture() override {
     EnrollmentEmbeddedPolicyServerBase::SetUpInProcessBrowserTestFixture();
 
     // This triggers recovery enrollment.
     device_state_.RequestDevicePolicyUpdate()->policy_data()->Clear();
+  }
+  void SetUpOnMainThread() override {
+    EnrollmentEmbeddedPolicyServerBase::SetUpOnMainThread();
+    LoginDisplayHost::default_host()
+        ->GetWizardContextForTesting()
+        ->is_branded_build = true;
   }
 };
 
@@ -990,10 +1040,13 @@ IN_PROC_BROWSER_TEST_F(EnrollmentRecoveryTest, Success) {
   // User can't skip.
   enrollment_ui_.SetExitHandler();
   enrollment_screen()->OnCancel();
-  EXPECT_EQ(EnrollmentScreen::Result::BACK, enrollment_ui_.WaitForScreenExit());
+  EXPECT_EQ(EnrollmentScreen::Result::BACK_TO_AUTO_ENROLLMENT_CHECK,
+            enrollment_ui_.WaitForScreenExit());
 
-  enrollment_screen()->OnLoginDone(FakeGaiaMixin::kEnterpriseUser1,
-                                   FakeGaiaMixin::kFakeAuthCode);
+  enrollment_screen()->OnLoginDone(
+      FakeGaiaMixin::kEnterpriseUser1,
+      static_cast<int>(policy::LicenseType::kEnterprise),
+      FakeGaiaMixin::kFakeAuthCode);
   enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepSuccess);
 
   // DM Token is in the device policy.
@@ -1007,8 +1060,10 @@ IN_PROC_BROWSER_TEST_F(EnrollmentRecoveryTest, DifferentDomain) {
 
   ASSERT_TRUE(StartupUtils::IsDeviceRegistered());
   ASSERT_TRUE(InstallAttributes::Get()->IsEnterpriseManaged());
-  enrollment_screen()->OnLoginDone(FakeGaiaMixin::kFakeUserEmail,
-                                   FakeGaiaMixin::kFakeAuthCode);
+  enrollment_screen()->OnLoginDone(
+      FakeGaiaMixin::kFakeUserEmail,
+      static_cast<int>(policy::LicenseType::kEnterprise),
+      FakeGaiaMixin::kFakeAuthCode);
   enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepError);
   enrollment_ui_.ExpectErrorMessage(
       IDS_ENTERPRISE_ENROLLMENT_STATUS_LOCK_WRONG_USER, true);
@@ -1024,6 +1079,11 @@ IN_PROC_BROWSER_TEST_F(InitialEnrollmentTest, EnrollmentForced) {
       test::kTestDomain);
 
   host()->StartWizard(AutoEnrollmentCheckScreenView::kScreenId);
+  WizardController::default_controller()
+      ->GetAutoEnrollmentControllerForTesting()
+      ->SetRlweClientFactoryForTesting(
+          base::BindRepeating(&policy::psm::FakeRlweClient::Create));
+
   OobeScreenWaiter(EnrollmentScreenView::kScreenId).Wait();
 
   // Expect PSM fields in DeviceRegisterRequest.
@@ -1034,28 +1094,25 @@ IN_PROC_BROWSER_TEST_F(InitialEnrollmentTest, EnrollmentForced) {
   // User can't skip.
   enrollment_ui_.SetExitHandler();
   enrollment_screen()->OnCancel();
-  EXPECT_EQ(EnrollmentScreen::Result::BACK, enrollment_ui_.WaitForScreenExit());
+  EXPECT_EQ(EnrollmentScreen::Result::BACK_TO_AUTO_ENROLLMENT_CHECK,
+            enrollment_ui_.WaitForScreenExit());
 
   // Domain is actually different from what the server sent down. But Chrome
   // does not enforce that domain if device is not locked.
-  enrollment_screen()->OnLoginDone(FakeGaiaMixin::kEnterpriseUser1,
-                                   FakeGaiaMixin::kFakeAuthCode);
+  enrollment_screen()->OnLoginDone(
+      FakeGaiaMixin::kEnterpriseUser1,
+      static_cast<int>(policy::LicenseType::kEnterprise),
+      FakeGaiaMixin::kFakeAuthCode);
   enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepSuccess);
   EXPECT_TRUE(StartupUtils::IsDeviceRegistered());
   EXPECT_TRUE(InstallAttributes::Get()->IsEnterpriseManaged());
 }
 
-// This test is flaky on ChromeOS. https://crbug.com/1231472
-#if BUILDFLAG(IS_CHROMEOS)
-#define MAYBE_ZeroTouchForcedAttestationFail \
-  DISABLED_ZeroTouchForcedAttestationFail
-#else
-#define MAYBE_ZeroTouchForcedAttestationFail ZeroTouchForcedAttestationFail
-#endif
 // Zero touch with attestation authentication fail. Attestation fails because we
 // send empty cert request. Should switch to interactive authentication.
+// This test is flaky on ChromeOS. https://crbug.com/1231472
 IN_PROC_BROWSER_TEST_F(InitialEnrollmentTest,
-                       MAYBE_ZeroTouchForcedAttestationFail) {
+                       DISABLED_ZeroTouchForcedAttestationFail) {
   auto initial_enrollment =
       enterprise_management::DeviceInitialEnrollmentStateResponse::
           INITIAL_ENROLLMENT_MODE_ZERO_TOUCH_ENFORCED;
@@ -1064,6 +1121,11 @@ IN_PROC_BROWSER_TEST_F(InitialEnrollmentTest,
       test::kTestDomain);
 
   host()->StartWizard(AutoEnrollmentCheckScreenView::kScreenId);
+  WizardController::default_controller()
+      ->GetAutoEnrollmentControllerForTesting()
+      ->SetRlweClientFactoryForTesting(
+          base::BindRepeating(&policy::psm::FakeRlweClient::Create));
+
   OobeScreenWaiter(EnrollmentScreenView::kScreenId).Wait();
 
   // First it tries with attestation auth and should fail.
@@ -1083,8 +1145,10 @@ IN_PROC_BROWSER_TEST_F(InitialEnrollmentTest,
 
   // Domain is actually different from what the server sent down. But Chrome
   // does not enforce that domain if device is not locked.
-  enrollment_screen()->OnLoginDone(FakeGaiaMixin::kEnterpriseUser1,
-                                   FakeGaiaMixin::kFakeAuthCode);
+  enrollment_screen()->OnLoginDone(
+      FakeGaiaMixin::kEnterpriseUser1,
+      static_cast<int>(policy::LicenseType::kEnterprise),
+      FakeGaiaMixin::kFakeAuthCode);
   enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepSuccess);
   EXPECT_TRUE(StartupUtils::IsDeviceRegistered());
   EXPECT_TRUE(InstallAttributes::Get()->IsEnterpriseManaged());
@@ -1094,8 +1158,17 @@ IN_PROC_BROWSER_TEST_F(InitialEnrollmentTest,
                        ZeroTouchForcedAttestationSuccess) {
   AllowlistSimpleChallengeSigningKey();
   policy_server_.SetupZeroTouchForcedEnrollment();
+  policy_server_.SetUpdateDeviceAttributesPermission(true);
 
   host()->StartWizard(AutoEnrollmentCheckScreenView::kScreenId);
+  WizardController::default_controller()
+      ->GetAutoEnrollmentControllerForTesting()
+      ->SetRlweClientFactoryForTesting(
+          base::BindRepeating(&policy::psm::FakeRlweClient::Create));
+
+  enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepDeviceAttributes);
+  enrollment_ui_.SubmitDeviceAttributes(test::values::kAssetId,
+                                        test::values::kLocation);
   enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepSuccess);
   EXPECT_TRUE(StartupUtils::IsDeviceRegistered());
   EXPECT_TRUE(InstallAttributes::Get()->IsCloudManaged());
@@ -1163,6 +1236,106 @@ IN_PROC_BROWSER_TEST_F(EnrollmentEmbeddedPolicyServerBase,
   ConfirmAndWaitLoginScreen();
   EXPECT_TRUE(LoginScreenTestApi::IsOobeDialogVisible());
   EXPECT_NE(LoginScreenTestApi::GetShutDownButtonLabel(), initial_label);
+}
+
+class KioskEnrollmentPolicyServerTest
+    : public EnrollmentEmbeddedPolicyServerBase {
+ public:
+  KioskEnrollmentPolicyServerTest() {
+    scoped_feature_list_.InitAndEnableFeature(
+        features::kEnableKioskEnrollmentInOobe);
+  }
+
+  void TriggerKioskEnrollmentAndSignInSuccessfully(bool enroll_kiosk = false) {
+    host()->HandleAccelerator(LoginAcceleratorAction::kStartKioskEnrollment);
+    OobeScreenWaiter(EnrollmentScreenView::kScreenId).Wait();
+
+    ASSERT_FALSE(StartupUtils::IsDeviceRegistered());
+    ASSERT_FALSE(InstallAttributes::Get()->IsEnterpriseManaged());
+    WaitForGaiaPageBackButtonUpdate();
+
+    SigninFrameJS().TypeIntoPath(FakeGaiaMixin::kFakeUserEmail,
+                                 FakeGaiaMixin::kEmailPath);
+    test::OobeJS().ClickOnPath(kEnterprisePrimaryButton);
+    SigninFrameJS().TypeIntoPath(FakeGaiaMixin::kFakeUserPassword,
+                                 FakeGaiaMixin::kPasswordPath);
+    if (enroll_kiosk) {
+      test::OobeJS().ClickOnPath(kKioskModeKioskEnrollmentButton);
+    } else {
+      test::OobeJS().ClickOnPath(kKioskModeEnterpriseEnrollmentButton);
+    }
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_F(KioskEnrollmentPolicyServerTest, KioskEnrollment) {
+  policy_server_.SetAvailableLicenses(/*has_enterpise_license=*/false,
+                                      /*has_kiosk_license=*/true);
+  policy_server_.SetUpdateDeviceAttributesPermission(true);
+
+  TriggerKioskEnrollmentAndSignInSuccessfully(/*enroll_kiosk=*/true);
+
+  enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepKioskEnrollment);
+  enrollment_ui_.ConfirmKioskEnrollment();
+
+  enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepDeviceAttributes);
+  enrollment_ui_.SubmitDeviceAttributes(test::values::kAssetId,
+                                        test::values::kLocation);
+  enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepSuccess);
+  EXPECT_TRUE(StartupUtils::IsDeviceRegistered());
+  EXPECT_TRUE(InstallAttributes::Get()->IsCloudManaged());
+}
+
+IN_PROC_BROWSER_TEST_F(KioskEnrollmentPolicyServerTest,
+                       KioskEnrollmentNoLicenses) {
+  policy_server_.SetAvailableLicenses(/*has_enterpise_license=*/false,
+                                      /*has_kiosk_license=*/false);
+  policy_server_.SetUpdateDeviceAttributesPermission(true);
+
+  TriggerKioskEnrollmentAndSignInSuccessfully(/*enroll_kiosk=*/true);
+
+  enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepKioskEnrollment);
+  enrollment_ui_.ConfirmKioskEnrollment();
+
+  enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepError);
+  enrollment_ui_.ExpectErrorMessage(
+      IDS_ENTERPRISE_ENROLLMENT_MISSING_LICENSES_ERROR, /*can_retry=*/true);
+  enrollment_ui_.RetryAfterError();
+  EXPECT_FALSE(StartupUtils::IsDeviceRegistered());
+  EXPECT_FALSE(InstallAttributes::Get()->IsEnterpriseManaged());
+}
+
+IN_PROC_BROWSER_TEST_F(KioskEnrollmentPolicyServerTest, EnterpriseEnrollment) {
+  policy_server_.SetAvailableLicenses(/*has_enterpise_license=*/true,
+                                      /*has_kiosk_license=*/false);
+  policy_server_.SetUpdateDeviceAttributesPermission(true);
+
+  TriggerKioskEnrollmentAndSignInSuccessfully(/*enroll_kiosk=*/false);
+
+  enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepDeviceAttributes);
+  enrollment_ui_.SubmitDeviceAttributes(test::values::kAssetId,
+                                        test::values::kLocation);
+  enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepSuccess);
+  EXPECT_TRUE(StartupUtils::IsDeviceRegistered());
+  EXPECT_TRUE(InstallAttributes::Get()->IsCloudManaged());
+}
+
+IN_PROC_BROWSER_TEST_F(KioskEnrollmentPolicyServerTest,
+                       EnterpriseEnrollmentNoLicenses) {
+  policy_server_.SetAvailableLicenses(/*has_enterpise_license=*/false,
+                                      /*has_kiosk_license=*/false);
+  policy_server_.SetUpdateDeviceAttributesPermission(true);
+
+  TriggerKioskEnrollmentAndSignInSuccessfully(/*enroll_kiosk=*/false);
+
+  enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepError);
+  enrollment_ui_.ExpectErrorMessage(
+      IDS_ENTERPRISE_ENROLLMENT_MISSING_LICENSES_ERROR, /*can_retry=*/true);
+  enrollment_ui_.RetryAfterError();
+  EXPECT_FALSE(StartupUtils::IsDeviceRegistered());
+  EXPECT_FALSE(InstallAttributes::Get()->IsEnterpriseManaged());
 }
 
 class KioskEnrollmentTest : public EnrollmentEmbeddedPolicyServerBase {

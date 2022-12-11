@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
   TestRunner.addResult("Test to ensure the consistency of front-end patterns vs backend patterns for request interception.\n");
 
   // Backend supports wildcards, but front-end does not. This test is to ensure the basic stability with wildcard characters.
-  var urlPrefix = SDK.targetManager.mainTarget().inspectedURL().replace(/\/[^\/]*$/, '');
+  var urlPrefix = SDK.targetManager.mainFrameTarget().inspectedURL().replace(/\/[^\/]*$/, '');
   var resourceURL = urlPrefix + '/bar.js';
   await checkPattern('**bar.js');
   await checkPattern(resourceURL);

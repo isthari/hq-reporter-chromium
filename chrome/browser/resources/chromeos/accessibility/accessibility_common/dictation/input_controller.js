@@ -1,18 +1,43 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {BubbleProperties} from './constants.js';
+import {EditingUtil} from './editing_util.js';
+import {FocusHandler} from './focus_handler.js';
+import {LocaleInfo} from './locale_info.js';
 
-const IconType = chrome.accessibilityPrivate.DictationBubbleIconType;
+const AutomationNode = chrome.automation.AutomationNode;
+const EventType = chrome.automation.EventType;
+const StateType = chrome.automation.StateType;
 
 /**
- * InputController handles interaction with input fields for Dictation.
+ * @typedef {{
+ * anchor: number,
+ * focus: number,
+ * offset: number,
+ * text: string,
+ * }}
  */
+let SurroundingInfo;
+
+/**
+ * @typedef {{
+ * node: !AutomationNode,
+ * value: string,
+ * selStart: number,
+ * selEnd: number,
+ * }}
+ */
+let EditableNodeData;
+
+/** InputController handles interaction with input fields for Dictation. */
 export class InputController {
-  constructor(stopDictationCallback) {
+  constructor(stopDictationCallback, focusHandler) {
     /** @private {number} */
     this.activeImeContextId_ = InputController.NO_ACTIVE_IME_CONTEXT_ID_;
+
+    /** @private {!FocusHandler} */
+    this.focusHandler_ = focusHandler;
 
     /**
      * The engine ID of the previously active IME input method. Used to
@@ -21,17 +46,23 @@ export class InputController {
      */
     this.previousImeEngineId_ = '';
 
-    /**
-     * The current composition text, if any.
-     * @private {string}
-     */
-    this.currentComposition_ = '';
-
     /** @private {function():void} */
     this.stopDictationCallback_ = stopDictationCallback;
 
     /** @private {?function():void} */
     this.onConnectCallback_ = null;
+
+    /** @private {?function(chrome.input.ime.InputContext):void} */
+    this.onFocusListener_ = null;
+
+    /** @private {?function(number):void} */
+    this.onBlurListener_ = null;
+
+    /** @private {?function(string, !SurroundingInfo):void} */
+    this.onSurroundingTextChangedListener_ = null;
+
+    /** @private {?SurroundingInfo} */
+    this.surroundingInfo_ = null;
 
     this.initialize_();
   }
@@ -41,11 +72,28 @@ export class InputController {
    * @private
    */
   initialize_() {
-    // Listen for IME focus changes.
-    chrome.input.ime.onFocus.addListener(
-        (context) => this.onImeFocus_(context));
-    chrome.input.ime.onBlur.addListener(
-        (contextId) => this.onImeBlur_(contextId));
+    this.onFocusListener_ = context => this.onImeFocus_(context);
+    this.onBlurListener_ = contextId => this.onImeBlur_(contextId);
+    this.onSurroundingTextChangedListener_ = (engineID, surroundingInfo) =>
+        this.onSurroundingTextChanged_(engineID, surroundingInfo);
+    chrome.input.ime.onFocus.addListener(this.onFocusListener_);
+    chrome.input.ime.onBlur.addListener(this.onBlurListener_);
+    chrome.input.ime.onSurroundingTextChanged.addListener(
+        this.onSurroundingTextChangedListener_);
+  }
+
+  /** Removes IME listeners. */
+  removeListeners() {
+    if (this.onFocusListener_) {
+      chrome.input.ime.onFocus.removeListener(this.onFocusListener_);
+    }
+    if (this.onBlurListener_) {
+      chrome.input.ime.onBlur.removeListener(this.onBlurListener_);
+    }
+    if (this.onSurroundingTextChangedListener_) {
+      chrome.input.ime.onSurroundingTextChanged.removeListener(
+          this.onSurroundingTextChangedListener_);
+    }
   }
 
   /**
@@ -65,7 +113,7 @@ export class InputController {
   connect(callback) {
     this.onConnectCallback_ = callback;
     chrome.inputMethodPrivate.getCurrentInputMethod(
-        (method) => this.saveCurrentInputMethodAndStart_(method));
+        method => this.saveCurrentInputMethodAndStart_(method));
   }
 
   /**
@@ -77,7 +125,7 @@ export class InputController {
    */
   saveCurrentInputMethodAndStart_(method) {
     this.previousImeEngineId_ = method;
-    // Add AccessibilityCommon as an input method and active it.
+    // Add AccessibilityCommon as an input method and activate it.
     chrome.languageSettingsPrivate.addInputMethod(
         InputController.IME_ENGINE_ID);
     chrome.inputMethodPrivate.setCurrentInputMethod(
@@ -89,39 +137,11 @@ export class InputController {
    * composed, commits it.
    */
   disconnect() {
-    // Commit composition text, if any.
-    if (this.currentComposition_.length > 0) {
-      this.commitText(this.currentComposition_);
-    }
-
     // Clean up IME state and reset to the previous IME method.
     this.activeImeContextId_ = InputController.NO_ACTIVE_IME_CONTEXT_ID_;
     chrome.inputMethodPrivate.setCurrentInputMethod(this.previousImeEngineId_);
     this.previousImeEngineId_ = '';
-  }
-
-  /**
-   * @return {boolean} Whether any text is currently being composed.
-   */
-  hasCompositionText() {
-    return this.currentComposition_.length > 0;
-  }
-
-  /** Displays current composition text for the current IME context. */
-  displayCurrentComposition() {
-    if (!this.isActive()) {
-      return;
-    }
-
-    // Set the composition text for interim results.
-    // Later we will do this in Chrome OS UI so that if the
-    // result will become a command it will not appear and
-    // disappear from the composition text.
-    chrome.input.ime.setComposition({
-      contextID: this.activeImeContextId_,
-      cursor: this.currentComposition_.length,
-      text: this.currentComposition_
-    });
+    this.surroundingInfo_ = null;
   }
 
   /**
@@ -129,30 +149,19 @@ export class InputController {
    * @param {string} text The text to commit
    */
   commitText(text) {
-    if (!this.isActive()) {
+    if (!this.isActive() || !text) {
       return;
     }
+
+    const data = this.getEditableNodeData();
+    if (LocaleInfo.allowSmartCapAndSpacing() &&
+        this.checkEditableNodeData_(data)) {
+      const {value, selStart, selEnd} = data;
+      text = EditingUtil.smartCapitalization(value, selStart, text);
+      text = EditingUtil.smartSpacing(value, selStart, text);
+    }
+
     chrome.input.ime.commitText({contextID: this.activeImeContextId_, text});
-    this.setCurrentComposition('');
-  }
-
-  /**
-   * Shows the bubble UI with the given properties.
-   * @param {!BubbleProperties} props
-   */
-  showBubble(props) {
-    chrome.accessibilityPrivate.updateDictationBubble({
-      visible: true,
-      icon: props.icon,
-      text: props.text,
-      hints: props.hints
-    });
-  }
-
-  /** Hides the bubble UI. */
-  hideBubble() {
-    chrome.accessibilityPrivate.updateDictationBubble(
-        {visible: false, icon: IconType.HIDDEN});
   }
 
   /**
@@ -181,13 +190,241 @@ export class InputController {
     if (contextId === this.activeImeContextId_) {
       // Clean up context ID immediately. We can no longer use this context.
       this.activeImeContextId_ = InputController.NO_ACTIVE_IME_CONTEXT_ID_;
+      this.surroundingInfo_ = null;
       this.stopDictationCallback_();
     }
   }
 
-  /** @param {string} text */
-  setCurrentComposition(text) {
-    this.currentComposition_ = text;
+  /**
+   * Called when the editable string around the caret is changed or when the
+   * caret position is moved.
+   * @param {string} engineID
+   * @param {!SurroundingInfo} surroundingInfo
+   * @private
+   */
+  onSurroundingTextChanged_(engineID, surroundingInfo) {
+    if (engineID !== InputController.ON_SURROUNDING_TEXT_CHANGED_ENGINE_ID) {
+      return;
+    }
+
+    this.surroundingInfo_ = surroundingInfo;
+  }
+
+  /**
+   * Deletes the sentence to the left of the text caret. If the caret is in the
+   * middle of a sentence, it will delete a portion of the sentence it
+   * intersects.
+   */
+  deletePrevSentence() {
+    const data = this.getEditableNodeData();
+    if (!this.checkEditableNodeData_(data)) {
+      return;
+    }
+
+    const {value, selStart, selEnd} = data;
+    const prevSentenceStart = EditingUtil.navPrevSent(value, selStart);
+    const length = selStart - prevSentenceStart;
+    this.deleteSurroundingText_(length, -length);
+  }
+
+  /**
+   * @param {number} length The number of characters to be deleted.
+   * @param {number} offset The offset from the caret position where deletion
+   * will start. This value can be negative.
+   * @private
+   */
+  deleteSurroundingText_(length, offset) {
+    chrome.input.ime.deleteSurroundingText({
+      contextID: this.activeImeContextId_,
+      engineID: InputController.IME_ENGINE_ID,
+      length,
+      offset,
+    });
+  }
+
+  /**
+   * Deletes a phrase to the left of the text caret. If multiple instances of
+   * `phrase` are present, it deletes the one closest to the text caret.
+   * @param {string} phrase The phrase to be deleted.
+   */
+  deletePhrase(phrase) {
+    this.replacePhrase(phrase, '');
+  }
+
+  /**
+   * Replaces a phrase to the left of the text caret with another phrase. If
+   * multiple instances of `deletePhrase` are present, this function will
+   * replace the one closest to the text caret.
+   * @param {string} deletePhrase The phrase to be deleted.
+   * @param {string} insertPhrase The phrase to be inserted.
+   */
+  replacePhrase(deletePhrase, insertPhrase) {
+    let data = this.getEditableNodeData();
+    if (!this.checkEditableNodeData_(data)) {
+      return;
+    }
+
+    const {value, selStart, selEnd} = data;
+    data =
+        EditingUtil.replacePhrase(value, selStart, deletePhrase, insertPhrase);
+    const newValue = data.value;
+    const newIndex = data.caretIndex;
+    this.setEditableValueAndUpdateCaretPosition_(newValue, newIndex);
+  }
+
+  /**
+   * Inserts `insertPhrase` directly before `beforePhrase` (and separates them
+   * with a space). This function operates on the text to the left of the caret.
+   * If multiple instances of `beforePhrase` are present, this function will
+   * use the one closest to the text caret.
+   * @param {string} insertPhrase
+   * @param {string} beforePhrase
+   */
+  insertBefore(insertPhrase, beforePhrase) {
+    let data = this.getEditableNodeData();
+    if (!this.checkEditableNodeData_(data)) {
+      return;
+    }
+
+    const {value, selStart, selEnd} = data;
+    data =
+        EditingUtil.insertBefore(value, selStart, insertPhrase, beforePhrase);
+    const newValue = data.value;
+    const newIndex = data.caretIndex;
+    this.setEditableValueAndUpdateCaretPosition_(newValue, newIndex);
+  }
+
+  /**
+   * Sets selection starting at `startPhrase` and ending at `endPhrase`
+   * (inclusive). The function operates on the text to the left of the text
+   * caret. If multiple instances of `startPhrase` or `endPhrase` are present,
+   * the function will use the ones closest to the text caret.
+   * @param {string} startPhrase
+   * @param {string} endPhrase
+   */
+  selectBetween(startPhrase, endPhrase) {
+    const data = this.getEditableNodeData();
+    if (!this.checkEditableNodeData_(data)) {
+      return;
+    }
+
+    const {node, value, selStart, selEnd} = data;
+    const selection =
+        EditingUtil.selectBetween(value, selStart, startPhrase, endPhrase);
+    if (!selection) {
+      return;
+    }
+
+    node.setSelection(selection.start, selection.end);
+  }
+
+  /** Moves the text caret to the next sentence. */
+  navNextSent() {
+    const data = this.getEditableNodeData();
+    if (!this.checkEditableNodeData_(data)) {
+      return;
+    }
+
+    const {node, value, selStart, selEnd} = data;
+    const newCaretIndex = EditingUtil.navNextSent(value, selStart);
+    node.setSelection(newCaretIndex, newCaretIndex);
+  }
+
+  /** Moves the text caret to the previous sentence. */
+  navPrevSent() {
+    const data = this.getEditableNodeData();
+    if (!this.checkEditableNodeData_(data)) {
+      return;
+    }
+
+    const {node, value, selStart, selEnd} = data;
+    const newCaretIndex = EditingUtil.navPrevSent(value, selStart);
+    node.setSelection(newCaretIndex, newCaretIndex);
+  }
+
+  /**
+   * @param {string} value
+   * @param {number} index
+   * @private
+   */
+  setEditableValueAndUpdateCaretPosition_(value, index) {
+    const editableNode = this.focusHandler_.getEditableNode();
+    if (!editableNode) {
+      return;
+    }
+
+    // Set the value first, then update the caret position.
+    let handled = false;
+    const setSelection = () => {
+      if (!handled) {
+        // Ensure this listener only runs once.
+        editableNode.removeEventListener(
+            EventType.VALUE_CHANGED, setSelection, false);
+        editableNode.setSelection(index, index);
+        handled = true;
+      }
+    };
+
+    editableNode.addEventListener(EventType.VALUE_CHANGED, setSelection, false);
+    editableNode.setValue(value);
+  }
+
+  /**
+   * Returns the editable node, its value, the selection start, and the
+   * selection end.
+   * TODO(crbug.com/1353871): Only return text that is visible on-screen.
+   * @return {?EditableNodeData}
+   */
+  getEditableNodeData() {
+    const node = this.focusHandler_.getEditableNode();
+    if (!node) {
+      return null;
+    }
+
+    let value;
+    let selStart;
+    let selEnd;
+    const isContentEditable = node.state[StateType.RICHLY_EDITABLE];
+    if (isContentEditable && this.surroundingInfo_) {
+      const info = this.surroundingInfo_;
+      // Use IME data only in contenteditables.
+      value = info.text;
+      selStart = Math.min(info.anchor, info.focus);
+      selEnd = Math.max(info.anchor, info.focus);
+      return {node, value, selStart, selEnd};
+    }
+
+    // Fall back to data from Automation.
+    value = node.value || '';
+    selStart = (node.textSelStart !== undefined && node.textSelStart !== -1) ?
+        node.textSelStart :
+        value.length;
+    selEnd = (node.textSelEnd !== undefined && node.textSelEnd !== -1) ?
+        node.textSelEnd :
+        value.length;
+    return {
+      node,
+      value,
+      selStart: Math.min(selStart, selEnd),
+      selEnd: Math.max(selStart, selEnd),
+    };
+  }
+
+  /**
+   * Returns whether or not `data` meets the prerequisites for performing an
+   * editing command.
+   * @param {?EditableNodeData} data
+   * @return {boolean}
+   * @private
+   */
+  checkEditableNodeData_(data) {
+    if (!data || data.selStart !== data.selEnd) {
+      // TODO(b:259353226): Move this selection check into checkContext()
+      // method.
+      return false;
+    }
+
+    return true;
   }
 }
 
@@ -197,6 +434,13 @@ export class InputController {
  */
 InputController.IME_ENGINE_ID =
     '_ext_ime_egfdjlfmgnehecnclamagfafdccgfndpdictation';
+
+/**
+ * The engine ID that is passed into `onSurroundingTextChanged_` when Dictation
+ * modifies the text field.
+ * @const {string}
+ */
+InputController.ON_SURROUNDING_TEXT_CHANGED_ENGINE_ID = 'dictation';
 
 /**
  * @private {number}

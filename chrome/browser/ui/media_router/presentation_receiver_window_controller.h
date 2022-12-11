@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -109,7 +109,7 @@ class PresentationReceiverWindowController final
       const GURL& target_url) override;
 
   // The profile used for the presentation.
-  raw_ptr<Profile> otr_profile_;
+  raw_ptr<Profile, DanglingUntriaged> otr_profile_;
   base::ScopedObservation<Profile, ProfileObserver> otr_profile_observation_{
       this};
 
@@ -117,7 +117,7 @@ class PresentationReceiverWindowController final
   std::unique_ptr<content::WebContents> web_contents_;
 
   // The actual UI window for displaying the receiver page.
-  raw_ptr<PresentationReceiverWindow> window_;
+  raw_ptr<PresentationReceiverWindow, DanglingUntriaged> window_;
 
   base::OnceClosure termination_callback_;
 

@@ -141,30 +141,6 @@
       custom_copy: true,
       custom_compare: true,
     },
-    // Whether this style is related with :has() pseudo-class
-    {
-      name: "AffectedByHas",
-      field_template: "monotonic_flag",
-      default_value: "false",
-      custom_copy: true,
-      custom_compare: true,
-    },
-    {
-      name: "AffectedByPseudoInHas",
-      field_template: "monotonic_flag",
-      default_value: "false",
-      custom_copy: true,
-      custom_compare: true,
-    },
-    {
-      name: "DynamicRestyleFlagsForHas",
-      field_template: "primitive",
-      field_group: "*",
-      field_size: 5,
-      default_value: "0",
-      type_name: "unsigned",
-      inherited: true,
-    },
     // A non-inherited property references a variable or @apply is used
     {
       name: "HasVariableReferenceFromNonInheritedProperty",
@@ -204,25 +180,27 @@
       default_value: "false",
     },
     // These are set if we used viewport or rem units when resolving a length.
-    // FIXME: HasViewportUnits should be a monotonic_flag.
     {
-      name: "HasViewportUnits",
+      name: "ViewportUnitFlags",
       field_template: "primitive",
-      default_value: "false",
-      type_name: "bool",
-      custom_compare: true,
+      field_size: 2,
+      default_value: "0",
+      type_name: "unsigned",
+      writable: true,
     },
     {
       name: "HasRemUnits",
       field_template: "monotonic_flag",
       default_value: "false",
       custom_compare: true,
+      writable: true,
     },
     {
       name: "HasEmUnits",
       field_template: "monotonic_flag",
       default_value: "false",
       custom_compare: true,
+      writable: true,
     },
     // Whether we used a length unit that must be resolved against the measure
     // of a certain glyph in some font.
@@ -231,12 +209,22 @@
       field_template: "monotonic_flag",
       default_value: "false",
       custom_compare: true,
+      writable: true,
     },
     {
       name: "HasContainerRelativeUnits",
       field_template: "monotonic_flag",
       default_value: "false",
       custom_compare: true,
+      writable: true,
+    },
+    {
+      name: "HasLineHeightRelativeUnits",
+      field_group: "*",
+      field_template: "monotonic_flag",
+      default_value: "false",
+      custom_compare: true,
+      writable: true,
     },
     // True if this ComputedStyle is the result of CustomStyleForLayoutObject()
     // that uses font metrics in its calculation.
@@ -252,20 +240,43 @@
       field_template: "primitive",
       field_size: 6,
       default_value: "PseudoId::kPseudoIdNone",
-      type_name: "unsigned",
+      type_name: "PseudoId",
       custom_copy: true,
       custom_compare: true,
-      computed_style_custom_functions: ["getter", "setter"],
     },
     {
-      name: "PseudoBits",
+      name: "PseudoElementStyles",
       field_template: "primitive",
       field_size: 12,
       default_value: "kPseudoIdNone",
       type_name: "unsigned",
       custom_copy: true,
       custom_compare: true,
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_custom_functions: ["getter"],
+    },
+    // Whether any non-universal highlight selectors were found when collecting
+    // rules for the originating element. Stored in the *originating* style, and
+    // needs to be restored *non-monotonically* in ApplyMatchedCache.
+    {
+      name: "HasNonUniversalHighlightPseudoStyles",
+      field_template: "primitive",
+      field_group: "*",
+      default_value: "false",
+      type_name: "bool",
+      custom_copy: true,
+      custom_compare: true,
+    },
+    // Whether any highlight pseudo selectors were found when collecting non-UA
+    // rules for the originating element. Stored in the *originating* style, and
+    // needs to be restored *non-monotonically* in ApplyMatchedCache.
+    {
+      name: "HasNonUaHighlightPseudoStyles",
+      field_template: "primitive",
+      field_group: "*",
+      default_value: "false",
+      type_name: "bool",
+      custom_copy: true,
+      custom_compare: true,
     },
     // Used by ::highlight
     {
@@ -296,6 +307,7 @@
       type_name: "bool",
       inherited: true,
       computed_style_custom_functions: ["getter", "setter"],
+      writable: true,
     },
     // FIXME: vertical align is actually a CSS property, but since we don't support union fields
     // which can be either a keyword or Length, this is specified in this file for now. Remove this
@@ -366,7 +378,6 @@
       field_group: "inherited->font",
       inherited: true,
       default_value: "Font()",
-      computed_style_custom_functions: ["getter", "setter"],
     },
     {
       name: "TextAutosizingMultiplier",
@@ -414,25 +425,7 @@
       default_value: "none",
       keywords: ["none", "auto", "dot", "circle", "double-circle", "triangle", "sesame", "custom"],
       field_group: "*",
-      computed_style_custom_functions: ["getter", "setter"],
-    },
-    {
-      name: "TextIndentLine",
-      inherited: true,
-      field_template: "keyword",
-      type_name: "TextIndentLine",
-      keywords: ["first-line", "each-line"],
-      default_value: "first-line",
-      field_group: "*",
-    },
-    {
-      name: "TextIndentType",
-      inherited: true,
-      field_template: "keyword",
-      type_name: "TextIndentType",
-      keywords: ["normal", "hanging"],
-      default_value: "normal",
-      field_group: "*",
+      computed_style_custom_functions: ["getter"],
     },
     // Though will-change is not itself an inherited property, the intent
     // expressed by 'will-change: contents' includes descendants.
@@ -455,42 +448,14 @@
       field_group: "*",
     },
     {
-      name: "HyphenationLimitBefore",
-      inherited: true,
-      field_template: "primitive",
-      type_name: "short",
-      default_value: "-1",
-      field_group: "*",
-      computed_style_custom_functions: ["getter", "setter"],
-    },
-    {
-      name: "HyphenationLimitAfter",
-      inherited: true,
-      field_template: "primitive",
-      type_name: "short",
-      default_value: "-1",
-      field_group: "*",
-      computed_style_custom_functions: ["getter", "setter"],
-    },
-    {
-      name: "HyphenationLimitLines",
-      inherited: true,
-      field_template: "primitive",
-      type_name: "short",
-      default_value: "-1",
-      field_group: "*",
-      computed_style_custom_functions: ["getter", "setter"],
-    },
-    {
       name: "EffectiveTouchAction",
       inherited: true,
       field_template: "primitive",
       include_paths: ["third_party/blink/renderer/platform/graphics/touch_action.h"],
       type_name: "TouchAction",
-      field_size: 7,
+      field_size: 8,
       default_value: "TouchAction::kAuto",
       field_group: "*",
-      computed_style_custom_functions: ["getter", "setter"],
     },
     {
       name: "EffectiveAppearance",
@@ -519,6 +484,7 @@
       wrapper_pointer_name: "scoped_refptr",
       field_group: "*",
       computed_style_custom_functions: ["getter", "setter"],
+      writable: true,
     },
     {
       name: "InheritedVariables",
@@ -541,7 +507,8 @@
       default_value: "nullptr",
       wrapper_pointer_name: "scoped_refptr",
       field_group: "*",
-      computed_style_custom_functions: ["setter"],
+      computed_style_custom_functions: [],
+      writable: true,
     },
     {
       name: "InitialData",
@@ -552,7 +519,7 @@
       default_value: "nullptr",
       wrapper_pointer_name: "scoped_refptr",
       field_group: "*",
-      computed_style_custom_functions: ["getter", "setter"],
+      computed_style_custom_functions: ["setter"],
     },
     {
       name: "Mask",
@@ -664,6 +631,27 @@
       default_value: "false",
     },
     {
+      name: "HasCurrentTranslateAnimation",
+      field_template: "primitive",
+      type_name: "bool",
+      field_group: "*",
+      default_value: "false",
+    },
+    {
+      name: "HasCurrentRotateAnimation",
+      field_template: "primitive",
+      type_name: "bool",
+      field_group: "*",
+      default_value: "false",
+    },
+    {
+      name: "HasCurrentScaleAnimation",
+      field_template: "primitive",
+      type_name: "bool",
+      field_group: "*",
+      default_value: "false",
+    },
+    {
       name: "HasCurrentTransformAnimation",
       field_template: "primitive",
       type_name: "bool",
@@ -726,6 +714,36 @@
       default_value: "false",
     },
     {
+      name: "IsRunningScaleAnimationOnCompositor",
+      field_template: "primitive",
+      type_name: "bool",
+      field_group: "*",
+      // This field just affects how changes of animatable values are handled,
+      // so it doesn't contribute to style differences.
+      custom_compare: true,
+      default_value: "false",
+    },
+    {
+      name: "IsRunningRotateAnimationOnCompositor",
+      field_template: "primitive",
+      type_name: "bool",
+      field_group: "*",
+      // This field just affects how changes of animatable values are handled,
+      // so it doesn't contribute to style differences.
+      custom_compare: true,
+      default_value: "false",
+    },
+    {
+      name: "IsRunningTranslateAnimationOnCompositor",
+      field_template: "primitive",
+      type_name: "bool",
+      field_group: "*",
+      // This field just affects how changes of animatable values are handled,
+      // so it doesn't contribute to style differences.
+      custom_compare: true,
+      default_value: "false",
+    },
+    {
       name: "IsRunningFilterAnimationOnCompositor",
       field_template: "primitive",
       type_name: "bool",
@@ -757,6 +775,7 @@
       type_name: "bool",
       field_group: "*",
       default_value: "false",
+      writable: true,
     },
     // Plugins require accelerated compositing for reasons external to blink.
     // In which case, we need to update the ComputedStyle on the
@@ -793,6 +812,24 @@
       name: "HasAuthorHighlightColors",
       field_template: "monotonic_flag",
       default_value: "false",
+    },
+    {
+      name: "ColorIsCurrentColor",
+      field_template: "primitive",
+      field_group: "inherited",
+      type_name: "bool",
+      default_value: "true",
+      inherited: true,
+      computed_style_protected_functions: ["getter"],
+    },
+    {
+      name: "InternalVisitedColorIsCurrentColor",
+      field_template: "primitive",
+      field_group: "inherited",
+      type_name: "bool",
+      default_value: "true",
+      inherited: true,
+      computed_style_protected_functions: ["getter"],
     },
     {
       name: "WillChangeProperties",
@@ -834,70 +871,6 @@
       computed_style_custom_functions: ["setter"],
     },
     {
-      name: "NamedGridColumnLines",
-      field_template: "external",
-      type_name: "NamedGridLinesMap",
-      field_group: "*->grid",
-      default_value: "NamedGridLinesMap()",
-      include_paths: ["third_party/blink/renderer/core/style/named_grid_lines_map.h"],
-    },
-    {
-      name: "NamedGridRowLines",
-      field_template: "external",
-      type_name: "NamedGridLinesMap",
-      field_group: "*->grid",
-      default_value: "NamedGridLinesMap()",
-      include_paths: ["third_party/blink/renderer/core/style/named_grid_lines_map.h"],
-    },
-    {
-      name: "OrderedNamedGridColumnLines",
-      field_template: "external",
-      type_name: "OrderedNamedGridLines",
-      field_group: "*->grid",
-      default_value: "OrderedNamedGridLines()",
-      include_paths: ["third_party/blink/renderer/core/style/ordered_named_grid_lines.h"],
-    },
-    {
-      name: "OrderedNamedGridRowLines",
-      field_template: "external",
-      type_name: "OrderedNamedGridLines",
-      field_group: "*->grid",
-      default_value: "OrderedNamedGridLines()",
-      include_paths: ["third_party/blink/renderer/core/style/ordered_named_grid_lines.h"],
-    },
-    {
-      name: "AutoRepeatNamedGridColumnLines",
-      field_template: "external",
-      type_name: "NamedGridLinesMap",
-      field_group: "*->grid",
-      default_value: "NamedGridLinesMap()",
-      include_paths: ["third_party/blink/renderer/core/style/named_grid_lines_map.h"],
-    },
-    {
-      name: "AutoRepeatNamedGridRowLines",
-      field_template: "external",
-      type_name: "NamedGridLinesMap",
-      field_group: "*->grid",
-      default_value: "NamedGridLinesMap()",
-      include_paths: ["third_party/blink/renderer/core/style/named_grid_lines_map.h"],
-    },
-    {
-      name: "AutoRepeatOrderedNamedGridColumnLines",
-      field_template: "external",
-      type_name: "OrderedNamedGridLines",
-      field_group: "*->grid",
-      default_value: "OrderedNamedGridLines()",
-      include_paths: ["third_party/blink/renderer/core/style/ordered_named_grid_lines.h"],
-    },
-    {
-      name: "AutoRepeatOrderedNamedGridRowLines",
-      field_template: "external",
-      type_name: "OrderedNamedGridLines",
-      field_group: "*->grid",
-      default_value: "OrderedNamedGridLines()",
-      include_paths: ["third_party/blink/renderer/core/style/ordered_named_grid_lines.h"],
-    },
-    {
       name: "ImplicitNamedGridColumnLines",
       field_template: "external",
       type_name: "NamedGridLinesMap",
@@ -919,7 +892,7 @@
       type_name: "NamedGridAreaMap",
       field_group: "*->grid",
       default_value: "NamedGridAreaMap()",
-      include_paths: ["third_party/blink/renderer/core/style/grid_area.h"]
+      include_paths: ["third_party/blink/renderer/core/style/grid_area.h"],
     },
     {
       name: "NamedGridAreaRowCount",
@@ -935,70 +908,6 @@
       field_group: "*->grid",
       default_value: "0",
     },
-    {
-      name: "GridAutoRepeatColumns",
-      field_template: "external",
-      type_name: "Vector<GridTrackSize, 1>",
-      field_group: "*->grid",
-      default_value: "Vector<GridTrackSize, 1>()",
-      include_paths: ["third_party/blink/renderer/platform/wtf/vector.h",
-                      "third_party/blink/renderer/core/style/grid_track_size.h"],
-    },
-    {
-      name: "GridAutoRepeatRows",
-      field_template: "external",
-      type_name: "Vector<GridTrackSize, 1>",
-      field_group: "*->grid",
-      default_value: "Vector<GridTrackSize, 1>()",
-      include_paths: ["third_party/blink/renderer/platform/wtf/vector.h",
-                      "third_party/blink/renderer/core/style/grid_track_size.h"],
-    },
-    {
-      name: "GridAutoRepeatColumnsInsertionPoint",
-      field_template: "primitive",
-      type_name: "wtf_size_t",
-      field_group: "*->grid",
-      default_value: "0",
-    },
-    {
-      name: "GridAutoRepeatRowsInsertionPoint",
-      field_template: "primitive",
-      type_name: "wtf_size_t",
-      field_group: "*->grid",
-      default_value: "0",
-    },
-    {
-      name: "GridAutoRepeatColumnsType",
-      field_template: "keyword",
-      type_name: "AutoRepeatType",
-      field_group: "*->grid",
-      keywords: ["no-auto-repeat", "auto-fill", "auto-fit"],
-      default_value: "no-auto-repeat",
-    },
-    {
-      name: "GridAutoRepeatRowsType",
-      field_template: "keyword",
-      type_name: "AutoRepeatType",
-      field_group: "*->grid",
-      keywords: ["no-auto-repeat", "auto-fill", "auto-fit"],
-      default_value: "no-auto-repeat",
-    },
-    {
-      name: "GridColumnsAxisType",
-      field_template: "keyword",
-      type_name: "GridAxisType",
-      field_group: "*->grid",
-      keywords: ["standalone-axis", "subgridded-axis"],
-      default_value: "standalone-axis",
-    },
-    {
-      name: "GridRowsAxisType",
-      field_template: "keyword",
-      type_name: "GridAxisType",
-      field_group: "*->grid",
-      keywords: ["standalone-axis", "subgridded-axis"],
-      default_value: "standalone-axis",
-    },
     // We only create and store ComputedStyle objects for elements in
     // display:none subtrees if we need it for e.g. getComputedStyle. This flag
     // is true for such ComputedStyle objects.
@@ -1007,6 +916,7 @@
       field_template: "monotonic_flag",
       default_value: "false",
       custom_compare: true,
+      writable: true,
     },
     {
       name: "MayHaveMargin",
@@ -1051,17 +961,17 @@
       custom_compare: true,
     },
     {
-      name: "IsFlexOrGridItem",
-      field_template: "monotonic_flag",
-      default_value: "false",
-      custom_compare: true,
-    },
-    {
       name: "IsEnsuredOutsideFlatTree",
       field_template: "monotonic_flag",
       default_value: "false",
       custom_compare: true,
       inherited: true,
+    },
+    {
+      name: "IsInsideDisplayIgnoringFloatingChildren",
+      field_template: "monotonic_flag",
+      default_value: "false",
+      custom_compare: true,
     },
     {
       name: "IsInsideListElement",
@@ -1184,7 +1094,25 @@
       inherited: true,
     },
     {
-      name: "DependsOnContainerQueries",
+      name: "DependsOnSizeContainerQueries",
+      field_template: "primitive",
+      type_name: "bool",
+      field_group: "*",
+      default_value: "false",
+      writable: true,
+    },
+    {
+      name: "DependsOnStyleContainerQueries",
+      field_template: "primitive",
+      type_name: "bool",
+      field_group: "*",
+      default_value: "false",
+      writable: true,
+    },
+    {
+      // Set to true if this ComputedStyle is for an element whose ::first-line
+      // style depends on size container queries.
+      name: "FirstLineDependsOnSizeContainerQueries",
       field_template: "primitive",
       type_name: "bool",
       field_group: "*",
@@ -1206,25 +1134,50 @@
       name: "SkipsContents",
       field_template: "monotonic_flag",
       default_value: "false",
+      writable: true,
     },
     {
       // https://html.spec.whatwg.org/multipage/interaction.html#inert
-      // The inertness is represented with one of these values:
-      // - 'none' means that the node is not inert (the default).
-      // - 'overridable' means that the node is inert, and descendants will
-      //    inherit by default, but may change their inertness to e.g. 'none'.
-      // - 'forced' means that that the node is inert, and its decendants
-      //   won't be able to change their inertness to something else.
-      // ComputedStyle doesn't directly expose the inertness. Instead, use
-      // IsInert(), SetIsInert(bool), IsForcedInert() or SetIsForcedInert().
-      name: "Inertness",
+      name: "IsInert",
       inherited: true,
-      field_template: "keyword",
-      type_name: "Inertness",
-      keywords: ["none", "overridable", "forced"],
-      default_value: "none",
-      field_group: "*",
-      computed_style_custom_functions: ["getter", "setter"],
+      independent: true,
+      field_template: "primitive",
+      type_name: "bool",
+      default_value: "false",
     },
+    {
+      // We need to go through LayoutObject::SetStyle with
+      // ApplyStyleChanges::kYes if the body changes from being the first body
+      // element to a secondary one because the same style could lead to
+      // different need for scrollbars depending on whether the body element
+      // propagates its scrollbars to the viewport or not. This flag is merely
+      // for making the old and new ComputedStyles different in such a case.
+      name: "IsSecondaryBodyElement",
+      field_template: "monotonic_flag",
+      default_value: "false",
+      field_group: "*",
+    },
+    {
+      name: "InlineStyleLostCascade",
+      field_template: "primitive",
+      type_name: "bool",
+      field_group: "*",
+      default_value: "false",
+      custom_compare: true,
+    },
+    {
+      name: "HasExplicitOverflowXVisible",
+      field_template: "monotonic_flag",
+      type_name: "bool",
+      field_group: "*",
+      default_value: "false",
+    },
+    {
+      name: "HasExplicitOverflowYVisible",
+      field_template: "monotonic_flag",
+      type_name: "bool",
+      field_group: "*",
+      default_value: "false",
+    }
   ],
 }

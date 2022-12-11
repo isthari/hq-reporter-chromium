@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include "base/bind.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/task/post_task.h"
 #include "base/task/task_runner.h"
 #include "chrome/browser/extensions/chrome_extension_cookies.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -140,9 +139,10 @@ void DataDeleter::StartDeleting(Profile* profile,
   if (has_isolated_storage) {
     profile->AsyncObliterateStoragePartition(
         util::GetPartitionDomainForExtension(extension),
-        base::BindOnce(
-            &OnNeedsToGarbageCollectIsolatedStorage,
-            ExtensionSystem::Get(profile)->extension_service()->AsWeakPtr()),
+        base::BindOnce(&OnNeedsToGarbageCollectIsolatedStorage,
+                       ExtensionSystem::Get(profile)
+                           ->extension_service()
+                           ->AsExtensionServiceWeakPtr()),
         subtask_done_callback);
   }
   if (delete_extension_origin) {

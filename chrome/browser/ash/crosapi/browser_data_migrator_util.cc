@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,21 +11,21 @@
 #include "base/containers/contains.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
+#include "base/json/json_reader.h"
+#include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
+#include "base/values.h"
+#include "components/sync/base/model_type.h"
+#include "components/sync/model/blocking_model_type_store_impl.h"
+#include "third_party/leveldatabase/src/include/leveldb/write_batch.h"
 
-namespace ash {
-namespace browser_data_migrator_util {
+namespace ash::browser_data_migrator_util {
 namespace {
-
-// The size of disk space that should be kept free after migration. This is
-// important since crypotohome conducts an aggressive disk cleanup if free disk
-// space becomes less than 768MB. The buffer is rounded up to 1GB.
-const int64_t kBuffer = (int64_t)1024 * 1024 * 1024;
 
 struct PathNamePair {
   const char* key;
@@ -137,20 +137,73 @@ static_assert(base::ranges::is_sorted(kPathNamePairs, PathNameComparator()),
               "kPathNamePairs needs to be sorted by the keys of its elements "
               "so that binary_search can be used on it.");
 
+absl::optional<uint64_t> g_extra_bytes_required_to_be_freed_for_testing;
+
+// Key prefixes in LocalStorage's LevelDB.
+constexpr char kMetaPrefix[] = "META:chrome-extension://";
+constexpr char kKeyPrefix[] = "_chrome-extension://";
+
+// IndexedDB extension suffixes.
+constexpr char kIndexedDBBlobExtension[] = ".indexeddb.blob";
+constexpr char kIndexedDBLevelDBExtension[] = ".indexeddb.leveldb";
+
+bool ShouldRemoveExtensionByType(const base::StringPiece extension_id,
+                                 ChromeType chrome_type) {
+  switch (chrome_type) {
+    case ChromeType::kAsh:
+      return !base::Contains(kExtensionsAshOnly, extension_id) &&
+             !base::Contains(kExtensionsBothChromes, extension_id);
+
+    case ChromeType::kLacros:
+      return base::Contains(kExtensionsAshOnly, extension_id);
+  }
+}
+
+void UpdatePreferencesDictByType(base::Value::Dict& dict,
+                                 ChromeType chrome_type) {
+  std::vector<std::string> keys_to_remove;
+
+  // Collect keys that don't belong in `chrome_type`.
+  for (const auto entry : dict) {
+    const base::StringPiece extension_id = entry.first;
+    if (ShouldRemoveExtensionByType(extension_id, chrome_type))
+      keys_to_remove.emplace_back(extension_id);
+  }
+
+  // Delete those keys.
+  for (const std::string& k : keys_to_remove) {
+    dict.Remove(k);
+  }
+}
+
+void UpdatePreferencesListByType(base::Value::List& list,
+                                 ChromeType chrome_type) {
+  // Erase all elements in the list that don't belong in `chrome_type`.
+  list.EraseIf([&](const base::Value& item) {
+    if (!item.is_string())
+      return false;
+
+    const base::StringPiece extension_id = item.GetString();
+    return ShouldRemoveExtensionByType(extension_id, chrome_type);
+  });
+}
+
 }  // namespace
 
 CancelFlag::CancelFlag() : cancelled_(false) {}
 CancelFlag::~CancelFlag() = default;
 
 TargetItem::TargetItem(base::FilePath path, int64_t size, ItemType item_type)
-    : path(path), size(size), is_directory(item_type == ItemType::kDirectory) {}
+    : path(std::move(path)),
+      size(size),
+      is_directory(item_type == ItemType::kDirectory) {}
 
 bool TargetItem::operator==(const TargetItem& rhs) const {
   return this->path == rhs.path && this->size == rhs.size &&
          this->is_directory == rhs.is_directory;
 }
 
-TargetItems::TargetItems() : total_size(0) {}
+TargetItems::TargetItems() = default;
 TargetItems::TargetItems(TargetItems&&) = default;
 TargetItems::~TargetItems() = default;
 
@@ -190,8 +243,11 @@ TargetItems GetTargetItems(const base::FilePath& original_profile_dir,
     case ItemType::kDeletable:
       target_paths = base::span<const char* const>(kDeletablePaths);
       break;
-    case ItemType::kNeedCopy:
-      target_paths = base::span<const char* const>(kNeedCopyDataPaths);
+    case ItemType::kNeedCopyForMove:
+      target_paths = base::span<const char* const>(kNeedCopyForMoveDataPaths);
+      break;
+    case ItemType::kNeedCopyForCopy:
+      target_paths = base::span<const char* const>(kNeedCopyForCopyDataPaths);
       break;
     default:
       NOTREACHED();
@@ -230,16 +286,41 @@ TargetItems GetTargetItems(const base::FilePath& original_profile_dir,
 
 bool HasEnoughDiskSpace(const int64_t total_copy_size,
                         const base::FilePath& original_profile_dir) {
+  uint64_t extra_bytes_required_to_be_freed =
+      ExtraBytesRequiredToBeFreed(total_copy_size, original_profile_dir);
+
+  return extra_bytes_required_to_be_freed == 0;
+}
+
+uint64_t ExtraBytesRequiredToBeFreed(
+    const int64_t total_copy_size,
+    const base::FilePath& original_profile_dir) {
+  if (g_extra_bytes_required_to_be_freed_for_testing)
+    return *g_extra_bytes_required_to_be_freed_for_testing;
+
   const int64_t free_disk_space =
       base::SysInfo::AmountOfFreeDiskSpace(original_profile_dir);
+  const int64_t required_disk_space = total_copy_size + kBuffer;
 
-  if (free_disk_space < total_copy_size + kBuffer) {
-    LOG(ERROR) << "Aborting migration. Need " << total_copy_size + kBuffer
-               << " bytes but only have " << free_disk_space << " bytes left.";
-    return false;
+  if (required_disk_space > free_disk_space) {
+    LOG(WARNING) << required_disk_space
+                 << " bytes of disk space is required but only "
+                 << free_disk_space << " bytes are available.";
+    return required_disk_space - free_disk_space;
   }
 
-  return true;
+  return 0;
+}
+
+ScopedExtraBytesRequiredToBeFreedForTesting::
+    ScopedExtraBytesRequiredToBeFreedForTesting(uint64_t required_size) {
+  DCHECK(!g_extra_bytes_required_to_be_freed_for_testing.has_value());
+  g_extra_bytes_required_to_be_freed_for_testing = required_size;
+}
+
+ScopedExtraBytesRequiredToBeFreedForTesting::
+    ~ScopedExtraBytesRequiredToBeFreedForTesting() {
+  g_extra_bytes_required_to_be_freed_for_testing.reset();
 }
 
 bool CopyDirectory(const base::FilePath& from_path,
@@ -334,6 +415,27 @@ bool CopyDirectoryByHardLinks(const base::FilePath& from_dir,
   return true;
 }
 
+bool CopyTargetItemsByHardLinks(const base::FilePath& to_dir,
+                                const TargetItems& target_items,
+                                CancelFlag* cancel_flag) {
+  for (const auto& item : target_items.items) {
+    if (cancel_flag->IsSet())
+      return false;
+
+    if (item.is_directory) {
+      if (!CopyDirectoryByHardLinks(item.path,
+                                    to_dir.Append(item.path.BaseName()))) {
+        return false;
+      }
+    } else {
+      if (!CreateHardLink(item.path, to_dir.Append(item.path.BaseName())))
+        return false;
+    }
+  }
+
+  return true;
+}
+
 bool CopyTargetItems(const base::FilePath& to_dir,
                      const TargetItems& target_items,
                      CancelFlag* cancel_flag,
@@ -409,7 +511,7 @@ void DryRunToCollectUMA(const base::FilePath& profile_data_dir) {
   TargetItems lacros_items =
       GetTargetItems(profile_data_dir, ItemType::kLacros);
   TargetItems need_copy_items =
-      GetTargetItems(profile_data_dir, ItemType::kNeedCopy);
+      GetTargetItems(profile_data_dir, ItemType::kNeedCopyForMove);
   TargetItems remain_in_ash_items =
       GetTargetItems(profile_data_dir, ItemType::kRemainInAsh);
   TargetItems deletable_items =
@@ -482,5 +584,351 @@ void DryRunToCollectUMA(const base::FilePath& profile_data_dir) {
   }
 }
 
-}  // namespace browser_data_migrator_util
-}  // namespace ash
+leveldb::Status GetExtensionKeys(leveldb::DB* db,
+                                 LevelDBType leveldb_type,
+                                 ExtensionKeys* result) {
+  std::unique_ptr<leveldb::Iterator> it(
+      db->NewIterator(leveldb::ReadOptions()));
+
+  // Iterate through all the elements of the leveldb database.
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    std::string extension_id;
+    const std::string key = it->key().ToString();
+
+    switch (leveldb_type) {
+      // LocalStorage format.
+      // Refer to: components/services/storage/dom_storage/local_storage_impl.cc
+      case LevelDBType::kLocalStorage:
+        if (base::StartsWith(key, kMetaPrefix)) {
+          extension_id = key.substr(std::size(kMetaPrefix) - 1);
+        } else if (base::StartsWith(key, kKeyPrefix)) {
+          size_t pos = std::size(kKeyPrefix) - 1;
+          size_t end = key.find('\x00', pos);
+          if (end != std::string::npos)
+            extension_id = key.substr(pos, end - pos);
+        }
+        break;
+
+      // StateStore format (e.g. `Extension State/Rules`).
+      // Refer to: extensions/browser/state_store.cc
+      case LevelDBType::kStateStore:
+        size_t separator = key.find('.');
+        if (separator != std::string::npos)
+          extension_id = key.substr(0, separator);
+        break;
+    }
+
+    // Collect keys associated with each extension id.
+    if (!extension_id.empty())
+      (*result)[extension_id].push_back(key);
+  }
+
+  return it->status();
+}
+
+bool IsAshOnlySyncDataType(base::StringPiece key) {
+  for (auto type : kAshOnlySyncDataTypes) {
+    if ((base::StartsWith(key, FormatDataPrefix(type)) ||
+         base::StartsWith(key, FormatMetaPrefix(type)) ||
+         key == FormatGlobalMetadataKey(type))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+IndexedDBPaths GetIndexedDBPaths(const base::FilePath& profile_path,
+                                 const char* extension_id) {
+  const base::FilePath indexed_db_dir = profile_path.Append(kIndexedDBFilePath);
+  const base::FilePath base_path = indexed_db_dir.Append(
+      "chrome_extension_" + std::string(extension_id) + "_0");
+
+  return {
+      base_path.AddExtension(kIndexedDBBlobExtension),
+      base_path.AddExtension(kIndexedDBLevelDBExtension),
+  };
+}
+
+bool MigrateLevelDB(const base::FilePath& original_path,
+                    const base::FilePath& target_path,
+                    const LevelDBType leveldb_type) {
+  // LevelDB options.
+  leveldb_env::Options options;
+  options.create_if_missing = false;
+
+  // Open the original LevelDB database.
+  std::unique_ptr<leveldb::DB> original_db;
+  leveldb::Status status =
+      leveldb_env::OpenDB(options, original_path.value(), &original_db);
+  if (!status.ok()) {
+    PLOG(ERROR) << "Failure while opening original leveldb: " << original_path;
+    return false;
+  }
+
+  // Retrieve all extensions' keys, indexed by extension id.
+  ExtensionKeys original_keys;
+  status = GetExtensionKeys(original_db.get(), leveldb_type, &original_keys);
+  if (!status.ok()) {
+    PLOG(ERROR) << "Failure while reading keys from original leveldb: "
+                << original_path;
+    return false;
+  }
+
+  // Create a new LevelDB database to store entries that will stay in Ash.
+  std::unique_ptr<leveldb::DB> target_db;
+  options.create_if_missing = true;
+  options.error_if_exists = true;
+  status = leveldb_env::OpenDB(options, target_path.value(), &target_db);
+  if (!status.ok()) {
+    PLOG(ERROR) << "Failure while opening new leveldb: " << target_path;
+    return false;
+  }
+
+  // Prepare new LevelDB database according to schema.
+  // Refer to:
+  // - components/services/storage/dom_storage/local_storage_impl.cc
+  // - extensions/browser/state_store.cc
+  leveldb::WriteBatch write_batch;
+  if (leveldb_type == LevelDBType::kLocalStorage) {
+    write_batch.Put("VERSION", "1");
+  }
+
+  // Copy all the key-value pairs that need to be kept in Ash.
+  for (const auto& [extension_id, keys] : original_keys) {
+    if (base::Contains(kExtensionsAshOnly, extension_id) ||
+        base::Contains(kExtensionsBothChromes, extension_id)) {
+      for (const std::string& key : keys) {
+        std::string value;
+        status = original_db->Get(leveldb::ReadOptions(), key, &value);
+        if (!status.ok()) {
+          PLOG(ERROR) << "Failure while reading from original leveldb: "
+                      << original_path;
+          return false;
+        }
+        write_batch.Put(key, value);
+      }
+    }
+  }
+
+  // Write everything in bulk.
+  leveldb::WriteOptions write_options;
+  write_options.sync = true;
+  status = target_db->Write(write_options, &write_batch);
+  if (!status.ok()) {
+    PLOG(ERROR) << "Failure while writing into new leveldb: " << target_path;
+    return false;
+  }
+
+  return true;
+}
+
+bool MigrateSyncDataLevelDB(const base::FilePath& original_path,
+                            const base::FilePath& ash_target_path,
+                            const base::FilePath& lacros_target_path) {
+  // Open the original LevelDB database.
+  std::unique_ptr<leveldb::DB> original_db;
+  leveldb_env::Options options;
+  options.create_if_missing = false;
+  leveldb::Status status =
+      leveldb_env::OpenDB(options, original_path.value(), &original_db);
+  if (!status.ok()) {
+    PLOG(ERROR) << "Failure while opening original leveldb: " << original_path;
+    return false;
+  }
+
+  // Create a new LevelDB database to store entries that will stay in Ash.
+  std::unique_ptr<leveldb::DB> ash_target_db;
+  options.create_if_missing = true;
+  options.error_if_exists = true;
+  status =
+      leveldb_env::OpenDB(options, ash_target_path.value(), &ash_target_db);
+  if (!status.ok()) {
+    PLOG(ERROR) << "Failure while opening new leveldb: " << ash_target_path;
+    return false;
+  }
+
+  // Create a new LevelDB database to store entries that will migrate to Lacros.
+  std::unique_ptr<leveldb::DB> lacros_target_db;
+  status = leveldb_env::OpenDB(options, lacros_target_path.value(),
+                               &lacros_target_db);
+  if (!status.ok()) {
+    PLOG(ERROR) << "Failure while opening new leveldb: " << lacros_target_path;
+    return false;
+  }
+
+  // Split the key-value pairs between Ash and Lacros.
+  leveldb::WriteBatch ash_write_batch;
+  leveldb::WriteBatch lacros_write_batch;
+  // Iterate through all the elements of the leveldb database.
+  std::unique_ptr<leveldb::Iterator> it(
+      original_db->NewIterator(leveldb::ReadOptions()));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    const std::string key = it->key().ToString();
+    std::string value;
+
+    status = original_db->Get(leveldb::ReadOptions(), key, &value);
+    if (!status.ok()) {
+      PLOG(ERROR) << "Failure while reading from original leveldb: "
+                  << original_path;
+      return false;
+    }
+
+    if (IsAshOnlySyncDataType(key))
+      ash_write_batch.Put(key, value);
+    else
+      lacros_write_batch.Put(key, value);
+  }
+
+  // Write everything in bulk.
+  leveldb::WriteOptions write_options;
+  write_options.sync = true;
+  status = ash_target_db->Write(write_options, &ash_write_batch);
+  if (!status.ok()) {
+    PLOG(ERROR) << "Failure while writing into new leveldb: "
+                << ash_target_path;
+    return false;
+  }
+  status = lacros_target_db->Write(write_options, &lacros_write_batch);
+  if (!status.ok()) {
+    PLOG(ERROR) << "Failure while writing into new leveldb: "
+                << lacros_target_path;
+    return false;
+  }
+
+  return true;
+}
+
+void UpdatePreferencesKeyByType(base::Value::Dict* root_dict,
+                                const base::StringPiece key,
+                                ChromeType chrome_type) {
+  base::Value* value = root_dict->FindByDottedPath(key);
+  if (!value)
+    return;
+
+  if (value->is_dict()) {
+    UpdatePreferencesDictByType(value->GetDict(), chrome_type);
+  } else if (value->is_list()) {
+    UpdatePreferencesListByType(value->GetList(), chrome_type);
+  }
+}
+
+absl::optional<PreferencesContents> MigratePreferencesContents(
+    const base::StringPiece original_contents) {
+  // Parse the original JSON file from Ash.
+  absl::optional<base::Value> ash_root =
+      base::JSONReader::Read(original_contents);
+  if (!ash_root) {
+    PLOG(ERROR) << "Failure while parsing Ash's Preferences";
+    return absl::nullopt;
+  }
+  base::Value::Dict* ash_root_dict = ash_root->GetIfDict();
+  if (!ash_root_dict) {
+    PLOG(ERROR) << "Failure while parsing Ash's Preferences root node";
+    return absl::nullopt;
+  }
+
+  // Create a copy for Lacros migration.
+  base::Value lacros_root = ash_root->Clone();
+  base::Value::Dict* lacros_root_dict = lacros_root.GetIfDict();
+  if (!lacros_root_dict) {
+    PLOG(ERROR) << "Failure while parsing Lacros's Preferences root node";
+    return absl::nullopt;
+  }
+
+  // Some preferences are to be moved to Lacros, and deleted in Ash.
+  for (const char* key : kLacrosOnlyPreferencesKeys) {
+    base::Value* result = ash_root_dict->FindByDottedPath(key);
+    if (result)
+      ash_root_dict->RemoveByDottedPath(key);
+  }
+
+  // Some preferences don't need to be copied to Lacros.
+  for (const char* key : kAshOnlyPreferencesKeys) {
+    base::Value* result = lacros_root_dict->FindByDottedPath(key);
+    if (result)
+      lacros_root_dict->RemoveByDottedPath(key);
+  }
+
+  // Some preferences need to be split between Ash and Lacros.
+  for (const char* key : kSplitPreferencesKeys) {
+    UpdatePreferencesKeyByType(ash_root_dict, key, ChromeType::kAsh);
+    UpdatePreferencesKeyByType(lacros_root_dict, key, ChromeType::kLacros);
+  }
+
+  // Generate the resulting JSON.
+  PreferencesContents contents;
+  if (!base::JSONWriter::Write(*ash_root, &contents.ash)) {
+    PLOG(ERROR) << "Failure while generating Ash's Preferences";
+    return absl::nullopt;
+  }
+  if (!base::JSONWriter::Write(lacros_root, &contents.lacros)) {
+    PLOG(ERROR) << "Failure while generating Lacros's Preferences";
+    return absl::nullopt;
+  }
+
+  return contents;
+}
+
+bool MigratePreferences(const base::FilePath& original_path,
+                        const base::FilePath& ash_target_path,
+                        const base::FilePath& lacros_target_path) {
+  std::string original_contents;
+  if (!base::ReadFileToString(original_path, &original_contents)) {
+    PLOG(ERROR) << "Failure while opening original Preferences: "
+                << original_path.value();
+    return false;
+  }
+
+  auto contents = MigratePreferencesContents(original_contents);
+  if (!contents)
+    return false;
+
+  if (!base::WriteFile(ash_target_path, contents->ash)) {
+    PLOG(ERROR) << "Failure while writing Ash's Preferences: "
+                << ash_target_path.value();
+    return false;
+  }
+  if (!base::WriteFile(lacros_target_path, contents->lacros)) {
+    PLOG(ERROR) << "Failure while writing Lacros's Preferences: "
+                << lacros_target_path.value();
+    return false;
+  }
+
+  return true;
+}
+
+bool MigrateAshIndexedDB(const base::FilePath& src_profile_dir,
+                         const base::FilePath& target_indexed_db_dir,
+                         const char* extension_id,
+                         bool copy) {
+  auto MigratePath = [&](const base::FilePath& from, const base::FilePath& to) {
+    return copy ? base::CopyDirectory(from, to, /*recursive=*/true)
+                : base::Move(from, to);
+  };
+
+  const auto& [blob_path, leveldb_path] =
+      browser_data_migrator_util::GetIndexedDBPaths(src_profile_dir,
+                                                    extension_id);
+  if (base::PathExists(blob_path)) {
+    const base::FilePath ash_blob_path =
+        target_indexed_db_dir.Append(blob_path.BaseName());
+    if (!MigratePath(blob_path, ash_blob_path)) {
+      PLOG(ERROR) << "Failed migrating " << blob_path.value() << " to "
+                  << ash_blob_path.value();
+      return false;
+    }
+  }
+  if (base::PathExists(leveldb_path)) {
+    const base::FilePath ash_leveldb_path =
+        target_indexed_db_dir.Append(leveldb_path.BaseName());
+    if (!MigratePath(leveldb_path, target_indexed_db_dir)) {
+      PLOG(ERROR) << "Failed migrating " << leveldb_path.value() << " to "
+                  << ash_leveldb_path.value();
+      return false;
+    }
+  }
+
+  return true;
+}
+
+}  // namespace ash::browser_data_migrator_util

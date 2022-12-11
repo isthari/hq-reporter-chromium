@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <sysinfoapi.h>
 
-#include <algorithm>
 #include <memory>
+#include <set>
 #include <string>
 
 #include "base/bind.h"
@@ -20,6 +20,8 @@
 #include "base/memory/free_deleter.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
@@ -28,8 +30,6 @@
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/scoped_blocking_call.h"
-#include "base/threading/sequenced_task_runner_handle.h"
-#include "base/time/time.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_handle.h"
 #include "base/win/windows_types.h"
@@ -46,9 +46,6 @@ namespace internal {
 
 namespace {
 
-// Interval between retries to parse config. Used only until parsing succeeds.
-const int kRetryIntervalSeconds = 5;
-
 // Registry key paths.
 const wchar_t kTcpipPath[] =
     L"SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters";
@@ -58,6 +55,30 @@ const wchar_t kDnscachePath[] =
     L"SYSTEM\\CurrentControlSet\\Services\\Dnscache\\Parameters";
 const wchar_t kPolicyPath[] =
     L"SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient";
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class DnsWindowsCompatibility {
+  kCompatible = 0,
+  kIncompatibleResolutionPolicy = 1,
+  kIncompatibleProxy = 1 << 1,
+  kIncompatibleVpn = 1 << 2,
+  kIncompatibleAdapterSpecificNameserver = 1 << 3,
+
+  KAllIncompatibleFlags = (1 << 4) - 1,
+  kMaxValue = KAllIncompatibleFlags
+};
+
+inline constexpr DnsWindowsCompatibility operator|(DnsWindowsCompatibility a,
+                                                   DnsWindowsCompatibility b) {
+  return static_cast<DnsWindowsCompatibility>(static_cast<int>(a) |
+                                              static_cast<int>(b));
+}
+
+inline DnsWindowsCompatibility& operator|=(DnsWindowsCompatibility& a,
+                                           DnsWindowsCompatibility b) {
+  return a = a | b;
+}
 
 // Wrapper for GetAdaptersAddresses to get unicast addresses.
 // Returns nullptr if failed.
@@ -279,13 +300,54 @@ void ConfigureSuffixSearch(const WinDnsSystemSettings& settings,
   // behavior (see also ParseSearchList). If a suffix is not valid, it will be
   // discarded when the fully-qualified name is converted to DNS format.
 
-  unsigned num_dots = std::count(primary_suffix.begin(),
-                                 primary_suffix.end(), '.');
+  unsigned num_dots = base::ranges::count(primary_suffix, '.');
 
   for (size_t offset = 0; num_dots >= devolution.level.value(); --num_dots) {
     offset = primary_suffix.find('.', offset + 1);
     in_out_config.search.push_back(primary_suffix.substr(offset + 1));
   }
+}
+
+absl::optional<std::vector<IPEndPoint>> GetNameServers(
+    const IP_ADAPTER_ADDRESSES* adapter) {
+  std::vector<IPEndPoint> nameservers;
+  for (const IP_ADAPTER_DNS_SERVER_ADDRESS* address =
+           adapter->FirstDnsServerAddress;
+       address != nullptr; address = address->Next) {
+    IPEndPoint ipe;
+    if (ipe.FromSockAddr(address->Address.lpSockaddr,
+                         address->Address.iSockaddrLength)) {
+      if (WinDnsSystemSettings::IsStatelessDiscoveryAddress(ipe.address()))
+        continue;
+      // Override unset port.
+      if (!ipe.port())
+        ipe = IPEndPoint(ipe.address(), dns_protocol::kDefaultPort);
+      nameservers.push_back(ipe);
+    } else {
+      return absl::nullopt;
+    }
+  }
+  return nameservers;
+}
+
+bool CheckAndRecordCompatibility(bool have_name_resolution_policy,
+                                 bool have_proxy,
+                                 bool uses_vpn,
+                                 bool has_adapter_specific_nameservers) {
+  DnsWindowsCompatibility compatibility = DnsWindowsCompatibility::kCompatible;
+  if (have_name_resolution_policy)
+    compatibility |= DnsWindowsCompatibility::kIncompatibleResolutionPolicy;
+  if (have_proxy)
+    compatibility |= DnsWindowsCompatibility::kIncompatibleProxy;
+  if (uses_vpn)
+    compatibility |= DnsWindowsCompatibility::kIncompatibleVpn;
+  if (has_adapter_specific_nameservers) {
+    compatibility |=
+        DnsWindowsCompatibility::kIncompatibleAdapterSpecificNameserver;
+  }
+  base::UmaHistogramEnumeration("Net.DNS.DnsConfig.Windows.Compatibility",
+                                compatibility);
+  return compatibility == DnsWindowsCompatibility::kCompatible;
 }
 
 }  // namespace
@@ -341,8 +403,11 @@ std::vector<std::string> ParseSearchList(base::WStringPiece value) {
 absl::optional<DnsConfig> ConvertSettingsToDnsConfig(
     const WinDnsSystemSettings& settings) {
   bool uses_vpn = false;
+  bool has_adapter_specific_nameservers = false;
 
   DnsConfig dns_config;
+
+  std::set<IPEndPoint> previous_nameservers_set;
 
   // Use GetAdapterAddresses to get effective DNS server order and
   // connection-specific DNS suffix. Ignore disconnected and loopback adapters.
@@ -356,6 +421,22 @@ absl::optional<DnsConfig> ConvertSettingsToDnsConfig(
       uses_vpn = true;
     }
 
+    absl::optional<std::vector<IPEndPoint>> nameservers =
+        GetNameServers(adapter);
+    if (!nameservers)
+      return absl::nullopt;
+
+    if (!nameservers->empty() && (adapter->OperStatus == IfOperStatusUp)) {
+      // Check if the |adapter| has adapter specific nameservers.
+      std::set<IPEndPoint> nameservers_set(nameservers->begin(),
+                                           nameservers->end());
+      if (!previous_nameservers_set.empty() &&
+          (previous_nameservers_set != nameservers_set)) {
+        has_adapter_specific_nameservers = true;
+      }
+      previous_nameservers_set = std::move(nameservers_set);
+    }
+
     // Skip disconnected and loopback adapters. If a good configuration was
     // previously found, skip processing another adapter.
     if (adapter->OperStatus != IfOperStatusUp ||
@@ -363,22 +444,7 @@ absl::optional<DnsConfig> ConvertSettingsToDnsConfig(
         !dns_config.nameservers.empty())
       continue;
 
-    for (const IP_ADAPTER_DNS_SERVER_ADDRESS* address =
-             adapter->FirstDnsServerAddress;
-         address != nullptr; address = address->Next) {
-      IPEndPoint ipe;
-      if (ipe.FromSockAddr(address->Address.lpSockaddr,
-                           address->Address.iSockaddrLength)) {
-        if (WinDnsSystemSettings::IsStatelessDiscoveryAddress(ipe.address()))
-          continue;
-        // Override unset port.
-        if (!ipe.port())
-          ipe = IPEndPoint(ipe.address(), dns_protocol::kDefaultPort);
-        dns_config.nameservers.push_back(ipe);
-      } else {
-        return absl::nullopt;
-      }
-    }
+    dns_config.nameservers = std::move(*nameservers);
 
     // IP_ADAPTER_ADDRESSES in Vista+ has a search list at |FirstDnsSuffix|,
     // but it came up empty in all trials.
@@ -408,8 +474,11 @@ absl::optional<DnsConfig> ConvertSettingsToDnsConfig(
     dns_config.use_local_ipv6 = true;
   }
 
-  if (settings.have_name_resolution_policy || settings.have_proxy || uses_vpn)
+  if (!CheckAndRecordCompatibility(settings.have_name_resolution_policy,
+                                   settings.have_proxy, uses_vpn,
+                                   has_adapter_specific_nameservers)) {
     dns_config.unhandled_options = true;
+  }
 
   ConfigureSuffixSearch(settings, dns_config);
   return dns_config;
@@ -491,7 +560,8 @@ class DnsConfigServiceWin::Watcher
 // Reads config from registry and IpHelper. All work performed in ThreadPool.
 class DnsConfigServiceWin::ConfigReader : public SerialWorker {
  public:
-  explicit ConfigReader(DnsConfigServiceWin& service) : service_(&service) {}
+  explicit ConfigReader(DnsConfigServiceWin& service)
+      : SerialWorker(/*max_number_of_retries=*/3), service_(&service) {}
   ~ConfigReader() override {}
 
   // SerialWorker::
@@ -499,7 +569,7 @@ class DnsConfigServiceWin::ConfigReader : public SerialWorker {
     return std::make_unique<WorkItem>();
   }
 
-  void OnWorkFinished(std::unique_ptr<SerialWorker::WorkItem>
+  bool OnWorkFinished(std::unique_ptr<SerialWorker::WorkItem>
                           serial_worker_work_item) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     DCHECK(serial_worker_work_item);
@@ -508,12 +578,10 @@ class DnsConfigServiceWin::ConfigReader : public SerialWorker {
     WorkItem* work_item = static_cast<WorkItem*>(serial_worker_work_item.get());
     if (work_item->dns_config_.has_value()) {
       service_->OnConfigRead(std::move(work_item->dns_config_).value());
+      return true;
     } else {
       LOG(WARNING) << "Failed to read DnsConfig.";
-      // Try again in a while in case DnsConfigWatcher missed the signal.
-      base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
-          FROM_HERE, base::BindOnce(&ConfigReader::WorkNow, AsWeakPtr()),
-          base::Seconds(kRetryIntervalSeconds));
+      return false;
     }
   }
 
@@ -610,7 +678,7 @@ bool DnsConfigServiceWin::StartWatching() {
 
 // static
 std::unique_ptr<DnsConfigService> DnsConfigService::CreateSystemService() {
-  return std::unique_ptr<DnsConfigService>(new internal::DnsConfigServiceWin());
+  return std::make_unique<internal::DnsConfigServiceWin>();
 }
 
 }  // namespace net

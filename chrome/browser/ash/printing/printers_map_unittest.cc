@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,12 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace chromeos {
+namespace ash {
 namespace {
+
+using ::chromeos::CupsPrinterStatus;
+using ::chromeos::Printer;
+using ::chromeos::PrinterClass;
 
 bool IsPrinterInPrinters(const std::vector<Printer>& printers,
                          const Printer& printer) {
@@ -611,4 +615,4 @@ TEST_F(PrintersMapTest, RemovePrinterRemovesStatus) {
   EXPECT_TRUE(empty_printer_status.GetPrinterId().empty());
 }
 
-}  // namespace chromeos
+}  // namespace ash

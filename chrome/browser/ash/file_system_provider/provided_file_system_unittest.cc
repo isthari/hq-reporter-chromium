@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
 #include "chrome/browser/ash/file_system_provider/icon_set.h"
 #include "chrome/browser/ash/file_system_provider/mount_path_util.h"
@@ -56,7 +56,7 @@ const base::FilePath::CharType kFilePath[] =
 class FakeEventRouter : public extensions::EventRouter {
  public:
   FakeEventRouter(Profile* profile, ProvidedFileSystemInterface* file_system)
-      : EventRouter(profile, NULL),
+      : EventRouter(profile, nullptr),
         file_system_(file_system),
         reply_result_(base::File::FILE_OK) {}
 
@@ -71,7 +71,7 @@ class FakeEventRouter : public extensions::EventRouter {
       const extensions::ExtensionId& extension_id,
       std::unique_ptr<extensions::Event> event) override {
     ASSERT_TRUE(file_system_);
-    const base::Value* dict = &event->event_args->GetList()[0];
+    const base::Value* dict = &event->event_args[0];
     ASSERT_TRUE(dict->is_dict());
     const std::string* file_system_id = dict->FindStringKey("fileSystemId");
     EXPECT_NE(file_system_id, nullptr);
@@ -89,14 +89,14 @@ class FakeEventRouter : public extensions::EventRouter {
                                          OnCloseFileRequested::kEventName);
 
     if (reply_result_ == base::File::FILE_OK) {
-      base::ListValue value_as_list;
-      value_as_list.Append(kFileSystemId);
-      value_as_list.Append(request_id);
-      value_as_list.Append(0 /* execution_time */);
+      base::Value::List list;
+      list.Append(kFileSystemId);
+      list.Append(request_id);
+      list.Append(0 /* execution_time */);
 
       using extensions::api::file_system_provider_internal::
           OperationRequestedSuccess::Params;
-      std::unique_ptr<Params> params(Params::Create(value_as_list.GetList()));
+      std::unique_ptr<Params> params(Params::Create(list));
       ASSERT_TRUE(params.get());
       file_system_->GetRequestManager()->FulfillRequest(
           request_id,
@@ -173,7 +173,7 @@ class Observer : public ProvidedFileSystemObserver {
   // Completes handling the OnWatcherChanged event.
   void CompleteOnWatcherChanged() {
     DCHECK(!complete_callback_.is_null());
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, std::move(complete_callback_));
   }
 
@@ -254,18 +254,16 @@ class FileSystemProviderProvidedFileSystemTest : public testing::Test {
         profile_.get(), provided_file_system_.get());
     event_router_->AddEventListener(extensions::api::file_system_provider::
                                         OnAddWatcherRequested::kEventName,
-                                    NULL,
-                                    kExtensionId);
+                                    nullptr, kExtensionId);
     event_router_->AddEventListener(extensions::api::file_system_provider::
                                         OnRemoveWatcherRequested::kEventName,
-                                    NULL,
-                                    kExtensionId);
+                                    nullptr, kExtensionId);
     event_router_->AddEventListener(
         extensions::api::file_system_provider::OnOpenFileRequested::kEventName,
-        NULL, kExtensionId);
+        nullptr, kExtensionId);
     event_router_->AddEventListener(
         extensions::api::file_system_provider::OnCloseFileRequested::kEventName,
-        NULL, kExtensionId);
+        nullptr, kExtensionId);
     provided_file_system_->SetEventRouterForTesting(event_router_.get());
     provided_file_system_->SetNotificationManagerForTesting(
         base::WrapUnique(new StubNotificationManager));
@@ -296,13 +294,13 @@ TEST_F(FileSystemProviderProvidedFileSystemTest, AutoUpdater) {
   // callbacks.
   EXPECT_EQ(0u, log.size());
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                std::move(first_callback));
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, std::move(first_callback));
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(0u, log.size());
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                std::move(second_callback));
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, std::move(second_callback));
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1u, log.size());
 }

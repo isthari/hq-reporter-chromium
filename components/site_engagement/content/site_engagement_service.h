@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,6 +27,11 @@ class Clock;
 
 namespace webapps {
 FORWARD_DECLARE_TEST(AppBannerManagerBrowserTest, WebAppBannerNeedsEngagement);
+}
+
+namespace settings {
+FORWARD_DECLARE_TEST(SiteSettingsHandlerTest,
+                     PopulateNotificationPermissionReviewData);
 }
 
 namespace content {
@@ -128,6 +133,10 @@ class SiteEngagementService : public KeyedService,
       base::Time now,
       scoped_refptr<HostContentSettingsMap> map);
 
+  // Returns whether |score| is at least the given |level| of engagement.
+  static bool IsEngagementAtLeast(double score,
+                                  blink::mojom::EngagementLevel level);
+
   explicit SiteEngagementService(content::BrowserContext* browser_context);
 
   SiteEngagementService(const SiteEngagementService&) = delete;
@@ -162,10 +171,6 @@ class SiteEngagementService : public KeyedService,
   // this is true.
   bool IsBootstrapped() const;
 
-  // Returns whether |url| has at least the given |level| of engagement.
-  bool IsEngagementAtLeast(const GURL& url,
-                           blink::mojom::EngagementLevel level) const;
-
   // Resets the base engagement for |url| to |score|, clearing daily limits. Any
   // bonus engagement that |url| has acquired is not affected by this method, so
   // the result of GetScore(|url|) may not be the same as |score|.
@@ -191,6 +196,7 @@ class SiteEngagementService : public KeyedService,
  protected:
   // Retrieves the SiteEngagementScore object for |origin|.
   SiteEngagementScore CreateEngagementScore(const GURL& origin) const;
+
   void SetLastEngagementTime(base::Time last_engagement_time) const;
 
   content::BrowserContext* browser_context() { return browser_context_; }
@@ -219,6 +225,8 @@ class SiteEngagementService : public KeyedService,
                            WebAppBannerNeedsEngagement);
   FRIEND_TEST_ALL_PREFIXES(AppBannerSettingsHelperTest, SiteEngagementTrigger);
   FRIEND_TEST_ALL_PREFIXES(HostedAppPWAOnlyTest, EngagementHistogram);
+  FRIEND_TEST_ALL_PREFIXES(settings::SiteSettingsHandlerTest,
+                           PopulateNotificationPermissionReviewData);
 
 #if BUILDFLAG(IS_ANDROID)
   // Shim class to expose the service to Java.
@@ -297,10 +305,6 @@ class SiteEngagementService : public KeyedService,
   // scores to be relative to now. This ensures that users who do not use the
   // browser for an extended period of time do not have their engagement decay.
   bool IsLastEngagementStale() const;
-
-  // Returns the number of origins with maximum daily and total engagement
-  // respectively.
-  int OriginsWithMaxDailyEngagement() const;
 
   // Add and remove observers of this service.
   void AddObserver(SiteEngagementObserver* observer);

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,13 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/system/sys_info.h"
+#include "media/base/bind_to_current_loop.h"
 #include "media/base/bitrate.h"
+#include "media/base/bitstream_buffer.h"
 #include "media/base/color_plane_layout.h"
 #include "media/base/format_utils.h"
+#include "media/base/media_log.h"
+#include "media/base/video_frame.h"
 #include "media/base/video_types.h"
 #include "media/gpu/buffer_validation.h"
 #include "media/gpu/gpu_video_encode_accelerator_factory.h"
@@ -92,7 +96,7 @@ void GpuArcVideoEncodeAccelerator::GetSupportedProfiles(
     GetSupportedProfilesCallback callback) {
   std::move(callback).Run(
       media::GpuVideoEncodeAcceleratorFactory::GetSupportedProfiles(
-          gpu_preferences_, gpu_workarounds_));
+          gpu_preferences_, gpu_workarounds_, gpu::GPUInfo::GPUDevice()));
 }
 
 void GpuArcVideoEncodeAccelerator::Initialize(
@@ -126,7 +130,8 @@ GpuArcVideoEncodeAccelerator::InitializeTask(
 
   visible_size_ = config.input_visible_size;
   accelerator_ = media::GpuVideoEncodeAcceleratorFactory::CreateVEA(
-      config, this, gpu_preferences_, gpu_workarounds_);
+      config, this, gpu_preferences_, gpu_workarounds_,
+      gpu::GPUInfo::GPUDevice());
   if (accelerator_ == nullptr) {
     DLOG(ERROR) << "Failed to create a VideoEncodeAccelerator.";
     return mojom::VideoEncodeAccelerator::Result::kPlatformFailureError;
@@ -209,7 +214,9 @@ void GpuArcVideoEncodeAccelerator::Encode(
     return;
   }
 
-  frame->AddDestructionObserver(std::move(callback));
+  // Make sure the Mojo callback is called on the same thread as where the Mojo
+  // call is received (here).
+  frame->AddDestructionObserver(media::BindToCurrentLoop(std::move(callback)));
   accelerator_->Encode(std::move(frame), force_keyframe);
 }
 
@@ -242,9 +249,11 @@ void GpuArcVideoEncodeAccelerator::UseBitstreamBuffer(
   // rather than pulling out the fd. https://crbug.com/713763.
   // TODO(rockot): Pass through a real size rather than |0|.
   base::UnguessableToken guid = base::UnguessableToken::Create();
-  auto shm_region = base::subtle::PlatformSharedMemoryRegion::Take(
-      std::move(fd), base::subtle::PlatformSharedMemoryRegion::Mode::kUnsafe,
-      shmem_size, guid);
+  auto shm_region = base::UnsafeSharedMemoryRegion::Deserialize(
+      base::subtle::PlatformSharedMemoryRegion::Take(
+          std::move(fd),
+          base::subtle::PlatformSharedMemoryRegion::Mode::kUnsafe, shmem_size,
+          guid));
   if (!shm_region.IsValid()) {
     client_->NotifyError(Error::kInvalidArgumentError);
     return;

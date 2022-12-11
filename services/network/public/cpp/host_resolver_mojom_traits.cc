@@ -1,10 +1,12 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/network/public/cpp/host_resolver_mojom_traits.h"
 
+#include "base/values.h"
 #include "mojo/public/cpp/base/time_mojom_traits.h"
+#include "net/dns/public/dns_over_https_config.h"
 #include "net/dns/public/dns_over_https_server_config.h"
 #include "net/dns/public/host_resolver_source.h"
 #include "net/dns/public/mdns_listener_update_type.h"
@@ -20,9 +22,6 @@ namespace mojo {
 
 using network::mojom::DnsConfigOverrides;
 using network::mojom::DnsConfigOverridesDataView;
-using network::mojom::DnsOverHttpsServer;
-using network::mojom::DnsOverHttpsServerDataView;
-using network::mojom::DnsOverHttpsServerPtr;
 using network::mojom::DnsQueryType;
 using network::mojom::MdnsListenClient;
 using network::mojom::OptionalSecureDnsMode;
@@ -80,18 +79,33 @@ absl::optional<net::SecureDnsMode> FromOptionalSecureDnsMode(
 }
 
 // static
-bool StructTraits<network::mojom::DnsOverHttpsServerDataView,
+bool StructTraits<network::mojom::DnsOverHttpsServerConfigDataView,
                   net::DnsOverHttpsServerConfig>::
-    Read(network::mojom::DnsOverHttpsServerDataView data,
-         net::DnsOverHttpsServerConfig* out_config) {
+    Read(network::mojom::DnsOverHttpsServerConfigDataView data,
+         net::DnsOverHttpsServerConfig* out_server) {
   std::string server_template;
   if (!data.ReadServerTemplate(&server_template))
     return false;
-  auto parsed =
-      net::DnsOverHttpsServerConfig::FromString(std::move(server_template));
-  if (!parsed)
+  net::DnsOverHttpsServerConfig::Endpoints endpoints;
+  if (!data.ReadEndpoints(&endpoints))
     return false;
-  *out_config = std::move(*parsed);
+  auto server = net::DnsOverHttpsServerConfig::FromString(
+      std::move(server_template), std::move(endpoints));
+  if (!server.has_value())
+    return false;
+  *out_server = std::move(server.value());
+  return true;
+}
+
+// static
+bool StructTraits<network::mojom::DnsOverHttpsConfigDataView,
+                  net::DnsOverHttpsConfig>::
+    Read(network::mojom::DnsOverHttpsConfigDataView data,
+         net::DnsOverHttpsConfig* out_config) {
+  std::vector<net::DnsOverHttpsServerConfig> servers;
+  if (!data.ReadServers(&servers))
+    return false;
+  *out_config = net::DnsOverHttpsConfig(std::move(servers));
   return true;
 }
 
@@ -160,15 +174,13 @@ bool StructTraits<DnsConfigOverridesDataView, net::DnsConfigOverrides>::Read(
   out->rotate = FromTristate(data.rotate());
   out->use_local_ipv6 = FromTristate(data.use_local_ipv6());
 
-  if (!data.ReadDnsOverHttpsServers(&out->dns_over_https_servers))
+  if (!data.ReadDnsOverHttpsConfig(&out->dns_over_https_config))
     return false;
 
   out->secure_dns_mode = FromOptionalSecureDnsMode(data.secure_dns_mode());
 
   out->allow_dns_over_https_upgrade =
       FromTristate(data.allow_dns_over_https_upgrade());
-  if (!data.ReadDisabledUpgradeProviders(&out->disabled_upgrade_providers))
-    return false;
 
   out->clear_hosts = data.clear_hosts();
 
@@ -193,10 +205,6 @@ DnsQueryType EnumTraits<DnsQueryType, net::DnsQueryType>::ToMojom(
       return DnsQueryType::SRV;
     case net::DnsQueryType::HTTPS:
       return DnsQueryType::HTTPS;
-    case net::DnsQueryType::INTEGRITY:
-    case net::DnsQueryType::HTTPS_EXPERIMENTAL:
-      NOTIMPLEMENTED();
-      return DnsQueryType::UNSPECIFIED;
   }
 }
 

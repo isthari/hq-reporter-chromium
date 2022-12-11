@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/command_line.h"
 #include "base/json/json_writer.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
@@ -96,7 +96,7 @@ void MarketingBackendConnector::UpdateEmailPreferences(
 
   scoped_refptr<MarketingBackendConnector> ref =
       new MarketingBackendConnector(profile);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&MarketingBackendConnector::PerformRequest, ref,
                                 country_code));
 }
@@ -236,16 +236,16 @@ void MarketingBackendConnector::OnSimpleLoaderCompleteInternal(
 }
 
 std::string MarketingBackendConnector::GetRequestContent() {
-  base::Value request_dict(base::Value::Type::DICTIONARY);
-  request_dict.SetKey("country_code", base::Value(country_code_));
-  request_dict.SetKey("language", base::Value("en"));
+  base::Value::Dict request_dict;
+  request_dict.Set("country_code", country_code_);
+  request_dict.Set("language", "en");
 
   std::string request_content;
   base::JSONWriter::Write(request_dict, &request_content);
   return request_content;
 }
 
-MarketingBackendConnector::~MarketingBackendConnector() {}
+MarketingBackendConnector::~MarketingBackendConnector() = default;
 
 ScopedRequestCallbackSetter::ScopedRequestCallbackSetter(
     std::unique_ptr<base::RepeatingCallback<void(std::string)>> callback)

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -145,7 +145,7 @@ void WindowCycleEventFilter::HandleTriggerKey(ui::KeyEvent* event) {
         base::BindRepeating(
             &WindowCycleController::HandleCycleWindow,
             base::Unretained(Shell::Get()->window_cycle_controller()),
-            GetWindowCyclingDirection(event)));
+            GetWindowCyclingDirection(event), /*same_app_only=*/false));
   } else if (key_code == ui::VKEY_UP || key_code == ui::VKEY_DOWN ||
              key_code == ui::VKEY_LEFT || key_code == ui::VKEY_RIGHT) {
     Shell::Get()->window_cycle_controller()->HandleKeyboardNavigation(

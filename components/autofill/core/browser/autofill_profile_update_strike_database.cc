@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,12 @@ constexpr size_t kMaxStrikeEntities = 100;
 
 // Once the limit of profiles is reached, delete 30 to create a bit of headroom.
 constexpr size_t kMaxStrikeEntitiesAfterCleanup = 70;
+
+// The number of days it takes for strikes to expire.
+constexpr int kNumberOfDaysToExpire = 180;
+
+// The strike limit for suppressing update prompts.
+constexpr int kStrikeLimit = 3;
 
 AutofillProfileUpdateStrikeDatabase::AutofillProfileUpdateStrikeDatabase(
     StrikeDatabaseBase* strike_database)
@@ -39,17 +45,12 @@ std::string AutofillProfileUpdateStrikeDatabase::GetProjectPrefix() const {
 }
 
 int AutofillProfileUpdateStrikeDatabase::GetMaxStrikesLimit() const {
-  // The default limit for strikes is 3.
-  return features::kAutofillAutoBlockUpdateAddressProfilePromptStrikeLimit
-      .Get();
+  return kStrikeLimit;
 }
 
 absl::optional<base::TimeDelta>
 AutofillProfileUpdateStrikeDatabase::GetExpiryTimeDelta() const {
-  // Expiry time is 180 days by default.
-  return base::Days(
-      features::kAutofillAutoBlockUpdateAddressProfilePromptExpirationDays
-          .Get());
+  return base::Days(kNumberOfDaysToExpire);
 }
 
 bool AutofillProfileUpdateStrikeDatabase::UniqueIdsRequired() const {

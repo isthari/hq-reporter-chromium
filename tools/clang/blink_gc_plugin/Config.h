@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -187,22 +187,11 @@ class Config {
     return attr && (attr->getAnnotation() == anno);
   }
 
-  static bool IsStackAnnotated(clang::Decl* decl) {
-    return IsAnnotated(decl, "blink_stack_allocated");
-  }
-
   static bool IsIgnoreAnnotated(const clang::Decl* decl) {
     return IsAnnotated(decl, "blink_gc_plugin_ignore");
   }
 
-  static bool IsIgnoreCycleAnnotated(clang::Decl* decl) {
-    return IsAnnotated(decl, "blink_gc_plugin_ignore_cycle") ||
-           IsIgnoreAnnotated(decl);
-  }
-
-  static bool IsVisitor(llvm::StringRef name) {
-    return name == "Visitor" || name == "VisitorHelper";
-  }
+  static bool IsVisitor(llvm::StringRef name) { return name == "Visitor"; }
 
   static bool IsVisitorPtrType(const clang::QualType& formal_type) {
     if (!formal_type->isPointerType())

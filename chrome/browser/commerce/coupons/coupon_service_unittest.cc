@@ -1,16 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/commerce/coupons/coupon_service.h"
 
 #include "base/memory/raw_ptr.h"
-#include "chrome/browser/commerce/coupons/coupon_db_content.pb.h"
 #include "chrome/browser/commerce/coupons/coupon_service_factory.h"
-#include "chrome/browser/persisted_state_db/profile_proto_db.h"
-#include "chrome/browser/persisted_state_db/profile_proto_db_factory.h"
+#include "chrome/browser/persisted_state_db/session_proto_db_factory.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/commerce/core/commerce_feature_list.h"
+#include "components/commerce/core/proto/coupon_db_content.pb.h"
+#include "components/session_proto_db/session_proto_db.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -37,12 +37,14 @@ autofill::AutofillOfferData BuildCouponOfferData(const int64_t id,
                                                  const char* origin,
                                                  const char* coupon_description,
                                                  const char* coupon_code) {
-  autofill::AutofillOfferData data;
-  data.offer_id = id;
-  data.display_strings.value_prop_text = coupon_description;
-  data.promo_code = coupon_code;
-  data.merchant_origins.emplace_back(GURL(origin));
-  return data;
+  base::Time expiry;
+  std::vector<GURL> merchant_origins;
+  merchant_origins.emplace_back(origin);
+  autofill::DisplayStrings display_strings;
+  display_strings.value_prop_text = coupon_description;
+  return autofill::AutofillOfferData::FreeListingCouponOffer(
+      id, expiry, merchant_origins, /*offer_details_url=*/GURL(),
+      display_strings, coupon_code);
 }
 
 const int64_t kMockCouponIdA = 135;
@@ -65,7 +67,7 @@ const coupon_db::CouponContentProto kMockProtoB =
                             kMockCouponCodeB);
 
 using CouponProto =
-    std::vector<ProfileProtoDB<coupon_db::CouponContentProto>::KeyAndValue>;
+    std::vector<SessionProtoDB<coupon_db::CouponContentProto>::KeyAndValue>;
 using Coupons = std::vector<autofill::AutofillOfferData*>;
 using CouponsMap =
     base::flat_map<GURL,
@@ -169,11 +171,17 @@ class CouponServiceTest : public testing::Test {
   void SetUpCouponMap(std::vector<CouponDataStruct> coupons) {
     CouponsMap coupon_map;
     for (auto coupon : coupons) {
-      auto offer = std::make_unique<autofill::AutofillOfferData>();
-      offer->offer_id = coupon.id;
-      offer->display_strings.value_prop_text = std::move(coupon.description);
-      offer->promo_code = std::move(coupon.coupon_code);
-      offer->merchant_origins.emplace_back(GURL(coupon.origin));
+      int64_t offer_id = coupon.id;
+      base::Time expiry;
+      autofill::DisplayStrings display_strings;
+      display_strings.value_prop_text = coupon.description;
+      std::string promo_code = coupon.coupon_code;
+      std::vector<GURL> merchant_origins;
+      merchant_origins.emplace_back(GURL(coupon.origin));
+      auto offer = std::make_unique<autofill::AutofillOfferData>(
+          autofill::AutofillOfferData::FreeListingCouponOffer(
+              offer_id, expiry, merchant_origins, /*offer_details_url=*/GURL(),
+              display_strings, promo_code));
       coupon_map[GURL(coupon.origin)].emplace_back(std::move(offer));
     }
     service_->UpdateFreeListingCoupons(coupon_map);
@@ -553,6 +561,13 @@ class CouponServiceFeatureDisabledTest : public CouponServiceTest {
   CouponServiceFeatureDisabledTest() {
     feature_list_.Reset();
     feature_list_.InitAndDisableFeature(commerce::kRetailCoupons);
+  }
+
+  void SetUp() override {
+    CouponServiceTest::SetUp();
+
+    // Assume that relevant features are disabled initially.
+    service_->MaybeFeatureStatusChanged(false);
   }
 };
 

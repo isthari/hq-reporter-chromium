@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "components/webrtc/thread_wrapper.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -29,8 +29,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 namespace {
 
@@ -137,7 +136,7 @@ class FakeSocket : public P2PDatagramSocket {
            const net::CompletionRepeatingCallback& callback) override {
     DCHECK(buf);
     if (peer_socket_) {
-      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
           FROM_HERE,
           base::BindOnce(&FakeSocket::AppendInputPacket,
                          base::Unretained(peer_socket_),
@@ -333,7 +332,7 @@ TEST_F(PseudoTcpAdapterTest, DataTransfer) {
   EXPECT_EQ(net::OK, client_connect_cb.WaitForResult());
 
   scoped_refptr<TCPChannelTester> tester =
-      new TCPChannelTester(base::ThreadTaskRunnerHandle::Get(),
+      new TCPChannelTester(base::SingleThreadTaskRunner::GetCurrentDefault(),
                            host_pseudotcp_.get(), client_pseudotcp_.get());
 
   tester->Start();
@@ -368,7 +367,7 @@ TEST_F(PseudoTcpAdapterTest, LimitedChannel) {
   EXPECT_EQ(net::OK, client_connect_cb.WaitForResult());
 
   scoped_refptr<TCPChannelTester> tester =
-      new TCPChannelTester(base::ThreadTaskRunnerHandle::Get(),
+      new TCPChannelTester(base::SingleThreadTaskRunner::GetCurrentDefault(),
                            host_pseudotcp_.get(), client_pseudotcp_.get());
 
   tester->Start();
@@ -395,8 +394,8 @@ TEST_F(PseudoTcpAdapterTest, DeleteOnConnected) {
   // to deleted structures being touched as the stack unrolls, so the failure
   // mode is a crash rather than a normal test failure.
   net::TestCompletionCallback client_connect_cb;
-  DeleteOnConnected host_delete(base::ThreadTaskRunnerHandle::Get(),
-                                &host_pseudotcp_);
+  DeleteOnConnected host_delete(
+      base::SingleThreadTaskRunner::GetCurrentDefault(), &host_pseudotcp_);
 
   host_pseudotcp_->Connect(base::BindOnce(&DeleteOnConnected::OnConnected,
                                           base::Unretained(&host_delete)));
@@ -430,7 +429,7 @@ TEST_F(PseudoTcpAdapterTest, WriteWaitsForSendLetsDataThrough) {
   EXPECT_EQ(net::OK, client_connect_cb.WaitForResult());
 
   scoped_refptr<TCPChannelTester> tester =
-      new TCPChannelTester(base::ThreadTaskRunnerHandle::Get(),
+      new TCPChannelTester(base::SingleThreadTaskRunner::GetCurrentDefault(),
                            host_pseudotcp_.get(), client_pseudotcp_.get());
 
   tester->Start();
@@ -440,5 +439,4 @@ TEST_F(PseudoTcpAdapterTest, WriteWaitsForSendLetsDataThrough) {
 
 }  // namespace
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

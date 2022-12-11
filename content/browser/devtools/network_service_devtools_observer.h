@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,7 +39,8 @@ class NetworkServiceDevToolsObserver : public network::mojom::DevToolsObserver {
       const net::CookieAccessResultList& request_cookie_list,
       std::vector<network::mojom::HttpRawHeaderPairPtr> request_headers,
       const base::TimeTicks timestamp,
-      network::mojom::ClientSecurityStatePtr security_state) override;
+      network::mojom::ClientSecurityStatePtr security_state,
+      network::mojom::OtherPartitionInfoPtr other_partition_info) override;
   void OnRawResponse(
       const std::string& devtools_request_id,
       const net::CookieAndLineAccessResultList& response_cookie_list,

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "chrome/browser/media/webrtc/media_stream_device_permission_context.h"
 #include "chrome/browser/nfc/chrome_nfc_permission_context_delegate.h"
 #include "chrome/browser/notifications/notification_permission_context.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
 #include "chrome/browser/storage/durable_storage_permission_context.h"
@@ -28,9 +27,8 @@
 #include "chrome/common/webui_url_constants.h"
 #include "components/background_sync/background_sync_permission_context.h"
 #include "components/embedder_support/permission_context_utils.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
-#include "components/permissions/contexts/font_access_permission_context.h"
-#include "components/permissions/contexts/window_placement_permission_context.h"
+#include "components/permissions/contexts/local_fonts_permission_context.h"
+#include "components/permissions/contexts/window_management_permission_context.h"
 #include "components/permissions/permission_manager.h"
 #include "ppapi/buildflags/buildflags.h"
 
@@ -96,15 +94,15 @@ permissions::PermissionManager::PermissionContextMap CreatePermissionContexts(
   permission_contexts[ContentSettingsType::DURABLE_STORAGE] =
       std::make_unique<DurableStoragePermissionContext>(profile);
 
-  // TODO(crbug.com/1043295): Still in development for Android so we don't
-  // support it on WebLayer yet.
-  permission_contexts[ContentSettingsType::FONT_ACCESS] =
-      std::make_unique<FontAccessPermissionContext>(profile);
-
   // TODO(crbug.com/878979): Still in development so we don't support it on
   // WebLayer yet.
   permission_contexts[ContentSettingsType::IDLE_DETECTION] =
       std::make_unique<IdleDetectionPermissionContext>(profile);
+
+  // TODO(crbug.com/1043295): Still in development for Android so we don't
+  // support it on WebLayer yet.
+  permission_contexts[ContentSettingsType::LOCAL_FONTS] =
+      std::make_unique<LocalFontsPermissionContext>(profile);
 
   // Depends on Chrome specific policies not available on WebLayer.
   permission_contexts[ContentSettingsType::MEDIASTREAM_CAMERA] =
@@ -136,8 +134,8 @@ permissions::PermissionManager::PermissionContextMap CreatePermissionContexts(
 
   // TODO(crbug.com/897300): Still in development for Android so we don't
   // support it on WebLayer yet.
-  permission_contexts[ContentSettingsType::WINDOW_PLACEMENT] =
-      std::make_unique<permissions::WindowPlacementPermissionContext>(profile);
+  permission_contexts[ContentSettingsType::WINDOW_MANAGEMENT] =
+      std::make_unique<permissions::WindowManagementPermissionContext>(profile);
 
   return permission_contexts;
 }
@@ -157,9 +155,9 @@ PermissionManagerFactory* PermissionManagerFactory::GetInstance() {
 }
 
 PermissionManagerFactory::PermissionManagerFactory()
-    : BrowserContextKeyedServiceFactory(
-        "PermissionManagerFactory",
-        BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory(
+          "PermissionManagerFactory",
+          ProfileSelections::BuildForRegularAndIncognito()) {
   DependsOn(HostContentSettingsMapFactory::GetInstance());
 }
 
@@ -171,10 +169,4 @@ KeyedService* PermissionManagerFactory::BuildServiceInstanceFor(
   Profile* profile = Profile::FromBrowserContext(context);
   return new permissions::PermissionManager(profile,
                                             CreatePermissionContexts(profile));
-}
-
-content::BrowserContext*
-PermissionManagerFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextOwnInstanceInIncognito(context);
 }

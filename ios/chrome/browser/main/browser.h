@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/memory/weak_ptr.h"
 #include "base/supports_user_data.h"
 
 class BrowserObserver;
@@ -21,7 +22,7 @@ class WebStateList;
 // See src/docs/ios/objects.md for more information.
 class Browser : public base::SupportsUserData {
  public:
-  // Creates a new Browser attached to |browser_state|.
+  // Creates a new Browser attached to `browser_state`.
   static std::unique_ptr<Browser> Create(ChromeBrowserState* browser_state);
 
   Browser(const Browser&) = delete;
@@ -41,6 +42,9 @@ class Browser : public base::SupportsUserData {
   // Adds and removes observers.
   virtual void AddObserver(BrowserObserver* observer) = 0;
   virtual void RemoveObserver(BrowserObserver* observer) = 0;
+
+  // Returns a weak pointer to the Browser.
+  virtual base::WeakPtr<Browser> AsWeakPtr() = 0;
 
  protected:
   Browser() {}

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "media/audio/audio_output_device.h"
@@ -21,6 +22,7 @@
 #include "services/audio/sync_reader.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/utility/utility.h"
 
 using testing::_;
 using testing::Invoke;
@@ -36,7 +38,6 @@ namespace {
 constexpr float kAudioData = 0.618;
 constexpr base::TimeDelta kDelay = base::Microseconds(123);
 constexpr char kDeviceId[] = "testdeviceid";
-constexpr int kFramesSkipped = 456;
 constexpr int kFrames = 789;
 constexpr char kNonDefaultDeviceId[] = "valid-nondefault-device-id";
 constexpr base::TimeDelta kAuthTimeout = base::Milliseconds(10000);
@@ -57,7 +58,7 @@ class MockRenderCallback : public media::AudioRendererSink::RenderCallback {
                    base::TimeTicks timestamp,
                    int prior_frames_skipped,
                    media::AudioBus* dest));
-  void OnRenderError() {}
+  void OnRenderError() override {}
 };
 
 class MockStream : public media::mojom::AudioOutputStream {
@@ -84,11 +85,9 @@ class MockAudioOutputIPC : public media::AudioOutputIPC {
                void(media::AudioOutputIPCDelegate* delegate,
                     const base::UnguessableToken& session_id,
                     const std::string& device_id));
-  MOCK_METHOD3(
-      CreateStream,
-      void(media::AudioOutputIPCDelegate* delegate,
-           const media::AudioParameters& params,
-           const absl::optional<base::UnguessableToken>& processing_id));
+  MOCK_METHOD2(CreateStream,
+               void(media::AudioOutputIPCDelegate* delegate,
+                    const media::AudioParameters& params));
   MOCK_METHOD0(PlayStream, void());
   MOCK_METHOD0(PauseStream, void());
   MOCK_METHOD0(FlushStream, void());
@@ -225,7 +224,7 @@ TEST_F(AudioServiceOutputDeviceTest, MAYBE_VerifyDataFlow) {
   task_env_.RunUntilIdle();
 
   std::move(stream_factory_->created_callback_)
-      .Run({base::in_place, env.reader->TakeSharedMemoryRegion(),
+      .Run({absl::in_place, env.reader->TakeSharedMemoryRegion(),
             mojo::PlatformHandle(env.client_socket.Take())});
   task_env_.RunUntilIdle();
 
@@ -236,7 +235,7 @@ TEST_F(AudioServiceOutputDeviceTest, MAYBE_VerifyDataFlow) {
   for (int i = 0; i < 10; ++i) {
     test_bus->Zero();
     EXPECT_CALL(env.render_callback,
-                Render(kDelay, env.time_stamp, kFramesSkipped, NotNull()))
+                Render(kDelay, env.time_stamp, 0, NotNull()))
         .WillOnce(WithArg<3>(Invoke([](media::AudioBus* client_bus) -> int {
           // Place some test data in the bus so that we can check that it was
           // copied to the audio service side.
@@ -244,8 +243,8 @@ TEST_F(AudioServiceOutputDeviceTest, MAYBE_VerifyDataFlow) {
           std::fill_n(client_bus->channel(1), client_bus->frames(), kAudioData);
           return client_bus->frames();
         })));
-    env.reader->RequestMoreData(kDelay, env.time_stamp, kFramesSkipped);
-    env.reader->Read(test_bus.get());
+    env.reader->RequestMoreData(kDelay, env.time_stamp, {});
+    env.reader->Read(test_bus.get(), false);
 
     Mock::VerifyAndClear(&env.render_callback);
     for (int frame = 0; frame < kFrames; ++frame) {
@@ -258,7 +257,7 @@ TEST_F(AudioServiceOutputDeviceTest, MAYBE_VerifyDataFlow) {
 TEST_F(AudioServiceOutputDeviceTest, CreateBitStreamStream) {
   const int kAudioParameterFrames = 4321;
   media::AudioParameters params(media::AudioParameters::AUDIO_BITSTREAM_EAC3,
-                                media::CHANNEL_LAYOUT_STEREO, 48000,
+                                media::ChannelLayoutConfig::Stereo(), 48000,
                                 kAudioParameterFrames);
 
   DataFlowTestEnvironment env(params);
@@ -275,7 +274,7 @@ TEST_F(AudioServiceOutputDeviceTest, CreateBitStreamStream) {
   EXPECT_CALL(*ipc, RequestDeviceAuthorization(audio_device.get(),
                                                base::UnguessableToken(),
                                                kNonDefaultDeviceId));
-  EXPECT_CALL(*ipc, CreateStream(audio_device.get(), _, _));
+  EXPECT_CALL(*ipc, CreateStream(audio_device.get(), _));
   EXPECT_CALL(*ipc, PlayStream());
   task_env_.RunUntilIdle();
   Mock::VerifyAndClear(ipc);
@@ -292,7 +291,7 @@ TEST_F(AudioServiceOutputDeviceTest, CreateBitStreamStream) {
   for (int i = 0; i < 10; ++i) {
     test_bus->Zero();
     EXPECT_CALL(env.render_callback,
-                Render(kDelay, env.time_stamp, kFramesSkipped, NotNull()))
+                Render(kDelay, env.time_stamp, 0, NotNull()))
         .WillOnce(WithArg<3>(Invoke([](media::AudioBus* renderer_bus) -> int {
           EXPECT_TRUE(renderer_bus->is_bitstream_format());
           // Place some test data in the bus so that we can check that it was
@@ -303,8 +302,8 @@ TEST_F(AudioServiceOutputDeviceTest, CreateBitStreamStream) {
           renderer_bus->SetBitstreamDataSize(kBitstreamDataSize);
           return renderer_bus->frames();
         })));
-    env.reader->RequestMoreData(kDelay, env.time_stamp, kFramesSkipped);
-    env.reader->Read(test_bus.get());
+    env.reader->RequestMoreData(kDelay, env.time_stamp, {});
+    env.reader->Read(test_bus.get(), false);
 
     Mock::VerifyAndClear(&env.render_callback);
     EXPECT_TRUE(test_bus->is_bitstream_format());
@@ -340,7 +339,7 @@ TEST_F(AudioServiceOutputDeviceTest, CreateNondefaultDevice) {
   EXPECT_CALL(*ipc, RequestDeviceAuthorization(audio_device.get(),
                                                base::UnguessableToken(),
                                                kNonDefaultDeviceId));
-  EXPECT_CALL(*ipc, CreateStream(audio_device.get(), _, _));
+  EXPECT_CALL(*ipc, CreateStream(audio_device.get(), _));
   EXPECT_CALL(*ipc, PlayStream());
   task_env_.RunUntilIdle();
   Mock::VerifyAndClear(ipc);

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@ import './strings.m.js';
 
 import {sendWithPromise} from 'chrome://resources/js/cr.m.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {$} from 'chrome://resources/js/util.m.js';
+import {$} from 'chrome://resources/ash/common/util.js';
 
 /**
  * The different types of power consumer types. Should be kept in sync with the
@@ -19,7 +19,7 @@ const PowerConsumerType = {
   CROSTINI: 2,
   ARC: 3,
   CHROME: 4,
-  SYSTEM: 5
+  SYSTEM: 5,
 };
 
 const devicePixelRatio = window.devicePixelRatio;
@@ -407,8 +407,17 @@ var invalidDataText = loadTimeData.getString('invalidData');
 var offlineText = loadTimeData.getString('offlineText');
 
 var plotColors = [
-  'Red', 'Blue', 'Green', 'Gold', 'CadetBlue', 'LightCoral', 'LightSlateGray',
-  'Peru', 'DarkRed', 'LawnGreen', 'Tan'
+  'Red',
+  'Blue',
+  'Green',
+  'Gold',
+  'CadetBlue',
+  'LightCoral',
+  'LightSlateGray',
+  'Peru',
+  'DarkRed',
+  'LawnGreen',
+  'Tan',
 ];
 
 /**
@@ -566,7 +575,7 @@ function showBatteryChargeData({powerSupplyData, systemResumedData}) {
   var chargePlot = [{
     name: loadTimeData.getString('batteryChargePercentageHeader'),
     color: 'Blue',
-    data: []
+    data: [],
   }];
   var dischargeRateTimeData = [];
   var dischargeRateAbsTime = [];
@@ -574,18 +583,18 @@ function showBatteryChargeData({powerSupplyData, systemResumedData}) {
     {
       name: loadTimeData.getString('dischargeRateLegendText'),
       color: 'Red',
-      data: []
+      data: [],
     },
     {
       name: loadTimeData.getString('movingAverageLegendText'),
       color: 'Green',
-      data: []
+      data: [],
     },
     {
       name: loadTimeData.getString('binnedAverageLegendText'),
       color: 'Blue',
-      data: []
-    }
+      data: [],
+    },
   ];
   var minDischargeRate = 1000;   // A high unrealistic number to begin with.
   var maxDischargeRate = -1000;  // A low unrealistic number to begin with.
@@ -638,7 +647,7 @@ function showBatteryChargeData({powerSupplyData, systemResumedData}) {
   var canvases = addCanvases(
       [
         loadTimeData.getString('batteryChargePercentageHeader'),
-        loadTimeData.getString('batteryDischargeRateHeader')
+        loadTimeData.getString('batteryDischargeRateHeader'),
       ],
       plotsDiv);
 

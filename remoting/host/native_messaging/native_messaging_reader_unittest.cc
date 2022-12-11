@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -115,7 +115,8 @@ TEST_F(NativeMessagingReaderTest, ReaderDestroyedByClosingPipe) {
 #if BUILDFLAG(IS_WIN)
 // This scenario is only a problem on Windows as closing the write pipe there
 // does not trigger the parent process to close the read pipe.
-TEST_F(NativeMessagingReaderTest, ReaderDestroyedByOwner) {
+// TODO(crbug.com/1313610) Disabled because it's flaky.
+TEST_F(NativeMessagingReaderTest, DISABLED_ReaderDestroyedByOwner) {
   WriteMessage("{\"foo\": 42}");
   RunAndWaitForOperationComplete();
   ASSERT_FALSE(on_error_signaled_);
@@ -133,8 +134,7 @@ TEST_F(NativeMessagingReaderTest, SingleGoodMessage) {
   ASSERT_TRUE(message_);
 
   ASSERT_TRUE(message_->is_dict());
-  absl::optional<int> result =
-      base::Value::AsDictionaryValue(*message_).FindIntKey("foo");
+  absl::optional<int> result = message_->GetDict().FindInt("foo");
   ASSERT_TRUE(result.has_value());
   ASSERT_EQ(42, result);
 }
@@ -146,7 +146,7 @@ TEST_F(NativeMessagingReaderTest, MultipleGoodMessages) {
     ASSERT_FALSE(on_error_signaled_);
     ASSERT_TRUE(message_);
     ASSERT_TRUE(message_->is_dict());
-    ASSERT_TRUE(base::Value::AsDictionaryValue(*message_).DictEmpty());
+    ASSERT_TRUE(message_->GetDict().empty());
   }
 
   {
@@ -155,8 +155,7 @@ TEST_F(NativeMessagingReaderTest, MultipleGoodMessages) {
     ASSERT_FALSE(on_error_signaled_);
     ASSERT_TRUE(message_);
     ASSERT_TRUE(message_->is_dict());
-    absl::optional<int> result =
-        base::Value::AsDictionaryValue(*message_).FindIntKey("foo");
+    absl::optional<int> result = message_->GetDict().FindInt("foo");
     ASSERT_TRUE(result.has_value());
     ASSERT_EQ(42, result);
   }
@@ -167,8 +166,7 @@ TEST_F(NativeMessagingReaderTest, MultipleGoodMessages) {
     ASSERT_FALSE(on_error_signaled_);
     ASSERT_TRUE(message_);
     ASSERT_TRUE(message_->is_dict());
-    absl::optional<int> result =
-        base::Value::AsDictionaryValue(*message_).FindIntKey("bar");
+    absl::optional<int> result = message_->GetDict().FindInt("bar");
     ASSERT_TRUE(result.has_value());
     ASSERT_EQ(43, result);
   }
@@ -179,8 +177,7 @@ TEST_F(NativeMessagingReaderTest, MultipleGoodMessages) {
     ASSERT_FALSE(on_error_signaled_);
     ASSERT_TRUE(message_);
     ASSERT_TRUE(message_->is_dict());
-    absl::optional<int> result =
-        base::Value::AsDictionaryValue(*message_).FindIntKey("baz");
+    absl::optional<int> result = message_->GetDict().FindInt("baz");
     ASSERT_TRUE(result.has_value());
     ASSERT_EQ(44, result);
   }

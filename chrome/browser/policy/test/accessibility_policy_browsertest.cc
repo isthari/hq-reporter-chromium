@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -353,14 +353,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityPolicyTest, CursorHighlightEnabled) {
   EXPECT_FALSE(accessibility_manager->IsCursorHighlightEnabled());
 }
 
-// https://crbug.com/1225510
-#if BUILDFLAG(IS_CHROMEOS)
-#define MAYBE_CaretHighlightEnabled DISABLED_CaretHighlightEnabled
-#else
-#define MAYBE_CaretHighlightEnabled CaretHighlightEnabled
-#endif
-
-IN_PROC_BROWSER_TEST_F(AccessibilityPolicyTest, MAYBE_CaretHighlightEnabled) {
+IN_PROC_BROWSER_TEST_F(AccessibilityPolicyTest, CaretHighlightEnabled) {
   // Verifies that the caret highlight accessibility feature can be controlled
   // through policy.
   AccessibilityManager* accessibility_manager = AccessibilityManager::Get();
@@ -431,13 +424,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityPolicyTest, MonoAudioEnabled) {
   EXPECT_TRUE(accessibility_manager->IsMonoAudioEnabled());
 }
 
-// Flaky on chromeos: crbug.com/1184225
-#if BUILDFLAG(IS_CHROMEOS)
-#define MAYBE_AutoclickEnabled DISABLED_AutoclickEnabled
-#else
-#define MAYBE_AutoclickEnabled AutoclickEnabled
-#endif
-IN_PROC_BROWSER_TEST_F(AccessibilityPolicyTest, MAYBE_AutoclickEnabled) {
+IN_PROC_BROWSER_TEST_F(AccessibilityPolicyTest, AutoclickEnabled) {
   // Verifies that the autoclick accessibility feature can be controlled through
   // policy.
   AccessibilityManager* accessibility_manager = AccessibilityManager::Get();
@@ -471,6 +458,9 @@ IN_PROC_BROWSER_TEST_F(AccessibilityPolicyTest, MAYBE_AutoclickEnabled) {
   // Verify that the autoclick cannot be disabled manually anymore.
   accessibility_manager->EnableAutoclick(false);
   EXPECT_TRUE(accessibility_manager->IsAutoclickEnabled());
+
+  // Verify that no confirmation dialog has been shown.
+  EXPECT_FALSE(accessibility_manager->IsDisableAutoclickDialogVisibleForTest());
 }
 
 }  // namespace policy

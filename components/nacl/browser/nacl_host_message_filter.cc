@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -344,9 +344,9 @@ void NaClHostMessageFilter::OnTranslationFinished(int instance, bool success) {
       render_process_id_, instance, success);
 }
 
-void NaClHostMessageFilter::OnMissingArchError(int render_view_id) {
-  nacl::NaClBrowser::GetDelegate()->
-      ShowMissingArchInfobar(render_process_id_, render_view_id);
+void NaClHostMessageFilter::OnMissingArchError(int render_frame_id) {
+  nacl::NaClBrowser::GetDelegate()->ShowMissingArchInfobar(render_process_id_,
+                                                           render_frame_id);
 }
 
 void NaClHostMessageFilter::OnOpenNaClExecutable(int render_frame_id,

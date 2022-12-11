@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -207,6 +207,11 @@ void ExtensionTestNotificationObserver::WaitForCondition(
 }
 
 void ExtensionTestNotificationObserver::MaybeQuit() {
+  // We can be called synchronously from any of the events being observed,
+  // so return immediately if the closure has already been run.
+  if (quit_closure_.is_null())
+    return;
+
   if (condition_.Run())
     std::move(quit_closure_).Run();
 }

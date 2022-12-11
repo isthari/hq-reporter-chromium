@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,9 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "content/public/browser/global_request_id.h"
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/render_frame_host.h"
@@ -139,7 +141,8 @@ struct NavigateParams {
 
   // Input parameter.
   // Only used by Singleton tabs. Causes a tab-switch in addition to navigation.
-  raw_ptr<content::WebContents> switch_to_singleton_tab = nullptr;
+  raw_ptr<content::WebContents, DanglingUntriaged> switch_to_singleton_tab =
+      nullptr;
 
   // Output parameter.
   // The WebContents in which the navigation occurred or that was inserted.
@@ -158,7 +161,7 @@ struct NavigateParams {
   //       Navigate(). However, if the originating page is from a different
   //       profile (e.g. an OFF_THE_RECORD page originating from a non-OTR
   //       window), then |source_contents| is reset to NULL.
-  raw_ptr<content::WebContents> source_contents = nullptr;
+  raw_ptr<content::WebContents, DanglingUntriaged> source_contents = nullptr;
 
   // The disposition requested by the navigation source. Default is
   // CURRENT_TAB. What follows is a set of coercions that happen to this value
@@ -170,10 +173,10 @@ struct NavigateParams {
   // NEW_BACKGROUND_TAB   target browser is an app browser  NEW_FOREGROUND_TAB
   // OFF_THE_RECORD       target browser profile is incog.  NEW_FOREGROUND_TAB
   //
-  // If disposition is NEW_BACKGROUND_TAB, TabStripModel::ADD_ACTIVE is
+  // If disposition is NEW_BACKGROUND_TAB, AddTabTypes::ADD_ACTIVE is
   // removed from |tabstrip_add_types| automatically.
   // If disposition is one of NEW_WINDOW, NEW_POPUP, NEW_FOREGROUND_TAB or
-  // SINGLETON_TAB, then TabStripModel::ADD_ACTIVE is automatically added to
+  // SINGLETON_TAB, then AddTabTypes::ADD_ACTIVE is automatically added to
   // |tabstrip_add_types|.
   WindowOpenDisposition disposition = WindowOpenDisposition::CURRENT_TAB;
 
@@ -213,6 +216,9 @@ struct NavigateParams {
     // Show and activate the browser window after navigating.
     SHOW_WINDOW,
     // Show the browser window after navigating but do not activate.
+    // Note: This may cause a space / virtual desktop switch if the window is
+    // being shown on a display which is currently showing a fullscreen app.
+    // (crbug.com/1315749).
     SHOW_WINDOW_INACTIVE
   };
   // Default is NO_ACTION (don't show or activate the window).
@@ -249,7 +255,7 @@ struct NavigateParams {
   //       Navigate(), the caller is responsible for showing it so that its
   //       window can assume responsibility for the Browser's lifetime (Browser
   //       objects are deleted when the user closes a visible browser window).
-  raw_ptr<Browser> browser = nullptr;
+  raw_ptr<Browser, DanglingUntriaged> browser = nullptr;
 
   // The group the caller would like the tab to be added to.
   absl::optional<tab_groups::TabGroupId> group;
@@ -257,7 +263,7 @@ struct NavigateParams {
   // A bitmask of values defined in TabStripModel::AddTabTypes. Helps
   // determine where to insert a new tab and whether or not it should be
   // selected, among other properties.
-  int tabstrip_add_types = TabStripModel::ADD_ACTIVE;
+  int tabstrip_add_types = AddTabTypes::ADD_ACTIVE;
 #endif
 
   // The profile that is initiating the navigation. If there is a non-NULL

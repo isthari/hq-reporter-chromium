@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@
 #include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/chrome_for_testing/buildflags.h"
 #include "chrome/browser/policy/policy_path_parser.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -65,24 +66,37 @@ base::LazyThreadPoolSequencedTaskRunner g_sequenced_task_runner =
         base::TaskTraits(base::MayBlock()));
 #endif
 
+bool IsValidDefaultWebClientState(DefaultWebClientState state) {
+  switch (state) {
+    case NOT_DEFAULT:
+    case IS_DEFAULT:
+    case UNKNOWN_DEFAULT:
+    case OTHER_MODE_IS_DEFAULT:
+      return true;
+    case NUM_DEFAULT_STATES:
+      break;
+  }
+  NOTREACHED();
+  return false;
+}
+
 void RunCallback(DefaultWebClientWorkerCallback callback,
                  DefaultWebClientState state) {
-  if (!callback.is_null()) {
-    switch (state) {
-      case NOT_DEFAULT:
-      case IS_DEFAULT:
-      case UNKNOWN_DEFAULT:
-      case OTHER_MODE_IS_DEFAULT:
-        std::move(callback).Run(state);
-        return;
-      case NUM_DEFAULT_STATES:
-        break;
-    }
-    NOTREACHED();
+  if (!callback.is_null() && IsValidDefaultWebClientState(state)) {
+    std::move(callback).Run(state);
+    return;
   }
 }
 
 }  // namespace
+
+DefaultWebClientSetPermission GetDefaultWebClientSetPermission() {
+#if BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
+  return SET_DEFAULT_NOT_ALLOWED;
+#else
+  return GetPlatformSpecificDefaultWebClientSetPermission();
+#endif
+}
 
 bool CanSetAsDefaultBrowser() {
   return GetDefaultWebClientSetPermission() != SET_DEFAULT_NOT_ALLOWED;
@@ -270,7 +284,8 @@ void DefaultBrowserWorker::SetAsDefaultImpl(
     base::OnceClosure on_finished_callback) {
   switch (GetDefaultWebClientSetPermission()) {
     case SET_DEFAULT_NOT_ALLOWED:
-      DCHECK(false);  // Only fatal in debug builds
+      // This is a no-op on channels where set-default is not allowed, but not
+      // an error.
       break;
     case SET_DEFAULT_UNATTENDED:
       SetAsDefaultBrowser();
@@ -304,16 +319,61 @@ DefaultProtocolClientWorker::DefaultProtocolClientWorker(
     const std::string& protocol)
     : DefaultWebClientWorker("DefaultProtocolClient"), protocol_(protocol) {}
 
+DefaultProtocolClientWorker::DefaultProtocolClientWorker(const GURL& url)
+    : DefaultWebClientWorker("DefaultProtocolClient"),
+      protocol_(url.scheme()),
+      url_(url) {}
+
+void DefaultProtocolClientWorker::StartCheckIsDefaultAndGetDefaultClientName(
+    DefaultProtocolHandlerWorkerCallback callback) {
+  g_sequenced_task_runner.Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &DefaultProtocolClientWorker::CheckIsDefaultAndGetDefaultClientName,
+          this, std::move(callback)));
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // DefaultProtocolClientWorker, protected:
 
 DefaultProtocolClientWorker::~DefaultProtocolClientWorker() = default;
 
+void DefaultProtocolClientWorker::
+    OnCheckIsDefaultAndGetDefaultClientNameComplete(
+        DefaultWebClientState state,
+        std::u16string program_name,
+        DefaultProtocolHandlerWorkerCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  if (!callback.is_null() && IsValidDefaultWebClientState(state)) {
+    std::move(callback).Run(state, program_name);
+  }
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // DefaultProtocolClientWorker, private:
 
+void DefaultProtocolClientWorker::CheckIsDefaultAndGetDefaultClientName(
+    DefaultProtocolHandlerWorkerCallback callback) {
+  DCHECK(!url_.is_empty());
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
+
+  DefaultWebClientState state = CheckIsDefaultImpl();
+  std::u16string program_name = GetDefaultClientNameImpl();
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(&DefaultProtocolClientWorker::
+                         OnCheckIsDefaultAndGetDefaultClientNameComplete,
+                     this, state, program_name, std::move(callback)));
+}
+
 DefaultWebClientState DefaultProtocolClientWorker::CheckIsDefaultImpl() {
   return IsDefaultProtocolClient(protocol_);
+}
+
+std::u16string DefaultProtocolClientWorker::GetDefaultClientNameImpl() {
+  return GetApplicationNameForProtocol(url_);
 }
 
 void DefaultProtocolClientWorker::SetAsDefaultImpl(

@@ -1,13 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// clang-format off
-// #import 'chrome://os-settings/chromeos/lazy_load.js';
+import 'chrome://os-settings/chromeos/lazy_load.js';
 
-// #import {assertTrue, assertFalse} from '../../chai_assert.js';
-// #import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-// clang-format on
+import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
+import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
 suite('SwitchAccessSetupGuideDialogTest', function() {
   /** @type {SettingsSwitchAccessSetupGuideDialog} */
@@ -48,7 +48,7 @@ suite('SwitchAccessSetupGuideDialogTest', function() {
       },
     };
     document.body.appendChild(dialog);
-    Polymer.dom.flush();
+    flush();
   });
 
   test('Exit button closes dialog', function() {
@@ -106,7 +106,7 @@ suite('SwitchAccessSetupGuideDialogTest', function() {
     // the intro.
     dialog.currentPageId_ = /*Closing=*/8;
 
-    const startOverButton = dialog['$']['start-over'];
+    const startOverButton = dialog.$.startOver;
     assertTrue(!!startOverButton);
     startOverButton.click();
 
@@ -209,49 +209,49 @@ suite('SwitchAccessSetupGuideDialogTest', function() {
     dialog.loadPage_(/*Intro=*/0);
 
     // Verify the contents of the Intro page.
-    assertFalse(dialog['$']['intro']['hidden']);
+    assertFalse(dialog.$.intro.hidden);
 
     dialog.loadPage_(/*Assign select=*/1);
 
     // Verify the contents of the assign select page.
-    assertTrue(dialog['$']['intro']['hidden']);
-    assertFalse(dialog['$']['assign-switch']['hidden']);
+    assertTrue(dialog.$.intro.hidden);
+    assertFalse(dialog.$.assignSwitch.hidden);
 
     dialog.loadPage_(/*Auto-scan enabled=*/2);
 
     // Verify the contents of the auto-scan enabled page.
-    assertTrue(dialog['$']['assign-switch']['hidden']);
-    assertFalse(dialog['$']['auto-scan-enabled']['hidden']);
+    assertTrue(dialog.$.assignSwitch.hidden);
+    assertFalse(dialog.$.autoScanEnabled.hidden);
 
     dialog.loadPage_(/*Choose switch count=*/3);
 
     // Verify the contents of the choose switch count page.
-    assertTrue(dialog['$']['auto-scan-enabled']['hidden']);
-    assertFalse(dialog['$']['choose-switch-count']['hidden']);
+    assertTrue(dialog.$.autoScanEnabled.hidden);
+    assertFalse(dialog.$.chooseSwitchCount.hidden);
 
     dialog.loadPage_(/*Auto-scan speed=*/4);
 
     // Verify the contents of the auto-scan speed page.
-    assertTrue(dialog['$']['choose-switch-count']['hidden']);
-    assertFalse(dialog['$']['auto-scan-speed']['hidden']);
+    assertTrue(dialog.$.chooseSwitchCount.hidden);
+    assertFalse(dialog.$.autoScanSpeed.hidden);
 
     dialog.loadPage_(/*Assign next=*/ 5);
 
     // Verify the contents of the assign next page.
-    assertTrue(dialog['$']['auto-scan-speed']['hidden']);
-    assertFalse(dialog['$']['assign-switch']['hidden']);
+    assertTrue(dialog.$.autoScanSpeed.hidden);
+    assertFalse(dialog.$.assignSwitch.hidden);
 
     dialog.loadPage_(/*Assign previous=*/ 6);
 
     // Verify the contents of the assign previous page.
-    assertFalse(dialog['$']['assign-switch']['hidden']);
+    assertFalse(dialog.$.assignSwitch.hidden);
 
     dialog.loadPage_(/*Closing=*/8);
 
     // Verify the contents of the closing page.
-    assertTrue(dialog['$']['auto-scan-speed']['hidden']);
-    assertTrue(dialog['$']['assign-switch']['hidden']);
-    assertFalse(dialog['$']['closing']['hidden']);
+    assertTrue(dialog.$.autoScanSpeed.hidden);
+    assertTrue(dialog.$.assignSwitch.hidden);
+    assertFalse(dialog.$.closing.hidden);
   });
 
   test('Auto-scan enabled and disabled correctly', function() {
@@ -339,12 +339,11 @@ suite('SwitchAccessSetupGuideDialogTest', function() {
   });
 
   test('Illustration changes with switch count', function() {
-    const switchCountIllustration =
-        dialog['$']['choose-switch-count-illustration'];
+    const switchCountIllustration = dialog.$.chooseSwitchCountIllustration;
     assertTrue(!!switchCountIllustration);
     assertEquals('illustration one-switch', switchCountIllustration.className);
 
-    const switchCountGroup = dialog['$']['switch-count-group'];
+    const switchCountGroup = dialog.$.switchCountGroup;
     assertTrue(!!switchCountGroup);
 
     const twoSwitches = switchCountGroup.querySelector('[name="two-switches"]');
@@ -371,7 +370,7 @@ suite('SwitchAccessSetupGuideDialogTest', function() {
     dialog.switchCount_ = 3;
 
     const assignContents =
-        dialog['$']['assign-switch'].querySelector('.sa-setup-contents');
+        dialog.$.assignSwitch.querySelector('.sa-setup-contents');
     assertTrue(!!assignContents);
     // Check that there is no pane currently attached.
     assertEquals(0, assignContents.children.length);
@@ -385,7 +384,7 @@ suite('SwitchAccessSetupGuideDialogTest', function() {
     assertEquals('select', assignContents.firstChild.action);
 
     // Simulate the pane exiting without successfully assigning a switch.
-    cr.webUIListenerCallback('exit-pane');
+    webUIListenerCallback('exit-pane');
 
     // Confirm the page has not changed and the pane was loaded.
     assertEquals(/*Assign select=*/ 1, dialog.currentPageId_);

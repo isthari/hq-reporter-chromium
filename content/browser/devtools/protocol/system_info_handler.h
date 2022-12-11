@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,6 +31,8 @@ class SystemInfoHandler : public DevToolsDomainHandler,
   void GetInfo(std::unique_ptr<GetInfoCallback> callback) override;
   void GetProcessInfo(
       std::unique_ptr<GetProcessInfoCallback> callback) override;
+  Response GetFeatureState(const String& in_featureState,
+                           bool* featureEnabled) override;
 
  private:
   friend class SystemInfoHandlerGpuObserver;

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -62,7 +62,7 @@ size_t GetUnderestimatedStackSize() {
   //    low as 512k.
   //
   return 512 * 1024;
-#elif BUILDFLAG(IS_MAC)
+#elif BUILDFLAG(IS_APPLE)
   // pthread_get_stacksize_np() returns too low a value for the main thread on
   // OSX 10.9,
   // http://mail.openjdk.java.net/pipermail/hotspot-dev/2013-October/011369.html
@@ -73,7 +73,7 @@ size_t GetUnderestimatedStackSize() {
   // https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/Multithreading/CreatingThreads/CreatingThreads.html
   // on why hardcoding sizes is reasonable.)
   if (pthread_main_np()) {
-#if defined(IOS)
+#if BUILDFLAG(IS_IOS)
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     size_t guardSize = 0;

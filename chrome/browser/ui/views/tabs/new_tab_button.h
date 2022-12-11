@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,21 +80,17 @@ class NewTabButton : public views::ImageButton,
   // Paints the fill region of the button into |canvas|.
   void PaintFill(gfx::Canvas* canvas) const;
 
-  SkColor GetButtonFillColor() const;
-
   // Returns the path for the given |origin| and |scale|.  If |extend_to_top| is
   // true, the path is extended vertically to y = 0.
   SkPath GetBorderPath(const gfx::Point& origin,
                        float scale,
                        bool extend_to_top) const;
 
-  void UpdateInkDropBaseColor();
-
   // Tab strip that contains this button.
-  raw_ptr<TabStrip> tab_strip_;
+  raw_ptr<TabStrip, DanglingUntriaged> tab_strip_;
 
   // Contains our ink drop layer so it can paint above our background.
-  raw_ptr<views::InkDropContainerView> ink_drop_container_;
+  raw_ptr<views::InkDropContainerView, DanglingUntriaged> ink_drop_container_;
 
   // For tracking whether this object has been destroyed. Must be last.
   base::WeakPtrFactory<NewTabButton> weak_factory_{this};

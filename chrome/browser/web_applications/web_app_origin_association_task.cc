@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "base/bind.h"
 #include "base/containers/flat_set.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/browser_process.h"
 #include "components/webapps/services/web_app_origin_association/public/mojom/web_app_origin_association_parser.mojom.h"
 #include "components/webapps/services/web_app_origin_association/web_app_origin_association_fetcher.h"
@@ -26,7 +26,7 @@ constexpr size_t kMaxPathLength = 2000;
 // count towards kMaxPathsSize.
 std::vector<std::string> GetValidPaths(std::vector<std::string> paths) {
   base::flat_set<std::string> result;
-  for (const std::string& path : paths) {
+  for (std::string& path : paths) {
     if (result.size() == kMaxPathsSize)
       break;
 
@@ -78,7 +78,7 @@ void WebAppOriginAssociationManager::Task::FetchAssociationFile(
     return;
   }
 
-  owner_.GetFetcher().FetchWebAppOriginAssociationFile(
+  owner_->GetFetcher().FetchWebAppOriginAssociationFile(
       url_handler, g_browser_process->shared_url_loader_factory(),
       base::BindOnce(
           &WebAppOriginAssociationManager::Task::OnAssociationFileFetched,
@@ -92,8 +92,8 @@ void WebAppOriginAssociationManager::Task::OnAssociationFileFetched(
     return;
   }
 
-  owner_.GetParser()->ParseWebAppOriginAssociation(
-      std::move(*file_content),
+  owner_->GetParser()->ParseWebAppOriginAssociation(
+      *file_content,
       base::BindOnce(&WebAppOriginAssociationManager::Task::OnAssociationParsed,
                      weak_ptr_factory_.GetWeakPtr()));
 }
@@ -143,9 +143,9 @@ void WebAppOriginAssociationManager::Task::MaybeStartNextUrlHandler() {
 void WebAppOriginAssociationManager::Task::Finalize() {
   apps::UrlHandlers result = std::move(result_);
   result_.clear();
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback_), std::move(result)));
-  owner_.OnTaskCompleted();
+  owner_->OnTaskCompleted();
 }
 
 }  // namespace web_app

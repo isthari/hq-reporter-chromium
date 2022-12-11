@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,23 +8,18 @@
 #include <memory>
 #include <vector>
 
-#include "base/containers/flat_map.h"
-#include "base/containers/flat_set.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "components/viz/service/display_embedder/skia_output_device.h"
-#include "gpu/command_buffer/service/shared_image_representation.h"
+#include "gpu/command_buffer/service/shared_image/shared_image_representation.h"
 
 namespace gl {
-class GLImage;
 class GLSurface;
 }  // namespace gl
 
 namespace gpu {
-class MailboxManager;
 class SharedContextState;
-class SharedImageRepresentationFactory;
 
 namespace gles2 {
 class FeatureInfo;
@@ -36,9 +31,6 @@ namespace viz {
 class SkiaOutputDeviceGL final : public SkiaOutputDevice {
  public:
   SkiaOutputDeviceGL(
-      gpu::MailboxManager* mailbox_manager,
-      gpu::SharedImageRepresentationFactory*
-          shared_image_representation_factory,
       gpu::SharedContextState* context_state,
       scoped_refptr<gl::GLSurface> gl_surface,
       scoped_refptr<gpu::gles2::FeatureInfo> feature_info,
@@ -51,10 +43,9 @@ class SkiaOutputDeviceGL final : public SkiaOutputDevice {
   ~SkiaOutputDeviceGL() override;
 
   // SkiaOutputDevice implementation:
-  bool Reshape(const gfx::Size& size,
-               float device_scale_factor,
+  bool Reshape(const SkSurfaceCharacterization& characterization,
                const gfx::ColorSpace& color_space,
-               gfx::BufferFormat format,
+               float device_scale_factor,
                gfx::OverlayTransform transform) override;
   void SwapBuffers(BufferPresentedCallback feedback,
                    OutputSurfaceFrame frame) override;
@@ -70,7 +61,6 @@ class SkiaOutputDeviceGL final : public SkiaOutputDevice {
   void EnsureBackbuffer() override;
   void DiscardBackbuffer() override;
   SkSurface* BeginPaint(
-      bool allocate_frame_buffer,
       std::vector<GrBackendSemaphore>* end_semaphores) override;
   void EndPaint() override;
 
@@ -88,26 +78,18 @@ class SkiaOutputDeviceGL final : public SkiaOutputDevice {
                                 OutputSurfaceFrame frame,
                                 gfx::SwapCompletionResult result);
 
-  scoped_refptr<gl::GLImage> GetGLImageForMailbox(const gpu::Mailbox& mailbox);
+  gpu::OverlayImageRepresentation::ScopedReadAccess* BeginOverlayAccess(
+      const gpu::Mailbox& mailbox);
 
-  // Mailboxes of overlays scheduled in the current frame.
-  base::flat_set<gpu::Mailbox> scheduled_overlay_mailboxes_;
-
-  // Holds references to overlay textures so they aren't destroyed while in use.
-  base::flat_map<gpu::Mailbox, OverlayData> overlays_;
-
-  const raw_ptr<gpu::MailboxManager> mailbox_manager_;
-
-  const raw_ptr<gpu::SharedImageRepresentationFactory>
-      shared_image_representation_factory_;
+  void CreateSkSurface();
 
   const raw_ptr<gpu::SharedContextState> context_state_;
   scoped_refptr<gl::GLSurface> gl_surface_;
   const bool supports_async_swap_;
 
-  sk_sp<SkSurface> sk_surface_;
-
   uint64_t backbuffer_estimated_size_ = 0;
+
+  sk_sp<SkSurface> sk_surface_;
 
   base::WeakPtrFactory<SkiaOutputDeviceGL> weak_ptr_factory_{this};
 };

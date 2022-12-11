@@ -8,6 +8,7 @@
 #include "media/base/video_util.h"
 #include "ndi_output_stream.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/shared_gpu_context.h"
+#include "third_party/blink/renderer/platform/heap/cross_thread_persistent.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/convert_argb.h"
 #include "third_party/libyuv/include/libyuv/rotate_argb.h"
@@ -70,8 +71,9 @@ void NdiOutputStream::putVideoFrame(VideoFrame* frame){
     } 
         
     if (mediaFrame->HasGpuMemoryBuffer()) {
-        //VLOG(0) << "GPU Frame";
-        auto frame = media::ConvertToMemoryMappedFrame(std::move(mediaFrame));
+        // TODO este bloque no sea usa porque no viene de la GPU sino de una Texture
+        VLOG(0) << "WARNING GPU Frame";
+        // frame = media::ConvertToMemoryMappedFrame(std::move(mediaFrame));
     } else if (mediaFrame->HasTextures()){
         //VLOG(0) << "Has textures";
         auto wrapper = SharedGpuContext::ContextProviderWrapper();

@@ -1,10 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/updater/policy/dm_policy_manager.h"
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "base/enterprise_util.h"
 #include "base/notreached.h"
@@ -57,9 +59,9 @@ DMPolicyManager::DMPolicyManager(
 
 DMPolicyManager::~DMPolicyManager() = default;
 
-bool DMPolicyManager::IsManaged() const {
+bool DMPolicyManager::HasActiveDevicePolicies() const {
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
-  return base::IsMachineExternallyManaged();
+  return base::IsManagedDevice();
 #else
   // crbug.com/1276162 - implement.
   NOTIMPLEMENTED();
@@ -232,6 +234,12 @@ bool DMPolicyManager::IsRollbackToTargetVersionAllowed(
                        ::wireless_android_enterprise_devicemanagement::
                            ROLLBACK_TO_TARGET_VERSION_ENABLED);
   return true;
+}
+
+// TODO(crbug.com/1347562): implement retrieving the force installs apps.
+bool DMPolicyManager::GetForceInstallApps(
+    std::vector<std::string>* /* force_install_apps */) const {
+  return false;
 }
 
 std::unique_ptr<PolicyManagerInterface> CreateDMPolicyManager() {

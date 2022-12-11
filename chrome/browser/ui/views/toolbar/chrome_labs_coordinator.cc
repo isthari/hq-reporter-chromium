@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,8 @@ ChromeLabsCoordinator::ChromeLabsCoordinator(
 
 ChromeLabsCoordinator::~ChromeLabsCoordinator() {
   if (BubbleExists()) {
-    chrome_labs_bubble_view_->GetWidget()->Close();
+    chrome_labs_bubble_view_->GetWidget()->CloseWithReason(
+        views::Widget::ClosedReason::kUnspecified);
     chrome_labs_bubble_view_ = nullptr;
   }
 }
@@ -41,10 +42,6 @@ bool ChromeLabsCoordinator::BubbleExists() {
 
 void ChromeLabsCoordinator::Show(ShowUserType user_type) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (anchor_view_->GetAshOwnerCheckTimer()) {
-    UmaHistogramMediumTimes("Toolbar.ChromeLabs.AshOwnerCheckTime",
-                            anchor_view_->GetAshOwnerCheckTimer()->Elapsed());
-  }
 
   // Bypass possible incognito profile same as chrome://flags does.
   Profile* original_profile = browser_->profile()->GetOriginalProfile();
@@ -66,7 +63,7 @@ void ChromeLabsCoordinator::Show(ShowUserType user_type) {
   flags_state_ = about_flags::GetCurrentFlagsState();
 
   auto chrome_labs_bubble_view =
-      std::make_unique<ChromeLabsBubbleView>(anchor_view_, browser_);
+      std::make_unique<ChromeLabsBubbleView>(anchor_view_);
   chrome_labs_bubble_view_ = chrome_labs_bubble_view.get();
   chrome_labs_bubble_view_->View::AddObserver(this);
 
@@ -88,9 +85,8 @@ void ChromeLabsCoordinator::Show(ShowUserType user_type) {
 
 void ChromeLabsCoordinator::Hide() {
   if (BubbleExists()) {
-    // TODO(elainechien): Replace Close with ClosedWithReason and add an
-    // additional enum to ClosedReason
-    chrome_labs_bubble_view_->GetWidget()->Close();
+    chrome_labs_bubble_view_->GetWidget()->CloseWithReason(
+        views::Widget::ClosedReason::kUnspecified);
     // Closing the widget will eventually result in chrome_labs_bubble_view_
     // being set to nullptr, but we also set it to nullptr here since we know
     // the widget will now be destroyed and we shouldn't be accessing

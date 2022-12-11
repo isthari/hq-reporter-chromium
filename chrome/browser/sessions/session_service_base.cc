@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -331,6 +331,15 @@ void SessionServiceBase::SetWindowAppName(const SessionID& window_id,
   ScheduleCommand(sessions::CreateSetWindowAppNameCommand(window_id, app_name));
 }
 
+void SessionServiceBase::SetPinnedState(const SessionID& window_id,
+                                        const SessionID& tab_id,
+                                        bool is_pinned) {
+  if (!ShouldTrackChangesToWindow(window_id))
+    return;
+
+  ScheduleCommand(sessions::CreatePinnedStateCommand(tab_id, is_pinned));
+}
+
 bool SessionServiceBase::ShouldUseDelayedSave() {
   return should_use_delayed_save_;
 }
@@ -530,7 +539,11 @@ void SessionServiceBase::BuildCommandsForTab(
                                  ? tab->GetController().GetPendingEntry()
                                  : tab->GetController().GetEntryAtIndex(i);
     DCHECK(entry);
-    if (ShouldTrackURLForRestore(entry->GetVirtualURL())) {
+    if (ShouldTrackURLForRestore(entry->GetVirtualURL()) &&
+        !entry->IsInitialEntry()) {
+      // Don't try to persist initial NavigationEntry, as it is not actually
+      // associated with any navigation and will just result in about:blank on
+      // session restore.
       const SerializedNavigationEntry navigation =
           ContentSerializedNavigationBuilder::FromNavigationEntry(i, entry);
       command_storage_manager()->AppendRebuildCommand(
@@ -545,6 +558,11 @@ void SessionServiceBase::BuildCommandsForTab(
     command_storage_manager()->AppendRebuildCommand(
         sessions::CreateSetTabIndexInWindowCommand(session_id,
                                                    index_in_window));
+  }
+
+  if (is_pinned) {
+    command_storage_manager()->AppendRebuildCommand(
+        sessions::CreatePinnedStateCommand(session_id, true));
   }
 
   // Record the association between the sessionStorage namespace and the tab.
@@ -598,12 +616,15 @@ void SessionServiceBase::BuildCommandsForBrowser(
 
   // Set the visual data for each tab group.
   TabStripModel* tab_strip = browser->tab_strip_model();
-  TabGroupModel* group_model = tab_strip->group_model();
-  for (const tab_groups::TabGroupId& group_id : group_model->ListTabGroups()) {
-    const tab_groups::TabGroupVisualData* visual_data =
-        group_model->GetTabGroup(group_id)->visual_data();
-    command_storage_manager()->AppendRebuildCommand(
-        sessions::CreateTabGroupMetadataUpdateCommand(group_id, visual_data));
+  if (tab_strip->SupportsTabGroups()) {
+    TabGroupModel* group_model = tab_strip->group_model();
+    for (const tab_groups::TabGroupId& group_id :
+         group_model->ListTabGroups()) {
+      const tab_groups::TabGroupVisualData* visual_data =
+          group_model->GetTabGroup(group_id)->visual_data();
+      command_storage_manager()->AppendRebuildCommand(
+          sessions::CreateTabGroupMetadataUpdateCommand(group_id, visual_data));
+    }
   }
 
   for (int i = 0; i < tab_strip->count(); ++i) {

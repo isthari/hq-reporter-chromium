@@ -1,53 +1,52 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/app/application_delegate/metrics_mediator.h"
 
-#include <sys/sysctl.h>
+#import <mach/mach.h>
+#import <sys/sysctl.h>
 
-#include "base/bind.h"
-#include "base/metrics/histogram_functions.h"
-#include "base/metrics/user_metrics_action.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/task/post_task.h"
-#include "base/task/thread_pool.h"
-#include "base/time/time.h"
-#include "build/branding_buildflags.h"
-#include "components/crash/core/common/crash_keys.h"
-#include "components/metrics/metrics_pref_names.h"
-#include "components/metrics/metrics_service.h"
-#include "components/prefs/pref_service.h"
+#import "base/bind.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/metrics/user_metrics_action.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/task/thread_pool.h"
+#import "base/time/time.h"
+#import "build/branding_buildflags.h"
+#import "components/crash/core/common/crash_keys.h"
+#import "components/metrics/metrics_pref_names.h"
+#import "components/metrics/metrics_service.h"
+#import "components/prefs/pref_service.h"
 #import "components/previous_session_info/previous_session_info.h"
 #import "components/signin/public/identity_manager/tribool.h"
-#include "components/ukm/ios/ukm_reporting_ios_util.h"
+#import "components/ukm/ios/ukm_reporting_ios_util.h"
 #import "ios/chrome/app/application_delegate/metric_kit_subscriber.h"
 #import "ios/chrome/app/application_delegate/startup_information.h"
-#include "ios/chrome/app/startup/ios_enable_sandbox_dump_buildflags.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/browser/crash_report/crash_helper.h"
-#include "ios/chrome/browser/main/browser.h"
-#include "ios/chrome/browser/metrics/first_user_action_recorder.h"
-#include "ios/chrome/browser/pref_names.h"
+#import "ios/chrome/app/startup/ios_enable_sandbox_dump_buildflags.h"
+#import "ios/chrome/browser/application_context/application_context.h"
+#import "ios/chrome/browser/crash_report/crash_helper.h"
+#import "ios/chrome/browser/flags/system_flags.h"
+#import "ios/chrome/browser/main/browser.h"
+#import "ios/chrome/browser/metrics/first_user_action_recorder.h"
+#import "ios/chrome/browser/prefs/pref_names.h"
 #import "ios/chrome/browser/signin/signin_util.h"
-#include "ios/chrome/browser/system_flags.h"
-#import "ios/chrome/browser/ui/browser_view/browser_view_controller.h"
 #import "ios/chrome/browser/ui/default_promo/default_browser_utils.h"
 #import "ios/chrome/browser/ui/main/browser_interface_provider.h"
 #import "ios/chrome/browser/ui/main/connection_information.h"
 #import "ios/chrome/browser/ui/main/scene_state.h"
 #import "ios/chrome/browser/ui/ntp/ntp_util.h"
+#import "ios/chrome/browser/url/chrome_url_constants.h"
 #import "ios/chrome/browser/web_state_list/web_state_list.h"
-#include "ios/chrome/browser/widget_kit/features.h"
-#include "ios/chrome/common/app_group/app_group_metrics.h"
-#include "ios/chrome/common/app_group/app_group_metrics_mainapp.h"
+#import "ios/chrome/browser/widget_kit/features.h"
+#import "ios/chrome/common/app_group/app_group_metrics.h"
+#import "ios/chrome/common/app_group/app_group_metrics_mainapp.h"
 #import "ios/chrome/common/credential_provider/constants.h"
-#include "ios/public/provider/chrome/browser/app_distribution/app_distribution_api.h"
-#include "ios/web/public/thread/web_task_traits.h"
-#include "ios/web/public/thread/web_thread.h"
+#import "ios/public/provider/chrome/browser/app_distribution/app_distribution_api.h"
+#import "ios/web/public/thread/web_task_traits.h"
+#import "ios/web/public/thread/web_thread.h"
 #import "ios/web/public/web_state.h"
-#include "url/gurl.h"
+#import "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_WIDGET_KIT_EXTENSION)
 #import "ios/chrome/browser/widget_kit/widget_metrics_util.h"  // nogncheck
@@ -105,7 +104,7 @@ base::TimeDelta TimeDeltaSinceAppLaunchFromProcess() {
   struct kinfo_proc info;
   size_t length = sizeof(struct kinfo_proc);
   int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, (int)getpid()};
-  const int kr = sysctl(mib, base::size(mib), &info, &length, nullptr, 0);
+  const int kr = sysctl(mib, std::size(mib), &info, &length, nullptr, 0);
   DCHECK_EQ(KERN_SUCCESS, kr);
 
   const struct timeval time = info.kp_proc.p_starttime;
@@ -236,6 +235,8 @@ void RecordWidgetUsage(base::span<const HistogramNameCountPair> histograms) {
         @"IOS.CredentialExtension.KeychainSavePasswordFailureCount",
     app_group::kCredentialExtensionSaveCredentialFailureCount :
         @"IOS.CredentialExtension.SaveCredentialFailureCount",
+    app_group::kCredentialExtensionConsentVerifiedCount :
+        @"IOS.CredentialExtension.ConsentVerifiedCount",
   };
 
   NSUserDefaults* shared_defaults = app_group::GetGroupUserDefaults();
@@ -386,8 +387,6 @@ using metrics_mediator::kAppDidFinishLaunchingConsecutiveCallsKey;
         numNTPTabs++;
       }
     }
-    BrowserViewController* bvc = scene.interfaceProvider.mainInterface.bvc;
-    numLiveNTPTabs += [bvc liveNTPCount];
   }
 
   if (startupInformation.isColdStart) {
@@ -560,6 +559,8 @@ using metrics_mediator::kAppDidFinishLaunchingConsecutiveCallsKey;
     // trial randomization), as the pref is only read on startup.
     GetApplicationContext()->GetLocalState()->ClearPref(
         metrics::prefs::kMetricsClientID);
+    GetApplicationContext()->GetLocalState()->ClearPref(
+        metrics::prefs::kMetricsProvisionalClientID);
     GetApplicationContext()->GetLocalState()->ClearPref(
         metrics::prefs::kMetricsReportingEnabledTimestamp);
     crash_keys::ClearMetricsClientId();

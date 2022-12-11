@@ -1,16 +1,17 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/fullscreen_keyboard_browsertest_base.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
@@ -195,8 +196,14 @@ bool KeyboardLockInteractiveBrowserTest::DisablePreventDefaultOnTestPage() {
                                          false, false, false);
 }
 
+// https://crbug.com/1382717 Flaky on Linux
+#if BUILDFLAG(IS_LINUX)
+#define MAYBE_RequestedButNotActive DISABLED_RequestedButNotActive
+#else
+#define MAYBE_RequestedButNotActive RequestedButNotActive
+#endif
 IN_PROC_BROWSER_TEST_F(KeyboardLockInteractiveBrowserTest,
-                       RequestedButNotActive) {
+                       MAYBE_RequestedButNotActive) {
   ASSERT_NO_FATAL_FAILURE(StartFullscreenLockPage());
   ASSERT_TRUE(DisablePreventDefaultOnTestPage());
   ASSERT_TRUE(KeyboardLockApiExists());
@@ -243,8 +250,14 @@ IN_PROC_BROWSER_TEST_F(KeyboardLockInteractiveBrowserTest,
   ASSERT_NO_FATAL_FAILURE(SendShortcutsAndExpectPrevented());
 }
 
+// https://crbug.com/1382699 Flaky on Linux
+#if BUILDFLAG(IS_LINUX)
+#define MAYBE_ActiveWithSomeKeysLocked DISABLED_ActiveWithSomeKeysLocked
+#else
+#define MAYBE_ActiveWithSomeKeysLocked ActiveWithSomeKeysLocked
+#endif
 IN_PROC_BROWSER_TEST_F(KeyboardLockInteractiveBrowserTest,
-                       ActiveWithSomeKeysLocked) {
+                       MAYBE_ActiveWithSomeKeysLocked) {
   ASSERT_NO_FATAL_FAILURE(StartFullscreenLockPage());
   ASSERT_TRUE(DisablePreventDefaultOnTestPage());
   ASSERT_TRUE(RequestKeyboardLock(/*lock_all_keys=*/false));
@@ -270,8 +283,7 @@ IN_PROC_BROWSER_TEST_F(KeyboardLockInteractiveBrowserTest,
 
 // https://crbug.com/1108391 Flakey on ChromeOS.
 // https://crbug.com/1121172 Also flaky on Lacros and Mac
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS) || \
-    BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC)
 #define MAYBE_SubsequentLockCallSupersedesPreviousCall \
   DISABLED_SubsequentLockCallSupersedesPreviousCall
 #else
@@ -405,8 +417,16 @@ IN_PROC_BROWSER_TEST_F(KeyboardLockInteractiveBrowserTest,
   ASSERT_EQ(initial_tab_count + 1, GetTabCount());
 }
 
+// TODO(crbug.com/1305388): Flaky on mac.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_CancelActiveKeyboardLockBeforeFullscreen \
+  DISABLED_CancelActiveKeyboardLockBeforeFullscreen
+#else
+#define MAYBE_CancelActiveKeyboardLockBeforeFullscreen \
+  CancelActiveKeyboardLockBeforeFullscreen
+#endif
 IN_PROC_BROWSER_TEST_F(KeyboardLockInteractiveBrowserTest,
-                       CancelActiveKeyboardLockBeforeFullscreen) {
+                       MAYBE_CancelActiveKeyboardLockBeforeFullscreen) {
   ASSERT_NO_FATAL_FAILURE(StartFullscreenLockPage());
   ASSERT_TRUE(DisablePreventDefaultOnTestPage());
 

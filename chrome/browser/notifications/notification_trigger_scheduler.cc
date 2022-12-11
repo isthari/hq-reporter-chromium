@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,6 +80,11 @@ void NotificationTriggerScheduler::TriggerNotificationsForStoragePartition(
 void NotificationTriggerScheduler::TriggerNotificationsForProfile(
     Profile* profile) {
   auto* service = PlatformNotificationServiceFactory::GetForProfile(profile);
+  // Service might not be available for some irregular profiles, like the System
+  // Profile.
+  if (!service)
+    return;
+
   base::Time next_trigger = service->ReadNextTriggerTimestamp();
 
   // Skip this profile if there are no pending notifications.

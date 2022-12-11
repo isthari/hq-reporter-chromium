@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/memory/weak_ptr.h"
 #include "base/observer_list_types.h"
 #include "chrome/browser/ash/borealis/borealis_metrics.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -18,8 +17,13 @@ namespace borealis {
 
 class BorealisInstaller : public KeyedService {
  public:
+  // For certain kinds of dlc errors we retry the installation up-to this number
+  // of times.
+  static constexpr int kMaxDlcRetries = 3;
+
   enum class InstallingState {
     kInactive,
+    kCheckingIfAllowed,
     kInstallingDlc,
     kStartingUp,
     kAwaitingApplications,
@@ -33,7 +37,11 @@ class BorealisInstaller : public KeyedService {
    public:
     virtual void OnProgressUpdated(double fraction_complete) = 0;
     virtual void OnStateUpdated(InstallingState new_state) = 0;
-    virtual void OnInstallationEnded(BorealisInstallResult result) = 0;
+    // Called when installation succeeds/fails, per |result|. If it fails,
+    // |error_description| contains a string useful for debugging/understanding
+    // the cause of the failure, not for end-users.
+    virtual void OnInstallationEnded(BorealisInstallResult result,
+                                     const std::string& error_description) = 0;
     virtual void OnCancelInitiated() = 0;
   };
 

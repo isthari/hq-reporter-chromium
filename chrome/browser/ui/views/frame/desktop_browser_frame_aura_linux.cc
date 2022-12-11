@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,8 +80,9 @@ bool DesktopBrowserFrameAuraLinux::UseCustomFrame() const {
   }
 
   // Hosted app windows get a custom frame (if the desktop PWA experimental
-  // feature is enabled).
-  return browser_view()->GetIsWebAppType();
+  // feature is enabled), or if the window is picture in picture.
+  return browser_view()->GetIsWebAppType() ||
+         browser_view()->GetIsPictureInPictureType();
 }
 
 void DesktopBrowserFrameAuraLinux::TabDraggingKindChanged(

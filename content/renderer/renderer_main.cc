@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,14 @@
 #include "base/command_line.h"
 #include "base/debug/debugger.h"
 #include "base/debug/leak_annotations.h"
+#include "base/feature_list.h"
 #include "base/i18n/rtl.h"
 #include "base/message_loop/message_pump.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/pending_task.h"
+#include "base/process/current_process.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/system/sys_info.h"
@@ -28,6 +30,7 @@
 #include "content/common/content_switches_internal.h"
 #include "content/common/partition_alloc_support.h"
 #include "content/common/skia_utils.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/renderer/content_renderer_client.h"
@@ -64,7 +67,7 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #if defined(ARCH_CPU_X86_64)
-#include "chromeos/memory/userspace_swap/userspace_swap_renderer_initialization_impl.h"
+#include "chromeos/ash/components/memory/userspace_swap/userspace_swap_renderer_initialization_impl.h"
 #endif  // defined(X86_64)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -72,7 +75,11 @@
 #include "chromeos/system/core_scheduling.h"
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
-#if BUILDFLAG(ENABLE_PLUGINS)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#include "content/renderer/renderer_thread_type_handler.h"
+#endif
+
+#if BUILDFLAG(ENABLE_PPAPI)
 #include "content/renderer/pepper/pepper_plugin_registry.h"
 #endif
 
@@ -133,7 +140,8 @@ int RendererMain(MainFunctionParams parameters) {
   // expect synchronous events around the main loop of a thread.
   TRACE_EVENT_INSTANT0("startup", "RendererMain", TRACE_EVENT_SCOPE_THREAD);
 
-  base::trace_event::TraceLog::GetInstance()->set_process_name("Renderer");
+  base::CurrentProcess::GetInstance().SetProcessType(
+      base::CurrentProcessType::PROCESS_RENDERER);
   base::trace_event::TraceLog::GetInstance()->SetProcessSortIndex(
       kTraceEventRendererProcessSortIndex);
 
@@ -155,16 +163,24 @@ int RendererMain(MainFunctionParams parameters) {
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-#if BUILDFLAG(IS_CHROMEOS)
-  // When we start the renderer on ChromeOS if the system has core scheduling
-  // available we want to turn it on.
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Turn on core scheduling for ash renderers only if kLacrosOnly is not
+  // enabled. If kLacrosOnly is enabled, ash renderers don't run user code. This
+  // means they don't need core scheduling. Lacros renderers will get core
+  // scheduling in this case.
+  if (!command_line.HasSwitch(switches::kAshWebBrowserDisabled)) {
+    chromeos::system::EnableCoreSchedulingIfAvailable();
+  }
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  // Turn on core scheduling for lacros renderers since they run user code in
+  // most cases.
   chromeos::system::EnableCoreSchedulingIfAvailable();
-#endif  // BUILDFLAG(IS_CHROMEOS)
+#endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #if defined(ARCH_CPU_X86_64)
   using UserspaceSwapInit =
-      chromeos::memory::userspace_swap::UserspaceSwapRendererInitializationImpl;
+      ash::memory::userspace_swap::UserspaceSwapRendererInitializationImpl;
   absl::optional<UserspaceSwapInit> swap_init;
   if (UserspaceSwapInit::UserspaceSwapSupportedAndEnabled()) {
     swap_init.emplace();
@@ -205,7 +221,7 @@ int RendererMain(MainFunctionParams parameters) {
 
   platform.PlatformInitialize();
 
-#if BUILDFLAG(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PPAPI)
   // Load pepper plugins before engaging the sandbox.
   PepperPluginRegistry::GetInstance();
 #endif
@@ -216,9 +232,17 @@ int RendererMain(MainFunctionParams parameters) {
   InitializeWebRtcModule();
 
   {
+    content::ContentRendererClient* client = GetContentClient()->renderer();
     bool should_run_loop = true;
     bool need_sandbox =
         !command_line.HasSwitch(sandbox::policy::switches::kNoSandbox);
+
+    if (!need_sandbox) {
+      // The post-sandbox actions still need to happen at some point.
+      if (client) {
+        client->PostSandboxInitialized();
+      }
+    }
 
 #if !BUILDFLAG(IS_WIN) && !BUILDFLAG(IS_MAC)
     // Sandbox is enabled before RenderProcess initialization on all platforms,
@@ -227,6 +251,18 @@ int RendererMain(MainFunctionParams parameters) {
     if (need_sandbox) {
       should_run_loop = platform.EnableSandbox();
       need_sandbox = false;
+      if (client) {
+        client->PostSandboxInitialized();
+      }
+    }
+#endif
+
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+    // Thread type delegate of the process should be registered before
+    // first thread type change in ChildProcess constructor.
+    if (base::FeatureList::IsEnabled(
+            features::kHandleRendererThreadTypeChangesInBrowser)) {
+      RendererThreadTypeHandler::Create();
     }
 #endif
 
@@ -265,8 +301,12 @@ int RendererMain(MainFunctionParams parameters) {
     }
 #endif
 
-    if (need_sandbox)
+    if (need_sandbox) {
       should_run_loop = platform.EnableSandbox();
+      if (client) {
+        client->PostSandboxInitialized();
+      }
+    }
 
 #if BUILDFLAG(MOJO_RANDOM_DELAYS_ENABLED)
     mojo::BeginRandomMojoDelays();

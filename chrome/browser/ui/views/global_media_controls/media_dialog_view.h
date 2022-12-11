@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -127,9 +127,13 @@ class MediaDialogView : public views::BubbleDialogDelegateView,
   void UpdateBubbleSize();
 
   // SodaInstaller::Observer overrides:
-  void OnSodaInstalled() override;
-  void OnSodaError() override;
-  void OnSodaProgress(int combined_progress) override;
+  void OnSodaInstalled(speech::LanguageCode language_code) override;
+  void OnSodaInstallError(speech::LanguageCode language_code,
+                          speech::SodaInstaller::ErrorCode error_code) override;
+  void OnSodaProgress(speech::LanguageCode language_code,
+                      int progress) override;
+
+  void SetLiveCaptionTitle(const std::u16string& new_text);
 
   std::unique_ptr<global_media_controls::MediaItemUIView> BuildMediaItemUIView(
       const std::string& id,
@@ -155,8 +159,8 @@ class MediaDialogView : public views::BubbleDialogDelegateView,
   // It stores the WebContents* from which a MediaRouterDialogControllerViews
   // opened the dialog for a presentation request. It is nullptr if the dialog
   // is opened from the toolbar.
-  const raw_ptr<content::WebContents> web_contents_for_presentation_request_ =
-      nullptr;
+  const raw_ptr<content::WebContents, DanglingUntriaged>
+      web_contents_for_presentation_request_ = nullptr;
   const global_media_controls::GlobalMediaControlsEntryPoint entry_point_;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,6 +43,10 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#else
+#include "chrome/browser/android/tab_android.h"
+#include "chrome/browser/ui/android/tab_model/tab_model.h"
+#include "chrome/browser/ui/android/tab_model/tab_model_list.h"
 #endif
 
 namespace {
@@ -153,9 +157,9 @@ class BrowsingDataRemoverObserver
 #endif
 };
 
-uint64_t GetOriginTypeMask(const base::Value& data_types) {
+uint64_t GetOriginTypeMask(const base::Value::List& data_types) {
   uint64_t result = 0;
-  for (const auto& data_type : data_types.GetList()) {
+  for (const auto& data_type : data_types) {
     std::string data_type_str = data_type.GetString();
     if (data_type_str ==
         browsing_data::policy_data_types::kCookiesAndOtherSiteData) {
@@ -168,9 +172,9 @@ uint64_t GetOriginTypeMask(const base::Value& data_types) {
   return result;
 }
 
-uint64_t GetRemoveMask(const base::Value& data_types) {
+uint64_t GetRemoveMask(const base::Value::List& data_types) {
   uint64_t result = 0;
-  for (const auto& data_type : data_types.GetList()) {
+  for (const auto& data_type : data_types) {
     std::string data_type_str = data_type.GetString();
     if (data_type_str == browsing_data::policy_data_types::kBrowsingHistory) {
       result |= chrome_browsing_data_remover::DATA_TYPE_HISTORY;
@@ -200,19 +204,17 @@ uint64_t GetRemoveMask(const base::Value& data_types) {
 }
 
 std::vector<ScheduledRemovalSettings> ConvertToScheduledRemovalSettings(
-    const base::Value* browsing_data_settings) {
+    const base::Value::List& browsing_data_settings) {
   std::vector<ScheduledRemovalSettings> scheduled_removals_settings;
-  if (!browsing_data_settings)
-    return scheduled_removals_settings;
-  for (const auto& setting : browsing_data_settings->GetList()) {
+  for (const auto& setting : browsing_data_settings) {
     const auto* data_types =
         setting.FindListKey(browsing_data::policy_fields::kDataTypes);
     const auto time_to_live_in_hours =
         setting.FindIntKey(browsing_data::policy_fields::kTimeToLiveInHours);
 
-    scheduled_removals_settings.push_back({GetRemoveMask(*data_types),
-                                           GetOriginTypeMask(*data_types),
-                                           *time_to_live_in_hours});
+    scheduled_removals_settings.push_back(
+        {GetRemoveMask(data_types->GetList()),
+         GetOriginTypeMask(data_types->GetList()), *time_to_live_in_hours});
   }
   return scheduled_removals_settings;
 }
@@ -227,6 +229,14 @@ base::flat_set<GURL> GetOpenedUrls(Profile* profile) {
     }
     for (int i = 0; i < browser->tab_strip_model()->count(); ++i) {
       result.insert(browser->tab_strip_model()->GetWebContentsAt(i)->GetURL());
+    }
+  }
+#else
+  for (const TabModel* model : TabModelList::models()) {
+    for (int index = 0; index < model->GetTabCount(); ++index) {
+      TabAndroid* tab = model->GetTabAt(index);
+      if (tab)
+        result.insert(tab->GetURL());
     }
   }
 #endif
@@ -293,10 +303,9 @@ void ChromeBrowsingDataLifetimeManager::Shutdown() {
 
 void ChromeBrowsingDataLifetimeManager::ClearBrowsingDataForOnExitPolicy(
     bool keep_browser_alive) {
-  auto* data_types = profile_->GetPrefs()->GetList(
+  const base::Value::List& data_types = profile_->GetPrefs()->GetList(
       browsing_data::prefs::kClearBrowsingDataOnExitList);
-  if (data_types && !data_types->GetList().empty() &&
-      !SyncServiceFactory::IsSyncAllowed(profile_)) {
+  if (!data_types.empty() && !SyncServiceFactory::IsSyncAllowed(profile_)) {
     profile_->GetPrefs()->SetBoolean(
         browsing_data::prefs::kClearBrowsingDataOnExitDeletionPending, true);
     auto* remover = profile_->GetBrowsingDataRemover();
@@ -307,8 +316,8 @@ void ChromeBrowsingDataLifetimeManager::ClearBrowsingDataForOnExitPolicy(
       DCHECK(keep_browser_alive);
 #endif
     remover->RemoveAndReply(base::Time(), base::Time::Max(),
-                            GetRemoveMask(*data_types),
-                            GetOriginTypeMask(*data_types),
+                            GetRemoveMask(data_types),
+                            GetOriginTypeMask(data_types),
                             BrowsingDataRemoverObserver::Create(
                                 remover, /*filterable_deletion=*/true, profile_,
                                 keep_browser_alive));

@@ -1,4 +1,4 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -110,6 +110,7 @@ class TabHoverCardBubbleView : public views::BubbleDialogDelegateView {
   };
 
   METADATA_HEADER(TabHoverCardBubbleView);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kHoverCardBubbleElementId);
   explicit TabHoverCardBubbleView(Tab* tab);
   TabHoverCardBubbleView(const TabHoverCardBubbleView&) = delete;
   TabHoverCardBubbleView& operator=(const TabHoverCardBubbleView&) = delete;

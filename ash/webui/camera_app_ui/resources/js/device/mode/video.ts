@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,16 +9,21 @@ import {
 } from '../../assert.js';
 import * as dom from '../../dom.js';
 import {reportError} from '../../error.js';
+import * as expert from '../../expert.js';
+import {Flag} from '../../flag.js';
 import * as h264 from '../../h264.js';
 import {I18nString} from '../../i18n_string.js';
+import {LowStorageActionType, sendLowStorageEvent} from '../../metrics.js';
 import {Filenamer} from '../../models/file_namer.js';
 import * as loadTimeData from '../../models/load_time_data.js';
 import {
   GifSaver,
   VideoSaver,
 } from '../../models/video_saver.js';
+import {ChromeHelper} from '../../mojo/chrome_helper.js';
 import {DeviceOperator} from '../../mojo/device_operator.js';
 import {CrosImageCapture} from '../../mojo/image_capture.js';
+import {StorageMonitorStatus} from '../../mojo/type.js';
 import * as sound from '../../sound.js';
 import * as state from '../../state.js';
 import * as toast from '../../toast.js';
@@ -28,24 +33,27 @@ import {
   ErrorType,
   Facing,
   getVideoTrackSettings,
+  LowStorageError,
+  Metadata,
   NoChunkError,
+  NoFrameError,
   PreviewVideo,
   Resolution,
   VideoType,
 } from '../../type.js';
 import {WaitableEvent} from '../../waitable_event.js';
 import {StreamConstraints} from '../stream_constraints.js';
-import {
-  StreamManager,
-} from '../stream_manager.js';
+import {StreamManager} from '../stream_manager.js';
 
 import {ModeBase, ModeFactory} from './mode_base.js';
+import {PhotoResult} from './photo.js';
 import {GifRecordTime, RecordTime} from './record_time.js';
 
 /**
  * Maps from board name to its default encoding profile and bitrate multiplier.
  */
 const encoderPreference = new Map([
+  ['corsola', {profile: h264.Profile.HIGH, multiplier: 6}],
   ['strongbad', {profile: h264.Profile.HIGH, multiplier: 6}],
   ['trogdor', {profile: h264.Profile.HIGH, multiplier: 6}],
   ['dedede', {profile: h264.Profile.HIGH, multiplier: 8}],
@@ -83,6 +91,7 @@ export function setAvc1Parameters(params: h264.EncoderParameters|null): void {
 
 /**
  * Gets video recording MIME type. Mkv with AVC1 is the only preferred format.
+ *
  * @return Video recording MIME type.
  */
 function getVideoMimeType(param: h264.EncoderParameters|null): string {
@@ -104,13 +113,8 @@ function beforeUnloadListener(event: BeforeUnloadEvent) {
   event.returnValue = '';
 }
 
-export interface VideoSnapshotResult {
-  blob: Blob;
-  resolution: Resolution;
-  timestamp: number;
-}
-
 export interface VideoResult {
+  autoStopped: boolean;
   resolution: Resolution;
   duration: number;
   videoSaver: VideoSaver;
@@ -137,7 +141,7 @@ export interface VideoHandler {
   /**
    * Handles the result video snapshot.
    */
-  handleVideoSnapshot(videoSnapshotResult: VideoSnapshotResult): Promise<void>;
+  handleVideoSnapshot(videoSnapshotResult: PhotoResult): Promise<void>;
 
   /**
    * Plays UI effect when doing video snapshot.
@@ -149,10 +153,13 @@ export interface VideoHandler {
   onVideoCaptureDone(videoResult: VideoResult): Promise<void>;
 }
 
+// This is used as an enum.
+/* eslint-disable @typescript-eslint/naming-convention */
 const RecordType = {
   NORMAL: state.State.RECORD_TYPE_NORMAL,
   GIF: state.State.RECORD_TYPE_GIF,
 } as const;
+/* eslint-enable @typescript-eslint/naming-convention */
 
 type RecordType = typeof RecordType[keyof typeof RecordType];
 
@@ -161,6 +168,7 @@ type RecordType = typeof RecordType[keyof typeof RecordType];
  */
 export class Video extends ModeBase {
   private readonly captureResolution: Resolution;
+
   private captureStream: MediaStream|null = null;
 
   /**
@@ -168,7 +176,11 @@ export class Video extends ModeBase {
    */
   private mediaRecorder: MediaRecorder|null = null;
 
-  private crosImageCapture: CrosImageCapture|null = null;
+  /**
+   * CrosImageCapture object which is used to grab video snapshot from the
+   * recording stream.
+   */
+  private recordingImageCapture: CrosImageCapture|null = null;
 
   /**
    * Record-time for the elapsed recording time.
@@ -178,7 +190,7 @@ export class Video extends ModeBase {
   /**
    * Record-time for the elapsed gif recording time.
    */
-  private gifRecordTime: GifRecordTime;
+  private readonly gifRecordTime: GifRecordTime;
 
   /**
    * Record type of ongoing recording.
@@ -202,13 +214,20 @@ export class Video extends ModeBase {
   private everPaused = false;
 
   /**
-   * @param stream Preview stream.
+   * Whether the current recording is auto stopped due to low storage.
    */
+  private autoStopped = false;
+
+  /**
+   * HTMLElement displaying warning about low storage.
+   */
+  private lowStorageWarningNudge = dom.get('#nudge', HTMLDivElement);
+
   constructor(
       video: PreviewVideo,
       private readonly captureConstraints: StreamConstraints|null,
-      captureResolution: Resolution,
-      private readonly snapshotResolution: Resolution,
+      captureResolution: Resolution|null,
+      private readonly snapshotResolution: Resolution|null,
       facing: Facing,
       private readonly handler: VideoHandler,
   ) {
@@ -226,18 +245,12 @@ export class Video extends ModeBase {
         {maxTime: MAX_GIF_DURATION_MS, onMaxTimeout: () => this.stop()});
   }
 
-  async clear(): Promise<void> {
+  override async clear(): Promise<void> {
     await this.stopCapture();
     if (this.captureStream !== null) {
       await StreamManager.getInstance().closeCaptureStream(this.captureStream);
       this.captureStream = null;
     }
-  }
-
-  updatePreview(video: PreviewVideo): void {
-    assert(!state.get(state.State.RECORDING));
-    this.video = video;
-    this.crosImageCapture = new CrosImageCapture(this.getVideoTrack());
   }
 
   /**
@@ -248,7 +261,7 @@ export class Video extends ModeBase {
     if (state.get(state.State.SHOULD_HANDLE_INTENT_RESULT)) {
       return RecordType.NORMAL;
     }
-    return Object.values(RecordType).find((t) => state.get(t)) ||
+    return Object.values(RecordType).find((t) => state.get(t)) ??
         RecordType.NORMAL;
   }
 
@@ -256,7 +269,7 @@ export class Video extends ModeBase {
    * @return Returns whether taking video sanpshot via Blob stream is enabled.
    */
   async isBlobVideoSnapshotEnabled(): Promise<boolean> {
-    const deviceOperator = await DeviceOperator.getInstance();
+    const deviceOperator = DeviceOperator.getInstance();
     const {deviceId} = this.video.getVideoSettings();
     return deviceOperator !== null &&
         (await deviceOperator.isBlobVideoSnapshotEnabled(deviceId));
@@ -264,6 +277,7 @@ export class Video extends ModeBase {
 
   /**
    * Takes a video snapshot during recording.
+   *
    * @return Promise resolved when video snapshot is finished.
    */
   async takeSnapshot(): Promise<void> {
@@ -275,16 +289,20 @@ export class Video extends ModeBase {
       try {
         const timestamp = Date.now();
         let blob: Blob;
-        assert(this.crosImageCapture !== null);
+        let metadata: Metadata|null = null;
         if (await this.isBlobVideoSnapshotEnabled()) {
+          assert(this.snapshotResolution !== null);
           const photoSettings: PhotoSettings = {
             imageWidth: this.snapshotResolution.width,
             imageHeight: this.snapshotResolution.height,
           };
-          const results = await this.crosImageCapture.takePhoto(photoSettings);
-          blob = await results[0];
+          const results = await this.getImageCapture().takePhoto(photoSettings);
+          blob = await results[0].pendingBlob;
+          metadata = await results[0].pendingMetadata;
         } else {
-          blob = await this.crosImageCapture.grabJpegFrame();
+          blob = await assertInstanceof(
+                     this.recordingImageCapture, CrosImageCapture)
+                     .grabJpegFrame();
         }
 
         this.handler.playShutterEffect();
@@ -292,6 +310,7 @@ export class Video extends ModeBase {
           blob,
           resolution: this.captureResolution,
           timestamp,
+          metadata,
         });
       } finally {
         state.set(state.State.SNAPSHOTTING, false);
@@ -301,8 +320,50 @@ export class Video extends ModeBase {
     return this.snapshotting;
   }
 
+  private toggleLowStorageWarning(show: boolean): void {
+    if (show) {
+      sendLowStorageEvent(LowStorageActionType.SHOW_WARNING_MSG);
+    }
+    this.lowStorageWarningNudge.hidden = !show;
+  }
+
+  /**
+   * Start monitor storage status and return initial status.
+   *
+   * @return Promise resolved to boolean indicating whether users can
+   * start/resume the recording.
+   */
+  private async startMonitorStorage(): Promise<boolean> {
+    // If the monitoring is not enabled, skip setting callback and return true
+    // to always allow users to start/resume recording.
+    if (!loadTimeData.getChromeFlag(Flag.LOW_STORAGE_WARNING)) {
+      return true;
+    }
+    const onChange = (newState: StorageMonitorStatus) => {
+      if (newState === StorageMonitorStatus.NORMAL) {
+        this.toggleLowStorageWarning(false);
+      } else if (newState === StorageMonitorStatus.LOW) {
+        this.toggleLowStorageWarning(true);
+      } else if (newState === StorageMonitorStatus.CRITICALLY_LOW) {
+        if (!state.get(state.State.RECORDING_PAUSED)) {
+          this.autoStopped = true;
+          this.stop();
+        } else {
+          this.toggleLowStorageWarning(true);
+        }
+      }
+    };
+    const initialState =
+        await ChromeHelper.getInstance().startMonitorStorage(onChange);
+    if (initialState === StorageMonitorStatus.LOW) {
+      this.toggleLowStorageWarning(true);
+    }
+    return initialState !== StorageMonitorStatus.CRITICALLY_LOW;
+  }
+
   /**
    * Toggles pause/resume state of video recording.
+   *
    * @return Promise resolved when recording is paused/resumed.
    */
   async togglePaused(): Promise<void> {
@@ -320,6 +381,16 @@ export class Video extends ModeBase {
     assert(this.mediaRecorder.state !== 'inactive');
     const toBePaused = this.mediaRecorder.state !== 'paused';
     const toggledEvent = toBePaused ? 'pause' : 'resume';
+
+    if (!toBePaused) {
+      const canResume = await this.startMonitorStorage();
+      if (!canResume) {
+        this.autoStopped = true;
+        this.stop();
+        return;
+      }
+    }
+
     const onToggled = () => {
       assert(this.mediaRecorder !== null);
       this.mediaRecorder.removeEventListener(toggledEvent, onToggled);
@@ -327,12 +398,12 @@ export class Video extends ModeBase {
       this.togglePausedInternal = null;
       waitable.signal();
     };
-    const playEffect = async () => {
+    async function playEffect() {
       state.set(state.State.RECORDING_UI_PAUSED, toBePaused);
       await sound.play(dom.get(
           toBePaused ? '#sound-rec-pause' : '#sound-rec-start',
           HTMLAudioElement));
-    };
+    }
 
     this.mediaRecorder.addEventListener(toggledEvent, onToggled);
     if (toBePaused) {
@@ -352,7 +423,7 @@ export class Video extends ModeBase {
     if (avc1Parameters !== null) {
       return avc1Parameters;
     }
-    const preference = encoderPreference.get(loadTimeData.getBoard()) ||
+    const preference = encoderPreference.get(loadTimeData.getBoard()) ??
         {profile: h264.Profile.HIGH, multiplier: 2};
     const {profile, multiplier} = preference;
     const {width, height, frameRate} =
@@ -385,10 +456,19 @@ export class Video extends ModeBase {
     return this.getRecordingStream().getVideoTracks()[0];
   }
 
-  async start(): Promise<() => Promise<void>> {
+  async start(): Promise<[Promise<void>]> {
     assert(this.snapshotting === null);
     this.togglePausedInternal = null;
     this.everPaused = false;
+    this.autoStopped = false;
+
+    if (this.recordingType === RecordType.NORMAL) {
+      const canStart = await this.startMonitorStorage();
+      if (!canStart) {
+        ChromeHelper.getInstance().stopMonitorStorage();
+        throw new LowStorageError();
+      }
+    }
 
     const isSoundEnded =
         await sound.play(dom.get('#sound-rec-start', HTMLAudioElement));
@@ -400,15 +480,8 @@ export class Video extends ModeBase {
       this.captureStream = await StreamManager.getInstance().openCaptureStream(
           this.captureConstraints);
     }
-    if (this.crosImageCapture === null) {
-      if (await this.isBlobVideoSnapshotEnabled()) {
-        // Blob stream is configured on the original device rather than the
-        // virtual one when multi-stream is enabled.
-        this.crosImageCapture =
-            new CrosImageCapture(this.video.getVideoTrack());
-      } else {
-        this.crosImageCapture = new CrosImageCapture(this.getVideoTrack());
-      }
+    if (this.recordingImageCapture === null) {
+      this.recordingImageCapture = new CrosImageCapture(this.getVideoTrack());
     }
 
     try {
@@ -429,30 +502,37 @@ export class Video extends ModeBase {
     }
 
     this.recordingType = this.getToggledRecordOption();
-    // TODO(b:191950622): Remove complex state logic bind with this enable flag
+    // TODO(b/191950622): Remove complex state logic bind with this enable flag
     // after GIF recording move outside of expert mode and replace it with
     // |RECORD_TYPE_GIF|.
     state.set(
         state.State.ENABLE_GIF_RECORDING,
         this.recordingType === RecordType.GIF);
     if (this.recordingType === RecordType.GIF) {
-      const gifName = (new Filenamer()).newVideoName(VideoType.GIF);
       state.set(state.State.RECORDING, true);
       this.gifRecordTime.start({resume: false});
 
-      const gifSaver = await this.captureGif();
-
-      state.set(state.State.RECORDING, false);
-      this.gifRecordTime.stop({pause: false});
-
-      // TODO(b:191950622): Close capture stream before onGifCaptureDone()
-      // opening preview page when multi-stream recording enabled.
-      return () => this.handler.onGifCaptureDone({
-        name: gifName,
-        gifSaver,
-        resolution: this.captureResolution,
-        duration: this.gifRecordTime.inMilliseconds(),
-      });
+      try {
+        const gifSaver = await this.captureGif();
+        const gifName = (new Filenamer()).newVideoName(VideoType.GIF);
+        // TODO(b/191950622): Close capture stream before onGifCaptureDone()
+        // opening preview page when multi-stream recording enabled.
+        return [this.handler.onGifCaptureDone({
+          name: gifName,
+          gifSaver,
+          resolution: this.captureResolution,
+          duration: this.gifRecordTime.inMilliseconds(),
+        })];
+      } catch (e) {
+        if (e instanceof NoFrameError) {
+          toast.show(I18nString.ERROR_MSG_VIDEO_TOO_SHORT);
+          return [Promise.resolve()];
+        }
+        throw e;
+      } finally {
+        state.set(state.State.RECORDING, false);
+        this.gifRecordTime.stop({pause: false});
+      }
     } else {
       this.recordTime.start({resume: false});
       let videoSaver: VideoSaver|null = null;
@@ -481,25 +561,31 @@ export class Video extends ModeBase {
         assert(videoSaver !== null);
         toast.show(I18nString.ERROR_MSG_VIDEO_TOO_SHORT);
         await videoSaver.cancel();
-        return async () => {
-          await this.snapshotting;
-        };
+        return [this.snapshotting ?? Promise.resolve()];
       }
 
-      return async () => {
+      return [(async () => {
         assert(videoSaver !== null);
         await this.handler.onVideoCaptureDone({
+          autoStopped: this.autoStopped,
           resolution: this.captureResolution,
           duration: this.recordTime.inMilliseconds(),
           videoSaver,
           everPaused: this.everPaused,
         });
         await this.snapshotting;
-      };
+      })()];
     }
   }
 
-  stop(): void {
+  override stop(): void {
+    if (loadTimeData.getChromeFlag(Flag.LOW_STORAGE_WARNING)) {
+      ChromeHelper.getInstance().stopMonitorStorage();
+    }
+    this.toggleLowStorageWarning(false);
+    if (!state.get(state.State.RECORDING)) {
+      return;
+    }
     if (this.recordingType === RecordType.GIF) {
       state.set(state.State.RECORDING, false);
     } else {
@@ -517,10 +603,11 @@ export class Video extends ModeBase {
   /**
    * Starts recording gif animation and waits for stop recording event triggered
    * by stop shutter or time out over 5 seconds.
+   *
    * @return Saves recorded video.
    */
   private async captureGif(): Promise<GifSaver> {
-    // TODO(b:191950622): Grab frames from capture stream when multistream
+    // TODO(b/191950622): Grab frames from capture stream when multistream
     // enabled.
     const video = this.video.video;
     let {videoWidth: width, videoHeight: height} = video;
@@ -533,33 +620,34 @@ export class Video extends ModeBase {
     const canvas = new OffscreenCanvas(width, height);
     const context = assertInstanceof(
         canvas.getContext('2d'), OffscreenCanvasRenderingContext2D);
-
-    await new Promise<void>((resolve) => {
+    const frames = await new Promise<number>((resolve) => {
       let encodedFrames = 0;
-      let start = 0.0;
-      const updateCanvas = (now: number) => {
-        if (start === 0.0) {
-          start = now;
-        }
+      let writtenFrames = 0;
+      function updateCanvas() {
         if (!state.get(state.State.RECORDING)) {
-          resolve();
+          resolve(writtenFrames);
           return;
         }
         encodedFrames++;
         if (encodedFrames % GRAB_GIF_FRAME_RATIO === 0) {
+          writtenFrames++;
           context.drawImage(video, 0, 0, width, height);
           gifSaver.write(context.getImageData(0, 0, width, height).data);
         }
         video.requestVideoFrameCallback(updateCanvas);
-      };
+      }
       video.requestVideoFrameCallback(updateCanvas);
     });
+    if (frames === 0) {
+      throw new NoFrameError();
+    }
     return gifSaver;
   }
 
   /**
    * Starts recording and waits for stop recording event triggered by stop
    * shutter.
+   *
    * @return Saves recorded video.
    */
   private async captureVideo(): Promise<VideoSaver> {
@@ -569,14 +657,14 @@ export class Video extends ModeBase {
       await new Promise((resolve, reject) => {
         let noChunk = true;
 
-        const ondataavailable = (event: BlobEvent) => {
+        function onDataAvailable(event: BlobEvent) {
           if (event.data && event.data.size > 0) {
             noChunk = false;
             saver.write(event.data);
           }
-        };
+        }
 
-        const onstop = async () => {
+        const onStop = async () => {
           assert(this.mediaRecorder !== null);
 
           state.set(state.State.RECORDING, false);
@@ -584,28 +672,27 @@ export class Video extends ModeBase {
           state.set(state.State.RECORDING_UI_PAUSED, false);
 
           this.mediaRecorder.removeEventListener(
-              'dataavailable', ondataavailable);
-          this.mediaRecorder.removeEventListener('stop', onstop);
+              'dataavailable', onDataAvailable);
+          this.mediaRecorder.removeEventListener('stop', onStop);
 
           if (noChunk) {
             reject(new NoChunkError());
           } else {
-            // TODO(yuli): Handle insufficient storage.
             resolve(saver);
           }
         };
 
-        const onstart = () => {
+        const onStart = () => {
           assert(this.mediaRecorder !== null);
 
           state.set(state.State.RECORDING, true);
-          this.mediaRecorder.removeEventListener('start', onstart);
+          this.mediaRecorder.removeEventListener('start', onStart);
         };
 
         assert(this.mediaRecorder !== null);
-        this.mediaRecorder.addEventListener('dataavailable', ondataavailable);
-        this.mediaRecorder.addEventListener('stop', onstop);
-        this.mediaRecorder.addEventListener('start', onstart);
+        this.mediaRecorder.addEventListener('dataavailable', onDataAvailable);
+        this.mediaRecorder.addEventListener('stop', onStop);
+        this.mediaRecorder.addEventListener('start', onStart);
 
         window.addEventListener('beforeunload', beforeUnloadListener);
 
@@ -631,8 +718,8 @@ export class VideoFactory extends ModeFactory {
    */
   constructor(
       constraints: StreamConstraints,
-      captureResolution: Resolution,
-      private readonly snapshotResolution: Resolution,
+      captureResolution: Resolution|null,
+      private readonly snapshotResolution: Resolution|null,
       private readonly handler: VideoHandler,
   ) {
     super(constraints, captureResolution);
@@ -640,7 +727,7 @@ export class VideoFactory extends ModeFactory {
 
   produce(): ModeBase {
     let captureConstraints = null;
-    if (state.get(state.State.ENABLE_MULTISTREAM_RECORDING)) {
+    if (expert.isEnabled(expert.ExpertOption.ENABLE_MULTISTREAM_RECORDING)) {
       const {width, height} = assertExists(this.captureResolution);
       captureConstraints = {
         deviceId: this.constraints.deviceId,
@@ -652,6 +739,8 @@ export class VideoFactory extends ModeFactory {
         },
       };
     }
+    assert(this.previewVideo !== null);
+    assert(this.facing !== null);
     return new Video(
         this.previewVideo, captureConstraints, this.captureResolution,
         this.snapshotResolution, this.facing, this.handler);

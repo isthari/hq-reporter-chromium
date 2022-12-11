@@ -1,11 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/policy/test_support/request_handler_for_psm_auto_enrollment.h"
 
 #include "base/containers/contains.h"
-#include "base/strings/stringprintf.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/policy/test_support/client_storage.h"
@@ -31,10 +30,8 @@ constexpr const char* kPsmMembershipEncryptedTestIds[] = {
 }  // namespace
 
 RequestHandlerForPsmAutoEnrollment::RequestHandlerForPsmAutoEnrollment(
-    ClientStorage* client_storage,
-    PolicyStorage* policy_storage)
-    : EmbeddedPolicyTestServer::RequestHandler(client_storage, policy_storage) {
-}
+    EmbeddedPolicyTestServer* parent)
+    : EmbeddedPolicyTestServer::RequestHandler(parent) {}
 
 RequestHandlerForPsmAutoEnrollment::~RequestHandlerForPsmAutoEnrollment() =
     default;

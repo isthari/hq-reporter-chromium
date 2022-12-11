@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -140,7 +140,7 @@ TEST(BookmarkUpdatePreprocessingTest, ShouldPropagateGuidFromSpecifics) {
   histogram_tester.ExpectUniqueSample("Sync.BookmarkGUIDSource2",
                                       /*sample=*/
                                       ExpectedBookmarkGuidSource::kSpecifics,
-                                      /*count=*/1);
+                                      /*expected_bucket_count=*/1);
 }
 
 // Tests that AdaptGuidForBookmark() uses the originator client item ID as GUID
@@ -162,7 +162,7 @@ TEST(BookmarkUpdatePreprocessingTest, ShouldUseOriginatorClientItemIdAsGuid) {
   histogram_tester.ExpectUniqueSample("Sync.BookmarkGUIDSource2",
                                       /*sample=*/
                                       ExpectedBookmarkGuidSource::kValidOCII,
-                                      /*count=*/1);
+                                      /*expected_bucket_count=*/1);
 }
 
 // Tests that AdaptGuidForBookmark() infers the GUID when the field in specifics
@@ -184,7 +184,7 @@ TEST(BookmarkUpdatePreprocessingTest, ShouldInferGuid) {
   histogram_tester.ExpectUniqueSample("Sync.BookmarkGUIDSource2",
                                       /*sample=*/
                                       ExpectedBookmarkGuidSource::kInferred,
-                                      /*count=*/1);
+                                      /*expected_bucket_count=*/1);
 }
 
 TEST(BookmarkUpdatePreprocessingTest,
@@ -204,7 +204,7 @@ TEST(BookmarkUpdatePreprocessingTest,
       "Sync.BookmarkGUIDSource2",
       /*sample=*/
       ExpectedBookmarkGuidSource::kLeftEmptyPossiblyForClientTag,
-      /*count=*/1);
+      /*expected_bucket_count=*/1);
 }
 
 // Tests that inferred GUIDs are computed deterministically.

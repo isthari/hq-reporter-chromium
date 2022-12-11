@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 
 #include "base/bind.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/task/sequenced_task_runner.h"
@@ -19,18 +20,18 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/time/time.h"
 #include "components/sync/base/extensions_activity.h"
-#include "components/sync/base/model_type_test_util.h"
+#include "components/sync/base/features.h"
 #include "components/sync/engine/backoff_delay_provider.h"
 #include "components/sync/engine/cancelation_signal.h"
 #include "components/sync/engine/data_type_activation_response.h"
-#include "components/sync/engine/sync_engine_switches.h"
-#include "components/sync/test/engine/fake_model_type_processor.h"
-#include "components/sync/test/engine/mock_connection_manager.h"
-#include "components/sync/test/engine/mock_nudge_handler.h"
+#include "components/sync/test/fake_model_type_processor.h"
 #include "components/sync/test/fake_sync_encryption_handler.h"
+#include "components/sync/test/mock_connection_manager.h"
 #include "components/sync/test/mock_invalidation.h"
+#include "components/sync/test/mock_nudge_handler.h"
+#include "components/sync/test/model_type_test_util.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_status_code.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -217,7 +218,7 @@ void PumpLoop() {
   // Do it this way instead of RunAllPending to pump loop exactly once
   // (necessary in the presence of timers; see comment in
   // QuitLoopNow).
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&QuitLoopNow));
   RunLoop();
 }
@@ -295,6 +296,9 @@ class SyncSchedulerImplTest : public testing::Test {
   MockSyncer* syncer() { return syncer_; }
   MockDelayProvider* delay() { return delay_; }
   MockConnectionManager* connection() { return connection_.get(); }
+  ModelTypeRegistry* model_type_registry() {
+    return model_type_registry_.get();
+  }
   base::TimeDelta default_delay() { return base::Seconds(0); }
   base::TimeDelta long_delay() { return base::Seconds(60); }
   base::TimeDelta timeout() { return TestTimeouts::action_timeout(); }
@@ -336,7 +340,7 @@ class SyncSchedulerImplTest : public testing::Test {
 
   // This stops the scheduler synchronously.
   void StopSyncScheduler() {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&SyncSchedulerImplTest::DoQuitLoopNow,
                                   weak_ptr_factory_.GetWeakPtr()));
     RunLoop();
@@ -762,7 +766,8 @@ TEST_F(SyncSchedulerImplTest, NudgeWithStates) {
       .WillOnce(
           DoAll(Invoke(SimulateNormalSuccess), RecordSyncShare(&times1, true)))
       .RetiresOnSaturation();
-  scheduler()->ScheduleInvalidationNudge(THEMES, BuildInvalidation(10, "test"));
+  scheduler()->SetHasPendingInvalidations(THEMES, true);
+  scheduler()->ScheduleInvalidationNudge(THEMES);
   RunLoop();
 
   Mock::VerifyAndClearExpectations(syncer());
@@ -772,8 +777,8 @@ TEST_F(SyncSchedulerImplTest, NudgeWithStates) {
   EXPECT_CALL(*syncer(), NormalSyncShare)
       .WillOnce(
           DoAll(Invoke(SimulateNormalSuccess), RecordSyncShare(&times2, true)));
-  scheduler()->ScheduleInvalidationNudge(TYPED_URLS,
-                                         BuildInvalidation(10, "test2"));
+  scheduler()->SetHasPendingInvalidations(TYPED_URLS, true);
+  scheduler()->ScheduleInvalidationNudge(TYPED_URLS);
   RunLoop();
 }
 
@@ -1218,8 +1223,7 @@ TEST_F(SyncSchedulerImplTest, TypeThrottlingDoesBlockOtherSources) {
   EXPECT_FALSE(scheduler()->IsGlobalThrottle());
 
   // Ignore invalidations for throttled types.
-  scheduler()->ScheduleInvalidationNudge(throttled_type,
-                                         BuildInvalidation(10, "test"));
+  scheduler()->ScheduleInvalidationNudge(throttled_type);
   PumpLoop();
 
   // Ignore refresh requests for throttled types.
@@ -1264,8 +1268,7 @@ TEST_F(SyncSchedulerImplTest, TypeBackingOffDoesBlockOtherSources) {
   EXPECT_FALSE(scheduler()->IsGlobalThrottle());
 
   // Ignore invalidations for backed off types.
-  scheduler()->ScheduleInvalidationNudge(backed_off_type,
-                                         BuildInvalidation(10, "test"));
+  scheduler()->ScheduleInvalidationNudge(backed_off_type);
   PumpLoop();
 
   // Ignore refresh requests for backed off types.
@@ -2030,7 +2033,7 @@ TEST_F(SyncSchedulerImplTest, PollOnStartUpWithinBoundsAfterLongPause) {
 
 TEST_F(SyncSchedulerImplTest, TestResetPollIntervalOnStartFeatureFlag) {
   base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(switches::kSyncResetPollIntervalOnStart);
+  feature_list.InitAndEnableFeature(kSyncResetPollIntervalOnStart);
   base::Time now = base::Time::Now();
   EXPECT_THAT(ComputeLastPollOnStart(
                   /*last_poll=*/now - base::Days(1),

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,11 +15,8 @@
 #include "ui/gfx/presentation_feedback.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_surface.h"
-#include "ui/gl/gpu_switching_observer.h"
-
-#if defined(USE_EGL)
 #include "ui/gl/gl_surface_egl.h"
-#endif
+#include "ui/gl/gpu_switching_observer.h"
 
 @class CAContext;
 @class CALayer;
@@ -35,17 +32,11 @@ class GLFence;
 
 namespace gpu {
 
-// Template ImageTransportSurfaceOverlayMac based on its base class so that it
-// can be used by both the validating and passthrough command decoders by
-// inheriting from GLSurface and GLSurfaceEGL respectively. Once the validating
-// command decoder is removed, the template can be removed and
-// ImageTransportSurfaceOverlayMac can always inherit from GLSurfaceEGL.
-
-template <typename BaseClass>
-class ImageTransportSurfaceOverlayMacBase : public BaseClass,
-                                            public ui::GpuSwitchingObserver {
+class ImageTransportSurfaceOverlayMacEGL : public gl::GLSurfaceEGL,
+                                           public ui::GpuSwitchingObserver {
  public:
-  explicit ImageTransportSurfaceOverlayMacBase(
+  ImageTransportSurfaceOverlayMacEGL(
+      gl::GLDisplayEGL* display,
       base::WeakPtr<ImageTransportSurfaceDelegate> delegate);
 
   // GLSurface implementation
@@ -57,29 +48,33 @@ class ImageTransportSurfaceOverlayMacBase : public BaseClass,
               const gfx::ColorSpace& color_space,
               bool has_alpha) override;
   bool IsOffscreen() override;
-  gfx::SwapResult SwapBuffers(
-      gl::GLSurface::PresentationCallback callback) override;
+  gfx::SwapResult SwapBuffers(gl::GLSurface::PresentationCallback callback,
+                              gl::FrameData data) override;
   void SwapBuffersAsync(
       gl::GLSurface::SwapCompletionCallback completion_callback,
-      gl::GLSurface::PresentationCallback presentation_callback) override;
-  gfx::SwapResult PostSubBuffer(
-      int x,
-      int y,
-      int width,
-      int height,
-      gl::GLSurface::PresentationCallback callback) override;
+      gl::GLSurface::PresentationCallback presentation_callback,
+      gl::FrameData data) override;
+  gfx::SwapResult PostSubBuffer(int x,
+                                int y,
+                                int width,
+                                int height,
+                                gl::GLSurface::PresentationCallback callback,
+                                gl::FrameData data) override;
   void PostSubBufferAsync(
       int x,
       int y,
       int width,
       int height,
       gl::GLSurface::SwapCompletionCallback completion_callback,
-      gl::GLSurface::PresentationCallback presentation_callback) override;
+      gl::GLSurface::PresentationCallback presentation_callback,
+      gl::FrameData data) override;
   gfx::SwapResult CommitOverlayPlanes(
-      gl::GLSurface::PresentationCallback callback) override;
+      gl::GLSurface::PresentationCallback callback,
+      gl::FrameData data) override;
   void CommitOverlayPlanesAsync(
       gl::GLSurface::SwapCompletionCallback completion_callback,
-      gl::GLSurface::PresentationCallback presentation_callback) override;
+      gl::GLSurface::PresentationCallback presentation_callback,
+      gl::FrameData data) override;
 
   bool SupportsPostSubBuffer() override;
   bool SupportsCommitOverlayPlanes() override;
@@ -89,12 +84,10 @@ class ImageTransportSurfaceOverlayMacBase : public BaseClass,
   gl::GLSurfaceFormat GetFormat() override;
   bool OnMakeCurrent(gl::GLContext* context) override;
   bool ScheduleOverlayPlane(
-      gl::GLImage* image,
+      gl::OverlayImage image,
       std::unique_ptr<gfx::GpuFence> gpu_fence,
       const gfx::OverlayPlaneData& overlay_plane_data) override;
   bool ScheduleCALayer(const ui::CARendererLayerParams& params) override;
-  void ScheduleCALayerInUseQuery(
-      std::vector<gl::GLSurface::CALayerInUseQuery> queries) override;
   bool IsSurfaceless() const override;
   gfx::SurfaceOrigin GetOrigin() const override;
 
@@ -104,7 +97,7 @@ class ImageTransportSurfaceOverlayMacBase : public BaseClass,
   void SetCALayerErrorCode(gfx::CALayerResult ca_layer_error_code) override;
 
  private:
-  ~ImageTransportSurfaceOverlayMacBase() override;
+  ~ImageTransportSurfaceOverlayMacEGL() override;
 
   gfx::SwapResult SwapBuffersInternal(
       gl::GLSurface::SwapCompletionCallback completion_callback,
@@ -123,8 +116,6 @@ class ImageTransportSurfaceOverlayMacBase : public BaseClass,
   float scale_factor_;
   gfx::CALayerResult ca_layer_error_code_ = gfx::kCALayerSuccess;
 
-  std::vector<gl::GLSurface::CALayerInUseQuery> ca_layer_in_use_queries_;
-
   // A GLFence marking the end of the previous frame, used for applying
   // backpressure.
   uint64_t previous_frame_fence_ = 0;
@@ -132,17 +123,8 @@ class ImageTransportSurfaceOverlayMacBase : public BaseClass,
   // The renderer ID that all contexts made current to this surface should be
   // targeting.
   GLint gl_renderer_id_;
-  base::WeakPtrFactory<ImageTransportSurfaceOverlayMacBase<BaseClass>>
-      weak_ptr_factory_;
+  base::WeakPtrFactory<ImageTransportSurfaceOverlayMacEGL> weak_ptr_factory_;
 };
-
-using ImageTransportSurfaceOverlayMac =
-    ImageTransportSurfaceOverlayMacBase<gl::GLSurface>;
-
-#if defined(USE_EGL)
-using ImageTransportSurfaceOverlayMacEGL =
-    ImageTransportSurfaceOverlayMacBase<gl::GLSurfaceEGL>;
-#endif
 
 }  // namespace gpu
 

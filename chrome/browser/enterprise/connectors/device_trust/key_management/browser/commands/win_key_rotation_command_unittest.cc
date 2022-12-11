@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <winerror.h>
 
 #include "base/base64.h"
+#include "base/functional/bind.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "chrome/installer/util/util_constants.h"
@@ -16,6 +17,7 @@
 namespace enterprise_connectors {
 
 namespace {
+
 const char kNonce[] = "nonce";
 const char kFakeDMToken[] = "fake-browser-dm-token";
 const char kFakeDmServerUrl[] =
@@ -23,6 +25,18 @@ const char kFakeDmServerUrl[] =
     "management_service?retry=false&agent=Chrome+1.2.3(456)&apptype=Chrome&"
     "critical=true&deviceid=fake-client-id&devicetype=2&platform=Test%7CUnit%"
     "7C1.2.3&request=browser_public_key_upload";
+
+void CheckCommandArgs(const std::vector<std::string>& args) {
+  std::string token_base64;
+  base::Base64Encode(kFakeDMToken, &token_base64);
+  std::string nonce_base64;
+  base::Base64Encode(kFakeDMToken, &token_base64);
+  base::Base64Encode(kNonce, &nonce_base64);
+  EXPECT_EQ(token_base64, args[0]);
+  EXPECT_EQ(kFakeDmServerUrl, args[1]);
+  EXPECT_EQ(nonce_base64, args[2]);
+}
+
 }  // namespace
 
 class WinKeyRotationCommandTest : public testing::Test {
@@ -38,17 +52,13 @@ TEST_F(WinKeyRotationCommandTest, RotateSuccess) {
   bool was_called = false;
   KeyRotationCommand::Status status = KeyRotationCommand::Status::TIMED_OUT;
 
-  WinKeyRotationCommand command([](const wchar_t* command,
-                                   const std::vector<std::string>& args,
-                                   DWORD* return_code) {
-    std::string token_base64;
-    base::Base64Encode(kFakeDMToken, &token_base64);
-    EXPECT_EQ(token_base64, args[0]);
-    EXPECT_EQ(kFakeDmServerUrl, args[1]);
-    EXPECT_EQ(kNonce, args[2]);
-    *return_code = installer::ROTATE_DTKEY_SUCCESS;
-    return S_OK;
-  });
+  WinKeyRotationCommand command(base::BindRepeating(
+      [](const wchar_t* command, const std::vector<std::string>& args,
+         DWORD* return_code) {
+        CheckCommandArgs(args);
+        *return_code = installer::ROTATE_DTKEY_SUCCESS;
+        return S_OK;
+      }));
 
   command.Trigger(params, base::BindLambdaForTesting(
                               [&was_called,
@@ -68,17 +78,13 @@ TEST_F(WinKeyRotationCommandTest, RotateFailure) {
   bool was_called = false;
   KeyRotationCommand::Status status = KeyRotationCommand::Status::TIMED_OUT;
 
-  WinKeyRotationCommand command([](const wchar_t* command,
-                                   const std::vector<std::string>& args,
-                                   DWORD* return_code) {
-    std::string token_base64;
-    base::Base64Encode(kFakeDMToken, &token_base64);
-    EXPECT_EQ(token_base64, args[0]);
-    EXPECT_EQ(kFakeDmServerUrl, args[1]);
-    EXPECT_EQ(kNonce, args[2]);
-    *return_code = installer::ROTATE_DTKEY_FAILED;
-    return S_OK;
-  });
+  WinKeyRotationCommand command(base::BindRepeating(
+      [](const wchar_t* command, const std::vector<std::string>& args,
+         DWORD* return_code) {
+        CheckCommandArgs(args);
+        *return_code = installer::ROTATE_DTKEY_FAILED;
+        return S_OK;
+      }));
 
   command.Trigger(params, base::BindLambdaForTesting(
                               [&was_called,
@@ -98,17 +104,13 @@ TEST_F(WinKeyRotationCommandTest, RotateTimeout) {
   bool was_called = false;
   KeyRotationCommand::Status status = KeyRotationCommand::Status::FAILED;
 
-  WinKeyRotationCommand command([](const wchar_t* command,
-                                   const std::vector<std::string>& args,
-                                   DWORD* return_code) {
-    std::string token_base64;
-    base::Base64Encode(kFakeDMToken, &token_base64);
-    EXPECT_EQ(token_base64, args[0]);
-    EXPECT_EQ(kFakeDmServerUrl, args[1]);
-    EXPECT_EQ(kNonce, args[2]);
-    // Not setting return_code.
-    return E_ABORT;
-  });
+  WinKeyRotationCommand command(base::BindRepeating(
+      [](const wchar_t* command, const std::vector<std::string>& args,
+         DWORD* return_code) {
+        CheckCommandArgs(args);
+        // Not setting return_code.
+        return E_ABORT;
+      }));
 
   command.Trigger(params, base::BindLambdaForTesting(
                               [&was_called,
@@ -128,17 +130,13 @@ TEST_F(WinKeyRotationCommandTest, GoogleUpdateIssue) {
   bool was_called = false;
   KeyRotationCommand::Status status = KeyRotationCommand::Status::SUCCEEDED;
 
-  WinKeyRotationCommand command([](const wchar_t* command,
-                                   const std::vector<std::string>& args,
-                                   DWORD* return_code) {
-    std::string token_base64;
-    base::Base64Encode(kFakeDMToken, &token_base64);
-    EXPECT_EQ(token_base64, args[0]);
-    EXPECT_EQ(kFakeDmServerUrl, args[1]);
-    EXPECT_EQ(kNonce, args[2]);
-    // Not setting return_code.
-    return WinKeyRotationCommand::GOOPDATE_E_APP_USING_EXTERNAL_UPDATER;
-  });
+  WinKeyRotationCommand command(base::BindRepeating(
+      [](const wchar_t* command, const std::vector<std::string>& args,
+         DWORD* return_code) {
+        CheckCommandArgs(args);
+        // Not setting return_code.
+        return WinKeyRotationCommand::GOOPDATE_E_APP_USING_EXTERNAL_UPDATER;
+      }));
 
   command.enable_waiting_for_testing(false);
   command.Trigger(params, base::BindLambdaForTesting(
@@ -159,17 +157,13 @@ TEST_F(WinKeyRotationCommandTest, GeneralFailure) {
   bool was_called = false;
   KeyRotationCommand::Status status = KeyRotationCommand::Status::SUCCEEDED;
 
-  WinKeyRotationCommand command([](const wchar_t* command,
-                                   const std::vector<std::string>& args,
-                                   DWORD* return_code) {
-    std::string token_base64;
-    base::Base64Encode(kFakeDMToken, &token_base64);
-    EXPECT_EQ(token_base64, args[0]);
-    EXPECT_EQ(kFakeDmServerUrl, args[1]);
-    EXPECT_EQ(kNonce, args[2]);
-    // Not setting return_code.
-    return E_FAIL;
-  });
+  WinKeyRotationCommand command(base::BindRepeating(
+      [](const wchar_t* command, const std::vector<std::string>& args,
+         DWORD* return_code) {
+        CheckCommandArgs(args);
+        // Not setting return_code.
+        return E_FAIL;
+      }));
 
   command.enable_waiting_for_testing(false);
   command.Trigger(params, base::BindLambdaForTesting(

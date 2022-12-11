@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,34 +15,26 @@ namespace ash {
 
 class SearchResult;
 
-// The UMA histogram that logs how the app list transitions from peeking to
-// fullscreen. Exposed in this header because it is recorded in multiple files.
-ASH_EXPORT extern const char kAppListPeekingToFullscreenHistogram[];
-
-// UMA histograms that record app list reorder animation smoothness. Exposed
-// in this header because it is needed in tests.
+// UMA histograms that record app list sort reorder animation smoothness.
+// Exposed in this header because it is needed in tests.
 ASH_EXPORT extern const char kClamshellReorderAnimationSmoothnessHistogram[];
 ASH_EXPORT extern const char kTabletReorderAnimationSmoothnessHistogram[];
 
-// The different ways to create a new page in the apps grid. These values are
-// written to logs. New enum values can be added, but existing enums must never
-// be renumbered or deleted and reused.
-enum class AppListPageCreationType {
-  kDraggingApp = 0,
-  kMovingAppWithKeyboard = 1,
-  kSyncOrInstall = 2,
-  kMaxValue = kSyncOrInstall,
-};
+// UMA histograms that record app list sort reorder actions. Exposed in this
+// header because it is needed in tests.
+ASH_EXPORT extern const char kClamshellReorderActionHistogram[];
+ASH_EXPORT extern const char kTabletReorderActionHistogram[];
 
-// These are used in histograms, do not remove/renumber entries. If you're
-// adding to this enum with the intention that it will be logged, update the
-// AppListZeroStateSearchResultUserActionType enum listing in
-// tools/metrics/histograms/enums.xml.
-enum class ZeroStateSearchResultUserActionType {
-  kRemoveResult = 0,
-  kAppendResult = 1,
-  kMaxValue = kAppendResult,
-};
+// UMA histograms that record app list drag reorder animation smoothness.
+// Exposed in this header because it is needed in tests.
+ASH_EXPORT extern const char
+    kClamshellDragReorderAnimationSmoothnessHistogram[];
+ASH_EXPORT extern const char kTabletDragReorderAnimationSmoothnessHistogram[];
+
+// UMA histograms that records the number of files removed per user per session
+// from the launcher continue section. Exposed in this header because it is
+// needed in tests.
+ASH_EXPORT extern const char kContinueSectionFilesRemovedInSessionHistogram[];
 
 // These are used in histograms, do not remove/renumber entries. If you're
 // adding to this enum with the intention that it will be logged, update the
@@ -52,33 +44,6 @@ enum class SearchResultRemovalConfirmation {
   kRemovalConfirmed = 0,
   kRemovalCanceled = 1,
   kMaxValue = kRemovalCanceled,
-};
-
-// The different ways that the app list can transition from PEEKING to
-// FULLSCREEN_ALL_APPS. These values are written to logs.  New enum
-// values can be added, but existing enums must never be renumbered or deleted
-// and reused.
-enum AppListPeekingToFullscreenSource {
-  kSwipe = 0,
-  kExpandArrow = 1,
-  kMousepadScroll = 2,
-  kMousewheelScroll = 3,
-  kMaxPeekingToFullscreen = 4,
-};
-
-// The different ways the app list can be shown. These values are written to
-// logs.  New enum values can be added, but existing enums must never be
-// renumbered or deleted and reused.
-enum AppListShowSource {
-  kSearchKey = 0,
-  kShelfButton = 1,
-  kSwipeFromShelf = 2,
-  kTabletMode = 3,
-  kSearchKeyFullscreen = 4,
-  kShelfButtonFullscreen = 5,
-  kAssistantEntryPoint = 6,
-  kScrollFromShelf = 7,
-  kMaxValue = kScrollFromShelf,
 };
 
 // The two versions of folders. These values are written to logs.  New enum
@@ -97,15 +62,17 @@ enum AppListFolderOpened {
 enum AppListStateTransitionSource {
   kFullscreenAllAppsToClosed = 0,
   kFullscreenAllAppsToFullscreenSearch = 1,
-  kFullscreenAllAppsToPeeking = 2,
+  // Usage removed.
+  // kFullscreenAllAppsToPeeking = 2,
   kFullscreenSearchToClosed = 3,
   kFullscreenSearchToFullscreenAllApps = 4,
-  kHalfToClosed = 5,
-  KHalfToFullscreenSearch = 6,
-  kHalfToPeeking = 7,
-  kPeekingToClosed = 8,
-  kPeekingToFullscreenAllApps = 9,
-  kPeekingToHalf = 10,
+  // Usage removed.
+  // kHalfToClosed = 5,
+  // KHalfToFullscreenSearch = 6,
+  // kHalfToPeeking = 7,
+  // kPeekingToClosed = 8,
+  // kPeekingToFullscreenAllApps = 9,
+  // kPeekingToHalf = 10,
   kMaxAppListStateTransition = 11,
 };
 
@@ -161,12 +128,6 @@ enum SearchResultLaunchLocation {
 
 // Different ways to trigger launcher animation in tablet mode.
 enum TabletModeAnimationTransition {
-  // Release drag to show the launcher (launcher animates the rest of the way).
-  kDragReleaseShow,
-
-  // Release drag to hide the launcher (launcher animates the rest of the way).
-  kDragReleaseHide,
-
   // Click the Home button in tablet mode.
   kHomeButtonShow,
 
@@ -213,6 +174,23 @@ enum class AppListUserAction {
   kMaxValue = kOpenSuggestionChip,
 };
 
+// Whether and how user-entered search box text matches up with the first search
+// result. These values are persisted to logs. Entries should not be renumbered
+// and numeric values should never be reused.
+enum class SearchBoxTextMatch {
+  // The user entered query does not match the first search result. Autocomplete
+  // is not triggered.
+  kNoMatch = 0,
+  // The user entered query matches the prefix of the first search result.
+  kPrefixMatch = 1,
+  // The user entered query is a substring of the first search result.
+  kSubstringMatch = 2,
+  // The user's query does not match the first search result but autocomplete is
+  // triggered.
+  kAutocompletedWithoutMatch = 3,
+  kMaxValue = kAutocompletedWithoutMatch,
+};
+
 // Parameters to call RecordAppListAppLaunched. Passed to code that does not
 // directly have access to them, such ash AppListMenuModelAdapter.
 struct AppLaunchedMetricParams {
@@ -231,17 +209,9 @@ struct AppLaunchedMetricParams {
   absl::optional<base::TimeTicks> launcher_show_timestamp;
 };
 
-void AppListRecordPageSwitcherSourceByEventType(ui::EventType type,
-                                                bool is_tablet_mode);
+void AppListRecordPageSwitcherSourceByEventType(ui::EventType type);
 
-void RecordPageSwitcherSource(AppListPageSwitcherSource source,
-                              bool is_tablet_mode);
-
-void RecordZeroStateSearchResultUserActionHistogram(
-    ZeroStateSearchResultUserActionType action);
-
-void RecordZeroStateSearchResultRemovalHistogram(
-    SearchResultRemovalConfirmation removal_decision);
+void RecordPageSwitcherSource(AppListPageSwitcherSource source);
 
 void RecordSearchResultRemovalDialogDecision(
     SearchResultRemovalConfirmation removal_decision);
@@ -249,16 +219,12 @@ void RecordSearchResultRemovalDialogDecision(
 void RecordAppListUserJourneyTime(AppListShowSource source,
                                   base::TimeDelta time);
 
+// Records metrics periodically (see interval in UserMetricsRecorder).
 void RecordPeriodicAppListMetrics();
 
 ASH_EXPORT void RecordSearchResultOpenSource(const SearchResult* result,
                                              AppListViewState state,
                                              bool is_tablet_mode);
-
-ASH_EXPORT void RecordSearchLaunchIndexAndQueryLength(
-    SearchResultLaunchLocation launch_location,
-    int query_length,
-    int suggestion_index);
 
 ASH_EXPORT void RecordAppListAppLaunched(AppListLaunchedFrom launched_from,
                                          AppListViewState app_list_state,
@@ -278,6 +244,26 @@ ASH_EXPORT void ReportCardifiedSmoothness(bool is_entering_cardified,
                                           int smoothness);
 
 void ReportReorderAnimationSmoothness(bool in_tablet, int smoothness);
+
+void RecordAppListSortAction(AppListSortOrder new_order, bool in_tablet);
+
+void ReportItemDragReorderAnimationSmoothness(bool in_tablet, int smoothness);
+
+// Invoked when the app list session ends, records metrics of interest during
+// the session.
+void RecordMetricsOnSessionEnd();
+
+// Records the number of files that have been removed from the Launcher Continue
+// Section in the session. This also increments the internal counter to keep
+// track of the number of files that have been removed.
+void RecordCumulativeContinueSectionResultRemovedNumber();
+
+// Resets the count for the number of files that have been removed from the
+// Launcher Continue Section in the session.
+void ResetContinueSectionFileRemovedCountForTest();
+
+// Records a metric for whether the user has hidden the continue section.
+void RecordHideContinueSectionMetric();
 
 }  // namespace ash
 

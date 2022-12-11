@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,8 +18,8 @@ import static androidx.test.espresso.intent.matcher.IntentMatchers.hasExtras;
 import static androidx.test.espresso.intent.matcher.IntentMatchers.hasType;
 import static androidx.test.espresso.intent.matcher.UriMatchers.hasHost;
 import static androidx.test.espresso.matcher.RootMatchers.withDecorView;
-import static androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA;
 import static androidx.test.espresso.matcher.ViewMatchers.isCompletelyDisplayed;
+import static androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA;
 import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
@@ -33,6 +33,7 @@ import static org.chromium.ui.test.util.ViewUtils.onViewWaiting;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.Intent;
+import android.os.Build.VERSION_CODES;
 import android.support.test.InstrumentationRegistry;
 import android.view.View;
 
@@ -44,14 +45,17 @@ import org.hamcrest.Matcher;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import org.chromium.base.test.metrics.HistogramTestRule;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
@@ -61,6 +65,7 @@ import org.chromium.chrome.browser.password_check.PasswordCheckFactory;
 import org.chromium.chrome.browser.settings.SettingsActivity;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.io.File;
@@ -77,10 +82,19 @@ public class PasswordSettingsExportTest {
     public SettingsActivityTestRule<PasswordSettings> mSettingsActivityTestRule =
             new SettingsActivityTestRule<>(PasswordSettings.class);
 
+    @Rule
+    public HistogramTestRule mHistogramTester = new HistogramTestRule();
+
     @Mock
     private PasswordCheck mPasswordCheck;
 
     private final PasswordSettingsTestHelper mTestHelper = new PasswordSettingsTestHelper();
+
+    @BeforeClass
+    public static void beforeClass() {
+        // Only needs to be loaded once and needs to be loaded before HistogramTestRule.
+        NativeLibraryTestUtils.loadNativeLibraryNoBrowserProcess();
+    }
 
     @Before
     public void setUp() {
@@ -155,6 +169,10 @@ public class PasswordSettingsExportTest {
 
         Assert.assertNotNull(mTestHelper.getHandler().getExportTargetPath());
         Assert.assertFalse(mTestHelper.getHandler().getExportTargetPath().isEmpty());
+        Assert.assertEquals(1,
+                mHistogramTester.getHistogramValueCount(
+                        PasswordSettings.PASSWORD_EXPORT_EVENT_HISTOGRAM,
+                        ExportFlow.PasswordExportEvent.EXPORT_OPTION_SELECTED));
     }
 
     /**
@@ -164,6 +182,7 @@ public class PasswordSettingsExportTest {
     @Test
     @SmallTest
     @Feature({"Preferences"})
+    @DisableIf.Build(sdk_is_greater_than = VERSION_CODES.Q, message = "crbug.com/1376453")
     public void testExportMenuItem() {
         mTestHelper.setPasswordSource(
                 new SavedPasswordEntry("https://example.com", "test user", "password"));
@@ -390,6 +409,10 @@ public class PasswordSettingsExportTest {
         onViewWaiting(
                 allOf(withText(R.string.password_settings_export_action_title), isCompletelyDisplayed()))
                 .perform(click());
+        Assert.assertEquals(1,
+                mHistogramTester.getHistogramValueCount(
+                        PasswordSettings.PASSWORD_EXPORT_EVENT_HISTOGRAM,
+                        ExportFlow.PasswordExportEvent.EXPORT_CONFIRMED));
 
         intended(allOf(hasAction(equalTo(Intent.ACTION_CHOOSER)),
                 hasExtras(hasEntry(equalTo(Intent.EXTRA_INTENT),
@@ -440,6 +463,10 @@ public class PasswordSettingsExportTest {
         onViewWaiting(
                 allOf(withText(R.string.password_settings_export_action_title), isCompletelyDisplayed()))
                 .perform(click());
+        Assert.assertEquals(1,
+                mHistogramTester.getHistogramValueCount(
+                        PasswordSettings.PASSWORD_EXPORT_EVENT_HISTOGRAM,
+                        ExportFlow.PasswordExportEvent.EXPORT_CONFIRMED));
 
         intended(allOf(hasAction(equalTo(Intent.ACTION_CHOOSER)),
                 hasExtras(hasEntry(equalTo(Intent.EXTRA_INTENT),
@@ -457,6 +484,7 @@ public class PasswordSettingsExportTest {
     @Test
     @SmallTest
     @Feature({"Preferences"})
+    @DisableIf.Build(sdk_is_greater_than = VERSION_CODES.Q, message = "crbug.com/1376453")
     public void testExportCancelOnWarning() {
         mTestHelper.setPasswordSource(
                 new SavedPasswordEntry("https://example.com", "test user", "password"));
@@ -476,6 +504,10 @@ public class PasswordSettingsExportTest {
         // Check that the cancellation succeeded by checking that the export menu is available and
         // enabled.
         checkExportMenuItemState(true);
+        Assert.assertEquals(1,
+                mHistogramTester.getHistogramValueCount(
+                        PasswordSettings.PASSWORD_EXPORT_EVENT_HISTOGRAM,
+                        ExportFlow.PasswordExportEvent.EXPORT_DISMISSED));
     }
 
     /**

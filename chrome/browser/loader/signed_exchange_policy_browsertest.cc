@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -73,12 +73,12 @@ IN_PROC_BROWSER_TEST_F(SignedExchangePolicyBrowserTest, BlockList) {
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
 
-  base::ListValue blocklist;
+  base::Value::List blocklist;
   blocklist.Append("test.example.org");
   policy::PolicyMap policies;
   policies.Set(policy::key::kURLBlocklist, policy::POLICY_LEVEL_MANDATORY,
                policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
-               blocklist.Clone(), nullptr);
+               base::Value(std::move(blocklist)), nullptr);
 
 #if BUILDFLAG(IS_CHROMEOS)
   policy::SetEnterpriseUsersProfileDefaults(&policies);

@@ -1,48 +1,53 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef MEDIA_GPU_V4L2_TEST_V4L2_IOCTL_SHIM_H_
 #define MEDIA_GPU_V4L2_TEST_V4L2_IOCTL_SHIM_H_
 
-#include <linux/media/vp9-ctrls.h>
 #include <linux/videodev2.h>
+#include <string.h>
+
+#include <set>
 
 #include "base/files/memory_mapped_file.h"
+#include "base/logging.h"
 #include "base/memory/ref_counted.h"
-#include "media/filters/vp9_parser.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace media {
 
 namespace v4l2_test {
 
 // MmapedBuffer maintains |mmaped_planes_| for each buffer as well as
-// |reference_id_|. Reference ID is computed from buffer ID, which is an
-// index used for VIDIOC_REQBUFS ioctl call. Reference ID is needed to use
-// previously decoded frames from reference frames list.
+// |buffer_id_|. |buffer_id_| is an index used for VIDIOC_REQBUFS ioctl call.
 class MmapedBuffer : public base::RefCounted<MmapedBuffer> {
  public:
   MmapedBuffer(const base::PlatformFile decode_fd,
                const struct v4l2_buffer& v4l2_buffer);
-  ~MmapedBuffer();
 
   class MmapedPlane {
    public:
     void* start_addr;
-    size_t length;
+    const size_t length;
+    size_t bytes_used;
 
-    MmapedPlane(void* start, size_t len) {
-      start_addr = start;
-      length = len;
+    MmapedPlane(void* start, size_t len) : start_addr(start), length(len) {}
+
+    void CopyIn(const uint8_t* frame_data, size_t frame_size) {
+      LOG_ASSERT(frame_size < length)
+          << "Not enough memory allocated to copy into.";
+      bytes_used = frame_size;
+      memcpy(static_cast<uint8_t*>(start_addr), frame_data, frame_size);
     }
   };
 
   using MmapedPlanes = std::vector<MmapedPlane>;
 
-  MmapedPlanes mmaped_planes() const { return mmaped_planes_; }
+  MmapedPlanes& mmaped_planes() { return mmaped_planes_; }
 
-  uint64_t reference_id() const { return reference_id_; }
-  void set_reference_id(uint64_t reference_id) { reference_id_ = reference_id; }
+  uint32_t buffer_id() const { return buffer_id_; }
+  void set_buffer_id(uint32_t buffer_id) { buffer_id_ = buffer_id; }
 
   uint32_t frame_number() const { return frame_number_; }
   void set_frame_number(uint32_t frame_number) { frame_number_ = frame_number; }
@@ -50,12 +55,14 @@ class MmapedBuffer : public base::RefCounted<MmapedBuffer> {
  private:
   friend class base::RefCounted<MmapedBuffer>;
 
+  ~MmapedBuffer();
   MmapedBuffer(const MmapedBuffer&) = delete;
   MmapedBuffer& operator=(const MmapedBuffer&) = delete;
 
   MmapedPlanes mmaped_planes_;
   const uint32_t num_planes_;
-  uint64_t reference_id_;
+  // TODO(stevecho): might be better to use constructor for default value
+  uint32_t buffer_id_ = 0;
   // Indicates which frame in input bitstream corresponds to this MmapedBuffer
   // in OUTPUT queue.
   // TODO(stevecho): might need to consider |show_frame| flag in the frame
@@ -99,9 +106,30 @@ class V4L2Queue {
   uint32_t num_planes() const { return num_planes_; }
   void set_num_planes(uint32_t num_planes) { num_planes_ = num_planes; }
 
+  // TODO(stevecho): change naming from |last_queued_buffer_index| to
+  // |last_queued_buffer_id|
+  uint32_t last_queued_buffer_index() const {
+    return last_queued_buffer_index_;
+  }
+  void set_last_queued_buffer_index(uint32_t last_queued_buffer_index) {
+    last_queued_buffer_index_ = last_queued_buffer_index;
+  }
+
   int media_request_fd() const { return media_request_fd_; }
   void set_media_request_fd(int media_request_fd) {
     media_request_fd_ = media_request_fd;
+  }
+
+  std::set<uint32_t> queued_buffer_indexes() const {
+    return queued_buffer_indexes_;
+  }
+
+  void QueueBufferIndex(uint32_t last_queued_buffer_index) {
+    queued_buffer_indexes_.insert(last_queued_buffer_index);
+  }
+
+  void DequeueBufferIndex(uint32_t index) {
+    queued_buffer_indexes_.erase(index);
   }
 
  private:
@@ -119,6 +147,9 @@ class V4L2Queue {
   // File descriptor returned by MEDIA_IOC_REQUEST_ALLOC ioctl call
   // to submit requests.
   int media_request_fd_;
+  // Tracks which CAPTURE buffer was queued in the previous frame.
+  uint32_t last_queued_buffer_index_;
+  std::set<uint32_t> queued_buffer_indexes_;
 };
 
 // V4L2IoctlShim is a shallow wrapper which wraps V4L2 ioctl requests
@@ -131,6 +162,9 @@ class V4L2IoctlShim {
   V4L2IoctlShim(const V4L2IoctlShim&) = delete;
   V4L2IoctlShim& operator=(const V4L2IoctlShim&) = delete;
   ~V4L2IoctlShim();
+
+  // Queries whether the given |ctrl_id| is supported on current platform.
+  [[nodiscard]] bool QueryCtrl(const uint32_t ctrl_id) const;
 
   // Enumerates all frame sizes that the device supports
   // via VIDIOC_ENUM_FRAMESIZES.
@@ -167,11 +201,10 @@ class V4L2IoctlShim {
   // Starts streaming |queue| (via VIDIOC_STREAMON).
   [[nodiscard]] bool StreamOn(const enum v4l2_buf_type type) const;
 
-  // Sets the value of a control which specifies VP9 decoding parameters
+  // Sets the value of controls which specify decoding parameters
   // for each frame.
-  [[nodiscard]] bool SetExtCtrls(
-      const std::unique_ptr<V4L2Queue>& queue,
-      v4l2_ctrl_vp9_frame_decode_params& frame_params) const;
+  [[nodiscard]] bool SetExtCtrls(const std::unique_ptr<V4L2Queue>& queue,
+                                 v4l2_ext_controls* ext_ctrls) const;
 
   // Allocates requests (likely one per OUTPUT buffer) via
   // MEDIA_IOC_REQUEST_ALLOC on the media device.
@@ -194,6 +227,11 @@ class V4L2IoctlShim {
   // Allocates buffers for the given |queue|.
   [[nodiscard]] bool QueryAndMmapQueueBuffers(
       std::unique_ptr<V4L2Queue>& queue) const;
+
+  enum class DeviceType {
+    kDecoder,
+    kMedia,
+  };
 
  private:
   // Queries |v4l_fd| to see if it can use the specified |fourcc| format

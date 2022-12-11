@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "base/callback_forward.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -40,14 +40,14 @@ class NET_EXPORT NSSCertDatabase {
     Observer(const Observer&) = delete;
     Observer& operator=(const Observer&) = delete;
 
-    virtual ~Observer() {}
+    virtual ~Observer() = default;
 
     // Will be called when a certificate is added, removed, or trust settings
     // are changed.
     virtual void OnCertDBChanged() {}
 
    protected:
-    Observer() {}
+    Observer() = default;
   };
 
   // Holds an NSS certificate along with additional information.
@@ -274,6 +274,18 @@ class NET_EXPORT NSSCertDatabase {
   // behind it.
   static bool IsHardwareBacked(const CERTCertificate* cert);
 
+  // Registers |observer| to receive notifications of certificate changes.  The
+  // thread on which this is called is the thread on which |observer| will be
+  // called back with notifications.
+  // NOTE: Observers registered here will only receive notifications generated
+  // directly through the NSSCertDatabase, but not those from the CertDatabase.
+  // CertDatabase observers will receive all certificate notifications.
+  void AddObserver(Observer* observer);
+
+  // Unregisters |observer| from receiving notifications.  This must be called
+  // on the same thread on which AddObserver() was called.
+  void RemoveObserver(Observer* observer);
+
  protected:
   // Returns a list of certificates extracted from |certs_info| list ignoring
   // additional information.
@@ -298,18 +310,6 @@ class NET_EXPORT NSSCertDatabase {
   void NotifyObserversCertDBChanged();
 
  private:
-  // Registers |observer| to receive notifications of certificate changes.  The
-  // thread on which this is called is the thread on which |observer| will be
-  // called back with notifications.
-  // NOTE: Observers registered here will only receive notifications generated
-  // directly through the NSSCertDatabase, but not those from the CertDatabase.
-  // CertDatabase observers will receive all certificate notifications.
-  void AddObserver(Observer* observer);
-
-  // Unregisters |observer| from receiving notifications.  This must be called
-  // on the same thread on which AddObserver() was called.
-  void RemoveObserver(Observer* observer);
-
   // Notifies observers of the removal of a cert and calls |callback| with
   // |success| as argument.
   void NotifyCertRemovalAndCallBack(DeleteCertCallback callback, bool success);

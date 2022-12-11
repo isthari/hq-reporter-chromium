@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,11 @@
 #include "base/json/json_reader.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace autofill::payments {
 
@@ -60,11 +63,13 @@ void TestPaymentsClient::GetUploadDetails(
                             std::unique_ptr<base::Value>,
                             std::vector<std::pair<int, int>>)> callback,
     const int billable_service_number,
+    const int64_t billing_customer_number,
     PaymentsClient::UploadCardSource upload_card_source) {
   upload_details_addresses_ = addresses;
   detected_values_ = detected_values;
   active_experiments_ = active_experiments;
   billable_service_number_ = billable_service_number;
+  billing_customer_number_ = billing_customer_number;
   upload_card_source_ = upload_card_source;
   std::move(callback).Run(
       app_locale == "en-US"
@@ -123,7 +128,8 @@ void TestPaymentsClient::UpdateVirtualCardEnrollment(
         request_details,
     base::OnceCallback<void(AutofillClient::PaymentsRpcResult)> callback) {
   update_virtual_card_enrollment_request_details_ = std::move(request_details);
-  std::move(callback).Run(AutofillClient::PaymentsRpcResult::kSuccess);
+  std::move(callback).Run(update_virtual_card_enrollment_result_.value_or(
+      AutofillClient::PaymentsRpcResult::kSuccess));
 }
 
 void TestPaymentsClient::ShouldReturnUnmaskDetailsImmediately(
@@ -198,20 +204,62 @@ void TestPaymentsClient::SetUseInvalidLegalMessageInGetUploadDetails(
   use_invalid_legal_message_ = use_invalid_legal_message;
 }
 
+void TestPaymentsClient::SetUseLegalMessageWithMultipleLinesInGetUploadDetails(
+    bool use_legal_message_with_multiple_lines) {
+  use_legal_message_with_multiple_lines_ =
+      use_legal_message_with_multiple_lines;
+}
+
 std::unique_ptr<base::Value> TestPaymentsClient::LegalMessage() {
   if (use_invalid_legal_message_) {
     // Legal message is invalid because it's missing the url.
-    return std::unique_ptr<base::Value>(
-        base::JSONReader::ReadDeprecated("{"
-                                         "  \"line\" : [ {"
-                                         "     \"template\": \"Panda {0}.\","
-                                         "     \"template_parameter\": [ {"
-                                         "        \"display_text\": \"bear\""
-                                         "     } ]"
-                                         "  } ]"
-                                         "}"));
+    absl::optional<base::Value> parsed_json = base::JSONReader::Read(
+        "{"
+        "  \"line\" : [ {"
+        "     \"template\": \"Panda {0}.\","
+        "     \"template_parameter\": [ {"
+        "        \"display_text\": \"bear\""
+        "     } ]"
+        "  } ]"
+        "}");
+    DCHECK(parsed_json);
+    return base::Value::ToUniquePtrValue(std::move(*parsed_json));
+  } else if (use_legal_message_with_multiple_lines_) {
+    absl::optional<base::Value> parsed_json = base::JSONReader::Read(
+        "{"
+        "  \"line\": ["
+        "    {"
+        "      \"template\": \"The legal documents are: {0} and {1}.\","
+        "      \"template_parameter\": ["
+        "        {"
+        "          \"display_text\": \"Terms of Service\","
+        "          \"url\": \"http://www.example.com/tos\""
+        "        },"
+        "        {"
+        "          \"display_text\": \"Privacy Policy\","
+        "          \"url\": \"http://www.example.com/pp\""
+        "        }"
+        "      ]"
+        "    },"
+        "    {"
+        "      \"template\": \"The legal documents are: {0} and {1}.\","
+        "      \"template_parameter\": ["
+        "        {"
+        "          \"display_text\": \"Terms of Service\","
+        "          \"url\": \"http://www.example.com/tos\""
+        "        },"
+        "        {"
+        "          \"display_text\": \"Privacy Policy\","
+        "          \"url\": \"http://www.example.com/pp\""
+        "        }"
+        "      ]"
+        "    }"
+        "  ]"
+        "}");
+      DCHECK(parsed_json);
+      return base::Value::ToUniquePtrValue(std::move(*parsed_json));
   } else {
-    return std::unique_ptr<base::Value>(base::JSONReader::ReadDeprecated(
+    absl::optional<base::Value> parsed_json = base::JSONReader::Read(
         "{"
         "  \"line\" : [ {"
         "     \"template\": \"The legal documents are: {0} and {1}.\","
@@ -223,7 +271,9 @@ std::unique_ptr<base::Value> TestPaymentsClient::LegalMessage() {
         "        \"url\": \"http://www.example.com/pp\""
         "     } ]"
         "  } ]"
-        "}"));
+        "}");
+      DCHECK(parsed_json);
+      return base::Value::ToUniquePtrValue(std::move(*parsed_json));
   }
 }
 

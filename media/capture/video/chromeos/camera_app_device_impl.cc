@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <cmath>
 
+#include "base/cxx17_backports.h"
 #include "base/task/bind_post_task.h"
 #include "base/time/time.h"
 #include "gpu/ipc/common/gpu_memory_buffer_impl.h"
@@ -93,7 +94,7 @@ void CameraAppDeviceImpl::BindReceiver(
   receivers_.set_disconnect_handler(
       base::BindRepeating(&CameraAppDeviceImpl::OnMojoConnectionError,
                           weak_ptr_factory_for_mojo_.GetWeakPtr()));
-  mojo_task_runner_ = base::ThreadTaskRunnerHandle::Get();
+  mojo_task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
 
   document_scanner_service_ = ash::DocumentScannerServiceClient::Create();
 }
@@ -190,6 +191,11 @@ void CameraAppDeviceImpl::MaybeDetectDocumentCorners(
       base::BindOnce(&CameraAppDeviceImpl::DetectDocumentCornersOnMojoThread,
                      weak_ptr_factory_for_mojo_.GetWeakPtr(), std::move(gmb),
                      rotation));
+}
+
+bool CameraAppDeviceImpl::IsMultipleStreamsEnabled() {
+  base::AutoLock lock(multi_stream_lock_);
+  return multi_stream_enabled_;
 }
 
 void CameraAppDeviceImpl::GetCameraInfo(GetCameraInfoCallback callback) {
@@ -347,6 +353,16 @@ void CameraAppDeviceImpl::RegisterDocumentCornersObserver(
 
   base::AutoLock lock(document_corners_observers_lock_);
   document_corners_observers_.Add(std::move(observer));
+  std::move(callback).Run();
+}
+
+void CameraAppDeviceImpl::SetMultipleStreamsEnabled(
+    bool enabled,
+    SetMultipleStreamsEnabledCallback callback) {
+  DCHECK(mojo_task_runner_->BelongsToCurrentThread());
+
+  base::AutoLock lock(multi_stream_lock_);
+  multi_stream_enabled_ = enabled;
   std::move(callback).Run();
 }
 

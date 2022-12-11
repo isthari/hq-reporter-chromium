@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /** @fileoverview Contains fake implementations of mojo interfaces. */
 
-import {TestBrowserProxy} from '../test_browser_proxy.js';
+import {TestBrowserProxy} from '../chromeos/test_browser_proxy.js';
 
 /**
  * @implements {nearbyShare.mojom.ConfirmationManagerInterface}

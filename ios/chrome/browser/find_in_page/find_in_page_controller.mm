@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,21 +7,20 @@
 #import <UIKit/UIKit.h>
 
 #import <cmath>
-#include <memory>
+#import <memory>
 
-#include "base/check_op.h"
+#import "base/check_op.h"
 #import "base/mac/foundation_util.h"
-#include "base/notreached.h"
-#include "components/ukm/ios/ukm_url_recorder.h"
+#import "base/notreached.h"
+#import "components/ukm/ios/ukm_url_recorder.h"
 #import "ios/chrome/browser/find_in_page/find_in_page_model.h"
 #import "ios/chrome/browser/find_in_page/find_in_page_response_delegate.h"
-#import "ios/chrome/browser/web/dom_altering_lock.h"
 #import "ios/web/public/find_in_page/find_in_page_manager.h"
 #import "ios/web/public/find_in_page/find_in_page_manager_delegate_bridge.h"
 #import "ios/web/public/ui/crw_web_view_proxy.h"
 #import "ios/web/public/ui/crw_web_view_scroll_view_proxy.h"
 #import "ios/web/public/web_state.h"
-#include "services/metrics/public/cpp/ukm_builders.h"
+#import "services/metrics/public/cpp/ukm_builders.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -38,7 +37,7 @@ namespace {
 static NSString* gSearchTerm;
 }
 
-@interface FindInPageController () <DOMAltering, CRWFindInPageManagerDelegate>
+@interface FindInPageController () <CRWFindInPageManagerDelegate>
 
 // The web view's scroll view.
 - (CRWWebViewScrollViewProxy*)webViewScrollView;
@@ -109,7 +108,6 @@ static NSString* gSearchTerm;
            selector:@selector(findBarTextFieldDidResignFirstResponder:)
                name:kFindBarTextFieldDidResignFirstResponderNotification
              object:nil];
-    DOMAlteringLock::CreateForWebState(_webState);
   }
   return self;
 }
@@ -171,21 +169,12 @@ static NSString* gSearchTerm;
     return;
   }
 
-  __weak FindInPageController* weakSelf = self;
-  ProceduralBlock handler = ^{
-    FindInPageController* strongSelf = weakSelf;
-    if (strongSelf && strongSelf->_webState) {
-      DOMAlteringLock::FromWebState(strongSelf->_webState)->Release(strongSelf);
-    }
-  };
   // Only run FindInPageManager::StopFinding() if there is a string in progress
   // to avoid WKWebView crash on deallocation due to outstanding completion
   // handler.
   if (_findStringStarted) {
       _findInPageManager->StopFinding();
-    _findStringStarted = NO;
-  } else {
-    handler();
+      _findStringStarted = NO;
   }
 }
 
@@ -211,7 +200,7 @@ static NSString* gSearchTerm;
                 withMatchCount:(NSInteger)matchCount
                    forWebState:(web::WebState*)webState {
   if (matchCount == 0 && !query) {
-    // StopFinding responds with |matchCount| as 0 and |query| as nil.
+    // StopFinding responds with `matchCount` as 0 and `query` as nil.
     [self.responseDelegate findDidStop];
     return;
   }
@@ -283,16 +272,6 @@ static NSString* gSearchTerm;
   _findInPageDelegateBridge.reset();
   _findInPageManager = nullptr;
   _webState = nullptr;
-}
-
-#pragma mark - DOMAltering Methods
-
-- (BOOL)canReleaseDOMLock {
-  return NO;
-}
-
-- (void)releaseDOMLockWithCompletionHandler:(ProceduralBlock)completionHandler {
-  NOTREACHED();
 }
 
 @end

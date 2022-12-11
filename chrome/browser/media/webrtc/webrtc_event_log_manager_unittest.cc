@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 
 #include "base/big_endian.h"
 #include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -29,11 +28,11 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/gtest_util.h"
 #include "base/test/scoped_command_line.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_clock.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -41,7 +40,6 @@
 #include "chrome/browser/media/webrtc/webrtc_event_log_manager_unittest_helpers.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/prefs/browser_prefs.h"
-#include "chrome/browser/supervised_user/supervised_user_constants.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -198,7 +196,7 @@ class NullWebRtcEventLogUploader : public WebRtcEventLogUploader {
     EXPECT_TRUE(cancellation_expected_);
     was_cancelled_ = true;
     if (callback_) {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(std::move(callback_), log_file_.path, false));
     }
@@ -709,7 +707,7 @@ class WebRtcEventLogManagerTestBase : public ::testing::Test {
         is_managed_profile);
     if (is_supervised) {
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
-      profile_builder.SetSupervisedUserId(supervised_users::kChildAccountSUID);
+      profile_builder.SetIsSupervisedProfile();
 #endif
     }
     std::unique_ptr<TestingProfile> profile = profile_builder.Build();
@@ -1356,7 +1354,7 @@ class FileListExpectingWebRtcEventLogUploader : public WebRtcEventLogUploader {
                                           bool result,
                                           UploadResultCallback callback)
       : log_file_(log_file) {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), log_file_.path, result));
   }
 
@@ -2312,7 +2310,7 @@ TEST_F(WebRtcEventLogManagerTest,
   }
 
   // All log files must be created in their own context's directory.
-  for (size_t i = 0; i < base::size(browser_contexts); ++i) {
+  for (size_t i = 0; i < std::size(browser_contexts); ++i) {
     ASSERT_TRUE(file_paths[i]);
     EXPECT_TRUE(browser_contexts[i]->GetPath().IsParent(*file_paths[i]));
   }
@@ -2565,9 +2563,9 @@ TEST_F(WebRtcEventLogManagerTest,
 
 TEST_F(WebRtcEventLogManagerTest, DifferentRemoteLogsMayHaveDifferentMaximums) {
   const std::string logs[2] = {"abra", "cadabra"};
-  std::vector<absl::optional<base::FilePath>> file_paths(base::size(logs));
+  std::vector<absl::optional<base::FilePath>> file_paths(std::size(logs));
   std::vector<PeerConnectionKey> keys;
-  for (size_t i = 0; i < base::size(logs); ++i) {
+  for (size_t i = 0; i < std::size(logs); ++i) {
     keys.push_back(GetPeerConnectionKey(rph_.get(), i));
     ON_CALL(remote_observer_, OnRemoteLogStarted(keys[i], _, _))
         .WillByDefault(Invoke(SaveFilePathTo(&file_paths[i])));
@@ -2879,7 +2877,7 @@ TEST_F(WebRtcEventLogManagerTest,
 
   base::FilePath::StringPieceType extensions[] = {
       kWebRtcEventLogUncompressedExtension, kWebRtcEventLogGzippedExtension};
-  ASSERT_LE(base::size(extensions), kMaxPendingRemoteBoundWebRtcEventLogs)
+  ASSERT_LE(std::size(extensions), kMaxPendingRemoteBoundWebRtcEventLogs)
       << "Lacking test coverage.";
 
   // Avoid arbitrary ordering due to files being created in the same second.
@@ -2892,7 +2890,7 @@ TEST_F(WebRtcEventLogManagerTest,
     time += base::Seconds(1);
 
     const auto& extension = extensions[ext];
-    ext = (ext + 1) % base::size(extensions);
+    ext = (ext + 1) % std::size(extensions);
 
     base::FilePath file_path;
     base::File file;

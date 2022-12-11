@@ -1,12 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/thumb_strip/thumb_strip_coordinator.h"
 
-#include "base/metrics/histogram_functions.h"
+#import "base/metrics/histogram_functions.h"
 #import "ios/chrome/browser/main/browser.h"
-#include "ios/chrome/browser/overlays/public/overlay_presentation_context.h"
+#import "ios/chrome/browser/overlays/public/overlay_presentation_context.h"
 #import "ios/chrome/browser/ui/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/commands/thumb_strip_commands.h"
 #import "ios/chrome/browser/ui/gestures/view_revealing_vertical_pan_handler.h"
@@ -18,12 +18,6 @@
 #endif
 
 namespace {
-// Height of the view that is revealed. The thumb strip has a height equal to a
-// small grid cell + edge insets (top and bottom) from thumb strip layout.
-const CGFloat kThumbStripHeight =
-    kGridCellSizeSmall.height +
-    2 * kGridLayoutLineSpacingCompactCompactLimitedWidth;
-
 // Enum actions for the IOS.Thumbstrip.OpenBy UMA metrics. Entries should not be
 // renumbered and numeric values should never be reused.
 enum class ThumbstripOpenByAction {
@@ -80,7 +74,6 @@ enum class ThumbstripCloseByAction {
   CGFloat baseViewHeight = self.baseViewController.view.frame.size.height;
   self.panHandler = [[ViewRevealingVerticalPanHandler alloc]
       initWithPeekedHeight:kThumbStripHeight
-       revealedCoverHeight:kBVCHeightTabGrid
             baseViewHeight:baseViewHeight
               initialState:self.initialState];
 
@@ -200,7 +193,8 @@ enum class ThumbstripCloseByAction {
             ThumbstripOpenByAction::WEB_PAGE_SCROLL_DOWN);
         break;
       default:
-        // This is reached at startup, but doesn't require logging.
+        // This is reached at startup, but doesn't require logging. It can also
+        // happens when app is backgrounded.
         break;
     }
     // Opening.
@@ -226,7 +220,7 @@ enum class ThumbstripCloseByAction {
             ThumbstripOpenByAction::WEB_PAGE_SCROLL_DOWN);
         break;
       default:
-        NOTREACHED();
+        // Ignore this, it can happen when app is backgrounded.
         break;
     }
     // Closing.
@@ -277,7 +271,7 @@ enum class ThumbstripCloseByAction {
             ThumbstripCloseByAction::BACKGROUND_SWIPE);
         break;
       default:
-        NOTREACHED();
+        // Ignore this, it can happen when app is backgrounded.
         break;
     }
   }

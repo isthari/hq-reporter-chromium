@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/metrics/delegating_provider.h"
 #include "components/metrics/metrics_provider.h"
@@ -50,6 +51,11 @@ enum class ResetReason {
   kMaxValue = kClonedInstall,
 };
 
+// Enables adding the synced user's noised birth year and gender to the UKM
+// report. For more details, see doc of metrics::DemographicMetricsProvider in
+// components/metrics/demographics/demographic_metrics_provider.h.
+BASE_DECLARE_FEATURE(kReportUserNoisedUserBirthYearAndGender);
+
 // The URL-Keyed Metrics (UKM) service is responsible for gathering and
 // uploading reports that contain fine grained performance metrics including
 // URLs for top-level navigations.
@@ -63,7 +69,8 @@ class UkmService : public UkmRecorderImpl {
   UkmService(PrefService* pref_service,
              metrics::MetricsServiceClient* client,
              std::unique_ptr<metrics::UkmDemographicMetricsProvider>
-                 demographics_provider);
+                 demographics_provider,
+             uint64_t external_client_id = 0);
 
   UkmService(const UkmService&) = delete;
   UkmService& operator=(const UkmService&) = delete;
@@ -115,10 +122,7 @@ class UkmService : public UkmRecorderImpl {
 
   int32_t report_count() const { return report_count_; }
 
-  // Enables adding the synced user's noised birth year and gender to the UKM
-  // report. For more details, see doc of metrics::DemographicMetricsProvider in
-  // components/metrics/demographics/demographic_metrics_provider.h.
-  static const base::Feature kReportUserNoisedUserBirthYearAndGender;
+  uint64_t client_id() const { return client_id_; }
 
   // Makes sure that the serialized UKM report can be parsed.
   static bool LogCanBeParsed(const std::string& serialized_data);
@@ -172,6 +176,10 @@ class UkmService : public UkmRecorderImpl {
 
   // The UKM client id stored in prefs.
   uint64_t client_id_ = 0;
+
+  // External client id. If specified client_id will be set to this
+  // instead of generated. This is currently only used in Lacros.
+  uint64_t external_client_id_ = 0;
 
   // The UKM session id stored in prefs.
   int32_t session_id_ = 0;

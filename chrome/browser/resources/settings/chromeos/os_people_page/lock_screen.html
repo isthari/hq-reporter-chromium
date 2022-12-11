@@ -72,10 +72,10 @@
             aria-labelledby="lockScreenOptionsTitle"
             deep-link-focus-id$="[[Setting.kChangeAuthPinV2]]">
           <cr-radio-button name="password" class="list-item underbar"
-              label=$i18n{lockScreenPasswordOnly}>
+              label="$i18n{lockScreenPasswordOnly}">
           </cr-radio-button>
           <cr-radio-button name="pin+password" class="list-item-start"
-              label=$i18n{lockScreenPinOrPassword}>
+              label="$i18n{lockScreenPinOrPassword}">
           </cr-radio-button>
           <template is="dom-if"
               if="[[showConfigurePinButton_(selectedUnlockType)]]">
@@ -133,6 +133,23 @@
         </cr-radio-button>
       </settings-radio-group>
     </div>
+  </template>
+  <template is="dom-if" if="[[recovery_]]">
+    <settings-toggle-button
+        id="recoveryToggle"
+        label="$i18n{recoveryToggleLabel}"
+        sub-label="$i18n{recoveryToggleSubLabel}"
+        pref="{{recovery_}}"
+        disabled="[[recoveryChangeInProcess_]]"
+        no-set-pref
+        on-settings-boolean-control-change="onRecoveryChange_">
+    </settings-toggle-button>
+  </template>
+  <template is="dom-if" if="[[showDisableRecoveryDialog_]]" restamp>
+    <local-data-recovery-dialog id="localDataRecoveryDialog"
+      auth-token="[[authToken]]"
+      on-close="onRecoveryDialogClose_">
+    </local-data-recovery-dialog>
   </template>
   <template is="dom-if" if="[[fingerprintUnlockEnabled_]]">
     <div id="fingerprintDiv" class="settings-box two-line">

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,6 +44,9 @@ public interface SigninManager {
          * Invoked once all startup checks are done and signing-in becomes allowed, or disallowed.
          */
         default void onSignInAllowedChanged() {}
+
+        /** Notifies observers when {@link #isSignOutAllowed()} value changes. */
+        default void onSignOutAllowedChanged() {}
     }
 
     /**
@@ -85,13 +88,6 @@ public interface SigninManager {
      * @return IdentityManager used by SigninManager.
      */
     IdentityManager getIdentityManager();
-
-    /**
-     * Notifies the SigninManager that the First Run check has completed.
-     *
-     * The user will be allowed to sign-in once this is signaled.
-     */
-    void onFirstRunCheckDone();
 
     /**
      * Returns true if sign in can be started now.
@@ -168,6 +164,23 @@ public interface SigninManager {
      */
     @MainThread
     void runAfterOperationInProgress(Runnable runnable);
+
+    /**
+     * Revokes sync consent (which disables the sync feature). This method should only be called
+     * for child accounts.
+     *
+     * @param signoutSource describes the event driving disabling sync (e.g.
+     *         {@link SignoutReason.USER_CLICKED_TURN_OFF_SYNC_SETTINGS}).
+     * @param signOutCallback Callback to notify about progress.
+     * @param forceWipeUserData Whether user selected to wipe all device data.
+     */
+    void revokeSyncConsent(@SignoutReason int signoutSource, SignOutCallback signOutCallback,
+            boolean forceWipeUserData);
+
+    /**
+     * Returns true if sign out can be started now.
+     */
+    boolean isSignOutAllowed();
 
     /**
      * Invokes signOut with no callback.

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -81,6 +81,13 @@ String RTCEncodedVideoFrame::toString() const {
   sb.Append(type());
   sb.Append("}");
   return sb.ToString();
+}
+
+RTCEncodedVideoFrame* RTCEncodedVideoFrame::clone() const {
+  std::unique_ptr<webrtc::TransformableVideoFrameInterface> new_webrtc_frame =
+      delegate_->CloneWebRtcFrame();
+  return MakeGarbageCollected<RTCEncodedVideoFrame>(
+      std::move(new_webrtc_frame));
 }
 
 void RTCEncodedVideoFrame::SyncDelegate() const {

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -125,8 +125,8 @@ class AppListModelTest : public testing::Test {
     AppListFolderItem* folder = new AppListFolderItem(name, model_.get());
     model_->AddItem(folder);  // Takes ownership.
     for (int i = 0; static_cast<size_t>(i) < num_apps; ++i) {
-      std::string name = model_->GetItemName(i);
-      model_->AddItemToFolder(model_->CreateItem(name), folder->id());
+      model_->AddItemToFolder(model_->CreateItem(model_->GetItemName(i)),
+                              folder->id());
     }
     return folder;
   }
@@ -270,74 +270,8 @@ TEST_F(AppListModelFolderTest, MergeItemIntoFolder) {
   model_->MergeItems(item0->id(), folder->id());
 }
 
+// Tests Icon generation configuration for folders on different grid types.
 TEST_F(AppListModelFolderTest, NonSharedConfigIconGeneration) {
-  // The configs tested here are not used by ProductivityLauncher. This test
-  // can be deleted when ProductivityLauncher is the default.
-  base::test::ScopedFeatureList features;
-  features.InitAndDisableFeature(features::kProductivityLauncher);
-
-  // Ensure any configs set by previous tests are cleared.
-  AppListConfigProvider::Get().ResetForTesting();
-
-  // Start with kLarge config available.
-  const AppListConfig* large_config =
-      AppListConfigProvider::Get().GetConfigForType(AppListConfigType::kLarge,
-                                                    true);
-  ASSERT_TRUE(large_config);
-
-  const size_t num_folder_apps = 5;
-  const size_t num_observed_apps = 4;
-  AppListFolderItem* folder = CreateFolderWithApps("folder1", num_folder_apps);
-
-  // Verify that the folder has folder image for large config.
-  FolderImage* large_config_image =
-      folder->GetFolderImageForTesting(AppListConfigType::kLarge);
-  ASSERT_TRUE(large_config_image);
-  EXPECT_EQ(large_config->folder_unclipped_icon_size(),
-            large_config_image->icon().size());
-
-  // Verify that the folder is observing the app list item.
-  EXPECT_TRUE(ItemObservedByFolder(
-      folder, folder->item_list()->item_at(num_observed_apps - 1),
-      AppListConfigType::kLarge));
-  EXPECT_FALSE(ItemObservedByFolder(
-      folder, folder->item_list()->item_at(num_observed_apps),
-      AppListConfigType::kLarge));
-
-  // Not medium folder image, as the config does not exist yet.
-  EXPECT_FALSE(folder->GetFolderImageForTesting(AppListConfigType::kMedium));
-
-  // Create medium config, and verify the folder image for medium config gets
-  // created.
-  const AppListConfig* medium_config =
-      AppListConfigProvider::Get().GetConfigForType(AppListConfigType::kMedium,
-                                                    true);
-  FolderImage* medium_config_image =
-      folder->GetFolderImageForTesting(AppListConfigType::kMedium);
-  ASSERT_TRUE(medium_config_image);
-  EXPECT_EQ(medium_config->folder_unclipped_icon_size(),
-            medium_config_image->icon().size());
-
-  // Verify that the folder is observing the app list item.
-  EXPECT_TRUE(ItemObservedByFolder(
-      folder, folder->item_list()->item_at(num_observed_apps - 1),
-      AppListConfigType::kMedium));
-  EXPECT_FALSE(ItemObservedByFolder(
-      folder, folder->item_list()->item_at(num_observed_apps),
-      AppListConfigType::kMedium));
-
-  EXPECT_FALSE(folder->GetFolderImageForTesting(AppListConfigType::kSmall));
-
-  AppListConfigProvider::Get().ResetForTesting();
-}
-
-// Same test as above, but for ProductivityLauncher config types.
-TEST_F(AppListModelFolderTest,
-       NonSharedConfigIconGenerationProductivityLauncher) {
-  // The configs tested here are only used by ProductivityLauncher.
-  base::test::ScopedFeatureList features;
-  features.InitAndEnableFeature(features::kProductivityLauncher);
-
   // Ensure any configs set by previous tests are cleared.
   AppListConfigProvider::Get().ResetForTesting();
 
@@ -582,12 +516,12 @@ TEST_F(AppListModelFolderTest, UninstallFolderItems) {
   EXPECT_EQ("folder1", GetModelContents());
 }
 
-TEST_F(AppListModelFolderTest, UninstallPersistentFolderItem) {
+TEST_F(AppListModelFolderTest, UninstallSystemFolderItem) {
   AppListItem* item0 = model_->CreateAndAddItem("Item 0");
   AppListItem* item1 = model_->CreateAndAddItem("Item 1");
   AppListFolderItem* folder1 = static_cast<AppListFolderItem*>(
       model_->AddItem(new AppListFolderItem("folder1", model_.get())));
-  folder1->SetIsPersistent(true);
+  folder1->SetIsSystemFolder(true);
   EXPECT_EQ("Item 0,Item 1,folder1", GetModelContents());
 
   // Move all items to folder1.
@@ -673,6 +607,50 @@ TEST_F(AppListModelFolderTest, DisableFolders) {
   std::string oem_folder_id = oem_folder->id();
   model_->AddItemToFolder(oem_item, oem_folder_id);
   EXPECT_EQ(std::string("folder1,") + kOemFolderId, GetModelContents());
+}
+
+TEST_F(AppListModelFolderTest, IsNewInstall) {
+  AppListFolderItem* folder = CreateFolderWithApps("folder1", 2);
+  AppListItem* item0 = model_->FindItem("Item 0");
+  ASSERT_TRUE(item0);
+  AppListItem* item1 = model_->FindItem("Item 1");
+  ASSERT_TRUE(item1);
+
+  // If both children are new installs, the folder contains a new install.
+  item0->SetIsNewInstall(true);
+  item1->SetIsNewInstall(true);
+  EXPECT_TRUE(item0->is_new_install());
+  EXPECT_TRUE(item1->is_new_install());
+  EXPECT_TRUE(folder->is_new_install());
+
+  // If one child is a new install, the folder contains a new install.
+  item0->SetIsNewInstall(false);
+  EXPECT_FALSE(item0->is_new_install());
+  EXPECT_TRUE(item1->is_new_install());
+  EXPECT_TRUE(folder->is_new_install());
+
+  // If no child is a new install, the folder does not contain a new install.
+  item1->SetIsNewInstall(false);
+  EXPECT_FALSE(item0->is_new_install());
+  EXPECT_FALSE(item1->is_new_install());
+  EXPECT_FALSE(folder->is_new_install());
+}
+
+TEST_F(AppListModelFolderTest, IsNewInstallClearedOnDeleteItem) {
+  AppListFolderItem* folder = CreateFolderWithApps("folder1", 2);
+  AppListItem* item0 = model_->FindItem("Item 0");
+  ASSERT_TRUE(item0);
+  AppListItem* item1 = model_->FindItem("Item 1");
+  ASSERT_TRUE(item1);
+
+  // If the second item is a new install, the folder contains a new install.
+  item1->SetIsNewInstall(true);
+  EXPECT_TRUE(folder->is_new_install());
+
+  // Deleting the item means the folder no longer contains a new install.
+  model_->DeleteItem("Item 1");
+  item1 = nullptr;
+  EXPECT_FALSE(folder->is_new_install());
 }
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -71,9 +71,6 @@ class APP_LIST_MODEL_EXPORT AppListItemList {
   // shares the similar functionality with a delegate but is only available to
   // external classes. Fixing this issue can eliminate such confusion.
   bool SetItemPosition(AppListItem* item, syncer::StringOrdinal new_position);
-
-  // Add a "page break" item right after the specified item in item list.
-  AppListItem* AddPageBreakItemAfter(const AppListItem* previous_item);
 
   AppListItem* item_at(size_t index) {
     DCHECK_LT(index, app_list_items_.size());

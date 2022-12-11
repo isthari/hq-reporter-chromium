@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include "cc/paint/draw_image.h"
 #include "cc/paint/image_provider.h"
 #include "cc/paint/paint_image_builder.h"
-#include "cc/paint/paint_op_buffer.h"
+#include "cc/paint/paint_op.h"
 #include "cc/test/fake_paint_image_generator.h"
 #include "cc/test/skia_common.h"
 #include "cc/test/test_skcanvas.h"

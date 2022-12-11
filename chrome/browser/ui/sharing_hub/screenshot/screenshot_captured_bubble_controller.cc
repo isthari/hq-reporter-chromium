@@ -1,11 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/sharing_hub/screenshot/screenshot_captured_bubble_controller.h"
 
+#include "base/feature_list.h"
 #include "chrome/browser/accessibility/accessibility_state_utils.h"
 #include "chrome/browser/image_editor/screenshot_flow.h"
+#include "chrome/browser/share/share_features.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -33,9 +35,10 @@ void ScreenshotCapturedBubbleController::ShowBubble(
   const gfx::Image& captured_image = image.image;
   ui::ScopedClipboardWriter(ui::ClipboardBuffer::kCopyPaste)
       .WriteImage(*captured_image.ToSkBitmap());
+
   Browser* browser = chrome::FindBrowserWithWebContents(&GetWebContents());
   browser->window()->ShowScreenshotCapturedBubble(&GetWebContents(),
-                                                  captured_image, this);
+                                                  captured_image);
 }
 
 void ScreenshotCapturedBubbleController::HideBubble() {

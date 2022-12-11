@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,34 +7,23 @@ package org.chromium.chrome.browser.logo;
 import android.animation.Animator;
 import android.animation.ObjectAnimator;
 import android.content.Context;
-import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.Config;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
-import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
-import android.graphics.PorterDuff;
-import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
 import android.util.AttributeSet;
-import android.util.Property;
+import android.util.FloatProperty;
 import android.view.Gravity;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.FrameLayout;
 
-import androidx.annotation.ColorInt;
-import androidx.annotation.VisibleForTesting;
-
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.browser.logo.LogoBridge.Logo;
-import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.ui.widget.LoadingView;
-
-import java.lang.ref.WeakReference;
+import org.chromium.ui.widget.LoadingView.Observer;
 
 import jp.tomorrowkey.android.gifplayer.BaseGifDrawable;
 import jp.tomorrowkey.android.gifplayer.BaseGifImage;
@@ -48,13 +37,10 @@ public class LogoView extends FrameLayout implements OnClickListener {
     // Number of milliseconds for a new logo to fade in.
     private static final int LOGO_TRANSITION_TIME_MS = 400;
 
-    // The default logo is shared across all NTPs.
-    private static WeakReference<Bitmap> sDefaultLogo;
-    private static @ColorInt int sDefaultLogoTint;
-
     // mLogo and mNewLogo are remembered for cross fading animation.
     private Bitmap mLogo;
     private Bitmap mNewLogo;
+    private Bitmap mDefaultGoogleLogo;
     private BaseGifDrawable mAnimatedLogoDrawable;
 
     private ObjectAnimator mFadeAnimation;
@@ -64,6 +50,7 @@ public class LogoView extends FrameLayout implements OnClickListener {
     private Matrix mAnimatedLogoMatrix;
     private boolean mLogoIsDefault;
     private boolean mNewLogoIsDefault;
+    private boolean mAnimationEnabled = true;
 
     private LoadingView mLoadingView;
 
@@ -76,15 +63,15 @@ public class LogoView extends FrameLayout implements OnClickListener {
 
     private Delegate mDelegate;
 
-    private final Property<LogoView, Float> mTransitionProperty =
-            new Property<LogoView, Float>(Float.class, "") {
+    private final FloatProperty<LogoView> mTransitionProperty =
+            new FloatProperty<LogoView>("") {
                 @Override
                 public Float get(LogoView logoView) {
                     return logoView.mTransitionAmount;
                 }
 
                 @Override
-                public void set(LogoView logoView, Float amount) {
+                public void setValue(LogoView logoView, float amount) {
                     assert amount >= 0f;
                     assert amount <= 1f;
                     if (logoView.mTransitionAmount != amount) {
@@ -94,9 +81,7 @@ public class LogoView extends FrameLayout implements OnClickListener {
                 }
             };
 
-    /**
-     * Handles tasks for the {@link LogoView} shown on an NTP.
-     */
+    /** Handles tasks for the {@link LogoView} shown on an NTP.*/
     public interface Delegate {
         /**
          * Called when the user clicks on the logo.
@@ -105,9 +90,7 @@ public class LogoView extends FrameLayout implements OnClickListener {
         void onLogoClicked(boolean isAnimatedLogoShowing);
     }
 
-    /**
-     * Constructor used to inflate a LogoView from XML.
-     */
+    /** Constructor used to inflate a LogoView from XML.*/
     public LogoView(Context context, AttributeSet attrs) {
         super(context, attrs);
 
@@ -131,9 +114,7 @@ public class LogoView extends FrameLayout implements OnClickListener {
         addView(mLoadingView);
     }
 
-    /**
-     * Clean up member variables when this view is no longer needed.
-     */
+    /** Clean up member variables when this view is no longer needed.*/
     public void destroy() {
         // Need to end the animation otherwise it can cause memory leaks since the AnimationHandler
         // has a reference to the animation callback which then can link back to the
@@ -142,16 +123,12 @@ public class LogoView extends FrameLayout implements OnClickListener {
         mLoadingView.destroy();
     }
 
-    /**
-     * Sets the {@link Delegate} to notify when the logo is pressed.
-     */
+    /** Sets the {@link Delegate} to notify when the logo is pressed.*/
     public void setDelegate(Delegate delegate) {
         mDelegate = delegate;
     }
 
-    /**
-     * Jumps to the end of the logo cross-fading animation, if any.
-     */
+    /** Jumps to the end of the logo cross-fading animation, if any.*/
     public void endFadeAnimation() {
         if (mFadeAnimation != null) {
             mFadeAnimation.end();
@@ -159,16 +136,12 @@ public class LogoView extends FrameLayout implements OnClickListener {
         }
     }
 
-    /**
-     * @return True after we receive an animated logo from the server.
-     */
+    /** @return True after we receive an animated logo from the server.*/
     private boolean isAnimatedLogoShowing() {
         return mAnimatedLogoDrawable != null;
     }
 
-    /**
-     * Starts playing the given animated GIF logo.
-     */
+    /** Starts playing the given animated GIF logo.*/
     public void playAnimatedLogo(BaseGifImage gifImage) {
         mLoadingView.hideLoadingUI();
         mAnimatedLogoDrawable = new BaseGifDrawable(gifImage, Config.ARGB_8888);
@@ -180,9 +153,7 @@ public class LogoView extends FrameLayout implements OnClickListener {
         mAnimatedLogoDrawable.start();
     }
 
-    /**
-     * Show a spinning progressbar.
-     */
+    /** Show a spinning progressbar.*/
     public void showLoadingView() {
         mLogo = null;
         invalidate();
@@ -216,15 +187,19 @@ public class LogoView extends FrameLayout implements OnClickListener {
         String contentDescription = TextUtils.isEmpty(logo.altText)
                 ? null
                 : getResources().getString(R.string.accessibility_google_doodle, logo.altText);
-        updateLogo(
+        updateLogoImpl(
                 logo.image, contentDescription, /* isDefaultLogo = */ false, isLogoClickable(logo));
+    }
+
+    public void setAnimationEnabled(boolean animationEnabled) {
+        mAnimationEnabled = animationEnabled;
     }
 
     private static boolean isLogoClickable(Logo logo) {
         return !TextUtils.isEmpty(logo.animatedLogoUrl) || !TextUtils.isEmpty(logo.onClickUrl);
     }
 
-    private void updateLogo(Bitmap logo, final String contentDescription, boolean isDefaultLogo,
+    private void updateLogoImpl(Bitmap logo, final String contentDescription, boolean isDefaultLogo,
             boolean isClickable) {
         assert logo != null;
 
@@ -241,7 +216,7 @@ public class LogoView extends FrameLayout implements OnClickListener {
         setMatrix(mNewLogo.getWidth(), mNewLogo.getHeight(), mNewLogoMatrix, mNewLogoIsDefault);
 
         mFadeAnimation = ObjectAnimator.ofFloat(this, mTransitionProperty, 0f, 1f);
-        mFadeAnimation.setDuration(LOGO_TRANSITION_TIME_MS);
+        mFadeAnimation.setDuration(mAnimationEnabled ? LOGO_TRANSITION_TIME_MS : 0);
         mFadeAnimation.addListener(new Animator.AnimatorListener() {
             @Override
             public void onAnimationStart(Animator animation) {}
@@ -272,22 +247,24 @@ public class LogoView extends FrameLayout implements OnClickListener {
         mFadeAnimation.start();
     }
 
+    public void setDefaultGoogleLogo(Bitmap defaultGoogleLogo) {
+        mDefaultGoogleLogo = defaultGoogleLogo;
+    }
+
     /**
      * Shows the default search engine logo if available.
      * @return Whether the default search engine logo is available.
      */
     private boolean maybeShowDefaultLogo() {
-        Bitmap defaultLogo = getDefaultGoogleLogo(getResources());
-        if (defaultLogo != null) {
-            updateLogo(defaultLogo, null, /* isDefaultLogo = */ true, /* isClickable = */ false);
+        if (mDefaultGoogleLogo != null) {
+            updateLogoImpl(mDefaultGoogleLogo, null, /* isDefaultLogo = */ true,
+                    /* isClickable = */ false);
             return true;
         }
         return false;
     }
 
-    /**
-     * @return Whether a new logo is currently fading in over the old logo.
-     */
+    /** @return Whether a new logo is currently fading in over the old logo.*/
     private boolean isTransitioning() {
         return mTransitionAmount != 0f;
     }
@@ -314,39 +291,6 @@ public class LogoView extends FrameLayout implements OnClickListener {
 
         matrix.setScale(scale, scale);
         matrix.postTranslate(imageOffsetX, imageOffsetY);
-    }
-
-    /**
-     * Get the default Google logo if available.
-     * @param resources Used to load resources.
-     * @return The default Google logo.
-     */
-    public static Bitmap getDefaultGoogleLogo(Resources resources) {
-        if (!TemplateUrlServiceFactory.get().isDefaultSearchEngineGoogle()) return null;
-
-        Bitmap defaultLogo = sDefaultLogo == null ? null : sDefaultLogo.get();
-        final int tint = ApiCompatibilityUtils.getColor(resources, R.color.google_logo_tint_color);
-        if (defaultLogo == null || sDefaultLogoTint != tint) {
-            if (tint == Color.TRANSPARENT) {
-                defaultLogo = BitmapFactory.decodeResource(resources, R.drawable.google_logo);
-            } else {
-                // Apply color filter on a bitmap, which will cause some performance overhead, but
-                // it is worth the APK space savings by avoiding adding another large asset for the
-                // logo in night mode. Not using vector drawable here because it is close to the
-                // maximum recommended vector drawable size 200dpx200dp.
-                BitmapFactory.Options options = new BitmapFactory.Options();
-                options.inMutable = true;
-                defaultLogo =
-                        BitmapFactory.decodeResource(resources, R.drawable.google_logo, options);
-                Paint paint = new Paint();
-                paint.setColorFilter(new PorterDuffColorFilter(tint, PorterDuff.Mode.SRC_ATOP));
-                Canvas canvas = new Canvas(defaultLogo);
-                canvas.drawBitmap(defaultLogo, 0, 0, paint);
-            }
-            sDefaultLogo = new WeakReference<>(defaultLogo);
-            sDefaultLogoTint = tint;
-        }
-        return defaultLogo;
     }
 
     @Override
@@ -422,8 +366,35 @@ public class LogoView extends FrameLayout implements OnClickListener {
         }
     }
 
-    @VisibleForTesting
     void endAnimationsForTesting() {
         mFadeAnimation.end();
+    }
+
+    ObjectAnimator getFadeAnimationForTesting() {
+        return mFadeAnimation;
+    }
+
+    Bitmap getNewLogoForTesting() {
+        return mNewLogo;
+    }
+
+    boolean getAnimationEnabledForTesting() {
+        return mAnimationEnabled;
+    }
+
+    boolean checkLoadingViewObserverEmptyForTesting() {
+        return mLoadingView.isObserverListEmpty();
+    }
+
+    void addLoadingViewObserverForTesting(Observer listener) {
+        mLoadingView.addObserver(listener);
+    }
+
+    Delegate getDelegateForTesting() {
+        return mDelegate;
+    }
+
+    Bitmap getDefaultGoogleLogoForTesting() {
+        return mDefaultGoogleLogo;
     }
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,9 +16,9 @@
 #include "base/memory/free_deleter.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/win/access_token.h"
+#include "base/win/current_module.h"
 #include "base/win/security_util.h"
 #include "base/win/startup_information.h"
-#include "base/win/windows_version.h"
 #include "sandbox/win/src/crosscall_client.h"
 #include "sandbox/win/src/crosscall_server.h"
 #include "sandbox/win/src/policy_low_level.h"
@@ -66,27 +66,27 @@ bool GetAppContainerImpersonationToken(
     return false;
   SecurityCapabilities security_caps(*app_container_sid, capabilities);
   return CreateLowBoxToken(initial_token, IMPERSONATION, &security_caps,
-                           nullptr, 0, impersonation_token) == ERROR_SUCCESS;
+                           impersonation_token) == ERROR_SUCCESS;
 }
 
 }  // namespace
 
+// 'SAND'
+SANDBOX_INTERCEPT DWORD g_sentinel_value_start = 0x53414E44;
 SANDBOX_INTERCEPT HANDLE g_shared_section;
 SANDBOX_INTERCEPT size_t g_shared_IPC_size;
 SANDBOX_INTERCEPT size_t g_shared_policy_size;
+// 'BOXY'
+SANDBOX_INTERCEPT DWORD g_sentinel_value_end = 0x424F5859;
 
 TargetProcess::TargetProcess(
     base::win::ScopedHandle initial_token,
     base::win::ScopedHandle lockdown_token,
-    HANDLE job,
     ThreadPool* thread_pool,
     const std::vector<base::win::Sid>& impersonation_capabilities)
-    // This object owns everything initialized here except thread_pool and
-    // the job_ handle. The Job handle is closed by BrokerServices and results
-    // eventually in a call to our dtor.
+    // This object owns everything initialized here except thread_pool.
     : lockdown_token_(std::move(lockdown_token)),
       initial_token_(std::move(initial_token)),
-      job_(job),
       thread_pool_(thread_pool),
       base_address_(nullptr),
       impersonation_capabilities_(
@@ -134,12 +134,6 @@ ResultCode TargetProcess::Create(
   if (startup_info->has_extended_startup_info())
     flags |= EXTENDED_STARTUPINFO_PRESENT;
 
-  if (job_ && base::win::GetVersion() < base::win::Version::WIN8) {
-    // Windows 8 implements nested jobs, but for older systems we need to
-    // break out of any job we're in to enforce our restrictions.
-    flags |= CREATE_BREAKAWAY_FROM_JOB;
-  }
-
   bool inherit_handles = startup_info_helper->ShouldInheritHandles();
   PROCESS_INFORMATION temp_process_info = {};
   if (!::CreateProcessAsUserW(lockdown_token_.Get(), exe_path, cmd_line.get(),
@@ -154,17 +148,6 @@ ResultCode TargetProcess::Create(
     return SBOX_ERROR_CREATE_PROCESS;
   }
   base::win::ScopedProcessInformation process_info(temp_process_info);
-
-  if (job_ && !startup_info_helper->HasJobsToAssociate()) {
-    DCHECK(base::win::GetVersion() < base::win::Version::WIN10);
-    // Assign the suspended target to the windows job object. On Win 10
-    // this happens through PROC_THREAD_ATTRIBUTE_JOB_LIST.
-    if (!::AssignProcessToJobObject(job_, process_info.process_handle())) {
-      *win_error = ::GetLastError();
-      ::TerminateProcess(process_info.process_handle(), 0);
-      return SBOX_ERROR_ASSIGN_PROCESS_TO_JOB_OBJECT;
-    }
-  }
 
   if (initial_token_.IsValid()) {
     HANDLE impersonation_token = initial_token_.Get();
@@ -201,6 +184,11 @@ ResultCode TargetProcess::Create(
     return SBOX_ERROR_CANNOT_FIND_BASE_ADDRESS;
   }
 
+  if (base_address_ != CURRENT_MODULE()) {
+    ::TerminateProcess(process_info.process_handle(), 0);
+    return SBOX_ERROR_INVALID_TARGET_BASE_ADDRESS;
+  }
+
   sandbox_process_info_.Set(process_info.Take());
   return SBOX_ALL_OK;
 }
@@ -230,6 +218,10 @@ ResultCode TargetProcess::Init(Dispatcher* ipc_dispatcher,
                                uint32_t shared_IPC_size,
                                uint32_t shared_policy_size,
                                DWORD* win_error) {
+  ResultCode ret = VerifySentinels();
+  if (ret != SBOX_ALL_OK)
+    return ret;
+
   // We need to map the shared memory on the target. This is necessary for
   // any IPC that needs to take place, even if the target has not yet hit
   // the main( ) function or even has initialized the CRT. So here we set
@@ -257,7 +249,6 @@ ResultCode TargetProcess::Init(Dispatcher* ipc_dispatcher,
   CopyPolicyToTarget(policy, shared_policy_size,
                      reinterpret_cast<char*>(shared_memory) + shared_IPC_size);
 
-  ResultCode ret;
   // Set the global variables in the target. These are not used on the broker.
   g_shared_IPC_size = shared_IPC_size;
   ret = TransferVariable("g_shared_IPC_size", &g_shared_IPC_size,
@@ -332,10 +323,40 @@ ResultCode TargetProcess::AssignLowBoxToken(
   return SBOX_ALL_OK;
 }
 
-std::unique_ptr<TargetProcess> MakeTestTargetProcess(HANDLE process,
-                                                     HMODULE base_address) {
+ResultCode TargetProcess::VerifySentinels() {
+  if (!sandbox_process_info_.IsValid())
+    return SBOX_ERROR_UNEXPECTED_CALL;
+  DWORD value = 0;
+  SIZE_T read;
+
+  if (!::ReadProcessMemory(sandbox_process_info_.process_handle(),
+                           &g_sentinel_value_start, &value, sizeof(DWORD),
+                           &read)) {
+    return SBOX_ERROR_CANNOT_READ_SENTINEL_VALUE;
+  }
+  if (read != sizeof(DWORD))
+    return SBOX_ERROR_INVALID_READ_SENTINEL_SIZE;
+  if (value != g_sentinel_value_start)
+    return SBOX_ERROR_MISMATCH_SENTINEL_VALUE;
+  if (!::ReadProcessMemory(sandbox_process_info_.process_handle(),
+                           &g_sentinel_value_end, &value, sizeof(DWORD),
+                           &read)) {
+    return SBOX_ERROR_CANNOT_READ_SENTINEL_VALUE;
+  }
+  if (read != sizeof(DWORD))
+    return SBOX_ERROR_INVALID_READ_SENTINEL_SIZE;
+  if (value != g_sentinel_value_end)
+    return SBOX_ERROR_MISMATCH_SENTINEL_VALUE;
+
+  return SBOX_ALL_OK;
+}
+
+// static
+std::unique_ptr<TargetProcess> TargetProcess::MakeTargetProcessForTesting(
+    HANDLE process,
+    HMODULE base_address) {
   auto target = std::make_unique<TargetProcess>(
-      base::win::ScopedHandle(), base::win::ScopedHandle(), nullptr, nullptr,
+      base::win::ScopedHandle(), base::win::ScopedHandle(), nullptr,
       std::vector<base::win::Sid>());
   PROCESS_INFORMATION process_info = {};
   process_info.hProcess = process;

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list_threadsafe.h"
 #include "base/synchronization/lock.h"
+#include "base/values.h"
 #include "chromecast/base/device_capabilities.h"
 
 namespace base {
@@ -86,7 +87,7 @@ class DeviceCapabilitiesImpl : public DeviceCapabilities {
   void SetValidatedValueInternal(const std::string& path,
                                  base::Value new_value);
 
-  scoped_refptr<Data> GenerateDataWithNewValue(const base::Value& dict,
+  scoped_refptr<Data> GenerateDataWithNewValue(const base::Value::Dict& dict,
                                                const std::string& path,
                                                base::Value new_value);
 

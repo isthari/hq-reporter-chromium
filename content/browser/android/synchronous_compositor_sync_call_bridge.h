@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/containers/circular_deque.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
+#include "base/synchronization/condition_variable.h"
 #include "base/thread_annotations.h"
 #include "components/viz/common/quads/compositor_frame.h"
 #include "content/public/browser/android/synchronous_compositor.h"

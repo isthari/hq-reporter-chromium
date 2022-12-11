@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,8 @@
 #include "gpu/command_buffer/common/scheduling_priority.h"
 #include "gpu/command_buffer/service/decoder_context.h"
 #include "gpu/command_buffer/service/scheduler.h"
-#include "gpu/command_buffer/service/shared_image_backing.h"
-#include "gpu/command_buffer/service/shared_image_representation.h"
+#include "gpu/command_buffer/service/shared_image/shared_image_backing.h"
+#include "gpu/command_buffer/service/shared_image/shared_image_representation.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
 #include "gpu/ipc/service/command_buffer_stub.h"
 #include "gpu/ipc/service/gpu_channel.h"
@@ -162,16 +162,25 @@ class CommandBufferHelperImpl
     textures_[service_id]->SetCleared();
   }
 
-  bool BindImage(GLuint service_id,
-                 gl::GLImage* image,
-                 bool client_managed) override {
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+  bool BindDecoderManagedImage(GLuint service_id, gl::GLImage* image) override {
     DVLOG(2) << __func__ << "(" << service_id << ")";
     DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
     DCHECK(textures_.count(service_id));
-    textures_[service_id]->BindImage(image, client_managed);
+    textures_[service_id]->SetUnboundImage(image);
     return true;
   }
+#else
+  bool BindClientManagedImage(GLuint service_id, gl::GLImage* image) override {
+    DVLOG(2) << __func__ << "(" << service_id << ")";
+    DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+
+    DCHECK(textures_.count(service_id));
+    textures_[service_id]->SetBoundImage(image);
+    return true;
+  }
+#endif
 
   gpu::Mailbox CreateMailbox(GLuint service_id) override {
     DVLOG(2) << __func__ << "(" << service_id << ")";
@@ -182,19 +191,6 @@ class CommandBufferHelperImpl
 
     DCHECK(textures_.count(service_id));
     return decoder_helper_->CreateMailbox(textures_[service_id].get());
-  }
-
-  void ProduceTexture(const gpu::Mailbox& mailbox, GLuint service_id) override {
-    DVLOG(2) << __func__ << "(" << mailbox.ToDebugString() << ", " << service_id
-             << ")";
-    DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-
-    if (!decoder_helper_)
-      return;
-
-    DCHECK(textures_.count(service_id));
-    return decoder_helper_->ProduceTexture(mailbox,
-                                           textures_[service_id].get());
   }
 
   void WaitForSyncToken(gpu::SyncToken sync_token,

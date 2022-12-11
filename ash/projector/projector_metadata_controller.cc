@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "ash/projector/projector_ui_controller.h"
 #include "ash/public/cpp/projector/projector_controller.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/webui/projector_app/public/cpp/projector_app_constants.h"
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
@@ -16,12 +17,11 @@
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "base/time/time.h"
+#include "media/mojo/mojom/speech_recognition.mojom.h"
+#include "third_party/icu/source/common/unicode/locid.h"
 
 namespace ash {
 namespace {
-
-constexpr char kEnglishLanguage[] = "en";
 
 // Writes the given |data| in a file with |path|. Returns true if saving
 // succeeded, or false otherwise.
@@ -46,10 +46,8 @@ ProjectorMetadataController::~ProjectorMetadataController() = default;
 
 void ProjectorMetadataController::OnRecordingStarted() {
   metadata_ = std::make_unique<ProjectorMetadata>();
-
-  // TODO(b/200960615) When multi-language support is available for speech
-  // recognition, get the language from the speech recognition service.
-  metadata_->SetCaptionLanguage(kEnglishLanguage);
+  auto locale = icu::Locale::getDefault();
+  metadata_->SetCaptionLanguage(locale.getLanguage());
 }
 
 void ProjectorMetadataController::RecordTranscription(
@@ -91,8 +89,7 @@ void ProjectorMetadataController::OnSaveFileResult(const base::FilePath& path,
                                                    bool success) {
   if (!success) {
     LOG(ERROR) << "Failed to save the metadata file: " << path;
-    ProjectorUiController::ShowFailureNotification(
-        IDS_ASH_PROJECTOR_FAILURE_MESSAGE_SAVE_SCREENCAST);
+    ProjectorUiController::ShowSaveFailureNotification();
     return;
   }
   RecordTranscriptsCount(transcripts_count);

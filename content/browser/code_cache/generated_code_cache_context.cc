@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "content/browser/code_cache/generated_code_cache_context.h"
@@ -7,9 +7,8 @@
 
 #include "base/bind.h"
 #include "base/files/file_path.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "content/browser/code_cache/generated_code_cache.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -35,24 +34,15 @@ scoped_refptr<base::SequencedTaskRunner>
 GeneratedCodeCacheContext::GetTaskRunner(
     scoped_refptr<GeneratedCodeCacheContext> context) {
   if (!context)
-    return base::SequencedTaskRunnerHandle::Get();
+    return base::SequencedTaskRunner::GetCurrentDefault();
   return context->task_runner_;
 }
 
 GeneratedCodeCacheContext::GeneratedCodeCacheContext() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DETACH_FROM_SEQUENCE(sequence_checker_);
-  if (base::FeatureList::IsEnabled(
-          features::kNavigationThreadingOptimizations)) {
-    if (base::FeatureList::IsEnabled(features::kThreadingOptimizationsOnIO)) {
-      task_runner_ = GetIOThreadTaskRunner({});
-    } else {
-      task_runner_ = base::ThreadPool::CreateSingleThreadTaskRunner(
-          {base::TaskPriority::USER_BLOCKING});
-    }
-  } else {
-    task_runner_ = GetUIThreadTaskRunner({});
-  }
+  task_runner_ = base::ThreadPool::CreateSingleThreadTaskRunner(
+      {base::TaskPriority::USER_BLOCKING});
 }
 
 void GeneratedCodeCacheContext::Initialize(const base::FilePath& path,
@@ -112,6 +102,13 @@ void GeneratedCodeCacheContext::InitializeOnThread(const base::FilePath& path,
 
 void GeneratedCodeCacheContext::Shutdown() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  RunOrPostTask(
+      this, FROM_HERE,
+      base::BindOnce(&GeneratedCodeCacheContext::ShutdownOnThread, this));
+}
+
+void GeneratedCodeCacheContext::ShutdownOnThread() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   generated_js_code_cache_.reset();
   generated_wasm_code_cache_.reset();
   generated_webui_js_code_cache_.reset();

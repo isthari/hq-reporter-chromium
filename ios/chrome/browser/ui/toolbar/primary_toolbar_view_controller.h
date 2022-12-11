@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #import "ios/chrome/browser/ui/activity_services/requirements/activity_service_positioner.h"
 #import "ios/chrome/browser/ui/fullscreen/fullscreen_ui_element.h"
 #import "ios/chrome/browser/ui/gestures/view_revealing_animatee.h"
+#import "ios/chrome/browser/ui/keyboard/key_command_actions.h"
 #import "ios/chrome/browser/ui/orchestrator/toolbar_animatee.h"
 #import "ios/chrome/browser/ui/toolbar/adaptive_toolbar_view_controller.h"
 
@@ -19,6 +20,7 @@
 @interface PrimaryToolbarViewController
     : AdaptiveToolbarViewController <ActivityServicePositioner,
                                      FullscreenUIElement,
+                                     KeyCommandActions,
                                      ToolbarAnimatee,
                                      ViewRevealingAnimatee>
 

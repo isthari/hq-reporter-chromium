@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,8 +19,8 @@ import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.settings.MainSettings;
@@ -128,13 +128,10 @@ public class SearchEngineSettingsTest {
      * Make sure that when a user switches to a search engine that uses HTTP, the location
      * permission is not added.
      */
-    /*
-     * @SmallTest
-     * @Feature({"Preferences"})
-     * BUG=crbug.com/540706
-     */
     @Test
-    @FlakyTest
+    @SmallTest
+    @Feature({"Preferences"})
+    @DisabledTest(message = "crbug.com/540706")
     @DisableIf.Build(hardware_is = "sprout", message = "fails on android-one: crbug.com/540706")
     public void testSearchEnginePreferenceHttp() throws Exception {
         ensureTemplateUrlServiceLoaded();

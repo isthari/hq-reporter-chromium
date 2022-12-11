@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -110,7 +110,9 @@ public class CustomTabExternalNavigationTest {
     public void testExternalActivityStartedForDefaultUrl() {
         final GURL testUrl = new GURL("customtab://customtabtest/intent");
         ExternalNavigationParams params = new ExternalNavigationParams.Builder(testUrl, false)
-                .build();
+                                                  .setIsMainFrame(true)
+                                                  .setIsRendererInitiated(true)
+                                                  .build();
         OverrideUrlLoadingResult result = mUrlHandler.shouldOverrideUrlLoading(params);
         Assert.assertEquals(
                 OverrideUrlLoadingResultType.OVERRIDE_WITH_EXTERNAL_INTENT, result.getResultType());

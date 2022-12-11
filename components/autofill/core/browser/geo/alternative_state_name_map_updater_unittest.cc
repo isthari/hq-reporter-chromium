@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,6 +26,12 @@
 
 using base::ASCIIToUTF16;
 using base::UTF8ToUTF16;
+
+namespace i18n::addressinput {
+
+using ::operator<<;
+
+}  // namespace i18n::addressinput
 
 namespace autofill {
 

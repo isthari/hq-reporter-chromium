@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "chrome/browser/ash/input_method/input_method_delegate_impl.h"
 #include "chrome/browser/ash/input_method/input_method_manager_impl.h"
 #include "chrome/browser/ash/input_method/input_method_persistence.h"
+#include "ui/base/ime/ash/input_method_manager.h"
 
 namespace ash {
 namespace input_method {

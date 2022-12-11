@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,13 +51,13 @@ public class LensUtils {
      *         available.
      */
     public static String getLensActivityVersionNameIfAvailable(final Context context) {
-        if (Boolean.TRUE.equals(sFakePassableLensEnvironmentForTesting)) {
+        if (sFakePassableLensEnvironmentForTesting) {
             return MIN_AGSA_VERSION_NAME_FOR_LENS_POSTCAPTURE;
         } else {
             if (context == null) {
                 return "";
             }
-            String agsaVersion = GSAState.getInstance(context).getAgsaVersionName();
+            String agsaVersion = GSAState.getInstance().getAgsaVersionName();
             if (agsaVersion == null) {
                 return "";
             } else {
@@ -174,7 +174,6 @@ public class LensUtils {
 
     public static boolean shouldLogUkmForLensContextMenuFeatures() {
         return shouldLogUkmByFeature(ChromeFeatureList.CONTEXT_MENU_SEARCH_WITH_GOOGLE_LENS)
-                || shouldLogUkmByFeature(ChromeFeatureList.CONTEXT_MENU_SHOP_WITH_GOOGLE_LENS)
                 || shouldLogUkmByFeature(ChromeFeatureList.CONTEXT_MENU_GOOGLE_LENS_CHIP)
                 || shouldLogUkmByFeature(ChromeFeatureList.CONTEXT_MENU_TRANSLATE_WITH_GOOGLE_LENS);
     }

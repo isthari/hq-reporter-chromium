@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -12,10 +12,11 @@ class TestConfig(config.CodeSignConfig):
                  installer_identity='[INSTALLER-IDENTITY]',
                  notary_user='[NOTARY-USER]',
                  notary_password='[NOTARY-PASSWORD]',
-                 notary_asc_provider=None):
-        super(TestConfig,
-              self).__init__(identity, installer_identity, notary_user,
-                             notary_password, notary_asc_provider)
+                 **kwargs):
+        if 'notary_team_id' not in kwargs:
+            kwargs['notary_team_id'] = '[NOTARY-TEAM]'
+        super(TestConfig, self).__init__(identity, installer_identity,
+                                         notary_user, notary_password, **kwargs)
 
     @staticmethod
     def is_chrome_branded():

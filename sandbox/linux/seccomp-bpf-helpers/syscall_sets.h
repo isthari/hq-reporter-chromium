@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,6 +29,7 @@ class SANDBOX_EXPORT SyscallSets {
   // a new file descriptor or otherwise perform an operation directly
   // via a path.
   static bool IsFileSystem(int sysno);
+  static bool IsTruncate(int sysno);
   static bool IsAllowedFileSystemAccessViaFd(int sysno);
   static bool IsDeniedFileSystemAccessViaFd(int sysno);
   static bool IsGetSimpleId(int sysno);
@@ -117,6 +118,7 @@ class SANDBOX_EXPORT SyscallSets {
   static bool IsMipsPrivate(int sysno);
   static bool IsMipsMisc(int sysno);
 #endif  // defined(__mips__)
+  static bool IsGoogle3Threading(int sysno);
 };
 
 }  // namespace sandbox.

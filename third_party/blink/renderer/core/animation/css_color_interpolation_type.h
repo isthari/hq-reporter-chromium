@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 
 #include <memory>
 #include "third_party/blink/renderer/core/animation/css_interpolation_type.h"
+#include "third_party/blink/renderer/core/animation/interpolable_color.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 
@@ -17,8 +19,9 @@ struct OptionalStyleColor;
 
 class CORE_EXPORT CSSColorInterpolationType : public CSSInterpolationType {
  public:
-  CSSColorInterpolationType(PropertyHandle property,
-                            const PropertyRegistration* registration = nullptr)
+  explicit CSSColorInterpolationType(
+      PropertyHandle property,
+      const PropertyRegistration* registration = nullptr)
       : CSSInterpolationType(property, registration) {}
 
   InterpolationValue MaybeConvertStandardPropertyUnderlyingValue(
@@ -31,12 +34,12 @@ class CORE_EXPORT CSSColorInterpolationType : public CSSInterpolationType {
                  const InterpolationValue& value,
                  double interpolation_fraction) const final;
 
-  static std::unique_ptr<InterpolableValue> CreateInterpolableColor(
+  static std::unique_ptr<InterpolableColor> CreateInterpolableColor(
       const Color&);
-  static std::unique_ptr<InterpolableValue> CreateInterpolableColor(CSSValueID);
-  static std::unique_ptr<InterpolableValue> CreateInterpolableColor(
+  static std::unique_ptr<InterpolableColor> CreateInterpolableColor(CSSValueID);
+  static std::unique_ptr<InterpolableColor> CreateInterpolableColor(
       const StyleColor&);
-  static std::unique_ptr<InterpolableValue> MaybeCreateInterpolableColor(
+  static std::unique_ptr<InterpolableColor> MaybeCreateInterpolableColor(
       const CSSValue&);
   static Color ResolveInterpolableColor(
       const InterpolableValue& interpolable_color,
@@ -44,9 +47,15 @@ class CORE_EXPORT CSSColorInterpolationType : public CSSInterpolationType {
       bool is_visited = false,
       bool is_text_decoration = false);
 
-  // Extract color info from a InterpolableValue-result, the input value must be
-  // a InterpolableList.
-  static Color GetRGBA(const InterpolableValue&);
+  static Color GetColor(const InterpolableValue&);
+
+  // This method confirms that the two colors are in the same colorspace for
+  // interpolation and converts them if necessary.
+  PairwiseInterpolationValue MaybeMergeSingles(
+      InterpolationValue&& start,
+      InterpolationValue&& end) const final;
+
+  static bool IsNonKeywordColor(const InterpolableValue&);
 
  private:
   InterpolationValue MaybeConvertNeutral(const InterpolationValue& underlying,

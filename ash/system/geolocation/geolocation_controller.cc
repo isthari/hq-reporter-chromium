@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,17 @@
 
 #include <algorithm>
 
-#include "ash/components/geolocation/geoposition.h"
+#include "ash/shell.h"
 #include "ash/system/time/time_of_day.h"
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/time/clock.h"
+#include "chromeos/ash/components/geolocation/geoposition.h"
 #include "third_party/icu/source/i18n/astro.h"
 
 namespace ash {
 
 namespace {
-
-GeolocationController* g_geolocation_controller = nullptr;
 
 // Delay to wait for a response to our geolocation request, if we get a response
 // after which, we will consider the request a failure.
@@ -39,26 +38,28 @@ constexpr int kDefaultSunriseTimeOffsetMinutes = 6 * 60;
 
 GeolocationController::GeolocationController(
     scoped_refptr<network::SharedURLLoaderFactory> factory)
-    : provider_(std::move(factory),
+    : factory_(factory.get()),
+      provider_(std::move(factory),
                 SimpleGeolocationProvider::DefaultGeolocationProviderURL()),
       backoff_delay_(kMinimumDelayAfterFailure),
       timer_(std::make_unique<base::OneShotTimer>()) {
-  auto* timezone_settings = chromeos::system::TimezoneSettings::GetInstance();
+  auto* timezone_settings = system::TimezoneSettings::GetInstance();
   current_timezone_id_ = timezone_settings->GetCurrentTimezoneID();
   timezone_settings->AddObserver(this);
-  g_geolocation_controller = this;
+  chromeos::PowerManagerClient::Get()->AddObserver(this);
 }
 
 GeolocationController::~GeolocationController() {
-  chromeos::system::TimezoneSettings::GetInstance()->RemoveObserver(this);
-  DCHECK_EQ(g_geolocation_controller, this);
-  g_geolocation_controller = nullptr;
+  system::TimezoneSettings::GetInstance()->RemoveObserver(this);
+  chromeos::PowerManagerClient::Get()->RemoveObserver(this);
 }
 
 // static
 GeolocationController* GeolocationController::Get() {
-  DCHECK(g_geolocation_controller);
-  return g_geolocation_controller;
+  GeolocationController* controller =
+      ash::Shell::Get()->geolocation_controller();
+  DCHECK(controller);
+  return controller;
 }
 
 void GeolocationController::AddObserver(Observer* observer) {
@@ -76,7 +77,7 @@ void GeolocationController::RemoveObserver(Observer* observer) {
 
 void GeolocationController::TimezoneChanged(const icu::TimeZone& timezone) {
   const std::u16string timezone_id =
-      chromeos::system::TimezoneSettings::GetTimezoneID(timezone);
+      system::TimezoneSettings::GetTimezoneID(timezone);
   if (current_timezone_id_ == timezone_id)
     return;
 
@@ -84,6 +85,11 @@ void GeolocationController::TimezoneChanged(const icu::TimeZone& timezone) {
 
   // On timezone changes, request an immediate geoposition.
   ScheduleNextRequest(base::Seconds(0));
+}
+
+void GeolocationController::SuspendDone(base::TimeDelta sleep_duration) {
+  if (sleep_duration >= kNextRequestDelayAfterSuccess)
+    ScheduleNextRequest(base::Seconds(0));
 }
 
 // static
@@ -178,8 +184,8 @@ void GeolocationController::RequestGeoposition() {
 
 base::Time GeolocationController::GetSunRiseSet(bool sunrise) const {
   if (!geoposition_) {
-    LOG(ERROR) << "Invalid geoposition. Using default time for "
-               << (sunrise ? "sunrise." : "sunset.");
+    VLOG(1) << "Invalid geoposition. Using default time for "
+            << (sunrise ? "sunrise." : "sunset.");
     return TimeOfDay(sunrise ? kDefaultSunriseTimeOffsetMinutes
                              : kDefaultSunsetTimeOffsetMinutes)
         .SetClock(clock_)

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,7 @@
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/animation/ink_drop_host_view.h"
 
-namespace views {
-namespace test {
+namespace views::test {
 
 // Test API to provide internal access to an InkDropHost instance.
 class InkDropHostTestApi {
@@ -53,10 +52,9 @@ class InkDropHostTestApi {
 
  private:
   // The InkDropHost to provide internal access to.
-  raw_ptr<InkDropHost> ink_drop_host_;
+  raw_ptr<InkDropHost, DanglingUntriaged> ink_drop_host_;
 };
 
-}  // namespace test
-}  // namespace views
+}  // namespace views::test
 
 #endif  // UI_VIEWS_ANIMATION_TEST_INK_DROP_HOST_VIEW_TEST_API_H_

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,17 @@
 
 #include <stddef.h>
 
-#include "ash/components/login/auth/user_context.h"
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
-#include "chromeos/dbus/cryptohome/UserDataAuth.pb.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace ash {
 
-// A class to remove existing Easy unlock cryptohome keys starting at given
-// index.
+// TODO(b/227674947) : Remove this class as a part of cleanup;
+//  A class to remove existing Easy unlock cryptohome keys starting at given
+//  index.
 class EasyUnlockRemoveKeysOperation {
  public:
   using RemoveKeysCallback = base::OnceCallback<void(bool success)>;
@@ -34,15 +34,7 @@ class EasyUnlockRemoveKeysOperation {
   void Start();
 
  private:
-  void OnGetSystemSalt(const std::string& system_salt);
-
-  void RemoveKey();
-  void OnKeyRemoved(absl::optional<::user_data_auth::RemoveKeyReply> reply);
-
-  UserContext user_context_;
   RemoveKeysCallback callback_;
-  size_t key_index_;
-  base::WeakPtrFactory<EasyUnlockRemoveKeysOperation> weak_ptr_factory_{this};
 };
 
 }  // namespace ash

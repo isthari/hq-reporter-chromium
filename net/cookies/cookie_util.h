@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,8 @@
 #include "net/cookies/cookie_access_result.h"
 #include "net/cookies/cookie_constants.h"
 #include "net/cookies/cookie_options.h"
-#include "net/cookies/first_party_set_metadata.h"
 #include "net/cookies/site_for_cookies.h"
+#include "net/first_party_sets/first_party_set_metadata.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/origin.h"
 
@@ -27,6 +27,7 @@ namespace net {
 class IsolationInfo;
 class SchemefulSite;
 class CookieAccessDelegate;
+class CookieInclusionStatus;
 
 namespace cookie_util {
 
@@ -42,7 +43,8 @@ enum class StorageAccessResult {
   ACCESS_BLOCKED = 0,
   ACCESS_ALLOWED = 1,
   ACCESS_ALLOWED_STORAGE_ACCESS_GRANT = 2,
-  kMaxValue = ACCESS_ALLOWED_STORAGE_ACCESS_GRANT,
+  ACCESS_ALLOWED_FORCED = 3,
+  kMaxValue = ACCESS_ALLOWED_FORCED,
 };
 // Helper to fire telemetry indicating if a given request for storage was
 // allowed or not by the provided |result|.
@@ -63,6 +65,7 @@ NET_EXPORT std::string GetEffectiveDomain(const std::string& scheme,
 // begin with a '.' character.
 NET_EXPORT bool GetCookieDomainWithString(const GURL& url,
                                           const std::string& domain_string,
+                                          CookieInclusionStatus& status,
                                           std::string* result);
 
 // Returns true if a domain string represents a host-only cookie,
@@ -131,8 +134,9 @@ using ParsedRequestCookies = std::vector<ParsedRequestCookie>;
 // Assumes that |header_value| is the cookie header value of a HTTP Request
 // following the cookie-string schema of RFC 6265, section 4.2.1, and returns
 // cookie name/value pairs. If cookie values are presented in double quotes,
-// these will appear in |parsed_cookies| as well. Assumes that the cookie
-// header is written by Chromium and therefore well-formed.
+// these will appear in |parsed_cookies| as well. The cookie header can be
+// written by non-Chromium consumers (such as extensions), so the header may not
+// be well-formed.
 NET_EXPORT void ParseRequestCookieLine(const std::string& header_value,
                                        ParsedRequestCookies* parsed_cookies);
 
@@ -245,13 +249,22 @@ NET_EXPORT bool IsSchemefulSameSiteEnabled();
 // will be assumed to be same-party with `request_site`, regardless of what it
 // is.
 //
-// `callback` may be invoked either synchronously or asynchronously.
-NET_EXPORT void ComputeFirstPartySetMetadataMaybeAsync(
+// The result may be returned synchronously, or `callback` may be invoked
+// asynchronously with the result. The callback will be invoked iff the return
+// value is nullopt; i.e. a result will be provided via return value or
+// callback, but not both, and not neither.
+[[nodiscard]] NET_EXPORT absl::optional<FirstPartySetMetadata>
+ComputeFirstPartySetMetadataMaybeAsync(
     const SchemefulSite& request_site,
     const IsolationInfo& isolation_info,
     const CookieAccessDelegate* cookie_access_delegate,
     bool force_ignore_top_frame_party,
     base::OnceCallback<void(FirstPartySetMetadata)> callback);
+
+// Converts a string representing the http request method to its enum
+// representation.
+NET_EXPORT CookieOptions::SameSiteCookieContext::ContextMetadata::HttpMethod
+HttpMethodStringToEnum(const std::string& in);
 
 // Get the SameParty inclusion status. If the cookie is not SameParty, returns
 // kNoSamePartyEnforcement; if the cookie is SameParty but does not have a
@@ -259,7 +272,7 @@ NET_EXPORT void ComputeFirstPartySetMetadataMaybeAsync(
 NET_EXPORT CookieSamePartyStatus
 GetSamePartyStatus(const CanonicalCookie& cookie,
                    const CookieOptions& options,
-                   bool first_party_sets_enabled);
+                   bool same_party_attribute_enabled);
 
 // Takes a callback accepting a CookieAccessResult and returns a callback
 // that accepts a bool, setting the bool to true if the CookieInclusionStatus

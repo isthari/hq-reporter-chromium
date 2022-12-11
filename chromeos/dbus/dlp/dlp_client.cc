@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "chromeos/dbus/dlp/dlp_client.h"
@@ -6,9 +6,11 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/strcat.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
+#include "chromeos/dbus/dlp/dlp_service.pb.h"
 #include "chromeos/dbus/dlp/fake_dlp_client.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
@@ -64,7 +66,7 @@ class DlpClientImpl : public DlpClient {
       dlp::SetDlpFilesPolicyResponse response;
       response.set_error_message(base::StrCat(
           {"Failure to call d-bus method: ", dlp::kSetDlpFilesPolicyMethod}));
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(callback), response));
       return;
     }
@@ -84,7 +86,7 @@ class DlpClientImpl : public DlpClient {
       dlp::AddFileResponse response;
       response.set_error_message(base::StrCat(
           {"Failure to call d-bus method: ", dlp::kAddFileMethod}));
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(callback), response));
       return;
     }
@@ -96,7 +98,7 @@ class DlpClientImpl : public DlpClient {
   }
 
   void GetFilesSources(const dlp::GetFilesSourcesRequest request,
-                       GetFilesSourcesCallback callback) const override {
+                       GetFilesSourcesCallback callback) override {
     dbus::MethodCall method_call(dlp::kDlpInterface,
                                  dlp::kGetFilesSourcesMethod);
     dbus::MessageWriter writer(&method_call);
@@ -105,7 +107,7 @@ class DlpClientImpl : public DlpClient {
       dlp::GetFilesSourcesResponse response;
       response.set_error_message(base::StrCat(
           {"Failure to call d-bus method: ", dlp::kGetFilesSourcesMethod}));
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(callback), response));
       return;
     }
@@ -113,6 +115,49 @@ class DlpClientImpl : public DlpClient {
     proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
         base::BindOnce(&DlpClientImpl::HandleGetFilesSourcesResponse,
+                       weak_factory_.GetWeakPtr(), std::move(callback)));
+  }
+
+  void CheckFilesTransfer(const dlp::CheckFilesTransferRequest request,
+                          CheckFilesTransferCallback callback) override {
+    dbus::MethodCall method_call(dlp::kDlpInterface,
+                                 dlp::kCheckFilesTransferMethod);
+    dbus::MessageWriter writer(&method_call);
+
+    if (!writer.AppendProtoAsArrayOfBytes(request)) {
+      dlp::CheckFilesTransferResponse response;
+      response.set_error_message(base::StrCat(
+          {"Failure to call d-bus method: ", dlp::kCheckFilesTransferMethod}));
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+          FROM_HERE, base::BindOnce(std::move(callback), response));
+      return;
+    }
+
+    proxy_->CallMethod(
+        &method_call, /*5 minutes*/ 300000,
+        base::BindOnce(&DlpClientImpl::HandleCheckFilesTransferResponse,
+                       weak_factory_.GetWeakPtr(), std::move(callback)));
+  }
+
+  void RequestFileAccess(const dlp::RequestFileAccessRequest request,
+                         RequestFileAccessCallback callback) override {
+    dbus::MethodCall method_call(dlp::kDlpInterface,
+                                 dlp::kRequestFileAccessMethod);
+    dbus::MessageWriter writer(&method_call);
+
+    if (!writer.AppendProtoAsArrayOfBytes(request)) {
+      dlp::RequestFileAccessResponse response;
+      response.set_error_message(base::StrCat(
+          {"Failure to call d-bus method: ", dlp::kRequestFileAccessMethod}));
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+          FROM_HERE,
+          base::BindOnce(std::move(callback), response, base::ScopedFD()));
+      return;
+    }
+
+    proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::BindOnce(&DlpClientImpl::HandleRequestFileAccessResponse,
                        weak_factory_.GetWeakPtr(), std::move(callback)));
   }
 
@@ -154,8 +199,42 @@ class DlpClientImpl : public DlpClient {
     std::move(callback).Run(response_proto);
   }
 
+  void HandleCheckFilesTransferResponse(CheckFilesTransferCallback callback,
+                                        dbus::Response* response) {
+    dlp::CheckFilesTransferResponse response_proto;
+    const char* error_message = DeserializeProto(response, &response_proto);
+    if (error_message) {
+      response_proto.set_error_message(error_message);
+    }
+    std::move(callback).Run(response_proto);
+  }
+
+  void HandleRequestFileAccessResponse(RequestFileAccessCallback callback,
+                                       dbus::Response* response) {
+    dlp::RequestFileAccessResponse response_proto;
+    base::ScopedFD fd;
+    if (!response) {
+      response_proto.set_error_message(kDbusCallFailure);
+      std::move(callback).Run(response_proto, std::move(fd));
+      return;
+    }
+
+    dbus::MessageReader reader(response);
+    if (!reader.PopArrayOfBytesAsProto(&response_proto)) {
+      response_proto.set_error_message(kProtoMessageParsingFailure);
+      std::move(callback).Run(response_proto, std::move(fd));
+      return;
+    }
+    if (!reader.PopFileDescriptor(&fd)) {
+      response_proto.set_error_message(kProtoMessageParsingFailure);
+      std::move(callback).Run(response_proto, std::move(fd));
+      return;
+    }
+    std::move(callback).Run(response_proto, std::move(fd));
+  }
+
   // D-Bus proxy for the Dlp daemon, not owned.
-  dbus::ObjectProxy* proxy_ = nullptr;
+  raw_ptr<dbus::ObjectProxy> proxy_ = nullptr;
 
   // Indicates whether the daemon was started and DLP Files rules are enforced.
   bool is_alive_ = false;

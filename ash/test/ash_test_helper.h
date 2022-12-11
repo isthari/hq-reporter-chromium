@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +16,9 @@
 #include "ash/session/test_session_controller_client.h"
 #include "ash/shell_delegate.h"
 #include "ash/system/message_center/test_notifier_settings_controller.h"
+#include "ash/test/pixel/ash_pixel_test_init_params.h"
 #include "base/test/scoped_command_line.h"
-#include "chromeos/services/bluetooth_config/scoped_bluetooth_config_test_helper.h"
+#include "chromeos/ash/services/bluetooth_config/scoped_bluetooth_config_test_helper.h"
 #include "chromeos/system/fake_statistics_provider.h"
 #include "ui/aura/test/aura_test_helper.h"
 
@@ -25,31 +26,37 @@ class PrefService;
 
 namespace aura {
 class Window;
-}
+}  // namespace aura
+
+namespace base {
+class SystemMonitor;
+}  // namespace base
 
 namespace display {
 class Display;
-}
+}  // namespace display
 
 namespace ui {
 class ContextFactory;
-}
+}  // namespace ui
 
 namespace views {
 class TestViewsDelegate;
-}
+}  // namespace views
 
 namespace ash {
 
 class AppListTestHelper;
 class AmbientAshTestHelper;
+class AshPixelTestHelper;
+class SavedDeskTestHelper;
 class TestKeyboardControllerObserver;
 class TestNewWindowDelegateProvider;
 class TestWallpaperControllerClient;
 
 namespace input_method {
 class MockInputMethodManager;
-}
+}  // namespace input_method
 
 // A helper class that does common initialization required for Ash. Creates a
 // root window and an ash::Shell instance with a test delegate.
@@ -66,6 +73,9 @@ class AshTestHelper : public aura::test::AuraTestHelper {
     // If this is not set, a TestShellDelegate will be used automatically.
     std::unique_ptr<ShellDelegate> delegate;
     PrefService* local_state = nullptr;
+
+    // Used only when setting up a pixel diff test.
+    absl::optional<pixel_test::InitParams> pixel_test_init_params;
   };
 
   // Instantiates/destroys an AshTestHelper. This can happen in a
@@ -100,6 +110,17 @@ class AshTestHelper : public aura::test::AuraTestHelper {
 
   display::Display GetSecondaryDisplay() const;
 
+  // Simulates a user sign-in. It creates a new user session, adds it to
+  // existing user sessions and makes it the active user session.
+  // NOTE: call `StabilizeUIForPixelTest()` after calling this function in a
+  // pixel test.
+  void SimulateUserLogin(
+      const AccountId& account_id,
+      user_manager::UserType user_type = user_manager::USER_TYPE_REGULAR);
+
+  // Stabilizes the variable UI components (such as the battery view).
+  void StabilizeUIForPixelTest();
+
   TestSessionControllerClient* test_session_controller_client() {
     return session_controller_client_.get();
   }
@@ -131,15 +152,23 @@ class AshTestHelper : public aura::test::AuraTestHelper {
     return ambient_ash_test_helper_.get();
   }
 
-  chromeos::bluetooth_config::ScopedBluetoothConfigTestHelper*
+  bluetooth_config::ScopedBluetoothConfigTestHelper*
   bluetooth_config_test_helper() {
     return &scoped_bluetooth_config_test_helper_;
+  }
+
+  SavedDeskTestHelper* saved_desk_test_helper() {
+    return saved_desk_test_helper_.get();
   }
 
  private:
   // Scoping objects to manage init/teardown of services.
   class BluezDBusManagerInitializer;
   class PowerPolicyControllerInitializer;
+
+  // Must be constructed so that `base::SystemMonitor::Get()` returns a valid
+  // instance.
+  std::unique_ptr<base::SystemMonitor> system_monitor_;
 
   std::unique_ptr<base::test::ScopedCommandLine> command_line_ =
       std::make_unique<base::test::ScopedCommandLine>();
@@ -166,7 +195,12 @@ class AshTestHelper : public aura::test::AuraTestHelper {
       test_keyboard_controller_observer_;
   std::unique_ptr<AmbientAshTestHelper> ambient_ash_test_helper_;
   std::unique_ptr<TestWallpaperControllerClient> wallpaper_controller_client_;
-  chromeos::bluetooth_config::ScopedBluetoothConfigTestHelper
+  std::unique_ptr<SavedDeskTestHelper> saved_desk_test_helper_;
+
+  // Used only for pixel tests.
+  std::unique_ptr<AshPixelTestHelper> pixel_test_helper_;
+
+  bluetooth_config::ScopedBluetoothConfigTestHelper
       scoped_bluetooth_config_test_helper_;
 
   // InputMethodManager is not owned by this class. It is stored in a

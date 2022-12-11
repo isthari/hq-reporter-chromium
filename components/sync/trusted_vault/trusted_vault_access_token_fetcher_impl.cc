@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/location.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/sync/base/bind_to_task_runner.h"
 #include "components/sync/trusted_vault/trusted_vault_access_token_fetcher_frontend.h"
 
@@ -33,8 +33,8 @@ void FetchAccessTokenOnUIThread(
 TrustedVaultAccessTokenFetcherImpl::TrustedVaultAccessTokenFetcherImpl(
     base::WeakPtr<TrustedVaultAccessTokenFetcherFrontend> frontend)
     : frontend_(frontend) {
-  DCHECK(base::SequencedTaskRunnerHandle::IsSet());
-  ui_thread_task_runner_ = base::SequencedTaskRunnerHandle::Get();
+  DCHECK(base::SequencedTaskRunner::HasCurrentDefault());
+  ui_thread_task_runner_ = base::SequencedTaskRunner::GetCurrentDefault();
 }
 
 TrustedVaultAccessTokenFetcherImpl::~TrustedVaultAccessTokenFetcherImpl() =

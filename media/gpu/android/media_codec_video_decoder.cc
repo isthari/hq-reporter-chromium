@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,8 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "media/base/android/media_codec_bridge_impl.h"
 #include "media/base/android/media_codec_util.h"
@@ -140,17 +141,25 @@ std::vector<SupportedVideoDecoderConfig> GetSupportedConfigsInternal(
   }
 
   if (device_info->IsAv1DecoderAvailable()) {
-    // Technically we should check which profiles are supported, but since we
-    // don't have an AV1 SW decoder, just allow them all. See notes below for
-    // H264 profiles on the reasons why.
-    supported_configs.emplace_back(AV1PROFILE_MIN, AV1PROFILE_MAX,
-                                   gfx::Size(0, 0), gfx::Size(3840, 2160),
-                                   true,    // allow_encrypted
-                                   false);  // require_encrypted
-    supported_configs.emplace_back(AV1PROFILE_MIN, AV1PROFILE_MAX,
-                                   gfx::Size(0, 0), gfx::Size(2160, 3840),
-                                   true,    // allow_encrypted
-                                   false);  // require_encrypted
+    if (device_info->IsDecoderKnownUnaccelerated(VideoCodec::kAV1)) {
+      supported_configs.emplace_back(AV1PROFILE_MIN, AV1PROFILE_MAX,
+                                     gfx::Size(0, 0), gfx::Size(3840, 2160),
+                                     true,   // allow_encrypted
+                                     true);  // require_encrypted
+      supported_configs.emplace_back(AV1PROFILE_MIN, AV1PROFILE_MAX,
+                                     gfx::Size(0, 0), gfx::Size(2160, 3840),
+                                     true,   // allow_encrypted
+                                     true);  // require_encrypted
+    } else {
+      supported_configs.emplace_back(AV1PROFILE_MIN, AV1PROFILE_MAX,
+                                     gfx::Size(0, 0), gfx::Size(3840, 2160),
+                                     true,    // allow_encrypted
+                                     false);  // require_encrypted
+      supported_configs.emplace_back(AV1PROFILE_MIN, AV1PROFILE_MAX,
+                                     gfx::Size(0, 0), gfx::Size(2160, 3840),
+                                     true,    // allow_encrypted
+                                     false);  // require_encrypted
+    }
   }
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
@@ -168,10 +177,12 @@ std::vector<SupportedVideoDecoderConfig> GetSupportedConfigsInternal(
                                  false);  // require_encrypted
 
 #if BUILDFLAG(ENABLE_PLATFORM_HEVC)
-  supported_configs.emplace_back(HEVCPROFILE_MIN, HEVCPROFILE_MAX,
-                                 gfx::Size(0, 0), gfx::Size(3840, 2160),
-                                 true,    // allow_encrypted
-                                 false);  // require_encrypted
+  if (base::FeatureList::IsEnabled(kPlatformHEVCDecoderSupport)) {
+    supported_configs.emplace_back(HEVCPROFILE_MIN, HEVCPROFILE_MAX,
+                                   gfx::Size(0, 0), gfx::Size(3840, 2160),
+                                   true,    // allow_encrypted
+                                   false);  // require_encrypted
+  }
 #endif
 #if BUILDFLAG(ENABLE_PLATFORM_DOLBY_VISION)
   // Technically we should check which profiles are supported, but we can
@@ -381,8 +392,10 @@ void MediaCodecVideoDecoder::Initialize(const VideoDecoderConfig& config,
   // We only support setting CDM at first initialization. Even if the initial
   // config is clear, we'll still try to set CDM since we may switch to an
   // encrypted config later.
+  const int width = decoder_config_.coded_size().width();
   if (first_init && cdm_context && cdm_context->GetMediaCryptoContext()) {
     DCHECK(media_crypto_.is_null());
+    last_width_ = width;
     SetCdm(cdm_context, std::move(init_cb));
     return;
   }
@@ -398,7 +411,6 @@ void MediaCodecVideoDecoder::Initialize(const VideoDecoderConfig& config,
   // Do the rest of the initialization lazily on the first decode.
   BindToCurrentLoop(std::move(init_cb)).Run(DecoderStatus::Codes::kOk);
 
-  const int width = decoder_config_.coded_size().width();
   // On re-init, reallocate the codec if the size has changed too much.
   // Restrict this behavior to Q, where the behavior changed.
   if (first_init) {
@@ -413,6 +425,9 @@ void MediaCodecVideoDecoder::Initialize(const VideoDecoderConfig& config,
     // sure, request a deferred flush.
     deferred_flush_pending_ = true;
     deferred_reallocation_pending_ = true;
+    // Since this will re-use the same surface, allow a retry to work around a
+    // race condition in the android framework.
+    should_retry_codec_allocation_ = true;
     last_width_ = width;
   }  // else leave |last_width_| unmodified, since we're re-using the codec.
 }
@@ -690,7 +705,7 @@ void MediaCodecVideoDecoder::OnCodecConfiguredInternal(
           std::move(codec),
           base::BindOnce(
               &base::SequencedTaskRunner::ReleaseSoon<CodecSurfaceBundle>,
-              base::SequencedTaskRunnerHandle::Get(), FROM_HERE,
+              base::SequencedTaskRunner::GetCurrentDefault(), FROM_HERE,
               std::move(surface_bundle)));
     }
     return;
@@ -703,6 +718,21 @@ void MediaCodecVideoDecoder::OnCodecConfigured(
     std::unique_ptr<MediaCodecBridge> codec) {
   DCHECK(!codec_);
   DCHECK_EQ(state_, State::kRunning);
+  bool should_retry_codec_allocation = should_retry_codec_allocation_;
+  should_retry_codec_allocation_ = false;
+
+  // In rare cases, the framework can fail transiently when trying to re-use a
+  // surface.  If we're in one of those cases, then retry codec allocation.
+  // This only happens on R and S, so skip it otherwise.
+  if (!codec && should_retry_codec_allocation &&
+      device_info_->SdkVersion() >= base::android::SDK_VERSION_R &&
+      device_info_->SdkVersion() <= 32 /* SDK_VERSION_S_V2 */
+  ) {
+    // We might want to post this with a short delay, but there is already quite
+    // a lot of overhead in codec allocation.
+    CreateCodec();
+    return;
+  }
 
   if (!codec) {
     EnterTerminalState(State::kError, "Unable to allocate codec");
@@ -716,7 +746,8 @@ void MediaCodecVideoDecoder::OnCodecConfigured(
                           BindToCurrentLoop(base::BindRepeating(
                               &MediaCodecVideoDecoder::StartTimerOrPumpCodec,
                               weak_factory_.GetWeakPtr()))),
-      base::SequencedTaskRunnerHandle::Get());
+      base::SequencedTaskRunner::GetCurrentDefault(),
+      decoder_config_.coded_size());
 
   // If the target surface changed while codec creation was in progress,
   // transition to it immediately.
@@ -774,6 +805,8 @@ void MediaCodecVideoDecoder::FlushCodec() {
   if (deferred_reallocation_pending_) {
     deferred_reallocation_pending_ = false;
     ReleaseCodec();
+    // Re-initializing the codec with the same surface may need to retry.
+    should_retry_codec_allocation_ = !SurfaceTransitionPending();
     CreateCodec();
   }
 
@@ -995,13 +1028,6 @@ bool MediaCodecVideoDecoder::DequeueOutput() {
   if (drain_type_ || deferred_flush_pending_)
     return true;
 
-  // Record the frame type that we're sending and some information about why.
-  UMA_HISTOGRAM_ENUMERATION(
-      "Media.AVDA.FrameInformation", cached_frame_information_,
-      static_cast<int>(
-          SurfaceChooserHelper::FrameInformation::FRAME_INFORMATION_MAX) +
-          1);  // PRESUBMIT_IGNORE_UMA_MAX
-
   // If we're getting outputs larger than our configured size, we run the risk
   // of exceeding MediaCodec's allowed input buffer size. Update the coded size
   // as we go to ensure we can correctly reconfigure if needed later.
@@ -1050,11 +1076,11 @@ void MediaCodecVideoDecoder::ForwardVideoFrame(
   DVLOG(3) << __func__ << " : "
            << (frame ? frame->AsHumanReadableString() : "null");
 
-  // Record how long this frame was pending.
-  const base::TimeDelta duration = base::TimeTicks::Now() - started_at;
-  UMA_HISTOGRAM_CUSTOM_TIMES("Media.MCVD.ForwardVideoFrameTiming", duration,
-                             base::Milliseconds(1), base::Milliseconds(100),
-                             25);
+  // Attach the HDR metadata if the color space got this far and is still an HDR
+  // color space.  Note that it might be converted to something else along the
+  // way, often sRGB.  In that case, don't confuse things with HDR metadata.
+  if (frame->ColorSpace().IsHDR() && decoder_config_.hdr_metadata())
+    frame->set_hdr_metadata(decoder_config_.hdr_metadata());
 
   // No |frame| indicates an error creating it.
   if (!frame) {
@@ -1133,7 +1159,7 @@ void MediaCodecVideoDecoder::OnCodecDrained() {
 
   if (drain_type == DrainType::kForDestroy) {
     // Post the delete in case the caller uses |this| after we return.
-    base::SequencedTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+    base::SequencedTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE, this);
     return;
   }
 
@@ -1163,7 +1189,7 @@ void MediaCodecVideoDecoder::EnterTerminalState(State state,
   target_surface_bundle_ = nullptr;
   texture_owner_bundle_ = nullptr;
   if (state == State::kError)
-    CancelPendingDecodes(DecoderStatus::Codes::kFailed);
+    CancelPendingDecodes({DecoderStatus::Codes::kFailed, reason});
   if (drain_type_)
     OnCodecDrained();
 }
@@ -1189,7 +1215,7 @@ void MediaCodecVideoDecoder::ReleaseCodec() {
       std::move(pair.first),
       base::BindOnce(
           &base::SequencedTaskRunner::ReleaseSoon<CodecSurfaceBundle>,
-          base::SequencedTaskRunnerHandle::Get(), FROM_HERE,
+          base::SequencedTaskRunner::GetCurrentDefault(), FROM_HERE,
           std::move(pair.second)));
 }
 

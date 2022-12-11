@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -90,6 +90,7 @@ class NET_EXPORT ParsedCookie {
   bool IsSameParty() const { return same_party_index_ != 0; }
   bool IsPartitioned() const { return partitioned_index_ != 0; }
   bool HasTruncatedNameOrValue() const { return truncated_name_or_value_; }
+  bool HasInternalHtab() const { return internal_htab_; }
   TruncatingCharacterInCookieStringType
   GetTruncatingCharacterInCookieStringType() const {
     return truncating_char_in_cookie_string_type_;
@@ -207,12 +208,6 @@ class NET_EXPORT ParsedCookie {
   // |index| refers to a position in |pairs_|.
   void ClearAttributePair(size_t index);
 
-  // Records metrics on cookie name+value and attribute value lengths.
-  // This is being recorded to evaluate whether to change length limits for
-  // cookies, such that limits are applied to name+value, and individual
-  // attribute lengths, rather than to the whole set-cookie line.
-  void RecordCookieAttributeValueLengthHistograms() const;
-
   PairList pairs_;
   // These will default to 0, but that should never be valid since the
   // 0th index is the user supplied cookie name/value, not an attribute.
@@ -231,6 +226,8 @@ class NET_EXPORT ParsedCookie {
   bool truncated_name_or_value_ = false;
   TruncatingCharacterInCookieStringType truncating_char_in_cookie_string_type_ =
       TruncatingCharacterInCookieStringType::kTruncatingCharNone;
+  // For metrics on cookie name/value internal HTABS
+  bool internal_htab_ = false;
 };
 
 }  // namespace net

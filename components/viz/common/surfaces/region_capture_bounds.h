@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,6 +43,9 @@ class VIZ_COMMON_EXPORT RegionCaptureBounds {
   void Set(const RegionCaptureCropId& crop_id, const gfx::Rect& bounds);
 
   bool IsEmpty() const { return bounds_.empty(); }
+
+  // Sets the bounds to empty.
+  void Reset();
 
   const base::flat_map<RegionCaptureCropId, gfx::Rect>& bounds() const {
     return bounds_;

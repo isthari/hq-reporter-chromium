@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "media/base/video_types.h"
@@ -69,8 +68,11 @@ std::unique_ptr<ImageProcessor> ImageProcessor::Create(
     VideoRotation relative_rotation,
     ErrorCB error_cb,
     scoped_refptr<base::SequencedTaskRunner> client_task_runner) {
+  // Note: we use a single thread task runner because the GL context is thread
+  // local, so we need to make sure we run the GLImageProcessorBackend on the
+  // same thread each time.
   scoped_refptr<base::SequencedTaskRunner> backend_task_runner =
-      base::ThreadPool::CreateSequencedTaskRunner({});
+      base::ThreadPool::CreateSingleThreadTaskRunner({});
   auto wrapped_error_cb = base::BindRepeating(
       base::IgnoreResult(&base::SequencedTaskRunner::PostTask),
       client_task_runner, FROM_HERE, std::move(error_cb));
@@ -91,7 +93,9 @@ ImageProcessor::ImageProcessor(
     scoped_refptr<base::SequencedTaskRunner> backend_task_runner)
     : backend_(std::move(backend)),
       client_task_runner_(std::move(client_task_runner)),
-      backend_task_runner_(std::move(backend_task_runner)) {
+      backend_task_runner_(std::move(backend_task_runner)),
+      needs_linear_output_buffers_(backend_ &&
+                                   backend_->needs_linear_output_buffers()) {
   DVLOGF(2);
   DETACH_FROM_SEQUENCE(client_sequence_checker_);
 

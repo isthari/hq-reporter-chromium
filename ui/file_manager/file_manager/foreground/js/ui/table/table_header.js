@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
  * @fileoverview This implements a table header.
  */
 
-import {getPropertyDescriptor} from 'chrome://resources/js/cr.m.js';
+import {getPropertyDescriptor} from 'chrome://resources/ash/common/cr_deprecated.js';
 
 import {Table} from './table.js';
 import {TableSplitter} from './table_splitter.js';

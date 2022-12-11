@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,7 @@ suite('route', function() {
   }
 
   teardown(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
   });
 
   /**
@@ -256,13 +256,13 @@ suite('route', function() {
     assertTrue(routes.SIGN_OUT.isNavigableDialog);
     assertTrue(routes.SIGN_OUT.parent === routes.PEOPLE);
 
-    // <if expr="not chromeos">
+    // <if expr="not chromeos_ash">
     assertTrue(routes.IMPORT_DATA.isNavigableDialog);
     assertTrue(routes.IMPORT_DATA.parent === routes.PEOPLE);
     // </if>
 
     assertFalse(routes.PRIVACY.isNavigableDialog);
-    // <if expr="not chromeos and not lacros">
+    // <if expr="not is_chromeos">
     assertFalse(routes.DEFAULT_BROWSER.isNavigableDialog);
     // </if>
   });
@@ -312,7 +312,7 @@ suite('route', function() {
 
 suite('DynamicParameters', function() {
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     window.history.replaceState({}, '', 'search?guid=a%2Fb&foo=42');
     const settingsUi = document.createElement('settings-ui');
     document.body.appendChild(settingsUi);
@@ -346,7 +346,7 @@ suite('DynamicParameters', function() {
 
 suite('NonExistentRoute', function() {
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     window.history.replaceState({}, '', 'non/existent/route');
     const settingsUi = document.createElement('settings-ui');
     document.body.appendChild(settingsUi);

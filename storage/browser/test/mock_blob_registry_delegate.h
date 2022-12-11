@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,11 +15,9 @@ class MockBlobRegistryDelegate : public BlobRegistryImpl::Delegate {
   ~MockBlobRegistryDelegate() override = default;
 
   bool CanReadFile(const base::FilePath& file) override;
-  bool CanReadFileSystemFile(const FileSystemURL& url) override;
   bool CanAccessDataForOrigin(const url::Origin& origin) override;
 
   bool can_read_file_result = true;
-  bool can_read_file_system_file_result = true;
   bool can_access_data_for_origin = true;
 };
 

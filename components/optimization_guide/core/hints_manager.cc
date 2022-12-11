@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,18 +10,17 @@
 #include "base/bind.h"
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
-#include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/histogram_macros_local.h"
 #include "base/notreached.h"
 #include "base/rand_util.h"
-#include "base/task/post_task.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool.h"
 #include "base/time/default_clock.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/optimization_guide/core/bloom_filter.h"
 #include "components/optimization_guide/core/hint_cache.h"
@@ -31,8 +30,10 @@
 #include "components/optimization_guide/core/insertion_ordered_set.h"
 #include "components/optimization_guide/core/optimization_filter.h"
 #include "components/optimization_guide/core/optimization_guide_constants.h"
+#include "components/optimization_guide/core/optimization_guide_decision.h"
 #include "components/optimization_guide/core/optimization_guide_enums.h"
 #include "components/optimization_guide/core/optimization_guide_features.h"
+#include "components/optimization_guide/core/optimization_guide_logger.h"
 #include "components/optimization_guide/core/optimization_guide_navigation_data.h"
 #include "components/optimization_guide/core/optimization_guide_permissions_util.h"
 #include "components/optimization_guide/core/optimization_guide_prefs.h"
@@ -74,15 +75,8 @@ void MaybeRunUpdateClosure(base::OnceClosure update_closure) {
     std::move(update_closure).Run();
 }
 
-// Returns whether the particular component version can be processed, and if it
-// can be, locks the semaphore (in the form of a pref) to signal that the
-// processing of this particular version has started.
-bool CanProcessComponentVersion(PrefService* pref_service,
-                                const base::Version& version,
-                                ProcessHintsComponentResult* out_result) {
-  DCHECK(version.IsValid());
-  DCHECK(out_result);
-
+absl::optional<base::Version>
+GetPendingOptimizationHintsComponentVersionFromPref(PrefService* pref_service) {
   const std::string previous_attempted_version_string =
       pref_service->GetString(prefs::kPendingHintsProcessingVersion);
   if (!previous_attempted_version_string.empty()) {
@@ -92,21 +86,11 @@ bool CanProcessComponentVersion(PrefService* pref_service,
       DLOG(ERROR) << "Bad contents in hints processing pref";
       // Clear pref for fresh start next time.
       pref_service->ClearPref(prefs::kPendingHintsProcessingVersion);
-      *out_result =
-          ProcessHintsComponentResult::kFailedPreviouslyAttemptedVersionInvalid;
-      return false;
+      return absl::nullopt;
     }
-    if (previous_attempted_version.CompareTo(version) == 0) {
-      *out_result = ProcessHintsComponentResult::kFailedFinishProcessing;
-      // Previously attempted same version without completion.
-      return false;
-    }
+    return absl::make_optional(previous_attempted_version);
   }
-
-  // Write config version to pref.
-  pref_service->SetString(prefs::kPendingHintsProcessingVersion,
-                          version.GetString());
-  return true;
+  return absl::nullopt;
 }
 
 // Returns whether |optimization_type| is allowlisted by |optimizations|. If
@@ -126,14 +110,6 @@ bool IsOptimizationTypeAllowed(const google::protobuf::RepeatedPtrField<
     // metadata if applicable and return.
     if (optimization_metadata) {
       switch (optimization.metadata_case()) {
-        case proto::Optimization::kPerformanceHintsMetadata:
-          optimization_metadata->set_performance_hints_metadata(
-              optimization.performance_hints_metadata());
-          break;
-        case proto::Optimization::kPublicImageMetadata:
-          optimization_metadata->set_public_image_metadata(
-              optimization.public_image_metadata());
-          break;
         case proto::Optimization::kLoadingPredictorMetadata:
           optimization_metadata->set_loading_predictor_metadata(
               optimization.loading_predictor_metadata());
@@ -203,23 +179,27 @@ bool ShouldIgnoreNewlyRegisteredOptimizationType(
 
 class ScopedCanApplyOptimizationLogger {
  public:
-  ScopedCanApplyOptimizationLogger(proto::OptimizationType opt_type, GURL url)
+  ScopedCanApplyOptimizationLogger(
+      proto::OptimizationType opt_type,
+      GURL url,
+      OptimizationGuideLogger* optimization_guide_logger)
       : decision_(OptimizationGuideDecision::kUnknown),
         type_decision_(OptimizationTypeDecision::kUnknown),
         opt_type_(opt_type),
         has_metadata_(false),
-        url_(url) {}
+        url_(url),
+        optimization_guide_logger_(optimization_guide_logger) {}
 
   ~ScopedCanApplyOptimizationLogger() {
-    if (!switches::IsDebugLogsEnabled())
+    if (!optimization_guide_logger_->ShouldEnableDebugLogs())
       return;
     DCHECK_NE(type_decision_, OptimizationTypeDecision::kUnknown);
-    DVLOG(0) << "OptimizationGuide: CanApplyOptimization: "
-             << GetStringNameForOptimizationType(opt_type_)
-             << "\nqueried on: " << url_ << "\nDecision: "
-             << GetStringForOptimizationGuideDecision(decision_)
-             << "\nTypeDecision: " << static_cast<int>(type_decision_)
-             << "\nHas Metadata: " << has_metadata_;
+    OPTIMIZATION_GUIDE_LOGGER(
+        optimization_guide_common::mojom::LogSource::HINTS,
+        optimization_guide_logger_)
+        << "CanApplyOptimization: " << opt_type_ << "\nqueried on: " << url_
+        << "\nDecision: " << decision_ << "\nTypeDecision: " << type_decision_
+        << "\nHas Metadata: " << (has_metadata_ ? "True" : "False");
   }
 
   void set_has_metadata() { has_metadata_ = true; }
@@ -237,6 +217,9 @@ class ScopedCanApplyOptimizationLogger {
   proto::OptimizationType opt_type_;
   bool has_metadata_;
   GURL url_;
+
+  // Not owned. Guaranteed to outlive |this| scoped object.
+  raw_ptr<OptimizationGuideLogger> optimization_guide_logger_;
 };
 
 // Reads component file and parses it into a Configuration proto. Should not be
@@ -263,23 +246,38 @@ void MaybeLogGetHintRequestInfo(
     const base::flat_set<proto::OptimizationType>&
         registered_optimization_types,
     const std::vector<GURL>& urls_to_fetch,
-    const std::vector<std::string>& hosts_to_fetch) {
-  if (!switches::IsDebugLogsEnabled())
+    const std::vector<std::string>& hosts_to_fetch,
+    OptimizationGuideLogger* optimization_guide_logger) {
+  if (!optimization_guide_logger->ShouldEnableDebugLogs())
     return;
 
-  DVLOG(0) << "OptimizationGuide: Starting fetch for request context "
-           << proto::RequestContext_Name(request_context);
-  DVLOG(0) << "OptimizationGuide: Registered Optimization Types: ";
-  for (const auto& optimization_type : registered_optimization_types) {
-    DVLOG(0) << "OptimizationGuide: Optimization Type: "
-             << proto::OptimizationType_Name(optimization_type);
-  }
-  DVLOG(0) << "OptimizationGuide: URLs and Hosts: ";
-  for (const auto& url : urls_to_fetch) {
-    DVLOG(0) << "OptimizationGuide: URL: " << url;
-  }
-  for (const auto& host : hosts_to_fetch) {
-    DVLOG(0) << "OptimizationGuide: Host: " << host;
+  OPTIMIZATION_GUIDE_LOGGER(optimization_guide_common::mojom::LogSource::HINTS,
+                            optimization_guide_logger)
+      << "Starting fetch for request context " << request_context;
+  OPTIMIZATION_GUIDE_LOG(optimization_guide_common::mojom::LogSource::HINTS,
+                         optimization_guide_logger,
+                         "Registered Optimization Types: ");
+  if (optimization_guide_logger->ShouldEnableDebugLogs()) {
+    for (const auto& optimization_type : registered_optimization_types) {
+      OPTIMIZATION_GUIDE_LOGGER(
+          optimization_guide_common::mojom::LogSource::HINTS,
+          optimization_guide_logger)
+          << "Optimization Type: " << optimization_type;
+    }
+    OPTIMIZATION_GUIDE_LOG(optimization_guide_common::mojom::LogSource::HINTS,
+                           optimization_guide_logger, " URLs and Hosts: ");
+    for (const auto& url : urls_to_fetch) {
+      OPTIMIZATION_GUIDE_LOGGER(
+          optimization_guide_common::mojom::LogSource::HINTS,
+          optimization_guide_logger)
+          << "URL: " << url;
+    }
+    for (const auto& host : hosts_to_fetch) {
+      OPTIMIZATION_GUIDE_LOGGER(
+          optimization_guide_common::mojom::LogSource::HINTS,
+          optimization_guide_logger)
+          << "Host: " << host;
+    }
   }
 }
 
@@ -293,8 +291,11 @@ HintsManager::HintsManager(
     TopHostProvider* top_host_provider,
     TabUrlProvider* tab_url_provider,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-    std::unique_ptr<PushNotificationManager> push_notification_manager)
-    : is_off_the_record_(is_off_the_record),
+    std::unique_ptr<PushNotificationManager> push_notification_manager,
+    OptimizationGuideLogger* optimization_guide_logger)
+    : failed_component_version_(
+          GetPendingOptimizationHintsComponentVersionFromPref(pref_service)),
+      is_off_the_record_(is_off_the_record),
       application_locale_(application_locale),
       pref_service_(pref_service),
       hint_cache_(
@@ -310,11 +311,16 @@ HintsManager::HintsManager(
       top_host_provider_(top_host_provider),
       tab_url_provider_(tab_url_provider),
       push_notification_manager_(std::move(push_notification_manager)),
+      optimization_guide_logger_(optimization_guide_logger),
       clock_(base::DefaultClock::GetInstance()),
       background_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskPriority::BEST_EFFORT})) {
   if (push_notification_manager_)
     push_notification_manager_->SetDelegate(this);
+
+  // Register as an observer to get updates for the component. This is
+  // needed as a signal during testing.
+  OptimizationHintsComponentUpdateListener::GetInstance()->AddObserver(this);
 
   hint_cache_->Initialize(
       switches::ShouldPurgeOptimizationGuideStoreOnStartup(),
@@ -330,9 +336,10 @@ void HintsManager::Shutdown() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   OptimizationHintsComponentUpdateListener::GetInstance()->RemoveObserver(this);
 
-  base::UmaHistogramBoolean("OptimizationGuide.ProcessingComponentAtShutdown",
-                            is_processing_component_);
-  if (is_processing_component_) {
+  base::UmaHistogramBoolean(
+      "OptimizationGuide.ProcessingComponentAtShutdown",
+      currently_processing_component_version_.has_value());
+  if (currently_processing_component_version_) {
     // If we are currently processing the component and we are asked to shut
     // down, we should clear the pref since the function to clear the pref will
     // not run after shut down and we will think that we failed to process the
@@ -366,6 +373,22 @@ HintsManager::GetOptimizationGuideDecisionFromOptimizationTypeDecision(
 void HintsManager::OnHintsComponentAvailable(const HintsComponentInfo& info) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  if (currently_processing_component_version_ &&
+      *currently_processing_component_version_ == info.version) {
+    OPTIMIZATION_GUIDE_LOGGER(
+        optimization_guide_common::mojom::LogSource::HINTS,
+        optimization_guide_logger_)
+        << "Already in the middle of processing OptimizationHints component "
+           "version: "
+        << info.version.GetString();
+    return;
+  }
+
+  OPTIMIZATION_GUIDE_LOGGER(optimization_guide_common::mojom::LogSource::HINTS,
+                            optimization_guide_logger_)
+      << "Received OptimizationHints component version: "
+      << info.version.GetString();
+
   // Check for if hint component is disabled. This check is needed because the
   // optimization guide still registers with the service as an observer for
   // components as a signal during testing.
@@ -374,12 +397,23 @@ void HintsManager::OnHintsComponentAvailable(const HintsComponentInfo& info) {
     return;
   }
 
-  ProcessHintsComponentResult out_result;
-  if (!CanProcessComponentVersion(pref_service_, info.version, &out_result)) {
-    RecordProcessHintsComponentResult(out_result);
+  if (features::ShouldCheckFailedComponentVersionPref() &&
+      failed_component_version_ &&
+      failed_component_version_->CompareTo(info.version) >= 0) {
+    OPTIMIZATION_GUIDE_LOGGER(
+        optimization_guide_common::mojom::LogSource::HINTS,
+        optimization_guide_logger_)
+        << "Skipping processing OptimizationHints component version: "
+        << info.version.GetString()
+        << " as it had failed in a previous session";
+    RecordProcessHintsComponentResult(
+        ProcessHintsComponentResult::kFailedFinishProcessing);
     MaybeRunUpdateClosure(std::move(next_update_closure_));
     return;
   }
+  // Write version that we are currently processing to prefs.
+  pref_service_->SetString(prefs::kPendingHintsProcessingVersion,
+                           info.version.GetString());
 
   std::unique_ptr<StoreUpdateData> update_data =
       is_off_the_record_
@@ -394,7 +428,11 @@ void HintsManager::OnHintsComponentAvailable(const HintsComponentInfo& info) {
   // processing will be skipped.
   // base::Unretained(this) is safe since |this| owns |background_task_runner_|
   // and the callback will be canceled if destroyed.
-  is_processing_component_ = true;
+  currently_processing_component_version_ = info.version;
+  OPTIMIZATION_GUIDE_LOGGER(optimization_guide_common::mojom::LogSource::HINTS,
+                            optimization_guide_logger_)
+      << "Processing OptimizationHints component version: "
+      << currently_processing_component_version_->GetString();
   background_task_runner_->PostTaskAndReplyWithResult(
       FROM_HERE, base::BindOnce(&ReadComponentFile, info),
       base::BindOnce(&HintsManager::UpdateComponentHints,
@@ -414,6 +452,8 @@ void HintsManager::ProcessOptimizationFilters(
         allowlist_optimization_filters,
     const google::protobuf::RepeatedPtrField<proto::OptimizationFilter>&
         blocklist_optimization_filters) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   optimization_types_with_filter_.clear();
   allowlist_optimization_filters_.clear();
   blocklist_optimization_filters_.clear();
@@ -427,6 +467,8 @@ void HintsManager::ProcessOptimizationFilterSet(
     const google::protobuf::RepeatedPtrField<proto::OptimizationFilter>&
         filters,
     bool is_allowlist) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
   for (const auto& filter : filters) {
     if (filter.optimization_type() != proto::TYPE_UNSPECIFIED) {
       optimization_types_with_filter_.insert(filter.optimization_type());
@@ -458,6 +500,10 @@ void HintsManager::ProcessOptimizationFilterSet(
     std::unique_ptr<OptimizationFilter> optimization_filter =
         ProcessOptimizationFilter(filter, &status);
     if (optimization_filter) {
+      OPTIMIZATION_GUIDE_LOGGER(
+          optimization_guide_common::mojom::LogSource::HINTS,
+          optimization_guide_logger_)
+          << "Loaded optimization filter for " << filter.optimization_type();
       if (is_allowlist) {
         allowlist_optimization_filters_.insert(
             {filter.optimization_type(), std::move(optimization_filter)});
@@ -472,6 +518,10 @@ void HintsManager::ProcessOptimizationFilterSet(
 
 void HintsManager::OnHintCacheInitialized() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  OPTIMIZATION_GUIDE_LOGGER(optimization_guide_common::mojom::LogSource::HINTS,
+                            optimization_guide_logger_)
+      << "Hint cache initialized";
 
   if (push_notification_manager_) {
     push_notification_manager_->OnDelegateReady();
@@ -501,9 +551,11 @@ void HintsManager::OnHintCacheInitialized() {
     should_clear_hints_for_new_type_ = false;
   }
 
-  // Register as an observer regardless of hint proto override usage. This is
-  // needed as a signal during testing.
-  OptimizationHintsComponentUpdateListener::GetInstance()->AddObserver(this);
+  // This is used as a signal for testing so that tests can push hints via the
+  // component. Fixing the logic appropriately is a lot more work for something
+  // we don't actually do in the wild.
+  LOCAL_HISTOGRAM_BOOLEAN("OptimizationGuide.HintsManager.HintCacheInitialized",
+                          true);
 }
 
 void HintsManager::UpdateComponentHints(
@@ -514,7 +566,10 @@ void HintsManager::UpdateComponentHints(
 
   // If we get here, the component file has been processed correctly and did not
   // crash the device.
-  is_processing_component_ = false;
+  OPTIMIZATION_GUIDE_LOGGER(optimization_guide_common::mojom::LogSource::HINTS,
+                            optimization_guide_logger_)
+      << "Component successfully processed";
+  currently_processing_component_version_ = absl::nullopt;
   pref_service_->ClearPref(prefs::kPendingHintsProcessingVersion);
 
   if (!config) {
@@ -684,14 +739,14 @@ void HintsManager::FetchHintsForActiveTabs() {
       top_hosts.insert(top_hosts.begin(), url.host());
     }
   }
-  MaybeLogGetHintRequestInfo(proto::CONTEXT_BATCH_UPDATE_ACTIVE_TABS,
-                             registered_optimization_types_,
-                             active_tab_urls_to_refresh, top_hosts);
+  MaybeLogGetHintRequestInfo(
+      proto::CONTEXT_BATCH_UPDATE_ACTIVE_TABS, registered_optimization_types_,
+      active_tab_urls_to_refresh, top_hosts, optimization_guide_logger_);
 
   if (!active_tabs_batch_update_hints_fetcher_) {
     DCHECK(hints_fetcher_factory_);
     active_tabs_batch_update_hints_fetcher_ =
-        hints_fetcher_factory_->BuildInstance();
+        hints_fetcher_factory_->BuildInstance(optimization_guide_logger_);
   }
   active_tabs_batch_update_hints_fetcher_->FetchOptimizationGuideServiceHints(
       top_hosts, active_tab_urls_to_refresh, registered_optimization_types_,
@@ -708,9 +763,9 @@ void HintsManager::OnHintsForActiveTabsFetched(
     absl::optional<std::unique_ptr<proto::GetHintsResponse>>
         get_hints_response) {
   if (!get_hints_response) {
-    if (switches::IsDebugLogsEnabled()) {
-      DVLOG(0) << "OptimizationGuide: OnHintsForActiveTabsFetched failed";
-    }
+    OPTIMIZATION_GUIDE_LOG(optimization_guide_common::mojom::LogSource::HINTS,
+                           optimization_guide_logger_,
+                           "OnHintsForActiveTabsFetched failed");
     return;
   }
 
@@ -720,8 +775,9 @@ void HintsManager::OnHintsForActiveTabsFetched(
       hosts_fetched, urls_fetched,
       base::BindOnce(&HintsManager::OnFetchedActiveTabsHintsStored,
                      weak_ptr_factory_.GetWeakPtr()));
-  if (switches::IsDebugLogsEnabled())
-    DVLOG(0) << "OptimizationGuide: OnHintsForActiveTabsFetched complete";
+  OPTIMIZATION_GUIDE_LOG(optimization_guide_common::mojom::LogSource::HINTS,
+                         optimization_guide_logger_,
+                         "OnHintsForActiveTabsFetched complete");
 }
 
 void HintsManager::OnPageNavigationHintsFetched(
@@ -736,10 +792,9 @@ void HintsManager::OnPageNavigationHintsFetched(
   }
 
   if (!get_hints_response.has_value() || !get_hints_response.value()) {
-    if (switches::IsDebugLogsEnabled()) {
-      DVLOG(0) << "OptimizationGuide: OnPageNavigationHintsFetched failed";
-    }
-
+    OPTIMIZATION_GUIDE_LOG(optimization_guide_common::mojom::LogSource::HINTS,
+                           optimization_guide_logger_,
+                           "OnPageNavigationHintsFetched failed");
     if (navigation_url) {
       PrepareToInvokeRegisteredCallbacks(*navigation_url);
     }
@@ -754,9 +809,9 @@ void HintsManager::OnPageNavigationHintsFetched(
                      weak_ptr_factory_.GetWeakPtr(), navigation_data_weak_ptr,
                      navigation_url, page_navigation_hosts_requested));
 
-  if (switches::IsDebugLogsEnabled()) {
-    DVLOG(0) << "OptimizationGuide: OnPageNavigationHintsFetched complete";
-  }
+  OPTIMIZATION_GUIDE_LOG(optimization_guide_common::mojom::LogSource::HINTS,
+                         optimization_guide_logger_,
+                         "OnPageNavigationHintsFetched complete");
 }
 
 void HintsManager::OnFetchedActiveTabsHintsStored() {
@@ -853,7 +908,8 @@ void HintsManager::FetchHintsForURLs(const std::vector<GURL>& urls,
     return;
 
   MaybeLogGetHintRequestInfo(request_context, registered_optimization_types_,
-                             target_urls.vector(), target_hosts.vector());
+                             target_urls.vector(), target_hosts.vector(),
+                             optimization_guide_logger_);
 
   std::pair<int32_t, HintsFetcher*> request_id_and_fetcher =
       CreateAndTrackBatchUpdateHintsFetcher();
@@ -894,7 +950,7 @@ void HintsManager::RegisterOptimizationTypes(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   bool should_load_new_optimization_filter = false;
 
-  DictionaryPrefUpdate previously_registered_opt_types(
+  ScopedDictPrefUpdate previously_registered_opt_types(
       pref_service_, prefs::kPreviouslyRegisteredOptimizationTypes);
   for (const auto optimization_type : optimization_types) {
     if (optimization_type == proto::TYPE_UNSPECIFIED)
@@ -906,12 +962,14 @@ void HintsManager::RegisterOptimizationTypes(
     }
     registered_optimization_types_.insert(optimization_type);
 
-    if (switches::IsDebugLogsEnabled()) {
-      DVLOG(0) << "OptimizationGuide: Registered new OptimizationType: "
-               << proto::OptimizationType_Name(optimization_type);
+    if (optimization_guide_logger_->ShouldEnableDebugLogs()) {
+      OPTIMIZATION_GUIDE_LOGGER(
+          optimization_guide_common::mojom::LogSource::HINTS,
+          optimization_guide_logger_)
+          << "Registered new OptimizationType: " << optimization_type;
     }
 
-    absl::optional<double> value = previously_registered_opt_types->FindBoolKey(
+    absl::optional<double> value = previously_registered_opt_types->FindBool(
         proto::OptimizationType_Name(optimization_type));
     if (!value) {
       if (!is_off_the_record_ &&
@@ -920,7 +978,7 @@ void HintsManager::RegisterOptimizationTypes(
               switches::kHintsProtoOverride)) {
         should_clear_hints_for_new_type_ = true;
       }
-      previously_registered_opt_types->SetBoolKey(
+      previously_registered_opt_types->Set(
           proto::OptimizationType_Name(optimization_type), true);
     }
 
@@ -1039,7 +1097,8 @@ void HintsManager::CanApplyOptimizationOnDemand(
   }
 
   MaybeLogGetHintRequestInfo(request_context, registered_optimization_types_,
-                             urls_to_fetch.vector(), hosts_to_fetch.vector());
+                             urls_to_fetch.vector(), hosts_to_fetch.vector(),
+                             optimization_guide_logger_);
 
   // Fetch the data for the entries we don't have all information for.
   std::pair<int32_t, HintsFetcher*> request_id_and_fetcher =
@@ -1052,6 +1111,34 @@ void HintsManager::CanApplyOptimizationOnDemand(
                      request_id_and_fetcher.first, request_context,
                      hosts_to_fetch.set(), urls_to_fetch.set(),
                      urls_with_pending_callback, optimization_types, callback));
+}
+
+// TODO(1313521): Improve metrics coverage between all of these apis.
+void HintsManager::CanApplyOptimization(
+    const GURL& url,
+    proto::OptimizationType optimization_type,
+    OptimizationGuideDecisionCallback callback) {
+  // Check if there is a pending fetcher for the specified URL. If there is, use
+  // the async API, otherwise use the synchronous one.
+  // TODO(1312035): We should record instances of this API being used prior to a
+  //                fetch for the URL being initiated.
+  if (IsHintBeingFetchedForNavigation(url)) {
+    CanApplyOptimizationAsync(url, optimization_type, std::move(callback));
+  } else {
+    OptimizationMetadata metadata;
+    OptimizationTypeDecision type_decision =
+        CanApplyOptimization(url, optimization_type, &metadata);
+    OptimizationGuideDecision decision =
+        GetOptimizationGuideDecisionFromOptimizationTypeDecision(type_decision);
+
+    base::UmaHistogramEnumeration(
+        "OptimizationGuide.ApplyDecision." +
+            optimization_guide::GetStringNameForOptimizationType(
+                optimization_type),
+        type_decision);
+
+    std::move(callback).Run(decision, metadata);
+  }
 }
 
 void HintsManager::OnBatchUpdateHintsFetched(
@@ -1067,9 +1154,11 @@ void HintsManager::OnBatchUpdateHintsFetched(
   CleanUpBatchUpdateHintsFetcher(request_id);
 
   if (!get_hints_response.has_value() || !get_hints_response.value()) {
-    if (switches::IsDebugLogsEnabled()) {
-      DVLOG(0) << "OptimizationGuide: OnBatchUpdateHintsFetched for "
-               << proto::RequestContext_Name(request_context) << " failed";
+    if (optimization_guide_logger_->ShouldEnableDebugLogs()) {
+      OPTIMIZATION_GUIDE_LOGGER(
+          optimization_guide_common::mojom::LogSource::HINTS,
+          optimization_guide_logger_)
+          << "OnBatchUpdateHintsFetched failed for " << request_context;
     }
     OnBatchUpdateHintsStored(urls_with_pending_callback, optimization_types,
                              callback);
@@ -1086,9 +1175,11 @@ void HintsManager::OnBatchUpdateHintsFetched(
                      weak_ptr_factory_.GetWeakPtr(), urls_with_pending_callback,
                      optimization_types, callback));
 
-  if (switches::IsDebugLogsEnabled()) {
-    DVLOG(0) << "OptimizationGuide: OnBatchUpdateHintsFetched for "
-             << proto::RequestContext_Name(request_context) << " complete";
+  if (optimization_guide_logger_->ShouldEnableDebugLogs()) {
+    OPTIMIZATION_GUIDE_LOGGER(
+        optimization_guide_common::mojom::LogSource::HINTS,
+        optimization_guide_logger_)
+        << "OnBatchUpdateHintsFetched for " << request_context << " complete";
   }
 }
 
@@ -1113,7 +1204,7 @@ std::pair<int32_t, HintsFetcher*>
 HintsManager::CreateAndTrackBatchUpdateHintsFetcher() {
   DCHECK(hints_fetcher_factory_);
   std::unique_ptr<HintsFetcher> hints_fetcher =
-      hints_fetcher_factory_->BuildInstance();
+      hints_fetcher_factory_->BuildInstance(optimization_guide_logger_);
   HintsFetcher* hints_fetcher_ptr = hints_fetcher.get();
   batch_update_hints_fetchers_.Put(batch_update_hints_fetcher_request_id_++,
                                    std::move(hints_fetcher));
@@ -1174,8 +1265,8 @@ OptimizationTypeDecision HintsManager::CanApplyOptimization(
     OptimizationMetadata* optimization_metadata) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  ScopedCanApplyOptimizationLogger scoped_logger(optimization_type,
-                                                 navigation_url);
+  ScopedCanApplyOptimizationLogger scoped_logger(
+      optimization_type, navigation_url, optimization_guide_logger_);
   // Clear out optimization metadata if provided.
   if (optimization_metadata)
     *optimization_metadata = {};
@@ -1387,6 +1478,13 @@ void HintsManager::OnNavigationStartOrRedirect(
     base::OnceClosure callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  if (registered_optimization_types_.empty()) {
+    // Do not attempt to load anything since we have nothing we need to get data
+    // for.
+    std::move(callback).Run();
+    return;
+  }
+
   LoadHintForURL(navigation_data->navigation_url(), std::move(callback));
 
   if (switches::DisableFetchingHintsAtNavigationStartForTesting()) {
@@ -1445,14 +1543,15 @@ void HintsManager::MaybeFetchHintsForNavigation(
 
   DCHECK(hints_fetcher_factory_);
   auto it = page_navigation_hints_fetchers_.Put(
-      url, hints_fetcher_factory_->BuildInstance());
+      url, hints_fetcher_factory_->BuildInstance(optimization_guide_logger_));
 
   UMA_HISTOGRAM_COUNTS_100(
       "OptimizationGuide.HintsManager.ConcurrentPageNavigationFetches",
       page_navigation_hints_fetchers_.size());
 
   MaybeLogGetHintRequestInfo(proto::CONTEXT_PAGE_NAVIGATION,
-                             registered_optimization_types_, urls, hosts);
+                             registered_optimization_types_, urls, hosts,
+                             optimization_guide_logger_);
   bool fetch_attempted = it->second->FetchOptimizationGuideServiceHints(
       hosts, urls, registered_optimization_types_,
       proto::CONTEXT_PAGE_NAVIGATION, application_locale_,
@@ -1580,12 +1679,6 @@ void HintsManager::AddHintForTesting(
   if (metadata->loading_predictor_metadata()) {
     *optimization->mutable_loading_predictor_metadata() =
         *metadata->loading_predictor_metadata();
-  } else if (metadata->performance_hints_metadata()) {
-    *optimization->mutable_performance_hints_metadata() =
-        *metadata->performance_hints_metadata();
-  } else if (metadata->public_image_metadata()) {
-    *optimization->mutable_public_image_metadata() =
-        *metadata->public_image_metadata();
   } else if (metadata->any_metadata()) {
     *optimization->mutable_any_metadata() = *metadata->any_metadata();
   } else {
@@ -1644,12 +1737,6 @@ void HintsManager::RemoveFetchedEntriesByHintKeys(
   }
 
   hint_cache_->RemoveHintsForHosts(std::move(on_success), hint_keys);
-}
-
-void HintsManager::PurgeFetchedEntries(base::OnceClosure on_success) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  ClearFetchedHints();
-  std::move(on_success).Run();
 }
 
 }  // namespace optimization_guide

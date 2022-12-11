@@ -1,14 +1,15 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/common/cursors/webcursor.h"
 
 #include "base/check_op.h"
-#include "ui/aura/cursor/cursor_util.h"
+#include "build/build_config.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/cursor/cursor_factory.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
+#include "ui/wm/core/cursor_util.h"
 
 namespace content {
 
@@ -39,11 +40,10 @@ void WebCursor::CreateScaledBitmapAndHotspotFromCustomData(SkBitmap* bitmap,
   *bitmap = cursor_.custom_bitmap();
   *hotspot = cursor_.custom_hotspot();
   *scale = GetCursorScaleFactor(bitmap);
-  aura::ScaleAndRotateCursorBitmapAndHotpoint(*scale, rotation_, bitmap,
-                                              hotspot);
+  wm::ScaleAndRotateCursorBitmapAndHotpoint(*scale, rotation_, bitmap, hotspot);
 }
 
-#if !defined(USE_OZONE)
+#if !BUILDFLAG(IS_OZONE)
 // ozone has its own SetDisplayInfo that takes rotation into account
 void WebCursor::SetDisplayInfo(const display::Display& display) {
   if (device_scale_factor_ == display.device_scale_factor())

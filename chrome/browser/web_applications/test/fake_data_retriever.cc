@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,8 @@
 #include "base/bind.h"
 #include "base/check.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/webapps/browser/installable/installable_params.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
 
 namespace web_app {
@@ -33,7 +35,8 @@ void FakeDataRetriever::GetWebAppInstallInfo(
 void FakeDataRetriever::CheckInstallabilityAndRetrieveManifest(
     content::WebContents* web_contents,
     bool bypass_service_worker_check,
-    CheckInstallabilityCallback callback) {
+    CheckInstallabilityCallback callback,
+    absl::optional<webapps::InstallableParams> params) {
   completion_callback_ =
       base::BindOnce(std::move(callback), manifest_.Clone(), manifest_url_,
                      /*valid_manifest_for_web_app=*/true, is_installable_);
@@ -41,7 +44,7 @@ void FakeDataRetriever::CheckInstallabilityAndRetrieveManifest(
 }
 
 void FakeDataRetriever::GetIcons(content::WebContents* web_contents,
-                                 const std::vector<GURL>& icon_urls,
+                                 base::flat_set<GURL> icon_urls,
                                  bool skip_page_favicons,
                                  GetIconsCallback callback) {
   if (get_icons_delegate_) {
@@ -72,7 +75,7 @@ void FakeDataRetriever::SetManifest(blink::mojom::ManifestPtr manifest,
                                     GURL manifest_url) {
   manifest_ = std::move(manifest);
   is_installable_ = is_installable;
-  manifest_url_ = manifest_url;
+  manifest_url_ = std::move(manifest_url);
 }
 
 void FakeDataRetriever::SetIcons(IconsMap icons_map) {
@@ -116,7 +119,7 @@ void FakeDataRetriever::BuildDefaultDataToRetrieve(const GURL& url,
 
 void FakeDataRetriever::ScheduleCompletionCallback() {
   // If |this| DataRetriever destroyed, the completion callback gets cancelled.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&FakeDataRetriever::CallCompletionCallback,
                                 weak_ptr_factory_.GetWeakPtr()));
 }

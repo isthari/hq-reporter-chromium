@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -168,8 +168,8 @@ public class AwContentsClientOnRenderProcessGoneTest {
     @SmallTest
     @OnlyRunIn(MULTI_PROCESS)
     // The RenderDocument feature has a "level" parameter. This enables the feature and sets the
-    // default level to "crashed-frame" to enable replacing the render frame host of crashed frames
-    // with a new render frame host (instead of resuing the old one). See
+    // default level to "crashed-frame" to enable replacing the RenderFrameHost of crashed frames
+    // with a new RenderFrameHost (instead of resuing the old one). See
     // https://go/force-field-trials-docs for the syntax of these flags.
     @CommandLineFlags.Add({
             "enable-features=RenderDocument<RenderDocument",

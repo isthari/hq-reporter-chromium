@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -115,12 +115,12 @@ void SecurityInterstitialControllerClient::LaunchDateAndTimeSettings() {
 
 bool SecurityInterstitialControllerClient::CanGoBackBeforeNavigation() {
   // If checking before navigating to the interstitial, back to safety is
-  // possible if there is already at least one prior entry that is not the
-  // initial entry. This preserves old behavior to when we return nullptr
-  // instead of the initial entry when no navigation has committed.
-  content::NavigationEntry* current_entry =
-      web_contents_->GetController().GetLastCommittedEntry();
-  return current_entry && !current_entry->IsInitialEntry();
+  // possible if the current entry is not the initial NavigationEtry. This
+  // preserves old behavior to when we return nullptr instead of the initial
+  // entry when no navigation has committed.
+  return !web_contents_->GetController()
+              .GetLastCommittedEntry()
+              ->IsInitialEntry();
 }
 
 }  // namespace security_interstitials

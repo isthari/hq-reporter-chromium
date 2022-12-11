@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -96,6 +96,31 @@ TEST_F(MediaSessionNotificationItemTest, Freezing_DoNotUpdateMetadata) {
   EXPECT_CALL(view(), UpdateWithMediaMetadata(_)).Times(0);
   item().Freeze(base::DoNothing());
   item().MediaSessionMetadataChanged(metadata);
+}
+
+TEST_F(MediaSessionNotificationItemTest,
+       UpdateMetadataOriginWithPresentationRequestOrigin) {
+  media_session::MediaMetadata metadata;
+  metadata.source_title = u"source_title_test";
+
+  EXPECT_CALL(view(), UpdateWithMediaMetadata(metadata)).Times(1);
+  item().MediaSessionMetadataChanged(metadata);
+
+  media_session::MediaMetadata updated_metadata;
+  updated_metadata.source_title = u"example.com";
+
+  EXPECT_CALL(view(), UpdateWithMediaMetadata(updated_metadata)).Times(2);
+  item().UpdatePresentationRequestOrigin(
+      url::Origin::Create(GURL("https://example.com")));
+  // Make sure presentation request origin persists for the duration of the view
+  // despite the update of metadata.
+  item().MediaSessionMetadataChanged(metadata);
+  item().SetView(nullptr);
+
+  // Make sure that presentation request origin was reset after the view is set
+  // to null in SetView().
+  EXPECT_CALL(view(), UpdateWithMediaMetadata(metadata)).Times(1);
+  item().SetView(&view());
 }
 
 TEST_F(MediaSessionNotificationItemTest, Freezing_DoNotUpdateImage) {
@@ -199,7 +224,7 @@ TEST_F(MediaSessionNotificationItemTest, UnfreezingDoesntMissUpdates) {
   testing::Mock::VerifyAndClearExpectations(&view());
 }
 
-TEST_F(MediaSessionNotificationItemTest, UnfreezingWaitsForArtwork_Timeout) {
+TEST_F(MediaSessionNotificationItemTest, SemiUnfreezesWithoutArtwork_Timeout) {
   item().MediaSessionActionsChanged(
       {MediaSessionAction::kPlay, MediaSessionAction::kPause});
 
@@ -243,27 +268,27 @@ TEST_F(MediaSessionNotificationItemTest, UnfreezingWaitsForArtwork_Timeout) {
   // The item should still be frozen, and the view should contain the old data.
   EXPECT_TRUE(item().frozen());
 
-  // Update the metadata.
+  // Update the metadata. This should unfreeze everything except the artwork.
+  EXPECT_CALL(unfrozen_callback, Run);
+  EXPECT_CALL(view(), UpdateWithMediaSessionInfo(_));
+  EXPECT_CALL(view(), UpdateWithMediaMetadata(_));
+  EXPECT_CALL(view(), UpdateWithMediaArtwork(_)).Times(0);
   media_session::MediaMetadata metadata;
   metadata.title = u"title2";
   metadata.artist = u"artist2";
   item().MediaSessionMetadataChanged(metadata);
 
-  // The item should still be frozen, and waiting for a new image.
-  EXPECT_TRUE(item().frozen());
+  // The item should no longer be frozen, but will be waiting for a new image.
+  EXPECT_FALSE(item().frozen());
   testing::Mock::VerifyAndClearExpectations(&unfrozen_callback);
   testing::Mock::VerifyAndClearExpectations(&view());
 
-  // Once the freeze timer fires, the item should unfreeze even if there's no
-  // artwork.
-  EXPECT_CALL(unfrozen_callback, Run);
-  EXPECT_CALL(view(), UpdateWithMediaSessionInfo(_));
-  EXPECT_CALL(view(), UpdateWithMediaMetadata(_));
-  EXPECT_CALL(view(), UpdateWithMediaArtwork(_));
+  // Once the freeze timer fires, the artwork should unfreeze even if there's no
+  // artwork. Since we've received no artwork, the artwork should be null.
+  EXPECT_CALL(view(), UpdateWithMediaArtwork(_))
+      .WillOnce(testing::Invoke(
+          [](const gfx::ImageSkia& image) { EXPECT_TRUE(image.isNull()); }));
   AdvanceClockMilliseconds(2600);
-
-  EXPECT_FALSE(item().frozen());
-  testing::Mock::VerifyAndClearExpectations(&unfrozen_callback);
   testing::Mock::VerifyAndClearExpectations(&view());
 }
 
@@ -330,7 +355,7 @@ TEST_F(MediaSessionNotificationItemTest, UnfreezingWaitsForActions) {
 }
 
 TEST_F(MediaSessionNotificationItemTest,
-       UnfreezingWaitsForArtwork_ReceiveArtwork) {
+       SemiUnfreezesWithoutArtwork_ReceiveArtwork) {
   item().MediaSessionActionsChanged(
       {MediaSessionAction::kPlay, MediaSessionAction::kPause});
 
@@ -374,31 +399,72 @@ TEST_F(MediaSessionNotificationItemTest,
   // The item should still be frozen, and the view should contain the old data.
   EXPECT_TRUE(item().frozen());
 
-  // Update the metadata.
+  // Update the metadata. This should unfreeze everything except the artwork.
+  EXPECT_CALL(unfrozen_callback, Run);
+  EXPECT_CALL(view(), UpdateWithMediaSessionInfo(_));
+  EXPECT_CALL(view(), UpdateWithMediaMetadata(_));
+  EXPECT_CALL(view(), UpdateWithMediaArtwork(_)).Times(0);
   media_session::MediaMetadata metadata;
   metadata.title = u"title2";
   metadata.artist = u"artist2";
   item().MediaSessionMetadataChanged(metadata);
 
-  // The item should still be frozen, and waiting for a new image.
-  EXPECT_TRUE(item().frozen());
+  // The item should no longer be frozen, but will be waiting for a new image.
+  EXPECT_FALSE(item().frozen());
   testing::Mock::VerifyAndClearExpectations(&unfrozen_callback);
   testing::Mock::VerifyAndClearExpectations(&view());
 
-  // Once we receive artwork, the item should unfreeze.
-  EXPECT_CALL(unfrozen_callback, Run);
-  EXPECT_CALL(view(), UpdateWithMediaSessionInfo(_));
-  EXPECT_CALL(view(), UpdateWithMediaMetadata(_));
+  // Once we receive artwork, the artwork should unfreeze.
   EXPECT_CALL(view(), UpdateWithMediaArtwork(_));
   SkBitmap new_image;
   new_image.allocN32Pixels(10, 10);
   new_image.eraseColor(SK_ColorYELLOW);
   item().MediaControllerImageChanged(
       media_session::mojom::MediaSessionImageType::kArtwork, new_image);
-
-  EXPECT_FALSE(item().frozen());
-  testing::Mock::VerifyAndClearExpectations(&unfrozen_callback);
   testing::Mock::VerifyAndClearExpectations(&view());
+}
+
+TEST_F(MediaSessionNotificationItemTest, RequestMediaRemoting) {
+  EXPECT_EQ(0, controller().request_media_remoting_count());
+
+  item().RequestMediaRemoting();
+  item().FlushForTesting();
+
+  EXPECT_EQ(1, controller().request_media_remoting_count());
+}
+
+TEST_F(MediaSessionNotificationItemTest, GetMediaSessionActions) {
+  item().MediaSessionActionsChanged(
+      {MediaSessionAction::kPlay, MediaSessionAction::kPause,
+       MediaSessionAction::kEnterPictureInPicture});
+  EXPECT_TRUE(item().GetMediaSessionActions().contains(
+      MediaSessionAction::kEnterPictureInPicture));
+
+  auto session_info = media_session::mojom::MediaSessionInfo::New();
+  auto remote_playback_metadata =
+      media_session::mojom::RemotePlaybackMetadata::New(
+          "video_codec", "audio_codec", false, true, "device_friendly_name");
+  session_info->remote_playback_metadata = std::move(remote_playback_metadata);
+  item().MediaSessionInfoChanged(std::move(session_info));
+  EXPECT_FALSE(item().GetMediaSessionActions().contains(
+      MediaSessionAction::kEnterPictureInPicture));
+}
+
+TEST_F(MediaSessionNotificationItemTest, GetSessionMetadata) {
+  media_session::MediaMetadata metadata;
+  metadata.source_title = u"source_title";
+  item().MediaSessionMetadataChanged(metadata);
+  EXPECT_EQ(u"source_title", item().GetSessionMetadata().source_title);
+
+  auto session_info = media_session::mojom::MediaSessionInfo::New();
+  auto remote_playback_metadata =
+      media_session::mojom::RemotePlaybackMetadata::New(
+          "video_codec", "audio_codec", false, true, "device_friendly_name");
+  session_info->remote_playback_metadata = std::move(remote_playback_metadata);
+  item().MediaSessionInfoChanged(std::move(session_info));
+
+  EXPECT_EQ(u"source_title \xB7 device_friendly_name",
+            item().GetSessionMetadata().source_title);
 }
 
 }  // namespace global_media_controls

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,7 +41,7 @@ class MojoRendererFactory final : public RendererFactory {
   ~MojoRendererFactory() final;
 
   std::unique_ptr<Renderer> CreateRenderer(
-      const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner,
+      const scoped_refptr<base::SequencedTaskRunner>& media_task_runner,
       const scoped_refptr<base::TaskRunner>& worker_task_runner,
       AudioRendererSink* audio_renderer_sink,
       VideoRendererSink* video_renderer_sink,
@@ -53,13 +53,15 @@ class MojoRendererFactory final : public RendererFactory {
       mojo::PendingRemote<mojom::MediaLog> media_log_remote,
       mojo::PendingReceiver<mojom::MediaFoundationRendererExtension>
           renderer_extension_receiver,
-      const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner,
+      mojo::PendingRemote<mojom::MediaFoundationRendererClientExtension>
+          client_extension_remote,
+      const scoped_refptr<base::SequencedTaskRunner>& media_task_runner,
       VideoRendererSink* video_renderer_sink);
-#endif  // defined (OS_WIN)
+#endif  // BUILDFLAG(IS_WIN)
 
 #if BUILDFLAG(ENABLE_CAST_RENDERER)
   std::unique_ptr<MojoRenderer> CreateCastRenderer(
-      const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner,
+      const scoped_refptr<base::SequencedTaskRunner>& media_task_runner,
       VideoRendererSink* video_renderer_sink);
 #endif  // BUILDFLAG(ENABLE_CAST_RENDERER)
 
@@ -68,7 +70,7 @@ class MojoRendererFactory final : public RendererFactory {
       const std::string& presentation_id,
       mojo::PendingRemote<mojom::FlingingRendererClientExtension>
           client_extenion_ptr,
-      const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner,
+      const scoped_refptr<base::SequencedTaskRunner>& media_task_runner,
       VideoRendererSink* video_renderer_sink);
 
   std::unique_ptr<MojoRenderer> CreateMediaPlayerRenderer(
@@ -76,14 +78,15 @@ class MojoRendererFactory final : public RendererFactory {
           renderer_extension_receiver,
       mojo::PendingRemote<mojom::MediaPlayerRendererClientExtension>
           client_extension_remote,
-      const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner,
+      const scoped_refptr<base::SequencedTaskRunner>& media_task_runner,
       VideoRendererSink* video_renderer_sink);
 #endif  // defined (OS_ANDROID)
 
  private:
   // InterfaceFactory or InterfaceProvider used to create or connect to remote
   // renderer.
-  raw_ptr<media::mojom::InterfaceFactory> interface_factory_ = nullptr;
+  raw_ptr<media::mojom::InterfaceFactory, DanglingUntriaged>
+      interface_factory_ = nullptr;
 };
 
 }  // namespace media

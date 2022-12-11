@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@ import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.action.ViewActions.replaceText;
 import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.hasSibling;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withSpinnerText;
@@ -28,10 +29,14 @@ import static org.hamcrest.collection.IsMapContaining.hasEntry;
 
 import static org.chromium.android_webview.test.devui.DeveloperUiTestUtils.withCount;
 
+import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
 import android.support.test.InstrumentationRegistry;
+import android.text.SpannableString;
+import android.text.style.BackgroundColorSpan;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.EditText;
@@ -42,6 +47,7 @@ import androidx.annotation.IntDef;
 import androidx.test.espresso.DataInteraction;
 import androidx.test.espresso.Espresso;
 import androidx.test.filters.MediumTest;
+import androidx.test.filters.SmallTest;
 
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
@@ -59,32 +65,67 @@ import org.chromium.android_webview.common.Flag;
 import org.chromium.android_webview.devui.FlagsFragment;
 import org.chromium.android_webview.devui.MainActivity;
 import org.chromium.android_webview.devui.R;
+import org.chromium.android_webview.nonembedded_util.WebViewPackageHelper;
 import org.chromium.android_webview.services.DeveloperUiService;
 import org.chromium.android_webview.test.AwJUnit4ClassRunner;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.test.BaseActivityTestRule;
+import org.chromium.base.test.util.ApplicationTestUtils;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.ui.test.util.ViewUtils;
 
+import java.util.Arrays;
 import java.util.Map;
 
 /**
  * UI tests for {@link FlagsFragment}.
- * <p>
- * These tests should not be batched to make sure that the DeveloperUiService is killed
- * after each test, leaving a clean state.
+ *
+ * <p>These tests should not be batched to make sure that the DeveloperUiService is killed after
+ * each test, leaving a clean state.
  */
 @RunWith(AwJUnit4ClassRunner.class)
+@Batch(Batch.PER_CLASS)
 public class FlagsFragmentTest {
     @Rule
     public BaseActivityTestRule mRule = new BaseActivityTestRule<MainActivity>(MainActivity.class);
 
+    private static final Flag[] sMockFlagList = {
+            Flag.commandLine("first-switch-for-testing",
+                    "Fake switch for testing. This is at the start of the mock flag list."),
+            Flag.commandLine(AwSwitches.HIGHLIGHT_ALL_WEBVIEWS,
+                    "Highlight the contents (including web contents) of all WebViews with a yellow "
+                            + "tint. This is useful for identifying WebViews in an Android "
+                            + "application."),
+            Flag.commandLine(AwSwitches.WEBVIEW_VERBOSE_LOGGING,
+                    "WebView will log additional debugging information to logcat, such as "
+                            + "variations and commandline state."),
+            // Validity check: make sure omitting the description doesn't cause any crashes
+            Flag.baseFeature("FeatureWithoutDescription"),
+            Flag.baseFeature("FakeWebViewFeatureForTesting", "Fake base::Feature for testing."),
+            Flag.commandLine("last-switch-for-testing",
+                    "Fake switch for testing. This is at the end of the mock flag list."),
+            // Add new commandline switches and features above. The final entry should have a
+            // trailing comma for cleaner diffs.
+    };
+
     @Before
     public void setUp() throws Exception {
         Intent intent = new Intent(ContextUtils.getApplicationContext(), MainActivity.class);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            FlagsFragment.setFlagListForTesting(sMockFlagList);
+            DeveloperUiService.setFlagListForTesting(sMockFlagList);
+        });
+        Context context = InstrumentationRegistry.getTargetContext();
+        WebViewPackageHelper.setCurrentWebViewPackageForTesting(
+                WebViewPackageHelper.getContextPackageInfo(context));
         intent.putExtra(MainActivity.FRAGMENT_ID_INTENT_EXTRA, MainActivity.FRAGMENT_ID_FLAGS);
         mRule.launchActivity(intent);
+
+        waitForInflatedFlagFragment();
+
         // Always close the soft keyboard when the activity is launched which is sometimes shown
         // because flags search TextView has input focus by default. The keyboard may cover up some
         // Views causing test flakiness/failures.
@@ -97,9 +138,20 @@ public class FlagsFragmentTest {
         DeveloperUiService.clearSharedPrefsForTesting(InstrumentationRegistry.getTargetContext());
     }
 
+    private void waitForInflatedFlagFragment() {
+        // Espresso is normally configured to automatically wait for the main thread to go idle, but
+        // BaseActivityTestRule turns that behavior off so we must explicitly wait for the View
+        // hierarchy to inflate.
+        ViewUtils.waitForView(withId(R.id.navigation_flags_ui));
+        ViewUtils.waitForView(withId(R.id.navigation_home));
+        ViewUtils.waitForView(withId(R.id.flag_search_bar));
+        ViewUtils.waitForView(withId(R.id.flags_list));
+        ViewUtils.waitForView(withId(R.id.reset_flags_button));
+    }
+
     private CallbackHelper getFlagUiSearchBarListener() {
         final CallbackHelper helper = new CallbackHelper();
-        FlagsFragment.setFilterListener(() -> { helper.notifyCalled(); });
+        FlagsFragment.setFilterListenerForTesting(() -> { helper.notifyCalled(); });
         return helper;
     }
 
@@ -124,6 +176,31 @@ public class FlagsFragmentTest {
 
     private static Matcher<View> withHintText(final String expectedHint) {
         return withHintText(is(expectedHint));
+    }
+
+    private static Matcher<View> containingHighlightSpan() {
+        return new TypeSafeMatcher<View>() {
+            @Override
+            public boolean matchesSafely(View view) {
+                if (!(view instanceof TextView)) {
+                    return false;
+                }
+                CharSequence text = ((TextView) view).getText();
+                if (!(text instanceof SpannableString)) {
+                    return false;
+                }
+                BackgroundColorSpan[] spans =
+                        ((SpannableString) text)
+                                .getSpans(0, text.length(), BackgroundColorSpan.class);
+                return Arrays.stream(spans).anyMatch(
+                        span -> span.getBackgroundColor() == Color.YELLOW);
+            }
+
+            @Override
+            public void describeTo(Description description) {
+                description.appendText("containing highlight span");
+            }
+        };
     }
 
     @IntDef({CompoundDrawable.START, CompoundDrawable.TOP, CompoundDrawable.END,
@@ -180,6 +257,14 @@ public class FlagsFragmentTest {
     }
 
     @Test
+    @SmallTest
+    @Feature({"AndroidWebView"})
+    public void testHasPublicNoArgsConstructor() throws Throwable {
+        FlagsFragment fragment = new FlagsFragment();
+        Assert.assertNotNull(fragment);
+    }
+
+    @Test
     @MediumTest
     @Feature({"AndroidWebView"})
     public void testSearchEmptyByDefault() throws Throwable {
@@ -219,6 +304,72 @@ public class FlagsFragmentTest {
         onView(allOf(withId(R.id.flag_name), withText(AwSwitches.HIGHLIGHT_ALL_WEBVIEWS)))
                 .check(matches(isDisplayed()));
         onView(withId(R.id.flags_list)).check(matches(withCount(1)));
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"AndroidWebView"})
+    public void testSearchMatchingNameAndDescriptionWithIndividualWordsInQuery() throws Throwable {
+        CallbackHelper helper = getFlagUiSearchBarListener();
+
+        int searchBarChangeCount = helper.getCallCount();
+        // The "verbose" part matches the name, and the "logcat" part matches the description.
+        onView(withId(R.id.flag_search_bar)).perform(replaceText("verbose logcat"));
+        helper.waitForCallback(searchBarChangeCount, 1);
+        onView(allOf(withId(R.id.flag_name), withText(AwSwitches.WEBVIEW_VERBOSE_LOGGING)))
+                .check(matches(isDisplayed()));
+        onView(withId(R.id.flags_list)).check(matches(withCount(1)));
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"AndroidWebView"})
+    public void testSearchHighlightingQueryWordsInFlagName() throws Throwable {
+        CallbackHelper helper = getFlagUiSearchBarListener();
+        int searchBarChangeCount = helper.getCallCount();
+        // "verbose" appears in the flag name, but not the description
+        onView(withId(R.id.flag_search_bar)).perform(replaceText("verbose"));
+        helper.waitForCallback(searchBarChangeCount, 1);
+
+        Matcher<View> flagNameMatcher =
+                allOf(withId(R.id.flag_name), withText(AwSwitches.WEBVIEW_VERBOSE_LOGGING));
+        onView(flagNameMatcher).check(matches(containingHighlightSpan()));
+        onView(allOf(withId(R.id.flag_description), hasSibling(flagNameMatcher)))
+                .check(matches(not(containingHighlightSpan())));
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"AndroidWebView"})
+    public void testSearchHighlightingQueryWordsInFlagDescription() throws Throwable {
+        CallbackHelper helper = getFlagUiSearchBarListener();
+        int searchBarChangeCount = helper.getCallCount();
+        // "logcat" appears in the flag description, but not the name
+        onView(withId(R.id.flag_search_bar)).perform(replaceText("logcat"));
+        helper.waitForCallback(searchBarChangeCount, 1);
+
+        Matcher<View> flagNameMatcher =
+                allOf(withId(R.id.flag_name), withText(AwSwitches.WEBVIEW_VERBOSE_LOGGING));
+        onView(flagNameMatcher).check(matches(not(containingHighlightSpan())));
+        onView(allOf(withId(R.id.flag_description), hasSibling(flagNameMatcher)))
+                .check(matches(containingHighlightSpan()));
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"AndroidWebView"})
+    public void testSearchHighlightingQueryWordsInFlagNameAndDescription() throws Throwable {
+        CallbackHelper helper = getFlagUiSearchBarListener();
+        int searchBarChangeCount = helper.getCallCount();
+        // "log" appears in both the flag name and the description
+        onView(withId(R.id.flag_search_bar)).perform(replaceText("log"));
+        helper.waitForCallback(searchBarChangeCount, 1);
+
+        Matcher<View> flagNameMatcher =
+                allOf(withId(R.id.flag_name), withText(AwSwitches.WEBVIEW_VERBOSE_LOGGING));
+        onView(flagNameMatcher).check(matches(containingHighlightSpan()));
+        onView(allOf(withId(R.id.flag_description), hasSibling(flagNameMatcher)))
+                .check(matches(containingHighlightSpan()));
     }
 
     @Test
@@ -568,6 +719,60 @@ public class FlagsFragmentTest {
         flagInteraction.onChildView(withId(R.id.flag_toggle))
                 .check(matches(withSpinnerText(containsString("Default"))));
         Assert.assertTrue(
+                DeveloperModeUtils.getFlagOverrides(DeveloperUiTest.TEST_WEBVIEW_PACKAGE_NAME)
+                        .isEmpty());
+    }
+
+    @Test
+    @MediumTest
+    @Feature({"AndroidWebView"})
+    public void testResetFlagsByIntent() throws Throwable {
+        // 1. First test that the intent resets the flags
+        // Given one flag is set
+        toggleFlag(onData(anything()).inAdapterView(withId(R.id.flags_list)).atPosition(1), true);
+        Assert.assertFalse(
+                DeveloperModeUtils.getFlagOverrides(DeveloperUiTest.TEST_WEBVIEW_PACKAGE_NAME)
+                        .isEmpty());
+
+        // Close the activity
+        ApplicationTestUtils.finishActivity(mRule.getActivity());
+
+        // And when the activity is relaunched with the reset flag
+        // which should clear the flags
+        Intent intent = new Intent(ContextUtils.getApplicationContext(), MainActivity.class);
+        intent.putExtra(MainActivity.FRAGMENT_ID_INTENT_EXTRA, MainActivity.FRAGMENT_ID_FLAGS);
+        intent.putExtra(MainActivity.RESET_FLAGS_INTENT_EXTRA, true);
+        mRule.launchActivity(intent);
+        waitForInflatedFlagFragment();
+
+        // Then the flags will be empty
+        DataInteraction flagInteraction =
+                onData(anything()).inAdapterView(withId(R.id.flags_list)).atPosition(1);
+        flagInteraction.onChildView(withId(R.id.flag_name))
+                .check(matches(not(compoundDrawableVisible(CompoundDrawable.START))));
+        flagInteraction.onChildView(withId(R.id.flag_toggle))
+                .check(matches(withSpinnerText(containsString("Default"))));
+        Assert.assertTrue(
+                DeveloperModeUtils.getFlagOverrides(DeveloperUiTest.TEST_WEBVIEW_PACKAGE_NAME)
+                        .isEmpty());
+
+        // 2. Then test that the intent will not keep causing resets
+        // Given a flag is set again
+        toggleFlag(onData(anything()).inAdapterView(withId(R.id.flags_list)).atPosition(1), true);
+        Assert.assertFalse(
+                DeveloperModeUtils.getFlagOverrides(DeveloperUiTest.TEST_WEBVIEW_PACKAGE_NAME)
+                        .isEmpty());
+
+        // And navigate away from flags
+        onView(withId(R.id.navigation_home)).perform(click());
+        ViewUtils.waitForView(withId(R.id.fragment_home));
+
+        // When navigating back to the flags fragment
+        onView(withId(R.id.navigation_flags_ui)).perform(click());
+        waitForInflatedFlagFragment();
+
+        // Then the flags should still be there
+        Assert.assertFalse(
                 DeveloperModeUtils.getFlagOverrides(DeveloperUiTest.TEST_WEBVIEW_PACKAGE_NAME)
                         .isEmpty());
     }

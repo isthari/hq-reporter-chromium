@@ -1,11 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/network/public/cpp/resource_request.h"
 
-#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/types/optional_util.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/base/load_flags.h"
 #include "net/log/net_log_source.h"
@@ -119,6 +119,7 @@ ResourceRequest::TrustedParams& ResourceRequest::TrustedParams::operator=(
   isolation_info = other.isolation_info;
   disable_secure_dns = other.disable_secure_dns;
   has_user_activation = other.has_user_activation;
+  allow_cookies_from_browser = other.allow_cookies_from_browser;
   cookie_observer =
       Clone(&const_cast<mojo::PendingRemote<mojom::CookieAccessObserver>&>(
           other.cookie_observer));
@@ -140,6 +141,7 @@ bool ResourceRequest::TrustedParams::EqualsForTesting(
   return isolation_info.IsEqualForTesting(other.isolation_info) &&
          disable_secure_dns == other.disable_secure_dns &&
          has_user_activation == other.has_user_activation &&
+         allow_cookies_from_browser == other.allow_cookies_from_browser &&
          client_security_state == other.client_security_state;
 }
 
@@ -216,12 +218,12 @@ bool ResourceRequest::EqualsForTesting(const ResourceRequest& request) const {
          resource_type == request.resource_type &&
          priority == request.priority &&
          devtools_stack_id == request.devtools_stack_id &&
-         is_external_request == request.is_external_request &&
          cors_preflight_policy == request.cors_preflight_policy &&
          originated_from_service_worker ==
              request.originated_from_service_worker &&
          skip_service_worker == request.skip_service_worker &&
          corb_detachable == request.corb_detachable && mode == request.mode &&
+         target_address_space == request.target_address_space &&
          credentials_mode == request.credentials_mode &&
          redirect_mode == request.redirect_mode &&
          fetch_integrity == request.fetch_integrity &&
@@ -232,7 +234,7 @@ bool ResourceRequest::EqualsForTesting(const ResourceRequest& request) const {
          enable_load_timing == request.enable_load_timing &&
          enable_upload_progress == request.enable_upload_progress &&
          do_not_prompt_for_login == request.do_not_prompt_for_login &&
-         is_main_frame == request.is_main_frame &&
+         is_outermost_main_frame == request.is_outermost_main_frame &&
          transition_type == request.transition_type &&
          previews_state == request.previews_state &&
          upgrade_if_insecure == request.upgrade_if_insecure &&
@@ -244,11 +246,8 @@ bool ResourceRequest::EqualsForTesting(const ResourceRequest& request) const {
              request.custom_proxy_post_cache_headers.ToString() &&
          fetch_window_id == request.fetch_window_id &&
          devtools_request_id == request.devtools_request_id &&
-         is_signed_exchange_prefetch_cache_enabled ==
-             request.is_signed_exchange_prefetch_cache_enabled &&
          is_fetch_like_api == request.is_fetch_like_api &&
          is_favicon == request.is_favicon &&
-         obey_origin_policy == request.obey_origin_policy &&
          recursive_prefetch_token == request.recursive_prefetch_token &&
          OptionalTrustedParamsEqualsForTesting(trusted_params,
                                                request.trusted_params) &&
@@ -307,7 +306,7 @@ ScopedResourceRequestCrashKeys::ScopedResourceRequestCrashKeys(
     const network::ResourceRequest& request)
     : url_(GetRequestUrlCrashKey(), request.url.possibly_invalid_spec()),
       request_initiator_(GetRequestInitiatorCrashKey(),
-                         base::OptionalOrNullptr(request.request_initiator)),
+                         base::OptionalToPtr(request.request_initiator)),
       resource_type_(GetRequestResourceTypeCrashKey(),
                      base::NumberToString(request.resource_type)) {}
 

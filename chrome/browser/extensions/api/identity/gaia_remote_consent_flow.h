@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,13 @@
 
 #include "base/callback_list.h"
 #include "base/memory/raw_ptr.h"
-
 #include "base/scoped_observation.h"
 #include "chrome/browser/extensions/api/identity/extension_token_key.h"
 #include "chrome/browser/extensions/api/identity/web_auth_flow.h"
 #include "components/signin/public/identity_manager/accounts_cookie_mutator.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/set_accounts_in_cookie_result.h"
+#include "content/public/browser/storage_partition.h"
 #include "google_apis/gaia/core_account_id.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "google_apis/gaia/oauth2_mint_token_flow.h"
@@ -34,7 +34,8 @@ class GaiaRemoteConsentFlow
     SET_ACCOUNTS_IN_COOKIE_FAILED = 3,
     INVALID_CONSENT_RESULT = 4,
     NO_GRANT = 5,
-    kMaxValue = NO_GRANT
+    USER_NAVIGATED_AWAY = 6,
+    kMaxValue = USER_NAVIGATED_AWAY
   };
 
   class Delegate {
@@ -87,6 +88,10 @@ class GaiaRemoteConsentFlow
   void SetAccountsInCookie();
 
   void GaiaRemoteConsentFlowFailed(Failure failure);
+
+  void DetachWebAuthFlow();
+
+  content::StoragePartition* GetStoragePartition();
 
   raw_ptr<Delegate> delegate_;
   raw_ptr<Profile> profile_;

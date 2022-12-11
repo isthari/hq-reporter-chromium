@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-#include "ash/components/phonehub/onboarding_ui_tracker.h"
 #include "ash/public/cpp/resources/grit/ash_public_unscaled_resources.h"
 #include "ash/public/cpp/system_tray_client.h"
 #include "ash/root_window_controller.h"
@@ -27,6 +26,7 @@
 #include "ash/system/tray/tray_bubble_view.h"
 #include "base/bind.h"
 #include "base/strings/strcat.h"
+#include "chromeos/ash/components/phonehub/onboarding_ui_tracker.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -80,7 +80,7 @@ class OnboardingMainView : public PhoneHubInterstitialView {
                             base::Unretained(this)),
         l10n_util::GetStringUTF16(
             IDS_ASH_PHONE_HUB_ONBOARDING_DIALOG_DISMISS_BUTTON),
-        PillButton::Type::kIconlessFloating, /*icon=*/nullptr);
+        PillButton::Type::kFloatingWithoutIcon, /*icon=*/nullptr);
     dismiss->SetID(PhoneHubViewID::kOnboardingDismissButton);
     AddButton(std::move(dismiss));
 
@@ -89,7 +89,7 @@ class OnboardingMainView : public PhoneHubInterstitialView {
                             base::Unretained(this)),
         l10n_util::GetStringUTF16(
             IDS_ASH_PHONE_HUB_ONBOARDING_DIALOG_GET_STARTED_BUTTON),
-        PillButton::Type::kIconless, /*icon=*/nullptr);
+        PillButton::Type::kDefaultWithoutIcon, /*icon=*/nullptr);
     get_started->SetID(PhoneHubViewID::kOnboardingGetStartedButton);
     AddButton(std::move(get_started));
   }
@@ -141,7 +141,7 @@ class OnboardingDismissPromptView : public PhoneHubInterstitialView {
                             base::Unretained(this)),
         l10n_util::GetStringUTF16(
             IDS_ASH_PHONE_HUB_ONBOARDING_DISMISS_DIALOG_OK_BUTTON),
-        PillButton::Type::kIconless, /*icon=*/nullptr);
+        PillButton::Type::kDefaultWithoutIcon, /*icon=*/nullptr);
     ack_button->SetID(PhoneHubViewID::kOnboardingDismissAckButton);
     AddButton(std::move(ack_button));
   }

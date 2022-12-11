@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <algorithm>
 
+#include "base/allocator/partition_allocator/partition_alloc_buildflags.h"
 #include "base/bind.h"
 #include "base/bit_cast.h"
-#include "base/bits.h"
 #include "base/check_op.h"
 #include "base/debug/stack_trace.h"
 #include "base/location.h"
@@ -17,7 +17,6 @@
 #include "base/rand_util.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_job.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
@@ -66,6 +65,7 @@ class ConvertableToTraceFormatWrapper final
   std::unique_ptr<v8::ConvertableToTraceFormat> inner_;
 };
 
+#if !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 class EnabledStateObserverImpl final
     : public base::trace_event::TraceLog::EnabledStateObserver {
  public:
@@ -121,6 +121,7 @@ class EnabledStateObserverImpl final
 
 base::LazyInstance<EnabledStateObserverImpl>::Leaky g_trace_state_dispatcher =
     LAZY_INSTANCE_INITIALIZER;
+#endif  // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 
 // TODO(skyostil): Deduplicate this with the clamper in Blink.
 class TimeClamper {
@@ -159,7 +160,8 @@ class TimeClamper {
 
  private:
   inline double ThresholdFor(double clamped_time) const {
-    uint64_t time_hash = MurmurHash3(bit_cast<int64_t>(clamped_time) ^ secret_);
+    uint64_t time_hash =
+        MurmurHash3(base::bit_cast<int64_t>(clamped_time) ^ secret_);
     return clamped_time + kResolutionSeconds * ToDouble(time_hash);
   }
 
@@ -168,7 +170,7 @@ class TimeClamper {
     static const uint64_t kExponentBits = uint64_t{0x3FF0000000000000};
     static const uint64_t kMantissaMask = uint64_t{0x000FFFFFFFFFFFFF};
     uint64_t random = (value & kMantissaMask) | kExponentBits;
-    return bit_cast<double>(random) - 1;
+    return base::bit_cast<double>(random) - 1;
   }
 
   static inline uint64_t MurmurHash3(uint64_t value) {
@@ -347,13 +349,13 @@ class V8Platform::TracingControllerImpl : public v8::TracingController {
     TRACE_EVENT_API_UPDATE_TRACE_EVENT_DURATION(category_enabled_flag, name,
                                                 traceEventHandle);
   }
-#endif  // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
   void AddTraceStateObserver(TraceStateObserver* observer) override {
     g_trace_state_dispatcher.Get().AddObserver(observer);
   }
   void RemoveTraceStateObserver(TraceStateObserver* observer) override {
     g_trace_state_dispatcher.Get().RemoveObserver(observer);
   }
+#endif  // !BUILDFLAG(USE_PERFETTO_CLIENT_LIBRARY)
 };
 
 // static
@@ -372,7 +374,7 @@ void V8Platform::OnCriticalMemoryPressure() {
 // We only have a reservation on 32-bit Windows systems.
 // TODO(bbudge) Make the #if's in BlinkInitializer match.
 #if BUILDFLAG(IS_WIN) && defined(ARCH_CPU_32_BITS)
-  base::ReleaseReservation();
+  partition_alloc::ReleaseReservation();
 #endif
 }
 
@@ -396,7 +398,7 @@ std::shared_ptr<v8::TaskRunner> V8Platform::GetForegroundTaskRunner(
 int V8Platform::NumberOfWorkerThreads() {
   // V8Platform assumes the scheduler uses the same set of workers for default
   // and user blocking tasks.
-  const int num_foreground_workers =
+  const size_t num_foreground_workers =
       base::ThreadPoolInstance::Get()
           ->GetMaxConcurrentNonBlockedTasksWithTraitsDeprecated(
               kDefaultTaskTraits);
@@ -404,7 +406,7 @@ int V8Platform::NumberOfWorkerThreads() {
             base::ThreadPoolInstance::Get()
                 ->GetMaxConcurrentNonBlockedTasksWithTraitsDeprecated(
                     kBlockingTaskTraits));
-  return std::max(1, num_foreground_workers);
+  return std::max(1, static_cast<int>(num_foreground_workers));
 }
 
 void V8Platform::CallOnWorkerThread(std::unique_ptr<v8::Task> task) {
@@ -432,7 +434,7 @@ void V8Platform::CallDelayedOnWorkerThread(std::unique_ptr<v8::Task> task,
       base::Seconds(delay_in_seconds));
 }
 
-std::unique_ptr<v8::JobHandle> V8Platform::PostJob(
+std::unique_ptr<v8::JobHandle> V8Platform::CreateJob(
     v8::TaskPriority priority,
     std::unique_ptr<v8::JobTask> job_task) {
   base::TaskTraits task_traits;
@@ -451,19 +453,19 @@ std::unique_ptr<v8::JobHandle> V8Platform::PostJob(
   // |max_concurrency_callback| uses an unretained pointer.
   auto* job_task_ptr = job_task.get();
   auto handle =
-      base::PostJob(FROM_HERE, task_traits,
-                    base::BindRepeating(
-                        [](const std::unique_ptr<v8::JobTask>& job_task,
-                           base::JobDelegate* delegate) {
-                          JobDelegateImpl delegate_impl(delegate);
-                          job_task->Run(&delegate_impl);
-                        },
-                        std::move(job_task)),
-                    base::BindRepeating(
-                        [](v8::JobTask* job_task, size_t worker_count) {
-                          return job_task->GetMaxConcurrency(worker_count);
-                        },
-                        base::Unretained(job_task_ptr)));
+      base::CreateJob(FROM_HERE, task_traits,
+                      base::BindRepeating(
+                          [](const std::unique_ptr<v8::JobTask>& job_task,
+                             base::JobDelegate* delegate) {
+                            JobDelegateImpl delegate_impl(delegate);
+                            job_task->Run(&delegate_impl);
+                          },
+                          std::move(job_task)),
+                      base::BindRepeating(
+                          [](v8::JobTask* job_task, size_t worker_count) {
+                            return job_task->GetMaxConcurrency(worker_count);
+                          },
+                          base::Unretained(job_task_ptr)));
 
   return std::make_unique<JobHandleImpl>(std::move(handle));
 }

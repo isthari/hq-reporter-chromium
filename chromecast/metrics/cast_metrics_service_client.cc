@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "chromecast/base/cast_sys_info_util.h"
 #include "chromecast/base/chromecast_switches.h"
@@ -31,7 +31,6 @@
 #include "components/metrics/url_constants.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
-#include "components/version_info/channel.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if BUILDFLAG(IS_ANDROID)
@@ -84,6 +83,11 @@ const struct ChannelMap {
 
 void CastMetricsServiceClient::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterStringPref(kMetricsOldClientID, std::string());
+}
+
+variations::SyntheticTrialRegistry*
+CastMetricsServiceClient::GetSyntheticTrialRegistry() {
+  return synthetic_trial_registry_.get();
 }
 
 ::metrics::MetricsService* CastMetricsServiceClient::GetMetricsService() {
@@ -286,7 +290,7 @@ CastMetricsServiceClient::CastMetricsServiceClient(
     : delegate_(delegate),
       pref_service_(pref_service),
       client_info_loaded_(false),
-      task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
       url_loader_factory_(url_loader_factory),
       cast_sys_info_(CreateSysInfo()) {}
 
@@ -311,7 +315,7 @@ void CastMetricsServiceClient::InitializeMetricsService() {
       // Pass an empty file path since Chromecast does not use the Variations
       // framework.
       /*user_data_dir=*/base::FilePath(),
-      ::metrics::StartupVisibility::kUnknown, version_info::Channel::UNKNOWN,
+      ::metrics::StartupVisibility::kUnknown, ::metrics::EntropyParams{},
       base::BindRepeating(&CastMetricsServiceClient::StoreClientInfo,
                           base::Unretained(this)),
       base::BindRepeating(&CastMetricsServiceClient::LoadClientInfo,
@@ -326,6 +330,10 @@ void CastMetricsServiceClient::InitializeMetricsService() {
   // TODO(crbug/1249485): Make Chromecast consistent with other platforms. I.e.
   // create the FieldTrialList and the MetricsStateManager around the same time.
   metrics_state_manager_->InstantiateFieldTrialList();
+
+  synthetic_trial_registry_ =
+      std::make_unique<variations::SyntheticTrialRegistry>(
+          IsExternalExperimentAllowlistEnabled());
 
   metrics_service_.reset(new ::metrics::MetricsService(
       metrics_state_manager_.get(), this, pref_service_));
@@ -348,7 +356,7 @@ void CastMetricsServiceClient::StartMetricsService() {
   metrics_service_->InitializeMetricsRecordingState();
 #if !BUILDFLAG(IS_ANDROID)
   // Signal that the session has not yet exited cleanly. We later signal that
-  // the session exited cleanly via MetricsService::RecordCompletedSessionEnd().
+  // the session exited cleanly via MetricsService::LogCleanShutdown().
   // TODO(crbug.com/1208587): See whether this can be called even earlier.
   metrics_state_manager_->LogHasSessionShutdownCleanly(false);
 #endif  // !BUILDFLAG(IS_ANDROID)

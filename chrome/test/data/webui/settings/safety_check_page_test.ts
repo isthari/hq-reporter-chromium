@@ -1,11 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-import {HatsBrowserProxyImpl, LifetimeBrowserProxyImpl, MetricsBrowserProxyImpl, OpenWindowProxyImpl, PasswordCheckReferrer, PasswordManagerImpl, Router, routes, SafetyCheckBrowserProxy, SafetyCheckBrowserProxyImpl, SafetyCheckCallbackConstants, SafetyCheckChromeCleanerStatus, SafetyCheckExtensionsStatus, SafetyCheckIconStatus, SafetyCheckInteractions, SafetyCheckParentStatus, SafetyCheckPasswordsStatus, SafetyCheckSafeBrowsingStatus, SafetyCheckUpdatesStatus, SettingsSafetyCheckChildElement, SettingsSafetyCheckExtensionsChildElement, SettingsSafetyCheckPageElement, SettingsSafetyCheckPasswordsChildElement, SettingsSafetyCheckSafeBrowsingChildElement, SettingsSafetyCheckUpdatesChildElement, TrustSafetyInteraction} from 'chrome://settings/settings.js';
+import {HatsBrowserProxyImpl, LifetimeBrowserProxyImpl, MetricsBrowserProxyImpl, OpenWindowProxyImpl, PasswordCheckReferrer, PasswordManagerImpl, Router, routes, SafetyCheckBrowserProxy, SafetyCheckBrowserProxyImpl, SafetyCheckCallbackConstants, SafetyCheckChromeCleanerStatus, SafetyCheckExtensionsStatus, SafetyCheckIconStatus, SafetyCheckInteractions, SafetyCheckParentStatus, SafetyCheckPasswordsStatus, SafetyCheckSafeBrowsingStatus, SafetyCheckUpdatesStatus, SettingsSafetyCheckChildElement, SettingsSafetyCheckExtensionsChildElement, SettingsSafetyCheckPageElement, SettingsSafetyCheckPasswordsChildElement, SettingsSafetyCheckSafeBrowsingChildElement ,SettingsSafetyCheckUpdatesChildElement, TrustSafetyInteraction} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {TestBrowserProxy} from 'chrome://webui-test/test_browser_proxy.js';
 
@@ -14,10 +14,12 @@ import {TestLifetimeBrowserProxy} from './test_lifetime_browser_proxy.js';
 import {TestMetricsBrowserProxy} from './test_metrics_browser_proxy.js';
 import {TestOpenWindowProxy} from './test_open_window_proxy.js';
 import {TestPasswordManagerProxy} from './test_password_manager_proxy.js';
+import {assertSafetyCheckChild} from './safety_check_test_utils.js';
 
 // clang-format on
 
 const testDisplayString = 'Test display string';
+const passwordsString = 'Password Manager';
 
 /**
  * Fire a safety check parent event.
@@ -90,45 +92,6 @@ function fireSafetyCheckChromeCleanerEvent(
       SafetyCheckCallbackConstants.CHROME_CLEANER_CHANGED, event);
 }
 
-type SafetyCheckChildExpectation = {
-  page: HTMLElement,
-  iconStatus: SafetyCheckIconStatus,
-  label: string,
-  buttonLabel?: string,
-  buttonAriaLabel?: string,
-  buttonClass?: string,
-  managedIcon?: boolean,
-  rowClickable?: boolean,
-};
-
-/**
- * Verify that the safety check child inside the page has been configured as
- * specified.
- */
-function assertSafetyCheckChild({
-  page,
-  iconStatus,
-  label,
-  buttonLabel,
-  buttonAriaLabel,
-  buttonClass,
-  managedIcon,
-  rowClickable
-}: SafetyCheckChildExpectation) {
-  const safetyCheckChild =
-      page.shadowRoot!.querySelector<SettingsSafetyCheckChildElement>(
-          '#safetyCheckChild')!;
-  assertTrue(safetyCheckChild.iconStatus === iconStatus);
-  assertTrue(safetyCheckChild.label === label);
-  assertTrue(safetyCheckChild.subLabel === testDisplayString);
-  assertTrue(!buttonLabel || safetyCheckChild.buttonLabel === buttonLabel);
-  assertTrue(
-      !buttonAriaLabel || safetyCheckChild.buttonAriaLabel === buttonAriaLabel);
-  assertTrue(!buttonClass || safetyCheckChild.buttonClass === buttonClass);
-  assertTrue(!!managedIcon === !!safetyCheckChild.managedIcon);
-  assertTrue(!!rowClickable === !!safetyCheckChild.rowClickable);
-}
-
 class TestSafetyCheckBrowserProxy extends TestBrowserProxy implements
     SafetyCheckBrowserProxy {
   private parentRanDisplayString_ = '';
@@ -167,7 +130,7 @@ suite('SafetyCheckPageUiTests', function() {
     safetyCheckBrowserProxy.setParentRanDisplayString('Dummy string');
     SafetyCheckBrowserProxyImpl.setInstance(safetyCheckBrowserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     page = document.createElement('settings-safety-check-page');
     document.body.appendChild(page);
     flush();
@@ -251,7 +214,7 @@ suite('SafetyCheckChildTests', function() {
   let page: SettingsSafetyCheckChildElement;
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     page = document.createElement('settings-safety-check-child');
     document.body.appendChild(page);
   });
@@ -404,7 +367,7 @@ suite('SafetyCheckUpdatesChildUiTests', function() {
     metricsBrowserProxy = new TestMetricsBrowserProxy();
     MetricsBrowserProxyImpl.setInstance(metricsBrowserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     page = document.createElement('settings-safety-check-updates-child');
     document.body.appendChild(page);
     flush();
@@ -421,6 +384,7 @@ suite('SafetyCheckUpdatesChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.RUNNING,
       label: 'Updates',
+      sublabel: testDisplayString,
     });
   });
 
@@ -431,6 +395,7 @@ suite('SafetyCheckUpdatesChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.SAFE,
       label: 'Updates',
+      sublabel: testDisplayString,
     });
   });
 
@@ -441,6 +406,7 @@ suite('SafetyCheckUpdatesChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.RUNNING,
       label: 'Updates',
+      sublabel: testDisplayString,
     });
   });
 
@@ -451,6 +417,7 @@ suite('SafetyCheckUpdatesChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.INFO,
       label: 'Updates',
+      sublabel: testDisplayString,
       buttonLabel: page.i18n('aboutRelaunch'),
       buttonAriaLabel: page.i18n('safetyCheckUpdatesButtonAriaLabel'),
       buttonClass: 'action-button',
@@ -479,6 +446,7 @@ suite('SafetyCheckUpdatesChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.INFO,
       label: 'Updates',
+      sublabel: testDisplayString,
       managedIcon: true,
     });
   });
@@ -490,6 +458,7 @@ suite('SafetyCheckUpdatesChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.INFO,
       label: 'Updates',
+      sublabel: testDisplayString,
     });
   });
 
@@ -500,6 +469,7 @@ suite('SafetyCheckUpdatesChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.WARNING,
       label: 'Updates',
+      sublabel: testDisplayString,
     });
   });
 
@@ -510,6 +480,7 @@ suite('SafetyCheckUpdatesChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.INFO,
       label: 'Updates',
+      sublabel: testDisplayString,
     });
   });
 });
@@ -522,7 +493,7 @@ suite('SafetyCheckPasswordsChildUiTests', function() {
     metricsBrowserProxy = new TestMetricsBrowserProxy();
     MetricsBrowserProxyImpl.setInstance(metricsBrowserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     page = document.createElement('settings-safety-check-passwords-child');
     document.body.appendChild(page);
     flush();
@@ -539,7 +510,8 @@ suite('SafetyCheckPasswordsChildUiTests', function() {
     assertSafetyCheckChild({
       page: page,
       iconStatus: SafetyCheckIconStatus.RUNNING,
-      label: 'Passwords',
+      label: passwordsString,
+      sublabel: testDisplayString,
     });
   });
 
@@ -549,7 +521,8 @@ suite('SafetyCheckPasswordsChildUiTests', function() {
     assertSafetyCheckChild({
       page: page,
       iconStatus: SafetyCheckIconStatus.SAFE,
-      label: 'Passwords',
+      label: passwordsString,
+      sublabel: testDisplayString,
       rowClickable: true,
     });
 
@@ -576,7 +549,8 @@ suite('SafetyCheckPasswordsChildUiTests', function() {
     assertSafetyCheckChild({
       page: page,
       iconStatus: SafetyCheckIconStatus.WARNING,
-      label: 'Passwords',
+      label: passwordsString,
+      sublabel: testDisplayString,
       buttonLabel: 'Review',
       buttonAriaLabel: 'Review passwords',
       buttonClass: 'action-button',
@@ -614,7 +588,8 @@ suite('SafetyCheckPasswordsChildUiTests', function() {
     assertSafetyCheckChild({
       page: page,
       iconStatus: SafetyCheckIconStatus.INFO,
-      label: 'Passwords',
+      label: passwordsString,
+      sublabel: testDisplayString,
       rowClickable: true,
     });
 
@@ -651,7 +626,8 @@ suite('SafetyCheckPasswordsChildUiTests', function() {
           assertSafetyCheckChild({
             page: page,
             iconStatus: SafetyCheckIconStatus.INFO,
-            label: 'Passwords',
+            label: passwordsString,
+            sublabel: testDisplayString,
           });
           break;
         case SafetyCheckPasswordsStatus.QUOTA_LIMIT:
@@ -659,7 +635,8 @@ suite('SafetyCheckPasswordsChildUiTests', function() {
           assertSafetyCheckChild({
             page: page,
             iconStatus: SafetyCheckIconStatus.INFO,
-            label: 'Passwords',
+            label: passwordsString,
+            sublabel: testDisplayString,
             rowClickable: true,
           });
           break;
@@ -679,7 +656,7 @@ suite('SafetyCheckSafeBrowsingChildUiTests', function() {
     metricsBrowserProxy = new TestMetricsBrowserProxy();
     MetricsBrowserProxyImpl.setInstance(metricsBrowserProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     page = document.createElement('settings-safety-check-safe-browsing-child');
     document.body.appendChild(page);
     flush();
@@ -697,6 +674,7 @@ suite('SafetyCheckSafeBrowsingChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.RUNNING,
       label: 'Safe Browsing',
+      sublabel: testDisplayString,
     });
   });
 
@@ -708,6 +686,7 @@ suite('SafetyCheckSafeBrowsingChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.SAFE,
       label: 'Safe Browsing',
+      sublabel: testDisplayString,
       rowClickable: true,
     });
 
@@ -735,6 +714,7 @@ suite('SafetyCheckSafeBrowsingChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.SAFE,
       label: 'Safe Browsing',
+      sublabel: testDisplayString,
       rowClickable: true,
     });
   });
@@ -747,6 +727,7 @@ suite('SafetyCheckSafeBrowsingChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.SAFE,
       label: 'Safe Browsing',
+      sublabel: testDisplayString,
       rowClickable: true,
     });
   });
@@ -758,6 +739,7 @@ suite('SafetyCheckSafeBrowsingChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.INFO,
       label: 'Safe Browsing',
+      sublabel: testDisplayString,
       buttonLabel: 'Manage',
       buttonAriaLabel: 'Manage Safe Browsing',
       buttonClass: 'action-button',
@@ -787,6 +769,7 @@ suite('SafetyCheckSafeBrowsingChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.INFO,
       label: 'Safe Browsing',
+      sublabel: testDisplayString,
       managedIcon: true,
       rowClickable: true,
     });
@@ -800,6 +783,7 @@ suite('SafetyCheckSafeBrowsingChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.INFO,
       label: 'Safe Browsing',
+      sublabel: testDisplayString,
       managedIcon: true,
       rowClickable: true,
     });
@@ -817,7 +801,7 @@ suite('SafetyCheckExtensionsChildUiTests', function() {
     openWindowProxy = new TestOpenWindowProxy();
     OpenWindowProxyImpl.setInstance(openWindowProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     page = document.createElement('settings-safety-check-extensions-child');
     document.body.appendChild(page);
     flush();
@@ -843,7 +827,7 @@ suite('SafetyCheckExtensionsChildUiTests', function() {
         await metricsBrowserProxy.whenCalled('recordAction'));
     // Ensure the browser proxy call is done.
     assertEquals(
-        'chrome://extensions', await openWindowProxy.whenCalled('openURL'));
+        'chrome://extensions', await openWindowProxy.whenCalled('openUrl'));
   }
 
   test('extensionsCheckingUiTest', function() {
@@ -853,6 +837,7 @@ suite('SafetyCheckExtensionsChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.RUNNING,
       label: 'Extensions',
+      sublabel: testDisplayString,
     });
   });
 
@@ -863,6 +848,7 @@ suite('SafetyCheckExtensionsChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.INFO,
       label: 'Extensions',
+      sublabel: testDisplayString,
       rowClickable: true,
     });
   });
@@ -875,6 +861,7 @@ suite('SafetyCheckExtensionsChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.SAFE,
       label: 'Extensions',
+      sublabel: testDisplayString,
       rowClickable: true,
     });
 
@@ -891,7 +878,7 @@ suite('SafetyCheckExtensionsChildUiTests', function() {
         'Settings.SafetyCheck.ReviewExtensionsThroughCaretNavigation',
         await metricsBrowserProxy.whenCalled('recordAction'));
     // Ensure the browser proxy call is done.
-    const url = await openWindowProxy.whenCalled('openURL');
+    const url = await openWindowProxy.whenCalled('openUrl');
     assertEquals('chrome://extensions', url);
   });
 
@@ -903,6 +890,7 @@ suite('SafetyCheckExtensionsChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.SAFE,
       label: 'Extensions',
+      sublabel: testDisplayString,
       rowClickable: true,
     });
 
@@ -911,7 +899,7 @@ suite('SafetyCheckExtensionsChildUiTests', function() {
         .querySelector<SettingsSafetyCheckChildElement>(
             '#safetyCheckChild')!.click();
     // Ensure the browser proxy call is done.
-    const url = await openWindowProxy.whenCalled('openURL');
+    const url = await openWindowProxy.whenCalled('openUrl');
     assertEquals('chrome://extensions', url);
   });
 
@@ -923,6 +911,7 @@ suite('SafetyCheckExtensionsChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.WARNING,
       label: 'Extensions',
+      sublabel: testDisplayString,
       buttonLabel: 'Review',
       buttonAriaLabel: 'Review extensions',
       buttonClass: 'action-button',
@@ -938,6 +927,7 @@ suite('SafetyCheckExtensionsChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.WARNING,
       label: 'Extensions',
+      sublabel: testDisplayString,
       buttonLabel: 'Review',
       buttonAriaLabel: 'Review extensions',
       buttonClass: 'action-button',
@@ -954,6 +944,7 @@ suite('SafetyCheckExtensionsChildUiTests', function() {
       page: page,
       iconStatus: SafetyCheckIconStatus.INFO,
       label: 'Extensions',
+      sublabel: testDisplayString,
       managedIcon: true,
       rowClickable: true,
     });

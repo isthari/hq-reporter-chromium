@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,11 +18,11 @@ const char kLacrosAccountIdsPref[] =
 
 // Reads from `prefs` a list of account ids known by Lacros.
 AccountCache::AccountIdSet GetLacrosAccountIdsPref(PrefService* prefs) {
-  const base::Value* list = prefs->Get(kLacrosAccountIdsPref);
-  if (!list->is_list())
+  const base::Value& list = prefs->GetValue(kLacrosAccountIdsPref);
+  if (!list.is_list())
     return {};
   AccountCache::AccountIdSet account_ids;
-  for (const base::Value& value : list->GetList()) {
+  for (const base::Value& value : list.GetList()) {
     const std::string* gaia_id = value.GetIfString();
     if (gaia_id)
       account_ids.insert(*gaia_id);

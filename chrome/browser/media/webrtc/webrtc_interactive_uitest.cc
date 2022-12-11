@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "media/base/media_switches.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "mojo/public/cpp/bindings/sync_call_restrictions.h"
 #include "net/nqe/network_quality_estimator.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/network/network_service.h"
@@ -157,8 +158,8 @@ class WebRtcBrowserTest : public WebRtcTestBase {
     HangUp(right_tab_);
   }
 
-  raw_ptr<content::WebContents> left_tab_;
-  raw_ptr<content::WebContents> right_tab_;
+  raw_ptr<content::WebContents, DanglingUntriaged> left_tab_;
+  raw_ptr<content::WebContents, DanglingUntriaged> right_tab_;
 };
 
 IN_PROC_BROWSER_TEST_F(WebRtcBrowserTest,
@@ -184,12 +185,6 @@ IN_PROC_BROWSER_TEST_F(WebRtcBrowserTest,
            "(test \"OK\")";
     return;
   }
-
-#if BUILDFLAG(IS_MAC)
-  // TODO(jam): this test only on 10.12.
-  if (base::mac::IsOS10_12())
-    return;
-#endif
 
   RunsAudioVideoWebRTCCallInTwoTabs("H264", true /* prefer_hw_video_codec */);
 }

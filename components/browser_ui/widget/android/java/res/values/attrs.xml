@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright 2019 The Chromium Authors. All rights reserved.
-     Use of this source code is governed by a BSD-style license that can be
-     found in the LICENSE file. -->
+<!--
+Copyright 2019 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
 
 <resources>
     <declare-styleable name="BoundedLinearLayout">
@@ -27,6 +29,10 @@
         <attr name="menuMaxWidth" format="reference|dimension" />
         <attr name="menuVerticalOverlapAnchor" format="boolean" />
         <attr name="menuHorizontalOverlapAnchor" format="boolean" />
+        <!-- Used to specify if a menu button is positioned at the start or at
+        the end of a layout so the correct menu popup anim file can be applied.
+        The default is set to true -->
+        <attr name="menuPositionedAtEnd" format="boolean" />
     </declare-styleable>
 
     <declare-styleable name="AsyncImageView">
@@ -96,6 +102,7 @@
         <attr name="textAlignStart" format="boolean"/>
         <attr name="reduceTextStartPadding" format="boolean"/>
         <attr name="chipColor" format="color"/>
+        <attr name="chipStateLayerColor" format="color"/>
         <attr name="chipStrokeColor" format="color"/>
         <attr name="chipStyle" format="reference"/>
         <attr name="cornerRadius" format="dimension"/>
@@ -105,6 +112,7 @@
         <attr name="primaryTextAppearance" format="reference"/>
         <attr name="endIconWidth" format="reference|dimension"/>
         <attr name="endIconHeight" format="reference|dimension"/>
+        <attr name="multiLineVerticalPadding" format="reference|dimension"/>
         <attr name="secondaryTextAppearance" format="reference"/>
         <attr name="rippleColor"/>
         <attr name="verticalInset"/>

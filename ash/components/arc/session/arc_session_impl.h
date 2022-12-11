@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -150,7 +150,8 @@ class ArcSessionImpl
                                        ConnectMojoCallback callback) = 0;
 
     // Gets the available disk space under /home. The result is in bytes.
-    using GetFreeDiskSpaceCallback = base::OnceCallback<void(int64_t)>;
+    using GetFreeDiskSpaceCallback =
+        base::OnceCallback<void(absl::optional<int64_t>)>;
     virtual void GetFreeDiskSpace(GetFreeDiskSpaceCallback callback) = 0;
 
     // Returns the channel for the installation.
@@ -195,8 +196,9 @@ class ArcSessionImpl
                    const std::string& serial_number) override;
   void SetDemoModeDelegate(
       ArcClientAdapter::DemoModeDelegate* delegate) override;
-  void TrimVmMemory(TrimVmMemoryCallback callback) override;
+  void TrimVmMemory(TrimVmMemoryCallback callback, int page_limit) override;
   void SetDefaultDeviceScaleFactor(float scale_factor) override;
+  void SetUseVirtioBlkData(bool use_virtio_blk_data) override;
 
   // chromeos::SchedulerConfigurationManagerBase::Observer overrides:
   void OnConfigurationSet(bool success, size_t num_cores_disabled) override;
@@ -248,7 +250,7 @@ class ArcSessionImpl
   void DoStartMiniInstance(size_t num_cores_disabled);
 
   // Free disk space under /home in bytes.
-  void OnFreeDiskSpace(int64_t space);
+  void OnFreeDiskSpace(absl::optional<int64_t> space);
 
   // Whether adb sideloading can be changed
   void OnCanChangeAdbSideloading(bool can_change_adb_sideloading);
@@ -274,6 +276,9 @@ class ArcSessionImpl
 
   // Whether there's insufficient disk space to start the container.
   bool insufficient_disk_space_ = false;
+
+  // Whether ARCVM uses virtio-blk for /data.
+  bool use_virtio_blk_data_ = false;
 
   // In CONNECTING_MOJO state, this is set to the write side of the pipe
   // to notify cancelling of the procedure.

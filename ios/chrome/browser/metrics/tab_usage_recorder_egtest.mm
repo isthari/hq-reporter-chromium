@@ -1,15 +1,16 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <memory>
+#import <memory>
 
-#include "base/bind.h"
-#include "base/strings/stringprintf.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
+#import "base/bind.h"
+#import "base/strings/stringprintf.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "components/strings/grit/components_strings.h"
+#import "base/time/time.h"
+#import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/metrics/metrics_app_interface.h"
 #import "ios/chrome/browser/metrics/tab_usage_recorder_metrics.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
@@ -19,20 +20,20 @@
 #import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
 #import "ios/chrome/test/scoped_eg_synchronization_disabler.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "ios/web/public/test/element_selector.h"
-#include "ios/web/public/test/http_server/delayed_response_provider.h"
-#include "ios/web/public/test/http_server/html_response_provider.h"
+#import "ios/web/public/test/element_selector.h"
+#import "ios/web/public/test/http_server/delayed_response_provider.h"
+#import "ios/web/public/test/http_server/html_response_provider.h"
 #import "ios/web/public/test/http_server/http_server.h"
-#include "ios/web/public/test/http_server/http_server_util.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "ios/web/public/test/http_server/http_server_util.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
 using chrome_test_util::OpenLinkInNewTabButton;
+using chrome_test_util::SettingsDestinationButton;
 using chrome_test_util::SettingsDoneButton;
-using chrome_test_util::SettingsMenuButton;
 using chrome_test_util::SettingsMenuPrivacyButton;
 using chrome_test_util::TabGridCellAtIndex;
 using chrome_test_util::WebViewMatcher;
@@ -48,19 +49,19 @@ const char kURL2FirstWord[] = "Rugby";
 NSString* const kClearPageScript = @"document.body.innerHTML='';";
 
 // The delay to use to serve slow URLs.
-const CGFloat kSlowURLDelay = 3;
+constexpr base::TimeDelta kSlowURLDelay = base::Seconds(3);
 
 // The delay to use to wait for pate starting loading.
-const CGFloat kWaitForPageLoadTimeout = 3;
+constexpr base::TimeDelta kWaitForPageLoadTimeout = base::Seconds(3);
 
 // The delay to use to serve very slow URLS -- tests using this delay expect the
 // page to never load.
-const CGFloat kVerySlowURLDelay = 20;
+constexpr base::TimeDelta kVerySlowURLDelay = base::Seconds(20);
 
 // The delay to wait for an element to appear before tapping on it.
-const CGFloat kWaitElementTimeout = 3;
+constexpr base::TimeDelta kWaitElementTimeout = base::Seconds(3);
 
-// Wait until |matcher| is accessible (not nil).
+// Wait until `matcher` is accessible (not nil).
 void Wait(id<GREYMatcher> matcher, NSString* name) {
   ConditionBlock condition = ^{
     NSError* error = nil;
@@ -73,7 +74,7 @@ void Wait(id<GREYMatcher> matcher, NSString* name) {
              @"Waiting for matcher %@ failed.", name);
 }
 
-// Creates a new main tab and load |url|. Wait until |word| is visible on the
+// Creates a new main tab and load `url`. Wait until `word` is visible on the
 // page.
 void NewMainTabWithURL(const GURL& url, const std::string& word) {
   int number_of_tabs = [ChromeEarlGrey mainTabCount];
@@ -460,6 +461,12 @@ void SwitchToNormalMode() {
 // Test that USER_DID_NOT_WAIT is reported if the user does not wait for the
 // reload to be complete after eviction.
 - (void)testEvictedTabSlowReload {
+  if ([ChromeEarlGrey isThumbstripEnabledForWindowWithNumber:0]) {
+    // Skip this test if thumbstrip is enabled. When enabled, the current tab
+    // is displayed at the bottom of the tab grid and not evicted.
+    EARL_GREY_TEST_SKIPPED(@"Thumbstrip keeps active tab alive.");
+  }
+
   std::map<GURL, std::string> responses;
   const GURL slowURL = web::test::HttpServer::MakeUrl("http://slow");
   responses[slowURL] = "Slow Page";
@@ -516,6 +523,12 @@ void SwitchToNormalMode() {
 // Test that the USER_DID_NOT_WAIT metric is logged when the user opens an NTP
 // while the evicted tab is still reloading.
 - (void)testEvictedTabReloadSwitchToNTP {
+  if ([ChromeEarlGrey isThumbstripEnabledForWindowWithNumber:0]) {
+    // Skip this test if thumbstrip is enabled. When enabled, the current tab
+    // is displayed at the bottom of the tab grid and not evicted.
+    EARL_GREY_TEST_SKIPPED(@"Thumbstrip keeps active tab alive.");
+  }
+
   std::map<GURL, std::string> responses;
   const GURL slowURL = web::test::HttpServer::MakeUrl("http://slow");
   responses[slowURL] = "Slow Page";
@@ -622,6 +635,12 @@ void SwitchToNormalMode() {
 // Tests that leaving Chrome while an evicted tab is reloading triggers the
 // recording of the USER_LEFT_CHROME metric.
 - (void)testEvictedTabReloadBackgrounded {
+  if ([ChromeEarlGrey isThumbstripEnabledForWindowWithNumber:0]) {
+    // Skip this test if thumbstrip is enabled. When enabled, the current tab
+    // is displayed at the bottom of the tab grid and not evicted.
+    EARL_GREY_TEST_SKIPPED(@"Thumbstrip keeps active tab alive.");
+  }
+
   std::map<GURL, std::string> responses;
   const GURL slowURL = web::test::HttpServer::MakeUrl("http://slow");
   responses[slowURL] = "Slow Page";
@@ -917,7 +936,7 @@ void SwitchToNormalMode() {
 
     // Close two of the three open tabs without selecting them first.
     // This should delete the tab objects, even though they're still being
-    // tracked by the tab usage recorder in its |evicted_tabs_| map.
+    // tracked by the tab usage recorder in its `evicted_tabs_` map.
     CloseTabAtIndexAndSync(1);
 
     GREYAssertEqual([ChromeEarlGrey mainTabCount], 2,
@@ -929,7 +948,7 @@ void SwitchToNormalMode() {
   }
   // The deleted tabs are purged during foregrounding and backgrounding.
   [ChromeEarlGrey simulateTabsBackgrounding];
-  // Make sure |evicted_tabs_| purged the deleted tabs.
+  // Make sure `evicted_tabs_` purged the deleted tabs.
   int evicted = [ChromeEarlGrey evictedMainTabCount];
   GREYAssertEqual(evicted, 0, @"Check number of evicted tabs");
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,7 @@ namespace content_settings {
 class ContentSettingsDefaultProviderTest : public testing::Test {
  public:
   ContentSettingsDefaultProviderTest()
-      : provider_(profile_.GetPrefs(), false) {}
+      : provider_(profile_.GetPrefs(), false, false) {}
   ~ContentSettingsDefaultProviderTest() override {
     provider_.ShutdownOnUIThread();
   }
@@ -126,7 +126,8 @@ TEST_F(ContentSettingsDefaultProviderTest, ObservePref) {
 }
 
 // Tests that fullscreen, obsolete NFC (with the old semantics, see
-// crbug.com/1275576), and mouselock content settings are cleared.
+// crbug.com/1275576), and obsolete content settings (plugins, mouselock,
+// installed web app metadata) are cleared.
 TEST_F(ContentSettingsDefaultProviderTest, DiscardObsoletePreferences) {
   static const char kFullscreenPrefPath[] =
       "profile.default_content_setting_values.fullscreen";
@@ -141,6 +142,8 @@ TEST_F(ContentSettingsDefaultProviderTest, DiscardObsoletePreferences) {
       "profile.default_content_setting_values.flash_data";
   const char kObsoleteFileHandlingDefaultPref[] =
       "profile.default_content_setting_values.file_handling";
+  const char kObsoleteInstalledWebAppMetadataDefaultPref[] =
+      "profile.default_content_setting_values.installed_web_app_metadata";
 #endif
   static const char kGeolocationPrefPath[] =
       "profile.default_content_setting_values.geolocation";
@@ -153,12 +156,14 @@ TEST_F(ContentSettingsDefaultProviderTest, DiscardObsoletePreferences) {
   prefs->SetInteger(kObsoletePluginsDefaultPref, CONTENT_SETTING_ALLOW);
   prefs->SetInteger(kObsoletePluginsDataDefaultPref, CONTENT_SETTING_ALLOW);
   prefs->SetInteger(kObsoleteFileHandlingDefaultPref, CONTENT_SETTING_ALLOW);
+  prefs->SetInteger(kObsoleteInstalledWebAppMetadataDefaultPref,
+                    CONTENT_SETTING_ALLOW);
 #endif
   prefs->SetInteger(kGeolocationPrefPath, CONTENT_SETTING_BLOCK);
 
   // Instantiate a new DefaultProvider; can't use |provider_| because we want to
   // test the constructor's behavior after setting the above.
-  DefaultProvider provider(prefs, false);
+  DefaultProvider provider(prefs, false, false);
 
   // Check that obsolete prefs have been deleted.
   EXPECT_FALSE(prefs->HasPrefPath(kFullscreenPrefPath));
@@ -168,13 +173,14 @@ TEST_F(ContentSettingsDefaultProviderTest, DiscardObsoletePreferences) {
   EXPECT_FALSE(prefs->HasPrefPath(kObsoletePluginsDefaultPref));
   EXPECT_FALSE(prefs->HasPrefPath(kObsoletePluginsDataDefaultPref));
   EXPECT_FALSE(prefs->HasPrefPath(kObsoleteFileHandlingDefaultPref));
+  EXPECT_FALSE(prefs->HasPrefPath(kObsoleteInstalledWebAppMetadataDefaultPref));
 #endif
   // Check that non-obsolete prefs have not been touched.
   EXPECT_TRUE(prefs->HasPrefPath(kGeolocationPrefPath));
   EXPECT_EQ(CONTENT_SETTING_BLOCK, prefs->GetInteger(kGeolocationPrefPath));
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_WIN)
+#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN)
 // Tests that the protected media identifier setting is migrated.
 TEST_F(ContentSettingsDefaultProviderTest,
        MigrateProtectedMediaIdentifierPreferenceBlock) {
@@ -186,7 +192,7 @@ TEST_F(ContentSettingsDefaultProviderTest,
 
   // Instantiate a new DefaultProvider; can't use |provider_| because we want to
   // test the constructor's behavior after setting the above.
-  DefaultProvider provider(prefs, false);
+  DefaultProvider provider(prefs, false, false);
 
   // Check that the setting has been migrated.
   EXPECT_FALSE(prefs->HasPrefPath(kDeprecatedEnableDRM));
@@ -212,7 +218,7 @@ TEST_F(ContentSettingsDefaultProviderTest,
 
   // Instantiate a new DefaultProvider; can't use |provider_| because we want to
   // test the constructor's behavior after setting the above.
-  DefaultProvider provider(prefs, false);
+  DefaultProvider provider(prefs, false, false);
 
   // Check that the setting has been migrated.
   EXPECT_FALSE(prefs->HasPrefPath(kDeprecatedEnableDRM));
@@ -228,10 +234,11 @@ TEST_F(ContentSettingsDefaultProviderTest,
           website_settings->Get(ContentSettingsType::PROTECTED_MEDIA_IDENTIFIER)
               ->default_value_pref_name()));
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_WIN)
+#endif  // BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN)
 
 TEST_F(ContentSettingsDefaultProviderTest, OffTheRecord) {
-  DefaultProvider otr_provider(profile_.GetPrefs(), true /* incognito */);
+  DefaultProvider otr_provider(profile_.GetPrefs(), true /* incognito */,
+                               false /* should_record_metrics */);
 
   EXPECT_EQ(CONTENT_SETTING_ALLOW,
             TestUtils::GetContentSetting(&provider_, GURL(), GURL(),
@@ -273,7 +280,8 @@ TEST_F(ContentSettingsDefaultProviderTest, OffTheRecord) {
                                          true /* include_incognito */));
 
   // Check that new OTR DefaultProviders also inherit the correct value.
-  DefaultProvider otr_provider2(profile_.GetPrefs(), true /* incognito */);
+  DefaultProvider otr_provider2(profile_.GetPrefs(), true /* incognito */,
+                                false /* should_record_metrics */);
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
             TestUtils::GetContentSetting(&otr_provider2, GURL(), GURL(),
                                          ContentSettingsType::COOKIES,

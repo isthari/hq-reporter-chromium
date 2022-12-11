@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <memory>
 #include <vector>
 
-#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/test/test_system_tray_client.h"
 #include "ash/system/bluetooth/bluetooth_detailed_view.h"
 #include "ash/system/bluetooth/bluetooth_device_list_controller.h"
@@ -21,30 +20,28 @@
 #include "base/check.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
-#include "base/test/scoped_feature_list.h"
-#include "chromeos/services/bluetooth_config/fake_adapter_state_controller.h"
-#include "chromeos/services/bluetooth_config/fake_device_cache.h"
-#include "chromeos/services/bluetooth_config/fake_device_operation_handler.h"
-#include "chromeos/services/bluetooth_config/public/mojom/cros_bluetooth_config.mojom.h"
-#include "chromeos/services/bluetooth_config/scoped_bluetooth_config_test_helper.h"
+#include "chromeos/ash/services/bluetooth_config/fake_adapter_state_controller.h"
+#include "chromeos/ash/services/bluetooth_config/fake_device_cache.h"
+#include "chromeos/ash/services/bluetooth_config/fake_device_operation_handler.h"
+#include "chromeos/ash/services/bluetooth_config/public/mojom/cros_bluetooth_config.mojom.h"
+#include "chromeos/ash/services/bluetooth_config/scoped_bluetooth_config_test_helper.h"
 #include "mojo/public/cpp/bindings/clone_traits.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ash {
-namespace tray {
+
 namespace {
 
-const char kDeviceId[] = "/device/id";
+using bluetooth_config::FakeDeviceOperationHandler;
+using bluetooth_config::ScopedBluetoothConfigTestHelper;
+using bluetooth_config::mojom::AudioOutputCapability;
+using bluetooth_config::mojom::BluetoothDeviceProperties;
+using bluetooth_config::mojom::BluetoothSystemState;
+using bluetooth_config::mojom::DeviceConnectionState;
+using bluetooth_config::mojom::PairedBluetoothDeviceProperties;
+using bluetooth_config::mojom::PairedBluetoothDevicePropertiesPtr;
 
-using chromeos::bluetooth_config::AdapterStateController;
-using chromeos::bluetooth_config::FakeDeviceOperationHandler;
-using chromeos::bluetooth_config::ScopedBluetoothConfigTestHelper;
-using chromeos::bluetooth_config::mojom::AudioOutputCapability;
-using chromeos::bluetooth_config::mojom::BluetoothDeviceProperties;
-using chromeos::bluetooth_config::mojom::BluetoothSystemState;
-using chromeos::bluetooth_config::mojom::DeviceConnectionState;
-using chromeos::bluetooth_config::mojom::PairedBluetoothDeviceProperties;
-using chromeos::bluetooth_config::mojom::PairedBluetoothDevicePropertiesPtr;
+const char kDeviceId[] = "/device/id";
 
 class FakeBluetoothDetailedViewFactory : public BluetoothDetailedView::Factory {
  public:
@@ -107,38 +104,34 @@ class BluetoothDetailedViewControllerTest : public AshTestBase {
   void SetUp() override {
     AshTestBase::SetUp();
 
-    feature_list_.InitAndEnableFeature(features::kBluetoothRevamp);
-
     GetPrimaryUnifiedSystemTray()->ShowBubble();
-
-    bluetooth_detailed_view_controller_ =
-        std::make_unique<BluetoothDetailedViewController>(
-            GetPrimaryUnifiedSystemTray()->bubble()->controller_for_test());
 
     BluetoothDetailedView::Factory::SetFactoryForTesting(
         &bluetooth_detailed_view_factory_);
     BluetoothDeviceListController::Factory::SetFactoryForTesting(
         &bluetooth_device_list_controller_factory_);
 
-    // We have access to the fakes through our factories so we don't bother
-    // caching the view here.
-    detailed_view_ =
-        base::WrapUnique(static_cast<DetailedViewController*>(
-                             bluetooth_detailed_view_controller_.get())
-                             ->CreateView());
+    GetPrimaryUnifiedSystemTray()
+        ->bubble()
+        ->unified_system_tray_controller()
+        ->ShowBluetoothDetailedView();
+
+    bluetooth_detailed_view_controller_ =
+        static_cast<BluetoothDetailedViewController*>(
+            GetPrimaryUnifiedSystemTray()
+                ->bubble()
+                ->unified_system_tray_controller()
+                ->detailed_view_controller());
+
     base::RunLoop().RunUntilIdle();
   }
 
   void TearDown() override {
-    detailed_view_.reset();
     BluetoothDeviceListController::Factory::SetFactoryForTesting(nullptr);
     BluetoothDetailedView::Factory::SetFactoryForTesting(nullptr);
-    bluetooth_detailed_view_controller_.reset();
 
     AshTestBase::TearDown();
   }
-
-  std::unique_ptr<views::View> detailed_view_;
 
   BluetoothSystemState GetBluetoothAdapterState() {
     return bluetooth_config_test_helper()
@@ -170,7 +163,7 @@ class BluetoothDetailedViewControllerTest : public AshTestBase {
   }
 
   BluetoothDetailedView::Delegate* bluetooth_detailed_view_delegate() {
-    return bluetooth_detailed_view_controller_.get();
+    return bluetooth_detailed_view_controller_;
   }
 
   FakeBluetoothDetailedView* bluetooth_detailed_view() {
@@ -191,13 +184,26 @@ class BluetoothDetailedViewControllerTest : public AshTestBase {
     return ash_test_helper()->bluetooth_config_test_helper();
   }
 
-  base::test::ScopedFeatureList feature_list_;
-  std::unique_ptr<BluetoothDetailedViewController>
-      bluetooth_detailed_view_controller_;
+  BluetoothDetailedViewController* bluetooth_detailed_view_controller_;
   FakeBluetoothDetailedViewFactory bluetooth_detailed_view_factory_;
   FakeBluetoothDeviceListControllerFactory
       bluetooth_device_list_controller_factory_;
 };
+
+TEST_F(BluetoothDetailedViewControllerTest,
+       TransitionToMainViewWhenBluetoothUnavailable) {
+  EXPECT_TRUE(GetPrimaryUnifiedSystemTray()
+                  ->bubble()
+                  ->unified_system_tray_controller()
+                  ->IsDetailedViewShown());
+
+  SetBluetoothAdapterState(BluetoothSystemState::kUnavailable);
+
+  EXPECT_FALSE(GetPrimaryUnifiedSystemTray()
+                   ->bubble()
+                   ->unified_system_tray_controller()
+                   ->IsDetailedViewShown());
+}
 
 TEST_F(BluetoothDetailedViewControllerTest,
        NotifiesWhenBluetoothEnabledStateChanges) {
@@ -329,5 +335,4 @@ TEST_F(BluetoothDetailedViewControllerTest,
       bluetooth_device_list_controller()->previously_connected_devices_count());
 }
 
-}  // namespace tray
 }  // namespace ash

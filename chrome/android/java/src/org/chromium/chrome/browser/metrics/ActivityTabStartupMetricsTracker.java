@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@ package org.chromium.chrome.browser.metrics;
 
 import android.os.SystemClock;
 
-import org.chromium.base.ObserverList;
-import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.chrome.browser.paint_preview.StartupPaintPreviewHelper;
@@ -16,9 +14,12 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabObserver;
 import org.chromium.components.embedder_support.util.UrlUtilities;
+import org.chromium.components.safe_browsing.SafeBrowsingApiBridge;
 import org.chromium.content_public.browser.NavigationHandle;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.url.GURL;
+
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Tracks the first navigation and first contentful paint events for a tab within an activity during
@@ -31,52 +32,11 @@ public class ActivityTabStartupMetricsTracker {
     private static final String FIRST_PAINT_OCCURRED_PRE_FOREGROUND_HISTOGRAM =
             "Startup.Android.Cold.FirstPaintOccurredPreForeground";
 
-    /** Observer for startup metrics. */
-    public interface Observer {
-        /**
-         * Called when the initial navigation upon startup is started. This will be fired at most
-         * once.
-         */
-        void onFirstNavigationStart();
-
-        /**
-         * Called when recording first visible content. This will be fired at most once.
-         */
-        void onFirstVisibleContent();
-
-        /**
-         * Called when recording first navigation commit. This will be fired at most once.
-         */
-        void onFirstNavigationCommit();
-
-        /**
-         * Called when recording first contentful paint. This will be fired at most once.
-         */
-        void onFirstContentfulPaint();
-    }
-
-    private static ObserverList<Observer> sObservers;
-
-    /** Adds an observer. */
-    public static boolean addObserver(Observer observer) {
-        ThreadUtils.assertOnUiThread();
-        if (sObservers == null) sObservers = new ObserverList<>();
-        return sObservers.addObserver(observer);
-    }
-
-    /** Removes an observer. */
-    public static boolean removeObserver(Observer observer) {
-        ThreadUtils.assertOnUiThread();
-        if (sObservers == null) return false;
-        return sObservers.removeObserver(observer);
-    }
-
     private class PageLoadMetricsObserverImpl implements PageLoadMetrics.Observer {
         private static final long NO_NAVIGATION_ID = -1;
 
         private long mNavigationId = NO_NAVIGATION_ID;
         private boolean mShouldRecordHistograms;
-        private boolean mInvokedOnFirstNavigationStart;
 
         @Override
         public void onNewNavigation(WebContents webContents, long navigationId,
@@ -85,32 +45,14 @@ public class ActivityTabStartupMetricsTracker {
 
             mNavigationId = navigationId;
             mShouldRecordHistograms = mShouldTrackStartupMetrics;
-
-            // Only notify observers of the initial navigation in the case where we will also record
-            // first contentful paint for this navigation.
-            if (!mInvokedOnFirstNavigationStart && mShouldRecordHistograms) {
-                if (sObservers != null) {
-                    for (Observer observer : sObservers) {
-                        observer.onFirstNavigationStart();
-                    }
-                }
-                mInvokedOnFirstNavigationStart = true;
-            }
         }
 
         @Override
         public void onFirstContentfulPaint(WebContents webContents, long navigationId,
-                long navigationStartTick, long firstContentfulPaintMs) {
+                long navigationStartMicros, long firstContentfulPaintMs) {
             if (navigationId != mNavigationId || !mShouldRecordHistograms) return;
 
-            recordFirstContentfulPaint(navigationStartTick / 1000 + firstContentfulPaintMs);
-        }
-
-        void resetMetricsRecordingStateForInitialNavigation() {
-            // NOTE: |mInvokedOnFirstNavigationStart| is intentionally not reset to avoid duplicate
-            // observer notifications.
-            mNavigationId = NO_NAVIGATION_ID;
-            mShouldRecordHistograms = false;
+            recordFirstContentfulPaint(navigationStartMicros / 1000 + firstContentfulPaintMs);
         }
     };
 
@@ -133,10 +75,22 @@ public class ActivityTabStartupMetricsTracker {
     // foreground. Used for investigating crbug.com/1273097.
     private boolean mRegisteredFirstPaintPreForeground;
 
+    // The time it took for SafeBrowsing to respond for the first time. The SB request is on the
+    // critical path to navigation commit, and the response may be severely delayed by GmsCore
+    // (see http://crbug.com/1296097). The value is recorded only when the navigation commits
+    // successfully. Updating the value atomically from another thread to provide a simpler
+    // guarantee that the value is not lost after posting a few tasks.
+    private final AtomicLong mFirstSafeBrowsingResponseTimeMicros = new AtomicLong();
+
     public ActivityTabStartupMetricsTracker(
             ObservableSupplier<TabModelSelector> tabModelSelectorSupplier) {
         mActivityStartTimeMs = SystemClock.uptimeMillis();
         tabModelSelectorSupplier.addObserver((selector) -> registerObservers(selector));
+        SafeBrowsingApiBridge.setOneTimeUrlCheckObserver(this::updateSafeBrowsingCheckTime);
+    }
+
+    private void updateSafeBrowsingCheckTime(long urlCheckTimeDeltaMicros) {
+        mFirstSafeBrowsingResponseTimeMicros.compareAndSet(0, urlCheckTimeDeltaMicros);
     }
 
     // Note: In addition to returning false when startup metrics are not being tracked at all, this
@@ -169,23 +123,22 @@ public class ActivityTabStartupMetricsTracker {
                     }
 
                     @Override
-                    public void onDidFinishNavigation(Tab tab, NavigationHandle navigation) {
+                    public void onDidFinishNavigationInPrimaryMainFrame(
+                            Tab tab, NavigationHandle navigation) {
                         boolean isTrackedPage = navigation.hasCommitted()
-                                && navigation.isInPrimaryMainFrame() && !navigation.isErrorPage()
-                                && !navigation.isSameDocument()
-                                && !navigation.isFragmentNavigation()
+                                && !navigation.isErrorPage() && !navigation.isSameDocument()
                                 && UrlUtilities.isHttpOrHttps(navigation.getUrl());
                         registerFinishNavigation(isTrackedPage);
                     }
+
+                    @Override
+                    public void onDidFinishNavigationNoop(Tab tab, NavigationHandle navigation) {
+                        registerFinishNavigation(false);
+                    }
                 };
         mPageLoadMetricsObserver = new PageLoadMetricsObserverImpl();
-        PageLoadMetrics.addObserver(mPageLoadMetricsObserver);
-        mUmaUtilsObserver = new UmaUtils.Observer() {
-            @Override
-            public void onHasComeToForeground() {
-                registerHasComeToForeground();
-            }
-        };
+        PageLoadMetrics.addObserver(mPageLoadMetricsObserver, false);
+        mUmaUtilsObserver = this::registerHasComeToForeground;
         UmaUtils.addObserver(mUmaUtilsObserver);
     }
 
@@ -227,26 +180,12 @@ public class ActivityTabStartupMetricsTracker {
                 // The first paint not being recorded means that either (1) the browser is not
                 // marked as being in the foreground or (2) it has been backgrounded. Update
                 // |mRegisteredFirstPaintPreForeground| if appropriate.
-                if (!UmaUtils.hasComeToForeground() && !UmaUtils.hasComeToBackground()) {
+                if (!UmaUtils.hasComeToForegroundWithNative()
+                        && !UmaUtils.hasComeToBackgroundWithNative()) {
                     mRegisteredFirstPaintPreForeground = true;
                 }
             }
         });
-    }
-
-    /**
-     * Invoked when a tab preloaded at startup is dropped rather than taken, meaning that a new tab
-     * will need to be created to do the initial navigation. Resets state related to observation of
-     * the initial navigation to ensure that loading startup metrics are properly recorded in this
-     * case. Note that it is not necessary to reset the state of |mTabModelSelectorTabObserver| in
-     * this case, as that observer tracks state starting only from the addition of a tab to the tab
-     * model, which by definition has not yet occurred at this point.
-     */
-    public void onStartupTabPreloadDropped() {
-        // Note that observers are not created in all contexts (e.g., CCT).
-        if (mPageLoadMetricsObserver == null) return;
-
-        mPageLoadMetricsObserver.resetMetricsRecordingStateForInitialNavigation();
     }
 
     /**
@@ -304,28 +243,31 @@ public class ActivityTabStartupMetricsTracker {
     private void registerFinishNavigation(boolean isTrackedPage) {
         if (!mShouldTrackStartupMetrics) return;
 
-        if (isTrackedPage && UmaUtils.hasComeToForeground() && !UmaUtils.hasComeToBackground()) {
+        if (isTrackedPage && UmaUtils.hasComeToForegroundWithNative()
+                && !UmaUtils.hasComeToBackgroundWithNative()) {
             mFirstCommitTimeMs = SystemClock.uptimeMillis() - mActivityStartTimeMs;
             RecordHistogram.recordMediumTimesHistogram(
                     "Startup.Android.Cold.TimeToFirstNavigationCommit" + mHistogramSuffix,
                     mFirstCommitTimeMs);
             if (mHistogramSuffix.equals(UMA_HISTOGRAM_TABBED_SUFFIX)) {
                 recordFirstVisibleContent(mFirstCommitTimeMs);
+                recordFirstSafeBrowsingResponseTime();
             }
             RecordHistogram.recordBooleanHistogram(
                     FIRST_COMMIT_OCCURRED_PRE_FOREGROUND_HISTOGRAM, false);
-
-            if (sObservers != null) {
-                for (Observer observer : sObservers) {
-                    observer.onFirstNavigationCommit();
-                }
-            }
-        } else if (isTrackedPage && !UmaUtils.hasComeToForeground()
-                && !UmaUtils.hasComeToBackground()) {
+        } else if (isTrackedPage && !UmaUtils.hasComeToForegroundWithNative()
+                && !UmaUtils.hasComeToBackgroundWithNative()) {
             mRegisteredFirstCommitPreForeground = true;
         }
 
         mShouldTrackStartupMetrics = false;
+    }
+
+    private void recordFirstSafeBrowsingResponseTime() {
+        long deltaMicros = mFirstSafeBrowsingResponseTimeMicros.getAndSet(0);
+        if (deltaMicros == 0) return;
+        RecordHistogram.recordMediumTimesHistogram(
+                "Startup.Android.Cold.FirstSafeBrowsingResponseTime.Tabbed", deltaMicros / 1000);
     }
 
     /**
@@ -338,19 +280,13 @@ public class ActivityTabStartupMetricsTracker {
         // record if the first commit time wasn't recorded.
         if (mFirstCommitTimeMs == 0) return;
 
-        if (UmaUtils.hasComeToForeground() && !UmaUtils.hasComeToBackground()) {
+        if (UmaUtils.hasComeToForegroundWithNative() && !UmaUtils.hasComeToBackgroundWithNative()) {
             long durationMs = firstContentfulPaintMs - mActivityStartTimeMs;
             RecordHistogram.recordMediumTimesHistogram(
                     "Startup.Android.Cold.TimeToFirstContentfulPaint" + mHistogramSuffix,
                     durationMs);
             if (mHistogramSuffix.equals(UMA_HISTOGRAM_TABBED_SUFFIX)) {
                 recordVisibleContent(durationMs);
-            }
-
-            if (sObservers != null) {
-                for (Observer observer : sObservers) {
-                    observer.onFirstContentfulPaint();
-                }
             }
         }
         // This is the last navigation-related event we track, so clean up related state.
@@ -372,12 +308,6 @@ public class ActivityTabStartupMetricsTracker {
         mFirstVisibleContentRecorded = true;
         RecordHistogram.recordMediumTimesHistogram(
                 "Startup.Android.Cold.TimeToFirstVisibleContent", durationMs);
-
-        if (sObservers != null) {
-            for (Observer observer : sObservers) {
-                observer.onFirstVisibleContent();
-            }
-        }
     }
 
     /**

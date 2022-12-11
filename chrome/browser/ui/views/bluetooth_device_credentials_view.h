@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,7 @@ class BluetoothDeviceCredentialsView : public views::DialogDelegateView,
   METADATA_HEADER(BluetoothDeviceCredentialsView);
   BluetoothDeviceCredentialsView(
       const std::u16string& device_identifier,
-      content::BluetoothDelegate::CredentialsCallback close_callback);
+      content::BluetoothDelegate::PairPromptCallback close_callback);
   BluetoothDeviceCredentialsView(const BluetoothDeviceCredentialsView&) =
       delete;
   BluetoothDeviceCredentialsView& operator=(
@@ -43,12 +43,14 @@ class BluetoothDeviceCredentialsView : public views::DialogDelegateView,
   views::View* GetInitiallyFocusedView() override;
 
  private:
+  // Runs the |close_callback_| with the PairPromptResult if the dialog is
+  // accepted.
   void OnDialogAccepted();
   // TextfieldController:
   void ContentsChanged(views::Textfield* sender,
                        const std::u16string& new_contents) override;
 
-  content::BluetoothDelegate::CredentialsCallback close_callback_;
+  content::BluetoothDelegate::PairPromptCallback close_callback_;
   raw_ptr<views::Textfield> passkey_text_ = nullptr;
   raw_ptr<views::View> icon_view_ = nullptr;
   raw_ptr<views::View> contents_wrapper_ = nullptr;

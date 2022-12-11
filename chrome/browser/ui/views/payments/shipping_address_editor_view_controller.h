@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -171,7 +171,7 @@ class ShippingAddressEditorViewController : public EditorViewController {
   bool failed_to_load_region_data_;
 
   // Owned by the state combobox, which is owned by this object's base class.
-  raw_ptr<autofill::RegionComboboxModel> region_model_;
+  raw_ptr<autofill::RegionComboboxModel, DanglingUntriaged> region_model_;
 
   base::WeakPtrFactory<ShippingAddressEditorViewController> weak_ptr_factory_{
       this};

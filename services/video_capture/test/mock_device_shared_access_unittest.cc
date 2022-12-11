@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,7 +55,7 @@ class MockDeviceSharedAccessTest : public ::testing::Test {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
     service_device_factory_ = std::make_unique<DeviceFactoryMediaToMojoAdapter>(
         std::move(video_capture_system), base::DoNothing(),
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
 #else
     service_device_factory_ = std::make_unique<DeviceFactoryMediaToMojoAdapter>(
         std::move(video_capture_system));

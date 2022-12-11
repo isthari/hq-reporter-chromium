@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/test_mock_time_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/test/base/chrome_ash_test_base.h"
@@ -26,9 +25,9 @@
 
 namespace policy {
 
-namespace em = enterprise_management;
-
 namespace {
+
+namespace em = ::enterprise_management;
 
 // String constant identifying the result field in the result payload.
 const char* const kResultFieldName = "result";
@@ -45,8 +44,7 @@ em::RemoteCommand GenerateScreenshotCommandProto(
     base::TimeDelta age_of_command,
     const std::string upload_url) {
   em::RemoteCommand command_proto;
-  command_proto.set_type(
-      enterprise_management::RemoteCommand_Type_DEVICE_SCREENSHOT);
+  command_proto.set_type(em::RemoteCommand_Type_DEVICE_SCREENSHOT);
   command_proto.set_command_id(unique_id);
   command_proto.set_age_of_command(age_of_command.InMilliseconds());
   std::string payload;
@@ -57,7 +55,7 @@ em::RemoteCommand GenerateScreenshotCommandProto(
   return command_proto;
 }
 
-class MockUploadJob : public policy::UploadJob {
+class MockUploadJob : public UploadJob {
  public:
   // If |error_code| is a null pointer OnSuccess() will be invoked when the
   // Start() method is called, otherwise OnFailure() will be invoked with the
@@ -67,7 +65,7 @@ class MockUploadJob : public policy::UploadJob {
                 std::unique_ptr<UploadJob::ErrorCode> error_code);
   ~MockUploadJob() override;
 
-  // policy::UploadJob:
+  // UploadJob:
   void AddDataSegment(const std::string& name,
                       const std::string& filename,
                       const std::map<std::string, std::string>& header_entries,
@@ -102,12 +100,12 @@ void MockUploadJob::Start() {
   DCHECK(delegate_);
   EXPECT_EQ(kMockUploadUrl, upload_url_.spec());
   if (error_code_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&UploadJob::Delegate::OnFailure,
                                   base::Unretained(delegate_), *error_code_));
     return;
   }
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&UploadJob::Delegate::OnSuccess,
                                 base::Unretained(delegate_)));
 }
@@ -143,7 +141,7 @@ class MockScreenshotDelegate : public DeviceCommandScreenshotJob::Delegate {
   bool IsScreenshotAllowed() override;
   void TakeSnapshot(gfx::NativeWindow window,
                     const gfx::Rect& source_rect,
-                    ui::GrabWindowSnapshotAsyncPNGCallback callback) override;
+                    OnScreenshotTakenCallback callback) override;
   std::unique_ptr<UploadJob> CreateUploadJob(const GURL&,
                                              UploadJob::Delegate*) override;
 
@@ -164,15 +162,14 @@ bool MockScreenshotDelegate::IsScreenshotAllowed() {
   return screenshot_allowed_;
 }
 
-void MockScreenshotDelegate::TakeSnapshot(
-    gfx::NativeWindow window,
-    const gfx::Rect& source_rect,
-    ui::GrabWindowSnapshotAsyncPNGCallback callback) {
+void MockScreenshotDelegate::TakeSnapshot(gfx::NativeWindow window,
+                                          const gfx::Rect& source_rect,
+                                          OnScreenshotTakenCallback callback) {
   const int width = source_rect.width();
   const int height = source_rect.height();
   scoped_refptr<base::RefCountedBytes> test_png =
       GenerateTestPNG(width, height);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), test_png));
 }
 

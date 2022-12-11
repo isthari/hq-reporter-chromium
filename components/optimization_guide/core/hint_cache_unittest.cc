@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,7 +57,8 @@ class HintCacheTest : public ProtoDatabaseProviderTestBase,
     optimization_guide_store_ =
         IsBackedByPersistentStore()
             ? std::make_unique<OptimizationGuideStore>(
-                  db_provider_.get(), database_path, database_task_runner)
+                  db_provider_.get(), database_path, database_task_runner,
+                  /*pref_service_=*/nullptr)
             : nullptr;
     hint_cache_ = std::make_unique<HintCache>(
         optimization_guide_store_ ? optimization_guide_store_->AsWeakPtr()

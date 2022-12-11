@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 
 #include "base/bind.h"
 #include "base/run_loop.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/win/windows_version.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/network_change_notifier_factory.h"
@@ -32,7 +32,8 @@ class TestNetworkChangeNotifierWin : public NetworkChangeNotifierWin {
     last_computed_connection_type_ = NetworkChangeNotifier::CONNECTION_UNKNOWN;
     last_announced_offline_ = false;
     last_computed_connection_cost_ = ConnectionCost::CONNECTION_COST_UNKNOWN;
-    sequence_runner_for_registration_ = base::SequencedTaskRunnerHandle::Get();
+    sequence_runner_for_registration_ =
+        base::SequencedTaskRunner::GetCurrentDefault();
   }
 
   TestNetworkChangeNotifierWin(const TestNetworkChangeNotifierWin&) = delete;
@@ -48,7 +49,7 @@ class TestNetworkChangeNotifierWin : public NetworkChangeNotifierWin {
   // From NetworkChangeNotifierWin.
   void RecomputeCurrentConnectionTypeOnBlockingSequence(
       base::OnceCallback<void(ConnectionType)> reply_callback) const override {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(reply_callback),
                                   NetworkChangeNotifier::CONNECTION_UNKNOWN));
   }
@@ -66,7 +67,7 @@ class TestIPAddressObserver : public NetworkChangeNotifier::IPAddressObserver {
   TestIPAddressObserver(const TestIPAddressObserver&) = delete;
   TestIPAddressObserver& operator=(const TestIPAddressObserver&) = delete;
 
-  ~TestIPAddressObserver() {
+  ~TestIPAddressObserver() override {
     NetworkChangeNotifier::RemoveIPAddressObserver(this);
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include "base/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/reporting/proto/synced/record.pb.h"
 #include "components/reporting/proto/synced/record_constants.pb.h"
 #include "components/reporting/util/status.h"
@@ -20,14 +19,18 @@ FakeMissiveClient::FakeMissiveClient() = default;
 FakeMissiveClient::~FakeMissiveClient() = default;
 
 void FakeMissiveClient::Init() {
-  DCHECK(base::SequencedTaskRunnerHandle::IsSet());
-  origin_task_runner_ = base::SequencedTaskRunnerHandle::Get();
+  DCHECK(base::SequencedTaskRunner::HasCurrentDefault());
+  origin_task_runner_ = base::SequencedTaskRunner::GetCurrentDefault();
 }
 
 void FakeMissiveClient::EnqueueRecord(
     const reporting::Priority priority,
     reporting::Record record,
     base::OnceCallback<void(reporting::Status)> completion_callback) {
+  for (auto& observer : observer_list_) {
+    observer.OnRecordEnqueued(priority, record);
+  }
+  enqueued_records_[priority].push_back(std::move(record));
   std::move(completion_callback).Run(reporting::Status::StatusOK());
 }
 
@@ -54,6 +57,19 @@ MissiveClient::TestInterface* FakeMissiveClient::GetTestInterface() {
 
 base::WeakPtr<MissiveClient> FakeMissiveClient::GetWeakPtr() {
   return weak_ptr_factory_.GetWeakPtr();
+}
+
+const std::vector<::reporting::Record>& FakeMissiveClient::GetEnqueuedRecords(
+    ::reporting::Priority priority) {
+  return enqueued_records_[priority];
+}
+
+void FakeMissiveClient::AddObserver(Observer* observer) {
+  observer_list_.AddObserver(observer);
+}
+
+void FakeMissiveClient::RemoveObserver(Observer* observer) {
+  observer_list_.RemoveObserver(observer);
 }
 
 }  // namespace chromeos

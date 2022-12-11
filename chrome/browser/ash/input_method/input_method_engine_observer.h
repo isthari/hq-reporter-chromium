@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,11 @@
 #include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/values.h"
-#include "ui/base/ime/ash/ime_engine_handler_interface.h"
+#include "ui/base/ime/ash/text_input_method.h"
 #include "ui/events/event.h"
 
 namespace ui {
-class IMEEngineHandlerInterface;
+class TextInputMethod;
 class KeyEvent;
 
 namespace ime {
@@ -26,6 +26,10 @@ struct AssistiveWindowButton;
 }  // namespace ui
 
 namespace ash {
+namespace ime {
+struct AssistiveWindow;
+}  // namespace ime
+
 namespace input_method {
 
 enum MouseButtonEvent {
@@ -43,10 +47,9 @@ class InputMethodEngineObserver {
 
   // Called when a text field gains focus, and will be sending key events.
   // `context_id` is a unique ID given to this focus session.
-  virtual void OnFocus(
-      const std::string& engine_id,
-      int context_id,
-      const ui::IMEEngineHandlerInterface::InputContext& context) = 0;
+  virtual void OnFocus(const std::string& engine_id,
+                       int context_id,
+                       const ui::TextInputMethod::InputContext& context) = 0;
 
   // Called on a touch within a text field. Allows for features like changing
   // virtual keyboard layout based on touch type after onfocus (since
@@ -60,7 +63,7 @@ class InputMethodEngineObserver {
   virtual void OnKeyEvent(
       const std::string& engine_id,
       const ui::KeyEvent& event,
-      ui::IMEEngineHandlerInterface::KeyEventDoneCallback key_data) = 0;
+      ui::TextInputMethod::KeyEventDoneCallback key_data) = 0;
 
   // Called when Chrome terminates on-going text input session.
   virtual void OnReset(const std::string& engine_id) = 0;
@@ -71,6 +74,9 @@ class InputMethodEngineObserver {
   // Called when composition bounds are changed.
   virtual void OnCompositionBoundsChanged(
       const std::vector<gfx::Rect>& bounds) = 0;
+
+  // Called when the caret bounds change.
+  virtual void OnCaretBoundsChanged(const gfx::Rect& caret_bounds) = 0;
 
   // Called when a surrounding text is changed.
   virtual void OnSurroundingTextChanged(const std::string& engine_id,
@@ -87,6 +93,10 @@ class InputMethodEngineObserver {
   // Called when the user clicks on a button in assistive window.
   virtual void OnAssistiveWindowButtonClicked(
       const ui::ime::AssistiveWindowButton& button) {}
+
+  // Called when there are changes to the assistive window shown to the user.
+  virtual void OnAssistiveWindowChanged(
+      const ash::ime::AssistiveWindow& window) = 0;
 
   // Called when a menu item for this IME is interacted with.
   virtual void OnMenuItemActivated(const std::string& component_id,

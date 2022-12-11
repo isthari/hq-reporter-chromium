@@ -1,12 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert, assertInstanceof} from 'chrome://resources/js/assert.m.js';
-import {Command} from 'chrome://resources/js/cr/ui/command.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {queryRequiredElement} from 'chrome://resources/js/util.m.js';
+import {assert, assertInstanceof} from 'chrome://resources/js/assert.js';
 
+import {queryRequiredElement} from '../../common/js/dom_utils.js';
 import {str, strf, util} from '../../common/js/util.js';
 import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
 import {FileOperationManager} from '../../externs/background/file_operation_manager.js';
@@ -15,6 +13,7 @@ import {VolumeManager} from '../../externs/volume_manager.js';
 import {DirectoryModel} from './directory_model.js';
 import {FileSelectionHandler} from './file_selection.js';
 import {A11yAnnounce} from './ui/a11y_announce.js';
+import {Command} from './ui/command.js';
 import {FileListSelectionModel} from './ui/file_list_selection_model.js';
 import {ListContainer} from './ui/list_container.js';
 
@@ -89,13 +88,6 @@ export class ToolbarController {
      * @private {!HTMLElement}
      * @const
      */
-    this.emptyTrashButton_ =
-        queryRequiredElement('#empty-trash-button', this.toolbar_);
-
-    /**
-     * @private {!HTMLElement}
-     * @const
-     */
     this.sharesheetButton_ =
         queryRequiredElement('#sharesheet-button', this.toolbar_);
 
@@ -129,10 +121,10 @@ export class ToolbarController {
         Command);
 
     /**
-     * @private {!Command}
+     * @type {!Command}
      * @const
      */
-    this.moveToTrashCommand_ = assertInstanceof(
+    this.moveToTrashCommand = assertInstanceof(
         queryRequiredElement(
             '#move-to-trash', assert(this.toolbar_.ownerDocument.body)),
         Command);
@@ -259,14 +251,17 @@ export class ToolbarController {
     this.restoreFromTrashButton_.addEventListener(
         'click', this.onRestoreFromTrashButtonClicked_.bind(this));
 
-    this.emptyTrashButton_.addEventListener(
-        'click', this.onEmptyTrashButtonClicked_.bind(this));
-
     this.sharesheetButton_.addEventListener(
         'click', this.onSharesheetButtonClicked_.bind(this));
 
     this.togglePinnedCommand_.addEventListener(
         'checkedChange', this.updatePinnedToggle_.bind(this));
+
+    this.moveToTrashCommand.addEventListener(
+        'hiddenChange', this.updateMoveToTrashCommand_.bind(this));
+
+    this.moveToTrashCommand.addEventListener(
+        'disabledChange', this.updateMoveToTrashCommand_.bind(this));
 
     this.togglePinnedCommand_.addEventListener(
         'disabledChange', this.updatePinnedToggle_.bind(this));
@@ -295,19 +290,19 @@ export class ToolbarController {
         this.volumeManager_.getLocationInfo(currentDirectory);
     // Normally, isReadOnly can be used to show the label. This property
     // is always true for fake volumes (eg. Google Drive root). However, "Linux
-    // files" is a fake volume on first access until the VM is loaded and the
-    // mount point is initialised. The volume is technically read-only since the
-    // temportary fake volume can (and should) not be written to. However,
-    // showing the read only label is not appropriate since the volume will
-    // become read-write once all loading has completed.
+    // files" and GuestOS volumes are fake volume on first access until the VM
+    // is loaded and the mount point is initialised. The volume is technically
+    // read-only since the temporary fake volume can (and should) not be
+    // written to. However, showing the read only label is not appropriate since
+    // the volume will become read-write once all loading has completed.
     this.readOnlyIndicator_.hidden =
         !(locationInfo && locationInfo.isReadOnly &&
-          locationInfo.rootType !== VolumeManagerCommon.RootType.CROSTINI);
+          locationInfo.rootType !== VolumeManagerCommon.RootType.CROSTINI &&
+          locationInfo.rootType !== VolumeManagerCommon.RootType.GUEST_OS);
   }
 
   /** @private */
   updateRefreshCommand_() {
-    const volumeInfo = this.directoryModel_.getCurrentVolumeInfo();
     this.refreshCommand_.canExecuteChange(this.listContainer_.currentList);
   }
 
@@ -347,25 +342,20 @@ export class ToolbarController {
          selection.hasReadOnlyEntry() ||
          selection.entries.some(
              entry => util.isNonModifiable(this.volumeManager_, entry)));
-    // Show 'Move to Trash' rather than 'Delete' if possible.
+    // Show 'Move to Trash' rather than 'Delete' if possible. The
+    // `moveToTrashCommand` needs to be set to hidden to ensure the
+    // `canExecuteChange` invokes the `hiddenChange` event in the case where
+    // Trash should be shown.
     this.moveToTrashButton_.hidden = true;
-    if (!this.deleteButton_.hidden &&
-        loadTimeData.getBoolean('FILES_TRASH_ENABLED') &&
-        this.fileOperationManager_.willUseTrash(
-            this.volumeManager_, selection.entries)) {
-      this.deleteButton_.hidden = true;
-      this.moveToTrashButton_.hidden = false;
+    this.moveToTrashCommand.disabled = true;
+    if (!this.deleteButton_.hidden && util.isTrashEnabled()) {
+      this.moveToTrashCommand.canExecuteChange(this.listContainer_.currentList);
     }
 
     // Update visibility of the restore-from-trash button.
     this.restoreFromTrashButton_.hidden = (selection.totalCount == 0) ||
         this.directoryModel_.getCurrentRootType() !==
             VolumeManagerCommon.RootType.TRASH;
-
-    // Update visibility of the empty-trash button.
-    this.emptyTrashButton_.hidden =
-        this.directoryModel_.getCurrentRootType() !==
-        VolumeManagerCommon.RootType.TRASH;
 
     this.togglePinnedCommand_.canExecuteChange(this.listContainer_.currentList);
 
@@ -411,8 +401,8 @@ export class ToolbarController {
    * @private
    */
   onMoveToTrashButtonClicked_() {
-    this.moveToTrashCommand_.canExecuteChange(this.listContainer_.currentList);
-    this.moveToTrashCommand_.execute(this.listContainer_.currentList);
+    this.moveToTrashCommand.canExecuteChange(this.listContainer_.currentList);
+    this.moveToTrashCommand.execute(this.listContainer_.currentList);
   }
 
   /**
@@ -424,16 +414,6 @@ export class ToolbarController {
     this.restoreFromTrashCommand_.canExecuteChange(
         this.listContainer_.currentList);
     this.restoreFromTrashCommand_.execute(this.listContainer_.currentList);
-  }
-
-  /**
-   * Handles click event for empty trash button to empty the trash.
-   * command.
-   * @private
-   */
-  onEmptyTrashButtonClicked_() {
-    this.emptyTrashCommand_.canExecuteChange(this.listContainer_.currentList);
-    this.emptyTrashCommand_.execute(this.listContainer_.currentList);
   }
 
   /**
@@ -467,5 +447,13 @@ export class ToolbarController {
     // Optimistally update the command's properties so we get notified if they
     // change back.
     this.togglePinnedCommand_.checked = this.pinnedToggle_.checked;
+  }
+
+  /** @private */
+  updateMoveToTrashCommand_() {
+    if (!this.deleteButton_.hidden) {
+      this.deleteButton_.hidden = !this.moveToTrashCommand.disabled;
+      this.moveToTrashButton_.hidden = this.moveToTrashCommand.disabled;
+    }
   }
 }

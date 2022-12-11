@@ -1,10 +1,10 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Definitions of builders in the chromium.fuzz builder group."""
 
-load("//lib/builders.star", "goma", "os", "xcode")
-load("//lib/ci.star", "ci", "rbe_instance")
+load("//lib/builders.star", "os", "reclient", "sheriff_rotations", "xcode")
+load("//lib/ci.star", "ci")
 load("//lib/consoles.star", "consoles")
 
 ci.defaults.set(
@@ -12,11 +12,13 @@ ci.defaults.set(
     cores = 8,
     executable = ci.DEFAULT_EXECUTABLE,
     execution_timeout = ci.DEFAULT_EXECUTION_TIMEOUT,
-    goma_backend = goma.backend.RBE_PROD,
+    reclient_instance = reclient.instance.DEFAULT_TRUSTED,
+    reclient_jobs = reclient.jobs.DEFAULT,
     notifies = ["chromesec-lkgr-failures"],
     os = os.LINUX_DEFAULT,
     pool = ci.DEFAULT_POOL,
     service_account = ci.DEFAULT_SERVICE_ACCOUNT,
+    sheriff_rotations = sheriff_rotations.CHROMIUM_FUZZ,
 )
 
 consoles.console_view(
@@ -60,9 +62,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 4,
     ),
-    goma_backend = None,
     reclient_jobs = 250,
-    reclient_instance = rbe_instance.DEFAULT,
 )
 
 ci.builder(
@@ -85,9 +85,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 5,
     ),
-    goma_backend = None,
     reclient_jobs = 250,
-    reclient_instance = rbe_instance.DEFAULT,
 )
 
 ci.builder(
@@ -110,9 +108,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 4,
     ),
-    goma_backend = None,
     reclient_jobs = 250,
-    reclient_instance = rbe_instance.DEFAULT,
 )
 
 ci.builder(
@@ -121,6 +117,7 @@ ci.builder(
         category = "afl",
         short_name = "afl",
     ),
+    cores = 16,
     executable = "recipe:chromium_afl",
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 4,
@@ -146,6 +143,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 6,
     ),
+    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CI,
 )
 
 ci.builder(
@@ -157,9 +155,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 4,
     ),
-    goma_backend = None,
     reclient_jobs = 250,
-    reclient_instance = rbe_instance.DEFAULT,
 )
 
 ci.builder(
@@ -171,9 +167,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 4,
     ),
-    goma_backend = None,
     reclient_jobs = 250,
-    reclient_instance = rbe_instance.DEFAULT,
 )
 
 ci.builder(
@@ -213,9 +207,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 4,
     ),
-    goma_backend = None,
     reclient_jobs = 250,
-    reclient_instance = rbe_instance.DEFAULT,
 )
 
 ci.builder(
@@ -227,9 +219,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 3,
     ),
-    goma_backend = None,
     reclient_jobs = 250,
-    reclient_instance = rbe_instance.DEFAULT,
 )
 
 ci.builder(
@@ -241,9 +231,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 4,
     ),
-    goma_backend = None,
     reclient_jobs = 250,
-    reclient_instance = rbe_instance.DEFAULT,
 )
 
 ci.builder(
@@ -255,9 +243,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 4,
     ),
-    goma_backend = None,
     reclient_jobs = 250,
-    reclient_instance = rbe_instance.DEFAULT,
 )
 
 ci.builder(
@@ -271,6 +257,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 7,
     ),
+    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CI,
 )
 
 ci.builder(
@@ -284,6 +271,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 6,
     ),
+    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CI,
 )
 
 ci.builder(
@@ -293,9 +281,11 @@ ci.builder(
         short_name = "chromeos-asan",
     ),
     executable = "recipe:chromium_libfuzzer",
+    execution_timeout = 4 * time.hour,
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 3,
     ),
+    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CI,
 )
 
 ci.builder(
@@ -307,8 +297,8 @@ ci.builder(
     cores = 4,
     executable = "recipe:chromium_libfuzzer",
     execution_timeout = 4 * time.hour,
-    os = os.MAC_11,
-    xcode = xcode.x13main,
+    os = os.MAC_12,
+    xcode = xcode.x14main,
 )
 
 ci.builder(
@@ -321,6 +311,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 5,
     ),
+    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CI,
 )
 
 ci.builder(
@@ -333,6 +324,8 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 5,
     ),
+    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CI,
+    execution_timeout = 4 * time.hour,
 )
 
 ci.builder(
@@ -345,6 +338,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 5,
     ),
+    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CI,
 )
 
 ci.builder(
@@ -356,10 +350,11 @@ ci.builder(
         short_name = "linux-ubsan",
     ),
     executable = "recipe:chromium_libfuzzer",
-    execution_timeout = 4 * time.hour,
+    execution_timeout = 5 * time.hour,
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 5,
     ),
+    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CI,
 )
 
 ci.builder(
@@ -396,6 +391,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 3,
     ),
+    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CI,
 )
 
 ci.builder(
@@ -405,9 +401,11 @@ ci.builder(
         short_name = "linux32-dbg",
     ),
     executable = "recipe:chromium_libfuzzer",
+    execution_timeout = 4 * time.hour,
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 3,
     ),
+    reclient_jobs = reclient.jobs.HIGH_JOBS_FOR_CI,
 )
 
 ci.builder(
@@ -420,6 +418,7 @@ ci.builder(
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 1,
     ),
+    reclient_jobs = reclient.jobs.DEFAULT,
 )
 
 ci.builder(
@@ -453,10 +452,12 @@ ci.builder(
         short_name = "win-asan",
     ),
     # crbug.com/1175182: Temporarily increase timeout
-    execution_timeout = 4 * time.hour,
+    # crbug.com/1372531: Increase timeout again
+    execution_timeout = 6 * time.hour,
     executable = "recipe:chromium_libfuzzer",
     os = os.WINDOWS_DEFAULT,
     triggering_policy = scheduler.greedy_batching(
         max_concurrent_invocations = 3,
     ),
+    reclient_jobs = reclient.jobs.LOW_JOBS_FOR_CI,
 )

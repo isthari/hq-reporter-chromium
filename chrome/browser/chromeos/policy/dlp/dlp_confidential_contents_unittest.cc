@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 #include <sstream>
 #include <string>
 
+#include "base/ranges/algorithm.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_histogram_helper.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_rules_manager.h"
@@ -61,13 +63,11 @@ class DlpConfidentialContentsTest : public testing::Test {
   // |web_contents|.
   bool Contains(const DlpConfidentialContents& contents,
                 content::WebContents* web_contents) {
-    auto iter = std::find_if(contents.GetContents().begin(),
-                             contents.GetContents().end(),
-                             [&](const DlpConfidentialContent& content) {
-                               return content.url.EqualsIgnoringRef(
-                                   web_contents->GetLastCommittedURL());
-                             });
-    return iter != contents.GetContents().end();
+    return base::ranges::any_of(contents.GetContents(),
+                                [&](const DlpConfidentialContent& content) {
+                                  return content.url.EqualsIgnoringRef(
+                                      web_contents->GetLastCommittedURL());
+                                });
   }
 
  protected:
@@ -78,6 +78,50 @@ class DlpConfidentialContentsTest : public testing::Test {
   content::RenderViewHostTestEnabler render_view_host_test_enabler_;
   const std::unique_ptr<TestingProfile> profile_;
 };
+
+TEST_F(DlpConfidentialContentsTest, ComparisonWithDifferentUrls) {
+  DlpConfidentialContent content1 = CreateConfidentialContent(title1, url1);
+  DlpConfidentialContent content2 = CreateConfidentialContent(title2, url2);
+
+  EXPECT_TRUE(content1 != content2);
+  EXPECT_TRUE(content1 < content2);
+  EXPECT_TRUE(content1 <= content2);
+  EXPECT_TRUE(content2 > content1);
+  EXPECT_TRUE(content2 >= content1);
+}
+
+TEST_F(DlpConfidentialContentsTest, ComparisonWithSameUrls) {
+  DlpConfidentialContent content1 = CreateConfidentialContent(title1, url1);
+  DlpConfidentialContent content2 = CreateConfidentialContent(title2, url1);
+
+  EXPECT_TRUE(content1 == content2);
+  EXPECT_FALSE(content1 != content2);
+  EXPECT_FALSE(content1 < content2);
+  EXPECT_TRUE(content1 <= content2);
+  EXPECT_FALSE(content2 > content1);
+  EXPECT_TRUE(content2 >= content1);
+}
+
+TEST_F(DlpConfidentialContentsTest, ComparisonAfterAssignement) {
+  DlpConfidentialContent content1 = CreateConfidentialContent(title1, url1);
+  DlpConfidentialContent content2 = CreateConfidentialContent(title2, url2);
+
+  EXPECT_FALSE(content1 == content2);
+
+  content2 = content1;
+  EXPECT_TRUE(content1 == content2);
+}
+
+TEST_F(DlpConfidentialContentsTest, EqualityIgnoresTheRef) {
+  const GURL url1 = GURL("https://example.com#first_ref");
+  const GURL url2 = GURL("https://example.com#second_ref");
+  EXPECT_NE(url1, url2);
+  EXPECT_TRUE(url1.EqualsIgnoringRef(url2));
+
+  DlpConfidentialContent content1 = CreateConfidentialContent(title1, url1);
+  DlpConfidentialContent content2 = CreateConfidentialContent(title2, url2);
+  EXPECT_EQ(content1, content2);
+}
 
 TEST_F(DlpConfidentialContentsTest, EmptyContents) {
   DlpConfidentialContents contents;
@@ -111,7 +155,7 @@ TEST_F(DlpConfidentialContentsTest, ClearAndAdd) {
   EXPECT_TRUE(Contains(contents, web_contents3.get()));
 }
 
-TEST_F(DlpConfidentialContentsTest, UnionShouldAddUniqueItems) {
+TEST_F(DlpConfidentialContentsTest, InsertOrUpdateDropsDuplicates) {
   DlpConfidentialContents contents1;
   DlpConfidentialContents contents2;
 
@@ -129,11 +173,74 @@ TEST_F(DlpConfidentialContentsTest, UnionShouldAddUniqueItems) {
   EXPECT_EQ(contents2.GetContents().size(), 2u);
   EXPECT_FALSE(Contains(contents1, web_contents3.get()));
 
-  contents1.UnionWith(contents2);
+  contents1.InsertOrUpdate(contents2);
 
   EXPECT_EQ(contents1.GetContents().size(), 3u);
   EXPECT_EQ(contents2.GetContents().size(), 2u);
   EXPECT_TRUE(Contains(contents1, web_contents3.get()));
+}
+
+TEST_F(DlpConfidentialContentsTest, InsertOrUpdateUpdatesTitles) {
+  const GURL url1 = GURL("https://example.com#first_ref");
+  const GURL url2 = GURL("https://example.com#second_ref");
+  EXPECT_NE(url1, url2);
+  EXPECT_TRUE(url1.EqualsIgnoringRef(url2));
+
+  DlpConfidentialContents contents1;
+  DlpConfidentialContents contents2;
+
+  auto web_contents1 = CreateWebContents(title1, url1);
+  auto web_contents2 = CreateWebContents(title2, url2);
+  auto web_contents3 = CreateWebContents(title3, url3);
+
+  contents1.Add(web_contents1.get());
+  contents2.Add(web_contents2.get());
+  contents2.Add(web_contents3.get());
+
+  EXPECT_EQ(contents1.GetContents().begin()->title, title1);
+
+  contents1.InsertOrUpdate(contents2);
+
+  EXPECT_EQ(contents2.GetContents().size(), 2u);
+  EXPECT_EQ(contents1.GetContents().begin()->title, title2);
+}
+
+TEST_F(DlpConfidentialContentsTest, EqualityDoesNotDependOnOrder) {
+  DlpConfidentialContents contents1;
+  DlpConfidentialContents contents2;
+
+  auto web_contents1 = CreateWebContents(title1, url1);
+  auto web_contents2 = CreateWebContents(title2, url2);
+  auto web_contents3 = CreateWebContents(title3, url3);
+
+  contents1.Add(web_contents1.get());
+  contents1.Add(web_contents2.get());
+  contents2.Add(web_contents2.get());
+  contents2.Add(web_contents1.get());
+  EXPECT_TRUE(contents1 == contents2);
+  EXPECT_TRUE(EqualWithTitles(contents1, contents2));
+
+  contents1.Add(web_contents3.get());
+  EXPECT_TRUE(contents1 != contents2);
+  EXPECT_FALSE(EqualWithTitles(contents1, contents2));
+}
+
+TEST_F(DlpConfidentialContentsTest, EqualityDoesNotDependOnTitle) {
+  DlpConfidentialContents contents1;
+  DlpConfidentialContents contents2;
+  DlpConfidentialContents contents3;
+
+  auto web_contents1 = CreateWebContents(title1, url1);
+  auto web_contents2 = CreateWebContents(title2, url1);
+
+  contents1.Add(web_contents1.get());
+  contents2.Add(web_contents1.get());
+  contents3.Add(web_contents2.get());
+  EXPECT_TRUE(contents1 == contents2);
+  EXPECT_TRUE(EqualWithTitles(contents1, contents2));
+
+  EXPECT_TRUE(contents1 == contents3);
+  EXPECT_FALSE(EqualWithTitles(contents1, contents3));
 }
 
 TEST_F(DlpConfidentialContentsTest, CacheEvictsAfterTimeout) {

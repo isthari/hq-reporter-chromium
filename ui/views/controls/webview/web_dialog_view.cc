@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/events/event.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/widget/native_widget_private.h"
@@ -46,8 +47,8 @@ ObservableWebView::~ObservableWebView() = default;
 void ObservableWebView::DidFinishLoad(
     content::RenderFrameHost* render_frame_host,
     const GURL& validated_url) {
-  // Only listen to the main frame.
-  if (render_frame_host->GetParent())
+  // Only listen to the primary main frame.
+  if (!render_frame_host->IsInPrimaryMainFrame())
     return;
 
   if (delegate_)
@@ -401,11 +402,11 @@ void WebDialogView::AddNewContents(
     std::unique_ptr<content::WebContents> new_contents,
     const GURL& target_url,
     WindowOpenDisposition disposition,
-    const gfx::Rect& initial_rect,
+    const blink::mojom::WindowFeatures& window_features,
     bool user_gesture,
     bool* was_blocked) {
   WebDialogWebContentsDelegate::AddNewContents(
-      source, std::move(new_contents), target_url, disposition, initial_rect,
+      source, std::move(new_contents), target_url, disposition, window_features,
       user_gesture, was_blocked);
 }
 

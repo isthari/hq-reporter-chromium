@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,11 @@
 
 class Profile;
 
-namespace chromeos {
+namespace crosapi {
+class TestControllerAsh;
+}  // namespace crosapi
+
+namespace ash {
 
 class CupsPrintJob;
 class CupsPrintJobNotificationManager;
@@ -93,6 +97,7 @@ class CupsPrintJobManager : public KeyedService {
   Profile* profile_;
 
  private:
+  friend class crosapi::TestControllerAsh;
   void RecordJobDuration(base::WeakPtr<CupsPrintJob> job);
 
   std::unique_ptr<CupsPrintJobNotificationManager> notification_manager_;
@@ -102,6 +107,6 @@ class CupsPrintJobManager : public KeyedService {
   std::map<std::string, base::TimeTicks> print_job_start_times_;
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_CUPS_PRINT_JOB_MANAGER_H_

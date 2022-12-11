@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,6 +56,12 @@ const char kFaviconUrl[] = "favicon_url";
 const char kSection[] = "section";
 const char kSites[] = "sites";
 const char kTitleSource[] = "title_source";
+const char kIOSDefaultPopularSitesExperimentIncludeApps[] =
+    "https://www.gstatic.com/chrome/ntp/ios/"
+    "suggested_sites_US_2023q1_mvt_experiment_with_popular_sites.json";
+const char kIOSDefaultPopularSitesExperimentExcludeApps[] =
+    "https://www.gstatic.com/chrome/ntp/ios/"
+    "suggested_sites_US_2023q1_mvt_experiment_without_popular_sites.json";
 
 using TestPopularSite = std::map<std::string, std::string>;
 using TestPopularSiteVector = std::vector<TestPopularSite>;
@@ -112,23 +118,24 @@ class PopularSitesTest : public ::testing::Test {
     prefs_->SetString(prefs::kPopularSitesOverrideVersion, version);
   }
 
-  base::Value CreateListFromTestSites(const TestPopularSiteVector& sites) {
-    base::Value::ListStorage sites_value;
+  base::Value::List CreateListFromTestSites(
+      const TestPopularSiteVector& sites) {
+    base::Value::List sites_value;
     for (const TestPopularSite& site : sites) {
-      base::Value site_value(base::Value::Type::DICTIONARY);
+      base::Value::Dict site_value;
       for (const std::pair<const std::string, std::string>& kv : site) {
         if (kv.first == kTitleSource) {
           int source;
           bool convert_success = base::StringToInt(kv.second, &source);
           DCHECK(convert_success);
-          site_value.SetIntKey(kv.first, source);
+          site_value.Set(kv.first, source);
           continue;
         }
-        site_value.SetStringKey(kv.first, kv.second);
+        site_value.Set(kv.first, kv.second);
       }
-      sites_value.push_back(std::move(site_value));
+      sites_value.Append(std::move(site_value));
     }
-    return base::Value(sites_value);
+    return sites_value;
   }
 
   void RespondWithV5JSON(const std::string& url,
@@ -140,15 +147,16 @@ class PopularSitesTest : public ::testing::Test {
 
   void RespondWithV6JSON(const std::string& url,
                          const TestPopularSectionVector& sections) {
-    base::Value::ListStorage sections_value(sections.size());
+    base::Value::List sections_value;
+    sections_value.reserve(sections.size());
     for (const TestPopularSection& section : sections) {
-      base::Value section_value(base::Value::Type::DICTIONARY);
-      section_value.SetIntKey(kSection, static_cast<int>(section.first));
-      section_value.SetKey(kSites, CreateListFromTestSites(section.second));
-      sections_value.push_back(std::move(section_value));
+      base::Value::Dict section_value;
+      section_value.Set(kSection, static_cast<int>(section.first));
+      section_value.Set(kSites, CreateListFromTestSites(section.second));
+      sections_value.Append(std::move(section_value));
     }
     std::string sites_string;
-    base::JSONWriter::Write(base::Value(sections_value), &sites_string);
+    base::JSONWriter::Write(sections_value, &sites_string);
     test_url_loader_factory_.AddResponse(url, sites_string);
   }
 
@@ -242,6 +250,52 @@ TEST_F(PopularSitesTest, ShouldSucceedFetching) {
   RespondWithV5JSON(
       "https://www.gstatic.com/chrome/ntp/suggested_sites_ZZ_5.json",
       {kWikipedia});
+
+  PopularSites::SitesVector sites;
+  EXPECT_THAT(FetchPopularSites(/*force_download=*/true, &sites),
+              Eq(absl::optional<bool>(true)));
+
+  ASSERT_THAT(sites.size(), Eq(1u));
+  EXPECT_THAT(sites[0].title, Str16Eq("Wikipedia, fhta Ph'nglui mglw'nafh"));
+  EXPECT_THAT(sites[0].url, URLEq("https://zz.m.wikipedia.org/"));
+  EXPECT_THAT(sites[0].large_icon_url,
+              URLEq("https://zz.m.wikipedia.org/wikipedia.png"));
+  EXPECT_THAT(sites[0].favicon_url, URLEq(""));
+  EXPECT_THAT(sites[0].title_source, Eq(TileTitleSource::TITLE_TAG));
+}
+
+TEST_F(PopularSitesTest,
+       ShouldSucceedFetchingIOSExperimentalSitesWithPopularApps) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeatureWithParameters(
+      ntp_tiles::kIOSPopularSitesImprovedSuggestions,
+      {{ntp_tiles::kIOSPopularSitesExcludePopularAppsParam, "false"}});
+
+  SetCountryAndVersion("US", "5");
+  RespondWithV5JSON(kIOSDefaultPopularSitesExperimentIncludeApps, {kWikipedia});
+
+  PopularSites::SitesVector sites;
+  EXPECT_THAT(FetchPopularSites(/*force_download=*/true, &sites),
+              Eq(absl::optional<bool>(true)));
+
+  ASSERT_THAT(sites.size(), Eq(1u));
+  EXPECT_THAT(sites[0].title, Str16Eq("Wikipedia, fhta Ph'nglui mglw'nafh"));
+  EXPECT_THAT(sites[0].url, URLEq("https://zz.m.wikipedia.org/"));
+  EXPECT_THAT(sites[0].large_icon_url,
+              URLEq("https://zz.m.wikipedia.org/wikipedia.png"));
+  EXPECT_THAT(sites[0].favicon_url, URLEq(""));
+  EXPECT_THAT(sites[0].title_source, Eq(TileTitleSource::TITLE_TAG));
+}
+
+TEST_F(PopularSitesTest,
+       ShouldSucceedFetchingIOSExperimentalSitesWithoutPopularApps) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeatureWithParameters(
+      ntp_tiles::kIOSPopularSitesImprovedSuggestions,
+      {{ntp_tiles::kIOSPopularSitesExcludePopularAppsParam, "true"}});
+
+  SetCountryAndVersion("US", "5");
+  RespondWithV5JSON(kIOSDefaultPopularSitesExperimentExcludeApps, {kWikipedia});
 
   PopularSites::SitesVector sites;
   EXPECT_THAT(FetchPopularSites(/*force_download=*/true, &sites),

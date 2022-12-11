@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import os
 import os.path
-import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 # Prefix for all custom linker driver arguments.
 LINKER_DRIVER_ARG_PREFIX = '-Wcrl,'
+# Linker action to create a directory and pass it to the linker as
+# `-object_path_lto`. Special-cased since it has to run before the link.
+OBJECT_PATH_LTO = 'object_path_lto'
 
 # The linker_driver.py is responsible for forwarding a linker invocation to
 # the compiler driver, while processing special arguments itself.
@@ -27,6 +30,15 @@ LINKER_DRIVER_ARG_PREFIX = '-Wcrl,'
 # invocation for the linker. It is first invoked unaltered (except for the
 # removal of the special driver arguments, described below). Then the driver
 # performs additional actions, based on these arguments:
+#
+# -Wcrl,installnametoolpath,<install_name_tool_path>
+#    Sets the path to the `install_name_tool` to run with
+#    -Wcrl,installnametool, in which case `xcrun` is not used to invoke it.
+#
+# -Wcrl,installnametool,<arguments,...>
+#    After invoking the linker, this will run install_name_tool on the linker's
+#    output. |arguments| are comma-separated arguments to be passed to the
+#    install_name_tool command.
 #
 # -Wcrl,dsym,<dsym_path_prefix>
 #    After invoking the linker, this will run `dsymutil` on the linker's
@@ -51,6 +63,19 @@ LINKER_DRIVER_ARG_PREFIX = '-Wcrl,'
 # -Wcrl,strippath,<strip_path>
 #    Sets the path to the strip to run with -Wcrl,strip, in which case
 #    `xcrun` is not used to invoke it.
+# TODO(crbug.com/1337780): Remove 'persist' when iOS no longer builds universal
+# binaries.
+# -Wcrl,object_path_lto,<persist>(optional)
+#    Creates temporary directory for LTO object files. If `persist` is passed
+#    the directory is named after the linker output and it's expected that a
+#    later invocation will pass `-Wcrl,clean_objects,<output_name>` to clean it
+#    up. Otherwise, the temp directory is deleted at the end of this run.
+# TODO(crbug.com/1337780): Remove this action when iOS no longer builds
+# universal binaries.
+# -Wcrl,clean_objects,<arguments,...>
+#    Cleans up LTO object file directories for the targets in arguments.
+#    For each argument, looks for and deletes a directory at
+#    "{argument}.lto_objects"
 
 
 class LinkerDriver(object):
@@ -69,19 +94,30 @@ class LinkerDriver(object):
         # The first item in the tuple is the argument's -Wcrl,<sub_argument>
         # and the second is the function to invoke.
         self._actions = [
+            ('installnametoolpath,', self.set_install_name_tool_path),
+            ('installnametool,', self.run_install_name_tool),
             ('dsymutilpath,', self.set_dsymutil_path),
             ('dsym,', self.run_dsymutil),
             ('unstripped,', self.run_save_unstripped),
             ('strippath,', self.set_strip_path),
             ('strip,', self.run_strip),
+            ('clean_objects', self.run_clean_objects),
         ]
 
         # Linker driver actions can modify the these values.
+        self._install_name_tool_cmd = ['xcrun', 'install_name_tool']
         self._dsymutil_cmd = ['xcrun', 'dsymutil']
         self._strip_cmd = ['xcrun', 'strip']
 
         # The linker output file, lazily computed in self._get_linker_output().
         self._linker_output = None
+        # The temporary directory for intermediate LTO object files. If it
+        # exists, it will clean itself up on script exit.
+        self._object_path_lto_temp = None
+        # The path for intermediate LTO object files. This is either the name
+        # of `self._object_path_lto_temp` or a named directory that will be
+        # cleaned up in a future invocation.
+        self._object_path_lto = None
 
     def run(self):
         """Runs the linker driver, separating out the main compiler driver's
@@ -102,6 +138,9 @@ class LinkerDriver(object):
             else:
                 compiler_driver_args.append(arg)
 
+        if self._object_path_lto is not None:
+            compiler_driver_args.append('-Wl,-object_path_lto,{}'.format(
+                self._object_path_lto))
         if self._get_linker_output() is None:
             raise ValueError(
                 'Could not find path to linker output (-o or --output)')
@@ -156,6 +195,21 @@ class LinkerDriver(object):
             raise ValueError('%s is not a linker driver argument' % (arg, ))
 
         sub_arg = arg[len(LINKER_DRIVER_ARG_PREFIX):]
+        # Special-cased, since it needs to run before the link.
+        # TODO(lgrey): Remove if/when we start running `dsymutil`
+        # through the clang driver. See https://crbug.com/1324104
+        if sub_arg == OBJECT_PATH_LTO:
+            self._object_path_lto_temp = tempfile.TemporaryDirectory(
+                dir=os.getcwd())
+            self._object_path_lto = self._object_path_lto_temp.name
+            return (OBJECT_PATH_LTO, lambda: [])
+        elif sub_arg.startswith(OBJECT_PATH_LTO):
+            assert sub_arg[len(OBJECT_PATH_LTO):] == ',persist'
+            output = self._get_linker_output()
+            assert output
+            self._object_path_lto = output + '.lto_objects'
+            os.mkdir(self._object_path_lto)
+            return (OBJECT_PATH_LTO, lambda: [])
 
         for driver_action in self._actions:
             (name, action) = driver_action
@@ -163,6 +217,40 @@ class LinkerDriver(object):
                 return (name, lambda: action(sub_arg[len(name):]))
 
         raise ValueError('Unknown linker driver argument: %s' % (arg, ))
+
+    def set_install_name_tool_path(self, install_name_tool_path):
+        """Linker driver action for -Wcrl,installnametoolpath,<path>.
+
+        Sets the invocation command for install_name_tool, which allows the
+        caller to specify an alternate path. This action is always
+        processed before the run_install_name_tool action.
+
+        Args:
+            install_name_tool_path: string, The path to the install_name_tool
+                binary to run
+
+        Returns:
+            No output - this step is run purely for its side-effect.
+        """
+        self._install_name_tool_cmd = [install_name_tool_path]
+        return []
+
+    def run_install_name_tool(self, args_string):
+        """Linker driver action for -Wcrl,installnametool,<args>. Invokes
+        install_name_tool on the linker's output.
+
+        Args:
+            args_string: string, Comma-separated arguments for
+                `install_name_tool`.
+
+        Returns:
+            No output - this step is run purely for its side-effect.
+        """
+        command = list(self._install_name_tool_cmd)
+        command.extend(args_string.split(','))
+        command.append(self._get_linker_output())
+        subprocess.check_call(command)
+        return []
 
     def run_dsymutil(self, dsym_path_prefix):
         """Linker driver action for -Wcrl,dsym,<dsym-path-prefix>. Invokes
@@ -191,22 +279,9 @@ class LinkerDriver(object):
             tools_paths.append(os.environ['PATH'])
         dsymutil_env = os.environ.copy()
         dsymutil_env['PATH'] = ':'.join(tools_paths)
-
-        # Run dsymutil and redirect stdout and stderr to the same pipe.
-        process = subprocess.Popen(self._dsymutil_cmd +
-                                   ['-o', dsym_out, linker_output],
-                                   env=dsymutil_env,
-                                   stdout=subprocess.PIPE,
-                                   stderr=subprocess.STDOUT)
-        stdout = process.communicate()[0].decode('utf-8')
-
-        # Filter the output to remove excessive log spam generated by a
-        # combination of ldd, icf and dsymutil.
-        # TODO(crbug.com/1279639): Fix in dsymutil itself.
-        stdout = _filter_dsym_output(stdout)
-        if stdout:
-            sys.stderr.write(stdout)
-
+        subprocess.check_call(self._dsymutil_cmd +
+                              ['-o', dsym_out, linker_output],
+                              env=dsymutil_env)
         return [dsym_out]
 
     def set_dsymutil_path(self, dsymutil_path):
@@ -278,41 +353,24 @@ class LinkerDriver(object):
         self._strip_cmd = [strip_path]
         return []
 
+    def run_clean_objects(self, args_string):
+        """Linker driver action for -Wcrl,clean_objects,<arguments>.
 
-# Regular expressions matching log spam messages from dsymutil.
-DSYM_SPURIOUS_PATTERNS = [
-    re.compile(v) for v in [
-        r'failed to insert symbol',
-        r'could not find object file symbol for symbol',
-    ]
-]
+        For each argument, looks for a directory called "${argument}.lto_objects
+        and deletes it.
 
+        Args:
+            arguments: string, Comma-separated prefixes of LTO object
+            directories to clean up
 
-def _matches_dsym_spurious_patterns(line):
-    """Returns True if |line| matches one of DSYM_SPURIOUS_PATTERNS."""
-    for pattern in DSYM_SPURIOUS_PATTERNS:
-        if pattern.search(line) is not None:
-            return True
-    return False
-
-
-def _filter_dsym_output(dsymutil_output):
-    """Filers dsymutil output to remove excessive log spam.
-
-  Args:
-    dsymutil_output: string containing the output generated by dsymutil
-      (contains both stdout and stderr)
-
-  Returns:
-    The filtered output of dsymutil.
-  """
-    filtered_output = []
-    for line in dsymutil_output.splitlines():
-        if _matches_dsym_spurious_patterns(line):
-            continue
-        filtered_output.append(line + '\n')
-
-    return ''.join(filtered_output)
+        Returns:
+            No output
+        """
+        for output in args_string.lstrip(',').split(','):
+            name = output + '.lto_objects'
+            assert os.path.isdir(name)
+            shutil.rmtree(name)
+        return []
 
 
 def _find_tools_paths(full_args):

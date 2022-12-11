@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/test/scoped_command_line.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "chromeos/dbus/constants/dbus_switches.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/base/user_activity/user_activity_detector.h"
@@ -24,7 +25,7 @@ const base::TimeDelta kThreeFourthIdleDuration =
 class MockDetectorObserver : public ChromeVoxHintDetector::Observer {
  public:
   MockDetectorObserver() = default;
-  virtual ~MockDetectorObserver() = default;
+  ~MockDetectorObserver() override = default;
 
   MOCK_METHOD(void, OnShouldGiveChromeVoxHint, (), (override));
 };
@@ -43,13 +44,16 @@ class ChromeVoxHintDetectorTest : public testing::Test {
  private:
   MockDetectorObserver observer_;
   std::unique_ptr<ChromeVoxHintDetector> detector_;
-  std::unique_ptr<base::ThreadTaskRunnerHandle> runner_handle_;
+  std::unique_ptr<base::SingleThreadTaskRunner::CurrentDefaultHandle>
+      runner_handle_;
   ui::UserActivityDetector user_activity_detector_;
 };
 
 ChromeVoxHintDetectorTest::ChromeVoxHintDetectorTest() {
   runner_ = base::MakeRefCounted<base::TestMockTimeTaskRunner>();
-  runner_handle_ = std::make_unique<base::ThreadTaskRunnerHandle>(runner_);
+  runner_handle_ =
+      std::make_unique<base::SingleThreadTaskRunner::CurrentDefaultHandle>(
+          runner_);
 }
 
 void ChromeVoxHintDetectorTest::ExpectChromeVoxHintWillBeGiven() {

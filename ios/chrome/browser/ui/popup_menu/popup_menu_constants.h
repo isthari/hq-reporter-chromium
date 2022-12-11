@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,8 @@ extern NSString* const kToolsMenuCloseAllTabsId;
 extern NSString* const kToolsMenuCloseAllIncognitoTabsId;
 // Close the current tab item accessibility Identifier.
 extern NSString* const kToolsMenuCloseTabId;
+// Follow item accessibility Identifier.
+extern NSString* const kToolsMenuFollowId;
 // Bookmarks item accessibility Identifier.
 extern NSString* const kToolsMenuBookmarksId;
 // Reading List item accessibility Identifier.
@@ -40,6 +42,8 @@ extern NSString* const kToolsMenuReadingListId;
 extern NSString* const kToolsMenuOtherDevicesId;
 // History item accessibility Identifier.
 extern NSString* const kToolsMenuHistoryId;
+// Passwords item accessibility Identifier.
+extern NSString* const kToolsMenuPasswordsId;
 // Report an issue item accessibility Identifier.
 extern NSString* const kToolsMenuReportAnIssueId;
 // Translate item accessibility Identifier.
@@ -50,8 +54,12 @@ extern NSString* const kToolsMenuFindInPageId;
 extern NSString* const kToolsMenuRequestDesktopId;
 // Settings item accessibility Identifier.
 extern NSString* const kToolsMenuSettingsId;
+// Settings action item accessibility Identifier.
+extern NSString* const kToolsMenuSettingsActionId;
 // Help item accessibility Identifier.
 extern NSString* const kToolsMenuHelpId;
+// Lens Copied Image item accessibility Identifier.
+extern NSString* const kToolsMenuLensCopiedImage;
 // Request mobile item accessibility Identifier.
 extern NSString* const kToolsMenuRequestMobileId;
 // ReadLater item accessibility Identifier.
@@ -82,5 +90,13 @@ extern NSString* const kTextMenuEnterpriseInfo;
 extern NSString* const kToolsMenuFollow;
 // Unfollow item accessibility Identifier.
 extern NSString* const kToolsMenuUnfollow;
+// Clear Browsing Data item accessibility identifier.
+extern NSString* const kToolsMenuClearBrowsingData;
+// Share Chrome accessibility Identifier.
+extern NSString* const kToolsMenuShareChromeId;
+// WhatsNew item accessibility Identifier.
+extern NSString* const kToolsMenuWhatsNewId;
+// Open Price Notifications accessibility Identifier.
+extern NSString* const kToolsMenuPriceNotifications;
 
 #endif  // IOS_CHROME_BROWSER_UI_POPUP_MENU_POPUP_MENU_CONSTANTS_H_

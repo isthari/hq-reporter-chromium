@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -1703,6 +1703,7 @@ Mock_glProgramUniformMatrix4x3fv(GLuint program,
                                  GLsizei count,
                                  GLboolean transpose,
                                  const GLfloat* value);
+static void GL_BINDING_CALL Mock_glProvokingVertexANGLE(GLenum provokeMode);
 static void GL_BINDING_CALL Mock_glPushDebugGroup(GLenum source,
                                                   GLuint id,
                                                   GLsizei length,

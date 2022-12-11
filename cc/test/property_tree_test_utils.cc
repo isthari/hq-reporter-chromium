@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -97,7 +97,6 @@ ClipNode& CreateClipNodeInternal(LayerType* layer,
   int id = clip_tree.Insert(ClipNode(),
                             ID_OR_DEFAULT(parent_id, layer->clip_tree_index()));
   auto* node = clip_tree.Node(id);
-  node->clip_type = ClipNode::ClipType::APPLIES_LOCAL_CLIP;
   node->transform_id =
       ID_OR_DEFAULT(transform_id, layer->transform_tree_index());
   if (layer) {
@@ -163,6 +162,8 @@ ScrollNode& CreateScrollNodeInternal(LayerType* layer,
   transform_node->should_be_snapped = true;
   transform_node->scrolls = true;
 
+  if (!property_trees->is_main_thread())
+    scroll_tree.GetOrCreateSyncedScrollOffsetForTesting(layer->element_id());
   scroll_tree.SetScrollOffset(layer->element_id(), gfx::PointF());
   return *node;
 }
@@ -373,6 +374,8 @@ ScrollNode& CreateScrollNodeForUncompositedScroller(
     node->transform_id = transform_node->id;
   }
 
+  if (!property_trees->is_main_thread())
+    scroll_tree.GetOrCreateSyncedScrollOffsetForTesting(element_id);
   scroll_tree.SetScrollOffset(element_id, gfx::PointF());
   return *node;
 }

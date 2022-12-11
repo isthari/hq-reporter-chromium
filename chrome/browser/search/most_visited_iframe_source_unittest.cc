@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -114,7 +114,6 @@ class MostVisitedIframeSourceTest : public testing::Test {
 
   content::BrowserTaskEnvironment task_environment_;
 
-  net::TestURLRequestContext test_url_request_context_;
   TestingProfile profile_;
   std::unique_ptr<TestMostVisitedIframeSource> source_;
   scoped_refptr<base::RefCountedMemory> response_;
@@ -142,10 +141,13 @@ TEST_F(MostVisitedIframeSourceTest, ShouldServiceRequest) {
 
 TEST_F(MostVisitedIframeSourceTest, GetMimeType) {
   // URLDataManagerBackend does not include / in path_and_query.
-  EXPECT_EQ("text/html", source()->GetMimeType("foo.html"));
-  EXPECT_EQ("application/javascript", source()->GetMimeType("foo.js"));
-  EXPECT_EQ("text/css", source()->GetMimeType("foo.css"));
-  EXPECT_EQ("", source()->GetMimeType("bogus"));
+  EXPECT_EQ("text/html",
+            source()->GetMimeType(GURL("chrome-search://test/foo.html")));
+  EXPECT_EQ("application/javascript",
+            source()->GetMimeType(GURL("chrome-search://test/foo.js")));
+  EXPECT_EQ("text/css",
+            source()->GetMimeType(GURL("chrome-search://test/foo.css")));
+  EXPECT_EQ("", source()->GetMimeType(GURL("chrome-search://test/bogus")));
 }
 
 TEST_F(MostVisitedIframeSourceTest, SendResource) {

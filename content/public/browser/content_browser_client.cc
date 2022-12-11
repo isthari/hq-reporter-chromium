@@ -1,17 +1,8 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/public/browser/content_browser_client.h"
-
-#include "build/build_config.h"
-
-// content_browser_client.h is a widely included header and its size impacts
-// build time significantly. If you run into this limit, try using forward
-// declarations instead of including more headers. If that is infeasible, adjust
-// the limit. For more info, see
-// https://chromium.googlesource.com/chromium/src/+/HEAD/docs/wmax_tokens.md
-#pragma clang max_tokens_here 850000
 
 #include <utility>
 
@@ -22,10 +13,13 @@
 #include "base/guid.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
+#include "base/strings/string_piece.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
+#include "base/values.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "content/public/browser/anchor_element_preconnect_delegate.h"
 #include "content/public/browser/authenticator_request_client_delegate.h"
 #include "content/public/browser/browser_accessibility_state.h"
 #include "content/public/browser/browser_main_parts.h"
@@ -38,15 +32,19 @@
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/browser/overlay_window.h"
 #include "content/public/browser/page_navigator.h"
-#include "content/public/browser/quota_permission_context.h"
+#include "content/public/browser/prefetch_service_delegate.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/sms_fetcher.h"
 #include "content/public/browser/speculation_host_delegate.h"
 #include "content/public/browser/url_loader_request_interceptor.h"
 #include "content/public/browser/vpn_service_proxy.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/browser/web_contents_view_delegate.h"
+#include "content/public/common/alternative_error_page_override_info.mojom.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/url_utils.h"
 #include "media/audio/audio_manager.h"
+#include "media/capture/content/screen_enumerator.h"
 #include "media/mojo/mojom/media_service.mojom.h"
 #include "net/cookies/site_for_cookies.h"
 #include "net/ssl/client_cert_identity.h"
@@ -67,7 +65,7 @@
 #include "third_party/blink/public/common/loader/url_loader_throttle.h"
 #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
-#include "third_party/blink/public/mojom/federated_learning/floc.mojom.h"
+#include "third_party/blink/public/mojom/browsing_topics/browsing_topics.mojom.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/shell_dialogs/select_file_policy.h"
 #include "url/gurl.h"
@@ -80,7 +78,7 @@
 namespace content {
 
 std::unique_ptr<BrowserMainParts> ContentBrowserClient::CreateBrowserMainParts(
-    MainFunctionParams parameters) {
+    bool /* is_integration_test */) {
   return nullptr;
 }
 
@@ -97,8 +95,8 @@ bool ContentBrowserClient::IsBrowserStartupComplete() {
 
 void ContentBrowserClient::SetBrowserStartupIsCompleteForTesting() {}
 
-WebContentsViewDelegate* ContentBrowserClient::GetWebContentsViewDelegate(
-    WebContents* web_contents) {
+std::unique_ptr<WebContentsViewDelegate>
+ContentBrowserClient::GetWebContentsViewDelegate(WebContents* web_contents) {
   return nullptr;
 }
 
@@ -123,7 +121,7 @@ GURL ContentBrowserClient::GetEffectiveURL(BrowserContext* browser_context,
 bool ContentBrowserClient::ShouldCompareEffectiveURLsForSiteInstanceSelection(
     BrowserContext* browser_context,
     content::SiteInstance* candidate_site_instance,
-    bool is_main_frame,
+    bool is_outermost_main_frame,
     const GURL& candidate_url,
     const GURL& destination_url) {
   DCHECK(browser_context);
@@ -251,6 +249,13 @@ size_t ContentBrowserClient::GetProcessCountToIgnoreForLimit() {
   return 0;
 }
 
+absl::optional<blink::ParsedPermissionsPolicy>
+ContentBrowserClient::GetPermissionsPolicyForIsolatedWebApp(
+    content::BrowserContext* browser_context,
+    const url::Origin& app_origin) {
+  return blink::ParsedPermissionsPolicy();
+}
+
 bool ContentBrowserClient::ShouldTryToUseExistingProcessHost(
     BrowserContext* browser_context,
     const GURL& url) {
@@ -258,8 +263,8 @@ bool ContentBrowserClient::ShouldTryToUseExistingProcessHost(
   return false;
 }
 
-bool ContentBrowserClient::ShouldSubframesTryToReuseExistingProcess(
-    RenderFrameHost* main_frame) {
+bool ContentBrowserClient::ShouldEmbeddedFramesTryToReuseExistingProcess(
+    RenderFrameHost* outermost_main_frame) {
   return true;
 }
 
@@ -280,6 +285,11 @@ bool ContentBrowserClient::ShouldIsolateErrorPage(bool in_main_frame) {
 
 std::unique_ptr<media::AudioManager> ContentBrowserClient::CreateAudioManager(
     media::AudioLogFactory* audio_log_factory) {
+  return nullptr;
+}
+
+std::unique_ptr<media::ScreenEnumerator>
+ContentBrowserClient::CreateScreenEnumerator() const {
   return nullptr;
 }
 
@@ -316,14 +326,21 @@ ContentBrowserClient::GetAdditionalSiteIsolationModes() {
 
 bool ContentBrowserClient::ShouldUrlUseApplicationIsolationLevel(
     BrowserContext* browser_context,
-    const GURL& url) {
-  // For short-term testing, use kDirectSockets to enable isolated application
-  // level. DirectSocket WPT and browser tests require application isolation
-  // level.
-  //
-  // TODO(crbug.com/1206150): Figure out a better way to enable isolated
-  // application level in tests.
-  return base::FeatureList::IsEnabled(features::kDirectSockets);
+    const GURL& url,
+    bool origin_matches_flag) {
+  return false;
+}
+
+bool ContentBrowserClient::IsIsolatedContextAllowedForUrl(
+    BrowserContext* browser_context,
+    const GURL& lock_url) {
+  return false;
+}
+
+bool ContentBrowserClient::IsGetDisplayMediaSetSelectAllScreensAllowed(
+    content::BrowserContext* context,
+    const url::Origin& origin) {
+  return false;
 }
 
 size_t ContentBrowserClient::GetMaxRendererProcessCountOverride() {
@@ -377,10 +394,10 @@ AllowServiceWorkerResult ContentBrowserClient::AllowServiceWorker(
   return AllowServiceWorkerResult::Yes();
 }
 
-void ContentBrowserClient::WillStartServiceWorker(
+void ContentBrowserClient::UpdateEnabledBlinkRuntimeFeaturesInIsolatedWorker(
     BrowserContext* context,
     const GURL& script_url,
-    RenderProcessHost* render_process_host) {}
+    std::vector<std::string>& out_forced_enabled_runtime_features) {}
 
 bool ContentBrowserClient::AllowSharedWorker(
     const GURL& worker_url,
@@ -419,6 +436,15 @@ void ContentBrowserClient::UpdateRendererPreferencesForWorker(
     BrowserContext* browser_context,
     blink::RendererPreferences* out_prefs) {
   // |browser_context| may be null (e.g. during shutdown of a service worker).
+}
+
+void ContentBrowserClient::RequestFilesAccess(
+    const std::vector<base::FilePath>& files,
+    const GURL& destination_url,
+    base::OnceCallback<void(file_access::ScopedFileAccess)>
+        continuation_callback) {
+  std::move(continuation_callback)
+      .Run(file_access::ScopedFileAccess::Allowed());
 }
 
 void ContentBrowserClient::AllowWorkerFileSystem(
@@ -471,18 +497,34 @@ bool ContentBrowserClient::IsInterestGroupAPIAllowed(
   return false;
 }
 
-bool ContentBrowserClient::IsConversionMeasurementOperationAllowed(
+bool ContentBrowserClient::IsAttributionReportingOperationAllowed(
     content::BrowserContext* browser_context,
-    ConversionMeasurementOperation operation,
-    const url::Origin* impression_origin,
-    const url::Origin* conversion_origin,
+    AttributionReportingOperation operation,
+    const url::Origin* source_origin,
+    const url::Origin* destination_origin,
     const url::Origin* reporting_origin) {
   return true;
 }
 
-scoped_refptr<QuotaPermissionContext>
-ContentBrowserClient::CreateQuotaPermissionContext() {
-  return nullptr;
+bool ContentBrowserClient::IsSharedStorageAllowed(
+    content::RenderFrameHost* rfh,
+    const url::Origin& top_frame_origin,
+    const url::Origin& accessing_origin) {
+  // TODO(crbug.com/1325103): Change this to false and override in
+  // relevant content_browsertests and web_tests.
+  return true;
+}
+
+bool ContentBrowserClient::IsPrivateAggregationAllowed(
+    content::BrowserContext* browser_context,
+    const url::Origin& top_frame_origin,
+    const url::Origin& reporting_origin) {
+  return true;
+}
+
+bool ContentBrowserClient::CanSendSCTAuditingReport(
+    BrowserContext* browser_context) {
+  return false;
 }
 
 GeneratedCodeCacheSettings ContentBrowserClient::GetGeneratedCodeCacheSettings(
@@ -491,12 +533,17 @@ GeneratedCodeCacheSettings ContentBrowserClient::GetGeneratedCodeCacheSettings(
   return GeneratedCodeCacheSettings(false, 0, base::FilePath());
 }
 
+cert_verifier::mojom::CertVerifierServiceParamsPtr
+ContentBrowserClient::GetCertVerifierServiceParams() {
+  return nullptr;
+}
+
 void ContentBrowserClient::AllowCertificateError(
     WebContents* web_contents,
     int cert_error,
     const net::SSLInfo& ssl_info,
     const GURL& request_url,
-    bool is_main_frame_request,
+    bool is_primary_main_frame_request,
     bool strict_enforcement,
     base::OnceCallback<void(CertificateRequestResultType)> callback) {
   std::move(callback).Run(CERTIFICATE_REQUEST_RESULT_TYPE_DENY);
@@ -595,6 +642,12 @@ TtsPlatform* ContentBrowserClient::GetTtsPlatform() {
   return nullptr;
 }
 
+#if !BUILDFLAG(IS_ANDROID)
+DirectSocketsDelegate* ContentBrowserClient::GetDirectSocketsDelegate() {
+  return nullptr;
+}
+#endif
+
 base::FilePath ContentBrowserClient::GetDefaultDownloadDirectory() {
   return base::FilePath();
 }
@@ -616,6 +669,10 @@ base::FilePath ContentBrowserClient::GetGrShaderDiskCacheDirectory() {
 }
 
 base::FilePath ContentBrowserClient::GetNetLogDefaultDirectory() {
+  return base::FilePath();
+}
+
+base::FilePath ContentBrowserClient::GetFirstPartySetsDirectory() {
   return base::FilePath();
 }
 
@@ -708,6 +765,14 @@ ContentBrowserClient::GetReceiverPresentationServiceDelegate(
   return nullptr;
 }
 
+void ContentBrowserClient::AddPresentationObserver(
+    PresentationObserver* observer,
+    WebContents* web_contents) {}
+
+void ContentBrowserClient::RemovePresentationObserver(
+    PresentationObserver* observer,
+    WebContents* web_contents) {}
+
 void ContentBrowserClient::OpenURL(
     content::SiteInstance* site_instance,
     const content::OpenURLParams& params,
@@ -717,9 +782,17 @@ void ContentBrowserClient::OpenURL(
 }
 
 std::vector<std::unique_ptr<NavigationThrottle>>
-ContentBrowserClient::CreateThrottlesForNavigation(
+content::ContentBrowserClient::CreateThrottlesForNavigation(
     NavigationHandle* navigation_handle) {
   return std::vector<std::unique_ptr<NavigationThrottle>>();
+}
+
+std::vector<std::unique_ptr<CommitDeferringCondition>>
+ContentBrowserClient::CreateCommitDeferringConditionsForNavigation(
+    NavigationHandle* navigation_handle,
+    content::CommitDeferringCondition::NavigationType navigation_type) {
+  DCHECK(navigation_handle);
+  return std::vector<std::unique_ptr<CommitDeferringCondition>>();
 }
 
 std::unique_ptr<NavigationUIData> ContentBrowserClient::GetNavigationUIData(
@@ -740,13 +813,18 @@ bool ContentBrowserClient::IsUtilityCetCompatible(
 }
 
 std::wstring ContentBrowserClient::GetAppContainerSidForSandboxType(
-    sandbox::mojom::Sandbox sandbox_type) {
+    sandbox::mojom::Sandbox sandbox_type,
+    AppContainerFlags flags) {
   // Embedders should override this method and return different SIDs for each
   // sandbox type. Note: All content level tests will run child processes in the
   // same AppContainer.
   return std::wstring(
       L"S-1-15-2-3251537155-1984446955-2931258699-841473695-1938553385-"
       L"924012148-129201922");
+}
+
+bool ContentBrowserClient::IsRendererAppContainerDisabled() {
+  return false;
 }
 
 std::wstring ContentBrowserClient::GetLPACCapabilityNameForNetworkService() {
@@ -761,7 +839,9 @@ bool ContentBrowserClient::IsRendererCodeIntegrityEnabled() {
 }
 
 bool ContentBrowserClient::ShouldEnableAudioProcessHighPriority() {
-  return base::FeatureList::IsEnabled(features::kAudioProcessHighPriorityWin);
+  // TODO(crbug.com/1374069): Delete this method when the
+  // kAudioProcessHighPriorityEnabled enterprise policy is deprecated.
+  return false;
 }
 
 #endif  // BUILDFLAG(IS_WIN)
@@ -861,9 +941,7 @@ bool ContentBrowserClient::WillCreateRestrictedCookieManager(
 std::vector<std::unique_ptr<URLLoaderRequestInterceptor>>
 ContentBrowserClient::WillCreateURLLoaderRequestInterceptors(
     content::NavigationUIData* navigation_ui_data,
-    int frame_tree_node_id,
-    const scoped_refptr<network::SharedURLLoaderFactory>&
-        network_loader_factory) {
+    int frame_tree_node_id) {
   return std::vector<std::unique_ptr<URLLoaderRequestInterceptor>>();
 }
 
@@ -893,8 +971,8 @@ ContentBrowserClient::GetNetworkContextsParentDirectory() {
   return {};
 }
 
-base::DictionaryValue ContentBrowserClient::GetNetLogConstants() {
-  return base::DictionaryValue();
+base::Value::Dict ContentBrowserClient::GetNetLogConstants() {
+  return base::Value::Dict();
 }
 
 #if BUILDFLAG(IS_ANDROID)
@@ -905,9 +983,13 @@ bool ContentBrowserClient::ShouldOverrideUrlLoading(
     const std::string& request_method,
     bool has_user_gesture,
     bool is_redirect,
-    bool is_main_frame,
+    bool is_outermost_main_frame,
     ui::PageTransition transition,
     bool* ignore_navigation) {
+  return true;
+}
+
+bool ContentBrowserClient::SupportsAvoidUnnecessaryBeforeUnloadCheckSync() {
   return true;
 }
 #endif
@@ -922,10 +1004,6 @@ bool ContentBrowserClient::ShouldForceDownloadResource(
     const std::string& mime_type) {
   return false;
 }
-
-void ContentBrowserClient::CreateWebUsbService(
-    RenderFrameHost* render_frame_host,
-    mojo::PendingReceiver<blink::mojom::WebUsbService> receiver) {}
 
 void ContentBrowserClient::CreateDeviceInfoService(
     RenderFrameHost* render_frame_host,
@@ -950,6 +1028,10 @@ BluetoothDelegate* ContentBrowserClient::GetBluetoothDelegate() {
   return nullptr;
 }
 
+UsbDelegate* ContentBrowserClient::GetUsbDelegate() {
+  return nullptr;
+}
+
 FontAccessDelegate* ContentBrowserClient::GetFontAccessDelegate() {
   return nullptr;
 }
@@ -967,13 +1049,13 @@ bool ContentBrowserClient::CreateThreadPool(base::StringPiece name) {
   return true;
 }
 
-#if !BUILDFLAG(IS_ANDROID)
 WebAuthenticationDelegate*
 ContentBrowserClient::GetWebAuthenticationDelegate() {
   static base::NoDestructor<WebAuthenticationDelegate> delegate;
   return delegate.get();
 }
 
+#if !BUILDFLAG(IS_ANDROID)
 std::unique_ptr<AuthenticatorRequestClientDelegate>
 ContentBrowserClient::GetWebAuthenticationRequestDelegate(
     RenderFrameHost* render_frame_host) {
@@ -1001,10 +1083,10 @@ std::unique_ptr<LoginDelegate> ContentBrowserClient::CreateLoginDelegate(
 bool ContentBrowserClient::HandleExternalProtocol(
     const GURL& url,
     WebContents::Getter web_contents_getter,
-    int child_id,
     int frame_tree_node_id,
     NavigationUIData* navigation_data,
-    bool is_main_frame,
+    bool is_primary_main_frame,
+    bool is_in_fenced_frame_tree,
     network::mojom::WebSandboxFlags sandbox_flags,
     ui::PageTransition page_transition,
     bool has_user_gesture,
@@ -1014,9 +1096,9 @@ bool ContentBrowserClient::HandleExternalProtocol(
   return true;
 }
 
-std::unique_ptr<OverlayWindow>
-ContentBrowserClient::CreateWindowForPictureInPicture(
-    PictureInPictureWindowController* controller) {
+std::unique_ptr<VideoOverlayWindow>
+ContentBrowserClient::CreateWindowForVideoPictureInPicture(
+    VideoPictureInPictureWindowController* controller) {
   return nullptr;
 }
 
@@ -1024,12 +1106,6 @@ void ContentBrowserClient::RegisterRendererPreferenceWatcher(
     BrowserContext* browser_context,
     mojo::PendingRemote<blink::mojom::RendererPreferenceWatcher> watcher) {
   // |browser_context| may be null (e.g. during shutdown of a service worker).
-}
-
-absl::optional<std::string> ContentBrowserClient::GetOriginPolicyErrorPage(
-    network::OriginPolicyState error_reason,
-    content::NavigationHandle* handle) {
-  return absl::nullopt;
 }
 
 bool ContentBrowserClient::CanAcceptUntrustedExchangesIfNeeded() {
@@ -1064,6 +1140,10 @@ std::string ContentBrowserClient::GetUserAgent() {
 
 std::string ContentBrowserClient::GetUserAgentBasedOnPolicy(
     content::BrowserContext* content) {
+  return GetUserAgent();
+}
+
+std::string ContentBrowserClient::GetFullUserAgent() {
   return GetUserAgent();
 }
 
@@ -1123,11 +1203,14 @@ void ContentBrowserClient::AugmentNavigationDownloadPolicy(
     bool user_gesture,
     blink::NavigationDownloadPolicy* download_policy) {}
 
-blink::mojom::InterestCohortPtr ContentBrowserClient::GetInterestCohortForJsApi(
-    WebContents* web_contents,
-    const GURL& url,
-    const absl::optional<url::Origin>& top_frame_origin) {
-  return blink::mojom::InterestCohort::New();
+bool ContentBrowserClient::HandleTopicsWebApi(
+    const url::Origin& context_origin,
+    content::RenderFrameHost* main_frame,
+    browsing_topics::ApiCallerSource caller_source,
+    bool get_topics,
+    bool observe,
+    std::vector<blink::mojom::EpochTopicPtr>& topics) {
+  return false;
 }
 
 bool ContentBrowserClient::IsBluetoothScanningBlocked(
@@ -1141,10 +1224,6 @@ void ContentBrowserClient::BlockBluetoothScanning(
     content::BrowserContext* browser_context,
     const url::Origin& requesting_origin,
     const url::Origin& embedding_origin) {}
-
-bool ContentBrowserClient::ShouldLoadExtraIcuDataFile(std::string* split_name) {
-  return false;
-}
 
 bool ContentBrowserClient::ArePersistentMediaDeviceIDsAllowed(
     content::BrowserContext* browser_context,
@@ -1175,7 +1254,7 @@ void ContentBrowserClient::IsClipboardPasteContentAllowed(
     const ui::ClipboardFormatType& data_type,
     const std::string& data,
     IsClipboardPasteContentAllowedCallback callback) {
-  std::move(callback).Run(ClipboardPasteContentAllowed(true));
+  std::move(callback).Run(data);
 }
 
 bool ContentBrowserClient::IsClipboardCopyAllowed(
@@ -1190,14 +1269,6 @@ bool ContentBrowserClient::CanEnterFullscreenWithoutUserActivation() {
   return false;
 }
 
-#if BUILDFLAG(ENABLE_PLUGINS)
-bool ContentBrowserClient::ShouldAllowPluginCreation(
-    const url::Origin& embedder_origin,
-    const content::PepperPluginInfo& plugin_info) {
-  return true;
-}
-#endif
-
 #if BUILDFLAG(ENABLE_VR)
 XrIntegrationClient* ContentBrowserClient::GetXrIntegrationClient() {
   return nullptr;
@@ -1210,6 +1281,11 @@ void ContentBrowserClient::BindBrowserControlInterface(
 bool ContentBrowserClient::ShouldInheritCrossOriginEmbedderPolicyImplicitly(
     const GURL& url) {
   return false;
+}
+
+bool ContentBrowserClient::ShouldServiceWorkerInheritPolicyContainerFromCreator(
+    const GURL& url) {
+  return url.SchemeIsLocal();
 }
 
 bool ContentBrowserClient::ShouldAllowInsecurePrivateNetworkRequests(
@@ -1234,7 +1310,7 @@ void ContentBrowserClient::OnKeepaliveRequestFinished() {}
 #if BUILDFLAG(IS_MAC)
 bool ContentBrowserClient::SetupEmbedderSandboxParameters(
     sandbox::mojom::Sandbox sandbox_type,
-    sandbox::SeatbeltExecClient* client) {
+    sandbox::SandboxCompiler* compiler) {
   return false;
 }
 #endif  // BUILDFLAG(IS_MAC)
@@ -1257,18 +1333,22 @@ bool ContentBrowserClient::SuppressDifferentOriginSubframeJSDialogs(
       features::kSuppressDifferentOriginSubframeJSDialogs);
 }
 
+std::unique_ptr<AnchorElementPreconnectDelegate>
+ContentBrowserClient::CreateAnchorElementPreconnectDelegate(
+    RenderFrameHost& render_frame_host) {
+  return nullptr;
+}
+
 std::unique_ptr<SpeculationHostDelegate>
 ContentBrowserClient::CreateSpeculationHostDelegate(
     RenderFrameHost& render_frame_host) {
   return nullptr;
 }
 
-void ContentBrowserClient::ShowDirectSocketsConnectionDialog(
-    content::RenderFrameHost* owner,
-    const std::string& address,
-    base::OnceCallback<void(bool, const std::string&, const std::string&)>
-        callback) {
-  std::move(callback).Run(false, std::string(), std::string());
+std::unique_ptr<PrefetchServiceDelegate>
+ContentBrowserClient::CreatePrefetchServiceDelegate(
+    BrowserContext* browser_context) {
+  return nullptr;
 }
 
 bool ContentBrowserClient::IsFindInPageDisabledForOrigin(
@@ -1277,11 +1357,6 @@ bool ContentBrowserClient::IsFindInPageDisabledForOrigin(
 }
 
 void ContentBrowserClient::OnWebContentsCreated(WebContents* web_contents) {}
-
-void ContentBrowserClient::FlushBackgroundAttributions(
-    base::OnceClosure callback) {
-  std::move(callback).Run();
-}
 
 bool ContentBrowserClient::ShouldDisableOriginAgentClusterDefault(
     BrowserContext* browser_context) {
@@ -1297,11 +1372,34 @@ bool ContentBrowserClient::IsFirstPartySetsEnabled() {
   return base::FeatureList::IsEnabled(features::kFirstPartySets);
 }
 
+bool ContentBrowserClient::WillProvidePublicFirstPartySets() {
+  return false;
+}
+
 mojom::AlternativeErrorPageOverrideInfoPtr
 ContentBrowserClient::GetAlternativeErrorPageOverrideInfo(
     const GURL& url,
-    BrowserContext* browser_context) {
+    content::RenderFrameHost* render_frame_host,
+    content::BrowserContext* browser_context,
+    int32_t error_code) {
   return nullptr;
+}
+
+bool ContentBrowserClient::OpenExternally(RenderFrameHost* opener,
+                                          const GURL& url,
+                                          WindowOpenDisposition disposition) {
+  return false;
+}
+
+bool ContentBrowserClient::ShouldSendOutermostOriginToRenderer(
+    const url::Origin& outermost_origin) {
+  return false;
+}
+
+bool ContentBrowserClient::IsFileSystemURLNavigationAllowed(
+    content::BrowserContext* browser_context,
+    const GURL& url) {
+  return false;
 }
 
 }  // namespace content

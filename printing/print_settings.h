@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -146,9 +146,19 @@ class COMPONENT_EXPORT(PRINTING) PrintSettings {
 
   int device_units_per_inch() const {
 #if BUILDFLAG(IS_MAC)
-    return 72;
+    return kMacDeviceUnitsPerInch;
 #else   // BUILDFLAG(IS_MAC)
     return dpi();
+#endif  // BUILDFLAG(IS_MAC)
+  }
+
+  const gfx::Size& device_units_per_inch_size() const {
+#if BUILDFLAG(IS_MAC)
+    static constexpr gfx::Size kSize{kMacDeviceUnitsPerInch,
+                                     kMacDeviceUnitsPerInch};
+    return kSize;
+#else   // BUILDFLAG(IS_MAC)
+    return dpi_size();
 #endif  // BUILDFLAG(IS_MAC)
   }
 
@@ -237,6 +247,11 @@ class COMPONENT_EXPORT(PRINTING) PrintSettings {
   void set_username(const std::string& username) { username_ = username; }
   const std::string& username() const { return username_; }
 
+  void set_oauth_token(const std::string& oauth_token) {
+    oauth_token_ = oauth_token;
+  }
+  const std::string& oauth_token() const { return oauth_token_; }
+
   void set_pin_value(const std::string& pin_value) { pin_value_ = pin_value; }
   const std::string& pin_value() const { return pin_value_; }
 #endif  // BUILDFLAG(IS_CHROMEOS)
@@ -247,6 +262,10 @@ class COMPONENT_EXPORT(PRINTING) PrintSettings {
   static int NewCookie();
 
  private:
+#if BUILDFLAG(IS_MAC)
+  static constexpr int kMacDeviceUnitsPerInch = 72;
+#endif
+
   // Multi-page printing. Each `PageRange` describes a from-to page combination.
   // This permits printing selected pages only.
   PageRanges ranges_;
@@ -333,6 +352,9 @@ class COMPONENT_EXPORT(PRINTING) PrintSettings {
 
   // Username if it's required by the printer.
   std::string username_;
+
+  // OAuth access token if it's required by the printer.
+  std::string oauth_token_;
 
   // PIN code entered by the user.
   std::string pin_value_;

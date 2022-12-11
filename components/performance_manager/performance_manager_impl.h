@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@
 #include "base/location.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "components/performance_manager/graph/graph_impl.h"
 #include "components/performance_manager/public/graph/frame_node.h"
 #include "components/performance_manager/public/graph/page_node.h"
@@ -196,8 +195,8 @@ void PerformanceManagerImpl::CallOnGraphAndReplyWithResult(
     const base::Location& from_here,
     base::OnceCallback<TaskReturnType(GraphImpl*)> task,
     base::OnceCallback<void(TaskReturnType)> reply) {
-  base::PostTaskAndReplyWithResult(
-      GetTaskRunner().get(), from_here,
+  GetTaskRunner()->PostTaskAndReplyWithResult(
+      from_here,
       base::BindOnce(
           &PerformanceManagerImpl::RunCallbackWithGraphAndReplyWithResult<
               TaskReturnType>,

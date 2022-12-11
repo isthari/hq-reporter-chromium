@@ -1,22 +1,36 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
+
 #include "base/containers/contains.h"
 #include "chrome/browser/page_load_metrics/integration_tests/metric_integration_test.h"
-#include "chrome/browser/prerender/prerender_utils.h"
+#include "chrome/browser/preloading/prerender/prerender_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/page_load_metrics/browser/observers/core/uma_page_load_metrics_observer.h"
 #include "components/page_load_metrics/browser/observers/prerender_page_load_metrics_observer.h"
 #include "components/page_load_metrics/browser/page_load_metrics_test_waiter.h"
 #include "content/public/browser/prerender_trigger_type.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/prerender_test_util.h"
+#include "net/test/embedded_test_server/controllable_http_response.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/blink/public/common/features.h"
 
 using PrerenderPageLoad = ukm::builders::PrerenderPageLoad;
+using PageLoad = ukm::builders::PageLoad;
+
+namespace {
+const char kResponseWithNoStore[] =
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: text/html; charset=utf-8\r\n"
+    "Cache-Control: no-store\r\n"
+    "\r\n"
+    "The server speaks HTTP!";
+}
 
 class PrerenderPageLoadMetricsObserverBrowserTest
     : public MetricIntegrationTest {
@@ -51,11 +65,56 @@ class PrerenderPageLoadMetricsObserverBrowserTest
   }
 
  protected:
+  void CheckResponsivenessMetrics(const GURL& url) {
+    std::vector<std::string> ukm_list = {
+        "InteractiveTiming.WorstUserInteractionLatency.MaxEventDuration",
+        "InteractiveTiming.AverageUserInteractionLatencyOverBudget."
+        "MaxEventDuration",
+        "InteractiveTiming.UserInteractionLatency.HighPercentile2."
+        "MaxEventDuration",
+        "InteractiveTiming.NumInteractions"};
+
+    for (auto& ukm : ukm_list) {
+      int count = 0;
+      for (auto* entry :
+           ukm_recorder().GetEntriesByName(PrerenderPageLoad::kEntryName)) {
+        auto* source = ukm_recorder().GetSourceForSourceId(entry->source_id);
+        if (!source)
+          continue;
+        if (source->url() != url)
+          continue;
+        if (!ukm_recorder().EntryHasMetric(entry, ukm.c_str()))
+          continue;
+        count++;
+      }
+      EXPECT_EQ(count, 1);
+    }
+
+    std::vector<std::string> uma_list = {
+        internal::
+            kHistogramPrerenderAverageUserInteractionLatencyOverBudgetMaxEventDuration,
+        internal::kHistogramPrerenderNumInteractions,
+        internal::
+            kHistogramPrerenderUserInteractionLatencyHighPercentile2MaxEventDuration,
+        internal::
+            kHistogramPrerenderWorstUserInteractionLatencyMaxEventDuration};
+
+    for (auto& uma : uma_list) {
+      histogram_tester().ExpectTotalCount(uma, 1);
+    }
+  }
+
   content::test::PrerenderTestHelper prerender_helper_;
 };
 
+// TODO(crbug.com/1329881): Re-enable this test
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_Activate_SpeculationRule DISABLED_Activate_SpeculationRule
+#else
+#define MAYBE_Activate_SpeculationRule Activate_SpeculationRule
+#endif
 IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
-                       Activate_SpeculationRule) {
+                       MAYBE_Activate_SpeculationRule) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   // Navigate to an initial page.
@@ -74,6 +133,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
   prerender_helper_.NavigatePrimaryPage(prerender_url);
   waiter->Wait();
 
+  // Expect only FP and FCP for prerender are recorded.
   histogram_tester().ExpectTotalCount(
       prerender_helper_.GenerateHistogramName(
           internal::kHistogramPrerenderNavigationToActivation,
@@ -84,11 +144,14 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
           internal::kHistogramPrerenderActivationToFirstPaint,
           content::PrerenderTriggerType::kSpeculationRule, ""),
       1);
+  histogram_tester().ExpectTotalCount(internal::kHistogramFirstPaint, 0);
   histogram_tester().ExpectTotalCount(
       prerender_helper_.GenerateHistogramName(
           internal::kHistogramPrerenderActivationToFirstContentfulPaint,
           content::PrerenderTriggerType::kSpeculationRule, ""),
       1);
+  histogram_tester().ExpectTotalCount(internal::kHistogramFirstContentfulPaint,
+                                      0);
 
   // Simulate mouse click and wait for FirstInputDelay.
   content::SimulateMouseClick(web_contents(), 0,
@@ -97,22 +160,28 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
                                  TimingField::kFirstInputDelay);
   waiter->Wait();
 
+  // Expect only FID for prerender is recorded.
   histogram_tester().ExpectTotalCount(
       prerender_helper_.GenerateHistogramName(
           internal::kHistogramPrerenderFirstInputDelay4,
           content::PrerenderTriggerType::kSpeculationRule, ""),
       1);
+  histogram_tester().ExpectTotalCount(internal::kHistogramFirstInputDelay, 0);
 
   // Force navigation to another page, which should force logging of histograms
   // persisted at the end of the page load lifetime.
   ASSERT_TRUE(
       ui_test_utils::NavigateToURL(browser(), GURL(url::kAboutBlankURL)));
 
+  // Expect only LCP for prerender is recorded.
   histogram_tester().ExpectTotalCount(
       prerender_helper_.GenerateHistogramName(
           internal::kHistogramPrerenderActivationToLargestContentfulPaint2,
           content::PrerenderTriggerType::kSpeculationRule, ""),
       1);
+  histogram_tester().ExpectTotalCount(
+      internal::kHistogramLargestContentfulPaint, 0);
+
   histogram_tester().ExpectTotalCount(
       prerender_helper_.GenerateHistogramName(
           internal::kHistogramPrerenderCumulativeShiftScore,
@@ -121,6 +190,12 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
   histogram_tester().ExpectTotalCount(
       prerender_helper_.GenerateHistogramName(
           internal::kHistogramPrerenderCumulativeShiftScoreMainFrame,
+          content::PrerenderTriggerType::kSpeculationRule, ""),
+      1);
+  histogram_tester().ExpectTotalCount(
+      prerender_helper_.GenerateHistogramName(
+          internal::
+              kHistogramPrerenderMaxCumulativeShiftScoreSessionWindowGap1000msMax5000ms2,
           content::PrerenderTriggerType::kSpeculationRule, ""),
       1);
 
@@ -143,6 +218,24 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
   EXPECT_TRUE(ukm_recorder().EntryHasMetric(
       prerendered_page_entry,
       PrerenderPageLoad::kTiming_ActivationToLargestContentfulPaintName));
+  EXPECT_TRUE(ukm_recorder().EntryHasMetric(
+      prerendered_page_entry,
+      PrerenderPageLoad::kInteractiveTiming_FirstInputDelay4Name));
+  EXPECT_TRUE(ukm_recorder().EntryHasMetric(
+      prerendered_page_entry,
+      PrerenderPageLoad::
+          kLayoutInstability_MaxCumulativeShiftScore_SessionWindow_Gap1000ms_Max5000msName));
+  EXPECT_FALSE(ukm_recorder().EntryHasMetric(
+      prerendered_page_entry,
+      PageLoad::kPaintTiming_NavigationToFirstContentfulPaintName));
+  EXPECT_FALSE(ukm_recorder().EntryHasMetric(
+      prerendered_page_entry,
+      PageLoad::kPaintTiming_NavigationToLargestContentfulPaint2Name));
+  // Expect that when the response has no Cache-control:no-store we still record
+  // the `kMainFrameResource_RequestHasNoStoreName` metric for prerender.
+  EXPECT_TRUE(ukm_recorder().EntryHasMetric(
+      prerendered_page_entry,
+      PrerenderPageLoad::kMainFrameResource_RequestHasNoStoreName));
 
   const ukm::mojom::UkmEntry* initiator_page_entry = entries[initial_url].get();
   ASSERT_TRUE(initiator_page_entry);
@@ -159,10 +252,70 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
   EXPECT_FALSE(ukm_recorder().EntryHasMetric(
       initiator_page_entry,
       PrerenderPageLoad::kTiming_ActivationToLargestContentfulPaintName));
+
+  CheckResponsivenessMetrics(prerender_url);
 }
 
+// Tests that metrics are not recorded if the page moves to background before
+// recording metrics is completed.
 IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
-                       Activate_Embedder_DirectURLInput) {
+                       ActivateAndMoveToBackground_SpeculationRule) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  // Navigate to an initial page.
+  auto initial_url = embedded_test_server()->GetURL("/empty.html");
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
+
+  // Start a prerender.
+  GURL prerender_url = embedded_test_server()->GetURL("/title2.html");
+  prerender_helper_.AddPrerender(prerender_url);
+
+  // Start an activation.
+  prerender_helper_.NavigatePrimaryPage(prerender_url);
+
+  // Changing the visibility state to HIDDEN will prevent from recording metrics
+  // such as LCP since they are supposed to be recorded only when the page is
+  // foreground.
+  web_contents()->WasHidden();
+
+  // Force navigation to another page, which should force logging of metrics
+  // persisted at the end of the page load lifetime.
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GURL(url::kAboutBlankURL)));
+
+  auto entries = GetMergedUkmEntries(PrerenderPageLoad::kEntryName);
+  EXPECT_EQ(2u, entries.size());
+
+  const ukm::mojom::UkmEntry* prerendered_page_entry =
+      entries[prerender_url].get();
+  ASSERT_TRUE(prerendered_page_entry);
+  // `WasPrerendered` exists since it's recorded when the activation starts.
+  EXPECT_TRUE(ukm_recorder().EntryHasMetric(
+      prerendered_page_entry, PrerenderPageLoad::kWasPrerenderedName));
+
+  // LCP for prerender shouldn't be recorded since the page is in the
+  // background.
+  EXPECT_FALSE(ukm_recorder().EntryHasMetric(
+      prerendered_page_entry,
+      PrerenderPageLoad::kTiming_ActivationToLargestContentfulPaintName));
+
+  histogram_tester().ExpectTotalCount(
+      prerender_helper_.GenerateHistogramName(
+          internal::kHistogramPrerenderActivationToLargestContentfulPaint2,
+          content::PrerenderTriggerType::kEmbedder,
+          prerender_utils::kDirectUrlInputMetricSuffix),
+      0);
+}
+
+// TODO(crbug.com/1329881): Re-enable this test
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_Activate_Embedder_DirectURLInput \
+  DISABLED_Activate_Embedder_DirectURLInput
+#else
+#define MAYBE_Activate_Embedder_DirectURLInput Activate_Embedder_DirectURLInput
+#endif
+IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
+                       MAYBE_Activate_Embedder_DirectURLInput) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   GURL prerender_url = embedded_test_server()->GetURL("/title2.html");
@@ -195,6 +348,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
       /*is_renderer_initiated=*/false));
   waiter->Wait();
 
+  // Expect only FP and FCP for prerender are recorded.
   histogram_tester().ExpectTotalCount(
       prerender_helper_.GenerateHistogramName(
           internal::kHistogramPrerenderNavigationToActivation,
@@ -207,12 +361,15 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
           content::PrerenderTriggerType::kEmbedder,
           prerender_utils::kDirectUrlInputMetricSuffix),
       1);
+  histogram_tester().ExpectTotalCount(internal::kHistogramFirstPaint, 0);
   histogram_tester().ExpectTotalCount(
       prerender_helper_.GenerateHistogramName(
           internal::kHistogramPrerenderActivationToFirstContentfulPaint,
           content::PrerenderTriggerType::kEmbedder,
           prerender_utils::kDirectUrlInputMetricSuffix),
       1);
+  histogram_tester().ExpectTotalCount(internal::kHistogramFirstContentfulPaint,
+                                      0);
 
   // Simulate mouse click and wait for FirstInputDelay.
   content::SimulateMouseClick(web_contents(), 0,
@@ -221,24 +378,30 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
                                  TimingField::kFirstInputDelay);
   waiter->Wait();
 
+  // Expect only FID for prerender is recorded.
   histogram_tester().ExpectTotalCount(
       prerender_helper_.GenerateHistogramName(
           internal::kHistogramPrerenderFirstInputDelay4,
           content::PrerenderTriggerType::kEmbedder,
           prerender_utils::kDirectUrlInputMetricSuffix),
       1);
+  histogram_tester().ExpectTotalCount(internal::kHistogramFirstInputDelay, 0);
 
   // Force navigation to another page, which should force logging of
   // histograms persisted at the end of the page load lifetime.
   ASSERT_TRUE(
       ui_test_utils::NavigateToURL(browser(), GURL(url::kAboutBlankURL)));
 
+  // Expect only LCP for prerender is recorded.
   histogram_tester().ExpectTotalCount(
       prerender_helper_.GenerateHistogramName(
           internal::kHistogramPrerenderActivationToLargestContentfulPaint2,
           content::PrerenderTriggerType::kEmbedder,
           prerender_utils::kDirectUrlInputMetricSuffix),
       1);
+  histogram_tester().ExpectTotalCount(
+      internal::kHistogramLargestContentfulPaint, 0);
+
   histogram_tester().ExpectTotalCount(
       prerender_helper_.GenerateHistogramName(
           internal::kHistogramPrerenderCumulativeShiftScore,
@@ -251,6 +414,15 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
           content::PrerenderTriggerType::kEmbedder,
           prerender_utils::kDirectUrlInputMetricSuffix),
       1);
+  histogram_tester().ExpectTotalCount(
+      prerender_helper_.GenerateHistogramName(
+          internal::
+              kHistogramPrerenderMaxCumulativeShiftScoreSessionWindowGap1000msMax5000ms2,
+          content::PrerenderTriggerType::kEmbedder,
+          prerender_utils::kDirectUrlInputMetricSuffix),
+      1);
+
+  CheckResponsivenessMetrics(prerender_url);
 }
 
 IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
@@ -265,13 +437,8 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
   GURL prerender_url = embedded_test_server()->GetURL("/title2.html");
   const int host_id = prerender_helper_.AddPrerender(prerender_url);
 
-  // Start a navigation in the prerender frame tree that will cancel the
-  // initiator's prerendering.
   content::test::PrerenderHostObserver observer(*web_contents(), host_id);
-
-  GURL hung_url = embedded_test_server()->GetURL("/hung");
-  prerender_helper_.NavigatePrerenderedPage(host_id, hung_url);
-
+  prerender_helper_.CancelPrerenderedPage(host_id);
   observer.WaitForDestroyed();
 
   // Force navigation to another page, which should force logging of histograms
@@ -288,8 +455,14 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
   EXPECT_FALSE(base::Contains(entries, prerender_url));
 }
 
+// TODO(crbug.com/1329881): Re-enable this test
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_Redirection DISABLED_Redirection
+#else
+#define MAYBE_Redirection Redirection
+#endif
 IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
-                       Redirection) {
+                       MAYBE_Redirection) {
   ASSERT_TRUE(embedded_test_server()->Start());
 
   // Navigate to an initial page.
@@ -335,4 +508,70 @@ IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
   EXPECT_TRUE(ukm_recorder().EntryHasMetric(
       prerendered_page_entry,
       PrerenderPageLoad::kTiming_ActivationToLargestContentfulPaintName));
+}
+
+// Tests that metrics are recoreded correctly with Cache-control:no store when
+// prerender is activated.
+IN_PROC_BROWSER_TEST_F(PrerenderPageLoadMetricsObserverBrowserTest,
+                       ActivationWithNoStoreResponse) {
+  // Create a HTTP response to control prerendering main-frame navigation.
+  net::test_server::ControllableHttpResponse main_document_response(
+      embedded_test_server(), "/main_document");
+
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  const GURL kInitialUrl = embedded_test_server()->GetURL("/empty.html");
+  const GURL kPrerenderingUrl =
+      embedded_test_server()->GetURL("/main_document");
+
+  // Navigate to an initial page in primary frame tree.
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInitialUrl));
+
+  // Start a prerender, and navigate to a page that doesn't commit navigation.
+  {
+    content::test::PrerenderHostRegistryObserver registry_observer(
+        *web_contents());
+    prerender_helper_.AddPrerenderAsync(kPrerenderingUrl);
+    registry_observer.WaitForTrigger(kPrerenderingUrl);
+  }
+
+  int host_id = prerender_helper_.GetHostForUrl(kPrerenderingUrl);
+  content::test::PrerenderHostObserver prerender_observer(*web_contents(),
+                                                          host_id);
+  EXPECT_FALSE(prerender_observer.was_activated());
+
+  // Complete the prerender response with no cache and finish ongoing prerender
+  // main frame navigation. Start navigation in primary page to
+  // kPrerenderingUrl.
+  content::TestActivationManager primary_page_manager(web_contents(),
+                                                      kPrerenderingUrl);
+  ASSERT_TRUE(ExecJs(web_contents()->GetPrimaryMainFrame(),
+                     content::JsReplace("location = $1", kPrerenderingUrl)));
+
+  main_document_response.WaitForRequest();
+  main_document_response.Send(kResponseWithNoStore);
+  main_document_response.Done();
+  primary_page_manager.WaitForNavigationFinished();
+  prerender_observer.WaitForActivation();
+
+  // Force navigation to another page, which should force logging of metrics
+  // persisted at the end of the page load lifetime.
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GURL(url::kAboutBlankURL)));
+
+  auto entries = GetMergedUkmEntries(PrerenderPageLoad::kEntryName);
+  EXPECT_EQ(2u, entries.size());
+
+  const ukm::mojom::UkmEntry* prerendered_page_entry =
+      entries[kPrerenderingUrl].get();
+  ASSERT_TRUE(prerendered_page_entry);
+
+  // RequestHasNoStore should be recorded with value 1 as the response has
+  // Cache-control no-store in it.
+  EXPECT_TRUE(ukm_recorder().EntryHasMetric(
+      prerendered_page_entry,
+      PrerenderPageLoad::kMainFrameResource_RequestHasNoStoreName));
+  ukm_recorder().ExpectEntryMetric(
+      prerendered_page_entry,
+      PrerenderPageLoad::kMainFrameResource_RequestHasNoStoreName, 1);
 }

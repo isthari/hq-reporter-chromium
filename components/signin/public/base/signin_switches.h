@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,26 +20,32 @@ namespace switches {
 // alongside the definition of their values in the .cc file.
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-extern const base::Feature kAccountIdMigration;
+BASE_DECLARE_FEATURE(kAccountIdMigration);
 #endif
 
 #if BUILDFLAG(IS_ANDROID)
-extern const base::Feature kAllowSyncOffForChildAccounts;
+BASE_DECLARE_FEATURE(kGaiaIdCacheInAccountManagerFacade);
 #endif
+
+BASE_DECLARE_FEATURE(kNewSigninRequestHeaderCheckOrder);
 
 extern const char kClearTokenService[];
 
 extern const char kDisableSigninScopedDeviceId[];
 
-extern const base::Feature kForceDisableExtendedSyncPromos;
+BASE_DECLARE_FEATURE(kEnableFetchingAccountCapabilities);
+
+BASE_DECLARE_FEATURE(kForceDisableExtendedSyncPromos);
 
 #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
-extern const base::Feature kForceStartupSigninPromo;
+BASE_DECLARE_FEATURE(kForceStartupSigninPromo);
+BASE_DECLARE_FEATURE(kIdentityStatusConsistency);
+#endif
+#if BUILDFLAG(IS_IOS)
+BASE_DECLARE_FEATURE(kEnableCbdSignOut);
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-extern const base::Feature kLacrosNonSyncingProfiles;
-#endif
+BASE_DECLARE_FEATURE(kTangibleSync);
 
 }  // namespace switches
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,24 +16,22 @@
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/process/launch.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/updater/app/app.h"
 #include "chrome/updater/app/app_utils.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/persisted_data.h"
 #include "chrome/updater/prefs.h"
-#include "chrome/updater/util.h"
+#include "chrome/updater/util/util.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if BUILDFLAG(IS_WIN)
 #include "chrome/updater/win/setup/uninstall.h"
-#elif BUILDFLAG(IS_MAC)
-#include "chrome/updater/mac/setup/setup.h"
-#elif BUILDFLAG(IS_LINUX)
-#include "chrome/updater/linux/setup/setup.h"
+#elif BUILDFLAG(IS_POSIX)
+#include "chrome/updater/posix/setup.h"
 #endif
 
 namespace updater {
@@ -43,7 +41,7 @@ namespace {
 // given `scope`.
 void UninstallOtherVersions(UpdaterScope scope) {
   const absl::optional<base::FilePath> updater_folder_path =
-      GetUpdaterFolderPath(scope);
+      GetBaseInstallDirectory(scope);
   if (!updater_folder_path) {
     LOG(ERROR) << "Failed to get updater folder path.";
     return;
@@ -52,7 +50,7 @@ void UninstallOtherVersions(UpdaterScope scope) {
                                        base::FileEnumerator::DIRECTORIES);
   for (base::FilePath version_folder_path = file_enumerator.Next();
        !version_folder_path.empty() &&
-       version_folder_path != GetVersionedUpdaterFolderPath(scope);
+       version_folder_path != GetVersionedInstallDirectory(scope);
        version_folder_path = file_enumerator.Next()) {
     const base::FilePath version_executable_path =
         version_folder_path.Append(GetExecutableRelativePath());
@@ -60,7 +58,7 @@ void UninstallOtherVersions(UpdaterScope scope) {
     if (base::PathExists(version_executable_path)) {
       base::CommandLine command_line(version_executable_path);
       command_line.AppendSwitch(kUninstallSelfSwitch);
-      if (scope == UpdaterScope::kSystem)
+      if (IsSystemInstall(scope))
         command_line.AppendSwitch(kSystemSwitch);
       command_line.AppendSwitch(kEnableLoggingSwitch);
       command_line.AppendSwitchASCII(kLoggingModuleSwitch,
@@ -145,7 +143,7 @@ void AppUninstall::FirstTaskRun() {
           base::BindOnce(&Uninstall, updater_scope()),
           base::BindOnce(&AppUninstall::Shutdown, this));
     } else {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(&AppUninstall::Shutdown, this, 0));
     }
     return;

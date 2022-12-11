@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "base/trace_event/process_memory_dump.h"
 #include "chrome/browser/autofill/address_accessory_controller.h"
 #include "chrome/browser/autofill/credit_card_accessory_controller.h"
+#include "chrome/browser/autofill/manual_filling_view_interface.h"
 #include "chrome/browser/password_manager/android/password_accessory_controller.h"
 #include "chrome/browser/password_manager/android/password_accessory_metrics_util.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
@@ -26,6 +27,7 @@
 #include "components/autofill/core/browser/ui/accessory_sheet_data.h"
 #include "components/autofill/core/browser/ui/accessory_sheet_enums.h"
 #include "components/autofill/core/common/autofill_features.h"
+#include "components/autofill/core/common/autofill_payments_features.h"
 #include "components/autofill/core/common/autofill_util.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/password_manager/core/browser/credential_cache.h"
@@ -62,6 +64,65 @@ FillingSource GetSourceForTabType(const AccessorySheetData& accessory_sheet) {
       NOTREACHED() << "Cannot determine filling source";
       return FillingSource::PASSWORD_FALLBACKS;
   }
+}
+
+// This method describes whether an action is sufficiently relevant to show a
+// fallback sheet for their own sake in the accessory V1. As of this writing,
+// they filter mainly the "Manage" entry points since they are only useful if
+// users stored data already.
+bool IsRelevantActionForVisibility(AccessoryAction action) {
+  switch (action) {
+    case AccessoryAction::MANAGE_CREDIT_CARDS:
+    case AccessoryAction::MANAGE_ADDRESSES:
+      // These options don't provide merit on their own. If the user has no data
+      // in the fallback sheet, "manage" is not likely to be useful. The space
+      // the accessory consumes is very hard to justify in this case.
+      return false;
+
+    case AccessoryAction::MANAGE_PASSWORDS:
+      // Technically, the "Manage" entry point justifies showing the bar if two
+      // conditions are met:
+      // a) the user has at least one password for *any* site (and looks for it)
+      // b) the user wants to sign up and needs to adjust their settings
+      // But a) is covered by the presence of USE_OTHER_PASSWORD and b) is
+      // covered by
+      // * the pwd generation logic showing the bar for new sites, OR
+      // * the recovery toggle showing the bar for already encountered sites.
+      // Therefore, Manage Passwords is a weak signal that shows the accessory
+      // too often and in cases where it doesn't make sense: most notably on
+      // non-search inputs that *could be a username* – even without any stored
+      // passwords. This applies to almost every form in a field
+      return false;
+
+    // The cases below don't exist in fallback sheets as of this writing. But if
+    // they ever move there, the sheet has a strong reason to be accessible.
+    case AccessoryAction::AUTOFILL_SUGGESTION:
+    case AccessoryAction::GENERATE_PASSWORD_AUTOMATIC:
+    case AccessoryAction::TOGGLE_SAVE_PASSWORDS:
+      return true;
+
+    // These cases are sufficient as a reason for showing the fallback sheet.
+    case AccessoryAction::USE_OTHER_PASSWORD:
+    case AccessoryAction::GENERATE_PASSWORD_MANUAL:
+      return true;
+
+    case AccessoryAction::COUNT:
+      NOTREACHED();
+  }
+  return false;
+}
+
+// This method filters which actions are sufficient on their own to justify
+// showing the V1 version of the accessory. With V2, that decision is moved into
+// each `AccessoryController::GetSheetData` implementation.
+// In general, if there is any saved data, we want to show the fallback.
+bool HasRelevantSuggestions(const AccessorySheetData& accessory_sheet_data) {
+  return !accessory_sheet_data.user_info_list().empty() ||
+         !accessory_sheet_data.promo_code_info_list().empty() ||
+         accessory_sheet_data.option_toggle().has_value() ||
+         base::ranges::any_of(accessory_sheet_data.footer_commands(),
+                              &IsRelevantActionForVisibility,
+                              &autofill::FooterCommand::accessory_action);
 }
 
 }  // namespace
@@ -124,13 +185,12 @@ void ManualFillingControllerImpl::OnAutomaticGenerationStatusChanged(
 
 void ManualFillingControllerImpl::RefreshSuggestions(
     const AccessorySheetData& accessory_sheet_data) {
+  TRACE_EVENT0("passwords", "ManualFillingControllerImpl::RefreshSuggestions");
   view_->OnItemsAvailable(accessory_sheet_data);
   available_sheets_.insert_or_assign(GetSourceForTabType(accessory_sheet_data),
                                      accessory_sheet_data);
-  UpdateSourceAvailability(
-      GetSourceForTabType(accessory_sheet_data),
-      !accessory_sheet_data.user_info_list().empty() ||
-          !accessory_sheet_data.promo_code_info_list().empty());
+  UpdateSourceAvailability(GetSourceForTabType(accessory_sheet_data),
+                           HasRelevantSuggestions(accessory_sheet_data));
 }
 
 void ManualFillingControllerImpl::NotifyFocusedInputChanged(
@@ -229,7 +289,7 @@ void ManualFillingControllerImpl::OnToggleChanged(
 
 void ManualFillingControllerImpl::RequestAccessorySheet(
     autofill::AccessoryTabType tab_type,
-    base::OnceCallback<void(const autofill::AccessorySheetData&)> callback) {
+    base::OnceCallback<void(autofill::AccessorySheetData)> callback) {
   // TODO(crbug.com/1169167): Consider to execute this async to reduce jank.
   absl::optional<AccessorySheetData> sheet =
       GetControllerForTabType(tab_type)->GetSheetData();
@@ -286,7 +346,8 @@ ManualFillingControllerImpl::ManualFillingControllerImpl(
   }
 
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
-      this, "ManualFillingCache", base::ThreadTaskRunnerHandle::Get());
+      this, "ManualFillingCache",
+      base::SingleThreadTaskRunner::GetCurrentDefault());
 }
 
 ManualFillingControllerImpl::ManualFillingControllerImpl(
@@ -301,7 +362,8 @@ ManualFillingControllerImpl::ManualFillingControllerImpl(
       cc_controller_(std::move(cc_controller)),
       view_(std::move(view)) {
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
-      this, "ManualFillingCache", base::ThreadTaskRunnerHandle::Get());
+      this, "ManualFillingCache",
+      base::SingleThreadTaskRunner::GetCurrentDefault());
 }
 
 bool ManualFillingControllerImpl::OnMemoryDump(
@@ -322,21 +384,19 @@ bool ManualFillingControllerImpl::ShouldShowAccessory() const {
   if (!base::FeatureList::IsEnabled(
           autofill::features::kAutofillKeyboardAccessory) &&
       !base::FeatureList::IsEnabled(
-          autofill::features::kAutofillManualFallbackAndroid)) {
+          autofill::features::kAutofillManualFallbackAndroid) &&
+      !base::FeatureList::IsEnabled(
+          autofill::features::kAutofillEnableManualFallbackForVirtualCards)) {
     return last_focused_field_type_ ==
                FocusedFieldType::kFillablePasswordField ||
            last_focused_field_type_ == FocusedFieldType::kFillableUsernameField;
   }
   switch (last_focused_field_type_) {
-    // Always show on password fields to provide management and generation.
-    case FocusedFieldType::kFillablePasswordField:
-      return true;
-
     // If there are suggestions, show on usual form fields.
+    case FocusedFieldType::kFillablePasswordField:
     case FocusedFieldType::kFillableUsernameField:
     case FocusedFieldType::kFillableNonSearchField:
-      // TODO(crbug/1242839): Hide the accessory if no fallback is available.
-      return true;
+      return !available_sources_.empty();
 
     // Fallbacks aren't really useful on search fields but autocomplete entries
     // justify showing the accessory.
@@ -347,10 +407,11 @@ bool ManualFillingControllerImpl::ShouldShowAccessory() const {
     case FocusedFieldType::kFillableTextArea:
       return false;  // TODO(https://crbug.com/965478): true on long-press.
 
-    // Never show if the focused field is not explicitly fillable.
+    // Sometimes autocomplete entries may be set when the focus is on an unknown
+    // or unfillable field.
     case FocusedFieldType::kUnfillableElement:
     case FocusedFieldType::kUnknown:
-      return false;
+      return available_sources_.contains(FillingSource::AUTOFILL);
   }
 }
 
@@ -371,7 +432,10 @@ void ManualFillingControllerImpl::UpdateVisibility() {
       if (sheet.has_value())
         view_->OnItemsAvailable(std::move(sheet.value()));
     }
-    view_->ShowWhenKeyboardIsVisible();
+    view_->Show(ManualFillingViewInterface::WaitForKeyboard(
+        last_focused_field_type_ != FocusedFieldType::kUnfillableElement &&
+        last_focused_field_type_ != FocusedFieldType::kUnknown));
+
   } else {
     view_->Hide();
   }
@@ -397,6 +461,8 @@ void ManualFillingControllerImpl::OnSourceAvailabilityChanged(
     FillingSource source,
     AccessoryController* source_controller,
     AccessoryController::IsFillingSourceAvailable is_source_available) {
+  TRACE_EVENT0("passwords",
+               "ManualFillingControllerImpl::OnSourceAvailabilityChanged");
   absl::optional<AccessorySheetData> sheet = source_controller->GetSheetData();
   bool show_filling_source = sheet.has_value() && is_source_available;
   // TODO(crbug.com/1169167): Remove once all sheets pull this information

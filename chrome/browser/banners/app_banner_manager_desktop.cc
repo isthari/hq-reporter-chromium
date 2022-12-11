@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,13 +17,14 @@
 #include "chrome/browser/ui/intent_picker_tab_helper.h"
 #include "chrome/browser/ui/web_applications/web_app_dialog_utils.h"
 #include "chrome/browser/web_applications/extensions/bookmark_app_util.h"
-#include "chrome/browser/web_applications/web_app_constants.h"
+#include "chrome/browser/web_applications/user_display_mode.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_install_manager.h"
 #include "chrome/browser/web_applications/web_app_install_manager_observer.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "components/webapps/browser/banners/app_banner_metrics.h"
 #include "components/webapps/browser/banners/app_banner_settings_helper.h"
+#include "components/webapps/browser/install_result_code.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/constants.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -32,8 +33,8 @@
 #include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/arc/arc_util.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace {
@@ -95,7 +96,7 @@ AppBannerManagerDesktop::AppBannerManagerDesktop(
     install_manager_observation_.Observe(&provider->install_manager());
 }
 
-AppBannerManagerDesktop::~AppBannerManagerDesktop() { }
+AppBannerManagerDesktop::~AppBannerManagerDesktop() = default;
 
 base::WeakPtr<AppBannerManager> AppBannerManagerDesktop::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
@@ -163,7 +164,7 @@ web_app::WebAppRegistrar& AppBannerManagerDesktop::registrar() {
   auto* provider = web_app::WebAppProvider::GetForWebApps(
       Profile::FromBrowserContext(web_contents()->GetBrowserContext()));
   DCHECK(provider);
-  return provider->registrar();
+  return provider->registrar_unsafe();
 }
 
 bool AppBannerManagerDesktop::ShouldAllowWebAppReplacementInstall() {
@@ -180,7 +181,7 @@ bool AppBannerManagerDesktop::ShouldAllowWebAppReplacementInstall() {
   // TODO(crbug.com/1205529): Showing an install button when it's already
   // installed is confusing.
   auto display_mode = registrar().GetAppUserDisplayMode(app_id);
-  return display_mode == blink::mojom::DisplayMode::kBrowser;
+  return display_mode == web_app::UserDisplayMode::kBrowser;
 }
 
 void AppBannerManagerDesktop::ShowBannerUi(WebappInstallSource install_source) {
@@ -216,7 +217,7 @@ void AppBannerManagerDesktop::OnWebAppInstalled(
       registrar().FindAppWithUrlInScope(validated_url_);
   if (app_id.has_value() && *app_id == installed_app_id &&
       registrar().GetAppUserDisplayMode(*app_id) ==
-          blink::mojom::DisplayMode::kStandalone) {
+          web_app::UserDisplayMode::kStandalone) {
     OnInstall(registrar().GetEffectiveDisplayModeFromManifest(*app_id));
     SetInstallableWebAppCheckResult(InstallableWebAppCheckResult::kNo);
   }
@@ -225,9 +226,8 @@ void AppBannerManagerDesktop::OnWebAppInstalled(
 void AppBannerManagerDesktop::OnWebAppWillBeUninstalled(
     const web_app::AppId& app_id) {
   // WebAppTabHelper has a app_id but it is reset during
-  // OnWebAppWillBeUninstalled so using FindAppWithUrlInScope.
-  auto local_app_id = registrar().FindAppWithUrlInScope(validated_url());
-  if (app_id == local_app_id)
+  // OnWebAppWillBeUninstalled so use IsUrlInAppScope() instead.
+  if (registrar().IsUrlInAppScope(validated_url(), app_id))
     uninstalling_app_id_ = app_id;
 }
 
@@ -254,19 +254,19 @@ void AppBannerManagerDesktop::CreateWebApp(WebappInstallSource install_source) {
 
 void AppBannerManagerDesktop::DidFinishCreatingWebApp(
     const web_app::AppId& app_id,
-    web_app::InstallResultCode code) {
+    webapps::InstallResultCode code) {
   content::WebContents* contents = web_contents();
   if (!contents)
     return;
 
   // Catch only kSuccessNewInstall and kUserInstallDeclined. Report nothing on
   // all other errors.
-  if (code == web_app::InstallResultCode::kSuccessNewInstall) {
+  if (code == webapps::InstallResultCode::kSuccessNewInstall) {
     SendBannerAccepted();
     TrackUserResponse(USER_RESPONSE_WEB_APP_ACCEPTED);
     AppBannerSettingsHelper::RecordBannerInstallEvent(contents,
                                                       GetAppIdentifier());
-  } else if (code == web_app::InstallResultCode::kUserInstallDeclined) {
+  } else if (code == webapps::InstallResultCode::kUserInstallDeclined) {
     SendBannerDismissed();
     TrackUserResponse(USER_RESPONSE_WEB_APP_DISMISSED);
     AppBannerSettingsHelper::RecordBannerDismissEvent(contents,

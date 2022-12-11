@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,27 +12,33 @@ import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 
 import androidx.annotation.ColorInt;
+import androidx.test.ext.junit.rules.ActivityScenarioRule;
 
 import com.google.android.material.color.MaterialColors;
 
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.robolectric.Robolectric;
 import org.robolectric.annotation.Config;
 
+import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ui.theme.BrandedColorScheme;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
-import org.chromium.testing.local.LocalRobolectricTestRunner;
+import org.chromium.ui.base.TestActivity;
 
 /** Tests for {@link OmniboxResourceProvider}. */
-@RunWith(LocalRobolectricTestRunner.class)
+@RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class OmniboxResourceProviderTest {
     private static final String TAG = "ORPTest";
+
+    @Rule
+    public ActivityScenarioRule<TestActivity> mActivityScenarioRule =
+            new ActivityScenarioRule<>(TestActivity.class);
 
     private Activity mActivity;
 
@@ -40,9 +46,7 @@ public class OmniboxResourceProviderTest {
 
     @Before
     public void setUp() {
-        mActivity = Robolectric.buildActivity(Activity.class).setup().get();
-        mActivity.setTheme(R.style.Theme_BrowserUI_DayNight);
-
+        mActivityScenarioRule.getScenario().onActivity((activity) -> mActivity = activity);
         mDefaultColor = ChromeColors.getDefaultThemeColor(mActivity, false);
     }
 

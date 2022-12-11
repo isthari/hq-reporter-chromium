@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -72,7 +72,7 @@ class PrefetchStoreTestUtil {
   int ZombifyPrefetchItems(const std::string& name_space, const GURL& url);
 
   // Returns number of rows affected by last SQL statement.
-  int LastCommandChangeCount();
+  int64_t LastCommandChangeCount();
 
   // Gets the prefetch downloader quota value for testing.
   // Quota calculation will use |clock_| as time source.

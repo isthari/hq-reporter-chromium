@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,11 +22,14 @@
 #include "build/build_config.h"
 #include "components/autofill/core/common/signatures.h"
 #include "components/os_crypt/os_crypt_mocker.h"
-#include "components/password_manager/core/browser/android_affiliation/mock_affiliated_match_helper.h"
+#include "components/password_manager/core/browser/affiliation/affiliation_service.h"
+#include "components/password_manager/core/browser/affiliation/mock_affiliated_match_helper.h"
+#include "components/password_manager/core/browser/affiliation/mock_affiliation_service.h"
 #include "components/password_manager/core/browser/fake_password_store_backend.h"
 #include "components/password_manager/core/browser/form_parsing/form_parser.h"
 #include "components/password_manager/core/browser/login_database.h"
 #include "components/password_manager/core/browser/mock_password_store_backend.h"
+#include "components/password_manager/core/browser/mock_password_store_consumer.h"
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/browser/password_reuse_detector.h"
@@ -36,8 +39,6 @@
 #include "components/password_manager/core/browser/password_store_built_in_backend.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "components/password_manager/core/browser/password_store_signin_notifier.h"
-#include "components/password_manager/core/browser/site_affiliation/affiliation_service.h"
-#include "components/password_manager/core/browser/site_affiliation/mock_affiliation_service.h"
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -95,36 +96,9 @@ constexpr const char kTestAndroidName2[] = "Example Android App 2";
 constexpr const char kTestAndroidIconURL2[] = "https://example.com/icon_2.png";
 constexpr const time_t kTestLastUsageTime = 1546300800;  // 00:00 Jan 1 2019 UTC
 
-class MockPasswordStoreConsumer : public PasswordStoreConsumer {
- public:
-  MockPasswordStoreConsumer() = default;
-
-  MockPasswordStoreConsumer(const MockPasswordStoreConsumer&) = delete;
-  MockPasswordStoreConsumer& operator=(const MockPasswordStoreConsumer&) =
-      delete;
-
-  MOCK_METHOD1(OnGetPasswordStoreResultsConstRef,
-               void(const std::vector<std::unique_ptr<PasswordForm>>&));
-  MOCK_METHOD1(OnGetAllFieldInfo, void(const std::vector<FieldInfo>));
-
-  // GMock cannot mock methods with move-only args.
-  void OnGetPasswordStoreResults(
-      std::vector<std::unique_ptr<PasswordForm>> results) override {
-    OnGetPasswordStoreResultsConstRef(results);
-  }
-
-  base::WeakPtr<PasswordStoreConsumer> GetWeakPtr() {
-    return weak_ptr_factory_.GetWeakPtr();
-  }
-
-  void CancelAllRequests() {
-    cancelable_task_tracker()->TryCancelAll();
-    weak_ptr_factory_.InvalidateWeakPtrs();
-  }
-
- private:
-  base::WeakPtrFactory<MockPasswordStoreConsumer> weak_ptr_factory_{this};
-};
+const PasswordStoreBackendError kBackendError = PasswordStoreBackendError(
+    PasswordStoreBackendErrorType::kUncategorized,
+    PasswordStoreBackendErrorRecoveryType::kUnspecified);
 
 PasswordForm MakePasswordForm(const std::string& signon_realm) {
   PasswordForm form;
@@ -233,7 +207,6 @@ class PasswordStoreTest : public testing::Test {
 
   TestingPrefServiceSimple* pref_service() { return &pref_service_; }
 
- protected:
   base::test::TaskEnvironment task_environment_{
       base::test::TaskEnvironment::MainThreadType::UI,
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
@@ -308,8 +281,8 @@ TEST_F(PasswordStoreTest, UpdateLoginPrimaryKeyFields) {
   expected_forms[0]->password_issues =
       base::flat_map<InsecureType, InsecurityMetadata>();
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_forms)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_forms)));
   store->GetAutofillableLogins(mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
 
@@ -388,8 +361,8 @@ TEST_F(PasswordStoreTest, InsecureCredentialsObserverOnLoginUpdated) {
   std::vector<std::unique_ptr<PasswordForm>> expected_forms;
   expected_forms.push_back(std::move(test_form_2));
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_forms)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_forms)));
   store->GetAllLogins(mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
 
@@ -399,9 +372,6 @@ TEST_F(PasswordStoreTest, InsecureCredentialsObserverOnLoginUpdated) {
 // Verify that when a login password is added with the password changed
 // the insecure credentials associated with it are cleared.
 TEST_F(PasswordStoreTest, InsecureCredentialsObserverOnLoginAdded) {
-  InsecureCredential insecure_credential(kTestWebRealm1, u"username_value_1",
-                                         base::Time::FromTimeT(1),
-                                         InsecureType::kLeaked, IsMuted(false));
   scoped_refptr<PasswordStore> store = CreatePasswordStore();
   store->Init(/*prefs=*/nullptr, /*affiliated_match_helper=*/nullptr);
 
@@ -433,8 +403,8 @@ TEST_F(PasswordStoreTest, InsecureCredentialsObserverOnLoginAdded) {
   std::vector<std::unique_ptr<PasswordForm>> expected_forms;
   expected_forms.push_back(std::move(test_form_2));
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_forms)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_forms)));
   store->GetAllLogins(mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
 
@@ -488,11 +458,6 @@ TEST_F(PasswordStoreTest, InsecurePasswordObserverOnInsecureCredentialRemoved) {
                                                  u"password",
                                                  kTestLastUsageTime,
                                                  1};
-
-  InsecureCredential insecure_credential(kTestWebRealm1, u"username_value_1",
-                                         base::Time::FromTimeT(1),
-                                         InsecureType::kLeaked, IsMuted(false));
-
   scoped_refptr<PasswordStore> store = CreatePasswordStore();
   store->Init(/*prefs=*/nullptr, /*affiliated_match_helper=*/nullptr);
   std::unique_ptr<PasswordForm> test_form(
@@ -576,8 +541,8 @@ TEST_F(PasswordStoreTest, GetLoginsWithPSL) {
 
   MockPasswordStoreConsumer mock_consumer;
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_results)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_results)));
 
   store->GetLogins(observed_form, mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
@@ -611,8 +576,11 @@ TEST_F(PasswordStoreTest, GetLoginsPSLDisabled) {
                                       GURL("https://accounts.google.com/")};
 
   MockPasswordStoreConsumer mock_consumer;
-  EXPECT_CALL(mock_consumer, OnGetPasswordStoreResultsConstRef(
-                                 ElementsAre(Pointee(*all_credentials[0]))));
+  std::vector<std::unique_ptr<PasswordForm>> expected_forms;
+  expected_forms.push_back(std::make_unique<PasswordForm>(*all_credentials[0]));
+  EXPECT_CALL(mock_consumer,
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_forms)));
 
   store->GetLogins(observed_form, mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
@@ -679,8 +647,8 @@ TEST_F(PasswordStoreTest, GetLoginsWithoutAffiliations) {
 
   MockPasswordStoreConsumer mock_consumer;
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_results)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_results)));
   store->GetLogins(observed_form, mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
   store->ShutdownOnUIThread();
@@ -797,8 +765,8 @@ TEST_F(PasswordStoreTest, GetLoginsWithAffiliations) {
 
   MockPasswordStoreConsumer mock_consumer;
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_results)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_results)));
 
   store->GetLogins(observed_form, mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
@@ -845,8 +813,8 @@ TEST_F(PasswordStoreTest, GetLoginsWithBrandingInformationForExactMatch) {
 
   MockPasswordStoreConsumer mock_consumer;
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_results)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_results)));
 
   store->GetLogins(observed_form, mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
@@ -897,8 +865,8 @@ TEST_F(PasswordStoreTest, GetLoginsWithBrandingInformationForAffiliatedLogins) {
 
   MockPasswordStoreConsumer mock_consumer;
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_results)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_results)));
 
   store->GetLogins(observed_form, mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
@@ -982,8 +950,8 @@ TEST_P(PasswordStoreFederationTest, GetLoginsWithWebAffiliations) {
 
   MockPasswordStoreConsumer mock_consumer;
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_results)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_results)));
 
   store->GetLogins(observed_form, mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
@@ -1030,7 +998,7 @@ TEST_F(PasswordStoreTest, CallOnLoginsChangedIfRemovalProvidesChanges) {
   // reply with a `PasswordStoreChangeList`.
   EXPECT_CALL(*mock_backend, RemoveLoginAsync(Eq(kTestForm), _))
       .WillOnce(
-          WithArg<1>(Invoke([&](PasswordStoreChangeListReply reply) -> void {
+          WithArg<1>(Invoke([&](PasswordChangesOrErrorReply reply) -> void {
             std::move(reply).Run(
                 CreateChangeList(PasswordStoreChange::REMOVE, kTestForm));
           })));
@@ -1056,7 +1024,7 @@ TEST_F(PasswordStoreTest, CallOnLoginsChangedIfAdditionProvidesChanges) {
   // reply with a `PasswordStoreChangeList`.
   EXPECT_CALL(*mock_backend, AddLoginAsync(Eq(kTestForm), _))
       .WillOnce(
-          WithArg<1>(Invoke([&](PasswordStoreChangeListReply reply) -> void {
+          WithArg<1>(Invoke([&](PasswordChangesOrErrorReply reply) -> void {
             std::move(reply).Run(
                 CreateChangeList(PasswordStoreChange::ADD, kTestForm));
           })));
@@ -1081,7 +1049,7 @@ TEST_F(PasswordStoreTest, CallOnLoginsChangedIfUpdateProvidesChanges) {
   // reply with a `PasswordStoreChangeList`.
   EXPECT_CALL(*mock_backend, UpdateLoginAsync(Eq(kTestForm), _))
       .WillOnce(
-          WithArg<1>(Invoke([&](PasswordStoreChangeListReply reply) -> void {
+          WithArg<1>(Invoke([&](PasswordChangesOrErrorReply reply) -> void {
             std::move(reply).Run(
                 CreateChangeList(PasswordStoreChange::UPDATE, kTestForm));
           })));
@@ -1095,8 +1063,55 @@ TEST_F(PasswordStoreTest, CallOnLoginsChangedIfUpdateProvidesChanges) {
   store->ShutdownOnUIThread();
 }
 
+TEST_F(PasswordStoreTest, DoNotCallOnLoginsChangedIfAdditionReturnsError) {
+  const PasswordForm kTestForm = MakePasswordForm(kTestWebRealm1);
+  MockPasswordStoreObserver mock_observer;
+  auto [store, mock_backend] = CreateUnownedStoreWithOwnedMockBackend();
+  store->Init(/*prefs=*/nullptr, /*affiliated_match_helper=*/nullptr);
+  store->AddObserver(&mock_observer);
+
+  // Expect that observers does not receive the change when backend fails.
+  EXPECT_CALL(*mock_backend, AddLoginAsync(Eq(kTestForm), _))
+      .WillOnce(
+          WithArg<1>(Invoke([&](PasswordChangesOrErrorReply reply) -> void {
+            std::move(reply).Run(kBackendError);
+          })));
+  EXPECT_CALL(mock_observer, OnLoginsRetained).Times(0);
+  EXPECT_CALL(mock_observer, OnLoginsChanged).Times(0);
+  store->AddLogin(kTestForm);
+  WaitForPasswordStore();
+
+  store->RemoveObserver(&mock_observer);
+  store->ShutdownOnUIThread();
+}
+
+TEST_F(PasswordStoreTest, DoNotCallOnLoginsChangedIfUpdateReturnsError) {
+  const PasswordForm kTestForm = MakePasswordForm(kTestWebRealm1);
+  MockPasswordStoreObserver mock_observer;
+  auto [store, mock_backend] = CreateUnownedStoreWithOwnedMockBackend();
+  store->Init(/*prefs=*/nullptr, /*affiliated_match_helper=*/nullptr);
+  store->AddObserver(&mock_observer);
+
+  // Expect that observers does not receive the update when backend fails.
+  EXPECT_CALL(*mock_backend, UpdateLoginAsync(Eq(kTestForm), _))
+      .WillOnce(
+          WithArg<1>(Invoke([&](PasswordChangesOrErrorReply reply) -> void {
+            std::move(reply).Run(kBackendError);
+          })));
+  EXPECT_CALL(mock_observer, OnLoginsRetained).Times(0);
+  EXPECT_CALL(mock_observer, OnLoginsChanged).Times(0);
+  store->UpdateLogin(kTestForm);
+  WaitForPasswordStore();
+
+  store->RemoveObserver(&mock_observer);
+  store->ShutdownOnUIThread();
+}
+
 #if BUILDFLAG(IS_ANDROID)
 TEST_F(PasswordStoreTest, CallOnLoginsRetainedIfUpdateProvidesNoChanges) {
+  base::HistogramTester histogram_tester;
+  const char kOnLoginRetainedMetric[] =
+      "PasswordManager.PasswordStore.OnLoginsRetained";
   std::vector<std::unique_ptr<PasswordForm>> all_credentials;
   all_credentials.push_back(FillPasswordFormWithData(
       CreateTestPasswordFormDataByOrigin(kTestWebRealm1)));
@@ -1113,7 +1128,7 @@ TEST_F(PasswordStoreTest, CallOnLoginsRetainedIfUpdateProvidesNoChanges) {
   // reply with a nullopt.
   EXPECT_CALL(*mock_backend, UpdateLoginAsync(Eq(kTestForm), _))
       .WillOnce(
-          WithArg<1>(Invoke([](PasswordStoreChangeListReply reply) -> void {
+          WithArg<1>(Invoke([](PasswordChangesOrErrorReply reply) -> void {
             std::move(reply).Run(absl::nullopt);
           })));
   EXPECT_CALL(*mock_backend, GetAllLoginsAsync(_))
@@ -1127,6 +1142,41 @@ TEST_F(PasswordStoreTest, CallOnLoginsRetainedIfUpdateProvidesNoChanges) {
                                UnorderedElementsAre(kTestForm, kOtherForm)));
   store->UpdateLogin(kTestForm);
   WaitForPasswordStore();
+
+  store->RemoveObserver(&mock_observer);
+  store->ShutdownOnUIThread();
+  histogram_tester.ExpectUniqueSample(kOnLoginRetainedMetric, /*Update*/ 2, 1);
+  histogram_tester.ExpectTotalCount(kOnLoginRetainedMetric, 1);
+}
+#endif  // BUILDFLAG(IS_ANDROID)
+
+#if BUILDFLAG(IS_ANDROID)
+TEST_F(PasswordStoreTest, RecordsPotentialOnLoginsRetainedInvokations) {
+  base::HistogramTester histogram_tester;
+  const PasswordForm kTestForm = MakePasswordForm(kTestWebRealm1);
+  MockPasswordStoreObserver mock_observer;
+  auto [store, mock_backend] = CreateUnownedStoreWithOwnedMockBackend();
+  store->Init(/*prefs=*/nullptr, /*affiliated_match_helper=*/nullptr);
+  store->AddObserver(&mock_observer);
+
+  // A changelist will be returned, so `OnLoginsRetained` call is not issued.
+  // But the changelist is empty, so `OnLoginsChanged` is not issued either.
+  // Regardless, this is a case where `OnLoginsRetained` would be called if the
+  // GMS backend was active — therefore record the potential call.
+  EXPECT_CALL(*mock_backend, UpdateLoginAsync(Eq(kTestForm), _))
+      .WillOnce(
+          WithArg<1>(Invoke([](PasswordChangesOrErrorReply reply) -> void {
+            std::move(reply).Run(PasswordStoreChangeList());
+          })));
+  EXPECT_CALL(mock_observer, OnLoginsRetained).Times(0);
+  EXPECT_CALL(mock_observer, OnLoginsChanged).Times(0);
+  store->UpdateLogin(kTestForm);
+  WaitForPasswordStore();
+
+  const char kOnLoginRetainedMetric[] =
+      "PasswordManager.PasswordStore.OnLoginsRetained";
+  histogram_tester.ExpectUniqueSample(kOnLoginRetainedMetric, /*Update*/ 2, 1);
+  histogram_tester.ExpectTotalCount(kOnLoginRetainedMetric, 1);
 
   store->RemoveObserver(&mock_observer);
   store->ShutdownOnUIThread();
@@ -1165,8 +1215,8 @@ TEST_F(PasswordStoreTest, GetAllLogins) {
     expected_results.push_back(std::make_unique<PasswordForm>(*credential));
 
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_results)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  _, LoginsResultsOrErrorAre(&expected_results)));
   store->GetAllLogins(mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
   store->ShutdownOnUIThread();
@@ -1235,8 +1285,8 @@ TEST_F(PasswordStoreTest, GetAllLoginsWithAffiliationAndBrandingInformation) {
   }
 
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_results)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_results)));
   EXPECT_CALL(*mock_backend, GetAllLoginsAsync)
       .WillOnce([&all_credentials](LoginsOrErrorReply callback) {
         std::move(callback).Run(std::move(all_credentials));
@@ -1311,8 +1361,8 @@ TEST_F(PasswordStoreTest, Unblocklisting) {
 
   MockPasswordStoreConsumer mock_consumer;
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&all_credentials)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&all_credentials)));
   store->GetAllLogins(mock_consumer.GetWeakPtr());
   WaitForPasswordStore();
 
@@ -1356,8 +1406,8 @@ TEST_F(PasswordStoreTest, RemoveInsecureCredentialsSyncOnUpdate) {
 
   store->GetAllLogins(mock_consumer.GetWeakPtr());
   EXPECT_CALL(mock_consumer,
-              OnGetPasswordStoreResultsConstRef(
-                  UnorderedPasswordFormElementsAre(&expected_forms)));
+              OnGetPasswordStoreResultsOrErrorFrom(
+                  store.get(), LoginsResultsOrErrorAre(&expected_forms)));
 
   WaitForPasswordStore();
 
@@ -1451,7 +1501,7 @@ TEST_F(PasswordStoreTest, TestGetLoginRequestCancelable) {
                                                       {kTestAndroidRealm1});
 
   MockPasswordStoreConsumer mock_consumer;
-  EXPECT_CALL(mock_consumer, OnGetPasswordStoreResultsConstRef).Times(0);
+  EXPECT_CALL(mock_consumer, OnGetPasswordStoreResults).Times(0);
   store->GetLogins(observed_form, mock_consumer.GetWeakPtr());
   mock_consumer.CancelAllRequests();
   WaitForPasswordStore();

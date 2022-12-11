@@ -1,13 +1,14 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import 'chrome://resources/cr_elements/cr_radio_group/cr_radio_group.m.js';
-import 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button.m.js';
+import 'chrome://resources/cr_elements/cr_radio_group/cr_radio_group.js';
+import 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button.js';
 
-import {CrRadioButtonElement} from 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button.m.js';
-import {CrRadioGroupElement} from 'chrome://resources/cr_elements/cr_radio_group/cr_radio_group.m.js';
+import {getTrustedHTML} from 'chrome://resources/js/static_types.js';
+import {CrRadioButtonElement} from 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button.js';
+import {CrRadioGroupElement} from 'chrome://resources/cr_elements/cr_radio_group/cr_radio_group.js';
 import {pressAndReleaseKeyOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
@@ -19,7 +20,7 @@ suite('cr-radio-group', () => {
   let radioGroup: CrRadioGroupElement;
 
   setup(() => {
-    document.body.innerHTML = `
+    document.body.innerHTML = getTrustedHTML`
         <cr-radio-group>
           <cr-radio-button name="1"></cr-radio-button>
           <cr-radio-button name="2"><input></input></cr-radio-button>

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,6 @@
 #include "ash/wm/tablet_mode/internal_input_devices_event_blocker.h"
 #include "ash/wm/tablet_mode/tablet_mode_window_manager.h"
 #include "ash/wm/window_state.h"
-#include "ash/wm/window_util.h"
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
@@ -48,9 +47,11 @@
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_sequence.h"
+#include "ui/compositor/layer_animator.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/tablet_state.h"
+#include "ui/display/util/display_util.h"
 #include "ui/events/devices/device_data_manager.h"
 #include "ui/events/devices/input_device.h"
 #include "ui/events/event.h"
@@ -147,7 +148,7 @@ TabletModeController::UiMode GetUiMode() {
 
 // Returns true if the device has an active internal display.
 bool HasActiveInternalDisplay() {
-  return display::Display::HasInternalDisplay() &&
+  return display::HasInternalDisplay() &&
          Shell::Get()->display_manager()->IsActiveDisplayId(
              display::Display::InternalDisplayId());
 }
@@ -179,6 +180,16 @@ void CheckHasPointingDevices(
     if (*out_has_external_pointing_device && *out_has_internal_pointing_device)
       return;
   }
+}
+
+aura::Window* GetTopNonFloatedWindow() {
+  MruWindowTracker::WindowList windows =
+      Shell::Get()->mru_window_tracker()->BuildWindowForCycleList(kActiveDesk);
+  for (aura::Window* window : windows) {
+    if (!WindowState::Get(window)->IsFloated())
+      return window;
+  }
+  return nullptr;
 }
 
 // The default behavior in Clamshell mode.
@@ -332,38 +343,52 @@ class TabletModeController::DestroyObserver : public aura::WindowObserver {
   base::OnceCallback<void(void)> callback_;
 };
 
-// Used to hide the shelf view while screenshot for tablet mode animation is
-// taken.
-class TabletModeController::ScopedShelfHider {
+// Used to hide the shelf and float containers while screenshot for tablet mode
+// animation is taken.
+class TabletModeController::ScopedContainerHider {
  public:
-  explicit ScopedShelfHider(aura::Window* root_window)
+  explicit ScopedContainerHider(aura::Window* root_window)
       : root_window_(root_window) {
+    Shell::Get()->overview_controller()->PauseOcclusionTracker();
+
     DCHECK(root_window->IsRootWindow());
-    auto* shelf_container =
-        root_window->GetChildById(kShellWindowId_ShelfContainer);
 
-    phantom_shelf_layer_ = wm::RecreateLayers(shelf_container);
-    ui::Layer* root = phantom_shelf_layer_->root();
-    root_window->layer()->Add(root);
-    root_window->layer()->StackAtTop(root);
+    ui::Layer* screen_animation_container_layer =
+        root_window->GetChildById(kShellWindowId_ScreenAnimationContainer)
+            ->layer();
+    for (int id :
+         {kShellWindowId_FloatContainer, kShellWindowId_ShelfContainer}) {
+      aura::Window* container = root_window->GetChildById(id);
 
-    shelf_container->layer()->SetOpacity(0.0f);
+      std::unique_ptr<ui::LayerTreeOwner> phantom_layer =
+          wm::RecreateLayers(container);
+      ui::Layer* root = phantom_layer->root();
+      screen_animation_container_layer->Add(root);
+      screen_animation_container_layer->StackAtTop(root);
+      phantom_layers_.push_back(std::move(phantom_layer));
+
+      container->layer()->SetOpacity(0.0f);
+    }
   }
-  ~ScopedShelfHider() {
+  ScopedContainerHider(const ScopedContainerHider&) = delete;
+  ScopedContainerHider& operator=(const ScopedContainerHider&) = delete;
+  ~ScopedContainerHider() {
     // Cancel if the root window is deleted while taking a screenshot.
     if (!base::Contains(Shell::GetAllRootWindows(), root_window_))
       return;
 
-    auto* shelf_container =
-        root_window_->GetChildById(kShellWindowId_ShelfContainer);
-    shelf_container->layer()->SetOpacity(1.0f);
+    for (int id :
+         {kShellWindowId_FloatContainer, kShellWindowId_ShelfContainer}) {
+      root_window_->GetChildById(id)->layer()->SetOpacity(1.0f);
+    }
   }
 
  private:
   aura::Window* const root_window_;
 
-  // The layer that holds the clone of shelf layer while the shelf is hidden.
-  std::unique_ptr<ui::LayerTreeOwner> phantom_shelf_layer_;
+  // The layer that holds the clone of shelf and float layers while the
+  // originals are hidden.
+  std::vector<std::unique_ptr<ui::LayerTreeOwner>> phantom_layers_;
 };
 
 constexpr char TabletModeController::kLidAngleHistogramName[];
@@ -854,13 +879,16 @@ void TabletModeController::SetTabletModeEnabledInternal(bool should_enable) {
   DeleteScreenshot();
 
   if (should_enable) {
-    Shell::Get()->display_manager()->NotifyDisplayTabletStateChanged(
+    Shell::Get()->display_manager()->SetTabletState(
         display::TabletState::kEnteringTabletMode);
 
     // Take a screenshot if there is a top window that will get animated.
+    // Floated windows will always get animated, and if the only window is a
+    // floated window, we don't take a screenshot since the floated window in
+    // tablet mode does not cover the whole work area.
     // TODO(sammiequon): Handle the case where the top window is not on the
     // primary display.
-    aura::Window* top_window = window_util::GetTopWindow();
+    aura::Window* top_window = GetTopNonFloatedWindow();
     const bool top_window_on_primary_display =
         top_window &&
         top_window->GetRootWindow() == Shell::GetPrimaryRootWindow();
@@ -871,10 +899,9 @@ void TabletModeController::SetTabletModeEnabledInternal(bool should_enable) {
     // getting fired.
     const bool top_window_animating =
         top_window && top_window->layer()->GetAnimator()->is_animating();
-    // Since with ash::features::kDragToSnapInClamshellMode enabled, we'll keep
-    // overview active after clamshell <-> tablet mode transition if it was
-    // active before transition, do not take screenshot if overview is active
-    // in this case.
+    // We'll keep overview active after clamshell <-> tablet mode transition if
+    // it was active before transition, do not take screenshot if overview is
+    // active in this case.
     const bool overview_remain_active =
         Shell::Get()->overview_controller()->InOverviewSession();
     if (use_screenshot_for_test && top_window_on_primary_display &&
@@ -884,7 +911,7 @@ void TabletModeController::SetTabletModeEnabledInternal(bool should_enable) {
       FinishInitTabletMode();
     }
   } else {
-    Shell::Get()->display_manager()->NotifyDisplayTabletStateChanged(
+    Shell::Get()->display_manager()->SetTabletState(
         display::TabletState::kExitingTabletMode);
 
     // We may have entered tablet mode, then tried to exit before the screenshot
@@ -901,7 +928,7 @@ void TabletModeController::SetTabletModeEnabledInternal(bool should_enable) {
 
     base::RecordAction(base::UserMetricsAction("Touchview_Disabled"));
     RecordTabletModeUsageInterval(TABLET_MODE_INTERVAL_ACTIVE);
-    Shell::Get()->display_manager()->NotifyDisplayTabletStateChanged(
+    Shell::Get()->display_manager()->SetTabletState(
         display::TabletState::kInClamshellMode);
     for (auto& observer : tablet_mode_observers_)
       observer.OnTabletModeEnded();
@@ -1153,7 +1180,7 @@ void TabletModeController::FinishInitTabletMode() {
 
   base::RecordAction(base::UserMetricsAction("Touchview_Enabled"));
   RecordTabletModeUsageInterval(TABLET_MODE_INTERVAL_INACTIVE);
-  Shell::Get()->display_manager()->NotifyDisplayTabletStateChanged(
+  Shell::Get()->display_manager()->SetTabletState(
       display::TabletState::kInTabletMode);
 
   for (auto& observer : tablet_mode_observers_)
@@ -1166,8 +1193,8 @@ void TabletModeController::FinishInitTabletMode() {
   // no snapped window).
   const auto state =
       SplitViewController::Get(Shell::GetPrimaryRootWindow())->state();
-  if (state == SplitViewController::State::kLeftSnapped ||
-      state == SplitViewController::State::kRightSnapped) {
+  if (state == SplitViewController::State::kPrimarySnapped ||
+      state == SplitViewController::State::kSecondarySnapped) {
     Shell::Get()->overview_controller()->StartOverview(
         OverviewStartAction::kSplitView);
   }
@@ -1206,7 +1233,7 @@ void TabletModeController::TakeScreenshot(aura::Window* top_window) {
   base::OnceClosure callback = screenshot_set_callback_.callback();
 
   aura::Window* root_window = top_window->GetRootWindow();
-  shelf_hider_ = std::make_unique<ScopedShelfHider>(root_window);
+  shelf_hider_ = std::make_unique<ScopedContainerHider>(root_window);
 
   // Request a screenshot.
   screenshot_taken_callback_.Reset(base::BindOnce(

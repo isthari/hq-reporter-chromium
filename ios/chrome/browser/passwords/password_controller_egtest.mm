@@ -1,29 +1,30 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <UIKit/UIKit.h>
 #import <XCTest/XCTest.h>
 
-#include <memory>
+#import <memory>
 
 #import "base/test/ios/wait_util.h"
-#include "components/strings/grit/components_strings.h"
+#import "components/feature_engagement/public/feature_constants.h"
+#import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/passwords/password_manager_app_interface.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui_test_util.h"
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_app_interface.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "net/test/embedded_test_server/default_handlers.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "net/test/embedded_test_server/default_handlers.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -66,7 +67,7 @@ BOOL WaitForKeyboardToAppear() {
                   block:^BOOL {
                     return [EarlGrey isKeyboardShownWithError:nil];
                   }];
-  return [waitForKeyboard waitWithTimeout:kWaitForActionTimeout];
+  return [waitForKeyboard waitWithTimeout:kWaitForActionTimeout.InSecondsF()];
 }
 
 }  // namespace
@@ -87,6 +88,15 @@ BOOL WaitForKeyboardToAppear() {
 - (void)tearDown {
   [PasswordManagerAppInterface clearCredentials];
   [super tearDown];
+}
+
+- (AppLaunchConfiguration)appConfigurationForTestCase {
+  AppLaunchConfiguration config;
+  // Disabling IPH suggestions because they interfere with
+  // the tests and are not part of the scope of this test file.
+  config.features_disabled.push_back(
+      feature_engagement::kIPHPasswordSuggestionsFeature);
+  return config;
 }
 
 #pragma mark - Helper methods
@@ -173,16 +183,10 @@ BOOL WaitForKeyboardToAppear() {
 }
 
 // Tests password generation flow.
-// TODO(crbug.com/1221635) This fails on iPhone 14.5+
-- (void)DISABLED_testPasswordGeneration {
-#if TARGET_IPHONE_SIMULATOR
-  // TODO(crbug.com/1194134): Reenable this test.
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"Skipped for iPad (test is flaky)");
-  }
-#endif
-  [SigninEarlGreyUI signinWithFakeIdentity:[FakeChromeIdentity fakeIdentity1]];
-  [ChromeEarlGrey waitForSyncInitialized:YES syncTimeout:10.0];
+- (void)testPasswordGeneration {
+  [SigninEarlGreyUI signinWithFakeIdentity:[FakeSystemIdentity fakeIdentity1]];
+  [ChromeEarlGrey waitForSyncEngineInitialized:YES
+                                   syncTimeout:base::Seconds(10)];
 
   [ChromeEarlGrey loadURL:self.testServer->GetURL("/simple_signup_form.html")];
   [ChromeEarlGrey waitForWebStateContainingText:"Signup form."];

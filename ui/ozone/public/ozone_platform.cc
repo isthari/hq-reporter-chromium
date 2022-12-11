@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -97,6 +97,11 @@ OzonePlatform* OzonePlatform::GetInstance() {
 }
 
 // static
+bool OzonePlatform::IsInitialized() {
+  return !!g_instance;
+}
+
+// static
 std::string OzonePlatform::GetPlatformNameForTest() {
   return GetOzonePlatformName();
 }
@@ -177,7 +182,8 @@ OzonePlatform::GetPlatformUserInputMonitor(
 }
 
 void OzonePlatform::PostCreateMainMessageLoop(
-    base::OnceCallback<void()> shutdown_cb) {}
+    base::OnceCallback<void()> shutdown_cb,
+    scoped_refptr<base::SingleThreadTaskRunner> input_event_task_runner) {}
 
 void OzonePlatform::PostMainMessageLoopRun() {}
 

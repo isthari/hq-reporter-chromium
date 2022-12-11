@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@ interface UIArgs {
   text?: I18nString;
   label?: I18nString;
   templateId?: string;
+  primary?: boolean;
 }
 
 /**
@@ -25,22 +26,28 @@ interface UIArgs {
  */
 export class Option<T> {
   readonly exitValue?: T;
+
   readonly hasPopup: boolean|null;
+
   readonly callback: (() => void)|null;
+
   /**
-   * @param UIArgs Arguments to create corresponding UI.
-   * @param handlerParams Sets |exitValue| if the review page will exit with
-   *     this value when option selected. Sets |callback| for the function get
-   *     executed when option selected.
+   * @param uiArgs Arguments to create corresponding UI.
+   * @param params Handler parameters.
+   * @param params.exitValue If set, the review page will exit with this value
+   *     when option selected.
+   * @param params.callback If set, the function get executed when option
+   *     selected.
+   * @param params.hasPopup Sets aria-haspopup for the option.
    */
   constructor(readonly uiArgs: UIArgs, {exitValue, callback, hasPopup}: {
-    exitValue?: T;
-    callback?: (() => void);
-    hasPopup?: boolean;
+    exitValue?: T,
+    callback?: (() => void),
+    hasPopup?: boolean,
   }) {
     this.exitValue = exitValue;
     this.hasPopup = hasPopup ?? null;
-    this.callback = callback || null;
+    this.callback = callback ?? null;
   }
 }
 
@@ -48,21 +55,21 @@ export class Option<T> {
  * Templates to create container of options button group.
  */
 export enum ButtonGroupTemplate {
-  positive = 'review-positive-button-group-template',
-  negative = 'review-negative-button-group-template',
-  intent = 'review-intent-button-group-template',
+  POSITIVE = 'review-positive-button-group-template',
+  NEGATIVE = 'review-negative-button-group-template',
+  INTENT = 'review-intent-button-group-template',
 }
 
 /**
  * Group of review options.
  */
 export class OptionGroup<T> {
-  readonly options: Option<T>[];
+  readonly options: Array<Option<T>>;
+
   readonly template: ButtonGroupTemplate;
 
-  /** Constructs Options. */
   constructor({options, template}:
-                  {options: Array<Option<T>>; template: ButtonGroupTemplate;}) {
+                  {options: Array<Option<T>>, template: ButtonGroupTemplate}) {
     this.options = options;
     this.template = template;
   }
@@ -73,16 +80,19 @@ export class OptionGroup<T> {
  */
 export class Review<T> extends View {
   protected readonly image: HTMLElement;
+
   protected readonly video: HTMLVideoElement;
+
   private btnGroups: Array<{optionGroup: OptionGroup<T>, el: HTMLDivElement}> =
       [];
+
   private primaryBtn: HTMLButtonElement|null;
 
   /**
    * Constructs the review view.
    */
   constructor(private readonly viewName: ViewName = ViewName.REVIEW) {
-    super(viewName, {defaultFocusSelector: '.primary'});
+    super(viewName, {defaultFocusSelector: '.primary', dismissByEsc: true});
 
     this.image = dom.getFrom(this.root, '.review-image', HTMLElement);
     this.video = dom.getFrom(this.root, '.review-video', HTMLVideoElement);
@@ -149,8 +159,12 @@ export class Review<T> extends View {
     }
     for (const btnGroup of this.btnGroups) {
       const addButton =
-          ({uiArgs: {text, label, templateId}, exitValue, callback, hasPopup}:
-               Option<T|null>) => {
+          ({
+            uiArgs: {text, label, templateId, primary},
+            exitValue,
+            callback,
+            hasPopup,
+          }: Option<T|null>) => {
             const templ = instantiateTemplate(
                 templateId !== undefined ? `#${templateId}` :
                                            '#text-button-template');
@@ -161,7 +175,7 @@ export class Review<T> extends View {
             if (label !== undefined) {
               btn.setAttribute('i18n-label', label);
             }
-            if (this.primaryBtn === null) {
+            if (this.primaryBtn === null && primary === true) {
               btn.classList.add('primary');
               this.primaryBtn = btn;
             } else {
@@ -185,8 +199,9 @@ export class Review<T> extends View {
       }
       setupI18nElements(btnGroup.el);
     }
-
-    nav.open(this.viewName);
+    nav.open(this.viewName).closed.then(() => {
+      onSelected.signal(null);
+    });
     const result = await onSelected.wait();
     nav.close(this.viewName);
     return result;

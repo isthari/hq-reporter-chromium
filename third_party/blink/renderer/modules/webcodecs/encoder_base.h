@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_codec_state.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_webcodecs_error_callback.h"
+#include "third_party/blink/renderer/modules/event_target_modules.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/webcodecs/codec_logger.h"
 #include "third_party/blink/renderer/modules/webcodecs/codec_trace_names.h"
@@ -33,7 +34,7 @@ enum class DOMExceptionCode;
 
 template <typename Traits>
 class MODULES_EXPORT EncoderBase
-    : public ScriptWrappable,
+    : public EventTargetWithInlineData,
       public ActiveScriptWrappable<EncoderBase<Traits>>,
       public ReclaimableCodec {
  public:
@@ -52,7 +53,9 @@ class MODULES_EXPORT EncoderBase
   ~EncoderBase() override;
 
   // *_encoder.idl implementation.
-  int32_t encodeQueueSize() { return -50; }
+  uint32_t encodeQueueSize() { return requested_encodes_; }
+
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(dequeue, kDequeue)
 
   void configure(const ConfigType*, ExceptionState&);
 
@@ -67,6 +70,9 @@ class MODULES_EXPORT EncoderBase
   void close(ExceptionState&);
 
   String state() { return state_; }
+
+  // EventTarget override.
+  ExecutionContext* GetExecutionContext() const override;
 
   // ExecutionContextLifecycleObserver override.
   void ContextDestroyed() override;
@@ -94,7 +100,7 @@ class MODULES_EXPORT EncoderBase
     void StartTracing();
 
     // Starts an async encode trace.
-    void StartTracingVideoEncode(bool is_keyframe);
+    void StartTracingVideoEncode(bool is_keyframe, base::TimeDelta timestamp);
 
     // Ends the async trace event associated with |this|.
     void EndTracing(bool aborted = false);
@@ -136,6 +142,10 @@ class MODULES_EXPORT EncoderBase
 
   void TraceQueueSizes() const;
 
+  void ScheduleDequeueEvent();
+  void DispatchDequeueEvent(Event* event);
+  bool dequeue_event_pending_ = false;
+
   std::unique_ptr<CodecLogger<media::EncoderStatus>> logger_;
 
   std::unique_ptr<MediaEncoderType> media_encoder_;
@@ -147,7 +157,7 @@ class MODULES_EXPORT EncoderBase
   Member<OutputCallbackType> output_callback_;
   Member<V8WebCodecsErrorCallback> error_callback_;
   HeapDeque<Member<Request>> requests_;
-  int32_t requested_encodes_ = 0;
+  uint32_t requested_encodes_ = 0;
 
   // How many times reset() was called on the encoder. It's used to decide
   // when a callback needs to be dismissed because reset() was called between

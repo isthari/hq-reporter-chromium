@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,10 @@ namespace web {
 class WebState;
 }
 
-@class ContentSuggestionsHeaderViewController;
-@protocol DiscoverFeedDelegate;
-@class FeedMetricsRecorder;
-@protocol NewTabPageCommands;
+@class ContentSuggestionsViewController;
+@protocol FeedDelegate;
 @protocol NewTabPageControllerDelegate;
+@protocol NewTabPageDelegate;
 @class NTPHomeMediator;
 @protocol ThumbStripSupporting;
 @class ViewRevealingVerticalPanHandler;
@@ -32,11 +31,9 @@ class WebState;
 // YES if the coordinator has started. If YES, start is a no-op.
 @property(nonatomic, readonly) BOOL started;
 
+// The ViewController that this coordinator managers.
 @property(nonatomic, strong, readonly)
-    ContentSuggestionsHeaderViewController* headerController;
-
-@property(nonatomic, strong, readonly)
-    UICollectionViewController* viewController;
+    ContentSuggestionsViewController* viewController;
 
 // Allows for the in-flight enabling/disabling of the thumb strip.
 @property(nonatomic, weak, readonly) id<ThumbStripSupporting>
@@ -48,24 +45,11 @@ class WebState;
 // mediator for non NTP logic.
 @property(nonatomic, strong) NTPHomeMediator* ntpMediator;
 
-// Command handler for NTP related commands.
-@property(nonatomic, weak) id<NewTabPageCommands> ntpCommandHandler;
+// Delegate for NTP related actions.
+@property(nonatomic, weak) id<NewTabPageDelegate> ntpDelegate;
 
-// Metrics recorder for the feed events related to ContentSuggestions.
-@property(nonatomic, strong) FeedMetricsRecorder* feedMetricsRecorder;
-
-// Delegate used to communicate to communicate events to the DiscoverFeed.
-@property(nonatomic, weak) id<DiscoverFeedDelegate> discoverFeedDelegate;
-
-// Dismisses all modals owned by the NTP mediator.
-- (void)dismissModals;
-
-// Stop any scrolling in the scroll view.
-- (void)stopScrolling;
-
-// The content inset and offset of the scroll view.
-- (UIEdgeInsets)contentInset;
-- (CGPoint)contentOffset;
+// Delegate used to communicate to communicate events to the feed.
+@property(nonatomic, weak) id<FeedDelegate> feedDelegate;
 
 // Reloads the suggestions.
 - (void)reload;
@@ -78,6 +62,7 @@ class WebState;
 
 // Configure Content Suggestions if showing the Start Surface.
 - (void)configureStartSurfaceIfNeeded;
+
 @end
 
 #endif  // IOS_CHROME_BROWSER_UI_CONTENT_SUGGESTIONS_CONTENT_SUGGESTIONS_COORDINATOR_H_

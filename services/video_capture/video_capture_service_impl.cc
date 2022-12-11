@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 
 #include "base/bind.h"
 #include "base/feature_list.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -235,5 +234,12 @@ void VideoCaptureServiceImpl::LazyInitializeVideoSourceProvider() {
 void VideoCaptureServiceImpl::OnLastSourceProviderClientDisconnected() {
   video_source_provider_.reset();
 }
+
+#if BUILDFLAG(IS_WIN)
+void VideoCaptureServiceImpl::OnGpuInfoUpdate(const CHROME_LUID& luid) {
+  LazyInitializeDeviceFactory();
+  device_factory_->OnGpuInfoUpdate(luid);
+}
+#endif
 
 }  // namespace video_capture

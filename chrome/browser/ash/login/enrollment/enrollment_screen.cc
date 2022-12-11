@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,14 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
+#include "base/check_is_test.h"
+#include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/timer/elapsed_timer.h"
+#include "chrome/browser/ash/login/active_directory_migration_utils.h"
 #include "chrome/browser/ash/login/configuration_keys.h"
 #include "chrome/browser/ash/login/enrollment/enrollment_uma.h"
 #include "chrome/browser/ash/login/screen_manager.h"
@@ -24,17 +29,18 @@
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/ash/policy/core/browser_policy_connector_ash.h"
 #include "chrome/browser/ash/policy/enrollment/account_status_check_fetcher.h"
+#include "chrome/browser/ash/policy/enrollment/enrollment_config.h"
 #include "chrome/browser/ash/policy/enrollment/enrollment_requisition_manager.h"
+#include "chrome/browser/ash/policy/enrollment/enrollment_status.h"
 #include "chrome/browser/ash/policy/handlers/tpm_auto_update_mode_policy_handler.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
-#include "chrome/browser/policy/enrollment_status.h"
-#include "chromeos/dbus/dbus_method_call_status.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/userdataauth/install_attributes_util.h"
+#include "chromeos/dbus/common/dbus_method_call_status.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager_client.h"
-#include "chromeos/dbus/userdataauth/install_attributes_util.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/user_manager/user_manager.h"
 #include "google_apis/gaia/gaia_auth_util.h"
@@ -92,6 +98,7 @@ std::string GetEnterpriseDomainManager() {
 }
 
 constexpr char kUserActionCancelTPMCheck[] = "cancel-tpm-check";
+constexpr char kUserActionSkipDialogConfirmation[] = "skip-confirmation";
 
 // Max number of retries to check install attributes state.
 constexpr int kMaxInstallAttributesStateCheckRetries = 60;
@@ -113,6 +120,8 @@ std::string EnrollmentScreen::GetResultString(Result result) {
       return "TpmError";
     case Result::TPM_DBUS_ERROR:
       return "TpmDbusError";
+    case Result::BACK_TO_AUTO_ENROLLMENT_CHECK:
+      return "BackToAutoEnrollmentCheck";
   }
 }
 
@@ -122,10 +131,10 @@ EnrollmentScreen* EnrollmentScreen::Get(ScreenManager* manager) {
       manager->GetScreen(EnrollmentScreenView::kScreenId));
 }
 
-EnrollmentScreen::EnrollmentScreen(EnrollmentScreenView* view,
+EnrollmentScreen::EnrollmentScreen(base::WeakPtr<EnrollmentScreenView> view,
                                    const ScreenExitCallback& exit_callback)
     : BaseScreen(EnrollmentScreenView::kScreenId, OobeScreenPriority::DEFAULT),
-      view_(view),
+      view_(std::move(view)),
       exit_callback_(exit_callback) {
   retry_policy_.num_errors_to_ignore = 0;
   retry_policy_.initial_delay_ms = kInitialDelayMS;
@@ -135,21 +144,16 @@ EnrollmentScreen::EnrollmentScreen(EnrollmentScreenView* view,
   retry_policy_.entry_lifetime_ms = -1;
   retry_policy_.always_use_initial_delay = true;
   retry_backoff_ = std::make_unique<net::BackoffEntry>(&retry_policy_);
-  if (view_)
-    view_->Bind(this);
+
+  ad_migration_utils::CheckChromadMigrationOobeFlow(
+      base::BindOnce(&EnrollmentScreen::UpdateChromadMigrationOobeFlow,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 EnrollmentScreen::~EnrollmentScreen() {
   DCHECK(!enrollment_helper_ || g_browser_process->IsShuttingDown() ||
          browser_shutdown::IsTryingToQuit() ||
          DBusThreadManager::Get()->IsUsingFakes());
-  if (view_)
-    view_->Unbind();
-}
-
-void EnrollmentScreen::OnViewDestroyed(EnrollmentScreenView* view) {
-  if (view_ == view)
-    view_ = nullptr;
 }
 
 void EnrollmentScreen::SetEnrollmentConfig(
@@ -179,15 +183,13 @@ void EnrollmentScreen::SetEnrollmentConfig(
 
 void EnrollmentScreen::SetConfig() {
   config_ = enrollment_config_;
-  if (current_auth_ == AUTH_OAUTH && config_.is_mode_attestation_server()) {
+  if (current_auth_ == AUTH_OAUTH &&
+      config_.is_mode_attestation_with_manual_fallback()) {
     config_.mode =
-        config_.mode ==
-                policy::EnrollmentConfig::MODE_ATTESTATION_INITIAL_SERVER_FORCED
-            ? policy::EnrollmentConfig::MODE_ATTESTATION_INITIAL_MANUAL_FALLBACK
-            : policy::EnrollmentConfig::MODE_ATTESTATION_MANUAL_FALLBACK;
+        policy::EnrollmentConfig::GetManualFallbackMode(config_.mode);
   } else if (current_auth_ == AUTH_ATTESTATION &&
              !enrollment_config_.is_mode_attestation()) {
-    config_.mode = config_.is_attestation_forced()
+    config_.mode = config_.is_attestation_auth_forced()
                        ? policy::EnrollmentConfig::MODE_ATTESTATION_LOCAL_FORCED
                        : policy::EnrollmentConfig::MODE_ATTESTATION;
   }
@@ -216,7 +218,7 @@ bool EnrollmentScreen::AdvanceToNextAuth() {
 void EnrollmentScreen::CreateEnrollmentHelper() {
   if (!enrollment_helper_) {
     enrollment_helper_ = EnterpriseEnrollmentHelper::Create(
-        this, this, config_, enrolling_user_domain_);
+        this, this, config_, enrolling_user_domain_, license_type_to_use_);
   }
 }
 
@@ -239,14 +241,21 @@ void EnrollmentScreen::OnAuthCleared(base::OnceClosure callback) {
   std::move(callback).Run();
 }
 
-bool EnrollmentScreen::MaybeSkip(WizardContext* context) {
+void EnrollmentScreen::ShowSkipEnrollmentDialogue() {
+  DCHECK(config_.is_license_packaged_with_device);
+  if (view_) {
+    view_->ShowSkipConfirmationDialog();
+  }
+}
+
+bool EnrollmentScreen::MaybeSkip(WizardContext& context) {
   // TODO(crbug.com/1271134): Logging as "WARNING" to make sure it's preserved
   // in the logs.
   LOG(WARNING) << "EnrollmentScreen::MaybeSkip("
                << "config_.is_forced = " << config_.is_forced()
                << ", skip_to_login_for_tests = "
-               << context->skip_to_login_for_tests << ").";
-  if (context->skip_to_login_for_tests && !config_.is_forced()) {
+               << context.skip_to_login_for_tests << ").";
+  if (context.skip_to_login_for_tests && !config_.is_forced()) {
     exit_callback_.Run(Result::SKIPPED_FOR_TESTS);
     return true;
   }
@@ -257,16 +266,37 @@ void EnrollmentScreen::UpdateFlowType() {
   if (!view_)
     return;
   if (features::IsLicensePackagedOobeFlowEnabled() &&
-      config_.license_type ==
-          policy::EnrollmentConfig::LicenseType::kEnterprise) {
+      config_.license_type == policy::LicenseType::kEnterprise) {
     view_->SetFlowType(EnrollmentScreenView::FlowType::kEnterpriseLicense);
+    view_->SetGaiaButtonsType(EnrollmentScreenView::GaiaButtonsType::kDefault);
     return;
   }
+  if (features::IsEducationEnrollmentOobeFlowEnabled() &&
+      config_.license_type == policy::LicenseType::kEducation) {
+    view_->SetFlowType(EnrollmentScreenView::FlowType::kEducationLicense);
+    view_->SetGaiaButtonsType(EnrollmentScreenView::GaiaButtonsType::kDefault);
+    return;
+  }
+
   const bool cfm = policy::EnrollmentRequisitionManager::IsRemoraRequisition();
   if (cfm) {
     view_->SetFlowType(EnrollmentScreenView::FlowType::kCFM);
+    view_->SetGaiaButtonsType(EnrollmentScreenView::GaiaButtonsType::kDefault);
   } else {
     view_->SetFlowType(EnrollmentScreenView::FlowType::kEnterprise);
+    if (!features::IsKioskEnrollmentInOobeEnabled()) {
+      view_->SetGaiaButtonsType(
+          EnrollmentScreenView::GaiaButtonsType::kDefault);
+      return;
+    }
+    if (context()->enrollment_preference_ ==
+        WizardContext::EnrollmentPreference::kKiosk) {
+      view_->SetGaiaButtonsType(
+          EnrollmentScreenView::GaiaButtonsType::kKioskPreffered);
+    } else {
+      view_->SetGaiaButtonsType(
+          EnrollmentScreenView::GaiaButtonsType::kEnterprisePreffered);
+    }
   }
 }
 
@@ -274,6 +304,7 @@ void EnrollmentScreen::ShowImpl() {
   // TODO(crbug.com/1271134): Logging as "WARNING" to make sure it's preserved
   // in the logs.
   LOG(WARNING) << "Show enrollment screen";
+  is_rollback_flow_ = IsRollbackFlow(*context());
   if (view_)
     view_->SetEnrollmentController(this);
   // Block enrollment on liveboot (OS isn't installed yet and this is trial
@@ -310,12 +341,12 @@ void EnrollmentScreen::ShowImpl() {
 void EnrollmentScreen::TakeTpmOwnership() {
   // This is used in browsertest to test cancel button.
   if (tpm_ownership_callback_for_testing_.has_value()) {
-    TpmManagerClient::Get()->TakeOwnership(
+    chromeos::TpmManagerClient::Get()->TakeOwnership(
         ::tpm_manager::TakeOwnershipRequest(),
         std::move(tpm_ownership_callback_for_testing_.value()));
     return;
   }
-  TpmManagerClient::Get()->TakeOwnership(
+  chromeos::TpmManagerClient::Get()->TakeOwnership(
       ::tpm_manager::TakeOwnershipRequest(),
       base::BindOnce(&EnrollmentScreen::OnTpmStatusResponse,
                      weak_ptr_factory_.GetWeakPtr()));
@@ -356,7 +387,7 @@ void EnrollmentScreen::CheckInstallAttributesState() {
     return;
   }
   user_data_auth::InstallAttributesState state =
-      chromeos::install_attributes_util::InstallAttributesGetStatus();
+      install_attributes_util::InstallAttributesGetStatus();
 
   // TODO(crbug.com/1271134): Logging as "WARNING" to make sure it's preserved
   // in the logs.
@@ -407,6 +438,10 @@ void EnrollmentScreen::AuthenticateUsingAttestation() {
   // in the logs.
   LOG(WARNING) << "Authenticating using attestation.";
   elapsed_timer_ = std::make_unique<base::ElapsedTimer>();
+  if (features::IsAutoEnrollmentKioskInOobeEnabled()) {
+    license_type_to_use_ = config_.license_type;
+  }
+
   if (view_)
     view_->Show();
   CreateEnrollmentHelper();
@@ -414,10 +449,12 @@ void EnrollmentScreen::AuthenticateUsingAttestation() {
 }
 
 void EnrollmentScreen::OnLoginDone(const std::string& user,
+                                   int license_type,
                                    const std::string& auth_code) {
   LOG_IF(ERROR, auth_code.empty()) << "Auth code is empty.";
   elapsed_timer_ = std::make_unique<base::ElapsedTimer>();
   enrolling_user_domain_ = gaia::ExtractDomainName(user);
+  license_type_to_use_ = static_cast<policy::LicenseType>(license_type);
   UMA(enrollment_failed_once_ ? policy::kMetricEnrollmentRestarted
                               : policy::kMetricEnrollmentStarted);
 
@@ -437,7 +474,7 @@ void EnrollmentScreen::AutomaticRetry() {
   retry_task_.Reset(base::BindOnce(&EnrollmentScreen::ProcessRetry,
                                    weak_ptr_factory_.GetWeakPtr()));
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, retry_task_.callback(), retry_backoff_->GetTimeUntilRelease());
 }
 
@@ -450,8 +487,13 @@ void EnrollmentScreen::ProcessRetry() {
 
 bool EnrollmentScreen::HandleAccelerator(LoginAcceleratorAction action) {
   if (action == LoginAcceleratorAction::kCancelScreenAction) {
-    OnCancel();
-    return true;
+    if (config_.is_license_packaged_with_device) {
+      ShowSkipEnrollmentDialogue();
+      return true;
+    } else {
+      OnCancel();
+      return true;
+    }
   }
   return false;
 }
@@ -479,19 +521,24 @@ void EnrollmentScreen::OnCancel() {
   if (authpolicy_login_helper_)
     authpolicy_login_helper_->CancelRequestsAndRestart();
 
-  // The callback passed to ClearAuth is called either immediately or gets
-  // wrapped in a callback bound to a weak pointer from `weak_factory_` - in
+  // The callback passed to ClearAuth is either called immediately or gets
+  // wrapped in a callback bound to a weak pointer from `weak_ptr_factory_` - in
   // either case, passing exit_callback_ directly should be safe.
-  ClearAuth(base::BindRepeating(
-      exit_callback_, config_.is_forced() ? Result::BACK : Result::COMPLETED));
+  ClearAuth(base::BindRepeating(exit_callback_,
+                                config_.is_forced()
+                                    ? Result::BACK_TO_AUTO_ENROLLMENT_CHECK
+                                    : Result::BACK));
 }
 
 void EnrollmentScreen::OnConfirmationClosed() {
+  if (features::IsOobeConsolidatedConsentEnabled())
+    StartupUtils::MarkEulaAccepted();
+
   // TODO(crbug.com/1271134): Logging as "WARNING" to make sure it's preserved
   // in the logs.
   LOG(WARNING) << "Confirmation closed.";
-  // The callback passed to ClearAuth is called either immediately or gets
-  // wrapped in a callback bound to a weak pointer from `weak_factory_` - in
+  // The callback passed to ClearAuth is either called immediately or gets
+  // wrapped in a callback bound to a weak pointer from `weak_ptr_factory_` - in
   // either case, passing exit_callback_ directly should be safe.
   ClearAuth(base::BindRepeating(exit_callback_, Result::COMPLETED));
 
@@ -523,7 +570,7 @@ void EnrollmentScreen::OnEnrollmentError(policy::EnrollmentStatus status) {
 
   if (view_)
     view_->ShowEnrollmentStatus(status);
-  if (WizardController::UsingHandsOffEnrollment())
+  if (IsAutomaticEnrollmentFlow())
     AutomaticRetry();
 }
 
@@ -533,7 +580,7 @@ void EnrollmentScreen::OnOtherError(
   RecordEnrollmentErrorMetrics();
   if (view_)
     view_->ShowOtherError(error);
-  if (WizardController::UsingHandsOffEnrollment())
+  if (IsAutomaticEnrollmentFlow())
     AutomaticRetry();
 }
 
@@ -571,22 +618,19 @@ void EnrollmentScreen::OnAccountStatusFetched(
     policy::AccountStatusCheckFetcher::AccountStatus status) {
   if (!view_)
     return;
+
   if (status == AccountStatusCheckFetcher::AccountStatus::kDasher ||
       status == AccountStatusCheckFetcher::AccountStatus::kUnknown ||
       result == false) {
     view_->ShowSigninScreen();
     return;
   }
-  if (status ==
-      AccountStatusCheckFetcher::AccountStatus::kConsumerWithConsumerDomain) {
-    view_->ShowUserError(EnrollmentScreenView::UserErrorType::kConsumerDomain,
-                         email);
-    return;
-  }
-  if (status ==
-      AccountStatusCheckFetcher::AccountStatus::kConsumerWithBusinessDomain) {
-    view_->ShowUserError(EnrollmentScreenView::UserErrorType::kBusinessDomain,
-                         email);
+
+  if (status == AccountStatusCheckFetcher::AccountStatus::
+                    kConsumerWithConsumerDomain ||
+      status == AccountStatusCheckFetcher::AccountStatus::
+                    kConsumerWithBusinessDomain) {
+    view_->ShowUserError(email);
     return;
   }
 
@@ -615,7 +659,7 @@ void EnrollmentScreen::OnDeviceAttributeProvided(const std::string& asset_id,
 void EnrollmentScreen::OnDeviceAttributeUpdatePermission(bool granted) {
   // If user is permitted to update device attributes
   // Show attribute prompt screen
-  if (granted && !WizardController::skip_enrollment_prompts()) {
+  if (granted && !WizardController::skip_enrollment_prompts_for_testing()) {
     StartupUtils::MarkDeviceRegistered(
         base::BindOnce(&EnrollmentScreen::ShowAttributePromptScreen,
                        weak_ptr_factory_.GetWeakPtr()));
@@ -651,22 +695,20 @@ void EnrollmentScreen::ShowAttributePromptScreen() {
   std::string asset_id;
   std::string location;
 
-  if (!context()->configuration.DictEmpty()) {
-    auto* asset_id_value = context()->configuration.FindKeyOfType(
-        configuration::kEnrollmentAssetId, base::Value::Type::STRING);
+  if (!context()->configuration.empty()) {
+    auto* asset_id_value =
+        context()->configuration.FindString(configuration::kEnrollmentAssetId);
     if (asset_id_value) {
       // TODO(crbug.com/1271134): Logging as "WARNING" to make sure it's
       // preserved in the logs.
-      LOG(WARNING) << "Using Asset ID from configuration "
-                   << asset_id_value->GetString();
-      asset_id = asset_id_value->GetString();
+      LOG(WARNING) << "Using Asset ID from configuration " << *asset_id_value;
+      asset_id = *asset_id_value;
     }
-    auto* location_value = context()->configuration.FindKeyOfType(
-        configuration::kEnrollmentLocation, base::Value::Type::STRING);
+    auto* location_value =
+        context()->configuration.FindString(configuration::kEnrollmentLocation);
     if (location_value) {
-      LOG(WARNING) << "Using Location from configuration "
-                   << location_value->GetString();
-      location = location_value->GetString();
+      LOG(WARNING) << "Using Location from configuration " << *location_value;
+      location = *location_value;
     }
   }
 
@@ -679,10 +721,12 @@ void EnrollmentScreen::ShowAttributePromptScreen() {
     location = policy->annotated_location();
   }
 
-  if (!context()->configuration.DictEmpty()) {
-    auto* auto_attributes = context()->configuration.FindKeyOfType(
-        configuration::kEnrollmentAutoAttributes, base::Value::Type::BOOLEAN);
-    if (auto_attributes && auto_attributes->GetBool()) {
+  if (!context()->configuration.empty()) {
+    bool auto_attributes =
+        context()
+            ->configuration.FindBool(configuration::kEnrollmentAutoAttributes)
+            .value_or(false);
+    if (auto_attributes) {
       LOG(WARNING) << "Automatically accept attributes";
       OnDeviceAttributeProvided(asset_id, location);
       return;
@@ -697,8 +741,8 @@ void EnrollmentScreen::ShowEnrollmentStatusOnSuccess() {
   retry_backoff_->InformOfRequest(true);
   if (elapsed_timer_)
     UMA_ENROLLMENT_TIME(kMetricEnrollmentTimeSuccess, elapsed_timer_);
-  if (WizardController::UsingHandsOffEnrollment() ||
-      WizardController::skip_enrollment_prompts()) {
+  if (IsAutomaticEnrollmentFlow() ||
+      WizardController::skip_enrollment_prompts_for_testing()) {
     OnConfirmationClosed();
   } else if (view_) {
     view_->ShowEnrollmentStatus(
@@ -765,12 +809,26 @@ void EnrollmentScreen::OnActiveDirectoryJoined(
   }
 }
 
-void EnrollmentScreen::OnUserAction(const std::string& action_id) {
+void EnrollmentScreen::OnUserAction(const base::Value::List& args) {
+  const std::string& action_id = args[0].GetString();
   if (action_id == kUserActionCancelTPMCheck) {
     OnCancel();
-  } else {
-    BaseScreen::OnUserAction(action_id);
+    return;
   }
+  if (action_id == kUserActionSkipDialogConfirmation) {
+    OnCancel();
+    return;
+  }
+  BaseScreen::OnUserAction(args);
+}
+
+void EnrollmentScreen::UpdateChromadMigrationOobeFlow(bool exists) {
+  is_chromad_migration_oobe_flow_ = exists;
+}
+
+bool EnrollmentScreen::IsAutomaticEnrollmentFlow() {
+  return is_chromad_migration_oobe_flow_ ||
+         WizardController::IsZeroTouchHandsOffOobeFlow() || is_rollback_flow_;
 }
 
 }  // namespace ash

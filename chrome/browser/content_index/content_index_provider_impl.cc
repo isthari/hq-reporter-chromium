@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include "base/barrier_closure.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "chrome/browser/engagement/site_engagement_service_factory.h"
 #include "chrome/browser/metrics/ukm_background_recorder_service.h"
@@ -41,7 +41,6 @@ using offline_items_collection::ContentId;
 using offline_items_collection::LaunchLocation;
 using offline_items_collection::OfflineItem;
 using offline_items_collection::OfflineItemFilter;
-using offline_items_collection::OfflineItemSchedule;
 
 namespace {
 
@@ -251,7 +250,7 @@ void ContentIndexProviderImpl::GetItemById(const ContentId& id,
       components.origin.GetURL(), /* can_create= */ false);
 
   if (!storage_partition || !storage_partition->GetContentIndexContext()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), absl::nullopt));
     return;
   }
@@ -295,7 +294,8 @@ void ContentIndexProviderImpl::GetAllItems(MultipleItemCallback callback) {
 
   for (auto* storage_partition : storage_paritions) {
     if (!storage_partition || !storage_partition->GetContentIndexContext()) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, barrier_closure);
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+          FROM_HERE, barrier_closure);
       continue;
     }
 
@@ -342,7 +342,7 @@ void ContentIndexProviderImpl::GetVisualsForItem(const ContentId& id,
       components.origin.GetURL(), /* can_create= */ false);
 
   if (!storage_partition || !storage_partition->GetContentIndexContext()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), id, nullptr));
     return;
   }
@@ -399,11 +399,5 @@ void ContentIndexProviderImpl::GetShareInfoForItem(const ContentId& id,
 void ContentIndexProviderImpl::RenameItem(const ContentId& id,
                                           const std::string& name,
                                           RenameCallback callback) {
-  NOTREACHED();
-}
-
-void ContentIndexProviderImpl::ChangeSchedule(
-    const ContentId& id,
-    absl::optional<OfflineItemSchedule> schedule) {
   NOTREACHED();
 }

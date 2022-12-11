@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,12 @@
 
 #import <MaterialComponents/MaterialProgressView.h>
 
-#include "base/metrics/user_metrics.h"
-#include "base/notreached.h"
+#import "base/metrics/user_metrics.h"
+#import "base/notreached.h"
+#import "base/time/time.h"
 #import "ios/chrome/browser/ui/commands/browser_commands.h"
 #import "ios/chrome/browser/ui/commands/omnibox_commands.h"
+#import "ios/chrome/browser/ui/icons/symbols.h"
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_long_press_delegate.h"
 #import "ios/chrome/browser/ui/toolbar/adaptive_toolbar_menus_provider.h"
 #import "ios/chrome/browser/ui/toolbar/adaptive_toolbar_view.h"
@@ -19,12 +21,11 @@
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tab_grid_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/browser/ui/util/animation_util.h"
+#import "ios/chrome/browser/ui/util/animation_util.h"
 #import "ios/chrome/browser/ui/util/force_touch_long_press_gesture_recognizer.h"
 #import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/material_timing.h"
+#import "ui/base/device_form_factor.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -37,6 +38,8 @@ const CGFloat kScaleFactorDiff = 0.50;
 const CGFloat kTabGridAnimationsTotalDuration = 0.5;
 // The identifier for the context menu action trigger.
 NSString* const kContextMenuActionIdentifier = @"kContextMenuActionIdentifier";
+// The duration of the slide in animation.
+const base::TimeDelta kToobarSlideInAnimationDuration = base::Milliseconds(500);
 }  // namespace
 
 @interface AdaptiveToolbarViewController ()
@@ -53,7 +56,6 @@ NSString* const kContextMenuActionIdentifier = @"kContextMenuActionIdentifier";
 
 @dynamic view;
 @synthesize buttonFactory = _buttonFactory;
-@synthesize dispatcher = _dispatcher;
 @synthesize longPressDelegate = _longPressDelegate;
 @synthesize loading = _loading;
 @synthesize isNTP = _isNTP;
@@ -69,6 +71,32 @@ NSString* const kContextMenuActionIdentifier = @"kContextMenuActionIdentifier";
   self.view.progressBar.alpha = 1;
 }
 
+- (void)triggerToolbarSlideInAnimationFromBelow:(BOOL)fromBelow {
+  // Toolbar slide-in animations are disabled on iPads.
+  if (ui::GetDeviceFormFactor() == ui::DEVICE_FORM_FACTOR_TABLET) {
+    return;
+  }
+
+  const UIView* view = self.view;
+  CGFloat toolbarHeight = view.frame.size.height;
+  view.transform = CGAffineTransformMakeTranslation(
+      0, fromBelow ? toolbarHeight : -toolbarHeight);
+  auto animations = ^{
+    [UIView addKeyframeWithRelativeStartTime:0
+                            relativeDuration:1
+                                  animations:^{
+                                    view.transform = CGAffineTransformIdentity;
+                                  }];
+  };
+
+  [UIView
+      animateKeyframesWithDuration:kToobarSlideInAnimationDuration.InSecondsF()
+                             delay:0
+                           options:UIViewAnimationCurveEaseOut
+                        animations:animations
+                        completion:nil];
+}
+
 #pragma mark - UIViewController
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -80,22 +108,17 @@ NSString* const kContextMenuActionIdentifier = @"kContextMenuActionIdentifier";
   [super viewDidLoad];
   [self addStandardActionsForAllButtons];
 
-  [[NSNotificationCenter defaultCenter]
-      addObserver:self
-         selector:@selector(voiceOverChanged:)
-             name:UIAccessibilityVoiceOverStatusDidChangeNotification
-           object:nil];
-  [self makeViewAccessibilityTraitsContainer];
-
-  // Adds the layout guide to the buttons.
+  // Add the layout guide names to the buttons.
   self.view.toolsMenuButton.guideName = kToolsMenuGuide;
   self.view.tabGridButton.guideName = kTabSwitcherGuide;
   self.view.openNewTabButton.guideName = kNewTabButtonGuide;
   self.view.forwardButton.guideName = kForwardButtonGuide;
   self.view.backButton.guideName = kBackButtonGuide;
 
+  [self addLayoutGuideCenterToButtons];
+
   // Add navigation popup menu triggers.
-  if (ShouldUseUIKitPopupMenu()) {
+  if (UseSymbols()) {
     [self configureMenuProviderForButton:self.view.backButton
                               buttonType:AdaptiveToolbarButtonTypeBack];
     [self configureMenuProviderForButton:self.view.forwardButton
@@ -134,8 +157,16 @@ NSString* const kContextMenuActionIdentifier = @"kContextMenuActionIdentifier";
 
 #pragma mark - Public
 
-- (ToolbarToolsMenuButton*)toolsMenuButton {
+- (ToolbarButton*)toolsMenuButton {
   return self.view.toolsMenuButton;
+}
+
+- (void)setLayoutGuideCenter:(LayoutGuideCenter*)layoutGuideCenter {
+  _layoutGuideCenter = layoutGuideCenter;
+
+  if (self.isViewLoaded) {
+    [self addLayoutGuideCenterToButtons];
+  }
 }
 
 #pragma mark - ToolbarConsumer
@@ -287,34 +318,38 @@ NSString* const kContextMenuActionIdentifier = @"kContextMenuActionIdentifier";
   }
 }
 
-#pragma mark - Accessibility
+- (void)updateUIForIPHDisplayed:(PopupMenuType)popupType {
+  ToolbarButton* selectedButton = nil;
+  switch (popupType) {
+    case PopupMenuTypeNavigationForward:
+      selectedButton = self.view.forwardButton;
+      break;
+    case PopupMenuTypeNavigationBackward:
+      selectedButton = self.view.backButton;
+      break;
+    case PopupMenuTypeNewTab:
+      selectedButton = self.view.openNewTabButton;
+      break;
+    case PopupMenuTypeTabGrid:
+      selectedButton = self.view.tabGridButton;
+      break;
+    case PopupMenuTypeToolsMenu:
+      selectedButton = self.view.toolsMenuButton;
+      break;
+    case PopupMenuTypeTabStripTabGrid:
+      // ignore
+      break;
+  }
 
-// Callback called when the voice over value is changed.
-- (void)voiceOverChanged:(NSNotification*)notification {
-  if (!UIAccessibilityIsVoiceOverRunning())
-    return;
-
-  __weak AdaptiveToolbarViewController* weakSelf = self;
-  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)),
-                 dispatch_get_main_queue(), ^{
-                   // The accessibility traits of the UIToolbar is only
-                   // available after a certain amount of time after voice over
-                   // activation.
-                   [weakSelf makeViewAccessibilityTraitsContainer];
-                 });
+  selectedButton.iphHighlighted = YES;
 }
 
-// Updates the accessibility traits of the view to have it interpreted as a
-// container by voice over.
-- (void)makeViewAccessibilityTraitsContainer {
-  if (self.view.accessibilityTraits == UIAccessibilityTraitNone) {
-    // TODO(crbug.com/857475): Remove this workaround once it is possible to set
-    // elements as voice over container. For now, set the accessibility traits
-    // of the toolbar to the accessibility traits of a UIToolbar allows it to
-    // act as a voice over container.
-    UIToolbar* toolbar = [[UIToolbar alloc] init];
-    self.view.accessibilityTraits = toolbar.accessibilityTraits;
-  }
+- (void)updateUIForIPHDismissed {
+  self.view.backButton.iphHighlighted = NO;
+  self.view.forwardButton.iphHighlighted = NO;
+  self.view.openNewTabButton.iphHighlighted = NO;
+  self.view.tabGridButton.iphHighlighted = NO;
+  self.view.toolsMenuButton.iphHighlighted = NO;
 }
 
 #pragma mark - Private
@@ -351,7 +386,7 @@ NSString* const kContextMenuActionIdentifier = @"kContextMenuActionIdentifier";
   for (ToolbarButton* button in self.view.allButtons) {
     if (button != self.view.toolsMenuButton &&
         button != self.view.openNewTabButton) {
-      [button addTarget:self.dispatcher
+      [button addTarget:self.omniboxCommandsHandler
                     action:@selector(cancelOmniboxEdit)
           forControlEvents:UIControlEventTouchUpInside];
     }
@@ -387,7 +422,7 @@ NSString* const kContextMenuActionIdentifier = @"kContextMenuActionIdentifier";
   }
 }
 
-// Adds a LongPressGesture to the |view|, with target on -|handleLongPress:|.
+// Adds a LongPressGesture to the `view`, with target on -`handleLongPress:`.
 - (void)addLongPressGestureToView:(UIView*)view {
   ForceTouchLongPressGestureRecognizer* gestureRecognizer =
       [[ForceTouchLongPressGestureRecognizer alloc]
@@ -401,16 +436,16 @@ NSString* const kContextMenuActionIdentifier = @"kContextMenuActionIdentifier";
 - (void)handleGestureRecognizer:(UILongPressGestureRecognizer*)gesture {
   if (gesture.state == UIGestureRecognizerStateBegan) {
     if (gesture.view == self.view.backButton) {
-      [self.dispatcher showNavigationHistoryBackPopupMenu];
+      [self.popupMenuCommandsHandler showNavigationHistoryBackPopupMenu];
     } else if (gesture.view == self.view.forwardButton) {
-      [self.dispatcher showNavigationHistoryForwardPopupMenu];
+      [self.popupMenuCommandsHandler showNavigationHistoryForwardPopupMenu];
     } else if (gesture.view == self.view.openNewTabButton) {
-      [self.dispatcher showNewTabButtonPopup];
+      [self.popupMenuCommandsHandler showNewTabButtonPopup];
     } else if (gesture.view == self.view.tabGridButton) {
-      [self.dispatcher showTabGridButtonPopup];
+      [self.popupMenuCommandsHandler showTabGridButtonPopup];
     } else if (gesture.view == self.view.toolsMenuButton) {
       base::RecordAction(base::UserMetricsAction("MobileToolbarShowMenu"));
-      [self.dispatcher showToolsMenuPopup];
+      [self.popupMenuCommandsHandler showToolsMenuPopup];
     }
     TriggerHapticFeedbackForImpact(UIImpactFeedbackStyleHeavy);
   } else if (gesture.state == UIGestureRecognizerStateEnded) {
@@ -431,8 +466,8 @@ NSString* const kContextMenuActionIdentifier = @"kContextMenuActionIdentifier";
   }
 }
 
-// Configures |button| with the menu provider, making sure that the items are
-// updated when the menu is presented. The |buttonType| is passed to the menu
+// Configures `button` with the menu provider, making sure that the items are
+// updated when the menu is presented. The `buttonType` is passed to the menu
 // provider.
 - (void)configureMenuProviderForButton:(UIButton*)button
                             buttonType:(AdaptiveToolbarButtonType)buttonType {
@@ -449,14 +484,21 @@ NSString* const kContextMenuActionIdentifier = @"kContextMenuActionIdentifier";
       actionWithTitle:@""
                 image:nil
            identifier:kContextMenuActionIdentifier
-              handler:^(UIAction* action) {
+              handler:^(UIAction* uiAction) {
                 base::RecordAction(
                     base::UserMetricsAction("MobileMenuToolbarMenuTriggered"));
                 weakButton.menu =
                     [weakSelf.menuProvider menuForButtonOfType:buttonType];
               }];
-  [weakButton addAction:action
-       forControlEvents:UIControlEventMenuActionTriggered];
+  [button addAction:action forControlEvents:UIControlEventMenuActionTriggered];
+}
+
+- (void)addLayoutGuideCenterToButtons {
+  self.view.toolsMenuButton.layoutGuideCenter = self.layoutGuideCenter;
+  self.view.tabGridButton.layoutGuideCenter = self.layoutGuideCenter;
+  self.view.openNewTabButton.layoutGuideCenter = self.layoutGuideCenter;
+  self.view.forwardButton.layoutGuideCenter = self.layoutGuideCenter;
+  self.view.backButton.layoutGuideCenter = self.layoutGuideCenter;
 }
 
 @end
